@@ -1,0 +1,15 @@
+# Windows
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+
+# Dependencies
+node_modules/
+
+# Secrets - never commit these
+.env
+*.key
+*.pem
