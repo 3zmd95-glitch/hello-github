@@ -327,6 +327,13 @@ techniques, not only software"; owner is early in the journey and the dashboard'
 - **Seed:** next starter pack = **"Camera & light from zero" (phone-first, ~12 skills)** scouted with the same method as the DaVinci packs
   (real references only, Arabic-gap flag). Data model additions: `programs.kind`, `skills.gear`, `combos` (skill_a, skill_b, brief, clip_url, status).
 - Mockup: add the Craft archipelago, a combo card on Today, and a gear list in Settings in the next mockup update.
+- **Owner gear (answered):** iPhone + lights today (exact models and light kit to be listed in detail later); a **new video camera planned later this year**.
+  Consequences: the first craft pack is **phone-first** (iPhone: ProRes / Log where the model supports it, Cinematic mode limits, manual apps such as
+  Blackmagic Camera or Filmic Pro, exposure and white-balance lock, stabilization without a gimbal, phone audio), the **Lighting** program is unlocked
+  from day one (owner already has lights, so lighting skills count as doable now), and **Camera** skills that need a dedicated camera are tagged
+  `gear = camera` and shown as "🔒 when the camera arrives" instead of hidden, so the upgrade has a visible tree waiting for it.
+  Gear list in Settings: `gear_items` (type, model, since, notes); adding the new camera later unlocks those skills and could award a
+  "first shot on the new camera" badge. The avatar's phone → mirrorless arc (LV10) matches the planned upgrade.
 
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
