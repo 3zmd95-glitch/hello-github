@@ -335,6 +335,32 @@ techniques, not only software"; owner is early in the journey and the dashboard'
   Gear list in Settings: `gear_items` (type, model, since, notes); adding the new camera later unlocks those skills and could award a
   "first shot on the new camera" badge. The avatar's phone → mirrorless arc (LV10) matches the planned upgrade.
 
+Brainstorm round 22: **six pillars as the top level** (owner shared the Obsidian "Goals and mind map" and the 6 pillars of content
+creation; owner: "the list is not absolute truth, you can add to it").
+- Structure becomes **Pillar → Program → Section → Skill**. Pillars are the owner's 6; programs inside them are the owner's tools plus the
+  craft/technique programs from round 21 (marked ✚ = added by the plan). Each pillar has its own level from its programs' XP, so the mind
+  map's "Master X" nodes become progress bars. The Sprint 2 world map draws **6 continents** (one per pillar) instead of 2 archipelagos.
+  1. **التصوير / Capture**: iPhone camera app · Blackmagic Camera · Dazz Cam · Lightroom Mobile · Snapseed · ✚ Camera craft · ✚ Lighting ·
+     ✚ Composition · ✚ Sound on set · ✚ Story & directing (pre-production, shot lists) · ✚ Equipment & accessories (phone rigs, ND, mics, lights,
+     tripod/gimbal, the camera upgrade path)
+  2. **المونتاج / Editing**: DaVinci Resolve (owner's sections basics · color · audio · effects · export map onto the 7 pages) · CapCut ·
+     ✚ Editing theory (cuts, J/L cuts, pacing, montage) · ✚ Color craft (theory, scopes, LUT theory)
+  3. **التصميم والهوية / Design & brand**: Canva · Photoshop · Illustrator · ✚ Brand identity (colors, logo, bio, thumbnails system)
+  4. **الذكاء الاصطناعي / AI**: Claude (automation, scripts, cheat sheets) · Gemini (learning, extraction) · Higgsfield (visual AI) ·
+     ✚ AI for audio (voice clean-up, music) later
+  5. **إدارة المشاريع والإلهام / Projects & inspiration**: Obsidian · Cosmos · ✚ Files, archive & backup (structure, storage, transfers) ·
+     ✚ Download sources (sound, fonts, plugins, stock) · ✚ Inspiration sources (where to find what to produce)
+  6. **النمو والكسب / Growth & earning**: ✚ Analytics reading · ✚ Publishing strategy & algorithms · ✚ Affiliate & monetization ·
+     ✚ Brand deals & media kit · ✚ Newsletter & website basics. Learning lives here; doing it lives in the Social world.
+- Training sequence for the owner (iPhone + lights, early journey, 12-month goal = Arabic DaVinci/videography voice):
+  weeks 1–8 pillars 1+2 only with one combo/week (shoot on iPhone with a technique → cut and grade in DaVinci); pillar 5 as habits
+  (daily Obsidian note = Research quest); pillar 3 when a thumbnail/logo blocks; pillar 4 early as accelerator (Claude scripts and cheat sheets);
+  pillar 6 from month 3. Time split ≈ 70 % shoot+edit · 20 % design+AI · 10 % organization+growth.
+- Owner's note mentions a Framer site with Salla payments. Salla could replace the shop + Moyasar phase (Saudi store, mada/Apple Pay built in,
+  monthly fee, less control). **Open: is the Framer + Salla note current?** Master plan still assumes the self-owned site.
+- Data model: `pillars` (id, order, name AR/EN, color, icon); `programs.pillar_id`. App change: Skills screen grouped by pillar with a level per pillar;
+  craft programs keep their `kind` for gear/combo logic.
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|
