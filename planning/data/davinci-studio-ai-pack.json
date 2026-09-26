@@ -1,0 +1,1062 @@
+[
+ {
+  "id": "magic-mask-remove",
+  "page": "color",
+  "ar": "Magic Mask 2 و Object Removal: اعزل أي حاجة أو امسحها",
+  "en": "Magic Mask 2 + Object Removal: isolate or erase anything",
+  "tier": 2,
+  "studio": true,
+  "related": {
+   "ar": "مهارة \"الكتابة ورا الشخص\" تستخدم Magic Mask للخدعة بس. هنا نتعلم الأداة نفسها بالعمق، وكمان نمسح أشياء من اللقطة.",
+   "en": "The \"text behind subject\" skill uses Magic Mask only for that trick. Here you learn the tool itself in depth, and you also erase things from the shot."
+  },
+  "what": {
+   "ar": "Magic Mask 2 في Resolve 20 يعزل شخص أو أي عنصر بنقرات بسيطة ويتتبعه في اللقطة كلها. بعدين تقدر تلوّنه لوحده، أو تعطي الماسك لـ Object Removal عشان يمسح العنصر ويعبّي مكانه من الخلفية.",
+   "en": "Magic Mask 2 in Resolve 20 isolates a person or any object with a few clicks and tracks it through the whole shot. Then you can grade it on its own, or feed the mask to Object Removal so it erases the object and fills the gap from the background."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "نقاط بدل الرسم",
+     "en": "Points, not outlines"
+    },
+    "desc": {
+     "ar": "ما تحتاج ترسم حدود العنصر. حط نقطة أو خط على الشي اللي تبغاه، ونقطة طرح على اللي ما تبغاه، والذكاء يكمّل الباقي.",
+     "en": "You do not trace the edge. Drop a point or stroke on what you want, a subtract point on what you do not, and the AI does the rest."
+    }
+   },
+   {
+    "name": {
+     "ar": "الماسك هو المفتاح",
+     "en": "The mask is the key"
+    },
+    "desc": {
+     "ar": "Object Removal يشتغل على الـ alpha اللي يجيه من الماسك. كل ما كان الماسك أنظف وأوسع شوية من العنصر، كان المسح أنظف.",
+     "en": "Object Removal works from the alpha the mask gives it. A clean mask that is slightly bigger than the object gives a cleaner removal."
+    }
+   },
+   {
+    "name": {
+     "ar": "الخلفية الثابتة أسهل",
+     "en": "Static backgrounds win"
+    },
+    "desc": {
+     "ar": "لو الكاميرا ثابتة أو الخلفية بسيطة، النتيجة تطلع ممتازة. لو الخلفية معقدة وتتحرك كثير، توقّع تحتاج Patch Replacer أو Fusion للتنظيف.",
+     "en": "Locked-off camera or a simple background gives great results. A busy, moving background may still need Patch Replacer or Fusion for cleanup."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "في صفحة Color اعمل Node جديد وافتح لوحة Magic Mask. حط نقاط على العنصر اللي تبغى تعزله أو تمسحه.",
+    "en": "On the Color page add a new node and open the Magic Mask palette. Place points on the object you want to isolate or remove."
+   },
+   {
+    "ar": "لو الماسك دخل على الخلفية، استخدم أداة الطرح وحط نقطة على الجزء الزايد. بعدين اضغط Track Forward و Track Backward.",
+    "en": "If the mask spills into the background, use the subtract tool on the extra area. Then run Track Forward and Track Backward."
+   },
+   {
+    "ar": "نظّف الحواف من Matte Finesse، وكبّر الماسك شوية عشان يغطي الظل والحواف لو ناوي تمسح.",
+    "en": "Clean the edges in Matte Finesse, and grow the mask a little so it covers edges and shadow if you plan to remove the object."
+   },
+   {
+    "ar": "للتلوين: لوّن العنصر في نفس الـ Node، أو اقلب الماسك عشان تلوّن كل حاجة غيره.",
+    "en": "To grade: grade the object in the same node, or invert the mask to grade everything except it."
+   },
+   {
+    "ar": "للمسح: اعمل Node بعده ووصّل الـ key output من Node الماسك للـ key input حقه. حط Object Removal عليه واضغط Scene Analysis.",
+    "en": "To remove: add a node after it and connect the mask node's key output to its key input. Drop Object Removal on it and click Scene Analysis."
+   },
+   {
+    "ar": "شغّل اللقطة بسرعة كاملة ودوّر على أي رجفة أو بقعة. صلّحها بالماسك أو كمّل بـ Patch Replacer.",
+    "en": "Play the shot at full speed and look for flicker or smudges. Fix the mask or finish with Patch Replacer."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "صوّر ٣ لقطات: كاميرا ثابتة وحد يمر في الخلفية، لقطة فيها لوحة أو علامة، ولقطة بحركة كاميرا بسيطة. جرّب Magic Mask و Object Removal على الثلاث وشوف فين ينجح وفين يخرب.",
+    "en": "Shoot 3 clips: a locked-off shot with someone walking in the background, a shot with a sign or logo, and a shot with a light camera move. Try Magic Mask + Object Removal on all three and note where it works and where it breaks."
+   },
+   "research": {
+    "ar": "قارن ٣ من الشروحات تحت (يوتيوب وتيك توك). اكتب في Obsidian: إيش الإعدادات اللي كل واحد يستخدمها في Matte Finesse، وإيش نوع اللقطات اللي نجح فيها المسح.",
+    "en": "Compare 3 of the tutorials below (YouTube and TikTok). Note in Obsidian which Matte Finesse settings each uses and which kinds of shots the removal worked on."
+   },
+   "produce": {
+    "ar": "ريل ٢٠ ثانية \"الشارع كان زحمة... دحين فاضي\". الثانية الأولى تبين اللقطة الأصلية فيها ناس أو سيارة، وبعدها سحبة بين قبل وبعد. اختم بـ \"عز ينتج\".",
+    "en": "20 s reel: \"It was crowded... now it's empty.\" Second one shows the original shot with people or a car, then a before/after wipe. End on the 3z Prod tag."
+   },
+   "article": {
+    "ar": "\"امسح أي حاجة من الفيديو في DaVinci Resolve 20\": ١) إيش الجديد في Magic Mask 2 ٢) عزل العنصر بالنقاط ٣) ربط الماسك بـ Object Removal ٤) متى تحتاج Patch Replacer ٥) أخطاء شائعة.",
+    "en": "\"Erase anything from your video in DaVinci Resolve 20\": 1) What's new in Magic Mask 2 2) Isolating with points 3) Feeding the mask to Object Removal 4) When to reach for Patch Replacer 5) Common mistakes."
+   }
+  },
+  "trend": {
+   "ar": "مقاطع \"قبل وبعد\" اللي يختفي فيها شخص أو سيارة منتشرة جداً، ومع Magic Mask 2 في Resolve 20 وتحديثاته في Resolve 21 الناس رجعت تعمل عليها شروحات كثيرة.",
+   "en": "Before/after clips where a person or car vanishes are very popular, and Magic Mask 2 in Resolve 20 plus its updates in Resolve 21 brought a new wave of tutorials."
+  },
+  "refs": [
+   [
+    "yt",
+    "youtube.com",
+    "Remove Any Object with AI in DaVinci Resolve 20 | Magic Mask & Object Removal Tutorial + LUTS",
+    "https://www.youtube.com/watch?v=Pvh5uda0ibs"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "How to Use Magic Mask 2 in Davinci Resolve 20 Tutorial",
+    "https://www.youtube.com/watch?v=inwewH5LTsk"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "NEW Magic Mask 2 in DaVinci Resolve Studio 20 is INCREDIBLE! Full Tutorial & Examples",
+    "https://www.youtube.com/watch?v=UB7mOG9eNxg"
+   ],
+   [
+    "tt",
+    "@wbynan",
+    "Object Removal in DaVinci Resolve 20: Step-by-Step Guide",
+    "https://www.tiktok.com/@wbynan/video/7521744717483085086"
+   ],
+   [
+    "tt",
+    "@josephlipsen",
+    "Explore the Magic Mask Effect in DaVinci Resolve",
+    "https://www.tiktok.com/@josephlipsen/video/7504465419328326942"
+   ],
+   [
+    "tt",
+    "@davidshuttmedia",
+    "AI Magic Mask in Davinci Resolve 20 - remove backgrounds, blur faces and isolate for colour",
+    "https://www.tiktok.com/@davidshuttmedia/video/7574190300806122774"
+   ],
+   [
+    "tt",
+    "@moumen.612",
+    "كيف تسوي إزالة لأي عنصر في الفيديو (Arabic)",
+    "https://www.tiktok.com/@moumen.612/video/7530322226189536568"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "How to use the magic mask easily inside DaVinci Resolve!",
+    "https://www.instagram.com/reel/DbYD5nbuCqw/"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "How to use Magic Mask like a pro in DaVinci Resolve 21.1",
+    "https://www.instagram.com/reel/DdOgjNDgKbC/"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "Great update for Magic Mask In DaVinci Resolve 21",
+    "https://www.instagram.com/reel/DXjRKI5DcwV/"
+   ],
+   [
+    "web",
+    "larryjordan.com",
+    "Two Amazing Ways to Clean Up a Shot in DaVinci Resolve 20",
+    "https://larryjordan.com/articles/two-amazing-ways-to-remove-something-from-a-shot-in-davinci-resolve-20/"
+   ],
+   [
+    "web",
+    "easyedit.pro",
+    "How to Remove Objects in DaVinci Resolve (in Color, Fusion or Edit tabs)",
+    "https://easyedit.pro/blog/how-to-remove-objects-in-da-vinci-resolve-in-color-fusion-or-edit-tabs"
+   ]
+  ],
+  "arGap": {
+   "has": false,
+   "ar": "لقيت ريل عربي قصير (@moumen.612) عن إزالة العناصر بالدافنشي. بس شرح عربي كامل وطويل لـ Magic Mask 2 مع Object Removal لسه قليل، فيه فرصة لفيديو يوتيوب.",
+   "en": "Found a short Arabic reel (@moumen.612) on object removal in Resolve. A full long-form Arabic tutorial on Magic Mask 2 + Object Removal is still rare, so a YouTube deep dive is an opening."
+  },
+  "set": "studio"
+ },
+ {
+  "id": "relight-fx",
+  "page": "color",
+  "ar": "Relight FX: إضاءة جديدة بالذكاء الاصطناعي",
+  "en": "Relight FX: AI relighting in post",
+  "tier": 3,
+  "studio": true,
+  "related": {
+   "ar": "مهارة \"إضاءة الوجه بالـ Power Windows والتتبع\" هي الطريقة اليدوية. هنا الأداة الذكية اللي تفهم شكل الوجه والأشياء وتوزع الضوء عليها.",
+   "en": "\"Relight a face with Power Windows and tracking\" is the manual method. This is the AI tool that reads the shape of faces and objects and lights them accordingly."
+  },
+  "what": {
+   "ar": "Relight يحلل الصورة ويطلع Surface Map (خريطة اتجاه الأسطح). بعدين تضيف مصدر ضوء افتراضي، والضوء ينعكس على الوجه والأشياء كأنه ضوء حقيقي، مو دائرة ثابتة على الشاشة زي Power Window.",
+   "en": "Relight analyzes the image and builds a Surface Map (which way each surface faces). You then add a virtual light, and it falls on faces and objects like a real light, not a fixed shape on screen like a Power Window."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "Surface Map هو السر",
+     "en": "The Surface Map is the magic"
+    },
+    "desc": {
+     "ar": "الأداة تحسب اتجاه كل سطح في الصورة. عشان كده الضوء يلف على الخد والأنف بشكل طبيعي لما تحرّكه.",
+     "en": "The tool works out which way every surface faces. That is why the light wraps around cheeks and nose naturally as you move it."
+    }
+   },
+   {
+    "name": {
+     "ar": "٣ أنواع ضوء",
+     "en": "Three light types"
+    },
+    "desc": {
+     "ar": "Directional زي الشمس، Point زي لمبة، و Spotlight زي كشاف. اختار حسب إيش تبغى تقلّد.",
+     "en": "Directional acts like the sun, Point like a bulb, Spotlight like a focused lamp. Pick based on what you want to fake."
+    }
+   },
+   {
+    "name": {
+     "ar": "قسّم الشغل على Node ين",
+     "en": "Split it across two nodes"
+    },
+    "desc": {
+     "ar": "الأداة ثقيلة. تقدر تخلي Node أول يطلع الـ Surface Map بس (Output Surface Map)، والثاني يستخدمه للإضاءة. كده التعديل أسرع.",
+     "en": "It is heavy. Let a first node output only the Surface Map (Output Surface Map) and a second node use it for lighting. Tweaking gets faster."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "خلّص التوازن الأساسي أول. بعدين اعمل Node جديد وحط عليه Relight من مكتبة Resolve FX.",
+    "en": "Finish your base balance first. Then add a new node and drop Relight on it from the Resolve FX library."
+   },
+   {
+    "ar": "اختار نوع الضوء (Directional أو Point أو Spotlight) وحرّكه بالتحكم اللي على الشاشة لحد ما يجي من الجهة اللي تبغاها.",
+    "en": "Choose the light type (Directional, Point or Spotlight) and drag the on-screen control until it comes from the side you want."
+   },
+   {
+    "ar": "اضبط Intensity واللون. ضوء دافي خفيف من جهة الشباك عادة يطلع أطبع من ضوء قوي.",
+    "en": "Set Intensity and color. A soft warm light from the window side usually looks more natural than a strong one."
+   },
+   {
+    "ar": "لو الضوء يطلع فوق الخلفية كمان، حط Magic Mask أو window على نفس الـ Node عشان يحصره على الشخص.",
+    "en": "If the light also hits the background, add a Magic Mask or a window on the same node to limit it to the subject."
+   },
+   {
+    "ar": "لو الجهاز بطيء، اعمل Node أول بـ Output Surface Map، والـ Node الثاني يقرأ الخريطة منه. وفعّل Render Cache على الـ Node الأول.",
+    "en": "If playback is slow, make a first node with Output Surface Map and have the second node read the map from it. Turn on Render Cache for the first node."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خذ لقطة لوجهك بإضاءة مسطحة. اعمل منها ٣ نسخ بـ Relight: ضوء جانبي درامي، ضوء غروب دافي، وضوء شاشة جوال أزرق من تحت. قارنهم بالطريقة اليدوية بالـ Power Windows.",
+    "en": "Take a flat-lit clip of your face. Make 3 versions with Relight: dramatic side light, warm sunset light, and blue phone-screen light from below. Compare with the manual Power Window method."
+   },
+   "research": {
+    "ar": "شوف ٣ شروحات من تحت، واكتب في Obsidian: إيش نوع الضوء اللي استخدموه، وكم Intensity، وفين بان إن الضوء مزيف.",
+    "en": "Watch 3 tutorials below and note in Obsidian which light type they used, what Intensity, and where the light started to look fake."
+   },
+   "produce": {
+    "ar": "ريل ٣٠ ثانية \"صوّرت في غرفة مظلمة؟ دحين صلّحها\". الثانية الأولى لقطة مظلمة مسطحة، وبعدها يتحرك الضوء على الوجه مباشرة قدام المشاهد. اختم بقبل وبعد.",
+    "en": "30 s reel: \"Shot in a dark room? Fix it now.\" Open on a flat, dark shot, then move the light across the face live on screen. End with a before/after."
+   },
+   "article": {
+    "ar": "\"Relight في DaVinci Resolve: غيّر الإضاءة بعد التصوير\": ١) إيش هو Surface Map ٢) أنواع الضوء ٣) حصر الضوء بالماسك ٤) تسريع الأداء بـ Node ين ٥) متى ترجع للطريقة اليدوية.",
+    "en": "\"Relight in DaVinci Resolve: change the lighting after the shoot\": 1) What a Surface Map is 2) Light types 3) Limiting light with a mask 4) Speeding it up with two nodes 5) When to go back to the manual way."
+   }
+  },
+  "trend": {
+   "ar": "ريلز \"الأداة دي بتغيّر إضاءة الفيديو\" رجعت تنتشر مع Resolve 20، وكثير منهم يجمع Relight مع Depth Map عشان الضوء يحترم المسافات.",
+   "en": "\"This tool relights your video\" reels are trending again with Resolve 20, and many combine Relight with Depth Map so the light respects distance."
+  },
+  "refs": [
+   [
+    "yt",
+    "youtube.com",
+    "Using Relight Effect to fix your Footage! - Davinci Resolve 19 Tutorial",
+    "https://www.youtube.com/watch?v=h9U3rrvGa40"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "How to use RELIGHT FX in Davinci Resolve! | EASY Tutorial!",
+    "https://www.youtube.com/watch?v=uG6DrUtBoI0"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "Color Grading 2024 | Part 13 | Relight & Depth Map Davinci Resolve 19 Tutorial for Beginners",
+    "https://www.youtube.com/watch?v=nk4xuzmVbt0"
+   ],
+   [
+    "tt",
+    "@wbynan",
+    "Relight effect in DaVinci Resolve",
+    "https://www.tiktok.com/@wbynan/video/7511731238596660511"
+   ],
+   [
+    "tt",
+    "@dawiet_cc",
+    "You messed up the lighting on your video shot? ... relight effect",
+    "https://www.tiktok.com/@dawiet_cc/video/7469137352749878550"
+   ],
+   [
+    "tt",
+    "@cameronradice",
+    "The relight tool in Davinci 18.5 is MAGIC",
+    "https://www.tiktok.com/@cameronradice/video/7270668554100575534"
+   ],
+   [
+    "tt",
+    "@wbynan",
+    "Depth Map Relight in DaVinci Resolve",
+    "https://www.tiktok.com/@wbynan/video/7525460757484408094"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "This tool called \"Relight\" from Davinci Resolve is insanely ...",
+    "https://www.instagram.com/reel/DSDUqayDE3U/"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "How to relight your subjects in post in Davinci Resolve 20",
+    "https://www.instagram.com/reel/DUGJ3NbDDzf/"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "Depth Map Relight in DaVinci Resolve 20",
+    "https://www.instagram.com/reel/DL7j-M-xiDL/"
+   ],
+   [
+    "web",
+    "nofilmschool.com",
+    "How To Use DaVinci Resolve 18.5's Powerful New Relighting Tool",
+    "https://nofilmschool.com/blackmagic-davinci-resolve-relight-fx-tool"
+   ],
+   [
+    "web",
+    "steakunderwater.com",
+    "Setting up Relight (Resolve 18.6 manual mirror)",
+    "https://www.steakunderwater.com/VFXPedia/__man/Resolve18-6/DaVinciResolve18_Manual_files/part3277.htm"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "ما لقيت شرح عربي واضح لـ Relight في الدافنشي. فرصة حلوة لريل أو فيديو يوتيوب بالعربي من \"عز ينتج\".",
+   "en": "No clear Arabic tutorial on Relight in Resolve turned up. Good opening for an Arabic reel or YouTube video from 3z Prod."
+  },
+  "set": "studio"
+ },
+ {
+  "id": "depth-map-dof",
+  "page": "color",
+  "ar": "Depth Map: عمق ميدان وضباب وتلوين حسب المسافة",
+  "en": "Depth Map: fake depth of field, fog and depth-based grading",
+  "tier": 2,
+  "studio": true,
+  "related": {
+   "ar": "مهارة \"الماسك وتغبيش الخلفية\" تعتمد على Power Window. هنا الذكاء يحسب بُعد كل بكسل، فالتغبيش والضباب يزيدوا بالتدريج كل ما بعدت.",
+   "en": "The \"mask + background blur\" skill relies on a Power Window. Here the AI estimates the distance of every pixel, so blur and fog build up gradually with distance."
+  },
+  "what": {
+   "ar": "Depth Map في Resolve FX يطلع خريطة أبيض وأسود: القريب أبيض والبعيد أسود (أو العكس). تستخدمها كماسك عشان تغبّش الخلفية، أو تضيف ضباب أو غبار، أو تغمّق البعيد بس.",
+   "en": "The Depth Map Resolve FX generates a black and white map: near is white, far is black (or inverted). Use it as a matte to blur the background, add haze or dust, or darken only the distance."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "Near و Far Limit",
+     "en": "Near and Far Limit"
+    },
+    "desc": {
+     "ar": "دول أهم إعدادين. يحددوا من فين يبدأ القريب ولحد فين البعيد، وكده تتحكم في منطقة التأثير.",
+     "en": "These are the two key controls. They set where near starts and where far ends, so you control which zone gets affected."
+    }
+   },
+   {
+    "name": {
+     "ar": "انتقال ناعم بدل حواف",
+     "en": "Soft falloff, not hard edges"
+    },
+    "desc": {
+     "ar": "بعكس Magic Mask، الخريطة تدرّجية. عشان كده ممتازة للضباب والتغبيش لأنها ما تعطي قص حاد حوالين الشخص.",
+     "en": "Unlike Magic Mask, the map is gradual. That makes it great for fog and blur since it avoids a hard cutout around the subject."
+    }
+   },
+   {
+    "name": {
+     "ar": "Node ين: خريطة وتأثير",
+     "en": "Two nodes: map and effect"
+    },
+    "desc": {
+     "ar": "الطريقة المرتبة: Node فيه Depth Map، ووصّل الـ key output حقه للـ Node الثاني اللي فيه Lens Blur أو التلوين.",
+     "en": "The clean setup: one node holds the Depth Map, and its key output feeds a second node that holds the Lens Blur or grade."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "اعمل Node جديد وحط عليه Depth Map من Resolve FX. فعّل Depth Map Preview عشان تشوف الخريطة.",
+    "en": "Add a new node and drop Depth Map on it from Resolve FX. Enable Depth Map Preview to see the map."
+   },
+   {
+    "ar": "حرّك Near Limit و Far Limit لحد ما يصير الشخص أبيض والخلفية تتدرج للأسود. اقلب الخريطة لو تبغى تأثر على الخلفية.",
+    "en": "Adjust Near Limit and Far Limit until the subject is white and the background fades to black. Invert the map if you want to affect the background."
+   },
+   {
+    "ar": "طفّي Preview، واعمل Node ثاني ووصّل له الـ key output من Node الـ Depth Map.",
+    "en": "Turn off Preview, add a second node and connect the Depth Map node's key output to its key input."
+   },
+   {
+    "ar": "لعمق الميدان: حط Lens Blur على الـ Node الثاني وزوّد بالراحة. للضباب أو الغبار: ارفع Lift وقلل Contrast وحط لون دافي أو رمادي.",
+    "en": "For depth of field: add Lens Blur to the second node and raise it gently. For fog or dust: lift the blacks, drop contrast and tint it warm or grey."
+   },
+   {
+    "ar": "شغّل اللقطة وشوف لو الخريطة ترجف. لو فيه رجفة نعّمها من إعدادات Finesse في Depth Map.",
+    "en": "Play the shot and watch for a flickering map. If it flickers, smooth it with the Finesse settings in Depth Map."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خذ لقطة واسعة فيها شخص قريب وخلفية بعيدة. اعمل منها ٣ نسخ: تغبيش خلفية، ضباب صباحي، وغبار دافي. احفظ كل وحدة Still عشان تقارن.",
+    "en": "Take a wide shot with a close subject and a far background. Make 3 versions: background blur, morning haze, and warm dust. Grab a still of each to compare."
+   },
+   "research": {
+    "ar": "قارن ٣ شروحات من تحت. اكتب في Obsidian: متى فضّلوا Depth Map على Magic Mask، وإيش أرقام Near و Far اللي استخدموها.",
+    "en": "Compare 3 tutorials below. Note in Obsidian when they preferred Depth Map over Magic Mask, and what Near/Far values they used."
+   },
+   "produce": {
+    "ar": "ريل ١٥ ثانية \"عملت جو غبار بدون ما يطلع غبار\". الثانية الأولى اللقطة صافية، وبعدها الغبار يزحف من البعيد للقريب بالتدريج. اختم بقبل وبعد.",
+    "en": "15 s reel: \"Made a dusty-day look without any dust.\" Open on a clear shot, then the haze creeps from far to near. End with a before/after."
+   },
+   "article": {
+    "ar": "\"Depth Map في DaVinci Resolve: عمق ميدان وضباب بدون عدسة غالية\": ١) إيش هي خريطة العمق ٢) Near و Far Limit ٣) ربط الـ Node ين ٤) عمق ميدان بـ Lens Blur ٥) ضباب وغبار ٦) Depth Map ولا Magic Mask؟",
+    "en": "\"Depth Map in DaVinci Resolve: depth of field and haze without a pricey lens\": 1) What a depth map is 2) Near and Far Limit 3) Linking the two nodes 4) DOF with Lens Blur 5) Fog and dust 6) Depth Map or Magic Mask?"
+   }
+  },
+  "trend": {
+   "ar": "كثير من الملونين في الريلز يقولوا \"استخدم Depth Map بدل Magic Mask\" للخلفيات، لأن الانتقال أنعم ويطلع سينمائي أكثر.",
+   "en": "Many colorists on reels now say \"use Depth Map instead of Magic Mask\" for backgrounds, because the falloff is softer and more cinematic."
+  },
+  "refs": [
+   [
+    "yt",
+    "youtube.com",
+    "How to use Depth Map in DaVinci Resolve Studio | Tutorial",
+    "https://www.youtube.com/watch?v=qHtjxyu_Jsk"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "DaVinci Resolve AI Depth Map in 3 Minutes",
+    "https://www.youtube.com/watch?v=FcBa6WiAw0o"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "How to use the brand new DEPTH MAP tool in Davinci Resolve 18 Studio! Full Overview & Tutorial",
+    "https://www.youtube.com/watch?v=b2fwxkZfga8"
+   ],
+   [
+    "tt",
+    "@dawiet_cc",
+    "How to use the depth map in davinci resolve fast and easy (background blur)",
+    "https://www.tiktok.com/@dawiet_cc/video/7365536180189842721"
+   ],
+   [
+    "tt",
+    "@colorspacelost",
+    "Depth Map instead of Magic Mask (two-node workflow)",
+    "https://www.tiktok.com/@colorspacelost/video/7507362410798320918"
+   ],
+   [
+    "tt",
+    "@dawiet_cc",
+    "You can do a lot of cool things with the depth map in davinci resolve",
+    "https://www.tiktok.com/@dawiet_cc/video/7467256872718847254"
+   ],
+   [
+    "tt",
+    "@martinvelardep",
+    "Efecto Depth Map",
+    "https://www.tiktok.com/@martinvelardep/video/7213152778246638854"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "Use the Depth Map effect instead of the Magic Mask",
+    "https://www.instagram.com/reel/DPbYy3xjQPg/"
+   ],
+   [
+    "ig",
+    "@jishad_muhammed",
+    "The depth map is a great ... (reposted with more examples)",
+    "https://www.instagram.com/p/Ct_H_YXx6W6/"
+   ],
+   [
+    "web",
+    "mixinglight.com",
+    "Digging Into The Depth Map - One of Resolve 18's Best New Features",
+    "https://mixinglight.com/color-grading-tutorials/use-depth-map-resolve-18/"
+   ],
+   [
+    "web",
+    "filmeditingpro.com",
+    "Depth Map and Surface Tracker - DaVinci Resolve 18 Tutorial",
+    "https://www.filmeditingpro.com/depth-map-and-surface-tracker-davinci-resolve-18-tutorial/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "ما لقيت شرح عربي لـ Depth Map في الدافنشي. فكرة \"جو غبار\" بالعربي ممكن تكون أول شرح من نوعه.",
+   "en": "No Arabic tutorial on Depth Map in Resolve turned up. An Arabic \"dusty-day look\" video could be the first of its kind."
+  },
+  "set": "studio"
+ },
+ {
+  "id": "face-refinement",
+  "page": "color",
+  "ar": "Face Refinement: تنعيم الوجه بالذكاء الاصطناعي",
+  "en": "Face Refinement: AI face retouch",
+  "tier": 2,
+  "studio": true,
+  "related": {
+   "ar": "يكمّل كرت درجات البشرة بالـ Qualifier، بس هنا الشغل على ملامح الوجه نفسها.",
+   "en": "Pairs with the Qualifier skin tones card, but here you work on the face features themselves."
+  },
+  "what": {
+   "ar": "Face Refinement هو Resolve FX في صفحة Color. يلقط الوجه ويتتبعه لوحده، وبعدين تقدر تنعّم البشرة، تفتّح العيون، تخفف الهالات، وتعدّل لون الشفايف. مثالي لفيديوهات التوك هيد.",
+   "en": "Face Refinement is a Resolve FX on the Color page. It finds and tracks the face on its own, then lets you smooth skin, brighten eyes, reduce dark circles and tweak lip color. Perfect for talking-head videos."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "الـ Analyze أول حاجة",
+     "en": "Analyze comes first"
+    },
+    "desc": {
+     "ar": "الأداة ما تشتغل لحد ما تضغط Analyze عشان تتتبع الوجه. لو الوجه طلع من الكادر أو انلف كثير، راجع التتبع قبل ما تكمل.",
+     "en": "The tool does nothing until you press Analyze to track the face. If the face leaves frame or turns a lot, check the track before moving on."
+    }
+   },
+   {
+    "name": {
+     "ar": "الأقل أحلى",
+     "en": "Less is more"
+    },
+    "desc": {
+     "ar": "تنعيم البشرة الزايد يخلي الوجه شكله بلاستيك. خلي ملمس البشرة باين، وقارن قبل وبعد دايماً.",
+     "en": "Too much smoothing makes the face look plastic. Keep some skin texture and always compare before and after."
+    }
+   },
+   {
+    "name": {
+     "ar": "نود لحاله",
+     "en": "Its own node"
+    },
+    "desc": {
+     "ar": "حط Face Refinement في نود لحاله بعد التصحيح الأساسي، عشان تقدر تطفيه وتشغله وتخفف قوته بسهولة.",
+     "en": "Put Face Refinement on its own node after your base correction so you can toggle it and dial it back easily."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "في صفحة Color، اعمل نود جديد بعد نود التصحيح الأساسي (Alt+S).",
+    "en": "On the Color page, add a new serial node after your base correction (Alt+S)."
+   },
+   {
+    "ar": "من Effects دور على Face Refinement واسحبه على النود.",
+    "en": "In Effects, find Face Refinement and drag it onto the node."
+   },
+   {
+    "ar": "اضغط Analyze وخليه يتتبع الوجه على طول الكليب. شغّل Show Overlay عشان تتأكد إن التتبع مضبوط.",
+    "en": "Press Analyze to track the face across the clip. Turn on Show Overlay to confirm the track is right."
+   },
+   {
+    "ar": "ابدأ بـ Texture Refinement وخفف التنعيم شوي شوي لحد ما البشرة تنظف بس الملمس يبقى.",
+    "en": "Start with Texture Refinement and raise smoothing slowly until skin looks clean but texture stays."
+   },
+   {
+    "ar": "بعدين اشتغل على Eye Retouching (تفتيح العين والهالات) و Lip Retouching بلمسات خفيفة.",
+    "en": "Then use Eye Retouching (brighten eyes, dark circles) and Lip Retouching with a light touch."
+   },
+   {
+    "ar": "اطفي وشغّل النود (Ctrl+D) وقارن. لو زاد، نزّل Key Output Gain أو قوة التأثير.",
+    "en": "Toggle the node (Ctrl+D) to compare. If it is too much, lower Key Output Gain or the effect strength."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خذ كليب توك هيد لك بإضاءة عادية، واعمل ٣ نسخ: تنعيم خفيف، متوسط، قوي. اختار الأكثر طبيعية منهم واكتب ليه.",
+    "en": "Take one of your own talking-head clips and make 3 versions: light, medium and heavy smoothing. Pick the most natural one and write why."
+   },
+   "research": {
+    "ar": "شوف ٣ من المراجع تحت وقارن الإعدادات اللي استخدموها. سجّل في Obsidian الأرقام اللي تحس إنها طبيعية لبشرة سعودية/خليجية.",
+    "en": "Watch 3 of the refs below and compare their settings. Note in Obsidian the values that feel natural for Saudi/Gulf skin tones."
+   },
+   "produce": {
+    "ar": "ريل ٢٠ ثانية \"قبل وبعد\": أول ثانيتين سبليت سكرين ووجهك قبل وبعد مع نص \"نفس الكاميرا، بدون فلتر\". بعدها ٣ لقطات سريعة للإعدادات.",
+    "en": "A 20 s before/after reel: first 2 seconds are a split screen of your face with the text \"Same camera, no filter\". Then 3 quick shots of the settings."
+   },
+   "article": {
+    "ar": "عنوان: \"مكياج رقمي طبيعي في دافنشي\". النقاط: إيش هو Face Refinement، خطوات التتبع، الإعدادات الآمنة، أخطاء تخلي الوجه بلاستيك، قبل وبعد.",
+    "en": "Title: \"Natural digital makeup in DaVinci\". Outline: what Face Refinement is, tracking steps, safe settings, mistakes that make faces plastic, before/after."
+   }
+  },
+  "trend": {
+   "ar": "صناع المحتوى يستخدمونه للمسة \"نظيف بس طبيعي\" بدل فلاتر الجوال القوية. التريند دحين هو التنعيم اللي ما ينلاحظ.",
+   "en": "Creators use it for a \"clean but natural\" look instead of heavy phone filters. The trend now is retouching you cannot notice."
+  },
+  "refs": [
+   [
+    "yt",
+    "youtube.com",
+    "Face Refinement Reloaded | DaVinci Resolve 19 Tutorial",
+    "https://www.youtube.com/watch?v=SrJvrcD6liI"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "DaVinci Resolve Face Refinement for SMOOTH Skin & PERFECT Lighting",
+    "https://www.youtube.com/watch?v=BBnfL0ZVdjM"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "Face Refinement in Davinci Resolve Tutorial",
+    "https://www.youtube.com/watch?v=gMuy5dv3XC4"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "تنعيم البشرة في الفيديو ببرنامج دافنشي ريسولف | Face refinement Davinci Resolve",
+    "https://www.youtube.com/watch?v=oTI1JoLzFgE"
+   ],
+   [
+    "tt",
+    "@wbynan",
+    "Face Refinement Techniques in DaVinci Resolve 20",
+    "https://www.tiktok.com/@wbynan/video/7518782562374880542"
+   ],
+   [
+    "tt",
+    "@chromaneer",
+    "Face Refinement OFX inside of DaVinci Resolve 18.5",
+    "https://www.tiktok.com/@chromaneer/video/7231671658610724102"
+   ],
+   [
+    "tt",
+    "@creatorsergeant",
+    "How to smoothen out your skins with the face refinement tool in DaVinci Resolve",
+    "https://www.tiktok.com/@creatorsergeant/video/7389706123957275910"
+   ],
+   [
+    "tt",
+    "@chrisbo.mov",
+    "Have you tried using the Face Refinement effect in DaVinci Resolve?",
+    "https://www.tiktok.com/@chrisbo.mov/video/7517742585293606166"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "How To Use The FACE REFINEMENT tool in Davinci Resolve!",
+    "https://www.instagram.com/reel/C7R6dVHJRE9/"
+   ],
+   [
+    "ig",
+    "RESOLVED",
+    "Face Refinement in DaVinci Resolve",
+    "https://www.instagram.com/reel/DLNOIJARh_i/"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "Skin refinement in DaVinci Resolve",
+    "https://www.instagram.com/reel/DIRR4xJpIKy/"
+   ],
+   [
+    "web",
+    "toolfarm.com",
+    "Face Refinement Tool in DaVinci Resolve Studio 19",
+    "https://www.toolfarm.com/tutorial/face-refinement-davinci-resolve-studio/"
+   ]
+  ],
+  "arGap": {
+   "has": false,
+   "ar": "فيه شرح عربي على يوتيوب لتنعيم البشرة بـ Face Refinement، بس المحتوى العربي قليل ومعظمه قديم. فرصة تعمل نسخة أحدث على Resolve 20 باللهجة السعودية.",
+   "en": "There is an Arabic YouTube tutorial on Face Refinement skin smoothing, but Arabic content is thin and mostly older. Room for a fresh Resolve 20 version in Saudi dialect."
+  },
+  "set": "studio"
+ },
+ {
+  "id": "music-remixer",
+  "page": "fair",
+  "ar": "Music Remixer: فصل الأغنية لطبقات",
+  "en": "Music Remixer: split a song into stems",
+  "tier": 1,
+  "studio": true,
+  "related": {
+   "ar": "يشتغل مع كرت الـ Ducker وكرت −14 LUFS. هنا تنظف الموسيقى نفسها قبل ما تضبط مستواها.",
+   "en": "Works with the Ducker and −14 LUFS cards. Here you clean the music itself before setting its level."
+  },
+  "what": {
+   "ar": "Music Remixer يستخدم الذكاء الاصطناعي عشان يفصل أي أغنية أو موسيقى لخمس طبقات: Voice و Drums و Bass و Guitar و Other. كل طبقة لها سلايدر ومفتاح Mute، فتقدر تشيل الصوت البشري تحت كلامك أو تعيد توازن الموسيقى.",
+   "en": "Music Remixer uses AI to split any song into five stems: Voice, Drums, Bass, Guitar and Other. Each stem has a slider and a mute button, so you can remove vocals under your voiceover or rebalance the music."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "خمس طبقات مو أربع",
+     "en": "Five stems, not four"
+    },
+    "desc": {
+     "ar": "غير Voice و Drums و Bass، فيه Guitar لحاله، و Other فيها الكيبورد والباقي. لو صوت ضايع، غالباً تلقاه في Other.",
+     "en": "Besides Voice, Drums and Bass there is Guitar on its own, and Other holds keys and the rest. If a sound is missing, it is usually in Other."
+    }
+   },
+   {
+    "name": {
+     "ar": "خفّض بدل ما تكتم",
+     "en": "Lower instead of mute"
+    },
+    "desc": {
+     "ar": "كتم Voice كامل أحياناً يخلي آثار غريبة. جرّب تنزله لحد ما ما يزاحم كلامك بدل ما تشيله نهائي.",
+     "en": "Fully muting Voice can leave odd artifacts. Try lowering it until it stops fighting your voice instead of removing it."
+    }
+   },
+   {
+    "name": {
+     "ar": "ثقيل على الجهاز",
+     "en": "Heavy on the machine"
+    },
+    "desc": {
+     "ar": "الفصل يشتغل لايف فممكن التشغيل يتقطع. لو صار كده، اعمل Render in Place للكليب وكمّل براحتك.",
+     "en": "Separation runs live so playback can stutter. If it does, use Render in Place on the clip and keep working smoothly."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "حط الأغنية على تراك لحاله في الـ Timeline.",
+    "en": "Put the song on its own track in the timeline."
+   },
+   {
+    "ar": "اختار الكليب وافتح الـ Inspector، وبعدين تبويب Audio.",
+    "en": "Select the clip, open the Inspector, then the Audio tab."
+   },
+   {
+    "ar": "شغّل Music Remixer. بتطلع لك سلايدرات Voice و Drums و Bass و Guitar و Other.",
+    "en": "Turn on Music Remixer. You will see sliders for Voice, Drums, Bass, Guitar and Other."
+   },
+   {
+    "ar": "عشان تحت الفويس أوفر: نزّل Voice أو اكتمه، وخفف Drums شوي لو الإيقاع قوي.",
+    "en": "For under a voiceover: lower or mute Voice, and pull Drums down a bit if the beat is strong."
+   },
+   {
+    "ar": "اسمع مع كلامك على سماعات. لو فيه آثار أو صدى، رجّع Voice شوي لفوق.",
+    "en": "Listen with your voice on headphones. If you hear artifacts or ghosting, bring Voice back up slightly."
+   },
+   {
+    "ar": "لو التشغيل ثقيل، كليك يمين على الكليب واعمل Render in Place.",
+    "en": "If playback is heavy, right-click the clip and choose Render in Place."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خذ ٣ أغاني مختلفة (هادية، إيقاعية، فيها صوت قوي) واعمل لكل واحدة نسخة بدون Voice. قارن أي نوع يطلع أنظف.",
+    "en": "Take 3 different songs (calm, beat-heavy, strong vocals) and make a no-Voice version of each. Compare which type comes out cleanest."
+   },
+   "research": {
+    "ar": "شوف فيديو Blackmagic الرسمي وواحد من التيك توك، ودوّن في Obsidian الإعدادات اللي يستخدمونها تحت الكلام وإيش المشاكل اللي ذكروها.",
+    "en": "Watch the official Blackmagic video and one TikTok, then note in Obsidian the settings they use under speech and the issues they mention."
+   },
+   "produce": {
+    "ar": "ريل ٣٠ ثانية: أول ثانيتين الأغنية كاملة وفجأة يختفي الصوت مع نص \"شلت الغناء في ثانية\". بعدها تفرجهم السلايدرات وتلعب بالطبقات.",
+    "en": "A 30 s reel: first 2 seconds play the full song, then the vocals vanish with the text \"Removed the vocals in one second\". Then show the sliders and play with stems."
+   },
+   "article": {
+    "ar": "عنوان: \"فصل الموسيقى بالذكاء الاصطناعي في دافنشي\". النقاط: إيش هي الطبقات الخمس، استخدامها تحت الفويس أوفر، الآثار وكيف تتجنبها، Render in Place، ملاحظة عن حقوق الأغاني.",
+    "en": "Title: \"AI music separation in DaVinci\". Outline: the five stems, using it under voiceover, artifacts and how to avoid them, Render in Place, a note on music rights."
+   }
+  },
+  "trend": {
+   "ar": "كثير من صناع المحتوى يستخدمونه عشان يعملون نسخة instrumental من أي تراك بدل ما يدورون موسيقى ثانية، أو يعزلون الدرامز عشان يقصون على الإيقاع.",
+   "en": "Many creators use it to make an instrumental of any track instead of hunting for new music, or to isolate drums for cutting on the beat."
+  },
+  "refs": [
+   [
+    "yt",
+    "Blackmagic Design",
+    "Using the Music Remixer in DaVinci Resolve",
+    "https://www.youtube.com/watch?v=pDJu4zNcdpE"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "Isolate Vocals! Remove Instruments! Music REMIXER in DaVinci Resolve 19",
+    "https://www.youtube.com/watch?v=0UJt-2Hwp7A"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "How to REMIX any SONG in DaVinci Resolve 19 | Music Remixer",
+    "https://www.youtube.com/watch?v=J6OKDXFqPMc"
+   ],
+   [
+    "tt",
+    "@creatorsergeant",
+    "Remove Vocal Tracks from Songs Using DaVinci Resolve",
+    "https://www.tiktok.com/@creatorsergeant/video/7448638088999341317"
+   ],
+   [
+    "tt",
+    "@guyfromfilms",
+    "Day 50: Remove Vocal from Your Music in Davinci Resolve",
+    "https://www.tiktok.com/@guyfromfilms/video/7407260438645214470"
+   ],
+   [
+    "tt",
+    "@moustafamakramtv",
+    "فصل الصوت والموسيقى بسهولة في دافينشي 19",
+    "https://www.tiktok.com/@moustafamakramtv/video/7407106797393284368"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "AI Music Remixer in Davinci Resolve 20",
+    "https://www.instagram.com/reel/DJOxVeEzUfI/"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "Music Remixer in DaVinci Resolve 19. Separate Vocals or ...",
+    "https://www.instagram.com/reel/C84diOftdnL/"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "The Music Remixer is by far the best new DaVinci Resolve ...",
+    "https://www.instagram.com/reel/C7HMSSGoQw-/"
+   ],
+   [
+    "web",
+    "alliandwill.com",
+    "DaVinci Resolve's NEW AI MUSIC REMIXER Feature is REALLY GOOD!",
+    "https://www.alliandwill.com/blog/davinci-resolves-new-ai-music-remixer-feature-is-really-good"
+   ],
+   [
+    "web",
+    "jasonyadlovski.com",
+    "NEW Music REMIX in DaVinci Resolve 19! Basic to Advanced",
+    "http://www.jasonyadlovski.com/blog/2024/4/24/new-music-remix-in-davinci-resolve-19-basic-to-advanced-create-new-songs"
+   ]
+  ],
+  "arGap": {
+   "has": false,
+   "ar": "لقيت تيك توك عربي قصير عن فصل الصوت والموسيقى في دافنشي 19، بس ما فيه شرح عربي كامل على يوتيوب يغطي الطبقات الخمس واستخدامها تحت الفويس أوفر.",
+   "en": "Found a short Arabic TikTok on separating vocals and music in DaVinci 19, but no full Arabic YouTube tutorial covering all five stems and use under voiceover."
+  },
+  "set": "studio"
+ },
+ {
+  "id": "superscale-speedwarp",
+  "page": "edit",
+  "ar": "SuperScale و Speed Warp: جودة وحركة بالذكاء الاصطناعي",
+  "en": "SuperScale + Speed Warp: AI upscale and slow motion",
+  "tier": 2,
+  "studio": true,
+  "related": {
+   "ar": "كرت الـ Speed Ramp يعلمك منحنى السرعة. هذا الكرت عن جودة الإطارات نفسها: تكبير الدقة وتوليد إطارات ناعمة.",
+   "en": "The speed ramp card teaches the Retime Curve. This card is about frame quality itself: upscaling and generating smooth in-between frames."
+  },
+  "what": {
+   "ar": "SuperScale يكبّر اللقطة بالذكاء الاصطناعي، مثلاً من 1080p لـ 4K أو يحسّن لقطات الجوال. Speed Warp يولّد إطارات جديدة بين الإطارات عشان السلو موشن يطلع ناعم حتى لو صورت 30fps.",
+   "en": "SuperScale upscales footage with AI, for example 1080p to 4K, or improves phone clips. Speed Warp generates new frames between existing ones so slow motion looks smooth even from 30fps footage."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "SuperScale يبغى تايملاين أكبر",
+     "en": "SuperScale needs a bigger timeline"
+    },
+    "desc": {
+     "ar": "SuperScale يشتغل بس لما الكليب أصغر من دقة التايملاين. خلي التايملاين 4K وبعدين فعّله على لقطات الـ 1080p.",
+     "en": "SuperScale only works when the clip is smaller than the timeline resolution. Set the timeline to 4K, then enable it on 1080p clips."
+    }
+   },
+   {
+    "name": {
+     "ar": "Speed Warp مكانه Retime Process",
+     "en": "Speed Warp lives in Retime Process"
+    },
+    "desc": {
+     "ar": "في الـ Inspector حط Retime Process على Optical Flow، وبعدين Motion Estimation على Speed Warp Better أو Faster.",
+     "en": "In the Inspector set Retime Process to Optical Flow, then Motion Estimation to Speed Warp Better or Faster."
+    }
+   },
+   {
+    "name": {
+     "ar": "الكاش صاحبك",
+     "en": "Cache is your friend"
+    },
+    "desc": {
+     "ar": "الاثنين ثقال. شغّل Render Cache على الكليبات دي عشان التشغيل يصير سلس، وتوقع وقت تصدير أطول.",
+     "en": "Both are heavy. Turn on Render Cache for these clips so playback stays smooth, and expect longer exports."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "خلي دقة التايملاين 4K من Project Settings أو Timeline Settings.",
+    "en": "Set the timeline resolution to 4K in Project Settings or Timeline Settings."
+   },
+   {
+    "ar": "كليك يمين على كليب الـ 1080p أو الجوال، واختار Clip Attributes، وحط Super Scale على 2x مع Sharpness و Noise Reduction خفيف.",
+    "en": "Right-click the 1080p or phone clip, choose Clip Attributes, and set Super Scale to 2x with light Sharpness and Noise Reduction."
+   },
+   {
+    "ar": "للسلو موشن: غيّر سرعة الكليب (مثلاً 25%) من Change Clip Speed أو من الـ Inspector.",
+    "en": "For slow motion: change the clip speed (for example 25%) with Change Clip Speed or in the Inspector."
+   },
+   {
+    "ar": "في الـ Inspector تحت Retime and Scaling، حط Retime Process على Optical Flow و Motion Estimation على Speed Warp Better.",
+    "en": "In the Inspector under Retime and Scaling, set Retime Process to Optical Flow and Motion Estimation to Speed Warp Better."
+   },
+   {
+    "ar": "شغّل Render Cache (Smart أو User) عشان تشوف النتيجة سلسة.",
+    "en": "Enable Render Cache (Smart or User) to preview smoothly."
+   },
+   {
+    "ar": "دور على آثار حول الأيدي والحواف السريعة. لو فيه تشويه، خفف البطء أو جرّب لقطة خلفيتها أبسط.",
+    "en": "Check for artifacts around hands and fast edges. If it warps, slow down less or use a shot with a simpler background."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "صوّر حركة بسيطة (صب قهوة أو رمي حاجة) بالجوال 30fps. اعمل سلو موشن 25% مرة بـ Frame Blend ومرة بـ Speed Warp، وكبّرها لـ 4K بـ SuperScale. قارن.",
+    "en": "Film a simple motion (pouring coffee or tossing something) on your phone at 30fps. Make a 25% slow motion with Frame Blend and with Speed Warp, upscale to 4K with SuperScale, and compare."
+   },
+   "research": {
+    "ar": "شوف ٣ مراجع وسجّل في Obsidian إيش أنواع اللقطات اللي Speed Warp يكسب فيها وإيش اللي يخرب فيها، ومتى SuperScale 2x يكفي.",
+    "en": "Watch 3 refs and note in Obsidian which shots Speed Warp handles well and where it breaks, and when SuperScale 2x is enough."
+   },
+   "produce": {
+    "ar": "ريل ١٥ ثانية: أول ثانيتين صب القهوة العربية بسلو موشن ناعم جداً مع نص \"هذا جوال عادي\". بعدها سبليت يوضح قبل وبعد.",
+    "en": "A 15 s reel: first 2 seconds show Arabic coffee being poured in ultra smooth slow motion with the text \"This is just a phone\". Then a split screen before/after."
+   },
+   "article": {
+    "ar": "عنوان: \"خلي لقطات جوالك سينمائية بالذكاء الاصطناعي\". النقاط: SuperScale ومتى تستخدمه، Speed Warp ضد Optical Flow ضد Frame Blend، الكاش والأداء، أمثلة قبل وبعد.",
+    "en": "Title: \"Make your phone footage cinematic with AI\". Outline: SuperScale and when to use it, Speed Warp vs Optical Flow vs Frame Blend, cache and performance, before/after examples."
+   }
+  },
+  "trend": {
+   "ar": "في Resolve 20 تحسّن الـ AI upscaling، وفي Resolve 21 نزل تأثير SpeedWarp جديد في Fusion للـ speed ramps. الناس دحين تجرب \"سلو موشن مزيف\" من لقطات جوال عادية.",
+   "en": "Resolve 20 improved AI upscaling, and Resolve 21 added a new SpeedWarp Fusion effect for speed ramps. Creators now show off \"fake slow motion\" from normal phone clips."
+  },
+  "refs": [
+   [
+    "yt",
+    "youtube.com",
+    "10 Creative ways to use SUPERSCALE in Davinci Resolve 19",
+    "https://www.youtube.com/watch?v=fbiYjS77d3U"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "Pushing the AI Speed Warp in DaVinci Resolve to its LIMITS",
+    "https://www.youtube.com/watch?v=UbNm4ell4sk"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "Speed Warp in DaVinci Resolve: complete walkthrough + 5 tips to improve quality.",
+    "https://www.youtube.com/watch?v=RzP1wSAJwWc"
+   ],
+   [
+    "yt",
+    "youtube.com",
+    "DaVinci Resolve 21 New SPEEDWARP Fusion Effect Tutorial! (Speed Ramping)",
+    "https://www.youtube.com/watch?v=U6iD6DMlwpI"
+   ],
+   [
+    "tt",
+    "@tommyprojectd",
+    "How to use new super scale feature in Davinci Resolve 19",
+    "https://www.tiktok.com/@tommyprojectd/video/7411887141250288942"
+   ],
+   [
+    "tt",
+    "@creatorsergeant",
+    "new better AI upscaling feature in DaVinci Resolve 20",
+    "https://www.tiktok.com/@creatorsergeant/video/7491289931420159238"
+   ],
+   [
+    "tt",
+    "@davidshuttmedia",
+    "Speed Warp in DaVinci Resolve: complete walkthrough + 5 ...",
+    "https://www.tiktok.com/@davidshuttmedia/video/7603460542040182038"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "AI SuperScale in DaVinci Resolve",
+    "https://www.instagram.com/reel/DKZt_yCRDfE/"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "How to use the speed warp in Davinci Resolve 20",
+    "https://www.instagram.com/reel/DUYzFQWjMHO/"
+   ],
+   [
+    "ig",
+    "instagram.com",
+    "Speed Warp in DaVinci Resolve allows you to easily apply ...",
+    "https://www.instagram.com/reel/DKW-wQDtywW/"
+   ],
+   [
+    "web",
+    "davinciresolveclub.com",
+    "DaVinci Resolve Super Scale: 1080p to 4K Guide",
+    "https://davinciresolveclub.com/davinci-resolve-super-scale-1080p-to-4k/"
+   ],
+   [
+    "web",
+    "createdtech.com",
+    "How To Upscale Video To 4K Or 8K In DaVinci Resolve Using Super Scale",
+    "https://createdtech.com/how-to-upscale-video-in-davinci-resolve-using-super-scale"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "ما لقيت شرح عربي مخصص لـ SuperScale أو Speed Warp. فرصة حلوة لفيديو عربي يجمع الاثنين على لقطات جوال.",
+   "en": "No dedicated Arabic tutorial found for SuperScale or Speed Warp. A good chance for an Arabic video combining both on phone footage."
+  },
+  "set": "studio"
+ }
+]

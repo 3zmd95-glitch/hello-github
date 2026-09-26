@@ -1,0 +1,3722 @@
+[
+ {
+  "id": "smart-bins-keywords",
+  "page": "media",
+  "ar": "الـ Smart Bins والكلمات المفتاحية",
+  "en": "Smart Bins + Keywords",
+  "tier": 2,
+  "related": {
+   "ar": "الـ Bins والـ Proxies",
+   "en": "Bins & proxies"
+  },
+  "what": {
+   "ar": "بدل ما ترتب اللقطات بإيدك في مجلدات، تحط لكل لقطة Keywords من الـ Metadata والـ Smart Bin يجمعها لحاله حسب القاعدة اللي تحددها. يعني تلاقي أي لقطة B-roll أو Hook في ثواني حتى لو المشروع فيه مية ملف.",
+   "en": "Instead of sorting clips into folders by hand, you tag each clip with keywords in the Metadata panel and a Smart Bin gathers them automatically by rules you set. You find any B-roll or hook shot in seconds, even in a project with hundreds of files."
+  },
+  "ideasTitle": {
+   "ar": "٣ أنواع",
+   "en": "3 types"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "Smart Bin بقاعدة",
+     "en": "Rule-based Smart Bin"
+    },
+    "desc": {
+     "ar": "تعمله من File > New Smart Bin وتحط شروط زي Keywords أو Frame Rate أو Resolution. أي لقطة جديدة تطابق الشرط تدخل فيه لحالها.",
+     "en": "Made from File > New Smart Bin with rules like Keywords, Frame Rate or Resolution. Any new clip that matches the rules shows up in it automatically."
+    }
+   },
+   {
+    "name": {
+     "ar": "Automatic Smart Bins",
+     "en": "Automatic Smart Bins"
+    },
+    "desc": {
+     "ar": "من Preferences > User > Editing تشغّل الـ Automatic Smart Bins للـ Keywords والـ People والـ Scene. البرنامج يعمل Bin لكل كلمة مفتاحية بدون ما تتعب.",
+     "en": "In Preferences > User > Editing you turn on Automatic Smart Bins for Keywords, People and Scene. Resolve makes a bin for every keyword with no extra work."
+    }
+   },
+   {
+    "name": {
+     "ar": "Power Bins",
+     "en": "Power Bins"
+    },
+    "desc": {
+     "ar": "دي مختلفة شوية. تظهر في كل مشاريعك، فتحط فيها حاجاتك الثابتة زي اللوقو والـ Intro والأصوات حقت 3z Prod.",
+     "en": "A bit different. They show up in every project, so you keep your fixed assets there, like the logo, intro and sound effects for 3z Prod."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "في صفحة Media اختار لقطة أو أكتر من الـ Media Pool، وافتح لوحة Metadata من فوق يمين الشاشة.",
+    "en": "On the Media page, select one or more clips in the Media Pool and open the Metadata panel from the top right."
+   },
+   {
+    "ar": "من القائمة اللي فوق اللوحة اختار Shot & Scene، واكتب في خانة Keywords كلمات زي hook أو broll أو talking.",
+    "en": "From the dropdown at the top of the panel choose Shot & Scene, then type keywords like hook, broll or talking in the Keywords field."
+   },
+   {
+    "ar": "روح Preferences > User > Editing وفعّل Automatic Smart Bins للـ Keywords، عشان يطلع Bin لكل كلمة.",
+    "en": "Go to Preferences > User > Editing and enable Automatic Smart Bins for Keywords, so each keyword gets its own bin."
+   },
+   {
+    "ar": "عشان قاعدة خاصة، اعمل File > New Smart Bin، وحط مثلا Keywords contains broll و Frame Rate is 60 عشان تجيب لقطات السلوموشن بس.",
+    "en": "For a custom rule, use File > New Smart Bin and set for example Keywords contains broll and Frame Rate is 60 to pull only slow-motion B-roll."
+   },
+   {
+    "ar": "لو يبغى تضيف كلمة بسرعة، اسحب اللقطات على الـ Smart Bin حق الكلمة وهي تاخذ الـ Keyword لحالها.",
+    "en": "To tag fast, drag clips onto an automatic keyword Smart Bin and they get that keyword applied."
+   },
+   {
+    "ar": "من علامة الثلاث نقاط فوق الـ Media Pool شيّك إن Show Smart Bins شغّال عشان تشوفهم في القائمة الجانبية.",
+    "en": "From the three-dot menu at the top of the Media Pool, make sure Show Smart Bins is on so they appear in the sidebar."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خذ آخر تصوير عندك وحط لكل لقطة كلمتين على الأقل (نوع اللقطة والمكان)، وبعدين اعمل Smart Bin يجيب لقطات الـ hook بس.",
+    "en": "Take your last shoot, tag every clip with at least two keywords (shot type and place), then build a Smart Bin that pulls only hook shots."
+   },
+   "research": {
+    "ar": "قارن بين ٣ طرق تنظيم من الروابط تحت (Keywords، Smart Bins، Power Bins) واكتب في Obsidian نظام كلمات ثابت تستخدمه في كل مشروع.",
+    "en": "Compare 3 organizing methods from the refs below (Keywords, Smart Bins, Power Bins) and write a fixed keyword system in Obsidian to reuse in every project."
+   },
+   "produce": {
+    "ar": "ريل ٣٠ ثانية: يبدأ بشاشة Media Pool مليانة فوضى مع جملة \"دورت على لقطة ساعة كاملة؟\" وبعدين تورّي كيف Smart Bin يلاقيها في ثانيتين.",
+    "en": "30 s reel: open on a messy Media Pool with the line \"Spent an hour hunting one clip?\" then show a Smart Bin finding it in two seconds."
+   },
+   "article": {
+    "ar": "\"نظام الكلمات المفتاحية اللي أستخدمه في كل مشروع دافنشي\": ليه التنظيم مهم، قائمة الكلمات، إعداد Smart Bins، والفرق بينها وبين Power Bins.",
+    "en": "\"The keyword system I use in every Resolve project\": why organizing matters, the keyword list, Smart Bin setup, and how they differ from Power Bins."
+   }
+  },
+  "trend": {
+   "ar": "لسه في دروس جديدة عن الـ Smart Bins على يوتيوب في ٢٠٢٦، وفي ريلز انستقرام عن قسم Smart Bins جديد للـ Offline Clips. والـ Power Bins منتشرة في تيك توك كحيلة لتسريع الشغل.",
+   "en": "New Smart Bin tutorials are still coming out on YouTube in 2026, and Instagram reels cover a new Smart Bins section for offline clips. Power Bins also show up on TikTok as a workflow speed tip."
+  },
+  "refs": [
+   [
+    "tt",
+    "@justtjc",
+    "power bins are the way forward #davinciresolve",
+    "https://www.tiktok.com/@justtjc/video/7449484912366734624"
+   ],
+   [
+    "tt",
+    "@wbynan",
+    "Power Bins in DaVinci Resolve",
+    "https://www.tiktok.com/@wbynan/video/7431985794807581998"
+   ],
+   [
+    "tt",
+    "@videoeditingblueprint",
+    "Unlock DaVinci Resolve's Power Bins Feature",
+    "https://www.tiktok.com/@videoeditingblueprint/video/7436484377753750806"
+   ],
+   [
+    "ig",
+    "Instagram reel",
+    "Using smart bins in DaVinci Resolve",
+    "https://www.instagram.com/reel/DS5DB4cgJpw/"
+   ],
+   [
+    "ig",
+    "@erinafilminstitute",
+    "Discover the magic of Smart Bins",
+    "https://www.instagram.com/erinafilminstitute/reel/CvFIe3MvxUU/"
+   ],
+   [
+    "ig",
+    "Instagram reel",
+    "New SMART BINS section for OFFLINE CLIPS in DaVinci",
+    "https://www.instagram.com/reel/DXZ2i1Tk7yz/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "EDIT BETTER with Keywords and Smart Bins - DaVinci Resolve TUTORIAL",
+    "https://www.youtube.com/watch?v=tZdzMJlNXSQ"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "DaVinci Resolve Keywords In 3 Minutes",
+    "https://www.youtube.com/watch?v=g_bueEejG60"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "How to Use Smart Bins in DaVinci Resolve (Auto Organize Footage Fast)",
+    "https://www.youtube.com/watch?v=_OLrH4fzxZw"
+   ],
+   [
+    "web",
+    "Tagger",
+    "DaVinci Resolve Smart Bins: How to Organize Your Media Pool (2026)",
+    "https://tagger.mov/guides/resolve-smart-bins"
+   ],
+   [
+    "web",
+    "DVResolve.com",
+    "Organizing Footage Using Keywords and Smart Bins",
+    "https://dvresolve.com/tutorial/organizing-footage-keywords-smart-bins/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "لقيت دروس عربية عامة عن استيراد وتنظيم الملفات، بس ما لقيت شرح عربي مخصص للـ Keywords والـ Smart Bins. فرصة حلوة لمحتوى عربي.",
+   "en": "I found general Arabic videos on importing and organizing files, but no Arabic tutorial focused on Keywords and Smart Bins. Clear content opportunity."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "transcribe-search",
+  "page": "media",
+  "ar": "تفريغ الصوت والبحث بالكلام",
+  "en": "Audio Transcription + Text Search",
+  "tier": 2,
+  "related": {
+   "ar": "المونتاج السريع في صفحة Cut",
+   "en": "Fast edit on the Cut page"
+  },
+  "what": {
+   "ar": "دافنشي يحوّل كلامك في اللقطة لنص، وتقدر تدوّر على أي كلمة وتقص الجملة من النص نفسه بدل ما تسمع اللقطة كلها. دا يوفر وقت كبير في فيديوهات يوتيوب الطويلة والبودكاست.",
+   "en": "Resolve turns the speech in a clip into text, so you can search any word and cut the line straight from the transcript instead of scrubbing the whole clip. It saves a lot of time on long YouTube talks and podcasts."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "✓ عندك في Studio",
+     "en": "✓ In your Studio"
+    },
+    "desc": {
+     "ar": "التفريغ الصوتي والمونتاج بالنص والـ Create Subtitles from Audio كلها موجودة في نسختك Studio، جاهزة تستخدمها دحين.",
+     "en": "Audio transcription, text-based editing and Create Subtitles from Audio are all in your Studio version, ready to use."
+    }
+   },
+   {
+    "name": {
+     "ar": "اللغة العربية",
+     "en": "Arabic support"
+    },
+    "desc": {
+     "ar": "الحزمة الأساسية فيها ١٤ لغة بدون العربي. بعض المصادر تقول إن العربي يجي مع حزمة لغات إضافية من الـ Extras، فجرّب على نسختك قبل ما تعتمد عليه.",
+     "en": "The base pack has 14 languages and no Arabic. Some sources say Arabic comes with an extended language pack from Extras, so test it on your version before relying on it."
+    }
+   },
+   {
+    "name": {
+     "ar": "Subclips من النص",
+     "en": "Subclips from text"
+    },
+    "desc": {
+     "ar": "تظلل الجملة اللي تبغاها في نافذة التفريغ وتعملها Subclip أو تحطها على التايملاين على طول. كده تبني أول نسخة من الفيديو من النص.",
+     "en": "Highlight the line you want in the transcript window and make it a subclip or add it to the timeline right away. You build your first cut from text."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "في صفحة Media اختار اللقطة (أو كذا لقطة) في الـ Media Pool.",
+    "en": "On the Media page, select the clip (or several clips) in the Media Pool."
+   },
+   {
+    "ar": "اضغط كليك يمين واختار Audio Transcription > Transcribe، أو اضغط أيقونة Transcribe Audio اللي شكلها فقاعة كلام فوق الـ Media Pool.",
+    "en": "Right-click and choose Audio Transcription > Transcribe, or click the Transcribe Audio icon (the speech bubble) above the Media Pool."
+   },
+   {
+    "ar": "لما يخلص تفتح نافذة Transcription. اكتب الكلمة في خانة البحث فوق يمين، وهو يلوّن كل مكان انقالت فيه.",
+    "en": "When it finishes, the Transcription window opens. Type a word in the search box at the top right and every place it was said gets highlighted."
+   },
+   {
+    "ar": "اضغط على أي كلمة عشان تنط لنفس اللحظة في الفيديو.",
+    "en": "Click any word to jump to that moment in the clip."
+   },
+   {
+    "ar": "ظلل الجملة اللي تبغاها واضغط أيقونة Subclip تحت يسار، أو Insert/Append عشان تنزل على التايملاين.",
+    "en": "Highlight the line you want and click the Subclip icon at the bottom left, or Insert/Append to send it to the timeline."
+   },
+   {
+    "ar": "لو يبغى النص كملف، صدّره كـ TXT من الزر اللي فوق يمين نافذة التفريغ، وحطه في Obsidian كسكربت.",
+    "en": "To keep the text, export it as a TXT file from the button at the top right of the window and drop it in Obsidian as a script."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "فرّغ لقطة كلام طويلة عندك (٥ دقايق أو أكتر)، ودوّر على ٣ كلمات، وطلّع منها ٣ Subclips تصلح كـ Hook.",
+    "en": "Transcribe a long talking clip (5 min or more), search 3 words, and pull 3 subclips that could work as hooks."
+   },
+   "research": {
+    "ar": "جرّب التفريغ على لقطة إنجليزي ولقطة عربي، وسجّل في Obsidian الدقة في كل وحدة وإيش الأخطاء اللي تتكرر مع اللهجة.",
+    "en": "Test transcription on one English clip and one Arabic clip, and log in Obsidian the accuracy of each and which mistakes repeat with dialect."
+   },
+   "produce": {
+    "ar": "ريل ٢٠ ثانية: \"قصّيت الفيديو دا من غير ما أسمعه!\" وبعدين تورّي البحث بكلمة وسحب الجملة للتايملاين في لقطة شاشة سريعة.",
+    "en": "20 s reel: \"I cut this video without listening to it!\" then show a word search and dragging the line to the timeline in a quick screen capture."
+   },
+   "article": {
+    "ar": "\"المونتاج بالنص في دافنشي: هل يشتغل مع العربي؟\": إيش يحتاج، الخطوات، تجربتي مع اللهجة، ومتى تستخدمه ومتى لا.",
+    "en": "\"Text-based editing in Resolve: does it work with Arabic?\": what you need, the steps, my test with dialect, and when to use it or skip it."
+   }
+  },
+  "trend": {
+   "ar": "المونتاج بالنص من أكتر ميزات الـ AI اللي انتشرت في تيك توك وانستقرام من تحديث 18.5 لحد دحين، وصار يشتغل على التايملاين كمان. ودافنشي 20 زاد عليه IntelliScript في نسخة Studio.",
+   "en": "Text-based editing has been one of the most shared AI features on TikTok and Instagram since 18.5, and it now works on timelines too. Resolve 20 added IntelliScript on top of it in Studio."
+  },
+  "refs": [
+   [
+    "tt",
+    "@cined.com",
+    "QUICK TIP! Have you tried the audio transcription feature in DaVinci Resolve?",
+    "https://www.tiktok.com/@cined.com/video/7241905801831402778"
+   ],
+   [
+    "tt",
+    "@zac.stevenson_",
+    "The new 18.5 update ... transcription feature",
+    "https://www.tiktok.com/@zac.stevenson_/video/7229519275986406658"
+   ],
+   [
+    "tt",
+    "@oleg.kovalov",
+    "New DaVinci Resolve 19 Transcription Text Based Editing",
+    "https://www.tiktok.com/@oleg.kovalov/video/7410167560034979102"
+   ],
+   [
+    "tt",
+    "@itsthewampus",
+    "Text Based Editing Now Works on TIMELINES in DaVinci Resolve",
+    "https://www.tiktok.com/@itsthewampus/video/7361296717750226206"
+   ],
+   [
+    "ig",
+    "@adamwienckowski",
+    "Text-Based Editing in Davinci Resolve: Explained!",
+    "https://www.instagram.com/adamwienckowski/reel/Cw6HWeiLWbf/"
+   ],
+   [
+    "ig",
+    "@theqazman",
+    "Text-based editing using AI in Resolve",
+    "https://www.instagram.com/theqazman/reel/C5Gz50RJbYS/"
+   ],
+   [
+    "ig",
+    "Instagram post",
+    "accurate transcription in DaVinci Resolve? With Caption ...",
+    "https://www.instagram.com/p/DWUKwCFD5xp/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Editing with Audio Transcriptions in DaVinci Resolve",
+    "https://www.youtube.com/watch?v=D6DzF9Ux5Ac"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "How to Transcribe & Make Subtitles in DaVinci Resolve 19 Speed Up Your Edits with Text-Based Editing",
+    "https://www.youtube.com/watch?v=M00itrq0vGM"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Edit Your Transcript, Not Your Timeline | DaVinci Resolve AI",
+    "https://www.youtube.com/watch?v=_gnxFKokN7k"
+   ],
+   [
+    "web",
+    "CineD",
+    "DaVinci Resolve Quick Tip: Audio Transcriptions",
+    "https://www.cined.com/davinci-resolve-audio-transcriptions/"
+   ],
+   [
+    "web",
+    "DVResolve.com",
+    "Transcribing Audio in DaVinci Resolve",
+    "https://dvresolve.com/tutorial/transcribing-audio-in-davinci-resolve/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "ما لقيت شرح عربي عن التفريغ والمونتاج بالنص في دافنشي، ولا أحد يجاوب \"هل يشتغل مع العربي؟\". دي فرصة كبيرة لأن السؤال مهم لكل صانع محتوى عربي.",
+   "en": "No Arabic tutorial found on transcription and text-based editing in Resolve, and nobody answers \"does it work with Arabic?\". Big opportunity since every Arabic creator needs that answer."
+  },
+  "studio": true,
+  "set": "starter"
+ },
+ {
+  "id": "scene-cut-detection",
+  "page": "media",
+  "ar": "تقطيع المشاهد تلقائي (Scene Cut Detection)",
+  "en": "Scene Cut Detection",
+  "tier": 1,
+  "related": {
+   "ar": "الـ Match Cut",
+   "en": "Match cut"
+  },
+  "what": {
+   "ar": "لو عندك فيديو مصدّر جاهز (ملف واحد) وتبغى ترجع تعدّله، دافنشي يلاقي كل القطعات لحاله ويقسّمه للقطات منفصلة. مفيد لإعادة استخدام فيديوهاتك القديمة كريلز أو لتحليل إيقاع المونتاج.",
+   "en": "If you have a finished exported video (one flat file) and want to re-edit it, Resolve finds every cut and splits it into separate clips. Great for turning old videos into reels or studying edit rhythm."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "قبل الاستيراد",
+     "en": "Before import"
+    },
+    "desc": {
+     "ar": "الطريقة الأصلية تشتغل من الـ Media Storage قبل ما تضيف الملف للـ Media Pool. ولسه موجودة في النسخة المجانية.",
+     "en": "The classic method runs from Media Storage before the file goes into the Media Pool. It still works in the free version."
+    }
+   },
+   {
+    "name": {
+     "ar": "راجع النتيجة",
+     "en": "Review the result"
+    },
+    "desc": {
+     "ar": "طول الخط في نافذة Scene Detect يوريك قد إيش البرنامج متأكد. الحركة السريعة والفلاش ممكن تطلع قطعات غلط، فاحذفها بـ Delete أو Prune.",
+     "en": "Line height in the Scene Detect window shows how confident Resolve is. Fast motion and flashes can create false cuts, so remove them with Delete or Prune."
+    }
+   },
+   {
+    "name": {
+     "ar": "نسخة الـ AI",
+     "en": "The AI version"
+    },
+    "desc": {
+     "ar": "في صفحة Edit فيه Timeline > Detect Scene Cuts يقطع الكليب على التايملاين مباشرة، ودا موجود عندك في Studio.",
+     "en": "On the Edit page, Timeline > Detect Scene Cuts cuts a clip right on the timeline, and you have it in Studio."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "افتح صفحة Media ودوّر على الفيديو في الـ Media Storage (لا تضيفه للـ Media Pool لسه).",
+    "en": "Open the Media page and find the video in Media Storage (do not add it to the Media Pool yet)."
+   },
+   {
+    "ar": "كليك يمين على الملف واختار Scene Cut Detection.",
+    "en": "Right-click the file and choose Scene Cut Detection."
+   },
+   {
+    "ar": "في النافذة شيّك إن Auto Cue شغّال من Options، وبعدين اضغط Auto Scene Detect.",
+    "en": "In the window, check that Auto Cue is on under Options, then click Auto Scene Detect."
+   },
+   {
+    "ar": "راجع الخطوط: القطعة الغلط اختارها واضغط Delete، أو حط In و Out على منطقة واضغط Prune عشان تمسح كل اللي فيها.",
+    "en": "Review the markers: select a false cut and press Delete, or set In and Out around a range and use Prune to clear it."
+   },
+   {
+    "ar": "اضغط Add Cuts to Media Pool تحت يمين، وكل لقطة تنزل كـ Clip لحالها في الـ Media Pool.",
+    "en": "Click Add Cuts to Media Pool at the bottom right, and each shot lands as its own clip in the Media Pool."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خذ فيديو يوتيوب قديم لك مصدّر كملف واحد، قطّعه بـ Scene Cut Detection، وطلّع منه ٣ لقطات تصلح لريل جديد.",
+    "en": "Take an old YouTube video of yours exported as one file, split it with Scene Cut Detection, and pull 3 shots that could make a new reel."
+   },
+   "research": {
+    "ar": "قطّع ٣ من فيديوهاتك الناجحة وعد كم لقطة فيها ومتوسط طول اللقطة، وسجّل في Obsidian إيش الإيقاع اللي يشتغل مع جمهورك.",
+    "en": "Split 3 of your best-performing videos, count the shots and average shot length, and note in Obsidian which pace works with your audience."
+   },
+   "produce": {
+    "ar": "ريل ٤٥ ثانية: \"فيديو عمره سنتين صار ريل جديد في ٥ دقايق\" تورّي فيه التقطيع التلقائي وبعدين النسخة العمودية الجديدة.",
+    "en": "45 s reel: \"A 2-year-old video became a new reel in 5 minutes\" showing the auto split and then the new vertical version."
+   },
+   "article": {
+    "ar": "\"كيف ترجع تستخدم فيديوهاتك القديمة بدافنشي\": ليه إعادة التدوير مهمة، خطوات Scene Cut Detection، الأخطاء الشائعة، والفرق بين المجاني والـ Studio.",
+    "en": "\"How to recycle your old videos with Resolve\": why repurposing matters, Scene Cut Detection steps, common mistakes, and free vs Studio."
+   }
+  },
+  "trend": {
+   "ar": "في تيك توك وانستقرام فيه فيديوهات كتير تقدّم الـ Detect Scene Cuts كحيلة توفر وقت، خصوصا لإعادة مونتاج فيديوهات قديمة. ولسه تطلع دروس يوتيوب جديدة عنها في ٢٠٢٥ و٢٠٢٦.",
+   "en": "TikTok and Instagram have many clips pitching Detect Scene Cuts as a time saver, especially for re-editing old videos. New YouTube tutorials on it keep coming out in 2025 and 2026."
+  },
+  "refs": [
+   [
+    "tt",
+    "@jhanes_kc",
+    "Let's learn how to use scene detect in DaVinci Resolve!",
+    "https://www.tiktok.com/@jhanes_kc/video/7462125173412580654"
+   ],
+   [
+    "tt",
+    "@woldancreates",
+    "How to re edit an old video with the auto detect scene cuts function",
+    "https://www.tiktok.com/@woldancreates/video/7385932474662014213"
+   ],
+   [
+    "tt",
+    "@doubtmetech",
+    "Auto Scene Cut Detection in DaVinci Resolve",
+    "https://www.tiktok.com/@doubtmetech/video/7329583279881866538"
+   ],
+   [
+    "tt",
+    "@ktmiinch",
+    "You might want this editing tip for later - it's called Detect Scene Cuts",
+    "https://www.tiktok.com/@ktmiinch/video/7432728633258577195"
+   ],
+   [
+    "ig",
+    "Instagram reel",
+    "Scene Cut Detection in DaVinci Resolve Auto-split your ...",
+    "https://www.instagram.com/reel/DIySl-GPydI/"
+   ],
+   [
+    "ig",
+    "@millenniallabs.in",
+    "Here's how you can do scene cut detection in DaVinci ...",
+    "https://www.instagram.com/millenniallabs.in/reel/C40bKHoy1Q5/"
+   ],
+   [
+    "ig",
+    "@fulltimefilmmaker",
+    "Quick Video Editing Trick: Scene cut detection is my ...",
+    "https://www.instagram.com/fulltimefilmmaker/reel/CyV_E3vuQro/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Scene Cut Detection in Media Tab - DaVinci Resolve 19",
+    "https://www.youtube.com/watch?v=UhEsYMq3V4U"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "How to Use Scene Cut Detection in DaVinci Resolve Full Tutorial + Fixes",
+    "https://www.youtube.com/watch?v=FAE0XDdqibY"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "DaVinci Resolve – Scene Cut Detection Step by Step",
+    "https://www.youtube.com/watch?v=mfC69pJ8Cc0"
+   ],
+   [
+    "web",
+    "PremiumBeat",
+    "Speed Up Your Color Workflow Using Scene Cut Detection",
+    "https://www.premiumbeat.com/blog/speed-color-workflow-using-scene-cut-detection/"
+   ],
+   [
+    "web",
+    "Filmmaking Elements",
+    "How To Use Scene Cut Detection In Davinci Resolve (2 Methods)",
+    "https://filmmakingelements.com/scene-cut-detection-in-davinci-resolve/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "دورت بالعربي عن Scene Cut Detection وما لقيت شرح عربي مخصص. فرصة سهلة لفيديو قصير عملي.",
+   "en": "Searched in Arabic for Scene Cut Detection and found no dedicated Arabic tutorial. Easy opportunity for a short practical video."
+  },
+  "studio": true,
+  "set": "starter"
+ },
+ {
+  "id": "source-tape",
+  "page": "cut",
+  "ar": "الـ Source Tape للاختيار السريع",
+  "en": "Source Tape for fast selects",
+  "tier": 2,
+  "related": {
+   "ar": "الـ Bins والـ Proxies",
+   "en": "Bins & proxies"
+  },
+  "what": {
+   "ar": "الـ Source Tape يحط كل كليبات الـ Bin ورا بعض كأنها شريط واحد طويل. بدل ما تفتح كل كليب لحاله، تتفرج على كل التصوير مرة وحدة وتعلّم أحلى اللحظات وترميها في التايملاين على طول.",
+   "en": "Source Tape lays every clip in a bin end to end, like one long tape. Instead of opening clips one by one, you scrub through the whole shoot at once, mark the best moments and drop them straight into the timeline."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "ترتيب الشريط = ترتيب الـ Bin",
+     "en": "Tape order = bin order"
+    },
+    "desc": {
+     "ar": "الشريط يمشي على حسب ترتيب الكليبات في الـ Media Pool. رتّبها بالـ Timecode أو Date Created عشان تمشي بنفس ترتيب التصوير.",
+     "en": "The tape follows the Media Pool sort order. Sort by Timecode or Date Created so it plays in the order you shot."
+    }
+   },
+   {
+    "name": {
+     "ar": "الـ In و Out تعدّي بين الكليبات",
+     "en": "In and Out can span clips"
+    },
+    "desc": {
+     "ar": "تقدر تحط In في كليب و Out في كليب تاني، و Resolve ينزّل كل اللي بينهم مرة وحدة. مفيد لما يكون الكلام مقطّع على كذا ملف.",
+     "en": "You can set In on one clip and Out on another, and Resolve edits everything in between in one go. Handy when one take is split across files."
+    }
+   },
+   {
+    "name": {
+     "ar": "الـ Fast Review للكليبات الطويلة",
+     "en": "Fast Review for long clips"
+    },
+    "desc": {
+     "ar": "زر الـ Fast Review يشغّل الكليب أسرع على حسب طوله، فتشوف تصوير طويل في ثواني وتلقط اللحظة اللي تبغاها.",
+     "en": "The Fast Review button plays clips faster based on their length, so you can skim long footage in seconds and spot the moment you want."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "حط كل كليبات الفيديو في Bin واحد، وفي الـ Media Pool رتّبها بالـ Timecode أو Date Created.",
+    "en": "Put all the clips for the video in one bin, then sort the Media Pool by Timecode or Date Created."
+   },
+   {
+    "ar": "في صفحة الـ Cut، فوق الـ Viewer من اليسار، اضغط زر Source Tape (جنب Source Clip و Timeline).",
+    "en": "On the Cut page, click the Source Tape button at the top left of the viewer (next to Source Clip and Timeline)."
+   },
+   {
+    "ar": "تنقّل في الشريط بـ J و K و L أو اسحب الـ Playhead في شريط الـ Viewer. أسامي الكليبات تطلع عند كل حد بين كليب والتاني.",
+    "en": "Move through the tape with J, K and L, or drag the playhead in the viewer's scrubber. Clip names show at each boundary."
+   },
+   {
+    "ar": "لما تلقى لحظة حلوة اضغط I للبداية و O للنهاية.",
+    "en": "When you find a good moment, press I for the start and O for the end."
+   },
+   {
+    "ar": "اضغط زر Append عشان تنزل في آخر التايملاين، أو اسحبها للمكان اللي تبغاه. كرر لحد ما تخلص الـ Selects.",
+    "en": "Click Append to add it to the end of the timeline, or drag it where you want. Repeat until your selects are done."
+   },
+   {
+    "ar": "لو الشريط طويل، شغّل Fast Review عشان تمشي أسرع، وارجع لـ Timeline لما تبغى تراجع القصّة.",
+    "en": "If the tape is long, turn on Fast Review to move faster, and switch back to Timeline when you want to review the cut."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خذ تصوير يوم كامل (فلوق أو طلعة) وطلّع منه ٦٠ ثانية Selects بالـ Source Tape بس، وشوف كم دقيقة أخذت منك.",
+    "en": "Take one full day of footage (a vlog or outing) and pull 60 seconds of selects using only Source Tape. Time how long it takes."
+   },
+   "research": {
+    "ar": "قارن بين طريقة الـ Source Tape وطريقة فتح كل كليب لحاله على نفس التصوير، واكتب في Obsidian الفرق في الوقت وإيش اللحظات اللي لقيتها زيادة.",
+    "en": "Compare Source Tape against opening clips one by one on the same footage. Note in Obsidian the time difference and which moments you found only with the tape."
+   },
+   "produce": {
+    "ar": "ريل ٣٠ ثانية \"صوّرت ساعة وطلّعت منها ٣٠ ثانية\": تبدأ بشاشة Resolve فيها عشرات الكليبات، وتخلص بالنتيجة النهائية بسرعة.",
+    "en": "A 30 s Reel: \"I shot an hour and cut it to 30 seconds.\" Open on a Resolve screen full of clips, end on the fast final result."
+   },
+   "article": {
+    "ar": "\"الـ Source Tape: أسرع طريقة تختار فيها لقطاتك في دافنشي\" : إيش هو، ترتيب الـ Bin، الـ In/Out بين الكليبات، والـ Fast Review.",
+    "en": "\"Source Tape: the fastest way to pick your shots in DaVinci\": what it is, bin sort order, In/Out across clips, and Fast Review."
+   }
+  },
+  "trend": {
+   "ar": "Blackmagic نفسها تقدّم الـ Source Tape كأهم ميزة في صفحة الـ Cut، وفيه شروحات كتير عليه في يوتيوب. بس في تيك توك وانستقرام المحتوى عنه قليل، فهو فرصة.",
+   "en": "Blackmagic presents Source Tape as a headline Cut page feature, and YouTube has many tutorials on it. Short-form coverage on TikTok and Instagram is thin, which makes it an opening."
+  },
+  "refs": [
+   [
+    "tt",
+    "@creatorsergeant",
+    "How to activate waveform in the source viewer inside of DaVinci Resolve",
+    "https://www.tiktok.com/@creatorsergeant/video/7556222784272108801"
+   ],
+   [
+    "ig",
+    "@fatmanderson",
+    "Learn Davinci Resolve Shortcuts: Toggle Source Tape",
+    "https://www.instagram.com/fatmanderson/reel/DOWNvysDSN3/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "how to use Resolve Source Tape (explained by a Pro)",
+    "https://www.youtube.com/watch?v=uT1i9EFy3tM"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Quickly Navigate through Footage with Source Tape in DaVinci Resolve Cut Page",
+    "https://www.youtube.com/watch?v=gvcv6NNjmPg"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "The B-Roll Jackhammer - Cut Page Source Tape in Resolve 17",
+    "https://www.youtube.com/watch?v=5ozAazPXsk8"
+   ],
+   [
+    "web",
+    "Blackmagic Design",
+    "DaVinci Resolve – Cut",
+    "https://www.blackmagicdesign.com/products/davinciresolve/cut"
+   ],
+   [
+    "web",
+    "Blackmagic Forum",
+    "Scroll the source tape on the Cut page",
+    "https://forum.blackmagicdesign.com/viewtopic.php?f=21&t=170794"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "ما لقيت شرح عربي مخصص للـ Source Tape. الشروحات العربية تتكلم عن صفحة الـ Cut بشكل عام بس.",
+   "en": "No Arabic tutorial dedicated to Source Tape was found. Arabic content only covers the Cut page in general."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "cut-smart-edits",
+  "page": "cut",
+  "ar": "أزرار التعديل الذكية: Smart Insert و Ripple Overwrite و Close Up",
+  "en": "Smart edit buttons: Smart Insert, Ripple Overwrite, Close Up",
+  "tier": 2,
+  "related": {
+   "ar": "المونتاج السريع في صفحة الـ Cut",
+   "en": "Fast edit on the Cut page"
+  },
+  "what": {
+   "ar": "صفحة الـ Cut فيها أزرار تعديل تفهم مكان الـ Playhead وتختار القصّة الصح لحالها. بدل ما تحط In و Out في التايملاين، تضغط زر واحد والتايملاين يترتب لحاله.",
+   "en": "The Cut page has edit buttons that read the playhead position and pick the right edit point for you. Instead of setting timeline In and Out points, you click one button and the timeline sorts itself out."
+  },
+  "ideasTitle": {
+   "ar": "٣ أنواع",
+   "en": "3 types"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "Smart Insert",
+     "en": "Smart Insert"
+    },
+    "desc": {
+     "ar": "يدخّل الكليب عند أقرب قصّة للـ Playhead ويدفّ الباقي لقدّام. الـ Smart Indicator الصغير في التايملاين يوريك فين بينزل.",
+     "en": "Inserts the clip at the edit point closest to the playhead and pushes the rest forward. The small Smart Indicator on the timeline shows where it will land."
+    }
+   },
+   {
+    "name": {
+     "ar": "Ripple Overwrite",
+     "en": "Ripple Overwrite"
+    },
+    "desc": {
+     "ar": "يبدّل كليب بكليب تاني حتى لو طولهم مختلف، والتايملاين يطول أو يقصر لحاله بدون فراغات.",
+     "en": "Swaps one clip for another even if the lengths differ, and the timeline grows or shrinks on its own with no gaps."
+    }
+   },
+   {
+    "name": {
+     "ar": "Close Up",
+     "en": "Close Up"
+    },
+    "desc": {
+     "ar": "يحط نسخة مكبّرة من اللقطة فوق اللقطة الأصلية، زي الـ Punch-in. وبما إن عندك Studio، يستخدم الـ Neural Engine عشان يلقى الوجه ويوسّطه.",
+     "en": "Places a zoomed-in copy of the shot on the track above, like a punch-in. Since you have Studio, it uses the Neural Engine to find and center the face."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "في صفحة الـ Cut، شوف صف الأزرار اللي فوق التايملاين تحت الـ Media Pool: Smart Insert و Append و Ripple Overwrite و Close Up و Place on Top و Source Overwrite.",
+    "en": "On the Cut page, find the row of buttons above the timeline, under the Media Pool: Smart Insert, Append, Ripple Overwrite, Close Up, Place on Top and Source Overwrite."
+   },
+   {
+    "ar": "Smart Insert: حط الـ Playhead قريب من قصّة، علّم الكليب الجديد بـ I و O في الـ Viewer، وتأكد من الـ Smart Indicator، بعدين اضغط Smart Insert.",
+    "en": "Smart Insert: park the playhead near a cut, mark the new clip with I and O in the viewer, check the Smart Indicator, then click Smart Insert."
+   },
+   {
+    "ar": "Ripple Overwrite: حط الـ Playhead على الكليب اللي ما عجبك، علّم الـ Take الأحسن في الـ Viewer، واضغط Ripple Overwrite. الكليب يتبدّل والتايملاين يتعدّل لحاله.",
+    "en": "Ripple Overwrite: park the playhead on the clip you don't like, mark the better take in the viewer, and click Ripple Overwrite. The clip is replaced and the timeline adjusts itself."
+   },
+   {
+    "ar": "Close Up: حط الـ Playhead فين تبغى الـ Punch-in في كلامك، علّم نفس اللقطة في الـ Viewer، واضغط Close Up. لو تبغى زووم أكتر أو أقل عدّله من الـ Inspector.",
+    "en": "Close Up: park the playhead where you want the punch-in, mark the same shot in the viewer, and click Close Up. Adjust the zoom in the Inspector if needed."
+   },
+   {
+    "ar": "Place on Top للـ B-roll: علّم لقطة الـ B-roll واضغط Place on Top، تنزل في أول تراك فاضي فوق عند الـ Playhead بدون ما تمسح شي تحت.",
+    "en": "Place on Top for B-roll: mark the B-roll shot and click Place on Top. It lands on the first free track above at the playhead without touching anything below."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خذ فيديو كلام ٢ دقيقة واعمل كل التعديل بالأزرار دي بس، بدون سحب بالماوس: Smart Insert للقطات، Ripple Overwrite للـ Takes الأحسن، و ٣ Close Up.",
+    "en": "Take a 2-minute talking video and edit it using only these buttons, no mouse dragging: Smart Insert for shots, Ripple Overwrite for better takes, and 3 Close Ups."
+   },
+   "research": {
+    "ar": "حلّل ٣ فيديوهات يوتيوب لصنّاع محتوى بيتكلموا للكاميرا وعدّ كم Punch-in في الدقيقة، واكتب في Obsidian فين يحطوها (نكتة، رقم، سؤال).",
+    "en": "Analyze 3 talking-head YouTube videos, count punch-ins per minute, and note in Obsidian where they land (a joke, a number, a question)."
+   },
+   "produce": {
+    "ar": "ريل ٤٥ ثانية \"٣ غلطات في المونتاج تضيّع وقتك\": أول ثانيتين Close Up مفاجئ على وجهك وانت تقول \"وقّف!\"، وكل غلطة لها Punch-in.",
+    "en": "A 45 s Reel: \"3 editing mistakes that waste your time.\" The first 2 seconds are a sudden Close Up on your face saying \"Stop!\", with a punch-in for each mistake."
+   },
+   "article": {
+    "ar": "\"٦ أزرار في صفحة الـ Cut تختصر نص وقت المونتاج\" : شرح كل زر، متى تستخدمه، وفرقه عن Insert و Overwrite العاديين.",
+    "en": "\"6 Cut page buttons that halve your edit time\": each button, when to use it, and how it differs from regular Insert and Overwrite."
+   }
+  },
+  "trend": {
+   "ar": "فيه شروحات يوتيوب جديدة عن دوال الـ Insert في Resolve 20، وريلز انستقرام عن إدخال الكليبات بدون ما تمسح اللي جنبها والـ Punch-ins. الموضوع مطلوب بس نادر يتشرح من صفحة الـ Cut.",
+   "en": "Recent YouTube tutorials cover insert functions in Resolve 20, and Instagram Reels cover inserting clips without overwriting and punch-ins. Demand is there, but few explain it from the Cut page."
+  },
+  "refs": [
+   [
+    "tt",
+    "@thejordanstudios",
+    "EASY Way to Insert Clips in Davinci Resolve",
+    "https://www.tiktok.com/@thejordanstudios/video/7533325997358337311"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "Insert clips between other clips without overwriting in the ...",
+    "https://www.instagram.com/reel/C_BYi7XvRFr/"
+   ],
+   [
+    "ig",
+    "@rippletrainers",
+    "Ripple Training | How to do Punch-Ins in DaVinci Resolve",
+    "https://www.instagram.com/rippletrainers/reel/C534AA7Pmci/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "Pace out your edits in #davinciresolve with the new insert ...",
+    "https://www.instagram.com/reel/DSLKVnFiSja/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "How To Use The Smart Insert Tool In DaVinci Resolve 16",
+    "https://www.youtube.com/watch?v=DXJeOmlcQ24"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "DaVinci Resolve 19: Speed Up Your Edits with the Cut Page",
+    "https://www.youtube.com/watch?v=kcAQujJcwvs"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "These Secret Insert Functions in DaVinci Resolve 20 Will Save You Hours",
+    "https://www.youtube.com/watch?v=cYgmuNlIYOw"
+   ],
+   [
+    "web",
+    "Cutsio",
+    "DaVinci Resolve Speed Editor intelligent edit modes: Smart Insert, Append, Ripple Overwrite, Close Up, Place On Top, and Source Overwrite",
+    "https://cutsio.com/blog/davinci-resolve-speed-editor-intelligent-edit-modes"
+   ],
+   [
+    "web",
+    "Larry Jordan",
+    "Get Started Editing in the DaVinci Resolve Cut Page",
+    "https://larryjordan.com/articles/get-started-editing-in-the-davinci-resolve-cut-page/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "ما لقيت شرح عربي لأزرار Smart Insert و Ripple Overwrite و Close Up في صفحة الـ Cut. الشروحات العربية تشرح Insert و Overwrite العاديين في صفحة الـ Edit بس.",
+   "en": "No Arabic tutorial found for Smart Insert, Ripple Overwrite and Close Up on the Cut page. Arabic content only covers regular Insert and Overwrite on the Edit page."
+  },
+  "studio": true,
+  "set": "starter"
+ },
+ {
+  "id": "boring-detector-smooth-cut",
+  "page": "cut",
+  "ar": "الـ Boring Detector والـ Smooth Cut لفيديوهات الكلام",
+  "en": "Boring Detector + Smooth Cut for talking heads",
+  "tier": 2,
+  "related": {
+   "ar": "الـ J/L Cuts",
+   "en": "J/L cuts"
+  },
+  "what": {
+   "ar": "الـ Boring Detector يحلّل طول كل كليب ويلوّن اللقطات الطويلة (اللي ممكن تملّل) والقصيرة جداً (Flash frames). وبعدها الـ Smooth Cut يخبّي الـ Jump cuts في كلامك للكاميرا عشان يطلع كأنه Take واحد.",
+   "en": "The Boring Detector checks every clip's length and flags shots that run too long (and may bore viewers) or too short (flash frames). Then Smooth Cut hides the jump cuts in your talking-head edit so it looks like one take."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "الرمادي = طويل، الأحمر = قصير",
+     "en": "Gray = too long, red = too short"
+    },
+    "desc": {
+     "ar": "اللقطات الأطول من رقم الـ Boring Clips تتلوّن رمادي فاتح، والأقصر من رقم الـ Jump Cuts تتلوّن أحمر. حط الـ Jump Cuts على ٢ فريم عشان تلقى الـ Flash frames.",
+     "en": "Clips longer than the Boring Clips value turn light gray, and clips shorter than the Jump Cuts value turn red. Set Jump Cuts to 2 frames to catch flash frames."
+    }
+   },
+   {
+    "name": {
+     "ar": "الـ Smooth Cut (عندك في Studio)",
+     "en": "Smooth Cut (in your Studio)"
+    },
+    "desc": {
+     "ar": "الـ Smooth Cut ترانزشن من أدوات Studio اللي عندك، و Resolve 20 طوّره. يشتغل أحسن لما الكاميرا والإضاءة والخلفية ثابتين.",
+     "en": "Smooth Cut is a Studio transition you already have, and Resolve 20 improved it. It works best when camera, lighting and background stay the same."
+    }
+   },
+   {
+    "name": {
+     "ar": "الحركة الكبيرة تخرّبه",
+     "en": "Big motion breaks it"
+    },
+    "desc": {
+     "ar": "لو يدك أو شعرك يتحرك كتير بين القصّتين ممكن يطلع Ghosting. ساعتها غطّي القصّة بـ B-roll أو Close Up بدل الـ Smooth Cut.",
+     "en": "If your hands or hair move a lot between the two sides, you may get ghosting. Cover the cut with B-roll or a Close Up instead."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "رتّب الكلام في صفحة الـ Cut وشيل السكتات. لو نسختك فيها Clip > Audio Operations > Ripple Delete Silence استخدمه عشان تشيلها أسرع.",
+    "en": "Build your talking-head edit on the Cut page and remove the pauses. If your version has Clip > Audio Operations > Ripple Delete Silence, use it to speed this up."
+   },
+   {
+    "ar": "اضغط أيقونة Timeline Options في شريط أدوات التايملاين واختار Boring Detector.",
+    "en": "Click the Timeline Options icon in the timeline toolbar and choose Boring Detector."
+   },
+   {
+    "ar": "في نافذة Analyze Timeline Edits، حط الـ Boring Clips على عدد الثواني اللي تشوفه طويل (مثلاً ٥ ثواني للريلز) والـ Jump Cuts على ٢ فريم، واضغط Analyze.",
+    "en": "In the Analyze Timeline Edits window, set Boring Clips to the seconds you consider too long (say 5 s for Reels) and Jump Cuts to 2 frames, then click Analyze."
+   },
+   {
+    "ar": "صلّح اللقطات الرمادية بـ B-roll أو Close Up أو قصّة جديدة، وامسح الـ Flash frames الحمرا.",
+    "en": "Fix the gray areas with B-roll, a Close Up or a new cut, and delete the red flash frames."
+   },
+   {
+    "ar": "من تبويب Effects روح Video Transitions > Dissolve > Smooth Cut، واسحبه على الـ Jump cut وخلي طوله قصير (٢ لحد ٦ فريم تقريباً).",
+    "en": "In the Effects tab, go to Video Transitions > Dissolve > Smooth Cut, drag it onto the jump cut and keep it short (about 2 to 6 frames)."
+   },
+   {
+    "ar": "شغّل المقطع بجودة كاملة وشيّك على الـ Ghosting. لو فيه، غطّي القصّة بـ B-roll بدل الـ Smooth Cut.",
+    "en": "Play it back at full quality and check for ghosting. If you see it, cover the cut with B-roll instead."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خذ آخر فيديو كلام عملته، شغّل الـ Boring Detector على ٥ ثواني، وصلّح كل منطقة رمادية، وحط Smooth Cut على ٣ Jump cuts وقارن قبل وبعد.",
+    "en": "Take your last talking video, run the Boring Detector at 5 s, fix every gray area, then add Smooth Cut to 3 jump cuts and compare before and after."
+   },
+   "research": {
+    "ar": "طبّق الـ Boring Detector على ٣ ريلز ناجحة (نزّلها في Resolve للتحليل بس) واكتب في Obsidian متوسط طول اللقطة وكم لقطة أطول من ٥ ثواني.",
+    "en": "Run the Boring Detector on 3 successful Reels (imported for analysis only) and note in Obsidian the average shot length and how many shots run over 5 seconds."
+   },
+   "produce": {
+    "ar": "ريل ٣٠ ثانية \"فيديو واحد بدون ولا قصّة؟\": أول ثانيتين تقول \"الفيديو دا فيه ١٢ قصّة، تقدر تلقاها؟\"، وفي الآخر توري الـ Smooth Cuts مفتوحة في التايملاين.",
+    "en": "A 30 s Reel: \"One take with no cuts?\" The first 2 seconds: \"This video has 12 cuts. Can you spot them?\" End by revealing the Smooth Cuts in the timeline."
+   },
+   "article": {
+    "ar": "\"فيديوك ممل؟ خلّي دافنشي يقولك فين\" : شرح الـ Boring Detector وأرقامه للريلز واليوتيوب، والـ Smooth Cut ومتى ما تستخدمه.",
+    "en": "\"Is your video boring? Let DaVinci show you where\": the Boring Detector and its settings for Reels and YouTube, plus Smooth Cut and when not to use it."
+   }
+  },
+  "trend": {
+   "ar": "من نزول Resolve 20، الـ Smooth Cut صار ترند في تيك توك وانستقرام، والكل يوري كيف يخبّي الـ Jump cuts. أما الـ Boring Detector فشروحاته قديمة في يوتيوب ونادر أحد يربطه بالـ Smooth Cut.",
+   "en": "Since Resolve 20, Smooth Cut has been all over TikTok and Instagram, with creators showing how it hides jump cuts. Boring Detector tutorials are mostly older YouTube videos, and few pair it with Smooth Cut."
+  },
+  "refs": [
+   [
+    "tt",
+    "@joshglavinfilms",
+    "This new feature in DaVinci Resolve will magically hide jump cuts!",
+    "https://www.tiktok.com/@joshglavinfilms/video/7499354791152241942"
+   ],
+   [
+    "tt",
+    "@creatorsergeant",
+    "How to hide jumpcuts in davinci resolve 20",
+    "https://www.tiktok.com/@creatorsergeant/video/7490184178651270406"
+   ],
+   [
+    "tt",
+    "@mralextech",
+    "Hide your MISTAKES with the new Smooth Cut Transition in DaVinci Resolve STUDIO 20",
+    "https://www.tiktok.com/@mralextech/video/7507196616005192982"
+   ],
+   [
+    "ig",
+    "@robertsjason_video",
+    "Jason Roberts | Fix Jump Cuts FAST in DaVinci Resolve",
+    "https://www.instagram.com/robertsjason_video/reel/DLPodtDtW4e/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "Here's the best way to smooth out your jump cuts in Davinci ...",
+    "https://www.instagram.com/reel/DMk7FfVNo66/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "The Smooth Cut feature on DaVinci Resolve is super ...",
+    "https://www.instagram.com/reel/DIcXGI9Bh6g/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "The new and improved Smooth Cut transition in DaVinci ...",
+    "https://www.instagram.com/reel/DJ6yrHjMZCf/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Detect if Clips are Too Long or Short with the Boring Detector - Resolve 16.1 Tutorial",
+    "https://www.youtube.com/watch?v=xn0C6r490KM"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "DaVinci Resolve 20 – AI Smooth Cut: Can it fix your Jump Cuts?",
+    "https://www.youtube.com/watch?v=zuXS4-K0Tac"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "The New SMOOTH CUT Transition in DaVinci Resolve IS AMAZING! Quick Tutorial",
+    "https://www.youtube.com/watch?v=epqnrVR38b8"
+   ],
+   [
+    "web",
+    "Envato Tuts+",
+    "What is the DaVinci Resolve Boring Detector, and How to Use It?",
+    "https://photography.tutsplus.com/articles/what-is-the-davinci-resolve-boring-detector-and-how-to-use-it--cms-108010"
+   ],
+   [
+    "web",
+    "PremiumBeat",
+    "DaVinci Resolve's Boring Detector — Offensive or Misunderstood?",
+    "https://www.premiumbeat.com/blog/davinci-resolves-boring-detector/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "ما لقيت شرح عربي للـ Boring Detector ولا للـ Smooth Cut. دي فرصة واضحة لمحتوى عربي.",
+   "en": "No Arabic tutorial found for either the Boring Detector or Smooth Cut. A clear opening for Arabic content."
+  },
+  "studio": true,
+  "set": "starter"
+ },
+ {
+  "id": "speed-ramp-retime",
+  "page": "edit",
+  "ar": "الـ Speed Ramp بالـ Retime Curve",
+  "en": "Speed Ramps with Retime Curve",
+  "tier": 2,
+  "related": {
+   "ar": "Match Cut، ومهارة Speed Ramp حقت CapCut",
+   "en": "Match cut, and the CapCut speed ramp skill"
+  },
+  "what": {
+   "ar": "الـ Speed Ramp يعني اللقطة تسرع وبعدين تبطئ بنعومة في نفس الكليب. دا اللي يخلي لقطة السيارة أو الدرون أو الحركة تحس إنها سينمائية وتشد العين.",
+   "en": "A speed ramp makes one clip speed up and then slow down smoothly. It is what makes car, drone and action shots feel cinematic and grab attention."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "الـ Speed Points",
+     "en": "Speed points"
+    },
+    "desc": {
+     "ar": "هي النقاط اللي تقسم الكليب لأجزاء، وكل جزء له سرعة خاصة فيه. بدونها السرعة تتغير فجأة.",
+     "en": "They split the clip into sections, each with its own speed. Without curves the change is sudden."
+    }
+   },
+   {
+    "name": {
+     "ar": "الـ Retime Curve",
+     "en": "Retime Curve"
+    },
+    "desc": {
+     "ar": "هنا تحول النقاط الحادة لمنحنى ناعم. المنحنى هو الفرق بين قفزة سرعة مزعجة و Ramp احترافي.",
+     "en": "This is where you turn sharp speed changes into a smooth curve. The curve is the difference between a jarring jump and a pro ramp."
+    }
+   },
+   {
+    "name": {
+     "ar": "الـ Optical Flow",
+     "en": "Optical Flow"
+    },
+    "desc": {
+     "ar": "لما تبطئ لقطة مصورة 24 أو 30 فريم، البرنامج يخترع فريمات بينها. صور بـ 60 أو 120 فريم لو تقدر، النتيجة أنظف بكثير.",
+     "en": "When you slow down 24 or 30 fps footage, Resolve builds in-between frames. Shoot 60 or 120 fps when you can for much cleaner results."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "حط الكليب في التايملاين في صفحة الـ Edit، واختاره واضغط Ctrl+R (أو Cmd+R في الماك) عشان تفتح الـ Retime Controls.",
+    "en": "Place the clip on the Edit page timeline, select it and press Ctrl+R (Cmd+R on Mac) to open Retime Controls."
+   },
+   {
+    "ar": "حط البلاي هيد عند بداية الحركة، واضغط على السهم الصغير تحت الكليب واختار Add Speed Point. كرر عند نهاية الحركة.",
+    "en": "Move the playhead to where the action starts, click the small arrow under the clip and choose Add Speed Point. Repeat where the action ends."
+   },
+   {
+    "ar": "اسحب الخط اللي فوق الـ Speed Point عشان تغير سرعة كل جزء. مثلا الأجزاء اللي على الأطراف 200% والوسط 30%.",
+    "en": "Drag the top handle of each speed point to change each section's speed. For example 200% on the outside sections and 30% in the middle."
+   },
+   {
+    "ar": "كليك يمين على الكليب واختار Retime Curve. تأكد إن الوضع Retime Speed، اختار النقاط واضغط أيقونة الـ Bezier عشان يصير المنحنى ناعم، وعدل الـ handles لحد ما تحس الانتقال طبيعي.",
+    "en": "Right-click the clip and choose Retime Curve. Make sure it shows Retime Speed, select the points and click the Bezier icon to smooth them, then adjust the handles until the change feels natural."
+   },
+   {
+    "ar": "من الـ Inspector روح لـ Retime And Scaling، وخلي الـ Retime Process على Optical Flow والـ Motion Estimation على Speed Warp (عندك في Studio) لأحسن نتيجة، أو Enhanced Better لو تبغى سرعة.",
+    "en": "In the Inspector, open Retime And Scaling. Set Retime Process to Optical Flow and Motion Estimation to Speed Warp (you have it in Studio) for the best result, or Enhanced Better for speed."
+   },
+   {
+    "ar": "شغل المقطع وشوف الأطراف والخلفية. لو فيه تشويه، جرب Frame Blend أو قلل البطء شوية.",
+    "en": "Play it back and watch edges and backgrounds. If you see warping, try Frame Blend or make the slow part a bit less slow."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "صور لقطة فيها حركة واضحة بـ 60 فريم (مشي، سيارة، رمي كورة)، واعمل ٣ نسخ Ramp بمنحنيات مختلفة وقارن بينها.",
+    "en": "Shoot a clip with clear motion at 60 fps (walking, a car, a ball throw) and make 3 ramp versions with different curves, then compare them."
+   },
+   "research": {
+    "ar": "اختار ٥ فيديوهات سيارات أو درون فيها Speed Ramp، وسجل في Obsidian فين تبدأ البطء، كم يطول، وإيش علاقته بالبيت في الموسيقى.",
+    "en": "Pick 5 car or drone videos with speed ramps and note in Obsidian where the slow part starts, how long it lasts, and how it lines up with the music beat."
+   },
+   "produce": {
+    "ar": "ريل ٢٠ ثانية عن قهوة الصباح: أول ثانيتين صب القهوة يبطئ فجأة على البيت، وبعدين Ramp سريع لكل خطوة لحد أول رشفة.",
+    "en": "A 20 s reel about morning coffee: in the first 2 seconds the pour suddenly slows on the beat, then fast ramps through each step until the first sip."
+   },
+   "article": {
+    "ar": "مقال بعنوان: الـ Speed Ramp في دافنشي خطوة بخطوة، ليه المنحنى أهم من السرعة نفسها.",
+    "en": "Article titled: Speed Ramps in DaVinci Step by Step, Why the Curve Matters More Than the Speed."
+   }
+  },
+  "trend": {
+   "ar": "الـ Speed Ramp لسه من أكثر الحركات اللي تنشرح على TikTok و Instagram لفيديوهات السيارات والعقار والدرون، وفيه شروحات كثير جديدة خاصة بـ DaVinci Resolve 20.",
+   "en": "Speed ramps are still one of the most taught edits on TikTok and Instagram for car, real estate and drone videos, with many new tutorials made for DaVinci Resolve 20."
+  },
+  "refs": [
+   [
+    "tt",
+    "@wbynan",
+    "How to Speed Ramp in DaVinci Resolve 20",
+    "https://www.tiktok.com/@wbynan/video/7505053923909078302"
+   ],
+   [
+    "tt",
+    "@joshglavinfilms",
+    "The new way to speed ramp in DaVinci Resolve finally makes it easy!",
+    "https://www.tiktok.com/@joshglavinfilms/video/7499020822539996438"
+   ],
+   [
+    "tt",
+    "@creatorsergeant",
+    "How to do a smooth speed ramp transition in DaVinci Resolve !",
+    "https://www.tiktok.com/@creatorsergeant/video/7382992456599751942"
+   ],
+   [
+    "tt",
+    "@dimitrikastrappis",
+    "Master Speed Ramping in DaVinci Resolve 20 for Real Estate",
+    "https://www.tiktok.com/@dimitrikastrappis/video/7493128319332961554"
+   ],
+   [
+    "ig",
+    "DaVinci Resolve",
+    "Speed ramp in DaVinci Resolve 20",
+    "https://www.instagram.com/reel/DJt9fq1JOVg/"
+   ],
+   [
+    "ig",
+    "Joshua Lee Glavin",
+    "The new way to speed ramp in DaVinci Resolve",
+    "https://www.instagram.com/reel/DJBCM1MPLir/"
+   ],
+   [
+    "ig",
+    "@taylermedia",
+    "I get a lot of questions about how I do my speed ramps",
+    "https://www.instagram.com/taylermedia/reel/DGLz6xWSw7n/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "How to Use Retime Curve in DaVinci Resolve - Smooth Speed Ramps Tutorial",
+    "https://www.youtube.com/watch?v=0h9C4d07bX8"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "DaVinci Resolve 19 - How to use Speed Ramp / Retime Curves / Optical Flow",
+    "https://www.youtube.com/watch?v=laq90w2QLBM"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Speed Ramping In DaVinci Resolve 20 (2026 Easy Guide)",
+    "https://www.youtube.com/watch?v=2lPvbgSZphU"
+   ],
+   [
+    "web",
+    "Shutterstock Blog",
+    "DaVinci Resolve: How To Use Retime Controls and Retime Curves",
+    "https://www.shutterstock.com/blog/davinci-resolve-retime-curves"
+   ],
+   [
+    "web",
+    "DVResolve.com",
+    "Using Retime Controls to Create Speed Ramps, Freeze Frames, and more",
+    "https://dvresolve.com/tutorial/retime-controls-speed-ramp/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "ما لقيت شرح عربي مخصص للـ Speed Ramp بالـ Retime Curve في دافنشي، بس شروحات عامة للبرنامج. دي فرصة حلوة لفيديو عربي قصير وواضح.",
+   "en": "No Arabic tutorial dedicated to Retime Curve speed ramps in DaVinci turned up, only general Resolve courses. A clear short Arabic video here is a real opportunity."
+  },
+  "studio": true,
+  "set": "starter"
+ },
+ {
+  "id": "animated-auto-captions",
+  "page": "edit",
+  "ar": "ترجمة تلقائية وكابشن متحرك",
+  "en": "Auto Subtitles and Animated Captions",
+  "tier": 2,
+  "related": {
+   "ar": "Text Behind Subject، و Export لـ Instagram Reels",
+   "en": "Text behind subject, and Export for Instagram Reels"
+  },
+  "what": {
+   "ar": "دافنشي يقدر يطلع الكلام من الصوت ويحوله لـ Subtitles، وفي نسخة 20 تقدر تحركها كلمة كلمة. أغلب الناس يتفرجون بدون صوت، فالكابشن يخليهم يكملون.",
+   "en": "Resolve can turn speech into subtitles, and in version 20 you can animate them word by word. Many people watch on mute, so captions keep them watching."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "Create Subtitles from Audio",
+     "en": "Create Subtitles from Audio"
+    },
+    "desc": {
+     "ar": "أداة AI في Studio (عندك) تكتب الكلام لحالها. العربي ممكن يحتاج باكج اللغات الإضافية من الـ Extras، فجرّبه أول.",
+     "en": "A Studio AI tool you have that writes the speech for you. Arabic may need the extra transcription language pack from Extras, so test it first."
+    }
+   },
+   {
+    "name": {
+     "ar": "الـ Animated Subtitles",
+     "en": "Animated Subtitles"
+    },
+    "desc": {
+     "ar": "في نسخة 20 فيه قوالب زي Word Highlight و Slide In و Statement تنحط على تراك الترجمة كله مرة وحدة.",
+     "en": "Version 20 adds templates like Word Highlight, Slide In and Statement that you apply to the whole subtitle track at once."
+    }
+   },
+   {
+    "name": {
+     "ar": "ستايل التراك",
+     "en": "Track styling"
+    },
+    "desc": {
+     "ar": "من تبويب Track في الـ Inspector تغير الخط واللون والحجم والمكان لكل الترجمة. خليها في النص فوق منطقة أزرار التطبيق.",
+     "en": "The Track tab in the Inspector sets font, color, size and position for every caption. Keep them centered and above the app buttons."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "في صفحة الـ Edit افتح التايملاين، وروح لقائمة Timeline > AI Tools > Create Subtitles from Audio.",
+    "en": "On the Edit page, open your timeline and go to Timeline > AI Tools > Create Subtitles from Audio."
+   },
+   {
+    "ar": "اختار اللغة، وحط Max Characters Per Line قليل (مثلا 15 إلى 20) عشان الفيديو العمودي، وخليها سطر واحد، واضغط Create.",
+    "en": "Pick the language, set Max Characters Per Line low (around 15 to 20) for vertical video, keep it to one line, and click Create."
+   },
+   {
+    "ar": "راجع الترجمة وصحح الكلمات الغلط، خصوصا الأسماء والعامية. دبل كليك على أي Subtitle عشان تعدله.",
+    "en": "Read through and fix wrong words, especially names and slang. Double-click any subtitle to edit it."
+   },
+   {
+    "ar": "افتح الـ Effects وروح لـ Toolbox > Titles، وانزل لقسم Animated، واسحب Word Highlight أو أي قالب على هيدر تراك الترجمة.",
+    "en": "Open Effects, go to Toolbox > Titles, scroll to the Animated section and drag Word Highlight or another template onto the subtitle track header."
+   },
+   {
+    "ar": "اختار هيدر تراك الترجمة، وفي الـ Inspector افتح تبويب Track وعدل الخط واللون ولون الـ Highlight والمكان.",
+    "en": "Select the subtitle track header, open the Track tab in the Inspector, and set the font, color, highlight color and position."
+   },
+   {
+    "ar": "شغل المقطع كامل وتأكد إن الكلمات تنور في وقتها. لو فيه كلمة تتأخر، عدل طرف الـ Subtitle في التايملاين.",
+    "en": "Play the full video and check words highlight on time. If a word lags, trim that subtitle's edge on the timeline."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خذ مقطع كلام دقيقة من عندك، اعمل له ترجمة تلقائية، وجرب ٣ قوالب Animated مختلفة واحفظ الستايل اللي عجبك.",
+    "en": "Take one minute of your own talking footage, auto-generate subtitles, try 3 different Animated templates and save the style you like."
+   },
+   "research": {
+    "ar": "حلل ٥ ريلز عربية ناجحة فيها كابشن، وسجل في Obsidian: كم كلمة في السطر، إيش اللون، فين مكانها، وهل فيه Highlight.",
+    "en": "Analyze 5 successful Arabic reels with captions and note in Obsidian: words per line, color, position, and whether they use highlights."
+   },
+   "produce": {
+    "ar": "ريل ٣٠ ثانية بعنوان ٣ كلمات حجازية ما يفهمها غيرنا، يبدأ بجملة كبيرة على الشاشة في أول ثانيتين، وكل كلمة تنور وانت تقولها.",
+    "en": "A 30 s reel called 3 Hijazi words nobody else gets, opening with a big on-screen line in the first 2 seconds, each word lighting up as you say it."
+   },
+   "article": {
+    "ar": "مقال بعنوان: الترجمة التلقائية العربية في دافنشي، إيش يشتغل في Studio وإيش البديل المجاني.",
+    "en": "Article titled: Arabic Auto Subtitles in DaVinci, What Works in Studio and the Free Alternative."
+   }
+  },
+  "trend": {
+   "ar": "الكابشن المتحرك كلمة كلمة صار أساسي في الشورت فورم، و DaVinci Resolve 20 أضاف الـ Animated Subtitles، وفيه شروحات كثير جديدة عليها في TikTok و YouTube.",
+   "en": "Word-by-word animated captions are now standard in short-form, and DaVinci Resolve 20 added Animated Subtitles, with many new tutorials on TikTok and YouTube."
+  },
+  "refs": [
+   [
+    "tt",
+    "@creatorsergeant",
+    "Animating automated subtitles word by word in DaVinci Resolve 20 is now easier than aver",
+    "https://www.tiktok.com/@creatorsergeant/video/7489855591167298822"
+   ],
+   [
+    "tt",
+    "@jhanes_kc",
+    "Animated Subtitles in DaVinci Resolve 20 is amazing!",
+    "https://www.tiktok.com/@jhanes_kc/video/7493655580020591915"
+   ],
+   [
+    "tt",
+    "@dynamo_arts",
+    "Davinci Resolve Tips and Tricks part 2 (Animated Subtitles)",
+    "https://www.tiktok.com/@dynamo_arts/video/7541699471411924231"
+   ],
+   [
+    "tt",
+    "@dawiet_cc",
+    "How you add AI auto subtitles in Davinci Resolve in few seconds",
+    "https://www.tiktok.com/@dawiet_cc/video/7326594571327048993"
+   ],
+   [
+    "ig",
+    "@creatorsergeant",
+    "How I create my automatic captions in DaVinci Resolve",
+    "https://www.instagram.com/creatorsergeant/reel/DCTyKn6pzGV/"
+   ],
+   [
+    "ig",
+    "@dtcordonnier",
+    "How to Add Auto-Captions in DaVinci Resolve",
+    "https://www.instagram.com/dtcordonnier/reel/DFc8naFOO-2/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "Save your animated subtitles in Davinci Resolve 20",
+    "https://www.instagram.com/reel/DQJ9tpUjB-D/"
+   ],
+   [
+    "ig",
+    "@adamwienckowski",
+    "How to make auto-captions in Davinci Resolve",
+    "https://www.instagram.com/adamwienckowski/reel/CwEcbr5oC2j/"
+   ],
+   [
+    "yt",
+    "The Hyphenate",
+    "Animated Subtitles & Captions [ DaVinci Resolve 20 ] Tutorial",
+    "https://www.youtube.com/watch?v=6ht0k0KnWMk"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Automatically Create Animated Subtitles In Davinci Resolve 20!",
+    "https://www.youtube.com/watch?v=9lWWTPzMkQU"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Animated Subtitles In DaVinci Resolve 20 | Full Tutorial",
+    "https://www.youtube.com/watch?v=ApKlyi18tVE"
+   ],
+   [
+    "yt",
+    "YouTube (عربي)",
+    "كيفية إضافة الترجمة التلقائية في Davinci Resolve المجاني بالعربي",
+    "https://www.youtube.com/watch?v=w1Wsom92bpc"
+   ],
+   [
+    "web",
+    "Larry Jordan",
+    "Animate Subtitles in DaVinci Resolve 20",
+    "https://larryjordan.com/articles/animate-subtitles-in-davinci-resolve-20/"
+   ],
+   [
+    "web",
+    "Blackmagic Forum",
+    "Word Highlight in subtitles in Resolve 20",
+    "https://forum.blackmagicdesign.com/viewtopic.php?f=40&t=219414"
+   ]
+  ],
+  "arGap": {
+   "has": false,
+   "ar": "فيه شرح عربي للترجمة التلقائية بإضافة AutoSubs في النسخة المجانية. بس ما لقيت شرح عربي للـ Animated Subtitles حقت نسخة 20 ولا لتفعيل العربي في Create Subtitles from Audio، فدي زاوية لسه فاضية.",
+   "en": "An Arabic tutorial exists for auto subtitles using AutoSubs in the free version. None turned up for Resolve 20 Animated Subtitles or enabling Arabic in Create Subtitles from Audio, so that angle is still open."
+  },
+  "studio": true,
+  "set": "starter"
+ },
+ {
+  "id": "adjustment-clip-punch-zoom",
+  "page": "edit",
+  "ar": "Punch-in Zoom و Shake بالـ Adjustment Clip",
+  "en": "Punch-in Zooms and Shake with Adjustment Clips",
+  "tier": 2,
+  "related": {
+   "ar": "J/L Cuts و Match Cut",
+   "en": "J/L cuts and match cut"
+  },
+  "what": {
+   "ar": "الـ Adjustment Clip طبقة فاضية تحطها فوق الكليبات، وأي حركة تحطها عليها تنطبق على كل اللي تحتها. كده تعمل زوم سريع أو هزة عند القطع بدون ما تلمس الكليب الأصلي، وتنسخها لأي مكان.",
+   "en": "An Adjustment Clip is an empty layer above your clips, and anything you put on it affects everything below. You get fast zooms or shakes on cuts without touching the original clip, and you can copy them anywhere."
+  },
+  "ideasTitle": {
+   "ar": "٣ أنواع",
+   "en": "3 types"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "Punch-in على الكلام",
+     "en": "Punch-in on speech"
+    },
+    "desc": {
+     "ar": "زوم مفاجئ ١٠٪ إلى ٢٠٪ على كلمة مهمة. يكسر الملل في فيديوهات الكلام ويخفي الـ jump cut.",
+     "en": "A sudden 10 to 20% zoom on a key word. It breaks monotony in talking videos and hides jump cuts."
+    }
+   },
+   {
+    "name": {
+     "ar": "Zoom Transition",
+     "en": "Zoom transition"
+    },
+    "desc": {
+     "ar": "زوم سريع داخل آخر فريمات اللقطة الأولى وزوم طالع من اللقطة الثانية، مع Motion Blur عشان يبان ناعم.",
+     "en": "A fast zoom into the last frames of shot one and out of shot two, with motion blur so it feels smooth."
+    }
+   },
+   {
+    "name": {
+     "ar": "Impact Shake",
+     "en": "Impact shake"
+    },
+    "desc": {
+     "ar": "هزة قصيرة على البيت أو الضربة باستخدام Camera Shake. تعطي طاقة لإيدت الموسيقى والمقاطع الرياضية.",
+     "en": "A short shake on a beat or hit using Camera Shake. It adds energy to music edits and sports clips."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "افتح الـ Effects وروح لـ Toolbox > Effects، واسحب Adjustment Clip على تراك فاضي فوق الكليبات عند مكان القطع.",
+    "en": "Open Effects, go to Toolbox > Effects, and drag an Adjustment Clip onto an empty track above your clips at the cut."
+   },
+   {
+    "ar": "قصر الـ Adjustment Clip لحد ما يغطي ٦ إلى ١٠ فريمات بس حول القطع.",
+    "en": "Trim the Adjustment Clip so it covers only 6 to 10 frames around the cut."
+   },
+   {
+    "ar": "من الـ Effects > Open FX دور على Transform واسحبه على الـ Adjustment Clip. في الـ Inspector حط Keyframe للـ Zoom في البداية، وتقدم كم فريم وارفع الـ Zoom.",
+    "en": "From Effects > Open FX, find Transform and drag it onto the Adjustment Clip. In the Inspector, set a Zoom keyframe at the start, move a few frames ahead and raise Zoom."
+   },
+   {
+    "ar": "في نفس الـ Transform افتح Advanced Options وارفع الـ Motion Blur، ما يشتغل إلا لو فيه Keyframes.",
+    "en": "In the same Transform effect, open Advanced Options and raise Motion Blur. It only works when there are keyframes."
+   },
+   {
+    "ar": "اضغط أيقونة الـ Keyframes تحت الكليب في التايملاين، اختار النقاط، وخليها Ease In و Ease Out من الـ Curve Editor عشان الحركة تبدأ وتوقف بنعومة.",
+    "en": "Click the keyframe icon on the clip in the timeline, select the points, and set Ease In and Ease Out in the curve editor so the move starts and stops smoothly."
+   },
+   {
+    "ar": "للهزة زيد Camera Shake من Open FX على نفس الـ Adjustment Clip، وعدل Pan و Tilt Amplitude والسرعة. بعدين Alt+سحب (Option في الماك) عشان تنسخه لأي قطع ثاني.",
+    "en": "For a shake, add Camera Shake from Open FX on the same Adjustment Clip and tune Pan and Tilt Amplitude and speed. Then Alt+drag (Option on Mac) to copy it to any other cut."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خذ فيديو كلام ٣٠ ثانية من عندك وحط ٤ Punch-ins بالـ Adjustment Clip على أهم الكلمات، وجرب مع Motion Blur وبدونه.",
+    "en": "Take 30 s of your talking footage and add 4 Adjustment Clip punch-ins on the key words, with and without motion blur."
+   },
+   "research": {
+    "ar": "اختار ٣ يوتيوبرز كلام معروفين وعد كم Punch-in في أول دقيقة، وسجل في Obsidian هل هي على نكتة ولا معلومة ولا قطع.",
+    "en": "Pick 3 well-known talking-head YouTubers, count punch-ins in their first minute, and note in Obsidian whether each lands on a joke, a fact or a cut."
+   },
+   "produce": {
+    "ar": "ريل ١٥ ثانية لـ ٥ لقطات من يومك متقطعة على البيت، كل قطع فيه Zoom Transition، وأول ثانيتين تبدأ بهزة قوية على أول بيت.",
+    "en": "A 15 s reel of 5 shots from your day cut to the beat, each cut with a zoom transition, opening with a hard shake on the first beat in the first 2 seconds."
+   },
+   "article": {
+    "ar": "مقال بعنوان: الـ Adjustment Clip في دافنشي، سلاحك السري للـ Punch-in والانتقالات.",
+    "en": "Article titled: The Adjustment Clip in DaVinci, Your Secret Tool for Punch-ins and Transitions."
+   }
+  },
+  "trend": {
+   "ar": "الزوم السريع والـ Punch Transition والـ Camera Shake بالـ Adjustment Clip من أكثر الحركات المنتشرة في شروحات دافنشي على TikTok و Instagram، خصوصا لإيدت الموسيقى.",
+   "en": "Rapid zooms, punch transitions and camera shake with Adjustment Clips are among the most shared DaVinci tips on TikTok and Instagram, especially for music edits."
+  },
+  "refs": [
+   [
+    "tt",
+    "@wbynan",
+    "Rapid zoom effect in DaVinci Resolve",
+    "https://www.tiktok.com/@wbynan/video/7374858409297923370"
+   ],
+   [
+    "tt",
+    "@wbynan",
+    "Simple punch transition in DaVinci",
+    "https://www.tiktok.com/@wbynan/video/7357043852986944810"
+   ],
+   [
+    "tt",
+    "@creatorsergeant",
+    "Adjustment clip lifehack in DaVinci Resolve.",
+    "https://www.tiktok.com/@creatorsergeant/video/7400431467190308101"
+   ],
+   [
+    "tt",
+    "@wbynan",
+    "Camera shake effect in DaVinci Resolve",
+    "https://www.tiktok.com/@wbynan/video/7364824097005554974"
+   ],
+   [
+    "ig",
+    "@davinci_resolve_tips",
+    "How to do the ZOOM OUT transition in Davinci Resolve",
+    "https://www.instagram.com/davinci_resolve_tips/reel/C5127EvPjHt/"
+   ],
+   [
+    "ig",
+    "@davinciresolveediting",
+    "Zoom Through Transition in Davinci Resolve",
+    "https://www.instagram.com/davinciresolveediting/reel/C79XLQ2PMzy/"
+   ],
+   [
+    "ig",
+    "@wilsain_media",
+    "How to do the ZOOM OUT transition in Davinci Resolve",
+    "https://www.instagram.com/wilsain_media/reel/C5iQJtSsNn7/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Using Adjustment Clips in DaVinci Resolve + Making a Zoom effect",
+    "https://www.youtube.com/watch?v=0GinUSms8Ag"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Rapid Zoom Effect in DaVinci Resolve | Quick & Smooth Camera Punch Tutorial",
+    "https://www.youtube.com/watch?v=_0oioAUtshI"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Master the Impact Shake Effect in DaVinci Resolve for FREE",
+    "https://www.youtube.com/watch?v=Kr-O1l-wudo"
+   ],
+   [
+    "web",
+    "Creative Video Tips",
+    "5 DaVinci Resolve Adjustment Clip Tips",
+    "https://creativevideotips.com/tutorials/davinci-resolve-adjustment-clips"
+   ],
+   [
+    "web",
+    "DaVinci Resolve Club",
+    "How to Zoom in DaVinci Resolve: Dynamic Zoom and Keyframes",
+    "https://davinciresolveclub.com/how-to-zoom-in-davinci-resolve/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "ما لقيت شرح عربي للـ Adjustment Clip مع Punch-in أو Zoom Transition في دافنشي. دا محتوى قصير وسهل يتصور ويجيب مشاهدات.",
+   "en": "No Arabic tutorial on Adjustment Clip punch-ins or zoom transitions in DaVinci turned up. It is short, easy to film content with real demand."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "fusion-nodes",
+  "page": "fusion",
+  "ar": "أساسيات نودز Fusion",
+  "en": "Fusion node basics",
+  "tier": 1,
+  "related": {
+   "ar": "أساسيات النودز في صفحة Color",
+   "en": "Node basics (Color page)"
+  },
+  "what": {
+   "ar": "Fusion يشتغل بالنودز: الصورة تدخل من MediaIn وتمشي في أدوات لحد ما توصل MediaOut. لو فهمت Merge و Background و Transform، تقدر تبني أي تيتل أو مؤثر بنفسك بدل ما تعتمد على قوالب جاهزة.",
+   "en": "Fusion works with nodes: the image enters at MediaIn, flows through tools, and leaves at MediaOut. Once you get Merge, Background and Transform, you can build your own titles and effects instead of relying on templates."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "MediaIn و MediaOut",
+     "en": "MediaIn and MediaOut"
+    },
+    "desc": {
+     "ar": "MediaIn هو الكليب اللي جاي من التايملاين، و MediaOut هو اللي يرجع لصفحة Edit. أي حاجة ما توصل MediaOut ما راح تشوفها في الإيديت.",
+     "en": "MediaIn is the clip coming from your timeline, and MediaOut is what goes back to the Edit page. Anything not connected to MediaOut will not show up in your edit."
+    }
+   },
+   {
+    "name": {
+     "ar": "Merge = طبقتين فوق بعض",
+     "en": "Merge = two layers stacked"
+    },
+    "desc": {
+     "ar": "Merge ياخد صورتين: الإدخال الأصفر هو الخلفية Background، والأخضر هو اللي فوق Foreground، والأزرق ماسك. لو عكستهم يطلع التركيب مقلوب.",
+     "en": "Merge takes two images: the yellow input is the Background, the green one is the Foreground on top, and the blue one is a mask. Swap them and your comp looks upside down."
+    }
+   },
+   {
+    "name": {
+     "ar": "الفيديو يمشي في الأدوات",
+     "en": "Media flows through tools"
+    },
+    "desc": {
+     "ar": "بدل ما تحط المؤثر على الكليب زي الإيديت، هنا الكليب يمشي في سلسلة نودز. اقرا الشجرة من اليسار لليمين وبتفهم أي كومب.",
+     "en": "Instead of placing effects on a clip like in Edit, here the clip travels through a chain of nodes. Read the tree left to right and any comp makes sense."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "في صفحة Edit اختار الكليب وحط البلاي هيد عليه، وبعدين افتح صفحة Fusion من تحت أو اضغط Shift+5. بتلاقي MediaIn1 موصول بـ MediaOut1.",
+    "en": "On the Edit page, select the clip with the playhead on it, then open the Fusion page from the bottom bar or press Shift+5. You will see MediaIn1 connected to MediaOut1."
+   },
+   {
+    "ar": "اختار نود واضغط 1 أو 2 عشان تعرضه في الفيوير اليسار أو اليمين. خلّي MediaOut1 دايمًا في واحد منهم عشان تشوف النتيجة النهائية.",
+    "en": "Select a node and press 1 or 2 to show it in the left or right viewer. Keep MediaOut1 in one of them so you always see the final result."
+   },
+   {
+    "ar": "اضغط Shift+Space عشان يطلع Select Tool، واكتب Text+ وحطه. بعدين اسحب مخرج Text+ على الخط بين MediaIn1 و MediaOut1، و Fusion بيعمل لك Merge تلقائي.",
+    "en": "Press Shift+Space to open Select Tool, type Text+ and add it. Then drag the Text+ output onto the line between MediaIn1 and MediaOut1, and Fusion adds a Merge for you."
+   },
+   {
+    "ar": "زوّد نود Transform بين Text+ و Merge، وفي الـ Inspector حرّك Center و Size. اضغط على الماسة جنب القيمة عشان تحط كي فريم وتعمل حركة.",
+    "en": "Add a Transform node between Text+ and the Merge, then change Center and Size in the Inspector. Click the diamond next to a value to set a keyframe and animate it."
+   },
+   {
+    "ar": "جرّب Background كخلفية لون صافي: حطه بدل MediaIn في إدخال Background حق Merge، وغيّر لونه من الـ Inspector.",
+    "en": "Try a Background node as a solid color: plug it into the Merge's Background input instead of MediaIn and set its color in the Inspector."
+   },
+   {
+    "ar": "رتّب الشجرة: حدد النودز واضغط Ctrl+G عشان تعمل Group، أو كليك يمين واختار Rename. الترتيب دحين يوفّر عليك وقت بعدين.",
+    "en": "Keep the tree tidy: select nodes and press Ctrl+G to group them, or right-click and Rename. Tidy trees save time later."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خد أي كليب عندك وابني بإيدك: MediaIn ثم Text+ ثم Transform ثم Merge ثم MediaOut، وحرّك النص من برا الشاشة لجوا في ثانية وحدة.",
+    "en": "Take any clip and build by hand: MediaIn, Text+, Transform, Merge, MediaOut. Slide the text in from off screen in one second."
+   },
+   "research": {
+    "ar": "افتح ٣ تيتلز جاهزة من Effects في Edit، واضغط أيقونة Fusion عليها وشوف الشجرة من جوا. سجّل في Obsidian إيش النودز اللي تتكرر.",
+    "en": "Open 3 built-in titles from Effects on the Edit page, open them in Fusion and look at their node trees. Note in Obsidian which nodes keep repeating."
+   },
+   "produce": {
+    "ar": "ريل ٢٠ ثانية: \"٤ نودز بس ورا كل مؤثر تشوفه\". الهوك في أول ثانيتين: الشاشة النهائية، وبعدين تفكها نود نود لحد ما يبان لوقو عز ينتج.",
+    "en": "20 s reel: \"Just 4 nodes behind every effect you see.\" Hook in the first 2 seconds: the finished shot, then take it apart node by node until the 3z Prod logo is revealed."
+   },
+   "article": {
+    "ar": "مقال: \"Fusion للي جاي من Edit: خريطة النودز الأساسية\" (MediaIn/MediaOut، Merge، Transform، Background، أخطاء المبتدئين).",
+    "en": "Article: \"Fusion for Edit-page people: the core node map\" (MediaIn/MediaOut, Merge, Transform, Background, beginner mistakes)."
+   }
+  },
+  "trend": {
+   "ar": "شروحات \"Fusion في دقيقة\" وأساسيات النودز منتشرة كريلز قصيرة على تيك توك وإنستقرام، وفيه كورسات ٢٠٢٦ على يوتيوب لسه تنزل لنسخ Resolve 20.",
+   "en": "\"Fusion in 60 seconds\" and node-basics explainers are a common short format on TikTok and Instagram, and 2026 YouTube lessons for Resolve 20 keep coming out."
+  },
+  "refs": [
+   [
+    "tt",
+    "@creatorsergeant",
+    "The fusion page of DaVinci resolve explained in 60 seconds…. almost…",
+    "https://www.tiktok.com/@creatorsergeant/video/7470911991201172742"
+   ],
+   [
+    "tt",
+    "@oleg.illustragent",
+    "DaVinci Resolve Fusion Node Basics - Video Editing",
+    "https://www.tiktok.com/@oleg.illustragent/video/7622265403330268449"
+   ],
+   [
+    "tt",
+    "@kiraeffects",
+    "Snap Nodes to Grid in Fusion - Quick DaVinci Resolve Tip!",
+    "https://www.tiktok.com/@kiraeffects/video/7510345955120631062"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "How to connect your nodes in Fusion inside DaVinci Resolve",
+    "https://www.instagram.com/reel/DT25MJQjjKh/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "The fusion page of DaVinci resolve explained in 60 ...",
+    "https://www.instagram.com/reel/DGA7idHMLvM/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "DaVinci Resolve Fusion MediaIn and MediaOut Nodes",
+    "https://www.youtube.com/watch?v=NJhnl8TETY0"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Learn DaVinci Resolve Fusion - Lesson 4: Merge Node",
+    "https://www.youtube.com/watch?v=vQmjhPUmnm8"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "DaVinci Resolve: Merge Node Basics for Editors | Learn Fusion Easy",
+    "https://www.youtube.com/watch?v=v8fQp3ySDh8"
+   ],
+   [
+    "yt",
+    "YouTube (AR)",
+    "تعلم الفيوجن في دافنشي ريزولف من الصفر للمبتدئين شرح مبسط واحترافي",
+    "https://www.youtube.com/watch?v=eUVb6BM7gGg"
+   ],
+   [
+    "yt",
+    "YouTube (AR)",
+    "شرح أساسيات صفحة الـفيوجن في برنامج دافنشي ريزولف || Fusion Tutorial",
+    "https://www.youtube.com/watch?v=EOFSm3O54Ck"
+   ],
+   [
+    "web",
+    "DaVinci Resolve Club",
+    "DaVinci Resolve Fusion Tutorial for Beginners (2026)",
+    "https://davinciresolveclub.com/davinci-resolve-fusion-tutorial-for-beginners/"
+   ],
+   [
+    "web",
+    "TourBox",
+    "[DaVinci Resolve Tutorial] A Beginner's Guide for Fusion Page",
+    "https://www.tourboxtech.com/en/news/davinci-resolve-fusion.html"
+   ]
+  ],
+  "arGap": {
+   "has": false,
+   "ar": "فيه شروحات عربية لأساسيات Fusion على يوتيوب، بس معظمها طويلة. الفرصة: ريلز قصيرة بلهجة قريبة من الجمهور السعودي.",
+   "en": "Arabic Fusion basics tutorials exist on YouTube, but most are long. The opening is short reels in a dialect close to Saudi viewers."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "screen-replace",
+  "page": "fusion",
+  "ar": "استبدال شاشة بـ Planar Tracker",
+  "en": "Screen replacement with Planar Tracker",
+  "tier": 2,
+  "related": {
+   "ar": "أساسيات نودز Fusion",
+   "en": "Fusion node basics"
+  },
+  "what": {
+   "ar": "Planar Tracker يتتبع سطح مسطح زي شاشة جوال أو لابتوب أو لوحة، وتقدر تحط عليه صورة أو فيديو ثاني يمشي معاه. مفيد للإعلانات وعرض التطبيقات وأي لقطة فيها شاشة.",
+   "en": "The Planar Tracker follows a flat surface like a phone, laptop screen or sign, so you can pin a new image or video onto it. Great for ads, app demos and any shot with a screen in it."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "صوّر للتراكر",
+     "en": "Shoot for the tracker"
+    },
+    "desc": {
+     "ar": "شاشة فيها تفاصيل أو علامات في الزوايا تتتبع أحسن من شاشة سودا صافية. خلّي الحركة ناعمة وخفف الموشن بلر.",
+     "en": "A screen with some detail or corner markers tracks better than a plain black one. Keep the move smooth and avoid heavy motion blur."
+    }
+   },
+   {
+    "name": {
+     "ar": "Reference Time و Perspective",
+     "en": "Reference Time and Perspective"
+    },
+    "desc": {
+     "ar": "اختار فريم الشاشة فيه واضحة واضغط Set. خلّي Motion Type على Perspective عشان التراكر يفهم الميلان.",
+     "en": "Pick a frame where the screen is clear and press Set. Keep Motion Type on Perspective so the tracker understands the tilt."
+    }
+   },
+   {
+    "name": {
+     "ar": "Corner Pin",
+     "en": "Corner Pin"
+    },
+    "desc": {
+     "ar": "بعد التراك غيّر Operation Mode لـ Corner Pin، وصّل الصورة الجديدة بالإدخال الأخضر، وظبّط الأربع زوايا على حواف الشاشة.",
+     "en": "After tracking, switch Operation Mode to Corner Pin, connect the new image to the green input, and snap the four corners to the screen edges."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "حط الكليب في التايملاين وخلّي المحتوى الجديد (سكرين ريكورد أو صورة) في الـ Media Pool. افتح صفحة Fusion على الكليب.",
+    "en": "Put the clip on the timeline and have the new content (screen recording or image) in the Media Pool. Open the Fusion page on the clip."
+   },
+   {
+    "ar": "اضغط Shift+Space وضيف PlanarTracker بين MediaIn1 و MediaOut1. روح لفريم الشاشة فيه واضحة واضغط Set جنب Reference Time.",
+    "en": "Press Shift+Space and add a PlanarTracker between MediaIn1 and MediaOut1. Go to a frame where the screen is clear and press Set next to Reference Time."
+   },
+   {
+    "ar": "في الفيوير اعمل كليكات حول الشاشة لحد ما تقفل الشكل. خلّي Tracker على Hybrid Point/Area و Motion Type على Perspective، واضغط Track to End (وبعدين Track to Start لو بديت من النص).",
+    "en": "In the viewer, click around the screen until the shape closes. Set Tracker to Hybrid Point/Area and Motion Type to Perspective, then press Track to End (and Track to Start if you began mid-clip)."
+   },
+   {
+    "ar": "اسحب المحتوى الجديد من الـ Media Pool لشجرة النودز عشان يصير MediaIn2، ووصّله بالإدخال الأخضر Corner Pin حق PlanarTracker.",
+    "en": "Drag the new content from the Media Pool into the node tree to create MediaIn2, and connect it to the PlanarTracker's green Corner Pin input."
+   },
+   {
+    "ar": "غيّر Operation Mode لـ Corner Pin، وعلى فريم الـ Reference اسحب الأربع زوايا على حواف الشاشة بالظبط.",
+    "en": "Switch Operation Mode to Corner Pin, and on the reference frame drag the four corners exactly onto the screen edges."
+   },
+   {
+    "ar": "عشان يطلع طبيعي: زوّد Blur خفيف أو Color Corrector على MediaIn2 عشان يطابق الإضاءة. ولو فيه صبع يعدي فوق الشاشة، استخدم Magic Mask كماسك.",
+    "en": "To sell it: add a light Blur or Color Corrector on MediaIn2 to match the lighting. If a finger passes over the screen, use a Magic Mask as a matte."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "صوّر جوالك ١٠ ثواني وأنت تحركه بهدوء، وحط عليه سكرين ريكورد لقناتك. كرر مرة بشاشة لابتوب.",
+    "en": "Film your phone for 10 seconds while moving it gently and pin a screen recording of your channel onto it. Repeat with a laptop screen."
+   },
+   "research": {
+    "ar": "حلل ٣ إعلانات تطبيقات فيها شاشة جوال: إيش زاوية التصوير؟ فيه صبع يغطي الشاشة؟ كيف طابقوا الإضاءة؟ دوّن الملاحظات في Obsidian.",
+    "en": "Break down 3 app ads with a phone screen: camera angle, fingers over the screen, how the lighting was matched. Log notes in Obsidian."
+   },
+   "produce": {
+    "ar": "ريل ٢٠ ثانية: \"جوالي يعرف مزاجي\". الهوك في أول ثانيتين: الشاشة تتغير لحالها كل ما تتغير تعابير وجهك.",
+    "en": "20 s reel: \"My phone reads my mood.\" Hook in the first 2 seconds: the screen changes by itself every time your face changes."
+   },
+   "article": {
+    "ar": "مقال: \"استبدال شاشة الجوال في DaVinci Resolve خطوة بخطوة\" (التصوير، Planar Tracker، Corner Pin، مطابقة الإضاءة، الأخطاء الشائعة).",
+    "en": "Article: \"Replace a phone screen in DaVinci Resolve, step by step\" (shooting, Planar Tracker, Corner Pin, matching light, common mistakes)."
+   }
+  },
+  "trend": {
+   "ar": "ريلز وتيك توكات عن Planar Tracker واستبدال الشاشة لسه تنزل في ٢٠٢٥ و٢٠٢٦، والأداة موجودة في النسخة المجانية من Resolve.",
+   "en": "Planar Tracker and screen replacement reels and TikToks keep appearing through 2025 and 2026, and the tool is in the free version of Resolve."
+  },
+  "refs": [
+   [
+    "tt",
+    "@wbynan",
+    "Screen replacement in DaVinci Resolve",
+    "https://www.tiktok.com/@wbynan/video/7493559481842896170"
+   ],
+   [
+    "tt",
+    "@pepefilmmaker",
+    "Cómo usar el Planar Tracker en DaVinci Resolve",
+    "https://www.tiktok.com/@pepefilmmaker/video/7596078241346030866"
+   ],
+   [
+    "tt",
+    "@shimmy_shimmmm",
+    "DAY 9: How to MOTION TRACK Objects on DaVinci Resolve!",
+    "https://www.tiktok.com/@shimmy_shimmmm/video/7387635683659222303"
+   ],
+   [
+    "ig",
+    "@tommaso.lodde",
+    "The Planar Tracker effect in DaVinci Resolve's Fusion tab ...",
+    "https://www.instagram.com/reel/DB9ATtCogwX/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "Planar tracking tool in DaVinci resolve fusion tab tutorial.",
+    "https://www.instagram.com/reel/DVUbZSJD2Tu/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "How to use the planar tracker inside of DaVinci Resolve ...",
+    "https://www.instagram.com/p/DQlhpvvjSF7/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Screen Replacement with FUSION Planar Tracker - Davinci Resolve 18.5 TUTORIAL",
+    "https://www.youtube.com/watch?v=FvzlVK1IaU0"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Master Screen Replacements in DaVinci Resolve (Planar Tracker)",
+    "https://www.youtube.com/watch?v=fb6NN0FDV6o"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "The EASIEST Way to REPLACE A SCREEN in DaVinci Resolve 18 | Planar Tracker Tutorial",
+    "https://www.youtube.com/watch?v=ugUYBgf-11c"
+   ],
+   [
+    "web",
+    "Boris FX",
+    "How to Use Planar Tracker in DaVinci Resolve",
+    "https://borisfx.com/blog/how-to-use-planar-tracker-in-davinci-resolve/"
+   ],
+   [
+    "web",
+    "Mixing Light",
+    "Planar Tracking Fundamentals in DaVinci Resolve Fusion",
+    "https://mixinglight.com/color-grading-tutorials/planar-tracking-101-davinci-resolve-fusion/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "ما لقيت شرح عربي واضح لاستبدال الشاشة بـ Planar Tracker في Fusion. فرصة حلوة لريل وشرح كامل بالعربي.",
+   "en": "No clear Arabic tutorial on Planar Tracker screen replacement in Fusion was found. A good opening for a reel plus a full Arabic walkthrough."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "follower-titles",
+  "page": "fusion",
+  "ar": "تيتلز متحركة بـ Text+ و Follower",
+  "en": "Animated titles with Text+ and Follower",
+  "tier": 2,
+  "related": {
+   "ar": "النص ورا الشخص (tbs)",
+   "en": "Text behind subject (tbs)"
+  },
+  "what": {
+   "ar": "Follower هو Modifier على Text+ يخلّي كل حرف أو كلمة تتحرك ورا اللي قبلها بتأخير. تعمل الحركة مرة وحدة وهو يوزعها على النص كله، بدل ما تحط كي فريم لكل كلمة.",
+   "en": "Follower is a modifier on Text+ that makes each character or word animate after the previous one with a delay. You animate once and it spreads the move across the whole text, instead of keyframing every word."
+  },
+  "ideasTitle": {
+   "ar": "٣ أنواع",
+   "en": "3 types"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "كلمة كلمة (Fade)",
+     "en": "Word by word fade"
+    },
+    "desc": {
+     "ar": "كل كلمة تظهر بـ Opacity من ٠. أنسب للعربي لأنه يحافظ على اتصال الحروف، وممتاز للبودكاست والتوكينق هيد.",
+     "en": "Each word fades in from 0 opacity. Best for Arabic because letters stay connected, and great for podcasts and talking heads."
+    }
+   },
+   {
+    "name": {
+     "ar": "نطّة (Bounce)",
+     "en": "Bounce in"
+    },
+    "desc": {
+     "ar": "الكلمة تدخل من تحت بـ Offset وتنط شوية. السر في الـ Spline: خلّي الكيرف Ease Out Back.",
+     "en": "Words rise from below with Offset and overshoot a little. The secret is in the Spline editor: use an Ease Out Back curve."
+    }
+   },
+   {
+    "name": {
+     "ar": "حرف حرف (إنجليزي)",
+     "en": "Letter by letter (Latin)"
+    },
+    "desc": {
+     "ar": "كل حرف يكبر أو يدور لحاله. يشتغل حلو مع الإنجليزي، بس في العربي ممكن يقطّع الحروف فجرّب قبل.",
+     "en": "Each letter scales or rotates on its own. Looks great with Latin text, but in Arabic it can break letter joins, so test first."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "في Fusion ضيف Text+ (Shift+Space) واكتب النص، ووصّله بـ Merge فوق MediaIn1. لو عربي، تأكد إن الاتجاه صح من إعدادات Layout.",
+    "en": "In Fusion, add a Text+ (Shift+Space), type your text, and merge it over MediaIn1. For Arabic, check the text direction in the Layout settings."
+   },
+   {
+    "ar": "في الـ Inspector كليك يمين على خانة النص Styled Text واختار Follower. بيظهر في تبويب Modifiers.",
+    "en": "In the Inspector, right-click the Styled Text box and choose Follower. It now shows up in the Modifiers tab."
+   },
+   {
+    "ar": "في Modifiers افتح إعدادات Transform حق الـ Follower وغيّر Characters لـ Words لو تبغى كلمة كلمة.",
+    "en": "In Modifiers, open the Follower's Transform settings and switch Characters to Words if you want word by word."
+   },
+   {
+    "ar": "على الفريم الأول حط Opacity على ٠ (أو Offset لتحت) واضغط الماسة. روح ٢٠ فريم قدام ورجّعها ١ (أو Offset ٠).",
+    "en": "On the first frame set Opacity to 0 (or Offset down) and click the diamond. Move 20 frames ahead and set it back to 1 (or Offset 0)."
+   },
+   {
+    "ar": "في إعدادات التوقيت حق الـ Follower ارفع Delay شوية عشان كل كلمة تتأخر عن اللي قبلها، واختار Order: Right to Left للعربي.",
+    "en": "In the Follower timing settings raise Delay a bit so each word lags the one before, and set Order to Right to Left for Arabic."
+   },
+   {
+    "ar": "افتح Spline Editor، حدد الكي فريمز واختار ease عشان الحركة تنعم. احفظ الكومب كـ Macro أو Setting عشان تعيد استخدامه.",
+    "en": "Open the Spline Editor, select the keyframes and add easing so the move feels smooth. Save the comp as a Macro or Setting to reuse it."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "اعمل نفس الجملة بالعربي والإنجليزي: مرة Characters ومرة Words، وقارن أيهم يطلع أنظف في العربي.",
+    "en": "Animate the same sentence in Arabic and English: once by Characters, once by Words, and compare which looks cleaner in Arabic."
+   },
+   "research": {
+    "ar": "جمّع ٥ ريلز بودكاست عربية فيها نص متحرك. إيش السرعة؟ كم كلمة في السطر؟ وين مكان النص؟ اكتب ملاحظاتك في Obsidian.",
+    "en": "Collect 5 Arabic podcast reels with animated text. Note the speed, words per line, and text placement in Obsidian."
+   },
+   "produce": {
+    "ar": "ريل ١٥ ثانية: مثل شعبي سعودي يطلع كلمة كلمة على لقطة سينمائية. الهوك في أول ثانيتين: أول كلمة تنط بقوة مع صوت ضربة.",
+    "en": "15 s reel: a Saudi proverb that appears word by word over a cinematic shot. Hook in the first 2 seconds: the first word slams in with a hit sound."
+   },
+   "article": {
+    "ar": "مقال: \"نص عربي متحرك في DaVinci Resolve بدون مشاكل\" (Text+، Follower، اتجاه النص، كلمة كلمة ضد حرف حرف، حفظ كـ Macro).",
+    "en": "Article: \"Animated Arabic text in DaVinci Resolve without the headaches\" (Text+, Follower, text direction, words vs characters, saving as a Macro)."
+   }
+  },
+  "trend": {
+   "ar": "النص اللي يطلع كلمة كلمة منتشر في ريلز التوكينق هيد والبودكاست لأنه يمسك المشاهد، وفيه شروحات Follower كثير على تيك توك وإنستقرام ويوتيوب لحد Resolve 20.2.",
+   "en": "Word-by-word text is everywhere in talking-head and podcast reels because it holds attention, and Follower tutorials are all over TikTok, Instagram and YouTube up to Resolve 20.2."
+  },
+  "refs": [
+   [
+    "tt",
+    "@wbynan",
+    "Word by Word text animation in DaVinci Resolve",
+    "https://www.tiktok.com/@wbynan/video/7428632149995081002"
+   ],
+   [
+    "tt",
+    "@justdodani",
+    "DaVinci Resolve: Stop Keyframing Text - Auto Animation",
+    "https://www.tiktok.com/@justdodani/video/7627199821148900630"
+   ],
+   [
+    "tt",
+    "@creatorsergeant",
+    "How to do was text animations in DaVinci resolve for beginners.",
+    "https://www.tiktok.com/@creatorsergeant/video/7391592261273898245"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "How To Use The Follower Modifier In Davinci Resolve",
+    "https://www.instagram.com/reel/C_XWzE0OrGB/"
+   ],
+   [
+    "ig",
+    "@davinciresolved",
+    "Word by word text animation in ...",
+    "https://www.instagram.com/reel/DBbox48PGts/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "Word-by-Word Text effect in Davinci Resolve (Fusion tab).",
+    "https://www.instagram.com/reel/DSr4_0riaog/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "How to Make Animated Text in Fusion - Follower Modifier in Fusion for Beginners!",
+    "https://www.youtube.com/watch?v=UjI42tBiLVQ"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "The Most POWERFUL Text Tool in DaVinci Resolve - Follower Modifier",
+    "https://www.youtube.com/watch?v=MzBhzMoUc4s"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Master Kinetic Typography in DaVinci Resolve | Follower Modifier Tutorial",
+    "https://www.youtube.com/watch?v=IpRWJf1-Yzk"
+   ],
+   [
+    "yt",
+    "YouTube (AR)",
+    "كيف تجعل النص يكتب أثناء الكلام في دافينشي ريزولف | وحل مشكلة الكتابة باللغة العربية في فيوجن",
+    "https://www.youtube.com/watch?v=BSdjFZtJ2Vc"
+   ],
+   [
+    "web",
+    "Blackmagic Forum",
+    "Using Follower in Fusion",
+    "https://forum.blackmagicdesign.com/viewtopic.php?f=22&t=177057"
+   ],
+   [
+    "web",
+    "Blackmagic Forum",
+    "Right-to-Left text direction in titles",
+    "https://forum.blackmagicdesign.com/viewtopic.php?f=21&t=142463"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "فيه شروحات عربية عن الكتابة بالعربي في Fusion، بس ما لقيت شرح عربي للـ Follower نفسه. فرصة: Follower بالعربي كلمة كلمة ومن اليمين لليسار.",
+   "en": "There are Arabic tutorials on typing Arabic in Fusion, but none found on the Follower modifier itself. Opening: Follower for Arabic, word by word, right to left."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "cst-log-workflow",
+  "page": "color",
+  "ar": "تحويل اللوق بـ CST وتلوين في DaVinci Wide Gamut",
+  "en": "Log to Rec.709 with CST in DaVinci Wide Gamut",
+  "tier": 2,
+  "related": {
+   "ar": "أساسيات النودز",
+   "en": "Node basics"
+  },
+  "what": {
+   "ar": "بدل ما تحط LUT جاهز على لقطات اللوق، تحول الكاميرا لمساحة DaVinci Wide Gamut بنود CST، تلون في النص، وبعدين ترجع Rec.709 في آخر نود. كده الهايلايت والظلال ما تنكسر والتلوين يمشي على أي كاميرا.",
+   "en": "Instead of slapping a LUT on log footage, you convert the camera into DaVinci Wide Gamut with a CST node, grade in the middle, then go back to Rec.709 in the last node. Highlights and shadows hold up, and the same setup works for any camera."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "اعرف مدخل كاميرتك بالضبط",
+     "en": "Know your exact input"
+    },
+    "desc": {
+     "ar": "كل كاميرا لها Color Space و Gamma. مثلا Apple Log يعني Rec.2020 مع Apple Log، و Sony يعني S-Gamut3.Cine مع S-Log3. لو غلطت هنا كل التلوين بعده يطلع غلط.",
+     "en": "Every camera has a color space and a gamma. Apple Log is Rec.2020 plus Apple Log, Sony is S-Gamut3.Cine plus S-Log3. Get this wrong and everything after it is off."
+    }
+   },
+   {
+    "name": {
+     "ar": "ساندويتش النودز",
+     "en": "The node sandwich"
+    },
+    "desc": {
+     "ar": "أول نود CST يدخل للـ DaVinci Wide Gamut، وآخر نود CST يطلع Rec.709. كل التلوين حقك يكون بينهم، عشان الأدوات تتصرف زي تعديل الإكسبوجر في الكاميرا.",
+     "en": "First CST node goes into DaVinci Wide Gamut, last CST node goes out to Rec.709. All your grading sits between them, so controls behave like changing exposure in camera."
+    }
+   },
+   {
+    "name": {
+     "ar": "Tone Mapping في نود الخروج",
+     "en": "Tone mapping on the output"
+    },
+    "desc": {
+     "ar": "في آخر CST شغل Tone Mapping Method على DaVinci و Gamut Mapping على Saturation Compression. دا اللي يخلي السماء والإضاءات القوية تنزل ناعمة بدل ما تتقص.",
+     "en": "On the last CST set Tone Mapping Method to DaVinci and Gamut Mapping to Saturation Compression. That rolls off bright skies and lights softly instead of clipping them."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "افتح Project Settings (الترس تحت يمين أو Shift+9) ثم Color Management، خلي Color science على DaVinci YRGB، و Timeline color space على DaVinci WG/Intermediate، و Output color space على Rec.709 Gamma 2.4.",
+    "en": "Open Project Settings (gear icon bottom right or Shift+9) > Color Management. Set Color science to DaVinci YRGB, Timeline color space to DaVinci WG/Intermediate, and Output color space to Rec.709 Gamma 2.4."
+   },
+   {
+    "ar": "في صفحة Color افتح Effects، ومن Resolve FX Color اسحب Color Space Transform على أول نود.",
+    "en": "On the Color page open Effects, and from Resolve FX Color drag Color Space Transform onto the first node."
+   },
+   {
+    "ar": "في النود الأول حط Input Color Space و Input Gamma حسب كاميرتك (مثلا Rec.2020 و Apple Log)، و Output Color Space على DaVinci Wide Gamut و Output Gamma على DaVinci Intermediate.",
+    "en": "In node 1 set Input Color Space and Input Gamma to your camera (for example Rec.2020 and Apple Log), then Output Color Space to DaVinci Wide Gamut and Output Gamma to DaVinci Intermediate."
+   },
+   {
+    "ar": "زود نودز للتلوين بـ Alt+S (أو Option+S على الماك)، وبعدين حط آخر نود CST: المدخل DaVinci Wide Gamut / DaVinci Intermediate، والمخرج Rec.709 / Gamma 2.4.",
+    "en": "Add grading nodes with Alt+S (Option+S on Mac), then add a final CST node: input DaVinci Wide Gamut / DaVinci Intermediate, output Rec.709 / Gamma 2.4."
+   },
+   {
+    "ar": "في آخر CST اختار Tone Mapping Method: DaVinci و Gamut Mapping Method: Saturation Compression، وبعدين لون بين النودين وشيك على الـ Scopes.",
+    "en": "On the last CST choose Tone Mapping Method: DaVinci and Gamut Mapping Method: Saturation Compression, then grade between the two and check your Scopes."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "صور لقطة لوق فيها سماء أو شباك منور، وقارن بين LUT جاهز وبين ساندويتش CST، وشوف أي واحد يحافظ على الهايلايت.",
+    "en": "Shoot a log clip with a bright sky or window, then compare a stock LUT against the CST sandwich and see which one keeps the highlights."
+   },
+   "research": {
+    "ar": "اختار ٣ فيديوهات لوق من صناع محتوى تحبهم، واكتب في Obsidian إيش الكاميرا وإيش الإعدادات اللي استخدموها للـ CST.",
+    "en": "Pick 3 log videos from creators you like and note in Obsidian which camera and which CST settings they used."
+   },
+   "produce": {
+    "ar": "ريل ٢٠ ثانية: أول ثانيتين لقطة لوق باهتة مع نص «ليه فيديو الآيفون حقك رمادي؟»، وبعدين تقلب على النسخة الملونة وتوري الإعدادات بسرعة.",
+    "en": "A 20 s reel: the first 2 seconds show a flat log clip with the text 'Why is your iPhone video grey?', then flip to the graded version and flash the settings."
+   },
+   "article": {
+    "ar": "مقال بعنوان «ودع الـ LUT: كيف تحول لوق الجوال والكاميرا صح في دافنشي»، يشرح المدخل والمخرج وساندويتش النودز مع جدول إعدادات لأشهر الكاميرات.",
+    "en": "Article titled 'Ditch the LUT: converting phone and camera log the right way in DaVinci', covering input, output, the node sandwich and a settings table for popular cameras."
+   }
+  },
+  "trend": {
+   "ar": "Apple Log صار موجود في جوالات آيفون Pro، وفيه كثير فيديوهات تيك توك وريلز دحين تشرح تحويله بـ CST بدل الـ LUT، خصوصا مع DaVinci Resolve 20.",
+   "en": "Apple Log is now on iPhone Pro models, and many TikToks and reels now show converting it with CST instead of a LUT, including in DaVinci Resolve 20."
+  },
+  "refs": [
+   [
+    "tt",
+    "@tonyatpham",
+    "Did you know about this trick? The colour space transform tool is one of the most important methods...",
+    "https://www.tiktok.com/@tonyatpham/video/7480683891351735570"
+   ],
+   [
+    "tt",
+    "@zactrieu",
+    "DaVinci Resolve: How to Convert S-LOG 3 into Rec.709 using Color Space Transform",
+    "https://www.tiktok.com/@zactrieu/video/7469663206454316334"
+   ],
+   [
+    "tt",
+    "@stork.street",
+    "Here's one way to grade your Apple Log footage in DaVinci Resolve Studio 20 using Color Space Transform (CST)",
+    "https://www.tiktok.com/@stork.street/video/7540666438596545800"
+   ],
+   [
+    "tt",
+    "@onhelo_visual",
+    "Many of you have asked me how to color-grade Apple ProRes Log footage",
+    "https://www.tiktok.com/@onhelo_visual/video/7453149560760896770"
+   ],
+   [
+    "ig",
+    "@zac_trieu",
+    "DaVinci Resolve: How to Convert S-LOG 3 into Rec.709 using Color Space Transform",
+    "https://www.instagram.com/reel/DF4N9sbOZRy/"
+   ],
+   [
+    "ig",
+    "@panos.agamemnos",
+    "Learn how to quickly and effectively convert Apple Log...",
+    "https://www.instagram.com/panos.agamemnos/reel/DFXSg3EMXuE/"
+   ],
+   [
+    "ig",
+    "@danyuld",
+    "Sony A7SIII Slog3 to Rec709 in DaVinci Resolve",
+    "https://www.instagram.com/danyuld/reel/C6WwLWpuWUO/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "COMPLETE Tutorial for Davinci Wide Gamut | DaVinci Resolve Tutorial",
+    "https://www.youtube.com/watch?v=4x7xnrRa1Ro"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Color Space Transform: DaVinci Resolve Quick Guide",
+    "https://www.youtube.com/watch?v=CWDFOnJEtfc"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Mastering Color Management in DaVinci Resolve: Input, Working, and Output Color Spaces Explained",
+    "https://www.youtube.com/watch?v=60_X5F3eltY"
+   ],
+   [
+    "web",
+    "Frame.io Insider",
+    "How to Color Manage using Nodes in DaVinci Resolve",
+    "https://blog.frame.io/2024/01/08/color-management-nodes-davinci-resolve/"
+   ],
+   [
+    "web",
+    "Frame.io Insider",
+    "Should You Use Resolve Color Management or CSTs?",
+    "https://blog.frame.io/2024/10/07/should-you-use-resolve-color-management-or-color-space-transforms-csts/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "لقيت كورسات عربية عامة عن صفحة Color، بس ما لقيت شرح عربي قصير ومركز على CST وتحويل Apple Log أو S-Log3. دي فرصة لريل عربي بلهجة قريبة.",
+   "en": "I found general Arabic courses on the Color page, but no short Arabic tutorial focused on CST and converting Apple Log or S-Log3. That's an open spot for an Arabic reel."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "face-relight-window-track",
+  "page": "color",
+  "ar": "إضاءة الوجه بـ Power Window و Tracker",
+  "en": "Relight a face with Power Windows and tracking",
+  "tier": 2,
+  "related": {
+   "ar": "ماسك وبلور للخلفية (Power Window + Blur)",
+   "en": "Mask + background blur (Power Window + Blur)"
+  },
+  "what": {
+   "ar": "ترسم Power Window ناعمة على الوجه، ترفع الإضاءة شوية، وتخلي الـ Tracker يلحق الوجه. كده العين تروح للشخص على طول، حتى لو التصوير كان بإضاءة الغرفة بس.",
+   "en": "You draw a soft Power Window on the face, lift it a little, and let the Tracker follow it. The eye goes straight to the person, even if you shot with plain room light."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "النعومة أهم من الشكل",
+     "en": "Softness beats shape"
+    },
+    "desc": {
+     "ar": "استخدم Circle بيضاوي وارفع Soft 1 كثير. لو الناس شافوا حدود الماسك يعني الإضاءة فضحتك.",
+     "en": "Use an oval Circle window and push Soft 1 high. If viewers can see the edge, the relight gives itself away."
+    }
+   },
+   {
+    "name": {
+     "ar": "حدد جهة النور",
+     "en": "Pick a light direction"
+    },
+    "desc": {
+     "ar": "زح الـ Window شوية على جهة مصدر النور الحقيقي، أو استخدم Linear window من الجنب. كده الإضاءة تحس إنها جاية من شباك مو من البرنامج.",
+     "en": "Shift the window toward the real light source, or use a Linear window from the side. It then feels like light from a window, not from software."
+    }
+   },
+   {
+    "name": {
+     "ar": "Outside Node للخلفية",
+     "en": "Outside Node for the background"
+    },
+    "desc": {
+     "ar": "بعد ما تفتح الوجه، اعمل Add Outside Node وانزل الخلفية نص ستوب. التباين بين الاثنين هو اللي يعطي الإحساس السينمائي.",
+     "en": "After lifting the face, use Add Outside Node and drop the background by about half a stop. The contrast between the two is what feels cinematic."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "في صفحة Color اختار الكليب واعمل نود جديد بـ Alt+S (Option+S على الماك)، وسمه Face من Node Label.",
+    "en": "On the Color page select the clip and add a serial node with Alt+S (Option+S on Mac), then label it Face with Node Label."
+   },
+   {
+    "ar": "افتح الـ Window palette واختار Circle، شكله بيضاوي على الوجه، وارفع Soft 1 لحد ما الحدود تختفي.",
+    "en": "Open the Window palette, choose Circle, shape it as an oval over the face, and raise Soft 1 until the edge disappears."
+   },
+   {
+    "ar": "من Primaries ارفع Gamma أو Gain شوية بس، وشيك على الجلد في الـ Waveform عشان ما يحترق.",
+    "en": "In Primaries lift Gamma or Gain just a little, and watch the skin on the Waveform so it doesn't blow out."
+   },
+   {
+    "ar": "افتح الـ Tracker palette، خلي Pan و Tilt و Zoom و Rotate و 3D شغالين، واضغط Track Forward and Reverse (أو Ctrl+T للأمام).",
+    "en": "Open the Tracker palette, keep Pan, Tilt, Zoom, Rotate and 3D on, and click Track Forward and Reverse (or Ctrl+T to track forward)."
+   },
+   {
+    "ar": "لو التراك فلت في لقطة، روح Frame mode في الـ Tracker وعدل مكان الـ Window بيدك في الفريمات اللي خربت.",
+    "en": "If the track slips, switch the Tracker to Frame mode and nudge the window by hand on the bad frames."
+   },
+   {
+    "ar": "اضغط يمين على النود واختار Add Outside Node (أو Alt+O)، ونزل الخلفية شوية من Gain أو Offset.",
+    "en": "Right-click the node and choose Add Outside Node (or Alt+O), then darken the background a little with Gain or Offset."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "صور نفسك تتكلم للكاميرا بإضاءة الغرفة العادية، وطبق Window على الوجه مع Outside Node، وقارن قبل وبعد.",
+    "en": "Film yourself talking to camera with normal room light, apply a face window plus an Outside Node, and compare before and after."
+   },
+   "research": {
+    "ar": "حلل ٣ مشاهد بودكاست أو مقابلات عربية معروفة، واكتب في Obsidian من وين جاي النور على الوجه وكم الفرق بين الوجه والخلفية.",
+    "en": "Break down 3 well-known Arabic podcast or interview shots and note in Obsidian where the face light comes from and how much brighter the face is than the background."
+   },
+   "produce": {
+    "ar": "ريل ١٥ ثانية: أول ثانيتين «صورت في غرفة نومي؟» بلقطة باهتة، وبعدين سويب للنسخة المضاءة مع نص «Power Window واحد بس».",
+    "en": "A 15 s reel: first 2 seconds 'Shot this in my bedroom?' on the flat clip, then a swipe to the relit version with the text 'Just one Power Window'."
+   },
+   "article": {
+    "ar": "مقال بعنوان «إضاءة ثانية بعد التصوير: كيف تنور الوجه في دافنشي بدون ما يبان»، مع صور قبل وبعد وقائمة أخطاء شائعة.",
+    "en": "Article titled 'A second light in post: brighten faces in DaVinci without it showing', with before/after frames and a list of common mistakes."
+   }
+  },
+  "trend": {
+   "ar": "فيه موجة ريلز وتيك توك عن إعادة الإضاءة بعد التصوير، سواء بـ Power Windows أو بأداة Relight في Resolve 20. الـ Power Window والتراكر شغالين في النسخة المجانية.",
+   "en": "There's a wave of reels and TikToks about relighting after the shoot, with Power Windows or the Relight tool in Resolve 20. Power Windows and the Tracker work in the free version."
+  },
+  "refs": [
+   [
+    "tt",
+    "@aparicio.co",
+    "Using POWER WINDOWS in Davinci Resolve!",
+    "https://www.tiktok.com/@aparicio.co/video/7475843863379315999"
+   ],
+   [
+    "tt",
+    "@gwinmose_picture",
+    "Mastering Power Windows in DaVinci Resolve",
+    "https://www.tiktok.com/@gwinmose_picture/video/7571734956150459656"
+   ],
+   [
+    "tt",
+    "@meliorstudios",
+    "Power Window Masking in DaVinci Resolve for Color ...",
+    "https://www.tiktok.com/@meliorstudios/video/7627112919112879362"
+   ],
+   [
+    "tt",
+    "@hueexplorer",
+    "This is the power of the Magic Mask and Relight tools combined in DaVinci Resolve 18.5",
+    "https://www.tiktok.com/@hueexplorer/video/7260136268955127046"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "How to use Power Windows in DaVinci Resolve with The ...",
+    "https://www.instagram.com/reel/DMYNXhAyiZ-/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "Power Windows in DaVinci Resolve – So hebst du deine ...",
+    "https://www.instagram.com/reel/DMNgYw4Mhpz/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "How to relight your subjects in post in Davinci Resolve 20",
+    "https://www.instagram.com/reel/DUGJ3NbDDzf/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Relight With Power Windows In DaVinci Resolve",
+    "https://www.youtube.com/watch?v=9xKVxZO7Koc"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "DaVinci Resolve Power Windows and Tracking in 3 Minutes",
+    "https://www.youtube.com/watch?v=TKRBoK70Y7w"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "DaVinci Resolve Power Windows - The Secret to Crafting Dynamic Scenes",
+    "https://www.youtube.com/watch?v=BqsKAV9aZss"
+   ],
+   [
+    "web",
+    "Mixing Light",
+    "Tracking Power Windows: Tips and Tricks in DaVinci Resolve",
+    "https://mixinglight.com/color-grading-tutorials/tracking-techniques/"
+   ],
+   [
+    "web",
+    "Cutsio",
+    "How to use power windows and the tracker in DaVinci Resolve Color page",
+    "https://cutsio.com/blog/davinci-resolve-power-windows-tracker-color-page"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "ما لقيت شرح عربي عن إضاءة الوجه بـ Power Window و Tracker. الموجود كورسات عامة بس، فدي فرصة واضحة.",
+   "en": "I found no Arabic tutorial on relighting a face with a Power Window and the Tracker, only general courses. Clear opportunity."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "shared-nodes-powergrades",
+  "page": "color",
+  "ar": "لوك ثابت بـ Shared Nodes و PowerGrades",
+  "en": "Reusable looks with Shared Nodes and PowerGrades",
+  "tier": 2,
+  "related": {
+   "ar": "أساسيات النودز",
+   "en": "Node basics"
+  },
+  "what": {
+   "ar": "تبني لوك 3z Prod مرة وحدة وتحفظه، وتطبقه على كل كليب وكل مشروع بضغطة. Shared Node يعدل كل الكليبات مرة وحدة، و PowerGrade يمشي معاك في كل المشاريع.",
+   "en": "Build your 3z Prod look once, save it, and apply it to every clip and project in one click. A Shared Node updates all clips at once, and a PowerGrade follows you into every project."
+  },
+  "ideasTitle": {
+   "ar": "٣ أنواع",
+   "en": "3 types"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "Shared Node",
+     "en": "Shared Node"
+    },
+    "desc": {
+     "ar": "نود واحد مربوط في كذا كليب داخل نفس المشروع. تعدل فيه مرة، يتعدل في الكل على طول. ممتاز للوك العام أو لتصحيح كاميرا.",
+     "en": "One node linked across many clips in the same project. Change it once and every clip updates. Great for the overall look or a camera fix."
+    }
+   },
+   {
+    "name": {
+     "ar": "PowerGrade",
+     "en": "PowerGrade"
+    },
+    "desc": {
+     "ar": "شجرة نودز كاملة محفوظة في الـ Gallery ومتاحة في كل مشاريعك. عكس الـ LUT، كل نود يفضل قابل للتعديل.",
+     "en": "A full node tree saved in the Gallery and available in all your projects. Unlike a LUT, every node stays editable."
+    }
+   },
+   {
+    "name": {
+     "ar": "ملف DRX",
+     "en": "DRX file"
+    },
+    "desc": {
+     "ar": "تصدر الـ Still كملف .drx وتشاركه مع مونتير ثاني أو تبيعه. هو نفس الشي اللي تشتريه لما تشتري PowerGrade جاهز.",
+     "en": "Export a still as a .drx file to share with another editor or sell. It's the same thing you get when you buy a ready-made PowerGrade."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "لون كليب أساسي وخلي اللوك في نود لحاله، وسمه من Node Label مثلا 3z Look.",
+    "en": "Grade a hero clip and keep the look in its own node, labeled with Node Label, for example 3z Look."
+   },
+   {
+    "ar": "اضغط يمين على النود واختار Save as Shared Node. بيتقفل تلقائي، ولو تبغى تعدل فيه شيل Lock Node من نفس القائمة.",
+    "en": "Right-click the node and choose Save as Shared Node. It gets locked by default; untick Lock Node in the same menu to edit it."
+   },
+   {
+    "ar": "على باقي الكليبات اضغط يمين في الـ Node Editor وحط النود من قائمة Add Node، أو حدد الكليبات واضغط Middle-click على الكليب الأساسي عشان تنسخ الجريد كله.",
+    "en": "On other clips right-click in the Node Editor and add it from the Add Node menu, or select the clips and middle-click the hero clip thumbnail to copy its whole grade."
+   },
+   {
+    "ar": "اضغط يمين على الـ Viewer واختار Grab Still (أو Ctrl+Alt+G)، وافتح Gallery.",
+    "en": "Right-click the Viewer and choose Grab Still (or Ctrl+Alt+G / Cmd+Option+G), then open the Gallery."
+   },
+   {
+    "ar": "افتح قائمة الألبومات في الـ Gallery، اضغط يمين واختار Add PowerGrade Album، واسحب الـ Still لداخله.",
+    "en": "Open the album list in the Gallery, right-click and choose Add PowerGrade Album, then drag the still into it."
+   },
+   {
+    "ar": "في أي مشروع جديد، اختار الكليب، افتح الـ PowerGrade album، اضغط يمين على الـ Still واختار Apply Grade. ولو تبغى تشاركه اختار Export عشان يطلع ملف .drx.",
+    "en": "In any new project, select the clip, open the PowerGrade album, right-click the still and choose Apply Grade. To share it, choose Export to get a .drx file."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "اعمل PowerGrade فيه CST داخل، نود توازن، نود لوك Shared، و CST خارج، وطبقه على ٣ مشاريع قديمة وشوف كم وقت وفرت.",
+    "en": "Build a PowerGrade with CST in, a balance node, a shared look node and CST out, then apply it to 3 old projects and time how much you save."
+   },
+   "research": {
+    "ar": "حمل PowerGrade مجاني وفككه نود نود، واكتب في Obsidian إيش كل نود يعمل وليه مرتبين كده.",
+    "en": "Download a free PowerGrade, take it apart node by node, and note in Obsidian what each node does and why it's ordered that way."
+   },
+   "produce": {
+    "ar": "ريل ٣٠ ثانية: أول ثانيتين ١٠ كليبات مختلفة الألوان مع نص «كلها بضغطة وحدة؟»، وبعدين توري تعديل Shared Node واحد يغير الكل.",
+    "en": "A 30 s reel: first 2 seconds show 10 mismatched clips with the text 'All in one click?', then show one Shared Node edit changing all of them."
+   },
+   "article": {
+    "ar": "مقال بعنوان «ابنِ لوك قناتك مرة وحدة: Shared Nodes و PowerGrades في دافنشي»، يشرح الفرق بينهم وبين الـ LUT وإمتى تستخدم كل واحد.",
+    "en": "Article titled 'Build your channel look once: Shared Nodes and PowerGrades in DaVinci', explaining how they differ from a LUT and when to use each."
+   }
+  },
+  "trend": {
+   "ar": "بيع ومشاركة الـ PowerGrades صار شائع في تيك توك وإنستقرام، وفيه ريلز كثير تقول «أفضل Node tree لازم تستخدمه». يعني الناس تبغى لوك ثابت يعرفونك بيه.",
+   "en": "Selling and sharing PowerGrades is common on TikTok and Instagram, with many reels pitching 'the only node tree you need'. Creators want a consistent signature look."
+  },
+  "refs": [
+   [
+    "tt",
+    "@vincentcolorfilm",
+    "What is a PowerGrade in DaVinci Resolve?",
+    "https://www.tiktok.com/@vincentcolorfilm/video/7484232285311470870"
+   ],
+   [
+    "tt",
+    "@mrjustinedits",
+    "Easy PowerGrade setup! Save your meticulously crafted color grades as presets in Davinci Resolve",
+    "https://www.tiktok.com/@mrjustinedits/video/7286655976512556293"
+   ],
+   [
+    "tt",
+    "@wbynan",
+    "How to save PowerGrades in DaVinci Resolve",
+    "https://www.tiktok.com/@wbynan/video/7409312948570656043"
+   ],
+   [
+    "tt",
+    "@reallyadonis",
+    "the best and ONLY POWERGRADE/ node tree you should be using in DaVinci Resolve Studio",
+    "https://www.tiktok.com/@reallyadonis/video/7563121709830737182"
+   ],
+   [
+    "tt",
+    "@moumen.612",
+    "تعلم نسخ ألوان الفيديو باستخدام دافنشي ريزولف",
+    "https://www.tiktok.com/@moumen.612/video/7397856529459744007"
+   ],
+   [
+    "ig",
+    "COLOR60",
+    "Did you know about this trick? Shared nodes are a ...",
+    "https://www.instagram.com/reel/DTSqe3Kk8Zn/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "Ever wish you could update your color grade across multiple ...",
+    "https://www.instagram.com/reel/DLm30SAJ3q7/"
+   ],
+   [
+    "ig",
+    "VINCENT COLOR FILM",
+    "What is a PowerGrade ...",
+    "https://www.instagram.com/reel/DHLY1ghs-az/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "Learn to use PowerGrades in DaVinci Resolve",
+    "https://www.instagram.com/reel/DSG8Je4kf7s/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "How to Save & Reuse PowerGrades in DaVinci Resolve (For Any Project)",
+    "https://www.youtube.com/watch?v=Y3pGY_hnOZM"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "How to Reuse Color Grading Corrector Nodes with Shared Nodes in DaVinci Resolve 17",
+    "https://www.youtube.com/watch?v=0gIjOD8T8gk"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Build a Node Tree & Power Grade - Davinci Resolve 19",
+    "https://www.youtube.com/watch?v=q08TbIUudzU"
+   ],
+   [
+    "web",
+    "JayAreTV",
+    "DaVinci Resolve Powergrade and Gallery Explained",
+    "https://jayaretv.com/color/davinci-resolve-powergrade-and-gallery-explained/"
+   ],
+   [
+    "web",
+    "PremiumBeat",
+    "3 Ways to Store and Share Grades in DaVinci Resolve",
+    "https://www.premiumbeat.com/blog/store-and-share-grades-in-davinci-resolve/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "لقيت تيك توك عربي عن نسخ الألوان بين الكليبات بس، وما لقيت شرح عربي عن Shared Nodes أو PowerGrades. الموضوع لسه فاضي بالعربي.",
+   "en": "I found one Arabic TikTok on copying grades between clips, but nothing in Arabic on Shared Nodes or PowerGrades. The topic is still open in Arabic."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "fair-auto-ducker",
+  "page": "fair",
+  "ar": "خفض الموسيقى تلقائيا تحت صوتك بالـ Ducker",
+  "en": "Auto-Duck Music Under Voice with Ducker",
+  "tier": 1,
+  "related": {
+   "ar": "تنظيف الصوت (Voice Isolation)، ومهارة J/L Cuts",
+   "en": "Voice cleanup (Voice Isolation), and J/L cuts"
+  },
+  "what": {
+   "ar": "الـ Ducker يخلي الموسيقى تنزل لوحدها أول ما تتكلم، وترجع ترتفع لما تسكت. كده صوتك دايما واضح وما تحتاج تحط keyframes يدوي على كل جملة.",
+   "en": "The Ducker lowers your music automatically whenever you talk and brings it back up when you stop. Your voice stays clear and you skip hand-drawn volume keyframes on every line."
+  },
+  "ideasTitle": {
+   "ar": "٣ طرق للـ Ducking",
+   "en": "3 ways to duck"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "الـ Ducker (Track FX)",
+     "en": "Ducker (Track FX)"
+    },
+    "desc": {
+     "ar": "موجود في Resolve 19 وأحدث، وشغال في النسخة المجانية. تحطه على تراك الموسيقى وتختار تراك الصوت كمصدر، وخلاص.",
+     "en": "Available in Resolve 19 and newer, including the free version. Put it on the music track, pick the voice track as the source, done."
+    }
+   },
+   {
+    "name": {
+     "ar": "الـ Sidechain Compressor",
+     "en": "Sidechain compressor"
+    },
+    "desc": {
+     "ar": "الطريقة القديمة: Compressor على الموسيقى يسمع لصوتك من الـ Dynamics. تحكم أدق بس خطواتها أكثر.",
+     "en": "The classic way: a compressor on the music that listens to your voice through Dynamics. More control, more steps."
+    }
+   },
+   {
+    "name": {
+     "ar": "الـ Keyframes اليدوية",
+     "en": "Manual keyframes"
+    },
+    "desc": {
+     "ar": "لما تبغى الموسيقى ترتفع في لحظة معينة (drop أو punchline)، اعمل keyframes بـ Alt+Click على خط الصوت فوق شغل الـ Ducker.",
+     "en": "When you want the music to swell on a specific moment (a drop or punchline), Alt+Click keyframes on the volume line on top of the Ducker."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "حط صوتك على تراك لحاله والموسيقى على تراك ثاني، وسمّيهم Voice و Music عشان ما تلخبط.",
+    "en": "Put your voice on its own track and the music on another, and name them Voice and Music so nothing gets mixed up."
+   },
+   {
+    "ar": "روح لصفحة Fairlight، واختار تراك الـ Music، وافتح الـ Inspector فوق يمين. شغّل الـ Ducker من الـ Track FX (أو من شريط التراك في الـ Mixer).",
+    "en": "Go to the Fairlight page, select the Music track and open the Inspector (top right). Turn on Ducker under Track FX (or from the track's strip in the Mixer)."
+   },
+   {
+    "ar": "افتح نافذة الـ Ducker ومن قائمة الـ Sources اختار تراك الـ Voice. لو عندك أكثر من متكلم، اختار كل تراكاتهم مع بعض.",
+    "en": "Open the Ducker window and choose the Voice track from the Sources dropdown. If you have several speakers, select all their tracks."
+   },
+   {
+    "ar": "اضبط الـ Duck Level بين -6 و -12 dB، والـ Threshold عشان يشتغل على الكلام بس مو على النفس والضجة الخفيفة.",
+    "en": "Set Duck Level between -6 and -12 dB, and adjust Threshold so it triggers on speech only, not breaths or light noise."
+   },
+   {
+    "ar": "اضبط الـ Recovery: قيمة أبطأ تخلي الموسيقى ترجع بنعومة بين الجمل بدل ما تنط فجأة.",
+    "en": "Tune Recovery: a slower value lets the music return smoothly between sentences instead of jumping back."
+   },
+   {
+    "ar": "شغّل الفيديو كامل وانتبه للحظات الصمت القصيرة. لو فيه مكان تبغاه مختلف، زيد keyframes يدوية على تراك الموسيقى.",
+    "en": "Play the whole video and watch the short pauses. Where you want something different, add manual keyframes on the music track."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خذ مقطع كلام قديم عندك فيه موسيقى، شيل كل الـ keyframes، وجرب الـ Ducker بثلاث قيم Duck Level (-6، -10، -14) وقارن إيش أحسن.",
+    "en": "Take an old talking clip with music, remove all volume keyframes, and try the Ducker at three Duck Levels (-6, -10, -14). Compare which works best."
+   },
+   "research": {
+    "ar": "اسمع ٥ فيديوهات Vlog أو Reels لصناع محتوى تحبهم، وسجّل في Obsidian: الموسيقى تنزل قد إيش تحت الكلام؟ وترجع بسرعة ولا ببطء؟",
+    "en": "Listen to 5 vlogs or Reels from creators you like and note in Obsidian: how far does the music drop under speech, and does it come back fast or slow?"
+   },
+   "produce": {
+    "ar": "Reel مدته ٣٠ ثانية \"قبل وبعد\": أول ثانيتين الموسيقى غاطية على صوتك وما تنفهم، وبعدين تشغّل الـ Ducker ويصير الصوت نظيف.",
+    "en": "A 30-second before/after Reel: in the first 2 seconds the music drowns your voice, then you switch on the Ducker and it becomes clean."
+   },
+   "article": {
+    "ar": "مقال: \"وقف keyframes الصوت: الـ Ducker في DaVinci Resolve خطوة بخطوة\" مع جدول قيم مقترحة لـ Vlog و Podcast و Reels.",
+    "en": "Article: \"Stop keyframing your music: the Ducker in DaVinci Resolve step by step\" with a table of suggested settings for vlogs, podcasts and Reels."
+   }
+  },
+  "trend": {
+   "ar": "بعد ما نزل الـ Ducker، صار من أكثر مواضيع الصوت في Resolve على TikTok و Instagram و YouTube، وفيه شروحات كثيرة لـ Resolve 20 في ٢٠٢٥ و ٢٠٢٦.",
+   "en": "Since the Ducker arrived it has become one of the most covered Resolve audio topics on TikTok, Instagram and YouTube, with many Resolve 20 tutorials through 2025 and 2026."
+  },
+  "refs": [
+   [
+    "tt",
+    "@joshglavinfilms",
+    "Auto Ducking in DaVinci Resolve Made Easy",
+    "https://www.tiktok.com/@joshglavinfilms/video/7470831545054432534"
+   ],
+   [
+    "tt",
+    "@dawiet_cc",
+    "Auto Audio Ducking in Davinci Resolve 19 so you safe yourself a lot of time adjusting your audio",
+    "https://www.tiktok.com/@dawiet_cc/video/7472099143951846678"
+   ],
+   [
+    "tt",
+    "@doubtmetech",
+    "Audio Ducker in DaVinci Resolve 19 allows you to ...",
+    "https://www.tiktok.com/@doubtmetech/video/7361121915714407723"
+   ],
+   [
+    "tt",
+    "@katiesteckly",
+    "How to adjust your volume when editing in Davinci Resolve, aka Audio Ducking 101",
+    "https://www.tiktok.com/@katiesteckly/video/7483512889463082295"
+   ],
+   [
+    "ig",
+    "@joshglavinfilms",
+    "Auto ducking and balancing your audio is easier than ever!",
+    "https://www.instagram.com/joshglavinfilms/reel/DGAR3jNvXAp/"
+   ],
+   [
+    "ig",
+    "@cine_magic_journey",
+    "Master Multiple Audio Ducking in DaVinci Resolve 19.1.2!",
+    "https://www.instagram.com/reel/DEITZJ1S1uM/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "Audio Ducker just made mixing dialogue and music ...",
+    "https://www.instagram.com/reel/DMXh5W6SrfL/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "AUDIO DUCKING Made EASY - DaVinci Resolve 20",
+    "https://www.youtube.com/watch?v=GZBNvabt7MY"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Audio Ducker DaVinci Resolve 20 How To Auto Level Background Music Lower Sounds Voice Over Ducking",
+    "https://www.youtube.com/watch?v=Svmnv6syUC8"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Automatically lower music volume when people talk in DaVinci Resolve 20 | Audio Ducking",
+    "https://www.youtube.com/watch?v=-ZYkS6-N9X8"
+   ],
+   [
+    "web",
+    "Larry Jordan",
+    "Automatically \"Duck\" Background Music Under Dialog in DaVinci Resolve",
+    "https://larryjordan.com/articles/automatically-duck-background-music-under-dialog-in-davinci-resolve/"
+   ],
+   [
+    "web",
+    "DVResolve.com",
+    "Audio Ducking in Fairlight",
+    "https://dvresolve.com/tutorial/audio-ducking-in-fairlight/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "لقيت فيديوهات عربية عن تعديل صوت الموسيقى في الخلفية يدوي، بس ما لقيت شرح عربي واضح للـ Ducker نفسه. فرصة حلوة لشرح قصير بالحجازي.",
+   "en": "I found Arabic videos on lowering background music by hand, but no clear Arabic tutorial on the Ducker itself. A good chance for a short Hijazi tutorial."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "fair-loudness-lufs",
+  "page": "fair",
+  "ar": "ضبط الـ Loudness لليوتيوب والسوشال (-14 LUFS)",
+  "en": "Loudness for YouTube and Social (-14 LUFS)",
+  "tier": 2,
+  "related": {
+   "ar": "تصدير Instagram Reels، وتنظيف الصوت",
+   "en": "Export for Instagram Reels, and voice cleanup"
+  },
+  "what": {
+   "ar": "الـ LUFS هو مقياس لقد إيش الصوت عالي زي ما تسمعه الأذن. YouTube يعدّل أي فيديو على حوالي -14 LUFS، فلو ضبطته أنت من البداية، صوتك يطلع واضح وما يصير أوطى أو أعلى من الفيديوهات اللي قبله وبعده.",
+   "en": "LUFS measures how loud audio feels to the ear. YouTube normalizes videos to around -14 LUFS, so if you hit it yourself your video won't sound quieter or harsher than the ones before and after it."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "الـ Integrated Loudness",
+     "en": "Integrated loudness"
+    },
+    "desc": {
+     "ar": "هو متوسط الصوت للفيديو كله من أوله لآخره. دا الرقم اللي تقارنه بـ -14، مو اللحظة الحالية.",
+     "en": "The average loudness of the whole program, start to finish. This is the number you compare to -14, not the momentary reading."
+    }
+   },
+   {
+    "name": {
+     "ar": "الـ True Peak",
+     "en": "True Peak"
+    },
+    "desc": {
+     "ar": "أعلى قمة حقيقية في الصوت. خليه تحت -1 dBTP عشان ما يتشوه لما المنصة تضغط الملف.",
+     "en": "The highest real peak in the signal. Keep it below -1 dBTP so it doesn't distort when the platform encodes the file."
+    }
+   },
+   {
+    "name": {
+     "ar": "Normalize مو بس Volume",
+     "en": "Normalize, not just volume"
+    },
+    "desc": {
+     "ar": "الـ Normalize Audio Levels يوزن الكليبات على مقياس الـ loudness بدل ما تسحب الفيدر بالعين. وضع Independent يعدل كل كليب لحاله.",
+     "en": "Normalize Audio Levels balances clips by loudness instead of eyeballing faders. Independent mode sets each clip on its own."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "افتح File > Project Settings > Fairlight، وحط الـ Target Loudness Level على -14 LUFS.",
+    "en": "Open File > Project Settings > Fairlight and set Target Loudness Level to -14 LUFS."
+   },
+   {
+    "ar": "في التايملاين، اختار كليبات الكلام، واضغط كليك يمين > Normalize Audio Levels. اختار وضع ITU-R BS.1770 أو خيار YouTube لو موجود، وحط الهدف -14، و Set Level على Independent.",
+    "en": "On the timeline, select your dialogue clips, right-click > Normalize Audio Levels. Pick an ITU-R BS.1770 mode (or the YouTube option if listed), set the target to -14 and Set Level to Independent."
+   },
+   {
+    "ar": "روح لصفحة Fairlight وافتح الـ Meters من الشريط اللي فوق، وشوف عداد الـ Loudness. شغّل الفيديو كامل من البداية ولاحظ رقم الـ Integrated.",
+    "en": "Go to the Fairlight page, open Meters from the top toolbar and find the Loudness meter. Play the whole timeline from the start and watch the Integrated reading."
+   },
+   {
+    "ar": "على الـ Main bus في الـ Mixer، دبل كليك على Dynamics وشغّل الـ Limiter بحيث القمم ما تعدي -1 dB.",
+    "en": "On the Main bus in the Mixer, double-click Dynamics and enable the Limiter so peaks stay under -1 dB."
+   },
+   {
+    "ar": "حرّك فيدر الـ Main شوية شوية لحد ما الـ Integrated يقرب من -14 LUFS والـ True Peak تحت -1.",
+    "en": "Nudge the Main fader until Integrated sits near -14 LUFS and True Peak stays under -1."
+   },
+   {
+    "ar": "في صفحة Deliver، تبويب Audio، تقدر كمان تفعّل Normalize Audio وقت التصدير كضمان أخير على نفس الهدف.",
+    "en": "On the Deliver page, Audio tab, you can also enable Normalize Audio at render time as a final safety net with the same target."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "خذ آخر فيديو نشرته، قيس الـ Integrated حقه في Fairlight وسجّل الرقم، وبعدين عدله لـ -14 LUFS وصدّره مرة ثانية وقارن.",
+    "en": "Take your last published video, measure its Integrated loudness in Fairlight and write it down, then bring it to -14 LUFS, export again and compare."
+   },
+   "research": {
+    "ar": "حمّل ٣ فيديوهات من قنوات كبيرة (بإذن أو من مكتبة مجانية)، قيسهم بعداد الـ Loudness، واكتب في Obsidian الـ Integrated والـ True Peak لكل واحد.",
+    "en": "Measure 3 videos from big channels (licensed or from a free library) with the Loudness meter and log each one's Integrated and True Peak in Obsidian."
+   },
+   "produce": {
+    "ar": "Short مدته ٢٠ ثانية: يبدأ بسؤال \"ليه فيديوك صوته واطي في يوتيوب؟\" وتوري الرقم قبل وبعد على عداد الـ Loudness.",
+    "en": "A 20-second Short that opens with \"Why does your video sound quiet on YouTube?\" and shows the before/after number on the Loudness meter."
+   },
+   "article": {
+    "ar": "مقال: \"إيش هو الـ LUFS؟ دليل صوت اليوتيوب والسوشال في DaVinci Resolve\" مع جدول أهداف لكل منصة وخطوات الـ Normalize.",
+    "en": "Article: \"What is LUFS? A YouTube and social audio guide in DaVinci Resolve\" with a per-platform target table and the Normalize steps."
+   }
+  },
+  "trend": {
+   "ar": "شروحات -14 LUFS في Resolve لسه تنزل بكثرة على YouTube في ٢٠٢٦، وفيه TikToks و Reels عن الـ Normalize وقت التصدير عشان \"الفيديوهات الواطية\".",
+   "en": "-14 LUFS tutorials for Resolve keep appearing on YouTube in 2026, and TikToks and Reels about normalizing on export target the \"quiet video\" problem."
+  },
+  "refs": [
+   [
+    "tt",
+    "@fatmanderson",
+    "Stop posting quiet videos. Normalize your audio on export in DaVinci Resolve",
+    "https://www.tiktok.com/@fatmanderson/video/7510290071476686126"
+   ],
+   [
+    "ig",
+    "@isa.peavey",
+    "How to Get Perfect Audio Levels for YouTube Videos ...",
+    "https://www.instagram.com/isa.peavey/reel/DF_DUv2y_Cm/"
+   ],
+   [
+    "ig",
+    "@doubtmetech",
+    "DaVinci Resolve Normalize Audio in Render ...",
+    "https://www.instagram.com/doubtmetech/reel/C17WdBxLAXu/"
+   ],
+   [
+    "ig",
+    "@jayaretv",
+    "Normalize audio on the edit page in DaVinci ...",
+    "https://www.instagram.com/jayaretv/reel/CayENjJgbsO/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Fix Your Audio Levels in 5 Minutes (–14 LUFS in DaVinci Resolve)",
+    "https://www.youtube.com/watch?v=YV3ioS-1OKE"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "How to normailize loudness for YouTube with DaVinci Resolve",
+    "https://www.youtube.com/watch?v=rtv17-hQmXQ"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "How To Measure LUFS (Loudness) in Davinci Resolve | Quick Tutorial",
+    "https://www.youtube.com/watch?v=fnKv9u4doGo"
+   ],
+   [
+    "web",
+    "Envato",
+    "How to Normalize Audio Loudness Levels for YouTube in DaVinci Resolve (Fairlight)",
+    "https://elements.envato.com/learn/normalize-audio-loudness-davinci-fairlight"
+   ],
+   [
+    "web",
+    "QuadMeUp",
+    "How to normailize audio for YouTube with DaVinci Resolve",
+    "https://blog.quadmeup.com/2022/12/07/how-to-normailize-audio-for-youtube-with-davinci-resolve/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "ما لقيت شرح عربي عن الـ LUFS أو عداد الـ Loudness في Resolve، بس شروحات عامة لرفع الصوت. فرصة قوية لمحتوى عربي.",
+   "en": "No Arabic tutorial found on LUFS or the Loudness meter in Resolve, only general \"make it louder\" videos. A strong opening for Arabic content."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "fair-voice-chain",
+  "page": "fair",
+  "ar": "سلسلة EQ و Compressor لصوت احترافي",
+  "en": "EQ + Compressor Chain for a Pro Voice",
+  "tier": 3,
+  "related": {
+   "ar": "تنظيف الصوت (Noise Reduction و Voice Isolation)",
+   "en": "Voice cleanup (noise reduction and Voice Isolation)"
+  },
+  "what": {
+   "ar": "بعد ما تنظف الصوت، الـ EQ يشكّل نبرته والـ Compressor يثبّت مستواه. دا اللي يخلي صوتك يطلع قريب ودافي زي صوت البودكاست والراديو، حتى من مايك بسيط.",
+   "en": "After cleanup, EQ shapes the tone and the compressor steadies the level. That is what makes a voice sound close and warm like a podcast or radio host, even from a simple mic."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "الترتيب مهم",
+     "en": "Order matters"
+    },
+    "desc": {
+     "ar": "نظّف أول، بعدين EQ، بعدين Compressor، والـ Limiter آخر حاجة. لو ضغطت صوت فيه ضجة، الضجة بتعلى معاه.",
+     "en": "Clean first, then EQ, then compressor, with the limiter last. Compress a noisy voice and the noise comes up with it."
+    }
+   },
+   {
+    "name": {
+     "ar": "الـ EQ: قص قبل ما تزوّد",
+     "en": "EQ: cut before you boost"
+    },
+    "desc": {
+     "ar": "High-pass عند ٨٠ لـ ١٠٠ Hz يشيل الرجّة، وقص خفيف بين ٢٠٠ و ٤٠٠ Hz يشيل الكتمة، ورفع بسيط بين ٢ و ٥ kHz يعطي وضوح.",
+     "en": "A high-pass at 80 to 100 Hz removes rumble, a small cut at 200 to 400 Hz removes mud, and a gentle lift at 2 to 5 kHz adds clarity."
+    }
+   },
+   {
+    "name": {
+     "ar": "الـ Compressor و Dialogue Leveler",
+     "en": "Compressor and Dialogue Leveler"
+    },
+    "desc": {
+     "ar": "الـ Compressor يقرّب الكلام العالي من الواطي. في Resolve 19 وأحدث فيه كمان Dialogue Leveler يوازن الجمل تلقائي قبل الضغط.",
+     "en": "The compressor pulls loud and soft words closer. Resolve 19 and newer also has Dialogue Leveler to even out lines before compression."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "في صفحة Fairlight، حط صوتك على تراك لحاله ونظّفه أول (Voice Isolation أو Noise Reduction). شغّل Dialogue Leveler على التراك لو عندك Resolve 19 أو أحدث.",
+    "en": "On the Fairlight page, keep your voice on its own track and clean it first (Voice Isolation or Noise Reduction). Enable Dialogue Leveler on the track if you have Resolve 19 or newer."
+   },
+   {
+    "ar": "في الـ Mixer، دبل كليك على الـ EQ في شريط تراك الصوت. فعّل الـ High-pass في Band 1 على حوالي ٨٠ لـ ١٠٠ Hz.",
+    "en": "In the Mixer, double-click EQ on the voice track's strip. Turn on the high-pass in Band 1 at about 80 to 100 Hz."
+   },
+   {
+    "ar": "اقطع ٢ لـ ٣ dB بين ٢٠٠ و ٤٠٠ Hz، وزوّد ١ لـ ٢ dB بين ٢ و ٥ kHz. أو ابدأ من preset زي Dialog Clean Add High End وعدّل عليه بأذنك.",
+    "en": "Cut 2 to 3 dB between 200 and 400 Hz and boost 1 to 2 dB between 2 and 5 kHz. Or start from a preset like Dialog Clean Add High End and adjust by ear."
+   },
+   {
+    "ar": "دبل كليك على الـ Dynamics وفعّل الـ Compressor: Threshold حوالي -20 dB، Ratio 3:1، Attack سريع، Release حوالي 50 ms، وارفع الـ Make Up لحد ما يرجع المستوى. الـ preset Dialog Compression بداية كويسة.",
+    "en": "Double-click Dynamics and enable the Compressor: Threshold around -20 dB, Ratio 3:1, fast Attack, Release around 50 ms, then raise Make Up to restore level. The Dialog Compression preset is a good start."
+   },
+   {
+    "ar": "لو حرف السين قاسي، اسحب De-Esser من Effects Library > Audio FX > Fairlight FX على التراك وخفّف الـ sibilance.",
+    "en": "If S sounds are harsh, drag De-Esser from Effects Library > Audio FX > Fairlight FX onto the track and tame the sibilance."
+   },
+   {
+    "ar": "احفظ الـ EQ والـ Dynamics كـ presets من نوافذهم. في Resolve 21 تقدر تجمعهم في Chain FX واحد وتطبقه على أي مشروع بضغطة.",
+    "en": "Save the EQ and Dynamics settings as presets from their windows. In Resolve 21 you can bundle them into one Chain FX and apply it to any project in one click."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "سجّل نفس الجملة بمايك الجوال ومايكك الأساسي، وطبّق نفس السلسلة على الاثنين، وشوف قد إيش تقدر تقرّب صوت الجوال من المايك.",
+    "en": "Record the same line on your phone mic and your main mic, apply the same chain to both, and see how close you can get the phone to the main mic."
+   },
+   "research": {
+    "ar": "اسمع مقدمة ٣ بودكاستات عربية مشهورة، ودوّن في Obsidian: الصوت دافي ولا حاد؟ فيه ضغط واضح؟ وإيش الفرق بينهم وبين صوتك الحالي؟",
+    "en": "Listen to the intros of 3 popular Arabic podcasts and note in Obsidian: warm or bright? obvious compression? how do they differ from your current voice?"
+   },
+   "produce": {
+    "ar": "Reel مدته ٤٥ ثانية: أول ثانيتين صوتك خام وتقول \"دا صوتي بدون أي تعديل\"، وبعدين تضيف كل خطوة (EQ، Compressor، De-Esser) وتسمّعهم الفرق.",
+    "en": "A 45-second Reel: the first 2 seconds are your raw voice saying \"This is my voice with zero processing\", then you add each step (EQ, compressor, de-esser) so viewers hear the difference."
+   },
+   "article": {
+    "ar": "مقال: \"صوت بودكاست من مايك بسيط: سلسلة EQ و Compressor في Fairlight\" مع صور الإعدادات وملف preset للتحميل.",
+    "en": "Article: \"Podcast voice from a basic mic: an EQ and compressor chain in Fairlight\" with settings screenshots and a downloadable preset."
+   }
+  },
+  "trend": {
+   "ar": "فيه شروحات جديدة على YouTube فيها \"إعداداتي بالضبط\" للـ EQ والـ Compressor في Resolve، و Resolve 21 نزل في ٢٠٢٦ بـ Chain FX اللي يسهّل حفظ السلسلة كلها.",
+   "en": "New YouTube tutorials share \"my exact\" EQ and compression settings for Resolve, and Resolve 21 (2026) added Chain FX, which makes saving a whole voice chain easy."
+  },
+  "refs": [
+   [
+    "tt",
+    "@bysetuproduction",
+    "Noise reduction DaVinci Resolve Fairlight (Voice Isolation, Equalizer, Dynamics settings)",
+    "https://www.tiktok.com/@bysetuproduction/video/7350548852425985313"
+   ],
+   [
+    "tt",
+    "@creatorsergeant",
+    "How to make audio sound like a telephone in DaVinci resolve",
+    "https://www.tiktok.com/@creatorsergeant/video/7462733360582954246"
+   ],
+   [
+    "tt",
+    "@videolaunch",
+    "Editing tips for great audio! Works for premiere pro and davinci resolve",
+    "https://www.tiktok.com/@videolaunch/video/7264079928067443974"
+   ],
+   [
+    "ig",
+    "@casey_faris_gc",
+    "How to edit voice over in DaVinci Resolve",
+    "https://www.instagram.com/casey_faris_gc/reel/C90QKDbxD7i/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "I'm going to show you how to make your audio sound better ...",
+    "https://www.instagram.com/p/Ce1e8SVOy3y/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "My EXACT EQ and Compression Settings for Dialogue in DaVinci Resolve",
+    "https://www.youtube.com/watch?v=ZWn7SNiB6Es"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Delightful Dialogue with DaVinci Resolve EQ (Fairlight Tutorial)",
+    "https://www.youtube.com/watch?v=Z89JAFkihrw"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "DaVinci Resolve Fairlight compression tutorial for beginners",
+    "https://www.youtube.com/watch?v=rsIX_q7wbhk"
+   ],
+   [
+    "yt",
+    "YouTube (AR)",
+    "دافنشي ريزولف 6# | تعديل الصوت في الفير لايت",
+    "https://www.youtube.com/watch?v=MdeFkNb5BG4"
+   ],
+   [
+    "yt",
+    "YouTube (AR)",
+    "طريقة تعديل الصوت و تحسينه في دافينشي ريزولف بالعربي DaVinCi Resolve in Arabic",
+    "https://www.youtube.com/watch?v=dhG-aZtV0b4"
+   ],
+   [
+    "web",
+    "Envato Tuts+",
+    "How to Process Voice Recordings in DaVinci Resolve Using Fairlight (Free)",
+    "https://photography.tutsplus.com/tutorials/how-to-sweeten-dialogue-fairlight--cms-37395"
+   ],
+   [
+    "web",
+    "DaVinci Resolve Club",
+    "Fairlight Dialogue EQ in DaVinci Resolve 21",
+    "https://davinciresolveclub.com/fairlight-eq-dialogue/"
+   ]
+  ],
+  "arGap": {
+   "has": false,
+   "ar": "فيه شروحات عربية عامة لتحسين الصوت في Fairlight، بس ما لقيت واحد يعطي سلسلة EQ و Compressor بأرقام واضحة. لسه فيه مساحة لشرح أعمق بالحجازي.",
+   "en": "General Arabic tutorials on improving audio in Fairlight exist, but none found with a clear EQ and compressor chain with numbers. There is still room for a deeper Hijazi walkthrough."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "youtube-export",
+  "page": "deliver",
+  "ar": "إعدادات تصدير يوتيوب (حيلة الـ 4K)",
+  "en": "YouTube export settings (the 4K upload trick)",
+  "tier": 2,
+  "related": {
+   "ar": "تصدير ريلز إنستقرام (reels)",
+   "en": "Export for Instagram Reels (reels)"
+  },
+  "what": {
+   "ar": "دي إعدادات تحفظها مرة وحدة في صفحة الـ Deliver عشان تعطي يوتيوب ملف نظيف وبجودة عالية، حتى لو المونتاج 1080p. يوتيوب يضغط أي فيديو ترفعه، ورفع الـ 4K غالبا ياخذ ضغط أحسن، فالفيديو يطلع أوضح حتى لما الناس تتفرج 1080p.",
+   "en": "A Deliver page setup you save once so YouTube gets a clean, high bitrate file, even from a 1080p edit. YouTube re-compresses every upload, and 4K uploads usually get better compression, so the video looks sharper even when people watch in 1080p."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "H.264 ولا H.265؟",
+     "en": "H.264 or H.265?"
+    },
+    "desc": {
+     "ar": "الـ H.264 يشتغل في كل مكان وتصديره سريع. الـ H.265 يعطيك نفس الجودة بحجم أصغر ويوتيوب يقبله، فاستخدمه لو جهازك يدعمه بالـ hardware.",
+     "en": "H.264 plays everywhere and exports fast. H.265 gives the same quality in a smaller file and YouTube accepts it, so use it when your GPU or Mac can encode it in hardware."
+    }
+   },
+   {
+    "name": {
+     "ar": "حيلة الـ 4K",
+     "en": "The 4K trick"
+    },
+    "desc": {
+     "ar": "صدّر التايم لاين الـ 1080p بدقة 3840x2160. يوتيوب يعامله كفيديو 4K وغالبا يستخدم VP9 أو AV1، ودول يحافظوا على التفاصيل أكثر من ضغط الـ 1080p العادي.",
+     "en": "Render your 1080p timeline at 3840x2160. YouTube treats it as 4K and usually serves it with VP9 or AV1, which keep more detail than the normal 1080p stream."
+    }
+   },
+   {
+    "name": {
+     "ar": "البت ريت، مو Automatic",
+     "en": "Set the bitrate, don't leave it on Automatic"
+    },
+    "desc": {
+     "ar": "جدول يوتيوب نفسه يقول 35 لحد 45 Mbps للـ 4K على 24 أو 30 فريم، و53 لحد 68 Mbps للـ 60 فريم. أكثر من كده بكثير بس يكبّر الملف وما يفرق.",
+     "en": "YouTube's own table says 35 to 45 Mbps for 4K at 24 or 30 fps and 53 to 68 Mbps for 60 fps. Going far above that only makes a bigger upload."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "روح صفحة الـ Deliver، ومن الـ Render Settings اختار Custom Export (أو ابدأ من بريسيت YouTube وعدّل عليه).",
+    "en": "Go to the Deliver page. In Render Settings pick Custom Export (or start from the YouTube preset and change it)."
+   },
+   {
+    "ar": "خلّي الـ Format على MP4 والـ Codec على H.265 (أو H.264 لو H.265 مو موجود عندك). ومن الـ Encoder اختار الـ hardware لو موجود (NVIDIA أو Apple أو Intel).",
+    "en": "Set Format to MP4 and Codec to H.265 (or H.264 if H.265 isn't available). If a hardware Encoder is listed (NVIDIA, Apple, Intel), pick it."
+   },
+   {
+    "ar": "خلّي الـ Resolution على 3840x2160 Ultra HD والـ Frame rate نفس التايم لاين. ومن الـ Advanced Settings فعّل Force sizing to highest quality.",
+    "en": "Set Resolution to 3840x2160 Ultra HD and keep Frame rate the same as the timeline. In Advanced Settings, tick Force sizing to highest quality."
+   },
+   {
+    "ar": "في الـ Quality اختار Restrict to واكتب حوالي 40000 Kb/s للـ 24 أو 30 فريم، وحوالي 60000 لو الفيديو 60 فريم.",
+    "en": "Under Quality choose Restrict to and type about 40000 Kb/s for 24 or 30 fps, or about 60000 for 60 fps."
+   },
+   {
+    "ar": "في تبويب الـ Audio خلّي الـ Codec على AAC والـ Data Rate على 320 Kb/s.",
+    "en": "In the Audio tab set Codec to AAC and Data Rate to 320 Kb/s."
+   },
+   {
+    "ar": "اضغط الثلاث نقاط (...) فوق الـ Render Settings واختار Save As New Preset وسمّيه مثلا 3z YouTube 4K، بعدين Add to Render Queue وRender All.",
+    "en": "Click the three dots (...) at the top of Render Settings > Save As New Preset, name it something like 3z YouTube 4K, then Add to Render Queue and Render All."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "صدّر نفس المقطع (دقيقة) مرتين: 1080p H.264 و4K H.265 على 40000 Kb/s، ارفعهم Unlisted وقارنهم على 1080p من جوالك.",
+    "en": "Export the same 1 minute clip twice (1080p H.264 and 4K H.265 at 40000 Kb/s), upload both as Unlisted, and compare them at 1080p on your phone."
+   },
+   "research": {
+    "ar": "افتح 3 فيديوهات لصناع محتوى تحبهم، اعمل كليك يمين على المشغل واختار Stats for nerds، وشوف إيش الكوديك (avc1 أو vp09 أو av01) وسجّلها في Obsidian.",
+    "en": "Open 3 creator videos you like, right click the player > Stats for nerds, check which codec YouTube serves (avc1, vp09, av01), and log it in Obsidian."
+   },
+   "produce": {
+    "ar": "شورت 30 ثانية: \"فيديوهاتك في يوتيوب مغبشة؟ السبب إعداد واحد\". الهوك في أول ثانيتين: شاشة مقسومة، نفس اللقطة مغبشة وواضحة، وبعدين تورّي إعداد الـ 4K.",
+    "en": "A 30 s Short: \"Your YouTube videos look blurry? It's one setting.\" Hook in the first 2 s: split screen of the same shot blurry vs sharp, then show the 4K export setting."
+   },
+   "article": {
+    "ar": "مقال \"ليه فيديو اليوتيوب حقك يطلع مغبش وكيف تحلها في دافنشي\": كيف يوتيوب يضغط الفيديو، H.264 ولا H.265، حيلة الـ 4K، جدول البت ريت، وحفظ البريسيت.",
+    "en": "Article \"Why your YouTube video looks blurry and how to fix it in DaVinci Resolve\": how YouTube compresses, H.264 vs H.265, the 4K trick, a bitrate table, saving a preset."
+   }
+  },
+  "trend": {
+   "ar": "لسه في 2025 تنزل فيديوهات كثير عن \"أفضل إعدادات تصدير يوتيوب\" في دافنشي، وصناع المحتوى في تيك توك وإنستقرام يتناقلوا حيلة \"صدّر الـ 1080p كـ 4K\" عشان ياخذوا ضغط أحسن من يوتيوب.",
+   "en": "New \"best YouTube export settings\" tutorials for Resolve kept coming out through 2025, and creators on TikTok and Instagram keep sharing the \"export 1080p as 4K\" trick to get YouTube's better compression."
+  },
+  "refs": [
+   [
+    "tt",
+    "@bromask.cine",
+    "Cara Upload Kualiti Tinggi Tanpa Turunkan Kualiti YouTube",
+    "https://www.tiktok.com/@bromask.cine/video/7626340816243543303"
+   ],
+   [
+    "ig",
+    "@davinciresolved",
+    "DaVinci Resolve on Instagram: \"Best export settings for ...\"",
+    "https://www.instagram.com/davinciresolved/reel/C9dLbrPy-MC/"
+   ],
+   [
+    "ig",
+    "@itzsimon",
+    "Best export settings for davinci resolve",
+    "https://www.instagram.com/reel/CqmANVlDs4c/"
+   ],
+   [
+    "ig",
+    "@jpbrach",
+    "Si subís videos a Youtube, entonces necesitas ...",
+    "https://www.instagram.com/jpbrach/reel/DA9aj1nMCx5/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "My go-to export settings in DaVinci Resolve for ...",
+    "https://www.instagram.com/p/DQbr7OmEkHR/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Best Export Settings for Davinci Resolve for YouTube | 2025",
+    "https://www.youtube.com/watch?v=_maufW_kuFk"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "The Best EXPORT SETTINGS for YouTube (DaVinci Resolve Tutorial)",
+    "https://www.youtube.com/watch?v=7ceGQPt6GG4"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Best Export Settings For DaVinci Resolve For YouTube (with FREE Export Presets)",
+    "https://www.youtube.com/watch?v=ip09ormGWvk"
+   ],
+   [
+    "yt",
+    "YouTube (Arabic)",
+    "كيفية تصدير الفيديو بجودة عالية ولليوتيوب في دافنشي ريزولف؟|| Deliver Tab in Davinci Resolve",
+    "https://www.youtube.com/watch?v=AOrrK1-aeJ4"
+   ],
+   [
+    "yt",
+    "YouTube (Arabic)",
+    "أفضل إعدادات تصدير (إكسبورت) الفيديوهات لليوتيوب والإنستغرام ببرنامج دافينشي ريزولف",
+    "https://www.youtube.com/watch?v=9yaKvriifiw"
+   ],
+   [
+    "web",
+    "YouTube Help",
+    "YouTube recommended upload encoding settings",
+    "https://support.google.com/youtube/answer/1722171?hl=en"
+   ],
+   [
+    "web",
+    "Bike Gremlin I/O",
+    "DaVinci Resolve (Studio): Best Export Settings for YouTube",
+    "https://io.bikegremlin.com/36082/davinci-resolve-best-export-settings-for-youtube/"
+   ]
+  ],
+  "arGap": {
+   "has": false,
+   "ar": "فيه شروحات عربي لصفحة الـ Deliver والتصدير ليوتيوب، بس ما لقيت شرح عربي يفصّل حيلة الـ 4K وحساب البت ريت خطوة بخطوة. لسه فيه مكان لنسخة عربي أعمق.",
+   "en": "Arabic Deliver page and YouTube export tutorials exist, but none found explains the 4K trick and bitrate choices step by step. There is still room for a deeper Arabic version."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "gamma-shift-fix",
+  "page": "deliver",
+  "ar": "حل بهتان الألوان بعد التصدير (Gamma Shift)",
+  "en": "Fix washed out exports (gamma shift)",
+  "tier": 3,
+  "related": {
+   "ar": "إعدادات تصدير يوتيوب (youtube-export)",
+   "en": "YouTube export settings (youtube-export)"
+  },
+  "what": {
+   "ar": "الجريد حقك شكله مضبوط في دافنشي، بس في QuickTime أو المتصفح أو الآيفون يطلع أفتح ورمادي. دا اسمه gamma shift، ويجي من طريقة قراءة أجهزة أبل لتاقات الألوان في الملف، وتنحل بكم إعداد في الـ Color Management والـ Deliver.",
+   "en": "Your grade looks right in Resolve but lighter and greyer in QuickTime, a browser, or on iPhone. That's a gamma shift caused by how Apple players read the file's color tags, and a few Color Management and Deliver settings fix it."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "المشكلة في التاق، مو في الجريد",
+     "en": "It's the tag, not your grade"
+    },
+    "desc": {
+     "ar": "البكسلات نفسها ما تتغير. برامج أبل تقرا الـ gamma tag في الملف وتعرضه أفتح. والـ Rec.709-A يغيّر الـ metadata بس، مو الصورة.",
+     "en": "The pixels don't change. Apple apps read the file's gamma tag and display it brighter. Rec.709-A only changes that metadata, not the image."
+    }
+   },
+   {
+    "name": {
+     "ar": "تحديث 20.2.2 غيّر اللعبة",
+     "en": "Resolve 20.2.2 changed things"
+    },
+    "desc": {
+     "ar": "بلاك ماجيك حسّنوا إدارة ألوان الـ viewer لملفات Rec.709 على الماك في 20.2.2، فصار الـ viewer أقرب لـ QuickTime. ناس كثير يقولوا ما عادوا يحتاجوا Rec.709-A. حدّث أول، وبعدين جرّب.",
+     "en": "Blackmagic improved viewer color management for Rec.709 files on Mac in 20.2.2, so the viewer now matches QuickTime more closely. Many creators say they no longer need Rec.709-A. Update first, then test."
+    }
+   },
+   {
+    "name": {
+     "ar": "جرّب على الشاشة الحقيقية",
+     "en": "Always test on the real screen"
+    },
+    "desc": {
+     "ar": "شوف مقطع قصير على جوالك وعلى يوتيوب، مو بس داخل دافنشي. مستخدمين ويندوز غالبا يشوفوا فرق أقل، لأن المشكلة أغلبها من ColorSync في الماك.",
+     "en": "Check a short export on your phone and on YouTube, not only inside Resolve. Windows users usually see less shift, since the problem mostly comes from ColorSync on Mac."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "حدّث لآخر نسخة من Resolve 20 (20.2.2 أو أحدث)، وصدّر مقطع تجربة 10 ثواني بإعداداتك الحالية وقارنه في QuickTime والمتصفح والجوال.",
+    "en": "Update to the latest Resolve 20 (20.2.2 or newer). Export a 10 second test with your current settings and compare it in QuickTime, a browser, and your phone."
+   },
+   {
+    "ar": "افتح الـ Project Settings (أيقونة الترس تحت يمين) > Color Management، وفعّل Use Mac display color profiles for viewers عشان الـ viewer يعرض زي برامج الماك.",
+    "en": "Open Project Settings (gear icon, bottom right) > Color Management and tick Use Mac display color profiles for viewers, so the viewer shows what Mac apps show."
+   },
+   {
+    "ar": "لو تستخدم طريقة الـ 709-A القديمة، فعّل كمان Automatically tag Rec.709 Scene clips as Rec.709-A وخلّي الـ Output color space على Rec.709-A.",
+    "en": "If you use the older 709-A workflow, also tick Automatically tag Rec.709 Scene clips as Rec.709-A and set Output color space to Rec.709-A."
+   },
+   {
+    "ar": "في صفحة الـ Deliver افتح Render Settings > Video > Advanced Settings، وخلّي Color Space Tag على Rec.709 والـ Gamma Tag على Rec.709-A (أو Same as Project لو الأوتبوت أصلا 709-A).",
+    "en": "On the Deliver page open Render Settings > Video > Advanced Settings. Set Color Space Tag to Rec.709 and Gamma Tag to Rec.709-A (or Same as Project if your output is already 709-A)."
+   },
+   {
+    "ar": "صدّر، ارفع Unlisted على يوتيوب، وقارن على آيفون وعلى جوال أندرويد أو شاشة ويندوز. خلّي الإعداد اللي يطابق الـ viewer.",
+    "en": "Render, upload as Unlisted to YouTube, and compare on an iPhone and on an Android phone or Windows screen. Keep the combo that matches your viewer."
+   },
+   {
+    "ar": "احفظها بـ Save As New Preset عشان كل تصدير ياخذ نفس التاقات.",
+    "en": "Save it with Save As New Preset so every export uses the same tags."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "لوّن لقطة وحدة وصدّرها 3 مرات (Gamma Tag: Same as Project و Rec.709-A و Gamma 2.4)، وشوفهم جنب بعض في QuickTime وعلى جوالك. اكتب أي وحدة طابقت.",
+    "en": "Grade one clip and export it 3 ways (Gamma Tag: Same as Project, Rec.709-A, Gamma 2.4), then view them side by side in QuickTime and on your phone. Note which one matches."
+   },
+   "research": {
+    "ar": "اجمع 3 بوستات لصناع محتوى عن تحديث 20.2.2 والـ 709-A، واكتب في Obsidian إيش ينصح كل واحد وهل متفقين ولا لا.",
+    "en": "Collect 3 creator posts about the 20.2.2 update and 709-A, and write in Obsidian what each one recommends and whether they agree."
+   },
+   "produce": {
+    "ar": "ريل 20 ثانية: \"ألوانك تموت بعد التصدير؟ دا السبب\". الهوك في أول ثانيتين: اللقطة الملونة تتحول رمادي على شاشة الجوال، وبعدين تورّي حل الـ Gamma Tag.",
+    "en": "A 20 s Reel: \"Your colors die after export? Here's why.\" Hook in the first 2 s: the graded shot turns grey on a phone screen, then show the Gamma Tag fix."
+   },
+   "article": {
+    "ar": "مقال \"ليه تصديرك من دافنشي يطلع باهت، وحل الماك\": إيش هي الـ gamma، ليه أبل تقرا التاقات بشكل مختلف، تغيير 20.2.2، الإعدادات، وقائمة تجربة.",
+    "en": "Article \"Why your DaVinci exports look washed out (and the Mac fix)\": what gamma is, why Apple reads tags differently, the 20.2.2 change, the settings, and a test checklist."
+   }
+  },
+  "trend": {
+   "ar": "حل الـ gamma shift من أكثر نصايح دافنشي اللي تتكرر في تيك توك وإنستقرام، وتحديث 20.2.2 (أكتوبر 2025) فتح موجة جديدة من فيديوهات \"هل لسه نحتاج 709-A؟\".",
+   "en": "Gamma shift fixes are among the most repeated DaVinci tips on TikTok and Instagram, and the 20.2.2 update (October 2025) started a new wave of \"do we still need 709-A?\" videos."
+  },
+  "refs": [
+   [
+    "tt",
+    "@ll_cool_fluff",
+    "How you fix the washed out exports aka gamma shift in Davinci Resolve",
+    "https://www.tiktok.com/@ll_cool_fluff/video/7317759175856033067"
+   ],
+   [
+    "tt",
+    "@_mimiandmason",
+    "Here's how to fix washed out colours when you export your videos on a Mac",
+    "https://www.tiktok.com/@_mimiandmason/video/7338488037795581190"
+   ],
+   [
+    "tt",
+    "@josephlipsen",
+    "Here's how to fix washed out colors when you export your videos on a Mac | Tip 18/20",
+    "https://www.tiktok.com/@josephlipsen/video/7505994907207732510"
+   ],
+   [
+    "tt",
+    "@wbynan",
+    "Prevent export color shift in DaVinci Resolve",
+    "https://www.tiktok.com/@wbynan/video/7469080897459965230"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "Fixing the Gamma Shift in DaVinci Resolve: A Step-by-Step ...",
+    "https://www.instagram.com/reel/DRpdw3EiQNR/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "Resolve Gamma Shift Issue with DaVinci Resolve 20.2.2 Update",
+    "https://www.instagram.com/reel/DP3K8zkD3eB/"
+   ],
+   [
+    "ig",
+    "@josephlipsen",
+    "Here's how to fix washed out colors when you export your ...",
+    "https://www.instagram.com/josephlipsen/reel/DJ0emRsRTmQ/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "How to finally fix washed out colors when you export your ...",
+    "https://www.instagram.com/reel/C151N6mLpac/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Fix the Gamma Shift in DaVinci Resolve (Why Your Exports Look Washed Out)",
+    "https://www.youtube.com/watch?v=oP6ooJlxXK4"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "709-A is Dead to Me - DaVinci Resolve v20.2.2 Fixed It!",
+    "https://www.youtube.com/watch?v=Fcej7hDihW8"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "Fix DaVinci Resolve Color Shift Export with Rec.709-A",
+    "https://www.youtube.com/watch?v=H6TCMpw8nGw"
+   ],
+   [
+    "web",
+    "Blackmagic Forum",
+    "Version 20.2.2 Improved Mac Color Management for Rec 709?",
+    "https://forum.blackmagicdesign.com/viewtopic.php?f=21&t=228773"
+   ],
+   [
+    "web",
+    "Blackmagic Forum",
+    "Definitive Gamma Shift Solution for Mac",
+    "https://forum.blackmagicdesign.com/viewtopic.php?f=3&t=194464"
+   ],
+   [
+    "web",
+    "Mixing Light",
+    "Avoiding Gamma Shift: Tips for Delivering Projects on a Mac",
+    "https://mixinglight.com/color-grading-tutorials/fix-mac-os-render-gamma-shifts-for-youtube/"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "ما لقيت أي شرح عربي يفصّل الـ gamma shift أو الـ Rec.709-A. البحث العربي طلّع بس شروحات تصدير عامة أو مشاكل ألوان الطابعات. دي فرصة محتوى واضحة.",
+   "en": "No Arabic tutorial found that explains gamma shift or Rec.709-A. Arabic searches only returned general export videos or printer color problems. Clear content opportunity."
+  },
+  "set": "starter",
+  "studio": false
+ },
+ {
+  "id": "render-queue-presets",
+  "page": "deliver",
+  "ar": "الـ Render Queue والبريسيتات: صدّر كل النسخ بضغطة وحدة",
+  "en": "Render Queue + custom presets (batch export)",
+  "tier": 2,
+  "related": {
+   "ar": "تصدير ريلز إنستقرام (reels)",
+   "en": "Export for Instagram Reels (reels)"
+  },
+  "what": {
+   "ar": "تحفظ إعدادات كل منصة مرة وحدة كـ render preset، وبعدين ترص الشغلات في الـ Render Queue وتضغط Render All. بضغطة وحدة يطلع لك ماستر يوتيوب وملف الريلز ونسخة أرشيف وانت مشغول بحاجة ثانية.",
+   "en": "Save each platform's settings once as a render preset, then stack jobs in the Render Queue and hit Render All. One click gives you the YouTube master, the Reels file, and an archive copy while you do something else."
+  },
+  "ideasTitle": {
+   "ar": "٣ أشياء لازم تعرفها",
+   "en": "3 things to know"
+  },
+  "ideas": [
+   {
+    "name": {
+     "ar": "بريسيتات خاصة فيك",
+     "en": "Custom render presets"
+    },
+    "desc": {
+     "ar": "الـ Save As New Preset يحفظ الفورمات والكوديك والبت ريت والتاقات. وتقدر تعمل Export Preset و Import Preset عشان تنقلها لجهاز ثاني.",
+     "en": "Save As New Preset stores format, codec, bitrate, and tags. You can also Export Preset and Import Preset to move them to another computer."
+    }
+   },
+   {
+    "name": {
+     "ar": "كل job لها إعداداتها",
+     "en": "Each job keeps its own settings"
+    },
+    "desc": {
+     "ar": "أول ما تضيف job للـ queue، تغيير الـ Render Settings بعدها ما يأثر عليها. يعني تقدر تضيف نفس التايم لاين 3 مرات بـ 3 بريسيتات.",
+     "en": "Once a job is in the queue, changing Render Settings doesn't change it. So you can queue the same timeline 3 times with 3 presets."
+    }
+   },
+   {
+    "name": {
+     "ar": "كليبات منفصلة وأكثر من تايم لاين",
+     "en": "Individual clips and many timelines"
+    },
+    "desc": {
+     "ar": "خيار Render: Individual clips يطلّع كل كليب كملف لوحده (حلو لباكج B-roll أو شورتس مقطوعة في تايم لاين واحد)، وتقدر تضيف أكثر من تايم لاين من نفس المشروع للـ queue.",
+     "en": "Render: Individual clips exports every clip as its own file (great for a B-roll pack or Shorts cut on one timeline), and you can queue several timelines from the same project."
+    }
+   }
+  ],
+  "steps": [
+   {
+    "ar": "في صفحة الـ Deliver جهّز أول فورمات (مثلا إعدادات يوتيوب 4K)، وبعدين اضغط الثلاث نقاط (...) فوق الـ Render Settings > Save As New Preset.",
+    "en": "On the Deliver page set up your first format (for example your YouTube 4K settings), then click the three dots (...) at the top of Render Settings > Save As New Preset."
+   },
+   {
+    "ar": "كرّر لكل نسخة تحتاجها: ريلز 1080x1920 للتايم لاين العمودي، H.264 خفيف للواتساب، وماستر ProRes أو DNxHR للأرشيف.",
+    "en": "Repeat for each output you need: Reels 1080x1920 for your vertical timeline, a light H.264 for WhatsApp, and a ProRes or DNxHR master for archive."
+   },
+   {
+    "ar": "اختار التايم لاين من القائمة اللي فوق الـ viewer، اضغط على البريسيت، وحدد Render على Entire Timeline أو In/Out Range، واكتب الاسم والـ Location.",
+    "en": "Pick the timeline from the dropdown above the viewer, click a preset, set Render to Entire Timeline or In/Out Range, and set the name and Location."
+   },
+   {
+    "ar": "اضغط Add to Render Queue، بعدين اضغط البريسيت اللي بعده وضيف مرة ثانية. كل job تطلع في الـ Render Queue على اليمين.",
+    "en": "Click Add to Render Queue, then click the next preset and add again. Each job shows up in the Render Queue on the right."
+   },
+   {
+    "ar": "لو عندك كليبات قصيرة كثير في تايم لاين واحد، اختار Render: Individual clips ومن تبويب File خلّي Filename uses على Source Name.",
+    "en": "For many short clips in one timeline, choose Render: Individual clips and in the File tab set Filename uses to Source Name."
+   },
+   {
+    "ar": "اضغط Render All وخلّيه يشتغل. ومن قائمة الـ Render Queue (...) اختار Show All Projects لو تبغى تشوف jobs من مشاريع ثانية.",
+    "en": "Click Render All and walk away. In the Render Queue menu (...) choose Show All Projects to see jobs from other projects too."
+   }
+  ],
+  "quests": {
+   "train": {
+    "ar": "اعمل 3 بريسيتات (YouTube 4K و Reels عمودي و WhatsApp خفيف) وصدّر مشروع واحد بالثلاثة في Render All وحدة. احسب كم أخذ وقت.",
+    "en": "Make 3 presets (YouTube 4K, vertical Reels, light WhatsApp) and render one project with all 3 in a single Render All. Time how long it takes."
+   },
+   "research": {
+    "ar": "شوف كيف 3 صناع محتوى يسمّوا ويرتبوا ملفات التصدير والبريسيتات، واكتب في Obsidian قاعدة تسمية خاصة فيك (مثلا 3zProd_Title_YT4K_v1).",
+    "en": "See how 3 creators name and organize their exports and presets, then write your own naming rule in Obsidian (for example 3zProd_Title_YT4K_v1)."
+   },
+   "produce": {
+    "ar": "تيك توك 25 ثانية: \"أصدّر 3 فيديوهات بضغطة وحدة\". الهوك في أول ثانيتين: الـ Render Queue تتعبى jobs قدامك، وبعدين شرح سريع على الشاشة.",
+    "en": "A 25 s TikTok: \"I export 3 videos with one click.\" Hook in the first 2 s: the Render Queue filling up with jobs, then a fast screen walkthrough."
+   },
+   "article": {
+    "ar": "مقال \"صدّر بذكاء في دافنشي: البريسيتات والـ Render Queue\": ليه البريسيتات، كيف تعملها، التصدير الجماعي، الكليبات المنفصلة، ومشاركة البريسيتات مع فريقك.",
+    "en": "Article \"Export smarter in DaVinci Resolve: render presets and the Render Queue\": why presets, making them, batch rendering, individual clips, and sharing presets with your team."
+   }
+  },
+  "trend": {
+   "ar": "نصايح قصيرة زي \"صدّر أكثر من تايم لاين مرة وحدة\" و\"صدّر كل كليب لوحده\" تتكرر في تيك توك وإنستقرام، لأن صناع المحتوى صاروا ينزلوا نفس المحتوى بأكثر من مقاس.",
+   "en": "Short tips like \"export multiple timelines at once\" and \"export every clip separately\" keep showing up on TikTok and Instagram, as creators post the same content in several formats."
+  },
+  "refs": [
+   [
+    "tt",
+    "@jtechwp",
+    "Davinci Resolve 18.5 How to export multiple timelines fast",
+    "https://www.tiktok.com/@jtechwp/video/7273469032085409057"
+   ],
+   [
+    "tt",
+    "@therealewanlim",
+    "Exporting multiple clips all at once in #davinciresolve",
+    "https://www.tiktok.com/@therealewanlim/video/7251600520178158849"
+   ],
+   [
+    "tt",
+    "@dawiet_cc",
+    "How you export multiple separate clips out of your timeline in Davinci Resolve 18",
+    "https://www.tiktok.com/@dawiet_cc/video/7328864280374234400"
+   ],
+   [
+    "tt",
+    "@dollarmoovies",
+    "DaVinci Resolve has this option in the deliver tab that allows you to export all of the clips in your timeline as individual clips",
+    "https://www.tiktok.com/@dollarmoovies/video/7559418115017231671"
+   ],
+   [
+    "ig",
+    "@jtechwp",
+    "How to export multiple timelines in Davinci Resolve 18.5 ...",
+    "https://www.instagram.com/jtechwp/reel/CwnBjYIo3Vr/"
+   ],
+   [
+    "ig",
+    "Instagram",
+    "Want to speed up your exporting workflow in DaVinci ...",
+    "https://www.instagram.com/p/DS0tH-XD6fd/"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "DaVinci Resolve Render Presets and Quick Export in 3 Minutes",
+    "https://www.youtube.com/watch?v=2dm-3PiL5gE"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "How to Save, Export, and Import Render Presets in DaVinci Resolve 18.6",
+    "https://www.youtube.com/watch?v=RyYd8CF9JiA"
+   ],
+   [
+    "yt",
+    "YouTube",
+    "DaVinci Resolve 18: Export multiple timelines with one click..",
+    "https://www.youtube.com/watch?v=stiTACO6PA0"
+   ],
+   [
+    "web",
+    "davinciresolve21.com",
+    "How to Queue Renders Overnight and Unattended in DaVinci Resolve",
+    "https://davinciresolve21.com/blog/davinci-resolve-how-to-queue-renders-overnight-unattended"
+   ],
+   [
+    "web",
+    "VFXPedia (Resolve 18.6 manual mirror)",
+    "Using the Render Queue",
+    "https://www.steakunderwater.com/VFXPedia/__man/Resolve18-6/DaVinciResolve18_Manual_files/part3956.htm"
+   ]
+  ],
+  "arGap": {
+   "has": true,
+   "ar": "البحث العربي طلّع شروحات تصدير عامة بس، وما لقيت شي مركّز على الـ Render Queue أو البريسيتات أو التصدير الجماعي. فرصة محتوى.",
+   "en": "Arabic searches found only general export tutorials, nothing focused on the Render Queue, custom presets, or batch exporting. Content opportunity."
+  },
+  "set": "starter",
+  "studio": false
+ }
+]
