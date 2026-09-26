@@ -5,6 +5,7 @@ import PxBar from "@/components/ui/PxBar";
 import { useT } from "@/lib/i18n";
 import type { LevelProgress } from "@/lib/level";
 import { tierLabel, type RankState } from "@/lib/rank";
+import PillarStrip from "./PillarStrip";
 
 export default function TodayHeader({
   rank,
@@ -63,6 +64,7 @@ export default function TodayHeader({
         />
         <Stat icon="⭐" value={xp} label={t("hdr.totalXp")} testId="total-xp" />
       </div>
+      <PillarStrip />
     </section>
   );
 }

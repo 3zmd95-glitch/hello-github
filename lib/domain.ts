@@ -44,6 +44,17 @@ export function refFromTuple([platform, handle, title, url]: RefTuple): Ref {
   return { platform, handle, title, url };
 }
 
+/* ---------- Pillars (round 22: Pillar → Program → Section → Skill) ---------- */
+
+export const PillarSchema = z.object({
+  id: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
+  order: z.number().int().min(1),
+  name: LTextSchema,
+  icon: z.string().min(1),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+});
+export type Pillar = z.infer<typeof PillarSchema>;
+
 /* ---------- Programs ---------- */
 
 export const SectionSchema = z.object({
@@ -54,6 +65,8 @@ export type Section = z.infer<typeof SectionSchema>;
 
 export const ProgramSchema = z.object({
   id: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
+  pillarId: z.string().min(1),
+  /** app = a specific tool; craft = technique/knowledge. Gear and combo logic use it. */
   kind: ProgramKindSchema,
   name: LTextSchema,
   icon: z.string().min(1),

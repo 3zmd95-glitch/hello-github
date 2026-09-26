@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
-import { getSkill } from "@/data";
+import { getSkill, pillars, programsByPillar } from "@/data";
 import { questXp } from "@/lib/xp";
 import {
   DEFAULT_SETTINGS,
@@ -8,6 +8,7 @@ import {
   activeDays,
   hydrateStore,
   isQuestDone,
+  pillarXp,
   programXp,
   skillProgress,
   streak,
@@ -107,6 +108,19 @@ describe("selectors", () => {
     expect(programXp(S(), "camera")).toBe(10);
     expect(programXp(S(), "lighting")).toBe(0);
     expect(totalXp(S())).toBe(28);
+  });
+
+  it("pillarXp sums programXp over the pillar's programs", () => {
+    S().completeQuest("smart-bins-keywords", "train"); // davinci → editing, 15
+    S().completeQuest("iphone-lock-exposure-wb", "train"); // camera → capture, 10
+    S().completeQuest("iphone-lock-exposure-wb", "research"); // camera → capture
+    S().addMicroAction({ ar: "درس", en: "Tutorial" }); // no pillar
+    const capture = programsByPillar("capture").reduce((n, p) => n + programXp(S(), p.id), 0);
+    expect(pillarXp(S(), "capture")).toBe(capture);
+    expect(pillarXp(S(), "capture")).toBeGreaterThan(10);
+    expect(pillarXp(S(), "editing")).toBe(15);
+    expect(pillarXp(S(), "growth")).toBe(0);
+    expect(pillars.reduce((n, p) => n + pillarXp(S(), p.id), 0)).toBe(totalXp(S()) - 3);
   });
 
   it("activeDays and streak use Riyadh days from quests and micro-actions", () => {

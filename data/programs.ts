@@ -1,8 +1,11 @@
 import type { Program } from "@/lib/domain";
+import { pillars } from "./pillars";
 
 /**
- * Programs = islands on the map. Two archipelagos: Craft (videography) and Tools (apps).
- * Sections for craft programs come from master plan round 21; app sections are the round 10 drafts.
+ * Programs = islands on the map, grouped under the owner's 6 pillars (round 22).
+ * `kind` stays: craft = technique/knowledge (round 21), app = a specific tool.
+ * Sections for craft programs come from master plan round 21; app sections are the round 10 drafts;
+ * programs added in round 22 (✚) have short draft sections to be filled later.
  */
 
 const s = (id: string, ar: string, en: string) => ({ id, name: { ar, en } });
@@ -11,6 +14,7 @@ const s = (id: string, ar: string, en: string) => ({ id, name: { ar, en } });
 
 export const davinci: Program = {
   id: "davinci",
+  pillarId: "editing",
   kind: "app",
   name: { ar: "دافنشي ريزولف", en: "DaVinci Resolve" },
   icon: "🎬",
@@ -31,6 +35,7 @@ export const davinci: Program = {
 export const craftPrograms: Program[] = [
   {
     id: "camera",
+    pillarId: "capture",
     kind: "craft",
     name: { ar: "الكاميرا", en: "Camera" },
     icon: "📷",
@@ -50,6 +55,7 @@ export const craftPrograms: Program[] = [
   },
   {
     id: "lighting",
+    pillarId: "capture",
     kind: "craft",
     name: { ar: "الإضاءة", en: "Lighting" },
     icon: "💡",
@@ -67,6 +73,7 @@ export const craftPrograms: Program[] = [
   },
   {
     id: "composition",
+    pillarId: "capture",
     kind: "craft",
     name: { ar: "التكوين", en: "Composition" },
     icon: "🖼️",
@@ -84,6 +91,7 @@ export const craftPrograms: Program[] = [
   },
   {
     id: "sound",
+    pillarId: "capture",
     kind: "craft",
     name: { ar: "الصوت في التصوير", en: "Sound on set" },
     icon: "🎙️",
@@ -99,6 +107,7 @@ export const craftPrograms: Program[] = [
   },
   {
     id: "story",
+    pillarId: "capture",
     kind: "craft",
     name: { ar: "القصة والإخراج", en: "Story & directing" },
     icon: "🎭",
@@ -116,6 +125,7 @@ export const craftPrograms: Program[] = [
   },
   {
     id: "color-craft",
+    pillarId: "editing",
     kind: "craft",
     name: { ar: "فن الألوان", en: "Color craft" },
     icon: "🎨",
@@ -131,6 +141,7 @@ export const craftPrograms: Program[] = [
   },
   {
     id: "production",
+    pillarId: "projects",
     kind: "craft",
     name: { ar: "سير الإنتاج", en: "Production workflow" },
     icon: "📋",
@@ -151,6 +162,7 @@ export const craftPrograms: Program[] = [
 export const otherAppPrograms: Program[] = [
   {
     id: "capcut",
+    pillarId: "editing",
     kind: "app",
     name: { ar: "كاب كات", en: "CapCut" },
     icon: "✂️",
@@ -167,6 +179,7 @@ export const otherAppPrograms: Program[] = [
   },
   {
     id: "photoshop",
+    pillarId: "design",
     kind: "app",
     name: { ar: "فوتوشوب", en: "Photoshop" },
     icon: "🖌️",
@@ -184,6 +197,7 @@ export const otherAppPrograms: Program[] = [
   },
   {
     id: "lightroom",
+    pillarId: "capture",
     kind: "app",
     name: { ar: "لايت روم", en: "Lightroom" },
     icon: "🌅",
@@ -199,6 +213,7 @@ export const otherAppPrograms: Program[] = [
   },
   {
     id: "illustrator",
+    pillarId: "design",
     kind: "app",
     name: { ar: "إليستريتور", en: "Illustrator" },
     icon: "✒️",
@@ -214,6 +229,7 @@ export const otherAppPrograms: Program[] = [
   },
   {
     id: "canva",
+    pillarId: "design",
     kind: "app",
     name: { ar: "كانفا", en: "Canva" },
     icon: "🟣",
@@ -229,6 +245,7 @@ export const otherAppPrograms: Program[] = [
   },
   {
     id: "higgsfield",
+    pillarId: "ai",
     kind: "app",
     name: { ar: "هيقزفيلد", en: "Higgsfield" },
     icon: "🛸",
@@ -243,6 +260,7 @@ export const otherAppPrograms: Program[] = [
   },
   {
     id: "claude",
+    pillarId: "ai",
     kind: "app",
     name: { ar: "كلود", en: "Claude" },
     icon: "🧠",
@@ -257,6 +275,7 @@ export const otherAppPrograms: Program[] = [
   },
   {
     id: "obsidian",
+    pillarId: "projects",
     kind: "app",
     name: { ar: "أوبسيديان", en: "Obsidian" },
     icon: "💎",
@@ -272,6 +291,7 @@ export const otherAppPrograms: Program[] = [
   },
   {
     id: "snapseed",
+    pillarId: "capture",
     kind: "app",
     name: { ar: "سناب سيد", en: "Snapseed" },
     icon: "🌿",
@@ -287,6 +307,7 @@ export const otherAppPrograms: Program[] = [
   },
   {
     id: "dazz-cam",
+    pillarId: "capture",
     kind: "app",
     name: { ar: "داز كام", en: "Dazz Cam" },
     icon: "📸",
@@ -300,6 +321,7 @@ export const otherAppPrograms: Program[] = [
   },
   {
     id: "cosmos",
+    pillarId: "projects",
     kind: "app",
     name: { ar: "كوزموس", en: "Cosmos" },
     icon: "🌌",
@@ -312,8 +334,10 @@ export const otherAppPrograms: Program[] = [
   },
   {
     id: "workflow",
+    pillarId: "projects",
     kind: "app",
-    name: { ar: "سير العمل", en: "Workflow" },
+    // Display name narrowed so it does not overlap "Files, archive & backup"; id kept for stored progress.
+    name: { ar: "قوالب وسير المشاريع", en: "Project templates & workflow" },
     icon: "🧰",
     color: "#9e9e9e",
     sections: [
@@ -325,8 +349,267 @@ export const otherAppPrograms: Program[] = [
   },
 ];
 
-/** Tools archipelago: DaVinci first (home island), then the other 12 apps. */
-export const appPrograms: Program[] = [davinci, ...otherAppPrograms];
+/* ---------- Round 22 additions (✚), draft sections ---------- */
 
-/** All programs: craft first, then tools. */
-export const programs: Program[] = [...craftPrograms, ...appPrograms];
+export const pillarPrograms: Program[] = [
+  /* Capture */
+  {
+    id: "iphone-camera",
+    pillarId: "capture",
+    kind: "app",
+    name: { ar: "كاميرا الآيفون", en: "iPhone Camera" },
+    icon: "📱",
+    color: "#a0aec0",
+    sections: [
+      s("photo-modes", "أوضاع التصوير", "Photo modes"),
+      s("video-settings", "إعدادات الفيديو (الدقة والفريمات)", "Video settings (resolution & fps)"),
+      s("cinematic-mode", "الوضع السينمائي", "Cinematic mode"),
+      s("prores-log", "ProRes والـ Log", "ProRes & Log"),
+      s("action-slomo", "وضع الأكشن والسلوموشن", "Action mode & slow motion"),
+    ],
+  },
+  {
+    id: "blackmagic-camera",
+    pillarId: "capture",
+    kind: "app",
+    name: { ar: "بلاك ماجك كاميرا", en: "Blackmagic Camera" },
+    icon: "🎥",
+    color: "#f28c28",
+    sections: [
+      s("manual-controls", "التحكم اليدوي (ISO، غالق، WB)", "Manual controls (ISO, shutter, WB)"),
+      s(
+        "monitoring-tools",
+        "أدوات المراقبة (زيبرا، فوكس بيكنق)",
+        "Monitoring tools (zebras, focus peaking)",
+      ),
+      s("codecs-formats", "الكوديك والصيغ", "Codecs & formats"),
+      s("lens-switching", "تبديل العدسات", "Lens switching"),
+      s("media-sync", "حفظ ومزامنة الملفات", "Media & sync"),
+    ],
+  },
+  {
+    id: "equipment",
+    pillarId: "capture",
+    kind: "craft",
+    name: { ar: "العدة والإكسسوارات", en: "Equipment & accessories" },
+    icon: "🎒",
+    color: "#6d9b74",
+    sections: [
+      s("phone-rigs", "ريقات الجوال", "Phone rigs"),
+      s("nd-filters", "فلاتر ND", "ND filters"),
+      s("mics", "المايكات", "Mics"),
+      s("lights", "الإضاءات", "Lights"),
+      s("tripod-gimbal", "الترايبود والجيمبل", "Tripod & gimbal"),
+      s("camera-upgrade", "خطة الترقية للكاميرا", "The camera upgrade path"),
+    ],
+  },
+  /* Editing */
+  {
+    id: "editing-theory",
+    pillarId: "editing",
+    kind: "craft",
+    name: { ar: "نظرية المونتاج", en: "Editing theory" },
+    icon: "🎞️",
+    color: "#c56cf0",
+    sections: [
+      s("cuts-continuity", "القطع والاستمرارية", "Cuts & continuity"),
+      s("jl-cuts", "قطع J و L", "J/L cuts"),
+      s("pacing-rhythm", "الإيقاع والسرعة", "Pacing & rhythm"),
+      s("montage", "المونتاج التتابعي", "Montage"),
+    ],
+  },
+  /* Design & brand */
+  {
+    id: "brand-identity",
+    pillarId: "design",
+    kind: "craft",
+    name: { ar: "الهوية والبراند", en: "Brand identity" },
+    icon: "🏷️",
+    color: "#ff6b6b",
+    sections: [
+      s("colors", "ألوان الهوية", "Colors"),
+      s("logo", "الشعار", "Logo"),
+      s("bio-profile", "البايو والبروفايل", "Bio & profile"),
+      s("thumbnail-system", "نظام الثمبنيل", "Thumbnail system"),
+    ],
+  },
+  /* AI */
+  {
+    id: "gemini",
+    pillarId: "ai",
+    kind: "app",
+    name: { ar: "جيميناي", en: "Gemini" },
+    icon: "✨",
+    color: "#4285f4",
+    sections: [
+      s("learning-extraction", "التعلّم واستخراج المعلومة", "Learning & extraction"),
+      s("research-prompts", "برومبتات البحث", "Research prompts"),
+    ],
+  },
+  {
+    id: "ai-audio",
+    pillarId: "ai",
+    kind: "app",
+    name: { ar: "الذكاء الاصطناعي للصوت", en: "AI for audio" },
+    icon: "🎧",
+    color: "#26a0da",
+    sections: [
+      s("voice-cleanup", "تنظيف الصوت", "Voice clean-up"),
+      s("music", "الموسيقى", "Music"),
+    ],
+  },
+  /* Projects & inspiration */
+  {
+    id: "files-backup",
+    pillarId: "projects",
+    kind: "craft",
+    name: { ar: "الملفات والأرشيف والنسخ", en: "Files, archive & backup" },
+    icon: "🗄️",
+    color: "#78909c",
+    sections: [
+      s("folder-structure", "ترتيب المجلدات", "Folder structure"),
+      s("archive", "الأرشيف", "Archive"),
+      s("storage-transfers", "التخزين ونقل الملفات", "Storage & transfers"),
+      s("backup", "النسخ الاحتياطي", "Backup"),
+    ],
+  },
+  {
+    id: "download-sources",
+    pillarId: "projects",
+    kind: "craft",
+    name: { ar: "مصادر التحميل", en: "Download sources" },
+    icon: "📥",
+    color: "#4db6ac",
+    sections: [
+      s("sound", "الصوتيات", "Sound"),
+      s("fonts", "الخطوط", "Fonts"),
+      s("plugins", "الإضافات", "Plugins"),
+      s("stock", "الستوك", "Stock"),
+    ],
+  },
+  {
+    id: "inspiration",
+    pillarId: "projects",
+    kind: "craft",
+    name: { ar: "مصادر الإلهام", en: "Inspiration sources" },
+    icon: "🌠",
+    color: "#ffb74d",
+    sections: [
+      s("where-to-look", "وين تدوّر", "Where to look"),
+      s("saving-references", "حفظ المراجع", "Saving references"),
+    ],
+  },
+  /* Growth & earning */
+  {
+    id: "analytics",
+    pillarId: "growth",
+    kind: "craft",
+    name: { ar: "قراءة الأرقام", en: "Analytics" },
+    icon: "📊",
+    color: "#42a5f5",
+    sections: [
+      s("reading-numbers", "قراءة الأرقام", "Reading the numbers"),
+      s("platform-insights", "إحصائيات المنصات", "Platform insights"),
+    ],
+  },
+  {
+    id: "publishing-strategy",
+    pillarId: "growth",
+    kind: "craft",
+    name: { ar: "استراتيجية النشر", en: "Publishing strategy" },
+    icon: "📣",
+    color: "#ef5350",
+    sections: [
+      s("algorithms", "الخوارزميات", "Algorithms"),
+      s("posting-rhythm", "إيقاع النشر", "Posting rhythm"),
+      s("hooks", "الهوكات", "Hooks"),
+    ],
+  },
+  {
+    id: "monetization",
+    pillarId: "growth",
+    kind: "craft",
+    name: { ar: "الكسب من المحتوى", en: "Monetization" },
+    icon: "💰",
+    color: "#fbc02d",
+    sections: [
+      s("affiliate", "التسويق بالعمولة", "Affiliate"),
+      s("products", "المنتجات", "Products"),
+      s("brand-deals", "الشراكات والميديا كِت", "Brand deals & media kit"),
+    ],
+  },
+  {
+    id: "web-newsletter",
+    pillarId: "growth",
+    kind: "craft",
+    name: { ar: "النشرة البريدية والموقع", en: "Newsletter & website" },
+    icon: "📰",
+    color: "#8d6e63",
+    sections: [
+      s("newsletter-basics", "أساسيات النشرة البريدية", "Newsletter basics"),
+      s("website-basics", "أساسيات الموقع", "Website basics"),
+    ],
+  },
+];
+
+/** Display order inside each pillar, following the round 22 lists (tools first, then craft). */
+const ORDER = [
+  // Capture
+  "iphone-camera",
+  "blackmagic-camera",
+  "dazz-cam",
+  "lightroom",
+  "snapseed",
+  "camera",
+  "lighting",
+  "composition",
+  "sound",
+  "story",
+  "equipment",
+  // Editing
+  "davinci",
+  "capcut",
+  "editing-theory",
+  "color-craft",
+  // Design & brand
+  "canva",
+  "photoshop",
+  "illustrator",
+  "brand-identity",
+  // AI
+  "claude",
+  "gemini",
+  "higgsfield",
+  "ai-audio",
+  // Projects & inspiration
+  "obsidian",
+  "cosmos",
+  "workflow",
+  "production",
+  "files-backup",
+  "download-sources",
+  "inspiration",
+  // Growth & earning
+  "analytics",
+  "publishing-strategy",
+  "monetization",
+  "web-newsletter",
+];
+
+const pillarOrder = new Map(pillars.map((p) => [p.id, p.order]));
+const rank = (id: string) => {
+  const i = ORDER.indexOf(id);
+  return i === -1 ? ORDER.length : i;
+};
+
+/** All programs, sorted by pillar order, then by the round 22 order inside the pillar. */
+export const programs: Program[] = [
+  ...craftPrograms,
+  davinci,
+  ...otherAppPrograms,
+  ...pillarPrograms,
+].sort(
+  (a, b) =>
+    (pillarOrder.get(a.pillarId) ?? 99) - (pillarOrder.get(b.pillarId) ?? 99) ||
+    rank(a.id) - rank(b.id),
+);

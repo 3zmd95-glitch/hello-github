@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
-import { getSkill } from "@/data";
+import { getProgram, getSkill } from "@/data";
 import {
   LTextSchema,
   MicroActionSchema,
@@ -315,13 +315,29 @@ export function isQuestDone(
   return s.completions.some((c) => c.skillId === skillId && c.quest === quest);
 }
 
+/** Skill an XP event belongs to (quest and mastery events only). */
+function xpEventSkillId(e: XpEvent): string | undefined {
+  if (!e.refId || (e.source !== "quest" && e.source !== "mastery")) return undefined;
+  return e.source === "quest" ? e.refId.slice(0, e.refId.lastIndexOf(":")) : e.refId;
+}
+
 /** XP earned from a program's skills (quest XP + mastery bonuses). */
 export function programXp(s: Pick<PersistedState, "xpEvents">, programId: string): number {
   let n = 0;
   for (const e of s.xpEvents) {
-    if (!e.refId || (e.source !== "quest" && e.source !== "mastery")) continue;
-    const skillId = e.source === "quest" ? e.refId.slice(0, e.refId.lastIndexOf(":")) : e.refId;
-    if (getSkill(skillId)?.programId === programId) n += e.amount;
+    const skillId = xpEventSkillId(e);
+    if (skillId && getSkill(skillId)?.programId === programId) n += e.amount;
+  }
+  return n;
+}
+
+/** XP earned across a pillar: the sum of programXp over its programs, in one pass. */
+export function pillarXp(s: Pick<PersistedState, "xpEvents">, pillarId: string): number {
+  let n = 0;
+  for (const e of s.xpEvents) {
+    const skillId = xpEventSkillId(e);
+    const programId = skillId ? getSkill(skillId)?.programId : undefined;
+    if (programId && getProgram(programId)?.pillarId === pillarId) n += e.amount;
   }
   return n;
 }

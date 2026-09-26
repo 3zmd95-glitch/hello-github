@@ -30,7 +30,7 @@ test.describe("offline", () => {
       await expect(page.getByTestId("today-header")).toBeVisible();
 
       await page.goto("/skills/");
-      await expect(page.getByTestId("group-craft")).toBeVisible();
+      await expect(page.getByTestId("pillar-capture")).toBeVisible();
     } finally {
       await context.setOffline(false);
     }

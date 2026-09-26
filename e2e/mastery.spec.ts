@@ -10,7 +10,11 @@ const QUESTS = ["train", "research", "produce", "article"] as const;
 test("masters a skill quest by quest and levels up", async ({ page }) => {
   await freshState(page, "/skills/");
 
-  await page.locator('[data-testid="program-card"][data-program="davinci"]').click();
+  // DaVinci lives under the Editing pillar.
+  await page
+    .getByTestId("pillar-editing")
+    .locator('[data-testid="program-card"][data-program="davinci"]')
+    .click();
 
   const skillRow = page.locator(`[data-testid="skill-row"][data-skill="${SKILL_ID}"]`);
   await skillRow.click();
@@ -39,4 +43,13 @@ test("masters a skill quest by quest and levels up", async ({ page }) => {
 
   await page.goto("/");
   await expect(page.getByTestId("level")).toContainText("LV 2");
+
+  // The same 141 XP all came from DaVinci, so the Editing pillar is LV2 in the Today pillar strip,
+  // and tapping the strip opens the Skills screen.
+  const strip = page.getByTestId("pillar-strip");
+  await expect(strip.locator('[data-pillar="editing"]')).toContainText("LV2");
+  await expect(strip.locator('[data-pillar="capture"]')).toContainText("LV1");
+  await strip.click();
+  await expect(page).toHaveURL(/\/skills\/$/);
+  await expect(page.getByTestId("pillar-editing").getByTestId("pillar-level")).toHaveText("LV 2");
 });

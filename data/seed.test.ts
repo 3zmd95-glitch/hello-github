@@ -1,15 +1,94 @@
 import { describe, expect, it } from "vitest";
-import { getProgram, getSkill, programs, skills, skillsByProgram, validateSeed } from "@/data";
+import {
+  getProgram,
+  getSkill,
+  pillars,
+  programs,
+  programsByPillar,
+  skills,
+  skillsByProgram,
+  validateSeed,
+} from "@/data";
 
 describe("seed data", () => {
   it("parses with the Zod schemas", () => {
     expect(() => validateSeed()).not.toThrow();
   });
 
-  it("has 20 programs: 7 craft + 13 apps", () => {
-    expect(programs).toHaveLength(20);
-    expect(programs.filter((p) => p.kind === "craft")).toHaveLength(7);
-    expect(programs.filter((p) => p.kind === "app")).toHaveLength(13);
+  it("has 34 programs: 17 craft + 17 apps", () => {
+    expect(programs).toHaveLength(34);
+    expect(programs.filter((p) => p.kind === "craft")).toHaveLength(17);
+    expect(programs.filter((p) => p.kind === "app")).toHaveLength(17);
+  });
+
+  it("has the owner's 6 pillars in order with unique orders", () => {
+    expect(pillars.map((p) => p.id)).toEqual([
+      "capture",
+      "editing",
+      "design",
+      "ai",
+      "projects",
+      "growth",
+    ]);
+    const orders = pillars.map((p) => p.order);
+    expect(new Set(orders).size).toBe(6);
+    expect(orders).toEqual([...orders].sort((a, b) => a - b));
+    expect(new Set(pillars.map((p) => p.color)).size).toBe(6);
+  });
+
+  it("every program belongs to a known pillar and every pillar has programs", () => {
+    const ids = new Set(pillars.map((p) => p.id));
+    for (const p of programs) expect(ids.has(p.pillarId), p.id).toBe(true);
+    for (const pl of pillars) expect(programsByPillar(pl.id).length, pl.id).toBeGreaterThan(0);
+    const total = pillars.reduce((n, pl) => n + programsByPillar(pl.id).length, 0);
+    expect(total).toBe(programs.length);
+    expect(programsByPillar("nope")).toEqual([]);
+  });
+
+  it("maps programs to pillars per round 22", () => {
+    const ids = (pl: string) => programsByPillar(pl).map((p) => p.id);
+    expect(getProgram("davinci")?.pillarId).toBe("editing");
+    expect(getProgram("lighting")?.pillarId).toBe("capture");
+    expect(ids("capture")).toHaveLength(11);
+    expect(ids("editing")).toEqual(["davinci", "capcut", "editing-theory", "color-craft"]);
+    expect(ids("design")).toEqual(["canva", "photoshop", "illustrator", "brand-identity"]);
+    expect(ids("ai")).toEqual(["claude", "gemini", "higgsfield", "ai-audio"]);
+    expect(ids("projects")).toHaveLength(7);
+    expect(ids("growth")).toEqual([
+      "analytics",
+      "publishing-strategy",
+      "monetization",
+      "web-newsletter",
+    ]);
+  });
+
+  it("programs are sorted by pillar order", () => {
+    const order = new Map(pillars.map((p) => [p.id, p.order]));
+    const seq = programs.map((p) => order.get(p.pillarId)!);
+    expect(seq).toEqual([...seq].sort((a, b) => a - b));
+  });
+
+  it("new round 22 programs have 2–6 draft sections", () => {
+    for (const id of [
+      "iphone-camera",
+      "blackmagic-camera",
+      "equipment",
+      "editing-theory",
+      "brand-identity",
+      "gemini",
+      "ai-audio",
+      "files-backup",
+      "download-sources",
+      "inspiration",
+      "analytics",
+      "publishing-strategy",
+      "monetization",
+      "web-newsletter",
+    ]) {
+      const n = getProgram(id)?.sections.length ?? 0;
+      expect(n, id).toBeGreaterThanOrEqual(2);
+      expect(n, id).toBeLessThanOrEqual(6);
+    }
   });
 
   it("DaVinci has the 7 real pages", () => {

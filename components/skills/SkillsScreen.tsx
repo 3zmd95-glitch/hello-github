@@ -3,17 +3,17 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import PxBar from "@/components/ui/PxBar";
 import { GearChip, isGearLocked, StudioChip, TierChip } from "@/components/ui/chips";
-import { programs, skillsByProgram } from "@/data";
-import { QUEST_TYPES, type Program, type QuestType, type Skill } from "@/lib/domain";
+import { pillars, programs, programsByPillar, skillsByProgram } from "@/data";
+import { QUEST_TYPES, type Pillar, type Program, type QuestType, type Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
-import { levelFromXp } from "@/lib/level";
+import { levelFromXp, levelProgress } from "@/lib/level";
 import { doneQuestsBySkill } from "@/lib/planner";
-import { programXp, useStore } from "@/store";
+import { pillarXp, programXp, useStore } from "@/store";
 import { useSkillSheet } from "./SkillSheetProvider";
 
 type DoneMap = Map<string, Set<QuestType>>;
 
-/** Skills: programs grouped Craft / Tools → sections → skill rows. The program view is page-local state. */
+/** Skills: the 6 pillars → programs → sections → skill rows. The program view is page-local state. */
 export default function SkillsScreen() {
   const [programId, setProgramId] = useState<string | null>(null);
   const completions = useStore((s) => s.completions);
@@ -34,27 +34,88 @@ export default function SkillsScreen() {
 
 function ProgramList({ done, onOpen }: { done: DoneMap; onOpen: (id: string) => void }) {
   const { t } = useT();
-  const groups = [
-    { key: "craft", title: t("skills.craft"), items: programs.filter((p) => p.kind === "craft") },
-    { key: "tools", title: t("skills.tools"), items: programs.filter((p) => p.kind === "app") },
-  ];
   return (
     <>
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl">{t("skills.title")}</h1>
         <p className="text-ink-2 text-sm">{t("skills.sub")}</p>
       </header>
-      {groups.map((g) => (
-        <section key={g.key} className="flex flex-col gap-3" data-testid={`group-${g.key}`}>
-          <h2 className="text-lg">{g.title}</h2>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {g.items.map((p) => (
-              <ProgramCard key={p.id} program={p} done={done} onOpen={onOpen} />
-            ))}
-          </div>
-        </section>
+      {pillars.map((pl) => (
+        <PillarGroup key={pl.id} pillar={pl} done={done} onOpen={onOpen} />
       ))}
     </>
+  );
+}
+
+/** One pillar: header with its level (from its programs' XP) and mastered count, then its program cards. */
+function PillarGroup({
+  pillar,
+  done,
+  onOpen,
+}: {
+  pillar: Pillar;
+  done: DoneMap;
+  onOpen: (id: string) => void;
+}) {
+  const { t, L } = useT();
+  const xpEvents = useStore((s) => s.xpEvents);
+  const progress = useMemo(
+    () => levelProgress(pillarXp({ xpEvents }, pillar.id)),
+    [xpEvents, pillar.id],
+  );
+  const items = programsByPillar(pillar.id);
+  // Programs that already have skills first; "explore soon" ones after (stable otherwise).
+  const sorted = [
+    ...items.filter((p) => (skillsByProgram[p.id]?.length ?? 0) > 0),
+    ...items.filter((p) => (skillsByProgram[p.id]?.length ?? 0) === 0),
+  ];
+  let total = 0;
+  let mastered = 0;
+  for (const p of items) {
+    const st = programStats(p, done);
+    total += st.total;
+    mastered += st.mastered;
+  }
+
+  return (
+    <section
+      className="flex flex-col gap-3"
+      data-testid={`pillar-${pillar.id}`}
+      data-pillar={pillar.id}
+    >
+      <header
+        className="border-edge flex flex-col gap-2 border-b-[3px] pb-3"
+        style={{ borderBottomColor: `color-mix(in srgb, ${pillar.color} 55%, var(--edge))` }}
+      >
+        <div className="flex items-center gap-3">
+          <TileIcon icon={pillar.icon} color={pillar.color} size={40} />
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-lg leading-tight">{L(pillar.name)}</h2>
+            <span className="text-muted text-xs">
+              {t("skills.nPrograms", { n: items.length })} ·{" "}
+              {t("skills.mastered", { n: mastered, t: total })}
+            </span>
+          </div>
+          <span
+            className="num bg-edge text-accent shrink-0 rounded-[2px] px-2 py-0.5 text-sm"
+            data-testid="pillar-level"
+          >
+            LV {progress.level}
+          </span>
+        </div>
+        <PxBar
+          value={progress.ratio}
+          color={pillar.color}
+          small
+          label={t("skills.pillarLevel", { name: L(pillar.name) })}
+        />
+      </header>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {sorted.map((p) => (
+          <ProgramCard key={p.id} program={p} done={done} onOpen={onOpen} />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -70,7 +131,7 @@ function programStats(program: Program, done: DoneMap) {
   return { total: list.length, quests, mastered };
 }
 
-function ProgramIcon({ program, size = 44 }: { program: Program; size?: number }) {
+function TileIcon({ icon, color, size = 44 }: { icon: string; color: string; size?: number }) {
   return (
     <span
       aria-hidden
@@ -79,12 +140,16 @@ function ProgramIcon({ program, size = 44 }: { program: Program; size?: number }
         width: size,
         height: size,
         fontSize: size * 0.5,
-        background: `color-mix(in srgb, ${program.color} 45%, var(--panel-2))`,
+        background: `color-mix(in srgb, ${color} 45%, var(--panel-2))`,
       }}
     >
-      {program.icon}
+      {icon}
     </span>
   );
+}
+
+function ProgramIcon({ program, size = 44 }: { program: Program; size?: number }) {
+  return <TileIcon icon={program.icon} color={program.color} size={size} />;
 }
 
 function ProgramCard({
