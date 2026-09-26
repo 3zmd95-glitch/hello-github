@@ -1,0 +1,389 @@
+@import "tailwindcss";
+
+/*
+ * 3z Prod design tokens. Each world sets its own variables on the root element
+ * (`data-world="training"` = cute pixel style: chunky borders, hard shadows, dark bg, green accent).
+ * The Social world (cinematic look) will add its own block later.
+ */
+:root,
+:root[data-world="training"] {
+  color-scheme: dark;
+  --bg: #0d141d;
+  --bg-dot: #182331;
+  --panel: #172230;
+  --panel-2: #203044;
+  --panel-3: #2a3d55;
+  --edge: #05080c;
+  --ink: #f6f1e3;
+  --ink-2: #c3cedb;
+  --muted: #8397ad;
+  --accent: #45e08e;
+  --accent-ink: #07140d;
+  --gold: #ffcc4d;
+  --gold-ink: #2a1d00;
+  --danger: #ff6b5e;
+  --sky: #6cc6ff;
+  --orange: #ff9d4d;
+  --shadow: 4px 4px 0 var(--edge);
+  --shadow-sm: 2px 2px 0 var(--edge);
+  --tabbar-h: 64px;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-panel-3: var(--panel-3);
+  --color-edge: var(--edge);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-gold: var(--gold);
+  --color-gold-ink: var(--gold-ink);
+  --color-danger: var(--danger);
+  --color-sky: var(--sky);
+  --color-orange: var(--orange);
+  --font-body: "Baloo Bhaijaan 2", system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+  --font-pixel: "Pixelify Sans", "Baloo Bhaijaan 2", ui-monospace, monospace;
+  --shadow-px: 4px 4px 0 var(--edge);
+  --shadow-px-sm: 2px 2px 0 var(--edge);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    background: var(--bg);
+  }
+  body {
+    background-color: var(--bg);
+    background-image: radial-gradient(var(--bg-dot) 1.5px, transparent 1.6px);
+    background-size: 22px 22px;
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.5;
+    overflow-x: hidden;
+  }
+  h1,
+  h2,
+  h3 {
+    line-height: 1.25;
+    font-weight: 800;
+    text-wrap: balance;
+  }
+  button,
+  summary,
+  a,
+  label,
+  input[type="checkbox"],
+  input[type="radio"] {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  :where(button, a, summary, input, select, textarea):focus-visible {
+    outline: 3px solid var(--gold);
+    outline-offset: 2px;
+  }
+  a {
+    color: var(--sky);
+  }
+}
+
+@layer components {
+  /* Pixel panel: chunky border, hard offset shadow, nearly square corners. */
+  .px-card {
+    background: var(--panel);
+    border: 3px solid var(--edge);
+    border-radius: 2px;
+    box-shadow: var(--shadow);
+    padding: 16px;
+    min-width: 0;
+  }
+  .px-inset {
+    background: var(--panel-2);
+    border: 2px solid var(--edge);
+    border-radius: 2px;
+    padding: 10px 12px;
+    min-width: 0;
+  }
+
+  .px-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 3px solid var(--edge);
+    border-radius: 2px;
+    box-shadow: 3px 3px 0 var(--edge);
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 800;
+    font-size: 0.9rem;
+    line-height: 1.2;
+    padding: 7px 14px;
+    min-height: 40px;
+    white-space: nowrap;
+    transition:
+      transform 0.08s steps(2),
+      box-shadow 0.08s steps(2);
+  }
+  .px-btn:active:not(:disabled) {
+    transform: translate(3px, 3px);
+    box-shadow: 0 0 0 var(--edge);
+  }
+  .px-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .px-btn-gold {
+    background: var(--gold);
+    color: var(--gold-ink);
+  }
+  .px-btn-ghost {
+    background: var(--panel-2);
+    color: var(--ink);
+  }
+  .px-btn-danger {
+    background: var(--danger);
+    color: #2a0a06;
+  }
+  .px-btn-sm {
+    min-height: 32px;
+    padding: 3px 10px;
+    font-size: 0.82rem;
+    box-shadow: 2px 2px 0 var(--edge);
+  }
+
+  .px-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.74rem;
+    font-weight: 600;
+    line-height: 1.5;
+    padding: 0 8px;
+    border: 2px solid var(--edge);
+    border-radius: 2px;
+    background: var(--panel-3);
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .px-chip-t1 {
+    background: #1f4a36;
+    color: #aef3cc;
+  }
+  .px-chip-t2 {
+    background: #5a4417;
+    color: #ffe08f;
+  }
+  .px-chip-t3 {
+    background: #5a2029;
+    color: #ffb3aa;
+  }
+  .px-chip-green {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+  .px-chip-gold {
+    background: var(--gold);
+    color: var(--gold-ink);
+  }
+  .px-chip-lock {
+    background: var(--panel-2);
+    color: var(--ink-2);
+    border-style: dashed;
+  }
+
+  /* Segmented pixel progress bar. Set --c for the fill color and the width on the inner <i>. */
+  .px-bar {
+    position: relative;
+    height: 16px;
+    background: var(--edge);
+    border: 2px solid var(--edge);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .px-bar > i {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    background: repeating-linear-gradient(
+      90deg,
+      var(--c, var(--accent)) 0 10px,
+      color-mix(in srgb, var(--c, var(--accent)) 80%, #fff) 10px 12px
+    );
+    transition: width 0.5s steps(8);
+  }
+  .px-bar-sm {
+    height: 10px;
+  }
+
+  .px-input {
+    width: 100%;
+    min-width: 0;
+    background: var(--edge);
+    color: var(--ink);
+    border: 2px solid var(--panel-3);
+    border-radius: 2px;
+    padding: 6px 10px;
+    font-size: 16px; /* 16px stops iOS zooming into inputs */
+    line-height: 1.3;
+  }
+  .px-input::placeholder {
+    color: var(--muted);
+  }
+
+  /* Pixel checkbox square for quests. */
+  .px-check {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border: 3px solid var(--edge);
+    border-radius: 2px;
+    background: var(--panel);
+    box-shadow: 2px 2px 0 var(--edge);
+    font-family: var(--font-pixel);
+    color: transparent;
+  }
+  .px-check[data-on="true"] {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  .px-pip {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--edge);
+    border-radius: 1px;
+    background: var(--panel-3);
+  }
+  .px-pip[data-on="true"] {
+    background: var(--accent);
+  }
+
+  .px-link {
+    color: var(--sky);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    overflow-wrap: anywhere;
+  }
+}
+
+@layer utilities {
+  /* Latin numbers and short labels in the pixel font, isolated so they read left to right inside Arabic. */
+  .num {
+    font-family: var(--font-pixel);
+    font-variant-numeric: tabular-nums;
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+  .pb-safe-tabbar {
+    padding-bottom: calc(var(--tabbar-h) + 24px + env(safe-area-inset-bottom, 0px));
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+}
+
+/* ---------- Motion (steps() keeps it pixel-y) ---------- */
+
+@keyframes px-popin {
+  from {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.08);
+  }
+}
+@keyframes px-sheetup {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes px-toastin {
+  from {
+    transform: translateY(-120%);
+    opacity: 0;
+  }
+}
+@keyframes px-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes px-burst {
+  from {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: translate(var(--dx), var(--dy)) scale(0.6);
+    opacity: 0;
+  }
+}
+@keyframes px-flick {
+  50% {
+    transform: scaleX(-1);
+  }
+}
+@keyframes px-pop {
+  40% {
+    transform: scale(1.25);
+  }
+}
+
+.anim-popin {
+  animation: px-popin 0.4s steps(5) both;
+}
+.anim-sheet {
+  animation: px-sheetup 0.25s steps(4) both;
+}
+@media (min-width: 768px) {
+  .anim-sheet {
+    animation: px-popin 0.25s steps(4) both;
+  }
+}
+.anim-toast {
+  animation: px-toastin 0.25s steps(4) both;
+}
+.anim-fade {
+  animation: px-fade 0.2s steps(3) both;
+}
+.anim-flick {
+  display: inline-block;
+  animation: px-flick 0.5s steps(2) infinite;
+}
+.anim-pop {
+  animation: px-pop 0.35s steps(4);
+}
+.px-particle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  background: var(--c);
+  box-shadow: 2px 2px 0 var(--edge);
+  animation: px-burst 1.1s steps(8) var(--delay, 0s) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .px-particle {
+    display: none;
+  }
+}
