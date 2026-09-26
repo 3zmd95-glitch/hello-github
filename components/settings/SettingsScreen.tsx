@@ -126,6 +126,7 @@ export default function SettingsScreen() {
               <label
                 key={g}
                 className={`px-inset flex items-center gap-2 ${on ? "border-accent" : ""}`}
+                data-testid={`gear-${g}`}
               >
                 <input
                   type="checkbox"

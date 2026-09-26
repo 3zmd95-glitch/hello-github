@@ -29,5 +29,9 @@ export function StudioChip({ skill, settings }: { skill: Skill; settings: Settin
 export function GearChip({ skill, settings }: { skill: Skill; settings: Settings }) {
   const { t } = useT();
   if (!isGearLocked(skill, settings)) return null;
-  return <span className="px-chip px-chip-lock">{t(`lock.${skill.gear}`)}</span>;
+  return (
+    <span className="px-chip px-chip-lock" data-testid="gear-lock-chip">
+      {t(`lock.${skill.gear}`)}
+    </span>
+  );
 }

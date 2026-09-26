@@ -114,6 +114,7 @@ function TopBar() {
                 aria-pressed={lang === l}
                 onClick={() => setSettings({ lang: l })}
                 className={`num px-2.5 py-1 text-xs font-bold ${lang === l ? "bg-gold text-gold-ink" : "bg-panel-2 text-ink-2"}`}
+                data-testid={`lang-${l}`}
               >
                 {l.toUpperCase()}
               </button>
