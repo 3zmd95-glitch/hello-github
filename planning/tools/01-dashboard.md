@@ -1,7 +1,9 @@
 # 01 · Dashboard tools (priority)
 
 The dashboard is the product that matters most right now: a private, gamified space that makes the owner want to open it
-every day and learn one more DaVinci skill. Everything here is chosen to serve that loop first. Website and social come later.
+every day and learn one more skill, in **videography craft** (camera, lighting, composition, sound, story, color theory, production
+workflow) as well as in software (DaVinci Resolve and the other apps). Everything here is chosen to serve that loop first.
+Website and social come later. Craft programs are defined in the master plan, round 21.
 
 ## 1. The motivation loop, and the tool behind each part
 
@@ -20,7 +22,10 @@ The loop the mockup already shows (Today → quest → XP → streak → avatar 
 | **Chests, gems, rewards shop** | ledger tables, random roll on the server | Postgres tables `gems_ledger`, `chests` + Supabase RPC |
 | **Monthly boss** with HP bar | quests linked to a boss, damage on completion | trigger on `quests` update → `bosses.hp` |
 | **Drills** (spaced repetition) | next-due dates | `drills` table, cron marks due ones, Today shows them |
-| **Skill map: world of islands → region map → skill popup** | pannable pixel map, tappable nodes | plain SVG/HTML with CSS transforms (no map library needed) |
+| **Skill map: two archipelagos (Craft · Tools) → island → region map → skill popup** | pannable pixel map, tappable nodes | plain SVG/HTML with CSS transforms (no map library needed) |
+| **Combo quests** (one craft skill + one software skill → one video) | pairing from `skills.related`, one clip completes two Produce quests | `combos` table + coach prompt; proof upload to Supabase Storage |
+| **Train quests as field exercises with proof** (craft) | photo/clip upload from the phone, compressed | `browser-image-compression` → Supabase Storage; short clips as links (YouTube/Drive) to stay on the free tier |
+| **Gear-aware suggestions** (phone-first at the start) | filter skills by `skills.gear` against the owner's gear list | Settings "my gear" → Postgres filter in the planner query |
 | **Skill Scout / Discover** (research a skill, return a full card with sources) | AI with web search, structured output | Anthropic SDK (Sonnet) + web search tool, Zod schema for the card |
 | **"📚 Start here" learning path** on every skill | ordered references with platform + creator | `refs` JSON already in the starter packs; TikTok/YouTube oEmbed for thumbnails |
 | **Coach card + weekly plan** (< 5 h/week) | cheap AI call, budget cap | Claude Haiku for daily card, Sonnet weekly; `ai_usage` table enforces cap |
@@ -55,7 +60,8 @@ come for free), or hand-build the Training UI to match the mockup pixel for pixe
 | **Supabase Auth** | magic link / OTP for the owner; `role = owner` claim checked by RLS and by the `/dashboard` layout |
 
 Seed data: `../data/davinci-starter-pack.json` (21 skills) and `../data/davinci-studio-ai-pack.json` (6 skills) load into
-`skills`, `quests` and a `skill_refs` table in the first migration.
+`skills`, `quests` and a `skill_refs` table in the first migration. The 7 craft programs and their sections (master plan, round 21)
+seed `programs` (`kind = craft`) and `sections`; the first craft starter pack ("Camera & light from zero", phone-first) is scouted next.
 
 ## 4. PWA and phone
 
@@ -101,12 +107,13 @@ Sprite sheets export as PNG; the scene renders on a `<canvas>` with `image-rende
 ## 8. Build order for the dashboard (each step usable on the phone)
 
 1. **Skeleton**: Next.js + Supabase + owner login + PWA install. Empty Today screen.
-2. **Skills and quests**: seed the 27 DaVinci skills, list view, skill popup with 4 quests and ✓.
+2. **Skills and quests**: seed the 27 DaVinci skills plus the 7 craft programs with empty sections, list view, skill popup with 4 quests and ✓,
+   proof upload for craft Train quests.
 3. **XP, level, rank, streak**: `xp.ts` with tests, Today's flow card, level-up toast + sound.
 4. **Avatar stage 1–3 + scene**: first sprites, evolution on rank-up.
 5. **Push reminder**: daily nudge at the chosen time; streak freeze.
-6. **Map view**: DaVinci island regions, then the world map with the other 12 islands.
-7. **Coach card + Skill Scout**: AI budget cap first, then Discover.
+6. **Map view**: DaVinci island regions, then the world map with the Tools and Craft archipelagos.
+7. **Coach card + Skill Scout**: AI budget cap first, then Discover; Scout the "Camera & light from zero" pack; first combo quest.
 8. **Focus timer, chests, gems, boss, drills, seasons, Review**: one per week after the core loop feels good.
 
 Steps 1–5 are the motivating core. If only those ship, the dashboard already does its job.

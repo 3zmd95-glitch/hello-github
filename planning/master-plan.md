@@ -295,6 +295,39 @@ Round 20 (owner bug: "when I click [a skill on the island map] it doesn't open a
   or losing its scroll; ✕ / backdrop / Esc close it. Every node now has its name under it and lifts on hover/press.
   Tested desktop + phone with all 39 DaVinci skills: popup in view, 0/4 → 1/4 inside it, add-skill "+" still works, no errors.
 
+Brainstorm round 21: **videography craft, not only software** (owner: "the training dashboard must include videography
+techniques, not only software"; owner is early in the journey and the dashboard's job is to motivate daily learning).
+- The skill tree stays Program → Section → Skill. New **craft programs** sit beside the app programs. `programs.kind = app | craft`.
+- Craft programs and draft sections (skills filled later with Skill Scout / starter packs, same card format):
+  - **Camera**: Exposure triangle · Shutter angle (180° rule) · Frame rates & slow motion · Picture profiles & Log · White balance ·
+    Focus (manual, pulling, hyperfocal) · Lenses & focal length · Stabilization (handheld, gimbal) · Camera movement (push-in, orbit, reveal, whip pan) · Phone videography
+  - **Lighting**: Natural light & golden hour · Harsh midday sun (diffusion, shade, negative fill; Saudi conditions) · Three-point · Motivated light ·
+    Practicals · Color temperature & gels · Low light & night · Interview setups
+  - **Composition**: Shot sizes (WS/MS/CU) · Rule of thirds & leading lines · Headroom & eyeline · Depth layers (FG/MG/BG) · Symmetry & framing ·
+    Dutch angle · 180° line · Blocking
+  - **Sound on set**: Lav vs shotgun · Levels & headroom · Room tone · Wind protection · Sync (clap / timecode) · Phone audio
+  - **Story & directing**: Hook–beats–CTA structure · Shot lists & storyboards · Sequencing (wide→medium→close) · B-roll planning · Coverage ·
+    Directing interviews · Pacing & rhythm · Planning a match cut
+  - **Color craft** (theory, software-agnostic): Color theory & palettes · Skin tones · Reading scopes · LUT theory · Film emulation · Teal–orange and when not to
+  - **Production workflow**: Location scouting · Permits (Saudi Film Commission) · Gear checklist · Call sheet · Data management on set · Backups
+- **Quests keep the same 4 types**, adapted for craft: **Train** = a field exercise with proof (e.g. "shoot the same subject at 5 shutter angles",
+  photo/clip upload) · **Produce** = a short clip that shows the technique · **Research** = Obsidian note · **Publish** = article (Arabic gap flag applies).
+  XP rules unchanged; craft XP feeds the same overall level and rank ladder (the rank names already are videography: صيّاد اللقطات، شايل الكاميرا، ملك الزوايا، مروّض الإضاءة).
+- **Combo quests (new, motivational core):** the coach pairs one craft skill with one software skill into a mini-project that ends in one video:
+  "shoot Log at golden hour → grade with CST in DaVinci", "record with a lav → voice chain in Fairlight", "plan a match cut → cut it on the Edit page".
+  One combo per week fits the < 5 h budget, produces real footage, and the Produce quest of both skills completes from the same clip.
+- **Map:** the world map gets two archipelagos: **الحرفة / Craft** (7 islands, themed: Camera = film set, Lighting = sunlit rooftop, Composition = gallery,
+  Sound = studio booth, Story = writer's desk, Color craft = paint lab, Workflow = production office) and **البرامج / Tools** (the 13 app islands).
+  A bridge between the archipelagos carries the combo quests. Island glow still grows with that program's level.
+- **Gear-aware:** `skills.gear = phone | any | camera | gimbal | lights | mic`. Settings gets a "my gear" list; the coach and Skill Scout only suggest skills
+  the owner can do today (phone-first at the start, matching the avatar's phone → mirrorless → cinema arc). **Open: owner's current gear.**
+- **Related links across kinds:** `skills.related` already exists in the starter-pack JSON; craft ↔ software links power the combo suggestions
+  (Log profile ↔ CST · 180° shutter ↔ Retime / Speed Warp · lav recording ↔ Dialogue Leveler · storyboard ↔ Cut page Source Tape).
+- **Coach balance:** the weekly plan aims for ~1 craft quest + 1–2 software quests + 1 combo; the Review screen shows a craft/software split.
+- **Seed:** next starter pack = **"Camera & light from zero" (phone-first, ~12 skills)** scouted with the same method as the DaVinci packs
+  (real references only, Arabic-gap flag). Data model additions: `programs.kind`, `skills.gear`, `combos` (skill_a, skill_b, brief, clip_url, status).
+- Mockup: add the Craft archipelago, a combo card on Today, and a gear list in Settings in the next mockup update.
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|

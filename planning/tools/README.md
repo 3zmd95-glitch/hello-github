@@ -42,4 +42,5 @@ build order. Website and social tools are recorded so nothing is forgotten, but 
 - **shadcn/ui inside the pixel Training world**: use its primitives (dialog, sheet, tabs, command) and restyle them, or hand-build that world to match the mockup exactly? Recommendation: use the primitives, restyle with CSS variables. See `01-dashboard.md`.
 - **Who draws the pixel art** (avatar stages, 17 ranks × 3 tiers, islands, badges, chests). Options in `01-dashboard.md`.
 - **Start Meta and TikTok developer applications in Phase 0**, because approvals take weeks and gate Phase 4. See `04-accounts-and-costs.md`.
+- **Owner's current gear** (phone only, or a camera / gimbal / mic already owned) decides which craft skills the coach suggests first. See master plan round 21.
 - **Snapchat** as a first-class channel for the Saudi audience (manual stats for now). See `03-social-media.md`.
