@@ -137,7 +137,7 @@
   "settings.resetOk": "انمسح كل شي. بداية جديدة 💪",
   "settings.version": "النسخة {v}",
   "morePage.title": "المزيد",
-  "morePage.sub": "باقي الأقسام. الجديد جاي قريب",
+  "morePage.sub": "باقي الأقسام",
   "morePage.settings": "⚙️ الإعدادات",
   "morePage.map": "🗺️ خريطة الجزر",
   "morePage.planner": "📅 مخطط الأسبوع",
@@ -209,5 +209,9 @@
   "settings.apiScoutHelpLink": "خطوات التجهيز (workers/scout/README.md)",
   "settings.scoutErrNoUrl": "حط رابط Scout Worker صحيح أول.",
   "settings.scoutErrNoTavily": "الـ Worker يرد، بس سر TAVILY_API_KEY ناقص.",
-  "sheet.refThumbAlt": "صورة مصغّرة"
+  "sheet.refThumbAlt": "صورة مصغّرة",
+  "nav.planner": "المخطط",
+  "nav.review": "المراجعة",
+  "nav.rewards": "المكافآت",
+  "morePage.discover": "🔎 اكتشف"
 }

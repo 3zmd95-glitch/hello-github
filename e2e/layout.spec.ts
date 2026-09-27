@@ -1,7 +1,16 @@
 import { expect, test } from "@playwright/test";
 import { freshState } from "./helpers";
 
-const PATHS = ["/", "/skills/", "/settings/", "/more/"];
+const PATHS = [
+  "/",
+  "/skills/",
+  "/map/",
+  "/planner/",
+  "/review/",
+  "/rewards/",
+  "/settings/",
+  "/more/",
+];
 
 for (const path of PATHS) {
   test(`no horizontal scroll on ${path}`, async ({ page }) => {
