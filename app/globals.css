@@ -690,22 +690,23 @@
 }
 
 /* ---- Planner ---- */
-/* Seven days Sat → Fri: a vertical list on phones, 4 columns from md, all 7 from lg. */
+/* Seven days Sat → Fri: a vertical list on phones, 2 columns from sm, 4 from md (4 + 3 rows).
+ * Seven columns never fit the 1180px content width: Arabic quest titles need ≥ 200px per day. */
 .plan-week {
   display: grid;
   gap: 12px;
   min-width: 0;
 }
-@media (min-width: 768px) {
+@media (min-width: 640px) {
   .plan-week {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
   }
 }
 @media (min-width: 1024px) {
   .plan-week {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
   }
 }
 .plan-day {
@@ -717,10 +718,6 @@
   box-shadow:
     4px 4px 0 var(--edge),
     inset 0 0 0 2px color-mix(in srgb, var(--gold) 55%, transparent);
-}
-/* Chips may wrap inside the narrow day columns. */
-.plan-item .px-chip {
-  white-space: normal;
 }
 .plan-item[data-done="true"] {
   opacity: 0.85;
