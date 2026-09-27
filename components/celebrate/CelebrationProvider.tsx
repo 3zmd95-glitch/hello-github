@@ -46,7 +46,9 @@ export type CelebrationKind =
   | "seasonDone"
   | "drill"
   | "focusStart"
-  | "focusEnd";
+  | "focusEnd"
+  /** 📱 A post was marked as posted (payload.name = its title). */
+  | "posted";
 
 export interface CelebrationPayload {
   xp?: number;
@@ -99,6 +101,7 @@ export const DURATIONS: Record<CelebrationKind, number> = {
   drill: 1500,
   focusStart: 1500,
   focusEnd: 2000,
+  posted: 1500,
 };
 
 const SOUNDS: Record<CelebrationKind, SoundName> = {
@@ -118,6 +121,7 @@ const SOUNDS: Record<CelebrationKind, SoundName> = {
   drill: "drill",
   focusStart: "micro",
   focusEnd: "dayDone",
+  posted: "quest",
 };
 
 /** Kinds that take the whole screen. */
@@ -236,6 +240,10 @@ function smallToast(item: Item, { t, L }: I18n): { icon: string; text: string } 
       return { icon: "🧪", text: t("xp.toast.focusStart", { n: p.minutes ?? 25 }) };
     case "focusEnd":
       return { icon: "🧪", text: t(p.early ? "xp.toast.focusEarly" : "xp.toast.focusEnd") };
+    case "posted":
+      // 📱 No dictionary key yet (the Social shell owns messages/social.*.json): the post's title + ✓ reads
+      // the same in both languages. Shell agent: add `social.toast.posted` ("انتشر ✓ {name}") and use it here.
+      return { icon: "📱", text: `${p.name ?? ""} ✓`.trim() };
     default:
       return {
         icon: "✨",
