@@ -9,7 +9,7 @@ export default defineConfig({
     environment: "node",
     include: ["**/*.test.ts", "**/*.test.tsx"],
     // workers/scout/**/*.test.ts is included on purpose: `pnpm test` runs the Worker tests too (once).
-    exclude: ["**/node_modules/**", ".next/**", "out/**", "e2e/**", "**/.wrangler/**"],
+    exclude: ["**/node_modules/**", ".next/**", "out/**", "e2e/**", "**/.wrangler/**", ".claude/**"],
     coverage: {
       provider: "v8",
       include: ["lib/**", "store/**", "data/**"],
