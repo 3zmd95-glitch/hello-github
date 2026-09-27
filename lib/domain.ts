@@ -577,3 +577,42 @@ export const SocialAccountSchema = z.object({
   url: z.string().optional(),
 });
 export type SocialAccount = z.infer<typeof SocialAccountSchema>;
+
+/* ---------- 🔗 Connected accounts (live social sync through the Scout Worker) ---------- */
+
+/** One platform's connection as `GET /social/status` reports it (timestamps are ISO strings from the Worker). */
+export const SocialConnectionStatusSchema = z.object({
+  /** The Worker has this platform's OAuth client set up. */
+  configured: z.boolean(),
+  /** The owner finished the OAuth flow and a token is stored in the Worker. */
+  connected: z.boolean(),
+  /** Without the "@". */
+  handle: z.string().optional(),
+  url: z.string().optional(),
+  connectedAt: z.string().optional(),
+  lastSyncAt: z.string().optional(),
+  /** Error code of the last sync (`token_expired`, `upstream`, …), if it failed. */
+  lastError: z.string().optional(),
+  tokenExpiresAt: z.string().optional(),
+});
+export type SocialConnectionStatus = z.infer<typeof SocialConnectionStatusSchema>;
+
+/**
+ * Persisted sync bookkeeping, so the analytics page can say "live · synced 2 h ago" offline: when the app last
+ * pulled the Worker's data, the last pull's error (a message key), and the last status reply per platform.
+ */
+export const SocialSyncStateSchema = z.object({
+  lastPullAt: z.string().nullable().default(null),
+  lastPullError: z.string().nullable().default(null),
+  status: z.partialRecord(PlatformSchema, SocialConnectionStatusSchema).nullable().default(null),
+  statusAt: z.string().nullable().default(null),
+});
+export type SocialSyncState = z.infer<typeof SocialSyncStateSchema>;
+export type SocialStatusMap = NonNullable<SocialSyncState["status"]>;
+
+export const EMPTY_SOCIAL_SYNC: SocialSyncState = {
+  lastPullAt: null,
+  lastPullError: null,
+  status: null,
+  statusAt: null,
+};

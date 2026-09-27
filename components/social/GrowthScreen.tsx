@@ -1,8 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useToday } from "@/components/today/useToday";
+import { useSocialSync } from "@/components/social/useSocialSync";
 import { allOverview, platformOverview } from "@/lib/analytics";
 import type { Platform } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
@@ -45,6 +48,14 @@ export default function GrowthScreen() {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [changed, setChanged] = useState(false);
   const [topEngagement, setTopEngagement] = useState(false);
+  const { toast } = useCelebrate();
+  const sync = useSocialSync({ auto: true });
+  const anyConnected =
+    sync.status !== null && Object.values(sync.status).some((s) => s?.connected === true);
+  const onSync = async () => {
+    const r = await sync.syncNow();
+    if (r.ok) toast("notice", { icon: "🔄", name: t("social.toast.synced") });
+  };
 
   const platform: Platform | undefined = filter === "all" ? undefined : filter;
   const all = useMemo(() => allOverview(state, now), [state, now]);
@@ -76,6 +87,27 @@ export default function GrowthScreen() {
           <p className="text-ink-2 text-sm">{t("social.growth.sub")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {sync.configured && (
+            <button
+              type="button"
+              className="px-btn px-btn-ghost px-btn-sm"
+              onClick={onSync}
+              disabled={sync.busy}
+              aria-busy={sync.busy}
+              data-testid="growth-sync"
+            >
+              {sync.busy ? (
+                <>
+                  <span aria-hidden className="acc-spin">
+                    ⟳
+                  </span>{" "}
+                  {t("growth.sync.busy")}
+                </>
+              ) : (
+                t("growth.sync.button")
+              )}
+            </button>
+          )}
           <button
             type="button"
             className="px-btn px-btn-sm"
@@ -96,6 +128,30 @@ export default function GrowthScreen() {
       </header>
 
       <PlatformFilter value={filter} onChange={setFilter} />
+
+      {filter === "all" && !anyConnected && (
+        <section
+          className="px-card gr-cta flex flex-wrap items-center gap-3"
+          data-testid="growth-connect-cta"
+        >
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <h2 className="text-base">{t("growth.sync.cta.title")}</h2>
+            <p className="text-ink-2 text-sm">{t("growth.sync.cta.body")}</p>
+            {sync.error && (
+              <p role="alert" className="text-danger text-xs" data-testid="growth-sync-error">
+                {t(sync.error)}
+              </p>
+            )}
+          </div>
+          <Link
+            href="/settings/#accounts"
+            className="px-btn no-underline"
+            data-testid="growth-connect-link"
+          >
+            {t("growth.sync.cta.button")}
+          </Link>
+        </section>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <AiButton

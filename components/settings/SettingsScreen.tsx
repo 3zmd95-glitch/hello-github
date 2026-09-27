@@ -11,6 +11,7 @@ import { getApiKey, useStore } from "@/store";
 import pkg from "@/package.json";
 import AvatarCard from "./AvatarCard";
 import Card from "./Card";
+import ConnectedAccountsCard from "./ConnectedAccountsCard";
 
 const GEAR_OPTIONS: readonly Exclude<Gear, "any">[] = [
   "phone",
@@ -149,6 +150,8 @@ export default function SettingsScreen() {
       </Card>
 
       <ApiKeysCard />
+
+      <ConnectedAccountsCard />
 
       <Card title={t("settings.davinci")}>
         <Segmented

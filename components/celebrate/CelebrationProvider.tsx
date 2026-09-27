@@ -48,7 +48,9 @@ export type CelebrationKind =
   | "focusStart"
   | "focusEnd"
   /** 📱 A post was marked as posted (payload.name = its title). */
-  | "posted";
+  | "posted"
+  /** 🔗 A plain informational toast: payload.name is the (already translated) text, payload.icon its icon. */
+  | "notice";
 
 export interface CelebrationPayload {
   xp?: number;
@@ -71,8 +73,10 @@ export interface CelebrationPayload {
   /** focusStart: minutes; focusEnd: whether it was stopped early. */
   minutes?: number;
   early?: boolean;
-  /** gems (purchase): the reward's name. */
+  /** gems (purchase): the reward's name. notice: the toast text. */
   name?: string;
+  /** notice: the icon to show (defaults to ℹ️). */
+  icon?: string;
   /** Override the kind's default sound; null = silent. */
   sound?: SoundName | null;
 }
@@ -102,6 +106,7 @@ export const DURATIONS: Record<CelebrationKind, number> = {
   focusStart: 1500,
   focusEnd: 2000,
   posted: 1500,
+  notice: 2500,
 };
 
 const SOUNDS: Record<CelebrationKind, SoundName> = {
@@ -122,6 +127,7 @@ const SOUNDS: Record<CelebrationKind, SoundName> = {
   focusStart: "micro",
   focusEnd: "dayDone",
   posted: "quest",
+  notice: "micro",
 };
 
 /** Kinds that take the whole screen. */
@@ -242,6 +248,8 @@ function smallToast(item: Item, { t, L }: I18n): { icon: string; text: string } 
       return { icon: "🧪", text: t(p.early ? "xp.toast.focusEarly" : "xp.toast.focusEnd") };
     case "posted":
       return { icon: "📱", text: t("social.toast.posted", { name: p.name ?? "" }).trim() };
+    case "notice":
+      return { icon: p.icon ?? "ℹ️", text: p.name ?? "" };
     default:
       return {
         icon: "✨",

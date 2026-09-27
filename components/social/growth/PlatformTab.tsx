@@ -15,6 +15,7 @@ import AiButton from "./AiButton";
 import Demographics, { hasDemographics } from "./Demographics";
 import LineChart, { type ChartSeries } from "./LineChart";
 import PostActivity from "./PostActivity";
+import SourceBadge from "./SourceBadge";
 import SourceHint from "./SourceHint";
 import { contentTip } from "./contentTip";
 import { fmtCount, fmtEngagement, fmtMetric, profileUrl } from "./format";
@@ -223,7 +224,7 @@ export default function PlatformTab({
               <span className="text-muted text-sm">{t("growth.account.none")}</span>
             )}
           </div>
-          <span className="px-chip ms-auto">{t("growth.manual")}</span>
+          <SourceBadge platform={platform} latestDay={overview.snapshot?.day} className="ms-auto" />
         </div>
         <form
           className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1.4fr_auto]"

@@ -7,6 +7,7 @@ import { PLATFORMS } from "@/lib/domain";
 import { bestPlatform, snapshotDelta, totals } from "@/lib/growth";
 import { useT } from "@/lib/i18n";
 import { PLATFORM_META } from "@/lib/social";
+import { timeAgo } from "@/lib/socialSync";
 import { analyticsState, useStore } from "@/store";
 import { useShallow } from "zustand/react/shallow";
 import { fmtCount } from "./platform";
@@ -32,8 +33,9 @@ function Delta({ n }: { n: number | null }) {
 
 /** Followers + 30-day views across every platform with numbers, their 30-day deltas and the best platform. */
 export default function GrowthSnapshotCard() {
-  const { t, L } = useT();
+  const { t, L, lang } = useT();
   const snapshots = useStore((s) => s.socialSnapshots);
+  const lastPullAt = useStore((s) => s.socialSync.lastPullAt);
   const state = useStore(useShallow(analyticsState));
   // Followers come from the Social Analytics rules (sum over connected platforms); views stay the 30-day sums.
   const all = useMemo(() => allOverview(state), [state]);
@@ -100,6 +102,11 @@ export default function GrowthSnapshotCard() {
                 })
               : t("social.studio.growthPlatforms", { n: sums.platforms.length })}
           </p>
+          {lastPullAt && (
+            <p className="text-muted text-xs" data-testid="studio-growth-sync">
+              {t("social.studio.lastSync", { ago: timeAgo(lastPullAt, lang) })}
+            </p>
+          )}
         </>
       )}
     </section>

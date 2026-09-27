@@ -13,7 +13,7 @@
   "growth.filter.all": "All",
   "growth.filter.manual": "manual only",
   "growth.empty.title": "No numbers yet",
-  "growth.empty.body": "Until the accounts are connected, numbers go in by hand: add a day's numbers, import a stats CSV, or import your posts below. Once a week is enough.",
+  "growth.empty.body": "Connect your accounts in Settings and the numbers come in by themselves every day. Or enter them by hand: add a day's numbers, import a stats CSV, or import your posts below.",
   "growth.empty.where": "Snapchat and X have no free API, so their numbers stay manual.",
   "growth.changed.button": "What changed this week?",
   "growth.changed.title": "This week vs last week",
@@ -175,5 +175,13 @@
   "growth.asks.count": "{n} times",
   "growth.asks.bump": "Asked again (+1)",
   "growth.asks.remove": "Remove question",
-  "growth.asks.hint": "These questions appear in the Ideas bank as ready post ideas."
+  "growth.asks.hint": "These questions appear in the Ideas bank as ready post ideas.",
+  "growth.source.live": "Live · last sync {ago}",
+  "growth.source.beacons": "Beacons numbers · {day}",
+  "growth.source.manual": "Manual · {day}",
+  "growth.sync.button": "🔄 Sync",
+  "growth.sync.busy": "Syncing…",
+  "growth.sync.cta.title": "Connect your accounts and let the numbers come in by themselves",
+  "growth.sync.cta.body": "TikTok, Instagram, YouTube and Threads: connect once in Settings, then followers, engagement and your posts update every day with no copy-paste.",
+  "growth.sync.cta.button": "🔗 Connect accounts"
 }
