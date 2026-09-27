@@ -2,12 +2,16 @@
 
 /*
  * 3z Prod design tokens. Each world sets its own variables on the root element
- * (`data-world="training"` = cute pixel style: chunky borders, hard shadows, dark bg, green accent).
- * The Social world (cinematic look) will add its own block later.
+ * (`data-world="training"` = cute pixel style: chunky borders, hard shadows, dark bg, green accent;
+ * `data-world="social"` = cinematic creator studio: near-black, soft borders and shadows, rounded cards).
+ * The shell sets the attribute from the route; the Social block lives at the end of this file and
+ * redefines every token here, so the shared `.px-*` classes and color utilities restyle on their own.
  */
 :root,
 :root[data-world="training"] {
   color-scheme: dark;
+  --radius: 2px;
+  --radius-sm: 2px;
   --bg: #0d141d;
   --bg-dot: #182331;
   --panel: #172230;
@@ -96,7 +100,7 @@
   .px-card {
     background: var(--panel);
     border: 3px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius);
     box-shadow: var(--shadow);
     padding: 16px;
     min-width: 0;
@@ -104,7 +108,7 @@
   .px-inset {
     background: var(--panel-2);
     border: 2px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     padding: 10px 12px;
     min-width: 0;
   }
@@ -115,7 +119,7 @@
     justify-content: center;
     gap: 6px;
     border: 3px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     box-shadow: 3px 3px 0 var(--edge);
     background: var(--accent);
     color: var(--accent-ink);
@@ -165,7 +169,7 @@
     line-height: 1.5;
     padding: 0 8px;
     border: 2px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     background: var(--panel-3);
     color: var(--ink);
     white-space: nowrap;
@@ -202,7 +206,7 @@
     height: 16px;
     background: var(--edge);
     border: 2px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
   }
   .px-bar > i {
@@ -226,7 +230,7 @@
     background: var(--edge);
     color: var(--ink);
     border: 2px solid var(--panel-3);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     padding: 6px 10px;
     font-size: 16px; /* 16px stops iOS zooming into inputs */
     line-height: 1.3;
@@ -243,7 +247,7 @@
     width: 30px;
     height: 30px;
     border: 3px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     background: var(--panel);
     box-shadow: 2px 2px 0 var(--edge);
     font-family: var(--font-pixel);
@@ -289,7 +293,7 @@
     min-height: 32px;
     padding: 2px 10px;
     border: 2px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     background: var(--panel-2);
     color: var(--ink-2);
     font-size: 0.8rem;
@@ -1016,3 +1020,156 @@
   animation: today-bob 0.9s steps(3) infinite;
 }
 /* ---- /Today ---- */
+
+/* ---- Social world ---- */
+/* 📱 Social = the cinematic "creator studio" look of the Framer site: near-black, soft 1px borders, soft
+ * shadows, rounded cards, IBM Plex Sans Arabic, no pixel art. A screen opts in by living under /social:
+ * the shell mirrors the route onto <html data-world>, this block redefines every Training token, and the
+ * shared `.px-*` classes plus the color utilities (bg-panel, text-ink, border-edge...) restyle on their own.
+ * Overrides sit in the same layers as the originals so Tailwind utilities keep winning. */
+:root[data-world="social"] {
+  color-scheme: dark;
+  --radius: 14px;
+  --radius-sm: 10px;
+  --bg: #0b0d10;
+  --bg-dot: transparent;
+  --panel: #141820;
+  --panel-2: #1a2029;
+  --panel-3: #232a35;
+  --edge: #232a35;
+  --ink: #eef1f5;
+  --ink-2: #b7c0cc;
+  --muted: #7d8794;
+  --accent: #45e08e;
+  --accent-ink: #06130d;
+  --gold: #e3c06f;
+  --gold-ink: #1e1606;
+  --danger: #ff7a70;
+  --sky: #7fc4ff;
+  --orange: #ffb067;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.3);
+  --font-body: "IBM Plex Sans Arabic", system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+}
+
+@layer base {
+  [data-world="social"] body {
+    /* No pixel dots: one soft green glow in the top corner instead. */
+    background-image: radial-gradient(
+      circle at 80% -10%,
+      color-mix(in srgb, var(--accent) 9%, transparent),
+      transparent 45%
+    );
+    background-size: auto;
+    background-repeat: no-repeat;
+  }
+  [data-world="social"] :is(h1, h2, h3) {
+    font-weight: 700;
+  }
+  [data-world="social"] :where(button, a, summary, input, select, textarea):focus-visible {
+    outline: 2px solid var(--accent);
+  }
+}
+
+@layer components {
+  [data-world="social"] .px-card,
+  [data-world="social"] .px-inset {
+    border-width: 1px;
+  }
+  [data-world="social"] .px-btn {
+    border: 1px solid transparent;
+    border-radius: 999px;
+    box-shadow: none;
+    font-weight: 600;
+    padding: 7px 16px;
+    transition:
+      transform 0.12s ease,
+      opacity 0.12s ease,
+      background-color 0.12s ease;
+  }
+  [data-world="social"] .px-btn:active:not(:disabled) {
+    transform: scale(0.97);
+    box-shadow: none;
+  }
+  [data-world="social"] .px-btn-ghost {
+    background: transparent;
+    border-color: var(--edge);
+    color: var(--ink);
+  }
+  [data-world="social"] .px-btn-sm {
+    padding: 3px 12px;
+    box-shadow: none;
+  }
+  [data-world="social"] .px-chip {
+    border-width: 1px;
+    border-radius: 999px;
+    padding: 0 10px;
+  }
+  [data-world="social"] .px-chip-lock {
+    border-style: solid;
+  }
+  [data-world="social"] .px-bar {
+    height: 8px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--panel-3);
+  }
+  [data-world="social"] .px-bar > i {
+    background: var(--c, var(--accent));
+    border-radius: 999px;
+    transition: width 0.5s ease;
+  }
+  [data-world="social"] .px-bar-sm {
+    height: 6px;
+  }
+  [data-world="social"] .px-input {
+    background: var(--bg);
+    border: 1px solid var(--edge);
+    padding: 8px 12px;
+  }
+  [data-world="social"] .px-input:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+  }
+  [data-world="social"] .px-check {
+    border-width: 1px;
+    border-radius: 8px;
+    box-shadow: none;
+    font-family: var(--font-body);
+  }
+  [data-world="social"] .px-pip {
+    border-width: 1px;
+    border-radius: 999px;
+  }
+  [data-world="social"] .px-fchip {
+    border-width: 1px;
+    border-radius: 999px;
+    box-shadow: none;
+  }
+  [data-world="social"] .px-tile {
+    background-image: none;
+  }
+  [data-world="social"] .px-skel {
+    border-radius: 6px;
+    animation-timing-function: ease-in-out;
+  }
+}
+
+@layer utilities {
+  /* Numbers keep the `num` class (LTR, tabular) but in a clean sans instead of the pixel font. */
+  [data-world="social"] .num {
+    font-family: var(--font-body);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Motion: smooth easing instead of the pixel steps(). */
+[data-world="social"] :is(.anim-popin, .anim-sheet, .anim-toast, .anim-fade, .anim-pop) {
+  animation-timing-function: ease-out;
+}
+[data-world="social"] .px-particle {
+  border-radius: 999px;
+  box-shadow: none;
+  animation-timing-function: ease-out;
+}
+/* ---- /Social world ---- */
