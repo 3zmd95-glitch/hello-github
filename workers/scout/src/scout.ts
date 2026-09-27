@@ -21,8 +21,13 @@ import {
   type ScoutResult,
   type TavilyHit,
 } from "./normalize";
+import { allowedOrigins, DEFAULT_ALLOWED_ORIGINS } from "./origins";
+import { handleOAuthCallback, handleSocial, healthSocial } from "./social/routes";
+import type { SocialEnv } from "./social/store";
 
-export interface Env {
+export { DEFAULT_ALLOWED_ORIGINS };
+
+export interface Env extends SocialEnv {
   /** Secret: Tavily API key (https://app.tavily.com). */
   TAVILY_API_KEY?: string;
   /** Secret: the shared owner token the dashboard sends as a Bearer token. */
@@ -37,9 +42,10 @@ export interface Deps {
   cache?: Cache | null;
   /** Per-link oEmbed timeout while enriching search results (ms). Tests shorten it. */
   oembedTimeoutMs?: number;
+  /** "Now" for the social routes (day keys, token expiry). */
+  now?: () => Date;
 }
 
-export const DEFAULT_ALLOWED_ORIGINS = "http://localhost:3000,https://3zmd95-glitch.github.io";
 export const TAVILY_URL = "https://api.tavily.com/search";
 const MAX_RESULTS_CAP = 20;
 const OEMBED_TTL_S = 86_400;
@@ -55,18 +61,11 @@ type ScoutError =
 
 /* ---------- helpers ---------- */
 
-function allowedOrigins(env: Env): string[] {
-  return (env.ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIGINS)
-    .split(",")
-    .map((o) => o.trim().replace(/\/+$/, ""))
-    .filter(Boolean);
-}
-
 function corsHeaders(origin: string | null, env: Env): Headers {
   const h = new Headers({ Vary: "Origin" });
   if (origin && allowedOrigins(env).includes(origin)) {
     h.set("Access-Control-Allow-Origin", origin);
-    h.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    h.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     h.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
     h.set("Access-Control-Max-Age", "86400");
   }
@@ -401,12 +400,24 @@ export async function handle(
   // Browsers from other sites never get a usable answer; refuse early instead of spending credits.
   if (!originAllowed) return fail("origin", 403, cors);
 
+  // The OAuth providers send the owner's browser here (top-level navigation, no bearer): the one-time
+  // `state` nonce is the credential.
+  const callback = pathname.match(/^\/oauth\/([a-z]+)\/callback$/);
+  if (callback && req.method === "GET") {
+    return handleOAuthCallback(req, env, callback[1], { fetch: deps.fetch, now: deps.now });
+  }
+
   const token = checkToken(req, env);
 
   if (pathname === "/health" && req.method === "GET") {
     if (token === "invalid") return fail("unauthorized", 401, cors);
-    if (token === "valid")
-      return json({ ok: true, auth: true, tavily: !!env.TAVILY_API_KEY }, 200, cors);
+    if (token === "valid") {
+      return json(
+        { ok: true, auth: true, tavily: !!env.TAVILY_API_KEY, social: healthSocial(env) },
+        200,
+        cors,
+      );
+    }
     return json({ ok: true }, 200, cors);
   }
 
@@ -421,5 +432,7 @@ export async function handle(
   if (pathname === "/oembed" && req.method === "GET") {
     return handleOembed(req, cors, doFetch, cache, ctx);
   }
+  const social = await handleSocial(req, env, cors, { fetch: deps.fetch, now: deps.now });
+  if (social) return social;
   return fail("not_found", 404, cors);
 }

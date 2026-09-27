@@ -1,5 +1,8 @@
-// Scout Worker (build plan 1.14): TikTok / Instagram / YouTube search via Tavily + oEmbed passthrough.
-// Secrets (set with `wrangler secret put`, never committed): TAVILY_API_KEY, SCOUT_TOKEN.
+// Scout Worker (build plan 1.14): TikTok / Instagram / YouTube search via Tavily + oEmbed passthrough, and
+// the social-analytics connector (OAuth + daily sync of the owner's Instagram, Threads, YouTube and TikTok).
+// Secrets (set by the deploy workflow with `wrangler secret put`, never committed): TAVILY_API_KEY,
+// SCOUT_TOKEN, META_APP_ID, META_APP_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, TIKTOK_CLIENT_KEY,
+// TIKTOK_CLIENT_SECRET.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "3z-scout",
@@ -10,4 +13,11 @@
   "vars": {
     "ALLOWED_ORIGINS": "http://localhost:3000,https://3zmd95-glitch.github.io",
   },
+  // Tokens, status and the daily rows. The id below is a placeholder: the deploy workflow creates the
+  // namespace "3z-scout-SOCIAL_KV" once and swaps the real id in before `wrangler deploy` (see
+  // .github/workflows/worker.yml). Locally, `wrangler dev` uses a simulated namespace, no id needed.
+  "kv_namespaces": [{ "binding": "SOCIAL_KV", "id": "00000000000000000000000000000000" }],
+  // Daily sync at 06:00 Riyadh (03:00 UTC), one platform per trigger ten minutes apart so each sync has
+  // the free plan's full subrequest budget (src/social/sync.ts CRON_PLATFORMS).
+  "triggers": { "crons": ["0 3 * * *", "10 3 * * *", "20 3 * * *", "30 3 * * *"] },
 }

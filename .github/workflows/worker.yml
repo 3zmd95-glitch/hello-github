@@ -53,6 +53,47 @@ jobs:
       - name: Test the Worker
         run: pnpm --filter 3z-scout run test
 
+      # The social connector stores tokens and daily rows in a KV namespace. Wrangler names it
+      # "<worker name>-<binding>" = "3z-scout-SOCIAL_KV". Create it once, then put its id in place of the
+      # placeholder in wrangler.jsonc (only in this checkout; the committed file keeps the placeholder).
+      - name: Ensure the SOCIAL_KV namespace
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          KV_TITLE: 3z-scout-SOCIAL_KV
+        run: |
+          set -euo pipefail
+          find_id() {
+            pnpm --filter 3z-scout exec wrangler kv namespace list | node -e '
+              let s = "";
+              process.stdin.on("data", (c) => (s += c)).on("end", () => {
+                const start = s.indexOf("["), end = s.lastIndexOf("]");
+                const list = start >= 0 ? JSON.parse(s.slice(start, end + 1)) : [];
+                const hit = list.find((n) => n.title === process.env.KV_TITLE);
+                process.stdout.write(hit ? hit.id : "");
+              });'
+          }
+          ID="$(find_id)"
+          if [ -z "$ID" ]; then
+            echo "Creating KV namespace $KV_TITLE"
+            pnpm --filter 3z-scout exec wrangler kv namespace create SOCIAL_KV
+            ID="$(find_id)"
+          fi
+          if [ -z "$ID" ]; then
+            echo "::error title=SOCIAL_KV::Could not find or create the KV namespace $KV_TITLE"
+            exit 1
+          fi
+          echo "SOCIAL_KV id: $ID"
+          KV_ID="$ID" node -e '
+            const fs = require("fs");
+            const path = "workers/scout/wrangler.jsonc";
+            const src = fs.readFileSync(path, "utf8");
+            const out = src.replace(/("binding":\s*"SOCIAL_KV",\s*"id":\s*")[0-9a-f]+(")/, `$1${process.env.KV_ID}$2`);
+            if (out === src) { console.error("placeholder not found in " + path); process.exit(1); }
+            fs.writeFileSync(path, out);'
+          grep -n '"SOCIAL_KV"' workers/scout/wrangler.jsonc
+
       - name: Deploy
         if: steps.secrets.outputs.ready == 'true'
         env:
@@ -85,3 +126,27 @@ jobs:
             exit 0
           fi
           echo "$SCOUT_TOKEN" | pnpm --filter 3z-scout exec wrangler secret put SCOUT_TOKEN
+
+      # Social connector credentials (Instagram + Threads share the Meta app). Each one is optional: a
+      # platform without both halves shows `configured: false` in the dashboard and nothing else breaks.
+      - name: Set social API secrets
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          META_APP_ID: ${{ secrets.META_APP_ID }}
+          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          for NAME in META_APP_ID META_APP_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET TIKTOK_CLIENT_KEY TIKTOK_CLIENT_SECRET; do
+            VALUE="${!NAME}"
+            if [ -z "$VALUE" ]; then
+              echo "::notice title=$NAME not set::Add the $NAME repository secret to connect that platform (see planning/tools/06-social-analytics-apis.md)."
+              continue
+            fi
+            printf '%s' "$VALUE" | pnpm --filter 3z-scout exec wrangler secret put "$NAME"
+          done
