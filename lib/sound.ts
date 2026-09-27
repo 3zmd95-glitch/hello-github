@@ -7,7 +7,19 @@
  */
 
 export type SoundName =
-  "quest" | "micro" | "gems" | "levelUp" | "tierUp" | "mastery" | "dayDone" | "error";
+  | "quest"
+  | "micro"
+  | "gems"
+  | "levelUp"
+  | "tierUp"
+  | "mastery"
+  | "dayDone"
+  | "error"
+  | "chest"
+  | "badge"
+  | "bossHit"
+  | "bossDown"
+  | "drill";
 
 interface Note {
   /** Frequency in Hz. */
@@ -70,6 +82,40 @@ const SEQUENCES: Record<SoundName, readonly Note[]> = {
   error: [
     { freq: 160, start: 0, duration: 0.16, type: "square" },
     { freq: 110, start: 0.14, duration: 0.24, type: "square" },
+  ],
+  // Chest: a creaky low "lid" then a bright sparkle burst.
+  chest: [
+    { freq: 196.0, start: 0, duration: 0.12, type: "square" },
+    { freq: 246.94, start: 0.1, duration: 0.1, type: "square" },
+    { freq: 1046.5, start: 0.24, duration: 0.07, type: "triangle" },
+    { freq: 1318.51, start: 0.3, duration: 0.07, type: "triangle" },
+    { freq: 1567.98, start: 0.36, duration: 0.16, type: "triangle" },
+  ],
+  // Badge: a proud two-note "ta-daa".
+  badge: [
+    { freq: 659.25, start: 0, duration: 0.14, type: "square" },
+    { freq: 987.77, start: 0.13, duration: 0.3, type: "square" },
+    { freq: 1318.51, start: 0.13, duration: 0.3, type: "triangle" },
+  ],
+  // Boss hit: a short punchy thud with a falling pitch.
+  bossHit: [
+    { freq: 220, start: 0, duration: 0.06, type: "square" },
+    { freq: 150, start: 0.05, duration: 0.1, type: "square" },
+  ],
+  // Boss down: heavy falling notes then a victory chord.
+  bossDown: [
+    { freq: 330, start: 0, duration: 0.1, type: "square" },
+    { freq: 247, start: 0.09, duration: 0.1, type: "square" },
+    { freq: 165, start: 0.18, duration: 0.16, type: "square" },
+    { freq: 523.25, start: 0.4, duration: 0.4, type: "triangle" },
+    { freq: 659.25, start: 0.4, duration: 0.4, type: "triangle" },
+    { freq: 783.99, start: 0.4, duration: 0.5, type: "triangle" },
+  ],
+  // Drill: two quick ticks like a stopwatch.
+  drill: [
+    { freq: 1046.5, start: 0, duration: 0.04, type: "square" },
+    { freq: 1046.5, start: 0.08, duration: 0.04, type: "square" },
+    { freq: 1396.91, start: 0.16, duration: 0.08, type: "triangle" },
   ],
 };
 

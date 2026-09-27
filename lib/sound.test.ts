@@ -112,6 +112,11 @@ describe("sound", () => {
       "mastery",
       "dayDone",
       "error",
+      "chest",
+      "badge",
+      "bossHit",
+      "bossDown",
+      "drill",
     ];
     for (const name of names) {
       expect(() => playSound(name)).not.toThrow();

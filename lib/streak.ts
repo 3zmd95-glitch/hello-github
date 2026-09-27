@@ -2,11 +2,17 @@
  * Daily streak on the Riyadh day boundary (Asia/Riyadh, UTC+3, no DST).
  * A day counts when any quest or micro-action happened. A missed day can be covered by a streak freeze:
  * frozen days keep the chain alive but do not add to its length.
- * Freezes: 1 earned per week (Sat–Fri) with ≥ 1 active day; stock capped at 2.
+ * Freezes: 1 earned per week (Sat–Fri) with ≥ 1 active day; earned stock capped at 2. Bonus freezes (chest
+ * loot, the gem shop) sit on top of the earned stock; the total in hand is capped at FREEZE_TOTAL_CAP.
+ * Spending order: earned freezes go first (they refill weekly and are capped), bonus freezes last (they never
+ * expire). Because a used day only lowers the earned stock while it is > 0, `freezeStock` needs no record of
+ * which days were paid with bonus freezes.
  */
 
 export const TIME_ZONE = "Asia/Riyadh";
 export const FREEZE_CAP = 2;
+/** Earned + bonus freezes in hand, at most. */
+export const FREEZE_TOTAL_CAP = 5;
 
 const dayFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: TIME_ZONE,
@@ -104,10 +110,24 @@ export function countActiveWeeks(activeDays: Iterable<string>): number {
 }
 
 /**
- * Freezes available now. Walks history in order: the first active day of each week adds one (stock capped
- * at FREEZE_CAP), each used freeze removes one.
+ * Freezes available now. Walks history in order: the first active day of each week adds one (earned stock
+ * capped at FREEZE_CAP), each used freeze removes one (never below 0: a day paid with a bonus freeze costs the
+ * earned stock nothing). `extra` bonus freezes are added on top; the total is capped at FREEZE_TOTAL_CAP.
  */
 export function freezeStock(
+  activeDays: ReadonlySet<string>,
+  freezesUsedOn: ReadonlySet<string>,
+  today: Date | string = new Date(),
+  extra = 0,
+): number {
+  return Math.min(
+    FREEZE_TOTAL_CAP,
+    earnedFreezeStock(activeDays, freezesUsedOn, today) + Math.max(0, Math.floor(extra)),
+  );
+}
+
+/** The earned part of the stock only (no bonus freezes), 0..FREEZE_CAP. */
+export function earnedFreezeStock(
   activeDays: ReadonlySet<string>,
   freezesUsedOn: ReadonlySet<string>,
   today: Date | string = new Date(),
@@ -128,12 +148,14 @@ export function freezeStock(
 
 /**
  * Days that should be frozen to keep the streak alive: the missed days between the last covered day and
- * yesterday. Returns [] when nothing is missing, there is no streak to save, or the stock is too small.
+ * yesterday. Returns [] when nothing is missing, there is no streak to save, or the stock (earned + `extra`
+ * bonus freezes) is too small.
  */
 export function daysToFreeze(
   activeDays: ReadonlySet<string>,
   freezesUsedOn: ReadonlySet<string>,
   today: Date | string = new Date(),
+  extra = 0,
 ): string[] {
   const todayKey = toKey(today);
   const covered = (k: string) => activeDays.has(k) || freezesUsedOn.has(k);
@@ -143,5 +165,18 @@ export function daysToFreeze(
   const missing: string[] = [];
   for (let d = addDays(last, 1); d < todayKey; d = addDays(d, 1)) if (!covered(d)) missing.push(d);
   if (missing.length === 0) return [];
-  return missing.length <= freezeStock(activeDays, freezesUsedOn, todayKey) ? missing : [];
+  return missing.length <= freezeStock(activeDays, freezesUsedOn, todayKey, extra) ? missing : [];
+}
+
+/**
+ * How many bonus freezes a spend of `days` frozen days costs: earned freezes are spent first, bonus ones
+ * cover the rest.
+ */
+export function bonusFreezesSpent(
+  activeDays: ReadonlySet<string>,
+  freezesUsedOn: ReadonlySet<string>,
+  today: Date | string,
+  days: number,
+): number {
+  return Math.max(0, days - earnedFreezeStock(activeDays, freezesUsedOn, today));
 }
