@@ -36,7 +36,7 @@ export default function PlanItemCard({
 
   return (
     <article
-      className="px-inset plan-item relative flex flex-col gap-2"
+      className="px-inset plan-item flex flex-col gap-2"
       data-testid="plan-item"
       data-id={item.id}
       data-skill={item.skillId}
@@ -45,7 +45,7 @@ export default function PlanItemCard({
       data-done={done}
       data-manual={item.manual}
     >
-      <div className="flex flex-wrap items-center gap-1.5 pe-8">
+      <div className="flex flex-wrap items-center gap-1.5">
         <span className={`px-chip ${isCombo ? "px-chip-gold" : ""}`}>
           {isCombo ? `🔗 ${t("planner.combo")}` : t(`quest.${item.quest}`)}
         </span>
@@ -56,17 +56,18 @@ export default function PlanItemCard({
           </span>
         )}
         {done && <span className="px-chip px-chip-green">{t("planner.doneState")}</span>}
+        {/* In the chip row (not absolute) so it never covers a chip in narrow day columns. */}
+        <button
+          type="button"
+          className="num border-edge bg-panel text-muted hover:text-danger hover:border-danger ms-auto grid h-7 w-7 shrink-0 place-items-center rounded-[2px] border-2 text-base leading-none"
+          onClick={() => onRemove(item)}
+          aria-label={t("planner.removeAria", { skill: name })}
+          title={t("planner.removeAria", { skill: name })}
+          data-testid="plan-remove"
+        >
+          ×
+        </button>
       </div>
-      <button
-        type="button"
-        className="num border-edge bg-panel text-muted hover:text-danger hover:border-danger absolute end-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-[2px] border-2 text-base leading-none"
-        onClick={() => onRemove(item)}
-        aria-label={t("planner.removeAria", { skill: name })}
-        title={t("planner.removeAria", { skill: name })}
-        data-testid="plan-remove"
-      >
-        ×
-      </button>
 
       <b className="plan-title text-sm leading-snug">{name}</b>
       {partner && (
