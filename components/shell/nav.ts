@@ -4,7 +4,7 @@ export interface NavItem {
   href: string;
   icon: string;
   label: MessageKey;
-  /** Shown but not clickable yet ("soon"). */
+  /** Not built yet: shown with a "soon" chip (the route exists and explains what will live there). */
   soon?: boolean;
   /** Only in the desktop sidebar (phones reach it from the top bar gear and More). */
   desktopOnly?: boolean;
@@ -26,9 +26,51 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/settings", icon: "⚙️", label: "nav.settings", desktopOnly: true },
 ];
 
+/**
+ * Social-world navigation (round 16). Phones: Studio · Calendar · Growth · Ideas · More;
+ * Website, Business and Automations (all "soon") plus Settings live in the desktop sidebar and behind More.
+ */
+export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
+  { href: "/social", icon: "🎬", label: "nav.studio" },
+  { href: "/social/calendar", icon: "📅", label: "nav.calendar" },
+  { href: "/social/growth", icon: "📈", label: "nav.growth" },
+  { href: "/social/ideas", icon: "💡", label: "nav.ideas" },
+  { href: "/social/more", icon: "☰", label: "nav.more" },
+  { href: "/social/website", icon: "🌐", label: "nav.website", soon: true, desktopOnly: true },
+  { href: "/social/business", icon: "💼", label: "nav.business", soon: true, desktopOnly: true },
+  {
+    href: "/social/automations",
+    icon: "⚡",
+    label: "nav.automations",
+    soon: true,
+    desktopOnly: true,
+  },
+  { href: "/settings", icon: "⚙️", label: "nav.settings", desktopOnly: true },
+];
+
+/** Navigation list per world; the shell renders the active world's list in the sidebar and tab bar. */
+export const NAV_BY_WORLD: Record<"training" | "social", readonly NavItem[]> = {
+  training: NAV_ITEMS,
+  social: SOCIAL_NAV_ITEMS,
+};
+
 /** "/skills/" → "/skills", "" → "/". */
 export function normalizePath(path: string | null): string {
   if (!path) return "/";
   const p = path.replace(/\/+$/, "");
   return p === "" ? "/" : p;
+}
+
+/**
+ * The nav item that owns a path: an exact match, else the deepest item whose href is a parent of the path
+ * ("/social/calendar/oct" → Calendar, not Studio). "/" only matches itself.
+ */
+export function activeHref(items: readonly NavItem[], path: string | null): string | undefined {
+  const p = normalizePath(path);
+  let best: NavItem | undefined;
+  for (const item of items) {
+    const owns = p === item.href || (item.href !== "/" && p.startsWith(`${item.href}/`));
+    if (owns && (!best || item.href.length > best.href.length)) best = item;
+  }
+  return best?.href;
 }
