@@ -121,11 +121,15 @@ describe("auth", () => {
     expect(open.status).toBe(200);
     expect(await open.json()).toEqual({ ok: true });
 
+    const social = {
+      configured: { instagram: false, threads: false, youtube: false, tiktok: false },
+      kv: false,
+    };
     const authed = await handle(req("/health"), ENV);
-    expect(await authed.json()).toEqual({ ok: true, auth: true, tavily: true });
+    expect(await authed.json()).toEqual({ ok: true, auth: true, tavily: true, social });
 
     const noKey = await handle(req("/health"), { ...ENV, TAVILY_API_KEY: undefined });
-    expect(await noKey.json()).toEqual({ ok: true, auth: true, tavily: false });
+    expect(await noKey.json()).toEqual({ ok: true, auth: true, tavily: false, social });
 
     const wrong = await handle(req("/health", { token: "wrong" }), ENV);
     expect(wrong.status).toBe(401);
