@@ -10,7 +10,7 @@ import type { Program, QuestType, Section, Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { levelFromXp } from "@/lib/level";
 import { nodeFill, regionDone, regionPct, themeFor } from "@/lib/mapLayout";
-import { programXp, useStore } from "@/store";
+import { programXp, skillInCalendar, useStore } from "@/store";
 import { TileIcon } from "./TileIcon";
 import { programStats } from "./WorldMap";
 
@@ -165,22 +165,30 @@ function SkillNode({ skill, n }: { skill: Skill; n: number }) {
   const { t, L } = useT();
   const sheet = useSkillSheet();
   const gear = useStore((s) => s.settings.gear);
+  const posts = useStore((s) => s.posts);
   const locked = isGearLocked(skill, { gear });
+  // 📱 The bridge badge: this skill's video is planned in the Social calendar.
+  const inCalendar = useMemo(
+    () => skillInCalendar({ posts }, skill.id) !== undefined,
+    [posts, skill.id],
+  );
   const mastered = n >= 4;
   const name = L(skill.name);
   const state = mastered ? t("map.mastered1") : locked ? t("map.locked") : `${n}/4`;
+  const label = `${t("map.openSkill", { name })} · ${state}${inCalendar ? ` · ${t("social.bridge.inCalendar")}` : ""}`;
 
   return (
     <button
       type="button"
       onClick={() => sheet.open(skill.id)}
       className="map-nodeb"
-      aria-label={`${t("map.openSkill", { name })} · ${state}`}
+      aria-label={label}
       title={name}
       data-testid="skill-node"
       data-skill={skill.id}
       data-done={n}
       data-locked={locked}
+      data-in-calendar={inCalendar}
     >
       <span className="map-node" data-mastered={mastered}>
         {!mastered && <i style={{ height: `${nodeFill(n)}%` }} />}
@@ -188,6 +196,11 @@ function SkillNode({ skill, n }: { skill: Skill; n: number }) {
         {locked && !mastered && (
           <span aria-hidden className="map-lock">
             🔒
+          </span>
+        )}
+        {inCalendar && (
+          <span aria-hidden className="map-cal" data-testid="skill-node-calendar">
+            📱
           </span>
         )}
       </span>

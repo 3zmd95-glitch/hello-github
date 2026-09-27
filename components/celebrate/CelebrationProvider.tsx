@@ -241,9 +241,7 @@ function smallToast(item: Item, { t, L }: I18n): { icon: string; text: string } 
     case "focusEnd":
       return { icon: "🧪", text: t(p.early ? "xp.toast.focusEarly" : "xp.toast.focusEnd") };
     case "posted":
-      // 📱 No dictionary key yet (the Social shell owns messages/social.*.json): the post's title + ✓ reads
-      // the same in both languages. Shell agent: add `social.toast.posted` ("انتشر ✓ {name}") and use it here.
-      return { icon: "📱", text: `${p.name ?? ""} ✓`.trim() };
+      return { icon: "📱", text: t("social.toast.posted", { name: p.name ?? "" }).trim() };
     default:
       return {
         icon: "✨",
