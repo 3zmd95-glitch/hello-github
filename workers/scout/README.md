@@ -10,11 +10,30 @@ their public oEmbed endpoints. Build plan 1.14, master plan round 24.
 Every request except `OPTIONS` and `GET /health` needs `Authorization: Bearer <SCOUT_TOKEN>`. Browsers may only
 call it from the origins in `ALLOWED_ORIGINS`.
 
-| Route               | What it does                                                                                                                                                                                          |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`       | `{ ok: true }`. With a valid token: `{ ok: true, auth: true, tavily: <key present> }`; a wrong token → 401. Used by the Settings "Test" button.                                                       |
-| `POST /search`      | Body `{ q, platforms: ["tt","ig","yt"], lang?, max? }` → `{ results: [{ platform, handle, title, snippet, url, thumb? }], credits: { used } }`. Errors: `{ error: "quota" \| "auth" \| "upstream" }`. |
-| `GET /oembed?url=…` | TikTok / YouTube links only → `{ title, author, thumb, url }`, cached for a day.                                                                                                                      |
+| Route               | What it does                                                                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`       | `{ ok: true }`. With a valid token: `{ ok: true, auth: true, tavily: <key present> }`; a wrong token → 401. Used by the Settings "Test" button.                                 |
+| `POST /search`      | Body `{ q, platforms: ["tt","ig","yt"], lang?, max?, timeRange?, thumbs? }` → `{ results: [{ platform, handle, title, snippet, url, thumb? }], credits: { used } }`. See below. |
+| `GET /oembed?url=…` | TikTok / YouTube links only → `{ title, author, thumb, url }`, cached for a day.                                                                                                |
+
+### `POST /search` options
+
+- `timeRange`: `"week" | "month" | "year"`, passed to Tavily as `time_range` (only pages published in that
+  window). Omit it for any time. Anything else → 400.
+- `thumbs` (default `true`): thumbnails on the cards.
+  - **YouTube**: always `https://i.ytimg.com/vi/<id>/hqdefault.jpg`, derived from the video id (no call).
+  - **TikTok**: the first 8 TikTok results get `thumbnail_url` from TikTok's public oEmbed
+    (`https://www.tiktok.com/oembed?url=…`), fetched in parallel through the same day-long cache as
+    `GET /oembed`. Each call gives up after 2.5 s (AbortController); a failed or slow one just leaves that
+    card without `thumb`, the search still answers. TikTok's thumbnail URLs are signed and expire after a
+    few days, so the dashboard falls back to a placeholder when one stops loading.
+  - **Instagram**: no `thumb`. Instagram's oEmbed needs a Meta app access token (Facebook developer app +
+    review), which this Worker does not have yet; the dashboard shows a placeholder tile.
+  - `thumbs: false` skips the oEmbed calls (faster, fewer subrequests).
+- Errors: `{ error: "quota" | "auth" | "upstream" | "bad_request" }`.
+
+The response shape is unchanged from v0: older dashboards that send neither option keep working (they get
+thumbnails by default).
 
 ## Configuration
 

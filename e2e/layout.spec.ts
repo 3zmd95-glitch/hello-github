@@ -8,6 +8,7 @@ const PATHS = [
   "/planner/",
   "/review/",
   "/rewards/",
+  "/discover/",
   "/settings/",
   "/more/",
 ];

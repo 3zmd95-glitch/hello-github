@@ -266,6 +266,43 @@
     background: var(--accent);
   }
 
+  /* Pixel checker tile: placeholder behind a missing thumbnail. */
+  .px-tile {
+    background-color: var(--panel-2);
+    background-image: repeating-conic-gradient(var(--panel-3) 0 25%, transparent 0 50%);
+    background-size: 16px 16px;
+  }
+
+  /* Loading block: a stepped pulse, frozen (not hidden) under reduced motion. */
+  .px-skel {
+    display: block;
+    background: var(--panel-3);
+    border-radius: 1px;
+    animation: px-skel 1.2s steps(3) infinite alternate;
+  }
+
+  /* Filter chip / toggle: bigger than a label chip so it's a comfortable tap target. */
+  .px-fchip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 32px;
+    padding: 2px 10px;
+    border: 2px solid var(--edge);
+    border-radius: 2px;
+    background: var(--panel-2);
+    color: var(--ink-2);
+    font-size: 0.8rem;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+    box-shadow: 2px 2px 0 var(--edge);
+  }
+  .px-fchip[aria-pressed="true"] {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+
   .px-link {
     color: var(--sky);
     text-decoration: underline;
@@ -333,6 +370,14 @@
 @keyframes px-flick {
   50% {
     transform: scaleX(-1);
+  }
+}
+@keyframes px-skel {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
   }
 }
 @keyframes px-pop {

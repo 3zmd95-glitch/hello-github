@@ -4,6 +4,7 @@ import {
   getScoutUsage,
   isValidScoutUrl,
   monthKey,
+  peekScoutSearch,
   SCOUT_CACHE_KEY,
   SCOUT_CACHE_MAX,
   SCOUT_CACHE_TTL_MS,
@@ -117,6 +118,51 @@ describe("scoutSearch", () => {
       lang: "en",
       max: 10,
     });
+  });
+
+  it("sends timeRange and thumbs, and keys the cache on them", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse({ results: RESULTS }));
+    const base = { q: "match cut", platforms: ["tt"] as const, lang: "ar" as const };
+    await scoutSearch(
+      CONFIG,
+      { ...base, timeRange: "week", thumbs: true },
+      { fetchImpl, storage, now },
+    );
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({
+      q: "match cut",
+      platforms: ["tt"],
+      lang: "ar",
+      timeRange: "week",
+      thumbs: true,
+    });
+    // Another range, or no thumbnails, is another search (and another credit)...
+    await scoutSearch(CONFIG, { ...base, timeRange: "month" }, { fetchImpl, storage, now });
+    await scoutSearch(
+      CONFIG,
+      { ...base, timeRange: "week", thumbs: false },
+      { fetchImpl, storage, now },
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    // ...while the same range again is served from the cache; thumbs undefined means the default (true).
+    const again = await scoutSearch(
+      CONFIG,
+      { ...base, timeRange: "week" },
+      { fetchImpl, storage, now },
+    );
+    expect(again.ok && again.cached).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(getScoutUsage({ storage, now })).toBe(3);
+    expect(scoutCacheKey({ ...base, timeRange: "week" })).not.toBe(scoutCacheKey(base));
+  });
+
+  it("peeks at the cache without fetching or counting", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ results: RESULTS }));
+    const params = { q: "x", platforms: ["tt", "ig"] as const };
+    expect(peekScoutSearch(params, { storage, now })).toBeUndefined();
+    await scoutSearch(CONFIG, params, { fetchImpl, storage, now });
+    expect(peekScoutSearch(params, { storage, now })).toEqual(RESULTS);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(getScoutUsage({ storage, now })).toBe(1);
   });
 
   it("serves a repeated topic from the cache (memory, then storage) and counts only real calls", async () => {
