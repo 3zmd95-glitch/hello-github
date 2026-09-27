@@ -53,8 +53,8 @@ jobs:
       - name: Test the Worker
         run: pnpm --filter 3z-scout run test
 
-      # The social connector stores tokens and daily rows in a KV namespace. Wrangler names it
-      # "<worker name>-<binding>" = "3z-scout-SOCIAL_KV". Create it once, then put its id in place of the
+      # The social connector stores tokens and daily rows in a KV namespace. Wrangler titles it
+      # "3z-scout-SOCIAL_KV" (older versions) or "SOCIAL_KV" (4.x). Create it once, then put its id in place of the
       # placeholder in wrangler.jsonc (only in this checkout; the committed file keeps the placeholder).
       - name: Ensure the SOCIAL_KV namespace
         if: steps.secrets.outputs.ready == 'true'
@@ -70,7 +70,8 @@ jobs:
               process.stdin.on("data", (c) => (s += c)).on("end", () => {
                 const start = s.indexOf("["), end = s.lastIndexOf("]");
                 const list = start >= 0 ? JSON.parse(s.slice(start, end + 1)) : [];
-                const hit = list.find((n) => n.title === process.env.KV_TITLE);
+                // Older wrangler titles it "<worker>-<binding>", wrangler 4.x just "<binding>"; accept both.
+                const hit = list.find((n) => n.title === process.env.KV_TITLE || n.title === "SOCIAL_KV");
                 process.stdout.write(hit ? hit.id : "");
               });'
           }
