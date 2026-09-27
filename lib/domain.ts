@@ -118,12 +118,24 @@ export type Skill = z.infer<typeof SkillSchema>;
 
 /* ---------- Owner state ---------- */
 
+/**
+ * Owner-supplied API keys, kept on this device only. One field per provider so more slot in later
+ * (e.g. an Anthropic key in Sprint 4) without another schema/store migration.
+ */
+export const ApiKeysSchema = z.object({
+  /** YouTube Data API v3 key, used for in-app search results (Scout v0). */
+  youtube: z.string().optional(),
+});
+export type ApiKeys = z.infer<typeof ApiKeysSchema>;
+export type ApiKeyName = keyof ApiKeys;
+
 export const SettingsSchema = z.object({
   lang: LangSchema,
   sound: z.boolean(),
   reminderTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   gear: z.array(GearSchema),
   davinciEdition: z.enum(["studio", "free"]),
+  apiKeys: ApiKeysSchema.default({}),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 

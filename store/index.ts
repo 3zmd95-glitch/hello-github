@@ -7,12 +7,15 @@ import {
   MicroActionSchema,
   QUEST_TYPES,
   QuestCompletionSchema,
+  RefSchema,
   SettingsSchema,
   XpEventSchema,
+  type ApiKeyName,
   type LText,
   type MicroAction,
   type QuestCompletion,
   type QuestType,
+  type Ref,
   type Settings,
   type XpEvent,
 } from "@/lib/domain";
@@ -36,6 +39,7 @@ export const DEFAULT_SETTINGS: Settings = {
   reminderTime: "20:00",
   gear: ["phone", "lights"],
   davinciEdition: "studio",
+  apiKeys: {},
 };
 
 /** Persisted (and exported) part of the state. */
@@ -47,6 +51,10 @@ export const PersistedStateSchema = z.object({
   freezesUsedOn: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
   /** Weekly reviews (Sprint 2). Kept opaque for now. */
   reviews: z.array(z.unknown()),
+  /** Scout v0 (1.13): references the owner attached to a skill, by skill id. */
+  savedRefs: z.record(z.string(), z.array(RefSchema)).default({}),
+  /** Scout v0 (1.13): last topics typed on /discover, most recent first, capped at 8. */
+  recentTopics: z.array(z.string()).default([]),
 });
 export type PersistedState = z.infer<typeof PersistedStateSchema>;
 
@@ -78,6 +86,11 @@ export interface StoreActions {
   /** Spend streak freezes on missed days when the stock covers the gap. Returns the frozen days. */
   applyStreakFreezes(now?: Date): string[];
   setSettings(partial: Partial<Settings>): void;
+  /** Attach a reference to a skill's "Start here" box (Scout v0). No-op if the url is already saved. */
+  addRef(skillId: string, ref: Ref): void;
+  removeRef(skillId: string, url: string): void;
+  /** Record a Discover topic search, most recent first, keeping only the last 8. */
+  addRecentTopic(topic: string): void;
   exportState(now?: Date): string;
   /** Replace all progress with an exported JSON file. Throws on invalid input. */
   importState(json: string): void;
@@ -93,6 +106,8 @@ const initialData = (): PersistedState => ({
   microActions: [],
   freezesUsedOn: [],
   reviews: [],
+  savedRefs: {},
+  recentTopics: [],
 });
 
 const newId = (): string =>
@@ -109,6 +124,8 @@ const pick = (s: PersistedState): PersistedState => ({
   microActions: s.microActions,
   freezesUsedOn: s.freezesUsedOn,
   reviews: s.reviews,
+  savedRefs: s.savedRefs,
+  recentTopics: s.recentTopics,
 });
 
 /** In-memory fallback so the store works during SSR / static export and when storage is blocked. */
@@ -129,6 +146,23 @@ const safeLocalStorage = (): StateStorage => {
   }
   return memoryStorage();
 };
+
+/**
+ * One-time shape migration: a save from before `apiKeys` existed had a flat `settings.youtubeApiKey`.
+ * Move it into `settings.apiKeys.youtube` before validating, so older exports/localStorage still work.
+ */
+function migrateLegacySettings(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const root = raw as { settings?: unknown };
+  if (!root.settings || typeof root.settings !== "object") return raw;
+  const settings = root.settings as Record<string, unknown>;
+  const legacyKey = settings.youtubeApiKey;
+  if (typeof legacyKey !== "string") return raw;
+  const rest: Record<string, unknown> = { ...settings };
+  delete rest.youtubeApiKey;
+  const apiKeys = (rest.apiKeys as Record<string, unknown> | undefined) ?? {};
+  return { ...root, settings: { ...rest, apiKeys: { ...apiKeys, youtube: legacyKey } } };
+}
 
 export const useStore = create<StoreState>()(
   persist<StoreState, [], [], PersistedState>(
@@ -247,6 +281,27 @@ export const useStore = create<StoreState>()(
         set((s) => ({ settings: SettingsSchema.parse({ ...s.settings, ...partial }) }));
       },
 
+      addRef(skillId, ref) {
+        const s = get();
+        const list = s.savedRefs[skillId] ?? [];
+        if (list.some((r) => r.url === ref.url)) return;
+        set({ savedRefs: { ...s.savedRefs, [skillId]: [...list, ref] } });
+      },
+
+      removeRef(skillId, url) {
+        const s = get();
+        const list = s.savedRefs[skillId];
+        if (!list?.some((r) => r.url === url)) return;
+        set({ savedRefs: { ...s.savedRefs, [skillId]: list.filter((r) => r.url !== url) } });
+      },
+
+      addRecentTopic(topic) {
+        const text = topic.trim();
+        if (!text) return;
+        const s = get();
+        set({ recentTopics: [text, ...s.recentTopics.filter((t) => t !== text)].slice(0, 8) });
+      },
+
       exportState(now = new Date()) {
         const file: ExportFile = {
           app: "3z-prod",
@@ -276,7 +331,7 @@ export const useStore = create<StoreState>()(
       merge: (persisted, current) => {
         const parsed = PersistedStateSchema.partial()
           .extend({ settings: SettingsSchema.partial().optional() })
-          .safeParse(persisted);
+          .safeParse(migrateLegacySettings(persisted));
         if (!parsed.success) return current;
         const p = parsed.data;
         return {
@@ -300,6 +355,24 @@ export function hydrateStore(): Promise<void> | void {
 
 export function totalXp(s: Pick<PersistedState, "xpEvents">): number {
   return s.xpEvents.reduce((n, e) => n + e.amount, 0);
+}
+
+/** The owner's stored key for one API provider, if any (Scout v0: only "youtube" exists so far). */
+export function getApiKey(
+  s: Pick<PersistedState, "settings">,
+  name: ApiKeyName,
+): string | undefined {
+  return s.settings.apiKeys[name];
+}
+
+// A `savedRefs[id] ?? []` selector would hand back a brand-new array every call when there's no entry,
+// which looks like a changed snapshot to useSyncExternalStore on every render and loops forever
+// ("Maximum update depth exceeded"). Falling back to this one stable array avoids that.
+const EMPTY_REFS: Ref[] = [];
+
+/** Refs saved on a skill (Scout v0), or a stable empty array when it has none. */
+export function refsForSkill(s: Pick<PersistedState, "savedRefs">, skillId: string): Ref[] {
+  return s.savedRefs[skillId] ?? EMPTY_REFS;
 }
 
 /** Number of quests done on a skill, 0..4. */

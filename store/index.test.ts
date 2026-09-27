@@ -6,6 +6,7 @@ import {
   DEFAULT_SETTINGS,
   STORAGE_KEY,
   activeDays,
+  getApiKey,
   hydrateStore,
   isQuestDone,
   pillarXp,
@@ -196,5 +197,95 @@ describe("settings, export/import, persistence", () => {
     );
     await hydrateStore();
     expect(S().settings).toEqual({ ...DEFAULT_SETTINGS, lang: "en" });
+  });
+
+  it("saves and round-trips a youtube API key via getApiKey", () => {
+    expect(getApiKey(S(), "youtube")).toBeUndefined();
+    S().setSettings({ apiKeys: { youtube: "AIzaTest123" } });
+    expect(getApiKey(S(), "youtube")).toBe("AIzaTest123");
+    const json = S().exportState();
+    S().reset();
+    expect(getApiKey(S(), "youtube")).toBeUndefined();
+    S().importState(json);
+    expect(getApiKey(S(), "youtube")).toBe("AIzaTest123");
+  });
+
+  it("migrates a legacy flat settings.youtubeApiKey into settings.apiKeys.youtube on hydrate", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: { settings: { ...DEFAULT_SETTINGS, youtubeApiKey: "AIzaLegacy" } },
+        version: 1,
+      }),
+    );
+    await hydrateStore();
+    expect(getApiKey(S(), "youtube")).toBe("AIzaLegacy");
+    expect((S().settings as unknown as { youtubeApiKey?: string }).youtubeApiKey).toBeUndefined();
+  });
+});
+
+describe("references (Scout v0)", () => {
+  const ref = {
+    platform: "tt",
+    handle: "@editor.sam",
+    title: "Great cut",
+    url: "https://tiktok.com/a",
+  } as const;
+  const other = {
+    platform: "yt",
+    handle: "@x",
+    title: "Another",
+    url: "https://youtube.com/b",
+  } as const;
+
+  it("addRef saves a ref, deduped by url", () => {
+    S().addRef("scene-cut-detection", ref);
+    expect(S().savedRefs["scene-cut-detection"]).toEqual([ref]);
+    S().addRef("scene-cut-detection", ref); // same url, no duplicate
+    expect(S().savedRefs["scene-cut-detection"]).toHaveLength(1);
+    S().addRef("scene-cut-detection", other);
+    expect(S().savedRefs["scene-cut-detection"]).toEqual([ref, other]);
+  });
+
+  it("addRef keeps refs on different skills separate", () => {
+    S().addRef("scene-cut-detection", ref);
+    S().addRef("smart-bins-keywords", other);
+    expect(S().savedRefs["scene-cut-detection"]).toEqual([ref]);
+    expect(S().savedRefs["smart-bins-keywords"]).toEqual([other]);
+  });
+
+  it("removeRef removes by url and no-ops for an unknown skill/url", () => {
+    S().addRef("scene-cut-detection", ref);
+    S().addRef("scene-cut-detection", other);
+    S().removeRef("scene-cut-detection", ref.url);
+    expect(S().savedRefs["scene-cut-detection"]).toEqual([other]);
+    S().removeRef("scene-cut-detection", "https://nope.com");
+    S().removeRef("no-such-skill", ref.url);
+    expect(S().savedRefs["scene-cut-detection"]).toEqual([other]);
+  });
+
+  it("refs round-trip through export/import", () => {
+    S().addRef("scene-cut-detection", ref);
+    const json = S().exportState();
+    S().reset();
+    expect(S().savedRefs).toEqual({});
+    S().importState(json);
+    expect(S().savedRefs["scene-cut-detection"]).toEqual([ref]);
+  });
+});
+
+describe("recent topics (Scout v0)", () => {
+  it("adds topics most-recent-first, ignores blanks, and dedupes by moving to the front", () => {
+    S().addRecentTopic("match cut");
+    S().addRecentTopic("  ");
+    S().addRecentTopic("b-roll");
+    S().addRecentTopic("match cut"); // re-searched -> moves back to the front
+    expect(S().recentTopics).toEqual(["match cut", "b-roll"]);
+  });
+
+  it("caps recent topics at 8", () => {
+    for (let i = 0; i < 10; i++) S().addRecentTopic(`topic ${i}`);
+    expect(S().recentTopics).toHaveLength(8);
+    expect(S().recentTopics[0]).toBe("topic 9");
   });
 });

@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
+import SkillResearchPanel from "@/components/research/SkillResearchPanel";
 import PxBar from "@/components/ui/PxBar";
 import { GearChip, StudioChip, TierChip } from "@/components/ui/chips";
 import { getProgram, getSkill } from "@/data";
 import { QUEST_TYPES, type QuestType, type Ref, type Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { questXp } from "@/lib/xp";
-import { useStore } from "@/store";
+import { refsForSkill, useStore } from "@/store";
 
 /**
  * Skill popup: bottom sheet on phones, centered dialog from md up. Lives on its own layer (z-40) under the
@@ -79,6 +80,7 @@ function SheetBody({
   const settings = useStore((s) => s.settings);
   const completions = useStore((s) => s.completions);
   const { completeQuest, uncompleteQuest, setProof } = useGameActions();
+  const [researchOpen, setResearchOpen] = useState(false);
 
   const done = useMemo(() => {
     const m = new Map<QuestType, string | undefined>();
@@ -130,13 +132,24 @@ function SheetBody({
         <b className="num" data-testid="sheet-progress">
           {n}/4
         </b>
+        <button
+          type="button"
+          aria-pressed={researchOpen}
+          onClick={() => setResearchOpen((o) => !o)}
+          className="px-btn px-btn-ghost px-btn-sm shrink-0"
+          data-testid="research-toggle"
+        >
+          🔎 {t("research.button")}
+        </button>
       </div>
+
+      {researchOpen && <SkillResearchPanel skill={skill} />}
 
       {skill.source === "draft" && (
         <p className="px-inset text-ink-2 text-sm">📝 {t("sheet.draft")}</p>
       )}
 
-      <StartHere refs={skill.refs} />
+      <StartHere refs={skill.refs} skillId={skill.id} />
 
       <section className="flex flex-col gap-2">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -259,33 +272,65 @@ function SheetBody({
 
 const PLATFORM_ICON: Record<Ref["platform"], string> = { yt: "▶️", web: "📄", tt: "🎵", ig: "📸" };
 
-function StartHere({ refs }: { refs: Ref[] }) {
+function StartHere({ refs, skillId }: { refs: Ref[]; skillId: string }) {
   const { t } = useT();
+  const savedRefs = useStore((s) => refsForSkill(s, skillId));
+  const removeRef = useStore((s) => s.removeRef);
   const steps = [
     { ref: refs.find((r) => r.platform === "yt"), label: t("sheet.lp1") },
     { ref: refs.find((r) => r.platform === "web"), label: t("sheet.lp2") },
     { ref: refs.find((r) => r.platform === "tt" || r.platform === "ig"), label: t("sheet.lp3") },
   ].filter((s): s is { ref: Ref; label: string } => !!s.ref);
-  if (steps.length === 0) return null;
+  if (steps.length === 0 && savedRefs.length === 0) return null;
   return (
     <section className="border-sky bg-panel-2 flex flex-col gap-2 rounded-[2px] border-[3px] p-3">
       <h3 className="text-base">{t("sheet.startHere")}</h3>
-      <ol className="flex flex-col gap-2">
-        {steps.map(({ ref, label }, i) => (
-          <li key={ref.url} className="flex gap-3 text-sm">
-            <span className="num border-edge bg-sky grid h-6 w-6 shrink-0 place-items-center border-2 text-xs font-bold text-[#04192a]">
-              {i + 1}
-            </span>
-            <span className="min-w-0">
-              <span className="text-muted block text-xs">{label}</span>
-              <a href={ref.url} target="_blank" rel="noopener noreferrer" className="px-link">
-                {PLATFORM_ICON[ref.platform]} {ref.title}
-              </a>
-              {ref.handle && <span className="text-muted"> · {ref.handle}</span>}
-            </span>
-          </li>
-        ))}
-      </ol>
+      {steps.length > 0 && (
+        <ol className="flex flex-col gap-2">
+          {steps.map(({ ref, label }, i) => (
+            <li key={ref.url} className="flex gap-3 text-sm">
+              <span className="num border-edge bg-sky grid h-6 w-6 shrink-0 place-items-center border-2 text-xs font-bold text-[#04192a]">
+                {i + 1}
+              </span>
+              <span className="min-w-0">
+                <span className="text-muted block text-xs">{label}</span>
+                <a href={ref.url} target="_blank" rel="noopener noreferrer" className="px-link">
+                  {PLATFORM_ICON[ref.platform]} {ref.title}
+                </a>
+                {ref.handle && <span className="text-muted"> · {ref.handle}</span>}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {savedRefs.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <span className="text-muted block text-xs">{t("sheet.yourRefs")}</span>
+          <ul className="flex flex-col gap-1">
+            {savedRefs.map((ref) => (
+              <li key={ref.url} className="flex items-center gap-2 text-sm" data-testid="saved-ref">
+                <a
+                  href={ref.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-link min-w-0 flex-1 truncate"
+                >
+                  {PLATFORM_ICON[ref.platform]} {ref.title}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => removeRef(skillId, ref.url)}
+                  aria-label={t("sheet.refRemove")}
+                  className="px-btn px-btn-ghost px-btn-sm shrink-0"
+                  data-testid="saved-ref-remove"
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }
