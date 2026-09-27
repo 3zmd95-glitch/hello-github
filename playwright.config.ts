@@ -3,6 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 // Optional: point at a pre-installed Chromium when the bundled revision is not downloaded
 // (e.g. PLAYWRIGHT_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium). CI runs `playwright install`.
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined;
+// Optional port so several checkouts can run their suites side by side (default 3000).
+const port = Number(process.env.E2E_PORT) || 3000;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -13,7 +15,7 @@ export default defineConfig({
     ? [["github"], ["html", { open: "never" }]]
     : [["list"], ["html", { open: "never" }]],
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: `http://localhost:${port}`,
     trace: "on-first-retry",
     launchOptions: { executablePath },
   },
@@ -23,8 +25,8 @@ export default defineConfig({
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },
   ],
   webServer: {
-    command: "pnpm build && npx serve@latest out -l 3000",
-    url: "http://localhost:3000",
+    command: `pnpm build && npx serve@latest out -l ${port}`,
+    url: `http://localhost:${port}`,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
   },
