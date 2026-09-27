@@ -1,4 +1,5 @@
 import { z } from "zod";
+import corePack from "@/planning/data/davinci-core-pack.json";
 import starterPack from "@/planning/data/davinci-starter-pack.json";
 import studioAiPack from "@/planning/data/davinci-studio-ai-pack.json";
 import {
@@ -13,8 +14,9 @@ import {
 } from "@/lib/domain";
 
 /**
- * DaVinci Resolve skills, loaded straight from the Skill Scout packs in planning/data/
- * (21 starter + 6 Studio AI). The JSON stays the single source; this file only maps its shape.
+ * DaVinci Resolve skills, loaded straight from the packs in planning/data/
+ * (21 starter + 6 Studio AI from Skill Scout, 35 hand-written core fundamentals with no refs).
+ * The JSON stays the single source; this file only maps its shape.
  */
 
 /** Shape of one card in the pack JSON files. */
@@ -25,7 +27,7 @@ export const PackSkillSchema = z.object({
   en: z.string().min(1),
   tier: TierSchema,
   studio: z.boolean().optional(),
-  set: z.enum(["starter", "studio"]).optional(),
+  set: z.enum(["starter", "studio", "core"]).optional(),
   related: LTextSchema.optional(),
   what: LTextSchema.optional(),
   ideasTitle: LTextSchema.optional(),
@@ -48,7 +50,14 @@ export function packSkillToSkill(raw: unknown, fallbackSource: Skill["source"]):
     tier: p.tier,
     gear: "any",
     studio: p.studio ?? false,
-    source: p.set === "studio" ? "studio-ai" : p.set === "starter" ? "starter" : fallbackSource,
+    source:
+      p.set === "studio"
+        ? "studio-ai"
+        : p.set === "starter"
+          ? "starter"
+          : p.set === "core"
+            ? "core"
+            : fallbackSource,
     related: p.related,
     what: p.what,
     ideasTitle: p.ideasTitle,
@@ -69,4 +78,13 @@ export const davinciStudioAiSkills: Skill[] = (studioAiPack as unknown[]).map((r
   packSkillToSkill(r, "studio-ai"),
 );
 
-export const davinciSkills: Skill[] = [...davinciStarterSkills, ...davinciStudioAiSkills];
+/** Hand-written fundamentals (35 cards, refs: [] so the research button finds videos on demand). */
+export const davinciCoreSkills: Skill[] = (corePack as unknown[]).map((r) =>
+  packSkillToSkill(r, "core"),
+);
+
+export const davinciSkills: Skill[] = [
+  ...davinciStarterSkills,
+  ...davinciStudioAiSkills,
+  ...davinciCoreSkills,
+];

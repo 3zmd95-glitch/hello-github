@@ -103,12 +103,43 @@ describe("seed data", () => {
     ]);
   });
 
-  it("has 27 DaVinci skills (21 starter + 6 Studio AI)", () => {
+  it("has 62 DaVinci skills (21 starter + 6 Studio AI + 35 core)", () => {
     const dv = skillsByProgram.davinci;
-    expect(dv).toHaveLength(27);
+    expect(dv).toHaveLength(62);
     expect(dv.filter((s) => s.source === "starter")).toHaveLength(21);
     expect(dv.filter((s) => s.source === "studio-ai")).toHaveLength(6);
+    expect(dv.filter((s) => s.source === "core")).toHaveLength(35);
     expect(dv.every((s) => s.gear === "any")).toBe(true);
+  });
+
+  it("every DaVinci page has at least 6 skills", () => {
+    const dv = skillsByProgram.davinci;
+    for (const sec of getProgram("davinci")!.sections) {
+      expect(dv.filter((s) => s.sectionId === sec.id).length, sec.id).toBeGreaterThanOrEqual(6);
+    }
+  });
+
+  it("core DaVinci skills are full cards with no refs and no URLs", () => {
+    const core = skills.filter((s) => s.source === "core");
+    expect(core).toHaveLength(35);
+    for (const s of core) {
+      expect(s.programId, s.id).toBe("davinci");
+      expect(s.refs, s.id).toEqual([]);
+      expect(s.ideas?.length, s.id).toBe(3);
+      expect(s.steps?.length, s.id).toBeGreaterThanOrEqual(5);
+      expect(s.steps?.length, s.id).toBeLessThanOrEqual(7);
+      expect(s.what, s.id).toBeDefined();
+      expect(s.arGap, s.id).toBeDefined();
+      expect(JSON.stringify(s), s.id).not.toMatch(/https?:\/\//);
+    }
+    expect(core.filter((s) => s.studio).map((s) => s.id)).toEqual([
+      "noise-reduction-temporal-spatial",
+      "film-look-creator",
+      "sky-replacement-magic-mask-alpha",
+      "fair-voice-isolation",
+      "fair-dialogue-leveler",
+      "deliver-hdr-export",
+    ]);
   });
 
   it("converts refs from tuples to objects", () => {
