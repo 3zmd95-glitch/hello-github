@@ -1,4 +1,25 @@
 {
   "map.title": "🗺️ Island map",
-  "map.sub": "6 continents, one per pillar, and every program is an island"
+  "map.sub": "6 continents, one per pillar, and every program is an island",
+  "map.nPrograms": "{n} islands",
+  "map.nSkills": "{n} skills",
+  "map.mastered": "{n}/{t} mastered",
+  "map.home": "Home island",
+  "map.fog": "Explore with Discover 🔎",
+  "map.openIsland": "Open the {name} island",
+  "map.exploreIsland": "{name}: no skills yet, explore it with Discover",
+  "map.pillarLevel": "{name} pillar level",
+  "map.islandProgress": "{name} island progress",
+  "map.back": "← World",
+  "map.nRegions": "{n} regions",
+  "map.regionN": "Region {n}",
+  "map.regionProgress": "{name} region progress",
+  "map.coming": "Coming",
+  "map.comingRegion": "The {name} region is coming soon; fill it from Discover",
+  "map.openSkill": "Open the {name} skill",
+  "map.mastered1": "Mastered ⭐",
+  "map.locked": "🔒 needs gear",
+  "map.tapSkill": "👆 Tap any skill to see its details and tick its quests",
+  "map.discover": "🔎 Discover new skills for this island",
+  "map.notFound": "We could not find this island"
 }

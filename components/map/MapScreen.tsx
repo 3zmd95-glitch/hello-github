@@ -1,14 +1,44 @@
 "use client";
 
-import { useT } from "@/lib/i18n";
+import { useEffect, useMemo, useRef } from "react";
+import { getProgram } from "@/data";
+import { doneQuestsBySkill } from "@/lib/planner";
+import { useStore } from "@/store";
+import IslandMap from "./IslandMap";
+import { useMapIsland } from "./useMapIsland";
+import WorldMap from "./WorldMap";
 
-/** Placeholder: replaced by the real screen in this sprint. */
+/**
+ * Map: the world (6 pillar continents with program islands) or one island's region map.
+ * The open island is page-local state mirrored in `#island=<id>` (see useMapIsland).
+ */
 export default function MapScreen() {
-  const { t } = useT();
+  const { islandId, open, close } = useMapIsland();
+  const completions = useStore((s) => s.completions);
+  const done = useMemo(() => doneQuestsBySkill(completions), [completions]);
+  const program = islandId ? getProgram(islandId) : undefined;
+
+  // Scroll to the top when switching views (but not on the first paint of a deep link).
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    window.scrollTo({ top: 0 });
+  }, [islandId]);
+
   return (
-    <header className="flex flex-col gap-1" data-testid="map-screen">
-      <h1 className="text-2xl">{t("map.title")}</h1>
-      <p className="text-ink-2 text-sm">{t("map.sub")}</p>
-    </header>
+    <div
+      className="flex flex-col gap-4"
+      data-testid="map-screen"
+      data-view={program ? "island" : "world"}
+    >
+      {program ? (
+        <IslandMap program={program} done={done} onBack={close} />
+      ) : (
+        <WorldMap done={done} onOpen={open} />
+      )}
+    </div>
   );
 }
