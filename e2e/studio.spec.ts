@@ -49,8 +49,10 @@ test("fresh Studio: empty hero with a calendar CTA, empty week, all-clear inbox"
   await expect(page.getByTestId("studio-week-empty")).toBeVisible();
 
   await expect(page.getByTestId("studio-inbox-empty")).toBeVisible();
-  await expect(page.getByTestId("studio-growth-empty")).toBeVisible();
-  await expect(page.getByTestId("studio-growth-add")).toHaveAttribute("href", "/social/growth/");
+  // The Social Analytics seed (Beacons, Sep 27 2026) fills the growth card on first load.
+  await expect(page.getByTestId("studio-growth")).toHaveAttribute("data-empty", "false");
+  await expect(page.getByTestId("studio-growth-followers")).toHaveAttribute("data-value", "1478");
+  await expect(page.getByTestId("studio-growth-open")).toHaveAttribute("href", "/social/growth/");
   await expect(page.getByTestId("studio-asks-empty")).toBeVisible();
 
   // Nothing done in Training today → the flame is waiting, with a 🎮 way back.

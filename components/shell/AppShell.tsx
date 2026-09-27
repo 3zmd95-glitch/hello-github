@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import CelebrationProvider from "@/components/celebrate/CelebrationProvider";
 import SkillSheetProvider from "@/components/skills/SkillSheetProvider";
+import { applySocialSeed } from "@/data/social-seed";
 import { useDocumentLang, useT } from "@/lib/i18n";
 import { setMuted } from "@/lib/sound";
 import { hydrateStore, useStore } from "@/store";
@@ -28,6 +29,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
       .then(() => {
         if (!alive) return;
         useStore.getState().applyStreakFreezes();
+        // The Beacons Sep 27, 2026 numbers go in once, so the Social Analytics page is never empty.
+        applySocialSeed(useStore.getState());
         setReady(true);
       });
     return () => {

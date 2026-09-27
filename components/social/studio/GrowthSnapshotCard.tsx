@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
+import { allOverview } from "@/lib/analytics";
 import { PLATFORMS } from "@/lib/domain";
 import { bestPlatform, snapshotDelta, totals } from "@/lib/growth";
 import { useT } from "@/lib/i18n";
 import { PLATFORM_META } from "@/lib/social";
-import { useStore } from "@/store";
+import { analyticsState, useStore } from "@/store";
+import { useShallow } from "zustand/react/shallow";
 import { fmtCount } from "./platform";
 
 /** Sum of the platforms' 30-day deltas; null when no platform has a baseline yet. */
@@ -32,12 +34,15 @@ function Delta({ n }: { n: number | null }) {
 export default function GrowthSnapshotCard() {
   const { t, L } = useT();
   const snapshots = useStore((s) => s.socialSnapshots);
+  const state = useStore(useShallow(analyticsState));
+  // Followers come from the Social Analytics rules (sum over connected platforms); views stay the 30-day sums.
+  const all = useMemo(() => allOverview(state), [state]);
   const sums = useMemo(() => totals(snapshots), [snapshots]);
   const deltas = useMemo(() => PLATFORMS.map((p) => snapshotDelta(snapshots, p)), [snapshots]);
   const best = useMemo(() => bestPlatform(snapshots), [snapshots]);
   const followersDelta = sumDelta(deltas.map((d) => d.followers));
   const viewsDelta = sumDelta(deltas.map((d) => d.views));
-  const empty = sums.platforms.length === 0;
+  const empty = all.platforms.length === 0;
 
   return (
     <section className="px-card flex flex-col gap-3" data-testid="studio-growth" data-empty={empty}>
@@ -70,8 +75,12 @@ export default function GrowthSnapshotCard() {
           <div className="grid grid-cols-2 gap-2">
             <div className="px-inset flex flex-col gap-0.5">
               <span className="text-muted text-xs">{t("social.studio.growthFollowers")}</span>
-              <b className="num text-xl" data-testid="studio-growth-followers">
-                {fmtCount(sums.followers)}
+              <b
+                className="num text-xl"
+                data-testid="studio-growth-followers"
+                data-value={all.totalFollowers}
+              >
+                {fmtCount(all.totalFollowers)}
               </b>
               <Delta n={followersDelta} />
             </div>
