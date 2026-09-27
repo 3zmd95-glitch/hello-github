@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { handle, oembedEndpoint, safeEqual, TAVILY_URL, type Env } from "./scout";
+import {
+  enrichThumbs,
+  handle,
+  oembedEndpoint,
+  safeEqual,
+  TAVILY_URL,
+  THUMB_ENRICH_MAX,
+  type Env,
+} from "./scout";
+import type { ScoutResult } from "./normalize";
 
 const TOKEN = "s3cret-token";
 const ENV: Env = {
@@ -309,6 +318,8 @@ describe("POST /search", () => {
     [{ q: "x", platforms: ["fb"] }],
     [{ q: "x", platforms: ["tt"], lang: "fr" }],
     [{ q: "x", platforms: ["tt"], max: 0 }],
+    [{ q: "x", platforms: ["tt"], timeRange: "day" }],
+    [{ q: "x", platforms: ["tt"], thumbs: "yes" }],
   ])("rejects a bad body %j with 400", async (body) => {
     const fetchMock = fakeFetch(() => jsonResponse({ results: [] }));
     const res = await handle(searchReq(body), ENV, undefined, { fetch: fetchMock });
@@ -448,5 +459,191 @@ describe("GET /oembed", () => {
       { fetch: fakeFetch(() => new Response("Not found", { status: 404 })), cache: null },
     );
     expect(missing.status).toBe(404);
+  });
+});
+
+describe("POST /search: timeRange and thumbnails", () => {
+  const TT1 = "https://www.tiktok.com/@editor.sam/video/7300000000000000001";
+  const TT2 = "https://www.tiktok.com/@cuts/video/7300000000000000002";
+  const HITS = {
+    results: [
+      { title: "TT one", url: TT1, content: "a" },
+      { title: "TT two", url: TT2, content: "b" },
+      { title: "Reel", url: "https://www.instagram.com/cutsbyfaisal/reel/C1abcDEF/", content: "c" },
+      { title: "YT", url: "https://www.youtube.com/watch?v=abc123XYZ", content: "d" },
+    ],
+  };
+
+  /** Tavily answers with HITS; TikTok oEmbed answers per video via `oembed(url)`. */
+  function routedFetch(oembed: (videoUrl: string, init?: RequestInit) => Promise<Response>) {
+    return vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === TAVILY_URL) return jsonResponse(HITS);
+      if (url.startsWith("https://www.tiktok.com/oembed?url=")) {
+        return oembed(decodeURIComponent(url.split("url=")[1]), init);
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+  }
+
+  it("passes timeRange through to Tavily as time_range", async () => {
+    const fetchMock = fakeFetch(() => jsonResponse({ results: [] }));
+    await handle(searchReq({ q: "x", platforms: ["tt"], timeRange: "week" }), ENV, undefined, {
+      fetch: fetchMock,
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).time_range).toBe("week");
+
+    const noRange = fakeFetch(() => jsonResponse({ results: [] }));
+    await handle(searchReq({ q: "x", platforms: ["tt"] }), ENV, undefined, { fetch: noRange });
+    expect(JSON.parse(String(noRange.mock.calls[0][1]?.body))).not.toHaveProperty("time_range");
+  });
+
+  it("enriches TikTok results with oEmbed thumbnails; YouTube from the id; Instagram stays bare", async () => {
+    const fetchMock = routedFetch(async (video) =>
+      jsonResponse({
+        title: "t",
+        thumbnail_url: `https://p16.tiktokcdn.com/${video.slice(-1)}.jpg`,
+      }),
+    );
+    const res = await handle(
+      searchReq({ q: "match cut", platforms: ["tt", "ig", "yt"] }),
+      ENV,
+      undefined,
+      { fetch: fetchMock, cache: null },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { results: ScoutResult[]; credits: { used: number } };
+    expect(body.credits).toEqual({ used: 1 });
+    expect(body.results.map((r) => [r.platform, r.thumb])).toEqual([
+      ["tt", "https://p16.tiktokcdn.com/1.jpg"],
+      ["tt", "https://p16.tiktokcdn.com/2.jpg"],
+      ["ig", undefined],
+      ["yt", "https://i.ytimg.com/vi/abc123XYZ/hqdefault.jpg"],
+    ]);
+    // 1 Tavily call + 2 oEmbed calls, all oEmbed calls carry an abort signal.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const [url, init] of fetchMock.mock.calls.slice(1)) {
+      expect(String(url)).toMatch(/^https:\/\/www\.tiktok\.com\/oembed\?url=/);
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it("skips enrichment entirely with thumbs: false", async () => {
+    const fetchMock = routedFetch(async () => jsonResponse({ thumbnail_url: "https://x/y.jpg" }));
+    const res = await handle(
+      searchReq({ q: "x", platforms: ["tt"], thumbs: false }),
+      ENV,
+      undefined,
+      { fetch: fetchMock, cache: null },
+    );
+    const body = (await res.json()) as { results: ScoutResult[] };
+    expect(body.results.every((r) => r.thumb === undefined)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("tolerates oEmbed failures and timeouts: the search still answers, those cards just have no thumb", async () => {
+    const fetchMock = routedFetch((video, init) => {
+      if (video === TT1) {
+        // Never answers on its own; only the abort (timeout) ends it.
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+      }
+      return Promise.resolve(new Response("nope", { status: 500 }));
+    });
+    const started = Date.now();
+    const res = await handle(searchReq({ q: "x", platforms: ["tt"] }), ENV, undefined, {
+      fetch: fetchMock,
+      cache: null,
+      oembedTimeoutMs: 30,
+    });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { results: ScoutResult[] };
+    expect(body.results.map((r) => r.url)).toEqual([TT1, TT2]);
+    expect(body.results.every((r) => r.thumb === undefined)).toBe(true);
+  });
+
+  it("gives up on an oEmbed call that ignores the abort signal", async () => {
+    const fetchMock = routedFetch(() => new Promise<Response>(() => {}));
+    const res = await handle(searchReq({ q: "x", platforms: ["tt"] }), ENV, undefined, {
+      fetch: fetchMock,
+      cache: null,
+      oembedTimeoutMs: 20,
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("reuses the cached oEmbed path (a second search makes no new oEmbed call)", async () => {
+    const fetchMock = routedFetch(async () =>
+      jsonResponse({ thumbnail_url: "https://p16.tiktokcdn.com/c.jpg" }),
+    );
+    const cache = fakeCache();
+    await handle(searchReq({ q: "x", platforms: ["tt"] }), ENV, undefined, {
+      fetch: fetchMock,
+      cache,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const again = await handle(searchReq({ q: "x", platforms: ["tt"] }), ENV, undefined, {
+      fetch: fetchMock,
+      cache,
+    });
+    const body = (await again.json()) as { results: ScoutResult[] };
+    expect(body.results[0].thumb).toBe("https://p16.tiktokcdn.com/c.jpg");
+    // Only Tavily again; both thumbnails came from the cache.
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // The same cache also serves GET /oembed for that link.
+    const oe = await handle(req(`/oembed?url=${encodeURIComponent(TT1)}`), ENV, undefined, {
+      fetch: fetchMock,
+      cache,
+    });
+    expect(((await oe.json()) as { thumb: string }).thumb).toBe("https://p16.tiktokcdn.com/c.jpg");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("enrichThumbs", () => {
+  it(`enriches at most ${THUMB_ENRICH_MAX} TikTok results, in parallel`, async () => {
+    const results: ScoutResult[] = Array.from({ length: THUMB_ENRICH_MAX + 3 }, (_, i) => ({
+      platform: "tt",
+      handle: "@a",
+      title: `t${i}`,
+      snippet: "",
+      url: `https://www.tiktok.com/@a/video/${i}`,
+    }));
+    let inFlight = 0;
+    let peak = 0;
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      return jsonResponse({ thumbnail_url: "https://p16.tiktokcdn.com/t.jpg" });
+    });
+    await enrichThumbs(results, fetchMock, null, undefined, 1000);
+    expect(fetchMock).toHaveBeenCalledTimes(THUMB_ENRICH_MAX);
+    expect(peak).toBe(THUMB_ENRICH_MAX);
+    expect(results.filter((r) => r.thumb)).toHaveLength(THUMB_ENRICH_MAX);
+    expect(results.slice(THUMB_ENRICH_MAX).every((r) => r.thumb === undefined)).toBe(true);
+  });
+
+  it("ignores non-https thumbnails", async () => {
+    const results: ScoutResult[] = [
+      {
+        platform: "tt",
+        handle: "@a",
+        title: "t",
+        snippet: "",
+        url: "https://www.tiktok.com/@a/video/1",
+      },
+    ];
+    await enrichThumbs(
+      results,
+      vi.fn<typeof fetch>(async () => jsonResponse({ thumbnail_url: "javascript:alert(1)" })),
+      null,
+      undefined,
+      1000,
+    );
+    expect(results[0].thumb).toBeUndefined();
   });
 });

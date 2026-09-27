@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Lang } from "@/lib/domain";
 import {
   getScoutUsage,
+  scoutCacheKey,
   scoutConfig,
   scoutSearch,
   subscribeScoutUsage,
@@ -11,8 +12,10 @@ import {
   type ScoutError,
   type ScoutPlatform,
   type ScoutResult,
+  type ScoutSearchParams,
+  type ScoutTimeRange,
 } from "@/lib/scoutClient";
-import { getApiKey, useStore } from "@/store";
+import { useStore } from "@/store";
 
 /**
  * The Scout Worker config from Settings, or null. Selects the two strings separately (primitives, so the
@@ -33,10 +36,6 @@ export function useScoutUsage(): number {
   );
 }
 
-// Stable arrays so effects don't re-run on every render.
-const TT_IG: readonly ScoutPlatform[] = ["tt", "ig"];
-const TT_IG_YT: readonly ScoutPlatform[] = ["tt", "ig", "yt"];
-
 export type ScoutSearchState =
   | { status: "off" }
   | { status: "loading" }
@@ -47,25 +46,42 @@ type Settled =
   | { for: string; status: "ok"; results: ScoutResult[] }
   | { for: string; status: "error"; error: ScoutError };
 
+/** The Worker request for a query, or null when there's nothing to ask (no query or no platforms). */
+export function scoutParams(
+  q: string,
+  platforms: readonly ScoutPlatform[] | null,
+  lang: Lang,
+  timeRange?: ScoutTimeRange,
+): ScoutSearchParams | null {
+  const query = q.trim();
+  if (!query || !platforms || platforms.length === 0) return null;
+  // One platform: 10 results of it; several: 5 each (one Tavily credit either way).
+  const max = platforms.length === 1 ? 10 : platforms.length * 5;
+  return { q: query, platforms, lang, max, timeRange, thumbs: true };
+}
+
 /**
- * One Worker search per (query, language). TikTok + Instagram always; YouTube too when there's no YouTube
- * Data API key (the Worker is then the YouTube fallback). The skill sheet / Discover call this from both the
- * TikTok·Instagram section and the YouTube section with the same arguments, so it's one request (shared
- * in flight, then cached) and one credit.
+ * One Worker search for `params` (null = off). Results are cached per request in `scoutClient` (memory +
+ * localStorage) and identical in-flight searches are shared, so re-rendering or switching back to a tab
+ * never spends a second credit.
  */
-export function useScoutSearch(query: string, lang: Lang, enabled = true): ScoutSearchState {
+export function useScoutQuery(params: ScoutSearchParams | null): ScoutSearchState {
   const config = useScoutConfig();
-  const hasYoutubeKey = !!useStore((s) => getApiKey(s, "youtube"));
-  const platforms = hasYoutubeKey ? TT_IG : TT_IG_YT;
-  const q = query.trim();
-  const active = enabled && !!config && q.length > 0;
-  const key = `${platforms.join(",")}|${lang}|${q}`;
+  const key = params ? scoutCacheKey(params) : "";
+  const active = !!config && !!params;
   const [settled, setSettled] = useState<Settled | null>(null);
+  // Primitive copies for the effect's dependency list (the params object is rebuilt every render).
+  const q = params?.q ?? "";
+  const platforms = params?.platforms.join(",") ?? "";
+  const lang = params?.lang;
+  const max = params?.max;
+  const timeRange = params?.timeRange;
 
   useEffect(() => {
     if (!active) return;
     let alive = true;
-    scoutSearch(config, { q, platforms, lang, max: platforms.length * 5 }).then((r) => {
+    const list = platforms.split(",") as ScoutPlatform[];
+    scoutSearch(config, { q, platforms: list, lang, max, timeRange, thumbs: true }).then((r) => {
       if (!alive) return;
       setSettled(
         r.ok
@@ -76,7 +92,7 @@ export function useScoutSearch(query: string, lang: Lang, enabled = true): Scout
     return () => {
       alive = false;
     };
-  }, [active, config, q, platforms, lang, key]);
+  }, [active, config, key, q, platforms, lang, max, timeRange]);
 
   if (!active) return { status: "off" };
   if (!settled || settled.for !== key) return { status: "loading" };

@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
-import SkillResearchPanel from "@/components/research/SkillResearchPanel";
+import ResearchPanel from "@/components/research/ResearchPanel";
+import ResultCard from "@/components/research/ResultCard";
 import PxBar from "@/components/ui/PxBar";
 import { GearChip, StudioChip, TierChip } from "@/components/ui/chips";
 import { getProgram, getSkill } from "@/data";
 import { QUEST_TYPES, type QuestType, type Ref, type Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { itemFromRef } from "@/lib/research";
 import { questXp } from "@/lib/xp";
 import { refsForSkill, useStore } from "@/store";
 
@@ -143,7 +145,7 @@ function SheetBody({
         </button>
       </div>
 
-      {researchOpen && <SkillResearchPanel skill={skill} />}
+      {researchOpen && <ResearchPanel skill={skill} />}
 
       {skill.source === "draft" && (
         <p className="px-inset text-ink-2 text-sm">📝 {t("sheet.draft")}</p>
@@ -306,41 +308,14 @@ function StartHere({ refs, skillId }: { refs: Ref[]; skillId: string }) {
       {savedRefs.length > 0 && (
         <div className="flex flex-col gap-2">
           <span className="text-muted block text-xs">{t("sheet.yourRefs")}</span>
-          <ul className="flex flex-col gap-1">
+          <ul className="flex flex-col gap-1.5">
             {savedRefs.map((ref) => (
-              <li key={ref.url} className="flex items-center gap-2 text-sm" data-testid="saved-ref">
-                {ref.thumb && (
-                  // External thumbnail; static export has no image optimizer for it.
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={ref.thumb}
-                    alt={t("sheet.refThumbAlt")}
-                    width={40}
-                    height={40}
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    className="h-10 w-10 shrink-0 rounded-[2px] bg-[var(--panel-3)] object-cover"
-                    data-testid="saved-ref-thumb"
-                  />
-                )}
-                <a
-                  href={ref.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-link min-w-0 flex-1 truncate"
-                >
-                  {PLATFORM_ICON[ref.platform]} {ref.title}
-                </a>
-                <button
-                  type="button"
-                  onClick={() => removeRef(skillId, ref.url)}
-                  aria-label={t("sheet.refRemove")}
-                  className="px-btn px-btn-ghost px-btn-sm shrink-0"
-                  data-testid="saved-ref-remove"
-                >
-                  ✕
-                </button>
-              </li>
+              <ResultCard
+                key={ref.url}
+                compact
+                item={itemFromRef(ref)}
+                onRemove={() => removeRef(skillId, ref.url)}
+              />
             ))}
           </ul>
         </div>
