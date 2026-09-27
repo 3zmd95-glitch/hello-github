@@ -116,11 +116,32 @@ export async function syncSocialNow(platforms?: readonly SocialPlatform[]): Prom
   const cfg = currentConfig();
   if (!cfg) return fail("settings.accounts.err.unconfigured", false);
   setActivity({ busy: true, error: null });
-  const r = await socialSyncNow(cfg, platforms);
-  if (!r.ok) return fail(keyOf(r.error), false);
+  // The Worker has a per-request call budget, so each platform gets its own sync call for full depth.
+  const connected = platforms ?? connectedPlatforms();
+  const synced: SocialPlatform[] = [];
+  const errors: Record<string, string> = {};
+  if (connected.length === 0) {
+    const r = await socialSyncNow(cfg);
+    if (!r.ok) return fail(keyOf(r.error), false);
+    synced.push(...(r.synced as SocialPlatform[]));
+    Object.assign(errors, r.errors);
+  }
+  for (const platform of connected) {
+    const r = await socialSyncNow(cfg, [platform]);
+    if (!r.ok) return fail(keyOf(r.error), false);
+    synced.push(...(r.synced as SocialPlatform[]));
+    Object.assign(errors, r.errors);
+  }
   const pulled = await pullSocial();
   if (!pulled.ok) return { ok: false, error: pulled.error };
-  return { ok: true, synced: r.synced, errors: r.errors };
+  return { ok: true, synced, errors };
+}
+
+/** Platforms the last status pull reported as connected (empty when unknown). */
+function connectedPlatforms(): SocialPlatform[] {
+  const status = useStore.getState().socialSync.status;
+  if (!status) return [];
+  return (Object.keys(status) as SocialPlatform[]).filter((p) => status[p]?.connected);
 }
 
 /** The page the Worker sends the owner back to after OAuth (Settings, where the accounts card lives). */

@@ -105,7 +105,7 @@ function SocialSyncAgent() {
     const name = (p: string) => (isSocialPlatform(p) ? L(PLATFORM_META[p].name) : p);
     if (connected) {
       toast("notice", { icon: "🔗", name: t("social.toast.connected", { name: name(connected) }) });
-      void syncSocialNow().then((r) => {
+      void syncSocialNow(isSocialPlatform(connected) ? [connected] : undefined).then((r) => {
         if (r.ok) toast("notice", { icon: "🔄", name: t("social.toast.synced") });
       });
     } else if (failed) {

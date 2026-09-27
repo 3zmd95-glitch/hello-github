@@ -207,8 +207,9 @@ test("Settings rows follow the Worker status; Connect goes through OAuth and com
   expect(calls.connect[0].returnTo).toMatch(/^http:\/\/localhost:\d+\/settings\/$/);
   await expect(notice(page).first()).toBeVisible();
   await expect(notice(page).first()).toContainText("يوتيوب"); // "YouTube connected ✓"
+  // Coming back from OAuth syncs the platform that was just connected.
   await expect.poll(() => calls.sync.length).toBe(1);
-  expect(calls.sync[0]).toEqual({});
+  expect(calls.sync[0]).toEqual({ platforms: ["youtube"] });
   expect(page.url()).not.toContain("connected=");
 
   // Disconnect Instagram: confirm dialog, DELETE, the row follows the refreshed status.
