@@ -16,11 +16,14 @@ export default function TodayFlow({
   main,
   micro,
   streak,
+  reasons = [],
 }: {
   flow: FlowState;
   main: QuestPick | null;
   micro: MicroActionIdea;
   streak: number;
+  /** Extra coach reasons for the main quest (round 15), already translated; shown after `flow.why`. */
+  reasons?: string[];
 }) {
   const { t, L } = useT();
   const { doMicroAction } = useGameActions();
@@ -45,7 +48,7 @@ export default function TodayFlow({
           {flow.quest ? (
             <DoneQuest skillId={flow.quest.skillId} quest={flow.quest.quest} />
           ) : main ? (
-            <MainQuest key={`${main.skill.id}:${main.quest}`} pick={main} />
+            <MainQuest key={`${main.skill.id}:${main.quest}`} pick={main} reasons={reasons} />
           ) : (
             <p className="text-ink-2 text-sm">{t("flow.allDone")}</p>
           )}
@@ -130,17 +133,23 @@ function QuestMeta({ pick }: { pick: Pick<QuestPick, "skill" | "quest" | "xp"> }
   );
 }
 
-function MainQuest({ pick }: { pick: QuestPick }) {
+function MainQuest({ pick, reasons }: { pick: QuestPick; reasons: string[] }) {
   const { t, L } = useT();
   const sheet = useSkillSheet();
   const { completeQuest } = useGameActions();
   const [proof, setProof] = useState("");
   const needsProof = pick.quest === "produce" || pick.quest === "article";
+  // The planner's own reason first (nearest to mastery), then up to two coach reasons (boss, season).
+  const why = [...(pick.done > 0 ? [t("flow.why", { n: pick.done })] : []), ...reasons.slice(0, 2)];
   return (
     <div className="flex flex-col gap-2" data-testid="main-quest" data-skill={pick.skill.id}>
       <QuestMeta pick={pick} />
       <p className="text-ink-2 text-sm">{L(pick.skill.quests[pick.quest])}</p>
-      {pick.done > 0 && <p className="text-muted text-xs">{t("flow.why", { n: pick.done })}</p>}
+      {why.length > 0 && (
+        <p className="text-muted text-xs" data-testid="main-why">
+          {why.join(" · ")}
+        </p>
+      )}
       {needsProof && (
         <input
           type="text"

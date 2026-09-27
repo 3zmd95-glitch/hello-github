@@ -3,7 +3,8 @@
 import type { QuestType } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { addDays } from "@/lib/streak";
-import { isItemDone, type PlanItem, type WeekPlan } from "@/lib/weekPlan";
+import { isItemDone } from "@/lib/weekPlan";
+import type { OverlaidPlan, OverlayItem } from "./overlay";
 import PlanItemCard from "./PlanItemCard";
 import { formatDayNumber } from "./weekLabel";
 
@@ -24,13 +25,15 @@ export default function WeekGrid({
   done,
   onTick,
   onOpen,
+  onRemove,
 }: {
-  plan: WeekPlan;
+  plan: OverlaidPlan;
   /** 0..6 when the plan's week is the current one; -1 otherwise. */
   today: number;
   done: ReadonlyMap<string, ReadonlySet<QuestType>>;
-  onTick: (item: PlanItem, proof?: string) => void;
+  onTick: (item: OverlayItem, proof?: string) => void;
   onOpen: (skillId: string) => void;
+  onRemove: (item: OverlayItem) => void;
 }) {
   const { t } = useT();
   return (
@@ -69,6 +72,7 @@ export default function WeekGrid({
                   done={isItemDone(item, done)}
                   onTick={onTick}
                   onOpen={onOpen}
+                  onRemove={onRemove}
                 />
               ))
             )}

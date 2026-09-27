@@ -40,5 +40,20 @@
   "planner.day.3": "الثلاثاء",
   "planner.day.4": "الأربعاء",
   "planner.day.5": "الخميس",
-  "planner.day.6": "الجمعة"
+  "planner.day.6": "الجمعة",
+  "planner.byMe": "أنت",
+  "planner.byMeReason": "أنت ضفتها من الرصيد",
+  "planner.removeAria": "احذف من الخطة: {skill}",
+  "planner.addTitle": "➕ ضيف من الرصيد",
+  "planner.addSub": "أفضل المهام الجاية اللي مو في الخطة، كل واحدة تنزل في أخف يوم",
+  "planner.addBtn": "+ ضيف من الرصيد",
+  "planner.addOne": "ضيف",
+  "planner.addAria": "ضيف للخطة: {skill}",
+  "planner.backlogEmpty": "ما فيه مهام ثانية نضيفها دحين.",
+  "planner.reset": "↩ رجّع خطة المدرب",
+  "planner.resetTitle": "ترجّع خطة المدرب؟",
+  "planner.resetBody": "تنحذف إضافاتك وترجع المهام اللي شلتها. تقدمك ما يتأثر.",
+  "planner.resetOk": "أيوه، رجّعها",
+  "planner.edited": "✏️ معدّلة بيدك",
+  "planner.why6": "تقدر تشيل أي مهمة أو تضيف من الرصيد؛ الإضافة تنزل في أخف يوم، و«رجّع خطة المدرب» يمسح تعديلاتك."
 }

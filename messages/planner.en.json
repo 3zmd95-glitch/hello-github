@@ -40,5 +40,20 @@
   "planner.day.3": "Tue",
   "planner.day.4": "Wed",
   "planner.day.5": "Thu",
-  "planner.day.6": "Fri"
+  "planner.day.6": "Fri",
+  "planner.byMe": "you",
+  "planner.byMeReason": "You added it from the backlog",
+  "planner.removeAria": "Remove from the plan: {skill}",
+  "planner.addTitle": "➕ Add from the backlog",
+  "planner.addSub": "The best upcoming quests not in the plan; each lands on the lightest day",
+  "planner.addBtn": "+ Add from backlog",
+  "planner.addOne": "Add",
+  "planner.addAria": "Add to the plan: {skill}",
+  "planner.backlogEmpty": "Nothing else to add right now.",
+  "planner.reset": "↩ Back to the coach's plan",
+  "planner.resetTitle": "Reset to the coach's plan?",
+  "planner.resetBody": "Your additions are dropped and the items you removed come back. Your progress is untouched.",
+  "planner.resetOk": "Yes, reset it",
+  "planner.edited": "✏️ Edited by you",
+  "planner.why6": "Remove any item or add one from the backlog; additions land on the lightest day, and \"Back to the coach's plan\" clears your edits."
 }

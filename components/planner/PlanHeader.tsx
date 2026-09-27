@@ -6,7 +6,16 @@ import type { PlanProgress, WeekPlan } from "@/lib/weekPlan";
 import { formatHours, weekRange } from "./weekLabel";
 
 /** Week label, planned time vs the 5 h budget, expected XP, craft / software / combo mix and done count. */
-export default function PlanHeader({ plan, progress }: { plan: WeekPlan; progress: PlanProgress }) {
+export default function PlanHeader({
+  plan,
+  progress,
+  edited = false,
+}: {
+  plan: WeekPlan;
+  progress: PlanProgress;
+  /** The owner changed this week's plan by hand (overlay.ts). */
+  edited?: boolean;
+}) {
   const { t, lang } = useT();
   const { from, to } = weekRange(plan.week, lang);
   const ratio = plan.budgetMin > 0 ? plan.minutes / plan.budgetMin : 0;
@@ -18,7 +27,14 @@ export default function PlanHeader({ plan, progress }: { plan: WeekPlan; progres
         <h2 className="text-lg" data-testid="plan-week">
           {t("planner.week", { from, to })}
         </h2>
-        <span className="px-chip px-chip-gold">{t("planner.thisWeek")}</span>
+        <span className="flex flex-wrap gap-1.5">
+          {edited && (
+            <span className="px-chip px-chip-green" data-testid="plan-edited">
+              {t("planner.edited")}
+            </span>
+          )}
+          <span className="px-chip px-chip-gold">{t("planner.thisWeek")}</span>
+        </span>
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
