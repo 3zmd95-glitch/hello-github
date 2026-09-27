@@ -12,6 +12,7 @@ import {
   STORAGE_KEY,
   accountFor,
   activeDays,
+  analyticsState,
   boss,
   chestProgress,
   currentWeek,
@@ -30,6 +31,7 @@ import {
   planItemsForWeek,
   postById,
   postForQuestProof,
+  postStatsFor,
   postsForSkill,
   programXp,
   reviewForWeek,
@@ -1334,6 +1336,116 @@ describe("social: ideas, snapshots, asks, accounts", () => {
   });
 });
 
+describe("social analytics: post stats, demographics, seed flag", () => {
+  const stat = (platform: "tiktok" | "threads", postId: string, views: number) => ({
+    platform,
+    postId,
+    publishedAt: "2026-09-20T18:00:00.000Z",
+    views,
+  });
+
+  it("snapshots accept the analytics metrics and normalize the engagement alias", () => {
+    S().addSnapshot({ platform: "threads", day: "2026-09-27", followers: 0, engagementRate: 6.5 });
+    expect(S().socialSnapshots[0]).toMatchObject({
+      views30d: 0,
+      engagementPct: 6.5,
+      engagementRate: 6.5,
+    });
+    S().importSnapshots([
+      { platform: "tiktok", day: "2026-09-27", followers: 1200, avgViews: 30200, posts30d: 4 },
+    ]);
+    expect(S().socialSnapshots[1]).toMatchObject({ avgViews: 30200, posts30d: 4 });
+    expect(() =>
+      S().addSnapshot({ platform: "tiktok", day: "2026-09-27", followers: 1, avgViews: -1 }),
+    ).toThrow();
+  });
+
+  it("post stats: import upserts by platform + postId, remove drops one", () => {
+    S().importPostStats([stat("tiktok", "a", 10), stat("threads", "a", 5)]);
+    S().importPostStats([{ ...stat("tiktok", "a", 20), kind: "video", likes: 3 }]);
+    expect(S().socialPostStats).toHaveLength(2);
+    expect(S().socialPostStats[0]).toEqual({
+      platform: "tiktok",
+      postId: "a",
+      publishedAt: "2026-09-20T18:00:00.000Z",
+      kind: "video",
+      views: 20,
+      likes: 3,
+      comments: 0,
+      shares: 0,
+    });
+    expect(S().socialPostStats[1].kind).toBe("other");
+    expect(postStatsFor(S(), "threads")).toHaveLength(1);
+    expect(() =>
+      S().importPostStats([{ ...stat("tiktok", "b", 1), publishedAt: "yesterday" }]),
+    ).toThrow();
+    S().removePostStat("tiktok", "a");
+    expect(S().socialPostStats.map((p) => p.platform)).toEqual(["threads"]);
+    expect(analyticsState(S())).toEqual({
+      snapshots: [],
+      postStats: S().socialPostStats,
+      accounts: [],
+    });
+  });
+
+  it("demographics: import replaces the same platform + day + dimension set, clear drops by platform/day", () => {
+    const row = (
+      platform: "tiktok" | "instagram",
+      day: string,
+      dimension: "gender" | "age",
+      key: string,
+      pct: number,
+    ) => ({ platform, day, dimension, key, pct });
+    S().importDemographics([
+      row("tiktok", "2026-09-27", "gender", "male", 60),
+      row("tiktok", "2026-09-27", "gender", "female", 40),
+      row("tiktok", "2026-09-27", "age", "25-34", 50),
+      row("instagram", "2026-09-27", "gender", "male", 90),
+      row("tiktok", "2026-09-01", "gender", "male", 55),
+    ]);
+    S().importDemographics([row("tiktok", "2026-09-27", "gender", "male", 56)]);
+    const keys = () =>
+      S().demographics.map((d) => `${d.platform}/${d.day}/${d.dimension}/${d.key}=${d.pct}`);
+    expect(keys()).toEqual([
+      "tiktok/2026-09-27/age/25-34=50",
+      "instagram/2026-09-27/gender/male=90",
+      "tiktok/2026-09-01/gender/male=55",
+      "tiktok/2026-09-27/gender/male=56",
+    ]);
+    expect(() => S().importDemographics([row("tiktok", "2026-09-27", "age", "x", 101)])).toThrow();
+    S().clearDemographics("tiktok", "2026-09-01");
+    expect(keys()).toHaveLength(3);
+    S().clearDemographics("tiktok");
+    expect(keys()).toEqual(["instagram/2026-09-27/gender/male=90"]);
+  });
+
+  it("remembers the seed version and round-trips the new fields through export/import", () => {
+    expect(S().socialSeedApplied).toBe("");
+    S().setSocialSeedApplied("2026-09-27");
+    S().importPostStats([stat("tiktok", "a", 10)]);
+    S().importDemographics([
+      {
+        platform: "tiktok",
+        day: "2026-09-27",
+        dimension: "age",
+        key: "25-34",
+        pct: 53,
+        gender: "male",
+      },
+    ]);
+    const json = S().exportState();
+    const before = JSON.parse(json).state;
+    expect(before.socialSeedApplied).toBe("2026-09-27");
+    S().reset();
+    expect(S().socialPostStats).toEqual([]);
+    expect(S().demographics).toEqual([]);
+    expect(S().socialSeedApplied).toBe("");
+    S().importState(json);
+    expect(JSON.parse(S().exportState()).state).toEqual(before);
+    expect(S().demographics[0].gender).toBe("male");
+  });
+});
+
 describe("social: persistence", () => {
   it("round-trips every social field through export/import and the reset clears them", () => {
     const now = at("2026-09-27T10:00:00Z");
@@ -1380,6 +1492,43 @@ describe("social: persistence", () => {
     expect(S().socialSnapshots).toEqual([]);
     expect(S().audienceAsks).toEqual([]);
     expect(S().socialAccounts).toEqual([]);
+    expect(S().socialPostStats).toEqual([]);
+    expect(S().demographics).toEqual([]);
+    expect(S().socialSeedApplied).toBe("");
+  });
+
+  it("imports an export from before the analytics fields (engagementPct-only snapshots) untouched", () => {
+    S().importState(
+      JSON.stringify({
+        app: "3z-prod",
+        version: 1,
+        exportedAt: "2026-09-20",
+        state: {
+          settings: DEFAULT_SETTINGS,
+          completions: [],
+          xpEvents: [],
+          microActions: [],
+          freezesUsedOn: [],
+          reviews: [],
+          socialSnapshots: [
+            {
+              platform: "tiktok",
+              day: "2026-09-20",
+              followers: 1000,
+              views30d: 5000,
+              engagementPct: 4,
+            },
+          ],
+          socialAccounts: [{ platform: "x", handle: "3zprod" }],
+        },
+      }),
+    );
+    expect(S().socialSnapshots).toEqual([
+      { platform: "tiktok", day: "2026-09-20", followers: 1000, views30d: 5000, engagementPct: 4 },
+    ]);
+    expect(S().socialPostStats).toEqual([]);
+    expect(S().demographics).toEqual([]);
+    expect(S().socialSeedApplied).toBe("");
   });
 
   it("hydrates an old localStorage save without the social fields and keeps them usable", async () => {

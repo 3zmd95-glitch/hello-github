@@ -14,6 +14,7 @@ import {
   AudienceAskSchema,
   BadgeAwardSchema,
   DEFAULT_AVATAR,
+  DemographicSchema,
   DrillSchema,
   FocusSessionSchema,
   FocusStateSchema,
@@ -33,10 +34,12 @@ import {
   SettingsSchema,
   ShotSchema,
   SocialAccountSchema,
+  SocialPostStatSchema,
   SocialSnapshotSchema,
   XpEventSchema,
   type ApiKeyName,
   type AudienceAsk,
+  type Demographic,
   type Drill,
   type FocusMinutes,
   type FocusSession,
@@ -61,10 +64,14 @@ import {
   type Settings,
   type Shot,
   type SocialAccount,
+  type SocialPostStat,
+  type SocialPostStatInput,
   type SocialSnapshot,
+  type SocialSnapshotInput,
   type XpEvent,
 } from "@/lib/domain";
 import { advanceDrill, dueDrills as dueDrillsOf, newDrill } from "@/lib/drills";
+import { replaceDemographics, upsertPostStats } from "@/lib/analytics";
 import { upsertSnapshots } from "@/lib/growth";
 import {
   bestTime,
@@ -176,6 +183,13 @@ export const PersistedStateSchema = z.object({
   audienceAsks: z.array(AudienceAskSchema).default([]),
   /** The owner's handle per platform. */
   socialAccounts: z.array(SocialAccountSchema).default([]),
+  /* 📊 Social Analytics (round 27: the Beacons handover's posts + demographics tables). */
+  /** Imported published posts with their numbers, unique by platform + postId. */
+  socialPostStats: z.array(SocialPostStatSchema).default([]),
+  /** Audience breakdowns per platform, day and dimension. */
+  demographics: z.array(DemographicSchema).default([]),
+  /** Version of data/social-seed applied (""= never): applySocialSeed never runs twice. */
+  socialSeedApplied: z.string().default(""),
 });
 export type PersistedState = z.infer<typeof PersistedStateSchema>;
 
@@ -320,11 +334,26 @@ export interface StoreActions {
    * unknown idea.
    */
   useIdea(ideaId: string, platform: Platform, now?: Date): Post | undefined;
-  /** Add or replace the snapshot of that platform + day. Throws (Zod) on an invalid snapshot. */
-  addSnapshot(snapshot: SocialSnapshot): void;
-  /** Upsert many snapshots at once (e.g. from parseStatsCsv). */
-  importSnapshots(list: readonly SocialSnapshot[]): void;
+  /**
+   * Add or replace the snapshot of that platform + day (any of the analytics metrics may be given; the
+   * engagement aliases are normalized). Throws (Zod) on an invalid snapshot.
+   */
+  addSnapshot(snapshot: SocialSnapshotInput): void;
+  /** Upsert many snapshots at once (e.g. from parseStatsCsv or the seed). */
+  importSnapshots(list: readonly SocialSnapshotInput[]): void;
   removeSnapshot(platform: Platform, day: string): void;
+  /** Upsert published-post stats by platform + postId (from parsePostsCsv & co). Throws (Zod) on bad input. */
+  importPostStats(list: readonly SocialPostStatInput[]): void;
+  removePostStat(platform: Platform, postId: string): void;
+  /**
+   * Import audience breakdowns: every platform + day + dimension set present in `list` replaces the stored
+   * one as a whole. Throws (Zod) on bad input.
+   */
+  importDemographics(list: readonly Demographic[]): void;
+  /** Drop a platform's demographics (all days, or one day). */
+  clearDemographics(platform: Platform, day?: string): void;
+  /** Remember that the social seed of that version was applied (data/social-seed calls this). */
+  setSocialSeedApplied(version: string): void;
   /** Add an ask; the same text (case-insensitive) bumps the existing ask instead. Returns the stored ask. */
   addAsk(input: NewAskInput, now?: Date): AudienceAsk;
   /** count += by (default 1). */
@@ -403,6 +432,9 @@ const initialData = (): PersistedState => ({
   socialSnapshots: [],
   audienceAsks: [],
   socialAccounts: [],
+  socialPostStats: [],
+  demographics: [],
+  socialSeedApplied: "",
 });
 
 const newId = (): string =>
@@ -446,6 +478,9 @@ const pick = (s: PersistedState): PersistedState => ({
   socialSnapshots: s.socialSnapshots,
   audienceAsks: s.audienceAsks,
   socialAccounts: s.socialAccounts,
+  socialPostStats: s.socialPostStats,
+  demographics: s.demographics,
+  socialSeedApplied: s.socialSeedApplied,
 });
 
 /** Localize without importing lib/i18n (which imports this store). */
@@ -1190,6 +1225,36 @@ export const useStore = create<StoreState>()(
         }));
       },
 
+      importPostStats(list) {
+        const parsed = z.array(SocialPostStatSchema).parse(list);
+        set((s) => ({ socialPostStats: upsertPostStats(s.socialPostStats, parsed) }));
+      },
+
+      removePostStat(platform, postId) {
+        set((s) => ({
+          socialPostStats: s.socialPostStats.filter(
+            (p) => !(p.platform === platform && p.postId === postId),
+          ),
+        }));
+      },
+
+      importDemographics(list) {
+        const parsed = z.array(DemographicSchema).parse(list);
+        set((s) => ({ demographics: replaceDemographics(s.demographics, parsed) }));
+      },
+
+      clearDemographics(platform, day) {
+        set((s) => ({
+          demographics: s.demographics.filter(
+            (d) => !(d.platform === platform && (day === undefined || d.day === day)),
+          ),
+        }));
+      },
+
+      setSocialSeedApplied(version) {
+        set({ socialSeedApplied: version });
+      },
+
       addAsk(input, now = new Date()) {
         const s = get();
         const text = input.text.trim();
@@ -1536,6 +1601,23 @@ export function accountFor(
   platform: Platform,
 ): SocialAccount | undefined {
   return s.socialAccounts.find((a) => a.platform === platform);
+}
+
+/** A platform's imported post stats, newest first. */
+export function postStatsFor(
+  s: Pick<PersistedState, "socialPostStats">,
+  platform: Platform,
+): SocialPostStat[] {
+  return s.socialPostStats
+    .filter((p) => p.platform === platform)
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+}
+
+/** The slice lib/analytics' platformOverview / allOverview read (select the three arrays with useShallow). */
+export function analyticsState(
+  s: Pick<PersistedState, "socialSnapshots" | "socialPostStats" | "socialAccounts">,
+): { snapshots: SocialSnapshot[]; postStats: SocialPostStat[]; accounts: SocialAccount[] } {
+  return { snapshots: s.socialSnapshots, postStats: s.socialPostStats, accounts: s.socialAccounts };
 }
 
 /** Whether a skill already has a live (not posted) post on any platform: the map's "📱 in the calendar" badge. */

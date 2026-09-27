@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { AudienceAsk, SocialSnapshot } from "./domain";
 import {
   bestPlatform,
+  engagementOf,
   latestSnapshot,
+  normalizeSnapshot,
+  parseNumber,
   parseStatsCsv,
+  platformFromAlias,
   series,
   snapshotDelta,
   topAsks,
@@ -22,7 +26,8 @@ const snap = (
   day,
   followers,
   views30d,
-  ...(engagementPct !== undefined ? { engagementPct } : {}),
+  // Normalized rows carry the engagement rate under both names.
+  ...(engagementPct !== undefined ? { engagementPct, engagementRate: engagementPct } : {}),
 });
 
 const data: SocialSnapshot[] = [
@@ -44,6 +49,28 @@ describe("snapshots", () => {
     expect(latestSnapshot(out, "tiktok")?.followers).toBe(1600);
     expect(latestSnapshot(out, "x")?.followers).toBe(10);
     expect(data).toHaveLength(6); // input untouched
+  });
+
+  it("normalizeSnapshot fills the missing engagement alias and leaves complete rows alone", () => {
+    const base = { platform: "tiktok" as const, day: "2026-09-27", followers: 1, views30d: 0 };
+    expect(normalizeSnapshot({ ...base, engagementPct: 4 })).toEqual({
+      ...base,
+      engagementPct: 4,
+      engagementRate: 4,
+    });
+    expect(normalizeSnapshot({ ...base, engagementRate: 6.5 })).toEqual({
+      ...base,
+      engagementPct: 6.5,
+      engagementRate: 6.5,
+    });
+    const both = { ...base, engagementPct: 1, engagementRate: 2 };
+    expect(normalizeSnapshot(both)).toBe(both);
+    expect(normalizeSnapshot(base)).toBe(base);
+    expect(engagementOf({ engagementPct: 3 })).toBe(3);
+    expect(engagementOf({ engagementRate: 5, engagementPct: 3 })).toBe(5);
+    expect(engagementOf({})).toBeNull();
+    // upsertSnapshots normalizes what it stores.
+    expect(upsertSnapshots([], [{ ...base, engagementRate: 7.8 }])[0].engagementPct).toBe(7.8);
   });
 
   it("latestSnapshot picks the newest day", () => {
@@ -133,6 +160,44 @@ describe("parseStatsCsv", () => {
 
   it("handles an empty input", () => {
     expect(parseStatsCsv("")).toEqual({ snapshots: [], errors: [] });
+  });
+
+  it("reads header-named analytics columns, the Threads alias and an engagementRate header", () => {
+    const { snapshots, errors } = parseStatsCsv(
+      [
+        "platform,day,followers,views30d,engagementRate,avgViews,avgLikes,AvgComments,avgShares,posts30d,avgShortsViews",
+        "th,2026-09-27,0,0,6.5%,1100,8,3,1,,",
+        "yt,2026-09-27,6,0,,0,0,0,,,2",
+      ].join("\n"),
+    );
+    expect(errors).toEqual([]);
+    expect(snapshots[0]).toEqual({
+      platform: "threads",
+      day: "2026-09-27",
+      followers: 0,
+      views30d: 0,
+      engagementPct: 6.5,
+      engagementRate: 6.5,
+      avgViews: 1100,
+      avgLikes: 8,
+      avgComments: 3,
+      avgShares: 1,
+    });
+    expect(snapshots[1]).toMatchObject({ platform: "youtube", avgShortsViews: 2, avgLikes: 0 });
+    expect(snapshots[1].engagementRate).toBeUndefined();
+    // A header whose 5th column is not the engagement rate is not read as one.
+    const other = parseStatsCsv("platform,day,followers,views30d,avgViews\ntt,2026-09-27,1,2,300");
+    expect(other.snapshots[0]).toEqual({
+      platform: "tiktok",
+      day: "2026-09-27",
+      followers: 1,
+      views30d: 2,
+      avgViews: 300,
+    });
+    expect(platformFromAlias(" Threads ")).toBe("threads");
+    expect(platformFromAlias("facebook")).toBeNull();
+    expect(parseNumber("1,234.5%")).toBe(1234.5);
+    expect(parseNumber("-")).toBeNull();
   });
 });
 

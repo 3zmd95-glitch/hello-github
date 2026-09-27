@@ -356,8 +356,11 @@ export type Purchase = z.infer<typeof PurchaseSchema>;
 
 /* ---------- 📱 Social world (rounds 16–17: content calendar, posts, ideas bank, growth) ---------- */
 
-/** Platforms in display order (TikTok first: the owner's main channel; Snapchat is big in Saudi Arabia). */
-export const PLATFORMS = ["tiktok", "instagram", "youtube", "x", "snapchat"] as const;
+/**
+ * Platforms in display order (TikTok first: the owner's main channel; Threads is the fourth account Beacons
+ * tracks; Snapchat is big in Saudi Arabia).
+ */
+export const PLATFORMS = ["tiktok", "instagram", "youtube", "threads", "x", "snapchat"] as const;
 export const PlatformSchema = z.enum(PLATFORMS);
 export type Platform = z.infer<typeof PlatformSchema>;
 
@@ -449,20 +452,113 @@ export const IdeaSchema = z.object({
 });
 export type Idea = z.infer<typeof IdeaSchema>;
 
+/** A non-negative average (means over posts need not be whole numbers). */
+const avg = z.number().min(0).optional();
+const count = z.number().int().min(0).optional();
+
 /**
- * Manually entered (or CSV-imported) numbers for one platform on one Riyadh day. One entry per platform per
- * day; a later entry for the same pair replaces the earlier one.
+ * Manually entered, CSV-imported or computed numbers for one platform on one Riyadh day: the `platform_daily`
+ * row of the Beacons handover. One entry per platform per day; a later entry for the same pair replaces the
+ * earlier one. Only `platform`, `day` and `followers` are required, so saves from before the analytics fields
+ * still load; every metric keeps the handover's name.
  */
 export const SocialSnapshotSchema = z.object({
   platform: PlatformSchema,
   day: z.string().regex(DAY_KEY_RE),
+  /** Followers, or subscribers for YouTube. */
   followers: z.number().int().min(0),
-  /** Views over the trailing 30 days as the platform reports them. */
-  views30d: z.number().int().min(0),
+  /** Views over the trailing 30 days as the platform reports them (0 when unknown). */
+  views30d: z.number().int().min(0).default(0),
+  /**
+   * Engagement rate in percent. `engagementPct` is the pre-analytics name and `engagementRate` the handover's;
+   * they are aliases: `normalizeSnapshot` (lib/growth) fills the missing one when only one is given.
+   */
   engagementPct: z.number().min(0).max(100).optional(),
+  engagementRate: z.number().min(0).max(100).optional(),
+  /** (likes + comments + shares) ÷ followers × 100: the by-followers variant brands ask for. */
+  engagementByFollowers: z.number().min(0).optional(),
+  avgViews: avg,
+  avgLikes: avg,
+  avgComments: avg,
+  avgShares: avg,
+  posts7d: count,
+  posts30d: count,
+  posts90d: count,
+  /* Instagram extras. */
+  avgReelsViews: avg,
+  avgStoryViews: avg,
+  avgStoryClicks: avg,
+  totalPosts: count,
+  /* YouTube extras (watch times in seconds). */
+  avgVideoViews: avg,
+  avgVideoWatchTime: avg,
+  avgShortsViews: avg,
+  avgShortsWatchTime: avg,
   note: z.string().optional(),
 });
 export type SocialSnapshot = z.infer<typeof SocialSnapshotSchema>;
+/** What callers may pass in (`views30d` may be left out). */
+export type SocialSnapshotInput = z.input<typeof SocialSnapshotSchema>;
+
+/** Kinds of a published post as the platforms report them. */
+export const POST_STAT_KINDS = [
+  "video",
+  "short",
+  "reel",
+  "story",
+  "thread",
+  "image",
+  "other",
+] as const;
+export const PostStatKindSchema = z.enum(POST_STAT_KINDS);
+export type PostStatKind = z.infer<typeof PostStatKindSchema>;
+
+/**
+ * One published post with its numbers, imported from a platform export or the Beacons "My Content" CSV (the
+ * handover's `posts` table). Distinct from the calendar's `Post`: this is what the platform reports after
+ * publishing. Unique by platform + postId.
+ */
+export const SocialPostStatSchema = z.object({
+  platform: PlatformSchema,
+  postId: z.string().min(1),
+  publishedAt: z.iso.datetime({ offset: true }),
+  kind: PostStatKindSchema.default("other"),
+  title: z.string().optional(),
+  views: z.number().int().min(0).default(0),
+  likes: z.number().int().min(0).default(0),
+  comments: z.number().int().min(0).default(0),
+  shares: z.number().int().min(0).default(0),
+  saves: z.number().int().min(0).optional(),
+  /** Watch time in seconds (average per viewer when the platform gives it, total otherwise). */
+  watchTimeS: z.number().min(0).optional(),
+  permalink: z.string().optional(),
+  thumbUrl: z.string().optional(),
+});
+export type SocialPostStat = z.infer<typeof SocialPostStatSchema>;
+export type SocialPostStatInput = z.input<typeof SocialPostStatSchema>;
+
+export const DEMOGRAPHIC_DIMENSIONS = ["gender", "age", "country", "city"] as const;
+export const DemographicDimensionSchema = z.enum(DEMOGRAPHIC_DIMENSIONS);
+export type DemographicDimension = z.infer<typeof DemographicDimensionSchema>;
+
+export const GenderSchema = z.enum(["male", "female"]);
+export type Gender = z.infer<typeof GenderSchema>;
+
+/**
+ * One slice of an audience breakdown on one day (the handover's `demographics` table): `key` is "male",
+ * an age bucket ("25-34"), an ISO-3166 country code ("SA", or "other"), or a city name; `pct` is its share
+ * in percent. `gender` set on an `age` row makes it part of the age × gender breakdown (Beacons' Male /
+ * Female toggle); `age` rows without `gender` are the "All" view.
+ */
+export const DemographicSchema = z.object({
+  platform: PlatformSchema,
+  day: z.string().regex(DAY_KEY_RE),
+  dimension: DemographicDimensionSchema,
+  key: z.string().min(1),
+  pct: z.number().min(0).max(100),
+  gender: GenderSchema.optional(),
+});
+export type Demographic = z.infer<typeof DemographicSchema>;
 
 /** "What people want": a recurring audience question with how often it came up. */
 export const AudienceAskSchema = z.object({

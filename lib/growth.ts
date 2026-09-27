@@ -16,13 +16,37 @@ import { addDays, dayKey } from "./streak";
 const sameKey = (a: SocialSnapshot, b: SocialSnapshot) =>
   a.platform === b.platform && a.day === b.day;
 
-/** `list` with `incoming` applied: an entry for the same platform + day replaces the earlier one. */
+/**
+ * `engagementPct` (the pre-analytics name) and `engagementRate` (the handover's) are aliases: when only one
+ * is set, the other is filled from it. Rows with both, or neither, come back unchanged (same reference).
+ */
+export function normalizeSnapshot(snap: SocialSnapshot): SocialSnapshot {
+  const { engagementPct, engagementRate } = snap;
+  if (engagementPct === undefined && engagementRate !== undefined)
+    return { ...snap, engagementPct: engagementRate };
+  if (engagementRate === undefined && engagementPct !== undefined)
+    return { ...snap, engagementRate: engagementPct };
+  return snap;
+}
+
+/** The engagement rate (percent) of a snapshot under either name, or null when it has none. */
+export function engagementOf(
+  snap: Pick<SocialSnapshot, "engagementPct" | "engagementRate">,
+): number | null {
+  return snap.engagementRate ?? snap.engagementPct ?? null;
+}
+
+/**
+ * `list` with `incoming` applied (normalized, see normalizeSnapshot): an entry for the same platform + day
+ * replaces the earlier one.
+ */
 export function upsertSnapshots(
   list: readonly SocialSnapshot[],
   incoming: readonly SocialSnapshot[],
 ): SocialSnapshot[] {
   const out = [...list];
-  for (const snap of incoming) {
+  for (const raw of incoming) {
+    const snap = normalizeSnapshot(raw);
     const i = out.findIndex((s) => sameKey(s, snap));
     if (i === -1) out.push(snap);
     else out[i] = snap;
@@ -163,7 +187,8 @@ export interface ParsedStatsCsv {
   errors: CsvError[];
 }
 
-const PLATFORM_ALIASES: Record<string, Platform> = {
+/** Platform names and short forms accepted by the importers (lower-case). */
+export const PLATFORM_ALIASES: Record<string, Platform> = {
   tiktok: "tiktok",
   tt: "tiktok",
   instagram: "instagram",
@@ -171,6 +196,9 @@ const PLATFORM_ALIASES: Record<string, Platform> = {
   insta: "instagram",
   youtube: "youtube",
   yt: "youtube",
+  threads: "threads",
+  thread: "threads",
+  th: "threads",
   x: "x",
   twitter: "x",
   snapchat: "snapchat",
@@ -178,8 +206,13 @@ const PLATFORM_ALIASES: Record<string, Platform> = {
   sc: "snapchat",
 };
 
+/** "TikTok", " ig ", "Threads" → platform; null when unknown. */
+export function platformFromAlias(raw: string): Platform | null {
+  return PLATFORM_ALIASES[raw.trim().toLowerCase()] ?? null;
+}
+
 /** "1200", "1,200", "1.2k", "3M" → integer; null when not a number. */
-function parseCount(raw: string): number | null {
+export function parseCount(raw: string): number | null {
   const s = raw.trim().replace(/,/g, "").toLowerCase();
   const m = /^(\d+(?:\.\d+)?)([km])?$/.exec(s);
   if (!m) return null;
@@ -187,8 +220,16 @@ function parseCount(raw: string): number | null {
   return Math.round(n);
 }
 
+/** "7.8", "7.8%", "1,234.5" → number (not rounded); null when not a number. */
+export function parseNumber(raw: string): number | null {
+  const s = raw.trim().replace(/,/g, "").replace(/%$/, "").trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
 /** "2026-09-27" or "27/09/2026" or "27-09-2026" → day key; null otherwise. */
-function parseDay(raw: string): string | null {
+export function parseDay(raw: string): string | null {
   const s = raw.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const m = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(s);
@@ -196,15 +237,46 @@ function parseDay(raw: string): string | null {
   return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
 }
 
+/** Optional snapshot metrics a stats CSV may carry as extra header-named columns (any order, after the first five). */
+const SNAPSHOT_METRIC_COLUMNS = [
+  "engagementRate",
+  "engagementByFollowers",
+  "avgViews",
+  "avgLikes",
+  "avgComments",
+  "avgShares",
+  "posts7d",
+  "posts30d",
+  "posts90d",
+  "avgReelsViews",
+  "avgStoryViews",
+  "avgStoryClicks",
+  "totalPosts",
+  "avgVideoViews",
+  "avgVideoWatchTime",
+  "avgShortsViews",
+  "avgShortsWatchTime",
+] as const;
+type SnapshotMetricColumn = (typeof SNAPSHOT_METRIC_COLUMNS)[number];
+const metricByHeader = new Map<string, SnapshotMetricColumn>(
+  SNAPSHOT_METRIC_COLUMNS.map((c) => [c.toLowerCase(), c]),
+);
+
 /**
- * Parse a simple CSV of `platform,day,followers,views30d[,engagementPct]` (an optional header line, `;` or
- * `,` separators, blank lines skipped, `#` comments skipped). Platform accepts short forms (tt, ig, yt, x,
- * sc). Bad lines are reported in `errors` and skipped; later lines for the same platform + day win.
+ * Parse a simple CSV of `platform,day,followers,views30d[,engagementPct][,<metric>…]` (an optional header
+ * line, `;` or `,` separators, blank lines skipped, `#` comments skipped). Platform accepts short forms (tt,
+ * ig, yt, th, x, sc). With a header line, further columns named after snapshot metrics (avgViews, avgLikes,
+ * avgComments, avgShares, posts7d, posts30d, posts90d, avgReelsViews, …, case-insensitive) are read too; an
+ * empty cell leaves the metric unset. Bad lines are reported in `errors` and skipped; later lines for the same
+ * platform + day win. Results are normalized (engagementPct ↔ engagementRate).
  */
 export function parseStatsCsv(text: string): ParsedStatsCsv {
   const snapshots: SocialSnapshot[] = [];
   const errors: CsvError[] = [];
   const lines = text.split(/\r?\n/);
+  let extraColumns: { index: number; metric: SnapshotMetricColumn }[] = [];
+  /** Column 5 is the engagement rate unless a header names it as another metric. */
+  let engagementAt4 = true;
   lines.forEach((raw, i) => {
     const line = i + 1;
     const trimmed = raw.trim();
@@ -212,7 +284,14 @@ export function parseStatsCsv(text: string): ParsedStatsCsv {
     const cells = trimmed
       .split(/[;,](?=(?:[^"]*"[^"]*")*[^"]*$)/)
       .map((c) => c.trim().replace(/^"|"$/g, ""));
-    if (i === 0 && cells[0]?.toLowerCase() === "platform") return; // header
+    if (i === 0 && cells[0]?.toLowerCase() === "platform") {
+      engagementAt4 = cells[4] === undefined || /^engagement(pct|rate)?$/i.test(cells[4]);
+      extraColumns = cells.flatMap((name, index) => {
+        const metric = index >= 4 ? metricByHeader.get(name.toLowerCase()) : undefined;
+        return metric && !(index === 4 && engagementAt4) ? [{ index, metric }] : [];
+      });
+      return; // header
+    }
     if (cells.length < 4) {
       errors.push({ line, message: "expected platform,day,followers,views30d[,engagementPct]" });
       return;
@@ -233,22 +312,29 @@ export function parseStatsCsv(text: string): ParsedStatsCsv {
       errors.push({ line, message: "followers and views30d must be numbers" });
       return;
     }
-    const eng = cells[4]?.replace("%", "").trim();
+    const eng = engagementAt4 ? cells[4]?.replace("%", "").trim() : undefined;
     const engagementPct = eng ? Number(eng) : undefined;
+    const extras: Partial<Record<SnapshotMetricColumn, number>> = {};
+    for (const { index, metric } of extraColumns) {
+      const value = cells[index] === undefined ? null : parseNumber(cells[index]);
+      if (value !== null) extras[metric] = value;
+    }
     const parsed = SocialSnapshotSchema.safeParse({
       platform,
       day,
       followers,
       views30d,
       ...(engagementPct !== undefined && !Number.isNaN(engagementPct) ? { engagementPct } : {}),
+      ...extras,
     });
     if (!parsed.success) {
       errors.push({ line, message: parsed.error.issues.map((e) => e.message).join("; ") });
       return;
     }
-    const idx = snapshots.findIndex((s) => sameKey(s, parsed.data));
-    if (idx === -1) snapshots.push(parsed.data);
-    else snapshots[idx] = parsed.data;
+    const snap = normalizeSnapshot(parsed.data);
+    const idx = snapshots.findIndex((s) => sameKey(s, snap));
+    if (idx === -1) snapshots.push(snap);
+    else snapshots[idx] = snap;
   });
   return { snapshots, errors };
 }
