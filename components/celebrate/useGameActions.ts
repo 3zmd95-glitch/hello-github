@@ -20,6 +20,7 @@ import {
   type CompleteResult,
   type DrillResult,
   type FocusResult,
+  type PostedResult,
   type ReviewResult,
   type XpOutcome,
 } from "@/store";
@@ -227,6 +228,36 @@ export function useGameActions() {
     return badges;
   }, [queueBadges]);
 
+  /**
+   * 📱 "Mark as posted" + link. A small `posted` toast (the post's title, quest sound) always; when the post's
+   * linked Produce quest completed, the same moments as completeQuest follow (XP toast, level/tier, mastery,
+   * day done, chest, badges, boss, season). The posted toast goes silent then, so the XP toast plays the sound.
+   */
+  const markPosted = useCallback(
+    (id: string, url: string): PostedResult => {
+      const before = useStore.getState();
+      const today = dayKey();
+      const xpBefore = totalXp(before);
+      const res = before.markPosted(id, url);
+      if (!res.post) return res;
+      const r = res.quest;
+      toast("posted", { name: res.post.title, ...(r ? { sound: null } : {}) });
+      if (!r) return res;
+
+      const xpAfter = totalXp(useStore.getState());
+      toast("xp", { xp: r.xp, gems: r.gems, sound: bigFollows(r, r.mastered) ? null : "quest" });
+      queueLevelMoments(xpBefore, xpAfter);
+      if (r.mastered && res.post.skillId) {
+        const skill = getSkill(res.post.skillId);
+        toast("mastery", { skill: skill?.name, xp: MASTERY_BONUS });
+      }
+      queueOutcome(r, { hitsBoss: true, today });
+      pulse();
+      return res;
+    },
+    [toast, pulse, queueLevelMoments, queueOutcome],
+  );
+
   return {
     completeQuest,
     uncompleteQuest,
@@ -239,5 +270,6 @@ export function useGameActions() {
     saveReview,
     buyReward,
     checkBadges,
+    markPosted,
   };
 }

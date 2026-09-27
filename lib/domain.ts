@@ -353,3 +353,131 @@ export const PurchaseSchema = z.object({
   cost: z.number().int().min(0),
 });
 export type Purchase = z.infer<typeof PurchaseSchema>;
+
+/* ---------- 📱 Social world (rounds 16–17: content calendar, posts, ideas bank, growth) ---------- */
+
+/** Platforms in display order (TikTok first: the owner's main channel; Snapchat is big in Saudi Arabia). */
+export const PLATFORMS = ["tiktok", "instagram", "youtube", "x", "snapchat"] as const;
+export const PlatformSchema = z.enum(PLATFORMS);
+export type Platform = z.infer<typeof PlatformSchema>;
+
+/** Production pipeline of a post, in order. */
+export const POST_STAGES = ["idea", "script", "filmed", "edited", "scheduled", "posted"] as const;
+export const PostStageSchema = z.enum(POST_STAGES);
+export type PostStage = z.infer<typeof PostStageSchema>;
+
+export const SHOT_TYPES = [
+  "hook",
+  "talking",
+  "broll",
+  "screen",
+  "closeup",
+  "wide",
+  "text",
+  "other",
+] as const;
+export const ShotTypeSchema = z.enum(SHOT_TYPES);
+export type ShotType = z.infer<typeof ShotTypeSchema>;
+
+/** One line of a post's shot list. `text` is owner-typed (plain string, in the owner's language). */
+export const ShotSchema = z.object({
+  id: z.string().min(1),
+  type: ShotTypeSchema,
+  text: z.string(),
+  done: z.boolean().default(false),
+});
+export type Shot = z.infer<typeof ShotSchema>;
+
+/** Hook / 3 body beats / CTA (round 17). Empty strings mean "not written yet". */
+export const ScriptSchema = z.object({
+  hook: z.string().default(""),
+  beats: z.tuple([z.string(), z.string(), z.string()]).default(["", "", ""]),
+  cta: z.string().default(""),
+});
+export type Script = z.infer<typeof ScriptSchema>;
+
+export const EMPTY_SCRIPT: Script = { hook: "", beats: ["", "", ""], cta: "" };
+
+/** "HH:MM", 24-hour. */
+export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * A planned or published post in the content calendar. `plannedDay` is a Riyadh day key; `plannedTime` is
+ * the local "HH:MM" to post (see BEST_TIME in lib/social). `skillId` links it to a skill's Produce quest (the
+ * bridge: marking it posted completes that quest with `postedUrl` as proof). `ideaId` points at the ideas-bank
+ * entry it came from.
+ */
+export const PostSchema = z.object({
+  id: z.string().min(1),
+  platform: PlatformSchema,
+  title: z.string().min(1),
+  /** The first-3-seconds line. */
+  hook: z.string().optional(),
+  caption: z.string().default(""),
+  /** Stored as typed (with or without the leading "#"); the UI renders them as given. */
+  hashtags: z.array(z.string()).default([]),
+  stage: PostStageSchema.default("idea"),
+  plannedDay: z.string().regex(DAY_KEY_RE).nullable().default(null),
+  plannedTime: z.string().regex(TIME_RE).nullable().default(null),
+  postedAt: z.iso.datetime({ offset: true }).optional(),
+  postedUrl: z.string().optional(),
+  skillId: z.string().min(1).optional(),
+  script: ScriptSchema.default(EMPTY_SCRIPT),
+  shots: z.array(ShotSchema).default([]),
+  ideaId: z.string().min(1).optional(),
+  createdAt: z.iso.datetime({ offset: true }),
+  updatedAt: z.iso.datetime({ offset: true }),
+});
+export type Post = z.infer<typeof PostSchema>;
+/** What callers may pass in (fields with schema defaults are optional). */
+export type PostInput = z.input<typeof PostSchema>;
+
+/** Where an idea came from: an audience ask, a trend, a skill without a video, or the owner's own head. */
+export const IDEA_SOURCES = ["audience", "trend", "skill", "me"] as const;
+export const IdeaSourceSchema = z.enum(IDEA_SOURCES);
+export type IdeaSource = z.infer<typeof IdeaSourceSchema>;
+
+export const IdeaSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1),
+  source: IdeaSourceSchema,
+  skillId: z.string().min(1).optional(),
+  platform: PlatformSchema.optional(),
+  createdAt: z.iso.datetime({ offset: true }),
+  /** Set once the idea became a post (useIdea). */
+  usedInPostId: z.string().min(1).optional(),
+});
+export type Idea = z.infer<typeof IdeaSchema>;
+
+/**
+ * Manually entered (or CSV-imported) numbers for one platform on one Riyadh day. One entry per platform per
+ * day; a later entry for the same pair replaces the earlier one.
+ */
+export const SocialSnapshotSchema = z.object({
+  platform: PlatformSchema,
+  day: z.string().regex(DAY_KEY_RE),
+  followers: z.number().int().min(0),
+  /** Views over the trailing 30 days as the platform reports them. */
+  views30d: z.number().int().min(0),
+  engagementPct: z.number().min(0).max(100).optional(),
+  note: z.string().optional(),
+});
+export type SocialSnapshot = z.infer<typeof SocialSnapshotSchema>;
+
+/** "What people want": a recurring audience question with how often it came up. */
+export const AudienceAskSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1),
+  platform: PlatformSchema.optional(),
+  count: z.number().int().min(1).default(1),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type AudienceAsk = z.infer<typeof AudienceAskSchema>;
+
+export const SocialAccountSchema = z.object({
+  platform: PlatformSchema,
+  /** Without the "@". */
+  handle: z.string().min(1),
+  url: z.string().optional(),
+});
+export type SocialAccount = z.infer<typeof SocialAccountSchema>;
