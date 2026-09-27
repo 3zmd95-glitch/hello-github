@@ -136,6 +136,62 @@ export const ApiKeysSchema = z.object({
 export type ApiKeys = z.infer<typeof ApiKeysSchema>;
 export type ApiKeyName = keyof ApiKeys;
 
+/* ---------- Avatar (round 9: the "mini you" companion, customizable in Settings) ---------- */
+
+export const SKIN_TONES = ["light", "tan", "medium", "brown", "dark"] as const;
+export const HAIR_STYLES = ["short", "buzz", "fade", "curly", "long", "bald"] as const;
+export const HAIR_COLORS = ["black", "darkBrown", "brown", "grey", "blond"] as const;
+export const BEARD_STYLES = ["none", "mustache", "goatee", "full"] as const;
+export const GLASSES_STYLES = ["none", "square", "round", "sunglasses"] as const;
+export const HEADWEAR_STYLES = ["none", "cap", "beanie", "shemagh", "ghutra"] as const;
+/** Used by the cap and beanie; the shemagh is always red/white and the ghutra white. */
+export const HEADWEAR_COLORS = ["black", "green", "red", "white", "navy"] as const;
+export const TEE_COLORS = ["black", "white", "green", "navy", "maroon"] as const;
+/** Tints the overshirt (rank 1+) and the bomber jacket (rank 8+). */
+export const SHIRT_COLORS = ["olive", "navy", "maroon", "sand", "charcoal"] as const;
+export const PANTS_COLORS = ["navy", "black", "beige", "grey", "olive"] as const;
+
+export type SkinTone = (typeof SKIN_TONES)[number];
+export type HairStyle = (typeof HAIR_STYLES)[number];
+export type HairColor = (typeof HAIR_COLORS)[number];
+export type BeardStyle = (typeof BEARD_STYLES)[number];
+export type GlassesStyle = (typeof GLASSES_STYLES)[number];
+export type HeadwearStyle = (typeof HEADWEAR_STYLES)[number];
+export type HeadwearColor = (typeof HEADWEAR_COLORS)[number];
+export type TeeColor = (typeof TEE_COLORS)[number];
+export type ShirtColor = (typeof SHIRT_COLORS)[number];
+export type PantsColor = (typeof PANTS_COLORS)[number];
+
+/** Every field has a default, so a partial avatar (or none at all) in an old save still loads. */
+export const AvatarSchema = z.object({
+  skin: z.enum(SKIN_TONES).default("tan"),
+  hair: z.enum(HAIR_STYLES).default("short"),
+  hairColor: z.enum(HAIR_COLORS).default("black"),
+  beard: z.enum(BEARD_STYLES).default("full"),
+  glasses: z.enum(GLASSES_STYLES).default("square"),
+  headwear: z.enum(HEADWEAR_STYLES).default("none"),
+  headwearColor: z.enum(HEADWEAR_COLORS).default("green"),
+  tee: z.enum(TEE_COLORS).default("black"),
+  shirt: z.enum(SHIRT_COLORS).default("olive"),
+  pants: z.enum(PANTS_COLORS).default("navy"),
+});
+export type Avatar = z.infer<typeof AvatarSchema>;
+export type AvatarPart = keyof Avatar;
+
+/** The owner's look from master plan round 9: tan skin, short black hair, full beard, glasses, olive over black. */
+export const DEFAULT_AVATAR: Avatar = {
+  skin: "tan",
+  hair: "short",
+  hairColor: "black",
+  beard: "full",
+  glasses: "square",
+  headwear: "none",
+  headwearColor: "green",
+  tee: "black",
+  shirt: "olive",
+  pants: "navy",
+};
+
 export const SettingsSchema = z.object({
   lang: LangSchema,
   sound: z.boolean(),
@@ -143,6 +199,7 @@ export const SettingsSchema = z.object({
   gear: z.array(GearSchema),
   davinciEdition: z.enum(["studio", "free"]),
   apiKeys: ApiKeysSchema.default({}),
+  avatar: AvatarSchema.default(DEFAULT_AVATAR),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -296,3 +353,227 @@ export const PurchaseSchema = z.object({
   cost: z.number().int().min(0),
 });
 export type Purchase = z.infer<typeof PurchaseSchema>;
+
+/* ---------- 📱 Social world (rounds 16–17: content calendar, posts, ideas bank, growth) ---------- */
+
+/**
+ * Platforms in display order (TikTok first: the owner's main channel; Threads is the fourth account Beacons
+ * tracks; Snapchat is big in Saudi Arabia).
+ */
+export const PLATFORMS = ["tiktok", "instagram", "youtube", "threads", "x", "snapchat"] as const;
+export const PlatformSchema = z.enum(PLATFORMS);
+export type Platform = z.infer<typeof PlatformSchema>;
+
+/** Production pipeline of a post, in order. */
+export const POST_STAGES = ["idea", "script", "filmed", "edited", "scheduled", "posted"] as const;
+export const PostStageSchema = z.enum(POST_STAGES);
+export type PostStage = z.infer<typeof PostStageSchema>;
+
+export const SHOT_TYPES = [
+  "hook",
+  "talking",
+  "broll",
+  "screen",
+  "closeup",
+  "wide",
+  "text",
+  "other",
+] as const;
+export const ShotTypeSchema = z.enum(SHOT_TYPES);
+export type ShotType = z.infer<typeof ShotTypeSchema>;
+
+/** One line of a post's shot list. `text` is owner-typed (plain string, in the owner's language). */
+export const ShotSchema = z.object({
+  id: z.string().min(1),
+  type: ShotTypeSchema,
+  text: z.string(),
+  done: z.boolean().default(false),
+});
+export type Shot = z.infer<typeof ShotSchema>;
+
+/** Hook / 3 body beats / CTA (round 17). Empty strings mean "not written yet". */
+export const ScriptSchema = z.object({
+  hook: z.string().default(""),
+  beats: z.tuple([z.string(), z.string(), z.string()]).default(["", "", ""]),
+  cta: z.string().default(""),
+});
+export type Script = z.infer<typeof ScriptSchema>;
+
+export const EMPTY_SCRIPT: Script = { hook: "", beats: ["", "", ""], cta: "" };
+
+/** "HH:MM", 24-hour. */
+export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * A planned or published post in the content calendar. `plannedDay` is a Riyadh day key; `plannedTime` is
+ * the local "HH:MM" to post (see BEST_TIME in lib/social). `skillId` links it to a skill's Produce quest (the
+ * bridge: marking it posted completes that quest with `postedUrl` as proof). `ideaId` points at the ideas-bank
+ * entry it came from.
+ */
+export const PostSchema = z.object({
+  id: z.string().min(1),
+  platform: PlatformSchema,
+  title: z.string().min(1),
+  /** The first-3-seconds line. */
+  hook: z.string().optional(),
+  caption: z.string().default(""),
+  /** Stored as typed (with or without the leading "#"); the UI renders them as given. */
+  hashtags: z.array(z.string()).default([]),
+  stage: PostStageSchema.default("idea"),
+  plannedDay: z.string().regex(DAY_KEY_RE).nullable().default(null),
+  plannedTime: z.string().regex(TIME_RE).nullable().default(null),
+  postedAt: z.iso.datetime({ offset: true }).optional(),
+  postedUrl: z.string().optional(),
+  skillId: z.string().min(1).optional(),
+  script: ScriptSchema.default(EMPTY_SCRIPT),
+  shots: z.array(ShotSchema).default([]),
+  ideaId: z.string().min(1).optional(),
+  createdAt: z.iso.datetime({ offset: true }),
+  updatedAt: z.iso.datetime({ offset: true }),
+});
+export type Post = z.infer<typeof PostSchema>;
+/** What callers may pass in (fields with schema defaults are optional). */
+export type PostInput = z.input<typeof PostSchema>;
+
+/** Where an idea came from: an audience ask, a trend, a skill without a video, or the owner's own head. */
+export const IDEA_SOURCES = ["audience", "trend", "skill", "me"] as const;
+export const IdeaSourceSchema = z.enum(IDEA_SOURCES);
+export type IdeaSource = z.infer<typeof IdeaSourceSchema>;
+
+export const IdeaSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1),
+  source: IdeaSourceSchema,
+  skillId: z.string().min(1).optional(),
+  platform: PlatformSchema.optional(),
+  createdAt: z.iso.datetime({ offset: true }),
+  /** Set once the idea became a post (useIdea). */
+  usedInPostId: z.string().min(1).optional(),
+});
+export type Idea = z.infer<typeof IdeaSchema>;
+
+/** A non-negative average (means over posts need not be whole numbers). */
+const avg = z.number().min(0).optional();
+const count = z.number().int().min(0).optional();
+
+/**
+ * Manually entered, CSV-imported or computed numbers for one platform on one Riyadh day: the `platform_daily`
+ * row of the Beacons handover. One entry per platform per day; a later entry for the same pair replaces the
+ * earlier one. Only `platform`, `day` and `followers` are required, so saves from before the analytics fields
+ * still load; every metric keeps the handover's name.
+ */
+export const SocialSnapshotSchema = z.object({
+  platform: PlatformSchema,
+  day: z.string().regex(DAY_KEY_RE),
+  /** Followers, or subscribers for YouTube. */
+  followers: z.number().int().min(0),
+  /** Views over the trailing 30 days as the platform reports them (0 when unknown). */
+  views30d: z.number().int().min(0).default(0),
+  /**
+   * Engagement rate in percent. `engagementPct` is the pre-analytics name and `engagementRate` the handover's;
+   * they are aliases: `normalizeSnapshot` (lib/growth) fills the missing one when only one is given.
+   */
+  engagementPct: z.number().min(0).max(100).optional(),
+  engagementRate: z.number().min(0).max(100).optional(),
+  /** (likes + comments + shares) ÷ followers × 100: the by-followers variant brands ask for. */
+  engagementByFollowers: z.number().min(0).optional(),
+  avgViews: avg,
+  avgLikes: avg,
+  avgComments: avg,
+  avgShares: avg,
+  posts7d: count,
+  posts30d: count,
+  posts90d: count,
+  /* Instagram extras. */
+  avgReelsViews: avg,
+  avgStoryViews: avg,
+  avgStoryClicks: avg,
+  totalPosts: count,
+  /* YouTube extras (watch times in seconds). */
+  avgVideoViews: avg,
+  avgVideoWatchTime: avg,
+  avgShortsViews: avg,
+  avgShortsWatchTime: avg,
+  note: z.string().optional(),
+});
+export type SocialSnapshot = z.infer<typeof SocialSnapshotSchema>;
+/** What callers may pass in (`views30d` may be left out). */
+export type SocialSnapshotInput = z.input<typeof SocialSnapshotSchema>;
+
+/** Kinds of a published post as the platforms report them. */
+export const POST_STAT_KINDS = [
+  "video",
+  "short",
+  "reel",
+  "story",
+  "thread",
+  "image",
+  "other",
+] as const;
+export const PostStatKindSchema = z.enum(POST_STAT_KINDS);
+export type PostStatKind = z.infer<typeof PostStatKindSchema>;
+
+/**
+ * One published post with its numbers, imported from a platform export or the Beacons "My Content" CSV (the
+ * handover's `posts` table). Distinct from the calendar's `Post`: this is what the platform reports after
+ * publishing. Unique by platform + postId.
+ */
+export const SocialPostStatSchema = z.object({
+  platform: PlatformSchema,
+  postId: z.string().min(1),
+  publishedAt: z.iso.datetime({ offset: true }),
+  kind: PostStatKindSchema.default("other"),
+  title: z.string().optional(),
+  views: z.number().int().min(0).default(0),
+  likes: z.number().int().min(0).default(0),
+  comments: z.number().int().min(0).default(0),
+  shares: z.number().int().min(0).default(0),
+  saves: z.number().int().min(0).optional(),
+  /** Watch time in seconds (average per viewer when the platform gives it, total otherwise). */
+  watchTimeS: z.number().min(0).optional(),
+  permalink: z.string().optional(),
+  thumbUrl: z.string().optional(),
+});
+export type SocialPostStat = z.infer<typeof SocialPostStatSchema>;
+export type SocialPostStatInput = z.input<typeof SocialPostStatSchema>;
+
+export const DEMOGRAPHIC_DIMENSIONS = ["gender", "age", "country", "city"] as const;
+export const DemographicDimensionSchema = z.enum(DEMOGRAPHIC_DIMENSIONS);
+export type DemographicDimension = z.infer<typeof DemographicDimensionSchema>;
+
+export const GenderSchema = z.enum(["male", "female"]);
+export type Gender = z.infer<typeof GenderSchema>;
+
+/**
+ * One slice of an audience breakdown on one day (the handover's `demographics` table): `key` is "male",
+ * an age bucket ("25-34"), an ISO-3166 country code ("SA", or "other"), or a city name; `pct` is its share
+ * in percent. `gender` set on an `age` row makes it part of the age × gender breakdown (Beacons' Male /
+ * Female toggle); `age` rows without `gender` are the "All" view.
+ */
+export const DemographicSchema = z.object({
+  platform: PlatformSchema,
+  day: z.string().regex(DAY_KEY_RE),
+  dimension: DemographicDimensionSchema,
+  key: z.string().min(1),
+  pct: z.number().min(0).max(100),
+  gender: GenderSchema.optional(),
+});
+export type Demographic = z.infer<typeof DemographicSchema>;
+
+/** "What people want": a recurring audience question with how often it came up. */
+export const AudienceAskSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1),
+  platform: PlatformSchema.optional(),
+  count: z.number().int().min(1).default(1),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type AudienceAsk = z.infer<typeof AudienceAskSchema>;
+
+export const SocialAccountSchema = z.object({
+  platform: PlatformSchema,
+  /** Without the "@". */
+  handle: z.string().min(1),
+  url: z.string().optional(),
+});
+export type SocialAccount = z.infer<typeof SocialAccountSchema>;

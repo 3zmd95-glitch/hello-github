@@ -64,6 +64,7 @@ Built in round 25 (master plan) by parallel agents, one per row group; every row
 | 2.7 | Season card (30-day theme, badge), monthly boss with HP bar, drills (spaced repetition), 17 badges | ✅ `lib/season.ts`, `lib/boss.ts`, `lib/drills.ts`, `lib/badges.ts` |
 | 2.8 | ~~Seasonal events: Saudi National Day, Founding Day, Ramadan~~ | ✗ dropped by the owner in round 25 ("I don't care for seasonal events for my training"); the National Day badge was removed too |
 | 2.9 | DaVinci core pack: 30+ hand-written fundamentals across the 7 pages (`planning/data/davinci-core-pack.json`, `source: "core"`, no invented sources) | ✅ |
+| 2.10 | Avatar customization: Settings → "Your look" (skin, hair + color, beard, glasses, headwear cap / beanie / shemagh / ghutra + color, tee, overshirt, pants) stored in `settings.avatar`, live preview, shown on Today / celebrations / rank gallery | ✅ `lib/domain.ts` (`AvatarSchema`), `components/game/sprites.ts`, `components/settings/AvatarCard.tsx`, `e2e/avatar.spec.ts` |
 
 ## Sprint 3 · Sync, reminders, hosting (owner creates 2 accounts)
 
@@ -88,7 +89,18 @@ Built in round 25 (master plan) by parallel agents, one per row group; every row
 
 ## Sprint 5+ · Social world, website, shop, course
 
-Per master plan phases 3–6 and `tools/02-website.md`, `tools/03-social-media.md`. Not scheduled until Sprints 1–4 are in daily use.
+Per master plan phases 3–6 and `tools/02-website.md`, `tools/03-social-media.md`. The Social world was pulled forward by the owner in
+round 26 and shipped static (local data, manual stats); website, shop and course stay after Sprints 3–4.
+
+| # | Step | Status |
+|---|---|---|
+| 5.1 | World switch + cinematic Social theme (`data-world`), Social nav, routes, placeholders for Website / Business / Automations | ✅ `components/shell`, `e2e/world.spec.ts` |
+| 5.2 | Social data core: posts (pipeline, script, shots), ideas, growth snapshots, asks, accounts; Produce-quest bridge | ✅ `lib/social.ts`, `lib/growth.ts`, `store` |
+| 5.3 | Content calendar: week / month / stages, post popup (Overview · Script · Shots), mark as posted, `#post=<id>` deep link | ✅ `components/social/calendar`, `e2e/calendar.spec.ts` |
+| 5.4 | **Social Analytics** (the Beacons page rebuilt, round 27): platform filter incl. Threads, KPI row, platform cards, per-platform overview + demographics, post activity, My Content (top posts, search, CSV export/import), "what changed this week"; Sep 27 numbers seeded | ✅ `lib/analytics.ts`, `components/social/growth`, `e2e/growth.spec.ts` |
+| 5.5 | Studio home + ideas bank + bridge UI in the skill popup and the map | ✅ `components/social/studio`, `components/social/ideas`, `e2e/studio.spec.ts` |
+| 5.6 | Website (articles CMS), Business (leads, media kit, shop, course), Automations | ◔ placeholders; per master plan phases 3–5 |
+| 5.7 | Platform APIs (Instagram + Threads, YouTube, TikTok) via the Scout Worker replacing the CSV imports; push reminders at best time | ☐ waits for the owner's Phase 0 apps (`tools/06-social-analytics-apis.md`) |
 
 ## Definition of done for Sprint 1
 

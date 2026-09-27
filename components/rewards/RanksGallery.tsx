@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import PixelScene from "@/components/game/PixelScene";
+import { useAvatar } from "@/components/game/useAvatar";
 import { useT } from "@/lib/i18n";
 import { RANKS, type RankState, type RankTier } from "@/lib/rank";
 import { EVOLUTION } from "./evolution";
@@ -99,6 +100,7 @@ function RankCard({
 function LazyScene({ rankIndex, tier }: { rankIndex: number; tier: RankTier }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [visible, setVisible] = useState(false);
+  const avatar = useAvatar();
 
   useEffect(() => {
     const el = ref.current;
@@ -120,7 +122,14 @@ function LazyScene({ rankIndex, tier }: { rankIndex: number; tier: RankTier }) {
   return (
     <div ref={ref} className="rw-scene">
       {visible ? (
-        <PixelScene rankIndex={rankIndex} tier={tier} streak={0} mood="idle" className="w-full" />
+        <PixelScene
+          rankIndex={rankIndex}
+          tier={tier}
+          streak={0}
+          mood="idle"
+          avatar={avatar}
+          className="w-full"
+        />
       ) : (
         <div className="rw-scene-blank" aria-hidden />
       )}

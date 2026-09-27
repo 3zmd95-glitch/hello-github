@@ -45,8 +45,9 @@ The loop the mockup already shows (Today → quest → XP → streak → avatar 
 | **Recharts** | XP curve, weekly stats, per-program levels | works in RTL; flip axis order for Arabic |
 | **Lucide icons** | ships with shadcn | pixel-art icons for the Training world are custom sprites |
 
-**Decision to make:** use shadcn primitives in the pixel world and restyle them (recommended: keyboard, focus and phone sheets
-come for free), or hand-build the Training UI to match the mockup pixel for pixel (more work, exact look).
+**Decision (round 26, built):** hand-built UI, no shadcn. Both worlds share one set of CSS tokens and the `.px-*` component classes;
+`<html data-world="training|social">` swaps the tokens (`--radius`, `--panel`, `--edge`, shadows, `--font-body`…), so a screen opts into
+the Social look just by living under `/social/**`. Charts are pure SVG/divs (no Recharts).
 
 ## 3. Data and state
 

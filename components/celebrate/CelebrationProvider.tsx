@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import PixelScene from "@/components/game/PixelScene";
+import { useAvatar } from "@/components/game/useAvatar";
 import type { Badge } from "@/lib/badges";
 import type { Loot } from "@/lib/chests";
 import type { LText } from "@/lib/domain";
@@ -45,7 +46,9 @@ export type CelebrationKind =
   | "seasonDone"
   | "drill"
   | "focusStart"
-  | "focusEnd";
+  | "focusEnd"
+  /** 📱 A post was marked as posted (payload.name = its title). */
+  | "posted";
 
 export interface CelebrationPayload {
   xp?: number;
@@ -98,6 +101,7 @@ export const DURATIONS: Record<CelebrationKind, number> = {
   drill: 1500,
   focusStart: 1500,
   focusEnd: 2000,
+  posted: 1500,
 };
 
 const SOUNDS: Record<CelebrationKind, SoundName> = {
@@ -117,6 +121,7 @@ const SOUNDS: Record<CelebrationKind, SoundName> = {
   drill: "drill",
   focusStart: "micro",
   focusEnd: "dayDone",
+  posted: "quest",
 };
 
 /** Kinds that take the whole screen. */
@@ -235,6 +240,8 @@ function smallToast(item: Item, { t, L }: I18n): { icon: string; text: string } 
       return { icon: "🧪", text: t("xp.toast.focusStart", { n: p.minutes ?? 25 }) };
     case "focusEnd":
       return { icon: "🧪", text: t(p.early ? "xp.toast.focusEarly" : "xp.toast.focusEnd") };
+    case "posted":
+      return { icon: "📱", text: t("social.toast.posted", { name: p.name ?? "" }).trim() };
     default:
       return {
         icon: "✨",
@@ -288,6 +295,7 @@ function BigCelebration({ item, onDone }: { item: Item; onDone: () => void }) {
   const microActions = useStore((s) => s.microActions);
   const freezesUsedOn = useStore((s) => s.freezesUsedOn);
   const bonusFreezes = useStore((s) => s.bonusFreezes);
+  const avatar = useAvatar();
   const rank = useMemo(() => rankFromXp(totalXp({ xpEvents })), [xpEvents]);
   const flame = useMemo(
     () => streak({ completions, microActions, freezesUsedOn, bonusFreezes }).current,
@@ -377,6 +385,7 @@ function BigCelebration({ item, onDone }: { item: Item; onDone: () => void }) {
             tier={rank.tier}
             streak={flame}
             mood="celebrate"
+            avatar={avatar}
             className="w-full"
           />
         </div>

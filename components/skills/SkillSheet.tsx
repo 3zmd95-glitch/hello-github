@@ -1,17 +1,20 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
 import ResearchPanel from "@/components/research/ResearchPanel";
 import ResultCard from "@/components/research/ResultCard";
+import { PlatformPicker, calendarPostHref } from "@/components/social/studio/platform";
 import PxBar from "@/components/ui/PxBar";
 import { GearChip, StudioChip, TierChip } from "@/components/ui/chips";
 import { getProgram, getSkill } from "@/data";
 import { QUEST_TYPES, type QuestType, type Ref, type Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { itemFromRef } from "@/lib/research";
+import { PLATFORM_META } from "@/lib/social";
 import { questXp } from "@/lib/xp";
-import { refsForSkill, useStore } from "@/store";
+import { postForQuestProof, refsForSkill, skillInCalendar, useStore } from "@/store";
 
 /**
  * Skill popup: bottom sheet on phones, centered dialog from md up. Lives on its own layer (z-40) under the
@@ -189,6 +192,7 @@ function SheetBody({
                     </span>
                   </span>
                 </button>
+                {q === "produce" && <ProduceBridge skill={skill} isDone={isDone} />}
                 {isDone && (q === "produce" || q === "article") && (
                   <ProofInput
                     initial={done.get(q) ?? ""}
@@ -321,6 +325,73 @@ function StartHere({ refs, skillId }: { refs: Ref[]; skillId: string }) {
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * 📱 The Training ↔ Social bridge on the Produce quest (master plan round 16): plan the skill's video as a
+ * post in the content calendar; once one exists the row shows "in the calendar" and, after "Mark as posted"
+ * over there completed the quest, the published link.
+ */
+function ProduceBridge({ skill, isDone }: { skill: Skill; isDone: boolean }) {
+  const { t, L } = useT();
+  const posts = useStore((s) => s.posts);
+  const createPostFromSkill = useStore((s) => s.createPostFromSkill);
+  const [picking, setPicking] = useState(false);
+  const live = useMemo(() => skillInCalendar({ posts }, skill.id), [posts, skill.id]);
+  const proof = useMemo(() => postForQuestProof({ posts }, skill.id), [posts, skill.id]);
+  if (!live && !proof && isDone) return null;
+
+  return (
+    <div className="flex flex-col gap-2 ps-[42px]" data-testid="quest-bridge">
+      <div className="flex flex-wrap items-center gap-2">
+        {live && (
+          <Link
+            href={calendarPostHref(live.id)}
+            className="px-chip px-chip-green no-underline"
+            data-testid="quest-in-calendar"
+            data-post={live.id}
+          >
+            {t("social.bridge.inCalendar")} · {PLATFORM_META[live.platform].icon}{" "}
+            {L(PLATFORM_META[live.platform].name)}
+          </Link>
+        )}
+        {proof?.postedUrl && (
+          <a
+            href={proof.postedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-link text-sm"
+            data-testid="quest-posted-link"
+          >
+            {t("social.bridge.posted")} · {PLATFORM_META[proof.platform].icon}{" "}
+            {L(PLATFORM_META[proof.platform].name)}
+          </a>
+        )}
+        {!live && !isDone && !picking && (
+          <button
+            type="button"
+            className="px-btn px-btn-ghost px-btn-sm"
+            onClick={() => setPicking(true)}
+            data-testid="quest-plan-video"
+          >
+            {t("social.bridge.planVideo")}
+          </button>
+        )}
+      </div>
+      {picking && !live && (
+        <PlatformPicker
+          idPrefix="plan-video"
+          label={t("social.bridge.pickPlatform")}
+          cancelLabel={t("social.bridge.cancel")}
+          onCancel={() => setPicking(false)}
+          onPick={(p) => {
+            createPostFromSkill(skill.id, p);
+            setPicking(false);
+          }}
+        />
+      )}
+    </div>
   );
 }
 

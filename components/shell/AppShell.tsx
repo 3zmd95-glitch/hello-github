@@ -5,14 +5,19 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import CelebrationProvider from "@/components/celebrate/CelebrationProvider";
 import SkillSheetProvider from "@/components/skills/SkillSheetProvider";
+import { applySocialSeed } from "@/data/social-seed";
 import { useDocumentLang, useT } from "@/lib/i18n";
 import { setMuted } from "@/lib/sound";
 import { hydrateStore, useStore } from "@/store";
-import { NAV_ITEMS, normalizePath, type NavItem } from "./nav";
+import { activeHref, NAV_BY_WORLD, type NavItem } from "./nav";
+import { rememberSocialPath, useWorld, type World } from "./useWorld";
+import WorldSwitch from "./WorldSwitch";
 
 /**
- * App shell for the 🎮 Training world: loads saved progress, then renders the top bar,
- * phone tab bar / desktop sidebar, and the providers for the skill popup and celebrations.
+ * App shell shared by both worlds: loads saved progress, then renders the top bar (with the 🎮 / 📱 world
+ * switch), the active world's phone tab bar / desktop sidebar, and the providers for the skill popup and
+ * celebrations. The world comes from the URL (`useWorld`) and is mirrored onto `<html data-world>` so the
+ * CSS tokens in globals.css switch between the pixel and the cinematic look.
  */
 export default function AppShell({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
@@ -24,6 +29,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
       .then(() => {
         if (!alive) return;
         useStore.getState().applyStreakFreezes();
+        // The Beacons Sep 27, 2026 numbers go in once, so the Social Analytics page is never empty.
+        applySocialSeed(useStore.getState());
         setReady(true);
       });
     return () => {
@@ -32,6 +39,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   useDocumentLang();
+  useDocumentWorld();
   const sound = useStore((s) => s.settings.sound);
   useEffect(() => setMuted(!sound), [sound]);
 
@@ -58,6 +66,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
   );
 }
 
+/** Keep `<html data-world>` in sync with the route and remember the last Social route for the switch. */
+function useDocumentWorld(): void {
+  const world = useWorld();
+  const pathname = usePathname();
+  useEffect(() => {
+    document.documentElement.dataset.world = world;
+    if (world === "social" && pathname) rememberSocialPath(pathname);
+  }, [world, pathname]);
+}
+
 function Splash() {
   const { t } = useT();
   return (
@@ -71,10 +89,15 @@ function Splash() {
 }
 
 function Logo({ size = 36 }: { size?: number }) {
+  const world = useWorld();
+  const look =
+    world === "training"
+      ? "border-edge font-pixel rounded-[2px] border-[3px] shadow-[3px_3px_0_var(--edge)]"
+      : "rounded-[12px] shadow-[0_6px_18px_rgba(69,224,142,0.25)]";
   return (
     <span
       aria-hidden
-      className="border-edge bg-accent font-pixel text-accent-ink grid shrink-0 place-items-center rounded-[2px] border-[3px] font-bold shadow-[3px_3px_0_var(--edge)]"
+      className={`bg-accent text-accent-ink grid shrink-0 place-items-center font-bold ${look}`}
       style={{ width: size, height: size, fontSize: size * 0.42 }}
     >
       3z
@@ -82,43 +105,60 @@ function Logo({ size = 36 }: { size?: number }) {
   );
 }
 
-function useActivePath(): string {
-  return normalizePath(usePathname());
-}
-
 function TopBar() {
   const { t, lang } = useT();
+  const world = useWorld();
+  const pixel = world === "training";
   const sound = useStore((s) => s.settings.sound);
   const setSettings = useStore((s) => s.setSettings);
   return (
-    <header className="pt-safe border-edge bg-panel sticky top-0 z-30 border-b-[3px]">
+    <header
+      className={`pt-safe border-edge bg-panel sticky top-0 z-30 ${pixel ? "border-b-[3px]" : "border-b"}`}
+    >
       <div className="mx-auto flex h-14 max-w-[1180px] items-center gap-2 px-4 md:px-6">
-        <Link href="/" className="text-ink flex min-w-0 items-center gap-2 no-underline">
+        <Link
+          href={pixel ? "/" : "/social"}
+          className="text-ink flex min-w-0 items-center gap-2 no-underline"
+        >
           <Logo />
           <span className="hidden font-extrabold sm:inline">
             {t("app.name")}{" "}
             <span className="text-muted text-xs font-semibold">· {t("app.tagline")}</span>
           </span>
         </Link>
-        <span className="px-chip px-chip-gold">{t("world.training")}</span>
+        <WorldSwitch />
         <div className="ms-auto flex items-center gap-2">
           <div
             role="group"
             aria-label={t("top.lang")}
-            className="border-edge bg-edge flex gap-[2px] rounded-[2px] border-2"
+            className={
+              pixel
+                ? "border-edge bg-edge flex gap-[2px] rounded-[2px] border-2"
+                : "border-edge bg-panel-2 flex gap-1 rounded-full border p-[3px]"
+            }
           >
-            {(["ar", "en"] as const).map((l) => (
-              <button
-                key={l}
-                type="button"
-                aria-pressed={lang === l}
-                onClick={() => setSettings({ lang: l })}
-                className={`num px-2.5 py-1 text-xs font-bold ${lang === l ? "bg-gold text-gold-ink" : "bg-panel-2 text-ink-2"}`}
-                data-testid={`lang-${l}`}
-              >
-                {l.toUpperCase()}
-              </button>
-            ))}
+            {(["ar", "en"] as const).map((l) => {
+              const on = lang === l;
+              const tone = pixel
+                ? on
+                  ? "bg-gold text-gold-ink"
+                  : "bg-panel-2 text-ink-2"
+                : on
+                  ? "bg-panel-3 text-ink"
+                  : "text-ink-2";
+              return (
+                <button
+                  key={l}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setSettings({ lang: l })}
+                  className={`num ${pixel ? "" : "rounded-full"} px-2.5 py-1 text-xs font-bold ${tone}`}
+                  data-testid={`lang-${l}`}
+                >
+                  {l.toUpperCase()}
+                </button>
+              );
+            })}
           </div>
           <button
             type="button"
@@ -145,18 +185,44 @@ function TopBar() {
   );
 }
 
-function NavEntry({ item, variant }: { item: NavItem; variant: "side" | "tab" }) {
+function useNav(): { world: World; items: readonly NavItem[]; current?: string } {
+  const world = useWorld();
+  const items = NAV_BY_WORLD[world];
+  return { world, items, current: activeHref(items, usePathname()) };
+}
+
+function NavEntry({
+  item,
+  variant,
+  active,
+  world,
+}: {
+  item: NavItem;
+  variant: "side" | "tab";
+  active: boolean;
+  world: World;
+}) {
   const { t } = useT();
-  const active = useActivePath() === item.href;
   const side = variant === "side";
+  const pixel = world === "training";
+  const shape = pixel ? "rounded-[2px] border-2" : "rounded-[10px] border";
   const base = side
-    ? "flex items-center gap-3 rounded-[2px] border-2 px-3 py-2 text-[0.95rem] font-semibold no-underline"
-    : "flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-[2px] border-2 px-1 py-1 text-[0.7rem] font-semibold no-underline";
-  const tone = active
-    ? "border-edge bg-panel-2 text-gold shadow-[3px_3px_0_var(--edge)]"
-    : "border-transparent text-ink-2 hover:bg-panel-2";
-  const inner = (
-    <>
+    ? `flex items-center gap-3 ${shape} px-3 py-2 text-[0.95rem] font-semibold no-underline`
+    : `flex min-w-0 flex-1 flex-col items-center gap-0.5 ${shape} px-1 py-1 text-[0.7rem] font-semibold no-underline`;
+  const tone = pixel
+    ? active
+      ? "border-edge bg-panel-2 text-gold shadow-[3px_3px_0_var(--edge)]"
+      : "border-transparent text-ink-2 hover:bg-panel-2"
+    : active
+      ? "border-transparent bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-accent"
+      : "border-transparent text-ink-2 hover:bg-panel-2";
+  const soon = item.soon ? "text-muted" : "";
+  return (
+    <Link
+      href={item.href}
+      aria-current={active ? "page" : undefined}
+      className={`${base} ${tone} ${soon}`}
+    >
       <span aria-hidden className={side ? "w-6 text-center" : "text-lg leading-none"}>
         {item.icon}
       </span>
@@ -166,31 +232,27 @@ function NavEntry({ item, variant }: { item: NavItem; variant: "side" | "tab" })
           {t("nav.soon")}
         </span>
       )}
-    </>
-  );
-  if (item.soon) {
-    return (
-      <span aria-disabled="true" className={`${base} text-muted border-transparent opacity-60`}>
-        {inner}
-      </span>
-    );
-  }
-  return (
-    <Link href={item.href} aria-current={active ? "page" : undefined} className={`${base} ${tone}`}>
-      {inner}
     </Link>
   );
 }
 
 function SideNav() {
   const { t } = useT();
+  const { world, items, current } = useNav();
   return (
     <nav
       aria-label={t("nav.main")}
       className="sticky top-[calc(56px+3px+24px)] hidden h-fit w-[210px] shrink-0 flex-col gap-1 pt-6 md:flex"
+      data-testid="sidenav"
     >
-      {NAV_ITEMS.map((item) => (
-        <NavEntry key={item.href} item={item} variant="side" />
+      {items.map((item) => (
+        <NavEntry
+          key={item.href}
+          item={item}
+          variant="side"
+          active={item.href === current}
+          world={world}
+        />
       ))}
     </nav>
   );
@@ -198,15 +260,25 @@ function SideNav() {
 
 function TabBar() {
   const { t } = useT();
+  const { world, items, current } = useNav();
+  const pixel = world === "training";
   return (
     <nav
       aria-label={t("nav.main")}
-      className="border-edge bg-panel fixed inset-x-0 bottom-0 z-30 flex gap-1 border-t-[3px] px-2 pt-1.5 pb-[calc(6px+env(safe-area-inset-bottom,0px))] md:hidden"
+      className={`border-edge bg-panel fixed inset-x-0 bottom-0 z-30 flex gap-1 px-2 pt-1.5 pb-[calc(6px+env(safe-area-inset-bottom,0px))] md:hidden ${pixel ? "border-t-[3px]" : "border-t"}`}
       data-testid="tabbar"
     >
-      {NAV_ITEMS.filter((i) => !i.desktopOnly).map((item) => (
-        <NavEntry key={item.href} item={item} variant="tab" />
-      ))}
+      {items
+        .filter((i) => !i.desktopOnly)
+        .map((item) => (
+          <NavEntry
+            key={item.href}
+            item={item}
+            variant="tab"
+            active={item.href === current}
+            world={world}
+          />
+        ))}
     </nav>
   );
 }

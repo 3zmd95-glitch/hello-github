@@ -78,6 +78,10 @@ Brainstorm round 9 (inspired by Boot.dev + Codédex, all accepted):
   (final rank tiers run to the Level 60 XP threshold). 17 × 3 = 51 steps. A tier-up gets its own celebration toast.
 - Companion = **"mini you" pixel avatar** modeled on the owner: medium/tan skin, short dark hair, full beard + mustache, glasses,
   overshirt (olive over black tee assumed; colors to confirm). Headwear picker (cap / shemagh / ghutra).
+  - Shipped (build plan 2.10): Settings → "Your look" customizes skin (5 tones), hair (short / buzz / fade / curly / long / bald, 5 colors),
+    beard (none / mustache / goatee / full), glasses (none / square / round / sunglasses), headwear (none / cap / beanie / shemagh / ghutra,
+    cap + beanie in 5 colors), tee, overshirt and pants colors (5 each); stored as `settings.avatar` with the round-9 look as default,
+    shown on Today, in celebrations and the rank gallery. Rank unlocks are unchanged; with headwear on, the studio headphones rest on the neck.
 - **Avatar evolves with every rank** (cumulative unlocks): tee + phone → overshirt → camera strap → green sneakers → neck headphones →
   softbox light → mirrorless + color sparkles → studio headphones → bomber jacket → Fusion particles → cinema camera + clapperboard (film-set stage) →
   gold-trimmed bisht → gold watch/chain + gold floor → falcon on the forearm → golden aura → cosmic backdrop → crown.
@@ -425,6 +429,45 @@ dashboard"; built as Sprint 2 by parallel agents, each owning its files, merged 
 - **Owner decision: no seasonal events** (National Day, Founding Day, Ramadan, double-gems days; build plan 2.8 and the round-15 event ideas are
   dropped; the National Day badge was removed). The 30-day themed **seasons** (Color month, Capture month…) are a different feature and stay.
 - Left for later: AI coach (Sprint 4).
+
+Brainstorm round 26 (owner: "make the dashboard for social media", after "give the character more customization"; built by parallel
+agents like round 25, all merged with the full e2e suite green):
+- **Avatar customization** (Settings → "🧑‍🎨 مظهرك"): skin (5), hair (6 styles × 5 colors), beard (4), glasses (4), headwear (cap · beanie ·
+  شماغ · غترة, cap/beanie in 5 colors), tee / shirt / pants colors; live preview; the same look everywhere (Today, celebrations, rank
+  gallery); rank unlocks unchanged (with headwear the rank-7 studio headphones sit on the neck; the crown always sits on top).
+- **📱 Social world v1 (static, local, manual data):** the round-16 structure is live behind the 🎮 / 📱 switch in the top bar:
+  - **Shell:** `data-world="social"` swaps every design token to the cinematic look (near-black, rounded 14 px, soft shadows, IBM Plex
+    Sans Arabic, green accent); Training stays pixel-identical. Social menu: Studio · Calendar · Growth · Ideas · More (Website · Business ·
+    Automations = "قريب", Settings, back to Training). Last Social route is remembered when switching.
+  - **Studio (`/social`)**: next post with a live countdown (or overdue), this week's plan (Sat–Fri dots per platform), growth snapshot,
+    top 3 "إيش يبغون الناس" (→ idea), rules-based inbox (overdue, unscheduled, waiting ideas, stale stats), today's reminder + flame state.
+  - **Content calendar (`/social/calendar`)**: Week · Month · Stages views, platform filter (TikTok · Instagram · YouTube · X · Snapchat),
+    pipeline idea → script → filmed → edited → scheduled → posted, unplanned tray, overdue marks, best time per platform (Saudi prime time
+    after Isha, an assumption until real analytics). **Post popup** with Overview (hook + 3 hook ideas from the skill's Produce quest,
+    caption with limit, hashtags with suggestions, day/time, reminder note, linked skill, **Mark as posted + link**, copy, delete),
+    Script (Hook / 3 beats / CTA, ≈ seconds at 2.4 words/s, auto-bumps to "script"), Shots (per-platform shot template, ✓ list, B-roll
+    checklist, "move to Filmed?"). Deep link `/social/calendar/#post=<id>`.
+  - **Growth (`/social/growth`)**: All + per-platform tabs; manual snapshots (form) and **CSV import** (`platform,day,followers,views30d
+    [,engagementPct]`, aliases and 1.2K/3M numbers accepted) until the platform APIs are approved; totals, Δ30d, best-growing platform,
+    90-day SVG charts, account handles, this week's planned posts per platform, top posted posts, a rules-based content-mix tip,
+    "what people want" asks with +1 counts.
+  - **Ideas bank (`/social/ideas`)**: ideas from me / audience / trend / skill, filters, "→ make a post" per platform, suggestions from
+    skills whose Produce quest has no video yet, trends placeholder (AI coach, Sprint 4).
+  - **Bridge 🎮 ↔ 📱**: the skill popup's Produce row gets "📱 خطّط الفيديو" (platform picker → post) / "📱 في التقويم"; the island map
+    marks linked skills; **marking a post as posted completes the linked Produce quest exactly once** with the link as proof, with the usual
+    XP / gems / mastery / boss moments plus a "انتشر ✓" toast. Gems, chests and badges are unchanged (posting is a quest completion).
+- Known gaps: a post planned from a skill or an idea has a best time but no day until it is given one in the calendar (it sits in the
+  "بدون يوم" tray and the Studio counts it); reminders are text only until Web Push (Sprint 3); no auto-publishing (needs platform approvals);
+  Website / Business / Automations are placeholders (Sprint 5+).
+
+Brainstorm round 27 (owner shared the Beacons.ai handover and screenshots: Beacons has 13 sections; the owner mainly uses the
+**Social Analytics** page; Creator plan USD 10/month; Instagram is disconnected there; Post Activity counters unreliable):
+- Decision: rebuild **Social Analytics** inside the 📱 Social world (the Growth screen grows into it), metric names identical to the
+  handover so numbers can be compared. Beacons keeps link-in-bio (3zprod.com), store, media kit, Smart Reply and email broadcasts for now.
+- Static first: the page renders from imported snapshots (native CSV exports + manual demographics) with the **Sep 27, 2026 numbers seeded**
+  as the baseline; the daily API job comes later in the Scout Worker after the owner's Phase 0 (Meta app, Google Cloud, TikTok app).
+- **Threads** joins the platforms (the owner is connected there). Details, scopes and acceptance test in `tools/06-social-analytics-apis.md`;
+  the full inventory in `handovers/beacons-2026-09-27.md`.
 
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |

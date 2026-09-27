@@ -5,10 +5,14 @@ import { CHEST_EVERY, lootFor } from "@/lib/chests";
 import { FREEZE_REWARD_ID, GEM_RULES, defaultRewards } from "@/lib/gems";
 import { FREEZE_TOTAL_CAP } from "@/lib/streak";
 import { DRILL_XP, MASTERY_BONUS, REVIEW_XP, questXp } from "@/lib/xp";
+import { DEFAULT_AVATAR, EMPTY_SCRIPT } from "@/lib/domain";
+import { HASHTAG_SETS, SHOT_TEMPLATES, bestTime, suggestHashtags } from "@/lib/social";
 import {
   DEFAULT_SETTINGS,
   STORAGE_KEY,
+  accountFor,
   activeDays,
+  analyticsState,
   boss,
   chestProgress,
   currentWeek,
@@ -18,17 +22,25 @@ import {
   gems,
   getApiKey,
   hydrateStore,
+  ideasCount,
   isPlanItemDone,
   isQuestDone,
   masteredSkillIds,
+  nextPostFor,
   pillarXp,
   planItemsForWeek,
+  postById,
+  postForQuestProof,
+  postStatsFor,
+  postsForSkill,
   programXp,
   reviewForWeek,
   season,
+  skillInCalendar,
   skillProgress,
   streak,
   totalXp,
+  unusedIdeas,
   useStore,
 } from "./index";
 
@@ -221,6 +233,55 @@ describe("settings, export/import, persistence", () => {
     expect(S().settings).toEqual({ ...DEFAULT_SETTINGS, lang: "en" });
   });
 
+  it("setSettings({ avatar }) validates and persists the look", async () => {
+    expect(S().settings.avatar).toEqual(DEFAULT_AVATAR);
+    const look = { ...DEFAULT_AVATAR, skin: "dark" as const, headwear: "shemagh" as const };
+    S().setSettings({ avatar: look });
+    expect(S().settings.avatar).toEqual(look);
+    expect(() =>
+      S().setSettings({ avatar: { ...look, skin: "purple" as unknown as "dark" } }),
+    ).toThrow();
+    expect(S().settings.avatar).toEqual(look);
+
+    const raw = localStorage.getItem(STORAGE_KEY);
+    expect(JSON.parse(raw!).state.settings.avatar).toEqual(look);
+    useStore.setState({ settings: { ...DEFAULT_SETTINGS } });
+    localStorage.setItem(STORAGE_KEY, raw!);
+    await hydrateStore();
+    expect(S().settings.avatar).toEqual(look);
+
+    const json = S().exportState();
+    expect(JSON.parse(json).state.settings.avatar).toEqual(look);
+    S().reset();
+    expect(S().settings.avatar).toEqual(DEFAULT_AVATAR);
+    S().importState(json);
+    expect(S().settings.avatar).toEqual(look);
+  });
+
+  it("a persisted settings object without avatar (pre-customization save) merges to the default", async () => {
+    const { avatar: _dropped, ...withoutAvatar } = DEFAULT_SETTINGS;
+    void _dropped;
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { settings: { ...withoutAvatar, lang: "en" } }, version: 1 }),
+    );
+    await hydrateStore();
+    expect(S().settings.avatar).toEqual(DEFAULT_AVATAR);
+    expect(S().settings.lang).toBe("en");
+  });
+
+  it("a partial avatar in a save fills the missing parts with defaults", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: { settings: { ...DEFAULT_SETTINGS, avatar: { skin: "brown" } } },
+        version: 1,
+      }),
+    );
+    await hydrateStore();
+    expect(S().settings.avatar).toEqual({ ...DEFAULT_AVATAR, skin: "brown" });
+  });
+
   it("saves and round-trips a youtube API key via getApiKey", () => {
     expect(getApiKey(S(), "youtube")).toBeUndefined();
     S().setSettings({ apiKeys: { youtube: "AIzaTest123" } });
@@ -389,6 +450,21 @@ describe("backwards compatibility", () => {
     expect(S().planItems).toEqual([]);
     expect(S().purchases).toEqual([]);
     expect(S().rewards).toEqual(defaultRewards());
+  });
+
+  it("imports an export file whose settings predate the avatar and fills the default look", () => {
+    const { avatar: _dropped, ...settings } = DEFAULT_SETTINGS;
+    void _dropped;
+    S().importState(
+      JSON.stringify({
+        app: "3z-prod",
+        version: 1,
+        exportedAt: "2026-09-01",
+        state: { ...oldState, settings },
+      }),
+    );
+    expect(S().settings.avatar).toEqual(DEFAULT_AVATAR);
+    expect(totalXp(S())).toBe(15);
   });
 
   it("hydrates an old localStorage save and keeps the built-in freeze reward", async () => {
@@ -937,5 +1013,554 @@ describe("rewards shop", () => {
     expect(() =>
       S().addReward({ id: "", name: "x", cost: 1, repeatable: true, icon: "x" }),
     ).toThrow();
+  });
+});
+
+/* ---------- 📱 Social world ---------- */
+
+describe("social: posts", () => {
+  const now = at("2026-09-27T10:00:00Z");
+
+  it("addPost fills defaults: idea stage, empty script, suggested hashtags, no shots", () => {
+    const p = S().addPost({ platform: "tiktok", title: "Riyadh in match cuts" }, now);
+    expect(p).toMatchObject({
+      platform: "tiktok",
+      title: "Riyadh in match cuts",
+      stage: "idea",
+      caption: "",
+      script: EMPTY_SCRIPT,
+      shots: [],
+      plannedDay: null,
+      plannedTime: null,
+      hashtags: suggestHashtags("tiktok"),
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+    expect(p.id).toBeTruthy();
+    expect(S().posts).toEqual([p]);
+    expect(postById(S(), p.id)).toBe(p);
+  });
+
+  it("addPost keeps given hashtags, uses the template when asked, and validates", () => {
+    const p = S().addPost(
+      { platform: "youtube", title: "Full tutorial", hashtags: ["#mine"], withTemplate: true },
+      now,
+    );
+    expect(p.hashtags).toEqual(["#mine"]);
+    expect(p.shots).toHaveLength(SHOT_TEMPLATES.youtube.length);
+    expect(p.shots[0]).toMatchObject({
+      type: "hook",
+      done: false,
+      text: SHOT_TEMPLATES.youtube[0].text.ar,
+    });
+    expect(new Set(p.shots.map((s) => s.id)).size).toBe(p.shots.length);
+    S().setSettings({ lang: "en" });
+    const en = S().addPost({ platform: "x", title: "Thread", withTemplate: true }, now);
+    expect(en.shots[0].text).toBe(SHOT_TEMPLATES.x[0].text.en);
+    expect(() => S().addPost({ platform: "tiktok", title: "" })).toThrow();
+    expect(() =>
+      S().addPost({ platform: "tiktok", title: "x", plannedDay: "27/09/2026" }),
+    ).toThrow();
+    expect(() => S().addPost({ platform: "tiktok", title: "x", plannedTime: "9pm" })).toThrow();
+    expect(S().posts).toHaveLength(2);
+  });
+
+  it("updatePost merges, validates and bumps updatedAt; unknown ids are ignored", () => {
+    const p = S().addPost({ platform: "instagram", title: "Before/after" }, now);
+    const later = at("2026-09-27T11:00:00Z");
+    const u = S().updatePost(
+      p.id,
+      { caption: "cap", plannedDay: "2026-09-28", plannedTime: "20:30", script: { hook: "hi" } },
+      later,
+    );
+    expect(u).toMatchObject({
+      caption: "cap",
+      plannedDay: "2026-09-28",
+      plannedTime: "20:30",
+      script: { hook: "hi", beats: ["", "", ""], cta: "" },
+      createdAt: now.toISOString(),
+      updatedAt: later.toISOString(),
+    });
+    expect(S().posts[0]).toEqual(u);
+    expect(() => S().updatePost(p.id, { plannedTime: "25:00" })).toThrow();
+    expect(S().posts[0].plannedTime).toBe("20:30");
+    expect(S().updatePost("nope", { caption: "x" })).toBeUndefined();
+  });
+
+  it("setPostStage moves the pipeline; posted here stamps postedAt but completes no quest", () => {
+    const p = S().addPost({ platform: "tiktok", title: "t", skillId: "scene-cut-detection" }, now);
+    expect(S().setPostStage(p.id, "filmed", now)?.stage).toBe("filmed");
+    const posted = S().setPostStage(p.id, "posted", now);
+    expect(posted?.postedAt).toBe(now.toISOString());
+    expect(isQuestDone(S(), "scene-cut-detection", "produce")).toBe(false);
+    expect(S().setPostStage("nope", "idea")).toBeUndefined();
+  });
+
+  it("shots: add, toggle, remove", () => {
+    const p = S().addPost({ platform: "tiktok", title: "t" }, now);
+    const a = S().addShot(p.id, { type: "hook", text: "face" }, now)!;
+    const b = S().addShot(p.id, { type: "broll", text: "coffee", id: "b1", done: true }, now)!;
+    expect(a).toMatchObject({ type: "hook", text: "face", done: false });
+    expect(b).toEqual({ id: "b1", type: "broll", text: "coffee", done: true });
+    expect(postById(S(), p.id)?.shots).toEqual([a, b]);
+    expect(S().toggleShot(p.id, a.id, now)?.shots[0].done).toBe(true);
+    expect(S().toggleShot(p.id, "missing", now)?.shots[0].done).toBe(true);
+    expect(S().removeShot(p.id, "b1", now)?.shots).toHaveLength(1);
+    expect(S().addShot("nope", { type: "wide", text: "" })).toBeUndefined();
+    expect(S().toggleShot("nope", "x")).toBeUndefined();
+  });
+
+  it("removePost deletes the post and unlinks ideas pointing at it", () => {
+    const idea = S().addIdea({ text: "Green look", source: "audience" }, now);
+    const p = S().useIdea(idea.id, "tiktok", now)!;
+    expect(S().ideas[0].usedInPostId).toBe(p.id);
+    S().removePost(p.id);
+    expect(S().posts).toEqual([]);
+    expect(S().ideas[0].usedInPostId).toBeUndefined();
+    S().removePost("nope");
+  });
+});
+
+describe("social: the bridge (markPosted ↔ Produce quest)", () => {
+  const now = at("2026-09-27T18:00:00Z");
+  const skillId = "scene-cut-detection"; // tier 1 → produce = 25 XP
+
+  it("createPostFromSkill titles the post after the skill, hooks it with the quest text and refuses duplicates", () => {
+    const skill = getSkill(skillId)!;
+    const p = S().createPostFromSkill(skillId, "tiktok", now)!;
+    expect(p).toMatchObject({
+      title: skill.name.ar,
+      hook: skill.quests.produce.ar,
+      skillId,
+      platform: "tiktok",
+      stage: "idea",
+      plannedTime: bestTime("tiktok"),
+      hashtags: suggestHashtags("tiktok", skill),
+    });
+    expect(p.hashtags[0]).toBe("#davinciresolve");
+    expect(p.shots).toHaveLength(SHOT_TEMPLATES.tiktok.length);
+    expect(p.ideaId).toBeUndefined();
+    // Same skill + platform → the existing live post; another platform → a new one.
+    expect(S().createPostFromSkill(skillId, "tiktok", now)).toBe(S().posts[0]);
+    expect(S().createPostFromSkill(skillId, "youtube", now)?.id).not.toBe(p.id);
+    expect(S().posts).toHaveLength(2);
+    expect(postsForSkill(S(), skillId)).toHaveLength(2);
+    expect(skillInCalendar(S(), skillId)?.id).toBe(p.id);
+    expect(S().createPostFromSkill("nope", "tiktok")).toBeUndefined();
+    S().setSettings({ lang: "en" });
+    expect(S().createPostFromSkill("smart-bins-keywords", "x", now)?.title).toBe(
+      getSkill("smart-bins-keywords")!.name.en,
+    );
+  });
+
+  it("markPosted completes the Produce quest exactly once, with the proof url", () => {
+    const p = S().createPostFromSkill(skillId, "tiktok", now)!;
+    const r = S().markPosted(p.id, " https://tiktok.com/@3z/video/1 ", now);
+    expect(r.post).toMatchObject({
+      stage: "posted",
+      postedAt: now.toISOString(),
+      postedUrl: "https://tiktok.com/@3z/video/1",
+    });
+    expect(r.quest?.added).toBe(true);
+    expect(r.quest?.xp).toBe(questXp("produce", 1));
+    expect(isQuestDone(S(), skillId, "produce")).toBe(true);
+    expect(S().completions[0].proofUrl).toBe("https://tiktok.com/@3z/video/1");
+    expect(totalXp(S())).toBe(25);
+    expect(postForQuestProof(S(), skillId)?.id).toBe(p.id);
+    expect(skillInCalendar(S(), skillId)).toBeUndefined();
+
+    // Again: link updates, no second completion, no more XP.
+    const again = S().markPosted(
+      p.id,
+      "https://tiktok.com/@3z/video/2",
+      at("2026-09-28T10:00:00Z"),
+    );
+    expect(again.quest).toBeNull();
+    expect(again.post?.postedUrl).toBe("https://tiktok.com/@3z/video/2");
+    expect(again.post?.postedAt).toBe(now.toISOString());
+    expect(S().completions).toHaveLength(1);
+    expect(S().completions[0].proofUrl).toBe("https://tiktok.com/@3z/video/1"); // quest proof untouched
+    expect(totalXp(S())).toBe(25);
+
+    // A second post for the same skill (another platform) does not award the quest twice either.
+    const yt = S().createPostFromSkill(skillId, "youtube", now)!;
+    expect(S().markPosted(yt.id, "https://youtu.be/x", now).quest).toBeNull();
+    expect(totalXp(S())).toBe(25);
+    expect(S().markPosted("nope", "u")).toEqual({ post: undefined, quest: null });
+  });
+
+  it("markPosted without a skill just posts; an empty url leaves postedUrl unset", () => {
+    const p = S().addPost({ platform: "snapchat", title: "BTS" }, now);
+    const r = S().markPosted(p.id, "", now);
+    expect(r.quest).toBeNull();
+    expect(r.post?.stage).toBe("posted");
+    expect(r.post?.postedUrl).toBeUndefined();
+    expect(S().completions).toEqual([]);
+  });
+
+  it("markPosted on a skill whose quest is already done leaves the quest alone", () => {
+    S().completeQuest(skillId, "produce", "https://old", now);
+    const p = S().createPostFromSkill(skillId, "tiktok", now)!;
+    const r = S().markPosted(p.id, "https://new", now);
+    expect(r.quest).toBeNull();
+    expect(S().completions[0].proofUrl).toBe("https://old");
+    expect(totalXp(S())).toBe(25);
+  });
+
+  it("markPosted carries the mastery bonus and other outcomes through", () => {
+    for (const q of ["train", "research", "article"] as const)
+      S().completeQuest(skillId, q, undefined, now);
+    const p = S().createPostFromSkill(skillId, "tiktok", now)!;
+    const r = S().markPosted(p.id, "https://tiktok.com/v", now);
+    expect(r.quest?.mastered).toBe(true);
+    expect(r.quest?.xp).toBe(25 + MASTERY_BONUS);
+    expect(masteredSkillIds(S()).has(skillId)).toBe(true);
+  });
+
+  it("unmarkPosted returns the post to scheduled and keeps the quest", () => {
+    const p = S().createPostFromSkill(skillId, "tiktok", now)!;
+    S().markPosted(p.id, "https://tiktok.com/v", now);
+    const back = S().unmarkPosted(p.id, at("2026-09-28T10:00:00Z"));
+    expect(back).toMatchObject({ stage: "scheduled", updatedAt: "2026-09-28T10:00:00.000Z" });
+    expect(back?.postedAt).toBeUndefined();
+    expect(back?.postedUrl).toBeUndefined();
+    expect(isQuestDone(S(), skillId, "produce")).toBe(true);
+    expect(totalXp(S())).toBe(25);
+    // Not posted → stage unchanged.
+    const q = S().addPost({ platform: "x", title: "t", stage: "filmed" }, now);
+    expect(S().unmarkPosted(q.id)?.stage).toBe("filmed");
+    expect(S().unmarkPosted("nope")).toBeUndefined();
+  });
+});
+
+describe("social: ideas, snapshots, asks, accounts", () => {
+  const now = at("2026-09-27T10:00:00Z");
+
+  it("ideas: add, use (idempotent, links the post), remove", () => {
+    const i = S().addIdea(
+      { text: "DaVinci on iPad?", source: "audience", platform: "youtube" },
+      now,
+    );
+    expect(i).toMatchObject({ text: "DaVinci on iPad?", source: "audience", platform: "youtube" });
+    const s = S().addIdea(
+      { text: "Smart bins", source: "skill", skillId: "smart-bins-keywords" },
+      now,
+    );
+    expect(ideasCount(S())).toBe(2);
+    const p = S().useIdea(s.id, "tiktok", now)!;
+    expect(p).toMatchObject({
+      title: "Smart bins",
+      platform: "tiktok",
+      ideaId: s.id,
+      skillId: "smart-bins-keywords",
+      plannedTime: bestTime("tiktok"),
+    });
+    expect(S().ideas[1].usedInPostId).toBe(p.id);
+    expect(S().useIdea(s.id, "youtube", now)).toBe(S().posts[0]); // idempotent
+    expect(S().posts).toHaveLength(1);
+    expect(unusedIdeas(S()).map((x) => x.id)).toEqual([i.id]);
+    expect(ideasCount(S())).toBe(1);
+    expect(S().useIdea("nope", "x")).toBeUndefined();
+    expect(() => S().addIdea({ text: "", source: "me" })).toThrow();
+    S().removeIdea(i.id);
+    expect(S().ideas).toHaveLength(1);
+  });
+
+  it("snapshots: add replaces the same platform + day, import upserts, remove drops", () => {
+    S().addSnapshot({ platform: "tiktok", day: "2026-09-27", followers: 100, views30d: 1000 });
+    S().addSnapshot({ platform: "tiktok", day: "2026-09-27", followers: 120, views30d: 1100 });
+    S().importSnapshots([
+      { platform: "tiktok", day: "2026-09-01", followers: 90, views30d: 900 },
+      { platform: "x", day: "2026-09-27", followers: 5, views30d: 50, engagementPct: 2.5 },
+    ]);
+    expect(S().socialSnapshots).toHaveLength(3);
+    expect(S().socialSnapshots[0]).toMatchObject({ followers: 120, views30d: 1100 });
+    expect(() =>
+      S().addSnapshot({ platform: "tiktok", day: "2026-9-1", followers: 1, views30d: 1 }),
+    ).toThrow();
+    expect(() =>
+      S().addSnapshot({ platform: "tiktok", day: "2026-09-01", followers: -1, views30d: 1 }),
+    ).toThrow();
+    S().removeSnapshot("tiktok", "2026-09-01");
+    expect(S().socialSnapshots.map((s) => `${s.platform}:${s.day}`)).toEqual([
+      "tiktok:2026-09-27",
+      "x:2026-09-27",
+    ]);
+  });
+
+  it("asks: add merges the same text, bump adds, remove drops", () => {
+    const a = S().addAsk({ text: "How do you get the green look?", platform: "tiktok" }, now);
+    expect(a.count).toBe(1);
+    const merged = S().addAsk({ text: "  how do you get the GREEN look? ", count: 3 }, now);
+    expect(merged.id).toBe(a.id);
+    expect(merged.count).toBe(4);
+    expect(S().audienceAsks).toHaveLength(1);
+    S().bumpAsk(a.id);
+    S().bumpAsk(a.id, 5);
+    expect(S().audienceAsks[0].count).toBe(10);
+    S().bumpAsk(a.id, -100);
+    expect(S().audienceAsks[0].count).toBe(1);
+    expect(() => S().addAsk({ text: "  " })).toThrow();
+    S().removeAsk(a.id);
+    expect(S().audienceAsks).toEqual([]);
+  });
+
+  it("accounts: one per platform, handle without @", () => {
+    S().setAccount("tiktok", "@3zprod", "https://tiktok.com/@3zprod");
+    S().setAccount("tiktok", "3z.prod");
+    S().setAccount("x", "3zprod", "  ");
+    expect(S().socialAccounts).toEqual([
+      { platform: "tiktok", handle: "3z.prod" },
+      { platform: "x", handle: "3zprod" },
+    ]);
+    expect(accountFor(S(), "tiktok")?.handle).toBe("3z.prod");
+    expect(accountFor(S(), "youtube")).toBeUndefined();
+    expect(() => S().setAccount("x", "@")).toThrow();
+    S().removeAccount("tiktok");
+    expect(S().socialAccounts.map((a) => a.platform)).toEqual(["x"]);
+  });
+
+  it("nextPostFor reads the calendar", () => {
+    S().addPost(
+      { platform: "tiktok", title: "later", plannedDay: "2026-09-28", plannedTime: "21:00" },
+      now,
+    );
+    const soon = S().addPost(
+      { platform: "instagram", title: "soon", plannedDay: "2026-09-27", plannedTime: "20:30" },
+      now,
+    );
+    const next = nextPostFor(S(), at("2026-09-27T17:00:00+03:00"));
+    expect(next?.post.id).toBe(soon.id);
+    expect(next?.countdownMs).toBe(3.5 * 3_600_000);
+    expect(nextPostFor(S(), at("2026-10-01T00:00:00Z"))).toBeNull();
+  });
+});
+
+describe("social analytics: post stats, demographics, seed flag", () => {
+  const stat = (platform: "tiktok" | "threads", postId: string, views: number) => ({
+    platform,
+    postId,
+    publishedAt: "2026-09-20T18:00:00.000Z",
+    views,
+  });
+
+  it("snapshots accept the analytics metrics and normalize the engagement alias", () => {
+    S().addSnapshot({ platform: "threads", day: "2026-09-27", followers: 0, engagementRate: 6.5 });
+    expect(S().socialSnapshots[0]).toMatchObject({
+      views30d: 0,
+      engagementPct: 6.5,
+      engagementRate: 6.5,
+    });
+    S().importSnapshots([
+      { platform: "tiktok", day: "2026-09-27", followers: 1200, avgViews: 30200, posts30d: 4 },
+    ]);
+    expect(S().socialSnapshots[1]).toMatchObject({ avgViews: 30200, posts30d: 4 });
+    expect(() =>
+      S().addSnapshot({ platform: "tiktok", day: "2026-09-27", followers: 1, avgViews: -1 }),
+    ).toThrow();
+  });
+
+  it("post stats: import upserts by platform + postId, remove drops one", () => {
+    S().importPostStats([stat("tiktok", "a", 10), stat("threads", "a", 5)]);
+    S().importPostStats([{ ...stat("tiktok", "a", 20), kind: "video", likes: 3 }]);
+    expect(S().socialPostStats).toHaveLength(2);
+    expect(S().socialPostStats[0]).toEqual({
+      platform: "tiktok",
+      postId: "a",
+      publishedAt: "2026-09-20T18:00:00.000Z",
+      kind: "video",
+      views: 20,
+      likes: 3,
+      comments: 0,
+      shares: 0,
+    });
+    expect(S().socialPostStats[1].kind).toBe("other");
+    expect(postStatsFor(S(), "threads")).toHaveLength(1);
+    expect(() =>
+      S().importPostStats([{ ...stat("tiktok", "b", 1), publishedAt: "yesterday" }]),
+    ).toThrow();
+    S().removePostStat("tiktok", "a");
+    expect(S().socialPostStats.map((p) => p.platform)).toEqual(["threads"]);
+    expect(analyticsState(S())).toEqual({
+      snapshots: [],
+      postStats: S().socialPostStats,
+      accounts: [],
+    });
+  });
+
+  it("demographics: import replaces the same platform + day + dimension set, clear drops by platform/day", () => {
+    const row = (
+      platform: "tiktok" | "instagram",
+      day: string,
+      dimension: "gender" | "age",
+      key: string,
+      pct: number,
+    ) => ({ platform, day, dimension, key, pct });
+    S().importDemographics([
+      row("tiktok", "2026-09-27", "gender", "male", 60),
+      row("tiktok", "2026-09-27", "gender", "female", 40),
+      row("tiktok", "2026-09-27", "age", "25-34", 50),
+      row("instagram", "2026-09-27", "gender", "male", 90),
+      row("tiktok", "2026-09-01", "gender", "male", 55),
+    ]);
+    S().importDemographics([row("tiktok", "2026-09-27", "gender", "male", 56)]);
+    const keys = () =>
+      S().demographics.map((d) => `${d.platform}/${d.day}/${d.dimension}/${d.key}=${d.pct}`);
+    expect(keys()).toEqual([
+      "tiktok/2026-09-27/age/25-34=50",
+      "instagram/2026-09-27/gender/male=90",
+      "tiktok/2026-09-01/gender/male=55",
+      "tiktok/2026-09-27/gender/male=56",
+    ]);
+    expect(() => S().importDemographics([row("tiktok", "2026-09-27", "age", "x", 101)])).toThrow();
+    S().clearDemographics("tiktok", "2026-09-01");
+    expect(keys()).toHaveLength(3);
+    S().clearDemographics("tiktok");
+    expect(keys()).toEqual(["instagram/2026-09-27/gender/male=90"]);
+  });
+
+  it("remembers the seed version and round-trips the new fields through export/import", () => {
+    expect(S().socialSeedApplied).toBe("");
+    S().setSocialSeedApplied("2026-09-27");
+    S().importPostStats([stat("tiktok", "a", 10)]);
+    S().importDemographics([
+      {
+        platform: "tiktok",
+        day: "2026-09-27",
+        dimension: "age",
+        key: "25-34",
+        pct: 53,
+        gender: "male",
+      },
+    ]);
+    const json = S().exportState();
+    const before = JSON.parse(json).state;
+    expect(before.socialSeedApplied).toBe("2026-09-27");
+    S().reset();
+    expect(S().socialPostStats).toEqual([]);
+    expect(S().demographics).toEqual([]);
+    expect(S().socialSeedApplied).toBe("");
+    S().importState(json);
+    expect(JSON.parse(S().exportState()).state).toEqual(before);
+    expect(S().demographics[0].gender).toBe("male");
+  });
+});
+
+describe("social: persistence", () => {
+  it("round-trips every social field through export/import and the reset clears them", () => {
+    const now = at("2026-09-27T10:00:00Z");
+    const p = S().createPostFromSkill("scene-cut-detection", "tiktok", now)!;
+    S().markPosted(p.id, "https://tiktok.com/v", now);
+    const idea = S().addIdea({ text: "idea", source: "trend", platform: "instagram" }, now);
+    S().useIdea(idea.id, "instagram", now);
+    S().addSnapshot({ platform: "x", day: "2026-09-27", followers: 5, views30d: 50 });
+    S().addAsk({ text: "ask" }, now);
+    S().setAccount("youtube", "3zprod");
+    const json = S().exportState();
+    const before = JSON.parse(json).state;
+    expect(before.posts).toHaveLength(2);
+    S().reset();
+    expect(S().posts).toEqual([]);
+    expect(S().ideas).toEqual([]);
+    expect(S().socialSnapshots).toEqual([]);
+    expect(S().audienceAsks).toEqual([]);
+    expect(S().socialAccounts).toEqual([]);
+    S().importState(json);
+    expect(JSON.parse(S().exportState()).state).toEqual(before);
+    expect(S().posts[0].shots).toHaveLength(SHOT_TEMPLATES.tiktok.length);
+    expect(S().ideas[0].usedInPostId).toBe(S().posts[1].id);
+  });
+
+  it("imports an export from before the Social world and fills empty lists", () => {
+    S().importState(
+      JSON.stringify({
+        app: "3z-prod",
+        version: 1,
+        exportedAt: "2026-09-01",
+        state: {
+          settings: DEFAULT_SETTINGS,
+          completions: [],
+          xpEvents: [],
+          microActions: [],
+          freezesUsedOn: [],
+          reviews: [],
+        },
+      }),
+    );
+    expect(S().posts).toEqual([]);
+    expect(S().ideas).toEqual([]);
+    expect(S().socialSnapshots).toEqual([]);
+    expect(S().audienceAsks).toEqual([]);
+    expect(S().socialAccounts).toEqual([]);
+    expect(S().socialPostStats).toEqual([]);
+    expect(S().demographics).toEqual([]);
+    expect(S().socialSeedApplied).toBe("");
+  });
+
+  it("imports an export from before the analytics fields (engagementPct-only snapshots) untouched", () => {
+    S().importState(
+      JSON.stringify({
+        app: "3z-prod",
+        version: 1,
+        exportedAt: "2026-09-20",
+        state: {
+          settings: DEFAULT_SETTINGS,
+          completions: [],
+          xpEvents: [],
+          microActions: [],
+          freezesUsedOn: [],
+          reviews: [],
+          socialSnapshots: [
+            {
+              platform: "tiktok",
+              day: "2026-09-20",
+              followers: 1000,
+              views30d: 5000,
+              engagementPct: 4,
+            },
+          ],
+          socialAccounts: [{ platform: "x", handle: "3zprod" }],
+        },
+      }),
+    );
+    expect(S().socialSnapshots).toEqual([
+      { platform: "tiktok", day: "2026-09-20", followers: 1000, views30d: 5000, engagementPct: 4 },
+    ]);
+    expect(S().socialPostStats).toEqual([]);
+    expect(S().demographics).toEqual([]);
+    expect(S().socialSeedApplied).toBe("");
+  });
+
+  it("hydrates an old localStorage save without the social fields and keeps them usable", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          settings: DEFAULT_SETTINGS,
+          completions: [],
+          xpEvents: [],
+          microActions: [],
+          freezesUsedOn: [],
+          reviews: [],
+        },
+        version: 1,
+      }),
+    );
+    await hydrateStore();
+    expect(S().posts).toEqual([]);
+    expect(S().socialAccounts).toEqual([]);
+    const p = S().addPost({ platform: "tiktok", title: "after hydrate" });
+    expect(S().posts).toEqual([p]);
+    expect(p.hashtags).toEqual(HASHTAG_SETS.tiktok.slice(0, p.hashtags.length));
+  });
+
+  it("keeps the current state when a save holds an invalid post", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { settings: DEFAULT_SETTINGS, posts: [{ id: "bad" }] }, version: 1 }),
+    );
+    await hydrateStore();
+    // An invalid persisted shape is rejected as a whole (same rule as every other field).
+    expect(S().posts).toEqual([]);
   });
 });

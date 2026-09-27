@@ -46,3 +46,4 @@ build order. Website and social tools are recorded so nothing is forgotten, but 
 - **Start Meta and TikTok developer applications in Phase 0**, because approvals take weeks and gate Phase 4. See `04-accounts-and-costs.md`.
 - **Owner's current gear** (phone only, or a camera / gimbal / mic already owned) decides which craft skills the coach suggests first. See master plan round 21.
 - **Snapchat** as a first-class channel for the Saudi audience (manual stats for now). See `03-social-media.md`.
+- `06-social-analytics-apis.md`: rebuilding the Beacons Social Analytics page here (imports now, platform APIs after Phase 0).

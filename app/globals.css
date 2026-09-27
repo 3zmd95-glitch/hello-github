@@ -2,12 +2,16 @@
 
 /*
  * 3z Prod design tokens. Each world sets its own variables on the root element
- * (`data-world="training"` = cute pixel style: chunky borders, hard shadows, dark bg, green accent).
- * The Social world (cinematic look) will add its own block later.
+ * (`data-world="training"` = cute pixel style: chunky borders, hard shadows, dark bg, green accent;
+ * `data-world="social"` = cinematic creator studio: near-black, soft borders and shadows, rounded cards).
+ * The shell sets the attribute from the route; the Social block lives at the end of this file and
+ * redefines every token here, so the shared `.px-*` classes and color utilities restyle on their own.
  */
 :root,
 :root[data-world="training"] {
   color-scheme: dark;
+  --radius: 2px;
+  --radius-sm: 2px;
   --bg: #0d141d;
   --bg-dot: #182331;
   --panel: #172230;
@@ -96,7 +100,7 @@
   .px-card {
     background: var(--panel);
     border: 3px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius);
     box-shadow: var(--shadow);
     padding: 16px;
     min-width: 0;
@@ -104,7 +108,7 @@
   .px-inset {
     background: var(--panel-2);
     border: 2px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     padding: 10px 12px;
     min-width: 0;
   }
@@ -115,7 +119,7 @@
     justify-content: center;
     gap: 6px;
     border: 3px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     box-shadow: 3px 3px 0 var(--edge);
     background: var(--accent);
     color: var(--accent-ink);
@@ -165,7 +169,7 @@
     line-height: 1.5;
     padding: 0 8px;
     border: 2px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     background: var(--panel-3);
     color: var(--ink);
     white-space: nowrap;
@@ -202,7 +206,7 @@
     height: 16px;
     background: var(--edge);
     border: 2px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
   }
   .px-bar > i {
@@ -226,7 +230,7 @@
     background: var(--edge);
     color: var(--ink);
     border: 2px solid var(--panel-3);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     padding: 6px 10px;
     font-size: 16px; /* 16px stops iOS zooming into inputs */
     line-height: 1.3;
@@ -243,7 +247,7 @@
     width: 30px;
     height: 30px;
     border: 3px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     background: var(--panel);
     box-shadow: 2px 2px 0 var(--edge);
     font-family: var(--font-pixel);
@@ -289,7 +293,7 @@
     min-height: 32px;
     padding: 2px 10px;
     border: 2px solid var(--edge);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     background: var(--panel-2);
     color: var(--ink-2);
     font-size: 0.8rem;
@@ -1016,3 +1020,920 @@
   animation: today-bob 0.9s steps(3) infinite;
 }
 /* ---- /Today ---- */
+
+/* ---- Social world ---- */
+/* 📱 Social = the cinematic "creator studio" look of the Framer site: near-black, soft 1px borders, soft
+ * shadows, rounded cards, IBM Plex Sans Arabic, no pixel art. A screen opts in by living under /social:
+ * the shell mirrors the route onto <html data-world>, this block redefines every Training token, and the
+ * shared `.px-*` classes plus the color utilities (bg-panel, text-ink, border-edge...) restyle on their own.
+ * Overrides sit in the same layers as the originals so Tailwind utilities keep winning. */
+:root[data-world="social"] {
+  color-scheme: dark;
+  --radius: 14px;
+  --radius-sm: 10px;
+  --bg: #0b0d10;
+  --bg-dot: transparent;
+  --panel: #141820;
+  --panel-2: #1a2029;
+  --panel-3: #232a35;
+  --edge: #232a35;
+  --ink: #eef1f5;
+  --ink-2: #b7c0cc;
+  --muted: #7d8794;
+  --accent: #45e08e;
+  --accent-ink: #06130d;
+  --gold: #e3c06f;
+  --gold-ink: #1e1606;
+  --danger: #ff7a70;
+  --sky: #7fc4ff;
+  --orange: #ffb067;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.3);
+  --font-body: "IBM Plex Sans Arabic", system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+}
+
+@layer base {
+  [data-world="social"] body {
+    /* No pixel dots: one soft green glow in the top corner instead. */
+    background-image: radial-gradient(
+      circle at 80% -10%,
+      color-mix(in srgb, var(--accent) 9%, transparent),
+      transparent 45%
+    );
+    background-size: auto;
+    background-repeat: no-repeat;
+  }
+  [data-world="social"] :is(h1, h2, h3) {
+    font-weight: 700;
+  }
+  [data-world="social"] :where(button, a, summary, input, select, textarea):focus-visible {
+    outline: 2px solid var(--accent);
+  }
+}
+
+@layer components {
+  [data-world="social"] .px-card,
+  [data-world="social"] .px-inset {
+    border-width: 1px;
+  }
+  [data-world="social"] .px-btn {
+    border: 1px solid transparent;
+    border-radius: 999px;
+    box-shadow: none;
+    font-weight: 600;
+    padding: 7px 16px;
+    transition:
+      transform 0.12s ease,
+      opacity 0.12s ease,
+      background-color 0.12s ease;
+  }
+  [data-world="social"] .px-btn:active:not(:disabled) {
+    transform: scale(0.97);
+    box-shadow: none;
+  }
+  [data-world="social"] .px-btn-ghost {
+    background: transparent;
+    border-color: var(--edge);
+    color: var(--ink);
+  }
+  [data-world="social"] .px-btn-sm {
+    padding: 3px 12px;
+    box-shadow: none;
+  }
+  [data-world="social"] .px-chip {
+    border-width: 1px;
+    border-radius: 999px;
+    padding: 0 10px;
+  }
+  [data-world="social"] .px-chip-lock {
+    border-style: solid;
+  }
+  [data-world="social"] .px-bar {
+    height: 8px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--panel-3);
+  }
+  [data-world="social"] .px-bar > i {
+    background: var(--c, var(--accent));
+    border-radius: 999px;
+    transition: width 0.5s ease;
+  }
+  [data-world="social"] .px-bar-sm {
+    height: 6px;
+  }
+  [data-world="social"] .px-input {
+    background: var(--bg);
+    border: 1px solid var(--edge);
+    padding: 8px 12px;
+  }
+  [data-world="social"] .px-input:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+  }
+  [data-world="social"] .px-check {
+    border-width: 1px;
+    border-radius: 8px;
+    box-shadow: none;
+    font-family: var(--font-body);
+  }
+  [data-world="social"] .px-pip {
+    border-width: 1px;
+    border-radius: 999px;
+  }
+  [data-world="social"] .px-fchip {
+    border-width: 1px;
+    border-radius: 999px;
+    box-shadow: none;
+  }
+  [data-world="social"] .px-tile {
+    background-image: none;
+  }
+  [data-world="social"] .px-skel {
+    border-radius: 6px;
+    animation-timing-function: ease-in-out;
+  }
+}
+
+@layer utilities {
+  /* Numbers keep the `num` class (LTR, tabular) but in a clean sans instead of the pixel font. */
+  [data-world="social"] .num {
+    font-family: var(--font-body);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Motion: smooth easing instead of the pixel steps(). */
+[data-world="social"] :is(.anim-popin, .anim-sheet, .anim-toast, .anim-fade, .anim-pop) {
+  animation-timing-function: ease-out;
+}
+[data-world="social"] .px-particle {
+  border-radius: 999px;
+  box-shadow: none;
+  animation-timing-function: ease-out;
+}
+/* ---- /Social world ---- */
+
+/* ---- Growth ---- */
+/* 📊 Social Analytics screen (Social world): the platform filter, KPI tiles, platform cards, thin demographic
+ * bars, the gender donut, the post grid, AI-style prompts and the pure-SVG charts. Chart chrome is recessive
+ * (hairline solid grid, muted ticks); only the data marks wear color. */
+.gr-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+.gr-tabs::-webkit-scrollbar {
+  display: none;
+}
+.gr-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+.gr-tab[aria-pressed="true"] {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--c, var(--accent)) 18%, var(--panel));
+  border-color: color-mix(in srgb, var(--c, var(--accent)) 55%, var(--edge));
+  box-shadow: inset 0 -2px 0 var(--c, var(--accent));
+}
+.gr-tab-manual {
+  color: var(--muted);
+  border-style: dashed;
+}
+.gr-tab-note {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--panel-2);
+}
+.gr-value {
+  font-size: 1.45rem;
+  line-height: 1.15;
+  font-weight: 700;
+  font-variant-numeric: proportional-nums;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+.gr-key {
+  display: inline-block;
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--c, var(--accent));
+  flex: 0 0 auto;
+}
+.gr-platform-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 1.4rem;
+  line-height: 1;
+  background: color-mix(in srgb, var(--c, var(--accent)) 16%, var(--panel-2));
+  border: 1px solid color-mix(in srgb, var(--c, var(--accent)) 35%, var(--edge));
+  flex: 0 0 auto;
+}
+
+/* KPI / overview tiles: label, big number, a small source line. The overview grid fits 5–8 tiles per row. */
+.an-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (min-width: 640px) {
+  .an-overview {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+.an-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.an-kpi .gr-value {
+  overflow-wrap: anywhere;
+}
+
+/* AI-style prompt (Beacons' "Ask Beam"): outlined accent pill with a sparkle; its answer is a tinted card. */
+.an-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  min-height: 34px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--edge));
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: start;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+.an-ai:hover,
+.an-ai[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.an-ai-card {
+  border-inline-start: 3px solid var(--accent);
+}
+
+/* Platform card rows (Followers / Engagement / Avg. Likes / Avg. Views). */
+.an-pcard {
+  border-inline-start: 3px solid var(--c, var(--edge));
+}
+.an-rows {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+}
+.an-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.an-row dd {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+.an-ext {
+  font-size: 0.75em;
+  opacity: 0.8;
+}
+
+/* Per-platform mini rows under the Post Activity counters. */
+.an-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.an-mini-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+/* Demographics: thin horizontal bars (data in --c or ink, track one step off the surface), a two-tone donut. */
+.an-bar {
+  display: block;
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  overflow: hidden;
+  min-width: 40px;
+}
+.an-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--c, var(--ink));
+  transition: width 0.4s ease;
+}
+.an-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+.an-donut {
+  width: 96px;
+  height: 96px;
+}
+.an-donut-label {
+  fill: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+  font-family: var(--font-body);
+}
+.an-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+}
+.an-toggle > button {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.an-toggle > button[aria-pressed="true"] {
+  background: var(--panel-3);
+  color: var(--ink);
+}
+
+/* My Content: post grid, 2-up on the phone, up to 4-up on desktop. */
+.an-posts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (min-width: 640px) {
+  .an-posts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1024px) {
+  .an-posts {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.an-post {
+  border-inline-start: 3px solid var(--c, var(--edge));
+}
+.an-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: var(--panel-3);
+}
+.an-post-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.an-post-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 8px;
+}
+
+/* Charts */
+.gr-chart svg {
+  touch-action: pan-y;
+}
+.gr-grid {
+  stroke: color-mix(in srgb, var(--ink) 12%, transparent);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.gr-cross {
+  stroke: color-mix(in srgb, var(--ink) 35%, transparent);
+  stroke-width: 1;
+}
+.gr-tick {
+  fill: var(--muted);
+  font-size: 10px;
+  font-family: var(--font-body);
+}
+.gr-endlabel {
+  fill: var(--ink-2);
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-body);
+}
+.gr-marker {
+  stroke: var(--panel);
+  stroke-width: 2px;
+}
+.gr-tooltip {
+  min-width: 140px;
+  z-index: 2;
+  box-shadow: var(--shadow-sm);
+}
+.gr-table-view table td,
+.gr-table-view table th {
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--edge);
+}
+.gr-dialog {
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+}
+/* ---- /Growth ---- */
+
+/* ---- Calendar ---- */
+/* 📅 Content calendar (Social world): week columns, month grid, stages board, post cards and the post popup.
+ * Everything takes the Social tokens; `--pc` is the post's platform brand color. */
+.cal-week {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+@media (min-width: 640px) {
+  .cal-week {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+@media (min-width: 1024px) {
+  .cal-week {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .cal-day {
+    padding: 10px 8px;
+  }
+  .cal-day .post-card {
+    padding: 8px;
+  }
+}
+.cal-day {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cal-day[data-today="true"] {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--edge));
+  box-shadow:
+    var(--shadow),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.cal-day[data-focus="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.post-card {
+  position: relative;
+  border-inline-start: 3px solid var(--pc, var(--accent));
+  overflow-wrap: anywhere;
+}
+.post-card[data-stage="posted"] .post-title {
+  color: var(--ink-2);
+}
+.post-card[data-overdue="true"] {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--edge));
+  border-inline-start-color: var(--pc, var(--accent));
+}
+
+/* Platform-tinted chips: label chip and the filter / segmented chips. */
+.cal-pchip {
+  background: color-mix(in srgb, var(--pc) 22%, var(--panel-3));
+  border-color: color-mix(in srgb, var(--pc) 45%, transparent);
+}
+.cal-fchip[aria-pressed="true"] {
+  background: var(--pc);
+  border-color: var(--pc);
+  color: #0b0d10;
+}
+
+/* Month grid: 7 columns, Sat first. */
+.cal-month {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+  min-width: 0;
+}
+@media (min-width: 640px) {
+  .cal-month {
+    gap: 6px;
+  }
+}
+.month-day {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 3px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  cursor: pointer;
+}
+@media (min-width: 640px) {
+  .month-day {
+    min-height: 88px;
+    padding: 5px;
+  }
+}
+.month-day:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--edge));
+}
+.month-day[data-outside="true"] {
+  opacity: 0.45;
+}
+.month-day[data-today="true"] {
+  border-color: var(--accent);
+}
+.month-day[data-today="true"] .month-num {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.month-num {
+  display: grid;
+  place-items: center;
+  align-self: flex-start;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-2);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.month-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+  padding: 1px 2px;
+  border: 1px solid color-mix(in srgb, var(--pc) 50%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--pc) 22%, var(--panel-3));
+  color: var(--ink);
+  font-size: 0.68rem;
+  line-height: 1.4;
+  text-align: start;
+}
+@media (min-width: 768px) {
+  .month-chip {
+    justify-content: flex-start;
+    padding: 1px 5px;
+  }
+}
+.month-chip[data-stage="posted"] {
+  opacity: 0.7;
+}
+
+/* Stages board: sideways scroll inside the board on phones, six columns from lg. */
+.cal-board {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  padding-bottom: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+}
+.cal-col {
+  flex: 0 0 min(78vw, 260px);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  scroll-snap-align: start;
+}
+@media (min-width: 1024px) {
+  .cal-board {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+    overflow: visible;
+  }
+  .cal-col {
+    flex: none;
+    padding: 10px 8px;
+  }
+  .cal-col .post-card {
+    padding: 8px;
+  }
+}
+
+/* Segmented tabs (views, popup tabs) and the 6-step stage stepper. */
+.cal-tabs {
+  display: inline-flex;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.cal-tab {
+  flex: 1 1 auto;
+  min-height: 34px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: calc(var(--radius-sm) - 3px);
+  background: none;
+  color: var(--ink-2);
+  font-size: 0.86rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cal-tab[aria-pressed="true"],
+.cal-tab[aria-selected="true"] {
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+.cal-stepper {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+@media (min-width: 640px) {
+  .cal-stepper {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+.cal-step {
+  min-height: 34px;
+  padding: 4px 6px;
+  overflow: hidden;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--ink-2);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cal-step[data-done="true"] {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--edge));
+  color: var(--accent);
+}
+.cal-step[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Post popup: rounded sheet, inline title, textareas and the "posted" panel. */
+.cal-sheet {
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+@media (min-width: 768px) {
+  .cal-sheet {
+    border-radius: var(--radius);
+  }
+}
+.cal-title-input {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px dashed var(--edge);
+  background: none;
+  color: var(--ink);
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.cal-title-input:focus-visible {
+  border-bottom-color: var(--accent);
+  outline: none;
+}
+.cal-textarea {
+  min-height: 56px;
+  resize: vertical;
+}
+.cal-posted {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--edge));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel-2));
+}
+/* ---- /Calendar ---- */
+
+/* ---- Studio ---- */
+/* 📱 Studio home, ideas bank and the Training ↔ Social bridge (round 16). Everything here is built on the
+ * world tokens, so the same classes read as chunky pixel chips in the Training world (skill sheet, map)
+ * and as soft pills under /social. */
+.studio-hero {
+  position: relative;
+  overflow: hidden;
+}
+.studio-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 100% 0%,
+    color-mix(in srgb, var(--c, var(--accent)) 22%, transparent),
+    transparent 55%
+  );
+}
+[dir="rtl"] .studio-hero::before {
+  background: radial-gradient(
+    circle at 0% 0%,
+    color-mix(in srgb, var(--c, var(--accent)) 22%, transparent),
+    transparent 55%
+  );
+}
+.studio-hero > * {
+  position: relative;
+}
+
+/* Platform chip / dot / button: `--c` is the platform's brand color. */
+.studio-pchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 0 8px;
+  border: 2px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--c, var(--accent)) 22%, var(--panel-3));
+  color: var(--ink);
+  white-space: nowrap;
+}
+[data-world="social"] .studio-pchip {
+  border-width: 1px;
+  border-radius: 999px;
+  padding: 0 10px;
+  border-color: color-mix(in srgb, var(--c, var(--accent)) 45%, transparent);
+}
+.studio-pdot {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  border: 2px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: var(--c, var(--accent));
+  color: #0b0d10;
+}
+[data-world="social"] .studio-pdot {
+  border: 0;
+  border-radius: 999px;
+}
+.studio-pbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 2px solid var(--edge);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  background: color-mix(in srgb, var(--c, var(--accent)) 18%, var(--panel-2));
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.studio-pbtn:hover,
+.studio-pbtn:focus-visible {
+  border-color: var(--c, var(--accent));
+}
+[data-world="social"] .studio-pbtn {
+  border-width: 1px;
+  border-radius: 999px;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--c, var(--accent)) 45%, transparent);
+}
+
+/* Optional-platform toggle around a platform chip. */
+.studio-pfilter {
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 999px;
+  opacity: 0.55;
+}
+.studio-pfilter[aria-pressed="true"] {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Segmented control (idea source). */
+.studio-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 2px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.studio-seg > button {
+  flex: 1 1 auto;
+  min-height: 32px;
+  padding: 2px 10px;
+  border-radius: calc(var(--radius-sm) - 2px);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+.studio-seg > button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+[data-world="social"] .studio-seg {
+  border-width: 1px;
+  border-radius: 999px;
+}
+[data-world="social"] .studio-seg > button {
+  border-radius: 999px;
+}
+
+/* This week's plan: 7 day cells, Saturday first. */
+.studio-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.studio-wday {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 74px;
+  padding: 6px 2px;
+  border: 2px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+.studio-wday[data-today="true"] {
+  border-color: var(--accent);
+}
+[data-world="social"] .studio-wday {
+  border-width: 1px;
+}
+
+/* 📱 badge on a map node whose video is planned in the calendar (mirrors .map-lock on the other corner).
+ * `.map-node > .map-cal` outranks `.map-node > span`, which would otherwise keep it in the grid flow. */
+.map-node > .map-cal {
+  position: absolute;
+  top: 1px;
+  inset-inline-start: 1px;
+  z-index: 2;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+/* ---- /Studio ---- */
