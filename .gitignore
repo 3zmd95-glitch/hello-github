@@ -48,3 +48,6 @@ yarn-error.log*
 # Cloudflare Worker (workers/scout) local state and dev secrets
 .wrangler/
 .dev.vars*
+
+# Claude Code agent worktrees (local only)
+.claude/worktrees/
