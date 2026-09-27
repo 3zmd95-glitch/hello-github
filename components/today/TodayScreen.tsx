@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useSceneMood } from "@/components/celebrate/CelebrationProvider";
 import PixelScene from "@/components/game/PixelScene";
+import { useAvatar } from "@/components/game/useAvatar";
 import { skills } from "@/data";
 import { flowState } from "@/lib/flow";
 import { useT } from "@/lib/i18n";
@@ -44,6 +45,7 @@ export default function TodayScreen() {
   const drills = useStore((s) => s.drills);
   const settings = useStore((s) => s.settings);
   const mood = useSceneMood();
+  const avatar = useAvatar();
 
   const xp = useMemo(() => totalXp({ xpEvents }), [xpEvents]);
   const gems = useMemo(() => gemsOf({ gemEvents }), [gemEvents]);
@@ -105,6 +107,7 @@ export default function TodayScreen() {
               tier={rank.tier}
               streak={st.current}
               mood={mood === "celebrate" ? "celebrate" : flow.dayDone ? "happy" : "idle"}
+              avatar={avatar}
               className="w-full"
             />
           </div>

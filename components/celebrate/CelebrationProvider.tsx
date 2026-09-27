@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import PixelScene from "@/components/game/PixelScene";
+import { useAvatar } from "@/components/game/useAvatar";
 import type { Badge } from "@/lib/badges";
 import type { Loot } from "@/lib/chests";
 import type { LText } from "@/lib/domain";
@@ -288,6 +289,7 @@ function BigCelebration({ item, onDone }: { item: Item; onDone: () => void }) {
   const microActions = useStore((s) => s.microActions);
   const freezesUsedOn = useStore((s) => s.freezesUsedOn);
   const bonusFreezes = useStore((s) => s.bonusFreezes);
+  const avatar = useAvatar();
   const rank = useMemo(() => rankFromXp(totalXp({ xpEvents })), [xpEvents]);
   const flame = useMemo(
     () => streak({ completions, microActions, freezesUsedOn, bonusFreezes }).current,
@@ -377,6 +379,7 @@ function BigCelebration({ item, onDone }: { item: Item; onDone: () => void }) {
             tier={rank.tier}
             streak={flame}
             mood="celebrate"
+            avatar={avatar}
             className="w-full"
           />
         </div>

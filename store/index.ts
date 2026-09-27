@@ -12,6 +12,7 @@ import {
 } from "@/lib/chests";
 import {
   BadgeAwardSchema,
+  DEFAULT_AVATAR,
   DrillSchema,
   FocusSessionSchema,
   FocusStateSchema,
@@ -95,6 +96,7 @@ export const DEFAULT_SETTINGS: Settings = {
   gear: ["phone", "lights"],
   davinciEdition: "studio",
   apiKeys: {},
+  avatar: DEFAULT_AVATAR,
 };
 
 /** Old saves held `reviews: unknown[]`; entries that are not a Review are dropped on load. */

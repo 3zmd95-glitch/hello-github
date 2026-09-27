@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { DEFAULT_AVATAR, type Avatar } from "@/lib/domain";
 import {
   BIG_LIGHT,
   BISHT_GOLD,
@@ -23,13 +24,13 @@ import {
   FLAME_SMALL,
   FUSION_PARTICLES,
   HEADPHONES_NECK,
+  HEAD_PAD,
   LEGS,
   MIRRORLESS_CAMERA,
   MOON,
   PALETTE,
   PERSON_SILHOUETTE,
   PHONE,
-  AVATAR_HEAD,
   SHOES_DEFAULT,
   SHOES_GREEN,
   SOFTBOX_LIGHT,
@@ -41,7 +42,10 @@ import {
   TORSO_TEE,
   TRIPOD_LEGS,
   TROPHY,
+  avatarPalette,
+  composeHead,
   drawSprite,
+  type Palette,
   type SpriteMap,
 } from "./sprites";
 
@@ -53,7 +57,11 @@ export interface PixelSceneProps {
   tier: 1 | 2 | 3;
   streak: number;
   mood?: PixelSceneMood;
+  /** The owner's look (Settings → "Your look"); defaults to the round-9 "mini you". */
+  avatar?: Avatar;
   className?: string;
+  /** Forwarded as data-testid on the canvas, so tests can read its pixels. */
+  testId?: string;
 }
 
 /** Logical scene size in pixels; the canvas is scaled up for crispness. */
@@ -289,8 +297,33 @@ interface AvatarFrame {
   sparkle: boolean;
 }
 
-/** Draws the "mini me" avatar with every accessory unlocked up to rankIndex. */
-function drawAvatar(ctx: Ctx2D, rankIndex: number, tier: 1 | 2 | 3, frame: AvatarFrame): void {
+/** Everything about the avatar's look that stays fixed between frames. */
+interface AvatarLook {
+  avatar: Avatar;
+  palette: Palette;
+  head: SpriteMap;
+}
+
+export function avatarLook(avatar: Avatar): AvatarLook {
+  return { avatar, palette: avatarPalette(avatar), head: composeHead(avatar) };
+}
+
+/**
+ * Draws the "mini me" avatar with every accessory unlocked up to rankIndex.
+ * Head layers: face → beard → glasses → hair → headwear (composed in `head`),
+ * then the blink line, then rank gear. The rank-7 studio headphones go on the
+ * head only when no headwear is worn; with a cap, beanie, shemagh or ghutra
+ * they rest around the neck instead (a band across a shemagh reads wrong).
+ * The rank-16 crown always sits on top, above any headwear.
+ */
+function drawAvatar(
+  ctx: Ctx2D,
+  rankIndex: number,
+  tier: 1 | 2 | 3,
+  look: AvatarLook,
+  frame: AvatarFrame,
+): void {
+  const { avatar, palette, head } = look;
   const x = AVATAR_X;
   const y = AVATAR_FEET_Y - 18 + frame.hopY;
 
@@ -302,20 +335,25 @@ function drawAvatar(ctx: Ctx2D, rankIndex: number, tier: 1 | 2 | 3, frame: Avata
   // Torso: pick the most-advanced unlocked layer (they replace each other).
   const torso = rankIndex >= 8 ? BOMBER_JACKET : rankIndex >= 1 ? TORSO_OVERSHIRT : TORSO_TEE;
   const shoes = rankIndex >= 3 ? SHOES_GREEN : SHOES_DEFAULT;
+  const covered = avatar.headwear !== "none";
 
-  drawSprite(ctx, AVATAR_HEAD, x, headY);
-  if (frame.blink) {
-    ctx.fillStyle = PALETTE.k;
-    ctx.fillRect(x + 3, headY + 3, 2, 1);
-  }
-  drawSprite(ctx, torso, x, torsoY);
-  drawSprite(ctx, LEGS, x, legsY);
+  // Body first so the shemagh / ghutra drape (head rows 8-9) lands on the shoulders.
+  drawSprite(ctx, torso, x, torsoY, palette);
+  drawSprite(ctx, LEGS, x, legsY, palette);
   drawSprite(ctx, shoes, x, shoesY);
-
   if (rankIndex >= 2) drawSprite(ctx, CAMERA_STRAP, x + 2, torsoY);
-  if (rankIndex >= 4 && rankIndex < 7) drawSprite(ctx, HEADPHONES_NECK, x, torsoY - 2);
-  if (rankIndex >= 7) drawSprite(ctx, STUDIO_HEADPHONES, x, headY - 1);
   if (rankIndex >= 12) drawSprite(ctx, CHAIN_WATCH, x + 2, torsoY + 3);
+  if (rankIndex >= 11) drawSprite(ctx, BISHT_GOLD, x, torsoY);
+
+  drawSprite(ctx, head, x - HEAD_PAD, headY - HEAD_PAD, palette);
+  if (frame.blink && avatar.glasses !== "sunglasses") {
+    ctx.fillStyle = palette.k;
+    ctx.fillRect(x + 2, headY + 3, 3, 1);
+  }
+
+  if ((rankIndex >= 4 && rankIndex < 7) || (rankIndex >= 7 && covered))
+    drawSprite(ctx, HEADPHONES_NECK, x, torsoY - 2);
+  if (rankIndex >= 7 && !covered) drawSprite(ctx, STUDIO_HEADPHONES, x, headY - 1);
 
   // Held item: the most advanced camera in hand replaces earlier ones.
   if (rankIndex >= 10) {
@@ -334,7 +372,6 @@ function drawAvatar(ctx: Ctx2D, rankIndex: number, tier: 1 | 2 | 3, frame: Avata
   }
   if (rankIndex >= 9) drawSprite(ctx, FUSION_PARTICLES, x - 3, headY - 2);
 
-  if (rankIndex >= 11) drawSprite(ctx, BISHT_GOLD, x, torsoY);
   if (rankIndex >= 13) drawSprite(ctx, FALCON, x + 8, torsoY - 1);
 
   if (rankIndex >= 14) {
@@ -393,7 +430,9 @@ export default function PixelScene({
   tier,
   streak,
   mood = "idle",
+  avatar = DEFAULT_AVATAR,
   className,
+  testId,
 }: PixelSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const celebrateStartRef = useRef<number | null>(null);
@@ -416,6 +455,7 @@ export default function PixelScene({
     const idx = clampIndex(rankIndex);
     const safeStreak = Math.max(0, Math.floor(streak));
     const reduceMotion = prefersReducedMotion();
+    const look = avatarLook(avatar);
 
     let rafId: number | null = null;
     let lastDraw = 0;
@@ -445,7 +485,7 @@ export default function PixelScene({
       const hopY = hopping && Math.floor(now / FRAME_MS) % 2 === 0 ? -1 : 0;
       const flicker = !reduceMotion && Math.floor(now / FRAME_MS) % 2 === 0;
 
-      drawAvatar(ctx, idx, tier, {
+      drawAvatar(ctx, idx, tier, look, {
         hopY,
         blink,
         sparkle: effectiveMood === "celebrate" && !reduceMotion,
@@ -487,7 +527,7 @@ export default function PixelScene({
       document.removeEventListener("visibilitychange", handleVisibility);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [rankIndex, tier, streak, mood]);
+  }, [rankIndex, tier, streak, mood, avatar]);
 
   const idx = clampIndex(rankIndex);
   const safeStreak = Math.max(0, Math.floor(streak));
@@ -500,6 +540,7 @@ export default function PixelScene({
       role="img"
       aria-label={`Pixel scene, rank ${idx + 1}, streak ${safeStreak}`}
       className={className}
+      data-testid={testId}
       style={{ width: "100%", height: "auto", imageRendering: "pixelated" }}
     />
   );

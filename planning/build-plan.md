@@ -64,6 +64,7 @@ Built in round 25 (master plan) by parallel agents, one per row group; every row
 | 2.7 | Season card (30-day theme, badge), monthly boss with HP bar, drills (spaced repetition), 17 badges | ✅ `lib/season.ts`, `lib/boss.ts`, `lib/drills.ts`, `lib/badges.ts` |
 | 2.8 | ~~Seasonal events: Saudi National Day, Founding Day, Ramadan~~ | ✗ dropped by the owner in round 25 ("I don't care for seasonal events for my training"); the National Day badge was removed too |
 | 2.9 | DaVinci core pack: 30+ hand-written fundamentals across the 7 pages (`planning/data/davinci-core-pack.json`, `source: "core"`, no invented sources) | ✅ |
+| 2.10 | Avatar customization: Settings → "Your look" (skin, hair + color, beard, glasses, headwear cap / beanie / shemagh / ghutra + color, tee, overshirt, pants) stored in `settings.avatar`, live preview, shown on Today / celebrations / rank gallery | ✅ `lib/domain.ts` (`AvatarSchema`), `components/game/sprites.ts`, `components/settings/AvatarCard.tsx`, `e2e/avatar.spec.ts` |
 
 ## Sprint 3 · Sync, reminders, hosting (owner creates 2 accounts)
 

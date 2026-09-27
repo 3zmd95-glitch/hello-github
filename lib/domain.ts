@@ -136,6 +136,62 @@ export const ApiKeysSchema = z.object({
 export type ApiKeys = z.infer<typeof ApiKeysSchema>;
 export type ApiKeyName = keyof ApiKeys;
 
+/* ---------- Avatar (round 9: the "mini you" companion, customizable in Settings) ---------- */
+
+export const SKIN_TONES = ["light", "tan", "medium", "brown", "dark"] as const;
+export const HAIR_STYLES = ["short", "buzz", "fade", "curly", "long", "bald"] as const;
+export const HAIR_COLORS = ["black", "darkBrown", "brown", "grey", "blond"] as const;
+export const BEARD_STYLES = ["none", "mustache", "goatee", "full"] as const;
+export const GLASSES_STYLES = ["none", "square", "round", "sunglasses"] as const;
+export const HEADWEAR_STYLES = ["none", "cap", "beanie", "shemagh", "ghutra"] as const;
+/** Used by the cap and beanie; the shemagh is always red/white and the ghutra white. */
+export const HEADWEAR_COLORS = ["black", "green", "red", "white", "navy"] as const;
+export const TEE_COLORS = ["black", "white", "green", "navy", "maroon"] as const;
+/** Tints the overshirt (rank 1+) and the bomber jacket (rank 8+). */
+export const SHIRT_COLORS = ["olive", "navy", "maroon", "sand", "charcoal"] as const;
+export const PANTS_COLORS = ["navy", "black", "beige", "grey", "olive"] as const;
+
+export type SkinTone = (typeof SKIN_TONES)[number];
+export type HairStyle = (typeof HAIR_STYLES)[number];
+export type HairColor = (typeof HAIR_COLORS)[number];
+export type BeardStyle = (typeof BEARD_STYLES)[number];
+export type GlassesStyle = (typeof GLASSES_STYLES)[number];
+export type HeadwearStyle = (typeof HEADWEAR_STYLES)[number];
+export type HeadwearColor = (typeof HEADWEAR_COLORS)[number];
+export type TeeColor = (typeof TEE_COLORS)[number];
+export type ShirtColor = (typeof SHIRT_COLORS)[number];
+export type PantsColor = (typeof PANTS_COLORS)[number];
+
+/** Every field has a default, so a partial avatar (or none at all) in an old save still loads. */
+export const AvatarSchema = z.object({
+  skin: z.enum(SKIN_TONES).default("tan"),
+  hair: z.enum(HAIR_STYLES).default("short"),
+  hairColor: z.enum(HAIR_COLORS).default("black"),
+  beard: z.enum(BEARD_STYLES).default("full"),
+  glasses: z.enum(GLASSES_STYLES).default("square"),
+  headwear: z.enum(HEADWEAR_STYLES).default("none"),
+  headwearColor: z.enum(HEADWEAR_COLORS).default("green"),
+  tee: z.enum(TEE_COLORS).default("black"),
+  shirt: z.enum(SHIRT_COLORS).default("olive"),
+  pants: z.enum(PANTS_COLORS).default("navy"),
+});
+export type Avatar = z.infer<typeof AvatarSchema>;
+export type AvatarPart = keyof Avatar;
+
+/** The owner's look from master plan round 9: tan skin, short black hair, full beard, glasses, olive over black. */
+export const DEFAULT_AVATAR: Avatar = {
+  skin: "tan",
+  hair: "short",
+  hairColor: "black",
+  beard: "full",
+  glasses: "square",
+  headwear: "none",
+  headwearColor: "green",
+  tee: "black",
+  shirt: "olive",
+  pants: "navy",
+};
+
 export const SettingsSchema = z.object({
   lang: LangSchema,
   sound: z.boolean(),
@@ -143,6 +199,7 @@ export const SettingsSchema = z.object({
   gear: z.array(GearSchema),
   davinciEdition: z.enum(["studio", "free"]),
   apiKeys: ApiKeysSchema.default({}),
+  avatar: AvatarSchema.default(DEFAULT_AVATAR),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 

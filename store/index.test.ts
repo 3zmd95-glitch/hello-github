@@ -5,6 +5,7 @@ import { CHEST_EVERY, lootFor } from "@/lib/chests";
 import { FREEZE_REWARD_ID, GEM_RULES, defaultRewards } from "@/lib/gems";
 import { FREEZE_TOTAL_CAP } from "@/lib/streak";
 import { DRILL_XP, MASTERY_BONUS, REVIEW_XP, questXp } from "@/lib/xp";
+import { DEFAULT_AVATAR } from "@/lib/domain";
 import {
   DEFAULT_SETTINGS,
   STORAGE_KEY,
@@ -221,6 +222,55 @@ describe("settings, export/import, persistence", () => {
     expect(S().settings).toEqual({ ...DEFAULT_SETTINGS, lang: "en" });
   });
 
+  it("setSettings({ avatar }) validates and persists the look", async () => {
+    expect(S().settings.avatar).toEqual(DEFAULT_AVATAR);
+    const look = { ...DEFAULT_AVATAR, skin: "dark" as const, headwear: "shemagh" as const };
+    S().setSettings({ avatar: look });
+    expect(S().settings.avatar).toEqual(look);
+    expect(() =>
+      S().setSettings({ avatar: { ...look, skin: "purple" as unknown as "dark" } }),
+    ).toThrow();
+    expect(S().settings.avatar).toEqual(look);
+
+    const raw = localStorage.getItem(STORAGE_KEY);
+    expect(JSON.parse(raw!).state.settings.avatar).toEqual(look);
+    useStore.setState({ settings: { ...DEFAULT_SETTINGS } });
+    localStorage.setItem(STORAGE_KEY, raw!);
+    await hydrateStore();
+    expect(S().settings.avatar).toEqual(look);
+
+    const json = S().exportState();
+    expect(JSON.parse(json).state.settings.avatar).toEqual(look);
+    S().reset();
+    expect(S().settings.avatar).toEqual(DEFAULT_AVATAR);
+    S().importState(json);
+    expect(S().settings.avatar).toEqual(look);
+  });
+
+  it("a persisted settings object without avatar (pre-customization save) merges to the default", async () => {
+    const { avatar: _dropped, ...withoutAvatar } = DEFAULT_SETTINGS;
+    void _dropped;
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { settings: { ...withoutAvatar, lang: "en" } }, version: 1 }),
+    );
+    await hydrateStore();
+    expect(S().settings.avatar).toEqual(DEFAULT_AVATAR);
+    expect(S().settings.lang).toBe("en");
+  });
+
+  it("a partial avatar in a save fills the missing parts with defaults", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        state: { settings: { ...DEFAULT_SETTINGS, avatar: { skin: "brown" } } },
+        version: 1,
+      }),
+    );
+    await hydrateStore();
+    expect(S().settings.avatar).toEqual({ ...DEFAULT_AVATAR, skin: "brown" });
+  });
+
   it("saves and round-trips a youtube API key via getApiKey", () => {
     expect(getApiKey(S(), "youtube")).toBeUndefined();
     S().setSettings({ apiKeys: { youtube: "AIzaTest123" } });
@@ -389,6 +439,21 @@ describe("backwards compatibility", () => {
     expect(S().planItems).toEqual([]);
     expect(S().purchases).toEqual([]);
     expect(S().rewards).toEqual(defaultRewards());
+  });
+
+  it("imports an export file whose settings predate the avatar and fills the default look", () => {
+    const { avatar: _dropped, ...settings } = DEFAULT_SETTINGS;
+    void _dropped;
+    S().importState(
+      JSON.stringify({
+        app: "3z-prod",
+        version: 1,
+        exportedAt: "2026-09-01",
+        state: { ...oldState, settings },
+      }),
+    );
+    expect(S().settings.avatar).toEqual(DEFAULT_AVATAR);
+    expect(totalXp(S())).toBe(15);
   });
 
   it("hydrates an old localStorage save and keeps the built-in freeze reward", async () => {

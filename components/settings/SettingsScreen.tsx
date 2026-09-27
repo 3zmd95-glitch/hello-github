@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import type { ApiKeyName, Gear } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
@@ -9,6 +9,8 @@ import { isValidScoutUrl, scoutConfig, scoutErrorMessageKey, scoutHealth } from 
 import { dayKey } from "@/lib/streak";
 import { getApiKey, useStore } from "@/store";
 import pkg from "@/package.json";
+import AvatarCard from "./AvatarCard";
+import Card from "./Card";
 
 const GEAR_OPTIONS: readonly Exclude<Gear, "any">[] = [
   "phone",
@@ -82,6 +84,8 @@ export default function SettingsScreen() {
         <h1 className="text-2xl">{t("settings.title")}</h1>
         <p className="text-ink-2 text-sm">{t("settings.sub")}</p>
       </header>
+
+      <AvatarCard />
 
       <Card title={t("settings.lang")}>
         <Segmented
@@ -425,28 +429,6 @@ function ApiKeyRow({
         )}
       </p>
     </div>
-  );
-}
-
-function Card({
-  id,
-  title,
-  note,
-  children,
-}: {
-  id?: string;
-  title: string;
-  note?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section id={id} className="px-card flex scroll-mt-20 flex-col gap-3">
-      <div>
-        <h2 className="text-base">{title}</h2>
-        {note && <p className="text-muted text-xs">{note}</p>}
-      </div>
-      {children}
-    </section>
   );
 }
 

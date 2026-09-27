@@ -78,6 +78,10 @@ Brainstorm round 9 (inspired by Boot.dev + Codédex, all accepted):
   (final rank tiers run to the Level 60 XP threshold). 17 × 3 = 51 steps. A tier-up gets its own celebration toast.
 - Companion = **"mini you" pixel avatar** modeled on the owner: medium/tan skin, short dark hair, full beard + mustache, glasses,
   overshirt (olive over black tee assumed; colors to confirm). Headwear picker (cap / shemagh / ghutra).
+  - Shipped (build plan 2.10): Settings → "Your look" customizes skin (5 tones), hair (short / buzz / fade / curly / long / bald, 5 colors),
+    beard (none / mustache / goatee / full), glasses (none / square / round / sunglasses), headwear (none / cap / beanie / shemagh / ghutra,
+    cap + beanie in 5 colors), tee, overshirt and pants colors (5 each); stored as `settings.avatar` with the round-9 look as default,
+    shown on Today, in celebrations and the rank gallery. Rank unlocks are unchanged; with headwear on, the studio headphones rest on the neck.
 - **Avatar evolves with every rank** (cumulative unlocks): tee + phone → overshirt → camera strap → green sneakers → neck headphones →
   softbox light → mirrorless + color sparkles → studio headphones → bomber jacket → Fusion particles → cinema camera + clapperboard (film-set stage) →
   gold-trimmed bisht → gold watch/chain + gold floor → falcon on the forearm → golden aura → cosmic backdrop → crown.
