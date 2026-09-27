@@ -13,6 +13,14 @@ import arToday from "@/messages/today.ar.json";
 import enToday from "@/messages/today.en.json";
 import arXp from "@/messages/xp.ar.json";
 import enXp from "@/messages/xp.en.json";
+import arSocial from "@/messages/social.ar.json";
+import enSocial from "@/messages/social.en.json";
+import arCalendar from "@/messages/calendar.ar.json";
+import enCalendar from "@/messages/calendar.en.json";
+import arGrowth from "@/messages/growth.ar.json";
+import enGrowth from "@/messages/growth.en.json";
+import arIdeas from "@/messages/ideas.ar.json";
+import enIdeas from "@/messages/ideas.en.json";
 import type { Lang, LText } from "@/lib/domain";
 import { useStore } from "@/store";
 
@@ -35,6 +43,11 @@ export const MESSAGE_FILES = {
   rewards: { ar: arRewards, en: enRewards },
   today: { ar: arToday, en: enToday },
   xp: { ar: arXp, en: enXp },
+  // 📱 Social world (round 16): shell + Studio home, content calendar, growth, ideas bank.
+  social: { ar: arSocial, en: enSocial },
+  calendar: { ar: arCalendar, en: enCalendar },
+  growth: { ar: arGrowth, en: enGrowth },
+  ideas: { ar: arIdeas, en: enIdeas },
 } as const;
 
 const ar = {
@@ -45,6 +58,10 @@ const ar = {
   ...arRewards,
   ...arToday,
   ...arXp,
+  ...arSocial,
+  ...arCalendar,
+  ...arGrowth,
+  ...arIdeas,
 };
 const en = {
   ...enBase,
@@ -54,6 +71,10 @@ const en = {
   ...enRewards,
   ...enToday,
   ...enXp,
+  ...enSocial,
+  ...enCalendar,
+  ...enGrowth,
+  ...enIdeas,
 };
 
 export type MessageKey = keyof typeof ar;
