@@ -70,3 +70,66 @@ test("a combo item finishes both produce quests with one clip link", async ({ pa
   await expect(page.getByTestId("skill-sheet")).toBeVisible();
   await expect(page.getByTestId("sheet-progress")).toHaveText("1/4");
 });
+
+test("manual edits: remove an item, add one from the backlog, keep both over a reload, reset", async ({
+  page,
+}) => {
+  await freshState(page, "/planner/");
+
+  const items = page.getByTestId("plan-item");
+  const budget = page.getByTestId("plan-budget");
+  const total = await items.count();
+  const minutes0 = Number(await budget.getAttribute("data-minutes"));
+  await expect(page.getByTestId("plan-by-me")).toHaveCount(0);
+  await expect(page.getByTestId("plan-reset")).toBeDisabled();
+
+  // Remove the first item: one fewer card, fewer planned minutes, the "edited" chip appears.
+  const first = items.first();
+  const removedId = await first.getAttribute("data-id");
+  expect(removedId).toBeTruthy();
+  await first.getByTestId("plan-remove").click();
+  await expect(items).toHaveCount(total - 1);
+  await expect(page.locator(`[data-testid="plan-item"][data-id="${removedId}"]`)).toHaveCount(0);
+  const minutes1 = Number(await budget.getAttribute("data-minutes"));
+  expect(minutes1).toBeLessThan(minutes0);
+  await expect(page.getByTestId("plan-edited")).toBeVisible();
+
+  // Add the first backlog quest: the count is back up and the new card carries the "you" chip.
+  await page.getByTestId("plan-add").click();
+  await expect(page.getByTestId("plan-backlog")).toBeVisible();
+  const candidate = page.getByTestId("plan-backlog-item").first();
+  const addedSkill = await candidate.getAttribute("data-skill");
+  const addedQuest = await candidate.getAttribute("data-quest");
+  expect(addedSkill).toBeTruthy();
+  expect(addedQuest).toBeTruthy();
+  await candidate.click();
+  await expect(items).toHaveCount(total);
+  const added = page.locator(
+    `[data-testid="plan-item"][data-manual="true"][data-skill="${addedSkill}"]`,
+  );
+  await expect(added).toHaveCount(1);
+  await expect(added).toHaveAttribute("data-quest", addedQuest!);
+  await expect(added.getByTestId("plan-by-me")).toBeVisible();
+  expect(Number(await budget.getAttribute("data-minutes"))).toBeGreaterThan(minutes1);
+  // It is no longer offered in the backlog.
+  await expect(
+    page.locator(`[data-testid="plan-backlog-item"][data-skill="${addedSkill}"]`),
+  ).toHaveCount(0);
+
+  // Reload: the removal and the addition are both read back from localStorage.
+  await page.reload();
+  await expect(items).toHaveCount(total);
+  await expect(page.locator(`[data-testid="plan-item"][data-id="${removedId}"]`)).toHaveCount(0);
+  await expect(added).toHaveCount(1);
+  await expect(added.getByTestId("plan-by-me")).toBeVisible();
+
+  // Reset (behind a confirm): the coach's plan is back exactly as it was.
+  await page.getByTestId("plan-reset").click();
+  await expect(page.getByTestId("confirm-dialog")).toBeVisible();
+  await page.getByTestId("confirm-ok").click();
+  await expect(items).toHaveCount(total);
+  await expect(page.locator(`[data-testid="plan-item"][data-id="${removedId}"]`)).toHaveCount(1);
+  await expect(page.getByTestId("plan-by-me")).toHaveCount(0);
+  await expect(page.getByTestId("plan-edited")).toHaveCount(0);
+  expect(Number(await budget.getAttribute("data-minutes"))).toBe(minutes0);
+});

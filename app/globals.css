@@ -952,3 +952,25 @@
   filter: drop-shadow(2px 2px 0 var(--edge));
 }
 /* ---- /Rewards ---- */
+
+/* ---- Today ---- */
+/* Focus countdown in the pixel font; the ready chest bobs (the reduced-motion rule above stops every animation). */
+.today-timer {
+  font-family: var(--font-pixel);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.6rem;
+  line-height: 1;
+  letter-spacing: 1px;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+@keyframes today-bob {
+  50% {
+    transform: translateY(-4px) rotate(-6deg);
+  }
+}
+.today-bob {
+  display: inline-block;
+  animation: today-bob 0.9s steps(3) infinite;
+}
+/* ---- /Today ---- */

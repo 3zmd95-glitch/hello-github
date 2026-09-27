@@ -19,8 +19,8 @@ export default function WhyThisPlan() {
         <li>{t("planner.why3")}</li>
         <li>{t("planner.why4")}</li>
         <li>{t("planner.why5")}</li>
+        <li>{t("planner.why6")}</li>
       </ol>
-      <p className="text-muted mt-3 text-xs">{t("planner.manualSoon")}</p>
     </details>
   );
 }
