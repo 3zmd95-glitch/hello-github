@@ -1,18 +1,27 @@
 import type { Platform } from "@/lib/domain";
+import type { MetricFormat } from "@/lib/analytics";
 
 /**
- * Number formatting for the Growth screen: Latin digits in both languages, compact from 1,000 up
- * ("1.2K", "12.4K", "1.5M") so tiles and table cells stay short on a phone.
+ * Number formatting for the Social Analytics screen, the way Beacons shows them: Latin digits in both
+ * languages, compact from 1,000 up with one decimal ("1.5k", "30.2k", "1.2m"), whole numbers below.
  */
-const compact = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const plain = new Intl.NumberFormat("en");
+
+const oneDecimal = (x: number): string => {
+  const r = Math.round(x * 10) / 10;
+  return r % 1 === 0 ? String(r) : r.toFixed(1);
+};
 
 export function fmtCount(n: number): string {
   if (!Number.isFinite(n)) return "–";
-  return Math.abs(n) >= 1000 ? compact.format(n) : plain.format(n);
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "−" : "";
+  if (abs >= 1_000_000) return `${sign}${oneDecimal(abs / 1_000_000)}m`;
+  if (abs >= 1_000) return `${sign}${oneDecimal(abs / 1_000)}k`;
+  return `${sign}${plain.format(Math.round(abs))}`;
 }
 
-/** Signed compact count: "+300", "−1.2K", "0". */
+/** Signed compact count: "+300", "−1.2k", "0". */
 export function fmtSigned(n: number): string {
   if (!Number.isFinite(n)) return "–";
   if (n === 0) return "0";
@@ -22,21 +31,44 @@ export function fmtSigned(n: number): string {
 /** Signed percentage with one decimal at most: "+10%", "−3.5%". */
 export function fmtPct(p: number): string {
   if (!Number.isFinite(p)) return "–";
-  const abs = Math.round(Math.abs(p) * 10) / 10;
-  const s = abs % 1 === 0 ? String(abs) : abs.toFixed(1);
+  const s = oneDecimal(Math.abs(p));
   return `${p > 0 ? "+" : p < 0 ? "−" : ""}${s}%`;
 }
 
-/** Engagement as reported: "4.2%". */
+/** Engagement as reported: "7.8%". */
 export function fmtEngagement(p: number | null | undefined): string {
   if (p === null || p === undefined || !Number.isFinite(p)) return "–";
-  const r = Math.round(p * 10) / 10;
-  return `${r % 1 === 0 ? String(r) : r.toFixed(1)}%`;
+  return `${oneDecimal(p)}%`;
 }
 
-/** Axis ticks: "1.2K" style, but whole numbers under 1,000. */
+/** Watch time in seconds → "45s", "1m 23s", "1h 05m". */
+export function fmtSeconds(s: number | null | undefined): string {
+  if (s === null || s === undefined || !Number.isFinite(s)) return "–";
+  const total = Math.round(s);
+  if (total < 60) return `${total}s`;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+  return `${m}m ${String(sec).padStart(2, "0")}s`;
+}
+
+/** A metric value in the format lib/analytics assigns it; "–" when unknown. */
+export function fmtMetric(value: number | null | undefined, format: MetricFormat): string {
+  if (value === null || value === undefined) return "–";
+  switch (format) {
+    case "pct":
+      return fmtEngagement(value);
+    case "seconds":
+      return fmtSeconds(value);
+    default:
+      return fmtCount(value);
+  }
+}
+
+/** Axis ticks: "1.2k" style, but whole numbers under 1,000. */
 export function fmtTick(n: number): string {
-  return Math.abs(n) >= 1000 ? compact.format(n) : plain.format(Math.round(n));
+  return Math.abs(n) >= 1000 ? fmtCount(n) : plain.format(Math.round(n));
 }
 
 /** Public profile URL from a handle when the owner did not type one. */
