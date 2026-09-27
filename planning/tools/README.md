@@ -17,6 +17,8 @@ build order. Website and social tools are recorded so nothing is forgotten, but 
 
 ## Rules used when picking
 
+0. **Search before building** (owner's rule): look for existing GitHub projects, libraries and Claude skills that already do the job before writing it; record adopted/rejected finds in `05-found-on-github.md`.
+
 1. **Free tier first**, commercial use allowed, total under ~$10/month (see the master plan cost target).
 2. **One codebase**: public site, dashboard and API live in the same Next.js app on Cloudflare.
 3. **Owner time under 5 h/week**: prefer tools that remove work (generated types, AI drafts, cron jobs) over tools that add a surface to maintain.

@@ -8,7 +8,6 @@ const SOON: readonly MessageKey[] = [
   "morePage.planner",
   "morePage.review",
   "morePage.rewards",
-  "morePage.discover",
 ];
 
 export default function MoreScreen() {

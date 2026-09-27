@@ -361,6 +361,17 @@ creation; owner: "the list is not absolute truth, you can add to it").
 - Data model: `pillars` (id, order, name AR/EN, color, icon); `programs.pillar_id`. App change: Skills screen grouped by pillar with a level per pillar;
   craft programs keep their `kind` for gear/combo logic.
 
+Brainstorm round 23: **the research button** (owner: "for a subject like match cut I want a button that scrubs YouTube, TikTok and Instagram").
+- Two layers. **Scout v0 (now, static app):** a 🔎 Research button on every skill and a Discover screen; one tap opens platform search for the topic
+  (YouTube `results?search_query`, TikTok `/search?q=`, Instagram keyword search + hashtag page) in AR and EN; on the phone the links open in the apps.
+  In-app YouTube results via the free YouTube Data API v3 (`search.list`, 100 quota units per search → ~100 searches/day) using a key the owner
+  pastes into Settings (stored on the device, referrer-restricted in Google Cloud, never in the bundle). "Add as reference" attaches a result
+  to the skill's Start-here path; a paste-a-link box saves TikTok / Instagram references, since neither has a public search API.
+  Saved references live in the local store (`skillRefs`) and later sync to `skill_refs` in Supabase.
+- **Scout v1 (Sprint 4):** the AI card (what, steps, 4 quests, trend, Arabic gap, ranked refs) via Claude + web search restricted to the three
+  platforms, running on a Cloudflare Worker with the owner's Anthropic key and the `ai_usage` cap. Cannot ship in the static app: an API key in
+  client code would be public.
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|
