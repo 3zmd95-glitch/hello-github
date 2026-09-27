@@ -14,7 +14,9 @@ export default function PxBar({
   label?: string;
   className?: string;
 }) {
-  const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
+  // Any real progress shows at least a 1 % sliver, so the first quest on a big island still moves the bar.
+  const clamped = Math.max(0, Math.min(1, value));
+  const pct = clamped > 0 ? Math.max(1, Math.round(clamped * 100)) : 0;
   return (
     <div
       role="progressbar"

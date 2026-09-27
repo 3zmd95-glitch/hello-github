@@ -387,6 +387,45 @@ them"). Searched first (rule): Google Custom Search JSON API is closed to new cu
 - Budget: ~33 Tavily searches/day; the UI shows the month's remaining count and caches results per topic on the device.
 - Later upgrade path unchanged: Instagram Graph hashtag search after Meta app review; AI Scout in Sprint 4.
 
+Brainstorm round 25 (owner: "build the islands around the 6 pillars, the DaVinci Resolve skills, all the XP system and the full
+dashboard"; built as Sprint 2 by parallel agents, each owning its files, merged and tested together):
+- **Map (`/map`)**: the world is **6 continents = the 6 pillars**, in pillar order, each with its level (from `pillarXp`) and its programs as
+  pixel **islands** on a sea strip (canvas art, color = program color, size grows with level + skill count, glow from level 2, DaVinci is the
+  gold "home" island, programs with no skills are fogged and link to Discover). Tap an island → its **region map**: sections as a winding path
+  of numbered regions, skills as square nodes filled by quests done (★ gold when mastered, 🔒 when gear-locked) → the skill popup. Every program
+  has a theme line (round 10 + 21 themes, new ones for the newer programs). Deep link `/map/#island=<programId>` (hash, static-export safe).
+- **Planner (`/planner`)**: rules-based, deterministic per week (Sat–Fri, Riyadh). Time per quest: Train 30 · Research 20 · Produce 60 ·
+  Article 45 min × tier factor (1 / 1.25 / 1.5), budget 300 min. Mix: **1 combo + 1 craft + 1–2 software**, then fill by rank while under
+  budget; never two Produce quests on one day; heavy items land mid-week. Only completions before the week started shape the picks, so ticking
+  a planned quest marks it done instead of redrawing. **Combo quests v1** (`lib/combo.ts`): named pairs first (Log ↔ CST, 180° shutter ↔
+  Retime/Speed Warp, lav ↔ voice chain, storyboard ↔ Source Tape; the two craft sides without seed skills wait for their packs), else the best
+  craft + software Produce pair; one proof link completes both Produce quests. Manual edits (remove, add from backlog onto the lightest day,
+  reset) are stored as `planItems` overlaid on the derived plan.
+- **XP system (all rules in `lib/`, tested, every field backwards compatible in the store):**
+
+  | Piece | Rule |
+  |---|---|
+  | Gems 💎 | quest `max(1, round(xp / 5))` · mastery +10 · day complete +5 · weekly review +5 · badge +15 · boss defeated +50 · season finished +30 · purchases negative |
+  | Chests | one film-canister chest per 5 completed quests; loot is deterministic from the chest number: gems +20/+35/+50, a bonus streak freeze, or one of 10 creative prompts |
+  | Focus | 25 or 60 min "potion"; quest XP × 1.25 while it runs (mastery bonus not boosted); expired sessions auto-record |
+  | Freezes | 1 earned per active week (cap 2) + bonus freezes from chests/shop, total cap 5; earned ones are spent first |
+  | Badges | 17: first mastery, 7- and 30-day streaks, 10/50/100 quests, first proof, first article, first region, first island (program LV 5), pillar LV 5, first chest, 10 focus sessions, first review, boss slayer, season finisher |
+  | Boss | one per month, 8 rotating bosses; HP = 300 × (1 + 0.1 × (level − 1)) at month start; damage = XP that month (quests, mastery, drills, reviews) |
+  | Seasons | 30-day windows from 2026-09-01, 8 rotating themes (color → capture → sound → story → design → AI → projects → growth); target 10 themed quests → badge + gems |
+  | Drills | created when a skill is mastered, due in 3 days, then 7 → 14 → 30; 10 minutes, +5 XP, counts toward the program |
+  | Review | +10 XP + 5 gems once per week for mood + 3 answers; edits later give nothing |
+  | Rewards shop | owner-defined real rewards bought with gems (min level, repeatable); built-in "streak freeze" 40 gems |
+
+- **Rewards (`/rewards`)**: wallet, chest box, gem shop with the owner's own rewards editor, the 17-rank gallery with the avatar stage per rank
+  and its unlock, all badges (earned / locked), purchase log. **Review (`/review`)**: week stats (XP with delta, quests with craft/software
+  split, active days, focus time), XP by pillar, 8-week history, rules-based insights with "go" links, mood + 3 questions (+10 XP once per week),
+  past reviews. **Today** gains the wallet, coach reasons (boss / season / drill), the focus card, chest box, boss HP bar, season card and due drills.
+- Nav: phone tab bar Today · Skills · Map · Discover · More; desktop sidebar adds Planner · Review · Rewards · Settings. Dictionaries are split
+  by feature (`messages/<feature>.{ar,en}.json`) so screens can be built in parallel; the parity test also rejects duplicate keys.
+- **Owner decision: no seasonal events** (National Day, Founding Day, Ramadan, double-gems days; build plan 2.8 and the round-15 event ideas are
+  dropped; the National Day badge was removed). The 30-day themed **seasons** (Color month, Capture month…) are a different feature and stay.
+- Left for later: AI coach (Sprint 4).
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|

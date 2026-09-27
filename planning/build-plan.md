@@ -51,16 +51,19 @@ Sprint 1 store · Zod schemas for seed data · Vitest · Playwright · GitHub Ac
 
 ## Sprint 2 · Map, planner, review (still static)
 
-| # | Step |
-|---|---|
-| 2.1 | World map: two archipelagos (Craft · Tools), island size/glow by program level, fog on empty islands |
-| 2.2 | DaVinci region map (7 pages as regions, skills as nodes with names) → skill popup; craft island region maps |
-| 2.3 | Planner: next-week plan (Sat–Fri) within a 5 h budget from the rules-based picker (AI comes in Sprint 4); add/remove/tick |
-| 2.4 | Combo quests v1: rules-based pairing from `related` (craft skill + software skill → one brief, one clip completes both Produce quests) |
-| 2.5 | Review: week stats (XP, quests, craft/software split), streak history, mood + 3 reflection questions (+10 XP) |
-| 2.6 | Focus session timer (25/60 min, +25 % XP), chests after N quests, gems ledger, rewards shop (owner-defined real rewards) |
-| 2.7 | Season card (30-day theme, badge), monthly boss with HP bar, drills (spaced repetition), badges |
-| 2.8 | Seasonal events: Saudi National Day, Founding Day, Ramadan (Umm al-Qura calendar via `Intl`) |
+Built in round 25 (master plan) by parallel agents, one per row group; every row below marked ✅ is merged with unit + e2e tests.
+
+| # | Step | Status |
+|---|---|---|
+| 2.1 | World map: **6 continents (pillars)** with program islands, island size/glow by program level, fog on empty islands | ✅ `components/map`, `lib/mapLayout.ts`, `e2e/map.spec.ts` |
+| 2.2 | Region map for every program (sections as regions, skills as nodes) → skill popup; hash deep link `/map/#island=<id>` | ✅ |
+| 2.3 | Planner: this week's plan (Sat–Fri) within a 5 h budget from the rules-based picker; tick; remove / add from backlog / reset stored as `planItems` | ✅ `lib/weekPlan.ts`, `components/planner`, `e2e/planner.spec.ts` |
+| 2.4 | Combo quests v1: named pairs + generic craft/software pairing, one clip completes both Produce quests | ✅ `lib/combo.ts` |
+| 2.5 | Review: week stats (XP, quests, craft/software split), 8-week history, insights, mood + 3 reflection questions (+10 XP) | ✅ `lib/weekStats.ts`, `components/review`, `e2e/review.spec.ts` |
+| 2.6 | Focus session timer (25/60 min, +25 % XP), chests every 5 quests, gems ledger, rewards shop (owner-defined real rewards) | ✅ `lib/focus.ts`, `lib/chests.ts`, `lib/gems.ts`, `components/rewards` |
+| 2.7 | Season card (30-day theme, badge), monthly boss with HP bar, drills (spaced repetition), 17 badges | ✅ `lib/season.ts`, `lib/boss.ts`, `lib/drills.ts`, `lib/badges.ts` |
+| 2.8 | ~~Seasonal events: Saudi National Day, Founding Day, Ramadan~~ | ✗ dropped by the owner in round 25 ("I don't care for seasonal events for my training"); the National Day badge was removed too |
+| 2.9 | DaVinci core pack: 30+ hand-written fundamentals across the 7 pages (`planning/data/davinci-core-pack.json`, `source: "core"`, no invented sources) | ✅ |
 
 ## Sprint 3 · Sync, reminders, hosting (owner creates 2 accounts)
 

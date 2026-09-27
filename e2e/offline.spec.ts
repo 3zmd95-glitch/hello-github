@@ -24,6 +24,13 @@ test.describe("offline", () => {
     await page.reload();
     await expect(page.getByTestId("today-header")).toBeVisible();
 
+    // Visit Skills once online so its own chunks are in the cache: the shell precaches the HTML, and the
+    // hashed JS is cached on first fetch. Relying on link prefetch here was timing-dependent in CI.
+    await page.goto("/skills/");
+    await expect(page.getByTestId("pillar-capture")).toBeVisible();
+    await page.goto("/");
+    await expect(page.getByTestId("today-header")).toBeVisible();
+
     await context.setOffline(true);
     try {
       await page.reload();

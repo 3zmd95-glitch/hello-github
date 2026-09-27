@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   addDays,
+  bonusFreezesSpent,
   computeStreak,
   countActiveWeeks,
   dayKey,
   daysBetween,
   daysToFreeze,
+  earnedFreezeStock,
   freezeStock,
   freezesEarned,
   weekKey,
@@ -106,6 +108,29 @@ describe("freezes", () => {
     expect(freezeStock(active, set(), "2026-09-26")).toBe(2);
     expect(freezeStock(active, set("2026-09-20"), "2026-09-26")).toBe(2); // 2 → 1 → +1 = 2
     expect(freezeStock(set("2026-09-12"), set("2026-09-13"), "2026-09-14")).toBe(0);
+  });
+
+  it("bonus freezes add on top of the earned stock, capped at 5 in total", () => {
+    const active = set("2026-09-12", "2026-09-19", "2026-09-26"); // earned 2
+    expect(freezeStock(active, set(), "2026-09-26", 1)).toBe(3);
+    expect(freezeStock(active, set(), "2026-09-26", 9)).toBe(5);
+    expect(freezeStock(set(), set(), "2026-09-26", 2)).toBe(2);
+    expect(earnedFreezeStock(active, set(), "2026-09-26")).toBe(2);
+  });
+
+  it("earned freezes are spent first, bonus ones last", () => {
+    const active = set("2026-09-18", "2026-09-19", "2026-09-23"); // earned 2
+    // A 3-day gap needs 2 earned + 1 bonus.
+    expect(daysToFreeze(active, set(), "2026-09-27")).toEqual([]);
+    const gap = daysToFreeze(active, set(), "2026-09-27", 1);
+    expect(gap).toEqual(["2026-09-24", "2026-09-25", "2026-09-26"]);
+    expect(bonusFreezesSpent(active, set(), "2026-09-27", gap.length)).toBe(1);
+    // After spending: the earned walk clamps at 0 for the bonus-paid day, so earned stock is 0, not −1.
+    const used = set(...gap);
+    expect(earnedFreezeStock(active, used, "2026-09-27")).toBe(0);
+    expect(freezeStock(active, used, "2026-09-27", 0)).toBe(0);
+    // A 1-day gap with 2 earned costs no bonus freeze.
+    expect(bonusFreezesSpent(active, set(), "2026-09-25", 1)).toBe(0);
   });
 
   it("daysToFreeze returns the gap when stock covers it", () => {

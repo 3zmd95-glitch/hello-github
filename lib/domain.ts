@@ -79,7 +79,8 @@ export type Program = z.infer<typeof ProgramSchema>;
 
 /* ---------- Skills ---------- */
 
-export const SkillSourceSchema = z.enum(["starter", "studio-ai", "draft"]);
+/** starter / studio-ai = Skill Scout packs · core = hand-written DaVinci fundamentals · draft = placeholder craft skills. */
+export const SkillSourceSchema = z.enum(["starter", "studio-ai", "core", "draft"]);
 export type SkillSource = z.infer<typeof SkillSourceSchema>;
 
 export const SkillIdeaSchema = z.object({ name: LTextSchema, desc: LTextSchema });
@@ -153,7 +154,7 @@ export const QuestCompletionSchema = z.object({
 });
 export type QuestCompletion = z.infer<typeof QuestCompletionSchema>;
 
-export const XpSourceSchema = z.enum(["quest", "mastery", "micro", "review", "bonus"]);
+export const XpSourceSchema = z.enum(["quest", "mastery", "micro", "review", "bonus", "drill"]);
 export type XpSource = z.infer<typeof XpSourceSchema>;
 
 export const XpEventSchema = z.object({
@@ -161,7 +162,7 @@ export const XpEventSchema = z.object({
   source: XpSourceSchema,
   amount: z.number().int(),
   at: z.iso.datetime({ offset: true }),
-  /** e.g. "skillId:quest" for quests, skillId for mastery, micro-action id for micro. */
+  /** "skillId:quest" for quests · skillId for mastery and drills · micro-action id for micro · week key for review. */
   refId: z.string().optional(),
 });
 export type XpEvent = z.infer<typeof XpEventSchema>;
@@ -172,3 +173,126 @@ export const MicroActionSchema = z.object({
   text: LTextSchema,
 });
 export type MicroAction = z.infer<typeof MicroActionSchema>;
+
+/* ---------- Gamification core (Sprint 2: gems, chests, focus, badges, boss, seasons, drills) ---------- */
+
+export const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+export const MONTH_KEY_RE = /^\d{4}-\d{2}$/;
+
+/** Why gems moved. Positive reasons earn; `purchase` spends (negative amount). */
+export const GemReasonSchema = z.enum([
+  "quest",
+  "mastery",
+  "dayComplete",
+  "review",
+  "badge",
+  "boss",
+  "season",
+  "chest",
+  "purchase",
+]);
+export type GemReason = z.infer<typeof GemReasonSchema>;
+
+export const GemEventSchema = z.object({
+  id: z.string().min(1),
+  /** Positive = earned, negative = spent. */
+  amount: z.number().int(),
+  at: z.iso.datetime({ offset: true }),
+  reason: GemReasonSchema,
+  /** quest ref, skill id, day key, week key, badge id, boss month, season key, chest number or reward id. */
+  refId: z.string().optional(),
+});
+export type GemEvent = z.infer<typeof GemEventSchema>;
+
+export const FOCUS_MINUTES = [25, 60] as const;
+export const FocusMinutesSchema = z.union([z.literal(25), z.literal(60)]);
+export type FocusMinutes = z.infer<typeof FocusMinutesSchema>;
+
+/** The running focus session ("potion"), if any. */
+export const FocusStateSchema = z.object({
+  startedAt: z.iso.datetime({ offset: true }),
+  minutes: FocusMinutesSchema,
+});
+export type FocusState = z.infer<typeof FocusStateSchema>;
+
+export const FocusSessionSchema = z.object({
+  id: z.string().min(1),
+  startedAt: z.iso.datetime({ offset: true }),
+  minutes: FocusMinutesSchema,
+  endedAt: z.iso.datetime({ offset: true }),
+  /** True when stopped before the timer ran out. */
+  early: z.boolean(),
+});
+export type FocusSession = z.infer<typeof FocusSessionSchema>;
+
+export const BadgeAwardSchema = z.object({
+  id: z.string().min(1),
+  at: z.iso.datetime({ offset: true }),
+});
+export type BadgeAward = z.infer<typeof BadgeAwardSchema>;
+
+/** Spaced-repetition drill on a mastered skill. */
+export const DrillSchema = z.object({
+  skillId: z.string().min(1),
+  /** Riyadh day key when the drill is next due. */
+  nextDue: z.string().regex(DAY_KEY_RE),
+  intervalDays: z.number().int().min(1),
+  /** How many times the drill was completed. */
+  reps: z.number().int().min(0).default(0),
+});
+export type Drill = z.infer<typeof DrillSchema>;
+
+/** Weekly review (Sprint 2). `week` is the Saturday key of the reviewed week. */
+export const ReviewSchema = z.object({
+  week: z.string().regex(DAY_KEY_RE),
+  mood: z.number().int().min(1).max(5),
+  wins: z.string(),
+  blocks: z.string(),
+  next: z.string(),
+  at: z.iso.datetime({ offset: true }),
+});
+export type Review = z.infer<typeof ReviewSchema>;
+
+export const PlanItemBySchema = z.enum(["rules", "me"]);
+export type PlanItemBy = z.infer<typeof PlanItemBySchema>;
+
+/** One planned quest in the weekly planner. Whether it is done is derived from `completions`. */
+export const PlanItemSchema = z.object({
+  id: z.string().min(1),
+  /** Saturday key of the plan's week. */
+  week: z.string().regex(DAY_KEY_RE),
+  /** 0 = Saturday … 6 = Friday. */
+  day: z.number().int().min(0).max(6),
+  skillId: z.string().min(1),
+  quest: QuestTypeSchema,
+  minutes: z.number().int().min(0),
+  by: PlanItemBySchema,
+});
+export type PlanItem = z.infer<typeof PlanItemSchema>;
+
+/** Seeded rewards carry bilingual names; owner-typed ones are plain strings. */
+export const RewardTextSchema = z.union([z.string().min(1), LTextSchema]);
+export type RewardText = z.infer<typeof RewardTextSchema>;
+
+/** Owner-defined real-world reward in the gem shop. */
+export const RewardSchema = z.object({
+  id: z.string().min(1),
+  name: RewardTextSchema,
+  desc: RewardTextSchema.optional(),
+  /** Price in gems. */
+  cost: z.number().int().min(0),
+  minLevel: z.number().int().min(1).optional(),
+  repeatable: z.boolean(),
+  icon: z.string().min(1),
+  /** Built-in rewards (the streak freeze) cannot be removed. */
+  builtIn: z.boolean().optional(),
+});
+export type Reward = z.infer<typeof RewardSchema>;
+
+export const PurchaseSchema = z.object({
+  id: z.string().min(1),
+  rewardId: z.string().min(1),
+  at: z.iso.datetime({ offset: true }),
+  cost: z.number().int().min(0),
+});
+export type Purchase = z.infer<typeof PurchaseSchema>;

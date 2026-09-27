@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { ReactNode } from "react";
 import PxBar from "@/components/ui/PxBar";
 import { useT } from "@/lib/i18n";
@@ -11,6 +12,7 @@ export default function TodayHeader({
   rank,
   level,
   xp,
+  gems,
   streak,
   freezes,
   lit,
@@ -18,7 +20,10 @@ export default function TodayHeader({
   rank: RankState;
   level: LevelProgress;
   xp: number;
+  /** Gem balance (the wallet, round 16: shown in the Training world only). */
+  gems: number;
   streak: number;
+  /** Freezes in hand: earned + bonus (chests, shop). */
   freezes: number;
   /** Today already counts for the streak. */
   lit: boolean;
@@ -49,7 +54,7 @@ export default function TodayHeader({
           {t("hdr.xpToNext", { cur: level.current, need: level.needed })}
         </span>
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-4 gap-1.5" data-testid="wallet">
         <Stat
           icon={<span className={lit ? "anim-flick" : "opacity-40 grayscale"}>🔥</span>}
           value={streak}
@@ -61,8 +66,17 @@ export default function TodayHeader({
           value={`×${freezes}`}
           label={t("hdr.freezes")}
           title={t("hdr.freezesHint")}
+          testId="wallet-freezes"
         />
         <Stat icon="⭐" value={xp} label={t("hdr.totalXp")} testId="total-xp" />
+        <Link
+          href="/rewards/"
+          className="no-underline"
+          title={t("today.gemsHint")}
+          aria-label={`${t("today.gems")}: ${gems}`}
+        >
+          <Stat icon="💎" value={gems} label={t("today.gems")} testId="wallet-gems" />
+        </Link>
       </div>
       <PillarStrip />
     </section>
@@ -83,15 +97,15 @@ function Stat({
   testId?: string;
 }) {
   return (
-    <div className="px-inset flex min-w-0 items-center gap-2 px-2 py-2" title={title}>
-      <span aria-hidden className="text-xl leading-none">
+    <div className="px-inset flex h-full min-w-0 items-center gap-1.5 px-1.5 py-2" title={title}>
+      <span aria-hidden className="text-lg leading-none">
         {icon}
       </span>
       <span className="min-w-0">
-        <b className="num block text-lg leading-none" data-testid={testId}>
+        <b className="num text-ink block text-base leading-none" data-testid={testId}>
           {value}
         </b>
-        <small className="text-muted block truncate text-[0.7rem]">{label}</small>
+        <small className="text-muted block truncate text-[0.65rem]">{label}</small>
       </span>
     </div>
   );

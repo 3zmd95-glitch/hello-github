@@ -5,12 +5,22 @@
  * - network-first for navigations and other same-origin GETs, falling back to the cache, then to the cached index
  * Everything is relative to the registration scope, so it works under a basePath (GitHub Pages).
  */
-const VERSION = "v1";
+const VERSION = "v2";
 const CACHE = `3z-shell-${VERSION}`;
 const SCOPE = new URL(self.registration.scope);
 const BASE = SCOPE.pathname.replace(/\/$/, ""); // "" locally, "/hello-github" on Pages
 const INDEX = `${BASE}/`;
-const SHELL = [INDEX, `${BASE}/skills/`, `${BASE}/settings/`, `${BASE}/more/`];
+const SHELL = [
+  INDEX,
+  `${BASE}/skills/`,
+  `${BASE}/map/`,
+  `${BASE}/planner/`,
+  `${BASE}/review/`,
+  `${BASE}/rewards/`,
+  `${BASE}/discover/`,
+  `${BASE}/settings/`,
+  `${BASE}/more/`,
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
