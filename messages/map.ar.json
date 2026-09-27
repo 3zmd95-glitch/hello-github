@@ -1,4 +1,25 @@
 {
   "map.title": "🗺️ خريطة الجزر",
-  "map.sub": "٦ قارات، كل قارة ركن من أركانك، وكل برنامج جزيرة"
+  "map.sub": "٦ قارات، كل قارة ركن من أركانك، وكل برنامج جزيرة",
+  "map.nPrograms": "{n} جزيرة",
+  "map.nSkills": "{n} مهارة",
+  "map.mastered": "{n}/{t} متقنة",
+  "map.home": "الجزيرة الأم",
+  "map.fog": "استكشفها مع اكتشف 🔎",
+  "map.openIsland": "افتح جزيرة {name}",
+  "map.exploreIsland": "{name}: لسه ما فيها مهارات، استكشفها مع اكتشف",
+  "map.pillarLevel": "مستوى ركن {name}",
+  "map.islandProgress": "تقدم جزيرة {name}",
+  "map.back": "← للعالم",
+  "map.nRegions": "{n} مناطق",
+  "map.regionN": "منطقة {n}",
+  "map.regionProgress": "تقدم منطقة {name}",
+  "map.coming": "قريب",
+  "map.comingRegion": "منطقة {name} جاية قريب، عبّيها من اكتشف",
+  "map.openSkill": "افتح مهارة {name}",
+  "map.mastered1": "متقنة ⭐",
+  "map.locked": "🔒 محتاجة عدة",
+  "map.tapSkill": "👆 اضغط على أي مهارة تشوف تفاصيلها وتعلّم مهامها",
+  "map.discover": "🔎 اكتشف مهارات جديدة لهذي الجزيرة",
+  "map.notFound": "ما لقينا هذي الجزيرة"
 }
