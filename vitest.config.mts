@@ -8,7 +8,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["**/*.test.ts", "**/*.test.tsx"],
-    exclude: ["node_modules/**", ".next/**", "out/**", "e2e/**"],
+    // workers/scout/**/*.test.ts is included on purpose: `pnpm test` runs the Worker tests too (once).
+    exclude: ["**/node_modules/**", ".next/**", "out/**", "e2e/**", "**/.wrangler/**"],
     coverage: {
       provider: "v8",
       include: ["lib/**", "store/**", "data/**"],

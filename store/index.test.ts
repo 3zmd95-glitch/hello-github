@@ -210,6 +210,22 @@ describe("settings, export/import, persistence", () => {
     expect(getApiKey(S(), "youtube")).toBe("AIzaTest123");
   });
 
+  it("saves the Scout Worker URL and token alongside the YouTube key and round-trips them", () => {
+    S().setSettings({
+      apiKeys: { youtube: "AIzaTest123", scoutUrl: "https://scout.test", scoutToken: "tok" },
+    });
+    expect(getApiKey(S(), "scoutUrl")).toBe("https://scout.test");
+    expect(getApiKey(S(), "scoutToken")).toBe("tok");
+    const json = S().exportState();
+    S().reset();
+    S().importState(json);
+    expect(S().settings.apiKeys).toEqual({
+      youtube: "AIzaTest123",
+      scoutUrl: "https://scout.test",
+      scoutToken: "tok",
+    });
+  });
+
   it("migrates a legacy flat settings.youtubeApiKey into settings.apiKeys.youtube on hydrate", async () => {
     localStorage.setItem(
       STORAGE_KEY,
@@ -271,6 +287,15 @@ describe("references (Scout v0)", () => {
     expect(S().savedRefs).toEqual({});
     S().importState(json);
     expect(S().savedRefs["scene-cut-detection"]).toEqual([ref]);
+  });
+
+  it("keeps an optional thumbnail on a ref through export/import", () => {
+    const withThumb = { ...other, thumb: "https://i.ytimg.com/vi/b/hqdefault.jpg" };
+    S().addRef("scene-cut-detection", withThumb);
+    const json = S().exportState();
+    S().reset();
+    S().importState(json);
+    expect(S().savedRefs["scene-cut-detection"]).toEqual([withThumb]);
   });
 });
 

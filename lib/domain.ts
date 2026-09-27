@@ -33,6 +33,8 @@ export const RefSchema = z.object({
   handle: z.string(),
   title: z.string().min(1),
   url: z.url(),
+  /** Thumbnail URL (Scout Worker search results and oEmbed-enriched pasted links). */
+  thumb: z.string().optional(),
 });
 export type Ref = z.infer<typeof RefSchema>;
 
@@ -125,6 +127,10 @@ export type Skill = z.infer<typeof SkillSchema>;
 export const ApiKeysSchema = z.object({
   /** YouTube Data API v3 key, used for in-app search results (Scout v0). */
   youtube: z.string().optional(),
+  /** Scout Worker base URL, e.g. https://3z-scout.<subdomain>.workers.dev (build plan 1.14). */
+  scoutUrl: z.string().optional(),
+  /** Shared owner token the Scout Worker checks on every call (its SCOUT_TOKEN secret). */
+  scoutToken: z.string().optional(),
 });
 export type ApiKeys = z.infer<typeof ApiKeysSchema>;
 export type ApiKeyName = keyof ApiKeys;

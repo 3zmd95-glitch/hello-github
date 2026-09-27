@@ -44,3 +44,7 @@ yarn-error.log*
 .env*
 *.key
 *.pem
+
+# Cloudflare Worker (workers/scout) local state and dev secrets
+.wrangler/
+.dev.vars*

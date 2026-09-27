@@ -6,12 +6,16 @@
     "dev": "next dev",
     "build": "next build",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && pnpm typecheck:worker",
+    "typecheck:worker": "pnpm --filter 3z-scout run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "worker:dev": "pnpm --filter 3z-scout run dev",
+    "worker:deploy": "pnpm --filter 3z-scout run deploy",
+    "worker:test": "pnpm --filter 3z-scout run test"
   },
   "dependencies": {
     "next": "16.3.6",

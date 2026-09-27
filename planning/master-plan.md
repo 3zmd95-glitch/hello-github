@@ -372,6 +372,21 @@ Brainstorm round 23: **the research button** (owner: "for a subject like match c
   platforms, running on a Cloudflare Worker with the owner's Anthropic key and the `ai_usage` cap. Cannot ship in the static app: an API key in
   client code would be public.
 
+Brainstorm round 24: **TikTok and Instagram results inside the app** (owner: "I do care for Instagram and TikTok, find me any way to include
+them"). Searched first (rule): Google Custom Search JSON API is closed to new customers (sunset 2027-01) · Brave Search API dropped its free tier
+(card + $5 credits) · Tavily gives 1,000 searches/month free, no card, with `include_domains` · unofficial TikTok/Instagram scrapers
+(davidteather/TikTok-Api, szdc/tiktok-api) need a headless browser/server and break with platform changes → rejected.
+- **Decision: Scout Worker.** A small Cloudflare Worker (`workers/scout/`, free plan) with: `POST /search` → Tavily with `include_domains`
+  tiktok.com / instagram.com / youtube.com, normalized to reference cards (platform, handle from URL, title, snippet, thumbnail, url);
+  `GET /oembed?url=` → TikTok oEmbed passthrough (title, author, thumbnail) for pasted links; CORS limited to the app origins; a shared owner
+  token checked on every call; Tavily key kept as a Worker secret. The same Worker hosts the AI Scout (Claude) in Sprint 4 and the reminder cron in Sprint 3.
+- Deploy from GitHub Actions on push to `main` using repo secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `TAVILY_API_KEY`
+  (wrangler deploy + `wrangler secret put`). Owner accounts: Tavily (free) + Cloudflare (free); no card.
+- Dashboard: API keys section gets "Scout Worker URL" + "Scout token"; Research panel and Discover show TikTok / Instagram / YouTube results
+  from the Worker when configured (YouTube Data API stays as the richer YouTube source when its key exists); pasted TikTok links are enriched.
+- Budget: ~33 Tavily searches/day; the UI shows the month's remaining count and caches results per topic on the device.
+- Later upgrade path unchanged: Instagram Graph hashtag search after Meta app review; AI Scout in Sprint 4.
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|
