@@ -6,6 +6,7 @@ import { FREEZE_REWARD_ID, GEM_RULES, defaultRewards } from "@/lib/gems";
 import { FREEZE_TOTAL_CAP } from "@/lib/streak";
 import { DRILL_XP, MASTERY_BONUS, REVIEW_XP, questXp } from "@/lib/xp";
 import { DEFAULT_AVATAR, EMPTY_SCRIPT } from "@/lib/domain";
+import { SOCIAL_SEED_DAY, SOCIAL_SEED_VERSION, applySocialSeed } from "@/data/social-seed";
 import { HASHTAG_SETS, SHOT_TEMPLATES, bestTime, suggestHashtags } from "@/lib/social";
 import {
   DEFAULT_SETTINGS,
@@ -21,6 +22,7 @@ import {
   focusActive,
   gems,
   getApiKey,
+  hasBeaconsSeed,
   hydrateStore,
   ideasCount,
   isPlanItemDone,
@@ -38,6 +40,7 @@ import {
   season,
   skillInCalendar,
   skillProgress,
+  socialSyncState,
   streak,
   totalXp,
   unusedIdeas,
@@ -1562,5 +1565,107 @@ describe("social: persistence", () => {
     await hydrateStore();
     // An invalid persisted shape is rejected as a whole (same rule as every other field).
     expect(S().posts).toEqual([]);
+  });
+});
+
+describe("social sync: connected accounts slice and the Beacons seed removal", () => {
+  const status = {
+    instagram: {
+      configured: true,
+      connected: true,
+      handle: "3z.prod",
+      lastSyncAt: "2026-09-27T06:00:00.000Z",
+    },
+    youtube: { configured: true, connected: false },
+  };
+
+  it("starts empty and records status and pull results", () => {
+    expect(S().socialSync).toEqual({
+      lastPullAt: null,
+      lastPullError: null,
+      status: null,
+      statusAt: null,
+    });
+    S().setSocialSyncStatus(status, at("2026-09-27T09:00:00Z"));
+    expect(S().socialSync.status).toEqual(status);
+    expect(S().socialSync.statusAt).toBe("2026-09-27T09:00:00.000Z");
+    S().setSocialPullResult({ at: "2026-09-27T09:00:01.000Z", error: null });
+    expect(S().socialSync.lastPullAt).toBe("2026-09-27T09:00:01.000Z");
+    // A failed pull keeps the last successful time and stores the error key.
+    S().setSocialPullResult({ at: null, error: "settings.accounts.err.network" });
+    expect(S().socialSync).toMatchObject({
+      lastPullAt: "2026-09-27T09:00:01.000Z",
+      lastPullError: "settings.accounts.err.network",
+      status,
+    });
+  });
+
+  it("persists the slice, exports it and loads an old save without it", async () => {
+    S().setSocialSyncStatus(status, at("2026-09-27T09:00:00Z"));
+    S().setSocialPullResult({ at: "2026-09-27T09:00:01.000Z", error: null });
+    const json = S().exportState();
+    expect(JSON.parse(json).state.socialSync.status.instagram.handle).toBe("3z.prod");
+    S().reset();
+    expect(S().socialSync.status).toBeNull();
+    S().importState(json);
+    expect(S().socialSync.lastPullAt).toBe("2026-09-27T09:00:01.000Z");
+    expect(socialSyncState(S())).toBe(S().socialSync);
+
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { settings: DEFAULT_SETTINGS, completions: [] }, version: 1 }),
+    );
+    await hydrateStore();
+    expect(S().socialSync).toEqual({
+      lastPullAt: null,
+      lastPullError: null,
+      status: null,
+      statusAt: null,
+    });
+  });
+
+  it("removeBeaconsSeed drops the seed rows, keeps live and manual data, and the seed never returns", () => {
+    expect(applySocialSeed(S())).toBe("applied");
+    expect(hasBeaconsSeed(S())).toBe(true);
+    // A live TikTok pull and a hand-typed Snapchat row sit next to the seed.
+    S().setSocialSyncStatus({ tiktok: { configured: true, connected: true, handle: "3z.prod" } });
+    S().importSnapshots([
+      { platform: "tiktok", day: "2026-09-28", followers: 1300 },
+      { platform: "snapchat", day: SOCIAL_SEED_DAY, followers: 40 },
+    ]);
+    S().importDemographics([
+      { platform: "tiktok", day: "2026-09-28", dimension: "gender", key: "male", pct: 60 },
+    ]);
+    S().setAccount("youtube", "3zprod-live", "https://www.youtube.com/@3zprod-live");
+
+    S().removeBeaconsSeed();
+    expect(
+      S()
+        .socialSnapshots.map((s) => `${s.platform}/${s.day}`)
+        .sort(),
+    ).toEqual([`snapchat/${SOCIAL_SEED_DAY}`, "tiktok/2026-09-28"]);
+    expect(S().demographics).toEqual([
+      { platform: "tiktok", day: "2026-09-28", dimension: "gender", key: "male", pct: 60 },
+    ]);
+    // TikTok is connected (the seed handle is now the live one) and YouTube was replaced by hand:
+    // both stay; the untouched Instagram / Threads seed accounts go.
+    expect(
+      S()
+        .socialAccounts.map((a) => a.platform)
+        .sort(),
+    ).toEqual(["tiktok", "youtube"]);
+    expect(accountFor(S(), "youtube")?.handle).toBe("3zprod-live");
+    expect(hasBeaconsSeed(S())).toBe(false);
+    expect(S().socialSeedApplied).toBe(SOCIAL_SEED_VERSION);
+    expect(applySocialSeed(S())).toBe("already-applied");
+    expect(hasBeaconsSeed(S())).toBe(false);
+  });
+
+  it("removeBeaconsSeed on a store that never applied the seed still flags it", () => {
+    S().addSnapshot({ platform: "x", day: SOCIAL_SEED_DAY, followers: 3 });
+    S().removeBeaconsSeed();
+    expect(S().socialSnapshots).toHaveLength(1);
+    expect(S().socialSeedApplied).toBe(SOCIAL_SEED_VERSION);
+    expect(applySocialSeed(S())).toBe("already-applied");
   });
 });

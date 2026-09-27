@@ -10,6 +10,7 @@ import {
 import type { Platform } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { PLATFORM_META } from "@/lib/social";
+import SourceBadge from "./SourceBadge";
 import SourceHint from "./SourceHint";
 import { fmtMetric, profileUrl } from "./format";
 
@@ -83,6 +84,11 @@ function PlatformCard({
           ) : (
             <span className="text-muted text-xs">{t("growth.account.none")}</span>
           )}
+          <SourceBadge
+            platform={o.platform}
+            latestDay={o.snapshot?.day}
+            className="mt-1 self-start"
+          />
         </div>
         <button
           type="button"

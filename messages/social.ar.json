@@ -77,5 +77,9 @@
   "social.bridge.pickPlatform": "على أي منصة؟",
   "social.bridge.posted": "📱 انتشر ✓",
   "social.bridge.cancel": "إلغاء",
-  "social.toast.posted": "انتشر ✓ {name}"
+  "social.toast.posted": "انتشر ✓ {name}",
+  "social.toast.connected": "اتربط {name} ✓",
+  "social.toast.connectError": "ما قدرنا نربط {name}: {reason}",
+  "social.toast.synced": "تحدثت الأرقام ✓",
+  "social.studio.lastSync": "🔗 آخر مزامنة {ago}"
 }

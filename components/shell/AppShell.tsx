@@ -3,10 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import CelebrationProvider from "@/components/celebrate/CelebrationProvider";
+import CelebrationProvider, { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import SkillSheetProvider from "@/components/skills/SkillSheetProvider";
+import { pullIfDue, syncSocialNow } from "@/components/social/useSocialSync";
 import { applySocialSeed } from "@/data/social-seed";
 import { useDocumentLang, useT } from "@/lib/i18n";
+import { scoutConfig } from "@/lib/scoutClient";
+import { PLATFORM_META } from "@/lib/social";
+import { isSocialPlatform, socialErrorType, socialSyncErrorMessageKey } from "@/lib/socialSync";
 import { setMuted } from "@/lib/sound";
 import { hydrateStore, useStore } from "@/store";
 import { activeHref, NAV_BY_WORLD, type NavItem } from "./nav";
@@ -47,6 +51,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <CelebrationProvider>
+      <SocialSyncAgent />
       <SkillSheetProvider>
         <div className="flex min-h-dvh flex-col">
           <TopBar />
@@ -64,6 +69,56 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </SkillSheetProvider>
     </CelebrationProvider>
   );
+}
+
+/**
+ * 🔗 Live accounts: pulls the Worker's numbers (at most hourly) whenever a Social route is opened, and, when
+ * the Worker sends the owner back from OAuth (`?connected=<platform>` / `?connect_error=<platform>&reason=`),
+ * shows a toast, starts a sync and cleans the address bar. Renders nothing.
+ */
+function SocialSyncAgent() {
+  const { t, L } = useT();
+  const { toast } = useCelebrate();
+  const world = useWorld();
+  const pathname = usePathname();
+  const configured = useStore(
+    (s) => scoutConfig(s.settings.apiKeys.scoutUrl, s.settings.apiKeys.scoutToken) !== null,
+  );
+
+  useEffect(() => {
+    if (world === "social" && configured) pullIfDue();
+  }, [world, pathname, configured]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("connected");
+    const failed = params.get("connect_error");
+    if (!connected && !failed) return;
+    const reason = params.get("reason");
+    for (const k of ["connected", "connect_error", "reason"]) params.delete(k);
+    const q = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}${q ? `?${q}` : ""}${window.location.hash}`,
+    );
+    const name = (p: string) => (isSocialPlatform(p) ? L(PLATFORM_META[p].name) : p);
+    if (connected) {
+      toast("notice", { icon: "🔗", name: t("social.toast.connected", { name: name(connected) }) });
+      void syncSocialNow().then((r) => {
+        if (r.ok) toast("notice", { icon: "🔄", name: t("social.toast.synced") });
+      });
+    } else if (failed) {
+      const key = socialSyncErrorMessageKey({ type: socialErrorType(reason) });
+      toast("notice", {
+        icon: "⚠️",
+        sound: null,
+        name: t("social.toast.connectError", { name: name(failed), reason: t(key) }),
+      });
+    }
+  }, [t, L, toast]);
+
+  return null;
 }
 
 /** Keep `<html data-world>` in sync with the route and remember the last Social route for the switch. */

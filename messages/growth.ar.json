@@ -13,7 +13,7 @@
   "growth.filter.all": "الكل",
   "growth.filter.manual": "يدوي بس",
   "growth.empty.title": "لسّا ما فيه أرقام",
-  "growth.empty.body": "لين ما نربط الحسابات، الأرقام تدخل يدوي: أضف أرقام يوم، أو استورد ملف إحصائيات، أو استورد بوستاتك تحت. مرة كل أسبوع تكفي.",
+  "growth.empty.body": "اربط حساباتك من الإعدادات وتنزل الأرقام لحالها كل يوم. أو أدخلها يدوي: أضف أرقام يوم، استورد ملف إحصائيات، أو استورد بوستاتك تحت.",
   "growth.empty.where": "سناب شات وإكس ما عندهم API مجاني، فأرقامهم دايماً يدوي.",
   "growth.changed.button": "إيش تغيّر هذا الأسبوع؟",
   "growth.changed.title": "هذا الأسبوع مقابل اللي قبله",
@@ -175,5 +175,13 @@
   "growth.asks.count": "{n} مرة",
   "growth.asks.bump": "انسأل مرة ثانية (+١)",
   "growth.asks.remove": "احذف السؤال",
-  "growth.asks.hint": "هذي الأسئلة تطلع في بنك الأفكار كأفكار بوستات جاهزة."
+  "growth.asks.hint": "هذي الأسئلة تطلع في بنك الأفكار كأفكار بوستات جاهزة.",
+  "growth.source.live": "مباشر · آخر مزامنة {ago}",
+  "growth.source.beacons": "أرقام Beacons · {day}",
+  "growth.source.manual": "يدوي · {day}",
+  "growth.sync.button": "🔄 زامن",
+  "growth.sync.busy": "نزامن…",
+  "growth.sync.cta.title": "اربط حساباتك وخلّ الأرقام تنزل لحالها",
+  "growth.sync.cta.body": "تيك توك، انستقرام، يوتيوب وثريدز: ربط مرة واحدة من الإعدادات، وبعدها المتابعين والتفاعل وبوستاتك تتحدث كل يوم بدون نسخ ولصق.",
+  "growth.sync.cta.button": "🔗 اربط الحسابات"
 }

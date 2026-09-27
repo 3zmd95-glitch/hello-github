@@ -15,6 +15,7 @@ import {
   BadgeAwardSchema,
   DEFAULT_AVATAR,
   DemographicSchema,
+  EMPTY_SOCIAL_SYNC,
   DrillSchema,
   FocusSessionSchema,
   FocusStateSchema,
@@ -36,6 +37,7 @@ import {
   SocialAccountSchema,
   SocialPostStatSchema,
   SocialSnapshotSchema,
+  SocialSyncStateSchema,
   XpEventSchema,
   type ApiKeyName,
   type AudienceAsk,
@@ -68,8 +70,16 @@ import {
   type SocialPostStatInput,
   type SocialSnapshot,
   type SocialSnapshotInput,
+  type SocialStatusMap,
+  type SocialSyncState,
   type XpEvent,
 } from "@/lib/domain";
+import {
+  SEED_ACCOUNTS,
+  SOCIAL_SEED_DAY,
+  SOCIAL_SEED_PLATFORMS,
+  SOCIAL_SEED_VERSION,
+} from "@/data/social-seed";
 import { advanceDrill, dueDrills as dueDrillsOf, newDrill } from "@/lib/drills";
 import { replaceDemographics, upsertPostStats } from "@/lib/analytics";
 import { upsertSnapshots } from "@/lib/growth";
@@ -190,6 +200,9 @@ export const PersistedStateSchema = z.object({
   demographics: z.array(DemographicSchema).default([]),
   /** Version of data/social-seed applied (""= never): applySocialSeed never runs twice. */
   socialSeedApplied: z.string().default(""),
+  /* 🔗 Connected accounts (live sync through the Scout Worker). */
+  /** When the app last pulled the Worker's data, the last error, and the last per-platform status reply. */
+  socialSync: SocialSyncStateSchema.default(EMPTY_SOCIAL_SYNC),
 });
 export type PersistedState = z.infer<typeof PersistedStateSchema>;
 
@@ -363,6 +376,21 @@ export interface StoreActions {
   setAccount(platform: Platform, handle: string, url?: string): void;
   removeAccount(platform: Platform): void;
 
+  /* 🔗 Connected accounts. */
+  /** Remember the Worker's `/social/status` reply (and when it came). */
+  setSocialSyncStatus(status: SocialStatusMap, now?: Date): void;
+  /**
+   * Record a pull: `at` (ISO) becomes lastPullAt when given (null keeps the previous one, so a failed pull
+   * does not look like a fresh one), `error` is a message key or null.
+   */
+  setSocialPullResult(result: { at: string | null; error: string | null }): void;
+  /**
+   * Drop the Beacons Sep 27, 2026 rows the seed inserted: the snapshots and demographics of that day for the
+   * four seeded platforms, and the seed accounts (only where no live or hand-typed account replaced them).
+   * Keeps `socialSeedApplied` set so the seed never comes back.
+   */
+  removeBeaconsSeed(): void;
+
   completeQuest(skillId: string, quest: QuestType, proofUrl?: string, now?: Date): CompleteResult;
   uncompleteQuest(skillId: string, quest: QuestType): void;
   addMicroAction(text: LText, now?: Date): MicroResult;
@@ -435,6 +463,7 @@ const initialData = (): PersistedState => ({
   socialPostStats: [],
   demographics: [],
   socialSeedApplied: "",
+  socialSync: { ...EMPTY_SOCIAL_SYNC },
 });
 
 const newId = (): string =>
@@ -481,6 +510,7 @@ const pick = (s: PersistedState): PersistedState => ({
   socialPostStats: s.socialPostStats,
   demographics: s.demographics,
   socialSeedApplied: s.socialSeedApplied,
+  socialSync: s.socialSync,
 });
 
 /** Localize without importing lib/i18n (which imports this store). */
@@ -1303,6 +1333,35 @@ export const useStore = create<StoreState>()(
         set((s) => ({ socialAccounts: s.socialAccounts.filter((a) => a.platform !== platform) }));
       },
 
+      setSocialSyncStatus(status, now = new Date()) {
+        set((s) => ({ socialSync: { ...s.socialSync, status, statusAt: now.toISOString() } }));
+      },
+
+      setSocialPullResult({ at, error }) {
+        set((s) => ({
+          socialSync: {
+            ...s.socialSync,
+            lastPullAt: at ?? s.socialSync.lastPullAt,
+            lastPullError: error,
+          },
+        }));
+      },
+
+      removeBeaconsSeed() {
+        set((s) => {
+          const seedAccount = (a: SocialAccount) =>
+            SEED_ACCOUNTS.some(
+              (x) => x.platform === a.platform && x.handle === a.handle && x.url === a.url,
+            ) && s.socialSync.status?.[a.platform]?.connected !== true;
+          return {
+            socialSnapshots: s.socialSnapshots.filter((x) => !isSeedRow(x)),
+            demographics: s.demographics.filter((d) => !isSeedRow(d)),
+            socialAccounts: s.socialAccounts.filter((a) => !seedAccount(a)),
+            socialSeedApplied: SOCIAL_SEED_VERSION,
+          };
+        });
+      },
+
       exportState(now = new Date()) {
         const file: ExportFile = {
           app: "3z-prod",
@@ -1601,6 +1660,23 @@ export function accountFor(
   platform: Platform,
 ): SocialAccount | undefined {
   return s.socialAccounts.find((a) => a.platform === platform);
+}
+
+/** A snapshot or demographics row the Beacons seed inserted (its day, one of its four platforms). */
+const isSeedRow = (row: { platform: Platform; day: string }): boolean =>
+  row.day === SOCIAL_SEED_DAY &&
+  (SOCIAL_SEED_PLATFORMS as readonly string[]).includes(row.platform);
+
+/** True while any Beacons seed row is still stored (the Settings "remove the Beacons numbers" button shows). */
+export function hasBeaconsSeed(
+  s: Pick<PersistedState, "socialSnapshots" | "demographics">,
+): boolean {
+  return s.socialSnapshots.some(isSeedRow) || s.demographics.some(isSeedRow);
+}
+
+/** The persisted sync bookkeeping (select it directly: it is one object that changes as a whole). */
+export function socialSyncState(s: Pick<PersistedState, "socialSync">): SocialSyncState {
+  return s.socialSync;
 }
 
 /** A platform's imported post stats, newest first. */
