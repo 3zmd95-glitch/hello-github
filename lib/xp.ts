@@ -17,6 +17,12 @@ export const TIER_MULT: Record<Tier, number> = { 1: 1, 2: 1.5, 3: 2 };
 /** Focus session multiplier (+25 %), used from Sprint 2. */
 export const FOCUS_MULT = 1.25;
 
+/** XP for a 10-minute drill on a mastered skill (spaced repetition, Sprint 2). */
+export const DRILL_XP = 5;
+
+/** XP for the weekly review, once per Sat–Fri week (Sprint 2). */
+export const REVIEW_XP = 10;
+
 /** Micro-action XP range; v1 awards the fixed middle value. */
 export const MICRO_XP_MIN = 2;
 export const MICRO_XP_MAX = 5;
@@ -39,4 +45,9 @@ export function skillMaxXp(tier: Tier): number {
  */
 export function microXp(): number {
   return 3;
+}
+
+/** Quest XP while a focus session runs: ×FOCUS_MULT, rounded (the mastery bonus is never boosted). */
+export function focusedXp(xp: number): number {
+  return Math.round(xp * FOCUS_MULT);
 }
