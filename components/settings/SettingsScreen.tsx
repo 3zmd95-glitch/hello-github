@@ -244,7 +244,7 @@ async function testScoutToken(token: string): Promise<TestResult> {
 function ApiKeysCard() {
   const { t } = useT();
   return (
-    <Card title={t("settings.apiKeys")}>
+    <Card id="api-keys" title={t("settings.apiKeys")}>
       <div className="flex flex-col gap-4">
         <ApiKeyRow
           name="youtube"
@@ -428,9 +428,19 @@ function ApiKeyRow({
   );
 }
 
-function Card({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
+function Card({
+  id,
+  title,
+  note,
+  children,
+}: {
+  id?: string;
+  title: string;
+  note?: string;
+  children: ReactNode;
+}) {
   return (
-    <section className="px-card flex flex-col gap-3">
+    <section id={id} className="px-card flex scroll-mt-20 flex-col gap-3">
       <div>
         <h2 className="text-base">{title}</h2>
         {note && <p className="text-muted text-xs">{note}</p>}

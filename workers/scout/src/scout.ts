@@ -3,6 +3,7 @@
  *
  *   GET  /health          → { ok: true } ; with a valid token also { tavily: boolean, auth: true }
  *   POST /search          → Tavily search limited to tiktok.com / instagram.com / youtube.com, normalized cards
+ *                           (optional `timeRange`; TikTok thumbnails enriched via oEmbed unless `thumbs: false`)
  *   GET  /oembed?url=     → TikTok / YouTube oEmbed passthrough { title, author, thumb, url }, cached 1 day
  *
  * Every route but OPTIONS and GET /health needs `Authorization: Bearer <SCOUT_TOKEN>`. CORS reflects the
@@ -17,6 +18,7 @@ import {
   PLATFORM_DOMAIN,
   PLATFORMS,
   type Platform,
+  type ScoutResult,
   type TavilyHit,
 } from "./normalize";
 
@@ -33,12 +35,20 @@ export interface Env {
 export interface Deps {
   fetch?: typeof fetch;
   cache?: Cache | null;
+  /** Per-link oEmbed timeout while enriching search results (ms). Tests shorten it. */
+  oembedTimeoutMs?: number;
 }
 
 export const DEFAULT_ALLOWED_ORIGINS = "http://localhost:3000,https://3zmd95-glitch.github.io";
 export const TAVILY_URL = "https://api.tavily.com/search";
 const MAX_RESULTS_CAP = 20;
 const OEMBED_TTL_S = 86_400;
+/** At most this many TikTok results get an oEmbed thumbnail per search (fetched in parallel). */
+export const THUMB_ENRICH_MAX = 8;
+/** Each enrichment oEmbed call gives up after this long; the card then keeps whatever thumb it had. */
+export const THUMB_TIMEOUT_MS = 2500;
+const TIME_RANGES = ["week", "month", "year"] as const;
+export type TimeRange = (typeof TIME_RANGES)[number];
 
 type ScoutError =
   "unauthorized" | "origin" | "bad_request" | "not_found" | "quota" | "auth" | "upstream";
@@ -99,6 +109,10 @@ interface SearchBody {
   platforms: Platform[];
   lang?: "ar" | "en";
   max?: number;
+  /** Tavily `time_range`: only pages published in the last week / month / year. */
+  timeRange?: TimeRange;
+  /** Enrich results with thumbnails (TikTok via oEmbed). Default true. */
+  thumbs: boolean;
 }
 
 function parseSearchBody(raw: unknown): SearchBody | null {
@@ -115,7 +129,16 @@ function parseSearchBody(raw: unknown): SearchBody | null {
   if (b.max !== undefined && (typeof b.max !== "number" || !Number.isFinite(b.max) || b.max < 1)) {
     return null;
   }
-  return { q, platforms, lang: b.lang as SearchBody["lang"], max: b.max as number | undefined };
+  if (b.timeRange !== undefined && !TIME_RANGES.includes(b.timeRange as TimeRange)) return null;
+  if (b.thumbs !== undefined && typeof b.thumbs !== "boolean") return null;
+  return {
+    q,
+    platforms,
+    lang: b.lang as SearchBody["lang"],
+    max: b.max as number | undefined,
+    timeRange: b.timeRange as TimeRange | undefined,
+    thumbs: b.thumbs !== false,
+  };
 }
 
 interface TavilyResponse {
@@ -123,7 +146,15 @@ interface TavilyResponse {
   usage?: { credits?: number };
 }
 
-async function handleSearch(req: Request, env: Env, cors: Headers, doFetch: typeof fetch) {
+async function handleSearch(
+  req: Request,
+  env: Env,
+  cors: Headers,
+  doFetch: typeof fetch,
+  cache: Cache | null,
+  ctx: ExecutionContext | undefined,
+  timeoutMs: number,
+) {
   let raw: unknown;
   try {
     raw = await req.json();
@@ -148,6 +179,7 @@ async function handleSearch(req: Request, env: Env, cors: Headers, doFetch: type
         max_results: Math.min(Math.floor(body.max ?? 10), MAX_RESULTS_CAP),
         search_depth: "basic",
         include_images: true,
+        ...(body.timeRange ? { time_range: body.timeRange } : {}),
       }),
     });
   } catch {
@@ -168,6 +200,7 @@ async function handleSearch(req: Request, env: Env, cors: Headers, doFetch: type
     return fail("upstream", 502, cors);
   }
   const results = normalizeHits(data.results ?? [], body.platforms);
+  if (body.thumbs) await enrichThumbs(results, doFetch, cache, ctx, timeoutMs);
   // A basic search costs 1 credit; Tavily reports the exact figure in `usage` when it sends one.
   return json({ results, credits: { used: data.usage?.credits ?? 1 } }, 200, cors);
 }
@@ -200,6 +233,80 @@ interface RawOembed {
   thumbnail_url?: string;
 }
 
+/** A normalized oEmbed reply, as `/oembed` returns it and the cache stores it. */
+interface OembedBody {
+  title: string;
+  author: string;
+  thumb: string;
+  url: string;
+}
+
+type OembedLookup =
+  | { ok: true; body: string; data: OembedBody }
+  | { ok: false; error: "bad_request" | "not_found" | "upstream" };
+
+/**
+ * The shared, cached oEmbed path (used by `GET /oembed` and by search thumbnail enrichment). Cached on the
+ * upstream URL (a GET key no client can forge) for a day, without any per-origin CORS headers.
+ */
+async function lookupOembed(
+  videoUrl: string,
+  doFetch: typeof fetch,
+  cache: Cache | null,
+  ctx?: ExecutionContext,
+  signal?: AbortSignal,
+): Promise<OembedLookup> {
+  const endpoint = oembedEndpoint(videoUrl);
+  if (!endpoint) return { ok: false, error: "bad_request" };
+
+  const cacheKey = new Request(endpoint, { method: "GET" });
+  const hit = cache ? await cache.match(cacheKey) : undefined;
+  if (hit) {
+    const body = await hit.text();
+    try {
+      return { ok: true, body, data: JSON.parse(body) as OembedBody };
+    } catch {
+      // A corrupt entry: fall through and refetch.
+    }
+  }
+
+  let res: Response;
+  try {
+    res = await doFetch(endpoint, { headers: { Accept: "application/json" }, signal });
+  } catch {
+    return { ok: false, error: "upstream" };
+  }
+  if (res.status === 400 || res.status === 404) return { ok: false, error: "not_found" };
+  if (!res.ok) return { ok: false, error: "upstream" };
+  let raw: RawOembed;
+  try {
+    raw = (await res.json()) as RawOembed;
+  } catch {
+    return { ok: false, error: "upstream" };
+  }
+  // TikTok's author_url is https://www.tiktok.com/@handle: prefer the "@handle" over the display name.
+  const atHandle = raw.author_url?.match(/tiktok\.com\/(@[\w.-]+)/)?.[1];
+  const data: OembedBody = {
+    title: raw.title ?? "",
+    author: atHandle ?? raw.author_name ?? "",
+    thumb: raw.thumbnail_url ?? "",
+    url: videoUrl,
+  };
+  const body = JSON.stringify(data);
+  if (cache) {
+    const toCache = new Response(body, {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": `public, max-age=${OEMBED_TTL_S}`,
+      },
+    });
+    const put = cache.put(cacheKey, toCache).catch(() => {});
+    if (ctx) ctx.waitUntil(put);
+    else await put;
+  }
+  return { ok: true, body, data };
+}
+
 async function handleOembed(
   req: Request,
   cors: Headers,
@@ -208,61 +315,66 @@ async function handleOembed(
   ctx?: ExecutionContext,
 ) {
   const videoUrl = new URL(req.url).searchParams.get("url") ?? "";
-  const endpoint = oembedEndpoint(videoUrl);
-  if (!endpoint) return fail("bad_request", 400, cors);
-
-  // Cache on the upstream URL (a GET key no client can forge), without the per-origin CORS headers.
-  const cacheKey = new Request(endpoint, { method: "GET" });
-  const hit = cache ? await cache.match(cacheKey) : undefined;
-  if (hit) {
-    const body = await hit.text();
-    return new Response(body, { status: 200, headers: mergeHeaders(hit.headers, cors) });
-  }
-
-  let res: Response;
-  try {
-    res = await doFetch(endpoint, { headers: { Accept: "application/json" } });
-  } catch {
-    return fail("upstream", 502, cors);
-  }
-  if (res.status === 400 || res.status === 404) return fail("not_found", 404, cors);
-  if (!res.ok) return fail("upstream", 502, cors);
-  let raw: RawOembed;
-  try {
-    raw = (await res.json()) as RawOembed;
-  } catch {
-    return fail("upstream", 502, cors);
-  }
-  // TikTok's author_url is https://www.tiktok.com/@handle: prefer the "@handle" over the display name.
-  const atHandle = raw.author_url?.match(/tiktok\.com\/(@[\w.-]+)/)?.[1];
-  const body = JSON.stringify({
-    title: raw.title ?? "",
-    author: atHandle ?? raw.author_name ?? "",
-    thumb: raw.thumbnail_url ?? "",
-    url: videoUrl,
-  });
-  if (cache) {
-    const toCache = new Response(body, {
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": `public, max-age=${OEMBED_TTL_S}`,
-      },
-    });
-    const put = cache.put(cacheKey, toCache);
-    if (ctx) ctx.waitUntil(put);
-    else await put;
+  const r = await lookupOembed(videoUrl, doFetch, cache, ctx);
+  if (!r.ok) {
+    const status = r.error === "bad_request" ? 400 : r.error === "not_found" ? 404 : 502;
+    return fail(r.error, status, cors);
   }
   const headers = new Headers(cors);
   headers.set("Content-Type", "application/json; charset=utf-8");
-  return new Response(body, { status: 200, headers });
+  return new Response(r.body, { status: 200, headers });
 }
 
-function mergeHeaders(base: Headers, cors: Headers): Headers {
-  const h = new Headers();
-  const ct = base.get("Content-Type");
-  if (ct) h.set("Content-Type", ct);
-  cors.forEach((v, k) => h.set(k, v));
-  return h;
+/* ---------- thumbnail enrichment ---------- */
+
+/** One oEmbed lookup that never takes longer than `ms` (aborted, then treated as a miss). */
+async function oembedThumb(
+  videoUrl: string,
+  doFetch: typeof fetch,
+  cache: Cache | null,
+  ctx: ExecutionContext | undefined,
+  ms: number,
+): Promise<string | undefined> {
+  const ac = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => {
+      ac.abort();
+      resolve(undefined);
+    }, ms);
+  });
+  try {
+    const r = await Promise.race([
+      lookupOembed(videoUrl, doFetch, cache, ctx, ac.signal).catch(() => undefined),
+      timeout,
+    ]);
+    const thumb = r && r.ok ? r.data.thumb : "";
+    return /^https:\/\//.test(thumb) ? thumb : undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Give TikTok results a thumbnail from TikTok's public oEmbed (the first {@link THUMB_ENRICH_MAX}, in
+ * parallel, each capped at `timeoutMs`; failures are ignored). YouTube results already carry the
+ * `i.ytimg.com` thumbnail from `normalizeHits`. Instagram has no public oEmbed (it needs a Meta app token),
+ * so Instagram cards stay without one. Mutates `results` in place.
+ */
+export async function enrichThumbs(
+  results: ScoutResult[],
+  doFetch: typeof fetch,
+  cache: Cache | null,
+  ctx: ExecutionContext | undefined,
+  timeoutMs = THUMB_TIMEOUT_MS,
+): Promise<void> {
+  const targets = results.filter((r) => r.platform === "tt").slice(0, THUMB_ENRICH_MAX);
+  await Promise.all(
+    targets.map(async (r) => {
+      const thumb = await oembedThumb(r.url, doFetch, cache, ctx, timeoutMs);
+      if (thumb) r.thumb = thumb;
+    }),
+  );
 }
 
 /* ---------- router ---------- */
@@ -301,9 +413,12 @@ export async function handle(
   if (token !== "valid") return fail("unauthorized", 401, cors);
 
   const doFetch = deps.fetch ?? fetch;
-  if (pathname === "/search" && req.method === "POST") return handleSearch(req, env, cors, doFetch);
+  const cache = deps.cache === undefined ? defaultCache() : deps.cache;
+  if (pathname === "/search" && req.method === "POST") {
+    const timeoutMs = deps.oembedTimeoutMs ?? THUMB_TIMEOUT_MS;
+    return handleSearch(req, env, cors, doFetch, cache, ctx, timeoutMs);
+  }
   if (pathname === "/oembed" && req.method === "GET") {
-    const cache = deps.cache === undefined ? defaultCache() : deps.cache;
     return handleOembed(req, cors, doFetch, cache, ctx);
   }
   return fail("not_found", 404, cors);

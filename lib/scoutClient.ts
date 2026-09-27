@@ -45,11 +45,18 @@ export type ScoutSearchResult =
 export type ScoutOembedResult = { ok: true; data: ScoutOembed } | { ok: false; error: ScoutError };
 export type ScoutHealthResult = { ok: true; tavily: boolean } | { ok: false; error: ScoutError };
 
+/** Recency filter, sent to the Worker as `timeRange` (Tavily `time_range`). */
+export type ScoutTimeRange = "week" | "month" | "year";
+
 export interface ScoutSearchParams {
   q: string;
   platforms: readonly ScoutPlatform[];
   lang?: Lang;
   max?: number;
+  /** Only results published in the last week / month / year (omit for any time). */
+  timeRange?: ScoutTimeRange;
+  /** Ask the Worker for thumbnails (TikTok oEmbed enrichment). The Worker defaults to true. */
+  thumbs?: boolean;
 }
 
 /** Minimal Storage surface we use (so tests can pass a plain Map-backed fake). */
@@ -178,10 +185,14 @@ interface CacheEntry {
 const memory = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<ScoutSearchResult>>();
 
-/** Cache key for a search: platforms (sorted), language, max and the normalized query text. */
+/**
+ * Cache key for a search: platforms (sorted), language, max, time range, thumbnails flag and the normalized
+ * query text.
+ */
 export function scoutCacheKey(p: ScoutSearchParams): string {
   const q = p.q.trim().toLowerCase().replace(/\s+/g, " ");
-  return `${[...p.platforms].sort().join(",")}|${p.lang ?? ""}|${p.max ?? ""}|${q}`;
+  const thumbs = p.thumbs === false ? "0" : "1";
+  return `${[...p.platforms].sort().join(",")}|${p.lang ?? ""}|${p.max ?? ""}|${p.timeRange ?? ""}|${thumbs}|${q}`;
 }
 
 function readStored(storage: KeyValueStorage | null): Record<string, CacheEntry> {
@@ -332,6 +343,8 @@ export async function scoutSearch(
           platforms: params.platforms,
           lang: params.lang,
           max: params.max,
+          timeRange: params.timeRange,
+          thumbs: params.thumbs,
         }),
       },
       opts,
@@ -348,6 +361,16 @@ export async function scoutSearch(
   } finally {
     inflight.delete(key);
   }
+}
+
+/**
+ * The cached results for a search, if any, without fetching or spending a credit (for tab count badges).
+ */
+export function peekScoutSearch(
+  params: ScoutSearchParams,
+  opts: ScoutOpts = {},
+): ScoutResult[] | undefined {
+  return cacheGet(scoutCacheKey(params), opts);
 }
 
 /** TikTok / YouTube oEmbed through the Worker (title, author, thumbnail for a pasted link). */
