@@ -409,7 +409,7 @@ dashboard"; built as Sprint 2 by parallel agents, each owning its files, merged 
   | Chests | one film-canister chest per 5 completed quests; loot is deterministic from the chest number: gems +20/+35/+50, a bonus streak freeze, or one of 10 creative prompts |
   | Focus | 25 or 60 min "potion"; quest XP × 1.25 while it runs (mastery bonus not boosted); expired sessions auto-record |
   | Freezes | 1 earned per active week (cap 2) + bonus freezes from chests/shop, total cap 5; earned ones are spent first |
-  | Badges | 17: first mastery, 7- and 30-day streaks, 10/50/100 quests, first proof, first article, first region, first island (program LV 5), pillar LV 5, first chest, 10 focus sessions, first review, boss slayer, season finisher, "Green Green" (3 quests on National Day) |
+  | Badges | 17: first mastery, 7- and 30-day streaks, 10/50/100 quests, first proof, first article, first region, first island (program LV 5), pillar LV 5, first chest, 10 focus sessions, first review, boss slayer, season finisher |
   | Boss | one per month, 8 rotating bosses; HP = 300 × (1 + 0.1 × (level − 1)) at month start; damage = XP that month (quests, mastery, drills, reviews) |
   | Seasons | 30-day windows from 2026-09-01, 8 rotating themes (color → capture → sound → story → design → AI → projects → growth); target 10 themed quests → badge + gems |
   | Drills | created when a skill is mastered, due in 3 days, then 7 → 14 → 30; 10 minutes, +5 XP, counts toward the program |
@@ -422,7 +422,9 @@ dashboard"; built as Sprint 2 by parallel agents, each owning its files, merged 
   past reviews. **Today** gains the wallet, coach reasons (boss / season / drill), the focus card, chest box, boss HP bar, season card and due drills.
 - Nav: phone tab bar Today · Skills · Map · Discover · More; desktop sidebar adds Planner · Review · Rewards · Settings. Dictionaries are split
   by feature (`messages/<feature>.{ar,en}.json`) so screens can be built in parallel; the parity test also rejects duplicate keys.
-- Left for later: seasonal events beyond National Day (Founding Day, Ramadan, 2.8), double-gems events, AI coach (Sprint 4).
+- **Owner decision: no seasonal events** (National Day, Founding Day, Ramadan, double-gems days; build plan 2.8 and the round-15 event ideas are
+  dropped; the National Day badge was removed). The 30-day themed **seasons** (Color month, Capture month…) are a different feature and stay.
+- Left for later: AI coach (Sprint 4).
 
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |

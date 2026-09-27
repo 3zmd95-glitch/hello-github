@@ -61,7 +61,7 @@ Built in round 25 (master plan) by parallel agents, one per row group; every row
 | 2.5 | Review: week stats (XP, quests, craft/software split), 8-week history, insights, mood + 3 reflection questions (+10 XP) | ✅ `lib/weekStats.ts`, `components/review`, `e2e/review.spec.ts` |
 | 2.6 | Focus session timer (25/60 min, +25 % XP), chests every 5 quests, gems ledger, rewards shop (owner-defined real rewards) | ✅ `lib/focus.ts`, `lib/chests.ts`, `lib/gems.ts`, `components/rewards` |
 | 2.7 | Season card (30-day theme, badge), monthly boss with HP bar, drills (spaced repetition), 17 badges | ✅ `lib/season.ts`, `lib/boss.ts`, `lib/drills.ts`, `lib/badges.ts` |
-| 2.8 | Seasonal events: Saudi National Day, Founding Day, Ramadan (Umm al-Qura calendar via `Intl`) | ◔ National Day badge only |
+| 2.8 | ~~Seasonal events: Saudi National Day, Founding Day, Ramadan~~ | ✗ dropped by the owner in round 25 ("I don't care for seasonal events for my training"); the National Day badge was removed too |
 | 2.9 | DaVinci core pack: 30+ hand-written fundamentals across the 7 pages (`planning/data/davinci-core-pack.json`, `source: "core"`, no invented sources) | ✅ |
 
 ## Sprint 3 · Sync, reminders, hosting (owner creates 2 accounts)

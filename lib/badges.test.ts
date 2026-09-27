@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { skillsByProgram } from "@/data";
-import {
-  BADGES,
-  getBadge,
-  hasMasteredRegion,
-  nationalDayQuests,
-  newBadges,
-  type BadgeContext,
-} from "./badges";
+import { BADGES, getBadge, hasMasteredRegion, newBadges, type BadgeContext } from "./badges";
 import type { QuestCompletion } from "./domain";
 
 const emptyCtx = (over: Partial<BadgeContext> = {}): BadgeContext => ({
@@ -55,7 +48,6 @@ describe("badges", () => {
       "first-review",
       "boss-slayer",
       "season-finisher",
-      "green-green",
     ])
       expect(ids, id).toContain(id);
     for (const b of BADGES) {
@@ -121,24 +113,6 @@ describe("badges", () => {
     expect(hasMasteredRegion(new Set(["iphone-lock-exposure-wb"]))).toBe(false);
     const ids = newBadges(emptyCtx({ masteredSkillIds: new Set(fair) }), []).map((b) => b.id);
     expect(ids).toEqual(["first-mastery", "first-region"]);
-  });
-
-  it("green-green needs 3 quests on one Sept 23 in Riyadh", () => {
-    const two = [
-      q("a", "train", "2026-09-23T05:00:00Z"),
-      q("a", "research", "2026-09-23T10:00:00Z"),
-    ];
-    expect(nationalDayQuests(two)).toBe(2);
-    // 21:30Z on the 22nd is already the 23rd in Riyadh; 21:30Z on the 23rd is the 24th.
-    expect(nationalDayQuests([...two, q("a", "produce", "2026-09-22T21:30:00Z")])).toBe(3);
-    expect(nationalDayQuests([...two, q("a", "produce", "2026-09-23T21:30:00Z")])).toBe(2);
-    // Split across years: 2 + 1 is not 3 on one day.
-    expect(nationalDayQuests([...two, q("a", "produce", "2025-09-23T10:00:00Z")])).toBe(2);
-    expect(
-      newBadges(emptyCtx({ completions: [...two, q("b", "train", "2026-09-23T12:00:00Z")] }), [])
-        .map((b) => b.id)
-        .includes("green-green"),
-    ).toBe(true);
   });
 
   it("boss, season, focus and pillar badges read their counters", () => {

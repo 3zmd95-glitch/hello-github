@@ -8,7 +8,7 @@ import type {
   Review,
   XpEvent,
 } from "./domain";
-import { dayKey, type StreakResult } from "./streak";
+import type { StreakResult } from "./streak";
 
 /**
  * Badge catalogue (master plan "Gamification rules" + round 15). Each badge is a pure check over a context the
@@ -47,9 +47,6 @@ export const REGION_MIN_SKILLS = 2;
 export const ISLAND_LEVEL = 5;
 /** Pillar level for the pillar badge. */
 export const PILLAR_LEVEL = 5;
-/** Saudi National Day, "MM-DD" (Riyadh). */
-export const NATIONAL_DAY = "09-23";
-export const NATIONAL_DAY_QUESTS = 3;
 
 const questCount = (ctx: BadgeContext) => ctx.completions.length;
 
@@ -65,16 +62,6 @@ export function hasMasteredRegion(mastered: ReadonlySet<string>): boolean {
   for (const ids of bySection.values())
     if (ids.length >= REGION_MIN_SKILLS && ids.every((id) => mastered.has(id))) return true;
   return false;
-}
-
-/** Most quests completed on any one Saudi National Day (Sept 23, Riyadh). */
-export function nationalDayQuests(completions: readonly QuestCompletion[]): number {
-  const perDay = new Map<string, number>();
-  for (const c of completions) {
-    const d = dayKey(c.at);
-    if (d.slice(5) === NATIONAL_DAY) perDay.set(d, (perDay.get(d) ?? 0) + 1);
-  }
-  return Math.max(0, ...perDay.values());
 }
 
 export const BADGES: readonly Badge[] = [
@@ -189,16 +176,6 @@ export const BADGES: readonly Badge[] = [
     name: { ar: "خلّص الموسم", en: "Season Finisher" },
     desc: { ar: "وصلت هدف موسم كامل", en: "Reached a season's target" },
     check: (ctx) => ctx.seasonsFinished.length >= 1,
-  },
-  {
-    id: "green-green",
-    icon: "💚",
-    name: { ar: "أخضر أخضر", en: "Green Green" },
-    desc: {
-      ar: "٣ مهام في اليوم الوطني (٢٣ سبتمبر)",
-      en: "3 quests on Saudi National Day (Sept 23)",
-    },
-    check: (ctx) => nationalDayQuests(ctx.completions) >= NATIONAL_DAY_QUESTS,
   },
 ];
 
