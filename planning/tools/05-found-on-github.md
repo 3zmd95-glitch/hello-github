@@ -23,6 +23,7 @@ Owner's rule: search GitHub, libraries and Claude skills before building. This f
 | Site-filtered web search | [Brave Search API](https://brave.com/search/api/): free tier removed for new users in 2026, card required | Rejected for now. |
 | Site-filtered web search | [Tavily](https://docs.tavily.com/documentation/api-credits): 1,000 credits/month free, no card, `include_domains` | **Adopted** behind the Scout Worker. |
 | Unofficial TikTok APIs | [davidteather/TikTok-Api](https://github.com/davidteather/TikTok-Api) (Python + browser), [szdc/tiktok-api](https://github.com/szdc/tiktok-api) | Rejected: need a headless browser/server, break with platform changes, terms risk. |
+| Scraping (owner suggestion) | [D4Vinci/Scrapling](https://github.com/D4Vinci/Scrapling): Python adaptive scraper with stealth browser fetching, CLI and MCP server | Reference, not adopted for TikTok/Instagram (login walls, anti-bot, terms risk, needs Python + a browser process, cannot run in the static app or on a Worker). Possible later use: extracting written guides for the AI Scout if Tavily's page content is too thin; its MCP server for personal research sessions. |
 | Web push (Next.js) | [piro0919/next-push](https://github.com/piro0919/next-push) | Still the Sprint 3 candidate; the Scout Worker becomes the sender. |
 
 ## How to add to this log
