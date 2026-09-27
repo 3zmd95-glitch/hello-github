@@ -2,23 +2,19 @@
 
 import { useState } from "react";
 import PlatformLinks from "@/components/research/PlatformLinks";
+import ScoutResults from "@/components/research/ScoutResults";
 import SkillPicker from "@/components/research/SkillPicker";
 import YoutubeResults from "@/components/research/YoutubeResults";
 import { programs } from "@/data";
-import type { Lang } from "@/lib/domain";
+import type { Lang, Ref } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { youtubeQuery } from "@/lib/research";
 import { useStore } from "@/store";
 
-interface AttachTarget {
-  url: string;
-  title: string;
-  channel: string;
-}
-
 /**
  * Discover (Scout v0, build plan 1.13): a topic field, an optional program picker, the same platform
- * search links and in-app YouTube results as the skill sheet, and "attach to skill" on a result.
+ * search links and in-app YouTube results as the skill sheet, TikTok · Instagram results from the Scout
+ * Worker (1.14), and "attach to skill" on any result.
  */
 export default function DiscoverScreen() {
   const { t, L, lang } = useT();
@@ -26,7 +22,7 @@ export default function DiscoverScreen() {
   const [topic, setTopic] = useState("");
   const [programId, setProgramId] = useState("");
   const [queryLang, setQueryLang] = useState<Lang>(lang);
-  const [attachTarget, setAttachTarget] = useState<AttachTarget | null>(null);
+  const [attachTarget, setAttachTarget] = useState<Ref | null>(null);
   const [attachedUrls, setAttachedUrls] = useState<ReadonlySet<string>>(new Set());
 
   const recentTopics = useStore((s) => s.recentTopics);
@@ -116,6 +112,35 @@ export default function DiscoverScreen() {
             onLangChange={setQueryLang}
           />
           <div className="flex flex-col gap-2">
+            <h3 className="text-base">{t("research.scoutTitle")}</h3>
+            <ScoutResults
+              query={query}
+              lang={queryLang}
+              renderAction={(result) => {
+                const attached = attachedUrls.has(result.url);
+                return (
+                  <button
+                    type="button"
+                    className="px-btn px-btn-ghost px-btn-sm mt-1"
+                    disabled={attached}
+                    onClick={() =>
+                      setAttachTarget({
+                        platform: result.platform,
+                        handle: result.handle,
+                        title: result.title,
+                        url: result.url,
+                        ...(result.thumb ? { thumb: result.thumb } : {}),
+                      })
+                    }
+                    data-testid="scout-attach"
+                  >
+                    {attached ? t("discover.attached") : t("discover.attach")}
+                  </button>
+                );
+              }}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
             <h3 className="text-base">{t("research.ytResults")}</h3>
             <YoutubeResults
               query={query}
@@ -127,7 +152,15 @@ export default function DiscoverScreen() {
                     type="button"
                     className="px-btn px-btn-ghost px-btn-sm mt-1"
                     disabled={attached}
-                    onClick={() => setAttachTarget(video)}
+                    onClick={() =>
+                      setAttachTarget({
+                        platform: "yt",
+                        handle: video.channel,
+                        title: video.title,
+                        url: video.url,
+                        ...(video.thumb ? { thumb: video.thumb } : {}),
+                      })
+                    }
                     data-testid="discover-attach"
                   >
                     {attached ? t("discover.attached") : t("discover.attach")}
@@ -143,12 +176,7 @@ export default function DiscoverScreen() {
         <SkillPicker
           onClose={() => setAttachTarget(null)}
           onPick={(skillId) => {
-            addRef(skillId, {
-              platform: "yt",
-              handle: attachTarget.channel,
-              title: attachTarget.title,
-              url: attachTarget.url,
-            });
+            addRef(skillId, attachTarget);
             setAttachedUrls((s) => new Set(s).add(attachTarget.url));
             setAttachTarget(null);
           }}

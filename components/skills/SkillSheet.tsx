@@ -309,6 +309,20 @@ function StartHere({ refs, skillId }: { refs: Ref[]; skillId: string }) {
           <ul className="flex flex-col gap-1">
             {savedRefs.map((ref) => (
               <li key={ref.url} className="flex items-center gap-2 text-sm" data-testid="saved-ref">
+                {ref.thumb && (
+                  // External thumbnail; static export has no image optimizer for it.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={ref.thumb}
+                    alt={t("sheet.refThumbAlt")}
+                    width={40}
+                    height={40}
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    className="h-10 w-10 shrink-0 rounded-[2px] bg-[var(--panel-3)] object-cover"
+                    data-testid="saved-ref-thumb"
+                  />
+                )}
                 <a
                   href={ref.url}
                   target="_blank"

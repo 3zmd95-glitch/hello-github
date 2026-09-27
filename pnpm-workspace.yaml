@@ -1,3 +1,10 @@
+packages:
+  - "workers/scout"
+
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+
+onlyBuiltDependencies:
+  - esbuild
+  - workerd

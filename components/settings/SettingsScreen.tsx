@@ -3,13 +3,9 @@
 import { useRef, useState, type ReactNode } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import type { ApiKeyName, Gear } from "@/lib/domain";
-import { useT } from "@/lib/i18n";
-import {
-  youtubeErrorMessageKey,
-  youtubeSearch,
-  type YoutubeErrorMessageKey,
-  type YoutubeSearchResult,
-} from "@/lib/research";
+import { useT, type MessageKey } from "@/lib/i18n";
+import { youtubeErrorMessageKey, youtubeSearch } from "@/lib/research";
+import { isValidScoutUrl, scoutConfig, scoutErrorMessageKey, scoutHealth } from "@/lib/scoutClient";
 import { dayKey } from "@/lib/streak";
 import { getApiKey, useStore } from "@/store";
 import pkg from "@/package.json";
@@ -219,15 +215,31 @@ export default function SettingsScreen() {
 }
 
 type RowStatus = "unset" | "set" | "ok" | "error";
+type TestResult = { ok: true } | { ok: false; msgKey: MessageKey };
 type RowTest =
-  | { status: "idle" | "testing" }
-  | { status: "ok" }
-  | { status: "error"; msgKey: YoutubeErrorMessageKey };
+  { status: "idle" | "testing" } | { status: "ok" } | { status: "error"; msgKey: MessageKey };
+
+const SCOUT_README_URL =
+  "https://github.com/3zmd95-glitch/hello-github/blob/main/workers/scout/README.md";
+
+async function testYoutubeKey(key: string): Promise<TestResult> {
+  const r = await youtubeSearch(key, "match cut");
+  return r.ok ? { ok: true } : { ok: false, msgKey: youtubeErrorMessageKey(r.error) };
+}
+
+/** Scout "Test": GET /health with the token against the stored Worker URL (read at click time). */
+async function testScoutToken(token: string): Promise<TestResult> {
+  const config = scoutConfig(useStore.getState().settings.apiKeys.scoutUrl, token);
+  if (!config) return { ok: false, msgKey: "settings.scoutErrNoUrl" };
+  const r = await scoutHealth(config);
+  if (!r.ok) return { ok: false, msgKey: scoutErrorMessageKey(r.error) };
+  return r.tavily ? { ok: true } : { ok: false, msgKey: "settings.scoutErrNoTavily" };
+}
 
 /**
- * API keys (Scout v0, build plan 1.13): one card for every provider key the owner may store, each on its
- * own row (masked input, show/hide, a status chip, a "test" button and a help line). Only YouTube exists
- * today; more (e.g. an Anthropic key in Sprint 4) are more rows here, not a new card.
+ * API keys (Scout v0, build plan 1.13; Scout Worker rows 1.14): one card for every provider key the owner
+ * may store, each on its own row (input, status chip, optional show/hide and "test" button, a help line).
+ * More providers (e.g. an Anthropic key in Sprint 4) are more rows here, not a new card.
  */
 function ApiKeysCard() {
   const { t } = useT();
@@ -241,7 +253,25 @@ function ApiKeysCard() {
           help={t("settings.apiYoutubeHelp")}
           helpLinkLabel={t("settings.apiYoutubeHelpLink")}
           helpLinkHref="https://console.cloud.google.com/apis/library/youtube.googleapis.com"
-          test={(key) => youtubeSearch(key, "match cut")}
+          test={testYoutubeKey}
+        />
+        <ApiKeyRow
+          name="scoutUrl"
+          label={t("settings.apiScoutUrlLabel")}
+          placeholder={t("settings.apiScoutUrlPh")}
+          help={t("settings.apiScoutUrlHelp")}
+          masked={false}
+          inputMode="url"
+          validate={(v) => (isValidScoutUrl(v) ? null : "settings.apiScoutUrlErr")}
+        />
+        <ApiKeyRow
+          name="scoutToken"
+          label={t("settings.apiScoutTokenLabel")}
+          placeholder={t("settings.apiScoutTokenPh")}
+          help={t("settings.apiScoutTokenHelp")}
+          helpLinkLabel={t("settings.apiScoutHelpLink")}
+          helpLinkHref={SCOUT_README_URL}
+          test={testScoutToken}
         />
       </div>
     </Card>
@@ -255,41 +285,52 @@ function ApiKeyRow({
   help,
   helpLinkLabel,
   helpLinkHref,
+  masked = true,
+  inputMode,
+  validate,
   test,
 }: {
   name: ApiKeyName;
   label: string;
   placeholder: string;
   help: string;
-  helpLinkLabel: string;
-  helpLinkHref: string;
-  test: (key: string) => Promise<YoutubeSearchResult>;
+  helpLinkLabel?: string;
+  helpLinkHref?: string;
+  /** Password-style input with a show/hide toggle (default). The Worker URL is a plain input. */
+  masked?: boolean;
+  inputMode?: "url" | "text";
+  /** Returns an error message key for an invalid (non-empty) value; invalid values are never saved. */
+  validate?: (value: string) => MessageKey | null;
+  test?: (value: string) => Promise<TestResult>;
 }) {
   const { t } = useT();
   const stored = useStore((s) => getApiKey(s, name));
   const apiKeys = useStore((s) => s.settings.apiKeys);
   const setSettings = useStore((s) => s.setSettings);
   const [value, setValue] = useState(stored ?? "");
-  const [show, setShow] = useState(false);
+  const [show, setShow] = useState(!masked);
   const [testState, setTestState] = useState<RowTest>({ status: "idle" });
 
-  const commit = () => {
+  /** Save the trimmed value (empty clears it). Returns false when validation refused it. */
+  const commit = (): boolean => {
     const trimmed = value.trim();
-    if (trimmed === (stored ?? "")) return;
+    const invalid = trimmed && validate ? validate(trimmed) : null;
+    if (invalid) {
+      setTestState({ status: "error", msgKey: invalid });
+      return false;
+    }
+    if (trimmed === (stored ?? "")) return true;
     setSettings({ apiKeys: { ...apiKeys, [name]: trimmed || undefined } });
+    return true;
   };
 
   const runTest = async () => {
-    commit();
+    if (!test || !commit()) return;
     const key = value.trim();
     if (!key) return;
     setTestState({ status: "testing" });
     const result = await test(key);
-    setTestState(
-      result.ok
-        ? { status: "ok" }
-        : { status: "error", msgKey: youtubeErrorMessageKey(result.error) },
-    );
+    setTestState(result.ok ? { status: "ok" } : { status: "error", msgKey: result.msgKey });
   };
 
   const status: RowStatus =
@@ -324,6 +365,7 @@ function ApiKeyRow({
       <div className="flex flex-wrap items-center gap-2">
         <input
           type={show ? "text" : "password"}
+          inputMode={inputMode}
           dir="ltr"
           autoComplete="off"
           spellCheck={false}
@@ -344,23 +386,27 @@ function ApiKeyRow({
           }}
           data-testid={`apikey-${name}-input`}
         />
-        <button
-          type="button"
-          className="px-btn px-btn-ghost px-btn-sm"
-          onClick={() => setShow((s) => !s)}
-          data-testid={`apikey-${name}-show`}
-        >
-          {show ? t("settings.apiHide") : t("settings.apiShow")}
-        </button>
-        <button
-          type="button"
-          className="px-btn px-btn-sm"
-          onClick={runTest}
-          disabled={testState.status === "testing" || !value.trim()}
-          data-testid={`apikey-${name}-test`}
-        >
-          {t("settings.apiTest")}
-        </button>
+        {masked && (
+          <button
+            type="button"
+            className="px-btn px-btn-ghost px-btn-sm"
+            onClick={() => setShow((s) => !s)}
+            data-testid={`apikey-${name}-show`}
+          >
+            {show ? t("settings.apiHide") : t("settings.apiShow")}
+          </button>
+        )}
+        {test && (
+          <button
+            type="button"
+            className="px-btn px-btn-sm"
+            onClick={runTest}
+            disabled={testState.status === "testing" || !value.trim()}
+            data-testid={`apikey-${name}-test`}
+          >
+            {t("settings.apiTest")}
+          </button>
+        )}
       </div>
       {testState.status === "error" && (
         <p role="alert" className="text-danger text-xs" data-testid={`apikey-${name}-error`}>
@@ -368,10 +414,15 @@ function ApiKeyRow({
         </p>
       )}
       <p className="text-muted text-xs">
-        {help}{" "}
-        <a href={helpLinkHref} target="_blank" rel="noopener noreferrer" className="px-link">
-          {helpLinkLabel}
-        </a>
+        {help}
+        {helpLinkHref && helpLinkLabel && (
+          <>
+            {" "}
+            <a href={helpLinkHref} target="_blank" rel="noopener noreferrer" className="px-link">
+              {helpLinkLabel}
+            </a>
+          </>
+        )}
       </p>
     </div>
   );

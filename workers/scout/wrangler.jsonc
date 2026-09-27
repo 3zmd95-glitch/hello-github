@@ -1,0 +1,13 @@
+// Scout Worker (build plan 1.14): TikTok / Instagram / YouTube search via Tavily + oEmbed passthrough.
+// Secrets (set with `wrangler secret put`, never committed): TAVILY_API_KEY, SCOUT_TOKEN.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "3z-scout",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "vars": {
+    "ALLOWED_ORIGINS": "http://localhost:3000,https://3zmd95-glitch.github.io",
+  },
+}

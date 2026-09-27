@@ -1,0 +1,87 @@
+name: Deploy Scout Worker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "workers/scout/**"
+      - ".github/workflows/worker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scout-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Secrets can't be read in a job-level `if`, so the first step checks them and every later deploy
+      # step is conditioned on its output. Until the owner adds the Cloudflare secrets the run stays green.
+      - name: Check Cloudflare secrets
+        id: secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Scout Worker not deployed::Add the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets to deploy (see workers/scout/README.md)."
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test the Worker
+        run: pnpm --filter 3z-scout run test
+
+      - name: Deploy
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm --filter 3z-scout exec wrangler deploy
+
+      - name: Set TAVILY_API_KEY
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+        run: |
+          if [ -z "$TAVILY_API_KEY" ]; then
+            echo "::notice title=TAVILY_API_KEY not set::Add the TAVILY_API_KEY repository secret so /search works."
+            exit 0
+          fi
+          echo "$TAVILY_API_KEY" | pnpm --filter 3z-scout exec wrangler secret put TAVILY_API_KEY
+
+      - name: Set SCOUT_TOKEN
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SCOUT_TOKEN: ${{ secrets.SCOUT_TOKEN }}
+        run: |
+          if [ -z "$SCOUT_TOKEN" ]; then
+            echo "::notice title=SCOUT_TOKEN not set::Add the SCOUT_TOKEN repository secret; until then the Worker rejects every search."
+            exit 0
+          fi
+          echo "$SCOUT_TOKEN" | pnpm --filter 3z-scout exec wrangler secret put SCOUT_TOKEN
