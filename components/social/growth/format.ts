@@ -49,6 +49,8 @@ export function profileUrl(platform: Platform, handle: string): string {
       return `https://www.instagram.com/${h}/`;
     case "youtube":
       return `https://www.youtube.com/@${h}`;
+    case "threads":
+      return `https://www.threads.net/@${h}`;
     case "x":
       return `https://x.com/${h}`;
     case "snapchat":

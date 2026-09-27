@@ -68,6 +68,23 @@ describe("platform meta and templates", () => {
     expect(PLATFORM_META.x.captionLimit).toBe(280);
   });
 
+  it("lists Threads fourth with its own meta, best time, one-clip template and single tag", () => {
+    expect(PLATFORMS).toEqual(["tiktok", "instagram", "youtube", "threads", "x", "snapchat"]);
+    expect(PLATFORM_META.threads).toMatchObject({
+      short: "TH",
+      icon: "🧵",
+      aspect: "9:16",
+      captionLimit: 500,
+      hashtagMax: 1,
+    });
+    expect(PLATFORM_META.threads.color).not.toBe("#000000");
+    expect(bestTime("threads")).toBe("13:00");
+    expect(SHOT_TEMPLATES.threads).toHaveLength(1);
+    expect(HASHTAG_SETS.threads).toHaveLength(1);
+    expect(suggestHashtags("threads", { programId: "davinci" })).toEqual(["#davinciresolve"]);
+    expect(weekPlanSummary([], "2026-09-26").byPlatform.threads).toEqual({ planned: 0, posted: 0 });
+  });
+
   it("gives vertical platforms a reel template, YouTube a long-form one and X one clip", () => {
     expect(SHOT_TEMPLATES.tiktok[0].type).toBe("hook");
     expect(SHOT_TEMPLATES.tiktok.filter((s) => s.type === "broll")).toHaveLength(3);

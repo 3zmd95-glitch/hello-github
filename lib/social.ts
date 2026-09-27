@@ -32,6 +32,7 @@ export const BEST_TIME: Record<Platform, string[]> = {
   tiktok: ["21:00", "21:30", "13:00"],
   instagram: ["20:30", "21:30", "13:00"],
   youtube: ["19:00", "20:30", "13:00"],
+  threads: ["13:00", "21:00"],
   x: ["13:00", "21:00"],
   snapchat: ["16:00", "21:00", "13:00"],
 };
@@ -114,6 +115,24 @@ export const PLATFORM_META: Record<Platform, PlatformMeta> = {
       en: "3 hashtags in the description show above the title; over 15 are ignored",
     },
     idealLength: { ar: "٨–١٢ دقيقة", en: "8–12 min" },
+  },
+  threads: {
+    name: { ar: "ثريدز", en: "Threads" },
+    short: "TH",
+    // Threads' brand is black; a neutral grey stays visible on the dark Social theme.
+    color: "#9aa4b2",
+    icon: "🧵",
+    aspect: "9:16",
+    captionLimit: 500,
+    hashtagMax: 1,
+    hashtagAdvice: {
+      ar: "ثريدز يسمح بتوبيك واحد بس؛ اختاره بعناية والكلام أهم",
+      en: "Threads allows a single topic tag; pick it carefully, the text matters more",
+    },
+    idealLength: {
+      ar: "كليب ٣٠–٩٠ ثانية أو ثريد ٣–٥ منشورات",
+      en: "A 30–90 s clip or a 3–5 post thread",
+    },
   },
   x: {
     name: { ar: "إكس", en: "X" },
@@ -212,6 +231,15 @@ export const SHOT_TEMPLATES: Record<Platform, ShotTemplate[]> = {
     {
       type: "closeup",
       text: { ar: "الخاتمة: اشتراك + الفيديو الجاي", en: "Outro: subscribe + the next video" },
+    },
+  ],
+  threads: [
+    {
+      type: "screen",
+      text: {
+        ar: "كليب واحد: النتيجة في ٣٠ ثانية، والباقي كلام في الثريد",
+        en: "One clip: the result in 30 s, the rest as text in the thread",
+      },
     },
   ],
   x: [
@@ -413,6 +441,7 @@ export const HASHTAG_SETS: Record<Platform, string[]> = {
   tiktok: ["#دافنشي_ريزولف", "#مونتاج", "#تصوير", "#davinciresolve", "#3zprod"],
   instagram: ["#مونتاج", "#تصوير_سينمائي", "#davinciresolve", "#colorgrading", "#3zprod"],
   youtube: ["#davinciresolve", "#مونتاج", "#3zprod"],
+  threads: ["#مونتاج"],
   x: ["#مونتاج", "#davinciresolve"],
   snapchat: ["#مونتاج", "#تصوير", "#دافنشي", "#السعودية", "#3zprod"],
 };
