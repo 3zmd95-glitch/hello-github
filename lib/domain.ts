@@ -79,7 +79,8 @@ export type Program = z.infer<typeof ProgramSchema>;
 
 /* ---------- Skills ---------- */
 
-export const SkillSourceSchema = z.enum(["starter", "studio-ai", "draft"]);
+/** starter / studio-ai = Skill Scout packs · core = hand-written DaVinci fundamentals · draft = placeholder craft skills. */
+export const SkillSourceSchema = z.enum(["starter", "studio-ai", "core", "draft"]);
 export type SkillSource = z.infer<typeof SkillSourceSchema>;
 
 export const SkillIdeaSchema = z.object({ name: LTextSchema, desc: LTextSchema });
