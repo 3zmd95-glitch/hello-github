@@ -387,3 +387,45 @@
     display: none;
   }
 }
+
+/* ---- Planner ---- */
+/* Seven days Sat → Fri: a vertical list on phones, 4 columns from md, all 7 from lg. */
+.plan-week {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+@media (min-width: 768px) {
+  .plan-week {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    align-items: start;
+  }
+}
+@media (min-width: 1024px) {
+  .plan-week {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+.plan-day {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.plan-day[data-today="true"] {
+  border-color: var(--gold);
+  box-shadow:
+    4px 4px 0 var(--edge),
+    inset 0 0 0 2px color-mix(in srgb, var(--gold) 55%, transparent);
+}
+/* Chips may wrap inside the narrow day columns. */
+.plan-item .px-chip {
+  white-space: normal;
+}
+.plan-item[data-done="true"] {
+  opacity: 0.85;
+}
+.plan-item[data-done="true"] .plan-title {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+/* ---- /Planner ---- */
