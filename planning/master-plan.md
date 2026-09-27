@@ -460,6 +460,15 @@ agents like round 25, all merged with the full e2e suite green):
   "بدون يوم" tray and the Studio counts it); reminders are text only until Web Push (Sprint 3); no auto-publishing (needs platform approvals);
   Website / Business / Automations are placeholders (Sprint 5+).
 
+Brainstorm round 27 (owner shared the Beacons.ai handover and screenshots: Beacons has 13 sections; the owner mainly uses the
+**Social Analytics** page; Creator plan USD 10/month; Instagram is disconnected there; Post Activity counters unreliable):
+- Decision: rebuild **Social Analytics** inside the 📱 Social world (the Growth screen grows into it), metric names identical to the
+  handover so numbers can be compared. Beacons keeps link-in-bio (3zprod.com), store, media kit, Smart Reply and email broadcasts for now.
+- Static first: the page renders from imported snapshots (native CSV exports + manual demographics) with the **Sep 27, 2026 numbers seeded**
+  as the baseline; the daily API job comes later in the Scout Worker after the owner's Phase 0 (Meta app, Google Cloud, TikTok app).
+- **Threads** joins the platforms (the owner is connected there). Details, scopes and acceptance test in `tools/06-social-analytics-apis.md`;
+  the full inventory in `handovers/beacons-2026-09-27.md`.
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|
