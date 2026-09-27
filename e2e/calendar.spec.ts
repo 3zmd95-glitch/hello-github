@@ -1,0 +1,223 @@
+import { expect, test, type Page } from "@playwright/test";
+import { drainCelebrations, freshState } from "./helpers";
+
+/** Today's Riyadh day key, computed the way lib/streak does it. */
+function todayKey(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Riyadh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+async function noHorizontalScroll(page: Page): Promise<void> {
+  const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  expect(fits).toBe(true);
+}
+
+/** The post-card for `id`, wherever it is rendered. */
+const cardFor = (page: Page, id: string) =>
+  page.locator(`[data-testid="post-card"][data-post="${id}"]`);
+
+test("plan a post from idea to posted: week, popup, script, shots, month and stages", async ({
+  page,
+}) => {
+  const today = todayKey();
+  await freshState(page, "/social/calendar/");
+
+  // Fresh: week view, today highlighted, empty state.
+  await expect(page.getByTestId("calendar-view-week")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(`[data-testid="calendar-day"][data-day="${today}"]`)).toHaveAttribute(
+    "data-today",
+    "true",
+  );
+  await expect(page.getByTestId("calendar-empty")).toBeVisible();
+  await expect(page.getByTestId("post-card")).toHaveCount(0);
+  await noHorizontalScroll(page);
+
+  // + New post → TikTok "Test reel" today with the template.
+  await page.getByTestId("calendar-new").click();
+  await expect(page.getByTestId("post-form")).toBeVisible();
+  await page.getByTestId("post-platform-tiktok").click();
+  await page.getByTestId("post-title").fill("Test reel");
+  await page.getByTestId("post-day").fill(today);
+  await expect(page.getByTestId("post-time")).not.toHaveValue("");
+  await expect(page.getByTestId("post-template")).toBeChecked();
+  await page.getByTestId("post-save").click();
+  await expect(page.getByTestId("post-form")).toBeHidden();
+
+  const todayCol = page.locator(`[data-testid="calendar-day"][data-day="${today}"]`);
+  const card = todayCol.getByTestId("post-card");
+  await expect(card).toHaveCount(1);
+  await expect(card).toHaveAttribute("data-stage", "idea");
+  await expect(card).toHaveAttribute("data-platform", "tiktok");
+  await expect(card).toContainText("Test reel");
+  const id = (await card.getAttribute("data-post")) ?? "";
+  expect(id).not.toBe("");
+  await expect(page.getByTestId("calendar-empty")).toHaveCount(0);
+
+  // Popup → Script tab: typing a hook + beats gives seconds > 0 and bumps the stage to "script".
+  await card.locator("button").first().click();
+  const sheet = page.getByTestId("post-sheet");
+  await expect(sheet).toBeVisible();
+  await expect(sheet).toHaveAttribute("data-post", id);
+  await expect(page.getByTestId("post-stage-idea")).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("post-tab-script").click();
+  await page.getByTestId("script-hook").fill("وقّف! لا تكمّل تمرير قبل ما تشوف دا");
+  await page.getByTestId("script-beat-1").fill("الفكرة ببساطة: اللقطة الأولى تحدد كل شي");
+  await page.getByTestId("script-beat-2").fill("الخطوة اللي أغلب الناس تنساها");
+  const seconds = Number(await page.getByTestId("script-length").getAttribute("data-seconds"));
+  expect(seconds).toBeGreaterThan(0);
+  await expect(page.getByTestId("post-stage-script")).toHaveAttribute("aria-pressed", "true");
+  await expect(sheet).toHaveAttribute("data-stage", "script");
+
+  // Shots tab: the template's shots are there; ticking them all suggests "Filmed".
+  await page.getByTestId("post-tab-shots").click();
+  const rows = page.getByTestId("shot-row");
+  const n = await rows.count();
+  expect(n).toBeGreaterThan(3);
+  for (let i = 0; i < n; i++) await rows.nth(i).getByTestId("shot-toggle").click();
+  await expect(page.locator('[data-testid="shot-row"][data-done="true"]')).toHaveCount(n);
+  await expect(page.getByTestId("shots-progress")).toHaveText(`${n}/${n}`);
+  await expect(page.getByTestId("shots-hint")).toBeVisible();
+  await page.getByTestId("shots-apply").click();
+  await expect(sheet).toHaveAttribute("data-stage", "filmed");
+  await expect(page.getByTestId("post-stage-filmed")).toHaveAttribute("aria-pressed", "true");
+
+  // Overview: link + Mark as posted → stage posted, "posted" toast.
+  await page.getByTestId("post-tab-overview").click();
+  await page.getByTestId("post-url").fill("https://www.tiktok.com/@3zprod/video/1");
+  await page.getByTestId("post-mark-posted").click();
+  await expect(sheet).toHaveAttribute("data-stage", "posted");
+  const toast = page.getByTestId("toast");
+  await expect(toast).toBeVisible();
+  await expect(toast).toHaveAttribute("data-kind", "posted");
+  await expect(page.getByTestId("post-posted-link")).toHaveAttribute(
+    "href",
+    "https://www.tiktok.com/@3zprod/video/1",
+  );
+  await expect(page.getByTestId("post-unmark")).toBeVisible();
+  await page.getByTestId("post-close").click();
+  await expect(sheet).toBeHidden();
+  await expect(page).not.toHaveURL(/#post=/);
+
+  // Month view: a chip for today; Stages view: the card sits under "posted".
+  await page.getByTestId("calendar-view-month").click();
+  const todayCell = page.locator(`[data-testid="month-day"][data-day="${today}"]`);
+  await expect(todayCell).toHaveAttribute("data-today", "true");
+  await expect(todayCell.getByTestId("month-chip")).toHaveCount(1);
+  await expect(todayCell.getByTestId("month-chip")).toHaveAttribute("data-post", id);
+  await noHorizontalScroll(page);
+
+  await page.getByTestId("calendar-view-stages").click();
+  const postedCol = page.locator('[data-testid="stage-col"][data-stage="posted"]');
+  await expect(postedCol.getByTestId("post-card")).toHaveAttribute("data-post", id);
+  await expect(
+    page.locator('[data-testid="stage-col"][data-stage="idea"]').getByTestId("post-card"),
+  ).toHaveCount(0);
+  await noHorizontalScroll(page);
+
+  // Reload keeps everything.
+  await page.reload();
+  await expect(page.getByTestId("calendar-view-week")).toHaveAttribute("aria-pressed", "true");
+  await expect(cardFor(page, id)).toHaveAttribute("data-stage", "posted");
+  await cardFor(page, id).locator("button").first().click();
+  await expect(page.getByTestId("post-sheet")).toBeVisible();
+  await page.getByTestId("post-tab-shots").click();
+  await expect(page.locator('[data-testid="shot-row"][data-done="true"]')).toHaveCount(n);
+  await page.getByTestId("post-tab-script").click();
+  await expect(page.getByTestId("script-hook")).toHaveValue("وقّف! لا تكمّل تمرير قبل ما تشوف دا");
+  await page.getByTestId("post-close").click();
+
+  // Deep link contract: /social/calendar/#post=<id> opens that post's popup on load.
+  await page.goto(`/social/calendar/#post=${id}`);
+  const linked = page.getByTestId("post-sheet");
+  await expect(linked).toBeVisible();
+  await expect(linked).toHaveAttribute("data-post", id);
+  await page.getByTestId("post-close").click();
+  await expect(linked).toBeHidden();
+  await expect(page).not.toHaveURL(/#post=/);
+
+  // An unknown id falls back to the normal week view.
+  await page.goto("/social/calendar/#post=nope");
+  await expect(page.getByTestId("calendar-week-view")).toBeVisible();
+  await expect(page.getByTestId("post-sheet")).toHaveCount(0);
+  await expect(page).not.toHaveURL(/#post=/);
+});
+
+test("a post created from a skill completes its Produce quest when marked posted", async ({
+  page,
+}) => {
+  const today = todayKey();
+  await freshState(page, "/social/calendar/");
+
+  await page.getByTestId("calendar-new").click();
+  await page.getByTestId("post-platform-youtube").click();
+  await page.getByTestId("post-skill").fill("smart bins");
+  await page.locator('[data-testid="post-skill-option"][data-skill="smart-bins-keywords"]').click();
+  await expect(page.getByTestId("post-skill-picked")).toBeVisible();
+  await page.getByTestId("post-day").fill(today);
+  await page.getByTestId("post-save").click();
+
+  const card = page.locator('[data-testid="post-card"][data-platform="youtube"]');
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText("📎🎮");
+  await card.locator("button").first().click();
+  const sheet = page.getByTestId("post-sheet");
+  await expect(sheet).toBeVisible();
+  await expect(page.getByTestId("post-skill-linked")).toBeVisible();
+
+  await page.getByTestId("post-url").fill("https://youtu.be/3zprod");
+  await page.getByTestId("post-mark-posted").click();
+  await expect(sheet).toHaveAttribute("data-stage", "posted");
+  await expect(page.getByTestId("post-quest-done")).toBeVisible();
+  // The small "posted" toast first, then the quest's XP toast (the celebration queue is one at a time).
+  const toast = page.getByTestId("toast");
+  await expect(toast).toHaveAttribute("data-kind", "posted");
+  await expect(toast).toHaveAttribute("data-kind", "xp", { timeout: 8000 });
+  await drainCelebrations(page, [], 6);
+
+  // The Training world shows the quest done: DaVinci → the skill row reads 1/4.
+  await page.goto("/skills/");
+  await page
+    .getByTestId("pillar-editing")
+    .locator('[data-testid="program-card"][data-program="davinci"]')
+    .click();
+  const row = page.locator('[data-testid="skill-row"][data-skill="smart-bins-keywords"]');
+  await expect(row).toContainText("1/4");
+  await row.click();
+  await expect(page.getByTestId("quest-produce")).toHaveAttribute("aria-pressed", "true");
+});
+
+test("the stages board moves posts with ◀ ▶ but never into posted", async ({ page }) => {
+  await freshState(page, "/social/calendar/");
+  await page.getByTestId("calendar-new").click();
+  await page.getByTestId("post-platform-x").click();
+  await page.getByTestId("post-title").fill("Thread: color mistakes");
+  await page.getByTestId("post-save").click();
+
+  // No day: it sits in the unplanned tray.
+  await expect(page.getByTestId("calendar-unplanned").getByTestId("post-card")).toHaveCount(1);
+
+  await page.getByTestId("calendar-view-stages").click();
+  const card = page.getByTestId("post-card");
+  await expect(card).toHaveAttribute("data-stage", "idea");
+  await expect(card.getByTestId("stage-back")).toBeDisabled();
+  for (const stage of ["script", "filmed", "edited", "scheduled"]) {
+    await card.getByTestId("stage-next").click();
+    await expect(card).toHaveAttribute("data-stage", stage);
+  }
+  await expect(card.getByTestId("stage-next")).toBeDisabled();
+  await card.getByTestId("stage-back").click();
+  await expect(card).toHaveAttribute("data-stage", "edited");
+  await noHorizontalScroll(page);
+
+  // The platform filter hides it.
+  await page.getByTestId("calendar-filter-tiktok").click();
+  await expect(page.getByTestId("post-card")).toHaveCount(0);
+  await page.getByTestId("calendar-filter-x").click();
+  await expect(page.getByTestId("post-card")).toHaveCount(1);
+});
