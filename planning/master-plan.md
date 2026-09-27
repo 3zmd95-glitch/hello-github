@@ -430,6 +430,36 @@ dashboard"; built as Sprint 2 by parallel agents, each owning its files, merged 
   dropped; the National Day badge was removed). The 30-day themed **seasons** (Color month, Capture month…) are a different feature and stay.
 - Left for later: AI coach (Sprint 4).
 
+Brainstorm round 26 (owner: "make the dashboard for social media", after "give the character more customization"; built by parallel
+agents like round 25, all merged with the full e2e suite green):
+- **Avatar customization** (Settings → "🧑‍🎨 مظهرك"): skin (5), hair (6 styles × 5 colors), beard (4), glasses (4), headwear (cap · beanie ·
+  شماغ · غترة, cap/beanie in 5 colors), tee / shirt / pants colors; live preview; the same look everywhere (Today, celebrations, rank
+  gallery); rank unlocks unchanged (with headwear the rank-7 studio headphones sit on the neck; the crown always sits on top).
+- **📱 Social world v1 (static, local, manual data):** the round-16 structure is live behind the 🎮 / 📱 switch in the top bar:
+  - **Shell:** `data-world="social"` swaps every design token to the cinematic look (near-black, rounded 14 px, soft shadows, IBM Plex
+    Sans Arabic, green accent); Training stays pixel-identical. Social menu: Studio · Calendar · Growth · Ideas · More (Website · Business ·
+    Automations = "قريب", Settings, back to Training). Last Social route is remembered when switching.
+  - **Studio (`/social`)**: next post with a live countdown (or overdue), this week's plan (Sat–Fri dots per platform), growth snapshot,
+    top 3 "إيش يبغون الناس" (→ idea), rules-based inbox (overdue, unscheduled, waiting ideas, stale stats), today's reminder + flame state.
+  - **Content calendar (`/social/calendar`)**: Week · Month · Stages views, platform filter (TikTok · Instagram · YouTube · X · Snapchat),
+    pipeline idea → script → filmed → edited → scheduled → posted, unplanned tray, overdue marks, best time per platform (Saudi prime time
+    after Isha, an assumption until real analytics). **Post popup** with Overview (hook + 3 hook ideas from the skill's Produce quest,
+    caption with limit, hashtags with suggestions, day/time, reminder note, linked skill, **Mark as posted + link**, copy, delete),
+    Script (Hook / 3 beats / CTA, ≈ seconds at 2.4 words/s, auto-bumps to "script"), Shots (per-platform shot template, ✓ list, B-roll
+    checklist, "move to Filmed?"). Deep link `/social/calendar/#post=<id>`.
+  - **Growth (`/social/growth`)**: All + per-platform tabs; manual snapshots (form) and **CSV import** (`platform,day,followers,views30d
+    [,engagementPct]`, aliases and 1.2K/3M numbers accepted) until the platform APIs are approved; totals, Δ30d, best-growing platform,
+    90-day SVG charts, account handles, this week's planned posts per platform, top posted posts, a rules-based content-mix tip,
+    "what people want" asks with +1 counts.
+  - **Ideas bank (`/social/ideas`)**: ideas from me / audience / trend / skill, filters, "→ make a post" per platform, suggestions from
+    skills whose Produce quest has no video yet, trends placeholder (AI coach, Sprint 4).
+  - **Bridge 🎮 ↔ 📱**: the skill popup's Produce row gets "📱 خطّط الفيديو" (platform picker → post) / "📱 في التقويم"; the island map
+    marks linked skills; **marking a post as posted completes the linked Produce quest exactly once** with the link as proof, with the usual
+    XP / gems / mastery / boss moments plus a "انتشر ✓" toast. Gems, chests and badges are unchanged (posting is a quest completion).
+- Known gaps: a post planned from a skill or an idea has a best time but no day until it is given one in the calendar (it sits in the
+  "بدون يوم" tray and the Studio counts it); reminders are text only until Web Push (Sprint 3); no auto-publishing (needs platform approvals);
+  Website / Business / Automations are placeholders (Sprint 5+).
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|

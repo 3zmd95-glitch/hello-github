@@ -89,7 +89,18 @@ Built in round 25 (master plan) by parallel agents, one per row group; every row
 
 ## Sprint 5+ · Social world, website, shop, course
 
-Per master plan phases 3–6 and `tools/02-website.md`, `tools/03-social-media.md`. Not scheduled until Sprints 1–4 are in daily use.
+Per master plan phases 3–6 and `tools/02-website.md`, `tools/03-social-media.md`. The Social world was pulled forward by the owner in
+round 26 and shipped static (local data, manual stats); website, shop and course stay after Sprints 3–4.
+
+| # | Step | Status |
+|---|---|---|
+| 5.1 | World switch + cinematic Social theme (`data-world`), Social nav, routes, placeholders for Website / Business / Automations | ✅ `components/shell`, `e2e/world.spec.ts` |
+| 5.2 | Social data core: posts (pipeline, script, shots), ideas, growth snapshots, asks, accounts; Produce-quest bridge | ✅ `lib/social.ts`, `lib/growth.ts`, `store` |
+| 5.3 | Content calendar: week / month / stages, post popup (Overview · Script · Shots), mark as posted, `#post=<id>` deep link | ✅ `components/social/calendar`, `e2e/calendar.spec.ts` |
+| 5.4 | Growth: platform tabs, manual snapshots + CSV import, charts, asks | ✅ `components/social/growth`, `e2e/growth.spec.ts` |
+| 5.5 | Studio home + ideas bank + bridge UI in the skill popup and the map | ✅ `components/social/studio`, `components/social/ideas`, `e2e/studio.spec.ts` |
+| 5.6 | Website (articles CMS), Business (leads, media kit, shop, course), Automations | ◔ placeholders; per master plan phases 3–5 |
+| 5.7 | Platform APIs (YouTube first) replacing manual snapshots; push reminders at best time | ☐ needs the Sprint 3 backend + approvals |
 
 ## Definition of done for Sprint 1
 
