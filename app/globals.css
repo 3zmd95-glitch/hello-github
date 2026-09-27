@@ -685,3 +685,103 @@
   color: var(--muted);
 }
 /* ---- /Planner ---- */
+
+/* ---- Review ---- */
+/* Weekly review: two-color craft/software bar, 7 day dots, 8-week XP bars and the mood picker. */
+.rv-split {
+  display: flex;
+  height: 10px;
+  background: var(--edge);
+  border: 2px solid var(--edge);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.rv-split > i {
+  display: block;
+  height: 100%;
+  transition: width 0.5s steps(8);
+}
+.rv-split > i[data-kind="craft"] {
+  background: var(--sky);
+}
+.rv-split > i[data-kind="software"] {
+  background: var(--accent);
+}
+.rv-dot[data-today="true"] {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+.rv-hist {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+  align-items: end;
+  min-width: 0;
+}
+.rv-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+}
+.rv-barbox {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  height: 80px;
+}
+.rv-barbox > i {
+  display: block;
+  width: 100%;
+  max-width: 28px;
+  min-height: 4px;
+  background: var(--panel-3);
+  border: 2px solid var(--edge);
+  border-radius: 2px;
+  box-shadow: 2px 2px 0 var(--edge);
+  transition: height 0.4s steps(6);
+}
+.rv-bar[data-on="true"] .rv-barbox > i {
+  background: var(--accent);
+}
+.rv-bar[aria-pressed="true"] .rv-barbox > i {
+  background: var(--gold);
+}
+.rv-bar:hover .rv-barbox > i,
+.rv-bar:focus-visible .rv-barbox > i {
+  filter: brightness(1.15);
+}
+.rv-mood {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  font-size: 1.5rem;
+  line-height: 1;
+  border: 3px solid var(--edge);
+  border-radius: 2px;
+  background: var(--panel-2);
+  box-shadow: 2px 2px 0 var(--edge);
+  transition:
+    transform 0.1s steps(2),
+    box-shadow 0.1s steps(2);
+}
+.rv-mood:hover {
+  transform: translateY(-2px);
+}
+.rv-mood[aria-pressed="true"] {
+  background: var(--gold);
+  box-shadow: 0 0 0 var(--edge);
+  transform: translate(2px, 2px);
+}
+.rv-textarea {
+  resize: vertical;
+  min-height: 56px;
+}
+/* ---- /Review ---- */
