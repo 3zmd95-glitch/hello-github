@@ -73,6 +73,17 @@ says so. Later: upload straight from the phone into Supabase Storage and pass th
 The queue is one KV document (`publish:jobs`): an idle tick costs one read and no write, which fits the free plan (1,000 writes a day). A
 run claims its jobs (`lockUntil`) before calling any platform, so the cron and "Post now" do not publish twice.
 
+## First live posts (log)
+
+- **2026-09-28 · Threads text** — first real post from the Worker: <https://www.threads.com/@3z.prod/post/Dd1b3I2ihCB>.
+  Setup done the same day: `threads_content_publish` + `instagram_business_content_publish` on the Meta app (Ready for
+  testing), `youtube.upload` on the Google consent screen, TikTok **Sandbox** "3z Scout" with Content Posting API +
+  Direct Post (`video.upload`, `video.publish`, target user `3z.prod`). The live API differed from the mocks in one
+  way: the fresh TEXT container reported `IN_PROGRESS` on the first read, so "Post now" returned `processing` and
+  the next cron tick published it two minutes later. Fix: one 4 s pause and a second read in the same run
+  (`FRESH_CONTAINER_WAIT_MS`). Also noted: the dashboard watcher only polls while the tab is visible, so a
+  background tab keeps showing "Uploading…" until it is looked at (by design).
+
 ## Later
 
 - Media upload from the phone (Supabase Storage, Sprint 3) instead of pasting a link.

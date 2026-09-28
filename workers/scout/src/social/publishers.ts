@@ -113,6 +113,8 @@ export interface StepContext {
   now: Date;
   /** The account handle (TikTok permalinks). */
   handle?: string;
+  /** Pause between two checks of a fresh container (tests pass a no-op). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /** Moves a target one or more steps forward; throws PublishError / SocialError on failure. */
@@ -120,14 +122,22 @@ export type Step = (target: PublishTarget, ctx: StepContext) => Promise<PublishT
 
 /** Outbound calls one step may need at most (the queue stops starting steps below this). */
 export const STEP_MIN_BUDGET: Record<SocialPlatform, number> = {
-  instagram: 4,
-  threads: 4,
+  instagram: 5,
+  threads: 5,
   youtube: 3,
   tiktok: 4,
 };
 
 /** Wait between checks on a container that is still processing. */
 export const CHECK_AGAIN_MS = 60_000;
+
+/**
+ * A fresh TEXT/IMAGE container usually reports IN_PROGRESS for a few seconds (Meta suggests waiting before
+ * the first status read). One short pause lets "Post now" finish in the same call instead of the next tick.
+ */
+export const FRESH_CONTAINER_WAIT_MS = 4_000;
+
+const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 const processing = (t: PublishTarget, ctx: StepContext, patch: Partial<PublishTarget> = {}) => ({
   ...t,
@@ -208,6 +218,15 @@ function metaStep(flow: MetaFlow): Step {
     const token = ctx.tokens.accessToken;
     const base = `${flow.api}/${flow.owner(ctx.tokens)}`;
     let target = t;
+    let fresh = false;
+    const readStatus = async (url: string): Promise<string> => {
+      const st = graph(await fetchJson<ContainerStatus>(ctx.http, url), "status");
+      const code = flow.statusOf(st);
+      if (code === "ERROR" || code === "EXPIRED") {
+        throw new PublishError("rejected", st.error_message ?? st.status ?? code);
+      }
+      return code;
+    };
     if (!target.containerId) {
       const created = graph(
         await fetchJson<Created>(
@@ -221,17 +240,14 @@ function metaStep(flow: MetaFlow): Step {
       target = processing(target, ctx, { containerId: created.id });
       // Images and text are usually ready at once: check in the same run while the budget allows.
       if (ctx.media?.kind === "video" || ctx.http.budget.left < 3) return target;
+      fresh = true;
     }
-    const st = graph(
-      await fetchJson<ContainerStatus>(
-        ctx.http,
-        `${flow.api}/${target.containerId}?fields=${flow.statusFields}&access_token=${encodeURIComponent(token)}`,
-      ),
-      "status",
-    );
-    const code = flow.statusOf(st);
-    if (code === "ERROR" || code === "EXPIRED") {
-      throw new PublishError("rejected", st.error_message ?? st.status ?? code);
+    const statusUrl = `${flow.api}/${target.containerId}?fields=${flow.statusFields}&access_token=${encodeURIComponent(token)}`;
+    let code = await readStatus(statusUrl);
+    // A container made a moment ago often needs a few seconds: wait once and look again.
+    if (fresh && code === "IN_PROGRESS" && ctx.http.budget.left >= 3) {
+      await (ctx.sleep ?? realSleep)(FRESH_CONTAINER_WAIT_MS);
+      code = await readStatus(statusUrl);
     }
     if (code !== "FINISHED" && code !== "PUBLISHED") return processing(target, ctx);
     if (ctx.http.budget.left < 1) return processing(target, ctx);
