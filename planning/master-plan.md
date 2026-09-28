@@ -35,6 +35,10 @@ Brainstorm round 6:
 - Reminders: **PWA phone push** only (web push; iOS needs the app installed to the home screen).
 - Obsidian: vault synced to a GitHub repo (Obsidian Git plugin). The dashboard reads notes; a note tagged with a skill completes
   its Research quest, and research notes can become article drafts.
+  **Superseded 2026-09-28:** notes live inside the dashboard (📝 Notes, `/notes/`): one Markdown note per skill, grouped like the
+  skill tree (pillar → program → section), `[[skill name]]` links with backlinks, search, autosave on the device, a "Research done"
+  tick from the note, and a `.md` download for Obsidian. The skill popup's Research row and Today's Research quest open the note.
+  Quest order is now Research → Train → Produce → Article (research first so the practice is informed).
 - First product: **LUT packs** (.cube). Plugins/presets later.
 - Client leads: inquiry form → dashboard "Leads" pipeline (new → talking → booked → done).
 
@@ -144,7 +148,7 @@ Brainstorm round 12 (mockup gap audit, all added):
 - **Add-skill tools**: "+" in any region opens a form (name, tier, notes/link, AI writes the 4 quests) with duplicate check;
   Skill Scout accepts a pasted TikTok/Instagram/YouTube link; Social trend "Make it a skill" adds an idea or reports a duplicate.
 - **Quest proof**: every skill shows its 4 quests; done Produce/Article quests take a proof link (portfolio log);
-  done Research shows the linked Obsidian note.
+  done Research shows the linked note (in-app Notes since 2026-09-28).
 - **Course** screen: stats, 6-chapter map (chapter 1 free), lessons per chapter with status, mastered skills → lessons, student preview.
 - **Comments** moderation in Content (approve, hide, reply, turn into an idea; spam flag) + links/affiliates box.
 - **Settings**: editable XP rules, AI budget slider, reminder times, connected accounts, and a phone push preview.
@@ -315,7 +319,7 @@ techniques, not only software"; owner is early in the journey and the dashboard'
   - **Color craft** (theory, software-agnostic): Color theory & palettes · Skin tones · Reading scopes · LUT theory · Film emulation · Teal–orange and when not to
   - **Production workflow**: Location scouting · Permits (Saudi Film Commission) · Gear checklist · Call sheet · Data management on set · Backups
 - **Quests keep the same 4 types**, adapted for craft: **Train** = a field exercise with proof (e.g. "shoot the same subject at 5 shutter angles",
-  photo/clip upload) · **Produce** = a short clip that shows the technique · **Research** = Obsidian note · **Publish** = article (Arabic gap flag applies).
+  photo/clip upload) · **Produce** = a short clip that shows the technique · **Research** = a note in the in-app Notes vault · **Publish** = article (Arabic gap flag applies).
   XP rules unchanged; craft XP feeds the same overall level and rank ladder (the rank names already are videography: صيّاد اللقطات، شايل الكاميرا، ملك الزوايا، مروّض الإضاءة).
 - **Combo quests (new, motivational core):** the coach pairs one craft skill with one software skill into a mini-project that ends in one video:
   "shoot Log at golden hour → grade with CST in DaVinci", "record with a lav → voice chain in Fairlight", "plan a match cut → cut it on the Edit page".

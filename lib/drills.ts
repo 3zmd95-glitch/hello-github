@@ -75,8 +75,8 @@ export const DRILL_PROMPTS: readonly DrillPrompt[] = [
     id: "note-refresh",
     quest: "research",
     text: {
-      ar: "افتح ملاحظتك في Obsidian وضيف لها شي واحد جديد تعلمته",
-      en: "Open your Obsidian note and add one new thing you learned",
+      ar: "افتح النوت حقتك وضيف لها شي واحد جديد تعلمته",
+      en: "Open your note and add one new thing you learned",
     },
   },
   {

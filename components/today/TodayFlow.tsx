@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
 import { useSkillSheet } from "@/components/skills/SkillSheetProvider";
@@ -7,6 +8,7 @@ import PxBar from "@/components/ui/PxBar";
 import { getSkill } from "@/data";
 import type { FlowState } from "@/lib/flow";
 import { useT } from "@/lib/i18n";
+import { notesHref } from "@/lib/notes";
 import type { MicroActionIdea, QuestPick } from "@/lib/planner";
 import { questXp } from "@/lib/xp";
 
@@ -164,6 +166,15 @@ function MainQuest({ pick, reasons }: { pick: QuestPick; reasons: string[] }) {
         />
       )}
       <div className="flex flex-wrap gap-2">
+        {pick.quest === "research" && (
+          <Link
+            href={notesHref(pick.skill.id)}
+            className="px-btn px-btn-gold px-btn-sm no-underline"
+            data-testid="main-note"
+          >
+            {t("sheet.noteOpen")}
+          </Link>
+        )}
         <button
           type="button"
           className="px-btn px-btn-ghost px-btn-sm"

@@ -46,8 +46,8 @@ export const craftDraftSkills: Skill[] = [
         "Shoot the same sun-to-shade move twice: once auto, once locked. Upload both as proof.",
       ),
       research: t(
-        "اكتب في Obsidian: إيش الفرق بين AE و AF و WB، ومتى تقفل كل واحد.",
-        "Write an Obsidian note: AE vs AF vs WB, and when to lock each one.",
+        "اكتب نوت: إيش الفرق بين AE و AF و WB، ومتى تقفل كل واحد.",
+        "Write a note: AE vs AF vs WB, and when to lock each one.",
       ),
       produce: t(
         "ريل ١٥ ثانية: قبل/بعد، أوتو يرقص ضد مقفول ثابت.",
@@ -97,8 +97,8 @@ export const craftDraftSkills: Skill[] = [
         "Shoot the same scene (sunset or window) once normal, once Log. Upload both.",
       ),
       research: t(
-        "نوت في Obsidian: إيش هو الـ Log، وإيش الـ ProRes، ومتى ما تستاهل.",
-        "Obsidian note: what Log is, what ProRes is, and when they are not worth it.",
+        "نوت: إيش هو الـ Log، وإيش الـ ProRes، ومتى ما تستاهل.",
+        "Note: what Log is, what ProRes is, and when they are not worth it.",
       ),
       produce: t(
         "ريل ٢٠ ثانية: اللقطة الباهتة ← بعد التلوين في دافنشي.",
@@ -148,8 +148,8 @@ export const craftDraftSkills: Skill[] = [
         "Walk the same 10 s path three times: normal, ninja walk, ninja + Action mode. Upload all three.",
       ),
       research: t(
-        "نوت في Obsidian: ٥ حيل ثبات بدون عدة، وأي وحدة نفعت معك.",
-        "Obsidian note: 5 no-gear stabilization tricks and which one worked for you.",
+        "نوت: ٥ حيل ثبات بدون عدة، وأي وحدة نفعت معك.",
+        "Note: 5 no-gear stabilization tricks and which one worked for you.",
       ),
       produce: t(
         "ريل ١٥ ثانية: لقطة مشي ناعمة في الحارة أو المول.",
@@ -202,8 +202,8 @@ export const craftDraftSkills: Skill[] = [
         "Film the same motion at 1/50, 1/500 and 1/2000. Upload all three.",
       ),
       research: t(
-        "نوت في Obsidian: إيش هي زاوية الغالق، وليه ١٨٠°، ومتى نكسرها.",
-        "Obsidian note: what shutter angle is, why 180°, and when to break it.",
+        "نوت: إيش هي زاوية الغالق، وليه ١٨٠°، ومتى نكسرها.",
+        "Note: what shutter angle is, why 180°, and when to break it.",
       ),
       produce: t(
         'ريل ٢٠ ثانية: مقارنة جنب لجنب، "ليه فيديوك شكله جوال؟".',
@@ -256,8 +256,8 @@ export const craftDraftSkills: Skill[] = [
         "Film the same face 3 ways: window only, window + soft fill, window + strong fill. Upload the frames.",
       ),
       research: t(
-        "نوت في Obsidian: Key و Fill و Back، ونسبة الإضاءة (Key:Fill).",
-        "Obsidian note: key, fill and back light, and the key:fill ratio.",
+        "نوت: Key و Fill و Back، ونسبة الإضاءة (Key:Fill).",
+        "Note: key, fill and back light, and the key:fill ratio.",
       ),
       produce: t(
         "كليب ٢٠ ثانية تتكلم فيه للكاميرا بإضاءة الشباك + Fill.",
@@ -307,8 +307,8 @@ export const craftDraftSkills: Skill[] = [
         "At noon film the same face: direct sun, with diffusion, in shade. Upload all three.",
       ),
       research: t(
-        "نوت في Obsidian: ليه حجم مصدر الضوء يغيّر نعومته.",
-        "Obsidian note: why the size of a light source changes how soft it is.",
+        "نوت: ليه حجم مصدر الضوء يغيّر نعومته.",
+        "Note: why the size of a light source changes how soft it is.",
       ),
       produce: t(
         'ريل ١٥ ثانية: "تصوّر الظهر؟ اعمل كدا" مع قبل/بعد.',
@@ -361,8 +361,8 @@ export const craftDraftSkills: Skill[] = [
         "Film the same frame with your light at 3200K and 5600K next to a window. Upload both.",
       ),
       research: t(
-        "نوت في Obsidian: مقياس الكلفن، وإيش الجلز CTO و CTB.",
-        "Obsidian note: the Kelvin scale, and what CTO and CTB gels do.",
+        "نوت: مقياس الكلفن، وإيش الجلز CTO و CTB.",
+        "Note: the Kelvin scale, and what CTO and CTB gels do.",
       ),
       produce: t(
         "كليب ٢٠ ثانية بمود دافي/بارد مقصود.",
@@ -406,8 +406,8 @@ export const craftDraftSkills: Skill[] = [
         "Shoot 5 sizes (EWS, WS, MS, MCU, CU) of the same person. Upload all five frames.",
       ),
       research: t(
-        "نوت في Obsidian: أسماء أحجام اللقطات ومتى تستخدم كل وحدة.",
-        "Obsidian note: shot size names and when to use each one.",
+        "نوت: أسماء أحجام اللقطات ومتى تستخدم كل وحدة.",
+        "Note: shot size names and when to use each one.",
       ),
       produce: t(
         "كليب ٢٠ ثانية فيه تسلسل واسعة ← متوسطة ← قريبة.",

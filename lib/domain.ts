@@ -616,3 +616,15 @@ export const EMPTY_SOCIAL_SYNC: SocialSyncState = {
   status: null,
   statusAt: null,
 };
+
+/* ---------- 📝 Notes (in-app research vault, replaces the external Obsidian step) ---------- */
+
+/** Longest note body kept (about 50 printed pages): guards localStorage, never hit by normal notes. */
+export const NOTE_MAX_CHARS = 100_000;
+
+/** One Markdown note per skill; the Research quest's home. */
+export const NoteSchema = z.object({
+  body: z.string().max(NOTE_MAX_CHARS),
+  updatedAt: z.string(),
+});
+export type Note = z.infer<typeof NoteSchema>;

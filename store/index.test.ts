@@ -28,6 +28,7 @@ import {
   isPlanItemDone,
   isQuestDone,
   masteredSkillIds,
+  noteForSkill,
   nextPostFor,
   pillarXp,
   planItemsForWeek,
@@ -382,6 +383,45 @@ describe("references (Scout v0)", () => {
     S().reset();
     S().importState(json);
     expect(S().savedRefs["scene-cut-detection"]).toEqual([withThumb]);
+  });
+});
+
+describe("notes", () => {
+  const id = "smart-bins-keywords";
+  it("saves, updates and clears a skill's note without touching quests or XP", () => {
+    S().setNote(id, "# Bins\n[[Scene cut]]", at("2026-09-28T10:00:00Z"));
+    expect(noteForSkill(S(), id)).toEqual({
+      body: "# Bins\n[[Scene cut]]",
+      updatedAt: "2026-09-28T10:00:00.000Z",
+    });
+    expect(isQuestDone(S(), id, "research")).toBe(false);
+    expect(totalXp(S())).toBe(0);
+
+    S().setNote(id, "# Bins", at("2026-09-28T11:00:00Z"));
+    expect(S().notes[id].updatedAt).toBe("2026-09-28T11:00:00.000Z");
+    // Same text: timestamp kept.
+    S().setNote(id, "# Bins", at("2026-09-28T12:00:00Z"));
+    expect(S().notes[id].updatedAt).toBe("2026-09-28T11:00:00.000Z");
+
+    S().setNote(id, "   \n ");
+    expect(noteForSkill(S(), id)).toBeUndefined();
+    expect(S().notes).toEqual({});
+  });
+
+  it("ignores unknown skills and caps the length", () => {
+    S().setNote("no-such-skill", "hi");
+    expect(S().notes).toEqual({});
+    S().setNote(id, "x".repeat(100_050));
+    expect(S().notes[id].body).toHaveLength(100_000);
+  });
+
+  it("round-trips through export/import", () => {
+    S().setNote(id, "keep me");
+    const json = S().exportState();
+    S().reset();
+    expect(S().notes).toEqual({});
+    S().importState(json);
+    expect(S().notes[id].body).toBe("keep me");
   });
 });
 

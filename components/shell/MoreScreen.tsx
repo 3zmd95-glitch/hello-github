@@ -13,6 +13,7 @@ interface MoreLink {
 
 const TRAINING_LINKS: readonly MoreLink[] = [
   { href: "/map", label: "morePage.map", testId: "more-map" },
+  { href: "/notes", label: "morePage.notes", testId: "more-notes" },
   { href: "/planner", label: "morePage.planner", testId: "more-planner" },
   { href: "/review", label: "morePage.review", testId: "more-review" },
   { href: "/rewards", label: "morePage.rewards", testId: "more-rewards" },

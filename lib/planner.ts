@@ -109,8 +109,8 @@ export const MICRO_ACTIONS: readonly MicroActionIdea[] = [
   {
     id: "research-lines",
     text: {
-      ar: "اكتب ٣ أسطر في Obsidian عن حاجة تعلمتها اليوم",
-      en: "Write 3 lines in Obsidian about something you learned today",
+      ar: "اكتب ٣ أسطر في النوتات عن حاجة تعلمتها اليوم",
+      en: "Write 3 lines in Notes about something you learned today",
     },
   },
   {

@@ -24,6 +24,8 @@ import {
   LTextSchema,
   MONTH_KEY_RE,
   MicroActionSchema,
+  NOTE_MAX_CHARS,
+  NoteSchema,
   PlanItemSchema,
   PostSchema,
   PurchaseSchema,
@@ -52,6 +54,7 @@ import {
   type IdeaSource,
   type LText,
   type MicroAction,
+  type Note,
   type PlanItem,
   type Platform,
   type Post,
@@ -164,6 +167,8 @@ export const PersistedStateSchema = z.object({
   savedRefs: z.record(z.string(), z.array(RefSchema)).default({}),
   /** Scout v0 (1.13): last topics typed on /discover, most recent first, capped at 8. */
   recentTopics: z.array(z.string()).default([]),
+  /** 📝 One Markdown note per skill, by skill id (the Research quest's home). */
+  notes: z.record(z.string(), NoteSchema).default({}),
   /** Gem ledger; the balance is its sum. */
   gemEvents: z.array(GemEventSchema).default([]),
   /** Chests opened so far (one is earned every CHEST_EVERY quests). */
@@ -400,6 +405,11 @@ export interface StoreActions {
   /** Attach a reference to a skill's "Start here" box (Scout v0). No-op if the url is already saved. */
   addRef(skillId: string, ref: Ref): void;
   removeRef(skillId: string, url: string): void;
+  /**
+   * Save a skill's note (📝 Notes). A blank body removes the note; longer than NOTE_MAX_CHARS is cut. No-op for
+   * an unknown skill or an unchanged body. Writing a note never ticks the Research quest: the owner does.
+   */
+  setNote(skillId: string, body: string, now?: Date): void;
   /** Record a Discover topic search, most recent first, keeping only the last 8. */
   addRecentTopic(topic: string): void;
   /** Open the next ready chest: applies its gems / freeze, returns the loot (null when none is ready). */
@@ -443,6 +453,7 @@ const initialData = (): PersistedState => ({
   reviews: [],
   savedRefs: {},
   recentTopics: [],
+  notes: {},
   gemEvents: [],
   chestsOpened: 0,
   focus: null,
@@ -490,6 +501,7 @@ const pick = (s: PersistedState): PersistedState => ({
   reviews: s.reviews,
   savedRefs: s.savedRefs,
   recentTopics: s.recentTopics,
+  notes: s.notes,
   gemEvents: s.gemEvents,
   chestsOpened: s.chestsOpened,
   focus: s.focus,
@@ -868,6 +880,21 @@ export const useStore = create<StoreState>()(
         const list = s.savedRefs[skillId];
         if (!list?.some((r) => r.url === url)) return;
         set({ savedRefs: { ...s.savedRefs, [skillId]: list.filter((r) => r.url !== url) } });
+      },
+
+      setNote(skillId, body, now = new Date()) {
+        if (!getSkill(skillId)) return;
+        const s = get();
+        const text = body.slice(0, NOTE_MAX_CHARS);
+        if (!text.trim()) {
+          if (!(skillId in s.notes)) return;
+          const rest = { ...s.notes };
+          delete rest[skillId];
+          set({ notes: rest });
+          return;
+        }
+        if (s.notes[skillId]?.body === text) return;
+        set({ notes: { ...s.notes, [skillId]: { body: text, updatedAt: now.toISOString() } } });
       },
 
       addRecentTopic(topic) {
@@ -1467,6 +1494,11 @@ const EMPTY_REFS: Ref[] = [];
 /** Refs saved on a skill (Scout v0), or a stable empty array when it has none. */
 export function refsForSkill(s: Pick<PersistedState, "savedRefs">, skillId: string): Ref[] {
   return s.savedRefs[skillId] ?? EMPTY_REFS;
+}
+
+/** A skill's note, if the owner wrote one. */
+export function noteForSkill(s: Pick<PersistedState, "notes">, skillId: string): Note | undefined {
+  return s.notes[skillId];
 }
 
 /** Number of quests done on a skill, 0..4. */

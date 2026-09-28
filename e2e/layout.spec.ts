@@ -5,6 +5,7 @@ const PATHS = [
   "/",
   "/skills/",
   "/map/",
+  "/notes/",
   "/planner/",
   "/review/",
   "/rewards/",
