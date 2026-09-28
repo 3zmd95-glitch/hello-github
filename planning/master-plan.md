@@ -41,6 +41,9 @@ Brainstorm round 6:
   Quest order is now Research → Train → Produce → Article (research first so the practice is informed).
   The vault tree is built from the same data as the Skills screen and the map (`vaultTree` in `lib/notes.ts`), so every new skill
   gets its note slot automatically; map nodes with a note show 📝 and each note links back to its island (tests keep them in sync).
+  Round 2: typing `[[` suggests skills to link; ⚡ Live mode shows the formatted note while typing; images can be pasted, dropped
+  or picked (kept on the device in IndexedDB, not in the JSON export yet); 🕸️ Graph view shows notes around their islands with
+  gold lines for links ("All skills" shows every skill).
 - First product: **LUT packs** (.cube). Plugins/presets later.
 - Client leads: inquiry form → dashboard "Leads" pipeline (new → talking → booked → done).
 

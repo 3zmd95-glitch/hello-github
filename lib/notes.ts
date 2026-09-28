@@ -239,3 +239,182 @@ export function noteFileName(skill: Pick<Skill, "id" | "name">, lang: Lang): str
     .trim();
   return `${name || skill.id}.md`;
 }
+
+/* ---------- [[ suggestions while typing ---------- */
+
+/** An open `[[…` right before the caret: where it starts (the first `[`) and what was typed after it. */
+export interface LinkQuery {
+  start: number;
+  query: string;
+}
+
+/** The link being typed at `caret`, or null (no `[[` on this line, or it was already closed). */
+export function linkQueryAt(text: string, caret: number): LinkQuery | null {
+  const before = text.slice(0, caret);
+  const start = before.lastIndexOf("[[");
+  if (start < 0) return null;
+  const query = before.slice(start + 2);
+  if (/[[\]\n|]/.test(query) || query.length > 60) return null;
+  return { start, query };
+}
+
+export interface LinkSuggestion {
+  id: string;
+  /** The skill name in the owner's language: what gets written between the brackets. */
+  label: string;
+}
+
+/**
+ * Skills whose id or name (either language) matches `query`: names that start with it first, then ones that
+ * hold it; skills in `boost` (e.g. the ones with a note) before the rest inside each group. A blank query lists
+ * the boosted skills, then the others, in data order.
+ */
+export function suggestLinks(
+  query: string,
+  skills: readonly Pick<Skill, "id" | "name">[],
+  lang: Lang,
+  boost: ReadonlySet<string> = new Set(),
+  limit = 8,
+): LinkSuggestion[] {
+  const q = norm(query);
+  const scored = skills.flatMap((s, i) => {
+    const names = [norm(s.name.ar), norm(s.name.en), s.id];
+    const rank = !q
+      ? 1
+      : names.some((n) => n.startsWith(q))
+        ? 0
+        : names.some((n) => n.includes(q))
+          ? 1
+          : -1;
+    return rank < 0 ? [] : [{ s, i, key: rank * 2 + (boost.has(s.id) ? 0 : 1) }];
+  });
+  return scored
+    .sort((a, b) => a.key - b.key || a.i - b.i)
+    .slice(0, limit)
+    .map(({ s }) => ({ id: s.id, label: (s.name[lang] || s.name.ar).trim() }));
+}
+
+/** Replace the typed `[[query` with `[[label]]` (reusing a `]]` already after the caret); caret goes after it. */
+export function applyLinkSuggestion(
+  text: string,
+  q: LinkQuery,
+  caret: number,
+  label: string,
+): { text: string; caret: number } {
+  const after = text.slice(caret);
+  const link = `[[${label}]]`;
+  return {
+    text: text.slice(0, q.start) + link + (after.startsWith("]]") ? after.slice(2) : after),
+    caret: q.start + link.length,
+  };
+}
+
+/* ---------- 🕸️ Graph ---------- */
+
+export interface GraphNode {
+  /** Skill id, or `island:<programId>` for an island hub. */
+  id: string;
+  kind: "skill" | "island";
+  programId: string;
+  hasNote: boolean;
+}
+export interface GraphLink {
+  source: string;
+  target: string;
+  /** "island": a skill sits on that island · "note": a `[[link]]` between two notes (either direction). */
+  kind: "island" | "note";
+}
+
+export const islandNodeId = (programId: string) => `island:${programId}`;
+
+/**
+ * The notes as a graph, Obsidian style, anchored on the map: skills with a note, the skills their `[[links]]`
+ * point at (hollow when they have no note yet), or every skill when `allSkills`; each one tied to its island hub,
+ * plus one edge per pair of notes that link each other. Nodes in data order (islands first), so layouts are stable.
+ */
+export function noteGraph(
+  notes: Readonly<Record<string, Note>>,
+  skills: readonly Pick<Skill, "id" | "name" | "programId">[],
+  programs: readonly Pick<Program, "id">[],
+  { allSkills = false }: { allSkills?: boolean } = {},
+): { nodes: GraphNode[]; links: GraphLink[] } {
+  const noteLinks: GraphLink[] = [];
+  const seen = new Set<string>();
+  const linked = new Set<string>();
+  for (const s of skills) {
+    const note = notes[s.id];
+    if (!note) continue;
+    for (const l of wikiLinks(note.body)) {
+      const target = resolveWikiLink(l.target, skills);
+      if (!target || target === s.id) continue;
+      const key = [s.id, target].sort().join("→");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      linked.add(target);
+      noteLinks.push({ source: s.id, target, kind: "note" });
+    }
+  }
+  const shown = skills.filter((s) => allSkills || notes[s.id] || linked.has(s.id));
+  const islandIds = new Set(shown.map((s) => s.programId));
+  const nodes: GraphNode[] = [
+    ...programs
+      .filter((p) => islandIds.has(p.id))
+      .map((p) => ({
+        id: islandNodeId(p.id),
+        kind: "island" as const,
+        programId: p.id,
+        hasNote: false,
+      })),
+    ...shown.map((s) => ({
+      id: s.id,
+      kind: "skill" as const,
+      programId: s.programId,
+      hasNote: !!notes[s.id],
+    })),
+  ];
+  const links: GraphLink[] = [
+    ...shown.map((s) => ({
+      source: s.id,
+      target: islandNodeId(s.programId),
+      kind: "island" as const,
+    })),
+    ...noteLinks,
+  ];
+  return { nodes, links };
+}
+
+/* ---------- 🖼️ Images ---------- */
+
+/** Images pasted into a note live in this browser's IndexedDB; the note holds `![alt](img:<id>)`. */
+export const NOTE_IMAGE_PREFIX = "img:";
+
+export function isNoteImage(src: string): boolean {
+  return src.startsWith(NOTE_IMAGE_PREFIX) && src.length > NOTE_IMAGE_PREFIX.length;
+}
+
+export function noteImageId(src: string): string {
+  return src.slice(NOTE_IMAGE_PREFIX.length);
+}
+
+/** Markdown for a stored image, on its own line. Brackets in the alt text are dropped. */
+export function noteImageMarkdown(id: string, alt: string): string {
+  const clean = alt
+    .replace(/\.[a-z0-9]+$/i, "")
+    .replace(/[[\]()\n]/g, " ")
+    .trim();
+  return `![${clean}](${NOTE_IMAGE_PREFIX}${id})`;
+}
+
+/** Put `snippet` at the caret on a line of its own; returns the new text and the caret after it. */
+export function insertBlock(
+  text: string,
+  caret: number,
+  snippet: string,
+): { text: string; caret: number } {
+  const before = text.slice(0, caret);
+  const after = text.slice(caret);
+  const lead = before === "" || before.endsWith("\n") ? "" : "\n";
+  const trail = after.startsWith("\n") ? "" : "\n";
+  const out = `${before}${lead}${snippet}${trail}`;
+  return { text: out + after, caret: out.length };
+}

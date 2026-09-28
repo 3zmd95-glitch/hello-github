@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
 import { useSkillSheet } from "@/components/skills/SkillSheetProvider";
 import { getProgram, skills } from "@/data";
@@ -12,17 +12,20 @@ import { backlinks, noteFileName, noteTemplate, notesHash, wordCount } from "@/l
 import { questXp } from "@/lib/xp";
 import { isQuestDone, useStore } from "@/store";
 import NoteMarkdown from "./NoteMarkdown";
+import NoteTextarea from "./NoteTextarea";
 
-type Mode = "write" | "read";
+type Mode = "write" | "live" | "read";
+const MODES: readonly Mode[] = ["write", "live", "read"];
 const SAVE_DELAY_MS = 400;
 
 /**
- * One skill's note: the Research brief on top, Write / Read tabs (plain Markdown textarea, rendered preview),
+ * One skill's note: the Research brief on top, Write / Live / Read tabs (Markdown textarea with [[ suggestions and
+ * images; Live shows the formatted note next to it (under it on phones) while typing; Read is the formatted note),
  * autosave, the Research tick, a .md download for Obsidian or anywhere else, and "Linked from" (backlinks).
  * Keyed by skill id by the screen, so switching notes remounts it and flushes the pending save.
  */
 export default function NoteEditor({ skill, onBack }: { skill: Skill; onBack: () => void }) {
-  const { t, L, lang, dir } = useT();
+  const { t, L, lang } = useT();
   const stored = useStore((s) => s.notes[skill.id]?.body ?? "");
   const notes = useStore((s) => s.notes);
   const researchDone = useStore((s) => isQuestDone(s, skill.id, "research"));
@@ -30,7 +33,7 @@ export default function NoteEditor({ skill, onBack }: { skill: Skill; onBack: ()
   const sheet = useSkillSheet();
 
   const [text, setText] = useState(stored);
-  const [mode, setMode] = useState<Mode>(stored.trim() ? "read" : "write");
+  const [mode, setMode] = useState<Mode>(stored.trim() ? "read" : "live");
   const [dirty, setDirty] = useState(false);
   const pending = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -62,6 +65,8 @@ export default function NoteEditor({ skill, onBack }: { skill: Skill; onBack: ()
   const program = getProgram(skill.programId);
   const section = program?.sections.find((s) => s.id === skill.sectionId);
   const words = wordCount(text);
+  // The live preview may lag a keystroke behind on long notes; typing never waits for it.
+  const preview = useDeferredValue(text);
   const linked = useMemo(() => backlinks(skill.id, notes, skills), [notes, skill.id]);
 
   const download = () => {
@@ -154,7 +159,7 @@ export default function NoteEditor({ skill, onBack }: { skill: Skill; onBack: ()
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="cal-tabs" role="tablist">
-          {(["write", "read"] as const).map((m) => (
+          {MODES.map((m) => (
             <button
               key={m}
               type="button"
@@ -167,7 +172,7 @@ export default function NoteEditor({ skill, onBack }: { skill: Skill; onBack: ()
               }}
               data-testid={`note-tab-${m}`}
             >
-              {t(m === "write" ? "notes.write" : "notes.read")}
+              {t(`notes.${m}`)}
             </button>
           ))}
         </div>
@@ -189,31 +194,25 @@ export default function NoteEditor({ skill, onBack }: { skill: Skill; onBack: ()
       </div>
 
       <div role="tabpanel">
-        {mode === "write" ? (
-          <div className="flex flex-col gap-2">
-            {!text.trim() && (
-              <button
-                type="button"
-                className="px-btn px-btn-ghost px-btn-sm self-start"
-                onClick={() => edit(noteTemplate(skill, lang))}
-                data-testid="note-template"
-              >
-                {t("notes.template")}
-              </button>
-            )}
-            <textarea
-              // The page direction for the caret and the placeholder; each typed line then picks its own
-              // direction (unicode-bidi: plaintext in .note-textarea), so Arabic and English lines both sit right.
-              dir={dir}
+        {mode !== "read" ? (
+          <div className={mode === "live" ? "grid gap-3 lg:grid-cols-2" : ""}>
+            <NoteTextarea
               value={text}
-              onChange={(e) => edit(e.target.value)}
-              onBlur={flush}
-              placeholder={t("notes.placeholder")}
-              aria-label={t("notes.editorLabel", { name: L(skill.name) })}
-              className="px-input note-textarea"
-              spellCheck
-              data-testid="note-textarea"
+              onChange={edit}
+              onFlush={flush}
+              ariaLabel={t("notes.editorLabel", { name: L(skill.name) })}
+              onTemplate={() => edit(noteTemplate(skill, lang))}
+              className={mode === "live" ? "note-live-editor" : ""}
             />
+            {mode === "live" && (
+              <div className="px-inset note-live-preview" data-testid="note-live">
+                {preview.trim() ? (
+                  <NoteMarkdown body={preview} />
+                ) : (
+                  <p className="text-muted text-sm">{t("notes.livePh")}</p>
+                )}
+              </div>
+            )}
           </div>
         ) : text.trim() ? (
           <div className="px-inset">
