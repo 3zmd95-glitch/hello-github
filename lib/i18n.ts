@@ -23,6 +23,8 @@ import arIdeas from "@/messages/ideas.ar.json";
 import enIdeas from "@/messages/ideas.en.json";
 import arPublish from "@/messages/publish.ar.json";
 import enPublish from "@/messages/publish.en.json";
+import arTrends from "@/messages/trends.ar.json";
+import enTrends from "@/messages/trends.en.json";
 import type { Lang, LText } from "@/lib/domain";
 import { useStore } from "@/store";
 
@@ -51,6 +53,8 @@ export const MESSAGE_FILES = {
   growth: { ar: arGrowth, en: enGrowth },
   ideas: { ar: arIdeas, en: enIdeas },
   publish: { ar: arPublish, en: enPublish },
+  // 📈 Trend Radar (round 30, planning/tools/08-trends.md).
+  trends: { ar: arTrends, en: enTrends },
 } as const;
 
 const ar = {
@@ -66,6 +70,7 @@ const ar = {
   ...arGrowth,
   ...arIdeas,
   ...arPublish,
+  ...arTrends,
 };
 const en = {
   ...enBase,
@@ -80,6 +85,7 @@ const en = {
   ...enGrowth,
   ...enIdeas,
   ...enPublish,
+  ...enTrends,
 };
 
 export type MessageKey = keyof typeof ar;

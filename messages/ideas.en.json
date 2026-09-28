@@ -29,7 +29,5 @@
   "ideas.skillPlan": "📱 Plan the video",
   "ideas.skillProgress": "{n}/4 quests",
   "ideas.planned": "Added to the calendar ✓ “{name}”",
-  "ideas.plannedOpen": "Open in calendar",
-  "ideas.trends": "📈 Trends",
-  "ideas.trendsSoon": "The trend scan comes with the AI coach (Sprint 4). Until then, add the trends you spot yourself."
+  "ideas.plannedOpen": "Open in calendar"
 }

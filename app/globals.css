@@ -2281,3 +2281,11 @@
   font-weight: 700;
 }
 /* ---- /Notes vault ---- */
+
+/* 📈 Trend Radar (round 30) */
+/* A row that matches the owner's niche keywords: a gold edge on the reading side (logical, so RTL flips it). */
+.trend-row[data-star="true"] {
+  border-inline-start-width: 4px;
+  border-inline-start-color: var(--gold);
+}
+/* ---- /Trend Radar ---- */

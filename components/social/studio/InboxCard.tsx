@@ -7,15 +7,21 @@ import { latestSnapshot } from "@/lib/growth";
 import { useT, type MessageKey, type Vars } from "@/lib/i18n";
 import { PLATFORM_META, overduePosts } from "@/lib/social";
 import { addDays } from "@/lib/streak";
+import { visibleTrends } from "@/lib/trends";
 import { ideasCount, useStore } from "@/store";
 import { calendarPostHref } from "./platform";
 
 /** Numbers older than this many days count as stale for a platform the owner has an account on. */
 const STALE_DAYS = 14;
+/**
+ * A trend row counts as new while its `seenAt` (first seen by the Worker) is within this many days (📈 Trend
+ * Radar, round 30). Calendar moments (platform `event`) are never counted: they are not trends.
+ */
+const NEW_TREND_DAYS = 7;
 
 interface InboxRow {
   id: string;
-  kind: "overdue" | "unscheduled" | "ideas" | "stale";
+  kind: "overdue" | "unscheduled" | "ideas" | "trends" | "stale";
   key: MessageKey;
   vars?: Vars;
   href: string;
@@ -23,12 +29,14 @@ interface InboxRow {
 
 /**
  * Things needing attention, rules-based (no server): overdue posts, edited posts without a day, ideas
- * waiting in the bank, platforms with an account whose numbers are older than two weeks.
+ * waiting in the bank, new trend rows this week, platforms with an account whose numbers are older than
+ * two weeks.
  */
 export default function InboxCard({ today, now }: { today: string; now: number }) {
   const { t, L } = useT();
   const posts = useStore((s) => s.posts);
   const ideas = useStore((s) => s.ideas);
+  const trends = useStore((s) => s.trends);
   const snapshots = useStore((s) => s.socialSnapshots);
   const accounts = useStore((s) => s.socialAccounts);
 
@@ -60,6 +68,18 @@ export default function InboxCard({ today, now }: { today: string; now: number }
         vars: { n: waiting },
         href: "/social/ideas/",
       });
+    const since = now - NEW_TREND_DAYS * 86_400_000;
+    const fresh = visibleTrends(trends, {}, new Date(now)).filter(
+      (i) => i.platform !== "event" && Date.parse(i.seenAt) >= since,
+    ).length;
+    if (fresh > 0)
+      out.push({
+        id: "trends",
+        kind: "trends",
+        key: "trends.inboxNew",
+        vars: { n: fresh },
+        href: "/social/ideas/",
+      });
     const cutoff = addDays(today, -STALE_DAYS);
     for (const platform of PLATFORMS) {
       if (!accounts.some((a) => a.platform === platform)) continue;
@@ -74,7 +94,7 @@ export default function InboxCard({ today, now }: { today: string; now: number }
         });
     }
     return out;
-  }, [posts, ideas, snapshots, accounts, today, now, L]);
+  }, [posts, ideas, trends, snapshots, accounts, today, now, L]);
 
   return (
     <section
