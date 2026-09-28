@@ -167,10 +167,12 @@ the field (`instagram.media`, `threads.caption`, …).
 Each target is `{ …spec, state: queued|processing|published|failed, attempts, containerId?, startedAt?, nextAt?,
 postId?, permalink?, publishedAt?, inbox?, error?, detail? }`. Error codes: `not_connected`, `no_permission`,
 `token_expired`, `media_unreachable` (the link answered with an error or an HTML page), `media_too_large`,
-`rejected` (the platform refused; `detail` has its words), `rate_limited`, `upstream`, `timeout` (still
-processing after 2 h). `upstream` and `rate_limited` are retried up to 4 times, 5/10/15 minutes apart.
+`private_account` (TikTok before its audit: the TikTok account itself must be private),
+`rejected` (the platform refused; `detail` has its words, plus TikTok's error code in brackets), `rate_limited`,
+`upstream`, `timeout` (still processing after 2 h). `upstream` and `rate_limited` are retried up to 4 times, 5/10/15 minutes apart.
 
-**Steps per tick.** Instagram and Threads create a container. Images and text are checked and published in the
+**Steps per tick.** Instagram and Threads create a container (Instagram first reads its professional account id,
+`user_id` of `GET /me`: the id the token exchange returns is app-scoped and `/media` refuses it). Images and text are checked and published in the
 same run (a container that still says `IN_PROGRESS` is read once more after a 4 s pause; the first live Threads
 post needed that), videos on the next tick once `FINISHED`. YouTube opens a resumable session and **streams** the file
 from the media URL into it (no buffering). TikTok reads `creator_info` (Direct Post: an unaudited app only

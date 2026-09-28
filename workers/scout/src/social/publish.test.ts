@@ -106,6 +106,9 @@ const video = (size = 1000, extra: Record<string, string> = {}) =>
     headers: { "Content-Type": "video/mp4", "Content-Length": String(size), ...extra },
   });
 
+/** Instagram /me: the professional account id, which differs from the app-scoped userId stored at connect. */
+const igMe = () => ({ user_id: "17841" });
+
 /** Routes by host + path (+ method for the same path); unmocked calls answer 404. */
 function mockFetch(routes: Record<string, Handler>) {
   const fn = vi.fn<typeof fetch>(async (input, init) => {
@@ -409,7 +412,9 @@ describe("runDue", () => {
     await queue(env, job());
     let ready = false;
     const fetchMock = mockFetch({
-      "POST graph.instagram.com/v21.0/178/media": (_u, init) => {
+      "GET graph.instagram.com/v21.0/me": igMe,
+
+      "POST graph.instagram.com/v21.0/17841/media": (_u, init) => {
         expect(Object.fromEntries(formOf(init))).toEqual({
           media_type: "REELS",
           video_url: MEDIA,
@@ -422,7 +427,7 @@ describe("runDue", () => {
       "GET graph.instagram.com/v21.0/cont1": () => ({
         status_code: ready ? "FINISHED" : "IN_PROGRESS",
       }),
-      "POST graph.instagram.com/v21.0/178/media_publish": (_u, init) => {
+      "POST graph.instagram.com/v21.0/17841/media_publish": (_u, init) => {
         expect(formOf(init).get("creation_id")).toBe("cont1");
         return { id: "m42" };
       },
@@ -438,7 +443,10 @@ describe("runDue", () => {
       startedAt: NOW.toISOString(),
     });
     // Video containers are not checked in the same run.
-    expect(fetchMock.calls()).toEqual(["POST graph.instagram.com/v21.0/178/media"]);
+    expect(fetchMock.calls()).toEqual([
+      "GET graph.instagram.com/v21.0/me",
+      "POST graph.instagram.com/v21.0/17841/media",
+    ]);
 
     // Still processing a tick later.
     await runDue(env, { fetch: fetchMock, now: later(5 * 60_000) });
@@ -459,12 +467,14 @@ describe("runDue", () => {
     await connect(env, "instagram");
     await queue(env, job({ media: { url: IMAGE, kind: "image" } }));
     const fetchMock = mockFetch({
-      "POST graph.instagram.com/v21.0/178/media": (_u, init) => {
+      "GET graph.instagram.com/v21.0/me": igMe,
+
+      "POST graph.instagram.com/v21.0/17841/media": (_u, init) => {
         expect(formOf(init).get("image_url")).toBe(IMAGE);
         return { id: "c" };
       },
       "GET graph.instagram.com/v21.0/c": () => ({ status_code: "FINISHED" }),
-      "POST graph.instagram.com/v21.0/178/media_publish": () => ({ id: "m" }),
+      "POST graph.instagram.com/v21.0/17841/media_publish": () => ({ id: "m" }),
       "GET graph.instagram.com/v21.0/m": () => ({ permalink: "https://www.instagram.com/p/P/" }),
     });
     expect((await runDue(env, { fetch: fetchMock, now: NOW })).published).toEqual([
@@ -511,7 +521,9 @@ describe("runDue", () => {
     await connect(env, "instagram");
     await queue(env, job({ media: { url: IMAGE, kind: "image" } }));
     const fetchMock = mockFetch({
-      "POST graph.instagram.com/v21.0/178/media": () =>
+      "GET graph.instagram.com/v21.0/me": igMe,
+
+      "POST graph.instagram.com/v21.0/17841/media": () =>
         json({ error: { message: "The aspect ratio is not supported.", code: 36003 } }, 400),
     });
     const r = await runDue(env, { fetch: fetchMock, now: NOW });
@@ -697,6 +709,50 @@ describe("runDue", () => {
     );
   });
 
+  it("TikTok before its audit: a public account fails as private_account, other refusals keep the code", async () => {
+    const env = makeEnv();
+    await connect(env, "tiktok");
+    await queue(env, job({ targets: { tiktok: { caption: "c", privacy: "SELF_ONLY" } } }));
+    let code = "unaudited_client_can_only_post_to_private_accounts";
+    const fetchMock = mockFetch({
+      "POST open.tiktokapis.com/v2/oauth/token/": () => ({
+        access_token: "tt-fresh",
+        expires_in: 86_400,
+      }),
+      "POST open.tiktokapis.com/v2/post/publish/creator_info/query/": () => ({
+        data: { privacy_level_options: ["SELF_ONLY"] },
+        error: { code: "ok" },
+      }),
+      "GET cdn.example/clip.mp4": () => video(10),
+      // The live answer's message is generic; only the code says what to do.
+      "POST open.tiktokapis.com/v2/post/publish/video/init/": () =>
+        json(
+          {
+            error: {
+              code,
+              message:
+                "Please review our integration guidelines at https://developers.tiktok.com/doc/content-sharing-guidelines/",
+            },
+          },
+          403,
+        ),
+    });
+    const r = await runDue(env, { fetch: fetchMock, now: NOW });
+    expect(r.failed).toEqual(["post1:tiktok"]);
+    expect((await jobOf(env)).targets.tiktok).toMatchObject({
+      state: "failed",
+      error: "private_account",
+      attempts: 0,
+    });
+
+    code = "privacy_level_option_mismatch";
+    await queue(env, job({ id: "post2", targets: { tiktok: { caption: "c" } } }));
+    await runDue(env, { fetch: fetchMock, now: NOW });
+    const t = (await Store.from(env)!.getJobs<PublishJob>()).post2.targets.tiktok;
+    expect(t).toMatchObject({ state: "failed", error: "rejected" });
+    expect(t?.detail).toContain("(privacy_level_option_mismatch)");
+  });
+
   it("TikTok cuts videos over 64 MB into chunks the way TikTok wants", () => {
     expect(ttChunks(1000)).toEqual({ chunkSize: 1000, count: 1 });
     expect(ttChunks(TT_CHUNK)).toEqual({ chunkSize: TT_CHUNK, count: 1 });
@@ -746,7 +802,9 @@ describe("runDue", () => {
     await connect(env, "instagram");
     await queue(env, job());
     const fetchMock = mockFetch({
-      "POST graph.instagram.com/v21.0/178/media": () => ({ id: "c" }),
+      "GET graph.instagram.com/v21.0/me": igMe,
+
+      "POST graph.instagram.com/v21.0/17841/media": () => ({ id: "c" }),
       "GET graph.instagram.com/v21.0/c": () => ({ status_code: "IN_PROGRESS" }),
     });
     await runDue(env, { fetch: fetchMock, now: NOW });
@@ -782,9 +840,11 @@ describe("runDue", () => {
       }),
     );
     const fetchMock = mockFetch({
-      "POST graph.instagram.com/v21.0/178/media": () => ({ id: "ic" }),
+      "GET graph.instagram.com/v21.0/me": igMe,
+
+      "POST graph.instagram.com/v21.0/17841/media": () => ({ id: "ic" }),
       "GET graph.instagram.com/v21.0/ic": () => ({ status_code: "FINISHED" }),
-      "POST graph.instagram.com/v21.0/178/media_publish": () => ({ id: "im" }),
+      "POST graph.instagram.com/v21.0/17841/media_publish": () => ({ id: "im" }),
       "GET graph.instagram.com/v21.0/im": () => ({ permalink: "https://www.instagram.com/p/I/" }),
       "POST graph.threads.net/v1.0/me/threads": (_u, init) => {
         expect(Object.fromEntries(formOf(init))).toMatchObject({

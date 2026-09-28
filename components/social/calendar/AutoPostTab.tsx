@@ -57,6 +57,7 @@ const ERROR_KEY: Record<string, MessageKey> = {
   token_expired: "publish.err.tokenExpired",
   media_unreachable: "publish.err.mediaUnreachable",
   media_too_large: "publish.err.mediaTooLarge",
+  private_account: "publish.err.privateAccount",
   rejected: "publish.err.rejected",
   rate_limited: "publish.err.rateLimited",
   upstream: "publish.err.upstream",

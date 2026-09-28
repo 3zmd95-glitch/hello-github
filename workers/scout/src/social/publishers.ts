@@ -5,7 +5,8 @@
  * apart) to go from `queued` through `processing` to `published`.
  *
  * Instagram (Instagram API with Instagram Login, scope instagram_business_content_publish)
- *   POST /{ig-user-id}/media           image_url | video_url + media_type=REELS, caption → { id } (container)
+ *   GET  /me?fields=user_id            the professional account id (not the app-scoped id of the token exchange)
+ *   POST /{ig-user-id}/media          image_url | video_url + media_type=REELS, caption → { id } (container)
  *   GET  /{container}?fields=status_code,status                     FINISHED | IN_PROGRESS | ERROR | EXPIRED
  *   POST /{ig-user-id}/media_publish   creation_id → { id }        (100 API posts per 24 h)
  * Threads (scope threads_content_publish)
@@ -52,6 +53,8 @@ export type PublishErrorCode =
   | "token_expired"
   | "media_unreachable"
   | "media_too_large"
+  /** TikTok before its audit: Direct Post only works while the TikTok account itself is private. */
+  | "private_account"
   | "rejected"
   | "rate_limited"
   | "upstream"
@@ -122,7 +125,7 @@ export type Step = (target: PublishTarget, ctx: StepContext) => Promise<PublishT
 
 /** Outbound calls one step may need at most (the queue stops starting steps below this). */
 export const STEP_MIN_BUDGET: Record<SocialPlatform, number> = {
-  instagram: 5,
+  instagram: 6,
   threads: 5,
   youtube: 3,
   tiktok: 4,
@@ -200,8 +203,10 @@ interface Permalink extends MetaError {
 
 interface MetaFlow {
   api: string;
-  /** The path segment of the account: the IG user id, or "me". */
-  owner(tokens: TokenSet): string;
+  /** The path segment of the account: the IG professional account id, or "me". */
+  owner(ctx: StepContext): string | Promise<string>;
+  /** Outbound calls `owner` makes (looked up once per run, only when a create or publish needs it). */
+  ownerCalls: number;
   createPath: string;
   publishPath: string;
   createParams(
@@ -216,7 +221,9 @@ interface MetaFlow {
 function metaStep(flow: MetaFlow): Step {
   return async (t, ctx) => {
     const token = ctx.tokens.accessToken;
-    const base = `${flow.api}/${flow.owner(ctx.tokens)}`;
+    let base: string | undefined;
+    const account = async () => (base ??= `${flow.api}/${await flow.owner(ctx)}`);
+    const ownerCost = () => (base ? 0 : flow.ownerCalls);
     let target = t;
     let fresh = false;
     const readStatus = async (url: string): Promise<string> => {
@@ -231,7 +238,7 @@ function metaStep(flow: MetaFlow): Step {
       const created = graph(
         await fetchJson<Created>(
           ctx.http,
-          `${base}/${flow.createPath}`,
+          `${await account()}/${flow.createPath}`,
           form({ ...flow.createParams(target, ctx.media), access_token: token }),
         ),
         "create",
@@ -250,11 +257,11 @@ function metaStep(flow: MetaFlow): Step {
       code = await readStatus(statusUrl);
     }
     if (code !== "FINISHED" && code !== "PUBLISHED") return processing(target, ctx);
-    if (ctx.http.budget.left < 1) return processing(target, ctx);
+    if (ctx.http.budget.left < 1 + ownerCost()) return processing(target, ctx);
     const done = graph(
       await fetchJson<Created>(
         ctx.http,
-        `${base}/${flow.publishPath}`,
+        `${await account()}/${flow.publishPath}`,
         form({ creation_id: target.containerId, access_token: token }),
       ),
       "publish",
@@ -272,9 +279,26 @@ function metaStep(flow: MetaFlow): Step {
   };
 }
 
+interface IgMe extends MetaError {
+  user_id?: string | number;
+}
+
 export const publishInstagram: Step = metaStep({
   api: IG_API,
-  owner: (tokens) => tokens.userId ?? "me",
+  // The token exchange answers the app-scoped id, which /media refuses ("Object with ID … does not exist",
+  // first live post). Publishing needs the professional account id: `user_id` of /me.
+  async owner(ctx) {
+    const me = graph(
+      await fetchJson<IgMe>(
+        ctx.http,
+        `${IG_API}/me?fields=user_id&access_token=${encodeURIComponent(ctx.tokens.accessToken)}`,
+      ),
+      "me",
+    );
+    if (me.user_id === undefined) throw new PublishError("upstream", "me: no user_id");
+    return String(me.user_id);
+  },
+  ownerCalls: 1,
   createPath: "media",
   publishPath: "media_publish",
   createParams(t, media) {
@@ -290,6 +314,7 @@ export const publishInstagram: Step = metaStep({
 export const publishThreads: Step = metaStep({
   api: TH_API,
   owner: () => "me",
+  ownerCalls: 0,
   createPath: "threads",
   publishPath: "threads_publish",
   createParams(t, media) {
@@ -454,6 +479,10 @@ function ttBody<T>(reply: JsonReply<TtEnvelope<T>>, what: string): T {
     throw new SocialError("token_expired", `${what}: ${message}`);
   }
   if (code === "scope_not_authorized") throw new PublishError("no_permission", message);
+  // The message alone only says "Please review our integration guidelines" (first live post).
+  if (code === "unaudited_client_can_only_post_to_private_accounts") {
+    throw new PublishError("private_account", message);
+  }
   if (
     reply.status === 429 ||
     code === "rate_limit_exceeded" ||
@@ -461,8 +490,10 @@ function ttBody<T>(reply: JsonReply<TtEnvelope<T>>, what: string): T {
   ) {
     throw new PublishError("rate_limited", message);
   }
-  if (reply.status >= 400 && reply.status < 500) throw new PublishError("rejected", message);
-  throw new PublishError("upstream", message);
+  // Keep TikTok's code next to its words: the message is often generic.
+  const detail = code && code !== message ? `${message} (${code})` : message;
+  if (reply.status >= 400 && reply.status < 500) throw new PublishError("rejected", detail);
+  throw new PublishError("upstream", detail);
 }
 
 const ttPost = (token: string, body: unknown): RequestInit => ({
