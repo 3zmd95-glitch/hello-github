@@ -10,7 +10,7 @@ import {
   type JobInput,
   type PublishJob,
 } from "./publish";
-import { ttChunks, TT_CHUNK } from "./publishers";
+import { FRESH_CONTAINER_WAIT_MS, ttChunks, TT_CHUNK } from "./publishers";
 import { keys, Store } from "./store";
 import type { SocialPlatform, TokenSet } from "./types";
 
@@ -470,6 +470,40 @@ describe("runDue", () => {
     expect((await runDue(env, { fetch: fetchMock, now: NOW })).published).toEqual([
       "post1:instagram",
     ]);
+  });
+
+  it("a fresh Threads text container still IN_PROGRESS is checked once more after a pause", async () => {
+    const env = makeEnv();
+    await connect(env, "threads");
+    await queue(env, job({ media: undefined, targets: { threads: { caption: "hi" } } }));
+    let reads = 0;
+    const fetchMock = mockFetch({
+      "POST graph.threads.net/v1.0/me/threads": () => ({ id: "c1" }),
+      "GET graph.threads.net/v1.0/c1": () => ({ status: reads++ === 0 ? "IN_PROGRESS" : "FINISHED" }),
+      "POST graph.threads.net/v1.0/me/threads_publish": () => ({ id: "t1" }),
+      "GET graph.threads.net/v1.0/t1": () => ({ permalink: "https://www.threads.com/@3z.prod/post/t1" }),
+    });
+    const sleep = vi.fn(async () => undefined);
+    expect((await runDue(env, { fetch: fetchMock, now: NOW, sleep })).published).toEqual([
+      "post1:threads",
+    ]);
+    expect(sleep).toHaveBeenCalledWith(FRESH_CONTAINER_WAIT_MS);
+    expect(reads).toBe(2);
+    expect((await jobOf(env)).targets.threads).toMatchObject({ state: "published", postId: "t1" });
+  });
+
+  it("a fresh container still IN_PROGRESS after the pause waits for the next tick", async () => {
+    const env = makeEnv();
+    await connect(env, "threads");
+    await queue(env, job({ media: undefined, targets: { threads: { caption: "hi" } } }));
+    const fetchMock = mockFetch({
+      "POST graph.threads.net/v1.0/me/threads": () => ({ id: "c1" }),
+      "GET graph.threads.net/v1.0/c1": () => ({ status: "IN_PROGRESS" }),
+    });
+    const sleep = vi.fn(async () => undefined);
+    await runDue(env, { fetch: fetchMock, now: NOW, sleep });
+    expect(sleep).toHaveBeenCalledTimes(1);
+    expect((await jobOf(env)).targets.threads).toMatchObject({ state: "processing", containerId: "c1" });
   });
 
   it("a refused container fails with Meta's words", async () => {

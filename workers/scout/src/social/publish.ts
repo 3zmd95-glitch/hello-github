@@ -192,6 +192,8 @@ export interface RunDeps {
   budget?: number;
   /** Run this job now even if its time has not come (and ignore its lock). */
   only?: string;
+  /** Pause used between two checks of a fresh container (tests pass a no-op). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface RunResult {
@@ -340,6 +342,7 @@ export async function runDue(env: SocialEnv, deps: RunDeps = {}): Promise<RunRes
           media: job.media,
           now,
           handle: handle || undefined,
+          ...(deps.sleep ? { sleep: deps.sleep } : {}),
         });
       } catch (e) {
         const { code, detail, transient } = toPublishCode(e);

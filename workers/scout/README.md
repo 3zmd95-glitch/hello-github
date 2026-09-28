@@ -171,7 +171,8 @@ postId?, permalink?, publishedAt?, inbox?, error?, detail? }`. Error codes: `not
 processing after 2 h). `upstream` and `rate_limited` are retried up to 4 times, 5/10/15 minutes apart.
 
 **Steps per tick.** Instagram and Threads create a container. Images and text are checked and published in the
-same run, videos on the next tick once `FINISHED`. YouTube opens a resumable session and **streams** the file
+same run (a container that still says `IN_PROGRESS` is read once more after a 4 s pause; the first live Threads
+post needed that), videos on the next tick once `FINISHED`. YouTube opens a resumable session and **streams** the file
 from the media URL into it (no buffering). TikTok reads `creator_info` (Direct Post: an unaudited app only
 gets `SELF_ONLY`) and uploads with `FILE_UPLOAD`: one chunk up to 64 MB, 64 MB chunks with Range GETs above
 that. The status is polled on the next ticks (`SEND_TO_USER_INBOX` for the inbox mode). A run has 34 outbound
