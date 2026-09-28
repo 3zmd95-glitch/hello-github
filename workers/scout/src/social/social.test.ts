@@ -594,7 +594,7 @@ describe("POST /social/connect/:platform", () => {
   it("builds the Threads URL", async () => {
     const { url } = (await (await connect(makeEnv(), "threads")).json()) as { url: string };
     const u = new URL(url);
-    expect(u.origin + u.pathname).toBe("https://threads.net/oauth/authorize");
+    expect(u.origin + u.pathname).toBe("https://www.threads.com/oauth/authorize");
     expect(u.searchParams.get("scope")).toBe("threads_basic,threads_manage_insights");
     expect(u.searchParams.get("redirect_uri")).toBe(`${BASE}/oauth/threads/callback`);
   });

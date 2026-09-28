@@ -383,11 +383,22 @@ export function snapshotSource(
 /** UI state of a Settings row. */
 export type AccountState = "not_configured" | "disconnected" | "connected" | "error";
 
-export function accountState(status: SocialConnectionStatus | undefined): AccountState {
+/**
+ * Platforms whose short access token the Worker renews by itself with a refresh token (Google: 1 hour,
+ * TikTok: 24 hours), so a past `tokenExpiresAt` is routine there, not a reason to reconnect. A real
+ * failure still shows up as `lastError` (e.g. `token_expired`). Instagram/Threads have no refresh token:
+ * their 60-day token expiring does mean reconnect.
+ */
+const SELF_REFRESHING: ReadonlySet<string> = new Set(["youtube", "tiktok"]);
+
+export function accountState(
+  status: SocialConnectionStatus | undefined,
+  platform?: SocialPlatform,
+): AccountState {
   if (!status || !status.configured) return "not_configured";
   if (!status.connected) return "disconnected";
   if (status.lastError) return "error";
-  if (status.tokenExpiresAt) {
+  if (status.tokenExpiresAt && !(platform && SELF_REFRESHING.has(platform))) {
     const exp = Date.parse(status.tokenExpiresAt);
     if (!Number.isNaN(exp) && exp <= Date.now()) return "error";
   }

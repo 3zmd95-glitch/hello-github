@@ -2,7 +2,7 @@
  * Threads API (same Meta app as Instagram, its own "Threads" product). Docs: https://developers.facebook.com/docs/threads
  *
  * OAuth
- *   authorize   https://threads.net/oauth/authorize (scopes threads_basic, threads_manage_insights)
+ *   authorize   https://www.threads.com/oauth/authorize (scopes threads_basic, threads_manage_insights)
  *   code→token  POST https://graph.threads.net/oauth/access_token                       (short-lived, 1 h)
  *   long-lived  GET  https://graph.threads.net/access_token?grant_type=th_exchange_token (60 days)
  *   refresh     GET  https://graph.threads.net/refresh_access_token?grant_type=th_refresh_token
@@ -38,7 +38,10 @@ import {
   type TokenSet,
 } from "./types";
 
-export const TH_AUTHORIZE_URL = "https://threads.net/oauth/authorize";
+// threads.net now redirects to threads.com and drops the /oauth/authorize path (the owner lands on the
+// Threads home feed instead of the consent screen), so the authorize window uses threads.com directly.
+// The Graph API host (graph.threads.net) is unchanged.
+export const TH_AUTHORIZE_URL = "https://www.threads.com/oauth/authorize";
 export const TH_GRAPH = "https://graph.threads.net";
 export const TH_API = `${TH_GRAPH}/v1.0`;
 export const TH_SCOPES = "threads_basic,threads_manage_insights";
