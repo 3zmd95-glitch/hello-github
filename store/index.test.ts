@@ -5,7 +5,13 @@ import { CHEST_EVERY, lootFor } from "@/lib/chests";
 import { FREEZE_REWARD_ID, GEM_RULES, defaultRewards } from "@/lib/gems";
 import { FREEZE_TOTAL_CAP } from "@/lib/streak";
 import { DRILL_XP, MASTERY_BONUS, REVIEW_XP, questXp } from "@/lib/xp";
-import { DEFAULT_AVATAR, EMPTY_SCRIPT } from "@/lib/domain";
+import {
+  DEFAULT_AVATAR,
+  EMPTY_SCRIPT,
+  EMPTY_TRENDS,
+  type TrendItemInput,
+  type TrendsFeedInput,
+} from "@/lib/domain";
 import { SOCIAL_SEED_DAY, SOCIAL_SEED_VERSION, applySocialSeed } from "@/data/social-seed";
 import { HASHTAG_SETS, SHOT_TEMPLATES, bestTime, suggestHashtags } from "@/lib/social";
 import {
@@ -44,6 +50,7 @@ import {
   socialSyncState,
   streak,
   totalXp,
+  trendsState,
   unusedIdeas,
   useStore,
 } from "./index";
@@ -1707,5 +1714,100 @@ describe("social sync: connected accounts slice and the Beacons seed removal", (
     expect(S().socialSnapshots).toHaveLength(1);
     expect(S().socialSeedApplied).toBe(SOCIAL_SEED_VERSION);
     expect(applySocialSeed(S())).toBe("already-applied");
+  });
+});
+
+describe("trend radar: persisted feed and dismissals (round 30)", () => {
+  const row = (id: string, over: Partial<TrendItemInput> = {}): TrendItemInput => ({
+    id,
+    platform: "google",
+    region: "SA",
+    lang: "ar",
+    title: id,
+    source: "Google Trends",
+    seenAt: "2026-09-28T06:00:00.000Z",
+    ...over,
+  });
+  const feed = {
+    items: [row("google:SA:a", { score: 100 }), row("google:SA:b", { tags: ["#x"] })],
+    fetchedAt: "2026-09-28T06:00:00.000Z",
+    degraded: false,
+    sources: [{ name: "google", ok: true, at: "2026-09-28T06:00:00.000Z" }],
+  };
+
+  it("starts empty and setTrends replaces the feed with Zod defaults filled", () => {
+    expect(S().trends).toEqual(EMPTY_TRENDS);
+    S().setTrends(feed);
+    expect(S().trends.items.map((i) => i.id)).toEqual(["google:SA:a", "google:SA:b"]);
+    expect(S().trends.items[0].tags).toEqual([]);
+    expect(S().trends.fetchedAt).toBe("2026-09-28T06:00:00.000Z");
+    expect(S().trends.sources).toEqual(feed.sources);
+    expect(trendsState(S())).toBe(S().trends);
+    // The Worker's empty answer is a valid feed too.
+    S().setTrends({ items: [], fetchedAt: null, degraded: true, sources: [] });
+    expect(S().trends).toEqual({ ...EMPTY_TRENDS, degraded: true });
+    S().setTrends({});
+    expect(S().trends).toEqual(EMPTY_TRENDS);
+  });
+
+  it("dismissTrend hides an id once; a new feed keeps only the dismissed ids it still has", () => {
+    S().setTrends(feed);
+    S().dismissTrend("google:SA:a");
+    S().dismissTrend("google:SA:a");
+    expect(S().trends.dismissed).toEqual(["google:SA:a"]);
+    S().setTrends({ ...feed, items: [row("google:SA:a"), row("google:SA:c")] });
+    expect(S().trends.dismissed).toEqual(["google:SA:a"]);
+    S().setTrends({ ...feed, items: [row("google:SA:c")] });
+    expect(S().trends.dismissed).toEqual([]);
+  });
+
+  it("rejects an invalid feed without changing the slice", () => {
+    S().setTrends(feed);
+    expect(() => S().setTrends({ items: [{ id: "bad" }] } as unknown as TrendsFeedInput)).toThrow();
+    expect(() => S().setTrends({ items: [row("x", { score: 101 })] })).toThrow();
+    expect(S().trends.items).toHaveLength(2);
+  });
+
+  it("clearTrends, export/import and reset round-trip the slice", () => {
+    S().setTrends(feed);
+    S().dismissTrend("google:SA:b");
+    const json = S().exportState();
+    expect(JSON.parse(json).state.trends.dismissed).toEqual(["google:SA:b"]);
+    S().clearTrends();
+    expect(S().trends).toEqual(EMPTY_TRENDS);
+    S().importState(json);
+    expect(S().trends.items).toHaveLength(2);
+    expect(S().trends.dismissed).toEqual(["google:SA:b"]);
+    expect(JSON.parse(S().exportState()).state.trends).toEqual(JSON.parse(json).state.trends);
+    S().reset();
+    expect(S().trends).toEqual(EMPTY_TRENDS);
+  });
+
+  it("imports an export from before the radar and hydrates an old save without `trends`", async () => {
+    S().importState(
+      JSON.stringify({
+        app: "3z-prod",
+        version: 1,
+        exportedAt: "2026-09-27T00:00:00.000Z",
+        state: {
+          settings: DEFAULT_SETTINGS,
+          completions: [],
+          xpEvents: [],
+          microActions: [],
+          freezesUsedOn: [],
+          reviews: [],
+        },
+      }),
+    );
+    expect(S().trends).toEqual(EMPTY_TRENDS);
+
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { settings: DEFAULT_SETTINGS, completions: [] }, version: 1 }),
+    );
+    await hydrateStore();
+    expect(S().trends).toEqual(EMPTY_TRENDS);
+    S().setTrends(feed);
+    expect(S().trends.items).toHaveLength(2);
   });
 });

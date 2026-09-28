@@ -16,6 +16,7 @@ import {
   DEFAULT_AVATAR,
   DemographicSchema,
   EMPTY_SOCIAL_SYNC,
+  EMPTY_TRENDS,
   DrillSchema,
   FocusSessionSchema,
   FocusStateSchema,
@@ -40,6 +41,8 @@ import {
   SocialPostStatSchema,
   SocialSnapshotSchema,
   SocialSyncStateSchema,
+  TrendsFeedSchema,
+  TrendsStateSchema,
   XpEventSchema,
   type ApiKeyName,
   type AudienceAsk,
@@ -75,6 +78,8 @@ import {
   type SocialSnapshotInput,
   type SocialStatusMap,
   type SocialSyncState,
+  type TrendsFeedInput,
+  type TrendsState,
   type XpEvent,
 } from "@/lib/domain";
 import {
@@ -208,6 +213,9 @@ export const PersistedStateSchema = z.object({
   /* 🔗 Connected accounts (live sync through the Scout Worker). */
   /** When the app last pulled the Worker's data, the last error, and the last per-platform status reply. */
   socialSync: SocialSyncStateSchema.default(EMPTY_SOCIAL_SYNC),
+  /* 📈 Trend Radar (round 30, planning/tools/08-trends.md). */
+  /** The last `GET /trends` feed the app read from the Worker, plus the ids the owner dismissed. */
+  trends: TrendsStateSchema.default(EMPTY_TRENDS),
 });
 export type PersistedState = z.infer<typeof PersistedStateSchema>;
 
@@ -396,6 +404,17 @@ export interface StoreActions {
    */
   removeBeaconsSeed(): void;
 
+  /* 📈 Trend Radar (round 30). */
+  /**
+   * Replace the feed (items, fetchedAt, degraded, sources) with what the Worker's `GET /trends` returned.
+   * Keeps only the dismissed ids that still exist in the new items. Throws (Zod) on an invalid feed.
+   */
+  setTrends(feed: TrendsFeedInput): void;
+  /** Hide a trend row until it leaves the feed. No-op when already dismissed. */
+  dismissTrend(id: string): void;
+  /** Back to the empty slice (feed and dismissed ids). */
+  clearTrends(): void;
+
   completeQuest(skillId: string, quest: QuestType, proofUrl?: string, now?: Date): CompleteResult;
   uncompleteQuest(skillId: string, quest: QuestType): void;
   addMicroAction(text: LText, now?: Date): MicroResult;
@@ -475,6 +494,7 @@ const initialData = (): PersistedState => ({
   demographics: [],
   socialSeedApplied: "",
   socialSync: { ...EMPTY_SOCIAL_SYNC },
+  trends: { ...EMPTY_TRENDS, items: [], sources: [], dismissed: [] },
 });
 
 const newId = (): string =>
@@ -523,6 +543,7 @@ const pick = (s: PersistedState): PersistedState => ({
   demographics: s.demographics,
   socialSeedApplied: s.socialSeedApplied,
   socialSync: s.socialSync,
+  trends: s.trends,
 });
 
 /** Localize without importing lib/i18n (which imports this store). */
@@ -1389,6 +1410,31 @@ export const useStore = create<StoreState>()(
         });
       },
 
+      setTrends(feed) {
+        const parsed = TrendsFeedSchema.parse(feed);
+        set((s) => {
+          const ids = new Set(parsed.items.map((i) => i.id));
+          return {
+            trends: {
+              ...parsed,
+              dismissed: s.trends.dismissed.filter((id) => ids.has(id)),
+            },
+          };
+        });
+      },
+
+      dismissTrend(id) {
+        set((s) =>
+          s.trends.dismissed.includes(id)
+            ? {}
+            : { trends: { ...s.trends, dismissed: [...s.trends.dismissed, id] } },
+        );
+      },
+
+      clearTrends() {
+        set({ trends: { ...EMPTY_TRENDS, items: [], sources: [], dismissed: [] } });
+      },
+
       exportState(now = new Date()) {
         const file: ExportFile = {
           app: "3z-prod",
@@ -1709,6 +1755,11 @@ export function hasBeaconsSeed(
 /** The persisted sync bookkeeping (select it directly: it is one object that changes as a whole). */
 export function socialSyncState(s: Pick<PersistedState, "socialSync">): SocialSyncState {
   return s.socialSync;
+}
+
+/** The persisted Trend Radar slice (select it directly; lib/trends' visibleTrends filters it). */
+export function trendsState(s: Pick<PersistedState, "trends">): TrendsState {
+  return s.trends;
 }
 
 /** A platform's imported post stats, newest first. */

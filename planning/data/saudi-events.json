@@ -1,0 +1,126 @@
+[
+  {
+    "id": "saudi-national-day-2026",
+    "date": "2026-09-23",
+    "name": { "ar": "اليوم الوطني ٩٦", "en": "Saudi National Day 96" },
+    "hashtags": ["#اليوم_الوطني_السعودي_96", "#SaudiNationalDay"],
+    "leadDays": 21,
+    "kind": "national"
+  },
+  {
+    "id": "riyadh-season-2026",
+    "date": "2026-10-21",
+    "endDate": "2026-12-31",
+    "name": { "ar": "موسم الرياض", "en": "Riyadh Season" },
+    "hashtags": ["#موسم_الرياض", "#RiyadhSeason"],
+    "leadDays": 21,
+    "kind": "season",
+    "approx": true,
+    "note": { "ar": "التواريخ حسب إعلان هيئة الترفيه", "en": "Dates follow the GEA announcement" }
+  },
+  {
+    "id": "soundstorm-2026",
+    "date": "2026-12-10",
+    "name": { "ar": "ساوندستورم", "en": "Soundstorm" },
+    "hashtags": ["#ساوندستورم", "#Soundstorm"],
+    "leadDays": 14,
+    "kind": "season",
+    "approx": true,
+    "note": { "ar": "التاريخ حسب إعلان MDLBEAST", "en": "Date follows the MDLBEAST announcement" }
+  },
+  {
+    "id": "afc-asian-cup-2027",
+    "date": "2027-01-07",
+    "endDate": "2027-02-05",
+    "name": { "ar": "كأس آسيا 2027", "en": "AFC Asian Cup 2027" },
+    "hashtags": ["#كأس_آسيا_2027", "#AsianCup2027"],
+    "leadDays": 21,
+    "kind": "sport"
+  },
+  {
+    "id": "ramadan-2027",
+    "date": "2027-02-08",
+    "endDate": "2027-03-08",
+    "name": { "ar": "رمضان", "en": "Ramadan" },
+    "hashtags": ["#رمضان", "#رمضان_كريم"],
+    "leadDays": 30,
+    "kind": "religious",
+    "approx": true,
+    "note": { "ar": "يعتمد على رؤية الهلال", "en": "Depends on the moon sighting" }
+  },
+  {
+    "id": "founding-day-2027",
+    "date": "2027-02-22",
+    "name": { "ar": "يوم التأسيس", "en": "Saudi Founding Day" },
+    "hashtags": ["#يوم_التأسيس", "#FoundingDay"],
+    "leadDays": 21,
+    "kind": "national"
+  },
+  {
+    "id": "eid-al-fitr-2027",
+    "date": "2027-03-09",
+    "name": { "ar": "عيد الفطر", "en": "Eid al-Fitr" },
+    "hashtags": ["#عيد_الفطر", "#EidAlFitr"],
+    "leadDays": 10,
+    "kind": "religious",
+    "approx": true,
+    "note": { "ar": "يعتمد على رؤية الهلال", "en": "Depends on the moon sighting" }
+  },
+  {
+    "id": "flag-day-2027",
+    "date": "2027-03-11",
+    "name": { "ar": "يوم العلم", "en": "Saudi Flag Day" },
+    "hashtags": ["#يوم_العلم", "#SaudiFlagDay"],
+    "leadDays": 10,
+    "kind": "national"
+  },
+  {
+    "id": "f1-saudi-arabian-gp-2027",
+    "date": "2027-03-19",
+    "endDate": "2027-03-21",
+    "name": { "ar": "جائزة السعودية الكبرى", "en": "F1 Saudi Arabian Grand Prix" },
+    "hashtags": ["#SaudiArabianGP", "#جائزة_السعودية_الكبرى"],
+    "leadDays": 14,
+    "kind": "sport"
+  },
+  {
+    "id": "hajj-2027",
+    "date": "2027-05-14",
+    "endDate": "2027-05-16",
+    "name": { "ar": "الحج", "en": "Hajj" },
+    "hashtags": ["#الحج", "#Hajj"],
+    "leadDays": 21,
+    "kind": "religious",
+    "approx": true,
+    "note": { "ar": "يعتمد على رؤية الهلال", "en": "Depends on the moon sighting" }
+  },
+  {
+    "id": "eid-al-adha-2027",
+    "date": "2027-05-16",
+    "name": { "ar": "عيد الأضحى", "en": "Eid al-Adha" },
+    "hashtags": ["#عيد_الأضحى", "#EidAlAdha"],
+    "leadDays": 10,
+    "kind": "religious",
+    "approx": true,
+    "note": { "ar": "يعتمد على رؤية الهلال", "en": "Depends on the moon sighting" }
+  },
+  {
+    "id": "esports-world-cup-2027",
+    "date": "2027-07-16",
+    "endDate": "2027-08-01",
+    "name": { "ar": "كأس العالم للرياضات الإلكترونية", "en": "Esports World Cup 2027" },
+    "hashtags": ["#EWC2027", "#كأس_العالم_للرياضات_الإلكترونية"],
+    "leadDays": 14,
+    "kind": "sport",
+    "approx": true,
+    "note": { "ar": "التواريخ حسب إعلان المنظّمين", "en": "Dates follow the organisers' announcement" }
+  },
+  {
+    "id": "saudi-national-day-2027",
+    "date": "2027-09-23",
+    "name": { "ar": "اليوم الوطني ٩٧", "en": "Saudi National Day 97" },
+    "hashtags": ["#اليوم_الوطني_السعودي_97", "#SaudiNationalDay"],
+    "leadDays": 21,
+    "kind": "national"
+  }
+]
