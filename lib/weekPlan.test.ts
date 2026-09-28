@@ -143,7 +143,7 @@ describe("buildWeekPlan", () => {
   });
 
   it("never puts two produce quests on the same day and puts the heaviest item mid-week", () => {
-    // Six skills whose next quest is produce (train + research done before the week).
+    // Six skills whose next quest is produce (research + train done before the week).
     const skills = [
       ...[1, 2, 3].map((n) => skill(`c${n}`, "camera")),
       ...[1, 2, 3].map((n) => skill(`d${n}`, "davinci")),
@@ -165,7 +165,7 @@ describe("buildWeekPlan", () => {
 
   it("never plans a quest completed before the week, and marks quests completed during it as done", () => {
     const skills = [skill("c1", "camera"), skill("c2", "camera"), skill("d1", "davinci")];
-    const before = [done("c1", "train")];
+    const before = [done("c1", "research")];
     const plan = buildWeekPlan({
       skills,
       completions: before,
@@ -173,10 +173,10 @@ describe("buildWeekPlan", () => {
       weekStart: WEEK,
       programs,
     });
-    expect(plan.items.some((i) => i.skillId === "c1" && i.quest === "train")).toBe(false);
+    expect(plan.items.some((i) => i.skillId === "c1" && i.quest === "research")).toBe(false);
     // c1 is nearest to mastery, so the generic combo takes its produce quest; c2 gets the craft slot.
     expect(plan.items.find((i) => i.kind === "combo")?.skillId).toBe("c1");
-    expect(plan.items.some((i) => i.skillId === "c2" && i.quest === "train")).toBe(true);
+    expect(plan.items.some((i) => i.skillId === "c2" && i.quest === "research")).toBe(true);
 
     // Ticking a planned item mid-week: the plan itself does not change, the item is just done.
     const planned = plan.items.find((i) => i.kind !== "combo")!;

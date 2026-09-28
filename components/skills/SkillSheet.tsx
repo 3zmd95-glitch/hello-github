@@ -11,6 +11,7 @@ import { GearChip, StudioChip, TierChip } from "@/components/ui/chips";
 import { getProgram, getSkill } from "@/data";
 import { QUEST_TYPES, type QuestType, type Ref, type Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { notesHref, wordCount } from "@/lib/notes";
 import { itemFromRef } from "@/lib/research";
 import { PLATFORM_META } from "@/lib/social";
 import { questXp } from "@/lib/xp";
@@ -192,6 +193,7 @@ function SheetBody({
                     </span>
                   </span>
                 </button>
+                {q === "research" && <NoteBridge skillId={skill.id} onOpen={onClose} />}
                 {q === "produce" && <ProduceBridge skill={skill} isDone={isDone} />}
                 {isDone && (q === "produce" || q === "article") && (
                   <ProofInput
@@ -325,6 +327,24 @@ function StartHere({ refs, skillId }: { refs: Ref[]; skillId: string }) {
         </div>
       )}
     </section>
+  );
+}
+
+/** 📝 The Research quest's home: open (or start) this skill's note in the in-app Notes vault. */
+function NoteBridge({ skillId, onOpen }: { skillId: string; onOpen: () => void }) {
+  const { t } = useT();
+  const body = useStore((s) => s.notes[skillId]?.body);
+  return (
+    <div className="flex flex-wrap items-center gap-2 ps-[42px]">
+      <Link
+        href={notesHref(skillId)}
+        onClick={onOpen}
+        className={`px-btn px-btn-sm no-underline ${body ? "px-btn-ghost" : "px-btn-gold"}`}
+        data-testid="quest-note"
+      >
+        {body ? t("sheet.noteHas", { n: wordCount(body) }) : t("sheet.noteOpen")}
+      </Link>
+    </div>
   );
 }
 

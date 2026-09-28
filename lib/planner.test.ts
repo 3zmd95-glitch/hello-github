@@ -37,17 +37,17 @@ describe("pickMainQuest", () => {
     expect(pickMainQuest([mk("a")], all, settings)).toBeNull();
   });
 
-  it("starts with train on a fresh skill", () => {
+  it("starts with research on a fresh skill", () => {
     const p = pickMainQuest([mk("a")], [], settings);
     expect(p?.skill.id).toBe("a");
-    expect(p?.quest).toBe("train");
-    expect(p?.xp).toBe(10);
+    expect(p?.quest).toBe("research");
+    expect(p?.xp).toBe(15);
   });
 
-  it("follows train → research → produce → article, skipping done ones", () => {
-    expect(pickMainQuest([mk("a")], done("a", "train"), settings)?.quest).toBe("research");
-    expect(pickMainQuest([mk("a")], done("a", "train", "produce"), settings)?.quest).toBe(
-      "research",
+  it("follows research → train → produce → article, skipping done ones", () => {
+    expect(pickMainQuest([mk("a")], done("a", "research"), settings)?.quest).toBe("train");
+    expect(pickMainQuest([mk("a")], done("a", "research", "produce"), settings)?.quest).toBe(
+      "train",
     );
     expect(
       pickMainQuest([mk("a")], done("a", "train", "research", "produce"), settings)?.quest,

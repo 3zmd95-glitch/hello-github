@@ -26,6 +26,16 @@ Owner's rule: search GitHub, libraries and Claude skills before building. This f
 | Scraping (owner suggestion) | [D4Vinci/Scrapling](https://github.com/D4Vinci/Scrapling): Python adaptive scraper with stealth browser fetching, CLI and MCP server | Reference, not adopted for TikTok/Instagram (login walls, anti-bot, terms risk, needs Python + a browser process, cannot run in the static app or on a Worker). Possible later use: extracting written guides for the AI Scout if Tavily's page content is too thin; its MCP server for personal research sessions. |
 | Web push (Next.js) | [piro0919/next-push](https://github.com/piro0919/next-push) | Still the Sprint 3 candidate; the Scout Worker becomes the sender. |
 
+## 2026-09-28 · in-app Notes (Research quest without leaving the dashboard)
+
+| Area | Find | Decision |
+|---|---|---|
+| Markdown rendering | [remarkjs/react-markdown](https://github.com/remarkjs/react-markdown) v10 (MIT) + [remark-gfm](https://github.com/remarkjs/remark-gfm) v4 (MIT) | **Adopted.** Builds React elements, never raw HTML (safe for pasted text); GFM tables and task lists; each block gets `dir="auto"` so Arabic and English paragraphs sit right in one note. |
+| `[[wiki links]]` | [landakram/remark-wiki-link](https://github.com/landakram/remark-wiki-link) (last release 2023) | Rejected: stale against the current micromark stack. A 30-line pre-pass in `lib/notes.ts` rewrites `[[Skill name]]` / `[[id\|label]]` into links (code spans skipped) and powers backlinks. |
+| Markdown editors | [@uiw/react-md-editor](https://github.com/uiwjs/react-md-editor), Milkdown, Tiptap, CodeMirror 6 | Rejected for v1: heavy bundles, RTL caret/IME quirks with Arabic on iPhone. A plain `<textarea dir="auto">` with Write/Read tabs does the job; revisit CodeMirror if live preview is wanted. |
+| Obsidian-like web apps | [DaveHomeAssist/noteforge](https://github.com/DaveHomeAssist/noteforge) (vanilla JS: wikilinks, backlinks, graph), [classicrob/obsidian-at-home](https://github.com/classicrob/obsidian-at-home) | Reference only (different stacks). Ideas kept: backlinks panel now; tags and a link graph later. |
+| Obsidian sync (round 6 plan) | wandermyz/obsidian-github-sync, obsidian-post-webhook (above) | **Parked.** The owner asked to write notes inside the dashboard. Each note downloads as `.md`, so an Obsidian vault can still import them. |
+
 ## How to add to this log
 
 One row per find: area · link · decision (adopt / adopt candidate / reference / rejected + why). Re-run a search when a new phase starts

@@ -75,8 +75,8 @@ export const DRILL_PROMPTS: readonly DrillPrompt[] = [
     id: "note-refresh",
     quest: "research",
     text: {
-      ar: "افتح ملاحظتك في Obsidian وضيف لها شي واحد جديد تعلمته",
-      en: "Open your Obsidian note and add one new thing you learned",
+      ar: "افتح النوت حقتك وضيف لها شي واحد جديد تعلمته",
+      en: "Open your note and add one new thing you learned",
     },
   },
   {
@@ -142,11 +142,11 @@ export const DRILL_PROMPTS: readonly DrillPrompt[] = [
 ];
 
 /**
- * Deterministic prompt for a drill: the rep number picks the quest type to revisit (train → research →
+ * Deterministic prompt for a drill: the rep number picks the quest type to revisit (research → train →
  * produce → article → generic) and the skill id spreads which prompt of that group shows.
  */
 export function drillPrompt(drill: Drill): DrillPrompt {
-  const groups: (QuestType | undefined)[] = ["train", "research", "produce", "article", undefined];
+  const groups: (QuestType | undefined)[] = ["research", "train", "produce", "article", undefined];
   const quest = groups[drill.reps % groups.length];
   const pool = DRILL_PROMPTS.filter((p) => p.quest === quest);
   let h = 0;

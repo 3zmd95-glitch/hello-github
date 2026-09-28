@@ -41,7 +41,7 @@ export function isSkillAvailable(
 
 /**
  * Candidate quests, best first: one per available, not-yet-mastered skill, taking the skill's next
- * incomplete quest in the order train → research → produce → article.
+ * incomplete quest in the order research → train → produce → article.
  * Ranking: most quests done (nearest to mastery), then lowest tier, then the skill's position in `skills`.
  */
 export function rankQuestCandidates(
@@ -109,8 +109,8 @@ export const MICRO_ACTIONS: readonly MicroActionIdea[] = [
   {
     id: "research-lines",
     text: {
-      ar: "اكتب ٣ أسطر في Obsidian عن حاجة تعلمتها اليوم",
-      en: "Write 3 lines in Obsidian about something you learned today",
+      ar: "اكتب ٣ أسطر في النوتات عن حاجة تعلمتها اليوم",
+      en: "Write 3 lines in Notes about something you learned today",
     },
   },
   {
