@@ -488,6 +488,28 @@ Brainstorm round 28 (owner: "I want in my social the ability to post everywhere 
 - Known limits: until YouTube's and TikTok's audits pass, uploads there are private / "only me" (the inbox mode on TikTok works meanwhile);
   media must be a public link until Supabase Storage (Sprint 3).
 
+Round 29 (Sep 28, 2026, auto-posting goes live; details in `handovers/auto-posting-live-2026-09-28.md`):
+- PR #13 (the feature) and PR #14 (fresh Meta container re-check) merged; the Worker is deployed at `https://3z-scout.3zmd95.workers.dev`.
+- Owner setup done: publish permissions on the Meta app, `youtube.upload` on the Google consent screen, TikTok Sandbox with Direct Post;
+  **✍️ Allow posting** on all four platforms. First real post: a Threads text from the Worker. Instagram / YouTube / TikTok video posts
+  still wait for a public MP4 link from the owner; YouTube stays private and TikTok `SELF_ONLY` until the audits.
+
+Brainstorm round 30 (owner: "a tool to post on every platform… seamless, make me work less… and know what is trending now on
+TikTok, Instagram and YouTube, Arabic or English… be the mastermind so every agent knows its task"):
+- Full repository read (11 subsystem maps, 7 research sweeps, 8 verified code claims) → coordination plan in
+  `handovers/mastermind-2026-09-28.md`: two workstreams, an agent roster with single-owner files, three waves, six owner questions.
+- **A · Post everywhere v2**: first live video post (owner MP4) → composer that ticks every connected network at post creation, trims
+  captions per network, re-syncs the job on edit, refreshes on tab return → media picked on the phone (Backblaze B2, free, no card;
+  Cloudflare R2 if a card is ever acceptable) → X through Buffer's free API (decision pending) → Instagram carousels + stories →
+  expiry warnings, X/Snapchat nudges → audits (privacy/terms pages). Snapchat stays manual (no open API; Zernio's Snapchat is beta-locked).
+- **B · Trend Radar v1** (`tools/08-trends.md`): Google Trends (RSS + RPC, SA and US), YouTube charts SA/US (labelled charts, since
+  YouTube's Trending page closed in July 2025), a daily keyword `search.list` (≤ 12 of the 100 daily calls), kworb TikTok sounds and
+  trends24 X trends with attribution (pending owner OK), a weekly Tavily scan (Arabic + English, ≤ 40 credits/month), a static Saudi
+  moments calendar, manual deep links for TikTok Creative Center and Instagram trending audio. Lives in the Ideas bank: one tap →
+  idea (source `trend`) → planned post. Automated TikTok / Instagram trend feeds were rejected (browser-minted headers, terms);
+  Threads keyword search waits for App Review after the CR.
+- Search-before-building results for both workstreams are recorded in `tools/08-trends.md` and `tools/05-found-on-github.md`.
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|

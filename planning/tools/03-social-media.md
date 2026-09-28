@@ -8,7 +8,7 @@ and Snapchat as a manual step.
 
 | Platform | Tool | Access | Reality |
 |---|---|---|---|
-| YouTube | **YouTube Data API v3 + Analytics API** (`googleapis`) | Google Cloud project, OAuth, free quota (10k units/day) | best API of all; `videos.list(chart=mostPopular, regionCode=SA)` doubles as a trend feed |
+| YouTube | **YouTube Data API v3 + Analytics API** (`googleapis`) | Google Cloud project, OAuth, free quota (10k units/day; `search.list` has its own 100 calls/day bucket since June 2026) | best API of all; `videos.list(chart=mostPopular, regionCode=SA)` is a **music / movies / gaming chart** since July 2025 (the Trending page is gone), see `08-trends.md` |
 | Instagram | **Instagram Graph API** | Meta developer app, Creator/Business account linked to a Facebook Page, app review | followers, reach, media insights, comments; **apply early**, review takes weeks |
 | TikTok | **TikTok Display API** | TikTok developer app, approval required | profile + video stats only; no trends API |
 | X | manual entry form | official API is paid (~$200/mo) | monthly numbers typed in |
@@ -23,7 +23,7 @@ and Snapchat as a manual step.
 | Reminders at best posting time | Web Push (same as dashboard) | default to Saudi prime time (after Isha), overridable per platform |
 | Captions, hooks, hashtags in Hijazi | Claude Haiku | counts against the AI cap |
 | Reference cards and embeds | **oEmbed**: YouTube and TikTok public, Instagram after Meta approval; `react-lite-youtube-embed` for fast article pages | thumbnails cached in `skill_refs` |
-| Trend scan | Claude web search restricted to tiktok.com / instagram.com / youtube.com + YouTube mostPopular (SA) | weekly cron, results into `trend_items` |
+| Trend scan (round 30, planned) | **Trend Radar**: Google Trends SA/US, YouTube charts, keyword search, kworb sounds, weekly Tavily scan, Saudi moments calendar, manual links for TikTok Creative Center and Instagram trending audio | `08-trends.md`; Worker cron slots, results in KV `trends:latest`, shown in the Ideas bank |
 | Comment themes → "what people want" | YouTube comments API (+ Instagram comments later) summarized weekly by Claude | feeds the ideas bank and Skill Scout |
 | Short links with click counts | own `/go/[slug]` route | UTM parameters per platform |
 | Auto-publishing (round 28, built) | YouTube upload API · Instagram Content Publishing API · Threads publishing · TikTok Content Posting API, from the Scout Worker's five-minute cron | `07-auto-posting.md`; YouTube and TikTok stay private until their audits pass |
