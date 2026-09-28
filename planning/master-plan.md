@@ -11,7 +11,7 @@ Decisions made in chat:
 - Arabic + English. Admin panel (own CMS) inside the dashboard. Payments via Moyasar/Tap once the CR/freelance document arrives (in progress).
 - Skill tree = **Program → Section → Skill** (e.g. DaVinci Resolve → Color → "Day-for-night"; Photoshop → Cutouts → "Remove background";
   Workflow → Obsidian → "Vault setup"). Skills are co-created later with AI discovery (web/YouTube/trends).
-- Leveling = **XP + 4 quests per skill**: Train, Produce (video), Research, Publish article. Plus streaks and badges.
+- Leveling = **XP + 4 quests per skill**: Research, Train, Produce (video), Publish article, in that order (research first so the practice is informed). Plus streaks and badges.
 - Subscribers = email newsletter (everyone) + member accounts (needed to buy / take the course).
 - Course video on **Bunny Stream**. AI coach **on, with a monthly cap**. Design **evolves the Framer look**.
 - **Dashboard first**. Phone + desktop (installable PWA). Articles start fresh (no Framer migration). No domain yet.

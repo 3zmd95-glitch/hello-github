@@ -15,7 +15,7 @@ export type ProgramKind = z.infer<typeof ProgramKindSchema>;
 export const GearSchema = z.enum(["phone", "any", "camera", "gimbal", "lights", "mic"]);
 export type Gear = z.infer<typeof GearSchema>;
 
-export const QUEST_TYPES = ["train", "research", "produce", "article"] as const;
+export const QUEST_TYPES = ["research", "train", "produce", "article"] as const;
 export const QuestTypeSchema = z.enum(QUEST_TYPES);
 export type QuestType = z.infer<typeof QuestTypeSchema>;
 

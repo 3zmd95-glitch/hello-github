@@ -61,11 +61,11 @@ describe("drills", () => {
   it("drillPrompt is deterministic and walks the quest types by rep", () => {
     const d = newDrill("fair-voice-chain", "2026-09-26");
     expect(drillPrompt(d)).toEqual(drillPrompt(d));
-    expect(drillPrompt(d).quest).toBe("train");
-    expect(drillPrompt({ ...d, reps: 1 }).quest).toBe("research");
+    expect(drillPrompt(d).quest).toBe("research");
+    expect(drillPrompt({ ...d, reps: 1 }).quest).toBe("train");
     expect(drillPrompt({ ...d, reps: 2 }).quest).toBe("produce");
     expect(drillPrompt({ ...d, reps: 3 }).quest).toBe("article");
     expect(drillPrompt({ ...d, reps: 4 }).quest).toBeUndefined();
-    expect(drillPrompt({ ...d, reps: 5 }).quest).toBe("train");
+    expect(drillPrompt({ ...d, reps: 5 }).quest).toBe("research");
   });
 });

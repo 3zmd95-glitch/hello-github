@@ -41,7 +41,7 @@ export function isSkillAvailable(
 
 /**
  * Candidate quests, best first: one per available, not-yet-mastered skill, taking the skill's next
- * incomplete quest in the order train → research → produce → article.
+ * incomplete quest in the order research → train → produce → article.
  * Ranking: most quests done (nearest to mastery), then lowest tier, then the skill's position in `skills`.
  */
 export function rankQuestCandidates(
