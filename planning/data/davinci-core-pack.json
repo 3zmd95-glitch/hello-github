@@ -86,8 +86,8 @@
     "en": "Start a new UHD 30 project, drop in one 30 fps and one 60 fps clip from your phone, slow the 60 to half, and screen-record it playing smoothly."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن Variable Frame Rate في الآيفون ودافنشي، واكتب في Obsidian إيش يصير لو خلطت 30 مع 60 وإيش الحل اللي يستخدمه كل واحد.",
-    "en": "Use the research button, watch 3 videos on iPhone variable frame rate in Resolve, and write in Obsidian what happens when 30 meets 60 and the fix each creator uses."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن Variable Frame Rate في الآيفون ودافنشي، واكتب في النوت إيش يصير لو خلطت 30 مع 60 وإيش الحل اللي يستخدمه كل واحد.",
+    "en": "Use the research button, watch 3 videos on iPhone variable frame rate in Resolve, and write in your note what happens when 30 meets 60 and the fix each creator uses."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: يبدأ بلقطة سلوموشن متقطعة مع جملة «ليه السلوموشن حقي يتقطع؟» وبعدين تورّي الإعداد الوحيد اللي يحلها.",
@@ -192,8 +192,8 @@
     "en": "Import your last shoot as bins, then deliberately move the Footage folder somewhere else and bring every clip back with Relink without reimporting."
    },
    "research": {
-    "ar": "ابحث عن ٣ هياكل مجلدات يستخدمها محررين، وقرر في Obsidian هيكل 3z Prod الثابت مع أسماء الـ Bins بالإنجليزي.",
-    "en": "Look up 3 folder structures editors use and decide in Obsidian the fixed 3z Prod structure with English bin names."
+    "ar": "ابحث عن ٣ هياكل مجلدات يستخدمها محررين، وقرر في النوت هيكل 3z Prod الثابت مع أسماء الـ Bins بالإنجليزي.",
+    "en": "Look up 3 folder structures editors use and decide in your note the fixed 3z Prod structure with English bin names."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: تبدأ بشاشة كلها لقطات حمراء وجملة «راح مشروعي؟»، وبعدين Relink يرجّعها كلها في ثانيتين.",
@@ -298,8 +298,8 @@
     "en": "Take 10 4K clips from your phone, generate half-resolution proxies, and compare playback before and after by watching the FPS counter in the viewer. Record the difference."
    },
    "research": {
-    "ar": "استخدم زر البحث، وشوف ٣ فيديوهات تقارن Proxy مع Optimized Media، واكتب في Obsidian جدول: متى أستخدم كل واحدة على جهازي.",
-    "en": "Use the research button, watch 3 videos comparing Proxy with Optimized Media, and write in Obsidian a table of when to use each on your machine."
+    "ar": "استخدم زر البحث، وشوف ٣ فيديوهات تقارن Proxy مع Optimized Media، واكتب في النوت جدول: متى أستخدم كل واحدة على جهازي.",
+    "en": "Use the research button, watch 3 videos comparing Proxy with Optimized Media, and write in your note a table of when to use each on your machine."
    },
    "produce": {
     "ar": "ريل ٣٠ ثانية: تبدأ بـ Timeline يتقطع مع جملة «جهازك ضعيف؟ لا، إعداداتك ناقصة»، وبعدين تورّي Proxy Media يخلي التشغيل حرير.",
@@ -400,8 +400,8 @@
     "en": "Record one minute of talking with the iPhone and an external recorder (or a second phone as recorder) with a clap at the start, sync with Auto Sync, and screenshot the matched waveforms."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن الـ Sync في دافنشي، وسجّل في Obsidian الأسباب اللي تخلي الـ Waveform sync يفشل وكيف يحلونها.",
-    "en": "Use the research button, watch 3 videos on syncing in Resolve, and note in Obsidian the reasons waveform sync fails and how each creator fixes it."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن الـ Sync في دافنشي، وسجّل في النوت الأسباب اللي تخلي الـ Waveform sync يفشل وكيف يحلونها.",
+    "en": "Use the research button, watch 3 videos on syncing in Resolve, and note in your note the reasons waveform sync fails and how each creator fixes it."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: صوت جوال بعيد ومكتوم مع جملة «صوتك هو نص الفيديو»، وبعدين نقرة واحدة تبدله بصوت المايك النظيف.",
@@ -506,8 +506,8 @@
     "en": "Take an old horizontal video of yours, make a 1080x1920 vertical timeline, reframe at least five clips, and export 30 s for Reels."
    },
    "research": {
-    "ar": "ابحث بزر البحث عن Smart Reframe وعن إعادة التأطير اليدوي، وقارن في Obsidian: الوقت، الدقة، ومتى الآلي يفشل (أكثر من شخص، حركة سريعة).",
-    "en": "Use the research button on Smart Reframe and manual reframing, and compare in Obsidian: time, accuracy, and when the automatic one fails (several people, fast motion)."
+    "ar": "ابحث بزر البحث عن Smart Reframe وعن إعادة التأطير اليدوي، وقارن في النوت: الوقت، الدقة، ومتى الآلي يفشل (أكثر من شخص، حركة سريعة).",
+    "en": "Use the research button on Smart Reframe and manual reframing, and compare in your note: time, accuracy, and when the automatic one fails (several people, fast motion)."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية مقسوم بالنص: يسار الفيديو الأفقي الأصلي، يمين النسخة العمودية المعاد تأطيرها، مع نص «فيديو واحد، منصتين».",
@@ -612,8 +612,8 @@
     "en": "Take 10 clips from your last shoot and build a full rough cut with the keyboard only (I, O, Shift+F12) in under 10 minutes. Screen-record it with a timer."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن سرعة التجميع في صفحة Cut، واكتب في Obsidian الاختصارات اللي تكررت عند كل محرر.",
-    "en": "Use the research button, watch 3 videos on fast assembly on the Cut page, and note in Obsidian the shortcuts every editor kept using."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن سرعة التجميع في صفحة Cut، واكتب في النوت الاختصارات اللي تكررت عند كل محرر.",
+    "en": "Use the research button, watch 3 videos on fast assembly on the Cut page, and note in your note the shortcuts every editor kept using."
    },
    "produce": {
     "ar": "ريل ٣٠ ثانية بسرعة مضاعفة: تبدأ بجملة «فيديو كامل في ٣ أزرار» وتورّي I و O و Append وهو يتجمّع قدام المشاهد.",
@@ -718,8 +718,8 @@
     "en": "Take the rough cut from the previous card and tighten it: trim every talking clip until no pause is longer than a second, and make at least one J-cut. Compare the length before and after."
    },
    "research": {
-    "ar": "ابحث بزر البحث عن ٣ فيديوهات تشرح التريم في صفحة Cut، واكتب في Obsidian الفرق بين Ripple و Roll بجملة واحدة لكل واحد وبمثال من فيديوهاتك.",
-    "en": "Use the research button on 3 videos about Cut page trimming, and write in Obsidian one-sentence definitions of ripple and roll with an example from your own footage."
+    "ar": "ابحث بزر البحث عن ٣ فيديوهات تشرح التريم في صفحة Cut، واكتب في النوت الفرق بين Ripple و Roll بجملة واحدة لكل واحد وبمثال من فيديوهاتك.",
+    "en": "Use the research button on 3 videos about Cut page trimming, and write in your note one-sentence definitions of ripple and roll with an example from your own footage."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: نفس الجملة مرتين، مرة بلقطات فيها سكتات ومرة بعد التريم، مع نص «الفرق ثانيتين بس».",
@@ -824,8 +824,8 @@
     "en": "Film yourself for 3 minutes with two phones from two angles, sync them with Sync Clips, and make 5 angle switches with Source Overwrite. Export the result."
    },
    "research": {
-    "ar": "ابحث بزر البحث عن الـ Sync Bin وعن الـ Multicam Clip في صفحة Edit، وقرر في Obsidian أي طريقة تناسب بودكاست عربي طويل وأي طريقة تناسب ريل قصير.",
-    "en": "Use the research button on the Sync Bin and on the Edit page multicam clip, and decide in Obsidian which suits a long Arabic podcast and which suits a short reel."
+    "ar": "ابحث بزر البحث عن الـ Sync Bin وعن الـ Multicam Clip في صفحة Edit، وقرر في النوت أي طريقة تناسب بودكاست عربي طويل وأي طريقة تناسب ريل قصير.",
+    "en": "Use the research button on the Sync Bin and on the Edit page multicam clip, and decide in your note which suits a long Arabic podcast and which suits a short reel."
    },
    "produce": {
     "ar": "ريل ٣٠ ثانية: جوالين على طاولة مع جملة «بودكاست بجوالين؟ أكيد»، وبعدين تورّي شبكة الـ Sync Bin وتبديل الزوايا بضغطة.",
@@ -930,8 +930,8 @@
     "en": "Take a talking video of yours and add at least 3 J-cuts and 3 L-cuts with B-roll, then screen-record it playing with no jarring cut."
    },
    "research": {
-    "ar": "شوف مشهد من فيلم أو مسلسل عربي وعدّ الـ J و L cuts في دقيقتين، واكتب في Obsidian متى يستخدمونها ولماذا.",
-    "en": "Watch a scene from an Arabic film or series and count the J and L cuts in two minutes, noting in Obsidian when and why they are used."
+    "ar": "شوف مشهد من فيلم أو مسلسل عربي وعدّ الـ J و L cuts في دقيقتين، واكتب في النوت متى يستخدمونها ولماذا.",
+    "en": "Watch a scene from an Arabic film or series and count the J and L cuts in two minutes, noting in your note when and why they are used."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: نفس الانتقال مرتين، مرة قص جاف ومرة J-cut، مع نص «سمعت الفرق؟».",
@@ -1036,8 +1036,8 @@
     "en": "Take 5 B-roll clips over talking and slip each one to show its best moment, touching the mouse only to select. Note how long it took."
    },
    "research": {
-    "ar": "ابحث بزر البحث عن Dynamic Trim، وشوف ٣ محررين كيف يستخدمونه، واكتب في Obsidian ورقة اختصارات التريم اللي بتعلّقها جنب الشاشة.",
-    "en": "Use the research button on Dynamic Trim, watch how 3 editors use it, and write in Obsidian the trim shortcut sheet you will pin next to your screen."
+    "ar": "ابحث بزر البحث عن Dynamic Trim، وشوف ٣ محررين كيف يستخدمونه، واكتب في النوت ورقة اختصارات التريم اللي بتعلّقها جنب الشاشة.",
+    "en": "Use the research button on Dynamic Trim, watch how 3 editors use it, and write in your note the trim shortcut sheet you will pin next to your screen."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: يديك على الكيبورد بس والـ Timeline يتعدّل لحاله، مع نص «مونتاج بدون ماوس؟ Trim Mode».",
@@ -1142,8 +1142,8 @@
     "en": "Take a video of yours with 20 cuts, add transitions to only 3 of them (from the keyboard), and write why each deserves one. Play it and confirm the rest are better as hard cuts."
    },
    "research": {
-    "ar": "شوف ٣ فيديوهات لصنّاع محتوى تحبهم وعدّ الانتقالات غير القص الجاف، واكتب في Obsidian النسبة والنمط.",
-    "en": "Watch 3 videos by creators you admire and count every transition that is not a hard cut, noting in Obsidian the ratio and the pattern."
+    "ar": "شوف ٣ فيديوهات لصنّاع محتوى تحبهم وعدّ الانتقالات غير القص الجاف، واكتب في النوت النسبة والنمط.",
+    "en": "Watch 3 videos by creators you admire and count every transition that is not a hard cut, noting in your note the ratio and the pattern."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: ٥ لقطات مرتين، الأولى بانتقالات كثيرة مبالغة، الثانية بقص جاف و Dissolve واحد، مع نص «أقل يعني أكثر».",
@@ -1248,8 +1248,8 @@
     "en": "Make an Arabic opening title and lower third with one font and two colours from your identity, with fade in and out, and save them in a Power Bin. Screen-record it."
    },
    "research": {
-    "ar": "ابحث عن ٣ خطوط عربية مجانية للفيديو وجرّبها في Text+، واكتب في Obsidian أيها اشتغلت بدون مشاكل تشكيل وأي واحدة اختارها للهوية.",
-    "en": "Find 3 free Arabic video fonts and test them in Text+, noting in Obsidian which rendered without shaping issues and which one you pick for the brand."
+    "ar": "ابحث عن ٣ خطوط عربية مجانية للفيديو وجرّبها في Text+، واكتب في النوت أيها اشتغلت بدون مشاكل تشكيل وأي واحدة اختارها للهوية.",
+    "en": "Find 3 free Arabic video fonts and test them in Text+, noting in your note which rendered without shaping issues and which one you pick for the brand."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: نص عربي مفكوك الحروف مع جملة «ليه العربي يطلع كذا في دافنشي؟» وبعدين الحل بضغطتين والنتيجة النظيفة.",
@@ -1354,8 +1354,8 @@
     "en": "Make 3 moves on 3 clips: a slow zoom, a slide in with ease, and an opacity fade, and screenshot the Curve Editor after easing."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن Ease In/Out في دافنشي، واكتب في Obsidian الفرق بين Linear و Ease و Bezier بحركة رسم بسيطة.",
-    "en": "Use the research button, watch 3 videos on Ease In/Out in Resolve, and write in Obsidian the difference between Linear, Ease and Bezier with a simple sketch."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن Ease In/Out في دافنشي، واكتب في النوت الفرق بين Linear و Ease و Bezier بحركة رسم بسيطة.",
+    "en": "Use the research button, watch 3 videos on Ease In/Out in Resolve, and write in your note the difference between Linear, Ease and Bezier with a simple sketch."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: صورة ثابتة مع نص «الصورة ميتة؟»، وبعدين نفس الصورة بـ Zoom بطيء وحركة ناعمة مع «Keyframe واحد بس».",
@@ -1460,8 +1460,8 @@
     "en": "Build an intro from 3 clips and two titles, make it a compound clip, add zoom and motion to it, then open it and change the title inside. Record before and after."
    },
    "research": {
-    "ar": "استخدم زر البحث وقارن Compound Clip مع Adjustment Clip في ٣ فيديوهات، واكتب في Obsidian متى تستخدم كل واحد.",
-    "en": "Use the research button to compare Compound Clip with Adjustment Clip across 3 videos, and write in Obsidian when to use each."
+    "ar": "استخدم زر البحث وقارن Compound Clip مع Adjustment Clip في ٣ فيديوهات، واكتب في النوت متى تستخدم كل واحد.",
+    "en": "Use the research button to compare Compound Clip with Adjustment Clip across 3 videos, and write in your note when to use each."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: Timeline فيه ١٥ كليب فوق بعض مع نص «ودك تحرّكهم كلهم؟»، وبعدين كليك يمين واحد وكل شيء يصير كليب واحد.",
@@ -1566,8 +1566,8 @@
     "en": "Film a walking shot on the iPhone without a gimbal, stabilize it with all three modes, and compare which gave the smoothest result with the least crop. Save the three versions side by side."
    },
    "research": {
-    "ar": "ابحث بزر البحث عن التثبيت في دافنشي مقابل التثبيت داخل كاميرا الآيفون (Action Mode)، واكتب في Obsidian متى تعتمد على الجوال ومتى على دافنشي.",
-    "en": "Use the research button on Resolve stabilization versus the iPhone's in-camera stabilization (Action Mode), and note in Obsidian when to rely on the phone and when on Resolve."
+    "ar": "ابحث بزر البحث عن التثبيت في دافنشي مقابل التثبيت داخل كاميرا الآيفون (Action Mode)، واكتب في النوت متى تعتمد على الجوال ومتى على دافنشي.",
+    "en": "Use the research button on Resolve stabilization versus the iPhone's in-camera stabilization (Action Mode), and note in your note when to rely on the phone and when on Resolve."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية مقسوم: يسار اللقطة المهزوزة، يمين المثبتة، مع نص «بدون Gimbal».",
@@ -1672,8 +1672,8 @@
     "en": "Composite the 3z Prod logo in a corner of a clip, plus a light leak on top with Screen at 60% blend. Screenshot the node tree and the result."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن الـ Merge node، واكتب في Obsidian جدول Apply Modes (Normal، Screen، Multiply، Add، Overlay) ومتى تستخدم كل واحد.",
-    "en": "Use the research button, watch 3 videos on the Merge node, and write in Obsidian a table of Apply Modes (Normal, Screen, Multiply, Add, Overlay) and when to use each."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن الـ Merge node، واكتب في النوت جدول Apply Modes (Normal، Screen، Multiply، Add، Overlay) ومتى تستخدم كل واحد.",
+    "en": "Use the research button, watch 3 videos on the Merge node, and write in your note a table of Apply Modes (Normal, Screen, Multiply, Add, Overlay) and when to use each."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: نودين بس على الشاشة مع نص «Fusion يخوّف؟ كله Merge واحد»، وتورّي اللوقو يركب وينزل على الفيديو.",
@@ -1778,8 +1778,8 @@
     "en": "Film a coffee cup or product while moving it on the iPhone, and make a word follow it with Match Move for the whole shot without slipping. Record the result."
    },
    "research": {
-    "ar": "استخدم زر البحث وقارن الـ Tracker node مع الـ Planar Tracker في ٣ فيديوهات، واكتب في Obsidian متى نقطة واحدة تكفي ومتى تحتاج سطح كامل.",
-    "en": "Use the research button to compare the Tracker node with the Planar Tracker in 3 videos, and write in Obsidian when one point is enough and when you need a whole surface."
+    "ar": "استخدم زر البحث وقارن الـ Tracker node مع الـ Planar Tracker في ٣ فيديوهات، واكتب في النوت متى نقطة واحدة تكفي ومتى تحتاج سطح كامل.",
+    "en": "Use the research button to compare the Tracker node with the Planar Tracker in 3 videos, and write in your note when one point is enough and when you need a whole surface."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: تمسك جوالك وكلمة «هذا» تلحقه وهو يتحرك، مع نص «كيف النص يلحق الشيء؟ Tracker node».",
@@ -1884,8 +1884,8 @@
     "en": "Film a wall with a sticker or light switch and remove it with the patch trick and a soft Ellipse, then remove a blemish from a face shot with Paint Clone. Record before and after."
    },
    "research": {
-    "ar": "استخدم زر البحث وقارن حيلة الـ Patch مع Object Removal (Studio) في ٣ فيديوهات، واكتب في Obsidian متى الطريقة اليدوية أسرع وأنظف.",
-    "en": "Use the research button to compare the patch trick with Object Removal (Studio) in 3 videos, and note in Obsidian when the manual way is faster and cleaner."
+    "ar": "استخدم زر البحث وقارن حيلة الـ Patch مع Object Removal (Studio) في ٣ فيديوهات، واكتب في النوت متى الطريقة اليدوية أسرع وأنظف.",
+    "en": "Use the research button to compare the patch trick with Object Removal (Studio) in 3 videos, and note in your note when the manual way is faster and cleaner."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: سلك أو ملصق يشوّه اللقطة مع نص «ما عندك Studio؟ ولا يهمك»، وبعدين تختفي بشجرة من ٤ نودات.",
@@ -1990,8 +1990,8 @@
     "en": "Take 5 iPhone clips from different lighting and correct them all with the wheels and Waveform only, so blacks and faces sit at the same level in all five. Screenshot the scopes for each."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن قراءة الـ Waveform، واكتب في Obsidian بطاقة الأرقام المستهدفة (سود، جلد، أبيض) اللي تعتمدها.",
-    "en": "Use the research button, watch 3 videos on reading the Waveform, and write in Obsidian the target-number card (blacks, skin, whites) you will adopt."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن قراءة الـ Waveform، واكتب في النوت بطاقة الأرقام المستهدفة (سود، جلد، أبيض) اللي تعتمدها.",
+    "en": "Use the research button, watch 3 videos on reading the Waveform, and write in your note the target-number card (blacks, skin, whites) you will adopt."
    },
    "produce": {
     "ar": "ريل ٣٠ ثانية: لقطة باهتة مع نص «لا تعتمد على عينك»، وتورّي الـ Waveform وهو يتحرك مع كل عجلة لحد ما اللقطة تصير حية.",
@@ -2096,8 +2096,8 @@
     "en": "Take a night iPhone clip with colour noise and a daytime clip with trees, apply Lum vs Sat to the first and Hue vs Hue to the second. Screenshot before and after with the curves visible."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ ملوّنين يستخدمون Hue vs Hue، واكتب في Obsidian ٣ استخدامات إبداعية للمنحنيات ما كنت تعرفها.",
-    "en": "Use the research button, watch 3 colourists using Hue vs Hue, and write in Obsidian 3 creative curve uses you did not know."
+    "ar": "استخدم زر البحث وشوف ٣ ملوّنين يستخدمون Hue vs Hue، واكتب في النوت ٣ استخدامات إبداعية للمنحنيات ما كنت تعرفها.",
+    "en": "Use the research button, watch 3 colourists using Hue vs Hue, and write in your note 3 creative curve uses you did not know."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: شجر أصفر باهت مع نص «لون واحد بس»، وتسحب نقطة في Hue vs Hue والشجر يصير أخضر غني والباقي ما يتغير.",
@@ -2202,8 +2202,8 @@
     "en": "Take an outdoor clip with sky and a person, isolate the sky and deepen it, then in a second node isolate a shirt and change its colour. Screenshot the highlight view and the result."
    },
    "research": {
-    "ar": "استخدم زر البحث وقارن HSL Qualifier مع 3D Qualifier مع Magic Mask في ٣ فيديوهات، واكتب في Obsidian متى يفوز كل واحد.",
-    "en": "Use the research button to compare the HSL Qualifier, the 3D Qualifier and Magic Mask across 3 videos, and note in Obsidian when each wins."
+    "ar": "استخدم زر البحث وقارن HSL Qualifier مع 3D Qualifier مع Magic Mask في ٣ فيديوهات، واكتب في النوت متى يفوز كل واحد.",
+    "en": "Use the research button to compare the HSL Qualifier, the 3D Qualifier and Magic Mask across 3 videos, and note in your note when each wins."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: تيشيرت أزرق يصير أحمر بسحبة واحدة مع نص «غيّرت لون ملابسه بعد التصوير».",
@@ -2308,8 +2308,8 @@
     "en": "Build a 5-node labelled tree with a parallel pair for sky and skin and a layer for the vignette on an iPhone clip, then save it as a PowerGrade named iphone-base. Screenshot the tree."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ ملوّنين يشرحون ترتيب النودات عندهم، وقارن في Obsidian الترتيب الثلاثة واختار ترتيب 3z Prod.",
-    "en": "Use the research button, watch 3 colourists explain their node order, and compare the three in Obsidian before picking the 3z Prod order."
+    "ar": "استخدم زر البحث وشوف ٣ ملوّنين يشرحون ترتيب النودات عندهم، وقارن في النوت الترتيب الثلاثة واختار ترتيب 3z Prod.",
+    "en": "Use the research button, watch 3 colourists explain their node order, and compare the three in your note before picking the 3z Prod order."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: شجرة نودات فوضوية بدون أسماء مع نص «هذا سبب إن تلوينك ما يتكرر»، وبعدين نفس الشجرة مرتبة ومسمّاة.",
@@ -2414,8 +2414,8 @@
     "en": "Install 3 free LUTs in a 3zProd folder and apply one properly (Balance before, Key Output Gain 0.6) to 3 differently lit clips. Screenshot the tree and results."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن أخطاء الـ LUTs، واكتب في Obsidian قائمة ٥ أخطاء وكيف تتجنبها في لقطات الآيفون.",
-    "en": "Use the research button, watch 3 videos on LUT mistakes, and write in Obsidian a list of 5 mistakes and how to avoid them on iPhone footage."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن أخطاء الـ LUTs، واكتب في النوت قائمة ٥ أخطاء وكيف تتجنبها في لقطات الآيفون.",
+    "en": "Use the research button, watch 3 videos on LUT mistakes, and write in your note a list of 5 mistakes and how to avoid them on iPhone footage."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: نفس الـ LUT مرتين، مرة على لقطة غامقة يطلع وحش ومرة بعد Balance يطلع جميل، مع نص «الـ LUT ما هو المشكلة».",
@@ -2521,8 +2521,8 @@
     "en": "Film an iPhone clip in a dark room with no extra light, clean it with Temporal then Spatial using the numbers above, and screenshot the face zoomed in before and after."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن NR في دافنشي، واكتب في Obsidian ٣ إعدادات مختلفة يستخدمها الملوّنين وأيها الأنسب لضجيج الآيفون.",
-    "en": "Use the research button, watch 3 videos on Resolve NR, and write in Obsidian 3 different setting sets colourists use and which suits iPhone noise best."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن NR في دافنشي، واكتب في النوت ٣ إعدادات مختلفة يستخدمها الملوّنين وأيها الأنسب لضجيج الآيفون.",
+    "en": "Use the research button, watch 3 videos on Resolve NR, and write in your note 3 different setting sets colourists use and which suits iPhone noise best."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: لقطة ليلية مليانة حبيبات ملونة مكبّرة مع نص «صورت بالليل بالآيفون؟»، وبعدين نفس المكان نظيف مع «Studio يستاهل».",
@@ -2628,8 +2628,8 @@
     "en": "Build a film look on 3 iPhone clips (day, night with lights, indoor) with the same Film Look Creator settings, making sure Halation shows only on the lights. Save it as a PowerGrade and screenshot the results."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن Film Look Creator، واكتب في Obsidian الفرق بينه وبين طريقة الـ Grain والـ Glow اليدوية وأي واحدة أسرع للريلز.",
-    "en": "Use the research button, watch 3 videos on Film Look Creator, and note in Obsidian how it compares to the manual grain and glow method and which is faster for reels."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن Film Look Creator، واكتب في النوت الفرق بينه وبين طريقة الـ Grain والـ Glow اليدوية وأي واحدة أسرع للريلز.",
+    "en": "Use the research button, watch 3 videos on Film Look Creator, and note in your note how it compares to the manual grain and glow method and which is faster for reels."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: لقطة آيفون نظيفة رقمية مع نص «آيفون أو كاميرا فيلم؟»، وبعدين تسحب Film Look Creator وتظهر الهالة والحبيبات.",
@@ -2734,8 +2734,8 @@
     "en": "Take an outdoor iPhone clip with sky, trees and a face, and use Color Slice only (no Qualifier) to deepen the sky, calm the greens and lift the skin. Screenshot before and after."
    },
    "research": {
-    "ar": "استخدم زر البحث وقارن Color Slice مع HSL Qualifier ومع Color Warper في ٣ فيديوهات، واكتب في Obsidian أي أداة تستخدم لأي مهمة.",
-    "en": "Use the research button to compare Color Slice with the HSL Qualifier and the Color Warper in 3 videos, and write in Obsidian which tool for which job."
+    "ar": "استخدم زر البحث وقارن Color Slice مع HSL Qualifier ومع Color Warper في ٣ فيديوهات، واكتب في النوت أي أداة تستخدم لأي مهمة.",
+    "en": "Use the research button to compare Color Slice with the HSL Qualifier and the Color Warper in 3 videos, and write in your note which tool for which job."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: ست سحبات سريعة على ست شرائح ولقطة الآيفون تتحول قدام المشاهد، مع نص «تلوين ثانوي في ٦ سحبات».",
@@ -2841,8 +2841,8 @@
     "en": "Film an outdoor midday clip with a white sky, replace it with a sunset sky while matching colours and checking hair edges. Export 10 seconds."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ طرق لاستبدال السما (Alpha Output، Fusion، أدوات خارجية)، واكتب في Obsidian مقارنة بالوقت والجودة.",
-    "en": "Use the research button to watch 3 sky replacement methods (Alpha Output, Fusion, external tools), and write in Obsidian a comparison by time and quality."
+    "ar": "استخدم زر البحث وشوف ٣ طرق لاستبدال السما (Alpha Output، Fusion، أدوات خارجية)، واكتب في النوت مقارنة بالوقت والجودة.",
+    "en": "Use the research button to watch 3 sky replacement methods (Alpha Output, Fusion, external tools), and write in your note a comparison by time and quality."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: لقطة شارع في جدة بسما بيضا مع نص «سما جدة الظهر...»، وبعدين تنسحب سما غروب مكانها مع «Magic Mask + سطر واحد».",
@@ -2947,8 +2947,8 @@
     "en": "Take a talking video with 10 clips at different levels, Normalize them all, add music at the right level, and put fades on every cut. Screenshot the meters during playback."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن مستويات الصوت لليوتيوب والريلز، واكتب في Obsidian بطاقة الأرقام (حكي، موسيقى، مؤثرات) اللي تعتمدها.",
-    "en": "Use the research button, watch 3 videos on audio levels for YouTube and Reels, and write in Obsidian the number card (speech, music, effects) you will adopt."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن مستويات الصوت لليوتيوب والريلز، واكتب في النوت بطاقة الأرقام (حكي، موسيقى، مؤثرات) اللي تعتمدها.",
+    "en": "Use the research button, watch 3 videos on audio levels for YouTube and Reels, and write in your note the number card (speech, music, effects) you will adopt."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: كلام يختفي تحت موسيقى عالية مع نص «سمعتني؟»، وبعدين تنزّل الموسيقى للرقم الصحيح ويصير الكلام واضح.",
@@ -3053,8 +3053,8 @@
     "en": "Take a 30 s reel of yours and add 4 sound effects with the right timing (3 frames before the motion) and level. Export it and compare with the silent version."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ محررين ريلز يشرحون استخدام المؤثرات الصوتية، واكتب في Obsidian قائمة ١٠ مؤثرات أساسية لكل ريل ومكانها.",
-    "en": "Use the research button, watch 3 reel editors explain sound effects, and write in Obsidian a list of the 10 essential effects for any reel and where they go."
+    "ar": "استخدم زر البحث وشوف ٣ محررين ريلز يشرحون استخدام المؤثرات الصوتية، واكتب في النوت قائمة ١٠ مؤثرات أساسية لكل ريل ومكانها.",
+    "en": "Use the research button, watch 3 reel editors explain sound effects, and write in your note a list of the 10 essential effects for any reel and where they go."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية مقسوم بالصوت: نفس الزوم مرتين، مرة صامت ومرة بـ Whoosh، مع نص «الفرق مؤثر واحد».",
@@ -3160,8 +3160,8 @@
     "en": "Record one minute of speech on the iPhone mic with the AC on or in the street, apply Voice Isolation at three values (40, 60, 90), and pick the best. Keep all three versions."
    },
    "research": {
-    "ar": "استخدم زر البحث وقارن Voice Isolation مع Noise Reduction الكلاسيكي في Fairlight FX في ٣ فيديوهات، واكتب في Obsidian متى تستخدم أي واحد.",
-    "en": "Use the research button to compare Voice Isolation with the classic Noise Reduction in Fairlight FX across 3 videos, and note in Obsidian when to use which."
+    "ar": "استخدم زر البحث وقارن Voice Isolation مع Noise Reduction الكلاسيكي في Fairlight FX في ٣ فيديوهات، واكتب في النوت متى تستخدم أي واحد.",
+    "en": "Use the research button to compare Voice Isolation with the classic Noise Reduction in Fairlight FX across 3 videos, and note in your note when to use which."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: صوتك تحت ضجيج مكيف قوي مع نص «سجّلت جنب المكيف»، وبعدين نقرة واحدة والضجيج يختفي.",
@@ -3267,8 +3267,8 @@
     "en": "Record one minute deliberately raising and lowering your voice and drifting from the mic, apply Dialogue Leveler, and screenshot the waveform before and after to see the difference."
    },
    "research": {
-    "ar": "استخدم زر البحث وقارن Dialogue Leveler مع Compressor يدوي في ٣ فيديوهات، واكتب في Obsidian متى يكفي الـ Leveler ومتى تحتاج Compressor.",
-    "en": "Use the research button to compare Dialogue Leveler with a manual compressor in 3 videos, and note in Obsidian when the Leveler is enough and when you need a compressor."
+    "ar": "استخدم زر البحث وقارن Dialogue Leveler مع Compressor يدوي في ٣ فيديوهات، واكتب في النوت متى يكفي الـ Leveler ومتى تحتاج Compressor.",
+    "en": "Use the research button to compare Dialogue Leveler with a manual compressor in 3 videos, and note in your note when the Leveler is enough and when you need a compressor."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: Waveform متذبذبة مع نص «صوتك يطلع وينزل؟»، وبعدين تتحول لمستوى ثابت مع «زر واحد في دافنشي 19».",
@@ -3373,8 +3373,8 @@
     "en": "Export the same minute 3 times: H.264 at 45 Mb/s, H.265 at 20 Mb/s, and ProRes 422 HQ. Compare file sizes and quality zoomed on the face and write down the result."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن Bitrate للمنصات، واكتب في Obsidian جدول: منصة، دقة، كودك، Bitrate المقترح.",
-    "en": "Use the research button, watch 3 videos on bitrate for platforms, and write in Obsidian a table: platform, resolution, codec, recommended bitrate."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن Bitrate للمنصات، واكتب في النوت جدول: منصة، دقة، كودك، Bitrate المقترح.",
+    "en": "Use the research button, watch 3 videos on bitrate for platforms, and write in your note a table: platform, resolution, codec, recommended bitrate."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: ثلاث ملفات جنب بعض بأحجام مختلفة مع نص «أي واحد أحسن؟»، وتورّي إن H.265 بنص الحجم نفس الشكل.",
@@ -3479,8 +3479,8 @@
     "en": "Make an Arabic subtitle track for one minute of your video, export it once as SRT and once burned in with a readable font, and open the SRT in a text editor to understand its structure."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن الترجمة في دافنشي والـ SEO في يوتيوب، واكتب في Obsidian متى SRT ومتى Burn-in لكل منصة تنشر فيها.",
-    "en": "Use the research button, watch 3 videos on Resolve subtitles and YouTube SEO, and write in Obsidian when SRT and when burn-in for each platform you post on."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن الترجمة في دافنشي والـ SEO في يوتيوب، واكتب في النوت متى SRT ومتى Burn-in لكل منصة تنشر فيها.",
+    "en": "Use the research button, watch 3 videos on Resolve subtitles and YouTube SEO, and write in your note when SRT and when burn-in for each platform you post on."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: ترجمة عربية صغيرة مفكوكة الحروف مع نص «ترجمتك ما تنقرأ»، وبعدين نفس الجملة بخط عريض وخلفية.",
@@ -3585,8 +3585,8 @@
     "en": "Export a 30 s reel with the Vertical-1080-Social preset, upload it as a draft to TikTok and Instagram, and compare post-upload quality with the original file on your phone."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن أفضل إعدادات تصدير للتيك توك والريلز، واكتب في Obsidian الأرقام اللي اتفق عليها الأغلبية وأي اختلاف.",
-    "en": "Use the research button, watch 3 videos on the best TikTok and Reels export settings, and write in Obsidian the numbers most agree on and any disagreements."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن أفضل إعدادات تصدير للتيك توك والريلز، واكتب في النوت الأرقام اللي اتفق عليها الأغلبية وأي اختلاف.",
+    "en": "Use the research button, watch 3 videos on the best TikTok and Reels export settings, and write in your note the numbers most agree on and any disagreements."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: ريل مضغوط مليان تكسير مع نص «ليه ريلي يطلع مبكسل؟»، وبعدين نفس الريل من ملف بإعدادات صحيحة.",
@@ -3692,8 +3692,8 @@
     "en": "Film one minute of HDR on the iPhone (make sure HDR Video is on in camera settings), grade it in a Rec.2100 HLG project, export H.265 10-bit and upload it Unlisted to YouTube. Screenshot the HDR badge on the video."
    },
    "research": {
-    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن تصدير HDR من دافنشي ليوتيوب، واكتب في Obsidian الفرق بين HLG و PQ وما هي الإعدادات المشتركة بين الثلاثة.",
-    "en": "Use the research button, watch 3 videos on HDR export from Resolve to YouTube, and write in Obsidian the HLG versus PQ difference and the settings all three share."
+    "ar": "استخدم زر البحث وشوف ٣ فيديوهات عن تصدير HDR من دافنشي ليوتيوب، واكتب في النوت الفرق بين HLG و PQ وما هي الإعدادات المشتركة بين الثلاثة.",
+    "en": "Use the research button, watch 3 videos on HDR export from Resolve to YouTube, and write in your note the HLG versus PQ difference and the settings all three share."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: نفس لقطة الغروب مرتين على الجوال، SDR ثم HDR، مع نص «الآيفون يصوّر HDR، ليه تنشر SDR؟».",

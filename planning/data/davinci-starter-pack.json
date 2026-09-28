@@ -81,8 +81,8 @@
     "en": "Take your last shoot, tag every clip with at least two keywords (shot type and place), then build a Smart Bin that pulls only hook shots."
    },
    "research": {
-    "ar": "قارن بين ٣ طرق تنظيم من الروابط تحت (Keywords، Smart Bins، Power Bins) واكتب في Obsidian نظام كلمات ثابت تستخدمه في كل مشروع.",
-    "en": "Compare 3 organizing methods from the refs below (Keywords, Smart Bins, Power Bins) and write a fixed keyword system in Obsidian to reuse in every project."
+    "ar": "قارن بين ٣ طرق تنظيم من الروابط تحت (Keywords، Smart Bins، Power Bins) واكتب في النوت نظام كلمات ثابت تستخدمه في كل مشروع.",
+    "en": "Compare 3 organizing methods from the refs below (Keywords, Smart Bins, Power Bins) and write a fixed keyword system in your note to reuse in every project."
    },
    "produce": {
     "ar": "ريل ٣٠ ثانية: يبدأ بشاشة Media Pool مليانة فوضى مع جملة \"دورت على لقطة ساعة كاملة؟\" وبعدين تورّي كيف Smart Bin يلاقيها في ثانيتين.",
@@ -245,8 +245,8 @@
     "en": "Highlight the line you want and click the Subclip icon at the bottom left, or Insert/Append to send it to the timeline."
    },
    {
-    "ar": "لو يبغى النص كملف، صدّره كـ TXT من الزر اللي فوق يمين نافذة التفريغ، وحطه في Obsidian كسكربت.",
-    "en": "To keep the text, export it as a TXT file from the button at the top right of the window and drop it in Obsidian as a script."
+    "ar": "لو يبغى النص كملف، صدّره كـ TXT من الزر اللي فوق يمين نافذة التفريغ، وحطه في النوت كسكربت.",
+    "en": "To keep the text, export it as a TXT file from the button at the top right of the window and drop it in your note as a script."
    }
   ],
   "quests": {
@@ -255,8 +255,8 @@
     "en": "Transcribe a long talking clip (5 min or more), search 3 words, and pull 3 subclips that could work as hooks."
    },
    "research": {
-    "ar": "جرّب التفريغ على لقطة إنجليزي ولقطة عربي، وسجّل في Obsidian الدقة في كل وحدة وإيش الأخطاء اللي تتكرر مع اللهجة.",
-    "en": "Test transcription on one English clip and one Arabic clip, and log in Obsidian the accuracy of each and which mistakes repeat with dialect."
+    "ar": "جرّب التفريغ على لقطة إنجليزي ولقطة عربي، وسجّل في النوت الدقة في كل وحدة وإيش الأخطاء اللي تتكرر مع اللهجة.",
+    "en": "Test transcription on one English clip and one Arabic clip, and log in your note the accuracy of each and which mistakes repeat with dialect."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: \"قصّيت الفيديو دا من غير ما أسمعه!\" وبعدين تورّي البحث بكلمة وسحب الجملة للتايملاين في لقطة شاشة سريعة.",
@@ -431,8 +431,8 @@
     "en": "Take an old YouTube video of yours exported as one file, split it with Scene Cut Detection, and pull 3 shots that could make a new reel."
    },
    "research": {
-    "ar": "قطّع ٣ من فيديوهاتك الناجحة وعد كم لقطة فيها ومتوسط طول اللقطة، وسجّل في Obsidian إيش الإيقاع اللي يشتغل مع جمهورك.",
-    "en": "Split 3 of your best-performing videos, count the shots and average shot length, and note in Obsidian which pace works with your audience."
+    "ar": "قطّع ٣ من فيديوهاتك الناجحة وعد كم لقطة فيها ومتوسط طول اللقطة، وسجّل في النوت إيش الإيقاع اللي يشتغل مع جمهورك.",
+    "en": "Split 3 of your best-performing videos, count the shots and average shot length, and note in your note which pace works with your audience."
    },
    "produce": {
     "ar": "ريل ٤٥ ثانية: \"فيديو عمره سنتين صار ريل جديد في ٥ دقايق\" تورّي فيه التقطيع التلقائي وبعدين النسخة العمودية الجديدة.",
@@ -611,8 +611,8 @@
     "en": "Take one full day of footage (a vlog or outing) and pull 60 seconds of selects using only Source Tape. Time how long it takes."
    },
    "research": {
-    "ar": "قارن بين طريقة الـ Source Tape وطريقة فتح كل كليب لحاله على نفس التصوير، واكتب في Obsidian الفرق في الوقت وإيش اللحظات اللي لقيتها زيادة.",
-    "en": "Compare Source Tape against opening clips one by one on the same footage. Note in Obsidian the time difference and which moments you found only with the tape."
+    "ar": "قارن بين طريقة الـ Source Tape وطريقة فتح كل كليب لحاله على نفس التصوير، واكتب في النوت الفرق في الوقت وإيش اللحظات اللي لقيتها زيادة.",
+    "en": "Compare Source Tape against opening clips one by one on the same footage. Note in your note the time difference and which moments you found only with the tape."
    },
    "produce": {
     "ar": "ريل ٣٠ ثانية \"صوّرت ساعة وطلّعت منها ٣٠ ثانية\": تبدأ بشاشة Resolve فيها عشرات الكليبات، وتخلص بالنتيجة النهائية بسرعة.",
@@ -757,8 +757,8 @@
     "en": "Take a 2-minute talking video and edit it using only these buttons, no mouse dragging: Smart Insert for shots, Ripple Overwrite for better takes, and 3 Close Ups."
    },
    "research": {
-    "ar": "حلّل ٣ فيديوهات يوتيوب لصنّاع محتوى بيتكلموا للكاميرا وعدّ كم Punch-in في الدقيقة، واكتب في Obsidian فين يحطوها (نكتة، رقم، سؤال).",
-    "en": "Analyze 3 talking-head YouTube videos, count punch-ins per minute, and note in Obsidian where they land (a joke, a number, a question)."
+    "ar": "حلّل ٣ فيديوهات يوتيوب لصنّاع محتوى بيتكلموا للكاميرا وعدّ كم Punch-in في الدقيقة، واكتب في النوت فين يحطوها (نكتة، رقم، سؤال).",
+    "en": "Analyze 3 talking-head YouTube videos, count punch-ins per minute, and note in your note where they land (a joke, a number, a question)."
    },
    "produce": {
     "ar": "ريل ٤٥ ثانية \"٣ غلطات في المونتاج تضيّع وقتك\": أول ثانيتين Close Up مفاجئ على وجهك وانت تقول \"وقّف!\"، وكل غلطة لها Punch-in.",
@@ -919,8 +919,8 @@
     "en": "Take your last talking video, run the Boring Detector at 5 s, fix every gray area, then add Smooth Cut to 3 jump cuts and compare before and after."
    },
    "research": {
-    "ar": "طبّق الـ Boring Detector على ٣ ريلز ناجحة (نزّلها في Resolve للتحليل بس) واكتب في Obsidian متوسط طول اللقطة وكم لقطة أطول من ٥ ثواني.",
-    "en": "Run the Boring Detector on 3 successful Reels (imported for analysis only) and note in Obsidian the average shot length and how many shots run over 5 seconds."
+    "ar": "طبّق الـ Boring Detector على ٣ ريلز ناجحة (نزّلها في Resolve للتحليل بس) واكتب في النوت متوسط طول اللقطة وكم لقطة أطول من ٥ ثواني.",
+    "en": "Run the Boring Detector on 3 successful Reels (imported for analysis only) and note in your note the average shot length and how many shots run over 5 seconds."
    },
    "produce": {
     "ar": "ريل ٣٠ ثانية \"فيديو واحد بدون ولا قصّة؟\": أول ثانيتين تقول \"الفيديو دا فيه ١٢ قصّة، تقدر تلقاها؟\"، وفي الآخر توري الـ Smooth Cuts مفتوحة في التايملاين.",
@@ -1099,8 +1099,8 @@
     "en": "Shoot a clip with clear motion at 60 fps (walking, a car, a ball throw) and make 3 ramp versions with different curves, then compare them."
    },
    "research": {
-    "ar": "اختار ٥ فيديوهات سيارات أو درون فيها Speed Ramp، وسجل في Obsidian فين تبدأ البطء، كم يطول، وإيش علاقته بالبيت في الموسيقى.",
-    "en": "Pick 5 car or drone videos with speed ramps and note in Obsidian where the slow part starts, how long it lasts, and how it lines up with the music beat."
+    "ar": "اختار ٥ فيديوهات سيارات أو درون فيها Speed Ramp، وسجل في النوت فين تبدأ البطء، كم يطول، وإيش علاقته بالبيت في الموسيقى.",
+    "en": "Pick 5 car or drone videos with speed ramps and note in your note where the slow part starts, how long it lasts, and how it lines up with the music beat."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية عن قهوة الصباح: أول ثانيتين صب القهوة يبطئ فجأة على البيت، وبعدين Ramp سريع لكل خطوة لحد أول رشفة.",
@@ -1279,8 +1279,8 @@
     "en": "Take one minute of your own talking footage, auto-generate subtitles, try 3 different Animated templates and save the style you like."
    },
    "research": {
-    "ar": "حلل ٥ ريلز عربية ناجحة فيها كابشن، وسجل في Obsidian: كم كلمة في السطر، إيش اللون، فين مكانها، وهل فيه Highlight.",
-    "en": "Analyze 5 successful Arabic reels with captions and note in Obsidian: words per line, color, position, and whether they use highlights."
+    "ar": "حلل ٥ ريلز عربية ناجحة فيها كابشن، وسجل في النوت: كم كلمة في السطر، إيش اللون، فين مكانها، وهل فيه Highlight.",
+    "en": "Analyze 5 successful Arabic reels with captions and note in your note: words per line, color, position, and whether they use highlights."
    },
    "produce": {
     "ar": "ريل ٣٠ ثانية بعنوان ٣ كلمات حجازية ما يفهمها غيرنا، يبدأ بجملة كبيرة على الشاشة في أول ثانيتين، وكل كلمة تنور وانت تقولها.",
@@ -1471,8 +1471,8 @@
     "en": "Take 30 s of your talking footage and add 4 Adjustment Clip punch-ins on the key words, with and without motion blur."
    },
    "research": {
-    "ar": "اختار ٣ يوتيوبرز كلام معروفين وعد كم Punch-in في أول دقيقة، وسجل في Obsidian هل هي على نكتة ولا معلومة ولا قطع.",
-    "en": "Pick 3 well-known talking-head YouTubers, count punch-ins in their first minute, and note in Obsidian whether each lands on a joke, a fact or a cut."
+    "ar": "اختار ٣ يوتيوبرز كلام معروفين وعد كم Punch-in في أول دقيقة، وسجل في النوت هل هي على نكتة ولا معلومة ولا قطع.",
+    "en": "Pick 3 well-known talking-head YouTubers, count punch-ins in their first minute, and note in your note whether each lands on a joke, a fact or a cut."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية لـ ٥ لقطات من يومك متقطعة على البيت، كل قطع فيه Zoom Transition، وأول ثانيتين تبدأ بهزة قوية على أول بيت.",
@@ -1651,8 +1651,8 @@
     "en": "Take any clip and build by hand: MediaIn, Text+, Transform, Merge, MediaOut. Slide the text in from off screen in one second."
    },
    "research": {
-    "ar": "افتح ٣ تيتلز جاهزة من Effects في Edit، واضغط أيقونة Fusion عليها وشوف الشجرة من جوا. سجّل في Obsidian إيش النودز اللي تتكرر.",
-    "en": "Open 3 built-in titles from Effects on the Edit page, open them in Fusion and look at their node trees. Note in Obsidian which nodes keep repeating."
+    "ar": "افتح ٣ تيتلز جاهزة من Effects في Edit، واضغط أيقونة Fusion عليها وشوف الشجرة من جوا. سجّل في النوت إيش النودز اللي تتكرر.",
+    "en": "Open 3 built-in titles from Effects on the Edit page, open them in Fusion and look at their node trees. Note in your note which nodes keep repeating."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: \"٤ نودز بس ورا كل مؤثر تشوفه\". الهوك في أول ثانيتين: الشاشة النهائية، وبعدين تفكها نود نود لحد ما يبان لوقو عز ينتج.",
@@ -1831,8 +1831,8 @@
     "en": "Film your phone for 10 seconds while moving it gently and pin a screen recording of your channel onto it. Repeat with a laptop screen."
    },
    "research": {
-    "ar": "حلل ٣ إعلانات تطبيقات فيها شاشة جوال: إيش زاوية التصوير؟ فيه صبع يغطي الشاشة؟ كيف طابقوا الإضاءة؟ دوّن الملاحظات في Obsidian.",
-    "en": "Break down 3 app ads with a phone screen: camera angle, fingers over the screen, how the lighting was matched. Log notes in Obsidian."
+    "ar": "حلل ٣ إعلانات تطبيقات فيها شاشة جوال: إيش زاوية التصوير؟ فيه صبع يغطي الشاشة؟ كيف طابقوا الإضاءة؟ دوّنها في النوت.",
+    "en": "Break down 3 app ads with a phone screen: camera angle, fingers over the screen, how the lighting was matched. Log them in your note."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: \"جوالي يعرف مزاجي\". الهوك في أول ثانيتين: الشاشة تتغير لحالها كل ما تتغير تعابير وجهك.",
@@ -2005,8 +2005,8 @@
     "en": "Animate the same sentence in Arabic and English: once by Characters, once by Words, and compare which looks cleaner in Arabic."
    },
    "research": {
-    "ar": "جمّع ٥ ريلز بودكاست عربية فيها نص متحرك. إيش السرعة؟ كم كلمة في السطر؟ وين مكان النص؟ اكتب ملاحظاتك في Obsidian.",
-    "en": "Collect 5 Arabic podcast reels with animated text. Note the speed, words per line, and text placement in Obsidian."
+    "ar": "جمّع ٥ ريلز بودكاست عربية فيها نص متحرك. إيش السرعة؟ كم كلمة في السطر؟ وين مكان النص؟ اكتبها في النوت.",
+    "en": "Collect 5 Arabic podcast reels with animated text. Note the speed, words per line, and text placement in your note."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: مثل شعبي سعودي يطلع كلمة كلمة على لقطة سينمائية. الهوك في أول ثانيتين: أول كلمة تنط بقوة مع صوت ضربة.",
@@ -2181,8 +2181,8 @@
     "en": "Shoot a log clip with a bright sky or window, then compare a stock LUT against the CST sandwich and see which one keeps the highlights."
    },
    "research": {
-    "ar": "اختار ٣ فيديوهات لوق من صناع محتوى تحبهم، واكتب في Obsidian إيش الكاميرا وإيش الإعدادات اللي استخدموها للـ CST.",
-    "en": "Pick 3 log videos from creators you like and note in Obsidian which camera and which CST settings they used."
+    "ar": "اختار ٣ فيديوهات لوق من صناع محتوى تحبهم، واكتب في النوت إيش الكاميرا وإيش الإعدادات اللي استخدموها للـ CST.",
+    "en": "Pick 3 log videos from creators you like and note in your note which camera and which CST settings they used."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية: أول ثانيتين لقطة لوق باهتة مع نص «ليه فيديو الآيفون حقك رمادي؟»، وبعدين تقلب على النسخة الملونة وتوري الإعدادات بسرعة.",
@@ -2361,8 +2361,8 @@
     "en": "Film yourself talking to camera with normal room light, apply a face window plus an Outside Node, and compare before and after."
    },
    "research": {
-    "ar": "حلل ٣ مشاهد بودكاست أو مقابلات عربية معروفة، واكتب في Obsidian من وين جاي النور على الوجه وكم الفرق بين الوجه والخلفية.",
-    "en": "Break down 3 well-known Arabic podcast or interview shots and note in Obsidian where the face light comes from and how much brighter the face is than the background."
+    "ar": "حلل ٣ مشاهد بودكاست أو مقابلات عربية معروفة، واكتب في النوت من وين جاي النور على الوجه وكم الفرق بين الوجه والخلفية.",
+    "en": "Break down 3 well-known Arabic podcast or interview shots and note in your note where the face light comes from and how much brighter the face is than the background."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: أول ثانيتين «صورت في غرفة نومي؟» بلقطة باهتة، وبعدين سويب للنسخة المضاءة مع نص «Power Window واحد بس».",
@@ -2541,8 +2541,8 @@
     "en": "Build a PowerGrade with CST in, a balance node, a shared look node and CST out, then apply it to 3 old projects and time how much you save."
    },
    "research": {
-    "ar": "حمل PowerGrade مجاني وفككه نود نود، واكتب في Obsidian إيش كل نود يعمل وليه مرتبين كده.",
-    "en": "Download a free PowerGrade, take it apart node by node, and note in Obsidian what each node does and why it's ordered that way."
+    "ar": "حمل PowerGrade مجاني وفككه نود نود، واكتب في النوت إيش كل نود يعمل وليه مرتبين كده.",
+    "en": "Download a free PowerGrade, take it apart node by node, and note in your note what each node does and why it's ordered that way."
    },
    "produce": {
     "ar": "ريل ٣٠ ثانية: أول ثانيتين ١٠ كليبات مختلفة الألوان مع نص «كلها بضغطة وحدة؟»، وبعدين توري تعديل Shared Node واحد يغير الكل.",
@@ -2733,8 +2733,8 @@
     "en": "Take an old talking clip with music, remove all volume keyframes, and try the Ducker at three Duck Levels (-6, -10, -14). Compare which works best."
    },
    "research": {
-    "ar": "اسمع ٥ فيديوهات Vlog أو Reels لصناع محتوى تحبهم، وسجّل في Obsidian: الموسيقى تنزل قد إيش تحت الكلام؟ وترجع بسرعة ولا ببطء؟",
-    "en": "Listen to 5 vlogs or Reels from creators you like and note in Obsidian: how far does the music drop under speech, and does it come back fast or slow?"
+    "ar": "اسمع ٥ فيديوهات Vlog أو Reels لصناع محتوى تحبهم، وسجّل في النوت: الموسيقى تنزل قد إيش تحت الكلام؟ وترجع بسرعة ولا ببطء؟",
+    "en": "Listen to 5 vlogs or Reels from creators you like and note in your note: how far does the music drop under speech, and does it come back fast or slow?"
    },
    "produce": {
     "ar": "Reel مدته ٣٠ ثانية \"قبل وبعد\": أول ثانيتين الموسيقى غاطية على صوتك وما تنفهم، وبعدين تشغّل الـ Ducker ويصير الصوت نظيف.",
@@ -2913,8 +2913,8 @@
     "en": "Take your last published video, measure its Integrated loudness in Fairlight and write it down, then bring it to -14 LUFS, export again and compare."
    },
    "research": {
-    "ar": "حمّل ٣ فيديوهات من قنوات كبيرة (بإذن أو من مكتبة مجانية)، قيسهم بعداد الـ Loudness، واكتب في Obsidian الـ Integrated والـ True Peak لكل واحد.",
-    "en": "Measure 3 videos from big channels (licensed or from a free library) with the Loudness meter and log each one's Integrated and True Peak in Obsidian."
+    "ar": "حمّل ٣ فيديوهات من قنوات كبيرة (بإذن أو من مكتبة مجانية)، قيسهم بعداد الـ Loudness، واكتب في النوت الـ Integrated والـ True Peak لكل واحد.",
+    "en": "Measure 3 videos from big channels (licensed or from a free library) with the Loudness meter and log each one's Integrated and True Peak in your note."
    },
    "produce": {
     "ar": "Short مدته ٢٠ ثانية: يبدأ بسؤال \"ليه فيديوك صوته واطي في يوتيوب؟\" وتوري الرقم قبل وبعد على عداد الـ Loudness.",
@@ -3075,8 +3075,8 @@
     "en": "Record the same line on your phone mic and your main mic, apply the same chain to both, and see how close you can get the phone to the main mic."
    },
    "research": {
-    "ar": "اسمع مقدمة ٣ بودكاستات عربية مشهورة، ودوّن في Obsidian: الصوت دافي ولا حاد؟ فيه ضغط واضح؟ وإيش الفرق بينهم وبين صوتك الحالي؟",
-    "en": "Listen to the intros of 3 popular Arabic podcasts and note in Obsidian: warm or bright? obvious compression? how do they differ from your current voice?"
+    "ar": "اسمع مقدمة ٣ بودكاستات عربية مشهورة، ودوّن في النوت: الصوت دافي ولا حاد؟ فيه ضغط واضح؟ وإيش الفرق بينهم وبين صوتك الحالي؟",
+    "en": "Listen to the intros of 3 popular Arabic podcasts and note in your note: warm or bright? obvious compression? how do they differ from your current voice?"
    },
    "produce": {
     "ar": "Reel مدته ٤٥ ثانية: أول ثانيتين صوتك خام وتقول \"دا صوتي بدون أي تعديل\"، وبعدين تضيف كل خطوة (EQ، Compressor، De-Esser) وتسمّعهم الفرق.",
@@ -3255,8 +3255,8 @@
     "en": "Export the same 1 minute clip twice (1080p H.264 and 4K H.265 at 40000 Kb/s), upload both as Unlisted, and compare them at 1080p on your phone."
    },
    "research": {
-    "ar": "افتح 3 فيديوهات لصناع محتوى تحبهم، اعمل كليك يمين على المشغل واختار Stats for nerds، وشوف إيش الكوديك (avc1 أو vp09 أو av01) وسجّلها في Obsidian.",
-    "en": "Open 3 creator videos you like, right click the player > Stats for nerds, check which codec YouTube serves (avc1, vp09, av01), and log it in Obsidian."
+    "ar": "افتح 3 فيديوهات لصناع محتوى تحبهم، اعمل كليك يمين على المشغل واختار Stats for nerds، وشوف إيش الكوديك (avc1 أو vp09 أو av01) وسجّلها في النوت.",
+    "en": "Open 3 creator videos you like, right click the player > Stats for nerds, check which codec YouTube serves (avc1, vp09, av01), and log it in your note."
    },
    "produce": {
     "ar": "شورت 30 ثانية: \"فيديوهاتك في يوتيوب مغبشة؟ السبب إعداد واحد\". الهوك في أول ثانيتين: شاشة مقسومة، نفس اللقطة مغبشة وواضحة، وبعدين تورّي إعداد الـ 4K.",
@@ -3435,8 +3435,8 @@
     "en": "Grade one clip and export it 3 ways (Gamma Tag: Same as Project, Rec.709-A, Gamma 2.4), then view them side by side in QuickTime and on your phone. Note which one matches."
    },
    "research": {
-    "ar": "اجمع 3 بوستات لصناع محتوى عن تحديث 20.2.2 والـ 709-A، واكتب في Obsidian إيش ينصح كل واحد وهل متفقين ولا لا.",
-    "en": "Collect 3 creator posts about the 20.2.2 update and 709-A, and write in Obsidian what each one recommends and whether they agree."
+    "ar": "اجمع 3 بوستات لصناع محتوى عن تحديث 20.2.2 والـ 709-A، واكتب في النوت إيش ينصح كل واحد وهل متفقين ولا لا.",
+    "en": "Collect 3 creator posts about the 20.2.2 update and 709-A, and write in your note what each one recommends and whether they agree."
    },
    "produce": {
     "ar": "ريل 20 ثانية: \"ألوانك تموت بعد التصدير؟ دا السبب\". الهوك في أول ثانيتين: اللقطة الملونة تتحول رمادي على شاشة الجوال، وبعدين تورّي حل الـ Gamma Tag.",
@@ -3627,8 +3627,8 @@
     "en": "Make 3 presets (YouTube 4K, vertical Reels, light WhatsApp) and render one project with all 3 in a single Render All. Time how long it takes."
    },
    "research": {
-    "ar": "شوف كيف 3 صناع محتوى يسمّوا ويرتبوا ملفات التصدير والبريسيتات، واكتب في Obsidian قاعدة تسمية خاصة فيك (مثلا 3zProd_Title_YT4K_v1).",
-    "en": "See how 3 creators name and organize their exports and presets, then write your own naming rule in Obsidian (for example 3zProd_Title_YT4K_v1)."
+    "ar": "شوف كيف 3 صناع محتوى يسمّوا ويرتبوا ملفات التصدير والبريسيتات، واكتب في النوت قاعدة تسمية خاصة فيك (مثلا 3zProd_Title_YT4K_v1).",
+    "en": "See how 3 creators name and organize their exports and presets, then write your own naming rule in your note (for example 3zProd_Title_YT4K_v1)."
    },
    "produce": {
     "ar": "تيك توك 25 ثانية: \"أصدّر 3 فيديوهات بضغطة وحدة\". الهوك في أول ثانيتين: الـ Render Queue تتعبى jobs قدامك، وبعدين شرح سريع على الشاشة.",

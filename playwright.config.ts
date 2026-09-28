@@ -16,7 +16,12 @@ export default defineConfig({
     : [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: `http://localhost:${port}`,
-    trace: "on-first-retry",
+    // Locally there are no retries, so keep the trace of a failed run: a flake then leaves evidence to read.
+    trace: process.env.CI ? "on-first-retry" : "retain-on-failure",
+    // The pixel animations run in steps(): an element can look still for two frames and then jump, so a click
+    // aimed right after a popup opens could land beside its target (11 of 50 tries under load). The app turns
+    // animations off for prefers-reduced-motion, which also makes every click land where it was aimed.
+    reducedMotion: "reduce",
     launchOptions: { executablePath },
   },
   projects: [

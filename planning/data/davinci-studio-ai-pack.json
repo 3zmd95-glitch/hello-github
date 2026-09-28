@@ -82,8 +82,8 @@
     "en": "Shoot 3 clips: a locked-off shot with someone walking in the background, a shot with a sign or logo, and a shot with a light camera move. Try Magic Mask + Object Removal on all three and note where it works and where it breaks."
    },
    "research": {
-    "ar": "قارن ٣ من الشروحات تحت (يوتيوب وتيك توك). اكتب في Obsidian: إيش الإعدادات اللي كل واحد يستخدمها في Matte Finesse، وإيش نوع اللقطات اللي نجح فيها المسح.",
-    "en": "Compare 3 of the tutorials below (YouTube and TikTok). Note in Obsidian which Matte Finesse settings each uses and which kinds of shots the removal worked on."
+    "ar": "قارن ٣ من الشروحات تحت (يوتيوب وتيك توك). اكتب في النوت: إيش الإعدادات اللي كل واحد يستخدمها في Matte Finesse، وإيش نوع اللقطات اللي نجح فيها المسح.",
+    "en": "Compare 3 of the tutorials below (YouTube and TikTok). Note in your note which Matte Finesse settings each uses and which kinds of shots the removal worked on."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية \"الشارع كان زحمة... دحين فاضي\". الثانية الأولى تبين اللقطة الأصلية فيها ناس أو سيارة، وبعدها سحبة بين قبل وبعد. اختم بـ \"عز ينتج\".",
@@ -258,8 +258,8 @@
     "en": "Take a flat-lit clip of your face. Make 3 versions with Relight: dramatic side light, warm sunset light, and blue phone-screen light from below. Compare with the manual Power Window method."
    },
    "research": {
-    "ar": "شوف ٣ شروحات من تحت، واكتب في Obsidian: إيش نوع الضوء اللي استخدموه، وكم Intensity، وفين بان إن الضوء مزيف.",
-    "en": "Watch 3 tutorials below and note in Obsidian which light type they used, what Intensity, and where the light started to look fake."
+    "ar": "شوف ٣ شروحات من تحت، واكتب في النوت: إيش نوع الضوء اللي استخدموه، وكم Intensity، وفين بان إن الضوء مزيف.",
+    "en": "Watch 3 tutorials below and note in your note which light type they used, what Intensity, and where the light started to look fake."
    },
    "produce": {
     "ar": "ريل ٣٠ ثانية \"صوّرت في غرفة مظلمة؟ دحين صلّحها\". الثانية الأولى لقطة مظلمة مسطحة، وبعدها يتحرك الضوء على الوجه مباشرة قدام المشاهد. اختم بقبل وبعد.",
@@ -434,8 +434,8 @@
     "en": "Take a wide shot with a close subject and a far background. Make 3 versions: background blur, morning haze, and warm dust. Grab a still of each to compare."
    },
    "research": {
-    "ar": "قارن ٣ شروحات من تحت. اكتب في Obsidian: متى فضّلوا Depth Map على Magic Mask، وإيش أرقام Near و Far اللي استخدموها.",
-    "en": "Compare 3 tutorials below. Note in Obsidian when they preferred Depth Map over Magic Mask, and what Near/Far values they used."
+    "ar": "قارن ٣ شروحات من تحت. اكتب في النوت: متى فضّلوا Depth Map على Magic Mask، وإيش أرقام Near و Far اللي استخدموها.",
+    "en": "Compare 3 tutorials below. Note in your note when they preferred Depth Map over Magic Mask, and what Near/Far values they used."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية \"عملت جو غبار بدون ما يطلع غبار\". الثانية الأولى اللقطة صافية، وبعدها الغبار يزحف من البعيد للقريب بالتدريج. اختم بقبل وبعد.",
@@ -608,8 +608,8 @@
     "en": "Take one of your own talking-head clips and make 3 versions: light, medium and heavy smoothing. Pick the most natural one and write why."
    },
    "research": {
-    "ar": "شوف ٣ من المراجع تحت وقارن الإعدادات اللي استخدموها. سجّل في Obsidian الأرقام اللي تحس إنها طبيعية لبشرة سعودية/خليجية.",
-    "en": "Watch 3 of the refs below and compare their settings. Note in Obsidian the values that feel natural for Saudi/Gulf skin tones."
+    "ar": "شوف ٣ من المراجع تحت وقارن الإعدادات اللي استخدموها. سجّل في النوت الأرقام اللي تحس إنها طبيعية لبشرة سعودية/خليجية.",
+    "en": "Watch 3 of the refs below and compare their settings. Note in your note the values that feel natural for Saudi/Gulf skin tones."
    },
    "produce": {
     "ar": "ريل ٢٠ ثانية \"قبل وبعد\": أول ثانيتين سبليت سكرين ووجهك قبل وبعد مع نص \"نفس الكاميرا، بدون فلتر\". بعدها ٣ لقطات سريعة للإعدادات.",
@@ -788,8 +788,8 @@
     "en": "Take 3 different songs (calm, beat-heavy, strong vocals) and make a no-Voice version of each. Compare which type comes out cleanest."
    },
    "research": {
-    "ar": "شوف فيديو Blackmagic الرسمي وواحد من التيك توك، ودوّن في Obsidian الإعدادات اللي يستخدمونها تحت الكلام وإيش المشاكل اللي ذكروها.",
-    "en": "Watch the official Blackmagic video and one TikTok, then note in Obsidian the settings they use under speech and the issues they mention."
+    "ar": "شوف فيديو Blackmagic الرسمي وواحد من التيك توك، ودوّن في النوت الإعدادات اللي يستخدمونها تحت الكلام وإيش المشاكل اللي ذكروها.",
+    "en": "Watch the official Blackmagic video and one TikTok, then note in your note the settings they use under speech and the issues they mention."
    },
    "produce": {
     "ar": "ريل ٣٠ ثانية: أول ثانيتين الأغنية كاملة وفجأة يختفي الصوت مع نص \"شلت الغناء في ثانية\". بعدها تفرجهم السلايدرات وتلعب بالطبقات.",
@@ -962,8 +962,8 @@
     "en": "Film a simple motion (pouring coffee or tossing something) on your phone at 30fps. Make a 25% slow motion with Frame Blend and with Speed Warp, upscale to 4K with SuperScale, and compare."
    },
    "research": {
-    "ar": "شوف ٣ مراجع وسجّل في Obsidian إيش أنواع اللقطات اللي Speed Warp يكسب فيها وإيش اللي يخرب فيها، ومتى SuperScale 2x يكفي.",
-    "en": "Watch 3 refs and note in Obsidian which shots Speed Warp handles well and where it breaks, and when SuperScale 2x is enough."
+    "ar": "شوف ٣ مراجع وسجّل في النوت إيش أنواع اللقطات اللي Speed Warp يكسب فيها وإيش اللي يخرب فيها، ومتى SuperScale 2x يكفي.",
+    "en": "Watch 3 refs and note in your note which shots Speed Warp handles well and where it breaks, and when SuperScale 2x is enough."
    },
    "produce": {
     "ar": "ريل ١٥ ثانية: أول ثانيتين صب القهوة العربية بسلو موشن ناعم جداً مع نص \"هذا جوال عادي\". بعدها سبليت يوضح قبل وبعد.",
