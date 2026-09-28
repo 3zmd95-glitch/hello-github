@@ -2183,4 +2183,101 @@
   color: var(--muted);
   text-decoration: underline dotted;
 }
+.note-suggest {
+  position: absolute;
+  inset-inline-start: 8px;
+  z-index: 20;
+  width: min(320px, calc(100% - 16px));
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--panel);
+  border: 2px solid var(--gold);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.note-suggest [role="option"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 2px;
+  color: var(--ink-2);
+  font-size: 14px;
+  cursor: pointer;
+}
+.note-suggest [role="option"][aria-selected="true"] {
+  background: var(--panel-3);
+  color: var(--ink);
+}
+.note-img {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  height: auto;
+  border: 2px solid var(--edge);
+  border-radius: var(--radius-sm);
+}
+.note-img-wait {
+  display: block;
+  height: 120px;
+  background: var(--panel-2);
+  border-radius: var(--radius-sm);
+}
+.note-live-editor .note-textarea {
+  min-height: 45dvh;
+}
+.note-live-preview {
+  min-width: 0;
+  max-height: 75dvh;
+  overflow-y: auto;
+}
+/* 🕸️ Notes graph */
+.note-graph {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 75dvh;
+  background: radial-gradient(circle at 50% 40%, var(--panel-2), var(--panel) 70%);
+  border-radius: var(--radius-sm);
+  touch-action: manipulation;
+}
+.note-graph .g-edge {
+  stroke: var(--panel-3);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}
+.note-graph .g-edge[data-kind="note"] {
+  stroke: var(--gold);
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+.note-graph .g-node {
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.note-graph[data-focus] .g-node:not([data-near]),
+.note-graph[data-focus] .g-edge:not([data-near]) {
+  opacity: 0.2;
+}
+.note-graph .g-node:focus-visible {
+  outline: none;
+}
+.note-graph .g-node:focus-visible .g-dot,
+.note-graph .g-node:hover .g-dot {
+  stroke: var(--ink);
+  stroke-width: 3;
+}
+.note-graph .g-label {
+  fill: var(--ink-2);
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  pointer-events: none;
+}
+.note-graph .g-island .g-label {
+  fill: var(--ink);
+  font-weight: 700;
+}
 /* ---- /Notes vault ---- */

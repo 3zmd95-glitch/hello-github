@@ -1,7 +1,7 @@
 // Scout Worker (build plan 1.14): TikTok / Instagram / YouTube search via Tavily + oEmbed passthrough, and
 // the social connector (OAuth, daily analytics sync and auto-posting for Instagram, Threads, YouTube and TikTok).
 // Secrets (set by the deploy workflow with `wrangler secret put`, never committed): TAVILY_API_KEY,
-// SCOUT_TOKEN, META_APP_ID, META_APP_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, TIKTOK_CLIENT_KEY,
+// SCOUT_TOKEN, META_APP_ID, META_APP_SECRET, THREADS_APP_ID, THREADS_APP_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, TIKTOK_CLIENT_KEY,
 // TIKTOK_CLIENT_SECRET.
 {
   "$schema": "node_modules/wrangler/config-schema.json",

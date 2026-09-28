@@ -137,13 +137,15 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           META_APP_ID: ${{ secrets.META_APP_ID }}
           META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          THREADS_APP_ID: ${{ secrets.THREADS_APP_ID }}
+          THREADS_APP_SECRET: ${{ secrets.THREADS_APP_SECRET }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
         run: |
           set -euo pipefail
-          for NAME in META_APP_ID META_APP_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET TIKTOK_CLIENT_KEY TIKTOK_CLIENT_SECRET; do
+          for NAME in META_APP_ID META_APP_SECRET THREADS_APP_ID THREADS_APP_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET TIKTOK_CLIENT_KEY TIKTOK_CLIENT_SECRET; do
             VALUE="${!NAME}"
             if [ -z "$VALUE" ]; then
               echo "::notice title=$NAME not set::Add the $NAME repository secret to connect that platform (see planning/tools/06-social-analytics-apis.md)."

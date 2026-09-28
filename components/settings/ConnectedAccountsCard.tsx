@@ -215,7 +215,7 @@ function AccountRow({
 }) {
   const { t, L, lang } = useT();
   const meta = PLATFORM_META[platform];
-  const state = accountState(status);
+  const state = accountState(status, platform);
   const handle = status?.handle?.replace(/^@/, "") ?? "";
 
   let text: string;

@@ -199,6 +199,9 @@ test("Settings rows follow the Worker status; Connect goes through OAuth and com
   // Connect YouTube: POST /social/connect/youtube with returnTo = this Settings page, then follow the url.
   // The fake Worker sends the browser straight back with ?connected=youtube.
   await row(page, "youtube").getByTestId("account-connect").click();
+  // The page is already on /settings/, so the URL wait alone can resolve before the click's POST lands:
+  // wait for the connect call itself, then for the round trip back (the ?connected= param cleaned away).
+  await expect.poll(() => calls.connect.length).toBe(1);
   await page.waitForURL(
     (u) => u.pathname.endsWith("/settings/") && !u.search.includes("connected"),
   );

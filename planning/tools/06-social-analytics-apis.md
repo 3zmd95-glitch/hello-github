@@ -47,14 +47,14 @@ namespace on its first run; a token from the "Edit Cloudflare Workers" template 
      app's).
 3. **Add product → Threads** → **Settings**: **Redirect callback URLs** = the Threads URI above; **Uninstall / Delete callback URL** can be
    the same Worker URL. Under **Roles → Roles**, add @3z.prod as a **Threads tester** and accept the invite in the Threads app (**Settings →
-   Account → Website permissions → Invites**). Threads uses the same app id/secret as step 2 (the Threads product page shows a "Threads app
-   ID" and secret; use those if they differ from the Instagram ones — the Worker has one pair, `META_APP_ID`/`META_APP_SECRET`, so if
-   Meta shows two different pairs, prefer the Instagram pair and check that Threads accepts it; otherwise open an issue and we split the
-   secret).
+   Account → Website permissions → Invites**). Meta shows the Threads use case its **own** "Threads app ID" and secret (different
+   from the Instagram pair), so the Worker reads **`THREADS_APP_ID`/`THREADS_APP_SECRET`** for Threads and falls back to `META_*` only
+   when those are unset (decided Sep 28, 2026, after setting the app up).
 4. Scopes the Worker asks for (already in code): `instagram_business_basic`, `instagram_business_manage_insights`, `threads_basic`,
    `threads_manage_insights`. **Standard Access** is enough for his own account (he is the tester); no App Review, the app can stay in
    Development mode.
-5. Repository secrets: **`META_APP_ID`**, **`META_APP_SECRET`**.
+5. Repository secrets: **`META_APP_ID`**, **`META_APP_SECRET`** (the **Instagram app ID**/secret from "API setup with Instagram
+   login", not the parent app id), **`THREADS_APP_ID`**, **`THREADS_APP_SECRET`**.
 
 ### 2. Google Cloud project (YouTube)
 

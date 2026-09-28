@@ -335,6 +335,14 @@ describe("snapshotSource / accountState / timeAgo", () => {
     expect(accountState({ ...live, lastError: "token_expired" })).toBe("error");
     expect(accountState({ ...live, tokenExpiresAt: "2020-01-01T00:00:00.000Z" })).toBe("error");
     expect(accountState({ ...live, tokenExpiresAt: "2999-01-01T00:00:00.000Z" })).toBe("connected");
+    // YouTube (1 h) and TikTok (24 h) access tokens renew themselves: a past expiry is not "reconnect".
+    const past = { ...live, tokenExpiresAt: "2020-01-01T00:00:00.000Z" };
+    expect(accountState(past, "youtube")).toBe("connected");
+    expect(accountState(past, "tiktok")).toBe("connected");
+    expect(accountState(past, "instagram")).toBe("error");
+    expect(accountState(past, "threads")).toBe("error");
+    // …but a failed refresh the Worker recorded still asks for a reconnect.
+    expect(accountState({ ...past, lastError: "token_expired" }, "youtube")).toBe("error");
   });
 
   it("formats coarse relative times in both languages", () => {

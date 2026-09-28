@@ -185,6 +185,7 @@ before any platform call, so the cron and "run" never publish the same job twice
 | `TAVILY_API_KEY`                            | Worker secret          | From the `TAVILY_API_KEY` repository secret (set by the deploy workflow).                                                                            |
 | `SCOUT_TOKEN`                               | Worker secret          | From the `SCOUT_TOKEN` repository secret. Any long random string, e.g. `openssl rand -hex 24`. Also the key material for the stored social tokens.   |
 | `META_APP_ID`, `META_APP_SECRET`            | Worker secrets         | Meta app (Instagram API with Instagram Login + Threads API). Repository secrets of the same names.                                                   |
+| `THREADS_APP_ID`, `THREADS_APP_SECRET`      | Worker secrets         | The Meta app's Threads use case → Settings "Threads app ID" / secret (differs from the Instagram pair). Falls back to `META_*` when unset.          |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`  | Worker secrets         | Google Cloud OAuth client (YouTube Data + Analytics). Repository secrets of the same names.                                                          |
 | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | Worker secrets         | TikTok developer app (Login Kit + Display API). Repository secrets of the same names.                                                                |
 | `ALLOWED_ORIGINS`                           | Var (`wrangler.jsonc`) | Comma list. Default `http://localhost:3000,https://3zmd95-glitch.github.io`. Also the origins `returnTo` may point at.                               |
@@ -206,7 +207,7 @@ the dashboard; nothing else breaks. The exact app-creation steps, scopes and red
    - `CLOUDFLARE_ACCOUNT_ID`
    - `TAVILY_API_KEY`
    - `SCOUT_TOKEN` (the random string you'll also paste into the dashboard)
-   - later, per platform: `META_APP_ID` + `META_APP_SECRET`, `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`,
+   - later, per platform: `META_APP_ID` + `META_APP_SECRET`, `THREADS_APP_ID` + `THREADS_APP_SECRET`, `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`,
      `TIKTOK_CLIENT_KEY` + `TIKTOK_CLIENT_SECRET`
 4. Run **Actions → Deploy Scout Worker → Run workflow** (it also runs on every push to `main` that touches
    `workers/scout/**`). Without the Cloudflare secrets the run stays green and just prints a notice.

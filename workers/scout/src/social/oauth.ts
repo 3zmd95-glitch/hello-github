@@ -55,12 +55,17 @@ export const PROVIDERS: Record<SocialPlatform, ProviderAuth> = {
 
 /** Client id + secret for a platform, or null when either is missing (`configured: false`). */
 export function credentials(env: SocialEnv, platform: SocialPlatform): ProviderCreds | null {
+  // Meta gives the Threads use case its own app id/secret (not the Instagram pair); fall back to the
+  // Meta pair only when the Threads pair is not set, so older setups keep working.
+  const threadsOwn = !!(env.THREADS_APP_ID?.trim() && env.THREADS_APP_SECRET?.trim());
   const pair: [string | undefined, string | undefined] =
-    platform === "instagram" || platform === "threads"
-      ? [env.META_APP_ID, env.META_APP_SECRET]
-      : platform === "youtube"
-        ? [env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET]
-        : [env.TIKTOK_CLIENT_KEY, env.TIKTOK_CLIENT_SECRET];
+    platform === "threads" && threadsOwn
+      ? [env.THREADS_APP_ID, env.THREADS_APP_SECRET]
+      : platform === "instagram" || platform === "threads"
+        ? [env.META_APP_ID, env.META_APP_SECRET]
+        : platform === "youtube"
+          ? [env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET]
+          : [env.TIKTOK_CLIENT_KEY, env.TIKTOK_CLIENT_SECRET];
   const [id, secret] = pair.map((s) => s?.trim() ?? "");
   return id && secret ? { id, secret } : null;
 }

@@ -594,7 +594,7 @@ describe("POST /social/connect/:platform", () => {
   it("builds the Threads URL", async () => {
     const { url } = (await (await connect(makeEnv(), "threads")).json()) as { url: string };
     const u = new URL(url);
-    expect(u.origin + u.pathname).toBe("https://threads.net/oauth/authorize");
+    expect(u.origin + u.pathname).toBe("https://www.threads.com/oauth/authorize");
     expect(u.searchParams.get("scope")).toBe("threads_basic,threads_manage_insights");
     expect(u.searchParams.get("redirect_uri")).toBe(`${BASE}/oauth/threads/callback`);
   });
@@ -1903,5 +1903,18 @@ describe("fetchJson", () => {
       "https://oauth2.googleapis.com/token",
     );
     expect(reply).toEqual({ status: 200, ok: true, body: { ok: 1 } });
+  });
+});
+
+describe("credentials", () => {
+  it("Threads uses its own THREADS_APP_* pair when set, else the Meta pair; Instagram always the Meta pair", async () => {
+    const { credentials } = await import("./oauth");
+    const both = makeEnv(fakeKV(), { THREADS_APP_ID: "th-id", THREADS_APP_SECRET: "th-secret" });
+    expect(credentials(both, "threads")).toEqual({ id: "th-id", secret: "th-secret" });
+    expect(credentials(both, "instagram")).toEqual({ id: "meta-id", secret: "meta-secret" });
+    expect(credentials(makeEnv(), "threads")).toEqual({ id: "meta-id", secret: "meta-secret" });
+    // Half a Threads pair does not count: falls back to the Meta pair instead of a broken mix.
+    const half = makeEnv(fakeKV(), { THREADS_APP_ID: "th-id" });
+    expect(credentials(half, "threads")).toEqual({ id: "meta-id", secret: "meta-secret" });
   });
 });

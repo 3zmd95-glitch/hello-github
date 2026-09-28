@@ -29,9 +29,12 @@ export interface SocialEnv {
   SCOUT_TOKEN?: string;
   ALLOWED_ORIGINS?: string;
   SOCIAL_KV?: KVNamespace;
-  /** Meta app (Instagram API with Instagram Login + Threads API share one app). */
+  /** Meta app: the Instagram API with Instagram Login's "Instagram app ID" / secret. */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
+  /** The same Meta app's Threads use case has its own "Threads app ID" / secret; falls back to META_*. */
+  THREADS_APP_ID?: string;
+  THREADS_APP_SECRET?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   TIKTOK_CLIENT_KEY?: string;

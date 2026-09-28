@@ -137,6 +137,27 @@ export async function syncSocialNow(platforms?: readonly SocialPlatform[]): Prom
   return { ok: true, synced, errors };
 }
 
+/**
+ * Right after OAuth the Worker has just written the tokens, and Cloudflare KV can take up to a minute to show
+ * a new key everywhere: the first status read may still say "not connected" (seen with TikTok, Sep 28 2026).
+ * Re-pull a few times until the platform shows up as connected. Resolves true once it does.
+ */
+export const CONFIRM_CONNECTED_DELAYS_MS: readonly number[] = [5_000, 15_000, 40_000];
+
+export async function confirmConnected(
+  platform: SocialPlatform,
+  delays: readonly number[] = CONFIRM_CONNECTED_DELAYS_MS,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<boolean> {
+  const isConnected = () => !!useStore.getState().socialSync.status?.[platform]?.connected;
+  for (const ms of delays) {
+    if (isConnected()) return true;
+    await sleep(ms);
+    await pullSocial();
+  }
+  return isConnected();
+}
+
 /** Platforms the last status pull reported as connected (empty when unknown). */
 function connectedPlatforms(): SocialPlatform[] {
   const status = useStore.getState().socialSync.status;

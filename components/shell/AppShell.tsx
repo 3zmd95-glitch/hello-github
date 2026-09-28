@@ -6,7 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import CelebrationProvider, { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import SkillSheetProvider from "@/components/skills/SkillSheetProvider";
 import { usePublishWatcher } from "@/components/social/usePublish";
-import { pullIfDue, syncSocialNow } from "@/components/social/useSocialSync";
+import { confirmConnected, pullIfDue, syncSocialNow } from "@/components/social/useSocialSync";
 import { applySocialSeed } from "@/data/social-seed";
 import { useDocumentLang, useT } from "@/lib/i18n";
 import { scoutConfig } from "@/lib/scoutClient";
@@ -110,6 +110,8 @@ function SocialSyncAgent() {
       toast("notice", { icon: "🔗", name: t("social.toast.connected", { name: name(connected) }) });
       void syncSocialNow(isSocialPlatform(connected) ? [connected] : undefined).then((r) => {
         if (r.ok) toast("notice", { icon: "🔄", name: t("social.toast.synced") });
+        // The Worker's storage may lag a few seconds behind the connect: re-check until it shows up.
+        if (isSocialPlatform(connected)) void confirmConnected(connected);
       });
     } else if (failed) {
       const key = socialSyncErrorMessageKey({ type: socialErrorType(reason) });
