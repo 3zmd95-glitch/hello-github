@@ -14,6 +14,10 @@ import {
 } from "@/lib/notes";
 import { useStore } from "@/store";
 import NoteEditor from "./NoteEditor";
+import NoteGraph from "./NoteGraph";
+
+type View = "tree" | "graph";
+const VIEWS: readonly View[] = ["tree", "graph"];
 
 /** Drop the note hash without a navigation (static export: no router push). */
 function clearHash(): void {
@@ -26,7 +30,8 @@ function clearHash(): void {
  * 📝 Notes vault: the in-app replacement for the external Obsidian step. One Markdown note per skill, listed
  * like the skill tree (pillar → program → section → skill) with search across names and note text. Deep link
  * `#skill=<id>` opens a note (the skill popup's Research row and `[[links]]` inside notes use it); opening
- * sets the hash, so the phone's back button returns to the tree.
+ * sets the hash, so the phone's back button returns to the tree. The 🕸️ Graph view shows the same notes as an
+ * Obsidian-style graph around their islands; tapping a dot opens that note back in the tree view.
  */
 export default function NotesScreen() {
   const { t } = useT();
@@ -34,12 +39,15 @@ export default function NotesScreen() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [onlyWritten, setOnlyWritten] = useState(false);
+  const [view, setView] = useState<View>("tree");
+  const [graphAll, setGraphAll] = useState(false);
 
   useEffect(() => {
     const apply = () => {
       const id = parseNotesHash(window.location.hash);
       if (id && getSkill(id)) {
         setOpenId(id);
+        setView("tree");
         window.scrollTo({ top: 0 });
       } else {
         setOpenId(null);
@@ -71,52 +79,89 @@ export default function NotesScreen() {
         <p className="text-ink-2 text-sm">{t("notes.sub")}</p>
       </header>
 
-      <div className="grid gap-4 md:grid-cols-[minmax(240px,300px)_minmax(0,1fr)] md:items-start">
-        <nav
-          aria-label={t("notes.vault")}
-          className={`px-card flex min-w-0 flex-col gap-3 ${open ? "max-md:hidden" : ""}`}
-          data-testid="notes-vault"
-        >
-          <input
-            type="search"
-            className="px-input"
-            placeholder={t("notes.search")}
-            aria-label={t("notes.search")}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            data-testid="notes-search"
-          />
-          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-            <label className="flex items-center gap-2">
+      <div className="cal-tabs self-start" role="tablist" aria-label={t("notes.viewLabel")}>
+        {VIEWS.map((v) => (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            className="cal-tab"
+            aria-selected={view === v}
+            onClick={() => {
+              if (v === "graph") back();
+              setView(v);
+            }}
+            data-testid={`notes-view-${v}`}
+          >
+            {t(v === "tree" ? "notes.viewTree" : "notes.viewGraph")}
+          </button>
+        ))}
+      </div>
+
+      {view === "graph" ? (
+        <section className="px-card flex min-w-0 flex-col gap-3" data-testid="notes-graph-view">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-ink-2 min-w-0 flex-1 text-sm">{t("notes.graphHint")}</p>
+            <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
-                checked={onlyWritten}
-                onChange={(e) => setOnlyWritten(e.target.checked)}
-                data-testid="notes-only-written"
+                checked={graphAll}
+                onChange={(e) => setGraphAll(e.target.checked)}
+                data-testid="notes-graph-all"
               />
-              {t("notes.onlyWritten")}
+              {t("notes.graphAll")}
             </label>
-            <span className="text-muted num text-xs">{t("notes.count", { n: written })}</span>
           </div>
-          {query.trim() ? (
-            <SearchResults query={query} notes={notes} openId={openId} />
-          ) : (
-            <Tree notes={notes} openId={openId} onlyWritten={onlyWritten} />
-          )}
-        </nav>
-
-        <div className={`min-w-0 ${open ? "" : "max-md:hidden"}`}>
-          {open ? (
-            <div className="px-card">
-              <NoteEditor key={open.id} skill={open} onBack={back} />
+          <NoteGraph allSkills={graphAll} />
+        </section>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-[minmax(240px,300px)_minmax(0,1fr)] md:items-start">
+          <nav
+            aria-label={t("notes.vault")}
+            className={`px-card flex min-w-0 flex-col gap-3 ${open ? "max-md:hidden" : ""}`}
+            data-testid="notes-vault"
+          >
+            <input
+              type="search"
+              className="px-input"
+              placeholder={t("notes.search")}
+              aria-label={t("notes.search")}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              data-testid="notes-search"
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={onlyWritten}
+                  onChange={(e) => setOnlyWritten(e.target.checked)}
+                  data-testid="notes-only-written"
+                />
+                {t("notes.onlyWritten")}
+              </label>
+              <span className="text-muted num text-xs">{t("notes.count", { n: written })}</span>
             </div>
-          ) : (
-            <p className="px-card text-ink-2 text-sm" data-testid="notes-pick">
-              {t("notes.pick")}
-            </p>
-          )}
+            {query.trim() ? (
+              <SearchResults query={query} notes={notes} openId={openId} />
+            ) : (
+              <Tree notes={notes} openId={openId} onlyWritten={onlyWritten} />
+            )}
+          </nav>
+
+          <div className={`min-w-0 ${open ? "" : "max-md:hidden"}`}>
+            {open ? (
+              <div className="px-card">
+                <NoteEditor key={open.id} skill={open} onBack={back} />
+              </div>
+            ) : (
+              <p className="px-card text-ink-2 text-sm" data-testid="notes-pick">
+                {t("notes.pick")}
+              </p>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 }

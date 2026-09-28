@@ -166,3 +166,119 @@ test("the empty editor and its hint follow the Arabic page direction", async ({ 
   await area.fill("سطر عربي\nAn English line");
   expect(await area.evaluate((el) => getComputedStyle(el).unicodeBidi)).toBe("plaintext");
 });
+
+test("typing [[ suggests skills; Enter or a tap writes the link, and Live shows it formatted", async ({
+  page,
+}) => {
+  await freshState(page, `/notes/#skill=${SKILL_ID}`);
+  // A new note opens in Live mode: editor and formatted preview together.
+  await expect(page.getByTestId("note-tab-live")).toHaveAttribute("aria-selected", "true");
+  const area = page.getByTestId("note-textarea");
+  await area.click();
+  await area.pressSequentially("# Bins\nSee [[scene cu");
+
+  const list = page.getByTestId("note-suggest");
+  await expect(list).toBeVisible();
+  await expect(list.getByTestId("note-suggest-item").first()).toHaveAttribute(
+    "data-skill",
+    OTHER_ID,
+  );
+  await page.keyboard.press("Enter");
+  await expect(list).toBeHidden();
+  await expect(area).toHaveValue("# Bins\nSee [[تقطيع المشاهد تلقائي (Scene Cut Detection)]]");
+
+  // Esc closes the list and it stays closed while typing on in that link.
+  await area.pressSequentially(" [[x");
+  await expect(list).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(list).toBeHidden();
+  await area.pressSequentially("y");
+  await expect(list).toBeHidden();
+  await area.press("Backspace");
+  await area.press("Backspace");
+  await area.press("Backspace");
+  await area.press("Backspace");
+
+  // Keep typing after the link; then a second link by tapping a suggestion.
+  await area.pressSequentially(" and [[");
+  await expect(list).toBeVisible();
+  const second = list.getByTestId("note-suggest-item").nth(1);
+  const secondId = await second.getAttribute("data-skill");
+  await second.click();
+  await expect(area).toHaveValue(/ and \[\[[^\]]+\]\]$/);
+
+  // Live preview: heading and both links, updated while typing.
+  const live = page.getByTestId("note-live");
+  await expect(live.locator("h1")).toHaveText("Bins");
+  await expect(live.getByTestId("note-link")).toHaveCount(2);
+  await live.getByTestId("note-link").nth(1).click();
+  await expect(page.getByTestId("note-editor")).toHaveAttribute("data-skill", secondId!);
+});
+
+// 2×2 red PNG.
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+test("an image added to a note is kept on the device and shows in Live and Read", async ({
+  page,
+}) => {
+  await freshState(page, `/notes/#skill=${SKILL_ID}`);
+  await page.getByTestId("note-textarea").fill("Before the picture");
+  await page
+    .getByTestId("note-image-input")
+    .setInputFiles({ name: "grade.png", mimeType: "image/png", buffer: PNG });
+  await expect(page.getByTestId("note-textarea")).toHaveValue(
+    /^Before the picture\n!\[grade\]\(img:[\w-]+\)\n$/,
+  );
+  const img = page.getByTestId("note-live").getByTestId("note-image");
+  await expect(img).toHaveAttribute("src", /^blob:/);
+  expect(await img.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+
+  // Saved: after a reload the note opens in Read mode with the picture from the device.
+  await expect(page.getByTestId("note-status")).toHaveText(/✓/);
+  await page.reload();
+  await expect(page.getByTestId("note-preview").getByTestId("note-image")).toHaveAttribute(
+    "src",
+    /^blob:/,
+  );
+});
+
+test("the graph shows notes around their islands, gold lines for [[links]], and opens a note", async ({
+  page,
+}) => {
+  await freshState(page, "/notes/");
+  await page.getByTestId("notes-view-graph").click();
+  await expect(page.getByTestId("note-graph-empty")).toBeVisible();
+
+  // Write one note that links another skill.
+  await page.goto(`/notes/#skill=${SKILL_ID}`);
+  await page.getByTestId("note-textarea").fill(`Tag clips, then [[${OTHER_ID}]].`);
+  await expect(page.getByTestId("note-status")).toHaveText(/✓/);
+
+  await page.getByTestId("notes-view-graph").click();
+  const graph = page.getByTestId("note-graph");
+  await expect(graph).toBeVisible();
+  await expect(
+    graph.locator(`[data-testid="note-graph-node"][data-skill="${SKILL_ID}"]`),
+  ).toHaveAttribute("data-has-note", "1");
+  await expect(
+    graph.locator(`[data-testid="note-graph-node"][data-skill="${OTHER_ID}"]`),
+  ).toHaveAttribute("data-has-note", "0");
+  await expect(graph.getByTestId("note-graph-link")).toHaveCount(1);
+  await expect(
+    graph.locator('[data-testid="note-graph-island"][data-program="davinci"]'),
+  ).toHaveCount(1);
+  await expect(graph.getByTestId("note-graph-node")).toHaveCount(2);
+
+  // Every skill, each around its own island.
+  await page.getByTestId("notes-graph-all").check();
+  expect(await graph.getByTestId("note-graph-node").count()).toBeGreaterThan(27);
+  expect(await graph.getByTestId("note-graph-island").count()).toBeGreaterThan(1);
+
+  // A dot is a link to its note.
+  await graph.locator(`[data-testid="note-graph-node"][data-skill="${OTHER_ID}"]`).click();
+  await expect(page.getByTestId("note-editor")).toHaveAttribute("data-skill", OTHER_ID);
+  await expect(page.getByTestId("notes-view-tree")).toHaveAttribute("aria-selected", "true");
+});

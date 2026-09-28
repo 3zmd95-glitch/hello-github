@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, type ElementType, type HTMLAttributes } from "react";
-import Markdown, { type Components, type ExtraProps } from "react-markdown";
+import { useEffect, useMemo, useState, type ElementType, type HTMLAttributes } from "react";
+import Markdown, { defaultUrlTransform, type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { skills } from "@/data";
-import { MISSING_LINK, linkifyWikiLinks } from "@/lib/notes";
+import { useT } from "@/lib/i18n";
+import { loadNoteImage } from "@/lib/noteImages";
+import { MISSING_LINK, isNoteImage, linkifyWikiLinks, noteImageId } from "@/lib/notes";
 
 type DirTag = "p" | "h1" | "h2" | "h3" | "h4" | "li" | "blockquote" | "td" | "th";
 
@@ -18,6 +20,39 @@ function auto(Tag: DirTag) {
   return Auto;
 }
 
+/** A picture stored on this device (`img:<id>`), read from IndexedDB into an object URL. */
+function LocalImage({ id, alt }: { id: string; alt: string }) {
+  const { t } = useT();
+  const [state, setState] = useState<{ id: string; url: string | null } | null>(null);
+  useEffect(() => {
+    let url: string | null = null;
+    let live = true;
+    loadNoteImage(id).then((blob) => {
+      if (!live) return;
+      url = blob ? URL.createObjectURL(blob) : null;
+      setState({ id, url });
+    });
+    return () => {
+      live = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [id]);
+  if (!state || state.id !== id) return <span className="note-img-wait" aria-hidden />;
+  if (!state.url)
+    return (
+      <span className="note-missing" data-testid="note-image-missing">
+        🖼️ {t("notes.imageMissing")}
+      </span>
+    );
+  // eslint-disable-next-line @next/next/no-img-element -- a local blob, nothing for next/image to optimize
+  return <img src={state.url} alt={alt} className="note-img" data-testid="note-image" />;
+}
+
+/** Keep `img:<id>` (our stored pictures) and `#skill=` links; everything else goes through the safe default. */
+function urlTransform(url: string): string {
+  return isNoteImage(url) ? url : defaultUrlTransform(url);
+}
+
 const COMPONENTS: Components = {
   p: auto("p"),
   h1: auto("h1"),
@@ -28,6 +63,15 @@ const COMPONENTS: Components = {
   blockquote: auto("blockquote"),
   td: auto("td"),
   th: auto("th"),
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  img({ node, src, alt = "" }) {
+    if (typeof src !== "string" || !src) return null;
+    if (isNoteImage(src)) return <LocalImage id={noteImageId(src)} alt={alt} />;
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- remote pictures linked in a note
+      <img src={src} alt={alt} className="note-img" loading="lazy" referrerPolicy="no-referrer" />
+    );
+  },
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   a({ node, href = "", children, ...props }) {
     if (href === MISSING_LINK)
@@ -59,7 +103,7 @@ export default function NoteMarkdown({ body }: { body: string }) {
   const md = useMemo(() => linkifyWikiLinks(body, skills), [body]);
   return (
     <div className="note-md" data-testid="note-preview">
-      <Markdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
+      <Markdown remarkPlugins={[remarkGfm]} components={COMPONENTS} urlTransform={urlTransform}>
         {md}
       </Markdown>
     </div>
