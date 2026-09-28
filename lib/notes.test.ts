@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { pillars, programs, skills as seedSkills, skillsByProgram } from "@/data";
 import type { Note } from "./domain";
 import {
   MISSING_LINK,
@@ -10,6 +11,7 @@ import {
   parseNotesHash,
   resolveWikiLink,
   searchNotes,
+  vaultTree,
   wikiLinks,
   wordCount,
 } from "./notes";
@@ -111,5 +113,70 @@ describe("templates and files", () => {
   it("makes a safe .md file name", () => {
     expect(noteFileName(skill, "en")).toBe("Apple Log ProRes.md");
     expect(noteFileName(skill, "ar")).toBe("تصوير Log.md");
+  });
+});
+
+describe("vaultTree: the notes follow the pillars, islands and regions", () => {
+  const tree = vaultTree(pillars, programs, seedSkills);
+  const placed = tree.flatMap(({ pillar, programs: branches }) =>
+    branches.flatMap(({ program, sections }) =>
+      sections.flatMap(({ section, skillIds }) =>
+        skillIds.map((id) => ({ id, pillar: pillar.id, program: program.id, section: section.id })),
+      ),
+    ),
+  );
+
+  it("lists every skill exactly once", () => {
+    expect(placed.map((p) => p.id).sort()).toEqual(seedSkills.map((s) => s.id).sort());
+  });
+
+  it("puts each skill under its own island, region and pillar", () => {
+    for (const p of placed) {
+      const skill = seedSkills.find((s) => s.id === p.id)!;
+      expect(p.program).toBe(skill.programId);
+      expect(p.section).toBe(skill.sectionId);
+      expect(p.pillar).toBe(programs.find((pr) => pr.id === skill.programId)!.pillarId);
+    }
+  });
+
+  it("keeps the map's order: pillars by order, islands and regions as in the data, skills as on the island", () => {
+    expect(tree.map((g) => g.pillar.id)).toEqual(
+      [...pillars]
+        .sort((a, b) => a.order - b.order)
+        .map((p) => p.id)
+        .filter((id) => tree.some((g) => g.pillar.id === id)),
+    );
+    for (const { programs: branches } of tree)
+      for (const { program, sections } of branches) {
+        const onIsland = (skillsByProgram[program.id] ?? []).map((s) => s.id);
+        const inVault = sections.flatMap((g) => g.skillIds);
+        expect(new Set(inVault)).toEqual(new Set(onIsland));
+        expect(sections.map((g) => g.section.id)).toEqual(
+          program.sections
+            .map((s) => s.id)
+            .filter((id) => sections.some((g) => g.section.id === id)),
+        );
+      }
+  });
+
+  it("leaves out islands with no skills (fogged on the map)", () => {
+    const shown = new Set(tree.flatMap((g) => g.programs.map((b) => b.program.id)));
+    for (const p of programs)
+      expect(shown.has(p.id)).toBe((skillsByProgram[p.id] ?? []).length > 0);
+  });
+
+  it("gives a newly added skill its note slot with no extra step", () => {
+    const base = seedSkills.find((s) => s.programId === "camera")!;
+    const added = { ...base, id: "brand-new-skill", name: { ar: "مهارة جديدة", en: "Brand new" } };
+    const withNew = vaultTree(pillars, programs, [...seedSkills, added]);
+    const branch = withNew.flatMap((g) => g.programs).find((b) => b.program.id === "camera")!;
+    const section = branch.sections.find((g) => g.section.id === base.sectionId)!;
+    expect(section.skillIds.at(-1)).toBe("brand-new-skill");
+  });
+
+  it("filters with keep (only notes I wrote)", () => {
+    const only = vaultTree(pillars, programs, seedSkills, (s) => s.id === "smart-bins-keywords");
+    expect(only).toHaveLength(1);
+    expect(only[0].programs[0].sections[0].skillIds).toEqual(["smart-bins-keywords"]);
   });
 });

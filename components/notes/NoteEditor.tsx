@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
 import { useSkillSheet } from "@/components/skills/SkillSheetProvider";
 import { getProgram, skills } from "@/data";
 import type { Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { mapIslandHref } from "@/lib/mapLayout";
 import { backlinks, noteFileName, noteTemplate, notesHash, wordCount } from "@/lib/notes";
 import { questXp } from "@/lib/xp";
 import { isQuestDone, useStore } from "@/store";
@@ -20,7 +22,7 @@ const SAVE_DELAY_MS = 400;
  * Keyed by skill id by the screen, so switching notes remounts it and flushes the pending save.
  */
 export default function NoteEditor({ skill, onBack }: { skill: Skill; onBack: () => void }) {
-  const { t, L, lang } = useT();
+  const { t, L, lang, dir } = useT();
   const stored = useStore((s) => s.notes[skill.id]?.body ?? "");
   const notes = useStore((s) => s.notes);
   const researchDone = useStore((s) => isQuestDone(s, skill.id, "research"));
@@ -92,9 +94,21 @@ export default function NoteEditor({ skill, onBack }: { skill: Skill; onBack: ()
       </button>
 
       <header className="flex flex-col gap-1">
-        <p className="text-muted text-xs">
-          {program ? `${program.icon} ${L(program.name)}` : ""}
-          {section ? ` › ${L(section.name)}` : ""}
+        <p className="text-muted flex flex-wrap items-center gap-x-2 text-xs">
+          <span>
+            {program ? `${program.icon} ${L(program.name)}` : ""}
+            {section ? ` › ${L(section.name)}` : ""}
+          </span>
+          {program && (
+            <Link
+              href={mapIslandHref(program.id)}
+              className="px-link"
+              onClick={flush}
+              data-testid="note-map-link"
+            >
+              {t("notes.onMap")}
+            </Link>
+          )}
         </p>
         <h2 className="text-xl" data-testid="note-title">
           {L(skill.name)}
@@ -188,7 +202,9 @@ export default function NoteEditor({ skill, onBack }: { skill: Skill; onBack: ()
               </button>
             )}
             <textarea
-              dir="auto"
+              // The page direction for the caret and the placeholder; each typed line then picks its own
+              // direction (unicode-bidi: plaintext in .note-textarea), so Arabic and English lines both sit right.
+              dir={dir}
               value={text}
               onChange={(e) => edit(e.target.value)}
               onBlur={flush}
