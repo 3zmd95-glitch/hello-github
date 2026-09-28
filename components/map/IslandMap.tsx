@@ -166,6 +166,8 @@ function SkillNode({ skill, n }: { skill: Skill; n: number }) {
   const sheet = useSkillSheet();
   const gear = useStore((s) => s.settings.gear);
   const posts = useStore((s) => s.posts);
+  // 📝 The skill has a note in the Notes vault.
+  const hasNote = useStore((s) => !!s.notes[skill.id]);
   const locked = isGearLocked(skill, { gear });
   // 📱 The bridge badge: this skill's video is planned in the Social calendar.
   const inCalendar = useMemo(
@@ -175,7 +177,7 @@ function SkillNode({ skill, n }: { skill: Skill; n: number }) {
   const mastered = n >= 4;
   const name = L(skill.name);
   const state = mastered ? t("map.mastered1") : locked ? t("map.locked") : `${n}/4`;
-  const label = `${t("map.openSkill", { name })} · ${state}${inCalendar ? ` · ${t("social.bridge.inCalendar")}` : ""}`;
+  const label = `${t("map.openSkill", { name })} · ${state}${inCalendar ? ` · ${t("social.bridge.inCalendar")}` : ""}${hasNote ? ` · ${t("map.hasNote")}` : ""}`;
 
   return (
     <button
@@ -189,6 +191,7 @@ function SkillNode({ skill, n }: { skill: Skill; n: number }) {
       data-done={n}
       data-locked={locked}
       data-in-calendar={inCalendar}
+      data-has-note={hasNote}
     >
       <span className="map-node" data-mastered={mastered}>
         {!mastered && <i style={{ height: `${nodeFill(n)}%` }} />}
@@ -201,6 +204,11 @@ function SkillNode({ skill, n }: { skill: Skill; n: number }) {
         {inCalendar && (
           <span aria-hidden className="map-cal" data-testid="skill-node-calendar">
             📱
+          </span>
+        )}
+        {hasNote && (
+          <span aria-hidden className="map-note" data-testid="skill-node-note">
+            📝
           </span>
         )}
       </span>

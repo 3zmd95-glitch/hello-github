@@ -37,10 +37,17 @@ export function useMapIsland(): MapIslandApi {
   const [islandId, setIslandId] = useState<string | null>(readHash);
 
   useEffect(() => {
-    // Manual hash edits and back/forward across pages keep the view in sync.
+    // Manual hash edits and back/forward across pages keep the view in sync. Also read once after mount: an
+    // in-app link to `/map/#island=<id>` (e.g. from a note) lands with the hash set.
     const onHash = () => setIslandId(readHash());
+    onHash();
+    // Next writes the URL after mounting the page and without a hashchange: read again once it settled.
+    const settle = setTimeout(onHash, 0);
     window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    return () => {
+      clearTimeout(settle);
+      window.removeEventListener("hashchange", onHash);
+    };
   }, []);
 
   const open = useCallback((programId: string) => {

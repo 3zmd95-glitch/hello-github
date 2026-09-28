@@ -90,3 +90,79 @@ test("Today's first quest is Research and links straight to its note", async ({ 
   await page.getByTestId("main-note").click();
   await expect(page.getByTestId("note-editor")).toHaveAttribute("data-skill", skillId!);
 });
+
+test("every island on the map has the same skills in its Notes branch, under the same pillar", async ({
+  page,
+}) => {
+  await freshState(page, "/map/");
+  const islands = await page
+    .locator('[data-testid="continent"] [data-testid="island"][data-fog="false"]')
+    .evaluateAll((els) =>
+      els.map((el) => ({
+        program: el.getAttribute("data-program")!,
+        pillar: el.closest('[data-testid="continent"]')!.getAttribute("data-pillar")!,
+      })),
+    );
+  expect(islands.length).toBeGreaterThan(1);
+
+  const onMap: Record<string, string[]> = {};
+  for (const { program } of islands) {
+    await page.evaluate((id) => (window.location.hash = `island=${id}`), program);
+    await expect(
+      page.locator(`[data-testid="island-map"][data-program="${program}"]`),
+    ).toBeVisible();
+    onMap[program] = await page
+      .getByTestId("skill-node")
+      .evaluateAll((els) => els.map((el) => el.getAttribute("data-skill")!));
+    expect(onMap[program].length).toBeGreaterThan(0);
+  }
+
+  await page.goto("/notes/");
+  const branches = page.getByTestId("notes-branch");
+  await expect(branches).toHaveCount(islands.length);
+  for (const { program, pillar } of islands) {
+    const branch = page.locator(
+      `[data-testid="notes-pillar"][data-pillar="${pillar}"] [data-testid="notes-branch"][data-program="${program}"]`,
+    );
+    const rows = await branch
+      .getByTestId("notes-row")
+      .evaluateAll((els) => els.map((el) => el.getAttribute("data-skill")!));
+    expect(rows.sort(), program).toEqual([...onMap[program]].sort());
+  }
+});
+
+test("map → note → map: a skill node opens its note in its branch, and the note marks the node", async ({
+  page,
+}) => {
+  await freshState(page, "/map/#island=camera");
+  const node = page.getByTestId("skill-node").first();
+  const skillId = (await node.getAttribute("data-skill"))!;
+  await expect(node).toHaveAttribute("data-has-note", "false");
+  await node.click();
+  await page.getByTestId("quest-note").click();
+  // The first visit to /notes/ fetches its page data; give a busy machine time before checking the editor.
+  await expect(page).toHaveURL(new RegExp(`/notes/#skill=${skillId}$`), { timeout: 15_000 });
+
+  await expect(page.getByTestId("note-editor")).toHaveAttribute("data-skill", skillId);
+  const branch = page.locator('[data-testid="notes-branch"][data-program="camera"]');
+  await expect(branch).toHaveAttribute("open", "");
+  await expect(
+    branch.locator(`[data-testid="notes-row"][data-skill="${skillId}"]`),
+  ).toHaveAttribute("aria-current", "page");
+
+  await page.getByTestId("note-textarea").fill("Log keeps more light in the shadows.");
+  await page.getByTestId("note-map-link").click();
+  await expect(page.locator('[data-testid="island-map"][data-program="camera"]')).toBeVisible();
+  const marked = page.locator(`[data-testid="skill-node"][data-skill="${skillId}"]`);
+  await expect(marked).toHaveAttribute("data-has-note", "true");
+  await expect(marked.getByTestId("skill-node-note")).toBeVisible();
+});
+
+test("the empty editor and its hint follow the Arabic page direction", async ({ page }) => {
+  await freshState(page, "/notes/#skill=smart-bins-keywords");
+  const area = page.getByTestId("note-textarea");
+  await expect(area).toHaveAttribute("dir", "rtl");
+  // Each typed line picks its own direction.
+  await area.fill("سطر عربي\nAn English line");
+  expect(await area.evaluate((el) => getComputedStyle(el).unicodeBidi)).toBe("plaintext");
+});

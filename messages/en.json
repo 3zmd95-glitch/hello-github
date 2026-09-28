@@ -374,5 +374,7 @@
   "notes.backlinks": "🔗 Linked from",
   "notes.backlinksNone": "No note links here yet. Type [[{name}]] in another note.",
   "sheet.noteOpen": "📝 Open the note",
-  "sheet.noteHas": "📝 Your note · {n} words"
+  "sheet.noteHas": "📝 Your note · {n} words",
+  "notes.onMap": "🗺️ See it on the map",
+  "map.hasNote": "has a note"
 }

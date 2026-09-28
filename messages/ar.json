@@ -374,5 +374,7 @@
   "notes.backlinks": "🔗 مربوطة من",
   "notes.backlinksNone": "ولا نوت تربط هنا لسه. اكتب [[{name}]] في نوت ثانية.",
   "sheet.noteOpen": "📝 افتح النوت",
-  "sheet.noteHas": "📝 النوت حقتك · {n} كلمة"
+  "sheet.noteHas": "📝 النوت حقتك · {n} كلمة",
+  "notes.onMap": "🗺️ شوفها في الخريطة",
+  "map.hasNote": "فيها نوت"
 }

@@ -1,10 +1,55 @@
-import type { Lang, LText, Note, Skill } from "./domain";
+import type { Lang, LText, Note, Pillar, Program, Section, Skill } from "./domain";
 
 /**
  * 📝 Notes: one Markdown note per skill, kept in the store and browsed as a vault grouped like the skill tree
  * (pillar → program → section → skill). Obsidian-style `[[Skill name]]` links point at other skills' notes and
  * give each note its "Linked from" list. Everything here is pure so screens and tests share it.
  */
+
+/* ---------- The vault tree (same branches as the skill tree and the map's islands) ---------- */
+
+export interface VaultBranch {
+  program: Program;
+  sections: { section: Section; skillIds: string[] }[];
+}
+export interface VaultPillar {
+  pillar: Pillar;
+  programs: VaultBranch[];
+}
+
+/**
+ * Pillar → program (island) → section (region) → skill ids, built from the same data the Skills screen and the
+ * map read, so a skill added to the data shows up here with no extra step. Pillars in `order`, programs and
+ * sections in data order, skills in data order. Empty programs and pillars are left out; `keep` filters skills
+ * (e.g. "only notes I wrote").
+ */
+export function vaultTree(
+  pillars: readonly Pillar[],
+  programs: readonly Program[],
+  skills: readonly Skill[],
+  keep: (skill: Skill) => boolean = () => true,
+): VaultPillar[] {
+  return [...pillars]
+    .sort((a, b) => a.order - b.order)
+    .map((pillar) => ({
+      pillar,
+      programs: programs
+        .filter((p) => p.pillarId === pillar.id)
+        .map((program) => ({
+          program,
+          sections: program.sections
+            .map((section) => ({
+              section,
+              skillIds: skills
+                .filter((s) => s.programId === program.id && s.sectionId === section.id && keep(s))
+                .map((s) => s.id),
+            }))
+            .filter((g) => g.skillIds.length > 0),
+        }))
+        .filter((b) => b.sections.length > 0),
+    }))
+    .filter((g) => g.programs.length > 0);
+}
 
 /** Deep link into the vault: `/notes/#skill=<id>` opens that skill's note. */
 export function notesHref(skillId?: string): string {

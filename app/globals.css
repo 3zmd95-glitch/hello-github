@@ -1936,6 +1936,15 @@
   font-size: 0.7rem;
   line-height: 1;
 }
+/* 📝 badge on a map node whose skill has a note (bottom corner, clear of 📱 and 🔒). */
+.map-node > .map-note {
+  position: absolute;
+  bottom: 1px;
+  inset-inline-end: 1px;
+  z-index: 2;
+  font-size: 0.7rem;
+  line-height: 1;
+}
 /* ---- /Studio ---- */
 
 /* ---- Accounts ---- */
@@ -2078,6 +2087,7 @@
   font-size: 16px;
   line-height: 1.6;
   unicode-bidi: plaintext;
+  text-align: start;
 }
 .note-md {
   display: flex;

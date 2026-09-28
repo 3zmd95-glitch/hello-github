@@ -39,6 +39,8 @@ Brainstorm round 6:
   skill tree (pillar → program → section), `[[skill name]]` links with backlinks, search, autosave on the device, a "Research done"
   tick from the note, and a `.md` download for Obsidian. The skill popup's Research row and Today's Research quest open the note.
   Quest order is now Research → Train → Produce → Article (research first so the practice is informed).
+  The vault tree is built from the same data as the Skills screen and the map (`vaultTree` in `lib/notes.ts`), so every new skill
+  gets its note slot automatically; map nodes with a note show 📝 and each note links back to its island (tests keep them in sync).
 - First product: **LUT packs** (.cube). Plugins/presets later.
 - Client leads: inquiry form → dashboard "Leads" pipeline (new → talking → booked → done).
 

@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getSkill, pillars, programsByPillar, skills, skillsByProgram } from "@/data";
-import type { Note, Program } from "@/lib/domain";
+import { getSkill, pillars, programs, skills } from "@/data";
+import type { Note } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
-import { notesHash, parseNotesHash, searchNotes, wordCount } from "@/lib/notes";
+import {
+  notesHash,
+  parseNotesHash,
+  searchNotes,
+  vaultTree,
+  wordCount,
+  type VaultBranch,
+} from "@/lib/notes";
 import { useStore } from "@/store";
 import NoteEditor from "./NoteEditor";
 
@@ -40,8 +47,14 @@ export default function NotesScreen() {
       }
     };
     apply();
+    // An in-app link (Next <Link>) can mount this page before it writes the new URL, and that write fires no
+    // hashchange: read again once the navigation has settled.
+    const settle = setTimeout(apply, 0);
     window.addEventListener("hashchange", apply);
-    return () => window.removeEventListener("hashchange", apply);
+    return () => {
+      clearTimeout(settle);
+      window.removeEventListener("hashchange", apply);
+    };
   }, []);
 
   const back = () => {
@@ -173,7 +186,7 @@ function SearchResults({
   );
 }
 
-/** Pillar → program (collapsible) → section → skills, the same branches as the skill tree. */
+/** Pillar → program (island) → section (region) → skills: the same branches as the skill tree and the map. */
 function Tree({
   notes,
   openId,
@@ -184,32 +197,29 @@ function Tree({
   onlyWritten: boolean;
 }) {
   const { t, L } = useT();
-  const groups = pillars
-    .map((pl) => ({
-      pillar: pl,
-      programs: programsByPillar(pl.id)
-        .map((p) => ({
-          program: p,
-          skills: (skillsByProgram[p.id] ?? []).filter((s) => !onlyWritten || notes[s.id]),
-        }))
-        .filter((g) => g.skills.length > 0),
-    }))
-    .filter((g) => g.programs.length > 0);
+  const groups = useMemo(
+    () => vaultTree(pillars, programs, skills, (s) => !onlyWritten || !!notes[s.id]),
+    [notes, onlyWritten],
+  );
 
   if (groups.length === 0) return <p className="text-muted text-sm">{t("notes.noneYet")}</p>;
 
   return (
     <div className="flex flex-col gap-3">
-      {groups.map(({ pillar, programs }) => (
-        <section key={pillar.id} className="flex flex-col gap-1">
+      {groups.map(({ pillar, programs: branches }) => (
+        <section
+          key={pillar.id}
+          className="flex flex-col gap-1"
+          data-testid="notes-pillar"
+          data-pillar={pillar.id}
+        >
           <h2 className="text-muted text-xs font-bold tracking-wide">
             {pillar.icon} {L(pillar.name)}
           </h2>
-          {programs.map(({ program, skills: list }) => (
+          {branches.map((branch) => (
             <ProgramBranch
-              key={program.id}
-              program={program}
-              list={list.map((s) => s.id)}
+              key={branch.program.id}
+              branch={branch}
               notes={notes}
               openId={openId}
               forceOpen={onlyWritten}
@@ -222,19 +232,18 @@ function Tree({
 }
 
 function ProgramBranch({
-  program,
-  list,
+  branch: { program, sections },
   notes,
   openId,
   forceOpen,
 }: {
-  program: Program;
-  list: string[];
+  branch: VaultBranch;
   notes: Record<string, Note>;
   openId: string | null;
   forceOpen: boolean;
 }) {
   const { L } = useT();
+  const list = sections.flatMap((g) => g.skillIds);
   const holdsOpen = !!openId && list.includes(openId);
   const [expanded, setExpanded] = useState(holdsOpen);
   // Opening a note from a deep link or a [[link]] unfolds its branch.
@@ -244,9 +253,6 @@ function ProgramBranch({
     if (holdsOpen && !expanded) setExpanded(true);
   }
   const count = list.filter((id) => notes[id]).length;
-  const sections = program.sections
-    .map((sec) => ({ sec, ids: list.filter((id) => getSkill(id)?.sectionId === sec.id) }))
-    .filter((g) => g.ids.length > 0);
 
   return (
     <details
@@ -262,11 +268,11 @@ function ProgramBranch({
         {count > 0 && <span className="px-chip num text-xs">{count}</span>}
       </summary>
       <div className="mt-1 flex flex-col gap-2 ps-3">
-        {sections.map(({ sec, ids }) => (
-          <div key={sec.id} className="flex flex-col gap-0.5">
-            {sections.length > 1 && <span className="text-muted text-xs">{L(sec.name)}</span>}
+        {sections.map(({ section, skillIds }) => (
+          <div key={section.id} className="flex flex-col gap-0.5" data-section={section.id}>
+            {sections.length > 1 && <span className="text-muted text-xs">{L(section.name)}</span>}
             <ul className="flex flex-col gap-0.5">
-              {ids.map((id) => (
+              {skillIds.map((id) => (
                 <li key={id}>
                   <SkillLink skillId={id} note={notes[id]} active={id === openId} />
                 </li>
