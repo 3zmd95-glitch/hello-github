@@ -250,8 +250,11 @@ export async function handleOAuthCallback(
   if (Date.parse(state.createdAt) < now.getTime() - 10 * 60_000) return error("state_invalid");
 
   const providerError = q.get("error");
-  if (providerError)
+  if (providerError) {
+    // Shows up in the Worker's Observability logs; the provider's own words, never a token.
+    console.log(JSON.stringify({ oauth: platform, providerError, detail: q.get("error_description") }));
     return error(providerError === "access_denied" ? "access_denied" : "exchange_failed");
+  }
   const code = q.get("code");
   if (!code) return error("bad_request");
   const creds = credentials(env, platform);
@@ -269,6 +272,8 @@ export async function handleOAuthCallback(
       now,
     );
   } catch (e) {
+    // e.g. "exchange_failed: invalid_client" or "…: redirect_uri_mismatch"; the reply's error field only.
+    console.log(JSON.stringify({ oauth: platform, exchangeError: String((e as Error)?.message ?? e) }));
     return error(e instanceof SocialError && e.code !== "upstream" ? e.code : "exchange_failed");
   }
   await store.putTokens(platform, tokens);
