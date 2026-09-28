@@ -29,7 +29,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
 
 /**
  * Social-world navigation (round 16). Phones: Studio · Calendar · Growth · Ideas · More;
- * Website, Business and Automations (all "soon") plus Settings live in the desktop sidebar and behind More.
+ * Website and Business ("soon"), Auto-posting (the Automations route) and Settings live in the desktop
+ * sidebar and behind More.
  */
 export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
   { href: "/social", icon: "🎬", label: "nav.studio" },
@@ -39,13 +40,7 @@ export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
   { href: "/social/more", icon: "☰", label: "nav.more" },
   { href: "/social/website", icon: "🌐", label: "nav.website", soon: true, desktopOnly: true },
   { href: "/social/business", icon: "💼", label: "nav.business", soon: true, desktopOnly: true },
-  {
-    href: "/social/automations",
-    icon: "⚡",
-    label: "nav.automations",
-    soon: true,
-    desktopOnly: true,
-  },
+  { href: "/social/automations", icon: "🚀", label: "nav.automations", desktopOnly: true },
   { href: "/settings", icon: "⚙️", label: "nav.settings", desktopOnly: true },
 ];
 

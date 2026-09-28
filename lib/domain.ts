@@ -404,6 +404,63 @@ export const EMPTY_SCRIPT: Script = { hook: "", beats: ["", "", ""], cta: "" };
 /** "HH:MM", 24-hour. */
 export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/* ---------- 🚀 Auto-posting (the Worker's publish queue, workers/scout/src/social/publish.ts) ---------- */
+
+export const MEDIA_KINDS = ["video", "image", "none"] as const;
+export const MediaKindSchema = z.enum(MEDIA_KINDS);
+export type MediaKind = z.infer<typeof MediaKindSchema>;
+
+export const AUTO_POST_STATES = ["queued", "processing", "published", "failed"] as const;
+export const AutoPostStateSchema = z.enum(AUTO_POST_STATES);
+export type AutoPostState = z.infer<typeof AutoPostStateSchema>;
+
+export const YOUTUBE_PRIVACY = ["public", "unlisted", "private"] as const;
+export const TIKTOK_PRIVACY = [
+  "PUBLIC_TO_EVERYONE",
+  "MUTUAL_FOLLOW_FRIENDS",
+  "FOLLOWER_OF_CREATOR",
+  "SELF_ONLY",
+] as const;
+
+/** What the Worker last reported for one platform of an auto-post. */
+export const AutoPostResultSchema = z.object({
+  state: AutoPostStateSchema,
+  postId: z.string().optional(),
+  permalink: z.string().optional(),
+  publishedAt: z.string().optional(),
+  /** TikTok "send to inbox": waiting in the TikTok app to be finished. */
+  inbox: z.boolean().optional(),
+  /** Worker error code (`no_permission`, `media_unreachable`, `rejected`, …). */
+  error: z.string().optional(),
+  /** The platform's own words about a failure. */
+  detail: z.string().optional(),
+});
+export type AutoPostResult = z.infer<typeof AutoPostResultSchema>;
+
+/**
+ * "Post everywhere" settings of a calendar post (Metricool-style): the networks, one media file for all of
+ * them, a caption override per network (empty = the post's caption + hashtags), and the per-platform options.
+ * `sentAt` is set once the Worker has the job; `results` mirror the Worker's per-platform state. X and Snapchat
+ * have no free publishing API: when chosen they stay a manual step (copy + open the app).
+ */
+export const AutoPostSchema = z.object({
+  platforms: z.array(PlatformSchema).default([]),
+  /** Public https link to the file itself (Dropbox / Google Drive share links are converted). */
+  mediaUrl: z.string().default(""),
+  mediaKind: MediaKindSchema.default("video"),
+  captions: z.partialRecord(PlatformSchema, z.string()).default({}),
+  youtubeTitle: z.string().default(""),
+  youtubePrivacy: z.enum(YOUTUBE_PRIVACY).default("public"),
+  tiktokMode: z.enum(["direct", "inbox"]).default("direct"),
+  tiktokPrivacy: z.enum(TIKTOK_PRIVACY).default("PUBLIC_TO_EVERYONE"),
+  sentAt: z.string().optional(),
+  results: z.partialRecord(PlatformSchema, AutoPostResultSchema).default({}),
+  /** When the results were last read from the Worker. */
+  checkedAt: z.string().optional(),
+});
+export type AutoPost = z.infer<typeof AutoPostSchema>;
+export type AutoPostInput = z.input<typeof AutoPostSchema>;
+
 /**
  * A planned or published post in the content calendar. `plannedDay` is a Riyadh day key; `plannedTime` is
  * the local "HH:MM" to post (see BEST_TIME in lib/social). `skillId` links it to a skill's Produce quest (the
@@ -428,6 +485,8 @@ export const PostSchema = z.object({
   script: ScriptSchema.default(EMPTY_SCRIPT),
   shots: z.array(ShotSchema).default([]),
   ideaId: z.string().min(1).optional(),
+  /** "Post everywhere" through the Worker; absent until the owner opens the Auto-post tab. */
+  autoPost: AutoPostSchema.optional(),
   createdAt: z.iso.datetime({ offset: true }),
   updatedAt: z.iso.datetime({ offset: true }),
 });
@@ -586,6 +645,8 @@ export const SocialConnectionStatusSchema = z.object({
   configured: z.boolean(),
   /** The owner finished the OAuth flow and a token is stored in the Worker. */
   connected: z.boolean(),
+  /** The token carries the publishing scopes ("Allow auto-posting"). */
+  canPublish: z.boolean().optional(),
   /** Without the "@". */
   handle: z.string().optional(),
   url: z.string().optional(),

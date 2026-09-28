@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useT, type MessageKey } from "@/lib/i18n";
 
-export type SoonKind = "website" | "business" | "automations";
+export type SoonKind = "website" | "business";
 
 const COPY: Record<
   SoonKind,
@@ -21,15 +21,9 @@ const COPY: Record<
     sub: "social.business.sub",
     soon: "social.business.soon",
   },
-  automations: {
-    icon: "⚡",
-    title: "social.automations.title",
-    sub: "social.automations.sub",
-    soon: "social.automations.soon",
-  },
 };
 
-/** Website / Business / Automations: not built yet; one Hijazi line says what will live here (round 16). */
+/** Website / Business: not built yet; one Hijazi line says what will live here (round 16). */
 export default function SoonScreen({ kind }: { kind: SoonKind }) {
   const { t } = useT();
   const c = COPY[kind];

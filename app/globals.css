@@ -1667,6 +1667,10 @@
   display: inline-flex;
   gap: 4px;
   max-width: 100%;
+  /* Four post tabs on a narrow phone: scroll sideways inside the pill instead of clipping the last one. */
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
   padding: 3px;
   border: 1px solid var(--edge);
   border-radius: var(--radius-sm);

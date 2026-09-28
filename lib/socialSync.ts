@@ -136,7 +136,8 @@ async function errorFrom(res: Response): Promise<SocialSyncError> {
   return { type: "upstream", status: res.status };
 }
 
-async function call(
+/** One authenticated Worker call; also used by lib/publish for the auto-post queue. */
+export async function call(
   config: ScoutConfig,
   path: string,
   init: RequestInit,
@@ -160,7 +161,7 @@ async function call(
   }
 }
 
-const post = (body: unknown): RequestInit => ({
+export const post = (body: unknown): RequestInit => ({
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body),
@@ -219,10 +220,11 @@ export async function socialConnectUrl(
   config: ScoutConfig | null,
   platform: SocialPlatform,
   returnTo: string,
-  opts: SocialSyncOpts = {},
+  opts: SocialSyncOpts & { publish?: boolean } = {},
 ): Promise<SocialResult<{ url: string }>> {
   if (!config) return { ok: false, error: { type: "unconfigured" } };
-  const r = await call(config, `/social/connect/${platform}`, post({ returnTo }), opts);
+  const body = opts.publish ? { returnTo, publish: true } : { returnTo };
+  const r = await call(config, `/social/connect/${platform}`, post(body), opts);
   if (!r.ok) return r;
   const url = (r.data as { url?: unknown })?.url;
   if (typeof url !== "string" || !/^https?:\/\//.test(url)) {

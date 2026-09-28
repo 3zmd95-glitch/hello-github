@@ -1,7 +1,8 @@
 # 03 · Social media tools (later, Phase 4)
 
-Goal of the Social world: track growth, plan posts, learn what the audience asks for. Posting itself stays manual
-("plan + remind"), which avoids platform publishing approvals at the start.
+Goal of the Social world: track growth, plan posts, learn what the audience asks for. Posting started manual ("plan + remind");
+round 28 added **auto-posting** to TikTok, Instagram, YouTube and Threads through the Scout Worker (see `07-auto-posting.md`), with X
+and Snapchat as a manual step.
 
 ## Platform data (into `social_snapshots`, daily cron)
 
@@ -25,7 +26,7 @@ Goal of the Social world: track growth, plan posts, learn what the audience asks
 | Trend scan | Claude web search restricted to tiktok.com / instagram.com / youtube.com + YouTube mostPopular (SA) | weekly cron, results into `trend_items` |
 | Comment themes → "what people want" | YouTube comments API (+ Instagram comments later) summarized weekly by Claude | feeds the ideas bank and Skill Scout |
 | Short links with click counts | own `/go/[slug]` route | UTM parameters per platform |
-| Auto-publishing (possible later) | YouTube upload API (free) · Instagram Content Publishing API · TikTok Content Posting API | each needs its own approval; not needed for v1 |
+| Auto-publishing (round 28, built) | YouTube upload API · Instagram Content Publishing API · Threads publishing · TikTok Content Posting API, from the Scout Worker's five-minute cron | `07-auto-posting.md`; YouTube and TikTok stay private until their audits pass |
 | Instagram auto-DM (later) | Instagram Messaging API | Meta app review; after the social phase |
 
 ## Production tools (outside the app)

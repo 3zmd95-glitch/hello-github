@@ -478,6 +478,16 @@ Brainstorm round 27 (owner shared the Beacons.ai handover and screenshots: Beaco
 - **Threads** joins the platforms (the owner is connected there). Details, scopes and acceptance test in `tools/06-social-analytics-apis.md`;
   the full inventory in `handovers/beacons-2026-09-27.md`.
 
+Brainstorm round 28 (owner: "I want in my social the ability to post everywhere automatically", "like metricool.com"):
+- Decision: **auto-posting from the content calendar**. One post, one media link, a caption per network, then schedule it for the
+  planned time or post now. The Scout Worker publishes to **TikTok, Instagram, YouTube and Threads** through their official APIs on a
+  five-minute cron and reports each network back; the post is marked posted (Produce quest bridge) when all are out. **X and Snapchat**
+  have no free publishing API: they stay a manual step (copy + open the app).
+- Metricool/Ayrshare/Postiz were checked and rejected (monthly cost, or cannot run on the free Worker). Zernio (Snapchat) and Buffer's
+  free API are the fallbacks. Details, limits and the owner's one-time steps in `tools/07-auto-posting.md`.
+- Known limits: until YouTube's and TikTok's audits pass, uploads there are private / "only me" (the inbox mode on TikTok works meanwhile);
+  media must be a public link until Supabase Storage (Sprint 3).
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|
@@ -535,7 +545,8 @@ Newsletter subscribe everywhere · Member login (for purchases/course) · SEO: s
 - **YouTube**: Data API + Analytics API (OAuth, free): subs, views, top videos, comments → AI "what people want" summary. Trending in SA region.
 - **Instagram**: Graph API needs a Creator/Business account linked to a Facebook Page. Followers, reach, media insights, comments.
 - **TikTok**: Display API (app approval required): profile + video stats. No official trends API → AI web search for trends.
-- **X**: API is paid (~$200/mo), so manual stat entry in the dashboard for now. **Snapchat**: manual entry.
+- **X**: API is paid (pay-per-post since Feb 2026), so manual stat entry and manual posting. **Snapchat**: manual entry and posting.
+- **Auto-posting** (round 28): TikTok, Instagram, YouTube and Threads through the Scout Worker (`tools/07-auto-posting.md`).
 - Daily cron snapshots into `social_snapshots` so the dashboard shows growth over time.
 
 ## Phases (each ends deployed and usable)

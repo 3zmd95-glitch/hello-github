@@ -7,6 +7,7 @@
  *   posts:<platform>         { [postId]: PostRow } — one document per platform, merged on every sync
  *   demo:<platform>:<day>    DemographicRow[]
  *   state:<nonce>            OAuthState, 10-minute TTL, deleted when the callback consumes it
+ *   publish:jobs             { [jobId]: PublishJob } — the auto-post queue, one document (publish.ts)
  *
  * The free plan allows 1,000 KV writes a day and counts KV operations toward the 50 subrequests of an
  * invocation, so posts live in one document per platform rather than one key per post (a daily sync of four
@@ -47,6 +48,8 @@ export interface OAuthState {
   createdAt: string;
   /** PKCE verifier (YouTube, TikTok). */
   verifier?: string;
+  /** The publishing scopes were asked for too. */
+  publish?: boolean;
 }
 
 export const STATE_TTL_S = 600;
@@ -65,6 +68,7 @@ export const keys = {
   demo: (p: SocialPlatform, day: string) => `demo:${p}:${day}`,
   demoPrefix: (p: SocialPlatform) => `demo:${p}:`,
   state: (nonce: string) => `state:${nonce}`,
+  publishJobs: "publish:jobs",
 };
 
 async function readJson<T>(kv: KVNamespace, key: string): Promise<T | null> {
@@ -216,6 +220,17 @@ export class Store {
       .at(-1);
     if (!latest) return [];
     return (await readJson<DemographicRow[]>(this.kv, latest)) ?? [];
+  }
+
+  /* ---- auto-post queue ---- */
+
+  /** The whole queue (jobId → job); kept as one document so a cron tick costs one read. */
+  async getJobs<J>(): Promise<Record<string, J>> {
+    return (await readJson<Record<string, J>>(this.kv, keys.publishJobs)) ?? {};
+  }
+
+  async putJobs<J>(jobs: Record<string, J>): Promise<void> {
+    await this.kv.put(keys.publishJobs, JSON.stringify(jobs));
   }
 
   /* ---- disconnect ---- */

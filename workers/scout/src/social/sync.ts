@@ -146,8 +146,9 @@ export async function syncAll(
 }
 
 /**
- * Cron schedule (UTC; Riyadh is UTC+3): one trigger per platform ten minutes apart from 06:00 Riyadh, so
- * each sync gets a full subrequest budget. An unknown cron string syncs everything with a shared budget.
+ * The four daily triggers of older deployments (UTC; Riyadh is UTC+3), one platform each. The current
+ * wrangler.jsonc has a single five-minute trigger that syncs on the same times (cron.ts SYNC_SLOTS). An
+ * unknown cron string syncs everything with a shared budget.
  */
 export const CRON_PLATFORMS: Record<string, SocialPlatform> = {
   "0 3 * * *": "instagram",
@@ -156,18 +157,26 @@ export const CRON_PLATFORMS: Record<string, SocialPlatform> = {
   "30 3 * * *": "tiktok",
 };
 
-/** The `scheduled` handler's work. */
-export async function runScheduled(
+/** Syncs one platform when it is connected (a cron tick's work); nothing to do otherwise. */
+export async function syncIfConnected(
   env: SocialEnv,
-  cron: string,
+  platform: SocialPlatform,
   deps: SyncDeps = {},
 ): Promise<SyncAllResult> {
-  const platform = CRON_PLATFORMS[cron];
-  if (!platform) return syncAll(env, deps);
   const store = Store.from(env);
   if (!store || !(await store.getTokens(platform))) return { synced: [], errors: {} };
   const outcome = await syncPlatform(env, platform, deps);
   return outcome.ok
     ? { synced: [platform], errors: {} }
     : { synced: [], errors: { [platform]: outcome.error } };
+}
+
+/** The `scheduled` handler's work for one of the legacy daily cron strings. */
+export async function runScheduled(
+  env: SocialEnv,
+  cron: string,
+  deps: SyncDeps = {},
+): Promise<SyncAllResult> {
+  const platform = CRON_PLATFORMS[cron];
+  return platform ? syncIfConnected(env, platform, deps) : syncAll(env, deps);
 }

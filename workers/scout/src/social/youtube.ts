@@ -26,7 +26,13 @@ import {
   type Http,
   type JsonReply,
 } from "./http";
-import { isExpired, isoPlusSeconds, type ProviderAuth, type ProviderCreds } from "./oauth";
+import {
+  isExpired,
+  isoPlusSeconds,
+  type ProviderAuth,
+  type ProviderCreds,
+  scopeFor,
+} from "./oauth";
 import type { SyncContext } from "./sync";
 import { addDays, riyadhIso } from "./time";
 import {
@@ -43,6 +49,8 @@ export const YT_API = "https://www.googleapis.com/youtube/v3";
 export const YT_ANALYTICS_URL = "https://youtubeanalytics.googleapis.com/v2/reports";
 export const YT_SCOPES =
   "https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly";
+/** Asked for on top of YT_SCOPES when the owner allows auto-posting (publish.ts). */
+export const YT_PUBLISH_SCOPES = "https://www.googleapis.com/auth/youtube.upload";
 /** Access tokens last an hour; refreshed when less than this is left. */
 export const YT_REFRESH_MARGIN_MS = 5 * 60_000;
 /** Videos up to this long count as Shorts (the Data API has no explicit flag). */
@@ -64,18 +72,20 @@ interface GoogleToken {
 
 export const auth: ProviderAuth = {
   scopes: YT_SCOPES,
+  publishScopes: YT_PUBLISH_SCOPES,
   pkce: true,
   authorizeUrl(
     creds: ProviderCreds,
     redirectUri: string,
     state: string,
     challenge?: string,
+    publish?: boolean,
   ): string {
     return withQuery(GOOGLE_AUTHORIZE_URL, {
       client_id: creds.id,
       redirect_uri: redirectUri,
       response_type: "code",
-      scope: YT_SCOPES,
+      scope: scopeFor(auth, publish),
       access_type: "offline",
       prompt: "consent",
       include_granted_scopes: "true",

@@ -170,12 +170,21 @@ export function connectReturnTo(): string {
   return `${window.location.origin}${withBasePath("/settings/")}`;
 }
 
-/** Ask the Worker for the OAuth URL and go there; the Worker redirects back to Settings when done. */
-export async function connectSocial(platform: SocialPlatform): Promise<ActionResult> {
+/**
+ * Ask the Worker for the OAuth URL and go there; the Worker redirects back to Settings when done. `publish`
+ * also asks for the posting permission; left out, a reconnect keeps whatever the platform had.
+ */
+export async function connectSocial(
+  platform: SocialPlatform,
+  publish?: boolean,
+): Promise<ActionResult> {
   const cfg = currentConfig();
   if (!cfg) return fail("settings.accounts.err.unconfigured", false);
   setActivity({ busy: true, error: null });
-  const r = await socialConnectUrl(cfg, platform, connectReturnTo());
+  const keep = useStore.getState().socialSync.status?.[platform]?.canPublish === true;
+  const r = await socialConnectUrl(cfg, platform, connectReturnTo(), {
+    publish: publish ?? keep,
+  });
   if (!r.ok) return fail(keyOf(r.error), false);
   // Busy stays on: the page is leaving.
   window.location.assign(r.url);
@@ -200,7 +209,7 @@ export interface SocialSyncApi {
   busy: boolean;
   /** This session's last failure, or the persisted last pull error. */
   error: MessageKey | null;
-  connect(platform: SocialPlatform): Promise<ActionResult>;
+  connect(platform: SocialPlatform, publish?: boolean): Promise<ActionResult>;
   disconnect(platform: SocialPlatform): Promise<ActionResult>;
   syncNow(): Promise<SyncResult>;
   pull(): Promise<ActionResult>;

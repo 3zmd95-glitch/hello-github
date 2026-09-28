@@ -14,6 +14,9 @@ build order. Website and social tools are recorded so nothing is forgotten, but 
 | [02-website.md](02-website.md) | Later. Public bilingual site: i18n/RTL, SEO, forms, newsletter, bookings, shop, course, analytics, domain |
 | [03-social-media.md](03-social-media.md) | Later. Platform APIs, embeds, trends, posting workflow, production tools |
 | [04-accounts-and-costs.md](04-accounts-and-costs.md) | Accounts to open per phase, approval lead times, monthly cost |
+| [05-found-on-github.md](05-found-on-github.md) | Search-before-building log |
+| [06-social-analytics-apis.md](06-social-analytics-apis.md) | Social Analytics: the Worker's OAuth + daily sync |
+| [07-auto-posting.md](07-auto-posting.md) | Auto-posting (Metricool-style): the publish queue, platform limits, owner steps |
 
 ## Rules used when picking
 

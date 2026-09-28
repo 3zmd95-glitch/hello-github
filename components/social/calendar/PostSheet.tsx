@@ -6,19 +6,20 @@ import { POST_STAGES, type Post, type PostStage } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { stageIndex, suggestStage } from "@/lib/social";
 import { useStore } from "@/store";
+import AutoPostTab from "./AutoPostTab";
 import OverviewTab from "./OverviewTab";
 import { PlatformChip, STAGE_KEY, StageChip } from "./PlatformChip";
 import ScriptTab from "./ScriptTab";
 import SheetFrame from "./SheetFrame";
 import ShotsTab from "./ShotsTab";
 
-type Tab = "overview" | "script" | "shots";
-const TABS: readonly Tab[] = ["overview", "script", "shots"];
+type Tab = "overview" | "script" | "shots" | "autopost";
+const TABS: readonly Tab[] = ["overview", "script", "shots", "autopost"];
 
 /**
  * Post popup (round 17): header with platform + inline-editable title, the 6-step stage stepper with the
- * "suggested" hint, and the Overview · Script · Shots tabs. Edits go straight to the store, so the popup
- * updates in place (no remount, scroll kept). Closes itself when the post is deleted.
+ * "suggested" hint, and the Overview · Script · Shots · Auto-post tabs. Edits go straight to the store, so the
+ * popup updates in place (no remount, scroll kept). Closes itself when the post is deleted.
  */
 export default function PostSheet({ postId, onClose }: { postId: string; onClose: () => void }) {
   const post = useStore((s) => s.posts.find((p) => p.id === postId));
@@ -161,6 +162,7 @@ function SheetBody({
         )}
         {tab === "script" && <ScriptTab post={post} />}
         {tab === "shots" && <ShotsTab post={post} />}
+        {tab === "autopost" && <AutoPostTab post={post} />}
       </div>
     </>
   );

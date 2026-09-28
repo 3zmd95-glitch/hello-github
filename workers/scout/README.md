@@ -9,6 +9,9 @@ browser:
 2. **Social analytics connector** (planning/tools/06, Beacons rebuild): the owner connects his **Instagram,
    Threads, YouTube and TikTok** accounts once (OAuth), the Worker pulls followers, per-post numbers and audience
    demographics **every day** and serves them to the Social Analytics page in the dashboard's own schema.
+3. **Auto-posting** (planning/tools/07, Metricool-style): the dashboard sends one job per calendar post (media
+   link, time, caption per platform) and a five-minute cron publishes it to the same four accounts. See
+   [Auto-posting](#auto-posting).
 
 ## Endpoints
 
@@ -20,7 +23,7 @@ Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
 | `GET /health`           | `{ ok: true }`. With a valid token: `{ ok: true, auth: true, tavily: <key present>, social: { configured: { instagram, threads, youtube, tiktok }, kv } }`; a wrong token → 401. Used by the Settings "Test" button and the Connect page. |
 | `POST /search`          | Body `{ q, platforms: ["tt","ig","yt"], lang?, max?, timeRange?, thumbs? }` → `{ results: [{ platform, handle, title, snippet, url, thumb? }], credits: { used } }`. See below.                                                           |
 | `GET /oembed?url=…`     | TikTok / YouTube links only → `{ title, author, thumb, url }`, cached for a day.                                                                                                                                                          |
-| `/social/*`, `/oauth/*` | The social analytics connector, see [Social analytics](#social-analytics).                                                                                                                                                                |
+| `/social/*`, `/oauth/*` | The social analytics connector, see [Social analytics](#social-analytics), and the publish queue, see [Auto-posting](#auto-posting).                                                                                                      |
 
 ### `POST /search` options
 
@@ -61,9 +64,9 @@ Platforms: `instagram | threads | youtube | tiktok`. Code lives in `src/social/`
 
 | Route                               | Request                                                    | Response                                                                                                                                                                                      |
 | ----------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /social/connect/:platform`    | `{ "returnTo": "https://…/social/growth/" }`               | `{ "url": "<provider authorization url>" }`. `returnTo` must be on an `ALLOWED_ORIGINS` origin (else 400). State nonce in KV for 10 minutes; PKCE S256 for YouTube (Google) and TikTok.       |
+| `POST /social/connect/:platform`    | `{ "returnTo": "https://…/social/growth/", "publish"? }`   | `{ "url": "<provider authorization url>" }`. `returnTo` must be on an `ALLOWED_ORIGINS` origin (else 400). State nonce in KV for 10 minutes; PKCE S256 for YouTube (Google) and TikTok.       |
 | `GET /oauth/:platform/callback`     | `?code&state` from the provider (no bearer)                | `302` to `returnTo?connected=<platform>` or `returnTo?connect_error=<platform>&reason=<code>`. Unknown/used state → `400 { error: "state_invalid" }` (nowhere safe to redirect).              |
-| `GET /social/status`                |                                                            | `{ "platforms": { "<p>": { configured, connected, handle?, url?, connectedAt?, lastSyncAt?, lastError?, tokenExpiresAt? } } }`                                                                |
+| `GET /social/status`                |                                                            | `{ "platforms": { "<p>": { configured, connected, canPublish, handle?, url?, connectedAt?, lastSyncAt?, lastError?, tokenExpiresAt? } } }`                                                    |
 | `POST /social/sync`                 | `{ "platforms"?: ["tiktok", …] }` (default: all connected) | `{ "synced": ["tiktok"], "errors": { "threads": "token_expired" } }`. Runs now; the outbound budget is shared between the platforms asked for, so sync one at a time for full depth.          |
 | `DELETE /social/connect/:platform`  |                                                            | `{ "ok": true }`. Forgets tokens and status; snapshots, posts and demographics stay.                                                                                                          |
 | `GET /social/data?since=YYYY-MM-DD` | `since` optional (default: 400 days ago)                   | `{ accounts: SocialAccount[], snapshots: SocialSnapshotInput[], postStats: SocialPostStatInput[], demographics: Demographic[], syncedAt: { "<p>": iso } }` in `lib/domain.ts` shapes (below). |
@@ -115,8 +118,9 @@ refreshed before every sync. A refresh the provider refuses → `lastError: "tok
   Threads) stop when the budget is reached, roughly the newest 30 posts per sync**. Rows past the budget keep
   the counts from the media list (likes, comments) and the insights they got on an earlier day: the daily
   cron gives each platform its own invocation, so each one gets the full budget.
-- **Cron**: four triggers (`0/10/20/30 3 * * *` UTC = 06:00–06:30 Riyadh), one platform each
-  (`CRON_PLATFORMS` in `src/social/sync.ts`). `POST /social/sync` without `platforms` shares one budget across
+- **Cron**: one trigger every five minutes (`*/5 * * * *`); the ticks at 03:00/03:10/03:20/03:30 UTC
+  (06:00–06:30 Riyadh) sync one platform each instead of publishing (`SYNC_SLOTS` in `src/social/cron.ts`). One
+  trigger instead of five also stays inside the free plan's five cron triggers per account. `POST /social/sync` without `platforms` shares one budget across
   every connected platform (10 calls each with four): use it as a quick refresh, not as the daily pull.
 - **KV writes**: 1,000 a day on the free plan. A sync writes about six keys (tokens when refreshed, snapshot,
   posts document, demographics, status), so manual syncs are cheap.
@@ -132,7 +136,47 @@ refreshed before every sync. A refresh the provider refuses → `lastError: "tok
 | `snap:<platform>:<day>` | one `SocialSnapshotInput`; also stored as the key's metadata so a `list` returns rows without a `get`. At most 400 days per platform (older ones are deleted).                                                        |
 | `posts:<platform>`      | `{ [postId]: SocialPostStatInput }`, one document per platform merged on every sync (newest 500 kept). Kept in one key rather than `post:<p>:<id>` so a sync costs a handful of writes, not hundreds.                 |
 | `demo:<platform>:<day>` | `Demographic[]` of that day                                                                                                                                                                                           |
-| `state:<nonce>`         | `{ platform, returnTo, createdAt, verifier? }`, 10-minute TTL, deleted when the callback uses it                                                                                                                      |
+| `state:<nonce>`         | `{ platform, returnTo, createdAt, verifier?, publish? }`, 10-minute TTL, deleted when the callback uses it                                                                                                            |
+| `publish:jobs`          | `{ [jobId]: PublishJob }`: the auto-post queue in one document (an idle cron tick is one read, no write). Finished jobs are dropped after 30 days; at most 200 jobs.                                                  |
+
+## Auto-posting
+
+Code: `src/social/publish.ts` (queue, routes, runner), `src/social/publishers.ts` (one step function per
+platform), `src/social/cron.ts` (the five-minute tick). Owner steps and platform limits:
+`planning/tools/07-auto-posting.md`.
+
+**Permission.** `POST /social/connect/:platform` with `"publish": true` also asks for the posting scopes
+(`instagram_business_content_publish`, `threads_content_publish`, `youtube.upload`, TikTok `video.publish` +
+`video.upload`). The callback stores `canPublish: true` with the token, and `GET /social/status` reports it. Without
+it a target fails as `no_permission`. The analytics connect keeps asking for the read scopes only.
+
+| Route                          | Request                                               | Response                                                                                                                  |
+| ------------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `GET /social/publish`          |                                                       | `{ jobs: PublishJob[] }` sorted by `scheduledAt`                                                                          |
+| `POST /social/publish`         | `{ id, scheduledAt, media?: { url, kind }, targets }` | `{ job }`. Adds or replaces the job; platforms already `processing`/`published` keep their state. `400 { error, detail }` |
+| `POST /social/publish/:id/run` |                                                       | `{ job }` after publishing what can go now (moves `scheduledAt` to now). `404` for an unknown id                          |
+| `DELETE /social/publish/:id`   |                                                       | `{ ok: true }` (what is already out stays out)                                                                            |
+
+`targets` is `{ "<platform>": { caption, title?, privacy?, tiktokMode? } }`: `title` and `privacy`
+(`public|unlisted|private`) for YouTube; `privacy` (`PUBLIC_TO_EVERYONE|…|SELF_ONLY`) and `tiktokMode`
+(`direct|inbox`) for TikTok. Validation: `id` is `[A-Za-z0-9_-]{1,100}`; `media.url` must be https;
+Instagram needs an image or a video, YouTube and TikTok a video, and Threads also takes text alone. Captions are
+limited to 2,200 (Instagram, TikTok), 500 (Threads) and 5,000 (YouTube description) characters. `detail` names
+the field (`instagram.media`, `threads.caption`, …).
+
+Each target is `{ …spec, state: queued|processing|published|failed, attempts, containerId?, startedAt?, nextAt?,
+postId?, permalink?, publishedAt?, inbox?, error?, detail? }`. Error codes: `not_connected`, `no_permission`,
+`token_expired`, `media_unreachable` (the link answered with an error or an HTML page), `media_too_large`,
+`rejected` (the platform refused; `detail` has its words), `rate_limited`, `upstream`, `timeout` (still
+processing after 2 h). `upstream` and `rate_limited` are retried up to 4 times, 5/10/15 minutes apart.
+
+**Steps per tick.** Instagram and Threads create a container. Images and text are checked and published in the
+same run, videos on the next tick once `FINISHED`. YouTube opens a resumable session and **streams** the file
+from the media URL into it (no buffering). TikTok reads `creator_info` (Direct Post: an unaudited app only
+gets `SELF_ONLY`) and uploads with `FILE_UPLOAD`: one chunk up to 64 MB, 64 MB chunks with Range GETs above
+that. The status is polled on the next ticks (`SEND_TO_USER_INBOX` for the inbox mode). A run has 34 outbound
+calls (`PUBLISH_BUDGET`, the rest of the 50 subrequests go to KV). It claims its jobs (`lockUntil`, 10 min)
+before any platform call, so the cron and "run" never publish the same job twice.
 
 ## Configuration
 

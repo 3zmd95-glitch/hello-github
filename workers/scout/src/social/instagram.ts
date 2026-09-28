@@ -29,7 +29,14 @@ import {
   type MetaInsight,
   type MetaPage,
 } from "./meta";
-import { ageDays, isExpired, isoPlusSeconds, type ProviderAuth, type ProviderCreds } from "./oauth";
+import {
+  ageDays,
+  isExpired,
+  isoPlusSeconds,
+  type ProviderAuth,
+  type ProviderCreds,
+  scopeFor,
+} from "./oauth";
 import type { SyncContext } from "./sync";
 import { DAY_MS, riyadhIso } from "./time";
 import {
@@ -46,6 +53,8 @@ export const IG_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
 export const IG_GRAPH = "https://graph.instagram.com";
 export const IG_API = `${IG_GRAPH}/v21.0`;
 export const IG_SCOPES = "instagram_business_basic,instagram_business_manage_insights";
+/** Asked for on top of IG_SCOPES when the owner allows auto-posting (publish.ts). */
+export const IG_PUBLISH_SCOPES = "instagram_business_content_publish";
 /** Long-lived tokens last 60 days; refreshed once older than this many days. */
 export const IG_REFRESH_AFTER_DAYS = 30;
 const LONG_LIVED_S = 60 * 24 * 3600;
@@ -67,13 +76,20 @@ interface LongToken extends MetaError {
 
 export const auth: ProviderAuth = {
   scopes: IG_SCOPES,
+  publishScopes: IG_PUBLISH_SCOPES,
   pkce: false,
-  authorizeUrl(creds: ProviderCreds, redirectUri: string, state: string): string {
+  authorizeUrl(
+    creds: ProviderCreds,
+    redirectUri: string,
+    state: string,
+    _challenge?: string,
+    publish?: boolean,
+  ): string {
     return withQuery(IG_AUTHORIZE_URL, {
       client_id: creds.id,
       redirect_uri: redirectUri,
       response_type: "code",
-      scope: IG_SCOPES,
+      scope: scopeFor(auth, publish),
       state,
     });
   },
