@@ -125,11 +125,12 @@ describe("auth", () => {
       configured: { instagram: false, threads: false, youtube: false, tiktok: false },
       kv: false,
     };
+    const trends = { youtube: false, sources: ["google", "youtube", "tavily", "events"] };
     const authed = await handle(req("/health"), ENV);
-    expect(await authed.json()).toEqual({ ok: true, auth: true, tavily: true, social });
+    expect(await authed.json()).toEqual({ ok: true, auth: true, tavily: true, social, trends });
 
     const noKey = await handle(req("/health"), { ...ENV, TAVILY_API_KEY: undefined });
-    expect(await noKey.json()).toEqual({ ok: true, auth: true, tavily: false, social });
+    expect(await noKey.json()).toEqual({ ok: true, auth: true, tavily: false, social, trends });
 
     const wrong = await handle(req("/health", { token: "wrong" }), ENV);
     expect(wrong.status).toBe(401);
@@ -227,7 +228,7 @@ describe("POST /search", () => {
     usage: { credits: 1 },
   };
 
-  it("sends the Tavily request with domain filters, capped max and the key", async () => {
+  it("sends the Tavily request with domain filters, capped max, the language and the key", async () => {
     const fetchMock = fakeFetch(() => jsonResponse({ results: [] }));
     const res = await handle(
       searchReq({ q: "match cut", platforms: ["tt", "ig"], lang: "en", max: 50 }),
@@ -246,13 +247,24 @@ describe("POST /search", () => {
       max_results: 20,
       search_depth: "basic",
       include_images: true,
+      language: "en",
     });
   });
 
-  it("defaults max_results to 10", async () => {
+  it("defaults max_results to 10 and sends no language when none was asked", async () => {
     const fetchMock = fakeFetch(() => jsonResponse({ results: [] }));
     await handle(searchReq({ q: "x", platforms: ["yt"] }), ENV, undefined, { fetch: fetchMock });
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).max_results).toBe(10);
+    const sent = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(sent.max_results).toBe(10);
+    expect("language" in sent).toBe(false);
+  });
+
+  it("forwards an Arabic lang as Tavily's language", async () => {
+    const fetchMock = fakeFetch(() => jsonResponse({ results: [] }));
+    await handle(searchReq({ q: "مونتاج", platforms: ["tt"], lang: "ar" }), ENV, undefined, {
+      fetch: fetchMock,
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).language).toBe("ar");
   });
 
   it("normalizes, filters non-video pages, and dedupes", async () => {

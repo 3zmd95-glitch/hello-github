@@ -5,6 +5,8 @@
  *   POST /search          → Tavily search limited to tiktok.com / instagram.com / youtube.com, normalized cards
  *                           (optional `timeRange`; TikTok thumbnails enriched via oEmbed unless `thumbs: false`)
  *   GET  /oembed?url=     → TikTok / YouTube oEmbed passthrough { title, author, thumb, url }, cached 1 day
+ *   GET  /trends          → the Trend Radar feed (trends/routes.ts, round 30, planning/tools/08-trends.md)
+ *   POST /trends/run      → refresh the feed now
  *
  * Every route but OPTIONS and GET /health needs `Authorization: Bearer <SCOUT_TOKEN>`. CORS reflects the
  * request Origin only when it is in ALLOWED_ORIGINS.
@@ -24,10 +26,13 @@ import {
 import { allowedOrigins, DEFAULT_ALLOWED_ORIGINS } from "./origins";
 import { handleOAuthCallback, handleSocial, healthSocial } from "./social/routes";
 import type { SocialEnv } from "./social/store";
+import { handleTrends, healthTrends } from "./trends/routes";
+import { TAVILY_URL } from "./trends/tavily";
+import type { TrendsEnv } from "./trends/types";
 
-export { DEFAULT_ALLOWED_ORIGINS };
+export { DEFAULT_ALLOWED_ORIGINS, TAVILY_URL };
 
-export interface Env extends SocialEnv {
+export interface Env extends SocialEnv, TrendsEnv {
   /** Secret: Tavily API key (https://app.tavily.com). */
   TAVILY_API_KEY?: string;
   /** Secret: the shared owner token the dashboard sends as a Bearer token. */
@@ -46,7 +51,6 @@ export interface Deps {
   now?: () => Date;
 }
 
-export const TAVILY_URL = "https://api.tavily.com/search";
 const MAX_RESULTS_CAP = 20;
 const OEMBED_TTL_S = 86_400;
 /** At most this many TikTok results get an oEmbed thumbnail per search (fetched in parallel). */
@@ -179,6 +183,8 @@ async function handleSearch(
         search_depth: "basic",
         include_images: true,
         ...(body.timeRange ? { time_range: body.timeRange } : {}),
+        // Tavily's `language` steers the results' language (round 30: Arabic searches were English-only).
+        ...(body.lang ? { language: body.lang } : {}),
       }),
     });
   } catch {
@@ -413,7 +419,13 @@ export async function handle(
     if (token === "invalid") return fail("unauthorized", 401, cors);
     if (token === "valid") {
       return json(
-        { ok: true, auth: true, tavily: !!env.TAVILY_API_KEY, social: healthSocial(env) },
+        {
+          ok: true,
+          auth: true,
+          tavily: !!env.TAVILY_API_KEY,
+          social: healthSocial(env),
+          trends: healthTrends(env),
+        },
         200,
         cors,
       );
@@ -434,5 +446,7 @@ export async function handle(
   }
   const social = await handleSocial(req, env, cors, { fetch: deps.fetch, now: deps.now });
   if (social) return social;
+  const trends = await handleTrends(req, env, cors, { fetch: deps.fetch, now: deps.now });
+  if (trends) return trends;
   return fail("not_found", 404, cors);
 }

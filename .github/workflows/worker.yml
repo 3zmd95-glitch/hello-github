@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "workers/scout/**"
+      - "planning/data/saudi-events.json"
       - ".github/workflows/worker.yml"
   workflow_dispatch:
 
@@ -128,8 +129,9 @@ jobs:
           fi
           echo "$SCOUT_TOKEN" | pnpm --filter 3z-scout exec wrangler secret put SCOUT_TOKEN
 
-      # Social connector credentials (Instagram + Threads share the Meta app). Each one is optional: a
-      # platform without both halves shows `configured: false` in the dashboard and nothing else breaks.
+      # Social connector credentials (Instagram + Threads share the Meta app) and the Trend Radar's YouTube
+      # API key. Each one is optional: a platform without both halves shows `configured: false` in the
+      # dashboard, the radar's YouTube sources report `not_configured` without the key, and nothing else breaks.
       - name: Set social API secrets
         if: steps.secrets.outputs.ready == 'true'
         env:
@@ -143,12 +145,17 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           set -euo pipefail
-          for NAME in META_APP_ID META_APP_SECRET THREADS_APP_ID THREADS_APP_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET TIKTOK_CLIENT_KEY TIKTOK_CLIENT_SECRET; do
+          for NAME in META_APP_ID META_APP_SECRET THREADS_APP_ID THREADS_APP_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET TIKTOK_CLIENT_KEY TIKTOK_CLIENT_SECRET YOUTUBE_API_KEY; do
             VALUE="${!NAME}"
             if [ -z "$VALUE" ]; then
-              echo "::notice title=$NAME not set::Add the $NAME repository secret to connect that platform (see planning/tools/06-social-analytics-apis.md)."
+              if [ "$NAME" = "YOUTUBE_API_KEY" ]; then
+                echo "::notice title=YOUTUBE_API_KEY not set::Add the YOUTUBE_API_KEY repository secret (a Google Cloud API key restricted to the YouTube Data API v3) so the Trend Radar's YouTube charts and keyword search work (see planning/tools/08-trends.md)."
+              else
+                echo "::notice title=$NAME not set::Add the $NAME repository secret to connect that platform (see planning/tools/06-social-analytics-apis.md)."
+              fi
               continue
             fi
             printf '%s' "$VALUE" | pnpm --filter 3z-scout exec wrangler secret put "$NAME"
