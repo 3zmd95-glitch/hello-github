@@ -98,7 +98,8 @@ export const auth: ProviderAuth = {
       }),
     );
     if (!reply.ok || !reply.body?.access_token) {
-      throw new SocialError("exchange_failed", reply.body?.error ?? `status ${reply.status}`);
+      const why = [reply.body?.error ?? `status ${reply.status}`, reply.body?.error_description];
+      throw new SocialError("exchange_failed", why.filter(Boolean).join(" · "));
     }
     return {
       accessToken: reply.body.access_token,
