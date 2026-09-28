@@ -21,6 +21,8 @@ import arGrowth from "@/messages/growth.ar.json";
 import enGrowth from "@/messages/growth.en.json";
 import arIdeas from "@/messages/ideas.ar.json";
 import enIdeas from "@/messages/ideas.en.json";
+import arPublish from "@/messages/publish.ar.json";
+import enPublish from "@/messages/publish.en.json";
 import type { Lang, LText } from "@/lib/domain";
 import { useStore } from "@/store";
 
@@ -48,6 +50,7 @@ export const MESSAGE_FILES = {
   calendar: { ar: arCalendar, en: enCalendar },
   growth: { ar: arGrowth, en: enGrowth },
   ideas: { ar: arIdeas, en: enIdeas },
+  publish: { ar: arPublish, en: enPublish },
 } as const;
 
 const ar = {
@@ -62,6 +65,7 @@ const ar = {
   ...arCalendar,
   ...arGrowth,
   ...arIdeas,
+  ...arPublish,
 };
 const en = {
   ...enBase,
@@ -75,6 +79,7 @@ const en = {
   ...enCalendar,
   ...enGrowth,
   ...enIdeas,
+  ...enPublish,
 };
 
 export type MessageKey = keyof typeof ar;

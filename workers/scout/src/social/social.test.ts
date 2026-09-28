@@ -1570,6 +1570,7 @@ describe("GET /social/status", () => {
         instagram: {
           configured: true,
           connected: true,
+          canPublish: false,
           connectedAt: "2026-09-27T09:00:00.000Z",
           handle: "3z.prod",
           url: "https://www.instagram.com/3z.prod/",
@@ -1577,9 +1578,9 @@ describe("GET /social/status", () => {
           lastError: "rate_limited",
           tokenExpiresAt: "2026-11-20T00:00:00.000Z",
         },
-        threads: { configured: true, connected: false },
-        youtube: { configured: true, connected: false },
-        tiktok: { configured: false, connected: false },
+        threads: { configured: true, connected: false, canPublish: false },
+        youtube: { configured: true, connected: false, canPublish: false },
+        tiktok: { configured: false, connected: false, canPublish: false },
       },
     });
   });
@@ -1587,7 +1588,11 @@ describe("GET /social/status", () => {
   it("works without KV (everything disconnected)", async () => {
     const res = await handle(req("/social/status"), makeEnv(null), undefined, { now });
     const body = (await res.json()) as { platforms: Record<string, { connected: boolean }> };
-    expect(body.platforms.tiktok).toEqual({ configured: true, connected: false });
+    expect(body.platforms.tiktok).toEqual({
+      configured: true,
+      connected: false,
+      canPublish: false,
+    });
   });
 });
 
@@ -1611,7 +1616,11 @@ describe("DELETE /social/connect/:platform", () => {
     ).json()) as {
       platforms: Record<string, { connected: boolean }>;
     };
-    expect(status.platforms.tiktok).toEqual({ configured: true, connected: false });
+    expect(status.platforms.tiktok).toEqual({
+      configured: true,
+      connected: false,
+      canPublish: false,
+    });
     // Idempotent.
     expect((await handle(req("/social/connect/tiktok", { method: "DELETE" }), env)).status).toBe(
       200,

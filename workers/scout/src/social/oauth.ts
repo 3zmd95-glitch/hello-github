@@ -21,12 +21,15 @@ export interface ProviderCreds {
 export interface ProviderAuth {
   /** Space- or comma-separated scope string, as the provider wants it. */
   scopes: string;
+  /** Extra scopes asked for only when the owner allows auto-posting (`publish: true` on connect). */
+  publishScopes: string;
   pkce: boolean;
   authorizeUrl(
     creds: ProviderCreds,
     redirectUri: string,
     state: string,
     challenge?: string,
+    publish?: boolean,
   ): string;
   /** Exchanges the code and, where the platform has them, upgrades to long-lived/refresh tokens. */
   exchange(
@@ -79,6 +82,16 @@ export function isExpired(tokens: TokenSet, now: Date, marginMs = 60_000): boole
 
 export function isoPlusSeconds(now: Date, seconds: number): string {
   return new Date(now.getTime() + seconds * 1000).toISOString();
+}
+
+/** The analytics scopes, plus the publishing ones when asked, joined with the provider's separator. */
+export function scopeFor(
+  provider: Pick<ProviderAuth, "scopes" | "publishScopes">,
+  publish?: boolean,
+): string {
+  if (!publish) return provider.scopes;
+  const sep = provider.scopes.includes(" ") ? " " : ",";
+  return `${provider.scopes}${sep}${provider.publishScopes}`;
 }
 
 export function ageDays(tokens: TokenSet, now: Date): number {

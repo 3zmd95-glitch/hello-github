@@ -27,7 +27,14 @@ import {
   type MetaInsight,
   type MetaPage,
 } from "./meta";
-import { ageDays, isExpired, isoPlusSeconds, type ProviderAuth, type ProviderCreds } from "./oauth";
+import {
+  ageDays,
+  isExpired,
+  isoPlusSeconds,
+  type ProviderAuth,
+  type ProviderCreds,
+  scopeFor,
+} from "./oauth";
 import type { SyncContext } from "./sync";
 import { riyadhIso } from "./time";
 import {
@@ -42,6 +49,8 @@ export const TH_AUTHORIZE_URL = "https://threads.net/oauth/authorize";
 export const TH_GRAPH = "https://graph.threads.net";
 export const TH_API = `${TH_GRAPH}/v1.0`;
 export const TH_SCOPES = "threads_basic,threads_manage_insights";
+/** Asked for on top of TH_SCOPES when the owner allows auto-posting (publish.ts). */
+export const TH_PUBLISH_SCOPES = "threads_content_publish";
 export const TH_REFRESH_AFTER_DAYS = 30;
 const LONG_LIVED_S = 60 * 24 * 3600;
 /** Threads insights exist from this unix time (Apr 13, 2024); `since` may not be earlier. */
@@ -61,13 +70,20 @@ interface LongToken extends MetaError {
 
 export const auth: ProviderAuth = {
   scopes: TH_SCOPES,
+  publishScopes: TH_PUBLISH_SCOPES,
   pkce: false,
-  authorizeUrl(creds: ProviderCreds, redirectUri: string, state: string): string {
+  authorizeUrl(
+    creds: ProviderCreds,
+    redirectUri: string,
+    state: string,
+    _challenge?: string,
+    publish?: boolean,
+  ): string {
     return withQuery(TH_AUTHORIZE_URL, {
       client_id: creds.id,
       redirect_uri: redirectUri,
       response_type: "code",
-      scope: TH_SCOPES,
+      scope: scopeFor(auth, publish),
       state,
     });
   },

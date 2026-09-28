@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import SoonScreen from "@/components/social/SoonScreen";
+import AutoPostScreen from "@/components/social/AutoPostScreen";
 
-export const metadata: Metadata = { title: "الأتمتة · 3z Prod" };
+export const metadata: Metadata = { title: "النشر التلقائي · 3z Prod" };
 
 export default function AutomationsPage() {
-  return <SoonScreen kind="automations" />;
+  return <AutoPostScreen />;
 }

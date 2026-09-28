@@ -23,7 +23,13 @@ import {
   type Http,
   type JsonReply,
 } from "./http";
-import { isExpired, isoPlusSeconds, type ProviderAuth, type ProviderCreds } from "./oauth";
+import {
+  isExpired,
+  isoPlusSeconds,
+  type ProviderAuth,
+  type ProviderCreds,
+  scopeFor,
+} from "./oauth";
 import type { SyncContext } from "./sync";
 import { DAY_MS, unixToRiyadhIso } from "./time";
 import { SocialError, type PostRow, type SyncResult, type TokenSet } from "./types";
@@ -32,6 +38,8 @@ export const TT_AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/";
 export const TT_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
 export const TT_API = "https://open.tiktokapis.com/v2";
 export const TT_SCOPES = "user.info.basic,user.info.profile,user.info.stats,video.list";
+/** Asked for on top of TT_SCOPES when the owner allows auto-posting (publish.ts). */
+export const TT_PUBLISH_SCOPES = "video.publish,video.upload";
 export const TT_VIDEOS_MAX = 100;
 /** A token younger than this is used without a refresh. */
 export const TT_FRESH_MS = 5 * 60_000;
@@ -53,16 +61,18 @@ interface TtToken {
 
 export const auth: ProviderAuth = {
   scopes: TT_SCOPES,
+  publishScopes: TT_PUBLISH_SCOPES,
   pkce: true,
   authorizeUrl(
     creds: ProviderCreds,
     redirectUri: string,
     state: string,
     challenge?: string,
+    publish?: boolean,
   ): string {
     return withQuery(TT_AUTHORIZE_URL, {
       client_key: creds.id,
-      scope: TT_SCOPES,
+      scope: scopeFor(auth, publish),
       response_type: "code",
       redirect_uri: redirectUri,
       state,

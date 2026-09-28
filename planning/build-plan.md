@@ -99,8 +99,9 @@ round 26 and shipped static (local data, manual stats); website, shop and course
 | 5.3 | Content calendar: week / month / stages, post popup (Overview · Script · Shots), mark as posted, `#post=<id>` deep link | ✅ `components/social/calendar`, `e2e/calendar.spec.ts` |
 | 5.4 | **Social Analytics** (the Beacons page rebuilt, round 27): platform filter incl. Threads, KPI row, platform cards, per-platform overview + demographics, post activity, My Content (top posts, search, CSV export/import), "what changed this week"; Sep 27 numbers seeded | ✅ `lib/analytics.ts`, `components/social/growth`, `e2e/growth.spec.ts` |
 | 5.5 | Studio home + ideas bank + bridge UI in the skill popup and the map | ✅ `components/social/studio`, `components/social/ideas`, `e2e/studio.spec.ts` |
-| 5.6 | Website (articles CMS), Business (leads, media kit, shop, course), Automations | ◔ placeholders; per master plan phases 3–5 |
+| 5.6 | Website (articles CMS), Business (leads, media kit, shop, course) | ◔ placeholders; per master plan phases 3–5 |
 | 5.7 | Platform APIs (Instagram + Threads, YouTube, TikTok) via the Scout Worker replacing the CSV imports; push reminders at best time | ☐ waits for the owner's Phase 0 apps (`tools/06-social-analytics-apis.md`) |
+| 5.8 | **Auto-posting** (round 28, Metricool-style): post popup 🚀 tab (networks, one media link, caption per network, YouTube/TikTok options, schedule / post now, per-network status), 🚀 hub on the Automations route, "Allow posting" in Settings; Worker publish queue on a five-minute cron | ✅ `lib/publish.ts`, `components/social/calendar/AutoPostTab.tsx`, `components/social/AutoPostScreen.tsx`, `workers/scout/src/social/publish*.ts`, `e2e/autopost.spec.ts`; goes live after the posting permissions (`tools/07-auto-posting.md`) |
 
 ## Definition of done for Sprint 1
 

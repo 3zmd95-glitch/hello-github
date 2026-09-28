@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import CelebrationProvider, { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import SkillSheetProvider from "@/components/skills/SkillSheetProvider";
+import { usePublishWatcher } from "@/components/social/usePublish";
 import { pullIfDue, syncSocialNow } from "@/components/social/useSocialSync";
 import { applySocialSeed } from "@/data/social-seed";
 import { useDocumentLang, useT } from "@/lib/i18n";
@@ -74,9 +75,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
 /**
  * 🔗 Live accounts: pulls the Worker's numbers (at most hourly) whenever a Social route is opened, and, when
  * the Worker sends the owner back from OAuth (`?connected=<platform>` / `?connect_error=<platform>&reason=`),
- * shows a toast, starts a sync and cleans the address bar. Renders nothing.
+ * shows a toast, starts a sync and cleans the address bar. Also keeps running auto-posts' results fresh
+ * (usePublishWatcher). Renders nothing.
  */
 function SocialSyncAgent() {
+  usePublishWatcher();
   const { t, L } = useT();
   const { toast } = useCelebrate();
   const world = useWorld();

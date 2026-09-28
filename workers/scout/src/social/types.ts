@@ -106,6 +106,8 @@ export interface TokenSet {
   issuedAt: string;
   userId?: string;
   scope?: string;
+  /** Connected with the publishing scopes (the owner pressed "Allow auto-posting"). */
+  canPublish?: boolean;
 }
 
 /** What `status:<platform>` holds (never tokens). */
@@ -122,6 +124,8 @@ export interface StoredStatus {
 export interface PlatformStatus extends StoredStatus {
   configured: boolean;
   connected: boolean;
+  /** The stored token carries the publishing scopes (auto-posting works for this platform). */
+  canPublish: boolean;
 }
 
 /** What one platform sync produced. */

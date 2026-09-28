@@ -7,6 +7,10 @@
  *   POST   /social/sync                { platforms? } → { synced, errors }
  *   DELETE /social/connect/:platform                 → { ok: true }      forget tokens (rows stay)
  *   GET    /social/data?since=YYYY-MM-DD             → { accounts, snapshots, postStats, demographics, syncedAt }
+ *   GET    /social/publish                           → { jobs }          the auto-post queue (publish.ts)
+ *   POST   /social/publish            { id, scheduledAt, media?, targets } → { job }   add or replace a job
+ *   POST   /social/publish/:id/run                   → { job }          publish now
+ *   DELETE /social/publish/:id                       → { ok: true }     cancel
  *
  * The router in `scout.ts` has already checked CORS and, for /social/*, the bearer token.
  */
@@ -15,6 +19,7 @@ import { isAllowedReturnTo } from "../origins";
 import { pkceChallenge, randomToken } from "./crypto";
 import { Budget } from "./http";
 import { credentials, isConfigured, PROVIDERS, redirectUri } from "./oauth";
+import { handlePublish } from "./publish";
 import { defaultSince, Store, type SocialEnv } from "./store";
 import { FETCH_BUDGET, syncAll, syncPlatform } from "./sync";
 import { DAY_KEY_RE } from "./time";
@@ -29,6 +34,7 @@ import {
   type SnapshotRow,
   type SocialErrorCode,
   type SocialPlatform,
+  type TokenSet,
 } from "./types";
 
 export interface SocialDeps {
@@ -110,6 +116,12 @@ export async function handleSocial(
     }
     return null;
   }
+  if (action === "publish") {
+    return handlePublish(req, env, socialPath(pathname).slice(1), store, now, deps.fetch, {
+      json: (body, code) => json(body, code, cors),
+      fail: (error) => fail(error, cors),
+    });
+  }
   if (action === "status" && !rest && req.method === "GET") return status(env, cors, store);
   if (action === "sync" && !rest && req.method === "POST")
     return sync(req, env, cors, store, deps, now);
@@ -129,6 +141,7 @@ async function connect(
 ): Promise<Response> {
   const body = await readJson(req);
   const returnTo = typeof body?.returnTo === "string" ? body.returnTo : "";
+  const publish = body?.publish === true;
   if (!body || !returnTo || !isAllowedReturnTo(returnTo, env)) return fail("bad_request", cors);
   const creds = credentials(env, platform);
   if (!store || !creds) return fail("not_configured", cors);
@@ -142,9 +155,16 @@ async function connect(
     returnTo,
     createdAt: now.toISOString(),
     ...(verifier ? { verifier } : {}),
+    ...(publish ? { publish } : {}),
   });
   const origin = new URL(req.url).origin;
-  const url = provider.authorizeUrl(creds, redirectUri(origin, platform), nonce, challenge);
+  const url = provider.authorizeUrl(
+    creds,
+    redirectUri(origin, platform),
+    nonce,
+    challenge,
+    publish,
+  );
   return json({ url }, 200, cors);
 }
 
@@ -157,6 +177,7 @@ async function status(env: SocialEnv, cors: Headers, store: Store | null): Promi
     platforms[p] = {
       configured,
       connected: !!tokens,
+      canPublish: !!tokens?.canPublish,
       ...stored,
       ...(tokens?.expiresAt ? { tokenExpiresAt: tokens.expiresAt } : {}),
     };
@@ -252,7 +273,9 @@ export async function handleOAuthCallback(
   const providerError = q.get("error");
   if (providerError) {
     // Shows up in the Worker's Observability logs; the provider's own words, never a token.
-    console.log(JSON.stringify({ oauth: platform, providerError, detail: q.get("error_description") }));
+    console.log(
+      JSON.stringify({ oauth: platform, providerError, detail: q.get("error_description") }),
+    );
     return error(providerError === "access_denied" ? "access_denied" : "exchange_failed");
   }
   const code = q.get("code");
@@ -261,7 +284,7 @@ export async function handleOAuthCallback(
   if (!creds) return error("not_configured");
 
   const http = { fetch: deps.fetch ?? fetch, budget: new Budget(6) };
-  let tokens;
+  let tokens: TokenSet;
   try {
     tokens = await PROVIDERS[platform].exchange(
       creds,
@@ -273,9 +296,12 @@ export async function handleOAuthCallback(
     );
   } catch (e) {
     // e.g. "exchange_failed: invalid_client" or "…: redirect_uri_mismatch"; the reply's error field only.
-    console.log(JSON.stringify({ oauth: platform, exchangeError: String((e as Error)?.message ?? e) }));
+    console.log(
+      JSON.stringify({ oauth: platform, exchangeError: String((e as Error)?.message ?? e) }),
+    );
     return error(e instanceof SocialError && e.code !== "upstream" ? e.code : "exchange_failed");
   }
+  if (state.publish) tokens = { ...tokens, canPublish: true };
   await store.putTokens(platform, tokens);
   const previous = (await store.getStatus(platform)) ?? {};
   await store.putStatus(platform, {

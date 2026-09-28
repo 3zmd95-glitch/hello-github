@@ -36,6 +36,17 @@ Owner's rule: search GitHub, libraries and Claude skills before building. This f
 | Obsidian-like web apps | [DaveHomeAssist/noteforge](https://github.com/DaveHomeAssist/noteforge) (vanilla JS: wikilinks, backlinks, graph), [classicrob/obsidian-at-home](https://github.com/classicrob/obsidian-at-home) | Reference only (different stacks). Ideas kept: backlinks panel now; tags and a link graph later. |
 | Obsidian sync (round 6 plan) | wandermyz/obsidian-github-sync, obsidian-post-webhook (above) | **Parked.** The owner asked to write notes inside the dashboard. Each note downloads as `.md`, so an Obsidian vault can still import them. |
 
+## 2026-09-28 · auto-posting everywhere (round 28, "like Metricool")
+
+| Area | Find | Decision |
+| --- | --- | --- |
+| Hosted schedulers with an API | Metricool (API on Advanced, ~$53/mo), Ayrshare ($149/mo), Publer (Business), Upload-Post (10 free/mo) | Rejected: monthly cost for one creator. |
+| Unified APIs | [Zernio (ex-Late)](https://zernio.com/pricing): 2 accounts free, then $6/account, posts to Snapchat Public Profiles; [Buffer API](https://support.buffer.com/en-us/articles/what-is-buffers-api-GtIYIQilz5): free plan has API access, no app audits | **Later candidates**: Zernio for Snapchat, Buffer as the fallback if the YouTube/TikTok audits are refused. |
+| Self-hosted OSS | [gitroomhq/postiz-app](https://github.com/gitroomhq/postiz-app) (AGPL; Postgres + Redis + Temporal), [Mixpost](https://mixpost.app) (Laravel; Pro for IG/TikTok/YT/Threads) | Rejected: cannot run on the free Cloudflare Worker. |
+| Workers-native | [deepakness/cogsend](https://github.com/deepakness/cogsend) (MIT; Workers + D1 + R2 + cron; Threads/X/LinkedIn/Bluesky) | Reference for the architecture; not adopted (no IG/TikTok/YT, R2 needs a card). |
+| Claude plugins / MCP | Postiz, Ayrshare, Post Bridge, PostZen, Buffer, Metricool MCP servers | None fits: they wrap paid services. |
+| Direct official APIs | Instagram content publishing, Threads publishing, YouTube resumable upload, TikTok Content Posting API | **Adopted** in the Scout Worker (`07-auto-posting.md`). |
+
 ## How to add to this log
 
 One row per find: area · link · decision (adopt / adopt candidate / reference / rejected + why). Re-run a search when a new phase starts

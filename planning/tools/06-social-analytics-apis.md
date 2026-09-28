@@ -81,6 +81,12 @@ namespace on its first run; a token from the "Edit Cloudflare Workers" template 
 4. Repository secrets: **`TIKTOK_CLIENT_KEY`**, **`TIKTOK_CLIENT_SECRET`**.
 5. No scope returns audience demographics: keep the monthly manual entry from TikTok Studio → Analytics → Followers.
 
+### Auto-posting (round 28)
+
+The same three apps also publish. Add the posting permissions (`instagram_business_content_publish`, `threads_content_publish`,
+`youtube.upload`, TikTok Content Posting API with `video.publish` + `video.upload`), then press **✍️ Allow posting** per platform. Steps
+and limits are in `07-auto-posting.md`. The analytics connect below keeps asking for the read scopes only.
+
 ### 4. Connect
 
 After the next deploy: dashboard → Social Analytics → **Connect** per platform (the Worker's `GET /health` shows which platforms are
@@ -95,8 +101,8 @@ Lives in the Scout Worker (Cloudflare free plan; see `workers/scout/README.md` �
   token for Instagram/Threads, refresh token for Google and TikTok; PKCE S256 for Google and TikTok), stores the tokens **encrypted**
   (AES-256-GCM, key derived from `SCOUT_TOKEN` with HKDF-SHA-256) in the KV namespace `SOCIAL_KV`, runs a first sync and redirects back
   to the dashboard with `?connected=<platform>` or `?connect_error=<platform>&reason=<code>`.
-- **Cron**: four triggers at 03:00/03:10/03:20/03:30 UTC (06:00–06:30 Riyadh), one platform each so every sync gets the free plan's full
-  subrequest budget (50 per invocation, KV included; the Worker budgets 40 outbound calls per sync and stops per-post insight calls when it
+- **Cron**: one trigger every five minutes (round 28, for auto-posting); its 03:00/03:10/03:20/03:30 UTC ticks (06:00–06:30 Riyadh) sync
+  one platform each instead of publishing, so every sync gets the free plan's full subrequest budget (50 per invocation, KV included; the Worker budgets 40 outbound calls per sync and stops per-post insight calls when it
   is reached — about the newest 30 posts per day for Instagram and Threads).
 - **Pull per platform** (endpoints from the handover): Instagram `/me`, `/me/media`, `/me/stories`, `/{media}/insights`, `/me/insights`
   (30-day totals + `follower_demographics` when 100+ followers); Threads `/me`, `/me/threads`, `/{id}/insights`, `/me/threads_insights`;

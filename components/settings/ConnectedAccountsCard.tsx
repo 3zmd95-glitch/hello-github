@@ -25,7 +25,8 @@ type Pending = { kind: "disconnect"; platform: SocialPlatform } | { kind: "seed"
 
 /**
  * 🔗 Connected accounts: one row per platform the Scout Worker can connect (TikTok, Instagram, YouTube,
- * Threads) with its state, Connect / Reconnect / Disconnect, a global "Sync now" with the last pull time, a
+ * Threads) with its state, Connect / Reconnect / Disconnect, "Allow posting" (reconnect with the publishing
+ * scopes for auto-posting), a global "Sync now" with the last pull time, a
  * short explainer, and, while the Beacons seed rows are still stored, a button to remove them. Without the
  * Worker URL and token it points at the API keys card above.
  */
@@ -124,6 +125,7 @@ export default function ConnectedAccountsCard() {
                     status={status[p]}
                     busy={busy}
                     onConnect={() => void connect(p)}
+                    onAllowPosting={() => void connect(p, true)}
                     onDisconnect={() => setPending({ kind: "disconnect", platform: p })}
                   />
                 ))}
@@ -201,12 +203,14 @@ function AccountRow({
   status,
   busy,
   onConnect,
+  onAllowPosting,
   onDisconnect,
 }: {
   platform: SocialPlatform;
   status: SocialConnectionStatus | undefined;
   busy: boolean;
   onConnect: () => void;
+  onAllowPosting: () => void;
   onDisconnect: () => void;
 }) {
   const { t, L, lang } = useT();
@@ -256,6 +260,11 @@ function AccountRow({
         <span className="flex items-center gap-2 text-sm font-bold">
           <span aria-hidden className="acc-dot" />
           {L(meta.name)}
+          {state === "connected" && status?.canPublish && (
+            <span className="px-chip px-chip-green text-xs" data-testid="account-can-post">
+              {t("publish.hub.canPost")}
+            </span>
+          )}
         </span>
         <span className="text-ink-2 text-xs" data-testid="account-state">
           {text}
@@ -296,6 +305,17 @@ function AccountRow({
             data-testid="account-reconnect"
           >
             {t("settings.accounts.reconnect")}
+          </button>
+        )}
+        {state === "connected" && !status?.canPublish && (
+          <button
+            type="button"
+            className="px-btn px-btn-sm"
+            onClick={onAllowPosting}
+            disabled={busy}
+            data-testid="account-allow-posting"
+          >
+            {t("publish.allow")}
           </button>
         )}
         {(state === "connected" || state === "error") && (
