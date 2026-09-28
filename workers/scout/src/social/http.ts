@@ -39,8 +39,11 @@ export async function fetchJson<T>(
 ): Promise<JsonReply<T>> {
   http.budget.take();
   let res: Response;
+  // Not `http.fetch(url)`: that calls the runtime's fetch with `this = http`, which Workers reject
+  // ("Illegal invocation"), so every real call failed while the tests' plain-function fakes passed.
+  const doFetch = http.fetch;
   try {
-    res = await http.fetch(url, init);
+    res = await doFetch(url, init);
   } catch {
     throw new SocialError("upstream", `fetch failed: ${new URL(url).host}`);
   }

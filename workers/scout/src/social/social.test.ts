@@ -1880,3 +1880,19 @@ it("KV key layout", () => {
   expect(keys.demo("tiktok", TODAY)).toBe(`demo:tiktok:${TODAY}`);
   expect(keys.state("n")).toBe("state:n");
 });
+
+describe("fetchJson", () => {
+  it("calls fetch unbound, like the Workers runtime requires (no `this = http` → Illegal invocation)", async () => {
+    const { Budget, fetchJson } = await import("./http");
+    // Behaves like the runtime's fetch: refuses to run as a method of another object.
+    const strictFetch = function (this: unknown) {
+      if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+      return Promise.resolve(new Response('{"ok":1}', { status: 200 }));
+    } as unknown as typeof fetch;
+    const reply = await fetchJson<{ ok: number }>(
+      { fetch: strictFetch, budget: new Budget(1) },
+      "https://oauth2.googleapis.com/token",
+    );
+    expect(reply).toEqual({ status: 200, ok: true, body: { ok: 1 } });
+  });
+});
