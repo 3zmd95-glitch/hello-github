@@ -3,9 +3,21 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
-import type { Post } from "@/lib/domain";
+import type { Platform, Post } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
-import { autoPostActive, autoPostSummary, scheduledAtOf } from "@/lib/publish";
+import {
+  autoPostActive,
+  autoPostOf,
+  autoPostSummary,
+  CAPTION_MAX,
+  captionFor,
+  manualComposeUrl,
+  pendingManualPlatforms,
+  reconnectInDays,
+  reconnectMessageKey,
+  scheduledAtOf,
+} from "@/lib/publish";
+import { PLATFORM_META } from "@/lib/social";
 import { accountState, isSocialPlatform, SOCIAL_PLATFORMS } from "@/lib/socialSync";
 import { useStore } from "@/store";
 import { formatInstant } from "./calendar/dates";
@@ -21,8 +33,10 @@ const at = (p: Post) => scheduledAtOf(p) ?? p.autoPost?.sentAt ?? p.updatedAt;
 
 /**
  * 🚀 Auto-posting hub (the ⚡ Automations route): which accounts can post by themselves (with "Allow
- * posting"), the scheduled posts with each network's state, and what already went out. Scheduling itself
- * happens in the post popup's 🚀 tab; every row links back there.
+ * posting" and, since round 30, "reconnect in N days" before a Meta token runs out), the scheduled posts with
+ * each network's state, the posts whose X / Snapchat step the owner still has to do by hand (copy the caption,
+ * open the app), and what already went out. Scheduling itself happens in the post popup's 🚀 tab; every row
+ * links back there.
  */
 export default function AutoPostScreen() {
   const { t } = useT();
@@ -39,6 +53,10 @@ export default function AutoPostScreen() {
     .filter((p) => !autoPostActive(p.autoPost))
     .sort((a, b) => (at(a) < at(b) ? 1 : -1))
     .slice(0, DONE_MAX);
+  // Planned posts with an X / Snapchat step still to do by hand (no Worker needed for these).
+  const manual = posts
+    .filter((p) => p.plannedDay && pendingManualPlatforms(p).length > 0)
+    .sort((a, b) => (at(a) < at(b) ? -1 : 1));
 
   const refresh = async () => {
     setRefreshing(true);
@@ -67,10 +85,11 @@ export default function AutoPostScreen() {
             {SOCIAL_PLATFORMS.map((p) => {
               const st = status[p];
               const state = accountState(st);
+              const days = reconnectInDays(st, p);
               return (
                 <li
                   key={p}
-                  className="px-inset flex items-center gap-2"
+                  className="px-inset flex flex-wrap items-center gap-2"
                   style={platformStyle(p)}
                   data-testid="autopost-account"
                   data-platform={p}
@@ -96,6 +115,25 @@ export default function AutoPostScreen() {
                     >
                       {t("publish.allow")}
                     </button>
+                  )}
+                  {days !== null && (
+                    <span
+                      className="flex w-full flex-wrap items-center gap-2 text-xs"
+                      data-testid={`autopost-token-${p}`}
+                    >
+                      <span className="text-danger font-bold">
+                        {t(reconnectMessageKey(days), { n: days })}
+                      </span>
+                      <button
+                        type="button"
+                        className="px-btn px-btn-ghost px-btn-sm ms-auto"
+                        disabled={busy}
+                        onClick={() => void connect(p)}
+                        data-testid={`autopost-hub-reconnect-${p}`}
+                      >
+                        {t("settings.accounts.reconnect")}
+                      </button>
+                    </span>
                   )}
                 </li>
               );
@@ -139,6 +177,18 @@ export default function AutoPostScreen() {
         )}
       </section>
 
+      {manual.length > 0 && (
+        <section className="px-card flex flex-col gap-3" data-testid="autopost-manual">
+          <h2 className="text-base">{t("publish.hub.manualTitle")}</h2>
+          <p className="text-muted text-xs">{t("publish.hub.manualSub")}</p>
+          <ul className="flex flex-col gap-2">
+            {manual.map((p) => (
+              <ManualRow key={p.id} post={p} />
+            ))}
+          </ul>
+        </section>
+      )}
+
       {done.length > 0 && (
         <section className="px-card flex flex-col gap-3" data-testid="autopost-done">
           <h2 className="text-base">{t("publish.hub.done")}</h2>
@@ -150,6 +200,69 @@ export default function AutoPostScreen() {
         </section>
       )}
     </div>
+  );
+}
+
+/** One post with X / Snapchat still to post by hand: when, the caption to copy, the app to open. */
+function ManualRow({ post }: { post: Post }) {
+  const { t, L, lang } = useT();
+  const auto = autoPostOf(post);
+  const [copied, setCopied] = useState<Platform | null>(null);
+  const copy = async (p: Platform) => {
+    try {
+      await navigator.clipboard.writeText(captionFor(post, auto, p));
+      setCopied(p);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      setCopied(null);
+    }
+  };
+  return (
+    <li
+      className="px-inset flex flex-col gap-1.5"
+      data-testid="autopost-manual-post"
+      data-post={post.id}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <b className="min-w-0 flex-1 truncate text-sm">{post.title}</b>
+        <Link href={calendarPostHref(post.id)} className="px-link text-xs">
+          {t("publish.hub.open")}
+        </Link>
+      </div>
+      <span className="text-muted num text-xs">{formatInstant(at(post), lang)}</span>
+      <ul className="flex flex-col gap-1.5">
+        {pendingManualPlatforms(post).map((p) => {
+          const text = captionFor(post, auto, p);
+          return (
+            <li key={p} className="flex flex-wrap items-center gap-1.5" data-platform={p}>
+              <PlatformChip platform={p} short />
+              {text.length > CAPTION_MAX[p] && (
+                <span className="text-danger text-xs">
+                  {t("publish.hub.manualOver", { platform: L(PLATFORM_META[p].name) })}
+                </span>
+              )}
+              <button
+                type="button"
+                className="px-btn px-btn-ghost px-btn-sm ms-auto"
+                onClick={() => void copy(p)}
+                data-testid={`autopost-manual-copy-${p}`}
+              >
+                {copied === p ? t("calendar.sheet.copied") : t("publish.copy")}
+              </button>
+              <a
+                href={manualComposeUrl(p, text) ?? "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-btn px-btn-ghost px-btn-sm no-underline"
+                data-testid={`autopost-manual-open-${p}`}
+              >
+                {t("publish.openApp", { platform: L(PLATFORM_META[p].name) })}
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </li>
   );
 }
 
