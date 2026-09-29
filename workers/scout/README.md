@@ -26,7 +26,7 @@ Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /health`           | `{ ok: true }`. With a valid token: `{ ok: true, auth: true, tavily: <key present>, social: { configured: { instagram, threads, youtube, tiktok }, kv }, trends: { youtube: <key present>, sources: [...] } }`; a wrong token → 401. Used by the Settings "Test" button and the Connect page. |
 | `POST /search`          | Body `{ q, platforms: ["tt","ig","yt"], lang?, max?, timeRange?, thumbs? }` → `{ results: [{ platform, handle, title, snippet, url, thumb? }], credits: { used } }`. See below.                                                                                                               |
-| `GET /oembed?url=…`     | TikTok / YouTube links only → `{ title, author, thumb, url }`, cached for a day.                                                                                                                                                                                                              |
+| `GET /oembed?url=…`     | TikTok / YouTube links only → `{ title, author, thumb, url }`, cached for a day (TikTok for 6 hours: its thumbnail URLs are signed and expire).                                                                                                                                               |
 | `/social/*`, `/oauth/*` | The social analytics connector, see [Social analytics](#social-analytics), and the publish queue, see [Auto-posting](#auto-posting).                                                                                                                                                          |
 | `/trends*`              | The Trend Radar feed, see [Trend Radar](#trend-radar).                                                                                                                                                                                                                                        |
 
@@ -38,14 +38,31 @@ Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
   window). Omit it for any time. Anything else → 400.
 - `thumbs` (default `true`): thumbnails on the cards.
   - **YouTube**: always `https://i.ytimg.com/vi/<id>/hqdefault.jpg`, derived from the video id (no call).
-  - **TikTok**: the first 8 TikTok results get `thumbnail_url` from TikTok's public oEmbed
-    (`https://www.tiktok.com/oembed?url=…`), fetched in parallel through the same day-long cache as
-    `GET /oembed`. Each call gives up after 2.5 s (AbortController); a failed or slow one just leaves that
-    card without `thumb`, the search still answers. TikTok's thumbnail URLs are signed and expire after a
-    few days, so the dashboard falls back to a placeholder when one stops loading.
+  - **TikTok**: the first 10 TikTok results get `thumbnail_url` from TikTok's public oEmbed
+    (`https://www.tiktok.com/oembed?url=…`), fetched in parallel through the same cache as `GET /oembed`
+    (6 hours for TikTok: its thumbnail URLs are signed and die after about 48 hours, and the dashboard
+    caches results on top). Each call gives up after 2.5 s (AbortController); a failed or slow one just
+    leaves that card without `thumb`, the search still answers. The dashboard falls back to a placeholder
+    when a thumbnail stops loading. The same oEmbed reply's `title` (the caption) replaces a card title
+    that is generic ("TikTok - Make Your Day", "Name (@handle)") or just the handle.
   - **Instagram**: no `thumb`. Instagram's oEmbed needs a Meta app access token (Facebook developer app +
     review), which this Worker does not have yet; the dashboard shows a placeholder tile.
   - `thumbs: false` skips the oEmbed calls (faster, fewer subrequests).
+- Cards (`normalize.ts`):
+  - Only single posts: TikTok `/@user/video/<id>`, YouTube watch / shorts / youtu.be, Instagram
+    `/reel/`, `/reels/`, `/p/`, `/tv/` `<id>` (optionally behind `/<user>/`); Instagram sound pages
+    (`/reels/audio/<id>`), profiles and explore pages are dropped.
+  - One card per post: `url` is rebuilt from the platform id (`https://www.youtube.com/watch?v=<id>`,
+    `https://www.instagram.com/p/<id>`, `https://www.tiktok.com/@user/video/<id>`), so a Short and its
+    watch link, or a reel shared with and without the account, merge. `lib/research.ts` mirrors this rule.
+  - Titles and snippets lose bidi marks and repeated whitespace. TikTok titles lose the ` | TikTok`
+    suffix and the `TikTok video from … (@h): ` prefix.
+  - Instagram: Tavily's page title is usually just "Instagram", so the card reads the handle from the
+    URL (`/<user>/reel/`), then the description (`<n> likes, <m> comments - <user> on|في <date>: "…"`),
+    then the twitter title (`(@user) •`), else `""` (never the hostname); the title is the caption from
+    `<Name> on Instagram: "…"` / `<Name> على Instagram : "…"` or the description, else a non-generic
+    page title, else the content's first sentence (not the like/comment counts), else `@user`, else
+    "Instagram reel".
 - Errors: `{ error: "quota" | "auth" | "upstream" | "bad_request" }`.
 
 The response shape is unchanged from v0: older dashboards that send neither option keep working (they get

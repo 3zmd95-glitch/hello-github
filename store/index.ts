@@ -111,6 +111,7 @@ import {
   type BuyRefusal,
 } from "@/lib/gems";
 import { levelFromXp } from "@/lib/level";
+import { canonicalRefUrl } from "@/lib/research";
 import { rankFromXp } from "@/lib/rank";
 import { seasonState, type SeasonState } from "@/lib/season";
 import {
@@ -889,18 +890,23 @@ export const useStore = create<StoreState>()(
         set((s) => ({ settings: SettingsSchema.parse({ ...s.settings, ...partial }) }));
       },
 
+      // Refs compare by their canonical URL (lib/research canonicalRefUrl), so a post saved as a /reel/ link,
+      // a youtu.be link or with a query string is the same ref as its search card.
       addRef(skillId, ref) {
         const s = get();
         const list = s.savedRefs[skillId] ?? [];
-        if (list.some((r) => r.url === ref.url)) return;
+        const key = canonicalRefUrl(ref.platform, ref.url);
+        if (list.some((r) => canonicalRefUrl(r.platform, r.url) === key)) return;
         set({ savedRefs: { ...s.savedRefs, [skillId]: [...list, ref] } });
       },
 
       removeRef(skillId, url) {
         const s = get();
         const list = s.savedRefs[skillId];
-        if (!list?.some((r) => r.url === url)) return;
-        set({ savedRefs: { ...s.savedRefs, [skillId]: list.filter((r) => r.url !== url) } });
+        const same = (r: Ref) =>
+          canonicalRefUrl(r.platform, r.url) === canonicalRefUrl(r.platform, url);
+        if (!list?.some(same)) return;
+        set({ savedRefs: { ...s.savedRefs, [skillId]: list.filter((r) => !same(r)) } });
       },
 
       setNote(skillId, body, now = new Date()) {

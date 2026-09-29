@@ -374,6 +374,22 @@ describe("references (Scout v0)", () => {
     expect(S().savedRefs["scene-cut-detection"]).toEqual([other]);
   });
 
+  it("addRef and removeRef treat the same post in another URL form as the same ref", () => {
+    const reel = {
+      platform: "ig",
+      handle: "@editor.ali",
+      title: "Match cut",
+      url: "https://www.instagram.com/editor.ali/reel/ABC123/?igsh=x",
+    } as const;
+    S().addRef("scene-cut-detection", reel);
+    // The search card for the same post comes back in the canonical /p/<id> form: no duplicate.
+    S().addRef("scene-cut-detection", { ...reel, url: "https://www.instagram.com/p/ABC123" });
+    expect(S().savedRefs["scene-cut-detection"]).toEqual([reel]);
+    // Detaching from that card removes the ref saved in the older form.
+    S().removeRef("scene-cut-detection", "https://www.instagram.com/p/ABC123");
+    expect(S().savedRefs["scene-cut-detection"]).toEqual([]);
+  });
+
   it("refs round-trip through export/import", () => {
     S().addRef("scene-cut-detection", ref);
     const json = S().exportState();

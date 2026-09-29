@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   arabicFirst,
   cachedYoutubeSearch,
+  canonicalRefUrl,
   clearYoutubeCache,
   decodeEntities,
   dedupeByUrl,
@@ -137,6 +138,94 @@ describe("normalizeRef", () => {
 
   it("throws on an invalid URL", () => {
     expect(() => normalizeRef("not a url")).toThrow();
+  });
+
+  it("stores the canonical URL, so a pasted link matches the search card", () => {
+    expect(
+      normalizeRef("https://www.tiktok.com/@editor.sam/video/123?is_from_webapp=1&sender_device=pc")
+        .url,
+    ).toBe("https://www.tiktok.com/@editor.sam/video/123");
+    expect(normalizeRef("https://youtu.be/dQw4w9WgXcQ?t=42").url).toBe(
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    );
+    const reel = normalizeRef("https://www.instagram.com/editor.ali/reel/ABC-12_x/?igsh=abc");
+    expect(reel).toMatchObject({
+      platform: "ig",
+      handle: "@editor.ali",
+      url: "https://www.instagram.com/p/ABC-12_x",
+    });
+  });
+});
+
+describe("canonicalRefUrl (mirrors the Worker's canonicalUrl)", () => {
+  it.each([
+    [
+      "yt",
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s",
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    ],
+    [
+      "yt",
+      "https://m.youtube.com/watch?feature=share&v=dQw4w9WgXcQ",
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    ],
+    ["yt", "https://youtu.be/dQw4w9WgXcQ?si=xyz", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
+    [
+      "yt",
+      "https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share",
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    ],
+    [
+      "yt",
+      "https://www.youtube.com/@CaptainDisillusion/videos/",
+      "https://www.youtube.com/@CaptainDisillusion/videos",
+    ],
+    ["ig", "https://www.instagram.com/reel/ABC123/", "https://www.instagram.com/p/ABC123"],
+    ["ig", "https://instagram.com/reels/ABC123", "https://www.instagram.com/p/ABC123"],
+    [
+      "ig",
+      "https://www.instagram.com/p/ABC123/?img_index=2#x",
+      "https://www.instagram.com/p/ABC123",
+    ],
+    ["ig", "https://www.instagram.com/tv/ABC123", "https://www.instagram.com/p/ABC123"],
+    [
+      "ig",
+      "https://www.instagram.com/editor.ali/reel/ABC123/",
+      "https://www.instagram.com/p/ABC123",
+    ],
+    [
+      "ig",
+      "https://www.instagram.com/explore/tags/matchcut/",
+      "https://www.instagram.com/explore/tags/matchcut",
+    ],
+    [
+      "tt",
+      "https://www.tiktok.com/@a/video/7300000000000000001?is_from_webapp=1",
+      "https://www.tiktok.com/@a/video/7300000000000000001",
+    ],
+    [
+      "tt",
+      "https://m.tiktok.com/@a/video/7300000000000000001/",
+      "https://www.tiktok.com/@a/video/7300000000000000001",
+    ],
+    ["tt", "https://vm.tiktok.com/ZMabc/", "https://vm.tiktok.com/ZMabc"],
+    ["tt", "https://m.tiktok.com/v/123.html", "https://www.tiktok.com/v/123.html"],
+    // An "original audio" page is not a post: it keeps its own path.
+    [
+      "ig",
+      "https://www.instagram.com/reels/audio/932615931412635/?hl=en",
+      "https://www.instagram.com/reels/audio/932615931412635",
+    ],
+    ["ig", "https://m.instagram.com/someuser/", "https://www.instagram.com/someuser"],
+    ["yt", "https://youtube.com/@chan/", "https://www.youtube.com/@chan"],
+    ["web", "https://Example.COM/post/1/?utm_source=x#top", "https://example.com/post/1"],
+    ["web", "https://WWW.Example.com/a/b/?q=1#h", "https://example.com/a/b"],
+  ] as const)("%s %s", (platform, url, canonical) => {
+    expect(canonicalRefUrl(platform, url)).toBe(canonical);
+  });
+
+  it("returns an unparsable URL trimmed but unchanged", () => {
+    expect(canonicalRefUrl("web", " not a url ")).toBe("not a url");
   });
 });
 
@@ -358,6 +447,19 @@ describe("research v2 helpers", () => {
     expect(arabicFirst(items).map((i) => i.title)).toEqual(["ب", "match cut مونتاج", "a", "c"]);
   });
 
+  it("counts an Arabic caption (snippet) as Arabic even when the title isn't", () => {
+    const items = [
+      { title: "Match cut", snippet: "how to" },
+      { title: "Reel by @editor.ali 🔥", snippet: "طريقة القص على الحركة في كاب كات" },
+      { title: "Speed ramp" },
+    ];
+    expect(arabicFirst(items).map((i) => i.title)).toEqual([
+      "Reel by @editor.ali 🔥",
+      "Match cut",
+      "Speed ramp",
+    ]);
+  });
+
   it("appends the program hint once", () => {
     expect(withProgramHint("match cut", "DaVinci Resolve")).toBe("match cut DaVinci Resolve");
     expect(withProgramHint("match cut davinci resolve", "DaVinci Resolve")).toBe(
@@ -418,6 +520,22 @@ describe("research v2 helpers", () => {
       { url: "a", n: 1 },
       { url: "b", n: 3 },
     ]);
+  });
+
+  it("dedupes the same post across URL variants, keeping the first item as is", () => {
+    const saved = { url: "https://youtu.be/dQw4w9WgXcQ?t=5", n: 1 };
+    expect(
+      dedupeByUrl(
+        [saved, { url: "https://www.instagram.com/reel/ABC123/", n: 2 }],
+        [
+          { url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", n: 3 },
+          { url: "https://www.instagram.com/p/ABC123", n: 4 },
+          { url: "https://www.tiktok.com/@a/video/1?is_from_webapp=1", n: 5 },
+          { url: "https://www.tiktok.com/@a/video/1", n: 6 },
+        ],
+      ).map((i) => i.n),
+    ).toEqual([1, 2, 5]);
+    expect(dedupeByUrl([saved])[0]).toBe(saved);
   });
 });
 
