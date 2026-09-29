@@ -5,7 +5,9 @@ import { useT } from "@/lib/i18n";
 
 /**
  * Discover (build plan 1.13 → 1.15): a free topic searched on YouTube, TikTok and Instagram through the
- * shared research panel (tabs, filters, thumbnails), with "attach to skill" on every card.
+ * shared research panel (tabs, filters, thumbnails), with "attach to skill" on every card. Round 31: the
+ * panel's edit-genre row (cars, food, anime…) searches a genre on its own or together with the topic, and
+ * its "Most popular" sort puts the most viewed / liked first.
  */
 export default function DiscoverScreen() {
   const { t } = useT();

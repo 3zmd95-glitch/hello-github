@@ -720,7 +720,7 @@ export const TrendItemSchema = z.object({
   title: z.string().min(1),
   url: z.string().optional(),
   thumb: z.string().optional(),
-  /** 0..100, relative within its source (rank 1 = 100). */
+  /** 0..100, relative within its source (rank 1 = 100); the keyword scan ranks its Arabic and its English rows apart. */
   score: z.number().min(0).max(100).optional(),
   growthPct: z.number().optional(),
   volume: z.number().min(0).optional(),
@@ -733,6 +733,12 @@ export const TrendItemSchema = z.object({
   tags: z.array(z.string()).default([]),
   /** Skill id the trend fits, when the Worker (or a later scorer) knows one. */
   skillHint: z.string().optional(),
+  /**
+   * Edit-genre id (round 31): set by the Worker's keyword scan on rows found through a genre's main query;
+   * rows from a niche keyword and every other source leave it out. A built-in id from
+   * planning/data/genres.json today; kept a plain string so an id this app does not know still loads.
+   */
+  genre: z.string().optional(),
 });
 export type TrendItem = z.infer<typeof TrendItemSchema>;
 /** What the Worker may send (`tags` may be left out). */
@@ -795,6 +801,39 @@ export const SaudiEventSchema = z.object({
 });
 export type SaudiEvent = z.infer<typeof SaudiEventSchema>;
 export type SaudiEventInput = z.input<typeof SaudiEventSchema>;
+
+/* ---------- 🎬 Edit genres (round 31: Discover by genre, genre-aware Trend Radar) ---------- */
+
+/**
+ * One built-in edit genre from planning/data/genres.json (cars, food, anime, travel…): the chips of Discover,
+ * the skill Research panel and the radar's genre filter. `queries.<lang>[0]` is the genre's main query (what
+ * Discover searches and what the Worker's daily keyword scan runs); `hashtags[0]` (no "#") is the Instagram
+ * hashtag slug. The Worker bundles the same JSON and hand-copies this shape into
+ * workers/scout/src/trends/genres.ts (no Zod there; the social/types.ts convention).
+ */
+export const GenreSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]*$/),
+  emoji: z.string().min(1),
+  name: LTextSchema,
+  queries: z.object({
+    ar: z.array(z.string().min(1)).min(1),
+    en: z.array(z.string().min(1)).min(1),
+  }),
+  /** Without the "#": lower-case letters, digits and "_". */
+  hashtags: z.array(z.string().regex(/^[a-z0-9_]+$/)).default([]),
+});
+export type Genre = z.infer<typeof GenreSchema>;
+/** What the JSON may hold (`hashtags` may be left out). */
+export type GenreInput = z.input<typeof GenreSchema>;
+
+/** An owner-added genre (Settings): one name, one set of search words used for both languages. */
+export const CustomGenreSchema = z.object({
+  /** "custom-<slug of the name>" (lib/genres customGenreId), so it never collides with a built-in id. */
+  id: z.string().min(1),
+  name: z.string().min(1),
+  query: z.string().min(1),
+});
+export type CustomGenre = z.infer<typeof CustomGenreSchema>;
 
 /* ---------- 📝 Notes (in-app research vault, replaces the external Obsidian step) ---------- */
 

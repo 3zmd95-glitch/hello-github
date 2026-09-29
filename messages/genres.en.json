@@ -1,0 +1,14 @@
+{
+  "genres.label": "🎬 Edit genre",
+  "genres.any": "All genres",
+  "genres.settingsTitle": "🎬 Edit genres",
+  "genres.settingsSub": "The built-in genres show up in Discover and the Trend Radar. Missing yours? Add it with a name and the search words you want; your own genres are for Discover search.",
+  "genres.builtin": "Built in",
+  "genres.custom": "Yours",
+  "genres.addName": "Genre name",
+  "genres.addQuery": "Search words",
+  "genres.add": "＋ Add",
+  "genres.exists": "That genre already exists. Try another name.",
+  "genres.remove": "Remove",
+  "genres.clear": "✕ No genre"
+}

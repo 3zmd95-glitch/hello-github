@@ -1,30 +1,41 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Lang } from "./domain";
+import { allGenres, GENRES } from "./genres";
 import {
   arabicFirst,
   cachedYoutubeSearch,
   canonicalRefUrl,
   clearYoutubeCache,
+  compactCount,
   decodeEntities,
   dedupeByUrl,
   detectPlatform,
   hasArabic,
   hashtagSlug,
+  headlineStat,
   interleavePlatforms,
+  itemFromRef,
   itemFromYoutube,
   normalizeRef,
   peekYoutubeSearch,
   platformSearchUrl,
+  popularityOf,
   programSearchHint,
   publishedAfterFor,
   refFromItem,
+  researchHashtag,
+  researchQuery,
   scoutPlatformsFor,
   searchLinks,
+  sortByPopularity,
   withProgramHint,
   youtubeDurationFor,
   youtubeQuery,
   youtubeSearch,
   youtubeSearchUrl,
+  youtubeStatsUrl,
   YOUTUBE_CACHE_TTL_MS,
+  YOUTUBE_STATS_MAX_IDS,
 } from "./research";
 
 const topic = { ar: "قص المشهد", en: "match cut" };
@@ -271,7 +282,8 @@ describe("youtubeSearch", () => {
       }),
     });
     const result = await youtubeSearch("KEY", "match cut", { fetchImpl });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    // The search, then the statistics call (this mock answers it with the search body: no counts in it).
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
     const calledUrl = new URL(fetchImpl.mock.calls[0][0] as string);
     expect(calledUrl.searchParams.get("q")).toBe("match cut");
     expect(result).toEqual({
@@ -331,6 +343,111 @@ describe("youtubeSearch", () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
     const result = await youtubeSearch("KEY", "q", { fetchImpl });
     expect(result).toEqual({ ok: true, items: [] });
+    // Nothing found, nothing to count: no statistics call.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("youtubeSearch statistics (one videos.list call after the search)", () => {
+  const SEARCH = {
+    items: [
+      { id: { videoId: "a1" }, snippet: { title: "One" } },
+      { id: { videoId: "b2" }, snippet: { title: "Two" } },
+      { id: { videoId: "c3" }, snippet: { title: "Three" } },
+    ],
+  };
+  /** A fetch that answers the search with SEARCH and the statistics call with whatever `stats` does. */
+  const fetchWith = (stats: () => Promise<unknown>) =>
+    vi
+      .fn()
+      .mockImplementation(async (url: string) =>
+        url.includes("/youtube/v3/videos?") ? stats() : { ok: true, json: async () => SEARCH },
+      );
+  const statsBody = (items: unknown[]) => async () => ({ ok: true, json: async () => ({ items }) });
+
+  it("fills views, likes and comments by video id", async () => {
+    const fetchImpl = fetchWith(
+      statsBody([
+        { id: "a1", statistics: { viewCount: "1200345", likeCount: "45000", commentCount: "310" } },
+        // Likes hidden by the channel: the API leaves the field out.
+        { id: "b2", statistics: { viewCount: "980" } },
+        // c3 is missing from the answer; an id nobody asked for is ignored.
+        { id: "zz", statistics: { viewCount: "5" } },
+      ]),
+    );
+    const r = await youtubeSearch("KEY", "car edit", { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const statsUrl = new URL(fetchImpl.mock.calls[1][0] as string);
+    expect(statsUrl.origin + statsUrl.pathname).toBe(
+      "https://www.googleapis.com/youtube/v3/videos",
+    );
+    expect(statsUrl.searchParams.get("part")).toBe("statistics");
+    expect(statsUrl.searchParams.get("id")).toBe("a1,b2,c3");
+    expect(statsUrl.searchParams.get("key")).toBe("KEY");
+    expect(r.ok && r.items.map((v) => v.stats)).toEqual([
+      { views: 1200345, likes: 45000, comments: 310 },
+      { views: 980 },
+      undefined,
+    ]);
+    // A video without counts has no `stats` key at all.
+    expect(r.ok && "stats" in r.items[2]).toBe(false);
+    // The call answered: nothing to ask again.
+    expect("statsMissing" in r).toBe(false);
+  });
+
+  it("keeps only whole, non-negative counts", async () => {
+    const fetchImpl = fetchWith(
+      statsBody([
+        { id: "a1", statistics: { viewCount: "-5", likeCount: "12.5", commentCount: "lots" } },
+        { id: "b2", statistics: { viewCount: 77, likeCount: null } },
+        { id: "c3" },
+      ]),
+    );
+    const r = await youtubeSearch("KEY", "q", { fetchImpl });
+    expect(r.ok && r.items.map((v) => v.stats)).toEqual([undefined, { views: 77 }, undefined]);
+  });
+
+  it.each([
+    [
+      "an API error (quota)",
+      true,
+      async () => ({ ok: false, status: 403, json: async () => ({}) }),
+    ],
+    [
+      "a network failure or a timeout",
+      true,
+      async () => {
+        throw new Error("offline");
+      },
+    ],
+    [
+      "a body that is not JSON",
+      true,
+      async () => ({
+        ok: true,
+        json: async () => {
+          throw new Error("not json");
+        },
+      }),
+    ],
+    // The call answered, with nothing in it: no numbers, and no reason to ask again.
+    ["a body without items", false, async () => ({ ok: true, json: async () => ({}) })],
+  ])("keeps the videos, without stats, on %s", async (_name, missing, stats) => {
+    const fetchImpl = fetchWith(stats);
+    const r = await youtubeSearch("KEY", "q", { fetchImpl });
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.items.map((v) => v.videoId)).toEqual(["a1", "b2", "c3"]);
+    expect(r.ok && r.items.some((v) => "stats" in v)).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    // Only a call that did not answer is marked (the cache then asks for the numbers again).
+    expect(r.ok && r.statsMissing).toBe(missing ? true : undefined);
+  });
+
+  it("asks for at most 50 ids", () => {
+    const ids = Array.from({ length: 60 }, (_, i) => `v${i}`);
+    const u = new URL(youtubeStatsUrl("K", ids));
+    expect(u.searchParams.get("id")?.split(",")).toEqual(ids.slice(0, YOUTUBE_STATS_MAX_IDS));
+    expect(YOUTUBE_STATS_MAX_IDS).toBe(50);
   });
 });
 
@@ -349,6 +466,14 @@ describe("youtubeSearchUrl v2 options", () => {
     const any = new URL(youtubeSearchUrl("K", "q", { videoDuration: "any" }));
     expect(any.searchParams.has("videoDuration")).toBe(false);
     expect(any.searchParams.has("publishedAfter")).toBe(false);
+  });
+
+  it("adds order=viewCount for the popular sort only, so the relevance request stays the same", () => {
+    const popular = new URL(youtubeSearchUrl("K", "car edit", { order: "viewCount" }));
+    expect(popular.searchParams.get("order")).toBe("viewCount");
+    const plain = youtubeSearchUrl("K", "car edit");
+    expect(new URL(plain).searchParams.has("order")).toBe(false);
+    expect(youtubeSearchUrl("K", "car edit", { order: undefined })).toBe(plain);
   });
 
   it("maps the filters", () => {
@@ -401,6 +526,9 @@ describe("cachedYoutubeSearch", () => {
       ok: true,
       json: async () => ({ items: [{ id: { videoId: "v1" }, snippet: { title: "One" } }] }),
     });
+  /** How many of the calls were searches (every successful search is followed by one statistics call). */
+  const searches = (fetchImpl: ReturnType<typeof ok>) =>
+    fetchImpl.mock.calls.filter(([url]) => String(url).includes("/youtube/v3/search?")).length;
 
   it("serves the same request from memory and dedupes concurrent calls", async () => {
     const fetchImpl = ok();
@@ -410,12 +538,13 @@ describe("cachedYoutubeSearch", () => {
       cachedYoutubeSearch("K", "q", { fetchImpl, videoDuration: "short" }, now),
     ]);
     expect(a).toEqual(b);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(searches(fetchImpl)).toBe(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(2); // + its one statistics call
     expect(peekYoutubeSearch("K", "q", { videoDuration: "short" }, now)).toHaveLength(1);
     // Another filter is another request.
     expect(peekYoutubeSearch("K", "q", { videoDuration: "long" }, now)).toBeUndefined();
     await cachedYoutubeSearch("K", "q", { fetchImpl, videoDuration: "long" }, now);
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(searches(fetchImpl)).toBe(2);
     // Expired after the TTL.
     expect(
       peekYoutubeSearch("K", "q", { videoDuration: "short" }, now + YOUTUBE_CACHE_TTL_MS + 1),
@@ -427,6 +556,134 @@ describe("cachedYoutubeSearch", () => {
     await cachedYoutubeSearch("K", "q", { fetchImpl });
     await cachedYoutubeSearch("K", "q", { fetchImpl });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the popular order apart from the relevance one, each with its statistics", async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () =>
+        url.includes("/youtube/v3/videos?")
+          ? { items: [{ id: "v1", statistics: { viewCount: "5000" } }] }
+          : { items: [{ id: { videoId: "v1" }, snippet: { title: "One" } }] },
+    }));
+    const now = 2_000_000;
+    await cachedYoutubeSearch("K", "car edit", { fetchImpl }, now);
+    expect(peekYoutubeSearch("K", "car edit", {}, now)?.[0].stats).toEqual({ views: 5000 });
+    expect(peekYoutubeSearch("K", "car edit", { order: "viewCount" }, now)).toBeUndefined();
+    await cachedYoutubeSearch("K", "car edit", { fetchImpl, order: "viewCount" }, now);
+    expect(searches(fetchImpl)).toBe(2);
+    expect(new URL(fetchImpl.mock.calls[2][0] as string).searchParams.get("order")).toBe(
+      "viewCount",
+    );
+    // Back to relevance: from the cache.
+    await cachedYoutubeSearch("K", "car edit", { fetchImpl }, now);
+    expect(searches(fetchImpl)).toBe(2);
+    // Both statistics calls answered: nothing was asked again.
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
+  describe("after a statistics call that failed", () => {
+    const SEARCH = {
+      items: [
+        { id: { videoId: "a1" }, snippet: { title: "One" } },
+        { id: { videoId: "b2" }, snippet: { title: "Two" } },
+      ],
+    };
+    // b2 hides its counts: an answer without it is still an answer.
+    const STATS = { items: [{ id: "a1", statistics: { viewCount: "5000", likeCount: "40" } }] };
+    const A1 = { views: 5000, likes: 40 };
+
+    /** The search always answers; the statistics call fails `failures` times (a 500), then answers. */
+    const flaky = (failures: number) => {
+      let asked = 0;
+      return vi.fn().mockImplementation(async (url: string) => {
+        if (!url.includes("/youtube/v3/videos?")) return { ok: true, json: async () => SEARCH };
+        asked += 1;
+        return asked <= failures
+          ? { ok: false, status: 500, json: async () => ({}) }
+          : { ok: true, json: async () => STATS };
+      });
+    };
+    /** The API paths asked so far, in order. */
+    const paths = (fetchImpl: ReturnType<typeof flaky>) =>
+      fetchImpl.mock.calls.map(([url]) => new URL(String(url)).pathname);
+    const SEARCH_PATH = "/youtube/v3/search";
+    const STATS_PATH = "/youtube/v3/videos";
+
+    it("asks for the numbers alone on the next hit, never the search again", async () => {
+      const fetchImpl = flaky(1);
+      const now = 3_000_000;
+      const first = await cachedYoutubeSearch("K", "car edit", { fetchImpl }, now);
+      expect(first).toMatchObject({ ok: true, statsMissing: true });
+      expect(first.ok && first.items.map((v) => v.videoId)).toEqual(["a1", "b2"]);
+      expect(first.ok && first.items.some((v) => "stats" in v)).toBe(false);
+      expect(paths(fetchImpl)).toEqual([SEARCH_PATH, STATS_PATH]);
+      // Cached all the same (the search is the expensive part), without numbers.
+      expect(peekYoutubeSearch("K", "car edit", {}, now)?.some((v) => "stats" in v)).toBe(false);
+
+      const later = now + 60_000;
+      const second = await cachedYoutubeSearch("K", "car edit", { fetchImpl }, later);
+      // Exactly one more request: the 1-unit statistics call for the cached videos.
+      expect(paths(fetchImpl)).toEqual([SEARCH_PATH, STATS_PATH, STATS_PATH]);
+      const asked = new URL(fetchImpl.mock.calls[2][0] as string);
+      expect(asked.searchParams.get("part")).toBe("statistics");
+      expect(asked.searchParams.get("id")).toBe("a1,b2");
+      expect(asked.searchParams.get("key")).toBe("K");
+      expect(second.ok && second.items.map((v) => [v.videoId, v.title, v.stats])).toEqual([
+        ["a1", "One", A1],
+        ["b2", "Two", undefined],
+      ]);
+      expect("statsMissing" in second).toBe(false);
+      // The cache has the numbers now, so a later hit costs nothing at all.
+      expect(peekYoutubeSearch("K", "car edit", {}, later)?.[0].stats).toEqual(A1);
+      const third = await cachedYoutubeSearch("K", "car edit", { fetchImpl }, later);
+      expect(third).toEqual(second);
+      expect(fetchImpl).toHaveBeenCalledTimes(3);
+      // The entry kept the time of the search: it expires 30 minutes after that, not after the numbers.
+      const lastMs = now + YOUTUBE_CACHE_TTL_MS - 1;
+      expect(peekYoutubeSearch("K", "car edit", {}, lastMs)).toHaveLength(2);
+      expect(peekYoutubeSearch("K", "car edit", {}, lastMs + 1)).toBeUndefined();
+    });
+
+    it("shares one statistics call between concurrent hits", async () => {
+      const fetchImpl = flaky(1);
+      const now = 4_000_000;
+      await cachedYoutubeSearch("K", "q", { fetchImpl }, now);
+      const [a, b] = await Promise.all([
+        cachedYoutubeSearch("K", "q", { fetchImpl }, now),
+        cachedYoutubeSearch("K", "q", { fetchImpl }, now),
+      ]);
+      expect(a).toEqual(b);
+      expect(a.ok && a.items[0].stats).toEqual(A1);
+      expect(paths(fetchImpl)).toEqual([SEARCH_PATH, STATS_PATH, STATS_PATH]);
+    });
+
+    it("gives the cached videos back as they were when it fails again, and keeps trying", async () => {
+      const fetchImpl = flaky(2);
+      const now = 5_000_000;
+      const first = await cachedYoutubeSearch("K", "q", { fetchImpl }, now);
+      const second = await cachedYoutubeSearch("K", "q", { fetchImpl }, now);
+      if (!first.ok || !second.ok) throw new Error("both searches should have answered");
+      expect(second.items).toBe(first.items);
+      expect(second.statsMissing).toBe(true);
+      expect(peekYoutubeSearch("K", "q", {}, now)).toBe(first.items);
+      expect(paths(fetchImpl)).toEqual([SEARCH_PATH, STATS_PATH, STATS_PATH]);
+
+      const third = await cachedYoutubeSearch("K", "q", { fetchImpl }, now);
+      expect(paths(fetchImpl)).toEqual([SEARCH_PATH, STATS_PATH, STATS_PATH, STATS_PATH]);
+      expect(third.ok && third.items.map((v) => v.stats)).toEqual([A1, undefined]);
+      // The list handed out earlier was not touched.
+      expect(first.items.some((v) => "stats" in v)).toBe(false);
+    });
+
+    it("searches again once the entry has expired, numbers or not", async () => {
+      const fetchImpl = flaky(1);
+      const now = 6_000_000;
+      await cachedYoutubeSearch("K", "q", { fetchImpl }, now);
+      const r = await cachedYoutubeSearch("K", "q", { fetchImpl }, now + YOUTUBE_CACHE_TTL_MS);
+      expect(paths(fetchImpl)).toEqual([SEARCH_PATH, STATS_PATH, SEARCH_PATH, STATS_PATH]);
+      expect(r.ok && r.items[0].stats).toEqual(A1);
+    });
   });
 });
 
@@ -551,5 +808,168 @@ describe("interleavePlatforms", () => {
     ];
     expect(interleavePlatforms(items).map((i) => i.n)).toEqual([1, 4, 5, 2, 6, 3]);
     expect(interleavePlatforms([])).toEqual([]);
+  });
+});
+
+describe("researchQuery (topic + edit genre + program hint)", () => {
+  const cars = GENRES.find((g) => g.id === "cars")!;
+  const own = allGenres([{ id: "custom-drift", name: "Drift", query: "drift  edit" }]).at(-1)!;
+
+  it("is the main query of the genre, in the search language, when there is no topic", () => {
+    expect(researchQuery("", "ar", cars)).toBe("ايديت سيارات");
+    expect(researchQuery("  ", "en", cars)).toBe("car edit");
+  });
+
+  it("puts the topic first, then the genre, then the program hint", () => {
+    expect(researchQuery("Smart Bins", "en", cars)).toBe("Smart Bins car edit");
+    expect(researchQuery(" drift   night ", "ar", cars)).toBe("drift night ايديت سيارات");
+    expect(researchQuery("Smart Bins", "en", cars, "DaVinci Resolve")).toBe(
+      "Smart Bins car edit DaVinci Resolve",
+    );
+    expect(researchQuery("", "en", cars, "CapCut")).toBe("car edit CapCut");
+    // The hint is never said twice.
+    expect(researchQuery("capcut transitions", "en", cars, "CapCut")).toBe(
+      "capcut transitions car edit",
+    );
+  });
+
+  it("is the topic as it always was without a genre", () => {
+    expect(researchQuery(" match cut ", "en")).toBe("match cut");
+    expect(researchQuery("match cut", "ar", undefined, "DaVinci Resolve")).toBe(
+      "match cut DaVinci Resolve",
+    );
+    expect(researchQuery("", "en", undefined, "CapCut")).toBe("");
+  });
+
+  it("uses the words of a custom genre for both languages", () => {
+    expect(own.emoji).toBe("✨");
+    expect(researchQuery("", "ar", own)).toBe("drift edit");
+    expect(researchQuery("night", "en", own)).toBe("night drift edit");
+  });
+
+  it("picks the Instagram hashtag: the genre hashtag for a genre-only search, else the topic slug", () => {
+    expect(researchHashtag("", "", cars)).toBe("caredit");
+    expect(researchHashtag("  ", "  ", cars)).toBe("caredit");
+    expect(researchHashtag("match cut", "match cut", cars)).toBe("matchcut");
+    expect(researchHashtag("match cut", "match cut")).toBe("matchcut");
+    // A skill: always the slug of its EN name (the base is never empty there).
+    expect(researchHashtag("الـ Smart Bins", "Smart Bins + Keywords", cars)).toBe(
+      "smartbinskeywords",
+    );
+    // No Latin letters in the topic, or a custom genre (no hashtags): no link.
+    expect(researchHashtag("قص المشهد", "قص المشهد", cars)).toBe("");
+    expect(researchHashtag("", "", own)).toBe("");
+    expect(researchHashtag("", "")).toBe("");
+  });
+});
+
+describe("popularity (the Most popular sort and the stats chip)", () => {
+  it("ranks by views, else by likes x 10, else not at all", () => {
+    expect(popularityOf({ views: 1200, likes: 900 })).toBe(1200);
+    expect(popularityOf({ views: 0, likes: 50 })).toBe(0);
+    expect(popularityOf({ likes: 45 })).toBe(450);
+    expect(popularityOf({ likes: 0 })).toBe(0);
+    expect(popularityOf({ comments: 12 })).toBeUndefined();
+    expect(popularityOf({})).toBeUndefined();
+    expect(popularityOf(undefined)).toBeUndefined();
+  });
+
+  it("sorts known popularity first (highest first), the rest after in their order, stably", () => {
+    const items = [
+      { n: "plain-1" },
+      { n: "yt-5k", stats: { views: 5000 } },
+      { n: "tt-700-likes", stats: { likes: 700 } },
+      { n: "plain-2", stats: { comments: 3 } },
+      { n: "yt-9k-a", stats: { views: 9000 } },
+      { n: "yt-9k-b", stats: { views: 9000, likes: 1 } },
+      { n: "ig-0", stats: { likes: 0 } },
+    ];
+    const before = items.map((i) => i.n);
+    expect(sortByPopularity(items).map((i) => i.n)).toEqual([
+      "yt-9k-a",
+      "yt-9k-b",
+      "tt-700-likes",
+      "yt-5k",
+      "ig-0",
+      "plain-1",
+      "plain-2",
+    ]);
+    // The list it was given is left alone; the items themselves are the same objects.
+    expect(items.map((i) => i.n)).toEqual(before);
+    expect(sortByPopularity(items)[0]).toBe(items[4]);
+    expect(sortByPopularity([])).toEqual([]);
+    // 900 likes weigh as much as 9,000 views: a tie, so the order they came in.
+    const tie = [
+      { n: "tt", stats: { likes: 900 } },
+      { n: "yt", stats: { views: 9000 } },
+    ];
+    expect(sortByPopularity(tie).map((i) => i.n)).toEqual(["tt", "yt"]);
+    expect(sortByPopularity([...tie].reverse()).map((i) => i.n)).toEqual(["yt", "tt"]);
+  });
+
+  it("keeps Arabic first on top of the popular order, each group by popularity", () => {
+    const items = [
+      { title: "car edit", stats: { views: 100 } },
+      { title: "ايديت سيارات", stats: { views: 50 } },
+      { title: "drift", stats: { views: 900 } },
+      { title: "هجولة", stats: { likes: 700 } },
+      { title: "مونتاج" },
+    ];
+    expect(arabicFirst(sortByPopularity(items)).map((i) => i.title)).toEqual([
+      "هجولة",
+      "ايديت سيارات",
+      "مونتاج",
+      "drift",
+      "car edit",
+    ]);
+  });
+
+  it("shows views on the chip when known, else likes", () => {
+    expect(headlineStat({ views: 1200, likes: 45 })).toEqual({ kind: "views", value: 1200 });
+    expect(headlineStat({ likes: 45, comments: 2 })).toEqual({ kind: "likes", value: 45 });
+    expect(headlineStat({ views: 0 })).toEqual({ kind: "views", value: 0 });
+    expect(headlineStat({ comments: 2 })).toBeUndefined();
+    expect(headlineStat(undefined)).toBeUndefined();
+  });
+
+  it("writes counts the short way, one decimal at most, always in Latin digits", () => {
+    expect(compactCount(1_200_345, "en")).toBe("1.2M");
+    expect(compactCount(45_000, "en")).toBe("45K");
+    expect(compactCount(999, "en")).toBe("999");
+    expect(compactCount(0, "en")).toBe("0");
+    // Arabic words, Latin digits (the space before the word is a no-break one).
+    expect(compactCount(1_200_345, "ar")).toMatch(/^1\.2\sمليون$/);
+    expect(compactCount(45_000, "ar")).toMatch(/^45\sألف$/);
+    expect(compactCount(999, "ar")).toBe("999");
+    expect(compactCount(0, "ar")).toBe("0");
+    // Pinned, not left to the browser: even a locale that asks for Arabic-Indic digits (what some older
+    // browsers print for plain "ar") gets Latin ones.
+    const arabicDigits = "ar-u-nu-arab";
+    expect(new Intl.NumberFormat(arabicDigits, { notation: "compact" }).format(45_000)).toMatch(
+      /^٤٥\sألف$/,
+    );
+    expect(compactCount(45_000, arabicDigits as Lang)).toMatch(/^45\sألف$/);
+    expect(compactCount(1_200_345, arabicDigits as Lang)).toMatch(/^1\.2\sمليون$/);
+  });
+
+  it("carries stats from a YouTube video to its card, and never into a saved reference", () => {
+    const item = itemFromYoutube({
+      videoId: "v",
+      title: "T",
+      channel: "C",
+      description: "",
+      thumb: "",
+      url: "https://www.youtube.com/watch?v=v",
+      stats: { views: 1200, likes: 45 },
+    });
+    expect(item.stats).toEqual({ views: 1200, likes: 45 });
+    const ref = refFromItem(item);
+    expect(ref).toEqual({
+      platform: "yt",
+      handle: "C",
+      title: "T",
+      url: "https://www.youtube.com/watch?v=v",
+    });
+    expect("stats" in itemFromRef(ref)).toBe(false);
   });
 });

@@ -3,8 +3,8 @@
 import { useState, type ReactNode } from "react";
 import type { RefPlatform } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
-import type { ResearchItem } from "@/lib/research";
-import { scoutOembed, type ScoutConfig } from "@/lib/scoutClient";
+import { compactCount, headlineStat, type ResearchItem } from "@/lib/research";
+import { scoutOembed, type ScoutConfig, type Stats } from "@/lib/scoutClient";
 import { useScoutConfig } from "./useScout";
 
 /** Platform glyph and label used on chips, tabs and placeholder tiles. */
@@ -59,8 +59,9 @@ function useThumb(item: ResearchItem): { thumb?: string; onError: () => void } {
  * One research result (build plan 1.15), shared by Discover, the skill sheet's Research panel and the saved
  * references list. Full mode: a 16:9 media frame (YouTube fills it; TikTok / Instagram show a 9:16 poster
  * on a blurred copy of itself; a pixel tile with the platform glyph when there's no thumbnail or it stops
- * loading), platform chip, @handle, a two-line title, a two-line expandable snippet, the caller's action
- * and "open ↗". Compact mode: one row with a small thumbnail, title, handle and a ✕.
+ * loading), platform chip, @handle, the views or likes when the source gave them, a two-line title, a
+ * two-line expandable snippet, the caller's action and "open ↗". Compact mode: one row with a small
+ * thumbnail, title, handle and a ✕ (saved references keep no counts).
  */
 export default function ResultCard({
   item,
@@ -109,6 +110,7 @@ function FullCard({ item, action }: { item: ResearchItem; action?: ReactNode }) 
           <span className="text-muted min-w-0 flex-1 truncate text-xs" dir="ltr">
             {item.handle}
           </span>
+          {item.stats && <StatsChip stats={item.stats} />}
         </div>
         <a
           href={item.url}
@@ -154,6 +156,33 @@ function FullCard({ item, action }: { item: ResearchItem; action?: ReactNode }) 
         </div>
       </div>
     </li>
+  );
+}
+
+/**
+ * How far the post went, the short way: "👁 1.2M" (views) when known, else "❤️ 45K" (likes). The raw counts
+ * ride along as data attributes; screen readers get the sentence ("1.2M views").
+ */
+function StatsChip({ stats }: { stats: Stats }) {
+  const { t, lang } = useT();
+  const stat = headlineStat(stats);
+  if (!stat) return null;
+  const n = compactCount(stat.value, lang);
+  const label = t(stat.kind === "views" ? "research.views" : "research.likes", { n });
+  return (
+    <span
+      className="px-chip shrink-0 text-[10px]"
+      title={label}
+      data-testid="result-stats"
+      data-kind={stat.kind}
+      data-views={stats.views}
+      data-likes={stats.likes}
+    >
+      <span aria-hidden>
+        {stat.kind === "views" ? "👁" : "❤️"} {n}
+      </span>
+      <span className="sr-only">{label}</span>
+    </span>
   );
 }
 

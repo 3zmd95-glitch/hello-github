@@ -13,6 +13,7 @@ import {
 import {
   AudienceAskSchema,
   BadgeAwardSchema,
+  CustomGenreSchema,
   DEFAULT_AVATAR,
   DemographicSchema,
   EMPTY_SOCIAL_SYNC,
@@ -99,6 +100,7 @@ import {
   type NextPost,
 } from "@/lib/social";
 import { flowState } from "@/lib/flow";
+import { customGenreId, isGenreNameTaken } from "@/lib/genres";
 import { focusActive as focusActiveOf, stoppedEarly, type FocusActive } from "@/lib/focus";
 import {
   FREEZE_REWARD_ID,
@@ -217,6 +219,9 @@ export const PersistedStateSchema = z.object({
   /* 📈 Trend Radar (round 30, planning/tools/08-trends.md). */
   /** The last `GET /trends` feed the app read from the Worker, plus the ids the owner dismissed. */
   trends: TrendsStateSchema.default(EMPTY_TRENDS),
+  /* 🎬 Edit genres (round 31). */
+  /** Genres the owner added in Settings, in the order added; the built-in ones live in data/genres. */
+  customGenres: z.array(CustomGenreSchema).default([]),
 });
 export type PersistedState = z.infer<typeof PersistedStateSchema>;
 
@@ -416,6 +421,16 @@ export interface StoreActions {
   /** Back to the empty slice (feed and dismissed ids). */
   clearTrends(): void;
 
+  /* 🎬 Edit genres (round 31). */
+  /**
+   * Add an owner genre: `name` and `query` (the search words, used for both languages) are trimmed and their
+   * spaces collapsed; the id comes from customGenreId(name). No-op when either is blank or a genre with that
+   * normalized name exists already (a custom one, or a built-in one in Arabic or English).
+   */
+  addCustomGenre(name: string, query: string): void;
+  /** Drop an owner genre by id. No-op for an unknown id (built-in genres cannot be removed). */
+  removeCustomGenre(id: string): void;
+
   completeQuest(skillId: string, quest: QuestType, proofUrl?: string, now?: Date): CompleteResult;
   uncompleteQuest(skillId: string, quest: QuestType): void;
   addMicroAction(text: LText, now?: Date): MicroResult;
@@ -496,6 +511,7 @@ const initialData = (): PersistedState => ({
   socialSeedApplied: "",
   socialSync: { ...EMPTY_SOCIAL_SYNC },
   trends: { ...EMPTY_TRENDS, items: [], sources: [], dismissed: [] },
+  customGenres: [],
 });
 
 const newId = (): string =>
@@ -545,6 +561,7 @@ const pick = (s: PersistedState): PersistedState => ({
   socialSeedApplied: s.socialSeedApplied,
   socialSync: s.socialSync,
   trends: s.trends,
+  customGenres: s.customGenres,
 });
 
 /** Localize without importing lib/i18n (which imports this store). */
@@ -1439,6 +1456,21 @@ export const useStore = create<StoreState>()(
 
       clearTrends() {
         set({ trends: { ...EMPTY_TRENDS, items: [], sources: [], dismissed: [] } });
+      },
+
+      addCustomGenre(name, query) {
+        const clean = (text: string) => text.trim().replace(/\s+/g, " ");
+        const genre = { id: customGenreId(name), name: clean(name), query: clean(query) };
+        if (!genre.name || !genre.query) return;
+        const s = get();
+        if (isGenreNameTaken(genre.name, s.customGenres)) return;
+        set({ customGenres: [...s.customGenres, CustomGenreSchema.parse(genre)] });
+      },
+
+      removeCustomGenre(id) {
+        const s = get();
+        if (!s.customGenres.some((g) => g.id === id)) return;
+        set({ customGenres: s.customGenres.filter((g) => g.id !== id) });
       },
 
       exportState(now = new Date()) {

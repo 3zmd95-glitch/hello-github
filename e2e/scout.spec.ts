@@ -13,6 +13,9 @@ const PNG = Buffer.from(
 );
 
 // Worker results; the stub answers a one-platform request with that platform's results, up to `max`.
+// They carry `stats` the way the Worker sends them (round 31): likes read off the TikTok page, views from
+// YouTube, nothing for the Instagram reel. By popularity (views, else likes x 10): the Arabic TikTok
+// (450,000), the first TikTok (12,000), the YouTube video (5,400), then the reel (unknown).
 const RESULTS = [
   {
     platform: "tt",
@@ -21,6 +24,7 @@ const RESULTS = [
     snippet: "Two shots, one motion: the cleanest match cut trick in CapCut.",
     url: "https://www.tiktok.com/@editor.sam/video/7300000000000000001",
     thumb: `${WORKER}/thumb/tt1.png`,
+    stats: { likes: 1200, comments: 56 },
   },
   {
     platform: "ig",
@@ -36,6 +40,7 @@ const RESULTS = [
     snippet: "",
     url: "https://www.youtube.com/watch?v=abc123XYZ",
     thumb: `${WORKER}/thumb/yt1.png`,
+    stats: { views: 5400, likes: 310, comments: 12 },
   },
   {
     platform: "tt",
@@ -43,6 +48,7 @@ const RESULTS = [
     title: "ماتش كت بالجوال",
     snippet: "",
     url: "https://www.tiktok.com/@cuts.hijazi/video/7300000000000000002",
+    stats: { likes: 45000 },
   },
 ];
 
@@ -124,6 +130,66 @@ async function stubWorker(page: Page, opts: StubOpts = {}): Promise<Calls> {
       });
     }
     return json({ error: "not_found" }, 404);
+  });
+  return calls;
+}
+
+interface YoutubeCalls {
+  /** `search.list` requests (100 quota units each). */
+  search: URL[];
+  /**
+   * `videos.list?part=statistics` requests (1 unit): one after every search that found something, and one
+   * more each time a cached search whose statistics call had failed is asked for again.
+   */
+  stats: URL[];
+}
+
+interface FakeVideo {
+  title: string;
+  views?: number;
+  likes?: number;
+}
+
+/**
+ * Stub the YouTube Data API. `search.list` answers with `videos` (by video id, in that order whatever the
+ * `order` asked); `videos.list` with their statistics, as strings like the real API, or with a 500 when
+ * `statsDown` (read on every request, so a test can bring the statistics back). Returns the live request
+ * lists.
+ */
+async function stubYoutube(
+  page: Page,
+  videos: Record<string, FakeVideo>,
+  opts: { statsDown?: boolean } = {},
+): Promise<YoutubeCalls> {
+  const calls: YoutubeCalls = { search: [], stats: [] };
+  await page.route("https://www.googleapis.com/**", (route) => {
+    const url = new URL(route.request().url());
+    const json = (body: unknown, status = 200) =>
+      route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+    if (url.pathname.endsWith("/videos")) {
+      calls.stats.push(url);
+      if (opts.statsDown) return json({ error: { errors: [{ reason: "backendError" }] } }, 500);
+      return json({
+        items: Object.entries(videos).map(([id, v]) => ({
+          id,
+          statistics: {
+            ...(v.views === undefined ? {} : { viewCount: String(v.views) }),
+            ...(v.likes === undefined ? {} : { likeCount: String(v.likes) }),
+          },
+        })),
+      });
+    }
+    calls.search.push(url);
+    return json({
+      items: Object.entries(videos).map(([id, v]) => ({
+        id: { videoId: id },
+        snippet: {
+          title: v.title,
+          channelTitle: "API Channel",
+          thumbnails: { medium: { url: `${WORKER}/thumb/api.png` } },
+        },
+      })),
+    });
   });
   return calls;
 }
@@ -291,26 +357,7 @@ test("tabs switch sources: YouTube goes to the Data API when a key exists, the r
   await page.getByTestId("apikey-youtube-input").fill("AIzaFAKE1234567890");
   await page.getByTestId("apikey-youtube-input").press("Enter");
 
-  const ytRequests: URL[] = [];
-  await page.route("https://www.googleapis.com/**", (route) => {
-    ytRequests.push(new URL(route.request().url()));
-    return route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        items: [
-          {
-            id: { videoId: "apiVid1" },
-            snippet: {
-              title: "From the YouTube API",
-              channelTitle: "API Channel",
-              thumbnails: { medium: { url: `${WORKER}/thumb/api.png` } },
-            },
-          },
-        ],
-      }),
-    });
-  });
+  const yt = await stubYoutube(page, { apiVid1: { title: "From the YouTube API", views: 1234 } });
 
   await page.goto("/discover/");
   await page.getByTestId("discover-topic").fill("match cut");
@@ -321,15 +368,19 @@ test("tabs switch sources: YouTube goes to the Data API when a key exists, the r
   await expect(card(page, "tt").first()).toBeVisible();
   await expect(card(page, "ig")).toBeVisible();
   expect(calls.bodies.map((b) => b.platforms).sort()).toEqual([["ig"], ["tt"]]);
-  expect(ytRequests).toHaveLength(1);
+  expect(yt.search).toHaveLength(1);
   await expect(card(page, "yt")).not.toContainText("Match cuts explained");
+  // One statistics call (1 quota unit) came after the search; the card shows the views it brought.
+  expect(yt.stats).toHaveLength(1);
+  await expect(card(page, "yt").getByTestId("result-stats")).toHaveAttribute("data-views", "1234");
 
   // YouTube tab: API only (cached), no Worker call.
   await page.getByTestId("tab-yt").click();
   await expect(card(page, "yt")).toContainText("From the YouTube API");
   await expect(card(page, "tt")).toHaveCount(0);
   expect(calls.bodies).toHaveLength(2);
-  expect(ytRequests).toHaveLength(1);
+  expect(yt.search).toHaveLength(1);
+  expect(yt.stats).toHaveLength(1);
 
   // Instagram tab: All's Instagram request, from the cache.
   await page.getByTestId("tab-ig").click();
@@ -527,4 +578,356 @@ test("an expired TikTok thumbnail is swapped for a fresh one from oEmbed, asked 
   await tt.scrollIntoViewIfNeeded(); // (thumbnails load lazily)
   await expect(tt.getByTestId("result-thumb")).toHaveAttribute("src", `${WORKER}/thumb/oembed.png`);
   expect(calls.oembed).toBe(1);
+});
+
+/* ---------- 🎬 edit genres and the "Most popular" sort (round 31) ---------- */
+
+// The main queries of two built-in genres (planning/data/genres.json).
+const CARS_AR = "ايديت سيارات";
+const CARS_EN = "car edit";
+const FOOD_AR = "مونتاج أكل";
+
+/** The texts the Worker was asked for, in order. */
+const asked = (calls: Calls) => calls.bodies.map((b) => b.q);
+const titles = (page: Page) => page.getByTestId("result-title");
+const genreOn = (page: Page) => page.getByTestId("genres-row");
+
+test("edit genre: a chip alone searches the genre's own words, in the search language", async ({
+  page,
+}) => {
+  const calls = await stubWorker(page);
+  await connectWorker(page);
+  await page.goto("/discover/");
+  // One platform, so every search is exactly one Worker request.
+  await page.getByTestId("tab-tt").click();
+
+  // The row offers every built-in genre without wrapping: the tabs stay in view, the page never scrolls
+  // sideways (the row itself does).
+  await expect(page.locator('[data-testid="genres-chips"] [data-testid^="genre-"]')).toHaveCount(
+    12,
+  );
+  await expect(page.getByTestId("tab-all")).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+
+  // No topic typed: the chip is the whole search, in Arabic (the search language of an Arabic dashboard).
+  await page.getByTestId("genre-cars").click();
+  await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "true");
+  await expect(genreOn(page)).toHaveAttribute("data-genre", "cars");
+  await expect(card(page, "tt").first()).toBeVisible();
+  expect(calls.bodies).toEqual([
+    { q: CARS_AR, platforms: ["tt"], lang: "ar", max: 10, thumbs: true },
+  ]);
+  // The topic box stays empty and a genre alone is never remembered as a recent topic.
+  await expect(page.getByTestId("discover-topic")).toHaveValue("");
+  await expect(page.getByTestId("discover-recent-topic")).toHaveCount(0);
+  await expect(page.getByTestId("research-start")).toHaveCount(0);
+
+  // The "open on platform" links search the same words; the Instagram hashtag is the genre's own.
+  await expect(page.getByTestId("research-link-tt")).toHaveAttribute(
+    "href",
+    `https://www.tiktok.com/search?q=${encodeURIComponent(CARS_AR)}`,
+  );
+  await expect(page.getByTestId("research-link-ig-hashtag")).toHaveAttribute(
+    "href",
+    "https://www.instagram.com/explore/tags/caredit/",
+  );
+
+  // EN as the search language: the genre's English words.
+  await page.getByTestId("research-lang-en").click();
+  await expect.poll(() => calls.bodies.length).toBe(2);
+  expect(calls.bodies[1]).toMatchObject({ q: CARS_EN, platforms: ["tt"], lang: "en" });
+  await expect(page.getByTestId("research-link-yt")).toHaveAttribute("href", /car%20edit$/);
+
+  // A chip at the far end of the row is reachable too (the row scrolls to it).
+  await page.getByTestId("genre-gym").click();
+  await expect(page.getByTestId("genre-gym")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => calls.bodies.length).toBe(3);
+  expect(asked(calls)[2]).toBe("gym edit");
+});
+
+test("edit genre: a topic and a genre are searched together, and only the topic is remembered", async ({
+  page,
+}) => {
+  const calls = await stubWorker(page);
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await page.getByTestId("tab-tt").click();
+
+  // Typed but not submitted: the chip commits it as the topic, then searches topic + genre.
+  await page.getByTestId("discover-topic").fill("drift");
+  await page.getByTestId("genre-cars").click();
+  await expect(card(page, "tt").first()).toBeVisible();
+  expect(asked(calls)).toEqual([`drift ${CARS_AR}`]);
+  await expect(page.getByTestId("discover-topic")).toHaveValue("drift");
+  await expect(page.getByTestId("discover-recent-topic")).toHaveText(["drift"]);
+  await expect(page.getByTestId("research-link-tt")).toHaveAttribute(
+    "href",
+    `https://www.tiktok.com/search?q=${encodeURIComponent(`drift ${CARS_AR}`)}`,
+  );
+  // With a topic, the hashtag stays the topic's own.
+  await expect(page.getByTestId("research-link-ig-hashtag")).toHaveAttribute(
+    "href",
+    "https://www.instagram.com/explore/tags/drift/",
+  );
+
+  // Another genre replaces the first one.
+  await page.getByTestId("genre-food").click();
+  await expect(page.getByTestId("genre-food")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => calls.bodies.length).toBe(2);
+  expect(asked(calls)[1]).toBe(`drift ${FOOD_AR}`);
+
+  // A new topic keeps the genre; the program name still goes last.
+  await search(page, "night");
+  await expect.poll(() => calls.bodies.length).toBe(3);
+  expect(asked(calls)[2]).toBe(`night ${FOOD_AR}`);
+  await page.getByTestId("discover-program").selectOption("davinci");
+  await expect.poll(() => calls.bodies.length).toBe(4);
+  expect(asked(calls)[3]).toBe(`night ${FOOD_AR} DaVinci Resolve`);
+  // Recent topics hold the typed topics only, never the genre's words.
+  await expect(page.getByTestId("discover-recent-topic")).toHaveText(["night", "drift"]);
+});
+
+test("edit genre: tapping the active chip (or the ✕) clears it", async ({ page }) => {
+  const calls = await stubWorker(page);
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await page.getByTestId("tab-tt").click();
+  const ttLink = page.getByTestId("research-link-tt");
+  const plain = "https://www.tiktok.com/search?q=match%20cut";
+
+  await search(page);
+  await expect(card(page, "tt").first()).toBeVisible();
+  await expect(page.getByTestId("genres-clear")).toHaveCount(0);
+
+  await page.getByTestId("genre-cars").click();
+  await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => calls.bodies.length).toBe(2);
+  expect(asked(calls)).toEqual(["match cut", `match cut ${CARS_AR}`]);
+
+  // The same chip again: no genre, and the topic alone is searched (served from the cache, no credit).
+  await page.getByTestId("genre-cars").click();
+  await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "false");
+  await expect(genreOn(page)).toHaveAttribute("data-genre", "");
+  await expect(ttLink).toHaveAttribute("href", plain);
+  await expect(card(page, "tt").first()).toBeVisible();
+  expect(calls.search).toBe(2);
+
+  // The ✕ at the end of the row does the same, and only shows while a genre is on.
+  await page.getByTestId("genre-anime").click();
+  await expect(page.getByTestId("genre-anime")).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => calls.bodies.length).toBe(3);
+  await page.getByTestId("genres-clear").click();
+  await expect(page.getByTestId("genre-anime")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("genres-clear")).toHaveCount(0);
+  await expect(ttLink).toHaveAttribute("href", plain);
+  expect(calls.search).toBe(3);
+
+  // A genre with no topic, cleared: nothing is left to search.
+  await search(page, "");
+  await page.getByTestId("genre-cars").click();
+  await expect.poll(() => calls.bodies.length).toBe(4);
+  expect(asked(calls)[3]).toBe(CARS_AR);
+  await page.getByTestId("genre-cars").click();
+  await expect(page.getByTestId("research-start")).toBeVisible();
+  await expect(page.getByTestId("result-card")).toHaveCount(0);
+  expect(calls.search).toBe(4);
+});
+
+test("Most popular: cards are ordered by their stats, and each shows its views or likes", async ({
+  page,
+}) => {
+  const calls = await stubWorker(page);
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await search(page);
+
+  // Best match (the default): the order the sources gave, platforms interleaved.
+  await expect(titles(page)).toHaveText([
+    "Match cuts explained",
+    "Match cut in 10 seconds",
+    "Match cut reel",
+    "ماتش كت بالجوال",
+  ]);
+
+  // The stats chip: views when known (YouTube), else likes (TikTok), nothing without numbers (the reel).
+  const stats = (platform: string, text: string) =>
+    card(page, platform).filter({ hasText: text }).getByTestId("result-stats");
+  const ytStats = stats("yt", "Match cuts explained");
+  await expect(ytStats).toHaveAttribute("data-views", "5400");
+  await expect(ytStats).toHaveAttribute("data-likes", "310");
+  await expect(ytStats).toHaveAttribute("data-kind", "views");
+  await expect(ytStats).toContainText("👁");
+  const ttStats = stats("tt", "Match cut in 10 seconds");
+  await expect(ttStats).toHaveAttribute("data-likes", "1200");
+  await expect(ttStats).not.toHaveAttribute("data-views");
+  await expect(ttStats).toHaveAttribute("data-kind", "likes");
+  await expect(ttStats).toContainText("❤️");
+  await expect(stats("tt", "ماتش كت بالجوال")).toHaveAttribute("data-likes", "45000");
+  await expect(card(page, "ig").getByTestId("result-stats")).toHaveCount(0);
+  await expect(page.getByTestId("popular-note")).toHaveCount(0);
+
+  // Most popular: highest first (views, else likes x 10), the card without numbers last. Sorting is
+  // local: no new Worker request, no credit.
+  await openFilters(page);
+  await expect(page.getByTestId("filter-sort-relevance")).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("filter-sort-popular").click();
+  await expect(page.getByTestId("filter-sort-popular")).toHaveAttribute("aria-pressed", "true");
+  await expect(titles(page)).toHaveText([
+    "ماتش كت بالجوال",
+    "Match cut in 10 seconds",
+    "Match cuts explained",
+    "Match cut reel",
+  ]);
+  expect(calls.search).toBe(3);
+  await expect(page.getByTestId("scout-usage")).toHaveAttribute("data-count", "3");
+  await expect(page.getByTestId("popular-note")).toHaveCount(0);
+  // It counts as an active filter on the phone's Filters button.
+  if (await page.getByTestId("filters-toggle").isVisible()) {
+    await expect(page.getByTestId("filters-count")).toHaveText("1");
+  }
+  // The badges count the same cards in any order.
+  await expect(page.getByTestId("tab-all")).toHaveAttribute("data-count", "4");
+
+  // One platform: its own cards by popularity.
+  await page.getByTestId("tab-tt").click();
+  await expect(titles(page)).toHaveText(["ماتش كت بالجوال", "Match cut in 10 seconds"]);
+
+  // No numbers on any shown card (the Instagram reel): a line says why the order did not change.
+  await page.getByTestId("tab-ig").click();
+  await expect(card(page, "ig")).toBeVisible();
+  await expect(page.getByTestId("popular-note")).toBeVisible();
+  expect(calls.search).toBe(3);
+
+  // Back to best match: the first order again, and no note.
+  await page.getByTestId("filter-sort-relevance").click();
+  await expect(page.getByTestId("popular-note")).toHaveCount(0);
+  await page.getByTestId("tab-all").click();
+  await expect(titles(page)).toHaveText([
+    "Match cuts explained",
+    "Match cut in 10 seconds",
+    "Match cut reel",
+    "ماتش كت بالجوال",
+  ]);
+});
+
+/** Save a (fake) YouTube Data API key in Settings; call right after connectWorker. */
+async function addYoutubeKey(page: Page): Promise<void> {
+  await page.getByTestId("apikey-youtube-input").fill("AIzaFAKE1234567890");
+  await page.getByTestId("apikey-youtube-input").press("Enter");
+  await expect(page.getByTestId("apikey-youtube-status")).toHaveText("محفوظ"); // "Set"
+}
+
+const VIDEOS: Record<string, FakeVideo> = {
+  quiet: { title: "Quiet one", views: 900, likes: 40 },
+  big: { title: "Big one", views: 2_500_000 },
+  hidden: { title: "No numbers" },
+};
+
+test("Most popular with a YouTube key: the API is asked by view count, and its statistics fill the cards", async ({
+  page,
+}) => {
+  const calls = await stubWorker(page);
+  await connectWorker(page);
+  await addYoutubeKey(page);
+  const yt = await stubYoutube(page, VIDEOS);
+
+  await page.goto("/discover/");
+  await page.getByTestId("tab-yt").click();
+  await page.getByTestId("genre-cars").click();
+  await expect(titles(page)).toHaveText(["Quiet one", "Big one", "No numbers"]);
+
+  // Best match: the same request as before the sort existed (no `order`), then ONE statistics call.
+  expect(yt.search).toHaveLength(1);
+  expect(yt.search[0].searchParams.get("q")).toBe(CARS_AR);
+  expect(yt.search[0].searchParams.has("order")).toBe(false);
+  expect(yt.stats).toHaveLength(1);
+  expect(yt.stats[0].pathname).toBe("/youtube/v3/videos");
+  expect(yt.stats[0].searchParams.get("part")).toBe("statistics");
+  expect(yt.stats[0].searchParams.get("id")).toBe("quiet,big,hidden");
+  const big = card(page, "yt").filter({ hasText: "Big one" }).getByTestId("result-stats");
+  await expect(big).toHaveAttribute("data-views", "2500000");
+  await expect(big).toContainText("👁");
+  await expect(
+    card(page, "yt").filter({ hasText: "No numbers" }).getByTestId("result-stats"),
+  ).toHaveCount(0);
+
+  // Most popular: a search of its own with order=viewCount, shown highest first.
+  await openFilters(page);
+  await page.getByTestId("filter-sort-popular").click();
+  await expect.poll(() => yt.search.length).toBe(2);
+  expect(yt.search[1].searchParams.get("order")).toBe("viewCount");
+  expect(yt.search[1].searchParams.get("q")).toBe(CARS_AR);
+  await expect(titles(page)).toHaveText(["Big one", "Quiet one", "No numbers"]);
+  expect(yt.stats).toHaveLength(2);
+  await expect(page.getByTestId("tab-yt")).toHaveAttribute("data-count", "3");
+
+  // Back and forth: both answers are cached for the session.
+  await page.getByTestId("filter-sort-relevance").click();
+  await expect(titles(page)).toHaveText(["Quiet one", "Big one", "No numbers"]);
+  await page.getByTestId("filter-sort-popular").click();
+  await expect(titles(page)).toHaveText(["Big one", "Quiet one", "No numbers"]);
+  expect(yt.search).toHaveLength(2);
+  expect(yt.stats).toHaveLength(2);
+  // The Worker was never asked for YouTube.
+  expect(calls.search).toBe(0);
+});
+
+test("YouTube statistics failing: the videos still show, without numbers; Search again brings the numbers back without a second search", async ({
+  page,
+}) => {
+  await stubWorker(page);
+  await connectWorker(page);
+  await addYoutubeKey(page);
+  const api = { statsDown: true };
+  const yt = await stubYoutube(page, VIDEOS, api);
+
+  await page.goto("/discover/");
+  await page.getByTestId("tab-yt").click();
+  await search(page, "car edit");
+  await expect(titles(page)).toHaveText(["Quiet one", "Big one", "No numbers"]);
+  expect(yt.stats).toHaveLength(1);
+  await expect(page.getByTestId("yt-error")).toHaveCount(0);
+  await expect(page.getByTestId("result-stats")).toHaveCount(0);
+
+  await openFilters(page);
+  await page.getByTestId("filter-sort-popular").click();
+  await expect.poll(() => yt.search.length).toBe(2);
+  await expect(page.getByTestId("popular-note")).toBeVisible();
+  // No numbers to sort by: the order YouTube gave.
+  await expect(titles(page)).toHaveText(["Quiet one", "Big one", "No numbers"]);
+  expect(yt.stats).toHaveLength(2);
+
+  // The statistics answer again. Search again: the cached videos get their numbers from ONE statistics
+  // call (1 quota unit); the search itself (100) is never repeated.
+  api.statsDown = false;
+  await page.getByTestId("research-search").click();
+  const big = card(page, "yt").filter({ hasText: "Big one" }).getByTestId("result-stats");
+  await expect(big).toHaveAttribute("data-views", "2500000");
+  await expect(page.getByTestId("popular-note")).toHaveCount(0);
+  await expect(titles(page)).toHaveText(["Big one", "Quiet one", "No numbers"]);
+  expect(yt.search).toHaveLength(2);
+  expect(yt.stats).toHaveLength(3);
+  expect(yt.stats[2].searchParams.get("part")).toBe("statistics");
+  expect(yt.stats[2].searchParams.get("id")).toBe("quiet,big,hidden");
+
+  // The numbers are cached with the videos now: pressing it again asks for nothing.
+  await page.getByTestId("research-search").click();
+  await expect(big).toHaveAttribute("data-views", "2500000");
+  expect(yt.search).toHaveLength(2);
+  expect(yt.stats).toHaveLength(3);
+
+  // The other cached search (Best match) gets its numbers the same way when it is shown again.
+  await page.getByTestId("filter-sort-relevance").click();
+  await expect(titles(page)).toHaveText(["Quiet one", "Big one", "No numbers"]);
+  await expect(big).toHaveAttribute("data-views", "2500000");
+  await expect(
+    card(page, "yt").filter({ hasText: "No numbers" }).getByTestId("result-stats"),
+  ).toHaveCount(0);
+  expect(yt.search).toHaveLength(2);
+  expect(yt.stats).toHaveLength(4);
+  await expect(page.getByTestId("yt-error")).toHaveCount(0);
 });

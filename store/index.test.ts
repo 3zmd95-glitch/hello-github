@@ -1827,3 +1827,124 @@ describe("trend radar: persisted feed and dismissals (round 30)", () => {
     expect(S().trends.items).toHaveLength(2);
   });
 });
+
+describe("edit genres: the owner's custom genres (round 31)", () => {
+  const drift = { id: "custom-drift", name: "Drift", query: "drift edit" };
+  const oldExport = {
+    app: "3z-prod",
+    version: 1,
+    exportedAt: "2026-09-28T00:00:00.000Z",
+    state: {
+      settings: DEFAULT_SETTINGS,
+      completions: [],
+      xpEvents: [],
+      microActions: [],
+      freezesUsedOn: [],
+      reviews: [],
+    },
+  };
+
+  it("starts empty; addCustomGenre trims, collapses spaces and ids the genre from its name", () => {
+    expect(S().customGenres).toEqual([]);
+    S().addCustomGenre("  Drift ", "  drift   edit ");
+    S().addCustomGenre("هجولة", "ايديت هجولة");
+    S().addCustomGenre("Street  Food", "street food reel");
+    expect(S().customGenres).toEqual([
+      drift,
+      { id: "custom-هجولة", name: "هجولة", query: "ايديت هجولة" },
+      { id: "custom-street-food", name: "Street Food", query: "street food reel" },
+    ]);
+  });
+
+  it("ignores a blank name or blank search words", () => {
+    S().addCustomGenre("", "drift edit");
+    S().addCustomGenre("   ", "drift edit");
+    S().addCustomGenre("Drift", "");
+    S().addCustomGenre("Drift", "  \n ");
+    expect(S().customGenres).toEqual([]);
+  });
+
+  it("ignores a name that exists already (normalized), custom or built in", () => {
+    S().addCustomGenre("Drift", "drift edit");
+    S().addCustomGenre(" drift ", "other words");
+    S().addCustomGenre("DRIFT!", "other words");
+    expect(S().customGenres).toEqual([drift]);
+    // The built-in genres keep their names, in Arabic and in English.
+    S().addCustomGenre("Cars", "my cars");
+    S().addCustomGenre("سيارات", "سياراتي");
+    expect(S().customGenres).toEqual([drift]);
+    // A different name with the same words is its own genre.
+    S().addCustomGenre("Drifting", "drift edit");
+    expect(S().customGenres.map((g) => g.id)).toEqual(["custom-drift", "custom-drifting"]);
+  });
+
+  it("removeCustomGenre drops by id, no-ops for an unknown or built-in id, and frees the name", () => {
+    S().addCustomGenre("Drift", "drift edit");
+    S().addCustomGenre("Falconry", "falcon cinematic");
+    const before = S().customGenres;
+    S().removeCustomGenre("cars");
+    S().removeCustomGenre("custom-nope");
+    S().removeCustomGenre("");
+    expect(S().customGenres).toBe(before);
+    S().removeCustomGenre("custom-drift");
+    expect(S().customGenres.map((g) => g.id)).toEqual(["custom-falconry"]);
+    S().addCustomGenre("Drift", "drift cinematic");
+    expect(S().customGenres.at(-1)).toEqual({ ...drift, query: "drift cinematic" });
+  });
+
+  it("round-trips through export/import and the reset clears it", () => {
+    S().addCustomGenre("Drift", "drift edit");
+    S().addCustomGenre("هجولة", "ايديت هجولة");
+    const json = S().exportState();
+    const before = JSON.parse(json).state;
+    expect(before.customGenres).toHaveLength(2);
+    S().reset();
+    expect(S().customGenres).toEqual([]);
+    S().importState(json);
+    expect(S().customGenres).toEqual(before.customGenres);
+    expect(JSON.parse(S().exportState()).state).toEqual(before);
+  });
+
+  it("imports an export from before the genres and fills an empty list", () => {
+    S().addCustomGenre("Drift", "drift edit");
+    S().importState(JSON.stringify(oldExport));
+    expect(S().customGenres).toEqual([]);
+    S().addCustomGenre("Drift", "drift edit");
+    expect(S().customGenres).toEqual([drift]);
+  });
+
+  it("rejects an import with an invalid custom genre without changing state", () => {
+    S().addCustomGenre("Drift", "drift edit");
+    const bad = { ...oldExport, state: { ...oldExport.state, customGenres: [{ id: "x" }] } };
+    expect(() => S().importState(JSON.stringify(bad))).toThrow();
+    const blank = {
+      ...oldExport,
+      state: { ...oldExport.state, customGenres: [{ id: "custom-x", name: "", query: "q" }] },
+    };
+    expect(() => S().importState(JSON.stringify(blank))).toThrow();
+    expect(S().customGenres).toEqual([drift]);
+  });
+
+  it("hydrates an old localStorage save without `customGenres` and keeps it usable", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { settings: DEFAULT_SETTINGS, completions: [] }, version: 1 }),
+    );
+    await hydrateStore();
+    expect(S().customGenres).toEqual([]);
+    S().addCustomGenre("Drift", "drift edit");
+    expect(S().customGenres).toEqual([drift]);
+  });
+
+  it("persists to localStorage and rehydrates", async () => {
+    S().addCustomGenre("Drift", "drift edit");
+    const raw = localStorage.getItem(STORAGE_KEY);
+    expect(JSON.parse(raw!).state.customGenres).toEqual([drift]);
+    expect(JSON.parse(raw!).state.addCustomGenre).toBeUndefined();
+
+    useStore.setState({ customGenres: [] }); // simulate a fresh page (also persists)
+    localStorage.setItem(STORAGE_KEY, raw!);
+    await hydrateStore();
+    expect(S().customGenres).toEqual([drift]);
+  });
+});
