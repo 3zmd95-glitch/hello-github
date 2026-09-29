@@ -4,7 +4,8 @@ import { freshState } from "./helpers";
 // 🚀 Auto-posting: the post popup's Auto-post tab and the hub, against a fake Scout Worker at
 // https://scout.test stubbed with page.route (same pattern as accounts.spec.ts). Round 30 adds the
 // "Post to" networks row of the new-post form, trimmed captions, the manual-network warning, the
-// auto-resync after an edit and "Post now" on a post without a day.
+// auto-resync after an edit and "Post now" on a post without a day; later in round 30 (A7), the jobs the
+// Worker holds that no post in this browser follows (sent from another device), with their cancel.
 const WORKER = "https://scout.test";
 const TOKEN = "fake-scout-token";
 
@@ -33,7 +34,12 @@ interface Fake {
   status: Record<string, Record<string, unknown>>;
   jobs: Map<string, Job>;
   posted: Job[];
+  deleted: string[];
   connects: { platform: string; publish?: boolean }[];
+  /** Job-list reads answered so far (counted when the list is taken, before any hold). */
+  listed: number;
+  /** While set, a job-list read keeps the list it took and answers only once this settles. */
+  holdList: Promise<void> | null;
 }
 
 async function stubWorker(page: Page): Promise<Fake> {
@@ -46,7 +52,10 @@ async function stubWorker(page: Page): Promise<Fake> {
     },
     jobs: new Map(),
     posted: [],
+    deleted: [],
     connects: [],
+    listed: 0,
+    holdList: null,
   };
   await page.route(`${WORKER}/**`, async (route) => {
     const req = route.request();
@@ -81,12 +90,22 @@ async function stubWorker(page: Page): Promise<Fake> {
       return json({ job });
     }
     if (url.pathname === "/social/publish" && req.method() === "GET") {
-      return json({ jobs: [...fake.jobs.values()] });
+      const jobs = [...fake.jobs.values()];
+      fake.listed += 1;
+      if (fake.holdList) await fake.holdList;
+      return json({ jobs });
     }
     const run = /^\/social\/publish\/([^/]+)\/run$/.exec(url.pathname);
     if (run && req.method() === "POST") {
       const job = fake.jobs.get(decodeURIComponent(run[1]));
       return job ? json({ job }) : json({ error: "not_found" }, 404);
+    }
+    const del = /^\/social\/publish\/([^/]+)$/.exec(url.pathname);
+    if (del && req.method() === "DELETE") {
+      const id = decodeURIComponent(del[1]);
+      fake.deleted.push(id);
+      fake.jobs.delete(id);
+      return json({ ok: true });
     }
     const connect = /^\/social\/connect\/([a-z]+)$/.exec(url.pathname);
     if (connect && req.method() === "POST") {
@@ -342,4 +361,190 @@ test("without a Worker the tab says where to set it up and the form has no netwo
   await expect(page.getByTestId("autopost-schedule")).toBeDisabled();
   await page.goto("/social/automations/");
   await expect(page.getByTestId("autopost-empty")).toBeVisible();
+});
+
+test("a job sent from another device shows in the hub with its networks and can be canceled", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  // Scheduled from the phone: no post in this browser has these ids.
+  fake.jobs.set("phone-job-1", {
+    id: "phone-job-1",
+    scheduledAt: new Date(Date.now() + 3 * 3_600_000).toISOString(),
+    media: { url: "https://cdn.example/grade.mp4", kind: "video" },
+    targets: {
+      instagram: {
+        caption: "Grading on the phone\n\n#davinci",
+        state: "published",
+        attempts: 0,
+        permalink: "https://www.instagram.com/reel/PHONE/",
+      },
+      youtube: {
+        caption: "Grading on the phone",
+        title: "Color grade on the phone",
+        privacy: "public",
+        state: "queued",
+        attempts: 0,
+      },
+    },
+  });
+  // Already out everywhere: removed without a question.
+  fake.jobs.set("phone-job-0", {
+    id: "phone-job-0",
+    scheduledAt: new Date(Date.now() - 86_400_000).toISOString(),
+    targets: { threads: { caption: "An older text post", state: "published", attempts: 0 } },
+  });
+  await connectWorker(page);
+
+  // The hub reads the Worker when it opens: both jobs show under "from another device", soonest first.
+  await page.goto("/social/automations/");
+  const section = page.getByTestId("autopost-remote");
+  await expect(section).toBeVisible();
+  const rows = section.getByTestId("autopost-remote-job");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toHaveAttribute("data-job", "phone-job-0");
+  const row = section.locator('[data-testid="autopost-remote-job"][data-job="phone-job-1"]');
+  await expect(row).toHaveAttribute("data-active", "true");
+  await expect(row.getByTestId("autopost-remote-label")).toHaveText("Color grade on the phone");
+  await expect(row.locator('li[data-platform="youtube"]')).toHaveAttribute("data-state", "queued");
+  await expect(row.locator('[data-platform="instagram"] a')).toHaveAttribute(
+    "href",
+    "https://www.instagram.com/reel/PHONE/",
+  );
+  // The time reads like every other row of the hub (no extra time-zone note).
+  await expect(row).not.toContainText("بتوقيت");
+  const old = section.locator('[data-testid="autopost-remote-job"][data-job="phone-job-0"]');
+  await expect(old).toHaveAttribute("data-active", "false");
+  await expect(old.getByTestId("autopost-remote-label")).toHaveText("An older text post");
+  await expect(old.getByTestId("autopost-remote-label")).toHaveAttribute(
+    "title",
+    "An older text post",
+  );
+  // Each row's button names its job, so a screen reader tells the rows apart.
+  await expect(row.getByTestId("autopost-remote-cancel")).toHaveText("❌ إلغاء الجدولة");
+  await expect(row.getByTestId("autopost-remote-cancel")).toHaveAccessibleName(
+    "إلغاء جدولة «Color grade on the phone»",
+  );
+  await expect(old.getByTestId("autopost-remote-cancel")).toHaveAccessibleName(
+    "شيل «An older text post» من الـ Worker",
+  );
+  expect(await fitsViewport(page)).toBe(true);
+
+  // 🔄 reads the list again: a job the phone adds meanwhile shows up.
+  fake.jobs.set("phone-job-2", {
+    id: "phone-job-2",
+    scheduledAt: new Date(Date.now() + 86_400_000).toISOString(),
+    targets: { threads: { caption: "Tomorrow from the phone", state: "queued", attempts: 0 } },
+  });
+  await page.getByTestId("autopost-refresh").click();
+  await expect(rows).toHaveCount(3);
+
+  // Canceling a job with a network still waiting asks first, naming the job, with a "keep it" that cannot
+  // read as "yes"; backing out (Escape or the button) keeps it.
+  await row.getByTestId("autopost-remote-cancel").click();
+  const dialog = page.getByTestId("confirm-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("توقّف الجدولة دي؟");
+  await expect(dialog).toContainText("«Color grade on the phone»");
+  await expect(dialog.getByTestId("confirm-cancel")).toHaveText("خلّيها");
+  await expect(dialog.getByTestId("confirm-ok")).toHaveText("أيوه، وقّفها");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await row.getByTestId("autopost-remote-cancel").click();
+  await dialog.getByTestId("confirm-cancel").click();
+  await expect(dialog).toHaveCount(0);
+  expect(fake.deleted).toEqual([]);
+  await row.getByTestId("autopost-remote-cancel").click();
+  await page.getByTestId("confirm-ok").click();
+  await expect.poll(() => fake.deleted).toEqual(["phone-job-1"]);
+  await expect(row).toHaveCount(0);
+
+  // A finished job goes without a question.
+  await old.getByTestId("autopost-remote-cancel").click();
+  await expect.poll(() => fake.deleted).toEqual(["phone-job-1", "phone-job-0"]);
+  await expect(dialog).toHaveCount(0);
+  await expect(rows).toHaveCount(1);
+
+  // The last one canceled while a read is still out (it took the list before the cancel): the section goes
+  // away, and that read's late answer does not bring the job back.
+  let release = () => {};
+  fake.holdList = new Promise<void>((r) => (release = r));
+  const listedBefore = fake.listed;
+  await page.getByTestId("autopost-refresh").click();
+  await expect.poll(() => fake.listed).toBe(listedBefore + 1);
+  await rows.first().getByTestId("autopost-remote-cancel").click();
+  await page.getByTestId("confirm-ok").click();
+  await expect(page.getByTestId("autopost-remote")).toHaveCount(0);
+  expect(fake.deleted).toEqual(["phone-job-1", "phone-job-0", "phone-job-2"]);
+  fake.holdList = null;
+  release();
+  await expect(page.getByTestId("autopost-refresh")).toBeEnabled();
+  await expect(page.getByTestId("autopost-remote")).toHaveCount(0);
+});
+
+test("the hub drops another Worker's jobs once the settings point elsewhere", async ({ page }) => {
+  const fake = await stubWorker(page);
+  fake.jobs.set("phone-job-1", {
+    id: "phone-job-1",
+    scheduledAt: new Date(Date.now() + 3 * 3_600_000).toISOString(),
+    targets: { threads: { caption: "From the phone", state: "queued", attempts: 0 } },
+  });
+  await connectWorker(page);
+  await page.goto("/social/automations/");
+  await expect(page.getByTestId("autopost-remote-job")).toHaveCount(1);
+
+  // Another token (another Worker as far as the hub knows), changed without leaving the app: the jobs read
+  // with the old one are not shown (nor canceled) against it.
+  await page.getByRole("link", { name: "الإعدادات", exact: true }).first().click();
+  await page.getByTestId("apikey-scoutToken-input").fill("another-token");
+  await page.getByTestId("apikey-scoutToken-input").press("Enter");
+  await page.goBack();
+  await expect(page.getByTestId("autopost-screen")).toBeVisible();
+  await expect(page.getByTestId("autopost-refresh")).toBeEnabled();
+  await expect(page.getByTestId("autopost-remote")).toHaveCount(0);
+
+  // No Worker at all: nothing from the Worker either.
+  await page.getByRole("link", { name: "الإعدادات", exact: true }).first().click();
+  await page.getByTestId("apikey-scoutToken-input").fill("");
+  await page.getByTestId("apikey-scoutToken-input").press("Enter");
+  await page.goBack();
+  await expect(page.getByTestId("autopost-screen")).toBeVisible();
+  await expect(page.getByTestId("autopost-remote")).toHaveCount(0);
+  expect(fake.deleted).toEqual([]);
+});
+
+test("a job sent from this browser keeps its Worker id and is not listed as another device's", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  await connectWorker(page);
+  await page.goto("/social/calendar/");
+  await page.getByTestId("calendar-new").click();
+  await page.getByTestId("post-platform-instagram").click();
+  await page.getByTestId("post-title").fill("Local one");
+  await page.getByTestId("post-day").fill(riyadhDay());
+  await page.getByTestId("post-save").click();
+  const card = page.getByTestId("post-card").first();
+  const id = (await card.getAttribute("data-post")) ?? "";
+  await card.locator("button").first().click();
+  await page.getByTestId("post-caption").fill("From the laptop");
+  await page.getByTestId("post-tab-autopost").click();
+  await page.getByTestId("autopost-media-url").fill("https://cdn.example/clip.mp4");
+  await page.getByTestId("autopost-schedule").click();
+  await expect(page.getByTestId("autopost-notice")).toBeVisible();
+  expect(fake.posted).toHaveLength(1);
+  const jobId = await page.evaluate((postId) => {
+    const saved = JSON.parse(localStorage.getItem("3z-prod-v1") ?? "{}") as {
+      state?: { posts?: { id: string; autoPost?: { jobId?: string } }[] };
+    };
+    return saved.state?.posts?.find((p) => p.id === postId)?.autoPost?.jobId ?? null;
+  }, id);
+  expect(jobId).toBe(id);
+  await page.getByTestId("post-close").click();
+
+  await page.goto("/social/automations/");
+  await expect(page.locator(`[data-testid="autopost-job"][data-post="${id}"]`)).toBeVisible();
+  await page.getByTestId("autopost-refresh").click();
+  await expect(page.getByTestId("autopost-refresh")).toBeEnabled();
+  await expect(page.getByTestId("autopost-remote")).toHaveCount(0);
 });

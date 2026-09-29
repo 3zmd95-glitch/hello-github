@@ -11,7 +11,6 @@ import {
 import { bestTime, PLATFORM_META } from "./social";
 import type { ScoutConfig } from "./scoutClient";
 import {
-  accountState,
   call,
   isSocialPlatform,
   post as jsonPost,
@@ -28,7 +27,9 @@ import {
  * results into the store.
  *
  * Round 30 (planning/tools/08-trends.md, planning/handovers/mastermind-2026-09-28.md · A2 + A6): captions
- * that fit, manual networks warn instead of blocking, "reconnect in N days".
+ * that fit, manual networks warn instead of blocking, "reconnect in N days". Later in round 30 (A6 + A7): the
+ * X / Snapchat step that is due now ({@link dueManualPosts}) and the Worker jobs no local post follows
+ * ({@link remoteJobs}, labeled by {@link parseJob}).
  */
 
 /** Networks without a free publishing API: they stay a reminder with copy + open the app. */
@@ -283,6 +284,38 @@ export interface WorkerJob {
   id: string;
   scheduledAt: string;
   results: Partial<Record<SocialPlatform, AutoPostResult>>;
+  /**
+   * A short name for the job, from its targets (the YouTube title, else the first caption's first line), so
+   * the hub can show a job this browser has no post for (A7). Absent when the targets carry no text.
+   */
+  label?: string;
+}
+
+/** The longest {@link WorkerJob.label}, ellipsis included. */
+export const JOB_LABEL_MAX = 80;
+
+/** The first non-empty line of a target's text field, whitespace collapsed ("" when there is none). */
+function firstLine(target: unknown, field: "title" | "caption"): string {
+  const v = (target as Record<string, unknown> | null)?.[field];
+  if (typeof v !== "string") return "";
+  const line = v.split("\n").find((l) => l.trim()) ?? "";
+  return line.replace(/\s+/g, " ").trim();
+}
+
+/** The job's label: the YouTube title first, else the first caption with text, cut to fit. */
+function jobLabel(targets: Record<string, unknown>): string | undefined {
+  let label = firstLine(targets.youtube, "title");
+  for (const t of Object.values(targets)) {
+    if (label) break;
+    label = firstLine(t, "caption");
+  }
+  if (!label) return undefined;
+  if (label.length <= JOB_LABEL_MAX) return label;
+  let cut = JOB_LABEL_MAX - ELLIPSIS.length;
+  // Never split an emoji (a surrogate pair): back off before its high half.
+  const code = label.charCodeAt(cut - 1);
+  if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
+  return label.slice(0, cut).trimEnd() + ELLIPSIS;
 }
 
 /** Keep the jobs and per-platform results we understand; drop anything else the Worker sends. */
@@ -301,7 +334,9 @@ export function parseJob(raw: unknown): WorkerJob | null {
   const j = raw as { id?: unknown; scheduledAt?: unknown; targets?: unknown };
   if (typeof j?.id !== "string" || typeof j.scheduledAt !== "string") return null;
   const results: WorkerJob["results"] = {};
-  if (j.targets && typeof j.targets === "object") {
+  let label: string | undefined;
+  if (j.targets && typeof j.targets === "object" && !Array.isArray(j.targets)) {
+    label = jobLabel(j.targets as Record<string, unknown>);
     for (const [p, t] of Object.entries(j.targets as Record<string, unknown>)) {
       if (!isSocialPlatform(p)) continue;
       const parsed = AutoPostResultSchema.safeParse(t);
@@ -313,7 +348,42 @@ export function parseJob(raw: unknown): WorkerJob | null {
       }
     }
   }
-  return { id: j.id, scheduledAt: j.scheduledAt, results };
+  return { id: j.id, scheduledAt: j.scheduledAt, results, ...(label ? { label } : {}) };
+}
+
+/** The Worker still has work on this job: some network is queued or processing (cancel asks first). */
+export function jobActive(job: WorkerJob): boolean {
+  return Object.values(job.results).some((r) => r?.state === "queued" || r?.state === "processing");
+}
+
+/**
+ * The Worker's jobs this browser does not follow: no local post sent it (matched by the post id, which is
+ * the job id, or by `autoPost.jobId`). A job scheduled from the phone, or from before the browser was
+ * cleared, shows in the hub from these so it can still be seen and canceled (A7). Soonest first. The ids in
+ * `skip` are left out too (jobs just canceled, which a read that started before the cancel still lists).
+ */
+export function remoteJobs(
+  jobs: readonly WorkerJob[],
+  posts: readonly Post[],
+  skip: ReadonlySet<string> = new Set(),
+): WorkerJob[] {
+  const followed = new Set<string>(skip);
+  for (const p of posts) {
+    if (!p.autoPost?.sentAt) continue;
+    followed.add(p.id);
+    if (p.autoPost.jobId) followed.add(p.autoPost.jobId);
+  }
+  return jobs
+    .filter((j) => !followed.has(j.id))
+    .sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt));
+}
+
+/**
+ * Which Worker a list of jobs was read from (its url and token as one string), so a list read from one
+ * Worker is never shown or acted on once the settings point at another. Null without a Worker.
+ */
+export function workerKey(config: ScoutConfig | null): string | null {
+  return config ? JSON.stringify([config.url, config.token]) : null;
 }
 
 /** Overall state of a post's auto-post, for chips and the hub list. */
@@ -366,6 +436,24 @@ export function pendingManualPlatforms(post: Post): Platform[] {
   return post.autoPost.platforms.filter(isManual);
 }
 
+/**
+ * Posts whose X / Snapchat step is due now: not posted yet, with a manual network in the auto-post, and a
+ * scheduled moment ({@link scheduledAtOf}) at or before `now`. A post without a day is never due. Earliest
+ * first. The Studio inbox shows one row per post (A6).
+ */
+export function dueManualPosts(posts: readonly Post[], now: Date | number = Date.now()): Post[] {
+  const nowMs = typeof now === "number" ? now : now.getTime();
+  const due: { post: Post; at: number }[] = [];
+  for (const post of posts) {
+    if (!pendingManualPlatforms(post).length) continue;
+    const iso = scheduledAtOf(post);
+    if (!iso) continue;
+    const at = Date.parse(iso);
+    if (at <= nowMs) due.push({ post, at });
+  }
+  return due.sort((a, b) => a.at - b.at).map((d) => d.post);
+}
+
 /* ---------- token expiry ---------- */
 
 /** Warn this many days before a token the Worker cannot renew runs out. */
@@ -389,7 +477,9 @@ export function reconnectInDays(
   now: number = Date.now(),
 ): number | null {
   if (!RECONNECT_PLATFORMS.has(platform) || !status?.tokenExpiresAt) return null;
-  if (accountState(status, platform) !== "connected") return null;
+  // `accountState` without its expiry check, which reads the real clock: the expiry is measured against
+  // `now` just below, so the result does not depend on when it runs.
+  if (!status.configured || !status.connected || status.lastError) return null;
   const exp = Date.parse(status.tokenExpiresAt);
   if (Number.isNaN(exp) || exp <= now) return null;
   const days = Math.floor((exp - now) / 86_400_000);

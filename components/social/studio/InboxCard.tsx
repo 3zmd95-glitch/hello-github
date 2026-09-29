@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { PLATFORMS } from "@/lib/domain";
 import { latestSnapshot } from "@/lib/growth";
 import { useT, type MessageKey, type Vars } from "@/lib/i18n";
+import { dueManualPosts, pendingManualPlatforms } from "@/lib/publish";
 import { PLATFORM_META, overduePosts } from "@/lib/social";
 import { addDays } from "@/lib/streak";
 import { visibleTrends } from "@/lib/trends";
@@ -21,19 +22,21 @@ const NEW_TREND_DAYS = 7;
 
 interface InboxRow {
   id: string;
-  kind: "overdue" | "unscheduled" | "ideas" | "trends" | "stale";
+  kind: "overdue" | "unscheduled" | "manual" | "ideas" | "trends" | "stale";
   key: MessageKey;
   vars?: Vars;
   href: string;
 }
 
 /**
- * Things needing attention, rules-based (no server): overdue posts, edited posts without a day, ideas
- * waiting in the bank, new trend rows this week, platforms with an account whose numbers are older than
- * two weeks.
+ * Things needing attention, rules-based (no server): overdue posts, edited posts without a day, posts whose
+ * X / Snapchat step is due now (round 30 · A6: the owner posts those by hand, one row per post, opening the
+ * hub's "Post these yourself" list), ideas waiting in the bank, new trend rows this week, platforms with an
+ * account whose numbers are older than two weeks. A post with a due manual row gets no overdue row: the
+ * manual row stands in for it, so the post is counted once.
  */
 export default function InboxCard({ today, now }: { today: string; now: number }) {
-  const { t, L } = useT();
+  const { t, L, lang } = useT();
   const posts = useStore((s) => s.posts);
   const ideas = useStore((s) => s.ideas);
   const trends = useStore((s) => s.trends);
@@ -42,14 +45,17 @@ export default function InboxCard({ today, now }: { today: string; now: number }
 
   const rows = useMemo<InboxRow[]>(() => {
     const out: InboxRow[] = [];
+    const dueManual = dueManualPosts(posts, now);
+    const manualIds = new Set(dueManual.map((p) => p.id));
     for (const p of overduePosts(posts, now))
-      out.push({
-        id: `overdue:${p.id}`,
-        kind: "overdue",
-        key: "social.studio.inboxOverdue",
-        vars: { name: p.title },
-        href: calendarPostHref(p.id),
-      });
+      if (!manualIds.has(p.id))
+        out.push({
+          id: `overdue:${p.id}`,
+          kind: "overdue",
+          key: "social.studio.inboxOverdue",
+          vars: { name: p.title },
+          href: calendarPostHref(p.id),
+        });
     for (const p of posts)
       if (p.stage === "edited" && p.plannedDay === null)
         out.push({
@@ -59,6 +65,18 @@ export default function InboxCard({ today, now }: { today: string; now: number }
           vars: { name: p.title },
           href: calendarPostHref(p.id),
         });
+    const list = new Intl.ListFormat(lang === "ar" ? "ar" : "en", { type: "conjunction" });
+    for (const p of dueManual)
+      out.push({
+        id: `manual:${p.id}`,
+        kind: "manual",
+        key: "social.studio.inboxManual",
+        vars: {
+          name: p.title,
+          platforms: list.format(pendingManualPlatforms(p).map((m) => L(PLATFORM_META[m].name))),
+        },
+        href: "/social/automations/#manual",
+      });
     const waiting = ideasCount({ ideas, posts });
     if (waiting > 0)
       out.push({
@@ -94,7 +112,7 @@ export default function InboxCard({ today, now }: { today: string; now: number }
         });
     }
     return out;
-  }, [posts, ideas, trends, snapshots, accounts, today, now, L]);
+  }, [posts, ideas, trends, snapshots, accounts, today, now, L, lang]);
 
   return (
     <section

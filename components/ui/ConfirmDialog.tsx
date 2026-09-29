@@ -3,11 +3,15 @@
 import { useEffect, useRef } from "react";
 import { useT } from "@/lib/i18n";
 
-/** Small pixel confirm dialog (Esc / backdrop / Cancel close it). */
+/**
+ * Small pixel confirm dialog (Esc / backdrop / Cancel close it). `cancelLabel` renames the dismiss button when
+ * a plain "Cancel" could read as the action itself (canceling a schedule).
+ */
 export default function ConfirmDialog({
   title,
   body,
   confirmLabel,
+  cancelLabel,
   danger,
   onConfirm,
   onCancel,
@@ -15,6 +19,7 @@ export default function ConfirmDialog({
   title: string;
   body: string;
   confirmLabel?: string;
+  cancelLabel?: string;
   danger?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -55,8 +60,14 @@ export default function ConfirmDialog({
           {body}
         </p>
         <div className="flex flex-wrap justify-end gap-2">
-          <button ref={cancelRef} type="button" className="px-btn px-btn-ghost" onClick={onCancel}>
-            {t("common.cancel")}
+          <button
+            ref={cancelRef}
+            type="button"
+            className="px-btn px-btn-ghost"
+            onClick={onCancel}
+            data-testid="confirm-cancel"
+          >
+            {cancelLabel ?? t("common.cancel")}
           </button>
           <button
             type="button"

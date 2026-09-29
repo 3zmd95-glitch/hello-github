@@ -99,6 +99,13 @@ run claims its jobs (`lockUntil`) before calling any platform, so the cron and "
    and TikTok refresh by themselves).
 7. The hub lists posts with a pending X / Snapchat step under "📋 عليك تنشرها بنفسك" (copy caption + open app). Copy that promised a
    phone reminder now describes what the calendar and hub show; a push notification stays a Sprint 3 item.
+8. Once that step is due (its planned time has passed), the **Studio inbox** shows one row for the post ("📋 … جاهز لـ إكس، انشره
+   بنفسك الحين", `dueManualPosts` in `lib/publish.ts`) that links to the hub's manual list (`/social/automations/#manual`). The row
+   replaces the post's overdue row, so a post is never counted twice.
+9. The hub also follows **jobs that no local post knows about** (scheduled from another device, or from before this browser was
+   cleared): "📡 … من جهاز ثاني" shows each with its label (YouTube title or first caption line), time, per-network states and links,
+   and a cancel that asks first while something is still queued. The list is read when the hub opens and on 🔄, and belongs to the
+   Worker it was read from (switching the Worker URL or token clears it). A sent post now also stores `autoPost.jobId`.
 
 ## Later
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
 import type { Post, SocialStatusMap } from "@/lib/domain";
 import type { MessageKey } from "@/lib/i18n";
@@ -15,7 +15,9 @@ import {
   publishProblems,
   publishRun,
   publishSchedule,
+  remoteJobs,
   scheduledAtOf,
+  workerKey,
   type Problem,
   type WorkerJob,
 } from "@/lib/publish";
@@ -32,7 +34,9 @@ import { useSocialSync } from "./useSocialSync";
  *
  * Round 30 (planning/handovers/mastermind-2026-09-28.md · A2): a sent job follows caption / day / time edits
  * by itself (`usePublishAutoResync`), "Post now" gives a day-less post today's day, and the watcher reads the
- * results again when the tab comes back into view.
+ * results again when the tab comes back into view. A7: a sent post keeps the Worker's job id
+ * (`autoPost.jobId`), and the jobs no local post follows (sent from another device, or before this browser
+ * was cleared) are kept from the last read for the hub (`useWorkerOnlyJobs`), where they can be canceled.
  */
 
 /** While a job is still running, check back this often (the cron itself ticks every five minutes). */
@@ -83,6 +87,7 @@ async function sendJob(
     autoPost: {
       ...auto,
       sentAt: now.toISOString(),
+      jobId: r.job.id,
       results: r.job.results,
       checkedAt: now.toISOString(),
     },
@@ -172,7 +177,7 @@ export function usePublish() {
     if (!r.ok) return done({ ok: false, error: socialSyncErrorMessageKey(r.error) });
     const a = autoPostOf(post);
     useStore.getState().updatePost(post.id, {
-      autoPost: { ...a, sentAt: undefined, results: {}, checkedAt: undefined },
+      autoPost: { ...a, sentAt: undefined, jobId: undefined, results: {}, checkedAt: undefined },
     });
     return done({ ok: true });
   };
@@ -232,22 +237,116 @@ export function usePublishAutoResync(post: Post): void {
   }, [key, post.id]);
 }
 
-let refreshing: Promise<void> | null = null;
+/* ---------- jobs no local post follows (A7) ---------- */
 
-/** `GET /social/publish` and apply every job to its post. Concurrent callers share one request. */
-export function refreshPublishJobs(markPosted: (id: string, url: string) => void): Promise<void> {
-  if (refreshing) return refreshing;
+const NO_JOBS: readonly WorkerJob[] = [];
+
+/**
+ * The Worker-only jobs from the last successful read, with the Worker they were read from
+ * ({@link workerKey}); module-level: one list for every screen. A list read from another Worker (the
+ * settings changed since) is never shown or acted on.
+ */
+type WorkerOnly = { key: string | null; jobs: readonly WorkerJob[] };
+const NO_WORKER_ONLY: WorkerOnly = { key: null, jobs: NO_JOBS };
+let workerOnly: WorkerOnly = NO_WORKER_ONLY;
+const workerOnlyListeners = new Set<() => void>();
+
+function setWorkerOnly(key: string | null, jobs: readonly WorkerJob[]): void {
+  workerOnly = { key, jobs };
+  for (const l of workerOnlyListeners) l();
+}
+
+function subscribeWorkerOnly(listener: () => void): () => void {
+  workerOnlyListeners.add(listener);
+  return () => workerOnlyListeners.delete(listener);
+}
+
+/**
+ * Orders reads and cancels. A job canceled from the hub keeps the step at which its `DELETE` came back, so a
+ * read that started before then (and may still list it) leaves it out; a read that starts later shows it
+ * again only if the job was really sent anew under the same id.
+ */
+let step = 0;
+const canceledJobs = new Map<string, number>();
+
+/** The ids a read that started at `startedAt` must leave out: the jobs canceled after it started. */
+function canceledSince(startedAt: number): Set<string> {
+  const out = new Set<string>();
+  for (const [id, at] of canceledJobs) if (at > startedAt) out.add(id);
+  return out;
+}
+
+/**
+ * The Worker's jobs that no post in this browser follows, from the last read (`refreshPublishJobs`) of the
+ * Worker the settings point at now (none for another Worker, or without one), filtered again against the
+ * posts so a job this browser sends meanwhile drops out at once.
+ */
+export function useWorkerOnlyJobs(): WorkerJob[] {
+  const cache = useSyncExternalStore(
+    subscribeWorkerOnly,
+    () => workerOnly,
+    () => NO_WORKER_ONLY,
+  );
+  const key = useStore((s) =>
+    workerKey(scoutConfig(s.settings.apiKeys.scoutUrl, s.settings.apiKeys.scoutToken)),
+  );
+  const posts = useStore((s) => s.posts);
+  return useMemo(
+    () => (key !== null && cache.key === key ? remoteJobs(cache.jobs, posts) : []),
+    [cache, key, posts],
+  );
+}
+
+/** `DELETE` a job this browser has no post for; on success it leaves the Worker-only list. */
+export async function cancelWorkerJob(id: string): Promise<PublishActionResult> {
   const cfg = config();
-  if (!cfg) return Promise.resolve();
-  refreshing = (async () => {
+  if (!cfg) return { ok: false, error: "settings.accounts.err.unconfigured" };
+  const key = workerKey(cfg);
+  const r = await publishCancel(cfg, id);
+  if (!r.ok) return { ok: false, error: socialSyncErrorMessageKey(r.error) };
+  canceledJobs.set(id, ++step);
+  if (workerOnly.key === key) {
+    setWorkerOnly(
+      key,
+      workerOnly.jobs.filter((j) => j.id !== id),
+    );
+  }
+  return { ok: true };
+}
+
+let refreshing: { key: string; promise: Promise<readonly WorkerJob[]> } | null = null;
+
+/**
+ * `GET /social/publish`: apply every job to its post, and keep (and return) the jobs no local post follows
+ * for the hub. Concurrent callers for the same Worker share one request; a failed read keeps the last list.
+ * Without a Worker the list is cleared; a reply that comes back after the settings moved to another Worker
+ * is dropped (neither applied nor kept), and jobs canceled while the read was out stay out.
+ */
+export function refreshPublishJobs(
+  markPosted: (id: string, url: string) => void,
+): Promise<readonly WorkerJob[]> {
+  const cfg = config();
+  const key = workerKey(cfg);
+  if (!cfg || key === null) {
+    if (workerOnly.key !== null) setWorkerOnly(null, NO_JOBS);
+    return Promise.resolve(NO_JOBS);
+  }
+  if (refreshing?.key === key) return refreshing.promise;
+  const startedAt = ++step;
+  const promise: Promise<readonly WorkerJob[]> = (async () => {
     const r = await publishList(cfg);
-    if (!r.ok) return;
+    // The settings point at another Worker now (or none): this list is not theirs.
+    if (workerKey(config()) !== key) return NO_JOBS;
+    if (!r.ok) return workerOnly.key === key ? workerOnly.jobs : NO_JOBS;
     const now = new Date();
     for (const job of r.jobs) applyJob(job, markPosted, now);
+    setWorkerOnly(key, remoteJobs(r.jobs, useStore.getState().posts, canceledSince(startedAt)));
+    return workerOnly.jobs;
   })().finally(() => {
-    refreshing = null;
+    if (refreshing?.promise === promise) refreshing = null;
   });
-  return refreshing;
+  refreshing = { key, promise };
+  return promise;
 }
 
 /**

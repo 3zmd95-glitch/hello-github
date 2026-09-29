@@ -16,9 +16,13 @@ import {
   captionWarnings,
   defaultCaption,
   directMediaUrl,
+  dueManualPosts,
   ELLIPSIS,
   firstPermalink,
+  JOB_LABEL_MAX,
+  jobActive,
   manualComposeUrl,
+  parseJob,
   parseJobs,
   pendingManualPlatforms,
   publishCancel,
@@ -28,9 +32,11 @@ import {
   publishSchedule,
   reconnectInDays,
   reconnectMessageKey,
+  remoteJobs,
   scheduledAtOf,
   sendCaption,
   trimCaption,
+  workerKey,
 } from "./publish";
 
 const CONFIG = { url: "https://scout.test", token: "tok" };
@@ -309,6 +315,7 @@ describe("results", () => {
       {
         id: "p1",
         scheduledAt: AT,
+        label: "c",
         results: {
           tiktok: { state: "processing" },
           instagram: {
@@ -320,6 +327,86 @@ describe("results", () => {
       },
     ]);
     expect(parseJobs(null)).toEqual([]);
+  });
+
+  it("parseJob labels a job with the YouTube title, else the first caption line, cut to fit", () => {
+    const job = (targets: unknown) => parseJob({ id: "j1", scheduledAt: AT, targets });
+    expect(
+      job({
+        instagram: { caption: "IG caption", state: "queued" },
+        youtube: { caption: "desc", title: "  My   video  ", state: "queued" },
+      })?.label,
+    ).toBe("My video");
+    expect(
+      job({
+        threads: { caption: "\n\n  First line  \n\n#tags", state: "queued" },
+        instagram: { caption: "second", state: "queued" },
+      })?.label,
+    ).toBe("First line");
+    expect(
+      job({ youtube: { title: " ", caption: "From the caption", state: "queued" } })?.label,
+    ).toBe("From the caption");
+    const long = job({ threads: { caption: "a".repeat(200), state: "queued" } })?.label ?? "";
+    expect(long).toHaveLength(JOB_LABEL_MAX);
+    expect(long.endsWith(ELLIPSIS)).toBe(true);
+    // An emoji at the cut is never split in half.
+    const emoji =
+      job({ threads: { caption: "a".repeat(78) + "🎬🎬", state: "queued" } })?.label ?? "";
+    expect(emoji).toBe("a".repeat(78) + ELLIPSIS);
+    // No text, or targets the dashboard does not understand: no label, and the job still parses.
+    expect(job({ tiktok: { state: "queued" } })).toEqual({
+      id: "j1",
+      scheduledAt: AT,
+      results: { tiktok: { state: "queued" } },
+    });
+    expect(job([{ caption: "x" }])).toEqual({ id: "j1", scheduledAt: AT, results: {} });
+    expect(job("nope")).toEqual({ id: "j1", scheduledAt: AT, results: {} });
+    expect(job({ threads: { caption: 5, state: "queued" } })?.label).toBeUndefined();
+  });
+
+  it("jobActive is true while a network is queued or processing", () => {
+    const j = (
+      results: Record<string, { state: "queued" | "processing" | "published" | "failed" }>,
+    ) => ({ id: "j", scheduledAt: AT, results }) as Parameters<typeof jobActive>[0];
+    expect(jobActive(j({ tiktok: { state: "queued" } }))).toBe(true);
+    expect(
+      jobActive(j({ tiktok: { state: "published" }, instagram: { state: "processing" } })),
+    ).toBe(true);
+    expect(jobActive(j({ tiktok: { state: "published" }, instagram: { state: "failed" } }))).toBe(
+      false,
+    );
+    expect(jobActive(j({}))).toBe(false);
+  });
+
+  it("remoteJobs keeps the jobs no local post sent, soonest first", () => {
+    const job = (id: string, scheduledAt: string) => ({ id, scheduledAt, results: {} });
+    const later = job("phone-2", "2026-10-02T18:00:00.000Z");
+    const sooner = job("phone-1", "2026-10-01T18:00:00.000Z");
+    const jobs = [job("p1", AT), later, job("old-job", AT), sooner, job("p3", AT)];
+    const posts = [
+      post({ id: "p1", autoPost: auto({ sentAt: AT }) }),
+      // Followed through its jobId.
+      post({ id: "p2", autoPost: auto({ sentAt: AT, jobId: "old-job" }) }),
+      // Canceled here (no sentAt): the Worker still has it, so it shows as a remote job.
+      post({ id: "p3", autoPost: auto() }),
+    ];
+    expect(remoteJobs(jobs, posts).map((j) => j.id)).toEqual(["p3", "phone-1", "phone-2"]);
+    expect(remoteJobs([], posts)).toEqual([]);
+    // Jobs just canceled from the hub stay out even when a read that was already out still lists them.
+    expect(remoteJobs(jobs, posts, new Set(["phone-1", "p3"])).map((j) => j.id)).toEqual([
+      "phone-2",
+    ]);
+  });
+
+  it("workerKey tells one Worker's job list from another's", () => {
+    expect(workerKey(null)).toBeNull();
+    expect(workerKey(CONFIG)).toBe(workerKey({ ...CONFIG }));
+    expect(workerKey(CONFIG)).not.toBe(workerKey({ ...CONFIG, url: "https://other.test" }));
+    expect(workerKey(CONFIG)).not.toBe(workerKey({ ...CONFIG, token: "tok2" }));
+    // The url and the token never run into each other.
+    expect(workerKey({ url: "https://a.test/x", token: "y" })).not.toBe(
+      workerKey({ url: "https://a.test/", token: "xy" }),
+    );
   });
 
   it("summarizes the per-network states", () => {
@@ -371,6 +458,42 @@ describe("manual networks", () => {
     expect(pendingManualPlatforms(post({ autoPost: a, stage: "posted" }))).toEqual([]);
     expect(pendingManualPlatforms(post())).toEqual([]);
     expect(pendingManualPlatforms(post({ autoPost: auto() }))).toEqual([]);
+  });
+});
+
+describe("dueManualPosts", () => {
+  // 21:00 Riyadh on Oct 1 = 18:00 UTC.
+  const DUE = Date.parse("2026-10-01T18:00:00.000Z");
+  const withX = (over: Partial<Post> = {}) =>
+    post({ autoPost: auto({ platforms: ["tiktok", "x"] }), ...over });
+
+  it("is due at and after the scheduled moment, not before", () => {
+    const p = withX();
+    expect(dueManualPosts([p], DUE - 60_000)).toEqual([]);
+    expect(dueManualPosts([p], DUE)).toEqual([p]);
+    expect(dueManualPosts([p], new Date(DUE + 3_600_000))).toEqual([p]);
+  });
+
+  it("skips posted posts, posts without a day and posts without a manual network", () => {
+    const now = DUE + 86_400_000;
+    expect(dueManualPosts([withX({ stage: "posted" })], now)).toEqual([]);
+    expect(dueManualPosts([withX({ plannedDay: null })], now)).toEqual([]);
+    expect(dueManualPosts([post({ autoPost: auto({ platforms: ["tiktok"] }) })], now)).toEqual([]);
+    expect(dueManualPosts([post()], now)).toEqual([]);
+  });
+
+  it("uses the best time when no time is set, and lists the earliest first", () => {
+    const noTime = withX({ id: "a", plannedTime: null });
+    const at = Date.parse(scheduledAtOf(noTime)!);
+    expect(dueManualPosts([noTime], at - 1)).toEqual([]);
+    expect(dueManualPosts([noTime], at)).toEqual([noTime]);
+    const early = withX({
+      id: "b",
+      plannedDay: "2026-09-30",
+      autoPost: auto({ platforms: ["snapchat"] }),
+    });
+    const late = withX({ id: "c" });
+    expect(dueManualPosts([late, early], DUE).map((p) => p.id)).toEqual(["b", "c"]);
   });
 });
 
