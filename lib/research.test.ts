@@ -1045,6 +1045,17 @@ describe("Most viewed this week (the Trend Radar's rows of a genre, as cards)", 
     );
   });
 
+  it("counts views only when the row's number is views (a scan row's volume counts pages)", () => {
+    expect(
+      itemFromTrend(parsed({ id: "chart", source: "YouTube charts", volume: 900 }))?.stats,
+    ).toEqual({
+      views: 900,
+    });
+    const scan = itemFromTrend(parsed({ id: "scan", source: "Tavily scan", volume: 12 }));
+    expect(scan?.url).toBe("https://www.youtube.com/watch?v=scan");
+    expect(scan?.stats).toBeUndefined();
+  });
+
   it("skips a row with nothing to open, and one that is not a YouTube video", () => {
     expect(itemFromTrend(parsed({ id: "no-url", url: undefined }))).toBeUndefined();
     expect(itemFromTrend(parsed({ id: "blank", url: "  " }))).toBeUndefined();

@@ -25,6 +25,9 @@ import {
   trendsStale,
   upcomingEvents,
   visibleTrends,
+  VOLUME_UNIT,
+  volumeLabelKey,
+  volumeUnit,
 } from "./trends";
 import { fetchTrends } from "./trendsClient";
 
@@ -429,6 +432,89 @@ describe("sourceLabel", () => {
   it("shows an unknown label verbatim, including Object.prototype names", () => {
     expect(sourceLabel("Some new source", dict(ar))).toBe("Some new source");
     expect(sourceLabel("constructor", dict(ar))).toBe("constructor");
+  });
+});
+
+describe("volumeLabelKey (the volume chip names what its number counts)", () => {
+  const at = (source: string, platform: TrendItem["platform"] = "google") => ({ source, platform });
+  const words = (d: Record<string, string>, source: string, platform?: TrendItem["platform"]) => {
+    const key = volumeLabelKey(at(source, platform));
+    return key && d[key].replace("{n}", "105M");
+  };
+
+  it("keeps searches for Google Trends only", () => {
+    expect(volumeLabelKey(at("Google Trends"))).toBe("trends.volume");
+    expect(volumeUnit(at("Google Trends"))).toBe("searches");
+    expect(words(en, "Google Trends")).toBe("105M searches");
+    expect(words(ar, "Google Trends")).toBe("105M بحث");
+  });
+
+  it("calls a YouTube row's number views (the Worker writes the video's view count), charts and search alike", () => {
+    for (const source of ["YouTube charts", "YouTube search"]) {
+      expect(volumeLabelKey(at(source, "youtube")), source).toBe("trends.views");
+      expect(volumeUnit(at(source, "youtube")), source).toBe("views");
+      expect(words(en, source, "youtube")).toBe("105M views");
+      expect(words(ar, source, "youtube")).toBe("105M مشاهدة");
+      expect(words(en, source, "youtube")).not.toContain("searches");
+    }
+  });
+
+  it("calls the Tavily scan's number pages, whichever platform the row's link is on", () => {
+    for (const platform of ["tiktok", "instagram", "youtube", "x"] as const) {
+      expect(volumeLabelKey(at("Tavily scan", platform)), platform).toBe("trends.pages");
+      expect(volumeUnit(at("Tavily scan", platform)), platform).toBe("pages");
+    }
+    expect(words(en, "Tavily scan", "tiktok")).toBe("105M pages");
+    expect(words(ar, "Tavily scan", "tiktok")).toBe("105M صفحة");
+  });
+
+  it("calls trends24.in's number posts", () => {
+    expect(volumeLabelKey(at("trends24.in", "x"))).toBe("trends.posts");
+    expect(volumeUnit(at("trends24.in", "x"))).toBe("posts");
+    expect(words(en, "trends24.in", "x")).toBe("105M posts");
+    expect(words(ar, "trends24.in", "x")).toBe("105M تغريدة");
+  });
+
+  it("has no unit for a source without a volume, an unknown label, or none at all", () => {
+    for (const source of [
+      "kworb.net",
+      "3z calendar",
+      "Some new source",
+      "google trends",
+      "constructor",
+      "toString",
+      "",
+    ]) {
+      expect(volumeLabelKey(at(source, "youtube")), source).toBeUndefined();
+      expect(volumeUnit(at(source, "youtube")), source).toBeUndefined();
+    }
+    const missing = { platform: "youtube" } as Pick<TrendItem, "source" | "platform">;
+    expect(volumeLabelKey(missing)).toBeUndefined();
+    expect(volumeUnit(missing)).toBeUndefined();
+  });
+
+  it("takes a whole feed row, and knows only the Worker's source labels", () => {
+    expect(volumeLabelKey(item({ id: "g" }))).toBe("trends.volume");
+    expect(volumeLabelKey(item({ id: "v", platform: "youtube", source: "YouTube search" }))).toBe(
+      "trends.views",
+    );
+    for (const source of Object.keys(VOLUME_UNIT)) expect(SOURCE_KEY).toHaveProperty([source]);
+  });
+
+  it("says every unit in both languages, with the number, and leaves the searches wording as it was", () => {
+    const keys = new Set(Object.keys(VOLUME_UNIT).map((s) => volumeLabelKey(at(s))!));
+    expect([...keys].sort()).toEqual([
+      "trends.pages",
+      "trends.posts",
+      "trends.views",
+      "trends.volume",
+    ]);
+    for (const key of keys) {
+      expect(ar[key as keyof typeof ar], key).toContain("{n}");
+      expect(en[key as keyof typeof en], key).toContain("{n}");
+    }
+    expect(en["trends.volume"]).toBe("{n} searches");
+    expect(ar["trends.volume"]).toBe("{n} بحث");
   });
 });
 

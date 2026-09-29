@@ -6,7 +6,8 @@ import { freshState } from "./helpers";
 // no-Worker state, where the moments rail and the manual links still render. Round 31 adds the edit genres:
 // feeds whose keyword-scan rows carry a genre id, the genre chip on those rows, which opens Discover on that
 // genre (Discover is the one place for genres: the radar has no genre select), and the ⭐ that a genre's own
-// search words must not give.
+// search words must not give. The volume chip names what its number counts by source (views on YouTube,
+// searches on Google Trends), so a Short's view count is never shown as searches.
 const WORKER = "https://scout.test";
 const TOKEN = "fake-scout-token";
 
@@ -155,6 +156,27 @@ function genreRows() {
       tags: ["drone edit", "short"],
     },
   ];
+}
+
+/**
+ * A Saudi YouTube chart Short with its view count, as the Worker writes it (youtube.ts `ytItems`: `volume` is
+ * the video's `viewCount`): the kind of row that showed "105M searches". Its title matches no niche keyword.
+ */
+function viewsRow() {
+  return {
+    id: "youtube:SA:short105",
+    platform: "youtube",
+    region: "SA",
+    lang: "ar",
+    title: "أقوى شورت هالأسبوع",
+    url: "https://www.youtube.com/shorts/short105",
+    score: 95,
+    volume: 105_000_000,
+    source: "YouTube charts",
+    why: "قناة الاختبار",
+    seenAt: new Date().toISOString(),
+    tags: ["short"],
+  };
 }
 
 interface Fake {
@@ -331,6 +353,47 @@ test("the radar reads the Worker feed: tabs, chips, save, plan, dismiss, and the
   await expect(inboxRow).toBeVisible();
   await expect(inboxRow).toContainText("3");
   await expect(inboxRow).toHaveAttribute("href", "/social/ideas/");
+});
+
+test("a volume chip says what its number counts: views on a YouTube row, searches on a Google one", async ({
+  page,
+}) => {
+  test.slow();
+  const fake = await stubWorker(page, () => feedNow([viewsRow()]));
+  await connectWorker(page);
+
+  await page.goto("/social/ideas/");
+  await expect.poll(() => fake.gets).toBeGreaterThanOrEqual(1);
+
+  // Arabic tab: the two Google rows, the TikTok hashtag and the Saudi Short.
+  const rows = page.getByTestId("trend-row");
+  await expect(rows).toHaveCount(4);
+  const short = page.locator('[data-testid="trend-row"][data-id="youtube:SA:short105"]');
+  const google = page.locator('[data-testid="trend-row"][data-id="google:SA:حساب-المواطن"]');
+  const views = short.getByTestId("trend-volume");
+  const searches = google.getByTestId("trend-volume");
+  await expect(short).toHaveAttribute("data-source", "YouTube charts");
+  await expect(views).toHaveAttribute("data-unit", "views");
+  await expect(views).toHaveText("105M مشاهدة");
+  await expect(views).not.toContainText("بحث");
+  await expect(searches).toHaveAttribute("data-unit", "searches");
+  await expect(searches).toHaveText("500 بحث");
+  // Only the rows that have a volume show one (the Tavily hashtag has none): both Google rows and the Short.
+  await expect(page.getByTestId("trend-volume")).toHaveCount(3);
+  await expect(page.locator('[data-testid="trend-volume"][data-unit="searches"]')).toHaveCount(2);
+  await expect(page.locator('[data-testid="trend-volume"][data-unit="views"]')).toHaveCount(1);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // English UI: the same units in English, on the same Arabic tab.
+  await page.getByTestId("lang-en").click();
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(page.getByTestId("trends-tab-ar")).toHaveAttribute("aria-pressed", "true");
+  await expect(views).toHaveAttribute("data-unit", "views");
+  await expect(views).toHaveText("105M views");
+  await expect(views).not.toContainText("searches");
+  await expect(searches).toHaveAttribute("data-unit", "searches");
+  await expect(searches).toHaveText("500 searches");
+  expect(await fitsViewport(page)).toBe(true);
 });
 
 test("genre rows name their genre in a chip that links to Discover, and the radar has no genre select", async ({

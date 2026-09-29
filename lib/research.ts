@@ -10,7 +10,7 @@ import {
 } from "./domain";
 import { genreHashtag, genreQuery } from "./genres";
 import { parseStats, type Stats } from "./scoutClient";
-import { visibleTrends } from "./trends";
+import { visibleTrends, volumeUnit } from "./trends";
 
 export type { Stats };
 
@@ -766,7 +766,8 @@ export function itemFromTrend(row: TrendItem): ResearchItem | undefined {
   if (detectPlatform(url) !== "yt") return undefined;
   const canonical = canonicalRefUrl("yt", url);
   if (!canonical.startsWith(YT_WATCH)) return undefined;
-  const stats = parseStats({ views: row.volume });
+  // Only a number that counts views becomes views (a scan row's volume counts pages, lib/trends volumeUnit).
+  const stats = volumeUnit(row) === "views" ? parseStats({ views: row.volume }) : undefined;
   return {
     platform: "yt",
     handle: row.why?.trim() ?? "",
