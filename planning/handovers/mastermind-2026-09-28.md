@@ -56,8 +56,8 @@ Backlog, in the order that removes the most work first:
 | A3 | **Media from the phone**: Backblaze B2 (10 GB free, no card) presigned S3 PUT signed by a new Worker route `/upload/sign` (aws4fetch), `/media/<key>` streamed through the Worker so TikTok's URL-prefix check can pass; file picker replaces the URL field; images converted to JPEG ≤ 8 MB on the phone; lifecycle delete after 14 days. If a card ever becomes acceptable, Cloudflare R2 replaces B2 with the same routes | L | B2 account (free), or the R2 decision |
 | A4 | **X through Buffer's free API** (3 channels, 3,000 requests / 30 days; Buffer holds the X relationship, X's own API is pay-per-use with a card): Worker target `x` → Buffer; `MANUAL_PLATFORMS` shrinks to Snapchat | M | a Buffer account + decision |
 | A5 | Instagram **carousel** (2-10 children) and **stories** (`media_type=STORIES`, ≤ 100 MB, 3-60 s) in the Meta container flow; `mediaKind` gains `carousel` / `story` | L | no |
-| A6 ◔ | Token-expiry warning ("reconnect in N days") on Settings and the hub; a Studio inbox row "X / Snapchat caption ready, post it now" at the scheduled time; fix the copy that promises reminders | S | no |
-| A7 ◔ | Worker `jobId` on `autoPost` (schema landed) + hub reconciles `GET /social/publish` by id, so a second device or a cleared browser still sees and cancels jobs | M | no |
+| A6 ✅ | Token-expiry warning ("reconnect in N days") on Settings and the hub; a Studio inbox row "X / Snapchat caption ready, post it now" at the scheduled time; fix the copy that promises reminders | S | no |
+| A7 ✅ | Worker `jobId` on `autoPost` + hub reconciles `GET /social/publish` by id, so a second device or a cleared browser still sees and cancels jobs | M | no |
 | A8 | **Audits**: `/privacy` and `/terms` pages (AR/EN) on the site; YouTube API compliance audit form; TikTok Production app (icon, description, policy URLs, demo video of the composer built from `creator_info` with no defaults, disclosure toggle, confirmation screen); rename the TikTok app "3zProd3z Prod" | S + owner | forms are the owner's |
 | A9 | Snapchat: no viable API (Public Profile API is partner-only; Zernio's Snapchat connect returns `PLATFORM_BETA_RESTRICTED`). Stays manual; re-check monthly | — | — |
 
@@ -129,8 +129,25 @@ Playwright's stability check; `main` fixed that in PR #16 with `reducedMotion: "
 **Branch state**: `main` is at `6d97379` (PR #15 handover, PR #16 e2e reduced motion + DaVinci quest wording); this branch is on
 `8e4d629` and touches none of those files, so a sync with `main` should merge without conflicts.
 
-Still open from Wave 1: the Studio inbox row for a due X / Snapchat step (A6, `InboxCard.tsx`), the hub reconciliation by `jobId` (A7),
-and the first deploy of the Worker (confirms the bundled events JSON and Google / kworb behaviour from Cloudflare egress IPs).
+**Wrap-up (Sep 29, early morning)**: A6 (Studio inbox row for a due X / Snapchat step) and A7 (the hub follows Worker jobs that no
+local post knows about, with cancel) were built, reviewed by two lenses with one skeptic per finding (8 confirmed, 2 refuted), and
+fixed; details in `tools/07-auto-posting.md` → "Round 30 (composer)" items 8-9. Left uncommitted for the owner's OK.
+
+**Search page (Sep 29, owner: "it doesn't show TikTok and Instagram, only YouTube"; "test the search page")**: three testers
+(code review, an exploratory run on phone and desktop against a fake Worker, real Instagram/TikTok result shapes) and one skeptic
+per finding: 25 confirmed (15 distinct), 5 refuted, all fixed and checked. The cause of "only YouTube": the All tab was its own
+single Tavily search capped at 10-15 results, which Tavily fills mostly from youtube.com, and the unopened tabs borrowed their count
+from it (so TikTok / Instagram could read 0). **Decision:** All is now the union of the per-platform searches (same cache keys as the
+tabs), so a new topic costs 2 credits with a YouTube key (3 without) instead of 1, and switching tabs costs nothing. Also fixed:
+Instagram cards now carry the caption and @creator parsed from the page text (were "Instagram" / "instagram.com"), TikTok titles
+lose " | TikTok" and use the oEmbed caption when generic, one post in several URL forms is one card (Worker and app share the same
+canonical rule), Instagram audio pages no longer count as videos, empty answers are cached 10 minutes (was 24 h) and the cache is
+versioned by Worker URL, "Arabic first" reads captions, Search again after an error retries, the ↗ menu closes, a broken YouTube key
+falls back to the Worker, dead TikTok thumbnails refresh, and the usage line says it counts this device. The Instagram / TikTok
+title fixes live in the Worker, so they show after the merge redeploys it.
+
+Still open from Wave 1: the first deploy of the Worker (confirms the bundled events JSON and Google / kworb behaviour from Cloudflare
+egress IPs), and opening the PR (the in-app browser is not signed in to GitHub and `gh` is not installed on this laptop).
 `format:check` fails on this Windows checkout for untouched files because `core.autocrlf` gives them CRLF; it is not one of the five
 gates and CI on Linux is unaffected.
 
