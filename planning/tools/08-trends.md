@@ -127,9 +127,9 @@ a "ليش ترند؟" line from the news snippets, an **upcoming moments** rail 
 ("N ترندات جديدة هذا الأسبوع"). Copy in `messages/trends.{ar,en}.json` (registered in `lib/i18n.ts`), Hijazi first with key parity.
 E2E: `e2e/trends.spec.ts` stubs `GET /trends` on the fake Worker (`https://scout.test`), phone + desktop, no horizontal scroll.
 
-Round 31: the radar has an edit-genre select after the platform chips. It lists only the genres the feed has rows for (names
-from `planning/data/genres.json` and the owner's custom genres, unknown ids shown raw), filters together with the language tab
-and the platform chip, and is hidden while no row carries a genre. Design in `11-discover-genres.md`.
+Round 31: the radar has **no genre filter**; Discover is the one place for edit genres (owner: "I don't want to get confused
+having two places"). A row of a genre names it in a chip, and for a genre the app knows the chip links to
+`/discover/?genre=<id>`. Design in `11-discover-genres.md`.
 
 ### Budgets to respect
 

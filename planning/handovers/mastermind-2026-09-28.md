@@ -165,7 +165,7 @@ lanes with single-owner files, then reviewed (six lenses, one skeptic per findin
 | L1 Data + store + Settings | `planning/data/genres.json`, `GenreSchema` / `CustomGenreSchema` / `TrendItem.genre`, `lib/genres.ts`, persisted `customGenres`, `messages/genres.*`, Settings "🎬 Edit genres" | `lib/domain.ts`, `store/`, `lib/genres.ts`, `data/genres.ts`, `lib/i18n.ts`, `components/settings/`, `e2e/settings.spec.ts` |
 | L2 Discover / Research UI | genre row, topic + genre queries, Sort chips, numbers on cards, `videos.list` statistics, cache v3 | `components/research/`, `lib/research.ts`, `lib/scoutClient.ts`, `messages/{ar,en}.json` (research keys), `e2e/scout.spec.ts`, `e2e/research.spec.ts` |
 | L3 Worker | `parseEngagement`, `enrichYoutubeStats`, genre keywords + daily rotation (cap 18), kept rows, shared statistics ids | `workers/scout/**` |
-| L4 Radar UI | genre select, `TrendFilter.genre` | `components/social/trends/`, `lib/trends.ts`, `messages/trends.*`, `e2e/trends.spec.ts` |
+| L4 Radar UI | genre chip on the rows (the genre select of the first build was removed, see below), `TrendFilter.genre` | `components/social/trends/`, `lib/trends.ts`, `messages/trends.*`, `e2e/trends.spec.ts` |
 
 Decisions taken while building (all recorded in `tools/11-discover-genres.md`): the rotation moves by 18 keywords a day (one a
 day would need 36 days); a custom genre may not reuse a built-in genre's name; a chip tap commits the typed text in the skill
@@ -173,6 +173,11 @@ sheet too; the genre row wraps on wide screens and scrolls sideways on phones.
 
 Review: 9 raw findings, 6 distinct, 4 confirmed and fixed (feed cap 200 → 400 with per-language ranking, the niche ⭐ on genre
 rows, the Settings copy about custom genres, the cached failed statistics call), 2 refuted; each fix re-read by a skeptic.
+
+One place (same day, owner: "I don't want to get confused having two places"): Discover is the one place for genres. Three
+lanes: Discover (the "Most viewed this week" strip from the radar's rows, the `/discover/?genre=<id>` link), radar (select
+removed, the row chip links to Discover), Social menu (a Discover shortcut). From here on every executing agent runs on
+Opus 5.5 (owner's instruction).
 
 Still open: how often TikTok / Instagram descriptions carry their counts (not measured live); custom genres in the radar's
 scan (needs the list sent to the Worker); the six owner questions below.

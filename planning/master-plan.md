@@ -518,7 +518,10 @@ trends and most famous edits by genre"):
   the owner named plus football, coffee, perfume, camping & desert, fashion, gaming, weddings, gym), the owner's own genres in
   Settings, genre chips in Discover and every skill's Research panel, a 🔥 Most popular sort, views / likes on the cards, genre
   keywords in the radar's daily YouTube scan (cap 12 → 18 a day, rotated so every keyword is searched within two days) and a
-  genre select on the radar.
+  genre chip on the radar's rows.
+- **One place** (owner: "I don't want to get confused having two places"): Discover is the one place for genres. The radar
+  has no genre filter; a row's genre chip opens Discover on that genre, where a "📈 Most viewed this week" strip shows the
+  radar's rows of the genre above the search results. Social has a Discover shortcut (More page, desktop sidebar).
 - Decisions: subject genres first, **edit style** (velocity, beat sync, phonk…) as a later second axis; popularity is views on
   YouTube and likes × 10 on TikTok / Instagram, labelled as a ranking aid; no automated TikTok / Instagram trend lists (terms,
   same as round 30); nothing adopted as a dependency (search log in `tools/11-discover-genres.md` and `tools/05-found-on-github.md`).

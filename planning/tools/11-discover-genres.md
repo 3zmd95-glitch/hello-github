@@ -17,9 +17,26 @@ Numbers 09 and 10 are taken by files that live in another worktree (Metricool / 
 3. **Numbers on the cards**: 👁 views or ❤️ likes, in compact form. YouTube numbers come from `videos.list` (1 quota unit per
    search); TikTok and Instagram numbers are read from the page description when it opens with them.
 4. **The Trend Radar knows the genres**: the daily YouTube keyword scan also searches each genre's main query (Arabic against
-   Saudi Arabia, English against the US) and tags the rows; the radar has a genre select next to the platform chips.
+   Saudi Arabia, English against the US) and tags the rows. Pick a genre in Discover and a **📈 Most viewed this week**
+   strip shows that genre's rows above the results (6 at most, the same cards, the same attach). On the radar a row
+   names its genre in a chip that opens Discover on it.
 5. **Settings → 🎬 Edit genres**: add a genre (a name and its search words) or remove one. A custom genre uses the same words
    for both languages and shows with ✨. It is searched on demand only; the radar's daily scan covers the built-in list.
+
+## One place (decided Sep 29, 2026)
+
+The first build had genres in two places: chips in Discover (Training) and a genre select on the radar (Social). The
+owner: "I don't want to get confused having two places". Decision: **Discover is the one place for genres**; the radar
+answers "what is trending in general, what do I post". So:
+
+- The radar lost its genre select. Its rows keep a genre chip, which links to `/discover/?genre=<id>`.
+- Discover reads that link once after the page opens (known ids only), picks the genre like a chip tap, and removes
+  the parameter from the address so a reload does not force it again.
+- The strip is labelled for what it is (the most viewed results of a YouTube keyword search this week), not "trending".
+  It reads the feed the dashboard already holds; when that is older than 6 hours and a genre is picked, one
+  `GET /trends` refreshes it (never a run). No extra search credits.
+- Social has a 🔎 Discover shortcut in its More page and desktop sidebar. It opens in the Training shell, because the
+  world comes from the address.
 
 ## Search before building (2026-09-29)
 
@@ -75,7 +92,8 @@ To change the list, edit the JSON: `data/genres.ts` validates it (`GenreSchema`)
   the cached search (`statsMissing`): the next hit asks `videos.list` again (1 unit), never `search.list`.
 - **Radar**: see `08-trends.md` (keyword scan row). The feed holds up to 400 rows (was 200: the cap cut the least-viewed,
   mostly Arabic, genre rows) and the scan ranks Arabic and English rows apart (rank 1 = 100 in each). A genre's own search
-  words do not count for the niche ⭐ (`lib/trends.ts matchesNiche`), and rows show their genre as a chip. 36 keywords by default (12 niche + 24 genre), 18 searched a day in turns,
+  words do not count for the niche ⭐ (`lib/trends.ts matchesNiche`), and rows show their genre as a chip that links to
+  Discover (`lib/genres.ts discoverGenreHref`). 36 keywords by default (12 niche + 24 genre), 18 searched a day in turns,
   so every keyword is searched within two days; rows of the keywords not searched today stay until their next search or their
   7-day expiry; the one statistics call shares its 50 ids between the day's keywords.
 
