@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
 import { useSkillSheet } from "@/components/skills/SkillSheetProvider";
+import { resyncKey } from "@/components/social/usePublish";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import type { Post, Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
@@ -13,8 +14,10 @@ import SkillPicker from "./SkillPicker";
 
 /**
  * Overview tab of the post popup: hook (+ ideas), caption with its limit, hashtags, the planned day/time with
- * the best-time hint and the reminder note, the linked skill, "Mark as posted" (+ link → the Produce quest
- * bridge with its celebration), copy and delete.
+ * the best-time hint and the honest reminder note (round 30: the time shows on the calendar and the Studio's
+ * Today reminder; phone reminders come with notifications later), a line saying a sent auto-post follows
+ * these edits by itself, the linked skill, "Mark as posted" (+ link → the Produce quest bridge with its
+ * celebration), copy and delete.
  */
 export default function OverviewTab({
   post,
@@ -280,6 +283,12 @@ export default function OverviewTab({
           )}
           <span className="text-muted block">{t("calendar.sheet.remindSoon")}</span>
         </p>
+        {/* Only while the job can still be replaced (nothing published yet): the edits then follow. */}
+        {resyncKey(post) !== null && (
+          <p className="text-muted text-xs" data-testid="post-auto-synced">
+            {t("calendar.sheet.autoSynced")}
+          </p>
+        )}
       </section>
 
       {/* Linked skill */}

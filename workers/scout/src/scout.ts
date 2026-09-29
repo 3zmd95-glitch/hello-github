@@ -5,6 +5,9 @@
  *   POST /search          → Tavily search limited to tiktok.com / instagram.com / youtube.com, normalized cards
  *                           (optional `timeRange`; TikTok thumbnails enriched via oEmbed unless `thumbs: false`)
  *   GET  /oembed?url=     → TikTok / YouTube oEmbed passthrough { title, author, thumb, url }, cached 1 day
+ *                           (TikTok 6 h: its thumbnail URLs are signed)
+ *   GET  /trends          → the Trend Radar feed (trends/routes.ts, round 30, planning/tools/08-trends.md)
+ *   POST /trends/run      → refresh the feed now
  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
  *
  * Every route but OPTIONS, GET /health, the OAuth callbacks and /go needs `Authorization: Bearer
@@ -18,6 +21,7 @@ import {
   normalizeHits,
   PLATFORM_DOMAIN,
   PLATFORMS,
+  tiktokTitleFromOembed,
   type Platform,
   type ScoutResult,
   type TavilyHit,
@@ -26,10 +30,13 @@ import { allowedOrigins, DEFAULT_ALLOWED_ORIGINS } from "./origins";
 import { handleGo } from "./social/replies";
 import { handleOAuthCallback, handleSocial, healthSocial } from "./social/routes";
 import type { SocialEnv } from "./social/store";
+import { handleTrends, healthTrends } from "./trends/routes";
+import { TAVILY_URL } from "./trends/tavily";
+import type { TrendsEnv } from "./trends/types";
 
-export { DEFAULT_ALLOWED_ORIGINS };
+export { DEFAULT_ALLOWED_ORIGINS, TAVILY_URL };
 
-export interface Env extends SocialEnv {
+export interface Env extends SocialEnv, TrendsEnv {
   /** Secret: Tavily API key (https://app.tavily.com). */
   TAVILY_API_KEY?: string;
   /** Secret: the shared owner token the dashboard sends as a Bearer token. */
@@ -48,11 +55,15 @@ export interface Deps {
   now?: () => Date;
 }
 
-export const TAVILY_URL = "https://api.tavily.com/search";
 const MAX_RESULTS_CAP = 20;
 const OEMBED_TTL_S = 86_400;
+/**
+ * TikTok oEmbed replies are cached for 6 h only: their thumbnail URLs are signed and die after about 48 h,
+ * and the dashboard caches search results on top of this edge cache.
+ */
+export const TIKTOK_OEMBED_TTL_S = 21_600;
 /** At most this many TikTok results get an oEmbed thumbnail per search (fetched in parallel). */
-export const THUMB_ENRICH_MAX = 8;
+export const THUMB_ENRICH_MAX = 10;
 /** Each enrichment oEmbed call gives up after this long; the card then keeps whatever thumb it had. */
 export const THUMB_TIMEOUT_MS = 2500;
 const TIME_RANGES = ["week", "month", "year"] as const;
@@ -181,6 +192,8 @@ async function handleSearch(
         search_depth: "basic",
         include_images: true,
         ...(body.timeRange ? { time_range: body.timeRange } : {}),
+        // Tavily's `language` steers the results' language (round 30: Arabic searches were English-only).
+        ...(body.lang ? { language: body.lang } : {}),
       }),
     });
   } catch {
@@ -248,7 +261,8 @@ type OembedLookup =
 
 /**
  * The shared, cached oEmbed path (used by `GET /oembed` and by search thumbnail enrichment). Cached on the
- * upstream URL (a GET key no client can forge) for a day, without any per-origin CORS headers.
+ * upstream URL (a GET key no client can forge), without any per-origin CORS headers: YouTube for a day,
+ * TikTok for {@link TIKTOK_OEMBED_TTL_S} (signed thumbnails).
  */
 async function lookupOembed(
   videoUrl: string,
@@ -295,10 +309,11 @@ async function lookupOembed(
   };
   const body = JSON.stringify(data);
   if (cache) {
+    const ttl = endpoint.startsWith("https://www.tiktok.com/") ? TIKTOK_OEMBED_TTL_S : OEMBED_TTL_S;
     const toCache = new Response(body, {
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": `public, max-age=${OEMBED_TTL_S}`,
+        "Cache-Control": `public, max-age=${ttl}`,
       },
     });
     const put = cache.put(cacheKey, toCache).catch(() => {});
@@ -328,14 +343,17 @@ async function handleOembed(
 
 /* ---------- thumbnail enrichment ---------- */
 
-/** One oEmbed lookup that never takes longer than `ms` (aborted, then treated as a miss). */
+/**
+ * One oEmbed lookup that never takes longer than `ms` (aborted, then treated as a miss): the https
+ * thumbnail and the title (the video's caption), each undefined when missing.
+ */
 async function oembedThumb(
   videoUrl: string,
   doFetch: typeof fetch,
   cache: Cache | null,
   ctx: ExecutionContext | undefined,
   ms: number,
-): Promise<string | undefined> {
+): Promise<{ thumb?: string; title?: string }> {
   const ac = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<undefined>((resolve) => {
@@ -349,8 +367,12 @@ async function oembedThumb(
       lookupOembed(videoUrl, doFetch, cache, ctx, ac.signal).catch(() => undefined),
       timeout,
     ]);
-    const thumb = r && r.ok ? r.data.thumb : "";
-    return /^https:\/\//.test(thumb) ? thumb : undefined;
+    if (!r || !r.ok) return {};
+    const { thumb, title } = r.data;
+    return {
+      thumb: typeof thumb === "string" && /^https:\/\//.test(thumb) ? thumb : undefined,
+      title: typeof title === "string" && title ? title : undefined,
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -358,7 +380,8 @@ async function oembedThumb(
 
 /**
  * Give TikTok results a thumbnail from TikTok's public oEmbed (the first {@link THUMB_ENRICH_MAX}, in
- * parallel, each capped at `timeoutMs`; failures are ignored). YouTube results already carry the
+ * parallel, each capped at `timeoutMs`; failures are ignored). The same reply's title (the caption)
+ * replaces a card title that is generic ("TikTok - Make Your Day") or just the handle. YouTube results already carry the
  * `i.ytimg.com` thumbnail from `normalizeHits`. Instagram has no public oEmbed (it needs a Meta app token),
  * so Instagram cards stay without one. Mutates `results` in place.
  */
@@ -372,8 +395,10 @@ export async function enrichThumbs(
   const targets = results.filter((r) => r.platform === "tt").slice(0, THUMB_ENRICH_MAX);
   await Promise.all(
     targets.map(async (r) => {
-      const thumb = await oembedThumb(r.url, doFetch, cache, ctx, timeoutMs);
+      const { thumb, title } = await oembedThumb(r.url, doFetch, cache, ctx, timeoutMs);
       if (thumb) r.thumb = thumb;
+      const better = tiktokTitleFromOembed(r, title);
+      if (better) r.title = better;
     }),
   );
 }
@@ -422,7 +447,13 @@ export async function handle(
     if (token === "invalid") return fail("unauthorized", 401, cors);
     if (token === "valid") {
       return json(
-        { ok: true, auth: true, tavily: !!env.TAVILY_API_KEY, social: healthSocial(env) },
+        {
+          ok: true,
+          auth: true,
+          tavily: !!env.TAVILY_API_KEY,
+          social: healthSocial(env),
+          trends: healthTrends(env),
+        },
         200,
         cors,
       );
@@ -443,5 +474,7 @@ export async function handle(
   }
   const social = await handleSocial(req, env, cors, { fetch: deps.fetch, now: deps.now });
   if (social) return social;
+  const trends = await handleTrends(req, env, cors, { fetch: deps.fetch, now: deps.now });
+  if (trends) return trends;
   return fail("not_found", 404, cors);
 }

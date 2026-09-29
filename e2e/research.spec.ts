@@ -122,6 +122,14 @@ test("/discover/: a topic builds an encoded YouTube link, and Discover is a phon
   await page.getByTestId("research-more-toggle").click();
   const href = await page.getByTestId("research-link-yt").getAttribute("href");
   expect(href).toMatch(/match(\+|%20)cut/);
+
+  // With a program picked, the searches get its name but the Instagram hashtag stays the topic's own.
+  await page.getByTestId("discover-program").selectOption("davinci");
+  await expect(page.getByTestId("research-link-yt")).toHaveAttribute("href", /DaVinci%20Resolve/);
+  await expect(page.getByTestId("research-link-ig-hashtag")).toHaveAttribute(
+    "href",
+    "https://www.instagram.com/explore/tags/matchcut/",
+  );
 });
 
 test("in-app YouTube results render from a stubbed API with filters, and attach toggles the reference", async ({

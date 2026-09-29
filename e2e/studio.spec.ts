@@ -223,3 +223,75 @@ test("RTL and LTR both render the Studio without horizontal scroll", async ({ pa
   await expect(page.getByTestId("ideas-screen")).toContainText("Ideas bank");
   expect(await fitsViewport(page)).toBe(true);
 });
+
+test("a post whose X step is due shows a manual inbox row that opens the hub's list", async ({
+  page,
+}) => {
+  await freshState(page, "/social/");
+  await expect(page.getByTestId("studio-inbox-empty")).toBeVisible();
+
+  // Seed a TikTok post with X in its auto-post, planned for 00:00 today (Riyadh): its X step is due.
+  const at = new Date().toISOString();
+  await page.evaluate(
+    ([key, day, now]) => {
+      const raw = localStorage.getItem(key);
+      if (!raw) throw new Error("no saved state");
+      const saved = JSON.parse(raw) as { state: { posts: unknown[] } };
+      saved.state.posts.push(
+        {
+          id: "manual-e2e",
+          platform: "tiktok",
+          title: "Match cut",
+          caption: "How I do a match cut",
+          stage: "scheduled",
+          plannedDay: day,
+          plannedTime: "00:00",
+          autoPost: { platforms: ["tiktok", "x"] },
+          createdAt: now,
+          updatedAt: now,
+        },
+        // Tomorrow: nothing due yet.
+        {
+          id: "manual-later",
+          platform: "tiktok",
+          title: "Tomorrow's one",
+          stage: "scheduled",
+          plannedDay: new Date(Date.parse(`${day}T12:00:00+03:00`) + 86_400_000)
+            .toISOString()
+            .slice(0, 10),
+          plannedTime: "00:00",
+          autoPost: { platforms: ["tiktok", "snapchat"] },
+          createdAt: now,
+          updatedAt: now,
+        },
+      );
+      localStorage.setItem(key, JSON.stringify(saved));
+    },
+    [STORAGE_KEY, riyadhToday(), at] as const,
+  );
+  await page.reload();
+
+  const manual = page.locator('[data-testid="inbox-row"][data-kind="manual"]');
+  await expect(manual).toHaveCount(1);
+  await expect(manual).toHaveAttribute("href", "/social/automations/#manual");
+  await expect(manual).toContainText("Match cut");
+  await expect(manual).toContainText("إكس");
+  // The post is past its time too, but the manual row stands in for it: one row, counted once.
+  const kinds = await page
+    .getByTestId("inbox-row")
+    .evaluateAll((els) => els.map((e) => e.getAttribute("data-kind")));
+  expect(kinds).toEqual(["manual"]);
+  await expect(page.getByTestId("studio-inbox")).toHaveAttribute("data-count", "1");
+  expect(await fitsViewport(page)).toBe(true);
+
+  await page.getByTestId("lang-en").click();
+  await expect(manual).toContainText("ready for X");
+
+  // It lands on the hub's "Post these yourself" list, scrolled into view.
+  await manual.click();
+  await expect(page).toHaveURL(/\/social\/automations\/#manual$/);
+  await expect(page.getByTestId("autopost-manual")).toBeInViewport();
+  await expect(
+    page.locator('[data-testid="autopost-manual-post"][data-post="manual-e2e"]'),
+  ).toBeVisible();
+});

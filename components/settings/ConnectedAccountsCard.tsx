@@ -6,6 +6,7 @@ import { useSocialSync } from "@/components/social/useSocialSync";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import type { SocialConnectionStatus } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
+import { reconnectInDays, reconnectMessageKey } from "@/lib/publish";
 import { PLATFORM_META } from "@/lib/social";
 import {
   SOCIAL_PLATFORMS,
@@ -26,9 +27,9 @@ type Pending = { kind: "disconnect"; platform: SocialPlatform } | { kind: "seed"
 /**
  * 🔗 Connected accounts: one row per platform the Scout Worker can connect (TikTok, Instagram, YouTube,
  * Threads) with its state, Connect / Reconnect / Disconnect, "Allow posting" (reconnect with the publishing
- * scopes for auto-posting), a global "Sync now" with the last pull time, a
- * short explainer, and, while the Beacons seed rows are still stored, a button to remove them. Without the
- * Worker URL and token it points at the API keys card above.
+ * scopes for auto-posting), a "reconnect in N days" line before a Meta token runs out (round 30, A6), a
+ * global "Sync now" with the last pull time, a short explainer, and, while the Beacons seed rows are still
+ * stored, a button to remove them. Without the Worker URL and token it points at the API keys card above.
  */
 export default function ConnectedAccountsCard() {
   const { t, lang } = useT();
@@ -223,6 +224,7 @@ function AccountRow({
   const meta = PLATFORM_META[platform];
   const state = accountState(status, platform);
   const handle = status?.handle?.replace(/^@/, "") ?? "";
+  const days = reconnectInDays(status, platform);
 
   let text: string;
   switch (state) {
@@ -294,6 +296,11 @@ function AccountRow({
             </>
           )}
         </span>
+        {days !== null && (
+          <span className="text-danger text-xs font-bold" data-testid="account-token-warning">
+            {t(reconnectMessageKey(days), { n: days })}
+          </span>
+        )}
       </div>
       <div className="flex shrink-0 flex-wrap gap-1.5">
         {state === "disconnected" && (
@@ -307,7 +314,7 @@ function AccountRow({
             {t("settings.accounts.connect")}
           </button>
         )}
-        {state === "error" && (
+        {(state === "error" || days !== null) && (
           <button
             type="button"
             className="px-btn px-btn-sm"

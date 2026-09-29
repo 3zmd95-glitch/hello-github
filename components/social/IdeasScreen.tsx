@@ -14,6 +14,8 @@ type Filter = "all" | IdeaSource;
 /**
  * 💡 Ideas bank (master plan round 16): the owner's ideas from their own head, audience asks and trends, plus
  * Training skills without a video. Any idea becomes a post on a chosen platform; a used idea links to it.
+ * The 📈 Trend Radar (round 30, planning/tools/08-trends.md) sits first, full width, so what is trending is
+ * the first thing seen; the form, the list and the skill suggestions keep their two columns below it.
  */
 export default function IdeasScreen() {
   const { t } = useT();
@@ -40,10 +42,11 @@ export default function IdeasScreen() {
         <p className="text-ink-2 text-sm">{t("ideas.sub")}</p>
       </header>
 
+      <TrendsCard />
+
       <div className="grid gap-4 md:grid-cols-[1fr_1.3fr] md:items-start">
         <div className="flex flex-col gap-4">
           <AddIdeaForm />
-          <TrendsCard />
         </div>
 
         <div className="flex flex-col gap-4">

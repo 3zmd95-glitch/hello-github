@@ -51,6 +51,21 @@ Owner's rule: search GitHub, libraries and Claude skills before building. This f
 | Claude plugins / MCP | Postiz, Ayrshare, Post Bridge, PostZen, Buffer, Metricool MCP servers | None fits: they wrap paid services. |
 | Direct official APIs | Instagram content publishing, Threads publishing, YouTube resumable upload, TikTok Content Posting API | **Adopted** in the Scout Worker (`07-auto-posting.md`). |
 
+## 2026-09-28 · Trend Radar and post-everywhere v2 (round 30)
+
+Full tables with links, verification notes and reasons are in `08-trends.md`; the headline decisions:
+
+| Area | Find | Decision |
+| --- | --- | --- |
+| Google trends | Google Trends "Trending now" RSS (`geo=SA`) and the page's `batchexecute` RPC (`i0OFE`); [dariomory/trendflow-js](https://github.com/dariomory/trendflow-js) (MIT) documents the RPC | **Adopted** (hand-written ~60-line client in the Worker, RSS fallback); trendflow, [flack0x/trendspyg](https://github.com/flack0x/trendspyg), trendspy as references; pytrends and pat310/google-trends-api rejected (dead) |
+| YouTube | `videos.list chart=mostPopular` (a music / movies / gaming chart since July 2025) + capped keyword `search.list` | **Adopted**, labelled "charts" |
+| TikTok | Creative Center (SA region) · its JSON endpoint · [shannawuu/trendscraper](https://github.com/shannawuu/trendscraper), lofe-w, stia-mora, davidteather/TikTok-Api · Apify actors · Marketing API `discovery/trending_list` · [kworb.net](https://kworb.net/charts/tiktok/sa.html) sounds | Manual deep link adopted; JSON/scrapers rejected (browser-minted headers, terms); Apify and Marketing API candidates v2; kworb adopted with attribution pending the owner |
+| Instagram / Threads | In-app trending audio · weekly trend blogs via Tavily · Threads `keyword_search` · `ig_hashtag_search` · oEmbed · Meta Content Library | Ritual card + Tavily scan adopted; Threads keyword search candidate (scope now, App Review after the CR); the rest rejected or deferred |
+| X / Snapchat | trends24.in · getdaytrends · xtrends · X API · Snapchat Trends | trends24 candidate (owner OK needed); getdaytrends manual only (terms); X API and Snapchat rejected |
+| Aggregators / MCP | [sansan0/TrendRadar](https://github.com/sansan0/TrendRadar), [newsnow](https://github.com/ourongxing/newsnow), [Trends MCP](https://github.com/trendsmcp-ai/Trends-MCP), vidIQ MCP, n8n templates, Action-to-JSON repos | Architecture references only; Trends MCP candidate; nothing adopted as code |
+| Media hosting (posting) | Backblaze B2 (10 GB free, no card, S3 presigned PUT via [aws4fetch](https://github.com/mhart/aws4fetch)) · Cloudflare R2 (card) · Supabase Storage (50 MB cap) · UploadThing (2 GB) · Uploadcare · Bunny · Cloudinary · GitHub Releases (302 redirect) · Drive (rejected by Meta) | **B2 adopt candidate** (owner decision); R2 if a card is acceptable; others rejected or fallbacks |
+| X posting | X API pay-per-use (card) · Buffer free-plan API (3 channels, 3,000 req/30 d) | Buffer candidate (owner decision) |
+| Snapchat posting | Public Profile API (partner-only) · Zernio (Snapchat beta-locked, 403) | Manual; re-check monthly |
 ## 2026-09-29 · auto-replies (round 30, "automatic comments like Beacons")
 
 | Looked at | Found | Decision |

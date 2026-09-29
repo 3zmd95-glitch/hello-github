@@ -17,6 +17,7 @@ build order. Website and social tools are recorded so nothing is forgotten, but 
 | [05-found-on-github.md](05-found-on-github.md) | Search-before-building log |
 | [06-social-analytics-apis.md](06-social-analytics-apis.md) | Social Analytics: the Worker's OAuth + daily sync |
 | [07-auto-posting.md](07-auto-posting.md) | Auto-posting (Metricool-style): the publish queue, platform limits, owner steps |
+| [08-trends.md](08-trends.md) | Trend Radar: what is trending now (Google, YouTube, TikTok, Instagram, Threads, X), Arabic and English; sources, budgets, owner steps |
 | [09-metricool-beacons.md](09-metricool-beacons.md) | **Roadmap:** copy Metricool + Beacons into the Social world (status per feature, order of work) |
 | [10-auto-replies.md](10-auto-replies.md) | Auto-replies (Beacons Smart Reply copy): comment a keyword → public reply + DM with the link; polling, limits, owner steps |
 

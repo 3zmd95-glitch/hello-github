@@ -457,6 +457,8 @@ export const AutoPostSchema = z.object({
   results: z.partialRecord(PlatformSchema, AutoPostResultSchema).default({}),
   /** When the results were last read from the Worker. */
   checkedAt: z.string().optional(),
+  /** The Worker's job id, so a second device (or a cleared browser) can find and cancel the job later (A7). */
+  jobId: z.string().optional(),
 });
 export type AutoPost = z.infer<typeof AutoPostSchema>;
 export type AutoPostInput = z.input<typeof AutoPostSchema>;
@@ -747,6 +749,122 @@ export const EMPTY_SOCIAL_SYNC: SocialSyncState = {
   status: null,
   statusAt: null,
 };
+
+/* ---------- 📈 Trend Radar (round 30, planning/tools/08-trends.md) ---------- */
+
+/**
+ * Where a trend row comes from. `event` rows are the Saudi moments calendar (data/events), not a live feed.
+ * The Worker hand-copies these into workers/scout/src/trends/types.ts (the social/types.ts convention).
+ */
+export const TREND_PLATFORMS = [
+  "google",
+  "youtube",
+  "tiktok",
+  "instagram",
+  "threads",
+  "x",
+  "event",
+] as const;
+export const TrendPlatformSchema = z.enum(TREND_PLATFORMS);
+export type TrendPlatform = z.infer<typeof TrendPlatformSchema>;
+
+export const TREND_REGIONS = ["SA", "US", "global"] as const;
+export const TrendRegionSchema = z.enum(TREND_REGIONS);
+export type TrendRegion = z.infer<typeof TrendRegionSchema>;
+
+/** Language of the trend's title: `mixed` for rows that carry both (events, hashtags). */
+export const TrendLangSchema = z.enum(["ar", "en", "mixed"]);
+export type TrendLang = z.infer<typeof TrendLangSchema>;
+
+/**
+ * One row of the radar, as the Worker's `GET /trends` returns it. Only Google Trends and the YouTube charts are
+ * true popularity rankings; `source` is the attribution label the UI always shows ("Google Trends",
+ * "YouTube charts", "YouTube search", "kworb.net", "Tavily scan", "trends24.in", "3z calendar").
+ */
+export const TrendItemSchema = z.object({
+  /** Stable per source + region + slug, built by the Worker, e.g. "google:SA:حساب-المواطن". */
+  id: z.string().min(1),
+  platform: TrendPlatformSchema,
+  region: TrendRegionSchema,
+  lang: TrendLangSchema,
+  title: z.string().min(1),
+  url: z.string().optional(),
+  thumb: z.string().optional(),
+  /** 0..100, relative within its source (rank 1 = 100). */
+  score: z.number().min(0).max(100).optional(),
+  growthPct: z.number().optional(),
+  volume: z.number().min(0).optional(),
+  source: z.string().min(1),
+  /** One line of context: the first news headline or the search snippet. */
+  why: z.string().optional(),
+  /** When the Worker first saw this row (kept across runs), so "new this week" means new, not re-fetched. */
+  seenAt: z.iso.datetime({ offset: true }),
+  expiresAt: z.iso.datetime({ offset: true }).optional(),
+  tags: z.array(z.string()).default([]),
+  /** Skill id the trend fits, when the Worker (or a later scorer) knows one. */
+  skillHint: z.string().optional(),
+});
+export type TrendItem = z.infer<typeof TrendItemSchema>;
+/** What the Worker may send (`tags` may be left out). */
+export type TrendItemInput = z.input<typeof TrendItemSchema>;
+
+/** One source's outcome in the last Worker run. */
+export const TrendSourceStatusSchema = z.object({
+  name: z.string().min(1),
+  ok: z.boolean(),
+  at: z.string().optional(),
+  error: z.string().optional(),
+});
+export type TrendSourceStatus = z.infer<typeof TrendSourceStatusSchema>;
+
+/** The body of the Worker's `GET /trends` (200 even when empty: `degraded` true, no items). */
+export const TrendsFeedSchema = z.object({
+  items: z.array(TrendItemSchema).default([]),
+  fetchedAt: z.string().nullable().default(null),
+  /** True when at least one source failed and the feed is the previous good copy (or empty). */
+  degraded: z.boolean().default(false),
+  sources: z.array(TrendSourceStatusSchema).default([]),
+});
+export type TrendsFeed = z.infer<typeof TrendsFeedSchema>;
+export type TrendsFeedInput = z.input<typeof TrendsFeedSchema>;
+
+/** The persisted slice: the last feed plus the ids the owner swiped away. */
+export const TrendsStateSchema = TrendsFeedSchema.extend({
+  dismissed: z.array(z.string()).default([]),
+});
+export type TrendsState = z.infer<typeof TrendsStateSchema>;
+
+export const EMPTY_TRENDS: TrendsState = {
+  items: [],
+  fetchedAt: null,
+  degraded: false,
+  sources: [],
+  dismissed: [],
+};
+
+export const SAUDI_EVENT_KINDS = ["national", "religious", "season", "sport", "other"] as const;
+export const SaudiEventKindSchema = z.enum(SAUDI_EVENT_KINDS);
+export type SaudiEventKind = z.infer<typeof SaudiEventKindSchema>;
+
+/**
+ * One Saudi moment from planning/data/saudi-events.json (the upcoming-moments rail). `date` / `endDate` are
+ * Riyadh day keys; `leadDays` is how long before it the owner should start preparing; `approx` marks dates that
+ * depend on moon sighting or an organiser's announcement (re-checked yearly).
+ */
+export const SaudiEventSchema = z.object({
+  id: z.string().min(1),
+  date: z.string().regex(DAY_KEY_RE),
+  endDate: z.string().regex(DAY_KEY_RE).optional(),
+  name: LTextSchema,
+  /** With the "#" sign. */
+  hashtags: z.array(z.string()).default([]),
+  leadDays: z.number().int().min(0).default(14),
+  kind: SaudiEventKindSchema,
+  approx: z.boolean().default(false),
+  note: LTextSchema.optional(),
+});
+export type SaudiEvent = z.infer<typeof SaudiEventSchema>;
+export type SaudiEventInput = z.input<typeof SaudiEventSchema>;
 
 /* ---------- 📝 Notes (in-app research vault, replaces the external Obsidian step) ---------- */
 

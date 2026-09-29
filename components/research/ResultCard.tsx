@@ -4,6 +4,8 @@ import { useState, type ReactNode } from "react";
 import type { RefPlatform } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import type { ResearchItem } from "@/lib/research";
+import { scoutOembed, type ScoutConfig } from "@/lib/scoutClient";
+import { useScoutConfig } from "./useScout";
 
 /** Platform glyph and label used on chips, tabs and placeholder tiles. */
 export const PLATFORM_META: Record<RefPlatform, { glyph: string; label: string; chip: string }> = {
@@ -15,6 +17,43 @@ export const PLATFORM_META: Record<RefPlatform, { glyph: string; label: string; 
 
 /** TikTok / Instagram are vertical video platforms: 9:16 posters. YouTube and web links are 16:9. */
 const isVertical = (p: RefPlatform) => p === "tt" || p === "ig";
+
+/**
+ * A fresh TikTok thumbnail for a post, asked once per post per session and shared by every card showing
+ * it. TikTok thumbnail URLs are signed and expire after about two days, so a saved card's image dies.
+ */
+const freshThumbs = new Map<string, Promise<string | undefined>>();
+function freshTiktokThumb(config: ScoutConfig, url: string): Promise<string | undefined> {
+  let p = freshThumbs.get(url);
+  if (!p) {
+    p = scoutOembed(config, url).then((r) => (r.ok && r.data.thumb ? r.data.thumb : undefined));
+    freshThumbs.set(url, p);
+  }
+  return p;
+}
+
+/**
+ * The thumbnail to show on a card, and its `onError`. When a TikTok image fails to load, asks the Worker's
+ * oEmbed once for a fresh one and swaps it in (display only; the saved reference keeps its URL). When that
+ * fails too, no thumbnail: the card shows its glyph tile.
+ */
+function useThumb(item: ResearchItem): { thumb?: string; onError: () => void } {
+  const config = useScoutConfig();
+  const [failed, setFailed] = useState<readonly string[]>([]);
+  const [fresh, setFresh] = useState<{ url: string; thumb: string } | null>(null);
+  const renewed = fresh?.url === item.url ? fresh.thumb : undefined;
+  const thumb = [renewed, item.thumb].find((s): s is string => !!s && !failed.includes(s));
+  const onError = () => {
+    if (!thumb) return;
+    setFailed((f) => [...f, thumb]);
+    if (item.platform !== "tt" || !config || renewed) return;
+    const url = item.url;
+    void freshTiktokThumb(config, url).then((t) => {
+      if (t && t !== thumb) setFresh({ url, thumb: t });
+    });
+  };
+  return { thumb, onError };
+}
 
 /**
  * One research result (build plan 1.15), shared by Discover, the skill sheet's Research panel and the saved
@@ -121,8 +160,7 @@ function FullCard({ item, action }: { item: ResearchItem; action?: ReactNode }) 
 /** The 16:9 media frame of a full card. */
 function Media({ item }: { item: ResearchItem }) {
   const { t } = useT();
-  const [broken, setBroken] = useState<string | null>(null);
-  const thumb = item.thumb && broken !== item.thumb ? item.thumb : undefined;
+  const { thumb, onError } = useThumb(item);
   const vertical = isVertical(item.platform);
   const glyph = PLATFORM_META[item.platform].glyph;
 
@@ -157,7 +195,7 @@ function Media({ item }: { item: ResearchItem }) {
         alt={t("sheet.refThumbAlt")}
         loading="lazy"
         referrerPolicy="no-referrer"
-        onError={() => setBroken(thumb)}
+        onError={onError}
         className="border-edge relative mx-auto block aspect-[9/16] h-full border-x-2 object-cover"
         data-testid="result-thumb"
       />
@@ -168,7 +206,7 @@ function Media({ item }: { item: ResearchItem }) {
       alt={t("sheet.refThumbAlt")}
       loading="lazy"
       referrerPolicy="no-referrer"
-      onError={() => setBroken(thumb)}
+      onError={onError}
       className="absolute inset-0 h-full w-full object-cover"
       data-testid="result-thumb"
     />
@@ -178,8 +216,7 @@ function Media({ item }: { item: ResearchItem }) {
 
 function CompactCard({ item, onRemove }: { item: ResearchItem; onRemove?: () => void }) {
   const { t } = useT();
-  const [broken, setBroken] = useState<string | null>(null);
-  const thumb = item.thumb && broken !== item.thumb ? item.thumb : undefined;
+  const { thumb, onError } = useThumb(item);
   const meta = PLATFORM_META[item.platform];
   const box = `border-edge h-12 shrink-0 overflow-hidden rounded-[2px] border-2 ${isVertical(item.platform) ? "aspect-[9/16]" : "aspect-video"}`;
   return (
@@ -196,7 +233,7 @@ function CompactCard({ item, onRemove }: { item: ResearchItem; onRemove?: () => 
           alt={t("sheet.refThumbAlt")}
           loading="lazy"
           referrerPolicy="no-referrer"
-          onError={() => setBroken(thumb)}
+          onError={onError}
           className={`${box} bg-[var(--panel-3)] object-cover`}
           data-testid="saved-ref-thumb"
         />

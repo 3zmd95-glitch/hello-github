@@ -1,19 +1,24 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { useSocialSync } from "@/components/social/useSocialSync";
 import { PLATFORMS, type Platform, type Post, type Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { autoPostOf, isManual } from "@/lib/publish";
 import { bestTime, PLATFORM_META } from "@/lib/social";
+import { isSocialPlatform } from "@/lib/socialSync";
 import { useStore } from "@/store";
 import { platformStyle } from "./PlatformChip";
 import SheetFrame from "./SheetFrame";
 import SkillPicker from "./SkillPicker";
 
 /**
- * "New post" sheet: platform (required), title, day, time (defaults to the platform's best time for that day
- * until the owner edits it), the shot-template switch and an optional skill link. With a skill the post is
- * created through `createPostFromSkill` (the bridge to the Produce quest) and then patched with what was typed;
- * without one through `addPost`.
+ * "New post" sheet: platform (required), the "🚀 Post to" networks (round 30: every connected network that
+ * can post by itself is pre-ticked, X and Snapchat are off; hidden while no network can publish), title, day,
+ * time (defaults to the platform's best time for that day until the owner edits it), the shot-template switch
+ * and an optional skill link. With a skill the post is created through `createPostFromSkill` (the bridge to
+ * the Produce quest) and then patched with what was typed; without one through `addPost`. Extra networks are
+ * written as the post's `autoPost` right after creation, so posts without any keep `autoPost` undefined.
  */
 export default function PostForm({
   initialDay,
@@ -25,6 +30,7 @@ export default function PostForm({
   onCreated: (post: Post) => void;
 }) {
   const { t, L } = useT();
+  const { status } = useSocialSync();
   const [platform, setPlatform] = useState<Platform>("tiktok");
   const [title, setTitle] = useState("");
   const [day, setDay] = useState(initialDay ?? "");
@@ -32,6 +38,15 @@ export default function PostForm({
   const [timeTouched, setTimeTouched] = useState(false);
   const [template, setTemplate] = useState(true);
   const [skill, setSkill] = useState<Skill | null>(null);
+  /** The owner's own ticks; anything not here follows the default (connected API networks on, manual off). */
+  const [picked, setPicked] = useState<Partial<Record<Platform, boolean>>>({});
+
+  const canPublish = (p: Platform) => isSocialPlatform(p) && !!status?.[p]?.canPublish;
+  /** Networks offered in the row: the post's own platform, every network that can post, X and Snapchat. */
+  const offered = PLATFORMS.filter((p) => p === platform || canPublish(p) || isManual(p));
+  const showNetworks = PLATFORMS.some(canPublish);
+  const ticked = (p: Platform) => p === platform || (picked[p] ?? canPublish(p));
+  const networks = showNetworks ? offered.filter(ticked) : [platform];
 
   const best = bestTime(platform, day || undefined);
   const pickPlatform = (p: Platform) => {
@@ -51,6 +66,11 @@ export default function PostForm({
     const s = useStore.getState();
     const plannedDay = day || null;
     const plannedTime = time || null;
+    // Only a post that goes somewhere beyond its own platform gets auto-post settings at birth.
+    const autoPost =
+      networks.length > 1
+        ? (p: Post) => ({ autoPost: { ...autoPostOf(p), platforms: networks } })
+        : null;
     let post: Post | undefined;
     if (skill) {
       const before = new Set(s.posts.map((p) => p.id));
@@ -63,6 +83,7 @@ export default function PostForm({
             plannedDay,
             plannedTime,
             ...(template ? {} : { shots: [] }),
+            ...(autoPost ? autoPost(post) : {}),
           }) ?? post;
       }
     } else {
@@ -73,6 +94,7 @@ export default function PostForm({
         plannedTime,
         withTemplate: template,
       });
+      if (autoPost) post = s.updatePost(post.id, autoPost(post)) ?? post;
     }
     if (post) onCreated(post);
     else onClose();
@@ -116,6 +138,39 @@ export default function PostForm({
             ))}
           </div>
         </fieldset>
+
+        {showNetworks && (
+          <fieldset className="flex flex-col gap-1.5" data-testid="post-networks">
+            <legend className="text-ink-2 mb-1.5 text-sm font-bold">
+              {t("calendar.form.networks")}
+            </legend>
+            <div className="flex flex-wrap gap-1.5">
+              {offered.map((p) => {
+                const own = p === platform;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    className="px-fchip cal-fchip"
+                    style={platformStyle(p)}
+                    aria-pressed={ticked(p)}
+                    aria-disabled={own}
+                    title={isManual(p) ? t("publish.net.manual") : undefined}
+                    onClick={() => {
+                      if (!own) setPicked({ ...picked, [p]: !ticked(p) });
+                    }}
+                    data-testid={`post-net-${p}`}
+                    data-own={own}
+                  >
+                    <span aria-hidden>{PLATFORM_META[p].icon}</span> {L(PLATFORM_META[p].name)}
+                    {isManual(p) && <span aria-hidden>✋</span>}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="text-muted text-xs">{t("calendar.form.networksHint")}</span>
+          </fieldset>
+        )}
 
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-ink-2 font-bold">{t("calendar.form.postTitle")}</span>

@@ -5,11 +5,13 @@ import {
   isValidScoutUrl,
   monthKey,
   peekScoutSearch,
+  SCOUT_CACHE_EMPTY_TTL_MS,
   SCOUT_CACHE_KEY,
   SCOUT_CACHE_MAX,
   SCOUT_CACHE_TTL_MS,
   SCOUT_USAGE_KEY,
   scoutCacheKey,
+  scoutStorageKey,
   scoutConfig,
   scoutErrorMessageKey,
   scoutHealth,
@@ -158,9 +160,9 @@ describe("scoutSearch", () => {
   it("peeks at the cache without fetching or counting", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ results: RESULTS }));
     const params = { q: "x", platforms: ["tt", "ig"] as const };
-    expect(peekScoutSearch(params, { storage, now })).toBeUndefined();
+    expect(peekScoutSearch(CONFIG, params, { storage, now })).toBeUndefined();
     await scoutSearch(CONFIG, params, { fetchImpl, storage, now });
-    expect(peekScoutSearch(params, { storage, now })).toEqual(RESULTS);
+    expect(peekScoutSearch(CONFIG, params, { storage, now })).toEqual(RESULTS);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(getScoutUsage({ storage, now })).toBe(1);
   });
@@ -183,7 +185,9 @@ describe("scoutSearch", () => {
     const afterReload = await scoutSearch(CONFIG, params, { fetchImpl, storage, now });
     expect(afterReload.ok && afterReload.cached).toBe(true);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(storage.data.get(SCOUT_CACHE_KEY)!)).toHaveProperty([scoutCacheKey(params)]);
+    expect(JSON.parse(storage.data.get(SCOUT_CACHE_KEY)!)).toHaveProperty([
+      scoutStorageKey(CONFIG, params),
+    ]);
   });
 
   it("expires cache entries after 24 h", async () => {
@@ -194,6 +198,66 @@ describe("scoutSearch", () => {
     const r = await scoutSearch(CONFIG, params, { fetchImpl, storage, now });
     expect(r.ok && r.cached).toBe(false);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps an empty answer for 10 minutes only", async () => {
+    const replies = [[], RESULTS];
+    const fetchImpl = vi.fn(async () => jsonResponse({ results: replies.shift() }));
+    const params = { q: "rare topic", platforms: ["ig"] as const };
+    await scoutSearch(CONFIG, params, { fetchImpl, storage, now });
+    // Within the window: served from the cache, no second credit.
+    t += SCOUT_CACHE_EMPTY_TTL_MS - 1;
+    const soon = await scoutSearch(CONFIG, params, { fetchImpl, storage, now });
+    expect(soon).toEqual({ ok: true, results: [], cached: true });
+    expect(peekScoutSearch(CONFIG, params, { storage, now })).toEqual([]);
+    // After it: asked again (also after a reload), and the non-empty answer replaces it.
+    t += 2;
+    expect(peekScoutSearch(CONFIG, params, { storage, now })).toBeUndefined();
+    clearScoutCache(null);
+    const later = await scoutSearch(CONFIG, params, { fetchImpl, storage, now });
+    expect(later).toEqual({ ok: true, results: RESULTS, cached: false });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("force skips the cache read, then caches the fresh answer", async () => {
+    const replies = [RESULTS.slice(0, 1), RESULTS];
+    const fetchImpl = vi.fn(async () => jsonResponse({ results: replies.shift() }));
+    const params = { q: "x", platforms: ["tt", "ig"] as const };
+    await scoutSearch(CONFIG, params, { fetchImpl, storage, now });
+    const forced = await scoutSearch(CONFIG, params, { fetchImpl, storage, now, force: true });
+    expect(forced).toEqual({ ok: true, results: RESULTS, cached: false });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(getScoutUsage({ storage, now })).toBe(2);
+    const after = await scoutSearch(CONFIG, params, { fetchImpl, storage, now });
+    expect(after).toEqual({ ok: true, results: RESULTS, cached: true });
+  });
+
+  it("keys the cache on the Worker URL and the cache version", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ results: RESULTS }));
+    const params = { q: "x", platforms: ["ig"] as const };
+    const other = { url: "https://other-scout.test", token: "tok" };
+    await scoutSearch(CONFIG, params, { fetchImpl, storage, now });
+    expect(peekScoutSearch(other, params, { storage, now })).toBeUndefined();
+    expect(peekScoutSearch(null, params, { storage, now })).toBeUndefined();
+    const r = await scoutSearch(other, params, { fetchImpl, storage, now });
+    expect(r.ok && r.cached).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(scoutStorageKey(CONFIG, params)).toBe(`v2|https://scout.test|${scoutCacheKey(params)}`);
+  });
+
+  it("never serves or keeps entries cached by the old (unversioned) client", async () => {
+    const params = { q: "x", platforms: ["ig"] as const };
+    const stale = [{ ...RESULTS[1], title: "Instagram" }];
+    storage.data.set(
+      SCOUT_CACHE_KEY,
+      JSON.stringify({ [scoutCacheKey(params)]: { at: t, results: stale } }),
+    );
+    expect(peekScoutSearch(CONFIG, params, { storage, now })).toBeUndefined();
+    const fetchImpl = vi.fn(async () => jsonResponse({ results: RESULTS.slice(1) }));
+    const r = await scoutSearch(CONFIG, params, { fetchImpl, storage, now });
+    expect(r).toEqual({ ok: true, results: RESULTS.slice(1), cached: false });
+    const stored = JSON.parse(storage.data.get(SCOUT_CACHE_KEY)!) as Record<string, unknown>;
+    expect(Object.keys(stored)).toEqual([scoutStorageKey(CONFIG, params)]);
   });
 
   it("keeps at most 50 topics in storage, dropping the oldest", async () => {
@@ -208,8 +272,10 @@ describe("scoutSearch", () => {
     }
     const stored = JSON.parse(storage.data.get(SCOUT_CACHE_KEY)!) as Record<string, unknown>;
     expect(Object.keys(stored)).toHaveLength(SCOUT_CACHE_MAX);
-    expect(stored).not.toHaveProperty([scoutCacheKey({ q: "topic 0", platforms: ["tt"] })]);
-    expect(stored).toHaveProperty([scoutCacheKey({ q: "topic 54", platforms: ["tt"] })]);
+    expect(stored).not.toHaveProperty([
+      scoutStorageKey(CONFIG, { q: "topic 0", platforms: ["tt"] }),
+    ]);
+    expect(stored).toHaveProperty([scoutStorageKey(CONFIG, { q: "topic 54", platforms: ["tt"] })]);
   });
 
   it("shares one request between concurrent identical searches", async () => {

@@ -20,12 +20,14 @@ import {
   autoPostSummary,
   CAPTION_MAX,
   captionFor,
+  captionWarnings,
   defaultCaption,
   directMediaUrl,
   isManual,
   manualComposeUrl,
   publishProblems,
   scheduledAtOf,
+  sendCaption,
   YT_TITLE_MAX,
   type Problem,
 } from "@/lib/publish";
@@ -45,7 +47,6 @@ export const PROBLEM_KEY: Record<Problem["code"], MessageKey> = {
   badUrl: "publish.problem.badUrl",
   needsVideo: "publish.problem.needsVideo",
   needsMedia: "publish.problem.needsMedia",
-  tooLong: "publish.problem.tooLong",
   empty: "publish.problem.empty",
   notConnected: "publish.problem.notConnected",
   noPermission: "publish.problem.noPermission",
@@ -69,6 +70,10 @@ const ERROR_KEY: Record<string, MessageKey> = {
  * a caption per network (the Overview caption by default), the YouTube / TikTok options, then schedule it for
  * the planned time or post now. The Worker publishes and this tab shows each network's state and link.
  * X and Snapchat stay a manual step: copy the caption and open the app.
+ *
+ * Round 30 (A2): an API caption over its limit is trimmed on send and wears a "✂️ trimmed" badge with the
+ * sent length; an overlong X / Snapchat caption is only a warning line. Edits after scheduling reach the
+ * Worker by themselves (`usePublishAutoResync` in the popup); "Update schedule" stays for an explicit resend.
  */
 export default function AutoPostTab({ post }: { post: Post }) {
   const { t, L, lang } = useT();
@@ -97,6 +102,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
   const sent = !!auto.sentAt;
   const at = scheduledAtOf(post);
   const live = publishProblems(post, auto, status);
+  const warnings = captionWarnings(post, auto);
   const media = auto.mediaUrl.trim() ? directMediaUrl(auto.mediaUrl) : "";
 
   const after = (r: PublishActionResult, ok: MessageKey) => {
@@ -232,7 +238,10 @@ export default function AutoPostTab({ post }: { post: Post }) {
             {auto.platforms.map((p) => {
               const text = captionFor(post, auto, p);
               const own = auto.captions[p] !== undefined && auto.captions[p]!.trim() !== "";
-              const over = text.length > CAPTION_MAX[p];
+              // API networks get the trimmed text; manual ones are posted by hand, so "over" only warns.
+              const sent = sendCaption(post, auto, p);
+              const over = sent.text.length > CAPTION_MAX[p];
+              const tooLong = warnings.some((w) => w.code === "tooLong" && w.platform === p);
               return (
                 <li key={p} className="px-inset flex flex-col gap-1.5" data-platform={p}>
                   <div className="flex flex-wrap items-center gap-2">
@@ -240,10 +249,20 @@ export default function AutoPostTab({ post }: { post: Post }) {
                     <span className="text-muted text-xs">
                       {own ? t("publish.captionOwn") : t("publish.captionDefault")}
                     </span>
+                    {sent.trimmed && (
+                      <span
+                        className="px-chip px-chip-gold text-xs"
+                        title={t("publish.trimmedHint", { platform: L(PLATFORM_META[p].name) })}
+                        data-testid={`autopost-trimmed-${p}`}
+                      >
+                        {t("publish.trimmed")}
+                      </span>
+                    )}
                     <span
                       className={`num ms-auto text-xs ${over ? "text-danger font-bold" : "text-muted"}`}
+                      data-testid={`autopost-count-${p}`}
                     >
-                      {text.length}/{CAPTION_MAX[p]}
+                      {sent.text.length}/{CAPTION_MAX[p]}
                     </span>
                     <button
                       type="button"
@@ -281,6 +300,20 @@ export default function AutoPostTab({ post }: { post: Post }) {
                         </button>
                       )}
                     </>
+                  )}
+                  {sent.trimmed && (
+                    <p className="text-muted text-xs" data-testid={`autopost-trimmed-note-${p}`}>
+                      {t("publish.trimmedHint", { platform: L(PLATFORM_META[p].name) })}
+                    </p>
+                  )}
+                  {tooLong && (
+                    <p className="text-danger text-xs" data-testid={`autopost-warn-${p}`}>
+                      ⚠️{" "}
+                      {t("publish.warn.tooLong", {
+                        platform: L(PLATFORM_META[p].name),
+                        limit: CAPTION_MAX[p],
+                      })}
+                    </p>
                   )}
                   {isManual(p) && (
                     <div className="flex flex-wrap items-center gap-2">
@@ -410,7 +443,6 @@ export default function AutoPostTab({ post }: { post: Post }) {
               ⚠️{" "}
               {t(PROBLEM_KEY[pr.code], {
                 platform: pr.platform ? L(PLATFORM_META[pr.platform].name) : "",
-                limit: pr.platform ? CAPTION_MAX[pr.platform] : "",
               })}
             </li>
           ))}
