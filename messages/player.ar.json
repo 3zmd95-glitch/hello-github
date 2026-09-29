@@ -1,0 +1,19 @@
+{
+  "player.watchHere": "▶ شاهد هنا",
+  "player.watchLabel": "شاهد «{title}» هنا",
+  "player.title": "المشغّل",
+  "player.name.yt": "يوتيوب",
+  "player.name.tt": "تيك توك",
+  "player.name.ig": "انستقرام",
+  "player.close": "سكّر",
+  "player.openOn": "افتح في {platform} ↗",
+  "player.frameTitle": "{platform} · {title}",
+  "player.loading": "نجهّز الفيديو…",
+  "player.slow": "المشغّل تأخّر. جرّب تفتحه في {platform}.",
+  "player.cantPlay": "هالفيديو ما ينفع يشتغل هنا. افتحه في {platform}.",
+  "player.gone": "الفيديو انحذف أو صار خاص.",
+  "player.igTwoTaps": "انستقرام يبغى ضغطة ثانية على زر التشغيل داخل الإطار.",
+  "player.ttConsent": "لو طلع لك طلب الكوكيز من تيك توك، جاوبه وبعدها يشتغل الفيديو.",
+  "player.privacy": "الفيديو يشتغل من مشغّل {platform} نفسه، وهو اللي يعرف إنك تفرّجت.",
+  "player.igNoPreview": "انستقرام ما يعطي صورة معاينة. اضغط وتفرّج."
+}

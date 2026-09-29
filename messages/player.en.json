@@ -1,0 +1,19 @@
+{
+  "player.watchHere": "▶ Watch here",
+  "player.watchLabel": "Watch “{title}” here",
+  "player.title": "Player",
+  "player.name.yt": "YouTube",
+  "player.name.tt": "TikTok",
+  "player.name.ig": "Instagram",
+  "player.close": "Close",
+  "player.openOn": "Open on {platform} ↗",
+  "player.frameTitle": "{platform} · {title}",
+  "player.loading": "Getting the video ready…",
+  "player.slow": "The player is slow to load. Try opening it on {platform}.",
+  "player.cantPlay": "This video can't play here. Open it on {platform}.",
+  "player.gone": "The video was removed or made private.",
+  "player.igTwoTaps": "Instagram needs a second tap on the play button inside the frame.",
+  "player.ttConsent": "If TikTok asks about cookies, answer it and the video will play.",
+  "player.privacy": "The video plays in {platform}'s own player, which knows that you watched.",
+  "player.igNoPreview": "Instagram gives no preview image. Tap to watch."
+}

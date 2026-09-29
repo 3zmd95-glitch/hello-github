@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import CelebrationProvider, { useCelebrate } from "@/components/celebrate/CelebrationProvider";
+import VideoPlayerProvider from "@/components/player/VideoPlayerProvider";
 import SkillSheetProvider from "@/components/skills/SkillSheetProvider";
 import { usePublishWatcher } from "@/components/social/usePublish";
 import { confirmConnected, pullIfDue, syncSocialNow } from "@/components/social/useSocialSync";
@@ -20,9 +21,10 @@ import WorldSwitch from "./WorldSwitch";
 
 /**
  * App shell shared by both worlds: loads saved progress, then renders the top bar (with the 🎮 / 📱 world
- * switch), the active world's phone tab bar / desktop sidebar, and the providers for the skill popup and
- * celebrations. The world comes from the URL (`useWorld`) and is mirrored onto `<html data-world>` so the
- * CSS tokens in globals.css switch between the pixel and the cinematic look.
+ * switch), the active world's phone tab bar / desktop sidebar, and the providers for the skill popup, the
+ * ▶ video player (around the skill popup's, so its saved references can play too) and celebrations. The
+ * world comes from the URL (`useWorld`) and is mirrored onto `<html data-world>` so the CSS tokens in
+ * globals.css switch between the pixel and the cinematic look.
  */
 export default function AppShell({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
@@ -53,21 +55,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
   return (
     <CelebrationProvider>
       <SocialSyncAgent />
-      <SkillSheetProvider>
-        <div className="flex min-h-dvh flex-col">
-          <TopBar />
-          <div className="mx-auto flex w-full max-w-[1180px] flex-1 md:gap-6 md:px-6">
-            <SideNav />
-            <main
-              id="main"
-              className="pb-safe-tabbar flex min-w-0 flex-1 flex-col gap-4 px-4 pt-4 md:px-0 md:pt-6 md:pb-12"
-            >
-              {children}
-            </main>
+      <VideoPlayerProvider>
+        <SkillSheetProvider>
+          <div className="flex min-h-dvh flex-col">
+            <TopBar />
+            <div className="mx-auto flex w-full max-w-[1180px] flex-1 md:gap-6 md:px-6">
+              <SideNav />
+              <main
+                id="main"
+                className="pb-safe-tabbar flex min-w-0 flex-1 flex-col gap-4 px-4 pt-4 md:px-0 md:pt-6 md:pb-12"
+              >
+                {children}
+              </main>
+            </div>
+            <TabBar />
           </div>
-          <TabBar />
-        </div>
-      </SkillSheetProvider>
+        </SkillSheetProvider>
+      </VideoPlayerProvider>
     </CelebrationProvider>
   );
 }
