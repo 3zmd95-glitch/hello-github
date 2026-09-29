@@ -66,8 +66,9 @@ shows up in the log with Instagram's words and the comment is marked done, nothi
    add a second Instagram account of yours as an **Instagram tester** (it can receive the test DMs).
 2. Merge → **Actions → Deploy Scout Worker** runs by itself. No new secrets.
 3. Dashboard → **Settings → Connected accounts → Instagram → 💬 Allow auto-replies** (re-consents with the posting
-   scopes too; analytics keep working). Leave every permission ticked in Meta's dialog: the chip only appears when
-   both reply permissions were granted.
+   scopes too; analytics keep working). On an Instagram row that has no posting permission yet the button reads
+   **✍️ Allow posting + replies**: one consent grants both. Leave every permission ticked in Meta's dialog: the
+   chip only appears when both reply permissions were granted.
 4. **Social → More → 💬 Auto replies → + New auto reply**: the LUT reel, keyword «لت», the DM text, link "حمل اللت"
    → the LUT URL. Test by commenting «لت» from the tester account (the owner's own comments are skipped), then
    **Check now** or wait up to five minutes. The public reply appears under the comment, the DM in the tester's

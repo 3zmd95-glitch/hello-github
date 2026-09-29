@@ -2289,3 +2289,9 @@
   border-inline-start-color: var(--gold);
 }
 /* ---- /Trend Radar ---- */
+
+/* The app header is sticky: anything scrolled to the top edge (an anchor like /settings#accounts, a
+ * "scroll into view") must clear it instead of landing under it. */
+html {
+  scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 4rem);
+}

@@ -6,6 +6,7 @@
   "replies.needIg": "Connect Instagram in Settings first.",
   "replies.needPermission": "We need Instagram's permission to reply to comments and send messages.",
   "replies.allow": "💬 Allow auto-replies",
+  "replies.allowBoth": "✍️ Allow posting + replies",
   "replies.canReply": "💬 Replies by itself",
   "replies.autoNote": "We check the comments every 5 minutes by ourselves and only answer new ones.",
   "replies.new": "+ New auto reply",

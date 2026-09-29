@@ -326,17 +326,18 @@ function AccountRow({
           </button>
         )}
         {state === "connected" && !status?.canPublish && (
+          // Instagram without either permission: one consent grants posting and replies together.
           <button
             type="button"
             className="px-btn px-btn-sm"
-            onClick={onAllowPosting}
+            onClick={replies && !status?.canReply ? onAllowReplies : onAllowPosting}
             disabled={busy}
             data-testid="account-allow-posting"
           >
-            {t("publish.allow")}
+            {replies && !status?.canReply ? t("replies.allowBoth") : t("publish.allow")}
           </button>
         )}
-        {replies && state === "connected" && !status?.canReply && (
+        {replies && state === "connected" && status?.canPublish && !status.canReply && (
           <button
             type="button"
             className="px-btn px-btn-sm"
