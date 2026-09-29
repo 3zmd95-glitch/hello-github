@@ -510,6 +510,19 @@ TikTok, Instagram and YouTube, Arabic or English… be the mastermind so every a
   Threads keyword search waits for App Review after the CR.
 - Search-before-building results for both workstreams are recorded in `tools/08-trends.md` and `tools/05-found-on-github.md`.
 
+Round 31 (Sep 29, 2026; owner: "search based on genre of edits: cars, food and restaurants, anime, travel… understand the latest
+trends and most famous edits by genre"):
+- PR #18 (round 30: Trend Radar, post everywhere v2, the search fixes) merged and deployed; the owner added the
+  `YOUTUBE_API_KEY` secret and the Worker was redeployed with it.
+- **Discover by edit genre** (`tools/11-discover-genres.md`): 12 genres in one JSON shared by the app and the Worker (the four
+  the owner named plus football, coffee, perfume, camping & desert, fashion, gaming, weddings, gym), the owner's own genres in
+  Settings, genre chips in Discover and every skill's Research panel, a 🔥 Most popular sort, views / likes on the cards, genre
+  keywords in the radar's daily YouTube scan (cap 12 → 18 a day, rotated so every keyword is searched within two days) and a
+  genre select on the radar.
+- Decisions: subject genres first, **edit style** (velocity, beat sync, phonk…) as a later second axis; popularity is views on
+  YouTube and likes × 10 on TikTok / Instagram, labelled as a ranking aid; no automated TikTok / Instagram trend lists (terms,
+  same as round 30); nothing adopted as a dependency (search log in `tools/11-discover-genres.md` and `tools/05-found-on-github.md`).
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|

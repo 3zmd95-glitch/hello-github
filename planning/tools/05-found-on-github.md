@@ -67,6 +67,19 @@ Full tables with links, verification notes and reasons are in `08-trends.md`; th
 | X posting | X API pay-per-use (card) · Buffer free-plan API (3 channels, 3,000 req/30 d) | Buffer candidate (owner decision) |
 | Snapchat posting | Public Profile API (partner-only) · Zernio (Snapchat beta-locked, 403) | Manual; re-check monthly |
 
+## 2026-09-29 · Discover by edit genre (round 31)
+
+Full table in `11-discover-genres.md`. Short form:
+
+| Area | Find | Decision |
+| --- | --- | --- |
+| Engagement counts | [yt-dlp `parse_count`](https://github.com/yt-dlp/yt-dlp) (Unlicense), [@internationalized/number](https://github.com/adobe/react-spectrum) (Apache-2.0) | Reference; `parseEngagement` is hand-written in the Worker (Arabic digits, ألف / مليون, "N likes, M comments") |
+| Engagement counts | js-abbreviation-number, anynum, arabic-digits, human-format, numbro | Rejected |
+| Most viewed by genre | YouTube `search.list order=viewCount` + `videos.list` statistics | **Adopted** |
+| Most viewed by genre | TikTok Creative Center industry filter · Trends MCP · Apify actors · open datasets | Manual link / rejected / none found |
+| Genre lists | YouTube categories · TikTok industries · [IAB Content Taxonomy 3.1](https://github.com/InteractiveAdvertisingBureau/Taxonomies) · CapCut template categories | Reference (our 12 map onto them; edit style is a later second axis) |
+| Ready-made genre search | TubeAlfred, UnifAPI, [sergebulaev/tiktok-skills](https://github.com/sergebulaev/tiktok-skills), [pandich93/youtube-niche-finder](https://github.com/pandich93/youtube-niche-finder), Nooticr MCP, ViralMint | Nothing fits a static export + free Worker; "breakout" sort idea kept |
+
 ## How to add to this log
 
 One row per find: area · link · decision (adopt / adopt candidate / reference / rejected + why). Re-run a search when a new phase starts

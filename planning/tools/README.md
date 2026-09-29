@@ -18,6 +18,7 @@ build order. Website and social tools are recorded so nothing is forgotten, but 
 | [06-social-analytics-apis.md](06-social-analytics-apis.md) | Social Analytics: the Worker's OAuth + daily sync |
 | [07-auto-posting.md](07-auto-posting.md) | Auto-posting (Metricool-style): the publish queue, platform limits, owner steps |
 | [08-trends.md](08-trends.md) | Trend Radar: what is trending now (Google, YouTube, TikTok, Instagram, Threads, X), Arabic and English; sources, budgets, owner steps |
+| [11-discover-genres.md](11-discover-genres.md) | Discover by edit genre (cars, food, anime, travel…), the Most popular sort, numbers on cards, genres in the Trend Radar (09 and 10 live in another worktree) |
 
 ## Rules used when picking
 

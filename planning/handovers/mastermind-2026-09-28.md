@@ -151,6 +151,32 @@ egress IPs), and opening the PR (the in-app browser is not signed in to GitHub a
 `format:check` fails on this Windows checkout for untouched files because `core.autocrlf` gives them CRLF; it is not one of the five
 gates and CI on Linux is unaffected.
 
+## Round 31 · Discover by edit genre (Sep 29, 2026)
+
+PR #18 merged (bf3e1e7); CI, Pages and the Worker deploy green; `YOUTUBE_API_KEY` added by the owner and the Worker redeployed
+(run #19). The first cron refresh of the radar ran at 06:05 UTC; the radar showed Google rows with a "partial" badge, the failing
+source still to be named (suspect: the key's application restrictions, which must be "None").
+
+The owner then asked for a genre search and said yes to the proposal. Built on branch `claude/discover-genres` (from main) by four
+lanes with single-owner files, then reviewed (six lenses, one skeptic per finding):
+
+| Lane | Built | Owns |
+| --- | --- | --- |
+| L1 Data + store + Settings | `planning/data/genres.json`, `GenreSchema` / `CustomGenreSchema` / `TrendItem.genre`, `lib/genres.ts`, persisted `customGenres`, `messages/genres.*`, Settings "🎬 Edit genres" | `lib/domain.ts`, `store/`, `lib/genres.ts`, `data/genres.ts`, `lib/i18n.ts`, `components/settings/`, `e2e/settings.spec.ts` |
+| L2 Discover / Research UI | genre row, topic + genre queries, Sort chips, numbers on cards, `videos.list` statistics, cache v3 | `components/research/`, `lib/research.ts`, `lib/scoutClient.ts`, `messages/{ar,en}.json` (research keys), `e2e/scout.spec.ts`, `e2e/research.spec.ts` |
+| L3 Worker | `parseEngagement`, `enrichYoutubeStats`, genre keywords + daily rotation (cap 18), kept rows, shared statistics ids | `workers/scout/**` |
+| L4 Radar UI | genre select, `TrendFilter.genre` | `components/social/trends/`, `lib/trends.ts`, `messages/trends.*`, `e2e/trends.spec.ts` |
+
+Decisions taken while building (all recorded in `tools/11-discover-genres.md`): the rotation moves by 18 keywords a day (one a
+day would need 36 days); a custom genre may not reuse a built-in genre's name; a chip tap commits the typed text in the skill
+sheet too; the genre row wraps on wide screens and scrolls sideways on phones.
+
+Review: 9 raw findings, 6 distinct, 4 confirmed and fixed (feed cap 200 → 400 with per-language ranking, the niche ⭐ on genre
+rows, the Settings copy about custom genres, the cached failed statistics call), 2 refuted; each fix re-read by a skeptic.
+
+Still open: how often TikTok / Instagram descriptions carry their counts (not measured live); custom genres in the radar's
+scan (needs the list sent to the Worker); the six owner questions below.
+
 ## Questions for the owner (only the ones that change the build)
 
 1. **Media upload**: create a free Backblaze B2 account (no card) so videos are picked straight from the phone? Or is adding a card

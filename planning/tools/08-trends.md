@@ -107,7 +107,7 @@ in `store/index.test.ts`). A trend becomes an idea through the existing `addIdea
 | --- | --- | --- | --- |
 | `google.ts` | RPC `i0OFE` for SA (ar) and US (en), 24 h window; RSS fallback | every 6 h | 2-4 subrequests |
 | `youtube.ts` | `videos.list chart=mostPopular` SA + US, categories 0 (all) and 26 (how-to), `maxResults 25`, `isShort` by duration (tag `short`); needs the `YOUTUBE_API_KEY` Worker secret | every 6 h | 4 units, 4 subrequests |
-| `youtubeSearch.ts` | `search.list` for the owner's keyword list (≤ 12 calls) + one `videos.list` | once a day | ≤ 13 of the 100 daily search calls |
+| `youtubeSearch.ts` | `search.list` for the owner's niche keywords **and the edit genres' main queries** (round 31: `planning/data/genres.json` bundled by `genres.ts`, `queries.ar[0]` against SA / ar and `queries.en[0]` against US / en, rows tagged `genre: "<id>"`; niche rows carry none) + one `videos.list` (50 ids, taken in turns from the day's keywords). **≤ 18 `search.list` calls per run and per UTC day** (`SEARCH_CAP`, was 12; 82 of the day's 100 stay for Discover). The plan (niche then genres, ar/en interleaved: 36 keywords by default) is **rotated by UTC day**: `dayNumber = floor(now / 86,400,000)`, the day's searches start at `(dayNumber × 18) % plan.length` and take the next 18, so every keyword is searched within two days; the rows of the keywords not searched today stay in the feed until their own next search or their 7-day expiry. Rows are scored by views **per language** (rank 1 = 100 among the Arabic rows and among the English rows, the day's and the kept ones together), so the Arabic tab is not left with the low scores; the feed's cap is 400 rows (`MAX_ITEMS`, was 200), above the sources' own caps together, so the scan's up to 100 rows are never cut | once a day | ≤ 19 subrequests (≤ 18 of the 100 daily search calls + 1 quota unit) |
 | `kworb.ts` | TikTok sounds SA + US HTML | every 6 h | 2 subrequests (pending owner OK) |
 | `tavily.ts` | 6-8 queries: Arabic with `country: "saudi arabia"`, `language: "ar"`; English with `country: "united states"`; `include_domains` tiktok.com / instagram.com / youtube.com / threads.net plus the trend blogs; `time_range: "week"`; extracts `#hashtags` and sound names, ranks by frequency, keeps source links | weekly, Saturday 21:15 UTC (00:15 Riyadh, Sunday), at most once per ISO week (KV stamp `trends:tavily:<week>`) | 8 of the 1,000 monthly credits |
 | `events.ts` | `planning/data/saudi-events.json` bundled at build | on request | 0 |
@@ -126,6 +126,10 @@ a "ليش ترند؟" line from the news snippets, an **upcoming moments** rail 
 (TikTok Creative Center SA · Instagram trending audio ritual · getdaytrends SA · Snapchat Spotlight). The Studio inbox gets one row
 ("N ترندات جديدة هذا الأسبوع"). Copy in `messages/trends.{ar,en}.json` (registered in `lib/i18n.ts`), Hijazi first with key parity.
 E2E: `e2e/trends.spec.ts` stubs `GET /trends` on the fake Worker (`https://scout.test`), phone + desktop, no horizontal scroll.
+
+Round 31: the radar has an edit-genre select after the platform chips. It lists only the genres the feed has rows for (names
+from `planning/data/genres.json` and the owner's custom genres, unknown ids shown raw), filters together with the language tab
+and the platform chip, and is hidden while no row carries a genre. Design in `11-discover-genres.md`.
 
 ### Budgets to respect
 
