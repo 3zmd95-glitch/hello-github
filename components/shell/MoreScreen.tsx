@@ -30,6 +30,7 @@ const SOCIAL_LINKS: readonly MoreLink[] = [
   { href: "/social/website", label: "social.more.website", testId: "more-website", soon: true },
   { href: "/social/business", label: "social.more.business", testId: "more-business", soon: true },
   { href: "/social/automations", label: "social.more.automations", testId: "more-automations" },
+  { href: "/social/replies", label: "social.more.replies", testId: "more-replies" },
   { href: "/discover", label: "morePage.discover", testId: "more-discover" },
   { href: "/settings", label: "morePage.settings", testId: "more-settings" },
   { href: "/", label: "social.more.training", testId: "more-training" },

@@ -19,7 +19,7 @@ browser:
 
 ## Endpoints
 
-Every request except `OPTIONS`, `GET /health` and the OAuth callback needs `Authorization: Bearer <SCOUT_TOKEN>`.
+Every request except `OPTIONS`, `GET /health`, the OAuth callback and `GET /go/:id/:n` needs `Authorization: Bearer <SCOUT_TOKEN>`.
 Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
 
 | Route                   | What it does                                                                                                                                                                                                                                                                                  |
@@ -27,7 +27,8 @@ Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
 | `GET /health`           | `{ ok: true }`. With a valid token: `{ ok: true, auth: true, tavily: <key present>, social: { configured: { instagram, threads, youtube, tiktok }, kv }, trends: { youtube: <key present>, sources: [...] } }`; a wrong token → 401. Used by the Settings "Test" button and the Connect page. |
 | `POST /search`          | Body `{ q, platforms: ["tt","ig","yt"], lang?, max?, timeRange?, thumbs? }` → `{ results: [{ platform, handle, title, snippet, url, thumb?, stats? }], credits: { used } }` with `stats: { views?, likes?, comments? }`. See below.                                                           |
 | `GET /oembed?url=…`     | TikTok / YouTube links only → `{ title, author, thumb, url }`, cached for a day (TikTok for 6 hours: its thumbnail URLs are signed and expire).                                                                                                                                               |
-| `/social/*`, `/oauth/*` | The social analytics connector, see [Social analytics](#social-analytics), and the publish queue, see [Auto-posting](#auto-posting).                                                                                                                                                          |
+| `/social/*`, `/oauth/*` | The social analytics connector, see [Social analytics](#social-analytics), the publish queue, see [Auto-posting](#auto-posting), and the auto-replies, see [Auto-replies](#auto-replies).                                                  |
+| `GET /go/:id/:n`        | No bearer: counts a tap on an auto-reply DM link and answers `302` to the button's URL (`Cache-Control: no-store`). 404 for an unknown automation or button.                                                                          |
 | `/trends*`              | The Trend Radar feed, see [Trend Radar](#trend-radar).                                                                                                                                                                                                                                        |
 
 ### `POST /search` options
@@ -102,9 +103,9 @@ Platforms: `instagram | threads | youtube | tiktok`. Code lives in `src/social/`
 
 | Route                               | Request                                                    | Response                                                                                                                                                                                      |
 | ----------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /social/connect/:platform`    | `{ "returnTo": "https://…/social/growth/", "publish"? }`   | `{ "url": "<provider authorization url>" }`. `returnTo` must be on an `ALLOWED_ORIGINS` origin (else 400). State nonce in KV for 10 minutes; PKCE S256 for YouTube (Google) and TikTok.       |
+| `POST /social/connect/:platform`    | `{ "returnTo": "https://…/social/growth/", "publish"?, "replies"? }` | `{ "url": "<provider authorization url>" }`. `returnTo` must be on an `ALLOWED_ORIGINS` origin (else 400). State nonce in KV for 10 minutes; PKCE S256 for YouTube (Google) and TikTok.       |
 | `GET /oauth/:platform/callback`     | `?code&state` from the provider (no bearer)                | `302` to `returnTo?connected=<platform>` or `returnTo?connect_error=<platform>&reason=<code>`. Unknown/used state → `400 { error: "state_invalid" }` (nowhere safe to redirect).              |
-| `GET /social/status`                |                                                            | `{ "platforms": { "<p>": { configured, connected, canPublish, handle?, url?, connectedAt?, lastSyncAt?, lastError?, tokenExpiresAt? } } }`                                                    |
+| `GET /social/status`                |                                                            | `{ "platforms": { "<p>": { configured, connected, canPublish, canReply, handle?, url?, connectedAt?, lastSyncAt?, lastError?, tokenExpiresAt? } } }`                                                    |
 | `POST /social/sync`                 | `{ "platforms"?: ["tiktok", …] }` (default: all connected) | `{ "synced": ["tiktok"], "errors": { "threads": "token_expired" } }`. Runs now; the outbound budget is shared between the platforms asked for, so sync one at a time for full depth.          |
 | `DELETE /social/connect/:platform`  |                                                            | `{ "ok": true }`. Forgets tokens and status; snapshots, posts and demographics stay.                                                                                                          |
 | `GET /social/data?since=YYYY-MM-DD` | `since` optional (default: 400 days ago)                   | `{ accounts: SocialAccount[], snapshots: SocialSnapshotInput[], postStats: SocialPostStatInput[], demographics: Demographic[], syncedAt: { "<p>": iso } }` in `lib/domain.ts` shapes (below). |
@@ -176,8 +177,11 @@ refreshed before every sync. A refresh the provider refuses → `lastError: "tok
 | `snap:<platform>:<day>` | one `SocialSnapshotInput`; also stored as the key's metadata so a `list` returns rows without a `get`. At most 400 days per platform (older ones are deleted).                                                        |
 | `posts:<platform>`      | `{ [postId]: SocialPostStatInput }`, one document per platform merged on every sync (newest 500 kept). Kept in one key rather than `post:<p>:<id>` so a sync costs a handful of writes, not hundreds.                 |
 | `demo:<platform>:<day>` | `Demographic[]` of that day                                                                                                                                                                                           |
-| `state:<nonce>`         | `{ platform, returnTo, createdAt, verifier?, publish? }`, 10-minute TTL, deleted when the callback uses it                                                                                                            |
+| `state:<nonce>`         | `{ platform, returnTo, createdAt, verifier?, publish?, replies? }`, 10-minute TTL, deleted when the callback uses it                                                                                                            |
 | `publish:jobs`          | `{ [jobId]: PublishJob }`: the auto-post queue in one document (an idle cron tick is one read, no write). Finished jobs are dropped after 30 days; at most 200 jobs.                                                  |
+| `replies:doc`           | `AutomationsDoc`: the owner's auto-reply automations; written only by `POST`/`DELETE /social/replies`.                                                                                                        |
+| `replies:state`         | `PollState`: answered comments (7 days), counters, the last 50 log entries, watched posts' comment counts, the poll lock; written only by the poll, and only when something changed.                          |
+| `replies:clicks`        | `ClicksDoc`: taps on the `/go` links with the daily cap; written only by `GET /go/:id/:n`.                                                                                                                    |
 
 ## Auto-posting
 
@@ -220,6 +224,66 @@ gets `SELF_ONLY`) and uploads with `FILE_UPLOAD`: one chunk up to 64 MB, 64 MB c
 that. The status is polled on the next ticks (`SEND_TO_USER_INBOX` for the inbox mode). A run has 34 outbound
 calls (`PUBLISH_BUDGET`, the rest of the 50 subrequests go to KV). It claims its jobs (`lockUntil`, 10 min)
 before any platform call, so the cron and "run" never publish the same job twice.
+
+## Auto-replies
+
+Code: `src/social/replies.ts` (documents, matcher, poller, routes, `/go`), wired in `cron.ts` (polls on publish
+ticks that moved nothing) and `scout.ts` (`/go`). Product spec and owner steps: `planning/tools/10-auto-replies.md`.
+A copy of Beacons' Smart Reply: when someone comments a keyword on one of the owner's Instagram posts, the
+Worker sends the commenter a private DM with the link and replies under the comment. Instagram only (Threads
+and YouTube have no DMs in their APIs; TikTok has no comment API).
+
+**Permission.** `POST /social/connect/instagram` with `"replies": true` asks for
+`instagram_business_manage_comments` + `instagram_business_manage_messages` on top of the posting scopes. The
+callback sets `canReply` from the permissions Instagram reports as granted (the owner can untick one in Meta's
+dialog) and `GET /social/status` reports it. Without it the poll is skipped with `lastError: "no_permission"`.
+Note: under Standard Access (Development mode) Instagram delivers private replies only to accounts with a role
+on the Meta app; DMs to everyone need App Review for `instagram_business_manage_messages`
+(`planning/tools/10-auto-replies.md`).
+
+**Detection is polling, not webhooks**: Meta sends comment webhooks only to apps that are Live with Advanced
+Access. So on every five-minute tick where the publish queue moved nothing, the Worker lists the newest
+`WATCH_ANY_MAX` (5) posts (for "any post" automations) plus up to `WATCH_SPECIFIC_MAX` (3) specific posts (a post
+that cannot be looked up is noted on its automations and skipped), reads the comments of those whose
+`comments_count` changed (all of them once an hour, or on "Check now"; a post whose read failed is read again
+next tick), skips its own comments, comments older than 7 days, comments from before the automation was
+switched on and comments already answered, matches the rest (specific-post automations before "any post"),
+takes a short lock (`POLL_LOCK_MS`, 4 min) so the cron and "Check now" never answer the same comment, and
+answers at most `REPLY_CAP` (8) a tick, oldest first. A post with matching comments left over (cap, budget,
+stop) is read again next tick.
+
+**Order per comment.** First the private reply, `POST /{ig-user-id}/messages { recipient: { comment_id },
+message: { text } }` (one per comment, text only, within 7 days; buttons go out as `title: <origin>/go/<id>/<n>`
+lines). Only once it went out, the public reply `POST /{comment-id}/replies` (optional; it says "sent it to you
+privately", so it never goes out without the DM, and a failed public reply is logged once, never retried).
+Budget: `REPLIES_FETCH_BUDGET` (30) outbound calls, so a tick stays inside the 50 subrequests with its KV reads.
+
+**Storage, one document per writer** (KV is last-write-wins, so no path ever rewrites another's data):
+`replies:doc` = the owner's automations (dashboard routes), `replies:state` = answered comments, counters, log,
+lock (the poll only), `replies:clicks` = taps on `/go` links (`/go` only). Reads merge the three; an idle tick
+writes nothing.
+
+| Route                          | Request                                                                                                   | Response                                                                                        |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `GET /social/replies`          |                                                                                                           | `{ automations (with stats), log, origin?, igUserId?, lastPollAt?, lastError? }`                |
+| `POST /social/replies`         | `{ id, enabled?, postId?, permalink?, title?, thumbUrl?, keywords, match?, publicReply?, dmText, buttons? }` | `{ automation }` (with its counters); `400 { error, detail }`                                   |
+| `POST /social/replies/poll`    |                                                                                                           | `{ result: { checked, sent, failed, skipped?, error?, detail? }, …the GET shape }`              |
+| `DELETE /social/replies/:id`   |                                                                                                           | `{ ok: true }` (its counters go with the next poll)                                             |
+
+Validation: `id` is `[A-Za-z0-9_-]{1,100}` (not `poll`); `postId` is `[0-9A-Za-z_-]{1,64}`, or null/omitted for any
+post; `permalink` (≤ 300), `title` (≤ 120) and `thumbUrl` (https) are display only; 1–10 keywords of ≤ 40
+characters; `match` is `contains` (default) or `exact`; `dmText` 1–1,000 characters; `publicReply` ≤ 2,200
+(`{username}` becomes `@handle`); ≤ 3 buttons `{ title ≤ 20, url https }`. Matching ignores case, Arabic
+diacritics and tatweel, alef/yaa variants, punctuation and emoji.
+
+Error codes (`lastError`, the log's `error`, an automation's `stats.lastError`): `not_connected`,
+`no_permission` (app-level: Meta code 10 with no subcode or an app subcode; the tick stops, the comment is given
+up on after 3 such tries), `token_expired`, `rate_limited` (the tick stops, the comment waits), `rejected`
+(Instagram refused this comment or recipient; the words in `detail`), `upstream` (retried on later reads, given
+up after 3), `not_eligible` (Instagram takes no private reply to this comment: code 100/2534025, or code 10
+with a messaging-window subcode). `skipped` on the poll result: `none`, `not_connected`, `no_permission`,
+`token_expired`, `locked`. Clicks: `GET /go/:id/:n` redirects only to an owner-saved https link, counts one tap
+per visitor per link per minute (Cache API) and at most `CLICK_WRITES_PER_DAY` (200) a day, and always redirects.
 
 ## Trend Radar
 

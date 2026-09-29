@@ -3,12 +3,15 @@
  * a few ticks do another job instead, so every invocation keeps the free plan's full subrequest budget for
  * one job: the four ticks from 03:00 to 03:30 UTC (06:00–06:30 Riyadh) run the daily sync of one platform
  * each, and the Trend Radar ticks (round 30, planning/tools/08-trends.md) refresh the trend feed. One
- * trigger rather than many also stays inside the free plan's cron limit (five per account).
+ * trigger rather than many also stays inside the free plan's cron limit (five per account). A publish tick
+ * that moved nothing also polls Instagram comments for the auto-replies (replies.ts): the two never share
+ * one tick, so each keeps its full budget.
  */
 
 import { runTrends, summarize, type TrendsRunSummary } from "../trends/run";
 import type { TrendKind, TrendsEnv } from "../trends/types";
 import { runDue, type RunResult } from "./publish";
+import { pollReplies, type PollResult } from "./replies";
 import type { SocialEnv } from "./store";
 import { syncIfConnected, type SyncAllResult, type SyncDeps } from "./sync";
 import type { SocialPlatform } from "./types";
@@ -42,7 +45,9 @@ export const WEEKLY_SLOT = "21:15";
 export const WEEKLY_DAY = 6;
 
 export type TickResult =
-  { sync: SyncAllResult } | { publish: RunResult } | { trends: TrendsRunSummary };
+  | { sync: SyncAllResult }
+  | { publish: RunResult; replies?: PollResult }
+  | { trends: TrendsRunSummary };
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -66,16 +71,13 @@ export async function runTick(
 ): Promise<TickResult> {
   const platform = SYNC_SLOTS[utcSlot(scheduledTime)];
   if (platform) return { sync: await syncIfConnected(env, platform, deps) };
+  const now = deps.now ?? new Date(scheduledTime);
   const kind = trendKindAt(scheduledTime);
   if (kind) {
-    const feed = await runTrends(env, {
-      kinds: [kind],
-      fetch: deps.fetch,
-      now: deps.now ?? new Date(scheduledTime),
-    });
+    const feed = await runTrends(env, { kinds: [kind], fetch: deps.fetch, now });
     return { trends: summarize([kind], feed) };
   }
-  return {
-    publish: await runDue(env, { fetch: deps.fetch, now: deps.now ?? new Date(scheduledTime) }),
-  };
+  const publish = await runDue(env, { fetch: deps.fetch, now });
+  if (publish.advanced.length) return { publish };
+  return { publish, replies: await pollReplies(env, { fetch: deps.fetch, now }) };
 }

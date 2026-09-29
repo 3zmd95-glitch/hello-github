@@ -66,6 +66,13 @@ Full tables with links, verification notes and reasons are in `08-trends.md`; th
 | Media hosting (posting) | Backblaze B2 (10 GB free, no card, S3 presigned PUT via [aws4fetch](https://github.com/mhart/aws4fetch)) · Cloudflare R2 (card) · Supabase Storage (50 MB cap) · UploadThing (2 GB) · Uploadcare · Bunny · Cloudinary · GitHub Releases (302 redirect) · Drive (rejected by Meta) | **B2 adopt candidate** (owner decision); R2 if a card is acceptable; others rejected or fallbacks |
 | X posting | X API pay-per-use (card) · Buffer free-plan API (3 channels, 3,000 req/30 d) | Buffer candidate (owner decision) |
 | Snapchat posting | Public Profile API (partner-only) · Zernio (Snapchat beta-locked, 403) | Manual; re-check monthly |
+## 2026-09-29 · auto-replies (round 30, "automatic comments like Beacons")
+
+| Looked at | Found | Decision |
+| --- | --- | --- |
+| Self-hosted Instagram comment → DM bots | [AutoDMX](https://github.com/Aditya5688/AutoDMX), [open-autodm](https://github.com/andaveti42-cmyk/open-autodm), [instagram-dm-automation](https://github.com/ElAmir-Mansour/instagram-dm-automation), [ig-automation](https://github.com/elmlahym-wq/ig-automation) | Reference for the flow (keyword → public reply → private reply). Not adopted: all need a server + database and Meta webhooks (Live app with Advanced Access); ours polls from the free Worker's cron with KV. |
+| Hosted | ManyChat, LinkDM, Beacons Smart Reply ($10–15/month) | Beacons' builder copied field by field (`10-auto-replies.md`). |
+| Direct official API | Instagram comments + private replies (`/{comment-id}/replies`, `/{ig-user-id}/messages` with `comment_id`) | **Adopted** in the Scout Worker (`replies.ts`). |
 
 ## 2026-09-29 · Discover by edit genre (round 31)
 

@@ -8,6 +8,9 @@
  *   demo:<platform>:<day>    DemographicRow[]
  *   state:<nonce>            OAuthState, 10-minute TTL, deleted when the callback consumes it
  *   publish:jobs             { [jobId]: PublishJob } — the auto-post queue, one document (publish.ts)
+ *   replies:doc              AutomationsDoc — the owner's auto-reply automations (written by the dashboard routes)
+ *   replies:state            PollState — answered comments, counters, log, poll lock (written by the poll only)
+ *   replies:clicks           ClicksDoc — taps on the /go links, capped per day (written by /go only)
  *
  * The free plan allows 1,000 KV writes a day and counts KV operations toward the 50 subrequests of an
  * invocation, so posts live in one document per platform rather than one key per post (a daily sync of four
@@ -50,6 +53,8 @@ export interface OAuthState {
   verifier?: string;
   /** The publishing scopes were asked for too. */
   publish?: boolean;
+  /** The auto-reply scopes were asked for too (Instagram). */
+  replies?: boolean;
 }
 
 export const STATE_TTL_S = 600;
@@ -69,6 +74,9 @@ export const keys = {
   demoPrefix: (p: SocialPlatform) => `demo:${p}:`,
   state: (nonce: string) => `state:${nonce}`,
   publishJobs: "publish:jobs",
+  replies: "replies:doc",
+  repliesState: "replies:state",
+  replyClicks: "replies:clicks",
 };
 
 async function readJson<T>(kv: KVNamespace, key: string): Promise<T | null> {
@@ -231,6 +239,35 @@ export class Store {
 
   async putJobs<J>(jobs: Record<string, J>): Promise<void> {
     await this.kv.put(keys.publishJobs, JSON.stringify(jobs));
+  }
+
+  /* ---- auto-replies (replies.ts): three documents, one per writer ---- */
+
+  /** The owner's automations (written by the dashboard routes). */
+  async getReplies<D>(): Promise<D | null> {
+    return readJson<D>(this.kv, keys.replies);
+  }
+
+  async putReplies<D>(doc: D): Promise<void> {
+    await this.kv.put(keys.replies, JSON.stringify(doc));
+  }
+
+  /** What the poller learned (written by the poll only). */
+  async getRepliesState<D>(): Promise<D | null> {
+    return readJson<D>(this.kv, keys.repliesState);
+  }
+
+  async putRepliesState<D>(doc: D): Promise<void> {
+    await this.kv.put(keys.repliesState, JSON.stringify(doc));
+  }
+
+  /** Taps on the /go links (written by /go only). */
+  async getReplyClicks<D>(): Promise<D | null> {
+    return readJson<D>(this.kv, keys.replyClicks);
+  }
+
+  async putReplyClicks<D>(doc: D): Promise<void> {
+    await this.kv.put(keys.replyClicks, JSON.stringify(doc));
   }
 
   /* ---- disconnect ---- */

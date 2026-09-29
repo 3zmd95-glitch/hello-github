@@ -3,7 +3,6 @@
 Owner, round 31 (Sep 29, 2026): "is it possible that the discover can make me search based on genre of edits? cars, food and
 restaurants, anime, travel… to be a better editor and understand the latest trends and most famous edits by genre". Built the same
 day on top of the round-30 search (`components/research/`, Scout Worker `/search`) and the Trend Radar (`08-trends.md`).
-Numbers 09 and 10 are taken by files that live in another worktree (Metricool / Beacons roadmap, auto-replies).
 
 ## What it does
 

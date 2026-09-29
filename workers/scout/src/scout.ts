@@ -10,9 +10,10 @@
  *                           (TikTok 6 h: its thumbnail URLs are signed)
  *   GET  /trends          → the Trend Radar feed (trends/routes.ts, round 30, planning/tools/08-trends.md)
  *   POST /trends/run      → refresh the feed now
+ *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
  *
- * Every route but OPTIONS and GET /health needs `Authorization: Bearer <SCOUT_TOKEN>`. CORS reflects the
- * request Origin only when it is in ALLOWED_ORIGINS.
+ * Every route but OPTIONS, GET /health, the OAuth callbacks and /go needs `Authorization: Bearer
+ * <SCOUT_TOKEN>`. CORS reflects the request Origin only when it is in ALLOWED_ORIGINS.
  *
  * Request handling lives here rather than in `index.ts` because a Worker's main module may export only
  * handlers (workerd treats every named export as an entrypoint), and the tests need `handle` and helpers.
@@ -30,6 +31,7 @@ import {
   type TavilyHit,
 } from "./normalize";
 import { allowedOrigins, DEFAULT_ALLOWED_ORIGINS } from "./origins";
+import { handleGo } from "./social/replies";
 import { handleOAuthCallback, handleSocial, healthSocial } from "./social/routes";
 import type { SocialEnv } from "./social/store";
 import { handleTrends, healthTrends } from "./trends/routes";
@@ -534,6 +536,13 @@ export async function handle(
   const callback = pathname.match(/^\/oauth\/([a-z]+)\/callback$/);
   if (callback && req.method === "GET") {
     return handleOAuthCallback(req, env, callback[1], { fetch: deps.fetch, now: deps.now });
+  }
+
+  // Links in the auto-reply DMs: the reader's browser follows them (no bearer); they only redirect.
+  const go = pathname.match(/^\/go\/([A-Za-z0-9_-]{1,100})\/(\d)$/);
+  if (go && req.method === "GET") {
+    const cache = deps.cache === undefined ? defaultCache() : deps.cache;
+    return handleGo(req, env, go[1], Number(go[2]), deps.now?.(), cache);
   }
 
   const token = checkToken(req, env);

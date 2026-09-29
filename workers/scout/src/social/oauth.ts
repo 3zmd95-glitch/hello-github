@@ -23,6 +23,8 @@ export interface ProviderAuth {
   scopes: string;
   /** Extra scopes asked for only when the owner allows auto-posting (`publish: true` on connect). */
   publishScopes: string;
+  /** Extra scopes for auto-replies (`replies: true` on connect); only Instagram has them. */
+  replyScopes?: string;
   pkce: boolean;
   authorizeUrl(
     creds: ProviderCreds,
@@ -30,6 +32,7 @@ export interface ProviderAuth {
     state: string,
     challenge?: string,
     publish?: boolean,
+    replies?: boolean,
   ): string;
   /** Exchanges the code and, where the platform has them, upgrades to long-lived/refresh tokens. */
   exchange(
@@ -46,11 +49,22 @@ export interface ProviderAuth {
   refresh(creds: ProviderCreds, tokens: TokenSet, http: Http, now: Date): Promise<TokenSet>;
 }
 
+// Getters, not values: the platform modules import this file back (scopeFor, isExpired…), so whichever of
+// them is loaded first sees this object built while its own `auth` is still uninitialized. Reading the
+// bindings at call time keeps the table correct whatever the import order.
 export const PROVIDERS: Record<SocialPlatform, ProviderAuth> = {
-  instagram: instagramAuth,
-  threads: threadsAuth,
-  youtube: youtubeAuth,
-  tiktok: tiktokAuth,
+  get instagram() {
+    return instagramAuth;
+  },
+  get threads() {
+    return threadsAuth;
+  },
+  get youtube() {
+    return youtubeAuth;
+  },
+  get tiktok() {
+    return tiktokAuth;
+  },
 };
 
 /** Client id + secret for a platform, or null when either is missing (`configured: false`). */
@@ -89,14 +103,20 @@ export function isoPlusSeconds(now: Date, seconds: number): string {
   return new Date(now.getTime() + seconds * 1000).toISOString();
 }
 
-/** The analytics scopes, plus the publishing ones when asked, joined with the provider's separator. */
+/**
+ * The analytics scopes, plus the publishing and reply ones when asked, joined with the provider's separator.
+ * Reply scopes bring the publishing ones along, so allowing replies never takes posting away.
+ */
 export function scopeFor(
-  provider: Pick<ProviderAuth, "scopes" | "publishScopes">,
+  provider: Pick<ProviderAuth, "scopes" | "publishScopes" | "replyScopes">,
   publish?: boolean,
+  replies?: boolean,
 ): string {
-  if (!publish) return provider.scopes;
   const sep = provider.scopes.includes(" ") ? " " : ",";
-  return `${provider.scopes}${sep}${provider.publishScopes}`;
+  const parts = [provider.scopes];
+  if (publish || replies) parts.push(provider.publishScopes);
+  if (replies && provider.replyScopes) parts.push(provider.replyScopes);
+  return parts.join(sep);
 }
 
 export function ageDays(tokens: TokenSet, now: Date): number {

@@ -45,6 +45,7 @@ describe("Social More", () => {
       "more-website",
       "more-business",
       "more-automations",
+      "more-replies",
       "more-discover",
       "more-settings",
       "more-training",

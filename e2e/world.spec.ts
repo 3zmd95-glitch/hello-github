@@ -9,6 +9,7 @@ const SOCIAL_PATHS = [
   "/social/website/",
   "/social/business/",
   "/social/automations/",
+  "/social/replies/",
   "/social/more/",
 ];
 
@@ -103,6 +104,7 @@ test("Social More lists the rest of the world and the way back to Training", asy
     "more-website",
     "more-business",
     "more-automations",
+    "more-replies",
     "more-discover",
     "more-settings",
   ]) {

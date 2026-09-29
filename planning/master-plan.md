@@ -510,6 +510,12 @@ TikTok, Instagram and YouTube, Arabic or English… be the mastermind so every a
   Threads keyword search waits for App Review after the CR.
 - Search-before-building results for both workstreams are recorded in `tools/08-trends.md` and `tools/05-found-on-github.md`.
 
+Brainstorm round 30, later the same day (owner: "I want to have Metricool in my dashboard… and Beacons AI"; "copy Metricool, not connect to it"):
+- Decision: the 📱 Social world copies what Metricool (plan, post everywhere, analytics, reports, inbox, comment → DM, link in bio)
+  and Beacons (link in bio, media kit, store, email list, Smart Reply, Beam AI) do, built in our own dashboard and Worker. No
+  Metricool API/MCP (the API is $53/month and up; the owner wants our own). Beacons ($10/month) is cancelled once its parts are live here.
+- First item: the TikTok and YouTube app reviews so posts can be public. Roadmap, status per feature and order in `tools/09-metricool-beacons.md`.
+
 Round 31 (Sep 29, 2026; owner: "search based on genre of edits: cars, food and restaurants, anime, travel… understand the latest
 trends and most famous edits by genre"):
 - PR #18 (round 30: Trend Radar, post everywhere v2, the search fixes) merged and deployed; the owner added the

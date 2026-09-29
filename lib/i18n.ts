@@ -23,6 +23,8 @@ import arIdeas from "@/messages/ideas.ar.json";
 import enIdeas from "@/messages/ideas.en.json";
 import arPublish from "@/messages/publish.ar.json";
 import enPublish from "@/messages/publish.en.json";
+import arReplies from "@/messages/replies.ar.json";
+import enReplies from "@/messages/replies.en.json";
 import arTrends from "@/messages/trends.ar.json";
 import enTrends from "@/messages/trends.en.json";
 import arGenres from "@/messages/genres.ar.json";
@@ -55,6 +57,7 @@ export const MESSAGE_FILES = {
   growth: { ar: arGrowth, en: enGrowth },
   ideas: { ar: arIdeas, en: enIdeas },
   publish: { ar: arPublish, en: enPublish },
+  replies: { ar: arReplies, en: enReplies },
   // 📈 Trend Radar (round 30, planning/tools/08-trends.md).
   trends: { ar: arTrends, en: enTrends },
   // 🎬 Edit genres (round 31): the genre row of Discover / Research, the Settings card.
@@ -74,6 +77,7 @@ const ar = {
   ...arGrowth,
   ...arIdeas,
   ...arPublish,
+  ...arReplies,
   ...arTrends,
   ...arGenres,
 };
@@ -90,6 +94,7 @@ const en = {
   ...enGrowth,
   ...enIdeas,
   ...enPublish,
+  ...enReplies,
   ...enTrends,
   ...enGenres,
 };

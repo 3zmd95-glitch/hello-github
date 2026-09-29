@@ -11,6 +11,13 @@
  *   POST   /social/publish            { id, scheduledAt, media?, targets } → { job }   add or replace a job
  *   POST   /social/publish/:id/run                   → { job }          publish now
  *   DELETE /social/publish/:id                       → { ok: true }     cancel
+ *   GET    /social/replies                           → { automations, log, … }   auto-replies (replies.ts)
+ *   POST   /social/replies            { id, keywords, dmText, … } → { automation }   add or replace
+ *   POST   /social/replies/poll                      → { result, automations, … } check the comments now
+ *   DELETE /social/replies/:id                       → { ok: true }
+ *
+ * `POST /social/connect/:platform` takes `publish: true` (posting scopes) and, for Instagram, `replies: true`
+ * (comment + message scopes on top of the posting ones).
  *
  * The router in `scout.ts` has already checked CORS and, for /social/*, the bearer token.
  */
@@ -20,6 +27,7 @@ import { pkceChallenge, randomToken } from "./crypto";
 import { Budget } from "./http";
 import { credentials, isConfigured, PROVIDERS, redirectUri } from "./oauth";
 import { handlePublish } from "./publish";
+import { handleReplies } from "./replies";
 import { defaultSince, Store, type SocialEnv } from "./store";
 import { FETCH_BUDGET, syncAll, syncPlatform } from "./sync";
 import { DAY_KEY_RE } from "./time";
@@ -116,6 +124,12 @@ export async function handleSocial(
     }
     return null;
   }
+  if (action === "replies") {
+    return handleReplies(req, env, socialPath(pathname).slice(1), store, now, deps.fetch, {
+      json: (body, status) => json(body, status, cors),
+      fail: (error) => fail(error, cors),
+    });
+  }
   if (action === "publish") {
     return handlePublish(req, env, socialPath(pathname).slice(1), store, now, deps.fetch, {
       json: (body, code) => json(body, code, cors),
@@ -142,11 +156,14 @@ async function connect(
   const body = await readJson(req);
   const returnTo = typeof body?.returnTo === "string" ? body.returnTo : "";
   const publish = body?.publish === true;
+  const replies = body?.replies === true;
   if (!body || !returnTo || !isAllowedReturnTo(returnTo, env)) return fail("bad_request", cors);
+  const provider = PROVIDERS[platform];
+  // Only Instagram has reply scopes (comments + messages); asking elsewhere is a dashboard bug.
+  if (replies && !provider.replyScopes) return fail("bad_request", cors);
   const creds = credentials(env, platform);
   if (!store || !creds) return fail("not_configured", cors);
 
-  const provider = PROVIDERS[platform];
   const nonce = randomToken(32);
   const verifier = provider.pkce ? randomToken(48) : undefined;
   const challenge = verifier ? await pkceChallenge(verifier) : undefined;
@@ -156,6 +173,7 @@ async function connect(
     createdAt: now.toISOString(),
     ...(verifier ? { verifier } : {}),
     ...(publish ? { publish } : {}),
+    ...(replies ? { replies } : {}),
   });
   const origin = new URL(req.url).origin;
   const url = provider.authorizeUrl(
@@ -163,7 +181,8 @@ async function connect(
     redirectUri(origin, platform),
     nonce,
     challenge,
-    publish,
+    publish || replies,
+    replies,
   );
   return json({ url }, 200, cors);
 }
@@ -178,6 +197,7 @@ async function status(env: SocialEnv, cors: Headers, store: Store | null): Promi
       configured,
       connected: !!tokens,
       canPublish: !!tokens?.canPublish,
+      canReply: !!tokens?.canReply,
       ...stored,
       ...(tokens?.expiresAt ? { tokenExpiresAt: tokens.expiresAt } : {}),
     };
@@ -301,7 +321,15 @@ export async function handleOAuthCallback(
     );
     return error(e instanceof SocialError && e.code !== "upstream" ? e.code : "exchange_failed");
   }
-  if (state.publish) tokens = { ...tokens, canPublish: true };
+  if (state.publish || state.replies) tokens = { ...tokens, canPublish: true };
+  if (state.replies) {
+    // The reply scopes are asked for together with the posting ones (oauth.ts scopeFor), but the consent
+    // dialog lets the owner untick one: trust the granted list when the provider sent it.
+    const granted = tokens.scope ? tokens.scope.split(/[,\s]+/).filter(Boolean) : null;
+    const wanted = PROVIDERS[platform].replyScopes?.split(/[,\s]+/).filter(Boolean) ?? [];
+    const canReply = !granted || wanted.every((s) => granted.includes(s));
+    tokens = { ...tokens, canReply };
+  }
   await store.putTokens(platform, tokens);
   const previous = (await store.getStatus(platform)) ?? {};
   await store.putStatus(platform, {

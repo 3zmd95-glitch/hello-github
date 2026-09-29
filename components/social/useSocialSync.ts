@@ -172,18 +172,21 @@ export function connectReturnTo(): string {
 
 /**
  * Ask the Worker for the OAuth URL and go there; the Worker redirects back to Settings when done. `publish`
- * also asks for the posting permission; left out, a reconnect keeps whatever the platform had.
+ * also asks for the posting permission and `replies` (Instagram) for the comment + message permission; left
+ * out, a reconnect keeps whatever the platform had.
  */
 export async function connectSocial(
   platform: SocialPlatform,
   publish?: boolean,
+  replies?: boolean,
 ): Promise<ActionResult> {
   const cfg = currentConfig();
   if (!cfg) return fail("settings.accounts.err.unconfigured", false);
   setActivity({ busy: true, error: null });
-  const keep = useStore.getState().socialSync.status?.[platform]?.canPublish === true;
+  const current = useStore.getState().socialSync.status?.[platform];
   const r = await socialConnectUrl(cfg, platform, connectReturnTo(), {
-    publish: publish ?? keep,
+    publish: publish ?? current?.canPublish === true,
+    replies: replies ?? current?.canReply === true,
   });
   if (!r.ok) return fail(keyOf(r.error), false);
   // Busy stays on: the page is leaving.
@@ -209,7 +212,7 @@ export interface SocialSyncApi {
   busy: boolean;
   /** This session's last failure, or the persisted last pull error. */
   error: MessageKey | null;
-  connect(platform: SocialPlatform, publish?: boolean): Promise<ActionResult>;
+  connect(platform: SocialPlatform, publish?: boolean, replies?: boolean): Promise<ActionResult>;
   disconnect(platform: SocialPlatform): Promise<ActionResult>;
   syncNow(): Promise<SyncResult>;
   pull(): Promise<ActionResult>;

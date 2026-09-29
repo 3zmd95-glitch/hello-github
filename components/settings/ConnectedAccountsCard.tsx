@@ -127,6 +127,7 @@ export default function ConnectedAccountsCard() {
                     busy={busy}
                     onConnect={() => void connect(p)}
                     onAllowPosting={() => void connect(p, true)}
+                    onAllowReplies={() => void connect(p, true, true)}
                     onDisconnect={() => setPending({ kind: "disconnect", platform: p })}
                   />
                 ))}
@@ -205,6 +206,7 @@ function AccountRow({
   busy,
   onConnect,
   onAllowPosting,
+  onAllowReplies,
   onDisconnect,
 }: {
   platform: SocialPlatform;
@@ -212,8 +214,12 @@ function AccountRow({
   busy: boolean;
   onConnect: () => void;
   onAllowPosting: () => void;
+  /** Instagram only: reconnect with the comment + message scopes (auto-replies). */
+  onAllowReplies: () => void;
   onDisconnect: () => void;
 }) {
+  // Only Instagram's API replies to comments and sends DMs.
+  const replies = platform === "instagram";
   const { t, L, lang } = useT();
   const meta = PLATFORM_META[platform];
   const state = accountState(status, platform);
@@ -267,6 +273,11 @@ function AccountRow({
               {t("publish.hub.canPost")}
             </span>
           )}
+          {replies && state === "connected" && status?.canReply && (
+            <span className="px-chip px-chip-green text-xs" data-testid="account-can-reply">
+              {t("replies.canReply")}
+            </span>
+          )}
         </span>
         <span className="text-ink-2 text-xs" data-testid="account-state">
           {text}
@@ -315,14 +326,26 @@ function AccountRow({
           </button>
         )}
         {state === "connected" && !status?.canPublish && (
+          // Instagram without either permission: one consent grants posting and replies together.
           <button
             type="button"
             className="px-btn px-btn-sm"
-            onClick={onAllowPosting}
+            onClick={replies && !status?.canReply ? onAllowReplies : onAllowPosting}
             disabled={busy}
             data-testid="account-allow-posting"
           >
-            {t("publish.allow")}
+            {replies && !status?.canReply ? t("replies.allowBoth") : t("publish.allow")}
+          </button>
+        )}
+        {replies && state === "connected" && status?.canPublish && !status.canReply && (
+          <button
+            type="button"
+            className="px-btn px-btn-sm"
+            onClick={onAllowReplies}
+            disabled={busy}
+            data-testid="account-allow-replies"
+          >
+            {t("replies.allow")}
           </button>
         )}
         {(state === "connected" || state === "error") && (
