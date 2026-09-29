@@ -21,6 +21,7 @@ build order. Website and social tools are recorded so nothing is forgotten, but 
 | [09-metricool-beacons.md](09-metricool-beacons.md) | **Roadmap:** copy Metricool + Beacons into the Social world (status per feature, order of work) |
 | [10-auto-replies.md](10-auto-replies.md) | Auto-replies (Beacons Smart Reply copy): comment a keyword → public reply + DM with the link; polling, limits, owner steps |
 | [11-discover-genres.md](11-discover-genres.md) | Discover by edit genre (cars, food, anime, travel…), the Most popular sort, numbers on cards, genres fed by the Trend Radar |
+| [12-watch-in-dashboard.md](12-watch-in-dashboard.md) | ▶ Watch here: the in-dashboard player for YouTube, TikTok and Instagram (plain frames, no platform script in our origin), why Instagram cards have no picture, limits |
 
 ## Rules used when picking
 

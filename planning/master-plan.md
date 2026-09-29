@@ -532,6 +532,16 @@ trends and most famous edits by genre"):
   YouTube and likes × 10 on TikTok / Instagram, labelled as a ranking aid; no automated TikTok / Instagram trend lists (terms,
   same as round 30); nothing adopted as a dependency (search log in `tools/11-discover-genres.md` and `tools/05-found-on-github.md`).
 
+Round 32 (Sep 29, 2026; owner: "why instagram doesn't show thumbnail plus i want to watch the video in my dashboard"):
+- Round 31 (PR #20) merged and deployed. Research with three agents, facts checked against the live platforms.
+- **Instagram thumbnails**: no permitted source. Meta removed `thumbnail_url` from oEmbed on 2025-11-03; every other route is
+  scraping (robots.txt and the terms forbid it) and its links die in days. Instagram cards get an honest poster tile.
+- **▶ Watch here** (`tools/12-watch-in-dashboard.md`): one player sheet with the platforms' own players in plain sandboxed
+  frames (YouTube privacy mode, TikTok player v1, Instagram embed). Decisions: no platform script in our origin (the owner's
+  tokens live there), so no player library and no YouTube IFrame API; nothing loads before the tap; a tokenless oEmbed
+  pre-check; messages accepted only from the player's origin and the sheet's own frame; a `frame-src` CSP.
+- From this round on every executing agent runs on Opus 5.5 (owner's instruction); planning stays with the session model.
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|

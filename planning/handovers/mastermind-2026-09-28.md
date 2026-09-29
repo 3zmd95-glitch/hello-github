@@ -182,6 +182,20 @@ Opus 5.5 (owner's instruction).
 Still open: how often TikTok / Instagram descriptions carry their counts (not measured live); custom genres in the radar's
 scan (needs the list sent to the Worker); the six owner questions below.
 
+## Round 32 · ▶ Watch here (Sep 29, 2026)
+
+PR #20 (round 31) merged (58b96fc), CI and both deploys green. The owner then asked why Instagram cards have no picture and to
+watch videos inside the dashboard. Branch `claude/watch-in-dashboard` from main. Research (three agents, live checks), then two
+build lanes, three review lenses with a skeptic per finding, then one agent running the new browser tests for real:
+
+| Lane | Built | Owns |
+| --- | --- | --- |
+| P1 Player | `lib/embed.ts` (ids, frame addresses and attributes, pre-check, message parsers), `VideoPlayerProvider`, `PlayerSheet`, `useBackToClose`, the CSP meta, `messages/player.*`, `e2e/player.spec.ts` | `lib/embed.ts`, `components/player/`, `components/shell/AppShell.tsx` (mount), `app/layout.tsx` (CSP) |
+| P2 Cards | ▶ on full cards and saved references, the Instagram poster tile | `components/research/ResultCard.tsx`, `e2e/scout.spec.ts`, `e2e/research.spec.ts` |
+
+Design and limits in `tools/12-watch-in-dashboard.md`. Not verified: iPhone Safari (the owner tests on his phone after the
+deploy). Every executing agent ran on Opus 5.5.
+
 ## Questions for the owner (only the ones that change the build)
 
 1. **Media upload**: create a free Backblaze B2 account (no card) so videos are picked straight from the phone? Or is adding a card

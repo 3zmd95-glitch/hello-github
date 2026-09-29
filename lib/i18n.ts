@@ -29,6 +29,8 @@ import arTrends from "@/messages/trends.ar.json";
 import enTrends from "@/messages/trends.en.json";
 import arGenres from "@/messages/genres.ar.json";
 import enGenres from "@/messages/genres.en.json";
+import arPlayer from "@/messages/player.ar.json";
+import enPlayer from "@/messages/player.en.json";
 import type { Lang, LText } from "@/lib/domain";
 import { useStore } from "@/store";
 
@@ -62,6 +64,8 @@ export const MESSAGE_FILES = {
   trends: { ar: arTrends, en: enTrends },
   // 🎬 Edit genres (round 31): the genre row of Discover / Research, the Settings card.
   genres: { ar: arGenres, en: enGenres },
+  // ▶ Watch here (round 32): the in-dashboard video player and the cards' play button.
+  player: { ar: arPlayer, en: enPlayer },
 } as const;
 
 const ar = {
@@ -80,6 +84,7 @@ const ar = {
   ...arReplies,
   ...arTrends,
   ...arGenres,
+  ...arPlayer,
 };
 const en = {
   ...enBase,
@@ -97,6 +102,7 @@ const en = {
   ...enReplies,
   ...enTrends,
   ...enGenres,
+  ...enPlayer,
 };
 
 export type MessageKey = keyof typeof ar;
