@@ -1,7 +1,9 @@
 /**
  * Trend Radar tests (round 30, planning/tools/08-trends.md): every parser on a saved sample of the live
  * answer probed on 2026-09-28, the run's merge / budget / degraded rules, the routes, the cron slots, the
- * daily search cap and the `TREND_SOURCES` gate. Mocked fetch + in-memory KV, the social.test.ts style.
+ * daily search cap and the `TREND_SOURCES` gate; round 31: the bundled genres, the keyword plan's rotation
+ * by UTC day, the genre tag, the scan's ranking per language and the feed's cap above the sources' own.
+ * Mocked fetch + in-memory KV, the social.test.ts style.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -15,8 +17,17 @@ import {
 } from "../social/cron";
 import { handle, type Env } from "../scout";
 import { daysUntil, eventItem, eventItems, parseEvent, SAUDI_EVENTS, upcoming } from "./events";
-import { googleItems, googleRpcBody, parseGoogleRpc, parseGoogleRss, runGoogle } from "./google";
-import { kworbItems, parseKworb, runKworb } from "./kworb";
+import { GENRE_KEYWORDS, genreKeywords, GENRES, parseGenre, parseGenres } from "./genres";
+import {
+  GOOGLE_MAX_PER_REGION,
+  GOOGLE_REGIONS,
+  googleItems,
+  googleRpcBody,
+  parseGoogleRpc,
+  parseGoogleRss,
+  runGoogle,
+} from "./google";
+import { KWORB_MAX, KWORB_REGIONS, kworbItems, parseKworb, runKworb } from "./kworb";
 import { isoWeek, latestFeed, readSearchCount, trendKeys, utcDay } from "./kv";
 import {
   dedupe,
@@ -38,13 +49,34 @@ import {
   platformOfUrl,
   runTavily,
   scanTerms,
+  TAVILY_MAX_ITEMS,
   TAVILY_QUERIES,
   TAVILY_URL,
 } from "./tavily";
 import { SOURCE_LABELS, type SourceCtx, type TrendItem, type TrendsFeed } from "./types";
-import { parseTrends24, runX, xItems } from "./x";
-import { durationSeconds, runYoutube, YT_VIDEOS_URL } from "./youtube";
-import { keywordPlan, runYoutubeSearch, SEARCH_CAP, YT_SEARCH_URL } from "./youtubeSearch";
+import { parseTrends24, runX, X_MAX, xItems } from "./x";
+import {
+  durationSeconds,
+  runYoutube,
+  YT_CATEGORIES,
+  YT_MAX_RESULTS,
+  YT_REGIONS,
+  YT_VIDEOS_URL,
+} from "./youtube";
+import {
+  dayNumber,
+  keptRows,
+  keywordList,
+  keywordPlan,
+  pickVideoIds,
+  planOffset,
+  rankByViews,
+  runYoutubeSearch,
+  SEARCH_CAP,
+  STATS_MAX_IDS,
+  YT_SEARCH_URL,
+  type Keyword,
+} from "./youtubeSearch";
 import { Budget } from "../social/http";
 
 /* ---------- fixtures & fakes ---------- */
@@ -305,7 +337,7 @@ describe("normalize", () => {
     ]);
   });
 
-  it("merge: replaces the ran sources' rows, keeps the others until expiry, caps at 200", () => {
+  it("merge: replaces the ran sources' rows, keeps the others until expiry, caps at MAX_ITEMS (400)", () => {
     const old = [
       item({ id: "google:SA:old", score: 10 }),
       item({ id: "youtube:SA:v1", platform: "youtube", source: SOURCE_LABELS.youtube, score: 60 }),
@@ -329,10 +361,14 @@ describe("normalize", () => {
     expect(merged.map((i) => i.id)).toEqual(["google:SA:new", "x:SA:alive", "youtube:SA:v1"]);
     expect("url" in merged[0]).toBe(false);
 
-    const many = Array.from({ length: 250 }, (_, i) =>
+    expect(MAX_ITEMS).toBe(400);
+    const many = Array.from({ length: MAX_ITEMS + 50 }, (_, i) =>
       item({ id: `google:SA:${i}`, score: i % 100 }),
     );
-    expect(mergeItems([], many, new Set([SOURCE_LABELS.google]), NOW)).toHaveLength(MAX_ITEMS);
+    const capped = mergeItems([], many, new Set([SOURCE_LABELS.google]), NOW);
+    expect(capped).toHaveLength(MAX_ITEMS);
+    // The cut takes the lowest scores: 450 rows hold every score of 0..99 four or five times.
+    expect(Math.min(...capped.map((i) => i.score ?? -1))).toBe(10);
   });
 
   it("merge: a row already stored keeps its first-seen seenAt; a new or expired-and-back one gets now", () => {
@@ -596,34 +632,218 @@ describe("youtube charts", () => {
   });
 });
 
+/* ---------- genres ---------- */
+
+describe("genres", () => {
+  const drift = {
+    id: "drift",
+    emoji: "🏎️",
+    name: { ar: "هجولة", en: "Drift" },
+    queries: { ar: ["ايديت هجولة"], en: ["drift edit", "drift cinematic"] },
+  };
+
+  it("bundles the planning file: twelve genres, two keywords each", () => {
+    expect(GENRES.map((g) => g.id)).toEqual([
+      "cars",
+      "food",
+      "anime",
+      "travel",
+      "football",
+      "coffee",
+      "perfume",
+      "camping",
+      "fashion",
+      "gaming",
+      "weddings",
+      "gym",
+    ]);
+    expect(GENRES[0]).toEqual({
+      id: "cars",
+      emoji: "🚗",
+      name: { ar: "سيارات", en: "Cars" },
+      queries: { ar: ["ايديت سيارات", "مونتاج سيارات"], en: ["car edit", "cinematic car edit"] },
+      hashtags: ["caredit", "carsoftiktok"],
+    });
+    expect(GENRE_KEYWORDS).toHaveLength(24);
+    expect(GENRE_KEYWORDS.slice(0, 3)).toEqual([
+      { q: "ايديت سيارات", region: "SA", lang: "ar", genre: "cars" },
+      { q: "car edit", region: "US", lang: "en", genre: "cars" },
+      { q: "مونتاج أكل", region: "SA", lang: "ar", genre: "food" },
+    ]);
+  });
+
+  it("checks an entry by the rules of the dashboard's GenreSchema", () => {
+    expect(parseGenre(drift)).toEqual({ ...drift, hashtags: [] });
+    expect(parseGenre({ ...drift, hashtags: ["drift_edit", "drift2"] })?.hashtags).toEqual([
+      "drift_edit",
+      "drift2",
+    ]);
+    for (const bad of [
+      null,
+      "drift",
+      { ...drift, id: "Drift" },
+      { ...drift, id: "1drift" },
+      { ...drift, id: "" },
+      { ...drift, emoji: "" },
+      { ...drift, name: { ar: "هجولة" } },
+      { ...drift, queries: { ar: [], en: ["drift edit"] } },
+      { ...drift, queries: { ar: ["ايديت هجولة"], en: [""] } },
+      { ...drift, queries: { ar: ["ايديت هجولة"] } },
+      { ...drift, queries: undefined },
+      { ...drift, hashtags: ["Drift Edit"] },
+      { ...drift, hashtags: "drift" },
+    ]) {
+      expect(parseGenre(bad)).toBeNull();
+    }
+  });
+
+  it("drops malformed entries and repeated ids, and reads version 1 only", () => {
+    const drone = { ...drift, id: "drone", name: { ar: "درون", en: "Drone" } };
+    const file = {
+      version: 1,
+      genres: [drift, { ...drift, emoji: "" }, { ...drone, id: "drift" }, drone],
+    };
+    expect(parseGenres(file).map((g) => [g.id, g.name.en])).toEqual([
+      ["drift", "Drift"],
+      ["drone", "Drone"],
+    ]);
+    expect(parseGenres({ version: 2, genres: [drift] })).toEqual([]);
+    expect(parseGenres({ version: 1 })).toEqual([]);
+    expect(parseGenres([drift])).toEqual([]);
+    expect(parseGenres(null)).toEqual([]);
+    expect(genreKeywords(parseGenres({ version: 1, genres: [drift] }))).toEqual([
+      { q: "ايديت هجولة", region: "SA", lang: "ar", genre: "drift" },
+      { q: "drift edit", region: "US", lang: "en", genre: "drift" },
+    ]);
+  });
+});
+
 /* ---------- YouTube keyword search ---------- */
 
 describe("youtube search", () => {
-  it("interleaves the Arabic and English keywords, env lists overriding the defaults", () => {
-    const plan = keywordPlan({});
-    expect(plan).toHaveLength(12);
-    expect(plan.slice(0, 4)).toEqual([
+  const DAY = 86_400_000;
+  const COUNTER = trendKeys.ytsearch("2026-09-28");
+  const kw = (q: string, lang: "ar" | "en", genre?: string): Keyword => ({
+    q,
+    region: lang === "ar" ? "SA" : "US",
+    lang,
+    ...(genre ? { genre } : {}),
+  });
+  const keyOf = (k: { q: string; region: string }) => `${k.region}:${k.q}`;
+  const rowKey = (i: TrendItem) => `${i.region}:${i.tags[0]}`;
+  const calls = (fetchMock: { urls: () => string[] }, prefix: string) =>
+    fetchMock.urls().filter((u) => u.startsWith(prefix));
+
+  it("lists the niche keywords then the genres' main queries, Arabic and English interleaved", () => {
+    const list = keywordList({});
+    expect(list).toHaveLength(36);
+    expect(list.slice(0, 4)).toEqual([
       { q: "تصوير", region: "SA", lang: "ar" },
       { q: "davinci resolve", region: "US", lang: "en" },
       { q: "مونتاج", region: "SA", lang: "ar" },
       { q: "color grading", region: "US", lang: "en" },
     ]);
-    expect(
-      keywordPlan({ TREND_KEYWORDS_AR: "مونتاج, مونتاج ,", TREND_KEYWORDS_EN: "b-roll" }),
-    ).toEqual([
+    // Niche keywords carry no genre; the genres follow in the file's order, tagged.
+    expect(list.slice(0, 12).some((k) => "genre" in k)).toBe(false);
+    expect(list.slice(12, 16)).toEqual([
+      { q: "ايديت سيارات", region: "SA", lang: "ar", genre: "cars" },
+      { q: "car edit", region: "US", lang: "en", genre: "cars" },
+      { q: "مونتاج أكل", region: "SA", lang: "ar", genre: "food" },
+      { q: "food edit", region: "US", lang: "en", genre: "food" },
+    ]);
+    expect(list.slice(12).map((k) => k.genre)).toEqual(GENRES.flatMap((g) => [g.id, g.id]));
+
+    // The env lists replace the niche defaults, never the genres.
+    const own = keywordList({ TREND_KEYWORDS_AR: "مونتاج, مونتاج ,", TREND_KEYWORDS_EN: "b-roll" });
+    expect(own).toHaveLength(26);
+    expect(own.slice(0, 3)).toEqual([
       { q: "مونتاج", region: "SA", lang: "ar" },
       { q: "b-roll", region: "US", lang: "en" },
+      { q: "ايديت سيارات", region: "SA", lang: "ar", genre: "cars" },
+    ]);
+
+    // A niche keyword that is also a genre's main query is searched once and carries the genre.
+    const both = keywordList({ TREND_KEYWORDS_EN: "Car Edit,b-roll" });
+    expect(both).toHaveLength(18 + 13);
+    expect(both.filter((k) => k.q.toLowerCase() === "car edit")).toEqual([
+      { q: "Car Edit", region: "US", lang: "en", genre: "cars" },
     ]);
   });
 
-  function ytFetch(searchIds: (q: string) => string[]) {
+  it("rotates the plan by UTC day: two days in a row search every keyword, never more than the cap a day", () => {
+    const list = keywordList({});
+    const next = new Date(NOW.getTime() + DAY);
+    expect([dayNumber(NOW), planOffset(NOW, list.length)]).toEqual([20_724, 0]);
+    expect(planOffset(next, list.length)).toBe(SEARCH_CAP);
+    expect(keywordPlan({}, NOW)).toEqual(list);
+    expect(keywordPlan({}, next)).toEqual([
+      ...list.slice(SEARCH_CAP),
+      ...list.slice(0, SEARCH_CAP),
+    ]);
+    // One plan for the whole UTC day.
+    expect(keywordPlan({}, new Date("2026-09-29T00:00:00Z"))).toEqual(
+      keywordPlan({}, new Date("2026-09-29T23:59:59Z")),
+    );
+
+    for (const env of [{}, { TREND_KEYWORDS_AR: "مونتاج", TREND_KEYWORDS_EN: "b-roll" }]) {
+      const all = keywordList(env);
+      for (let d = 0; d < 6; d++) {
+        const plan = keywordPlan(env, new Date(NOW.getTime() + d * DAY));
+        const today = plan.slice(0, SEARCH_CAP);
+        const tomorrow = keywordPlan(env, new Date(NOW.getTime() + (d + 1) * DAY)).slice(
+          0,
+          SEARCH_CAP,
+        );
+        // A rotation: the same keywords, none twice.
+        expect(plan.map(keyOf).sort()).toEqual(all.map(keyOf).sort());
+        expect(today).toHaveLength(SEARCH_CAP);
+        expect(new Set([...today, ...tomorrow].map(keyOf))).toEqual(new Set(all.map(keyOf)));
+        // Both tabs get their share every day.
+        expect(today.filter((k) => k.lang === "ar")).toHaveLength(SEARCH_CAP / 2);
+      }
+    }
+
+    // A plan that fits in one run is not rotated; a longer one takes ceil(length / cap) days.
+    expect(planOffset(next, SEARCH_CAP)).toBe(0);
+    const searchedIn = (days: number, length: number) => {
+      const seen = new Set<number>();
+      for (let d = 0; d < days; d++) {
+        const from = planOffset(new Date(NOW.getTime() + d * DAY), length);
+        for (let i = 0; i < SEARCH_CAP; i++) seen.add((from + i) % length);
+      }
+      return seen.size;
+    };
+    for (const length of [19, 26, 31, 36]) expect(searchedIn(2, length)).toBe(length);
+    expect([searchedIn(2, 50), searchedIn(3, 50)]).toEqual([36, 50]);
+  });
+
+  it("shares the statistics call's ids between the keywords, each keyword's most viewed first", () => {
+    expect(pickVideoIds([["a1", "a2", "a3"], ["b1"], [], ["c1", "c2"]], 4)).toEqual([
+      "a1",
+      "b1",
+      "c1",
+      "a2",
+    ]);
+    expect(pickVideoIds([["a1", "a2"], ["b1"]])).toEqual(["a1", "b1", "a2"]);
+    expect(pickVideoIds([])).toEqual([]);
+    expect(STATS_MAX_IDS).toBe(50);
+  });
+
+  /** `views`: a video's views by its id and its place in the statistics call (default 1000, 2000, …). */
+  function ytFetch(
+    searchIds: (q: string) => string[],
+    now: Date = NOW,
+    views: (id: string, i: number) => number = (_id, i) => 1000 * (i + 1),
+  ) {
     return mockFetch({
       "www.googleapis.com/youtube/v3/search": (url) => {
         expect(url.searchParams.get("type")).toBe("video");
         expect(url.searchParams.get("order")).toBe("viewCount");
         expect(url.searchParams.get("videoDuration")).toBe("short");
         expect(url.searchParams.get("maxResults")).toBe("10");
-        expect(url.searchParams.get("publishedAfter")).toBe("2026-09-21T09:00:00.000Z");
+        expect(url.searchParams.get("publishedAfter")).toBe(
+          new Date(now.getTime() - 7 * DAY).toISOString(),
+        );
         const lang = url.searchParams.get("relevanceLanguage");
         expect(url.searchParams.get("regionCode")).toBe(lang === "ar" ? "SA" : "US");
         return {
@@ -632,47 +852,105 @@ describe("youtube search", () => {
       },
       "www.googleapis.com/youtube/v3/videos": (url) => {
         const ids = url.searchParams.get("id")!.split(",");
-        return { items: ids.map((id, i) => ytVideo(id, `Video ${id}`, "PT30S", 1000 * (i + 1))) };
+        return { items: ids.map((id, i) => ytVideo(id, `Video ${id}`, "PT30S", views(id, i))) };
       },
     });
   }
 
   it("runs the keywords the day's cap allows, one statistics call, and writes the counter", async () => {
     const kv = fakeKV();
-    const env = makeEnv(kv, {
-      YOUTUBE_API_KEY: "k",
-      TREND_KEYWORDS_AR: "مونتاج",
-      TREND_KEYWORDS_EN: "b-roll",
-    });
+    const env = makeEnv(kv, { YOUTUBE_API_KEY: "k" });
     const fetchMock = ytFetch((q) => (q === "مونتاج" ? ["ar1", "ar2"] : ["en1", "ar2"]));
-    const out = await runYoutubeSearch(ctx(env, fetchMock));
-    expect(fetchMock.urls().filter((u) => u.startsWith(YT_SEARCH_URL))).toHaveLength(2);
-    expect(fetchMock.urls().filter((u) => u.startsWith(YT_VIDEOS_URL))).toHaveLength(1);
+    const out = await runYoutubeSearch(ctx(env, fetchMock), [
+      kw("مونتاج", "ar"),
+      kw("b-roll", "en"),
+    ]);
+    expect(calls(fetchMock, YT_SEARCH_URL)).toHaveLength(2);
+    expect(calls(fetchMock, YT_VIDEOS_URL)).toHaveLength(1);
     expect(out.ok).toBe(true);
     if (!out.ok) return;
-    // Views: ar1 1000, ar2 2000, en1 3000 → en1 first.
+    // Views: ar1 1000, ar2 2000, en1 3000, ranked per language: ar2 and en1 are both a rank 1.
     expect(out.items.map((i) => [i.id, i.score, i.tags, i.lang, i.region])).toEqual([
+      ["youtube:SA:q-ar2", 100, ["مونتاج", "short"], "ar", "SA"],
       ["youtube:US:q-en1", 100, ["b-roll", "short"], "en", "US"],
-      ["youtube:SA:q-ar2", 67, ["مونتاج", "short"], "ar", "SA"],
-      ["youtube:SA:q-ar1", 33, ["مونتاج", "short"], "ar", "SA"],
+      ["youtube:SA:q-ar1", 50, ["مونتاج", "short"], "ar", "SA"],
     ]);
     expect(out.items[0]).toMatchObject({
       source: "YouTube search",
       expiresAt: "2026-10-05T09:00:00.000Z",
     });
-    expect(out.note).toBe("2 search calls (2/12 today)");
+    // Rows of a niche keyword carry no genre.
+    expect(out.items.some((i) => "genre" in i)).toBe(false);
+    expect(out.note).toBe("2 search calls (2/18 today)");
     expect(await readSearchCount(env, utcDay(NOW))).toBe(2);
-    expect(kv.store.get(trendKeys.ytsearch("2026-09-28"))!.expirationTtl).toBe(2 * 86_400);
+    expect(kv.store.get(COUNTER)!.expirationTtl).toBe(2 * 86_400);
+  });
+
+  it("searches the day's 18 keywords of the whole plan and tags the genre rows", async () => {
+    const env = makeEnv(fakeKV(), { YOUTUBE_API_KEY: "k" });
+    // Ten videos per keyword: 180 found, 50 asked about, and every keyword keeps its most viewed ones.
+    const fetchMock = ytFetch((q) => Array.from({ length: 10 }, (_, i) => `${q} ${i}`));
+    const run = ctx(env, fetchMock);
+    const out = await runYoutubeSearch(run);
+    const today = keywordPlan(env, NOW).slice(0, SEARCH_CAP);
+    expect(SEARCH_CAP).toBe(18);
+    expect(calls(fetchMock, YT_SEARCH_URL).map((u) => new URL(u).searchParams.get("q"))).toEqual(
+      today.map((k) => k.q),
+    );
+    const stats = calls(fetchMock, YT_VIDEOS_URL);
+    expect(stats).toHaveLength(1);
+    expect(new URL(stats[0]).searchParams.get("id")!.split(",")).toHaveLength(50);
+    // 18 searches and the statistics call, of the run's 38.
+    expect(run.budget.left).toBe(RUN_BUDGET - 19);
+    if (!out.ok) throw new Error(out.error);
+    expect(out.note).toBe("18 search calls (18/18 today)");
+    expect(out.items).toHaveLength(50);
+    for (const k of today) {
+      const rows = out.items.filter((i) => rowKey(i) === keyOf(k));
+      expect(rows.length).toBeGreaterThanOrEqual(2);
+      expect(
+        rows
+          .map((r) => r.title)
+          .sort()
+          .slice(0, 2),
+      ).toEqual([`Video ${k.q} 0`, `Video ${k.q} 1`]);
+      // Rows of a genre keyword carry its id, rows of a niche keyword carry none.
+      expect(rows.every((r) => r.genre === k.genre && "genre" in r === !!k.genre)).toBe(true);
+    }
+    // 2026-09-28 is the day of the 12 niche keywords and the first three genres.
+    expect(today.filter((k) => !k.genre)).toHaveLength(12);
+    expect([...new Set(out.items.flatMap((i) => (i.genre ? [i.genre] : [])))].sort()).toEqual([
+      "anime",
+      "cars",
+      "food",
+    ]);
+  });
+
+  it("gives a row the genre of the genre keyword that found it, whichever keyword found it first", async () => {
+    const env = makeEnv(fakeKV(), { YOUTUBE_API_KEY: "k" });
+    const plan = [kw("مونتاج", "ar"), kw("car edit", "en", "cars"), kw("food edit", "en", "food")];
+    const fetchMock = ytFetch((q) =>
+      q === "مونتاج" ? ["n1", "both"] : q === "car edit" ? ["both", "c1"] : ["c1", "f1"],
+    );
+    const out = await runYoutubeSearch(ctx(env, fetchMock), plan);
+    if (!out.ok) throw new Error(out.error);
+    expect(Object.fromEntries(out.items.map((i) => [i.id, [i.tags[0], i.genre]]))).toEqual({
+      "youtube:SA:q-n1": ["مونتاج", undefined],
+      "youtube:SA:q-both": ["مونتاج", "cars"],
+      "youtube:US:q-c1": ["car edit", "cars"],
+      "youtube:US:q-f1": ["food edit", "food"],
+    });
+    expect("genre" in out.items.find((i) => i.id === "youtube:SA:q-n1")!).toBe(false);
   });
 
   it("honours the daily cap across runs and per run", async () => {
     const kv = fakeKV();
     const env = makeEnv(kv, { YOUTUBE_API_KEY: "k" });
-    await kv.put(trendKeys.ytsearch("2026-09-28"), "10");
+    await kv.put(COUNTER, String(SEARCH_CAP - 2));
     const fetchMock = ytFetch(() => ["v"]);
     const out = await runYoutubeSearch(ctx(env, fetchMock));
     expect(out.ok).toBe(true);
-    expect(fetchMock.urls().filter((u) => u.startsWith(YT_SEARCH_URL))).toHaveLength(2);
+    expect(calls(fetchMock, YT_SEARCH_URL)).toHaveLength(2);
     expect(await readSearchCount(env, "2026-09-28")).toBe(SEARCH_CAP);
 
     const capped = mockFetch({});
@@ -682,23 +960,266 @@ describe("youtube search", () => {
     });
     expect(capped).not.toHaveBeenCalled();
 
-    // A fresh day with the full plan: never more than SEARCH_CAP searches in one run.
+    // A fresh day with a long plan (44 keywords): never more than SEARCH_CAP searches in one run.
     const fresh = makeEnv(fakeKV(), {
       YOUTUBE_API_KEY: "k",
       TREND_KEYWORDS_AR: Array.from({ length: 10 }, (_, i) => `ع${i}`).join(","),
       TREND_KEYWORDS_EN: Array.from({ length: 10 }, (_, i) => `e${i}`).join(","),
     });
+    expect(keywordList(fresh)).toHaveLength(44);
     const many = ytFetch((q) => [q]);
     await runYoutubeSearch(ctx(fresh, many));
-    expect(many.urls().filter((u) => u.startsWith(YT_SEARCH_URL))).toHaveLength(SEARCH_CAP);
+    expect(calls(many, YT_SEARCH_URL)).toHaveLength(SEARCH_CAP);
+    expect(await readSearchCount(fresh, "2026-09-28")).toBe(SEARCH_CAP);
+
+    // A run short of calls searches what its budget allows, the statistics call included.
+    const tight = ytFetch((q) => [q]);
+    await runYoutubeSearch(ctx(makeEnv(fakeKV(), { YOUTUBE_API_KEY: "k" }), tight, 5));
+    expect(calls(tight, YT_SEARCH_URL)).toHaveLength(4);
+    expect(calls(tight, YT_VIDEOS_URL)).toHaveLength(1);
+  });
+
+  it("keeps the stored rows of the keywords it did not search, and only those", async () => {
+    const kv = fakeKV();
+    const env = makeEnv(kv, { YOUTUBE_API_KEY: "k" });
+    const SEEN = "2026-09-27T21:05:00.000Z";
+    const stored = (id: string, keyword: string, over: Partial<TrendItem> = {}) =>
+      item({
+        id: `youtube:SA:q-${id}`,
+        platform: "youtube",
+        source: SOURCE_LABELS.youtubeSearch,
+        tags: [keyword, "short"],
+        volume: 10,
+        score: 50,
+        seenAt: SEEN,
+        expiresAt: "2026-10-04T21:05:00.000Z",
+        ...over,
+      });
+    const previous = [
+      stored("kept", "ايديت سيارات", { volume: 5000, genre: "cars" }),
+      // Found again by today's search: the new row wins.
+      stored("again", "ايديت سيارات", { genre: "cars" }),
+      stored("expired", "ايديت سيارات", { expiresAt: "2026-09-28T08:00:00.000Z" }),
+      // Its keyword was searched today.
+      stored("replaced", "مونتاج"),
+      // Its keyword left the plan, or is another region's.
+      stored("unplanned", "كلمة قديمة"),
+      stored("elsewhere", "ايديت سيارات", { id: "youtube:US:q-elsewhere", region: "US" }),
+      // Another source's row is not this source's to keep (run.ts does that).
+      item({ id: "google:SA:row", score: 90 }),
+    ];
+    // One search left today: the second keyword waits for its own day.
+    await kv.put(COUNTER, String(SEARCH_CAP - 1));
+    const fetchMock = ytFetch(() => ["new", "again"]);
+    const out = await runYoutubeSearch({ ...ctx(env, fetchMock), previous }, [
+      kw("مونتاج", "ar"),
+      kw("ايديت سيارات", "ar", "cars"),
+    ]);
+    expect(calls(fetchMock, YT_SEARCH_URL)).toHaveLength(1);
+    if (!out.ok) throw new Error(out.error);
+    // One ranking by views for the run's rows and the kept ones (all Arabic here): kept 5000, again
+    // 2000, new 1000.
+    expect(out.items.map((i) => [i.id, i.score, i.tags[0], i.genre, i.seenAt])).toEqual([
+      ["youtube:SA:q-kept", 100, "ايديت سيارات", "cars", SEEN],
+      ["youtube:SA:q-again", 67, "مونتاج", undefined, AT],
+      ["youtube:SA:q-new", 33, "مونتاج", undefined, AT],
+    ]);
+    expect(out.items[0].expiresAt).toBe("2026-10-04T21:05:00.000Z");
+
+    expect(
+      keptRows(previous, [kw("مونتاج", "ar")], new Set(), new Set(), NOW).map((i) => i.id),
+    ).toEqual(["youtube:SA:q-replaced"]);
+    expect(keptRows(previous, [], new Set(), new Set(), NOW)).toEqual([]);
+  });
+
+  it("scores each language on its own: rank 1 = 100 among the Arabic rows and among the English rows", async () => {
+    const row = (
+      id: string,
+      lang: "ar" | "en",
+      volume?: number,
+      over: Partial<TrendItem> = {},
+    ): TrendItem =>
+      item({
+        id: `youtube:${lang === "ar" ? "SA" : "US"}:q-${id}`,
+        platform: "youtube",
+        region: lang === "ar" ? "SA" : "US",
+        lang,
+        source: SOURCE_LABELS.youtubeSearch,
+        ...(volume === undefined ? {} : { volume }),
+        ...over,
+      });
+    // English Shorts have the views: one ranking for both would score the Arabic rows 60, 40 and 20.
+    const ranked = rankByViews([
+      row("en-big", "en", 9_000_000),
+      row("ar-small", "ar", 50),
+      row("en-mid", "en", 500_000),
+      row("ar-big", "ar", 40_000),
+      row("ar-none", "ar"),
+    ]);
+    // On an equal score (and seenAt) the Arabic row comes first.
+    expect(ranked.map((i) => [i.id, i.score])).toEqual([
+      ["youtube:SA:q-ar-big", 100],
+      ["youtube:US:q-en-big", 100],
+      ["youtube:SA:q-ar-small", 67],
+      ["youtube:US:q-en-mid", 50],
+      ["youtube:SA:q-ar-none", 33],
+    ]);
+    expect(rankByViews([row("only", "en", 1)]).map((i) => i.score)).toEqual([100]);
+    expect(rankByViews([])).toEqual([]);
+
+    // The rows a run brought and the ones it keeps are ranked together, language by language.
+    const kv = fakeKV();
+    const env = makeEnv(kv, { YOUTUBE_API_KEY: "k" });
+    const SEEN = "2026-09-27T21:05:00.000Z";
+    const previous = [
+      row("kept-ar", "ar", 5000, { tags: ["ايديت سيارات", "short"], genre: "cars", seenAt: SEEN }),
+      row("kept-en", "en", 500, { tags: ["car edit", "short"], genre: "cars", seenAt: SEEN }),
+    ];
+    // Two searches left today: the two genre keywords wait for their own day.
+    await kv.put(COUNTER, String(SEARCH_CAP - 2));
+    const fetchMock = ytFetch((q) => (q === "مونتاج" ? ["a1", "a2"] : ["e1"]));
+    const out = await runYoutubeSearch({ ...ctx(env, fetchMock), previous }, [
+      kw("مونتاج", "ar"),
+      kw("b-roll", "en"),
+      kw("ايديت سيارات", "ar", "cars"),
+      kw("car edit", "en", "cars"),
+    ]);
+    expect(calls(fetchMock, YT_SEARCH_URL)).toHaveLength(2);
+    if (!out.ok) throw new Error(out.error);
+    // Arabic: kept-ar 5000, a2 2000, a1 1000. English: e1 3000, kept-en 500. Newer first on a tie.
+    expect(out.items.map((i) => [i.id, i.lang, i.volume, i.score])).toEqual([
+      ["youtube:US:q-e1", "en", 3000, 100],
+      ["youtube:SA:q-kept-ar", "ar", 5000, 100],
+      ["youtube:SA:q-a2", "ar", 2000, 67],
+      ["youtube:US:q-kept-en", "en", 500, 50],
+      ["youtube:SA:q-a1", "ar", 1000, 33],
+    ]);
+  });
+
+  it("over two days the feed holds the rows of every keyword (runTrends hands over the stored rows)", async () => {
+    const env = makeEnv(fakeKV(), { YOUTUBE_API_KEY: "k", TREND_SOURCES: "youtube" });
+    const all = keywordList(env);
+    const run = (now: Date) =>
+      runTrends(env, { kinds: ["daily"], now, fetch: ytFetch((q) => [`v ${q}`], now) });
+
+    const day1 = await run(NOW);
+    expect(day1.sources).toEqual([
+      { name: "YouTube search", ok: true, at: AT, error: "18 search calls (18/18 today)" },
+    ]);
+    expect(day1.items.map(rowKey).sort()).toEqual(all.slice(0, SEARCH_CAP).map(keyOf).sort());
+
+    const day2 = await run(new Date(NOW.getTime() + DAY));
+    expect(day2.items.map(rowKey).sort()).toEqual(all.map(keyOf).sort());
+    expect(new Set(day2.items.flatMap((i) => (i.genre ? [i.genre] : [])))).toEqual(
+      new Set(GENRES.map((g) => g.id)),
+    );
+    expect(day2.items.filter((i) => !i.genre)).toHaveLength(12);
+    expect(day2.items[0].score).toBe(100);
+    expect(day2.degraded).toBe(false);
+
+    // The third day searches the first day's keywords again: still one row per keyword, first seen kept.
+    const day3 = await run(new Date(NOW.getTime() + 2 * DAY));
+    expect(day3.items.map(rowKey).sort()).toEqual(all.map(keyOf).sort());
+    expect(day3.items.find((i) => i.tags[0] === "تصوير")).toMatchObject({
+      seenAt: AT,
+      expiresAt: new Date(NOW.getTime() + 9 * DAY).toISOString(),
+    });
+  });
+
+  it("keeps the rows of every keyword of both languages when the other sources fill the feed to their caps", async () => {
+    const kv = fakeKV();
+    const env = makeEnv(kv, {
+      YOUTUBE_API_KEY: "k",
+      TREND_SOURCES: "google,youtube,kworb,x,tavily,events",
+    });
+    const all = keywordList(env);
+    expect(all).toHaveLength(36);
+
+    // Every other source at its cap, as its own runs stored it, alive on both days.
+    const expiresAt = new Date(NOW.getTime() + 3 * DAY).toISOString();
+    const full = (
+      source: TrendItem["source"],
+      platform: TrendItem["platform"],
+      region: TrendItem["region"],
+      slug: string,
+      count: number,
+    ) =>
+      Array.from({ length: count }, (_, i) =>
+        item({
+          id: `${platform}:${region}:${slug}-${i}`,
+          platform,
+          region,
+          lang: region === "US" ? "en" : "ar",
+          source,
+          score: rankScore(i + 1, count),
+          expiresAt,
+        }),
+      );
+    const moments = eventItems(SAUDI_EVENTS, NOW).map((e) => ({ ...e, expiresAt }));
+    expect(moments.length).toBeGreaterThan(0);
+    const others = [
+      ...GOOGLE_REGIONS.flatMap(({ region }) =>
+        full(SOURCE_LABELS.google, "google", region, "g", GOOGLE_MAX_PER_REGION),
+      ),
+      ...YT_REGIONS.flatMap((region) =>
+        YT_CATEGORIES.flatMap((cat) =>
+          full(SOURCE_LABELS.youtube, "youtube", region, `chart${cat.id}`, YT_MAX_RESULTS),
+        ),
+      ),
+      ...KWORB_REGIONS.flatMap(({ region }) =>
+        full(SOURCE_LABELS.kworb, "tiktok", region, "sound", KWORB_MAX),
+      ),
+      ...full(SOURCE_LABELS.x, "x", "SA", "tag", X_MAX),
+      ...full(SOURCE_LABELS.tavily, "instagram", "SA", "scan", TAVILY_MAX_ITEMS),
+      ...moments,
+    ];
+    expect(others).toHaveLength(50 + 100 + 60 + 30 + 40 + moments.length);
+    const stored: TrendsFeed = { items: others, fetchedAt: AT, degraded: false, sources: [] };
+    await kv.put(trendKeys.latest, JSON.stringify(stored));
+
+    // Ten videos per keyword. English has the views and the genres (the end of the plan) the fewest, so
+    // the Arabic genre rows are the scan's least viewed ones, as they are live.
+    const place = new Map(all.map((k, i) => [k.q, i]));
+    const views = (id: string) => {
+      const at = place.get(id.slice(0, id.lastIndexOf(" ")))!;
+      const nth = Number(id.slice(id.lastIndexOf(" ") + 1));
+      return (all.length - at) * (all[at].lang === "en" ? 100_000 : 100) - nth;
+    };
+    const run = (now: Date) =>
+      runTrends(env, {
+        kinds: ["daily"],
+        now,
+        fetch: ytFetch((q) => Array.from({ length: 10 }, (_, i) => `${q} ${i}`), now, views),
+      });
+
+    const day1 = await run(NOW);
+    expect(day1.items).toHaveLength(others.length + STATS_MAX_IDS);
+    const day2 = await run(new Date(NOW.getTime() + DAY));
+    expect(day2.degraded).toBe(false);
+
+    const scan = day2.items.filter((i) => i.source === SOURCE_LABELS.youtubeSearch);
+    expect(scan).toHaveLength(2 * STATS_MAX_IDS);
+    // Every keyword still has the two or three rows its search brought, the first day's included.
+    for (const k of all) {
+      const rows = scan.filter((i) => rowKey(i) === keyOf(k));
+      expect(rows.length, keyOf(k)).toBeGreaterThanOrEqual(2);
+      expect(rows.every((r) => r.lang === k.lang && r.genre === k.genre)).toBe(true);
+    }
+    // Each language has its own ranking, from its most viewed row down to its least viewed one.
+    for (const lang of ["ar", "en"] as const) {
+      const scores = scan.filter((i) => i.lang === lang).map((i) => i.score ?? -1);
+      expect(scores).toHaveLength(STATS_MAX_IDS);
+      expect([Math.max(...scores), Math.min(...scores)]).toEqual([100, 2]);
+    }
+    // Nothing was cut: every source's rows fit under the feed's cap together.
+    expect(day2.items.length).toBeLessThanOrEqual(MAX_ITEMS);
+    expect(day2.items.map((i) => i.id).sort()).toEqual(
+      [...others, ...scan].map((i) => i.id).sort(),
+    );
   });
 
   it("stops at the first error and keeps what it got, or fails when nothing came", async () => {
-    const env = makeEnv(fakeKV(), {
-      YOUTUBE_API_KEY: "k",
-      TREND_KEYWORDS_AR: "a",
-      TREND_KEYWORDS_EN: "b",
-    });
+    const env = makeEnv(fakeKV(), { YOUTUBE_API_KEY: "k" });
     let n = 0;
     const flaky = mockFetch({
       "www.googleapis.com/youtube/v3/search": () =>
@@ -707,8 +1228,24 @@ describe("youtube search", () => {
           : jsonRes({ error: { errors: [{ reason: "quotaExceeded" }] } }, 403),
       "www.googleapis.com/youtube/v3/videos": () => ({ items: [ytVideo("one", "One", "PT9S", 5)] }),
     });
-    const out = await runYoutubeSearch(ctx(env, flaky));
+    const waiting = item({
+      id: "youtube:US:q-waiting",
+      platform: "youtube",
+      region: "US",
+      lang: "en",
+      source: SOURCE_LABELS.youtubeSearch,
+      tags: ["b", "short"],
+    });
+    const out = await runYoutubeSearch({ ...ctx(env, flaky), previous: [waiting] }, [
+      kw("a", "ar"),
+      kw("b", "en"),
+    ]);
     expect(out).toMatchObject({ ok: true, degraded: true, note: "stopped early: quota" });
+    // The keyword whose search failed keeps its stored rows.
+    expect(out.ok && out.items.map((i) => i.id)).toEqual([
+      "youtube:SA:q-one",
+      "youtube:US:q-waiting",
+    ]);
     expect(await readSearchCount(env, "2026-09-28")).toBe(2);
 
     const dead = mockFetch({
@@ -722,23 +1259,24 @@ describe("youtube search", () => {
 
   it("reserves the plan before the first search and refunds what a transport failure left unspent", async () => {
     const kv = fakeKV();
-    const env = makeEnv(kv, {
-      YOUTUBE_API_KEY: "k",
-      TREND_KEYWORDS_AR: "a,c",
-      TREND_KEYWORDS_EN: "b,d",
-    });
-    await kv.put(trendKeys.ytsearch("2026-09-28"), "3");
+    const env = makeEnv(kv, { YOUTUBE_API_KEY: "k" });
+    await kv.put(COUNTER, "3");
     const counterAtCall: (string | undefined)[] = [];
     let n = 0;
     const flaky = vi.fn<typeof fetch>(async (input) => {
       const url = new URL(String(input));
       if (url.pathname.endsWith("/videos"))
         return jsonRes({ items: [ytVideo("one", "One", "PT9S", 5)] });
-      counterAtCall.push(kv.store.get(trendKeys.ytsearch("2026-09-28"))?.value);
+      counterAtCall.push(kv.store.get(COUNTER)?.value);
       if (n++ === 0) return jsonRes({ items: [{ id: { videoId: "one" } }] });
       throw new TypeError("network down");
     });
-    const out = await runYoutubeSearch(ctx(env, flaky));
+    const out = await runYoutubeSearch(ctx(env, flaky), [
+      kw("a", "ar"),
+      kw("b", "en"),
+      kw("c", "ar"),
+      kw("d", "en"),
+    ]);
     // The whole plan (4) was reserved before the first call went out.
     expect(counterAtCall).toEqual(["7", "7"]);
     expect(out).toMatchObject({
@@ -1283,6 +1821,59 @@ describe("runTrends", () => {
     ]);
     expect(feed.degraded).toBe(true);
     expect(RUN_BUDGET).toBe(38);
+  });
+
+  it("fits every kind in one run: fast 11, daily 19 and weekly 8 are the budget's 38 calls", async () => {
+    const kv = fakeKV();
+    const env = makeEnv(kv, {
+      TREND_SOURCES: "google,youtube,kworb,x,tavily,events",
+      YOUTUBE_API_KEY: "k",
+      TAVILY_API_KEY: "tvly-test",
+    });
+    const fetchMock = mockFetch({
+      "trends.google.com/_/TrendsUi/data/batchexecute": () => rpcAnswer(),
+      "trends.google.com/trending/rss": () => RSS_SA,
+      "kworb.net/charts/tiktok/sa.html": () => KWORB_SA,
+      "kworb.net/charts/tiktok/us.html": () => KWORB_SA,
+      "trends24.in/saudi-arabia/": () => TRENDS24,
+      "www.googleapis.com/youtube/v3/search": (url) => ({
+        items: [{ id: { videoId: `v ${url.searchParams.get("q")}` } }],
+      }),
+      // The charts (`chart=mostPopular`) and the keyword search's statistics call (`id=`).
+      "www.googleapis.com/youtube/v3/videos": (url) => {
+        const chart = `${url.searchParams.get("regionCode")}${url.searchParams.get("videoCategoryId") ?? "0"}`;
+        const ids = url.searchParams.get("id")?.split(",") ?? [chart];
+        return { items: ids.map((id, i) => ytVideo(id, `Video ${id}`, "PT30S", 1000 + i)) };
+      },
+      "api.tavily.com/search": () => ({
+        results: [{ title: "#weekly", url: "https://www.tiktok.com/@a/video/1", content: "" }],
+      }),
+    });
+    const feed = await runTrends(env, {
+      kinds: ["fast", "daily", "weekly"],
+      now: NOW,
+      fetch: fetchMock,
+    });
+    expect(feed.sources.map((s) => [s.name, s.ok])).toEqual([
+      ["Google Trends", true],
+      ["YouTube charts", true],
+      ["kworb.net", true],
+      ["trends24.in", true],
+      ["3z calendar", true],
+      ["YouTube search", true],
+      ["Tavily scan", true],
+    ]);
+    expect(feed.degraded).toBe(false);
+    const callsTo = (host: string) => fetchMock.urls().filter((u) => new URL(u).host === host);
+    expect(callsTo("trends.google.com")).toHaveLength(4);
+    expect(callsTo("kworb.net")).toHaveLength(2);
+    expect(callsTo("trends24.in")).toHaveLength(1);
+    // Four charts, 18 keyword searches and their one statistics call.
+    expect(callsTo("www.googleapis.com")).toHaveLength(4 + SEARCH_CAP + 1);
+    expect(callsTo("api.tavily.com")).toHaveLength(8);
+    expect(fetchMock).toHaveBeenCalledTimes(RUN_BUDGET);
+    // KV: the search reservation, the week's stamp and the feed (no previous feed to copy here).
+    expect(kv.writes).toBe(3);
   });
 
   it("a hung source times out and the next source still runs", async () => {

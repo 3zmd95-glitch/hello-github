@@ -38,7 +38,10 @@ export interface TrendItem {
   title: string;
   url?: string;
   thumb?: string;
-  /** 0..100, relative within its source (rank 1 = 100). */
+  /**
+   * 0..100, relative within its source (rank 1 = 100); the keyword scan ranks its Arabic rows and its
+   * English rows apart (youtubeSearch.ts `rankByViews`).
+   */
   score?: number;
   growthPct?: number;
   volume?: number;
@@ -52,6 +55,11 @@ export interface TrendItem {
   expiresAt?: string;
   tags: string[];
   skillHint?: string;
+  /**
+   * Edit-genre id (round 31, planning/data/genres.json): set by the daily keyword scan on rows a genre's
+   * main query found (youtubeSearch.ts); rows of a niche keyword and of every other source leave it out.
+   */
+  genre?: string;
 }
 
 /** The attribution labels, exactly as the dashboard shows them (never "trending" for a chart or a scan). */
@@ -95,7 +103,10 @@ export interface TrendsEnv {
   YOUTUBE_API_KEY?: string;
   /** Var: comma list of enabled sources (default `DEFAULT_TREND_SOURCES` in run.ts). */
   TREND_SOURCES?: string;
-  /** Vars: comma lists of the owner's niche keywords for the daily YouTube search. */
+  /**
+   * Vars: comma lists of the owner's niche keywords for the daily YouTube search (the edit genres' main
+   * queries are scanned too, from the bundled planning/data/genres.json: genres.ts).
+   */
   TREND_KEYWORDS_AR?: string;
   TREND_KEYWORDS_EN?: string;
 }
@@ -108,6 +119,11 @@ export interface SourceCtx {
   now: Date;
   /** `POST /trends/run { force: true }`: run the weekly scan even when this week's is done. */
   force?: boolean;
+  /**
+   * The stored feed's rows, for a source that refreshes only a part of its own rows per run (the keyword
+   * scan rotates its keywords by day and keeps the rows of the ones it did not search today).
+   */
+  previous?: readonly TrendItem[];
 }
 
 /**

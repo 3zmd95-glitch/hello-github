@@ -6,8 +6,15 @@
 import { Budget } from "../social/http";
 import type { TrendItem, TrendLang, TrendPlatform, TrendRegion, TrendSourceLabel } from "./types";
 
-/** The feed never holds more than this many rows (all sources together). */
-export const MAX_ITEMS = 200;
+/**
+ * The feed never holds more than this many rows (all sources together). It must stay above what the
+ * sources can hold at once, or the cut (lowest scores first) drops rows a source still counts on: Google
+ * 50, the YouTube charts 100, kworb 60, trends24 30, the Tavily scan 40, the keyword scan 100 with the
+ * default lists (50 new rows a day and the 50 it keeps of the day before, youtubeSearch.ts), 380 in all,
+ * and the calendar's moments within 60 days. At 200 the scan's least viewed rows never reached the stored
+ * feed, so the next day had nothing to keep for their keywords.
+ */
+export const MAX_ITEMS = 400;
 export const SLUG_MAX = 80;
 
 /** Letters and digits of any script stay; everything else becomes one "-". */

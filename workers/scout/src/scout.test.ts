@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   enrichThumbs,
+  enrichYoutubeStats,
   handle,
   oembedEndpoint,
   safeEqual,
   TAVILY_URL,
   THUMB_ENRICH_MAX,
+  YT_STATS_MAX,
   type Env,
 } from "./scout";
 import type { ScoutResult } from "./normalize";
@@ -779,5 +781,300 @@ describe("enrichThumbs", () => {
       1000,
     );
     expect(results[0].thumb).toBeUndefined();
+  });
+});
+
+describe("enrichYoutubeStats", () => {
+  const KEY_ENV = { YOUTUBE_API_KEY: "yt-key" };
+  const yt = (id: string): ScoutResult => ({
+    platform: "yt",
+    handle: "youtube.com",
+    title: id,
+    snippet: "",
+    url: `https://www.youtube.com/watch?v=${id}`,
+    thumb: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+  });
+  const tt = (): ScoutResult => ({
+    platform: "tt",
+    handle: "@a",
+    title: "t",
+    snippet: "",
+    url: "https://www.tiktok.com/@a/video/1",
+    stats: { likes: 5 },
+  });
+
+  it("asks videos.list once for every YouTube card and fills views, likes and comments", async () => {
+    const results = [yt("aaa"), tt(), yt("bbb"), yt("ccc"), yt("ddd")];
+    const fetchMock = fakeFetch(() =>
+      jsonResponse({
+        items: [
+          {
+            id: "bbb",
+            statistics: { viewCount: "1200000", likeCount: "45000", commentCount: "310" },
+          },
+          // Hidden likes, no views yet.
+          { id: "aaa", statistics: { viewCount: "0", commentCount: 7 } },
+          // Nothing to show: the card gets no `stats` at all.
+          { id: "ccc", statistics: {} },
+          // Not a count.
+          { id: "ddd", statistics: { viewCount: "-5", likeCount: "12.5", commentCount: "abc" } },
+          // Not one of ours.
+          { id: "zzz", statistics: { viewCount: "9" } },
+          { statistics: { viewCount: "9" } },
+        ],
+      }),
+    );
+    await enrichYoutubeStats(results, KEY_ENV, fetchMock, 1000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(`${url.origin}${url.pathname}`).toBe("https://www.googleapis.com/youtube/v3/videos");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      part: "statistics",
+      id: "aaa,bbb,ccc,ddd",
+      key: "yt-key",
+    });
+    expect(results.map((r) => r.stats)).toEqual([
+      { views: 0, comments: 7 },
+      { likes: 5 },
+      { views: 1_200_000, likes: 45_000, comments: 310 },
+      undefined,
+      undefined,
+    ]);
+    expect(results.filter((r) => "stats" in r)).toHaveLength(3);
+  });
+
+  it("makes no call without the key or without a YouTube card", async () => {
+    const fetchMock = fakeFetch(() => jsonResponse({ items: [] }));
+    const results = [yt("aaa")];
+    await enrichYoutubeStats(results, {}, fetchMock, 1000);
+    await enrichYoutubeStats(results, { YOUTUBE_API_KEY: "" }, fetchMock, 1000);
+    await enrichYoutubeStats([tt()], KEY_ENV, fetchMock, 1000);
+    await enrichYoutubeStats([], KEY_ENV, fetchMock, 1000);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(results).toEqual([yt("aaa")]);
+  });
+
+  it(`asks about at most ${YT_STATS_MAX} videos`, async () => {
+    const results = Array.from({ length: YT_STATS_MAX + 5 }, (_, i) => yt(`v${i}`));
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const ids = new URL(String(input)).searchParams.get("id")!.split(",");
+      return jsonResponse({ items: ids.map((id) => ({ id, statistics: { viewCount: "10" } })) });
+    });
+    await enrichYoutubeStats(results, KEY_ENV, fetchMock, 1000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(results.slice(0, YT_STATS_MAX).every((r) => r.stats?.views === 10)).toBe(true);
+    expect(results.slice(YT_STATS_MAX).every((r) => r.stats === undefined)).toBe(true);
+  });
+
+  it("leaves the cards as they were on an HTTP error, a broken body or a network failure", async () => {
+    const answers: (() => Promise<Response>)[] = [
+      async () => jsonResponse({ error: { errors: [{ reason: "quotaExceeded" }] } }, 403),
+      async () => new Response("<html>not json</html>", { status: 200 }),
+      async () => jsonResponse({ items: "nope" }),
+      async () => jsonResponse(null),
+      async () => {
+        throw new TypeError("network down");
+      },
+    ];
+    for (const answer of answers) {
+      const results = [yt("aaa"), tt()];
+      const fetchMock = vi.fn<typeof fetch>(answer);
+      await expect(enrichYoutubeStats(results, KEY_ENV, fetchMock, 1000)).resolves.toBeUndefined();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(results).toEqual([yt("aaa"), tt()]);
+    }
+  });
+
+  it("gives up after the timeout: the call is aborted, and one that ignores the abort is left behind", async () => {
+    let aborted = false;
+    const hung = vi.fn<typeof fetch>(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(new Error("aborted"));
+          });
+        }),
+    );
+    const results = [yt("aaa")];
+    const started = Date.now();
+    await enrichYoutubeStats(results, KEY_ENV, hung, 30);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(aborted).toBe(true);
+    expect(results).toEqual([yt("aaa")]);
+
+    const deaf = vi.fn<typeof fetch>(() => new Promise<Response>(() => {}));
+    await enrichYoutubeStats(results, KEY_ENV, deaf, 20);
+    expect(deaf).toHaveBeenCalledTimes(1);
+    expect(results).toEqual([yt("aaa")]);
+
+    // The body read is inside the limit too.
+    const slowBody = vi.fn<typeof fetch>(
+      async () =>
+        ({ ok: true, status: 200, json: () => new Promise(() => {}) }) as unknown as Response,
+    );
+    await enrichYoutubeStats(results, KEY_ENV, slowBody, 20);
+    expect(results).toEqual([yt("aaa")]);
+  });
+});
+
+describe("POST /search: stats", () => {
+  const YT_ENV: Env = { ...ENV, YOUTUBE_API_KEY: "yt-key" };
+  const HITS = {
+    results: [
+      {
+        title: "Match cut in 10s | TikTok",
+        url: "https://www.tiktok.com/@editor.sam/video/7300000000000000001",
+        content: "13.5K Likes, 120 Comments. TikTok video from Sam (@editor.sam)",
+      },
+      {
+        title: "Instagram",
+        url: "https://www.instagram.com/cutsbyfaisal/reel/C1abcDEF/",
+        content: '1,234 likes, 56 comments - cutsbyfaisal on June 11, 2025: "Match cut"',
+      },
+      { title: "YT", url: "https://www.youtube.com/watch?v=abc123XYZ", content: "1M views" },
+      { title: "Short", url: "https://youtube.com/shorts/sh0rt1d", content: "short" },
+    ],
+  };
+  const YT_STATS = {
+    items: [
+      {
+        id: "abc123XYZ",
+        statistics: { viewCount: "98765", likeCount: "4321", commentCount: "12" },
+      },
+      { id: "sh0rt1d", statistics: { viewCount: "500" } },
+    ],
+  };
+
+  /** Tavily answers HITS, TikTok oEmbed a thumbnail, `videos.list` what `stats` says; the order is kept. */
+  function routedFetch(stats: (url: URL, init?: RequestInit) => Promise<Response>) {
+    const order: string[] = [];
+    const fn = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === TAVILY_URL) {
+        order.push("tavily");
+        return jsonResponse(HITS);
+      }
+      if (url.startsWith("https://www.tiktok.com/oembed?url=")) {
+        order.push("oembed");
+        return jsonResponse({ title: "t", thumbnail_url: "https://p16.tiktokcdn.com/1.jpg" });
+      }
+      if (url.startsWith("https://www.googleapis.com/youtube/v3/videos?")) {
+        order.push("stats");
+        return stats(new URL(url), init);
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    return Object.assign(fn, { order });
+  }
+
+  type Body = { results: ScoutResult[]; credits: { used: number } };
+  const stat = (body: Body) => body.results.map((r) => [r.platform, r.stats]);
+
+  it("TikTok and Instagram from the page text, YouTube from one videos.list after the thumbnails", async () => {
+    const fetchMock = routedFetch(async (url) => {
+      expect(Object.fromEntries(url.searchParams)).toEqual({
+        part: "statistics",
+        id: "abc123XYZ,sh0rt1d",
+        key: "yt-key",
+      });
+      return jsonResponse(YT_STATS);
+    });
+    const res = await handle(
+      searchReq({ q: "match cut", platforms: ["tt", "ig", "yt"] }),
+      YT_ENV,
+      undefined,
+      { fetch: fetchMock, cache: null },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Body;
+    expect(stat(body)).toEqual([
+      ["tt", { likes: 13_500, comments: 120 }],
+      ["ig", { likes: 1234, comments: 56 }],
+      ["yt", { views: 98_765, likes: 4321, comments: 12 }],
+      ["yt", { views: 500 }],
+    ]);
+    expect(fetchMock.order).toEqual(["tavily", "oembed", "stats"]);
+    // The rest of the reply is what it was.
+    expect(body.credits).toEqual({ used: 1 });
+    expect(body.results[0]).toMatchObject({ thumb: "https://p16.tiktokcdn.com/1.jpg" });
+    expect(body.results[2]).toMatchObject({
+      url: "https://www.youtube.com/watch?v=abc123XYZ",
+      thumb: "https://i.ytimg.com/vi/abc123XYZ/hqdefault.jpg",
+    });
+  });
+
+  it("asks for the YouTube counts with thumbs: false too, and makes no call without the key", async () => {
+    const bare = routedFetch(async () => jsonResponse(YT_STATS));
+    const res = await handle(
+      searchReq({ q: "x", platforms: ["tt", "ig", "yt"], thumbs: false }),
+      YT_ENV,
+      undefined,
+      { fetch: bare, cache: null },
+    );
+    expect(bare.order).toEqual(["tavily", "stats"]);
+    expect(stat((await res.json()) as Body)[2]).toEqual([
+      "yt",
+      { views: 98_765, likes: 4321, comments: 12 },
+    ]);
+
+    const noKey = routedFetch(async () => jsonResponse(YT_STATS));
+    const plain = await handle(
+      searchReq({ q: "x", platforms: ["tt", "ig", "yt"] }),
+      ENV,
+      undefined,
+      { fetch: noKey, cache: null },
+    );
+    expect(noKey.order).toEqual(["tavily", "oembed"]);
+    const body = (await plain.json()) as Body;
+    expect(stat(body)).toEqual([
+      ["tt", { likes: 13_500, comments: 120 }],
+      ["ig", { likes: 1234, comments: 56 }],
+      ["yt", undefined],
+      ["yt", undefined],
+    ]);
+    expect(body.results.filter((r) => "stats" in r)).toHaveLength(2);
+
+    // Only YouTube cards need the call.
+    const ttOnly = routedFetch(async () => jsonResponse(YT_STATS));
+    await handle(searchReq({ q: "x", platforms: ["tt"] }), YT_ENV, undefined, {
+      fetch: ttOnly,
+      cache: null,
+    });
+    expect(ttOnly.order).toEqual(["tavily", "oembed"]);
+  });
+
+  it("never fails the search over the statistics call (quota, timeout)", async () => {
+    const quota = routedFetch(async () =>
+      jsonResponse({ error: { errors: [{ reason: "quotaExceeded" }] } }, 403),
+    );
+    const res = await handle(searchReq({ q: "x", platforms: ["yt"] }), YT_ENV, undefined, {
+      fetch: quota,
+      cache: null,
+    });
+    expect(res.status).toBe(200);
+    expect(stat((await res.json()) as Body)).toEqual([
+      ["yt", undefined],
+      ["yt", undefined],
+    ]);
+
+    const hung = routedFetch(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    );
+    const started = Date.now();
+    const slow = await handle(searchReq({ q: "x", platforms: ["yt"] }), YT_ENV, undefined, {
+      fetch: hung,
+      cache: null,
+      oembedTimeoutMs: 30,
+    });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(slow.status).toBe(200);
+    expect(((await slow.json()) as Body).results.map((r) => r.url)).toEqual([
+      "https://www.youtube.com/watch?v=abc123XYZ",
+      "https://www.youtube.com/watch?v=sh0rt1d",
+    ]);
   });
 });

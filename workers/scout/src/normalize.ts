@@ -12,6 +12,17 @@ export const PLATFORM_DOMAIN: Record<Platform, string> = {
   yt: "youtube.com",
 };
 
+/**
+ * The public counts of one post, as far as they are known (round 31, the "Most popular" sort): whole
+ * numbers ≥ 0, a count nobody showed is left out. Hand-copied from `Stats` in the dashboard's
+ * lib/scoutClient.ts (the social/types.ts convention): change both together.
+ */
+export interface Stats {
+  views?: number;
+  likes?: number;
+  comments?: number;
+}
+
 export interface ScoutResult {
   platform: Platform;
   handle: string;
@@ -19,6 +30,11 @@ export interface ScoutResult {
   snippet: string;
   url: string;
   thumb?: string;
+  /**
+   * TikTok / Instagram: read from the page text ({@link parseEngagement}); YouTube: from the Data API
+   * (scout.ts `enrichYoutubeStats`). Never an empty object.
+   */
+  stats?: Stats;
 }
 
 /** One hit as Tavily returns it (only the fields we read). */
@@ -266,11 +282,91 @@ export function tiktokTitleFromOembed(
   return t && !isGenericTikTokTitle(t) ? clip(t, TITLE_MAX) : undefined;
 }
 
+/* ---------- engagement counts ---------- */
+
+/**
+ * One count of a description head: the number (ASCII, Arabic-Indic or Persian digits, with "," "." or the
+ * Arabic marks U+066C thousands / U+066B decimal), an optional multiplier (K / M / B, ألف / مليون / مليار),
+ * TikTok's Arabic "من", and the word that says what was counted.
+ */
+const COUNT_RE =
+  /(?<![\p{L}\p{N}.,\u066B\u066C])([\d\u0660-\u0669\u06F0-\u06F9]+(?:[.,\u066B\u066C][\d\u0660-\u0669\u06F0-\u06F9]+)*)\s*((?:[KMB]|thousand|million|billion)(?![a-z])|(?:[أاآ]لا?ف|ملايين|مليون|مليار)(?![\u0621-\u064A]))?\s*(?:من\s+)?((?:likes?|comments?|views?)(?![a-z])|(?:تسجيل(?:ات)?\s+)?(?:ال)?[إا]عجاب[\u0621-\u0652]*|(?:ال)?تعليق[\u0621-\u0652]*|(?:ال)?مشاهد[\u0621-\u0652]*)/giu;
+/** What may stand between two counts of one head: "1,234 likes, 56 comments", "… إعجاب، ٥٥ تعليق". */
+const COUNT_GAP = /^\s*(?:[,،·•|]|and\b|و)?\s*$/i;
+/** What may stand before a head that opens the text. */
+const COUNT_LEAD = /^[\s\p{P}]*$/u;
+/** What follows a head: nothing, or punctuation ("- <user> on …", ". TikTok video from …"), never a word. */
+const COUNT_TAIL = /^\s*(?:$|[-–—.:·•|,،])/;
+
+function multiplierOf(unit: string | undefined): number {
+  if (!unit) return 1;
+  const u = unit.toLowerCase();
+  if (u === "k" || u === "thousand" || /^[أاآ]لا?ف$/.test(u)) return 1_000;
+  if (u === "b" || u === "billion" || u === "مليار") return 1_000_000_000;
+  return 1_000_000;
+}
+
+/** "1,234" → 1234 · "13.5" × 1000 → 13500 · "٢٬٥٠٧" → 2507 · "١٣٫٥" × 1000 → 13500; undefined when it is no count. */
+function countValue(raw: string, multiplier: number): number | undefined {
+  let s = raw
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/\u066C/g, ",")
+    .replace(/\u066B/g, ".");
+  if (multiplier === 1) {
+    // A plain count is a whole number, so every mark groups thousands ("1,234", "2.431", "12,345,678").
+    if (!/^(?:\d+|\d{1,3}(?:[.,]\d{3})+)$/.test(s)) return undefined;
+    s = s.replace(/[.,]/g, "");
+  } else {
+    // Before K / M / ألف the last mark is the decimal one ("13.5K", "13,5K", "١٣٫٥ ألف").
+    const last = Math.max(s.lastIndexOf("."), s.lastIndexOf(","));
+    if (last >= 0) s = `${s.slice(0, last).replace(/[.,]/g, "")}.${s.slice(last + 1)}`;
+  }
+  const n = Math.round(Number(s) * multiplier);
+  return Number.isSafeInteger(n) && n >= 0 ? n : undefined;
+}
+
+function countKind(word: string): keyof Stats {
+  if (/^v|مشاهد/i.test(word)) return "views";
+  if (/^c|تعليق/i.test(word)) return "comments";
+  return "likes";
+}
+
+/**
+ * The counts an Instagram or TikTok page puts at the head of its description, English or Arabic UI:
+ *   "1,234 likes, 56 comments - <user> on <date>: …" · "3M likes, 153K comments - …" · "12K likes"
+ *   "٢٬٥٠٧ تسجيلات إعجاب، ٥٥ تعليق" · "١٣٫٥ ألف إعجاب" · "٣٣ مليون تسجيل إعجاب، ١ مليون تعليق - …"
+ *   "13.5K Likes, 120 Comments. TikTok video from …" · "13.5K من تسجيلات الإعجاب، 120 من التعليقات. …"
+ * Only the first run of counts is read, and only when it names at least two different counts or is the
+ * whole opening of the text (a caption such as "100 likes and I post part 2" is not a head). Text is
+ * expected without bidi marks ({@link cleanText}). Undefined when nothing was read, never an empty object.
+ */
+export function parseEngagement(text: string): Stats | undefined {
+  const stats: Stats = {};
+  let start = -1;
+  let end = -1;
+  for (const m of text.matchAll(COUNT_RE)) {
+    if (start >= 0 && !COUNT_GAP.test(text.slice(end, m.index))) break;
+    if (start < 0) start = m.index;
+    end = m.index + m[0].length;
+    const value = countValue(m[1], multiplierOf(m[2]));
+    const kind = countKind(m[3]);
+    if (value !== undefined && stats[kind] === undefined) stats[kind] = value;
+  }
+  const kinds = Object.keys(stats).length;
+  if (!kinds) return undefined;
+  if (kinds >= 2) return stats;
+  const opens = COUNT_LEAD.test(text.slice(0, start)) && COUNT_TAIL.test(text.slice(end));
+  return opens ? stats : undefined;
+}
+
 /* ---------- hits → cards ---------- */
 
 /**
  * Normalize Tavily hits into cards: keep only the requested platforms, only single-video pages, one card
- * per canonical URL. YouTube cards get the public `i.ytimg.com` thumbnail derived from the video id.
+ * per canonical URL. YouTube cards get the public `i.ytimg.com` thumbnail derived from the video id;
+ * TikTok and Instagram cards get `stats` when the page text opens with its counts (YouTube's come from the
+ * Data API, scout.ts `enrichYoutubeStats`).
  */
 export function normalizeHits(
   hits: readonly TavilyHit[],
@@ -316,6 +412,10 @@ export function normalizeHits(
       url,
     };
     if (thumb) result.thumb = thumb;
+    if (platform !== "yt") {
+      const stats = parseEngagement(content) ?? parseEngagement(rawTitle);
+      if (stats) result.stats = stats;
+    }
     out.push(result);
   }
   return out;
