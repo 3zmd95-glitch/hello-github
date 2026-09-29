@@ -9,9 +9,8 @@ import {
 } from "./domain";
 import en from "@/messages/trends.en.json";
 import ar from "@/messages/trends.ar.json";
-import { allGenres, GENRES } from "./genres";
+import { allGenres, discoverGenreHref, GENRES, genreIdFromSearch } from "./genres";
 import {
-  ANY_GENRE,
   DEFAULT_TREND_KEYWORDS,
   eventToTrendItem,
   matchesKeywords,
@@ -20,8 +19,8 @@ import {
   SOURCE_KEY,
   savedTrendIdea,
   sourceLabel,
+  trendGenreHref,
   trendGenreLabel,
-  trendGenreOptions,
   trendIdeaText,
   trendsStale,
   upcomingEvents,
@@ -274,75 +273,6 @@ describe("visibleTrends by edit genre (round 31)", () => {
   });
 });
 
-describe("trendGenreOptions", () => {
-  const drift: CustomGenre = { id: "custom-drift", name: "Drift", query: "drift edit" };
-  const hajwala: CustomGenre = { id: "custom-هجولة", name: "هجولة", query: "ايديت هجولة" };
-
-  it("lists each genre of the feed once: known ones in genre order with emoji and name, in the UI language", () => {
-    const items = [
-      item({ id: "1", genre: "travel" }),
-      item({ id: "2", genre: "cars" }),
-      item({ id: "3", genre: "cars", region: "US", lang: "en" }),
-      item({ id: "4" }),
-      item({ id: "5", genre: "food" }),
-    ];
-    expect(trendGenreOptions(items, allGenres([]), "ar")).toEqual([
-      { id: "cars", label: "🚗 سيارات" },
-      { id: "food", label: "🍔 أكل ومطاعم" },
-      { id: "travel", label: "✈️ سفر" },
-    ]);
-    expect(trendGenreOptions(items, allGenres([]), "en")).toEqual([
-      { id: "cars", label: "🚗 Cars" },
-      { id: "food", label: "🍔 Food & restaurants" },
-      { id: "travel", label: "✈️ Travel" },
-    ]);
-  });
-
-  it("names the owner's custom genres after the built-in ones, in the order added", () => {
-    const items = [
-      item({ id: "1", genre: "custom-هجولة" }),
-      item({ id: "2", genre: "custom-drift" }),
-      item({ id: "3", genre: "gym" }),
-    ];
-    expect(trendGenreOptions(items, allGenres([drift, hajwala]), "ar")).toEqual([
-      { id: "gym", label: "🏋️ جيم" },
-      { id: "custom-drift", label: "✨ Drift" },
-      { id: "custom-هجولة", label: "✨ هجولة" },
-    ]);
-  });
-
-  it("shows an id the app does not know raw, after the known ones, sorted", () => {
-    const items = [
-      item({ id: "1", genre: "zumba" }),
-      item({ id: "2", genre: "custom-drift" }),
-      item({ id: "3", genre: "drone" }),
-      item({ id: "4", genre: "anime" }),
-    ];
-    // custom-drift is not in the owner's list here (removed in Settings): it shows by its id.
-    expect(trendGenreOptions(items, allGenres([]), "en")).toEqual([
-      { id: "anime", label: "🎌 Anime" },
-      { id: "custom-drift", label: "custom-drift" },
-      { id: "drone", label: "drone" },
-      { id: "zumba", label: "zumba" },
-    ]);
-  });
-
-  it("is empty when no row has a genre (the radar hides the select)", () => {
-    expect(trendGenreOptions([], allGenres([drift]), "ar")).toEqual([]);
-    expect(trendGenreOptions([item({ id: "1" }), item({ id: "2" })], allGenres([]), "ar")).toEqual(
-      [],
-    );
-    expect(trendGenreOptions([item({ id: "1", genre: "" })], allGenres([]), "ar")).toEqual([]);
-  });
-
-  it("never offers the select's own 'all' value as a genre, and survives a doubled genre list", () => {
-    expect(ANY_GENRE).toBe("all");
-    const items = [item({ id: "1", genre: ANY_GENRE }), item({ id: "2", genre: "cars" })];
-    const twice = [...allGenres([drift]), ...allGenres([drift])];
-    expect(trendGenreOptions(items, twice, "en")).toEqual([{ id: "cars", label: "🚗 Cars" }]);
-  });
-});
-
 describe("trendGenreLabel", () => {
   const drift: CustomGenre = { id: "custom-drift", name: "Drift", query: "drift edit" };
 
@@ -360,22 +290,58 @@ describe("trendGenreLabel", () => {
     expect(trendGenreLabel("Cars", allGenres([]), "en")).toBe("Cars");
     expect(trendGenreLabel("constructor", allGenres([]), "en")).toBe("constructor");
   });
+});
 
-  it("says what the select says for the same genre", () => {
-    const items = ["travel", "custom-drift", "drone", "cars"].map((genre, i) =>
-      item({ id: String(i), genre }),
+describe("trendGenreHref (the genre chip opens Discover)", () => {
+  const drift: CustomGenre = { id: "custom-drift", name: "Drift", query: "drift edit" };
+  const hajwala: CustomGenre = { id: "custom-هجولة", name: "هجولة", query: "ايديت هجولة" };
+
+  it("links a genre the app knows to Discover opened on it", () => {
+    expect(trendGenreHref("cars", allGenres([]))).toBe("/discover/?genre=cars");
+    expect(trendGenreHref("food", allGenres([drift]))).toBe("/discover/?genre=food");
+    expect(trendGenreHref("custom-drift", allGenres([drift]))).toBe(
+      "/discover/?genre=custom-drift",
     );
-    for (const lang of ["ar", "en"] as const) {
-      const genres = allGenres([drift]);
-      for (const o of trendGenreOptions(items, genres, lang)) {
-        expect(trendGenreLabel(o.id, genres, lang)).toBe(o.label);
-      }
+    for (const g of allGenres([drift, hajwala])) {
+      expect(trendGenreHref(g.id, allGenres([drift, hajwala]))).toBe(discoverGenreHref(g.id));
+    }
+  });
+
+  it("encodes an id of any script, and Discover reads the same id back", () => {
+    const href = trendGenreHref("custom-هجولة", allGenres([hajwala]));
+    expect(href).toBe(`/discover/?genre=${encodeURIComponent("custom-هجولة")}`);
+    expect(genreIdFromSearch(href!.slice(href!.indexOf("?")))).toBe("custom-هجولة");
+  });
+
+  it("has no link for an id the app does not know (the chip stays plain)", () => {
+    expect(trendGenreHref("drone", allGenres([drift]))).toBeUndefined();
+    expect(trendGenreHref("custom-drift", allGenres([]))).toBeUndefined();
+    expect(trendGenreHref("Cars", allGenres([]))).toBeUndefined();
+    expect(trendGenreHref("constructor", allGenres([]))).toBeUndefined();
+    expect(trendGenreHref("", allGenres([drift]))).toBeUndefined();
+    expect(trendGenreHref("cars", [])).toBeUndefined();
+  });
+
+  it("links exactly the genres the chip names, never a raw id", () => {
+    const genres = allGenres([drift]);
+    for (const id of ["travel", "custom-drift", "drone", "cars", "all"]) {
+      const named = trendGenreLabel(id, genres, "en") !== id;
+      expect(trendGenreHref(id, genres) !== undefined, id).toBe(named);
     }
   });
 });
 
+describe("the radar's genre messages", () => {
+  it("names the chip's link with the genre in both languages, and the select's label is gone", () => {
+    expect(ar["trends.genreOpen"]).toContain("{genre}");
+    expect(en["trends.genreOpen"]).toContain("{genre}");
+    expect(Object.keys(ar)).not.toContain("trends.genreLabel");
+    expect(Object.keys(en)).not.toContain("trends.genreLabel");
+  });
+});
+
 describe("genre rows from the Worker (lib/trendsClient → visibleTrends)", () => {
-  it("GET /trends keeps a row's genre, so the radar can filter the stored feed by it", async () => {
+  it("GET /trends keeps a row's genre, so the stored feed can be read by genre (Discover's strip)", async () => {
     const seenAt = "2026-09-28T06:00:00.000Z";
     const row = { platform: "youtube", region: "SA", lang: "ar", source: "YouTube search", seenAt };
     const body = {
@@ -398,10 +364,8 @@ describe("genre rows from the Worker (lib/trendsClient → visibleTrends)", () =
     expect(visibleTrends(state, { genre: "travel" }, NOW).map((i) => i.id)).toEqual([
       "youtube:SA:b",
     ]);
-    expect(trendGenreOptions(state.items, allGenres([]), "ar").map((o) => o.id)).toEqual([
-      "cars",
-      "travel",
-    ]);
+    expect(visibleTrends(state, { genre: "cars" }, NOW).map((i) => i.id)).toEqual(["youtube:SA:a"]);
+    expect(visibleTrends(state, {}, NOW)).toHaveLength(3);
   });
 });
 

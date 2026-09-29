@@ -241,7 +241,7 @@ source, why?, seenAt, expiresAt?, tags, skillHint?, genre? }`; `id` is `<platfor
 the same across runs (the dashboard's dismissed list keys on it). `lang` follows the region (SA rows `ar`, US
 rows `en`), except hashtags / scan hits (by their script) and events (`mixed`). `genre` is an edit-genre id of
 `planning/data/genres.json` (`cars`, `food`, `anime`…), set only on the rows the daily keyword search found
-through a genre's query; the radar's genre filter reads it. The daily keyword search scores its rows per
+through a genre's query; the dashboard names it on the radar's rows and lists those rows in Discover. The daily keyword search scores its rows per
 language (rank 1 = 100 among its Arabic rows and among its English rows).
 
 ### Sources, slots and budgets

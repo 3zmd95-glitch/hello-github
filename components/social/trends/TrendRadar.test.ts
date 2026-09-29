@@ -3,12 +3,15 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { TrendItemInput } from "@/lib/domain";
+import { genreIdFromSearch } from "@/lib/genres";
 import { useStore } from "@/store";
 import TrendRadar from "./TrendRadar";
 
-// 🎬 The radar's edit-genre select (round 31), rendered for real in jsdom: no Worker is configured, so nothing
-// is fetched and the radar shows the feed the store already holds (as it does after a reload). Also the genre
-// chip of a row, and the ⭐ that a genre's own search words must not give.
+// 🎬 The radar and the edit genres (round 31), rendered for real in jsdom: no Worker is configured, so nothing
+// is fetched and the radar shows the feed the store already holds (as it does after a reload). Discover is the
+// one place for genres: the radar has no genre select and filters by language tab and platform chip only, a
+// row's genre chip is a link that opens Discover on that genre, and the ⭐ is never given for a genre's own
+// search words.
 
 const SEEN_AT = new Date().toISOString();
 
@@ -49,8 +52,6 @@ let root: Root;
 const feed = (items: TrendItemInput[]) =>
   act(() => useStore.getState().setTrends({ items, fetchedAt: SEEN_AT }));
 
-const select = () => host.querySelector<HTMLSelectElement>('[data-testid="trends-genre"]');
-const options = () => [...(select()?.options ?? [])].map((o) => [o.value, o.textContent]);
 const rowIds = () =>
   [...host.querySelectorAll('[data-testid="trend-row"]')].map((r) => r.getAttribute("data-id"));
 const radar = () => host.querySelector('[data-testid="ideas-trends"]')!;
@@ -68,14 +69,23 @@ const chips = () =>
     r.getAttribute("data-id"),
     chipOf(r)?.textContent ?? null,
   ]);
-
-function pick(genre: string): void {
-  const el = select()!;
-  act(() => {
-    el.value = genre;
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+/**
+ * Where a chip's link goes, the way Discover reads it: the page, then the genre id of the query ("/discover
+ * cars"); null for a plain chip. The build writes "/discover/?genre=cars" (next.config's trailingSlash);
+ * next/link under vitest has no build config and drops that slash, so the path is compared without it.
+ */
+function target(chip: Element): string | null {
+  const href = chip.getAttribute("href");
+  if (href === null) return null;
+  const url = new URL(href, "https://3z.test");
+  return `${url.pathname.replace(/\/$/, "")} ${genreIdFromSearch(url.search)}`;
 }
+/** Every genre chip in list order: its genre id and where it goes. */
+const links = () =>
+  [...host.querySelectorAll<HTMLElement>('[data-testid="trend-genre"]')].map((c) => [
+    c.getAttribute("data-genre"),
+    target(c),
+  ]);
 
 function click(testId: string, within: ParentNode = host): void {
   const el = within.querySelector<HTMLElement>(`[data-testid="${testId}"]`)!;
@@ -99,118 +109,51 @@ afterEach(() => {
   host.remove();
 });
 
-describe("TrendRadar genre select", () => {
-  it("is hidden while no row has a genre", () => {
-    expect(select()).toBeNull();
+describe("TrendRadar has no genre filter (Discover is the one place for genres)", () => {
+  it("shows no genre select, with or without genre rows in the feed", () => {
+    const noFilter = () => {
+      expect(host.querySelector('[data-testid="trends-genre"]')).toBeNull();
+      expect(radar().querySelector("select")).toBeNull();
+      expect(radar().querySelector("label")).toBeNull();
+      expect(radar().hasAttribute("data-genre")).toBe(false);
+    };
+    noFilter();
     feed(PLAIN);
     expect(rowIds()).toEqual(["plain-ar", "plain-tt"]);
-    expect(select()).toBeNull();
-    expect(radar().getAttribute("data-genre")).toBe("all");
-  });
-
-  it("lists 'all' and the genres of the feed after the platform chips, labelled", () => {
+    noFilter();
     feed([...PLAIN, ...GENRE_ROWS]);
-    const el = select()!;
-    expect(el.value).toBe("all");
-    expect(options()).toEqual([
-      ["all", "كل الأنواع"],
-      ["cars", "🚗 سيارات"],
-      ["food", "🍔 أكل ومطاعم"],
-      ["drone", "drone"],
-    ]);
-    const label = host.querySelector(`label[for="${el.id}"]`);
-    expect(label?.textContent).toBe("🎬 نوع الإيديت");
-    const chip = host.querySelector('[data-testid="trends-platform-x"]')!;
-    const list = host.querySelector('[data-testid="trends-list"]')!;
-    expect(chip.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(el.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    noFilter();
+    expect(radar().textContent).not.toContain("كل الأنواع");
   });
 
-  it("filters the rows together with the language tab and the platform chip", () => {
+  it("lists the genre rows with the others, filtered by the language tab and the platform chip only", () => {
     feed([...PLAIN, ...GENRE_ROWS]);
     expect(rowIds()).toEqual(["plain-ar", "cars-ar", "food-ar", "plain-tt"]);
+    expect(radar().getAttribute("data-count")).toBe("4");
+    expect(rowEl("cars-ar").getAttribute("data-genre")).toBe("cars");
+    expect(rowEl("food-ar").getAttribute("data-genre")).toBe("food");
+    expect(rowEl("plain-ar").hasAttribute("data-genre")).toBe(false);
 
-    pick("cars");
-    expect(radar().getAttribute("data-genre")).toBe("cars");
-    expect(rowIds()).toEqual(["cars-ar"]);
-    expect(host.querySelector('[data-testid="trend-row"]')?.getAttribute("data-genre")).toBe(
-      "cars",
-    );
+    click("trends-platform-youtube");
+    expect(rowIds()).toEqual(["cars-ar", "food-ar"]);
+    click("trends-platform-google");
+    expect(rowIds()).toEqual(["plain-ar"]);
 
     click("trends-tab-en");
-    expect(select()!.value).toBe("cars");
-    expect(rowIds()).toEqual(["cars-en"]);
-
-    click("trends-platform-google");
     expect(rowIds()).toEqual([]);
     expect(host.querySelector('[data-testid="trends-empty"]')).not.toBeNull();
-    expect(select()!.value).toBe("cars");
     click("trends-platform-youtube");
-    expect(rowIds()).toEqual(["cars-en"]);
+    expect(rowIds()).toEqual(["plain-en", "cars-en", "drone-en"]);
     click("trends-platform-all");
-
-    pick("drone");
-    expect(rowIds()).toEqual(["drone-en"]);
-    click("trends-tab-ar");
-    expect(rowIds()).toEqual([]);
-    expect(select()!.value).toBe("drone");
-
-    pick("all");
-    expect(radar().getAttribute("data-genre")).toBe("all");
-    expect(rowIds()).toEqual(["plain-ar", "cars-ar", "food-ar", "plain-tt"]);
+    expect(rowIds()).toEqual(["plain-en", "cars-en", "drone-en", "plain-tt"]);
+    expect(radar().getAttribute("data-tab")).toBe("en");
   });
 
-  it("falls back to all when the picked genre leaves the feed, and hides with the last genre row", () => {
+  it("keeps every other row when a genre row is dismissed", () => {
     feed([...PLAIN, ...GENRE_ROWS]);
-    pick("food");
-    expect(rowIds()).toEqual(["food-ar"]);
-
-    // ✕ on the only food row: the genre has no rows left.
-    click("trend-dismiss");
-    expect(options().map(([value]) => value)).toEqual(["all", "cars", "drone"]);
-    expect(select()!.value).toBe("all");
+    click("trend-dismiss", rowEl("food-ar"));
     expect(rowIds()).toEqual(["plain-ar", "cars-ar", "plain-tt"]);
-
-    // A fresh feed without genre rows.
-    pick("cars");
-    expect(rowIds()).toEqual(["cars-ar"]);
-    feed(PLAIN);
-    expect(select()).toBeNull();
-    expect(radar().getAttribute("data-genre")).toBe("all");
-    expect(rowIds()).toEqual(["plain-ar", "plain-tt"]);
-
-    // The genre comes back with the next feed: the owner's pick is still cars.
-    feed([...PLAIN, ...GENRE_ROWS]);
-    expect(select()!.value).toBe("cars");
-    expect(rowIds()).toEqual(["cars-ar"]);
-  });
-
-  it("names the owner's custom genres from the store and follows the UI language", () => {
-    feed([...GENRE_ROWS, row({ id: "drift-en", region: "US", lang: "en", genre: "custom-drift" })]);
-    expect(options().at(-2)).toEqual(["custom-drift", "custom-drift"]);
-
-    act(() => useStore.getState().addCustomGenre("Drift", "drift edit"));
-    expect(options()).toEqual([
-      ["all", "كل الأنواع"],
-      ["cars", "🚗 سيارات"],
-      ["food", "🍔 أكل ومطاعم"],
-      ["custom-drift", "✨ Drift"],
-      ["drone", "drone"],
-    ]);
-
-    act(() => useStore.getState().setSettings({ lang: "en" }));
-    expect(options()).toEqual([
-      ["all", "All genres"],
-      ["cars", "🚗 Cars"],
-      ["food", "🍔 Food & restaurants"],
-      ["custom-drift", "✨ Drift"],
-      ["drone", "drone"],
-    ]);
-    expect(host.querySelector(`label[for="${select()!.id}"]`)?.textContent).toBe("🎬 Edit genre");
-
-    click("trends-tab-en");
-    pick("custom-drift");
-    expect(rowIds()).toEqual(["drift-en"]);
+    expect(links()).toEqual([["cars", "/discover cars"]]);
   });
 });
 
@@ -277,9 +220,8 @@ describe("TrendRadar niche star on genre rows", () => {
 });
 
 describe("TrendRadar genre chip", () => {
-  it("names the genre on every row that has one, under all genres and under one", () => {
+  it("names the genre on every row that has one, under both tabs", () => {
     feed([...PLAIN, ...GENRE_ROWS]);
-    expect(select()!.value).toBe("all");
     expect(chips()).toEqual([
       ["plain-ar", null],
       ["cars-ar", "🚗 سيارات"],
@@ -294,25 +236,53 @@ describe("TrendRadar genre chip", () => {
       ["drone-en", "drone"],
       ["plain-tt", null],
     ]);
-
-    pick("cars");
-    expect(chips()).toEqual([["cars-en", "🚗 سيارات"]]);
   });
 
-  it("is a plain chip beside the row's other chips, not a control", () => {
+  it("is a link that opens Discover on the genre, looking like the row's other chips", () => {
     feed([...PLAIN, ...GENRE_ROWS]);
+    expect(links()).toEqual([
+      ["cars", "/discover cars"],
+      ["food", "/discover food"],
+    ]);
+
     const chip = chipOf(rowEl("food-ar"))!;
     const platform = rowEl("food-ar").querySelector('[data-testid="trend-platform"]')!;
-    expect(chip.tagName).toBe("SPAN");
+    expect(chip.tagName).toBe("A");
     expect(chip.classList.contains("px-chip")).toBe(true);
     expect(chip.parentElement).toBe(platform.parentElement);
+    expect(chip.textContent).toBe("🍔 أكل ومطاعم");
+    expect(chip.getAttribute("data-genre")).toBe("food");
+    // The accessible name says where the chip goes and holds the text the chip shows.
+    expect(chip.getAttribute("aria-label")).toBe("افتح 🍔 أكل ومطاعم في «اكتشف»");
+    expect(chip.getAttribute("aria-label")).toContain(chip.textContent);
+    expect(chip.getAttribute("title")).toBe("افتح 🍔 أكل ومطاعم في «اكتشف»");
+    // It stays in this tab and is nothing but a link: not a button, not part of a form control.
+    expect(chip.hasAttribute("target")).toBe(false);
+    expect(chip.closest("button, select, label")).toBeNull();
+    expect(chip.querySelector("a, button")).toBeNull();
+  });
+
+  it("stays a plain chip with the raw id for a genre the app does not know", () => {
+    feed([...PLAIN, ...GENRE_ROWS]);
+    click("trends-tab-en");
+    expect(links()).toEqual([
+      ["cars", "/discover cars"],
+      ["drone", null],
+    ]);
+
+    const chip = chipOf(rowEl("drone-en"))!;
+    expect(chip.tagName).toBe("SPAN");
+    expect(chip.classList.contains("px-chip")).toBe(true);
+    expect(chip.textContent).toBe("drone");
+    expect(chip.hasAttribute("href")).toBe(false);
+    expect(chip.hasAttribute("aria-label")).toBe(false);
     expect(chip.hasAttribute("tabindex")).toBe(false);
     expect(chip.tabIndex).toBe(-1);
     expect(chip.closest("a, button, select, label")).toBeNull();
     expect(chip.getAttribute("title")).toBe("🎬 نوع الإيديت");
   });
 
-  it("names the owner's custom genres and follows the UI language", () => {
+  it("follows the owner's custom genres and the UI language", () => {
     feed([
       ...GENRE_ROWS,
       row({
@@ -325,9 +295,12 @@ describe("TrendRadar genre chip", () => {
     ]);
     click("trends-tab-en");
     expect(chipOf(rowEl("drift-en"))?.textContent).toBe("custom-drift");
+    expect(chipOf(rowEl("drift-en"))?.tagName).toBe("SPAN");
 
     act(() => useStore.getState().addCustomGenre("Drift", "drift edit"));
     expect(chipOf(rowEl("drift-en"))?.textContent).toBe("✨ Drift");
+    expect(chipOf(rowEl("drift-en"))?.tagName).toBe("A");
+    expect(chipOf(rowEl("drift-en"))?.getAttribute("aria-label")).toBe("افتح ✨ Drift في «اكتشف»");
 
     act(() => useStore.getState().setSettings({ lang: "en" }));
     expect(chips()).toEqual([
@@ -335,6 +308,33 @@ describe("TrendRadar genre chip", () => {
       ["drone-en", "drone"],
       ["drift-en", "✨ Drift"],
     ]);
-    expect(chipOf(rowEl("cars-en"))?.getAttribute("title")).toBe("🎬 Edit genre");
+    expect(links()).toEqual([
+      ["cars", "/discover cars"],
+      ["drone", null],
+      ["custom-drift", "/discover custom-drift"],
+    ]);
+    expect(chipOf(rowEl("cars-en"))?.getAttribute("aria-label")).toBe("Open 🚗 Cars in Discover");
+    expect(chipOf(rowEl("drift-en"))?.getAttribute("aria-label")).toBe("Open ✨ Drift in Discover");
+    expect(chipOf(rowEl("drone-en"))?.getAttribute("title")).toBe("🎬 Edit genre");
+
+    // Removed in Settings: Discover has no chip for it any more, so the radar's chip is plain again.
+    act(() => useStore.getState().removeCustomGenre("custom-drift"));
+    expect(chipOf(rowEl("drift-en"))?.textContent).toBe("custom-drift");
+    expect(chipOf(rowEl("drift-en"))?.tagName).toBe("SPAN");
+    expect(chipOf(rowEl("drift-en"))?.hasAttribute("href")).toBe(false);
+  });
+
+  it("encodes a custom genre's Arabic id in the link", () => {
+    act(() => useStore.getState().addCustomGenre("هجولة", "ايديت هجولة"));
+    const [genre] = useStore.getState().customGenres;
+    expect(genre.id).toBe("custom-هجولة");
+    feed([row({ id: "hajwala", genre: genre.id, ...found("ايديت هجولة") })]);
+
+    const chip = chipOf(rowEl("hajwala"))!;
+    expect(chip.tagName).toBe("A");
+    expect(chip.textContent).toBe("✨ هجولة");
+    expect(chip.getAttribute("data-genre")).toBe("custom-هجولة");
+    expect(chip.getAttribute("href")).toContain(`genre=${encodeURIComponent("custom-هجولة")}`);
+    expect(target(chip)).toBe("/discover custom-هجولة");
   });
 });

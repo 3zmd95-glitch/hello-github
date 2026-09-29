@@ -14,8 +14,8 @@ const QUERY_MAX = 80;
  * 🎬 Edit genres (round 31): the built-in genres as read-only chips, the owner's own genres each with a ✕, and
  * the form that adds one (a name plus the search words, used for both languages). Discover and the skill
  * Research panel offer the built-in genres and then the owner's (lib/genres allGenres). The Trend Radar's
- * genre filter only ever offers built-in ones: the Worker's daily scan searches the bundled list, and the
- * owner's genres never leave this browser. A name that exists already (normalized; custom or built in) is
+ * rows carry only built-in genre ids: the Worker's daily scan searches the bundled list, and the owner's
+ * genres never leave this browser. A name that exists already (normalized; custom or built in) is
  * marked on the input, a sentence under the form says so (`genre-exists`), and adding it does nothing.
  */
 export default function GenresCard() {

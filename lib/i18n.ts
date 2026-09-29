@@ -57,7 +57,7 @@ export const MESSAGE_FILES = {
   publish: { ar: arPublish, en: enPublish },
   // 📈 Trend Radar (round 30, planning/tools/08-trends.md).
   trends: { ar: arTrends, en: enTrends },
-  // 🎬 Edit genres (round 31): the genre row of Discover / Research, the radar filter, the Settings card.
+  // 🎬 Edit genres (round 31): the genre row of Discover / Research, the Settings card.
   genres: { ar: arGenres, en: enGenres },
 } as const;
 

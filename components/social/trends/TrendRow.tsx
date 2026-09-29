@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { fmtCount } from "@/components/social/studio/platform";
 import type { TrendItem } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
@@ -12,13 +13,17 @@ import TrendActions, { type PlannedPost } from "./TrendActions";
  * "قوائم YouTube" and never "trending"; `data-source` keeps the raw label), a "new on the chart" chip for
  * `new`-tagged rows, the "why" line, growth and volume when the source gives them, ⭐ when the row matches the owner's niche
  * keywords, the 💡 / 📱 taps and ✕ to dismiss. `data-genre` carries the row's edit-genre id (round 31) when the
- * Worker's keyword scan set one; the radar's genre select filters on it, and the row names it in a chip
- * (`genreLabel`: "🚗 سيارات", or the raw id for a genre the app does not know), plain text like the others.
+ * Worker's keyword scan set one, and the row names it in a chip (`genreLabel`: "🚗 سيارات"). Discover is the
+ * one place for genres, so for a genre the app knows the chip is a link that opens Discover on it
+ * (`genreHref`), looking like the row's other chips; its accessible name says where it goes
+ * (`trends.genreOpen`) and its tap area reaches a little above and below the chip, which is small for a
+ * thumb. An id the app does not know stays a plain chip with the raw id.
  */
 export default function TrendRow({
   item,
   star,
   genreLabel,
+  genreHref,
   onDismiss,
   onPlanned,
 }: {
@@ -26,6 +31,8 @@ export default function TrendRow({
   star: boolean;
   /** The name of the row's genre (lib/trends `trendGenreLabel`); none for a row without a genre. */
   genreLabel?: string;
+  /** Discover opened on the row's genre (lib/trends `trendGenreHref`); none for a genre the app does not know. */
+  genreHref?: string;
   onDismiss: () => void;
   onPlanned: (post: PlannedPost) => void;
 }) {
@@ -93,11 +100,28 @@ export default function TrendRow({
         <span className="px-chip" data-testid="trend-platform">
           {t(`trends.platform.${item.platform}`)}
         </span>
-        {genreLabel && (
-          <span className="px-chip" title={t("trends.genreLabel")} data-testid="trend-genre">
-            {genreLabel}
-          </span>
-        )}
+        {genreLabel &&
+          (genreHref ? (
+            <Link
+              href={genreHref}
+              className="px-chip relative no-underline after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-['']"
+              aria-label={t("trends.genreOpen", { genre: genreLabel })}
+              title={t("trends.genreOpen", { genre: genreLabel })}
+              data-testid="trend-genre"
+              data-genre={item.genre}
+            >
+              {genreLabel}
+            </Link>
+          ) : (
+            <span
+              className="px-chip"
+              title={t("genres.label")}
+              data-testid="trend-genre"
+              data-genre={item.genre}
+            >
+              {genreLabel}
+            </span>
+          ))}
         {item.growthPct !== undefined && item.growthPct > 0 && (
           <span className="px-chip px-chip-t1 num" data-testid="trend-growth">
             {t("trends.growth", { n: fmtCount(Math.round(item.growthPct)) })}

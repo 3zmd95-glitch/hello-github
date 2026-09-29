@@ -9,6 +9,7 @@ import {
   type TrendRegion,
   type TrendsState,
 } from "./domain";
+import { discoverGenreHref } from "./genres";
 import type { MessageKey } from "./i18n";
 import { addDays, daysBetween } from "./streak";
 
@@ -16,10 +17,11 @@ import { addDays, daysBetween } from "./streak";
  * 📈 Trend Radar rules (round 30, planning/tools/08-trends.md, planning/handovers/mastermind-2026-09-28.md):
  * which rows of the persisted feed show, how stale a feed is, niche-keyword highlighting that ignores Arabic
  * diacritics, the idea text a trend becomes, and the Saudi moments calendar (upcoming events and their trend
- * rows). Round 31 adds the edit-genre filter: rows the Worker's keyword scan tagged with a genre id, the
- * choices the radar's select offers, the name a row's genre chip shows, and the ⭐ rule that does not count a
- * genre's own search words. Pure functions only; the store keeps the feed and lib/trendsClient talks to the
- * Worker.
+ * rows). Round 31 adds the edit genres: rows the Worker's keyword scan tagged with a genre id, the filter
+ * that reads them (Discover's "most viewed this week" strip; the radar itself filters by language and
+ * platform only, Discover is the one place for genres), the name a row's genre chip shows and the Discover
+ * link it opens, and the ⭐ rule that does not count a genre's own search words. Pure functions only; the
+ * store keeps the feed and lib/trendsClient talks to the Worker.
  */
 
 /* ---------- Keywords ---------- */
@@ -94,7 +96,10 @@ export interface TrendFilter {
   platform?: TrendPlatform;
   /** `mixed` rows (events, hashtags) show under both languages. */
   lang?: Lang;
-  /** Edit-genre id (round 31): only the rows tagged with exactly this id; rows without a genre drop out. */
+  /**
+   * Edit-genre id (round 31): only the rows tagged with exactly this id; rows without a genre drop out.
+   * Discover's strip uses it; the radar does not filter by genre.
+   */
   genre?: string;
   /** Free-text search over title + tags (same folding as the keywords). */
   q?: string;
@@ -166,47 +171,23 @@ export function savedTrendIdea(ideas: readonly Idea[], item: TrendItem): Idea | 
 
 /* ---------- Edit genres (round 31) ---------- */
 
-/** The genre filter's "every genre" choice (`genres.any`): the select's first value, never a genre id. */
-export const ANY_GENRE = "all";
-
-/** One choice of the radar's genre filter: the genre id and the name the select shows for it. */
-export interface TrendGenreOption {
-  id: string;
-  label: string;
-}
-
-/** How the radar names a genre the app knows: "<emoji> <name>" in the UI language. */
-const genreName = (genre: Genre, lang: Lang): string => `${genre.emoji} ${genre.name[lang]}`;
-
 /**
- * What a row's genre chip says: the genre's name as the select shows it ("🚗 سيارات" / "🚗 Cars"; `genres` is
- * lib/genres' `allGenres(customGenres)`), or the raw id when the app does not know it (a newer Worker, a
- * custom genre the owner removed).
+ * What a row's genre chip says: "<emoji> <name>" in the UI language for a genre the app knows ("🚗 سيارات" /
+ * "🚗 Cars"; `genres` is lib/genres' `allGenres(customGenres)`), or the raw id when the app does not know it
+ * (a newer Worker, a custom genre the owner removed).
  */
 export function trendGenreLabel(id: string, genres: readonly Genre[], lang: Lang): string {
   const genre = genres.find((g) => g.id === id);
-  return genre ? genreName(genre, lang) : id;
+  return genre ? `${genre.emoji} ${genre.name[lang]}` : id;
 }
 
 /**
- * The choices of the radar's genre filter: every genre id found on `items`, once. Genres the app knows
- * (`genres` is lib/genres' `allGenres(customGenres)`) come first in that order, named "<emoji> <name>" in the
- * UI language; an id it does not know (a newer Worker, a custom genre the owner removed) comes after, sorted,
- * shown raw. Empty when no row has a genre, which is when the radar hides the select.
+ * Where a row's genre chip goes: Discover opened on that genre (lib/genres' `discoverGenreHref`), the one
+ * place for edit genres. Undefined for an id the app does not know: Discover has no chip for it, so the
+ * radar's chip stays plain text.
  */
-export function trendGenreOptions(
-  items: readonly TrendItem[],
-  genres: readonly Genre[],
-  lang: Lang,
-): TrendGenreOption[] {
-  const present = new Set<string>();
-  for (const i of items) if (i.genre && i.genre !== ANY_GENRE) present.add(i.genre);
-  const options: TrendGenreOption[] = [];
-  for (const g of genres) {
-    if (present.delete(g.id)) options.push({ id: g.id, label: genreName(g, lang) });
-  }
-  for (const id of [...present].sort()) options.push({ id, label: id });
-  return options;
+export function trendGenreHref(id: string, genres: readonly Genre[]): string | undefined {
+  return genres.some((g) => g.id === id) ? discoverGenreHref(id) : undefined;
 }
 
 /* ---------- Saudi moments calendar ---------- */
