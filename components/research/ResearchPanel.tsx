@@ -11,6 +11,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { pullTrends } from "@/components/social/trends/useTrends";
 import { getProgram, getSkill, programs } from "@/data";
 import type { Lang, Skill } from "@/lib/domain";
 import { allGenres } from "@/lib/genres";
@@ -19,6 +20,7 @@ import {
   arabicFirst,
   canonicalRefUrl,
   dedupeByUrl,
+  genreWeekItems,
   interleavePlatforms,
   itemFromRef,
   itemFromYoutube,
@@ -49,6 +51,7 @@ import {
   type ScoutError,
   type ScoutResult,
 } from "@/lib/scoutClient";
+import { trendsStale } from "@/lib/trends";
 import { getApiKey, useStore } from "@/store";
 import PasteLinkForm from "./PasteLinkForm";
 import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
@@ -138,16 +141,24 @@ const SORTS: { v: SortMode; label: MessageKey }[] = [
  * edit-genre row (round 31: a chip is a search of its own, or narrows the topic), platform tabs with counts
  * (each tab decides which sources are queried), filters (recency, YouTube length, sort, saved only, Arabic
  * first), a card grid with thumbnails and view / like counts, and attach actions. Sources: the YouTube Data
- * API when the owner has a key, the Scout Worker for TikTok / Instagram (and YouTube without a key).
+ * API when the owner has a key, the Scout Worker for TikTok / Instagram (and YouTube without a key). With a
+ * genre on, a "Most viewed this week" strip above the results shows the Trend Radar's rows of that genre
+ * (the feed the store keeps; Discover is the one place for genres).
  */
 export default function ResearchPanel({
   skill,
   stickyTop = "max-md:-top-4",
+  openGenre,
 }: {
   /** Skill sheet mode; omitted = Discover mode. */
   skill?: Skill;
   /** Where the search bar sticks on phones: the sheet's padded scroll edge by default, below the app's top bar in Discover. */
   stickyTop?: string;
+  /**
+   * Discover's deep link (`/discover/?genre=<id>`): the id of a genre the app knows, handed in once the
+   * address bar was read. It goes on the way a tap on its chip would.
+   */
+  openGenre?: string | null;
 }) {
   const { t, L, lang, dir } = useT();
   const ids = useId();
@@ -175,6 +186,7 @@ export default function ResearchPanel({
   const removeRef = useStore((s) => s.removeRef);
   const savedRefs = useStore((s) => s.savedRefs);
   const customGenres = useStore((s) => s.customGenres);
+  const trends = useStore((s) => s.trends);
   const ytKey = useStore((s) => getApiKey(s, "youtube"));
   const scoutCfg = useScoutConfig();
   const usage = useScoutUsage();
@@ -221,6 +233,20 @@ export default function ResearchPanel({
     setGenreId(id === genreId ? null : id);
     setAttempt((a) => a + 1);
   };
+
+  // Discover's deep link: the genre handed in goes on once, like a tap on its chip (a search of its own),
+  // and its chip is brought into view in the row. The owner's next taps decide from there.
+  const [opened, setOpened] = useState<string | null>(null);
+  if (openGenre && openGenre !== opened) {
+    setOpened(openGenre);
+    setGenreId(openGenre);
+    setAttempt((a) => a + 1);
+  }
+  const chipRefs = useRef(new Map<string, HTMLButtonElement>());
+  useEffect(() => {
+    if (!opened) return;
+    chipRefs.current.get(opened)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [opened]);
 
   const pickTab = (next: ResearchTab) => {
     setTab(next);
@@ -287,6 +313,26 @@ export default function ResearchPanel({
         : dedupeByUrl(...Object.values(savedRefs)).map(itemFromRef),
     [savedRefs, skill],
   );
+
+  /* ---------- "most viewed this week": the Trend Radar's rows of the genre ---------- */
+
+  const genreKey = genre?.id;
+  // From the feed the store keeps, in the search language, best score first. An extra above the results:
+  // nothing to show (no genre, no rows of it, saved only) means no strip, never an empty state or an error.
+  const weekItems = useMemo(
+    () => (savedOnly ? [] : genreWeekItems(trends, genreKey, queryLang, new Date(now))),
+    [savedOnly, trends, genreKey, queryLang, now],
+  );
+  // A feed gone stale is read again from the Worker (GET /trends, the copy its cron wrote; the sources are
+  // never run from here) once a genre is on and the strip could show: at most once in the panel's life, never
+  // without a genre or a Worker. A failed read says nothing (the strip is an extra); the radar reports it.
+  const weekAsked = useRef(false);
+  useEffect(() => {
+    if (!genreKey || savedOnly || !scoutCfg || weekAsked.current) return;
+    if (!trendsStale(useStore.getState().trends.fetchedAt, new Date())) return;
+    weekAsked.current = true;
+    void pullTrends();
+  }, [genreKey, savedOnly, scoutCfg]);
 
   /* ---------- what the active tab shows ---------- */
 
@@ -506,6 +552,9 @@ export default function ResearchPanel({
   }, []);
 
   const barBg = skill ? "bg-panel-2 -mx-3 px-3" : "bg-panel -mx-4 px-4";
+  // The strip's title sits one level under the screen's own: the page title in Discover, the skill's name
+  // in the sheet.
+  const WeekTitle = skill ? "h3" : "h2";
 
   return (
     <section
@@ -679,6 +728,10 @@ export default function ResearchPanel({
           {genres.map((g) => (
             <button
               key={g.id}
+              ref={(el) => {
+                if (el) chipRefs.current.set(g.id, el);
+                else chipRefs.current.delete(g.id);
+              }}
               type="button"
               className="px-fchip shrink-0"
               aria-pressed={g.id === genre?.id}
@@ -845,6 +898,44 @@ export default function ResearchPanel({
           </button>
         </div>
       </div>
+
+      {/* ---------- most viewed this week: one row of cards that scrolls sideways (the page never does:
+          each card holds its own absolute bits) and snaps with its padding kept, so the first card's edge
+          shows in Arabic too; what a keyword search found, so the line by the title says where it comes
+          from ---------- */}
+      {genre && weekItems.length > 0 && (
+        <section
+          aria-labelledby={`${ids}-week`}
+          className="flex min-w-0 flex-col gap-1.5"
+          data-testid="genre-week"
+          data-genre={genre.id}
+          data-count={weekItems.length}
+        >
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <WeekTitle id={`${ids}-week`} className="text-sm" data-testid="genre-week-title">
+              {t("research.weekTitle")}
+            </WeekTitle>
+            <p className="text-muted text-xs" data-testid="genre-week-source">
+              {t("research.weekSource", { genre: L(genre.name) })}
+            </p>
+          </div>
+          <ul
+            aria-labelledby={`${ids}-week`}
+            className="flex min-w-0 snap-x scroll-px-1 gap-3 overflow-x-auto px-1 pt-0.5 pb-2"
+            data-testid="genre-week-list"
+          >
+            {weekItems.map((item) => (
+              <ResultCard
+                key={item.url}
+                item={item}
+                action={renderAction(item)}
+                testId="genre-week-item"
+                className="w-60 shrink-0 snap-start"
+              />
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* ---------- results ---------- */}
       <div

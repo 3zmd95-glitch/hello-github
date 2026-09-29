@@ -187,3 +187,23 @@ describe("isGenreNameTaken", () => {
     expect(isGenreNameTaken("🌊", [fire])).toBe(false);
   });
 });
+
+describe("Discover deep link", () => {
+  it("builds the Discover URL of a genre, encoding ids of any script", async () => {
+    const { discoverGenreHref } = await import("./genres");
+    expect(discoverGenreHref("cars")).toBe("/discover/?genre=cars");
+    expect(discoverGenreHref("custom-هجولة")).toBe(
+      `/discover/?genre=${encodeURIComponent("custom-هجولة")}`,
+    );
+  });
+
+  it("reads the genre id back from a search string", async () => {
+    const { discoverGenreHref, genreIdFromSearch } = await import("./genres");
+    expect(genreIdFromSearch("?genre=cars")).toBe("cars");
+    expect(genreIdFromSearch("?q=x&genre=food")).toBe("food");
+    expect(genreIdFromSearch(discoverGenreHref("custom-هجولة").split("?")[1])).toBe("custom-هجولة");
+    expect(genreIdFromSearch("")).toBeUndefined();
+    expect(genreIdFromSearch("?genre=")).toBeUndefined();
+    expect(genreIdFromSearch("?genre=%20")).toBeUndefined();
+  });
+});

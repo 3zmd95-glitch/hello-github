@@ -2,15 +2,17 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getSkill } from "@/data";
+import { getSkill, skills } from "@/data";
+import type { TrendItemInput, TrendsFeedInput } from "@/lib/domain";
 import { clearYoutubeCache } from "@/lib/research";
 import { clearScoutCache } from "@/lib/scoutClient";
 import { useStore } from "@/store";
 import ResearchPanel, { RESEARCH_TAB_KEY } from "./ResearchPanel";
 
-// 🎬 The research panel's genre row, "Most popular" sort and stats chips (round 31), rendered for real in
-// jsdom against a fake Scout Worker and a fake YouTube Data API (a stubbed global fetch; nothing leaves the
-// machine). The Playwright specs (e2e/scout.spec.ts, e2e/research.spec.ts) cover the same flows in a browser.
+// 🎬 The research panel's genre row, "Most popular" sort, stats chips and "Most viewed this week" strip
+// (round 31), rendered for real in jsdom against a fake Scout Worker and a fake YouTube Data API (a stubbed
+// global fetch; nothing leaves the machine). The Playwright specs (e2e/scout.spec.ts, e2e/research.spec.ts)
+// cover the same flows in a browser.
 
 const WORKER = "https://scout.test";
 const CARS_AR = "ايديت سيارات";
@@ -66,6 +68,10 @@ let asked: Asked[];
 let ytSearches: URL[];
 let ytStats: URL[];
 let statsDown: boolean;
+/** What the fake Worker's `GET /trends` answers; null = it has no such route (a 404). */
+let workerFeed: TrendsFeedInput | null;
+/** Every request to the Worker's trends routes, as "METHOD /path". */
+let trendsCalls: string[];
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -76,6 +82,10 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     const body = JSON.parse(String(init?.body)) as Asked;
     asked.push(body);
     return json({ results: RESULTS.filter((r) => body.platforms.includes(r.platform)) });
+  }
+  if (url.origin === WORKER && url.pathname.startsWith("/trends")) {
+    trendsCalls.push(`${init?.method ?? "GET"} ${url.pathname}`);
+    return workerFeed ? json(workerFeed) : json({ error: "not_found" }, 404);
   }
   if (url.hostname === "www.googleapis.com" && url.pathname.endsWith("/videos")) {
     ytStats.push(url);
@@ -137,11 +147,18 @@ async function submit(text: string): Promise<void> {
   await settle();
 }
 
-async function mount(opts: { skillId?: string; tab?: string; youtubeKey?: string } = {}) {
+async function mount(
+  opts: { skillId?: string; tab?: string; youtubeKey?: string; worker?: boolean } = {},
+) {
   const s = useStore.getState();
+  const on = opts.worker ?? true;
   s.setSettings({
     lang: "ar",
-    apiKeys: { scoutUrl: WORKER, scoutToken: "tok", youtube: opts.youtubeKey },
+    apiKeys: {
+      scoutUrl: on ? WORKER : "",
+      scoutToken: on ? "tok" : "",
+      youtube: opts.youtubeKey,
+    },
   });
   localStorage.setItem(RESEARCH_TAB_KEY, opts.tab ?? "tt");
   const skill = opts.skillId ? getSkill(opts.skillId) : undefined;
@@ -155,11 +172,14 @@ beforeEach(() => {
   ytSearches = [];
   ytStats = [];
   statsDown = false;
+  workerFeed = null;
+  trendsCalls = [];
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   localStorage.clear();
   clearScoutCache();
   clearYoutubeCache();
   useStore.setState({ recentTopics: [], customGenres: [], savedRefs: {} });
+  useStore.getState().clearTrends();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -395,5 +415,232 @@ describe("ResearchPanel Most popular sort and stats chips", () => {
     await click("filter-sort-popular");
     expect(titles()).toEqual(["Quiet one", "Big one", "No numbers"]);
     expect($("popular-note")).not.toBeNull();
+  });
+});
+
+describe("ResearchPanel Most viewed this week", () => {
+  const HOUR = 3_600_000;
+  const iso = (msAgo = 0) => new Date(Date.now() - msAgo).toISOString();
+
+  /** A row as the Worker's keyword scan writes it for a genre's main query (Arabic cars by default). */
+  const weekRow = (over: Partial<TrendItemInput> & { id: string }): TrendItemInput => ({
+    platform: "youtube",
+    region: "SA",
+    lang: "ar",
+    title: over.id,
+    url: `https://www.youtube.com/shorts/${over.id}`,
+    thumb: `https://i.ytimg.com/vi/${over.id}/mqdefault.jpg`,
+    source: "YouTube search",
+    why: "قناة السيارات",
+    seenAt: iso(HOUR),
+    genre: "cars",
+    tags: ["ايديت سيارات", "short"],
+    ...over,
+  });
+  const feed = (items: TrendItemInput[], fetchedAt = iso()): TrendsFeedInput => ({
+    items,
+    fetchedAt,
+    degraded: false,
+    sources: [],
+  });
+  /** Eight Arabic car rows (scores 10..80), a better one with no link, one English, one food, one plain. */
+  const ROWS = [
+    ...Array.from({ length: 8 }, (_, i) =>
+      weekRow({ id: `car${i + 1}`, score: (i + 1) * 10, volume: (i + 1) * 1000 }),
+    ),
+    weekRow({ id: "no-link", score: 99, url: undefined }),
+    weekRow({ id: "car-en", region: "US", lang: "en", score: 50, tags: ["car edit"] }),
+    weekRow({ id: "food1", genre: "food", score: 60, tags: ["مونتاج أكل"] }),
+    weekRow({ id: "plain", genre: undefined, score: 100 }),
+  ];
+  const store = (items: TrendItemInput[], fetchedAt?: string) =>
+    act(() => useStore.getState().setTrends(feed(items, fetchedAt)));
+
+  const strip = () => $("genre-week");
+  const weekTitles = () =>
+    [...(strip()?.querySelectorAll('[data-testid="result-title"]') ?? [])].map(
+      (el) => el.textContent,
+    );
+  const weekItem = (title: string) =>
+    all("genre-week-item").find((li) => li.textContent?.includes(title));
+
+  it("shows the rows of the picked genre, in the search language, best first, six at most", async () => {
+    store(ROWS);
+    await mount();
+    expect(strip()).toBeNull();
+
+    await click("genre-cars");
+    const section = strip()!;
+    expect(section.getAttribute("data-genre")).toBe("cars");
+    expect(section.getAttribute("data-count")).toBe("6");
+    expect(weekTitles()).toEqual(["car8", "car7", "car6", "car5", "car4", "car3"]);
+    expect($("genre-week-title")!.textContent).toBe("📈 الأكثر مشاهدة هالأسبوع");
+    expect($("genre-week-title")!.tagName).toBe("H2");
+    // Honest about where the rows come from: a YouTube search for the genre, read by the radar.
+    expect($("genre-week-source")!.textContent).toBe("من رادار الترند: بحث يوتيوب عن سيارات");
+
+    // The panel's own cards: YouTube, the channel, the views, the thumbnail, the one watch link.
+    const top = weekItem("car8")!;
+    expect(top.getAttribute("data-platform")).toBe("yt");
+    expect(top.textContent).toContain("قناة السيارات");
+    const stats = top.querySelector('[data-testid="result-stats"]')!;
+    expect(stats.getAttribute("data-kind")).toBe("views");
+    expect(stats.getAttribute("data-views")).toBe("8000");
+    expect(top.querySelector('[data-testid="result-thumb"]')!.getAttribute("src")).toBe(
+      "https://i.ytimg.com/vi/car8/mqdefault.jpg",
+    );
+    expect(top.querySelector('[data-testid="result-open"]')!.getAttribute("href")).toBe(
+      "https://www.youtube.com/watch?v=car8",
+    );
+    // One row of fixed-width cards that scrolls sideways, above the results, never inside them.
+    const list = $("genre-week-list")!;
+    expect(list.className.split(" ")).toEqual(
+      expect.arrayContaining(["overflow-x-auto", "min-w-0"]),
+    );
+    expect(list.className.split(" ")).not.toContain("flex-wrap");
+    expect(all("genre-week-item").every((li) => li.className.split(" ").includes("shrink-0"))).toBe(
+      true,
+    );
+    // Each card holds its absolute bits (the counts' screen-reader words): out of view, they stay in the row.
+    expect(all("genre-week-item").every((li) => li.className.split(" ").includes("relative"))).toBe(
+      true,
+    );
+    expect(section.className.split(" ")).toContain("min-w-0");
+    const results = $("research-results")!;
+    expect(
+      section.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(results.contains(section)).toBe(false);
+    // The stored feed is fresh: nothing was asked of the Worker's trends.
+    expect(trendsCalls).toEqual([]);
+
+    // The search language picks the rows: English ones for English words.
+    await click("research-lang-en");
+    expect(weekTitles()).toEqual(["car-en"]);
+
+    // Another genre, another strip; one without rows has none.
+    await click("research-lang-ar");
+    await click("genre-food");
+    expect(strip()!.getAttribute("data-genre")).toBe("food");
+    expect(weekTitles()).toEqual(["food1"]);
+    expect($("genre-week-source")!.textContent).toBe("من رادار الترند: بحث يوتيوب عن أكل ومطاعم");
+    await click("genre-anime");
+    expect(strip()).toBeNull();
+    await click("genre-cars");
+    expect(strip()).not.toBeNull();
+    await click("genres-clear");
+    expect(strip()).toBeNull();
+    expect(trendsCalls).toEqual([]);
+  });
+
+  it("is hidden with Saved only on and for an owner's genre, with no empty state", async () => {
+    store(ROWS);
+    useStore.getState().addCustomGenre("Drift", "drift edit");
+    await mount();
+
+    await click("genre-custom-drift");
+    expect(pressed("genre-custom-drift")).toBe("true");
+    expect(strip()).toBeNull();
+    expect(host.textContent).not.toContain("الأكثر مشاهدة");
+
+    await click("genre-cars");
+    expect(strip()).not.toBeNull();
+    await click("filter-saved");
+    expect(strip()).toBeNull();
+    expect(host.textContent).not.toContain("الأكثر مشاهدة");
+    await click("filter-saved");
+    expect(weekTitles()).toHaveLength(6);
+  });
+
+  it("reads a stale feed from the Worker once a genre is picked: GET /trends only, once", async () => {
+    store([weekRow({ id: "old", score: 90 })], iso(7 * HOUR));
+    workerFeed = feed([weekRow({ id: "new1", score: 80 }), weekRow({ id: "new2", score: 70 })]);
+    await mount();
+    // Never on mount without a genre.
+    expect(trendsCalls).toEqual([]);
+
+    await click("genre-cars");
+    expect(trendsCalls).toEqual(["GET /trends"]);
+    expect(weekTitles()).toEqual(["new1", "new2"]);
+    expect(useStore.getState().trends.items.map((i) => i.id)).toEqual(["new1", "new2"]);
+
+    // Once in the panel's life: other genres, the same one again, another language ask nothing more.
+    await click("genre-food");
+    await click("genre-cars");
+    await click("research-lang-en");
+    expect(trendsCalls).toEqual(["GET /trends"]);
+  });
+
+  it("asks nothing without a Worker, and waits for Saved only to go off", async () => {
+    store([weekRow({ id: "old", score: 90 })], iso(7 * HOUR));
+    workerFeed = feed([weekRow({ id: "new1", score: 80 })]);
+    await mount({ worker: false });
+    await click("genre-cars");
+    // No Worker: the stored rows still show, and nothing is fetched.
+    expect(weekTitles()).toEqual(["old"]);
+    expect(trendsCalls).toEqual([]);
+
+    // With the Worker, but Saved only on: no strip to fill, so nothing is asked until it goes off.
+    act(() => root.unmount());
+    root = createRoot(host);
+    await mount();
+    await click("filter-saved");
+    await click("genre-cars");
+    expect(strip()).toBeNull();
+    expect(trendsCalls).toEqual([]);
+    await click("filter-saved");
+    expect(trendsCalls).toEqual(["GET /trends"]);
+    expect(weekTitles()).toEqual(["new1"]);
+    await click("filter-saved");
+    await click("filter-saved");
+    expect(trendsCalls).toEqual(["GET /trends"]);
+  });
+
+  it("attaches a card of the strip to a skill like a search card (Discover)", async () => {
+    store(ROWS);
+    await mount();
+    await click("genre-cars");
+    const attach = weekItem("car8")!.querySelector<HTMLElement>('[data-testid="result-attach"]')!;
+    act(() => attach.click());
+    await settle();
+    expect($("skill-picker")).not.toBeNull();
+    await click("skill-picker-option");
+    expect($("skill-picker")).toBeNull();
+    const target = skills[0];
+    // The same reference a search card for that video saves: the watch link, no counts.
+    expect(useStore.getState().savedRefs[target.id]).toEqual([
+      {
+        platform: "yt",
+        handle: "قناة السيارات",
+        title: "car8",
+        url: "https://www.youtube.com/watch?v=car8",
+        thumb: "https://i.ytimg.com/vi/car8/mqdefault.jpg",
+      },
+    ]);
+    const attached = weekItem("car8")!.querySelector('[data-testid="result-attached"]');
+    expect(attached?.textContent).toContain(target.name.ar);
+  });
+
+  it("shows in the skill sheet's panel too, where a card attaches to that skill", async () => {
+    store(ROWS);
+    await mount({ skillId: "smart-bins-keywords" });
+    expect(strip()).toBeNull();
+    await click("genre-cars");
+    expect(weekTitles()).toEqual(["car8", "car7", "car6", "car5", "car4", "car3"]);
+    // One level under the sheet's own title (the skill's name is its h2).
+    expect($("genre-week-title")!.tagName).toBe("H3");
+
+    const attach = () =>
+      weekItem("car7")!.querySelector<HTMLElement>('[data-testid="result-attach"]')!;
+    expect(attach().getAttribute("aria-pressed")).toBe("false");
+    act(() => attach().click());
+    await settle();
+    expect(attach().getAttribute("aria-pressed")).toBe("true");
+    expect(useStore.getState().savedRefs["smart-bins-keywords"]?.map((r) => r.url)).toEqual([
+      "https://www.youtube.com/watch?v=car7",
+    ]);
+    act(() => attach().click());
+    await settle();
+    expect(useStore.getState().savedRefs["smart-bins-keywords"] ?? []).toEqual([]);
   });
 });

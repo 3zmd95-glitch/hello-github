@@ -5,9 +5,12 @@ import {
   type Program,
   type Ref,
   type RefPlatform,
+  type TrendItem,
+  type TrendsState,
 } from "./domain";
 import { genreHashtag, genreQuery } from "./genres";
 import { parseStats, type Stats } from "./scoutClient";
+import { visibleTrends } from "./trends";
 
 export type { Stats };
 
@@ -16,7 +19,8 @@ export type { Stats };
  * normalizer, and a thin wrapper around the free YouTube Data API v3 `search.list` endpoint. No backend,
  * no server key: everything here runs on the phone, and the owner's own YouTube key (if any) lives in
  * Settings/localStorage. Round 31 adds the edit-genre query ({@link researchQuery}), the view / like counts
- * of a post (`stats`) and the "Most popular" order ({@link sortByPopularity}).
+ * of a post (`stats`), the "Most popular" order ({@link sortByPopularity}) and the "Most viewed this week"
+ * strip of a genre, read from the Trend Radar's feed ({@link genreWeekItems}).
  */
 
 /** Program id whose YouTube EN search gets an extra " davinci resolve" suffix (almost always what's meant). */
@@ -739,6 +743,58 @@ export function refFromItem(i: ResearchItem): Ref {
     url: i.url,
     ...(i.thumb ? { thumb: i.thumb } : {}),
   };
+}
+
+/* ---------- "Most viewed this week": the Trend Radar's rows of a genre, as cards ---------- */
+
+/** How many of the radar's rows the "Most viewed this week" strip shows. */
+export const GENRE_WEEK_MAX = 6;
+
+const HTTP_URL = /^https?:\/\//i;
+const YT_WATCH = "https://www.youtube.com/watch?v=";
+
+/**
+ * A Trend Radar row as a card of the research panel. The rows of a genre come from the Worker's daily
+ * YouTube keyword scan: the views are the row's `volume`, and the channel is what the Worker writes in the
+ * `why` of a YouTube row (no handle when it sent none). The link goes in its {@link canonicalRefUrl} form,
+ * like a search card's, so attaching it saves the same reference. Undefined for a row that is not a YouTube
+ * video with a link (a watch, Shorts or youtu.be address): nothing to open or attach.
+ */
+export function itemFromTrend(row: TrendItem): ResearchItem | undefined {
+  const url = row.url?.trim();
+  if (row.platform !== "youtube" || !url || !HTTP_URL.test(url)) return undefined;
+  if (detectPlatform(url) !== "yt") return undefined;
+  const canonical = canonicalRefUrl("yt", url);
+  if (!canonical.startsWith(YT_WATCH)) return undefined;
+  const stats = parseStats({ views: row.volume });
+  return {
+    platform: "yt",
+    handle: row.why?.trim() ?? "",
+    title: row.title,
+    snippet: "",
+    url: canonical,
+    ...(row.thumb && HTTP_URL.test(row.thumb) ? { thumb: row.thumb } : {}),
+    ...(stats ? { stats } : {}),
+  };
+}
+
+/**
+ * The "Most viewed this week" strip of a genre: the rows of the radar's feed tagged with it that still show
+ * (lib/trends' `visibleTrends`: not dismissed, not expired), in the search language, best score first, as
+ * cards; the first {@link GENRE_WEEK_MAX}, each video once. They are the most viewed results of the
+ * Worker's keyword search for the genre this week, not a trending list of the platform. Empty without a
+ * genre and for a genre the feed has no rows of (the Worker scans the built-in genres only, so an owner's
+ * own genre has none).
+ */
+export function genreWeekItems(
+  feed: TrendsState,
+  genreId: string | undefined,
+  lang: Lang,
+  now: Date = new Date(),
+): ResearchItem[] {
+  if (!genreId) return [];
+  const rows = visibleTrends(feed, { genre: genreId, lang }, now);
+  return dedupeByUrl(rows.flatMap((row) => itemFromTrend(row) ?? [])).slice(0, GENRE_WEEK_MAX);
 }
 
 /**

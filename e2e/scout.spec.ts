@@ -71,6 +71,8 @@ interface Calls {
   search: number;
   oembed: number;
   bodies: SearchBody[];
+  /** Requests to the Trend Radar's routes, as "METHOD /path" (round 31: Discover's "most viewed" strip). */
+  trends: string[];
 }
 
 interface StubOpts {
@@ -80,6 +82,8 @@ interface StubOpts {
   empty?: string[];
   /** Thumbnails that no longer load (TikTok's signed image URLs expire after about two days). */
   expired?: string[];
+  /** What `GET /trends` answers; without it the Worker has no feed (a 404, like one without the radar). */
+  feed?: () => unknown;
 }
 
 /**
@@ -88,7 +92,7 @@ interface StubOpts {
  * platform crowds out the rest (here: YouTube only), which is why the app never sends one.
  */
 async function stubWorker(page: Page, opts: StubOpts = {}): Promise<Calls> {
-  const calls: Calls = { search: 0, oembed: 0, bodies: [] };
+  const calls: Calls = { search: 0, oembed: 0, bodies: [], trends: [] };
   await page.route(`${WORKER}/**`, async (route) => {
     const req = route.request();
     const { pathname } = new URL(req.url());
@@ -128,6 +132,10 @@ async function stubWorker(page: Page, opts: StubOpts = {}): Promise<Calls> {
         thumb: `${WORKER}/thumb/oembed.png`,
         url: new URL(req.url()).searchParams.get("url"),
       });
+    }
+    if (pathname.startsWith("/trends")) {
+      calls.trends.push(`${req.method()} ${pathname}`);
+      if (opts.feed && pathname === "/trends" && req.method() === "GET") return json(opts.feed());
     }
     return json({ error: "not_found" }, 404);
   });
@@ -623,6 +631,11 @@ test("edit genre: a chip alone searches the genre's own words, in the search lan
   await expect(page.getByTestId("discover-topic")).toHaveValue("");
   await expect(page.getByTestId("discover-recent-topic")).toHaveCount(0);
   await expect(page.getByTestId("research-start")).toHaveCount(0);
+  // This Worker has no trends feed (a 404): the genre's feed was asked for once, and with nothing to
+  // show there is no "most viewed this week" strip and no error line (the strip is an extra).
+  await expect.poll(() => calls.trends).toEqual(["GET /trends"]);
+  await expect(page.getByTestId("genre-week")).toHaveCount(0);
+  await expect(page.getByTestId("scout-error")).toHaveCount(0);
 
   // The "open on platform" links search the same words; the Instagram hashtag is the genre's own.
   await expect(page.getByTestId("research-link-tt")).toHaveAttribute(
@@ -646,6 +659,8 @@ test("edit genre: a chip alone searches the genre's own words, in the search lan
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "false");
   await expect.poll(() => calls.bodies.length).toBe(3);
   expect(asked(calls)[2]).toBe("gym edit");
+  // Once per visit: other genres and languages do not ask for the feed again.
+  expect(calls.trends).toEqual(["GET /trends"]);
 });
 
 test("edit genre: a topic and a genre are searched together, and only the topic is remembered", async ({
@@ -930,4 +945,233 @@ test("YouTube statistics failing: the videos still show, without numbers; Search
   expect(yt.search).toHaveLength(2);
   expect(yt.stats).toHaveLength(4);
   await expect(page.getByTestId("yt-error")).toHaveCount(0);
+});
+
+/* ---------- 📈 "Most viewed this week" and the ?genre= link (round 31b: Discover is the one place for genres) ---------- */
+
+/**
+ * The Worker's `GET /trends` feed, read just now: seven Arabic car rows of its daily keyword scan ("YouTube
+ * search", the genre id, the query that found them first in the tags; best score = most viewed), a better one
+ * with no link, one English car row, one food row, and a Google row without a genre.
+ */
+function weekFeed() {
+  const seenAt = new Date().toISOString();
+  const row = (id: string, over: Record<string, unknown> = {}) => ({
+    id: `youtube:SA:q-${id}`,
+    platform: "youtube",
+    region: "SA",
+    lang: "ar",
+    title: `مونتاج سيارات ${id}`,
+    url: `https://www.youtube.com/shorts/${id}`,
+    thumb: `${WORKER}/thumb/${id}.png`,
+    source: "YouTube search",
+    why: "قناة السيارات",
+    seenAt,
+    genre: "cars",
+    tags: [CARS_AR, "short"],
+    ...over,
+  });
+  return {
+    items: [
+      ...Array.from({ length: 7 }, (_, i) =>
+        row(`car${i + 1}`, { score: 95 - i * 10, volume: (7 - i) * 100_000 }),
+      ),
+      row("nolink", { score: 100, url: undefined }),
+      row("caren", {
+        id: "youtube:US:q-caren",
+        region: "US",
+        lang: "en",
+        title: "Cinematic car edit",
+        score: 100,
+        tags: [CARS_EN, "short"],
+      }),
+      row("food1", {
+        title: "أحلى مطاعم الرياض",
+        genre: "food",
+        score: 90,
+        tags: [FOOD_AR, "short"],
+      }),
+      {
+        id: "google:SA:حساب-المواطن",
+        platform: "google",
+        region: "SA",
+        lang: "ar",
+        title: "حساب المواطن",
+        score: 100,
+        source: "Google Trends",
+        seenAt,
+      },
+    ],
+    fetchedAt: seenAt,
+    degraded: false,
+    sources: [{ name: "youtubeSearch", ok: true, at: seenAt }],
+  };
+}
+
+// The page does not scroll sideways: measured against the page's own width, not `innerWidth`, which on the
+// phone (mobile emulation) grows to fit whatever overflows, so it could never catch it there.
+const fitsViewport = (page: Page) =>
+  page.evaluate(() => {
+    const root = document.documentElement;
+    return root.scrollWidth <= root.clientWidth;
+  });
+
+test("Most viewed this week: a picked genre shows the radar's rows of it in one sideways row, with the same attach", async ({
+  page,
+}) => {
+  test.slow();
+  const calls = await stubWorker(page, { feed: weekFeed });
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await page.getByTestId("tab-tt").click();
+
+  // Without a genre there is no strip, and the feed is never asked for.
+  const week = page.getByTestId("genre-week");
+  const weekTitles = week.getByTestId("result-title");
+  await expect(page.getByTestId("genres-row")).toBeVisible();
+  await expect(week).toHaveCount(0);
+  expect(calls.trends).toEqual([]);
+
+  // A genre: the app had no feed, so it reads the Worker's once (never runs the sources), and shows the
+  // genre's Arabic rows (the search language), best first, the six first of those with a link.
+  await page.getByTestId("genre-cars").click();
+  await expect(week).toBeVisible();
+  await expect(week).toHaveAttribute("data-genre", "cars");
+  expect(calls.trends).toEqual(["GET /trends"]);
+  await expect(weekTitles).toHaveText([1, 2, 3, 4, 5, 6].map((n) => `مونتاج سيارات car${n}`));
+  await expect(page.getByTestId("genre-week-title")).toHaveText("📈 الأكثر مشاهدة هالأسبوع");
+  // Honest about what it is: the most viewed results of the radar's YouTube search for the genre.
+  await expect(page.getByTestId("genre-week-source")).toHaveText(
+    "من رادار الترند: بحث يوتيوب عن سيارات",
+  );
+
+  // The panel's own cards: YouTube, the channel, the views, the thumbnail, the video's watch link.
+  const top = week.getByTestId("genre-week-item").first();
+  await expect(top).toHaveAttribute("data-platform", "yt");
+  await expect(top).toContainText("قناة السيارات");
+  await expect(top.getByTestId("result-stats")).toHaveAttribute("data-views", "700000");
+  await expect(top.getByTestId("result-thumb")).toHaveAttribute("src", `${WORKER}/thumb/car1.png`);
+  await expect(top.getByTestId("result-open")).toHaveAttribute(
+    "href",
+    "https://www.youtube.com/watch?v=car1",
+  );
+  // The search's own results are a separate list below it.
+  await expect(card(page, "tt").first()).toBeVisible();
+  await expect(page.getByTestId("result-card")).toHaveCount(2);
+  expect(await page.getByTestId("result-list").getByTestId("genre-week-item").count()).toBe(0);
+
+  // One row that scrolls sideways; the page itself never does.
+  const list = page.getByTestId("genre-week-list");
+  expect(await list.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // The same attach action as a result: the skill picker, then "attached to" on the card.
+  await top.getByTestId("result-attach").click();
+  await page.getByTestId("skill-picker-search").fill("Smart Bins");
+  await page.getByTestId("skill-picker-option").first().click();
+  await expect(top.getByTestId("result-attached")).toContainText("Smart Bins");
+
+  // The app in English (left to right): the same row, the page still never scrolls sideways, and the first
+  // card still takes a tap (undo, then attach it again).
+  await page.getByTestId("lang-en").click();
+  await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
+  await expect(page.getByTestId("genre-week-title")).toHaveText("📈 Most viewed this week");
+  expect(await fitsViewport(page)).toBe(true);
+  await top.getByTestId("result-undo").click();
+  await top.getByTestId("result-attach").click();
+  await page.getByTestId("skill-picker-search").fill("Smart Bins");
+  await page.getByTestId("skill-picker-option").first().click();
+  await expect(top.getByTestId("result-attached")).toContainText("Smart Bins");
+  await page.getByTestId("lang-ar").click();
+  await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+
+  // English words, English rows; another genre, its own rows; a genre without rows, no strip at all.
+  await page.getByTestId("research-lang-en").click();
+  await expect(weekTitles).toHaveText(["Cinematic car edit"]);
+  await page.getByTestId("research-lang-ar").click();
+  await page.getByTestId("genre-food").click();
+  await expect(week).toHaveAttribute("data-genre", "food");
+  await expect(weekTitles).toHaveText(["أحلى مطاعم الرياض"]);
+  await expect(page.getByTestId("genre-week-source")).toHaveText(
+    "من رادار الترند: بحث يوتيوب عن أكل ومطاعم",
+  );
+  await page.getByTestId("genre-anime").click();
+  await expect(page.getByTestId("genre-anime")).toHaveAttribute("aria-pressed", "true");
+  await expect(week).toHaveCount(0);
+
+  // Saved only hides it; off again, it is back.
+  await page.getByTestId("genre-cars").click();
+  await expect(weekTitles).toHaveCount(6);
+  await openFilters(page);
+  await page.getByTestId("filter-saved").click();
+  await expect(page.getByTestId("filter-saved")).toHaveAttribute("aria-pressed", "true");
+  await expect(week).toHaveCount(0);
+  await page.getByTestId("filter-saved").click();
+  await expect(weekTitles).toHaveCount(6);
+  // The feed was read once in all of that.
+  expect(calls.trends).toEqual(["GET /trends"]);
+
+  // The skill sheet's Research panel shows it too; the stored feed is fresh now, so nothing is read, and
+  // the card attached from Discover shows as attached to this skill.
+  await page.goto("/skills/");
+  await openSkillSheet(page);
+  await page.getByTestId("research-toggle").click();
+  await page.getByTestId("skill-sheet").getByTestId("genre-cars").click();
+  const sheetWeek = page.getByTestId("skill-sheet").getByTestId("genre-week");
+  await expect(sheetWeek.getByTestId("genre-week-item")).toHaveCount(6);
+  await expect(
+    sheetWeek.getByTestId("genre-week-item").first().getByTestId("result-attach"),
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(calls.trends).toEqual(["GET /trends"]);
+});
+
+test("/discover/?genre=cars opens with the Cars chip pressed and the genre's search sent", async ({
+  page,
+}) => {
+  test.slow();
+  const calls = await stubWorker(page, { feed: weekFeed });
+  await connectWorker(page);
+  const picked = page.locator('[data-testid^="genre-"][aria-pressed="true"]');
+
+  // The link the radar's genre chips open (lib/genres discoverGenreHref), loaded directly.
+  await page.goto("/discover/?genre=cars");
+  await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "true");
+  await expect(picked).toHaveCount(1);
+  await expect(genreOn(page)).toHaveAttribute("data-genre", "cars");
+  // Exactly like a tap on the chip: the genre's own words searched on every platform of the All tab,
+  // nothing typed, nothing remembered.
+  await expect
+    .poll(() => calls.bodies.map((b) => b.platforms[0]).sort())
+    .toEqual(["ig", "tt", "yt"]);
+  expect(asked(calls)).toEqual([CARS_AR, CARS_AR, CARS_AR]);
+  await expect(page.getByTestId("discover-topic")).toHaveValue("");
+  await expect(page.getByTestId("discover-recent-topic")).toHaveCount(0);
+  // The address no longer names the genre, and the genre's most viewed this week are there.
+  await expect(page).toHaveURL(/\/discover\/$/);
+  await expect(page.getByTestId("genre-week")).toHaveAttribute("data-genre", "cars");
+  expect(calls.trends).toEqual(["GET /trends"]);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // A reload does not force the genre again.
+  await page.reload();
+  await expect(page.getByTestId("genres-row")).toBeVisible();
+  await expect(genreOn(page)).toHaveAttribute("data-genre", "");
+  await expect(picked).toHaveCount(0);
+  expect(calls.search).toBe(3);
+
+  // A chip at the far end of the row is brought into view (the row scrolls to it on a phone).
+  await page.goto("/discover/?genre=gym");
+  const gym = page.getByTestId("genre-gym");
+  await expect(gym).toHaveAttribute("aria-pressed", "true");
+  await expect(gym).toBeInViewport();
+  await expect.poll(() => calls.search).toBe(6);
+  expect(asked(calls).slice(3)).toEqual(["ايديت جيم", "ايديت جيم", "ايديت جيم"]);
+  await expect(page).toHaveURL(/\/discover\/$/);
+
+  // A genre the app does not know is ignored (and taken off the address too).
+  await page.goto("/discover/?genre=drone");
+  await expect(page).toHaveURL(/\/discover\/$/);
+  await expect(page.getByTestId("research-start")).toBeVisible();
+  await expect(picked).toHaveCount(0);
+  expect(calls.search).toBe(6);
 });

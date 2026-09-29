@@ -295,6 +295,8 @@
   "research.popularNote": "Most popular uses views on YouTube and likes on TikTok and Instagram when the page shows them. No numbers for these results yet.",
   "research.views": "{n} views",
   "research.likes": "{n} likes",
+  "research.weekTitle": "📈 Most viewed this week",
+  "research.weekSource": "From the Trend Radar: YouTube search for {genre}",
   "research.attachHere": "＋ Attach to this skill",
   "research.attachedHere": "✓ Attached",
   "research.attachedTo": "✓ Attached to {skill}",

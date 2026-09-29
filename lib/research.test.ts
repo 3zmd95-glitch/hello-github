@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Lang } from "./domain";
+import { TrendsStateSchema, type Lang, type TrendItemInput } from "./domain";
 import { allGenres, GENRES } from "./genres";
 import {
   arabicFirst,
@@ -10,11 +10,14 @@ import {
   decodeEntities,
   dedupeByUrl,
   detectPlatform,
+  GENRE_WEEK_MAX,
+  genreWeekItems,
   hasArabic,
   hashtagSlug,
   headlineStat,
   interleavePlatforms,
   itemFromRef,
+  itemFromTrend,
   itemFromYoutube,
   normalizeRef,
   peekYoutubeSearch,
@@ -971,5 +974,163 @@ describe("popularity (the Most popular sort and the stats chip)", () => {
       url: "https://www.youtube.com/watch?v=v",
     });
     expect("stats" in itemFromRef(ref)).toBe(false);
+  });
+});
+
+describe("Most viewed this week (the Trend Radar's rows of a genre, as cards)", () => {
+  const NOW = new Date("2026-09-29T09:00:00Z");
+  const SEEN_AT = "2026-09-28T03:00:00Z";
+
+  /** A row as the Worker's keyword scan writes it for a genre's main query. */
+  const row = (over: Partial<TrendItemInput> & { id: string }): TrendItemInput => ({
+    platform: "youtube",
+    region: "SA",
+    lang: "ar",
+    title: over.id,
+    url: `https://www.youtube.com/shorts/${over.id}`,
+    source: "YouTube search",
+    seenAt: SEEN_AT,
+    genre: "cars",
+    ...over,
+  });
+  const feed = (items: TrendItemInput[], dismissed: string[] = []) =>
+    TrendsStateSchema.parse({ items, fetchedAt: SEEN_AT, dismissed });
+  const titles = (items: { title: string }[]) => items.map((i) => i.title);
+  const parsed = (over: Partial<TrendItemInput> & { id: string }) => feed([row(over)]).items[0];
+
+  it("turns a YouTube row into a card: views from the volume, the channel as the handle", () => {
+    const item = itemFromTrend(
+      parsed({
+        id: "abc",
+        title: "مونتاج سيارات في جدة",
+        thumb: "https://i.ytimg.com/vi/abc/mqdefault.jpg",
+        volume: 1_250_000,
+        why: " قناة السيارات ",
+        score: 80,
+        tags: ["ايديت سيارات", "short"],
+      }),
+    );
+    expect(item).toEqual({
+      platform: "yt",
+      handle: "قناة السيارات",
+      title: "مونتاج سيارات في جدة",
+      snippet: "",
+      // The link of a search card (and of a saved reference) for the same video.
+      url: "https://www.youtube.com/watch?v=abc",
+      thumb: "https://i.ytimg.com/vi/abc/mqdefault.jpg",
+      stats: { views: 1_250_000 },
+    });
+    expect(item!.url).toBe(canonicalRefUrl("yt", "https://www.youtube.com/shorts/abc"));
+    expect(refFromItem(item!)).toEqual({
+      platform: "yt",
+      handle: "قناة السيارات",
+      title: "مونتاج سيارات في جدة",
+      url: "https://www.youtube.com/watch?v=abc",
+      thumb: "https://i.ytimg.com/vi/abc/mqdefault.jpg",
+    });
+  });
+
+  it("leaves out what the row does not have: no handle, no thumbnail, no numbers", () => {
+    const item = itemFromTrend(parsed({ id: "bare", url: "https://www.youtube.com/watch?v=bare" }));
+    expect(item).toEqual({
+      platform: "yt",
+      handle: "",
+      title: "bare",
+      snippet: "",
+      url: "https://www.youtube.com/watch?v=bare",
+    });
+    expect(itemFromTrend(parsed({ id: "zero", volume: 0 }))?.stats).toEqual({ views: 0 });
+    expect(itemFromTrend(parsed({ id: "t", thumb: "data:image/png;base64,AAAA" }))?.thumb).toBe(
+      undefined,
+    );
+  });
+
+  it("skips a row with nothing to open, and one that is not a YouTube video", () => {
+    expect(itemFromTrend(parsed({ id: "no-url", url: undefined }))).toBeUndefined();
+    expect(itemFromTrend(parsed({ id: "blank", url: "  " }))).toBeUndefined();
+    expect(itemFromTrend(parsed({ id: "js", url: "javascript:alert(1)" }))).toBeUndefined();
+    expect(
+      itemFromTrend(parsed({ id: "g", platform: "google", url: "https://trends.google.com/x" })),
+    ).toBeUndefined();
+    // A YouTube row whose link is not one video: a channel page, a search, another site's /watch.
+    expect(
+      itemFromTrend(parsed({ id: "ch", url: "https://www.youtube.com/@cars" })),
+    ).toBeUndefined();
+    expect(
+      itemFromTrend(parsed({ id: "s", url: "https://www.youtube.com/results?search_query=car" })),
+    ).toBeUndefined();
+    expect(
+      itemFromTrend(parsed({ id: "x", url: "https://example.com/watch?v=abc" })),
+    ).toBeUndefined();
+    // Every video address the Worker may write becomes the one watch link.
+    expect(itemFromTrend(parsed({ id: "b", url: "https://youtu.be/xyz" }))?.url).toBe(
+      "https://www.youtube.com/watch?v=xyz",
+    );
+    expect(
+      itemFromTrend(parsed({ id: "m", url: "https://m.youtube.com/watch?v=xyz&t=4" }))?.url,
+    ).toBe("https://www.youtube.com/watch?v=xyz");
+  });
+
+  it("shows the rows of the genre in the search language only, best score first", () => {
+    const state = feed([
+      row({ id: "cars-ar-70", score: 70 }),
+      row({ id: "cars-en-85", region: "US", lang: "en", score: 85 }),
+      row({ id: "food-ar-99", genre: "food", score: 99 }),
+      row({ id: "cars-ar-90", score: 90 }),
+      row({ id: "cars-mixed-60", lang: "mixed", score: 60 }),
+      row({ id: "plain-ar-100", genre: undefined, score: 100 }),
+      row({ id: "cars-ar-none" }),
+    ]);
+    expect(titles(genreWeekItems(state, "cars", "ar", NOW))).toEqual([
+      "cars-ar-90",
+      "cars-ar-70",
+      "cars-mixed-60",
+      "cars-ar-none",
+    ]);
+    expect(titles(genreWeekItems(state, "cars", "en", NOW))).toEqual([
+      "cars-en-85",
+      "cars-mixed-60",
+    ]);
+    expect(titles(genreWeekItems(state, "food", "ar", NOW))).toEqual(["food-ar-99"]);
+    expect(genreWeekItems(state, "food", "en", NOW)).toEqual([]);
+  });
+
+  it("is empty without a genre, and for a genre the feed has no rows of", () => {
+    const state = feed([row({ id: "cars-ar", score: 70 }), row({ id: "plain", genre: undefined })]);
+    expect(genreWeekItems(state, undefined, "ar", NOW)).toEqual([]);
+    expect(genreWeekItems(state, "", "ar", NOW)).toEqual([]);
+    expect(genreWeekItems(state, "custom-هجولة", "ar", NOW)).toEqual([]);
+    expect(genreWeekItems(state, "anime", "ar", NOW)).toEqual([]);
+    expect(genreWeekItems(feed([]), "cars", "ar", NOW)).toEqual([]);
+  });
+
+  it("keeps the first six, after the rows without a link are skipped", () => {
+    expect(GENRE_WEEK_MAX).toBe(6);
+    const state = feed([
+      row({ id: "top-no-link", score: 100, url: undefined }),
+      ...Array.from({ length: 9 }, (_, i) => row({ id: `v${i}`, score: 90 - i })),
+    ]);
+    expect(titles(genreWeekItems(state, "cars", "ar", NOW))).toEqual([
+      "v0",
+      "v1",
+      "v2",
+      "v3",
+      "v4",
+      "v5",
+    ]);
+  });
+
+  it("leaves out dismissed and expired rows, and shows a video once", () => {
+    const state = feed(
+      [
+        row({ id: "gone", score: 95 }),
+        row({ id: "old", score: 90, expiresAt: "2026-09-29T08:59:59Z" }),
+        row({ id: "still", score: 85, expiresAt: "2026-09-29T09:00:01Z" }),
+        row({ id: "twice-a", score: 80, url: "https://www.youtube.com/shorts/same" }),
+        row({ id: "twice-b", score: 75, url: "https://youtu.be/same?t=3" }),
+      ],
+      ["gone"],
+    );
+    expect(titles(genreWeekItems(state, "cars", "ar", NOW))).toEqual(["still", "twice-a"]);
   });
 });

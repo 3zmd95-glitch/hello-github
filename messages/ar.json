@@ -295,6 +295,8 @@
   "research.popularNote": "الأشهر حسب المشاهدات في يوتيوب، وحسب الإعجابات في تيك توك وانستقرام لما تكون ظاهرة. ما وصلنا أرقام لهالنتائج بعد.",
   "research.views": "{n} مشاهدة",
   "research.likes": "{n} إعجاب",
+  "research.weekTitle": "📈 الأكثر مشاهدة هالأسبوع",
+  "research.weekSource": "من رادار الترند: بحث يوتيوب عن {genre}",
   "research.attachHere": "＋ علّقها على هالمهارة",
   "research.attachedHere": "✓ متعلّقة",
   "research.attachedTo": "✓ متعلّقة في {skill}",

@@ -3,7 +3,7 @@ import type { CustomGenre, Genre, Lang } from "@/lib/domain";
 
 /**
  * 🎬 Edit genres (round 31): the pure helpers behind the genre chips of Discover, the skill Research panel,
- * Settings and the Trend Radar's genre filter. Built-in genres come from planning/data/genres.json (through
+ * Settings and the Trend Radar's genre chips (links to Discover). Built-in genres come from planning/data/genres.json (through
  * data/genres); the owner's own ones from the store (`customGenres`). No React, no store access: callers pass
  * the custom list in.
  */
@@ -94,4 +94,20 @@ export function isGenreNameTaken(name: string, custom: readonly CustomGenre[]): 
   const slug = nameSlug(name);
   if (!slug) return false;
   return GENRES.some((g) => nameSlug(g.name.ar) === slug || nameSlug(g.name.en) === slug);
+}
+
+/* ---------- Discover deep link ---------- */
+
+/** The query parameter Discover reads a genre from. */
+export const DISCOVER_GENRE_PARAM = "genre";
+
+/** Where Discover opens on a genre: `/discover/?genre=<id>` (the Trend Radar's genre chips link here). */
+export function discoverGenreHref(id: string): string {
+  return `/discover/?${DISCOVER_GENRE_PARAM}=${encodeURIComponent(id)}`;
+}
+
+/** The genre id a Discover URL asks for (`location.search`), or undefined when it names none. */
+export function genreIdFromSearch(search: string): string | undefined {
+  const id = new URLSearchParams(search).get(DISCOVER_GENRE_PARAM)?.trim();
+  return id || undefined;
 }
