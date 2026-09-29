@@ -25,8 +25,12 @@ export function useWorld(): World {
 
 const LAST_SOCIAL_KEY = "3z.lastSocialPath";
 
-/** Remember the Social route the user was on, so the world switch brings them back to it. */
+/**
+ * Remember the Social route the user was on, so the world switch brings them back to it. A route outside
+ * Social is never remembered: the 🔎 Discover and ⚙️ Settings entries of Social's menu open Training routes.
+ */
 export function rememberSocialPath(path: string): void {
+  if (worldOf(path) !== "social") return;
   try {
     sessionStorage.setItem(LAST_SOCIAL_KEY, normalizePath(path));
   } catch {
