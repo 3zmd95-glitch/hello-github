@@ -9,6 +9,7 @@ const SOCIAL_PATHS = [
   "/social/website/",
   "/social/business/",
   "/social/automations/",
+  "/social/replies/",
   "/social/more/",
 ];
 
@@ -97,7 +98,13 @@ test("a nested Social route highlights its own tab, not Studio", async ({ page }
 
 test("Social More lists the rest of the world and the way back to Training", async ({ page }) => {
   await freshState(page, "/social/more/");
-  for (const id of ["more-website", "more-business", "more-automations", "more-settings"]) {
+  for (const id of [
+    "more-website",
+    "more-business",
+    "more-automations",
+    "more-replies",
+    "more-settings",
+  ]) {
     await expect(page.getByTestId(id)).toBeVisible();
   }
   await expect(page.getByTestId("more-training")).toHaveAttribute("href", "/");

@@ -55,6 +55,9 @@ export const IG_API = `${IG_GRAPH}/v21.0`;
 export const IG_SCOPES = "instagram_business_basic,instagram_business_manage_insights";
 /** Asked for on top of IG_SCOPES when the owner allows auto-posting (publish.ts). */
 export const IG_PUBLISH_SCOPES = "instagram_business_content_publish";
+/** Asked for when the owner allows auto-replies (replies.ts): read comments, reply, send private replies. */
+export const IG_REPLY_SCOPES =
+  "instagram_business_manage_comments,instagram_business_manage_messages";
 /** Long-lived tokens last 60 days; refreshed once older than this many days. */
 export const IG_REFRESH_AFTER_DAYS = 30;
 const LONG_LIVED_S = 60 * 24 * 3600;
@@ -77,6 +80,7 @@ interface LongToken extends MetaError {
 export const auth: ProviderAuth = {
   scopes: IG_SCOPES,
   publishScopes: IG_PUBLISH_SCOPES,
+  replyScopes: IG_REPLY_SCOPES,
   pkce: false,
   authorizeUrl(
     creds: ProviderCreds,
@@ -84,12 +88,13 @@ export const auth: ProviderAuth = {
     state: string,
     _challenge?: string,
     publish?: boolean,
+    replies?: boolean,
   ): string {
     return withQuery(IG_AUTHORIZE_URL, {
       client_id: creds.id,
       redirect_uri: redirectUri,
       response_type: "code",
-      scope: scopeFor(auth, publish),
+      scope: scopeFor(auth, publish, replies),
       state,
     });
   },

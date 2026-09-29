@@ -220,10 +220,15 @@ export async function socialConnectUrl(
   config: ScoutConfig | null,
   platform: SocialPlatform,
   returnTo: string,
-  opts: SocialSyncOpts & { publish?: boolean } = {},
+  opts: SocialSyncOpts & { publish?: boolean; replies?: boolean } = {},
 ): Promise<SocialResult<{ url: string }>> {
   if (!config) return { ok: false, error: { type: "unconfigured" } };
-  const body = opts.publish ? { returnTo, publish: true } : { returnTo };
+  // `replies` (Instagram comment + message scopes) brings the posting scopes along on the Worker side.
+  const body = {
+    returnTo,
+    ...(opts.publish ? { publish: true } : {}),
+    ...(opts.replies ? { replies: true } : {}),
+  };
   const r = await call(config, `/social/connect/${platform}`, post(body), opts);
   if (!r.ok) return r;
   const url = (r.data as { url?: unknown })?.url;

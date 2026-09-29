@@ -1565,8 +1565,10 @@ describe("cron slots", () => {
     const daily = await runTick(env, Date.parse("2026-09-28T21:05:00Z"), { fetch: fetchMock });
     expect(daily).toMatchObject({ trends: { kinds: ["daily"], items: 1 } });
     expect(kv.writes).toBe(0);
-    // An ordinary tick still publishes.
+    // An ordinary tick still publishes (and, having published nothing, polls for auto-reply comments:
+    // none configured here).
     expect(await runTick(env, Date.parse("2026-09-28T12:10:00Z"), { fetch: fetchMock })).toEqual({
+      replies: { checked: 0, sent: [], failed: [], skipped: "none" },
       publish: { advanced: [], published: [], failed: [] },
     });
   });
