@@ -239,6 +239,24 @@ async function openFilters(page: Page): Promise<void> {
 const card = (page: Page, platform: string) =>
   page.locator(`[data-testid="result-card"][data-platform="${platform}"]`);
 
+/** Every host of YouTube, TikTok, Instagram and Meta the ▶ player could reach (round 32). */
+const PLATFORM_HOSTS =
+  /^https?:\/\/([\w-]+\.)*(youtube\.com|youtube-nocookie\.com|youtu\.be|ytimg\.com|googlevideo\.com|tiktok\.com|tiktokcdn\.com|tiktokv\.com|ttwstatic\.com|instagram\.com|cdninstagram\.com|facebook\.com|facebook\.net|fbcdn\.net)(:\d+)?\//;
+
+/**
+ * ▶ Watch here (round 32): the player sheet asks YouTube and Instagram before it plays, then frames the
+ * platform's player. No test here reaches a real platform: every such request is aborted and recorded (the
+ * player's own flows, against stubbed players, are e2e/player.spec.ts).
+ */
+async function blockPlatforms(page: Page): Promise<string[]> {
+  const asked: string[] = [];
+  await page.route(PLATFORM_HOSTS, (route) => {
+    asked.push(route.request().url());
+    return route.abort();
+  });
+  return asked;
+}
+
 test("without the Worker, Discover shows a one-line hint linking to Settings", async ({ page }) => {
   await freshState(page, "/discover/");
   await page.getByTestId("discover-topic").fill("match cut");
@@ -414,6 +432,7 @@ test("tabs switch sources: YouTube goes to the Data API when a key exists, the r
 test("skill sheet: Worker results attach to the skill, and a pasted TikTok link is enriched via oEmbed", async ({
   page,
 }) => {
+  const asked = await blockPlatforms(page);
   const calls = await stubWorker(page);
   await connectWorker(page);
 
@@ -438,6 +457,26 @@ test("skill sheet: Worker results attach to the skill, and a pasted TikTok link 
     `${WORKER}/thumb/oembed.png`,
   );
   expect(calls.oembed).toBe(1);
+
+  // ▶ Watch here (round 32): a saved reference gets a small ▶ button before its ✕; the thumbnail stays a
+  // plain picture (YouTube wants 120x70 for a thumbnail that plays) and the row's link stays. It opens the
+  // player on top of the skill sheet; closing the player leaves the sheet open.
+  const play = enriched.getByTestId("result-play");
+  await expect(play).toHaveAccessibleName("شاهد «Speed ramp + match cut» هنا");
+  await expect(play).toHaveText("▶");
+  await expect(enriched.getByTestId("saved-ref-thumb")).toBeVisible();
+  await expect(play.getByTestId("saved-ref-thumb")).toHaveCount(0);
+  await expect(enriched.getByRole("link", { name: "Speed ramp + match cut" })).toHaveAttribute(
+    "href",
+    "https://www.tiktok.com/@editor.sam/video/42",
+  );
+  await expect(enriched.getByTestId("saved-ref-remove")).toBeVisible();
+  expect(asked).toEqual([]);
+  await play.click();
+  await expect(page.getByTestId("player-sheet")).toHaveAttribute("data-platform", "tt");
+  await page.getByTestId("player-close").click();
+  await expect(page.getByTestId("player-sheet")).toHaveCount(0);
+  await expect(page.getByTestId("skill-sheet")).toBeVisible();
 });
 
 /** Discover: commit a topic with Enter. */
@@ -1174,4 +1213,76 @@ test("/discover/?genre=cars opens with the Cars chip pressed and the genre's sea
   await expect(page.getByTestId("research-start")).toBeVisible();
   await expect(picked).toHaveCount(0);
   expect(calls.search).toBe(6);
+});
+
+/* ---------- ▶ Watch here (round 32): the cards' ▶ (the player sheet itself: e2e/player.spec.ts) ---------- */
+
+test("▶ Watch here: a post card's poster is a ▶ that opens the player, and Instagram gets the app's own poster", async ({
+  page,
+}) => {
+  const asked = await blockPlatforms(page);
+  await stubWorker(page);
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await search(page);
+
+  const tt = card(page, "tt").filter({ hasText: "Match cut in 10 seconds" });
+  const ig = card(page, "ig");
+  const yt = card(page, "yt");
+  await expect(tt).toBeVisible();
+  await expect(ig).toBeVisible();
+  await expect(yt).toBeVisible();
+
+  // Every card is one post of a platform with a player: its media frame is the ▶ button, named after the
+  // post, with the picture in it. The title and "open ↗" still open the platform in a new tab.
+  await expect(page.getByTestId("result-card")).toHaveCount(4);
+  await expect(page.getByTestId("result-play")).toHaveCount(4);
+  await expect(tt.getByTestId("result-play")).toHaveAccessibleName(
+    "شاهد «Match cut in 10 seconds» هنا",
+  );
+  await expect(tt.getByTestId("result-play").getByTestId("result-thumb")).toHaveAttribute(
+    "src",
+    `${WORKER}/thumb/tt1.png`,
+  );
+  await expect(yt.getByTestId("result-play").getByTestId("result-thumb")).toHaveAttribute(
+    "src",
+    `${WORKER}/thumb/yt1.png`,
+  );
+  await expect(tt.getByTestId("result-title")).toHaveAttribute(
+    "href",
+    "https://www.tiktok.com/@editor.sam/video/7300000000000000001",
+  );
+  await expect(tt.getByTestId("result-open")).toHaveAttribute("target", "_blank");
+
+  // Instagram gives no picture: the app's own 9:16 poster with the handle, the caption and why.
+  const poster = ig.getByTestId("result-play").getByTestId("result-thumb-placeholder");
+  await expect(poster).toHaveAttribute("data-poster", "ig");
+  await expect(poster).toContainText("@cutsbyfaisal");
+  await expect(poster).toContainText("Match cut reel");
+  await expect(poster).toContainText("انستقرام ما يعطي صورة معاينة. اضغط وتفرّج.");
+  // A thumb-less TikTok keeps its glyph tile under the ▶.
+  const bare = card(page, "tt").filter({ hasText: "ماتش كت بالجوال" });
+  await expect(bare.getByTestId("result-thumb-placeholder")).not.toHaveAttribute("data-poster");
+  await expect(bare.getByTestId("result-play-badge")).toBeVisible();
+
+  // The posters are the cards' own: nothing was asked of a platform before a tap. No sideways page scroll.
+  expect(asked).toEqual([]);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // The ▶ opens the player sheet on that post; ✕ closes it, and Discover is as it was.
+  const sheet = page.getByTestId("player-sheet");
+  for (const [c, platform] of [
+    [ig, "ig"],
+    [tt, "tt"],
+    [yt, "yt"],
+  ] as const) {
+    await c.getByTestId("result-play").click();
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toHaveAttribute("data-platform", platform);
+    await page.getByTestId("player-close").click();
+    await expect(sheet).toHaveCount(0);
+  }
+  await expect(page).toHaveURL(/\/discover\/$/);
+  await expect(page.getByTestId("result-card")).toHaveCount(4);
+  expect(await fitsViewport(page)).toBe(true);
 });

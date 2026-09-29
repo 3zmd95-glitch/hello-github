@@ -19,6 +19,24 @@ async function openSkillSheet(page: Page): Promise<void> {
   await expect(page.getByTestId("skill-sheet")).toBeVisible();
 }
 
+/** Every host of YouTube, TikTok, Instagram and Meta the ▶ player could reach (round 32). */
+const PLATFORM_HOSTS =
+  /^https?:\/\/([\w-]+\.)*(youtube\.com|youtube-nocookie\.com|youtu\.be|ytimg\.com|googlevideo\.com|tiktok\.com|tiktokcdn\.com|tiktokv\.com|ttwstatic\.com|instagram\.com|cdninstagram\.com|facebook\.com|facebook\.net|fbcdn\.net)(:\d+)?\//;
+
+/**
+ * ▶ Watch here (round 32): the player sheet asks YouTube and Instagram before it plays, then frames the
+ * platform's player. No test here reaches a real platform: every such request is aborted and recorded (the
+ * player's own flows, against stubbed players, are e2e/player.spec.ts).
+ */
+async function blockPlatforms(page: Page): Promise<string[]> {
+  const asked: string[] = [];
+  await page.route(PLATFORM_HOSTS, (route) => {
+    asked.push(route.request().url());
+    return route.abort();
+  });
+  return asked;
+}
+
 /** On phones the filter chips sit behind a "Filters" button; on desktop they're always shown. */
 async function openFilters(page: Page): Promise<void> {
   const toggle = page.getByTestId("filters-toggle");
@@ -96,6 +114,10 @@ test("pasting a link saves a reference under Your references; it survives reload
   await expect(savedRef()).toBeVisible();
   // The paste form clears itself after a save.
   await expect(page.getByTestId("paste-link-url")).toHaveValue("");
+  // One TikTok post: a ▶ beside it plays it here (round 32).
+  await expect(savedRef().getByTestId("result-play")).toHaveAccessibleName(
+    "شاهد «Great match cut example» هنا",
+  );
 
   await page.reload();
   await openSkillSheet(page);
@@ -141,6 +163,7 @@ test("in-app YouTube results render from a stubbed API with filters, and attach 
   await page.getByTestId("apikey-youtube-input").fill("AIzaFAKE1234567890");
   await page.getByTestId("apikey-youtube-input").press("Enter");
   await expect(page.getByTestId("apikey-youtube-status")).toHaveText("محفوظ"); // "Set" (Hijazi)
+  const asked = await blockPlatforms(page);
 
   // `requests` holds the searches; every search that found something is followed by one statistics call.
   const requests: URL[] = [];
@@ -228,6 +251,19 @@ test("in-app YouTube results render from a stubbed API with filters, and attach 
   await expect(
     page.getByTestId("saved-ref").filter({ hasText: "Fake Match Cut Tutorial" }),
   ).toHaveCount(0);
+
+  // ▶ Watch here (round 32): the poster is a ▶ (the picture inside it) that opens the player on top of
+  // the skill sheet; nothing was asked of YouTube before the tap, and closing the player keeps the sheet.
+  const play = result.getByTestId("result-play");
+  await expect(play).toHaveAccessibleName("شاهد «Fake Match Cut Tutorial» هنا");
+  await expect(play.getByTestId("result-thumb")).toHaveAttribute("src", FAKE_THUMB);
+  expect(asked).toEqual([]);
+  await play.click();
+  await expect(page.getByTestId("player-sheet")).toHaveAttribute("data-platform", "yt");
+  await page.getByTestId("player-close").click();
+  await expect(page.getByTestId("player-sheet")).toHaveCount(0);
+  await expect(page.getByTestId("skill-sheet")).toBeVisible();
+  await expect(result).toBeVisible();
 });
 
 test("skill sheet Research panel: an edit genre narrows the skill's search; reset keeps the genre", async ({

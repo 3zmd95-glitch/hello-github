@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { useVideoPlayer, type PlayableItem } from "@/components/player/VideoPlayerContext";
 import type { RefPlatform } from "@/lib/domain";
+import { canEmbed } from "@/lib/embed";
 import { useT } from "@/lib/i18n";
 import { compactCount, headlineStat, type ResearchItem } from "@/lib/research";
 import { scoutOembed, type ScoutConfig, type Stats } from "@/lib/scoutClient";
@@ -56,6 +58,26 @@ function useThumb(item: ResearchItem): { thumb?: string; onError: () => void } {
 }
 
 /**
+ * ▶ Watch here (round 32): the tap on a card's ▶ (the full card's poster, the compact row's own button), or
+ * undefined when the reference has no player here (a `web` link, a profile, anything that is not one post;
+ * lib/embed `canEmbed`). It hands the player the picture the card shows right now (for TikTok, maybe the
+ * fresh copy) and the handle when the card has one. Nothing loads from the platform until the tap: the
+ * picture is the card's own.
+ */
+function usePlay(item: ResearchItem, thumb: string | undefined): (() => void) | undefined {
+  const player = useVideoPlayer();
+  if (!canEmbed(item.platform, item.url)) return undefined;
+  const playable: PlayableItem = {
+    platform: item.platform,
+    url: item.url,
+    title: item.title,
+    ...(item.handle ? { handle: item.handle } : {}),
+    ...(thumb ? { thumb } : {}),
+  };
+  return () => player.open(playable);
+}
+
+/**
  * One research result (build plan 1.15), shared by Discover, the skill sheet's Research panel and the saved
  * references list. Full mode: a 16:9 media frame (YouTube fills it; TikTok / Instagram show a 9:16 poster
  * on a blurred copy of itself; a pixel tile with the platform glyph when there's no thumbnail or it stops
@@ -63,6 +85,11 @@ function useThumb(item: ResearchItem): { thumb?: string; onError: () => void } {
  * two-line expandable snippet, the caller's action and "open ↗". Compact mode: one row with a small
  * thumbnail, title, handle and a ✕ (saved references keep no counts). A full card outside the result list
  * (the "Most viewed this week" strip) takes its own test id and its width from the caller.
+ *
+ * ▶ Watch here (round 32): when the reference is one post of YouTube, TikTok or Instagram, the full card's
+ * media frame is a ▶ button that opens the app's player sheet on it (otherwise it stays the link it always
+ * was), and the compact row gets a small ▶ button of its own before the ✕ (its thumbnail stays a picture);
+ * the title link and "open ↗" still open the platform.
  */
 export default function ResultCard({
   item,
@@ -88,6 +115,10 @@ export default function ResultCard({
   );
 }
 
+/** The full card's 16:9 media frame, the same box whether it is the ▶ button or the link. */
+const MEDIA_FRAME =
+  "border-edge relative block aspect-video overflow-hidden border-b-2 bg-[var(--edge)]";
+
 /**
  * The card is `relative`: it holds its own absolutely placed bits (the screen-reader words of the counts).
  * Without it their box is the page's, so in a row that scrolls sideways the cards scrolled out of view
@@ -106,24 +137,46 @@ function FullCard({
 }) {
   const { t } = useT();
   const [expanded, setExpanded] = useState(false);
+  const { thumb, onError } = useThumb(item);
+  const play = usePlay(item, thumb);
   const meta = PLATFORM_META[item.platform];
   const longSnippet = item.snippet.length > 90;
+  const media = <Media item={item} thumb={thumb} onError={onError} playable={!!play} />;
   return (
     <li
       className={`border-edge bg-panel-2 relative flex flex-col overflow-hidden rounded-[2px] border-2 shadow-[3px_3px_0_var(--edge)] ${className}`}
       data-testid={testId}
       data-platform={item.platform}
     >
-      <a
-        href={item.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        tabIndex={-1}
-        aria-hidden
-        className="border-edge relative block aspect-video overflow-hidden border-b-2 bg-[var(--edge)]"
-      >
-        <Media item={item} />
-      </a>
+      {play ? (
+        <button
+          type="button"
+          onClick={play}
+          aria-label={t("player.watchLabel", { title: item.title })}
+          className={`${MEDIA_FRAME} group w-full focus-visible:outline-hidden`}
+          data-testid="result-play"
+        >
+          {/* A button lays its content out in a box of its own; this one is the frame's size. */}
+          <span className="absolute inset-0">{media}</span>
+          {/* The focus ring: the card clips its own edges and the picture covers the button's outline, so
+              it is drawn inside the frame, on top. */}
+          <span
+            aria-hidden
+            className="group-focus-visible:outline-gold pointer-events-none absolute inset-0 group-focus-visible:outline-[3px] group-focus-visible:outline-offset-[-5px]"
+          />
+        </button>
+      ) : (
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          tabIndex={-1}
+          aria-hidden
+          className={MEDIA_FRAME}
+        >
+          {media}
+        </a>
+      )}
       <div className="flex min-w-0 flex-1 flex-col gap-1 p-2.5">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className={`px-chip shrink-0 text-[10px] ${meta.chip}`} data-testid="result-chip">
@@ -208,66 +261,170 @@ function StatsChip({ stats }: { stats: Stats }) {
   );
 }
 
-/** The 16:9 media frame of a full card. */
-function Media({ item }: { item: ResearchItem }) {
+/**
+ * What fills a full card's 16:9 media frame. On a card that plays here it sits in the ▶ button and gets the
+ * ▶ badge; an Instagram post without a picture gets its own poster instead, with the ▶ drawn in.
+ */
+function Media({
+  item,
+  thumb,
+  onError,
+  playable,
+}: {
+  item: ResearchItem;
+  thumb?: string;
+  onError: () => void;
+  playable: boolean;
+}) {
   const { t } = useT();
-  const { thumb, onError } = useThumb(item);
   const vertical = isVertical(item.platform);
   const glyph = PLATFORM_META[item.platform].glyph;
+  const badge = playable && <PlayBadge />;
 
+  if (!thumb && playable && item.platform === "ig") return <InstagramPoster item={item} />;
   if (!thumb) {
     return (
-      <span
-        className="px-tile absolute inset-0 grid place-items-center"
-        data-testid="result-thumb-placeholder"
-      >
+      <>
         <span
-          className={`border-edge bg-panel-3 grid place-items-center border-2 text-2xl shadow-[3px_3px_0_var(--edge)] ${vertical ? "aspect-[9/16] h-[82%]" : "h-14 w-14"}`}
+          className="px-tile absolute inset-0 grid place-items-center"
+          data-testid="result-thumb-placeholder"
         >
-          {glyph}
+          <span
+            className={`border-edge bg-panel-3 grid place-items-center border-2 text-2xl shadow-[3px_3px_0_var(--edge)] ${vertical ? "aspect-[9/16] h-[82%]" : "h-14 w-14"}`}
+          >
+            {glyph}
+          </span>
         </span>
-      </span>
+        {badge}
+      </>
     );
   }
   // External thumbnails; the static export has no image optimizer for them.
   /* eslint-disable @next/next/no-img-element */
-  return vertical ? (
+  return (
     <>
-      <img
-        src={thumb}
-        alt=""
-        aria-hidden
-        loading="lazy"
-        referrerPolicy="no-referrer"
-        className="absolute inset-0 h-full w-full scale-110 object-cover opacity-45 blur-md"
-      />
-      <img
-        src={thumb}
-        alt={t("sheet.refThumbAlt")}
-        loading="lazy"
-        referrerPolicy="no-referrer"
-        onError={onError}
-        className="border-edge relative mx-auto block aspect-[9/16] h-full border-x-2 object-cover"
-        data-testid="result-thumb"
-      />
+      {vertical ? (
+        <>
+          <img
+            src={thumb}
+            alt=""
+            aria-hidden
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            className="absolute inset-0 h-full w-full scale-110 object-cover opacity-45 blur-md"
+          />
+          <img
+            src={thumb}
+            alt={t("sheet.refThumbAlt")}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={onError}
+            className="border-edge relative mx-auto block aspect-[9/16] h-full border-x-2 object-cover"
+            data-testid="result-thumb"
+          />
+        </>
+      ) : (
+        <img
+          src={thumb}
+          alt={t("sheet.refThumbAlt")}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={onError}
+          className="absolute inset-0 h-full w-full object-cover"
+          data-testid="result-thumb"
+        />
+      )}
+      {badge}
     </>
-  ) : (
-    <img
-      src={thumb}
-      alt={t("sheet.refThumbAlt")}
-      loading="lazy"
-      referrerPolicy="no-referrer"
-      onError={onError}
-      className="absolute inset-0 h-full w-full object-cover"
-      data-testid="result-thumb"
-    />
   );
   /* eslint-enable @next/next/no-img-element */
 }
 
+/**
+ * The ▶ on a full card's poster that plays here: our own mark on our own picture (the video itself plays in
+ * the player sheet, where nothing of ours covers it). It sinks into its shadow when its button is pressed,
+ * like the app's pixel buttons.
+ */
+function PlayBadge() {
+  return (
+    <span
+      aria-hidden
+      className="border-edge bg-accent text-accent-ink pointer-events-none absolute end-2 bottom-2 grid h-9 w-9 place-items-center border-2 text-sm leading-none shadow-[2px_2px_0_var(--edge)] group-active:translate-x-0.5 group-active:translate-y-0.5 group-active:shadow-none"
+      data-testid="result-play-badge"
+    >
+      ▶
+    </span>
+  );
+}
+
+/**
+ * An Instagram post without a picture. Instagram gives none we may use (its oEmbed dropped `thumbnail_url`
+ * on 2025-11-03; the post page and the embed page would be scraping), so the card draws its own 9:16 poster
+ * in the Instagram chip's colours, with no Instagram logo or gradient: the ▶, the @handle when the card
+ * knows it, the first line of the caption (the card's title) and, in small print, why there is no picture.
+ * Only for a post that plays here: "tap to watch" has to be true.
+ */
+function InstagramPoster({ item }: { item: ResearchItem }) {
+  const { t } = useT();
+  const handle = item.handle.trim();
+  const at = handle.startsWith("@") ? handle : undefined;
+  const caption = item.title.trim().split("\n")[0].trim();
+  // A reference saved without a title carries its handle or its link as the title: nothing to add.
+  const showCaption = caption !== "" && caption !== handle && caption !== item.url;
+  return (
+    <span
+      className="px-tile absolute inset-0 grid place-items-center"
+      data-testid="result-thumb-placeholder"
+      data-poster="ig"
+    >
+      <span className="border-edge @container flex aspect-[9/16] h-full min-w-0 flex-col items-center gap-1 overflow-hidden border-x-2 bg-[#57331a] p-1.5 text-center text-[#ffc996]">
+        <span className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-1 overflow-hidden">
+          <span
+            aria-hidden
+            className="border-edge grid h-7 w-7 shrink-0 place-items-center border-2 bg-[#ffc996] text-xs leading-none text-[#57331a] shadow-[2px_2px_0_var(--edge)] @max-[72px]:h-5 @max-[72px]:w-5 @max-[72px]:text-[9px]"
+          >
+            ▶
+          </span>
+          {at && (
+            <span
+              dir="ltr"
+              className="w-full shrink-0 truncate text-[9px] leading-tight font-bold"
+              data-testid="result-poster-handle"
+            >
+              {at}
+            </span>
+          )}
+          {showCaption && (
+            <span
+              dir="auto"
+              className="text-ink line-clamp-3 min-h-0 w-full text-[10px] leading-tight font-bold @max-[72px]:line-clamp-2 @max-[60px]:line-clamp-1"
+              data-testid="result-poster-caption"
+            >
+              {caption}
+            </span>
+          )}
+        </span>
+        <span
+          className="w-full shrink-0 text-[9px] leading-tight opacity-80"
+          data-testid="result-poster-note"
+        >
+          {t("player.igNoPreview")}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+/**
+ * A saved reference's row. The thumbnail stays a plain picture: YouTube asks that a thumbnail which starts
+ * playback be at least 120x70, and this one is 48 px tall (85x48 at most). So a reference that plays here
+ * gets its own small ▶ button before the ✕, the ✕'s size so the row does not grow (the player gives focus
+ * back to it on close), and the title link still opens the platform.
+ */
 function CompactCard({ item, onRemove }: { item: ResearchItem; onRemove?: () => void }) {
   const { t } = useT();
   const { thumb, onError } = useThumb(item);
+  const play = usePlay(item, thumb);
   const meta = PLATFORM_META[item.platform];
   const box = `border-edge h-12 shrink-0 overflow-hidden rounded-[2px] border-2 ${isVertical(item.platform) ? "aspect-[9/16]" : "aspect-video"}`;
   return (
@@ -310,6 +467,17 @@ function CompactCard({ item, onRemove }: { item: ResearchItem; onRemove?: () => 
           </span>
         </span>
       </span>
+      {play && (
+        <button
+          type="button"
+          onClick={play}
+          aria-label={t("player.watchLabel", { title: item.title })}
+          className="px-btn px-btn-ghost px-btn-sm shrink-0"
+          data-testid="result-play"
+        >
+          ▶
+        </button>
+      )}
       {onRemove && (
         <button
           type="button"
