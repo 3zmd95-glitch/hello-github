@@ -42,7 +42,7 @@ Node shims).
 | Instagram | `instagram_business_content_publish`: container (`image_url` or `video_url` + `REELS`) → poll `status_code` → `media_publish` | Media at a **public URL**; 100 API posts per 24 h; no stories/carousels yet |
 | Threads | `threads_content_publish`: container (TEXT / IMAGE / VIDEO) → poll `status` → `threads_publish` | 500 characters; 250 posts per 24 h; text alone works |
 | YouTube | `youtube.upload`: resumable session → the Worker **streams** the file from the link into the upload | **Uploads stay private until the Google Cloud project passes YouTube's audit** (projects created after 2020-07-28); uploads have their own daily quota bucket |
-| TikTok | Content Posting API `video.publish` (Direct Post) / `video.upload` (to inbox): `creator_info` → init `FILE_UPLOAD` → PUT chunks (streamed; > 64 MB via Range GETs) → poll status | **Until TikTok's audit, Direct Post only allows "Only me" (SELF_ONLY)**. The inbox mode lands in the TikTok app to finish with sounds; 6 requests per minute per token; photo posts need a verified domain (not built) |
+| TikTok | Content Posting API `video.publish` (Direct Post) / `video.upload` (to inbox): `creator_info` → init `FILE_UPLOAD` → PUT chunks (streamed; > 64 MB via Range GETs) → poll status | **Until TikTok's audit, Direct Post only allows "Only me" (SELF_ONLY), and only while the TikTok account is private**. The inbox mode lands in the TikTok app to finish with sounds; 6 requests per minute per token; photo posts need a verified domain (not built) |
 | X | No free tier since Feb 2026 (pay per post) | Manual: web intent `x.com/intent/post?text=` |
 | Snapchat | Public Profile API is allowlist-only | Manual (or Zernio later) |
 
@@ -83,6 +83,20 @@ run claims its jobs (`lockUntil`) before calling any platform, so the cron and "
   the next cron tick published it two minutes later. Fix: one 4 s pause and a second read in the same run
   (`FRESH_CONTAINER_WAIT_MS`). Also noted: the dashboard watcher only polls while the tab is visible, so a
   background tab keeps showing "Uploading…" until it is looked at (by design).
+- **2026-09-28 · first video post (Instagram + YouTube + TikTok) and PR #14 check.** Media: a 10 s 1080×1920 H.264 test
+  card (553 KB, rendered with Chrome's WebCodecs encoder, no ffmpeg) on Google Drive, "anyone with the link"; the
+  converted `drive.usercontent.google.com` link answered `video/mp4` with `Content-Length` and byte ranges. The owner
+  wants nothing public: YouTube `private`, TikTok `SELF_ONLY`, Instagram deleted right after.
+  - **YouTube: published on the first call** (private, `ri0mGaaDOsI`). The `FixedLengthStream` streamed upload works live.
+  - **Instagram: refused** at the container: "Object with ID '28828498340077430' does not exist…". That id was the
+    app-scoped `user_id` of the token exchange; `/{ig-id}/media` needs the professional account id, `user_id` of
+    `GET /me` (Meta: "The Instagram professional account ID, <IG_ID>"). Fix: the step reads `/me?fields=user_id`
+    once per run when it creates or publishes (`STEP_MIN_BUDGET.instagram` 5 → 6). Retest after deploy.
+  - **TikTok: refused** at init with only "Please review our integration guidelines…": the code is
+    `unaudited_client_can_only_post_to_private_accounts`. Before the audit the **account itself** must be private,
+    not only the post. Fix: new error code `private_account` with a Hijazi/English hint in the 🚀 tab; other TikTok
+    refusals now keep TikTok's code in `detail`.
+  - **Threads (PR #14): confirmed**: a text "Post now" came back `published` in the same call (~13 s end to end).
 
 ## Round 30 (composer, built Sep 28, 2026; plan in `../handovers/mastermind-2026-09-28.md`)
 

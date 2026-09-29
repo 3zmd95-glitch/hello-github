@@ -69,6 +69,7 @@
   "publish.err.tokenExpired": "انتهى الربط؛ اربط الحساب من جديد.",
   "publish.err.mediaUnreachable": "ما قدرنا نوصل للملف؛ تأكد إن الرابط عام ويفتح الملف نفسه.",
   "publish.err.mediaTooLarge": "الملف كبير مرة على هذي المنصة.",
+  "publish.err.privateAccount": "تيك توك ما يقبل النشر من تطبيقنا إلا والحساب خاص لين يخلص تدقيق التطبيق؛ خلّ الحساب خاص من إعدادات تيك توك وجرّب مرة ثانية.",
   "publish.err.rejected": "المنصة رفضت المنشور",
   "publish.err.rateLimited": "المنصة طلبت نهدّي شوي",
   "publish.err.upstream": "فيه مشكلة عند المنصة",

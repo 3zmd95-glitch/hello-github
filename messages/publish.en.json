@@ -69,6 +69,7 @@
   "publish.err.tokenExpired": "The connection expired; reconnect the account.",
   "publish.err.mediaUnreachable": "Could not reach the file; make sure the link is public and opens the file itself.",
   "publish.err.mediaTooLarge": "The file is too large for this network.",
+  "publish.err.privateAccount": "Until TikTok reviews our app, it only takes posts while the account is private; make the account private in TikTok settings and try again.",
   "publish.err.rejected": "The network refused the post",
   "publish.err.rateLimited": "The network asked us to slow down",
   "publish.err.upstream": "The network has a problem",
