@@ -14,6 +14,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Local agent worktrees (each has its own .next/out).
     ".claude/**",
+    // Playwright's output (an interrupted `pnpm e2e` leaves a report with bundled trace-viewer scripts).
+    "playwright-report/**",
+    "test-results/**",
   ]),
 ]);
 

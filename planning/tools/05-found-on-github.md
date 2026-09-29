@@ -51,6 +51,14 @@ Owner's rule: search GitHub, libraries and Claude skills before building. This f
 | Claude plugins / MCP | Postiz, Ayrshare, Post Bridge, PostZen, Buffer, Metricool MCP servers | None fits: they wrap paid services. |
 | Direct official APIs | Instagram content publishing, Threads publishing, YouTube resumable upload, TikTok Content Posting API | **Adopted** in the Scout Worker (`07-auto-posting.md`). |
 
+## 2026-09-29 · auto-replies (round 30, "automatic comments like Beacons")
+
+| Looked at | Found | Decision |
+| --- | --- | --- |
+| Self-hosted Instagram comment → DM bots | [AutoDMX](https://github.com/Aditya5688/AutoDMX), [open-autodm](https://github.com/andaveti42-cmyk/open-autodm), [instagram-dm-automation](https://github.com/ElAmir-Mansour/instagram-dm-automation), [ig-automation](https://github.com/elmlahym-wq/ig-automation) | Reference for the flow (keyword → public reply → private reply). Not adopted: all need a server + database and Meta webhooks (Live app with Advanced Access); ours polls from the free Worker's cron with KV. |
+| Hosted | ManyChat, LinkDM, Beacons Smart Reply ($10–15/month) | Beacons' builder copied field by field (`10-auto-replies.md`). |
+| Direct official API | Instagram comments + private replies (`/{comment-id}/replies`, `/{ig-user-id}/messages` with `comment_id`) | **Adopted** in the Scout Worker (`replies.ts`). |
+
 ## How to add to this log
 
 One row per find: area · link · decision (adopt / adopt candidate / reference / rejected + why). Re-run a search when a new phase starts

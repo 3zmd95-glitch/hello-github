@@ -108,6 +108,8 @@ export interface TokenSet {
   scope?: string;
   /** Connected with the publishing scopes (the owner pressed "Allow auto-posting"). */
   canPublish?: boolean;
+  /** Instagram: connected with the comment + message scopes ("Allow auto-replies", replies.ts). */
+  canReply?: boolean;
 }
 
 /** What `status:<platform>` holds (never tokens). */
@@ -126,6 +128,8 @@ export interface PlatformStatus extends StoredStatus {
   connected: boolean;
   /** The stored token carries the publishing scopes (auto-posting works for this platform). */
   canPublish: boolean;
+  /** Instagram: the token carries the comment + message scopes (auto-replies work). */
+  canReply: boolean;
 }
 
 /** What one platform sync produced. */

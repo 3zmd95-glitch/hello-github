@@ -461,6 +461,74 @@ export const AutoPostSchema = z.object({
 export type AutoPost = z.infer<typeof AutoPostSchema>;
 export type AutoPostInput = z.input<typeof AutoPostSchema>;
 
+/*
+ * 💬 Auto replies (a copy of Beacons' Smart Reply, round 30): the Worker answers Instagram comments that carry a
+ * keyword with a public reply and a private DM. The Worker's KV document is the source of truth; these schemas
+ * only parse what it sends back (lib/replies.ts).
+ */
+export const REPLY_MATCHES = ["contains", "exact"] as const;
+export const ReplyMatchSchema = z.enum(REPLY_MATCHES);
+export type ReplyMatch = z.infer<typeof ReplyMatchSchema>;
+
+export const AutoReplyButtonSchema = z.object({ title: z.string(), url: z.string() });
+export type AutoReplyButton = z.infer<typeof AutoReplyButtonSchema>;
+
+export const AutoReplyStatsSchema = z.object({
+  sends: z.number().int().min(0).default(0),
+  publicReplies: z.number().int().min(0).default(0),
+  failures: z.number().int().min(0).default(0),
+  clicks: z.number().int().min(0).default(0),
+  lastSentAt: z.string().optional(),
+  lastError: z.string().optional(),
+});
+
+export const AutoReplySchema = z.object({
+  id: z.string().min(1),
+  enabled: z.boolean().default(true),
+  /** Instagram media id; null = any post. */
+  postId: z.string().nullable().default(null),
+  /** Display only, copied from the synced post. */
+  permalink: z.string().optional(),
+  title: z.string().optional(),
+  thumbUrl: z.string().optional(),
+  keywords: z.array(z.string()).default([]),
+  match: ReplyMatchSchema.default("contains"),
+  /** "" = no public reply; `{username}` becomes @handle. */
+  publicReply: z.string().default(""),
+  dmText: z.string().default(""),
+  buttons: z.array(AutoReplyButtonSchema).default([]),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+  enabledAt: z.string().optional(),
+  stats: AutoReplyStatsSchema.default({ sends: 0, publicReplies: 0, failures: 0, clicks: 0 }),
+});
+export type AutoReply = z.infer<typeof AutoReplySchema>;
+export type AutoReplyInput = z.input<typeof AutoReplySchema>;
+
+export const AutoReplyLogSchema = z.object({
+  at: z.string(),
+  automationId: z.string(),
+  postId: z.string(),
+  commentId: z.string(),
+  username: z.string().optional(),
+  text: z.string().default(""),
+  publicReply: z.enum(["sent", "skipped", "failed"]),
+  dm: z.enum(["sent", "failed"]),
+  error: z.string().optional(),
+  detail: z.string().optional(),
+});
+export type AutoReplyLog = z.infer<typeof AutoReplyLogSchema>;
+
+export const AutoRepliesDocSchema = z.object({
+  automations: z.array(AutoReplySchema).default([]),
+  log: z.array(AutoReplyLogSchema).default([]),
+  origin: z.string().optional(),
+  igUserId: z.string().optional(),
+  lastPollAt: z.string().optional(),
+  lastError: z.string().optional(),
+});
+export type AutoRepliesDoc = z.infer<typeof AutoRepliesDocSchema>;
+
 /**
  * A planned or published post in the content calendar. `plannedDay` is a Riyadh day key; `plannedTime` is
  * the local "HH:MM" to post (see BEST_TIME in lib/social). `skillId` links it to a skill's Produce quest (the
@@ -647,6 +715,8 @@ export const SocialConnectionStatusSchema = z.object({
   connected: z.boolean(),
   /** The token carries the publishing scopes ("Allow auto-posting"). */
   canPublish: z.boolean().optional(),
+  /** Instagram: the token carries the comment + message scopes ("Allow auto-replies"). */
+  canReply: z.boolean().optional(),
   /** Without the "@". */
   handle: z.string().optional(),
   url: z.string().optional(),

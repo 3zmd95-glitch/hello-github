@@ -59,12 +59,14 @@ export async function metaList<T>(
   what: string,
   maxItems: number,
   maxPages: number,
+  /** Turns each page's reply into its body or throws; callers with their own error codes pass theirs. */
+  check: <B extends MetaError>(reply: JsonReply<B>, what: string) => B = metaBody,
 ): Promise<T[]> {
   const items: T[] = [];
   let url: string | undefined = firstUrl;
   for (let page = 0; url && page < maxPages && items.length < maxItems; page++) {
     if (page > 0 && !http.budget.ok) break;
-    const body: MetaPage<T> = metaBody(await fetchJson<MetaPage<T>>(http, url), what);
+    const body: MetaPage<T> = check(await fetchJson<MetaPage<T>>(http, url), what);
     items.push(...(body.data ?? []));
     url = body.paging?.next;
   }

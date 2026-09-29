@@ -91,11 +91,17 @@ run claims its jobs (`lockUntil`) before calling any platform, so the cron and "
   - **Instagram: refused** at the container: "Object with ID '28828498340077430' does not exist…". That id was the
     app-scoped `user_id` of the token exchange; `/{ig-id}/media` needs the professional account id, `user_id` of
     `GET /me` (Meta: "The Instagram professional account ID, <IG_ID>"). Fix: the step reads `/me?fields=user_id`
-    once per run when it creates or publishes (`STEP_MIN_BUDGET.instagram` 5 → 6). Retest after deploy.
+    once per run when it creates or publishes (`STEP_MIN_BUDGET.instagram` 5 → 6). **Retest after PR #17 (Sep 29):
+    published** (REELS container → `processing` → published on the next run, `18090080609454297`), then deleted by
+    hand after about a minute, since the owner wants no public test posts.
   - **TikTok: refused** at init with only "Please review our integration guidelines…": the code is
     `unaudited_client_can_only_post_to_private_accounts`. Before the audit the **account itself** must be private,
     not only the post. Fix: new error code `private_account` with a Hijazi/English hint in the 🚀 tab; other TikTok
     refusals now keep TikTok's code in `detail`.
+  - **TikTok retest (Sep 29): published** once @3z.prod was really private (the profile's `privateAccount` flipped a
+    few minutes after the owner's first try). Direct Post `SELF_ONLY`: `FILE_UPLOAD` in one chunk → processing →
+    `PUBLISH_COMPLETE` about 30 s later. TikTok returns no `publicaly_available_post_id` for an "Only me" post, so
+    the target has no link. The account goes back to public after the test.
   - **Threads (PR #14): confirmed**: a text "Post now" came back `published` in the same call (~13 s end to end).
 
 ## Later

@@ -488,6 +488,12 @@ Brainstorm round 28 (owner: "I want in my social the ability to post everywhere 
 - Known limits: until YouTube's and TikTok's audits pass, uploads there are private / "only me" (the inbox mode on TikTok works meanwhile);
   media must be a public link until Supabase Storage (Sprint 3).
 
+Brainstorm round 30 (owner: "I want to have Metricool in my dashboard… and Beacons AI"; "copy Metricool, not connect to it"):
+- Decision: the 📱 Social world copies what Metricool (plan, post everywhere, analytics, reports, inbox, comment → DM, link in bio)
+  and Beacons (link in bio, media kit, store, email list, Smart Reply, Beam AI) do, built in our own dashboard and Worker. No
+  Metricool API/MCP (the API is $53/month and up; the owner wants our own). Beacons ($10/month) is cancelled once its parts are live here.
+- First item: the TikTok and YouTube app reviews so posts can be public. Roadmap, status per feature and order in `tools/09-metricool-beacons.md`.
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|

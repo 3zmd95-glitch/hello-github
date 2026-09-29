@@ -1571,6 +1571,7 @@ describe("GET /social/status", () => {
           configured: true,
           connected: true,
           canPublish: false,
+          canReply: false,
           connectedAt: "2026-09-27T09:00:00.000Z",
           handle: "3z.prod",
           url: "https://www.instagram.com/3z.prod/",
@@ -1578,9 +1579,9 @@ describe("GET /social/status", () => {
           lastError: "rate_limited",
           tokenExpiresAt: "2026-11-20T00:00:00.000Z",
         },
-        threads: { configured: true, connected: false, canPublish: false },
-        youtube: { configured: true, connected: false, canPublish: false },
-        tiktok: { configured: false, connected: false, canPublish: false },
+        threads: { configured: true, connected: false, canPublish: false, canReply: false },
+        youtube: { configured: true, connected: false, canPublish: false, canReply: false },
+        tiktok: { configured: false, connected: false, canPublish: false, canReply: false },
       },
     });
   });
@@ -1592,6 +1593,7 @@ describe("GET /social/status", () => {
       configured: true,
       connected: false,
       canPublish: false,
+      canReply: false,
     });
   });
 });
@@ -1620,6 +1622,7 @@ describe("DELETE /social/connect/:platform", () => {
       configured: true,
       connected: false,
       canPublish: false,
+      canReply: false,
     });
     // Idempotent.
     expect((await handle(req("/social/connect/tiktok", { method: "DELETE" }), env)).status).toBe(
