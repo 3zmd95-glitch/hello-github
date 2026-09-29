@@ -11,16 +11,21 @@ import TrendActions, { type PlannedPost } from "./TrendActions";
  * badge is `item.source` localized through `sourceLabel`, so a YouTube chart row says "YouTube charts" /
  * "قوائم YouTube" and never "trending"; `data-source` keeps the raw label), a "new on the chart" chip for
  * `new`-tagged rows, the "why" line, growth and volume when the source gives them, ⭐ when the row matches the owner's niche
- * keywords, the 💡 / 📱 taps and ✕ to dismiss.
+ * keywords, the 💡 / 📱 taps and ✕ to dismiss. `data-genre` carries the row's edit-genre id (round 31) when the
+ * Worker's keyword scan set one; the radar's genre select filters on it, and the row names it in a chip
+ * (`genreLabel`: "🚗 سيارات", or the raw id for a genre the app does not know), plain text like the others.
  */
 export default function TrendRow({
   item,
   star,
+  genreLabel,
   onDismiss,
   onPlanned,
 }: {
   item: TrendItem;
   star: boolean;
+  /** The name of the row's genre (lib/trends `trendGenreLabel`); none for a row without a genre. */
+  genreLabel?: string;
   onDismiss: () => void;
   onPlanned: (post: PlannedPost) => void;
 }) {
@@ -34,6 +39,7 @@ export default function TrendRow({
       data-region={item.region}
       data-lang={item.lang}
       data-source={item.source}
+      data-genre={item.genre}
       data-star={star}
     >
       <div className="flex items-start gap-2">
@@ -87,6 +93,11 @@ export default function TrendRow({
         <span className="px-chip" data-testid="trend-platform">
           {t(`trends.platform.${item.platform}`)}
         </span>
+        {genreLabel && (
+          <span className="px-chip" title={t("trends.genreLabel")} data-testid="trend-genre">
+            {genreLabel}
+          </span>
+        )}
         {item.growthPct !== undefined && item.growthPct > 0 && (
           <span className="px-chip px-chip-t1 num" data-testid="trend-growth">
             {t("trends.growth", { n: fmtCount(Math.round(item.growthPct)) })}

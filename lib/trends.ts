@@ -1,5 +1,6 @@
 import {
   TrendItemSchema,
+  type Genre,
   type Idea,
   type Lang,
   type SaudiEvent,
@@ -15,7 +16,10 @@ import { addDays, daysBetween } from "./streak";
  * 📈 Trend Radar rules (round 30, planning/tools/08-trends.md, planning/handovers/mastermind-2026-09-28.md):
  * which rows of the persisted feed show, how stale a feed is, niche-keyword highlighting that ignores Arabic
  * diacritics, the idea text a trend becomes, and the Saudi moments calendar (upcoming events and their trend
- * rows). Pure functions only; the store keeps the feed and lib/trendsClient talks to the Worker.
+ * rows). Round 31 adds the edit-genre filter: rows the Worker's keyword scan tagged with a genre id, the
+ * choices the radar's select offers, the name a row's genre chip shows, and the ⭐ rule that does not count a
+ * genre's own search words. Pure functions only; the store keeps the feed and lib/trendsClient talks to the
+ * Worker.
  */
 
 /* ---------- Keywords ---------- */
@@ -57,6 +61,32 @@ export function matchesKeywords(item: TrendItem, keywords: readonly string[]): b
   });
 }
 
+/**
+ * The radar's ⭐ rule (round 31): `matchesKeywords`, except that a row of a genre the app knows (`genres` is
+ * lib/genres' `allGenres(customGenres)`) does not count that genre's own search words. The Worker's keyword
+ * scan tags every row with the query that found it (`tags[0]`), and genre queries such as "مونتاج أكل" or
+ * "تصوير قهوة" contain niche words, so every row of those genres would be starred for how it was found and
+ * not for what it is. The tags equal to one of the genre's queries (Arabic or English, same folding as the
+ * keywords) are left out, unless the tag is itself a niche keyword (the Worker searches a keyword that is
+ * both only once). A genre row is then starred when its title matches a niche keyword or a niche keyword
+ * found it. A row without a genre, or with an id the app does not know, matches on its title and every tag.
+ */
+export function matchesNiche(
+  item: TrendItem,
+  keywords: readonly string[],
+  genres: readonly Genre[],
+): boolean {
+  const genre = item.genre ? genres.find((g) => g.id === item.genre) : undefined;
+  if (!genre) return matchesKeywords(item, keywords);
+  const own = new Set([...genre.queries.ar, ...genre.queries.en].map(normalizeTrendText));
+  const niche = new Set(keywords.map(normalizeTrendText));
+  const tags = item.tags.filter((tag) => {
+    const folded = normalizeTrendText(tag);
+    return !own.has(folded) || niche.has(folded);
+  });
+  return matchesKeywords({ ...item, tags }, keywords);
+}
+
 /* ---------- Feed ---------- */
 
 export interface TrendFilter {
@@ -64,6 +94,8 @@ export interface TrendFilter {
   platform?: TrendPlatform;
   /** `mixed` rows (events, hashtags) show under both languages. */
   lang?: Lang;
+  /** Edit-genre id (round 31): only the rows tagged with exactly this id; rows without a genre drop out. */
+  genre?: string;
   /** Free-text search over title + tags (same folding as the keywords). */
   q?: string;
 }
@@ -83,6 +115,7 @@ export function visibleTrends(
     .filter((i) => !filter.region || i.region === filter.region)
     .filter((i) => !filter.platform || i.platform === filter.platform)
     .filter((i) => !filter.lang || i.lang === filter.lang || i.lang === "mixed")
+    .filter((i) => !filter.genre || i.genre === filter.genre)
     .filter((i) => !q || matchesKeywords(i, [q]))
     .sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || b.seenAt.localeCompare(a.seenAt));
 }
@@ -129,6 +162,51 @@ export function trendIdeaText(item: TrendItem, lang: Lang): string {
 export function savedTrendIdea(ideas: readonly Idea[], item: TrendItem): Idea | undefined {
   const texts = [trendIdeaText(item, "ar"), trendIdeaText(item, "en")];
   return ideas.find((i) => i.source === "trend" && texts.includes(i.text));
+}
+
+/* ---------- Edit genres (round 31) ---------- */
+
+/** The genre filter's "every genre" choice (`genres.any`): the select's first value, never a genre id. */
+export const ANY_GENRE = "all";
+
+/** One choice of the radar's genre filter: the genre id and the name the select shows for it. */
+export interface TrendGenreOption {
+  id: string;
+  label: string;
+}
+
+/** How the radar names a genre the app knows: "<emoji> <name>" in the UI language. */
+const genreName = (genre: Genre, lang: Lang): string => `${genre.emoji} ${genre.name[lang]}`;
+
+/**
+ * What a row's genre chip says: the genre's name as the select shows it ("🚗 سيارات" / "🚗 Cars"; `genres` is
+ * lib/genres' `allGenres(customGenres)`), or the raw id when the app does not know it (a newer Worker, a
+ * custom genre the owner removed).
+ */
+export function trendGenreLabel(id: string, genres: readonly Genre[], lang: Lang): string {
+  const genre = genres.find((g) => g.id === id);
+  return genre ? genreName(genre, lang) : id;
+}
+
+/**
+ * The choices of the radar's genre filter: every genre id found on `items`, once. Genres the app knows
+ * (`genres` is lib/genres' `allGenres(customGenres)`) come first in that order, named "<emoji> <name>" in the
+ * UI language; an id it does not know (a newer Worker, a custom genre the owner removed) comes after, sorted,
+ * shown raw. Empty when no row has a genre, which is when the radar hides the select.
+ */
+export function trendGenreOptions(
+  items: readonly TrendItem[],
+  genres: readonly Genre[],
+  lang: Lang,
+): TrendGenreOption[] {
+  const present = new Set<string>();
+  for (const i of items) if (i.genre && i.genre !== ANY_GENRE) present.add(i.genre);
+  const options: TrendGenreOption[] = [];
+  for (const g of genres) {
+    if (present.delete(g.id)) options.push({ id: g.id, label: genreName(g, lang) });
+  }
+  for (const id of [...present].sort()) options.push({ id, label: id });
+  return options;
 }
 
 /* ---------- Saudi moments calendar ---------- */

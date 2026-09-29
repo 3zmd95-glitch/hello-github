@@ -1,13 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { calendarPostHref } from "@/components/social/studio/platform";
 import { useToday } from "@/components/today/useToday";
 import { TREND_PLATFORMS, type Lang, type TrendPlatform } from "@/lib/domain";
+import { allGenres } from "@/lib/genres";
 import { useT } from "@/lib/i18n";
 import { timeAgo } from "@/lib/socialSync";
-import { DEFAULT_TREND_KEYWORDS, matchesKeywords, visibleTrends } from "@/lib/trends";
+import {
+  ANY_GENRE,
+  DEFAULT_TREND_KEYWORDS,
+  matchesNiche,
+  trendGenreLabel,
+  trendGenreOptions,
+  visibleTrends,
+  type TrendFilter,
+} from "@/lib/trends";
 import { useStore } from "@/store";
 import ManualLinks from "./ManualLinks";
 import MomentsRail from "./MomentsRail";
@@ -28,27 +37,49 @@ const ALL_KEYWORDS = [...DEFAULT_TREND_KEYWORDS.ar, ...DEFAULT_TREND_KEYWORDS.en
  * platform chip, niche-keyword rows first, each with 💡 save / 📱 plan / ✕ dismiss; beside it the upcoming
  * Saudi moments and the links the owner opens by hand. Without a Worker the rail and the links still work
  * and a one-line hint points at Settings.
+ *
+ * Round 31: an edit-genre select after the platform chips (cars, food, anime…: the built-in genres the feed has rows for),
+ * listing only the genres the feed has rows for; it narrows the list together with the tab and the chip, and
+ * stays hidden while no row carries a genre. Every row of a genre shows it as a chip, so under "all genres"
+ * the owner still sees which genre a row belongs to. The ⭐ is `matchesNiche`: the search words of a row's own
+ * genre do not count (the Worker tags a row with the query that found it, and "مونتاج أكل" is not the niche).
  */
 export default function TrendRadar() {
   const { t, lang } = useT();
   const today = useToday();
   const { feed, configured, loading, error, refresh } = useTrends();
   const dismissTrend = useStore((s) => s.dismissTrend);
+  const customGenres = useStore((s) => s.customGenres);
   const [tab, setTab] = useState<Lang>("ar");
   const [platform, setPlatform] = useState<PlatformFilter>("all");
+  const [genre, setGenre] = useState<string>(ANY_GENRE);
+  const genreSelectId = useId();
   const [planned, setPlanned] = useState<PlannedPost | null>(null);
+
+  // Every genre the app can name: the built-in ones, then the owner's own (Settings).
+  const genres = useMemo(() => allGenres(customGenres), [customGenres]);
+
+  // The genre choices come from every row the radar can show (either tab, any platform), so the select does
+  // not change when the owner switches tab or chip. A picked genre whose rows are gone (dismissed, expired,
+  // a fresh feed without it) counts as "all".
+  const genreOptions = useMemo(() => {
+    const live = visibleTrends(feed, {}, new Date()).filter((item) => item.platform !== "event");
+    return trendGenreOptions(live, genres, lang);
+  }, [feed, genres, lang]);
+  const activeGenre = genreOptions.some((o) => o.id === genre) ? genre : ANY_GENRE;
 
   const rows = useMemo(() => {
     // Arabic = the Saudi feed (SA rows are `ar` by region, whatever the title's script); English = `en` rows
     // from any region (the US charts, and Tavily / X rows whose title is Latin script). `mixed` rows show under
     // both. Calendar moments (platform `event`) live only in the moments rail, never as a dismissible row.
-    const filter =
-      tab === "ar" ? { region: "SA" as const, lang: "ar" as const } : { lang: "en" as const };
-    return visibleTrends(feed, platform === "all" ? filter : { ...filter, platform }, new Date())
+    const filter: TrendFilter = tab === "ar" ? { region: "SA", lang: "ar" } : { lang: "en" };
+    if (platform !== "all") filter.platform = platform;
+    if (activeGenre !== ANY_GENRE) filter.genre = activeGenre;
+    return visibleTrends(feed, filter, new Date())
       .filter((item) => item.platform !== "event")
-      .map((item) => ({ item, star: matchesKeywords(item, ALL_KEYWORDS) }))
+      .map((item) => ({ item, star: matchesNiche(item, ALL_KEYWORDS, genres) }))
       .sort((a, b) => Number(b.star) - Number(a.star));
-  }, [feed, tab, platform]);
+  }, [feed, tab, platform, activeGenre, genres]);
 
   const updated = feed.fetchedAt
     ? t("trends.updated", { when: timeAgo(feed.fetchedAt, lang) })
@@ -61,6 +92,7 @@ export default function TrendRadar() {
       data-testid="ideas-trends"
       data-configured={configured}
       data-tab={tab}
+      data-genre={activeGenre}
       data-count={rows.length}
       data-loading={loading}
     >
@@ -161,6 +193,27 @@ export default function TrendRadar() {
                 </button>
               ))}
             </div>
+            {genreOptions.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor={genreSelectId} className="text-ink-2 text-xs">
+                  {t("trends.genreLabel")}
+                </label>
+                <select
+                  id={genreSelectId}
+                  className="px-input w-auto max-w-full py-1"
+                  value={activeGenre}
+                  onChange={(e) => setGenre(e.target.value)}
+                  data-testid="trends-genre"
+                >
+                  <option value={ANY_GENRE}>{t("genres.any")}</option>
+                  {genreOptions.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             {rows.length === 0 ? (
               <p className="text-ink-2 text-sm" data-testid="trends-empty">
                 {hasFeed ? t("trends.emptyFilter") : t("trends.empty")}
@@ -172,6 +225,7 @@ export default function TrendRadar() {
                     key={item.id}
                     item={item}
                     star={star}
+                    genreLabel={item.genre ? trendGenreLabel(item.genre, genres, lang) : undefined}
                     onDismiss={() => dismissTrend(item.id)}
                     onPlanned={setPlanned}
                   />
