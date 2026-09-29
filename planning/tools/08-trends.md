@@ -131,6 +131,10 @@ Round 31: the radar has **no genre filter**; Discover is the one place for edit 
 having two places"). A row of a genre names it in a chip, and for a genre the app knows the chip links to
 `/discover/?genre=<id>`. Design in `11-discover-genres.md`.
 
+Round 32: a row's number is labelled by what its source counts (`lib/trends.ts volumeLabelKey`): searches on Google Trends,
+views on YouTube charts and YouTube search, pages for the Tavily scan, posts on trends24.in. A source without a known unit
+shows no number. Before this every number said "searches", so a YouTube Short read "105M searches".
+
 ### Budgets to respect
 
 50 subrequests per Worker invocation (trend slots get their own ticks) · 1,000 KV writes a day (one `trends:latest` write per run) ·
