@@ -87,6 +87,17 @@ Full table in `11-discover-genres.md`. Short form:
 | Genre lists | YouTube categories · TikTok industries · [IAB Content Taxonomy 3.1](https://github.com/InteractiveAdvertisingBureau/Taxonomies) · CapCut template categories | Reference (our 12 map onto them; edit style is a later second axis) |
 | Ready-made genre search | TubeAlfred, UnifAPI, [sergebulaev/tiktok-skills](https://github.com/sergebulaev/tiktok-skills), [pandich93/youtube-niche-finder](https://github.com/pandich93/youtube-niche-finder), Nooticr MCP, ViralMint | Nothing fits a static export + free Worker; "breakout" sort idea kept |
 
+## 2026-09-29 · ▶ Watch here, the in-dashboard player (round 32)
+
+Full table in `12-watch-in-dashboard.md`. Short form:
+
+| Area | Find | Decision |
+| --- | --- | --- |
+| Players | Three plain sandboxed iframes written by us | **Adopted** |
+| Players | [react-player](https://github.com/cookpete/react-player), [react-social-media-embed](https://github.com/justinmahar/react-social-media-embed), `@lite-embeds/*`, react-tiktok, react-instagram-embed, react-youtube | Rejected: a platform script in our origin, or YouTube only |
+| Players | [react-lite-youtube-embed](https://github.com/ibrahimcesar/react-lite-youtube-embed), lite-youtube-embed, `@next/third-parties`, Mux's youtube-video-element / tiktok-video-element | Reference (the facade idea) |
+| Instagram pictures | Meta oEmbed, `/media/`, `og:image`, the embed page's HTML, Iframely / Microlink | None permitted and stable |
+
 ## How to add to this log
 
 One row per find: area · link · decision (adopt / adopt candidate / reference / rejected + why). Re-run a search when a new phase starts

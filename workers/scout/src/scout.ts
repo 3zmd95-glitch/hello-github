@@ -397,8 +397,9 @@ async function oembedThumb(
  * Give TikTok results a thumbnail from TikTok's public oEmbed (the first {@link THUMB_ENRICH_MAX}, in
  * parallel, each capped at `timeoutMs`; failures are ignored). The same reply's title (the caption)
  * replaces a card title that is generic ("TikTok - Make Your Day") or just the handle. YouTube results already carry the
- * `i.ytimg.com` thumbnail from `normalizeHits`. Instagram has no public oEmbed (it needs a Meta app token),
- * so Instagram cards stay without one. Mutates `results` in place.
+ * `i.ytimg.com` thumbnail from `normalizeHits`. Instagram's oEmbed returns no thumbnail (Meta removed it on
+ * 2025-11-03; planning/tools/12-watch-in-dashboard.md), so Instagram cards stay without one. Mutates
+ * `results` in place.
  */
 export async function enrichThumbs(
   results: ScoutResult[],

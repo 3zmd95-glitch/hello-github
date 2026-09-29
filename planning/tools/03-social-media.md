@@ -22,7 +22,7 @@ and Snapchat as a manual step.
 | Calendar, stages, scripts, shot lists | own tables (`posts`, `post_scripts`, `shots`) in the dashboard | as in the mockup (v17–v18) |
 | Reminders at best posting time | Web Push (same as dashboard) | default to Saudi prime time (after Isha), overridable per platform |
 | Captions, hooks, hashtags in Hijazi | Claude Haiku | counts against the AI cap |
-| Reference cards and embeds | **oEmbed**: YouTube and TikTok public, Instagram after Meta approval; `react-lite-youtube-embed` for fast article pages | thumbnails cached in `skill_refs` |
+| Reference cards and embeds | **oEmbed** for titles and pictures: YouTube and TikTok public; Instagram's is tokenless since 2026-06-15 but gives no picture (removed 2025-11-03). **▶ Watch here** (round 32, `12-watch-in-dashboard.md`): the platforms' own players in plain sandboxed frames, no player library | thumbnails cached in `skill_refs`; Instagram pictures never (signed links die in days) |
 | Trend scan (round 30, planned) | **Trend Radar**: Google Trends SA/US, YouTube charts, keyword search, kworb sounds, weekly Tavily scan, Saudi moments calendar, manual links for TikTok Creative Center and Instagram trending audio | `08-trends.md`; Worker cron slots, results in KV `trends:latest`, shown in the Ideas bank |
 | Comment themes → "what people want" | YouTube comments API (+ Instagram comments later) summarized weekly by Claude | feeds the ideas bank and Skill Scout |
 | Short links with click counts | own `/go/[slug]` route | UTM parameters per platform |
