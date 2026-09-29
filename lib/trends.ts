@@ -20,8 +20,9 @@ import { addDays, daysBetween } from "./streak";
  * rows). Round 31 adds the edit genres: rows the Worker's keyword scan tagged with a genre id, the filter
  * that reads them (Discover's "most viewed this week" strip; the radar itself filters by language and
  * platform only, Discover is the one place for genres), the name a row's genre chip shows and the Discover
- * link it opens, and the ⭐ rule that does not count a genre's own search words. Pure functions only; the
- * store keeps the feed and lib/trendsClient talks to the Worker.
+ * link it opens, and the ⭐ rule that does not count a genre's own search words. A row's volume is shown in
+ * its source's unit (`volumeLabelKey`: a YouTube view count is never called searches). Pure functions only;
+ * the store keeps the feed and lib/trendsClient talks to the Worker.
  */
 
 /* ---------- Keywords ---------- */
@@ -152,6 +153,55 @@ export const SOURCE_KEY: Readonly<Record<string, MessageKey>> = {
 export function sourceLabel(source: string, t: (key: MessageKey) => string): string {
   const key = Object.hasOwn(SOURCE_KEY, source) ? SOURCE_KEY[source] : undefined;
   return key ? t(key) : source;
+}
+
+/** What a row's `volume` counts: Google's searches, a video's views, the pages a scan found, posts on X. */
+export type VolumeUnit = "searches" | "views" | "pages" | "posts";
+
+/**
+ * The unit of each source's `volume`, by the Worker's raw source label (workers/scout/src/trends/): Google
+ * Trends' approximate searches (google.ts), a video's view count for the YouTube charts and the keyword
+ * search (youtube.ts `ytItems`), the pages the weekly Tavily scan found with the term (tavily.ts), the post
+ * count trends24.in prints (x.ts). kworb.net and the 3z calendar give no volume, so they have no unit.
+ */
+export const VOLUME_UNIT: Readonly<Record<string, VolumeUnit>> = {
+  "Google Trends": "searches",
+  "YouTube charts": "views",
+  "YouTube search": "views",
+  "Tavily scan": "pages",
+  "trends24.in": "posts",
+};
+
+const VOLUME_KEY: Readonly<Record<VolumeUnit, MessageKey>> = {
+  searches: "trends.volume",
+  views: "trends.views",
+  pages: "trends.pages",
+  posts: "trends.posts",
+};
+
+/**
+ * The unit of a row's volume chip, by its `source` label ({@link VOLUME_UNIT}); the unit follows the source
+ * alone (a Tavily scan counts pages whichever platform its link is on). Undefined for a source without a
+ * known unit (kworb.net, the 3z calendar, a label from a newer Worker, a missing one): the honesty rule
+ * shows no number rather than one under the wrong unit.
+ */
+export function volumeUnit(item: Pick<TrendItem, "source" | "platform">): VolumeUnit | undefined {
+  const { source } = item;
+  return typeof source === "string" && Object.hasOwn(VOLUME_UNIT, source)
+    ? VOLUME_UNIT[source]
+    : undefined;
+}
+
+/**
+ * The message a row's volume chip says its number with ("{n} بحث" / "{n} searches" for Google Trends,
+ * "{n} مشاهدة" / "{n} views" for YouTube, pages for the Tavily scan, posts for trends24.in), or undefined
+ * when the row's source has no known unit ({@link volumeUnit}) and the row shows no volume chip.
+ */
+export function volumeLabelKey(
+  item: Pick<TrendItem, "source" | "platform">,
+): MessageKey | undefined {
+  const unit = volumeUnit(item);
+  return unit ? VOLUME_KEY[unit] : undefined;
 }
 
 /** The ideas-bank text a trend row becomes ("💡 احفظ كفكرة"): "📈 ترند: <title> (<source>)". */

@@ -4,17 +4,19 @@ import Link from "next/link";
 import { fmtCount } from "@/components/social/studio/platform";
 import type { TrendItem } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
-import { sourceLabel } from "@/lib/trends";
+import { sourceLabel, volumeLabelKey, volumeUnit } from "@/lib/trends";
 import TrendActions, { type PlannedPost } from "./TrendActions";
 
 /**
  * One radar row (round 30, planning/tools/08-trends.md): the title, the source badge (the honesty rule: the
  * badge is `item.source` localized through `sourceLabel`, so a YouTube chart row says "YouTube charts" /
  * "قوائم YouTube" and never "trending"; `data-source` keeps the raw label), a "new on the chart" chip for
- * `new`-tagged rows, the "why" line, growth and volume when the source gives them, ⭐ when the row matches the owner's niche
- * keywords, the 💡 / 📱 taps and ✕ to dismiss. `data-genre` carries the row's edit-genre id (round 31) when the
- * Worker's keyword scan set one, and the row names it in a chip (`genreLabel`: "🚗 سيارات"). Discover is the
- * one place for genres, so for a genre the app knows the chip is a link that opens Discover on it
+ * `new`-tagged rows, the "why" line, growth and volume when the source gives them, ⭐ when the row matches
+ * the owner's niche keywords, the 💡 / 📱 taps and ✕ to dismiss. The volume chip names what its number
+ * counts, by source (lib/trends `volumeLabelKey`: searches on Google Trends, views on YouTube, pages for the
+ * Tavily scan, posts on trends24.in; `data-unit` carries the unit), and a source without a known unit shows
+ * no volume. `data-genre` carries the row's edit-genre id (round 31) when the Worker's keyword scan set one,
+ * and the row names it in a chip (`genreLabel`: "🚗 سيارات"). Discover is the one place for genres, so for a genre the app knows the chip is a link that opens Discover on it
  * (`genreHref`), looking like the row's other chips; its accessible name says where it goes
  * (`trends.genreOpen`) and its tap area reaches a little above and below the chip, which is small for a
  * thumb. An id the app does not know stays a plain chip with the raw id.
@@ -37,6 +39,7 @@ export default function TrendRow({
   onPlanned: (post: PlannedPost) => void;
 }) {
   const { t } = useT();
+  const volumeKey = volumeLabelKey(item);
   return (
     <li
       className="px-inset trend-row flex flex-col gap-2"
@@ -127,9 +130,9 @@ export default function TrendRow({
             {t("trends.growth", { n: fmtCount(Math.round(item.growthPct)) })}
           </span>
         )}
-        {item.volume !== undefined && item.volume > 0 && (
-          <span className="px-chip num" data-testid="trend-volume">
-            {t("trends.volume", { n: fmtCount(item.volume) })}
+        {volumeKey && item.volume !== undefined && item.volume > 0 && (
+          <span className="px-chip num" data-testid="trend-volume" data-unit={volumeUnit(item)}>
+            {t(volumeKey, { n: fmtCount(item.volume) })}
           </span>
         )}
       </div>

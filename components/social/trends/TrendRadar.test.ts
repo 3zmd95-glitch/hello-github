@@ -219,6 +219,82 @@ describe("TrendRadar niche star on genre rows", () => {
   });
 });
 
+describe("TrendRadar volume chip (the number is shown in its source's unit)", () => {
+  /**
+   * A row with a volume from every source, as the Worker writes it: Google's searches, a YouTube video's
+   * views (charts and keyword search), the pages the Tavily scan found, trends24.in's post count, and two
+   * sources that have no unit the app knows (kworb.net sets no volume today; a label from a newer Worker).
+   */
+  const VOLUME_ROWS = [
+    row({ id: "google", platform: "google", source: "Google Trends", volume: 500 }),
+    row({ id: "yt-chart", source: "YouTube charts", volume: 105_000_000, tags: ["short"] }),
+    row({ id: "yt-search", source: "YouTube search", volume: 12_300 }),
+    row({ id: "tavily", platform: "tiktok", lang: "mixed", source: "Tavily scan", volume: 8 }),
+    row({ id: "x", platform: "x", source: "trends24.in", volume: 12_000 }),
+    row({ id: "kworb", platform: "tiktok", source: "kworb.net", volume: 900 }),
+    row({ id: "newer", source: "Some new source", volume: 42 }),
+    row({ id: "no-views", source: "YouTube charts", volume: 0 }),
+  ];
+
+  /** Each row's volume chip by row id: its `data-unit` and its text (null: no chip). */
+  const volumes = () =>
+    Object.fromEntries(
+      [...host.querySelectorAll('[data-testid="trend-row"]')].map((r) => {
+        const chip = r.querySelector('[data-testid="trend-volume"]');
+        return [
+          r.getAttribute("data-id"),
+          chip ? [chip.getAttribute("data-unit"), chip.textContent] : null,
+        ];
+      }),
+    );
+
+  it("calls a YouTube row's number views and a Google row's searches, in Arabic and in English", () => {
+    feed(VOLUME_ROWS);
+    expect(volumes()).toEqual({
+      google: ["searches", "500 بحث"],
+      "yt-chart": ["views", "105M مشاهدة"],
+      "yt-search": ["views", "12.3K مشاهدة"],
+      tavily: ["pages", "8 صفحة"],
+      x: ["posts", "12K تغريدة"],
+      kworb: null,
+      newer: null,
+      "no-views": null,
+    });
+
+    act(() => useStore.getState().setSettings({ lang: "en" }));
+    expect(volumes()).toEqual({
+      google: ["searches", "500 searches"],
+      "yt-chart": ["views", "105M views"],
+      "yt-search": ["views", "12.3K views"],
+      tavily: ["pages", "8 pages"],
+      x: ["posts", "12K posts"],
+      kworb: null,
+      newer: null,
+      "no-views": null,
+    });
+  });
+
+  it("never shows a number without its unit: a source the app has no unit for shows no chip", () => {
+    feed(VOLUME_ROWS);
+    for (const id of ["kworb", "newer"]) {
+      expect(rowEl(id).querySelector('[data-testid="trend-volume"]'), id).toBeNull();
+      expect(rowEl(id).textContent, id).not.toMatch(/900|42/);
+      // The row itself still shows, with its source badge.
+      expect(rowEl(id).querySelector('[data-testid="trend-source"]'), id).not.toBeNull();
+    }
+    expect(rowEl("newer").querySelector('[data-testid="trend-source"]')?.textContent).toBe(
+      "Some new source",
+    );
+    // No YouTube row's number is called a search.
+    for (const id of ["yt-chart", "yt-search"]) {
+      expect(
+        rowEl(id).querySelector('[data-testid="trend-volume"]')?.textContent,
+        id,
+      ).not.toContain("بحث");
+    }
+  });
+});
+
 describe("TrendRadar genre chip", () => {
   it("names the genre on every row that has one, under both tabs", () => {
     feed([...PLAIN, ...GENRE_ROWS]);
