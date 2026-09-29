@@ -11,31 +11,37 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { pullTrends } from "@/components/social/trends/useTrends";
 import { getProgram, getSkill, programs } from "@/data";
 import type { Lang, Skill } from "@/lib/domain";
+import { allGenres } from "@/lib/genres";
 import { useT, type MessageKey } from "@/lib/i18n";
 import {
   arabicFirst,
   canonicalRefUrl,
   dedupeByUrl,
-  hashtagSlug,
+  genreWeekItems,
   interleavePlatforms,
   itemFromRef,
   itemFromYoutube,
   peekYoutubeSearch,
   platformSearchUrl,
+  popularityOf,
   programSearchHint,
   publishedAfterFor,
   refFromItem,
   RESEARCH_TABS,
+  researchHashtag,
+  researchQuery,
   scoutPlatformsFor,
-  withProgramHint,
+  sortByPopularity,
   youtubeDurationFor,
   youtubeErrorMessageKey,
   type LengthFilter,
   type Recency,
   type ResearchItem,
   type ResearchTab,
+  type SortMode,
   type YoutubeSearchError,
 } from "@/lib/research";
 import {
@@ -45,6 +51,7 @@ import {
   type ScoutError,
   type ScoutResult,
 } from "@/lib/scoutClient";
+import { trendsStale } from "@/lib/trends";
 import { getApiKey, useStore } from "@/store";
 import PasteLinkForm from "./PasteLinkForm";
 import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
@@ -123,22 +130,35 @@ const LENGTHS: { v: LengthFilter; label: MessageKey }[] = [
   { v: "short", label: "research.lenShort" },
   { v: "long", label: "research.lenLong" },
 ];
+const SORTS: { v: SortMode; label: MessageKey }[] = [
+  { v: "relevance", label: "research.sortRelevance" },
+  { v: "popular", label: "research.sortPopular" },
+];
 
 /**
  * Research UI v2 (build plan 1.15): one panel for Discover (free topic) and the skill sheet (the skill's
- * name, editable). Search bar (Enter / button, AR·EN, "+ program" hint, open-on-platform overflow), platform
- * tabs with counts (each tab decides which sources are queried), filters (recency, YouTube length, saved
- * only, Arabic first), a card grid with thumbnails, and attach actions. Sources: the YouTube Data API when
- * the owner has a key, the Scout Worker for TikTok / Instagram (and YouTube without a key).
+ * name, editable). Search bar (Enter / button, AR·EN, "+ program" hint, open-on-platform overflow), the
+ * edit-genre row (round 31: a chip is a search of its own, or narrows the topic), platform tabs with counts
+ * (each tab decides which sources are queried), filters (recency, YouTube length, sort, saved only, Arabic
+ * first), a card grid with thumbnails and view / like counts, and attach actions. Sources: the YouTube Data
+ * API when the owner has a key, the Scout Worker for TikTok / Instagram (and YouTube without a key). With a
+ * genre on, a "Most viewed this week" strip above the results shows the Trend Radar's rows of that genre
+ * (the feed the store keeps; Discover is the one place for genres).
  */
 export default function ResearchPanel({
   skill,
   stickyTop = "max-md:-top-4",
+  openGenre,
 }: {
   /** Skill sheet mode; omitted = Discover mode. */
   skill?: Skill;
   /** Where the search bar sticks on phones: the sheet's padded scroll edge by default, below the app's top bar in Discover. */
   stickyTop?: string;
+  /**
+   * Discover's deep link (`/discover/?genre=<id>`): the id of a genre the app knows, handed in once the
+   * address bar was read. It goes on the way a tap on its chip would.
+   */
+  openGenre?: string | null;
 }) {
   const { t, L, lang, dir } = useT();
   const ids = useId();
@@ -153,6 +173,8 @@ export default function ResearchPanel({
   const [length, setLength] = useState<LengthFilter>("any");
   const [savedOnly, setSavedOnly] = useState(false);
   const [arFirst, setArFirst] = useState(false);
+  const [sort, setSort] = useState<SortMode>("relevance");
+  const [genreId, setGenreId] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [pickFor, setPickFor] = useState<ResearchItem | null>(null);
   // Captured once: `publishedAfter` is rounded to the day, so it (and the cache key) stays put.
@@ -163,6 +185,8 @@ export default function ResearchPanel({
   const addRef = useStore((s) => s.addRef);
   const removeRef = useStore((s) => s.removeRef);
   const savedRefs = useStore((s) => s.savedRefs);
+  const customGenres = useStore((s) => s.customGenres);
+  const trends = useStore((s) => s.trends);
   const ytKey = useStore((s) => getApiKey(s, "youtube"));
   const scoutCfg = useScoutConfig();
   const usage = useScoutUsage();
@@ -172,24 +196,57 @@ export default function ResearchPanel({
   const defaultName = skill ? skill.name[queryLang] : "";
   const base = skill ? (override ?? defaultName) : topic;
   const hint = programSearchHint(getProgram(skill ? skill.programId : programId));
-  const q = withProgramHint(base, hintOn ? hint : undefined);
-  // Instagram hashtags are Latin slugs: the skill's EN name, or the Discover topic when it's Latin.
-  // (From the typed topic, never with the program hint appended: "#matchcutdavinciresolve" finds nothing.)
-  const tag = hashtagSlug(skill ? skill.name.en : base);
+  // The edit genres: the built-in ones, then the ones the owner added in Settings.
+  const genres = useMemo(() => allGenres(customGenres), [customGenres]);
+  const genre = genreId ? genres.find((g) => g.id === genreId) : undefined;
+  // Topic (or skill name), then the genre's main query in the search language, then the program hint.
+  const q = researchQuery(base, queryLang, genre, hintOn ? hint : undefined);
+  // Instagram hashtags are Latin slugs: the skill's EN name, or the Discover topic when it's Latin; the
+  // genre's own hashtag when the genre is the whole search. (From the typed topic, never with the program
+  // hint appended: "#matchcutdavinciresolve" finds nothing.)
+  const tag = researchHashtag(base, skill ? skill.name.en : base, genre);
   // "Search" press counter: pressing it again after an error asks again (a cached success costs nothing).
   const [attempt, setAttempt] = useState(0);
 
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    const text = (draft ?? base).trim();
+  /** The typed text becomes the topic (Discover: remembered as a recent topic) or the skill's override. */
+  const commit = (text: string) => {
     if (skill) setOverride(!text || text === defaultName ? null : text);
     else {
       setTopic(text);
       if (text) addRecentTopic(text);
     }
     setDraft(null);
+  };
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    commit((draft ?? base).trim());
     setAttempt((a) => a + 1);
   };
+
+  /**
+   * A genre chip is a search: what's typed but not submitted becomes the topic first, then the genre goes
+   * on, or off when it's the active chip (null = off). A genre alone never lands in the recent topics.
+   */
+  const pickGenre = (id: string | null) => {
+    if (draft !== null) commit(draft.trim());
+    setGenreId(id === genreId ? null : id);
+    setAttempt((a) => a + 1);
+  };
+
+  // Discover's deep link: the genre handed in goes on once, like a tap on its chip (a search of its own),
+  // and its chip is brought into view in the row. The owner's next taps decide from there.
+  const [opened, setOpened] = useState<string | null>(null);
+  if (openGenre && openGenre !== opened) {
+    setOpened(openGenre);
+    setGenreId(openGenre);
+    setAttempt((a) => a + 1);
+  }
+  const chipRefs = useRef(new Map<string, HTMLButtonElement>());
+  useEffect(() => {
+    if (!opened) return;
+    chipRefs.current.get(opened)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [opened]);
 
   const pickTab = (next: ResearchTab) => {
     setTab(next);
@@ -204,11 +261,14 @@ export default function ResearchPanel({
   const live = !savedOnly && q.length > 0;
   const videoDuration = youtubeDurationFor(length);
   const publishedAfter = publishedAfterFor(recency, now);
+  // "Most popular" asks YouTube for the most viewed first; otherwise nothing is sent (same request as before).
+  const ytOrder = sort === "popular" ? ("viewCount" as const) : undefined;
   const ytOpts = {
     relevanceLanguage: searchLang,
     maxResults: YT_MAX,
     videoDuration,
     publishedAfter,
+    order: ytOrder,
   };
   const ytWanted = live && hasYt && (tab === "all" || tab === "yt");
   const yt = useYoutubeQuery(ytWanted ? ytKey : undefined, q, ytOpts, attempt);
@@ -254,6 +314,26 @@ export default function ResearchPanel({
     [savedRefs, skill],
   );
 
+  /* ---------- "most viewed this week": the Trend Radar's rows of the genre ---------- */
+
+  const genreKey = genre?.id;
+  // From the feed the store keeps, in the search language, best score first. An extra above the results:
+  // nothing to show (no genre, no rows of it, saved only) means no strip, never an empty state or an error.
+  const weekItems = useMemo(
+    () => (savedOnly ? [] : genreWeekItems(trends, genreKey, queryLang, new Date(now))),
+    [savedOnly, trends, genreKey, queryLang, now],
+  );
+  // A feed gone stale is read again from the Worker (GET /trends, the copy its cron wrote; the sources are
+  // never run from here) once a genre is on and the strip could show: at most once in the panel's life, never
+  // without a genre or a Worker. A failed read says nothing (the strip is an extra); the radar reports it.
+  const weekAsked = useRef(false);
+  useEffect(() => {
+    if (!genreKey || savedOnly || !scoutCfg || weekAsked.current) return;
+    if (!trendsStale(useStore.getState().trends.fetchedAt, new Date())) return;
+    weekAsked.current = true;
+    void pullTrends();
+  }, [genreKey, savedOnly, scoutCfg]);
+
   /* ---------- what the active tab shows ---------- */
 
   const shownPlatforms = tab === "all" ? PLATFORMS : [tab];
@@ -263,6 +343,9 @@ export default function ResearchPanel({
     : interleavePlatforms(
         dedupeByUrl<ResearchItem>(ytItems, ...shownPlatforms.map((p) => scoutCards(scoutBy[p], p))),
       );
+  // Sorted copies of what's shown, never the hook results: most popular first, then (Arabic first being
+  // stable) the Arabic posts on top, each group still by popularity.
+  if (sort === "popular") items = sortByPopularity(items);
   if (arFirst) items = arabicFirst(items);
   const loading = [yt, scoutTt, scoutIg, scoutYt].some((s) => s.status === "loading");
 
@@ -284,6 +367,7 @@ export default function ResearchPanel({
       maxResults: YT_MAX,
       videoDuration,
       publishedAfter,
+      order: ytOrder,
     };
     const part = (p: Platform): PlatformPart<ResearchItem> => {
       if (p === "yt" && ytApi) {
@@ -315,6 +399,7 @@ export default function ResearchPanel({
     timeRange,
     videoDuration,
     publishedAfter,
+    ytOrder,
     now,
     ytApi,
     ytKey,
@@ -387,6 +472,12 @@ export default function ResearchPanel({
     !savedOnly && !ytApi && scoutYt.status === "ok" && (tab === "yt" || (tab === "all" && ytDown));
   const lenNote =
     !savedOnly && length !== "any" && !ytApi && !!scoutCfg && (tab === "all" || tab === "yt");
+  // "Most popular" with no count on any shown card: say why the order didn't change.
+  const popularNote =
+    sort === "popular" &&
+    !loading &&
+    items.length > 0 &&
+    !items.some((i) => popularityOf(i.stats) !== undefined);
   // Worker errors, one line per kind of error (naming the platforms on All), never hiding what worked.
   const scoutErrors = savedOnly
     ? []
@@ -413,7 +504,8 @@ export default function ResearchPanel({
     (recency !== "any" ? 1 : 0) +
     (length !== "any" ? 1 : 0) +
     (savedOnly ? 1 : 0) +
-    (arFirst ? 1 : 0);
+    (arFirst ? 1 : 0) +
+    (sort === "popular" ? 1 : 0);
   const showLength = tab === "all" || tab === "yt";
 
   /* ---------- tabs keyboard (arrow keys, mirrored in RTL) ---------- */
@@ -460,6 +552,9 @@ export default function ResearchPanel({
   }, []);
 
   const barBg = skill ? "bg-panel-2 -mx-3 px-3" : "bg-panel -mx-4 px-4";
+  // The strip's title sits one level under the screen's own: the page title in Discover, the skill's name
+  // in the sheet.
+  const WeekTitle = skill ? "h3" : "h2";
 
   return (
     <section
@@ -611,6 +706,58 @@ export default function ResearchPanel({
         </div>
       )}
 
+      {/* ---------- edit genre: one row that scrolls sideways (the tabs stay where they are); it wraps
+          only where the panel is wide ---------- */}
+      <div
+        role="group"
+        aria-labelledby={`${ids}-genres`}
+        className="flex min-w-0 items-center gap-1.5 @3xl:items-start"
+        data-testid="genres-row"
+        data-genre={genre?.id ?? ""}
+      >
+        <span
+          id={`${ids}-genres`}
+          className="text-muted shrink-0 text-xs whitespace-nowrap @3xl:pt-2.5"
+        >
+          {t("genres.label")}
+        </span>
+        <div
+          className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-0.5 pt-0.5 pb-1.5 @3xl:flex-wrap @3xl:overflow-x-visible"
+          data-testid="genres-chips"
+        >
+          {genres.map((g) => (
+            <button
+              key={g.id}
+              ref={(el) => {
+                if (el) chipRefs.current.set(g.id, el);
+                else chipRefs.current.delete(g.id);
+              }}
+              type="button"
+              className="px-fchip shrink-0"
+              aria-pressed={g.id === genre?.id}
+              onClick={() => pickGenre(g.id)}
+              data-testid={`genre-${g.id}`}
+            >
+              <span aria-hidden>{g.emoji}</span>
+              <span dir="auto">{L(g.name)}</span>
+            </button>
+          ))}
+        </div>
+        {/* Outside the scrolling chips (at the far end), so it's in reach when the active chip isn't. */}
+        {genre && (
+          <button
+            type="button"
+            className="px-fchip shrink-0"
+            aria-label={t("genres.clear")}
+            title={t("genres.clear")}
+            onClick={() => pickGenre(null)}
+            data-testid="genres-clear"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
       {/* ---------- platform tabs ---------- */}
       <div
         role="tablist"
@@ -716,6 +863,20 @@ export default function ResearchPanel({
             ))}
           </ChipGroup>
         )}
+        <ChipGroup label={t("research.sortLabel")}>
+          {SORTS.map((o) => (
+            <button
+              key={o.v}
+              type="button"
+              className="px-fchip"
+              aria-pressed={sort === o.v}
+              onClick={() => setSort(o.v)}
+              data-testid={`filter-sort-${o.v}`}
+            >
+              {t(o.label)}
+            </button>
+          ))}
+        </ChipGroup>
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
@@ -737,6 +898,44 @@ export default function ResearchPanel({
           </button>
         </div>
       </div>
+
+      {/* ---------- most viewed this week: one row of cards that scrolls sideways (the page never does:
+          each card holds its own absolute bits) and snaps with its padding kept, so the first card's edge
+          shows in Arabic too; what a keyword search found, so the line by the title says where it comes
+          from ---------- */}
+      {genre && weekItems.length > 0 && (
+        <section
+          aria-labelledby={`${ids}-week`}
+          className="flex min-w-0 flex-col gap-1.5"
+          data-testid="genre-week"
+          data-genre={genre.id}
+          data-count={weekItems.length}
+        >
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <WeekTitle id={`${ids}-week`} className="text-sm" data-testid="genre-week-title">
+              {t("research.weekTitle")}
+            </WeekTitle>
+            <p className="text-muted text-xs" data-testid="genre-week-source">
+              {t("research.weekSource", { genre: L(genre.name) })}
+            </p>
+          </div>
+          <ul
+            aria-labelledby={`${ids}-week`}
+            className="flex min-w-0 snap-x scroll-px-1 gap-3 overflow-x-auto px-1 pt-0.5 pb-2"
+            data-testid="genre-week-list"
+          >
+            {weekItems.map((item) => (
+              <ResultCard
+                key={item.url}
+                item={item}
+                action={renderAction(item)}
+                testId="genre-week-item"
+                className="w-60 shrink-0 snap-start"
+              />
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* ---------- results ---------- */}
       <div
@@ -771,6 +970,11 @@ export default function ResearchPanel({
         {lenNote && (
           <p className="text-muted text-xs" data-testid="len-needs-key">
             {t("research.lenNeedsKey")}
+          </p>
+        )}
+        {popularNote && (
+          <p className="text-muted text-xs" data-testid="popular-note">
+            {t("research.popularNote")}
           </p>
         )}
 

@@ -142,9 +142,22 @@ test("in-app YouTube results render from a stubbed API with filters, and attach 
   await page.getByTestId("apikey-youtube-input").press("Enter");
   await expect(page.getByTestId("apikey-youtube-status")).toHaveText("محفوظ"); // "Set" (Hijazi)
 
+  // `requests` holds the searches; every search that found something is followed by one statistics call.
   const requests: URL[] = [];
+  const statsRequests: URL[] = [];
   await page.route("https://www.googleapis.com/**", (route) => {
-    requests.push(new URL(route.request().url()));
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/videos")) {
+      statsRequests.push(url);
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [{ id: "fakeVid1", statistics: { viewCount: "1500000", likeCount: "20000" } }],
+        }),
+      });
+    }
+    requests.push(url);
     return route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -178,6 +191,11 @@ test("in-app YouTube results render from a stubbed API with filters, and attach 
   expect(requests).toHaveLength(1);
   expect(requests[0].searchParams.get("relevanceLanguage")).toBe("ar");
   expect(requests[0].searchParams.has("videoDuration")).toBe(false);
+  expect(requests[0].searchParams.has("order")).toBe(false);
+  // The statistics call (videos.list, 1 quota unit) puts the views on the card.
+  expect(statsRequests).toHaveLength(1);
+  expect(statsRequests[0].searchParams.get("id")).toBe("fakeVid1");
+  await expect(result.getByTestId("result-stats")).toHaveAttribute("data-views", "1500000");
 
   // Length and recency filters go to the API as videoDuration / publishedAfter.
   await openFilters(page);
@@ -210,4 +228,52 @@ test("in-app YouTube results render from a stubbed API with filters, and attach 
   await expect(
     page.getByTestId("saved-ref").filter({ hasText: "Fake Match Cut Tutorial" }),
   ).toHaveCount(0);
+});
+
+test("skill sheet Research panel: an edit genre narrows the skill's search; reset keeps the genre", async ({
+  page,
+}) => {
+  await freshState(page, "/skills/");
+  await openSkillSheet(page);
+  await page.getByTestId("research-toggle").click();
+  await page.getByTestId("research-lang-en").click();
+
+  const skillName = encodeURIComponent("Smart Bins + Keywords");
+  const tt = page.getByTestId("research-link-tt");
+  const href = (q: string) => `https://www.tiktok.com/search?q=${q}`;
+  await expect(tt).toHaveAttribute("href", href(`${skillName}%20DaVinci%20Resolve`));
+
+  // The genre row sits right under the search bar; the skill's name stays the base of the search.
+  await expect(page.getByTestId("genres-row")).toBeVisible();
+  await page.getByTestId("genre-cars").click();
+  await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("research-topic")).toHaveValue("Smart Bins + Keywords");
+  await expect(tt).toHaveAttribute("href", href(`${skillName}%20car%20edit%20DaVinci%20Resolve`));
+  // The Instagram hashtag stays the skill's own (the genre's is for a genre-only search).
+  await expect(page.getByTestId("research-link-ig-hashtag")).toHaveAttribute(
+    "href",
+    "https://www.instagram.com/explore/tags/smartbinskeywords/",
+  );
+
+  // The search language picks the genre's words; the skill's name follows it too.
+  await page.getByTestId("research-lang-ar").click();
+  await expect(tt).toHaveAttribute(
+    "href",
+    new RegExp(`${encodeURIComponent("ايديت سيارات")}%20DaVinci%20Resolve$`),
+  );
+  await page.getByTestId("research-lang-en").click();
+
+  // An override of the topic is searched with the genre; "reset" brings the name back and keeps the genre.
+  await page.getByTestId("research-topic").fill("match cut");
+  await page.getByTestId("research-topic").press("Enter");
+  await expect(tt).toHaveAttribute("href", href("match%20cut%20car%20edit%20DaVinci%20Resolve"));
+  await page.getByTestId("research-reset").click();
+  await expect(page.getByTestId("research-topic")).toHaveValue("Smart Bins + Keywords");
+  await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "true");
+  await expect(tt).toHaveAttribute("href", href(`${skillName}%20car%20edit%20DaVinci%20Resolve`));
+
+  // The active chip again: back to the skill's plain search.
+  await page.getByTestId("genre-cars").click();
+  await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "false");
+  await expect(tt).toHaveAttribute("href", href(`${skillName}%20DaVinci%20Resolve`));
 });

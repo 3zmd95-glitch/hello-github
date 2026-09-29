@@ -7,6 +7,7 @@ on:
     paths:
       - "workers/scout/**"
       - "planning/data/saudi-events.json"
+      - "planning/data/genres.json"
       - ".github/workflows/worker.yml"
   workflow_dispatch:
 

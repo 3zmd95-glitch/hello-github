@@ -8,8 +8,10 @@ import {
   isGenericTikTokTitle,
   isVideoUrl,
   normalizeHits,
+  parseEngagement,
   platformForHost,
   tiktokTitleFromOembed,
+  type Stats,
   type TavilyHit,
 } from "./normalize";
 
@@ -142,6 +144,7 @@ describe("Instagram cards (real og:title / description / twitter:title shapes)",
       title: "❥",
       snippet: '3M likes, 153K comments - kendalljenner on June 11, 2015: "❥".',
       url: "https://www.instagram.com/p/3H0-Yqjo7u",
+      stats: { likes: 3_000_000, comments: 153_000 },
     });
   });
 
@@ -310,5 +313,152 @@ describe("TikTok titles", () => {
     expect(tiktokTitleFromOembed(card, "Door match cut 🚪 | TikTok")).toBe("Door match cut 🚪");
     expect(tiktokTitleFromOembed(card, "TikTok - Make Your Day")).toBeUndefined();
     expect(tiktokTitleFromOembed({ title: "Real title", handle: "@x" }, "Other")).toBeUndefined();
+  });
+});
+
+describe("parseEngagement: the counts at the head of a description", () => {
+  it.each<[string, Stats]>([
+    [
+      '1,234 likes, 56 comments - editor.ali on June 11, 2025: "Match cut in 10s". ',
+      { likes: 1234, comments: 56 },
+    ],
+    [
+      '3M likes, 153K comments - kendalljenner on June 11, 2015: "❥". ',
+      { likes: 3_000_000, comments: 153_000 },
+    ],
+    ["12K likes", { likes: 12_000 }],
+    ["1.2M likes", { likes: 1_200_000 }],
+    ["2.5B views", { views: 2_500_000_000 }],
+    ["1 like, 1 comment - a.b on May 1, 2025", { likes: 1, comments: 1 }],
+    ["12,345,678 likes, 9 comments", { likes: 12_345_678, comments: 9 }],
+    ["980 views, 45 likes, 3 comments", { views: 980, likes: 45, comments: 3 }],
+    // A European page: "," before K is the decimal mark, "." in a plain count groups thousands.
+    ["13,5K likes, 2.431 comments", { likes: 13_500, comments: 2431 }],
+    [
+      '13.5K Likes, 120 Comments. TikTok video from Sam (@editor.sam): "Match cut in 10s".',
+      { likes: 13_500, comments: 120 },
+    ],
+    ["1.2M Likes. TikTok video from Sam (@editor.sam)", { likes: 1_200_000 }],
+  ])("English: %s", (text, stats) => {
+    expect(parseEngagement(text)).toEqual(stats);
+  });
+
+  it.each<[string, Stats]>([
+    ["٢٬٥٠٧ تسجيلات إعجاب، ٥٥ تعليق", { likes: 2507, comments: 55 }],
+    ["١٣٫٥ ألف إعجاب", { likes: 13_500 }],
+    [
+      '٣٣ مليون تسجيل إعجاب، ١ مليون تعليق - alnassr في 30 ديسمبر 2022: "أهلاً بك في بيتك الجديد 💛".',
+      { likes: 33_000_000, comments: 1_000_000 },
+    ],
+    [
+      "١٢ ألف تسجيل إعجاب، ٨٠ تعليقًا - hijazi.frames في 2 يوليو 2025",
+      { likes: 12_000, comments: 80 },
+    ],
+    ["٤٥٠ ألف مشاهدة، ٣ آلاف إعجاب", { views: 450_000, likes: 3000 }],
+    ["٢ مليار مشاهدة", { views: 2_000_000_000 }],
+    // Western digits in Arabic text, and Persian digits.
+    ["1.2 مليون إعجاب", { likes: 1_200_000 }],
+    ["۱۲ ألف إعجاب", { likes: 12_000 }],
+    [
+      "13.5K من تسجيلات الإعجاب، 120 من التعليقات. فيديو TikTok من سارة (@sara.edits)",
+      { likes: 13_500, comments: 120 },
+    ],
+  ])("Arabic: %s", (text, stats) => {
+    expect(parseEngagement(text)).toEqual(stats);
+  });
+
+  it("reads the Arabic separators U+066C (thousands) and U+066B (decimal)", () => {
+    const thousands = String.fromCharCode(0x066c);
+    const decimal = String.fromCharCode(0x066b);
+    expect(parseEngagement(`٢${thousands}٥٠٧ إعجاب`)).toEqual({ likes: 2507 });
+    expect(parseEngagement(`١${thousands}٢٣٤${thousands}٥٦٧ إعجاب`)).toEqual({ likes: 1_234_567 });
+    expect(parseEngagement(`١٣${decimal}٥ ألف إعجاب`)).toEqual({ likes: 13_500 });
+    expect(parseEngagement(`٢${decimal}٣ مليون إعجاب`)).toEqual({ likes: 2_300_000 });
+  });
+
+  it("reads Instagram text once its bidi marks are cleaned", () => {
+    const raw = `${RLM}٣٣ مليون تسجيل إعجاب، ${RLM}١ مليون تعليق - alnassr في ${RLM}30 ديسمبر 2022${RLM}`;
+    expect(parseEngagement(cleanText(raw))).toEqual({ likes: 33_000_000, comments: 1_000_000 });
+  });
+
+  it("is not fooled by captions, dates, handles and odd numbers", () => {
+    for (const text of [
+      "",
+      "Match cut in CapCut",
+      "100 likes and I post part 2",
+      "5 likes on my 2015 post",
+      "Can we get 1M likes?",
+      "Top 10 comments on my last reel",
+      "June 11, 2015: my 3 likes",
+      "user123 likes this",
+      "v1.5 likes the new timeline",
+      "12.5 likes",
+      "12 Minutes of b-roll",
+      "٥ دقائق مونتاج",
+    ]) {
+      expect(parseEngagement(text)).toBeUndefined();
+    }
+  });
+
+  it("reads a head that does not open the text only when it names two counts", () => {
+    expect(parseEngagement('Kendall on Instagram: "❥" 3M likes, 153K comments')).toEqual({
+      likes: 3_000_000,
+      comments: 153_000,
+    });
+    expect(parseEngagement('Kendall on Instagram: "❥" 3M likes')).toBeUndefined();
+  });
+
+  it("reads the first run of counts only, and the first count of each kind", () => {
+    expect(
+      parseEngagement('10 likes, 2 comments - a.b on May 1: "got 5 likes, 9 comments before"'),
+    ).toEqual({ likes: 10, comments: 2 });
+    expect(parseEngagement("10 likes, 12 likes, 2 comments")).toEqual({ likes: 10, comments: 2 });
+  });
+});
+
+describe("normalizeHits: stats", () => {
+  it("sets stats on TikTok and Instagram cards whose page text carries the counts, never an empty one", () => {
+    const cards = normalizeHits(
+      [
+        {
+          url: "https://www.tiktok.com/@editor.sam/video/7300000000000000001",
+          title: "Match cut in 10s | TikTok",
+          content:
+            '13.5K Likes, 120 Comments. TikTok video from Sam (@editor.sam): "Match cut in 10s".',
+        },
+        {
+          url: "https://www.instagram.com/reel/DOJukicCQ2_/",
+          title: "Instagram",
+          content: `${RLM}١٢ ألف تسجيل إعجاب، ${RLM}٨٠ تعليقًا - hijazi.frames في ${RLM}2 يوليو 2025${RLM}: "ماتش كت".`,
+        },
+        // The counts in the title (some engines put the description there).
+        {
+          url: "https://www.instagram.com/p/CmWkQIrNiwK",
+          title: "41M likes, 461K comments - leomessi on December 19, 2022",
+          content: "",
+        },
+        // No counts on the page.
+        {
+          url: "https://www.tiktok.com/@cuts/video/7300000000000000002",
+          title: "Door cut | TikTok",
+          content: "100 likes and I post the breakdown",
+        },
+        // YouTube counts come from the Data API (scout.ts), never from the text.
+        {
+          url: "https://www.youtube.com/watch?v=abc123XYZ",
+          title: "Match cut tutorial",
+          content: "1.2M views, 45K likes",
+        },
+      ],
+      ["tt", "ig", "yt"],
+    );
+    expect(cards.map((c) => [c.platform, c.stats])).toEqual([
+      ["tt", { likes: 13_500, comments: 120 }],
+      ["ig", { likes: 12_000, comments: 80 }],
+      ["ig", { likes: 41_000_000, comments: 461_000 }],
+      ["tt", undefined],
+      ["yt", undefined],
+    ]);
+    expect(cards.filter((c) => "stats" in c)).toHaveLength(3);
   });
 });

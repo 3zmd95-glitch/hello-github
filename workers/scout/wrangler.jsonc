@@ -17,8 +17,9 @@
     // search), tavily, events, and the third-party aggregators kworb (TikTok sounds) and x (trends24.in),
     // which stay off until the owner agrees to read them with attribution.
     "TREND_SOURCES": "google,youtube,tavily,events",
-    // The owner's niche keywords for the daily YouTube search (≤ 12 search.list calls a day); the same
-    // defaults as lib/trends.ts DEFAULT_TREND_KEYWORDS.
+    // The owner's niche keywords for the daily YouTube search; the same defaults as lib/trends.ts
+    // DEFAULT_TREND_KEYWORDS. The search also runs the edit genres of planning/data/genres.json (bundled,
+    // src/trends/genres.ts) and spends ≤ 18 search.list calls a day, rotating the keywords by UTC day.
     "TREND_KEYWORDS_AR": "تصوير,مونتاج,دافنشي,تصحيح الألوان,كاميرا,صانع محتوى",
     "TREND_KEYWORDS_EN": "davinci resolve,color grading,b-roll,iphone videography,video editing,content creator",
   },

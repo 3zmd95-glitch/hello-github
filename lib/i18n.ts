@@ -27,6 +27,8 @@ import arReplies from "@/messages/replies.ar.json";
 import enReplies from "@/messages/replies.en.json";
 import arTrends from "@/messages/trends.ar.json";
 import enTrends from "@/messages/trends.en.json";
+import arGenres from "@/messages/genres.ar.json";
+import enGenres from "@/messages/genres.en.json";
 import type { Lang, LText } from "@/lib/domain";
 import { useStore } from "@/store";
 
@@ -58,6 +60,8 @@ export const MESSAGE_FILES = {
   replies: { ar: arReplies, en: enReplies },
   // 📈 Trend Radar (round 30, planning/tools/08-trends.md).
   trends: { ar: arTrends, en: enTrends },
+  // 🎬 Edit genres (round 31): the genre row of Discover / Research, the Settings card.
+  genres: { ar: arGenres, en: enGenres },
 } as const;
 
 const ar = {
@@ -75,6 +79,7 @@ const ar = {
   ...arPublish,
   ...arReplies,
   ...arTrends,
+  ...arGenres,
 };
 const en = {
   ...enBase,
@@ -91,6 +96,7 @@ const en = {
   ...enPublish,
   ...enReplies,
   ...enTrends,
+  ...enGenres,
 };
 
 export type MessageKey = keyof typeof ar;

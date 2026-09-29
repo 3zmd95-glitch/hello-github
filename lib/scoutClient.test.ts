@@ -4,11 +4,13 @@ import {
   getScoutUsage,
   isValidScoutUrl,
   monthKey,
+  parseStats,
   peekScoutSearch,
   SCOUT_CACHE_EMPTY_TTL_MS,
   SCOUT_CACHE_KEY,
   SCOUT_CACHE_MAX,
   SCOUT_CACHE_TTL_MS,
+  SCOUT_CACHE_VERSION,
   SCOUT_USAGE_KEY,
   scoutCacheKey,
   scoutStorageKey,
@@ -242,7 +244,24 @@ describe("scoutSearch", () => {
     const r = await scoutSearch(other, params, { fetchImpl, storage, now });
     expect(r.ok && r.cached).toBe(false);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(scoutStorageKey(CONFIG, params)).toBe(`v2|https://scout.test|${scoutCacheKey(params)}`);
+    expect(SCOUT_CACHE_VERSION).toBe(3);
+    expect(scoutStorageKey(CONFIG, params)).toBe(`v3|https://scout.test|${scoutCacheKey(params)}`);
+  });
+
+  it("never serves cards cached before the Worker sent stats (cache v2)", async () => {
+    const params = { q: "car edit", platforms: ["tt"] as const };
+    const old = `v2|https://scout.test|${scoutCacheKey(params)}`;
+    storage.data.set(SCOUT_CACHE_KEY, JSON.stringify({ [old]: { at: t, results: RESULTS } }));
+    expect(peekScoutSearch(CONFIG, params, { storage, now })).toBeUndefined();
+    const fresh = [{ ...RESULTS[0], stats: { likes: 13500, comments: 120 } }];
+    const fetchImpl = vi.fn(async () => jsonResponse({ results: fresh }));
+    const r = await scoutSearch(CONFIG, params, { fetchImpl, storage, now });
+    expect(r).toEqual({ ok: true, results: fresh, cached: false });
+    // The old entry is dropped on the write; the new one comes back with its stats after a "reload".
+    const stored = JSON.parse(storage.data.get(SCOUT_CACHE_KEY)!) as Record<string, unknown>;
+    expect(Object.keys(stored)).toEqual([scoutStorageKey(CONFIG, params)]);
+    clearScoutCache(null);
+    expect(peekScoutSearch(CONFIG, params, { storage, now })).toEqual(fresh);
   });
 
   it("never serves or keeps entries cached by the old (unversioned) client", async () => {
@@ -307,12 +326,72 @@ describe("scoutSearch", () => {
     expect(getScoutUsage({ storage, now })).toBe(0);
   });
 
+  it("keeps the stats of a result: finite counts of 0 or more, nothing else", async () => {
+    const card = (n: number, stats?: unknown) => ({
+      platform: "yt",
+      handle: "@c",
+      title: `Card ${n}`,
+      snippet: "",
+      url: `https://www.youtube.com/watch?v=v${n}`,
+      ...(stats === undefined ? {} : { stats }),
+    });
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        results: [
+          card(1, { views: 1200345, likes: 45000, comments: 310 }),
+          card(2, { likes: 0 }),
+          card(3, { views: -1, likes: "12", comments: null, shares: 9 }),
+          card(4, { views: 10.9, likes: -3 }),
+          card(5, {}),
+          card(6, "1.2M"),
+          card(7),
+        ],
+      }),
+    );
+    const r = await scoutSearch(CONFIG, { q: "x", platforms: ["yt"] }, { fetchImpl, storage, now });
+    expect(r.ok && r.results.map((c) => c.stats)).toEqual([
+      { views: 1200345, likes: 45000, comments: 310 },
+      { likes: 0 },
+      undefined,
+      { views: 10 },
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    // A card without counts carries no `stats` key (never an empty object).
+    expect(r.ok && r.results.filter((c) => "stats" in c)).toHaveLength(3);
+  });
+
   it("maps a thrown fetch to network", async () => {
     const fetchImpl = vi.fn(async () => {
       throw new TypeError("Failed to fetch");
     });
     const r = await scoutSearch(CONFIG, { q: "x", platforms: ["tt"] }, { fetchImpl, storage });
     expect(r).toEqual({ ok: false, error: { type: "network" } });
+  });
+});
+
+describe("parseStats", () => {
+  it("keeps views, likes and comments that are finite numbers of 0 or more, as whole numbers", () => {
+    expect(parseStats({ views: 5, likes: 0, comments: 2 })).toEqual({
+      views: 5,
+      likes: 0,
+      comments: 2,
+    });
+    expect(parseStats({ views: 99.7 })).toEqual({ views: 99 });
+    expect(parseStats({ views: 5, plays: 7 })).toEqual({ views: 5 });
+  });
+
+  it("drops everything else, and is undefined when nothing is left", () => {
+    expect(parseStats({ views: NaN, likes: Infinity, comments: -Infinity })).toBeUndefined();
+    expect(parseStats({ views: -1, likes: "45", comments: true })).toBeUndefined();
+    expect(parseStats({ views: NaN, likes: 3 })).toEqual({ likes: 3 });
+    expect(parseStats({})).toBeUndefined();
+    expect(parseStats(null)).toBeUndefined();
+    expect(parseStats(undefined)).toBeUndefined();
+    expect(parseStats(1200)).toBeUndefined();
+    expect(parseStats("1.2M")).toBeUndefined();
+    expect(parseStats([1, 2, 3])).toBeUndefined();
   });
 });
 

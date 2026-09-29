@@ -3,8 +3,8 @@
 import { useState, type ReactNode } from "react";
 import type { RefPlatform } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
-import type { ResearchItem } from "@/lib/research";
-import { scoutOembed, type ScoutConfig } from "@/lib/scoutClient";
+import { compactCount, headlineStat, type ResearchItem } from "@/lib/research";
+import { scoutOembed, type ScoutConfig, type Stats } from "@/lib/scoutClient";
 import { useScoutConfig } from "./useScout";
 
 /** Platform glyph and label used on chips, tabs and placeholder tiles. */
@@ -59,36 +59,59 @@ function useThumb(item: ResearchItem): { thumb?: string; onError: () => void } {
  * One research result (build plan 1.15), shared by Discover, the skill sheet's Research panel and the saved
  * references list. Full mode: a 16:9 media frame (YouTube fills it; TikTok / Instagram show a 9:16 poster
  * on a blurred copy of itself; a pixel tile with the platform glyph when there's no thumbnail or it stops
- * loading), platform chip, @handle, a two-line title, a two-line expandable snippet, the caller's action
- * and "open ↗". Compact mode: one row with a small thumbnail, title, handle and a ✕.
+ * loading), platform chip, @handle, the views or likes when the source gave them, a two-line title, a
+ * two-line expandable snippet, the caller's action and "open ↗". Compact mode: one row with a small
+ * thumbnail, title, handle and a ✕ (saved references keep no counts). A full card outside the result list
+ * (the "Most viewed this week" strip) takes its own test id and its width from the caller.
  */
 export default function ResultCard({
   item,
   action,
   compact = false,
   onRemove,
+  testId = "result-card",
+  className = "min-w-0",
 }: {
   item: ResearchItem;
   action?: ReactNode;
   compact?: boolean;
   onRemove?: () => void;
+  /** Full mode: the card's `data-testid` (a result of the search by default). */
+  testId?: string;
+  /** Full mode: how the card sits in its list (it may shrink with its grid cell by default). */
+  className?: string;
 }) {
   return compact ? (
     <CompactCard item={item} onRemove={onRemove} />
   ) : (
-    <FullCard item={item} action={action} />
+    <FullCard item={item} action={action} testId={testId} className={className} />
   );
 }
 
-function FullCard({ item, action }: { item: ResearchItem; action?: ReactNode }) {
+/**
+ * The card is `relative`: it holds its own absolutely placed bits (the screen-reader words of the counts).
+ * Without it their box is the page's, so in a row that scrolls sideways the cards scrolled out of view
+ * pushed the page wider (to the left in Arabic) instead of staying inside the row.
+ */
+function FullCard({
+  item,
+  action,
+  testId,
+  className,
+}: {
+  item: ResearchItem;
+  action?: ReactNode;
+  testId: string;
+  className: string;
+}) {
   const { t } = useT();
   const [expanded, setExpanded] = useState(false);
   const meta = PLATFORM_META[item.platform];
   const longSnippet = item.snippet.length > 90;
   return (
     <li
-      className="border-edge bg-panel-2 flex min-w-0 flex-col overflow-hidden rounded-[2px] border-2 shadow-[3px_3px_0_var(--edge)]"
-      data-testid="result-card"
+      className={`border-edge bg-panel-2 relative flex flex-col overflow-hidden rounded-[2px] border-2 shadow-[3px_3px_0_var(--edge)] ${className}`}
+      data-testid={testId}
       data-platform={item.platform}
     >
       <a
@@ -109,6 +132,7 @@ function FullCard({ item, action }: { item: ResearchItem; action?: ReactNode }) 
           <span className="text-muted min-w-0 flex-1 truncate text-xs" dir="ltr">
             {item.handle}
           </span>
+          {item.stats && <StatsChip stats={item.stats} />}
         </div>
         <a
           href={item.url}
@@ -154,6 +178,33 @@ function FullCard({ item, action }: { item: ResearchItem; action?: ReactNode }) 
         </div>
       </div>
     </li>
+  );
+}
+
+/**
+ * How far the post went, the short way: "👁 1.2M" (views) when known, else "❤️ 45K" (likes). The raw counts
+ * ride along as data attributes; screen readers get the sentence ("1.2M views").
+ */
+function StatsChip({ stats }: { stats: Stats }) {
+  const { t, lang } = useT();
+  const stat = headlineStat(stats);
+  if (!stat) return null;
+  const n = compactCount(stat.value, lang);
+  const label = t(stat.kind === "views" ? "research.views" : "research.likes", { n });
+  return (
+    <span
+      className="px-chip shrink-0 text-[10px]"
+      title={label}
+      data-testid="result-stats"
+      data-kind={stat.kind}
+      data-views={stats.views}
+      data-likes={stats.likes}
+    >
+      <span aria-hidden>
+        {stat.kind === "views" ? "👁" : "❤️"} {n}
+      </span>
+      <span className="sr-only">{label}</span>
+    </span>
   );
 }
 

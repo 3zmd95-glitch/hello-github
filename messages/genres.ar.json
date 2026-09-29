@@ -1,0 +1,13 @@
+{
+  "genres.label": "🎬 نوع الإيديت",
+  "genres.settingsTitle": "🎬 أنواع الإيديت",
+  "genres.settingsSub": "الأنواع الجاهزة تطلع لك في «اكتشف» وفي رادار الترند. ما لقيت مجالك؟ أضفه باسمه وبكلمات البحث اللي تبغاها، ويطلع لك في بحث «اكتشف».",
+  "genres.builtin": "الجاهزة",
+  "genres.custom": "أنواعك",
+  "genres.addName": "اسم النوع",
+  "genres.addQuery": "كلمات البحث",
+  "genres.add": "＋ أضف",
+  "genres.exists": "هالنوع موجود من قبل، جرّب اسم ثاني.",
+  "genres.remove": "احذف",
+  "genres.clear": "✕ بدون نوع"
+}

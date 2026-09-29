@@ -20,6 +20,7 @@ build order. Website and social tools are recorded so nothing is forgotten, but 
 | [08-trends.md](08-trends.md) | Trend Radar: what is trending now (Google, YouTube, TikTok, Instagram, Threads, X), Arabic and English; sources, budgets, owner steps |
 | [09-metricool-beacons.md](09-metricool-beacons.md) | **Roadmap:** copy Metricool + Beacons into the Social world (status per feature, order of work) |
 | [10-auto-replies.md](10-auto-replies.md) | Auto-replies (Beacons Smart Reply copy): comment a keyword → public reply + DM with the link; polling, limits, owner steps |
+| [11-discover-genres.md](11-discover-genres.md) | Discover by edit genre (cars, food, anime, travel…), the Most popular sort, numbers on cards, genres fed by the Trend Radar |
 
 ## Rules used when picking
 

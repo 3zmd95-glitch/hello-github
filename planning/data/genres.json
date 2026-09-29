@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "genres": [
+    {
+      "id": "cars",
+      "emoji": "🚗",
+      "name": { "ar": "سيارات", "en": "Cars" },
+      "queries": {
+        "ar": ["ايديت سيارات", "مونتاج سيارات"],
+        "en": ["car edit", "cinematic car edit"]
+      },
+      "hashtags": ["caredit", "carsoftiktok"]
+    },
+    {
+      "id": "food",
+      "emoji": "🍔",
+      "name": { "ar": "أكل ومطاعم", "en": "Food & restaurants" },
+      "queries": {
+        "ar": ["مونتاج أكل", "تصوير مطاعم"],
+        "en": ["food edit", "restaurant cinematic video"]
+      },
+      "hashtags": ["foodedit", "foodvideography"]
+    },
+    {
+      "id": "anime",
+      "emoji": "🎌",
+      "name": { "ar": "أنمي", "en": "Anime" },
+      "queries": {
+        "ar": ["ايديت انمي", "مونتاج انمي"],
+        "en": ["anime edit", "anime amv"]
+      },
+      "hashtags": ["animeedit", "amv"]
+    },
+    {
+      "id": "travel",
+      "emoji": "✈️",
+      "name": { "ar": "سفر", "en": "Travel" },
+      "queries": {
+        "ar": ["مونتاج سفر", "تصوير سينمائي سفر"],
+        "en": ["travel edit", "cinematic travel video"]
+      },
+      "hashtags": ["traveledit", "travelvideo"]
+    },
+    {
+      "id": "football",
+      "emoji": "⚽",
+      "name": { "ar": "كورة", "en": "Football" },
+      "queries": {
+        "ar": ["ايديت كورة", "مونتاج كورة"],
+        "en": ["football edit", "football skills edit"]
+      },
+      "hashtags": ["footballedit", "footballskills"]
+    },
+    {
+      "id": "coffee",
+      "emoji": "☕",
+      "name": { "ar": "قهوة", "en": "Coffee" },
+      "queries": {
+        "ar": ["تصوير قهوة", "مونتاج كافيه"],
+        "en": ["coffee edit", "cafe cinematic b-roll"]
+      },
+      "hashtags": ["coffeeedit", "cafevibes"]
+    },
+    {
+      "id": "perfume",
+      "emoji": "🌹",
+      "name": { "ar": "عطور", "en": "Perfume" },
+      "queries": {
+        "ar": ["تصوير عطور", "اعلان عطر"],
+        "en": ["perfume edit", "perfume cinematic ad"]
+      },
+      "hashtags": ["perfumeedit", "perfumetiktok"]
+    },
+    {
+      "id": "camping",
+      "emoji": "🏕️",
+      "name": { "ar": "كشتة وبر", "en": "Camping & desert" },
+      "queries": {
+        "ar": ["تصوير كشتة", "مونتاج بر"],
+        "en": ["camping edit", "desert cinematic video"]
+      },
+      "hashtags": ["campingedit", "desertvibes"]
+    },
+    {
+      "id": "fashion",
+      "emoji": "👗",
+      "name": { "ar": "موضة", "en": "Fashion" },
+      "queries": {
+        "ar": ["ايديت موضة", "تصوير أزياء"],
+        "en": ["fashion edit", "outfit transition edit"]
+      },
+      "hashtags": ["fashionedit", "outfittransition"]
+    },
+    {
+      "id": "gaming",
+      "emoji": "🎮",
+      "name": { "ar": "قيمنق", "en": "Gaming" },
+      "queries": {
+        "ar": ["ايديت قيمنق", "مونتاج قيمز"],
+        "en": ["gaming edit", "gaming montage"]
+      },
+      "hashtags": ["gamingedit", "gamingmontage"]
+    },
+    {
+      "id": "weddings",
+      "emoji": "💍",
+      "name": { "ar": "أعراس", "en": "Weddings" },
+      "queries": {
+        "ar": ["مونتاج زواج", "تصوير أعراس"],
+        "en": ["wedding edit", "wedding cinematic film"]
+      },
+      "hashtags": ["weddingedit", "weddingfilm"]
+    },
+    {
+      "id": "gym",
+      "emoji": "🏋️",
+      "name": { "ar": "جيم", "en": "Gym" },
+      "queries": {
+        "ar": ["ايديت جيم", "مونتاج جيم"],
+        "en": ["gym edit", "gym motivation edit"]
+      },
+      "hashtags": ["gymedit", "gymmotivation"]
+    }
+  ]
+}

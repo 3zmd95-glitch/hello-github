@@ -516,6 +516,22 @@ Brainstorm round 30, later the same day (owner: "I want to have Metricool in my 
   Metricool API/MCP (the API is $53/month and up; the owner wants our own). Beacons ($10/month) is cancelled once its parts are live here.
 - First item: the TikTok and YouTube app reviews so posts can be public. Roadmap, status per feature and order in `tools/09-metricool-beacons.md`.
 
+Round 31 (Sep 29, 2026; owner: "search based on genre of edits: cars, food and restaurants, anime, travel… understand the latest
+trends and most famous edits by genre"):
+- PR #18 (round 30: Trend Radar, post everywhere v2, the search fixes) merged and deployed; the owner added the
+  `YOUTUBE_API_KEY` secret and the Worker was redeployed with it.
+- **Discover by edit genre** (`tools/11-discover-genres.md`): 12 genres in one JSON shared by the app and the Worker (the four
+  the owner named plus football, coffee, perfume, camping & desert, fashion, gaming, weddings, gym), the owner's own genres in
+  Settings, genre chips in Discover and every skill's Research panel, a 🔥 Most popular sort, views / likes on the cards, genre
+  keywords in the radar's daily YouTube scan (cap 12 → 18 a day, rotated so every keyword is searched within two days) and a
+  genre chip on the radar's rows.
+- **One place** (owner: "I don't want to get confused having two places"): Discover is the one place for genres. The radar
+  has no genre filter; a row's genre chip opens Discover on that genre, where a "📈 Most viewed this week" strip shows the
+  radar's rows of the genre above the search results. Social has a Discover shortcut (More page, desktop sidebar).
+- Decisions: subject genres first, **edit style** (velocity, beat sync, phonk…) as a later second axis; popularity is views on
+  YouTube and likes × 10 on TikTok / Instagram, labelled as a ranking aid; no automated TikTok / Instagram trend lists (terms,
+  same as round 30); nothing adopted as a dependency (search log in `tools/11-discover-genres.md` and `tools/05-found-on-github.md`).
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|

@@ -19,6 +19,17 @@ export interface ScoutConfig {
   token: string;
 }
 
+/**
+ * How far a post went, when the source says so (round 31): YouTube views / likes / comments from the Data
+ * API, TikTok and Instagram likes / comments read off the page's heading. Non-negative whole numbers; a
+ * count nobody reported is left out. MIRRORS `Stats` in `workers/scout/src/normalize.ts` (hand-copied).
+ */
+export interface Stats {
+  views?: number;
+  likes?: number;
+  comments?: number;
+}
+
 export interface ScoutResult {
   platform: ScoutPlatform;
   handle: string;
@@ -26,6 +37,8 @@ export interface ScoutResult {
   snippet: string;
   url: string;
   thumb?: string;
+  /** Only when the Worker found at least one count (never an empty object). */
+  stats?: Stats;
 }
 
 export interface ScoutOembed {
@@ -81,9 +94,10 @@ export const SCOUT_CACHE_KEY = "3z-scout-cache";
 export const SCOUT_USAGE_KEY = "3z-scout-usage";
 /**
  * Bump when the Worker's result shape or normalization changes, so results cached from the old Worker
- * (e.g. Instagram cards titled just "Instagram", before v2) are never served again.
+ * (e.g. Instagram cards titled just "Instagram", before v2; cards without `stats`, before v3) are never
+ * served again.
  */
-export const SCOUT_CACHE_VERSION = 2;
+export const SCOUT_CACHE_VERSION = 3;
 export const SCOUT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** An empty answer is often a Tavily hiccup or a too-narrow filter: keep it only briefly. */
 export const SCOUT_CACHE_EMPTY_TTL_MS = 10 * 60 * 1000;
@@ -327,6 +341,23 @@ export function subscribeScoutUsage(listener: () => void): () => void {
 
 /* ---------- API ---------- */
 
+const STAT_KEYS = ["views", "likes", "comments"] as const;
+
+/**
+ * The counts worth keeping from a `stats` object of unknown shape: finite numbers ≥ 0, rounded down to whole
+ * numbers. Anything else (a string, a negative, NaN, Infinity) is dropped; undefined when no count is left,
+ * so a card never carries an empty `stats`.
+ */
+export function parseStats(raw: unknown): Stats | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const out: Stats = {};
+  for (const k of STAT_KEYS) {
+    const v = (raw as Record<string, unknown>)[k];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) out[k] = Math.floor(v);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function parseResults(data: unknown): ScoutResult[] {
   const raw = (data as { results?: unknown })?.results;
   if (!Array.isArray(raw)) return [];
@@ -334,6 +365,7 @@ function parseResults(data: unknown): ScoutResult[] {
   for (const r of raw as Partial<ScoutResult>[]) {
     if (!r || typeof r.url !== "string" || !PLATFORMS.includes(r.platform as ScoutPlatform))
       continue;
+    const stats = parseStats(r.stats);
     out.push({
       platform: r.platform as ScoutPlatform,
       handle: typeof r.handle === "string" ? r.handle : "",
@@ -341,6 +373,7 @@ function parseResults(data: unknown): ScoutResult[] {
       snippet: typeof r.snippet === "string" ? r.snippet : "",
       url: r.url,
       ...(typeof r.thumb === "string" && /^https?:\/\//.test(r.thumb) ? { thumb: r.thumb } : {}),
+      ...(stats ? { stats } : {}),
     });
   }
   return out;

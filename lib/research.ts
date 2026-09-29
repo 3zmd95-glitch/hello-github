@@ -1,10 +1,26 @@
-import { RefSchema, type Lang, type Program, type Ref, type RefPlatform } from "./domain";
+import {
+  RefSchema,
+  type Genre,
+  type Lang,
+  type Program,
+  type Ref,
+  type RefPlatform,
+  type TrendItem,
+  type TrendsState,
+} from "./domain";
+import { genreHashtag, genreQuery } from "./genres";
+import { parseStats, type Stats } from "./scoutClient";
+import { visibleTrends } from "./trends";
+
+export type { Stats };
 
 /**
  * Scout v0 (build plan 1.13, master plan round 23): platform search links for a topic, a pasted-link
  * normalizer, and a thin wrapper around the free YouTube Data API v3 `search.list` endpoint. No backend,
  * no server key: everything here runs on the phone, and the owner's own YouTube key (if any) lives in
- * Settings/localStorage.
+ * Settings/localStorage. Round 31 adds the edit-genre query ({@link researchQuery}), the view / like counts
+ * of a post (`stats`), the "Most popular" order ({@link sortByPopularity}) and the "Most viewed this week"
+ * strip of a genre, read from the Trend Radar's feed ({@link genreWeekItems}).
  */
 
 /** Program id whose YouTube EN search gets an extra " davinci resolve" suffix (almost always what's meant). */
@@ -51,6 +67,26 @@ export function withProgramHint(query: string, hint?: string): string {
   const q = query.trim();
   if (!hint || !q) return q;
   return q.toLowerCase().includes(hint.toLowerCase()) ? q : `${q} ${hint}`;
+}
+
+/**
+ * The search text the research panel sends (round 31): the topic (or the skill's name), then the picked
+ * genre's main query in the search language, then the program hint ("Smart Bins" + cars + DaVinci →
+ * "Smart Bins car edit DaVinci Resolve"). A genre with no topic is a search of its own ("car edit");
+ * without a genre the text is what it always was.
+ */
+export function researchQuery(base: string, lang: Lang, genre?: Genre, hint?: string): string {
+  return withProgramHint(genre ? genreQuery(genre, lang, base) : base, hint);
+}
+
+/**
+ * The Instagram hashtag slug behind the "open on platform" menu: the genre's own hashtag when the genre is
+ * the whole search (no topic), else the slug of `slugSource` (the skill's EN name, or the Discover topic).
+ * Empty = no hashtag link (an Arabic topic, a custom genre without hashtags).
+ */
+export function researchHashtag(base: string, slugSource: string, genre?: Genre): string {
+  if (genre && !base.trim()) return genreHashtag(genre) ?? "";
+  return hashtagSlug(slugSource);
 }
 
 const ytUrl = (q: string) =>
@@ -204,6 +240,8 @@ export interface YoutubeVideo {
   description: string;
   thumb: string;
   url: string;
+  /** Views / likes / comments from `videos.list`, when that second call answered for this video. */
+  stats?: Stats;
 }
 
 export type YoutubeSearchError =
@@ -213,7 +251,16 @@ export type YoutubeSearchError =
   | { type: "unknown"; status?: number };
 
 export type YoutubeSearchResult =
-  { ok: true; items: YoutubeVideo[] } | { ok: false; error: YoutubeSearchError };
+  | {
+      ok: true;
+      items: YoutubeVideo[];
+      /**
+       * The statistics call did not answer (network, quota, a timeout): the videos are here, their numbers
+       * are not. {@link cachedYoutubeSearch} remembers it and asks for the numbers alone next time.
+       */
+      statsMissing?: true;
+    }
+  | { ok: false; error: YoutubeSearchError };
 
 export type YoutubeErrorMessageKey =
   "research.errQuota" | "research.errForbidden" | "research.errNetwork" | "research.errUnknown";
@@ -243,6 +290,11 @@ export interface YoutubeSearchOpts {
   videoDuration?: YoutubeDuration;
   /** RFC 3339 date-time: only videos published after it (see {@link publishedAfterFor}). */
   publishedAfter?: string;
+  /**
+   * "viewCount" = most viewed first (the "Most popular" sort). Omitted = YouTube's relevance order, and the
+   * request URL (so the cache key) stays what it was before the sort existed.
+   */
+  order?: "viewCount";
   /** Injectable for tests; defaults to the global `fetch`. */
   fetchImpl?: typeof fetch;
 }
@@ -262,7 +314,26 @@ export function youtubeSearchUrl(apiKey: string, q: string, opts: YoutubeSearchO
     params.set("videoDuration", opts.videoDuration);
   }
   if (opts.publishedAfter) params.set("publishedAfter", opts.publishedAfter);
+  if (opts.order) params.set("order", opts.order);
   return `https://www.googleapis.com/youtube/v3/search?${params.toString()}`;
+}
+
+/** `videos.list` takes at most 50 ids per call. */
+export const YOUTUBE_STATS_MAX_IDS = 50;
+/** The statistics call never holds the cards back longer than this. */
+export const YOUTUBE_STATS_TIMEOUT_MS = 6000;
+
+/**
+ * Build the `videos.list?part=statistics` request for the videos of one search (1 quota unit, against 100
+ * for the search itself). Exported so URL-building is testable without a network call.
+ */
+export function youtubeStatsUrl(apiKey: string, videoIds: readonly string[]): string {
+  const params = new URLSearchParams({
+    part: "statistics",
+    id: videoIds.slice(0, YOUTUBE_STATS_MAX_IDS).join(","),
+    key: apiKey,
+  });
+  return `https://www.googleapis.com/youtube/v3/videos?${params.toString()}`;
 }
 
 interface RawSearchResponse {
@@ -281,7 +352,77 @@ interface RawErrorResponse {
   error?: { errors?: { reason?: string }[] };
 }
 
-/** Run one YouTube search. Never throws: network and API errors come back as a typed `{ ok: false }`. */
+interface RawStatsResponse {
+  items?: {
+    id?: unknown;
+    statistics?: { viewCount?: unknown; likeCount?: unknown; commentCount?: unknown };
+  }[];
+}
+
+/** A count from the API, which sends numbers as strings ("12345"); undefined when hidden or malformed. */
+function countOf(v: unknown): number | undefined {
+  if (typeof v === "number") return v;
+  return typeof v === "string" && /^\d+$/.test(v) ? Number(v) : undefined;
+}
+
+function timeoutSignal(ms: number): AbortSignal | undefined {
+  return typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+    ? AbortSignal.timeout(ms)
+    : undefined;
+}
+
+/**
+ * Views / likes / comments by video id, from ONE `videos.list` call. Never throws and never fails the
+ * search. A Map when the call answered (maybe empty: hidden counts, or no ids to ask about); undefined when
+ * it did not (an API error, the network, a timeout, a body that isn't JSON), so the caller can tell "no
+ * numbers" from "ask again".
+ */
+async function youtubeStats(
+  apiKey: string,
+  videoIds: readonly string[],
+  doFetch: typeof fetch,
+): Promise<Map<string, Stats> | undefined> {
+  const out = new Map<string, Stats>();
+  if (videoIds.length === 0) return out;
+  try {
+    const res = await doFetch(youtubeStatsUrl(apiKey, videoIds), {
+      signal: timeoutSignal(YOUTUBE_STATS_TIMEOUT_MS),
+    });
+    if (!res.ok) return undefined;
+    const data = (await res.json()) as RawStatsResponse;
+    for (const it of data.items ?? []) {
+      if (typeof it?.id !== "string") continue;
+      const stats = parseStats({
+        views: countOf(it.statistics?.viewCount),
+        likes: countOf(it.statistics?.likeCount),
+        comments: countOf(it.statistics?.commentCount),
+      });
+      if (stats) out.set(it.id, stats);
+    }
+  } catch {
+    // The cards go without numbers for now.
+    return undefined;
+  }
+  return out;
+}
+
+/** The videos with the numbers the statistics call gave; a video it did not name stays as it was. */
+function withStats(
+  items: readonly YoutubeVideo[],
+  stats: ReadonlyMap<string, Stats>,
+): YoutubeVideo[] {
+  return items.map((v) => {
+    const s = stats.get(v.videoId);
+    return s ? { ...v, stats: s } : v;
+  });
+}
+
+/**
+ * Run one YouTube search, then one `videos.list` call for the statistics of the videos it found (views,
+ * likes, comments; 1 quota unit). Never throws: network and API errors of the search come back as a typed
+ * `{ ok: false }`; a failure of the statistics call keeps the videos, without `stats`, and says so with
+ * `statsMissing`.
+ */
 export async function youtubeSearch(
   apiKey: string,
   q: string,
@@ -321,7 +462,13 @@ export async function youtubeSearch(
       url: `https://www.youtube.com/watch?v=${videoId}`,
     });
   }
-  return { ok: true, items };
+  const stats = await youtubeStats(
+    apiKey,
+    items.map((v) => v.videoId),
+    doFetch,
+  );
+  if (!stats) return { ok: true, items, statsMissing: true };
+  return { ok: true, items: withStats(items, stats) };
 }
 
 /** The API returns HTML-escaped snippet text ("Tom &amp; Jerry", "it&#39;s"); decode the common entities. */
@@ -346,24 +493,69 @@ export function decodeEntities(text: string): string {
 
 /** A search costs 100 of the key's 10,000 daily units, so repeats within this window are served locally. */
 export const YOUTUBE_CACHE_TTL_MS = 30 * 60 * 1000;
-const ytMemory = new Map<string, { at: number; items: YoutubeVideo[] }>();
+
+/** One cached search: what it found, when, and whether its numbers are still owed. */
+interface YoutubeCacheEntry {
+  /** When the search was made; a later statistics call never moves it. */
+  at: number;
+  items: YoutubeVideo[];
+  /** The statistics call failed for this search: the next hit asks for the numbers again. */
+  statsMissing?: true;
+}
+
+const ytMemory = new Map<string, YoutubeCacheEntry>();
 const ytInflight = new Map<string, Promise<YoutubeSearchResult>>();
 
-/** Cached results for exactly this request (same key, query and options), without fetching. */
+/** The cache entry of a request while it is within {@link YOUTUBE_CACHE_TTL_MS}. */
+function freshYoutubeEntry(key: string, now: number): YoutubeCacheEntry | undefined {
+  const hit = ytMemory.get(key);
+  return hit && now - hit.at < YOUTUBE_CACHE_TTL_MS ? hit : undefined;
+}
+
+/**
+ * Cached results for exactly this request (same key, query and options), without fetching. They carry the
+ * numbers as soon as a statistics call has answered for them, the first one or a later one.
+ */
 export function peekYoutubeSearch(
   apiKey: string,
   q: string,
   opts: YoutubeSearchOpts = {},
   now = Date.now(),
 ): YoutubeVideo[] | undefined {
-  const hit = ytMemory.get(youtubeSearchUrl(apiKey, q, opts));
-  return hit && now - hit.at < YOUTUBE_CACHE_TTL_MS ? hit.items : undefined;
+  return freshYoutubeEntry(youtubeSearchUrl(apiKey, q, opts), now)?.items;
+}
+
+/**
+ * The numbers for a cached search whose statistics call failed: ONE `videos.list` call for the cached
+ * videos (1 quota unit), never the search again (100). When it answers, the entry is rewritten with the
+ * numbers and keeps its original time; when it fails again the cached videos come back as they were and
+ * the next hit tries once more.
+ */
+async function refillYoutubeStats(
+  apiKey: string,
+  key: string,
+  hit: YoutubeCacheEntry,
+  doFetch: typeof fetch,
+): Promise<YoutubeSearchResult> {
+  const stats = await youtubeStats(
+    apiKey,
+    hit.items.map((v) => v.videoId),
+    doFetch,
+  );
+  if (!stats) return { ok: true, items: hit.items, statsMissing: true };
+  const items = withStats(hit.items, stats);
+  // Unless the entry was replaced or forgotten while the call was out.
+  if (ytMemory.get(key) === hit) ytMemory.set(key, { at: hit.at, items });
+  return { ok: true, items };
 }
 
 /**
  * {@link youtubeSearch} with a per-session memory cache and in-flight dedupe keyed on the full request URL
- * (query, language, duration, published-after), so switching tabs or filters back and forth costs nothing.
- * Only successful answers are cached.
+ * (query, language, duration, published-after, order), so switching tabs or filters back and forth costs
+ * nothing. Only successful answers are cached, with whatever statistics came with them. A cached search
+ * whose statistics call had failed is served from memory too, after asking for its numbers alone once more
+ * (see {@link refillYoutubeStats}; concurrent callers share that one request), so "Search again" can bring
+ * the numbers back without paying for the search twice.
  */
 export async function cachedYoutubeSearch(
   apiKey: string,
@@ -372,19 +564,28 @@ export async function cachedYoutubeSearch(
   now = Date.now(),
 ): Promise<YoutubeSearchResult> {
   const key = youtubeSearchUrl(apiKey, q, opts);
-  const hit = peekYoutubeSearch(apiKey, q, opts, now);
-  if (hit) return { ok: true, items: hit };
+  const hit = freshYoutubeEntry(key, now);
+  const refill = !!hit?.statsMissing && hit.items.length > 0;
+  if (hit && !refill) return { ok: true, items: hit.items };
   const pending = ytInflight.get(key);
   if (pending) return pending;
-  const run = youtubeSearch(apiKey, q, opts).then((r) => {
-    if (r.ok) ytMemory.set(key, { at: now, items: r.items });
-    return r;
-  });
+  const run = hit
+    ? refillYoutubeStats(apiKey, key, hit, opts.fetchImpl ?? fetch)
+    : youtubeSearch(apiKey, q, opts).then((r) => {
+        if (r.ok) {
+          ytMemory.set(key, {
+            at: now,
+            items: r.items,
+            ...(r.statsMissing ? { statsMissing: true as const } : {}),
+          });
+        }
+        return r;
+      });
   ytInflight.set(key, run);
   try {
     return await run;
   } finally {
-    ytInflight.delete(key);
+    if (ytInflight.get(key) === run) ytInflight.delete(key);
   }
 }
 
@@ -400,6 +601,8 @@ export type ResearchTab = "all" | "yt" | "tt" | "ig";
 export const RESEARCH_TABS: readonly ResearchTab[] = ["all", "yt", "tt", "ig"];
 export type Recency = "any" | "week" | "month" | "year";
 export type LengthFilter = "any" | "short" | "long";
+/** The Sort filter: the order the sources gave, or the most viewed / liked first. */
+export type SortMode = "relevance" | "popular";
 
 const RECENCY_DAYS: Record<Exclude<Recency, "any">, number> = { week: 7, month: 30, year: 365 };
 
@@ -455,6 +658,54 @@ export function arabicFirst<T extends { title: string; snippet?: string }>(
   return [...items.filter(ar), ...items.filter((i) => !ar(i))];
 }
 
+/**
+ * One number to rank a post by: its views when known, else its likes × 10 (about one like per ten views,
+ * so a TikTok with likes only can sit next to a YouTube video with views). Undefined when neither is known.
+ */
+export function popularityOf(stats?: Stats): number | undefined {
+  if (stats?.views !== undefined) return stats.views;
+  if (stats?.likes !== undefined) return stats.likes * 10;
+  return undefined;
+}
+
+/**
+ * The "Most popular" order: posts with a known {@link popularityOf} first, highest first; the rest after, in
+ * their original order. Stable (ties keep their order) and never touches the list it was given.
+ */
+export function sortByPopularity<T extends { stats?: Stats }>(items: readonly T[]): T[] {
+  const known: { item: T; score: number }[] = [];
+  const unknown: T[] = [];
+  for (const item of items) {
+    const score = popularityOf(item.stats);
+    if (score === undefined) unknown.push(item);
+    else known.push({ item, score });
+  }
+  known.sort((a, b) => b.score - a.score);
+  return [...known.map((k) => k.item), ...unknown];
+}
+
+/** What the stats chip of a card shows: the views when known, else the likes; undefined without either. */
+export function headlineStat(
+  stats?: Stats,
+): { kind: "views" | "likes"; value: number } | undefined {
+  if (stats?.views !== undefined) return { kind: "views", value: stats.views };
+  if (stats?.likes !== undefined) return { kind: "likes", value: stats.likes };
+  return undefined;
+}
+
+/**
+ * A count the short way, in the language of the dashboard ("1.2M", "45K", "1.2 مليون"). The digits are
+ * pinned to Latin ones, like everywhere else in the dashboard: left alone, "ar" prints Arabic-Indic digits
+ * on some (older) browsers.
+ */
+export function compactCount(n: number, lang: Lang): string {
+  return new Intl.NumberFormat(lang, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+    numberingSystem: "latn",
+  }).format(n);
+}
+
 /** One card in the research panel, whatever it came from (YouTube Data API, Scout Worker, a saved ref). */
 export interface ResearchItem {
   platform: RefPlatform;
@@ -463,6 +714,8 @@ export interface ResearchItem {
   snippet: string;
   url: string;
   thumb?: string;
+  /** Known for search cards only, when the source gave counts; a saved {@link Ref} never keeps them. */
+  stats?: Stats;
 }
 
 export function itemFromYoutube(v: YoutubeVideo): ResearchItem {
@@ -473,6 +726,7 @@ export function itemFromYoutube(v: YoutubeVideo): ResearchItem {
     snippet: v.description,
     url: v.url,
     ...(v.thumb ? { thumb: v.thumb } : {}),
+    ...(v.stats ? { stats: v.stats } : {}),
   };
 }
 
@@ -480,7 +734,7 @@ export function itemFromRef(r: Ref): ResearchItem {
   return { ...r, snippet: "" };
 }
 
-/** The {@link Ref} saved when a card is attached to a skill. */
+/** The {@link Ref} saved when a card is attached to a skill (its counts are not kept: they go stale). */
 export function refFromItem(i: ResearchItem): Ref {
   return {
     platform: i.platform,
@@ -489,6 +743,58 @@ export function refFromItem(i: ResearchItem): Ref {
     url: i.url,
     ...(i.thumb ? { thumb: i.thumb } : {}),
   };
+}
+
+/* ---------- "Most viewed this week": the Trend Radar's rows of a genre, as cards ---------- */
+
+/** How many of the radar's rows the "Most viewed this week" strip shows. */
+export const GENRE_WEEK_MAX = 6;
+
+const HTTP_URL = /^https?:\/\//i;
+const YT_WATCH = "https://www.youtube.com/watch?v=";
+
+/**
+ * A Trend Radar row as a card of the research panel. The rows of a genre come from the Worker's daily
+ * YouTube keyword scan: the views are the row's `volume`, and the channel is what the Worker writes in the
+ * `why` of a YouTube row (no handle when it sent none). The link goes in its {@link canonicalRefUrl} form,
+ * like a search card's, so attaching it saves the same reference. Undefined for a row that is not a YouTube
+ * video with a link (a watch, Shorts or youtu.be address): nothing to open or attach.
+ */
+export function itemFromTrend(row: TrendItem): ResearchItem | undefined {
+  const url = row.url?.trim();
+  if (row.platform !== "youtube" || !url || !HTTP_URL.test(url)) return undefined;
+  if (detectPlatform(url) !== "yt") return undefined;
+  const canonical = canonicalRefUrl("yt", url);
+  if (!canonical.startsWith(YT_WATCH)) return undefined;
+  const stats = parseStats({ views: row.volume });
+  return {
+    platform: "yt",
+    handle: row.why?.trim() ?? "",
+    title: row.title,
+    snippet: "",
+    url: canonical,
+    ...(row.thumb && HTTP_URL.test(row.thumb) ? { thumb: row.thumb } : {}),
+    ...(stats ? { stats } : {}),
+  };
+}
+
+/**
+ * The "Most viewed this week" strip of a genre: the rows of the radar's feed tagged with it that still show
+ * (lib/trends' `visibleTrends`: not dismissed, not expired), in the search language, best score first, as
+ * cards; the first {@link GENRE_WEEK_MAX}, each video once. They are the most viewed results of the
+ * Worker's keyword search for the genre this week, not a trending list of the platform. Empty without a
+ * genre and for a genre the feed has no rows of (the Worker scans the built-in genres only, so an owner's
+ * own genre has none).
+ */
+export function genreWeekItems(
+  feed: TrendsState,
+  genreId: string | undefined,
+  lang: Lang,
+  now: Date = new Date(),
+): ResearchItem[] {
+  if (!genreId) return [];
+  const rows = visibleTrends(feed, { genre: genreId, lang }, now);
+  return dedupeByUrl(rows.flatMap((row) => itemFromTrend(row) ?? [])).slice(0, GENRE_WEEK_MAX);
 }
 
 /**

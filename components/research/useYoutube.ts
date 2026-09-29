@@ -24,6 +24,11 @@ type Settled = Tagged<
  * One YouTube Data API search (null key or empty query = off), through the per-session cache so switching
  * tabs and filters back and forth doesn't spend the key's daily quota twice. A new `attempt` (the panel's
  * "Search" press counter) asks again after an error. The returned state object is stable between renders.
+ * `opts.order` ("Most popular") is part of the request, so it is a search of its own; the videos come with
+ * their `stats` when the statistics call answered. When it did not, the videos show without numbers, and
+ * the next time the same search is asked for (a new `attempt`, or coming back to it) the cache asks for
+ * the numbers alone (1 quota unit, never the search again): the videos stay up meanwhile, and the same
+ * ones with their `stats` take their place once that call answers.
  */
 export function useYoutubeQuery(
   apiKey: string | undefined,
@@ -35,7 +40,7 @@ export function useYoutubeQuery(
   const active = !!apiKey && query.length > 0;
   const key = active ? youtubeSearchUrl(apiKey, query, opts) : "";
   const [settled, setSettled] = useState<Settled | null>(null);
-  const { relevanceLanguage, maxResults, videoDuration, publishedAfter, regionCode } = opts;
+  const { relevanceLanguage, maxResults, videoDuration, publishedAfter, regionCode, order } = opts;
 
   useEffect(() => {
     if (!active || !apiKey) return;
@@ -46,6 +51,7 @@ export function useYoutubeQuery(
       videoDuration,
       publishedAfter,
       regionCode,
+      order,
     }).then((r) => {
       if (!alive) return;
       setSettled(
@@ -68,6 +74,7 @@ export function useYoutubeQuery(
     videoDuration,
     publishedAfter,
     regionCode,
+    order,
   ]);
 
   if (!active) return OFF;

@@ -25,7 +25,7 @@ Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
 | Route                   | What it does                                                                                                                                                                                                                                                                                  |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /health`           | `{ ok: true }`. With a valid token: `{ ok: true, auth: true, tavily: <key present>, social: { configured: { instagram, threads, youtube, tiktok }, kv }, trends: { youtube: <key present>, sources: [...] } }`; a wrong token → 401. Used by the Settings "Test" button and the Connect page. |
-| `POST /search`          | Body `{ q, platforms: ["tt","ig","yt"], lang?, max?, timeRange?, thumbs? }` → `{ results: [{ platform, handle, title, snippet, url, thumb? }], credits: { used } }`. See below.                                                                                                               |
+| `POST /search`          | Body `{ q, platforms: ["tt","ig","yt"], lang?, max?, timeRange?, thumbs? }` → `{ results: [{ platform, handle, title, snippet, url, thumb?, stats? }], credits: { used } }` with `stats: { views?, likes?, comments? }`. See below.                                                           |
 | `GET /oembed?url=…`     | TikTok / YouTube links only → `{ title, author, thumb, url }`, cached for a day (TikTok for 6 hours: its thumbnail URLs are signed and expire).                                                                                                                                               |
 | `/social/*`, `/oauth/*` | The social analytics connector, see [Social analytics](#social-analytics), the publish queue, see [Auto-posting](#auto-posting), and the auto-replies, see [Auto-replies](#auto-replies).                                                  |
 | `GET /go/:id/:n`        | No bearer: counts a tap on an auto-reply DM link and answers `302` to the button's URL (`Cache-Control: no-store`). 404 for an unknown automation or button.                                                                          |
@@ -49,6 +49,20 @@ Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
   - **Instagram**: no `thumb`. Instagram's oEmbed needs a Meta app access token (Facebook developer app +
     review), which this Worker does not have yet; the dashboard shows a placeholder tile.
   - `thumbs: false` skips the oEmbed calls (faster, fewer subrequests).
+- `stats` on a card (round 31, the dashboard's "Most popular" sort): `{ views?, likes?, comments? }`,
+  whole numbers ≥ 0, only the counts that are known. A card without any count has no `stats` (never
+  `{}`), and older dashboards ignore the field.
+  - **TikTok / Instagram**: read from the head of the page text Tavily returns (`normalize.ts`
+    `parseEngagement`): "1,234 likes, 56 comments - …", "13.5K Likes, 120 Comments. TikTok video from …",
+    "٢٬٥٠٧ تسجيلات إعجاب، ٥٥ تعليق", "١٣٫٥ ألف إعجاب". It knows K / M / B and ألف / مليون / مليار,
+    Arabic-Indic digits and the Arabic thousands / decimal marks. These pages show likes and comments,
+    rarely views, and many hits carry no counts at all; a caption that only mentions a number ("100 likes
+    and I post part 2") is not read as one.
+  - **YouTube**: one `videos.list?part=statistics` for all the YouTube cards of the answer (at most 50
+    ids, 1 of the 10,000 daily quota units, one subrequest), sent after the thumbnails and only when
+    `YOUTUBE_API_KEY` is set; `thumbs: false` does not skip it. It gives up after 2.5 s and never fails
+    the search: without the key, on an error or a timeout the YouTube cards just have no `stats`. Hidden
+    likes or closed comments leave that count out.
 - Cards (`normalize.ts`):
   - Only single posts: TikTok `/@user/video/<id>`, YouTube watch / shorts / youtu.be, Instagram
     `/reel/`, `/reels/`, `/p/`, `/tv/` `<id>` (optionally behind `/<user>/`); Instagram sound pages
@@ -66,8 +80,8 @@ Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
     "Instagram reel".
 - Errors: `{ error: "quota" | "auth" | "upstream" | "bad_request" }`.
 
-The response shape is unchanged from v0: older dashboards that send neither option keep working (they get
-thumbnails by default).
+Apart from the optional `stats`, the response shape is unchanged from v0: older dashboards that send neither
+option keep working (they get thumbnails by default).
 
 ## Social analytics
 
@@ -287,32 +301,73 @@ its `source` label and the dashboard never calls a chart or a scan "trending".
 
 `TrendItem` is `{ id, platform: google|youtube|tiktok|instagram|threads|x|event, region: SA|US|global,
 lang: ar|en|mixed, title, url?, thumb?, score? (0..100, rank 1 = 100 within its source), growthPct?, volume?,
-source, why?, seenAt, expiresAt?, tags, skillHint? }`; `id` is `<platform>:<region>:<slug>` and stays the same
-across runs (the dashboard's dismissed list keys on it). `lang` follows the region (SA rows `ar`, US rows
-`en`), except hashtags / scan hits (by their script) and events (`mixed`).
+source, why?, seenAt, expiresAt?, tags, skillHint?, genre? }`; `id` is `<platform>:<region>:<slug>` and stays
+the same across runs (the dashboard's dismissed list keys on it). `lang` follows the region (SA rows `ar`, US
+rows `en`), except hashtags / scan hits (by their script) and events (`mixed`). `genre` is an edit-genre id of
+`planning/data/genres.json` (`cars`, `food`, `anime`…), set only on the rows the daily keyword search found
+through a genre's query; the dashboard names it on the radar's rows and lists those rows in Discover. The daily keyword search scores its rows per
+language (rank 1 = 100 among its Arabic rows and among its English rows).
 
 ### Sources, slots and budgets
 
-| Source (`TREND_SOURCES` key → label) | What                                                                                                                                                                                                                                                                                                                     | When (UTC)                                                      | Calls per run                             |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- | ----------------------------------------- |
-| `google` → **Google Trends**         | "Trending now" SA + US, 24 h: the `batchexecute` RPC (`i0OFE`, volume, growth %, related queries → `tags`) enriched by the RSS feed (first headline → `why`, its link → `url`, picture → `thumb`). RSS alone when the RPC fails (`degraded`). Top 25 per region                                                          | fast: 00:05, 06:05, 12:05, 18:05                                | 4                                         |
-| `youtube` → **YouTube charts**       | `videos.list chart=mostPopular` SA + US, all categories and How-to & Style (26), 25 each; `≤ 180 s` → tag `short`; `volume` = views, `why` = channel. Since July 2025 this is the Music / Movies / Gaming chart, hence "charts"                                                                                          | fast                                                            | 4 (4 quota units)                         |
-| `youtube` → **YouTube search**       | `search.list order=viewCount publishedAfter=7d videoDuration=short` for `TREND_KEYWORDS_AR` (SA, `ar`) and `TREND_KEYWORDS_EN` (US, `en`), interleaved, then one `videos.list`; `tags` = the keyword. **Hard cap 12 `search.list` calls per run and per UTC day** (KV `trends:ytsearch:<day>`)                           | daily: 21:05 (00:05 Riyadh)                                     | ≤ 13 (≤ 12 of the 100 daily search calls) |
-| `tavily` → **Tavily scan**           | 8 searches (4 Arabic, `country: saudi arabia`, `language: ar`; 3 English, `country: united states`; 1 against the weekly trend blogs), `time_range: week`, platform sites only; `#hashtags` and "quoted names" counted across pages (`volume` = pages), `why` = the best page's snippet, `tags: ["scan"]`, 14-day expiry | weekly: Saturday 21:15 (00:15 Riyadh Sunday), once per ISO week | 8 (8 credits)                             |
-| `events` → **3z calendar**           | `planning/data/saudi-events.json` bundled at build: every moment within 60 days (running ones score 100), `tags` = kind + hashtags, expires the Riyadh midnight after its last day                                                                                                                                       | fast                                                            | 0                                         |
-| `kworb` → **kworb.net** (off)        | TikTok trending sounds SA + US (top 30, tag `sound`, `url` a TikTok search for the sound)                                                                                                                                                                                                                                | fast                                                            | 2                                         |
-| `x` → **trends24.in** (off)          | X trends Saudi Arabia, the latest hourly snapshot (top 30, tag `hashtag`)                                                                                                                                                                                                                                                | fast                                                            | 1                                         |
+| Source (`TREND_SOURCES` key → label) | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | When (UTC)                                                      | Calls per run                             |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------- |
+| `google` → **Google Trends**         | "Trending now" SA + US, 24 h: the `batchexecute` RPC (`i0OFE`, volume, growth %, related queries → `tags`) enriched by the RSS feed (first headline → `why`, its link → `url`, picture → `thumb`). RSS alone when the RPC fails (`degraded`). Top 25 per region                                                                                                                                                                                                      | fast: 00:05, 06:05, 12:05, 18:05                                | 4                                         |
+| `youtube` → **YouTube charts**       | `videos.list chart=mostPopular` SA + US, all categories and How-to & Style (26), 25 each; `≤ 180 s` → tag `short`; `volume` = views, `why` = channel. Since July 2025 this is the Music / Movies / Gaming chart, hence "charts"                                                                                                                                                                                                                                      | fast                                                            | 4 (4 quota units)                         |
+| `youtube` → **YouTube search**       | `search.list order=viewCount publishedAfter=7d videoDuration=short` for the niche keywords `TREND_KEYWORDS_AR` (SA, `ar`) and `TREND_KEYWORDS_EN` (US, `en`) and for the main query of every edit genre, interleaved and rotated by UTC day, then one `videos.list`; `tags` = the keyword, `genre` = the genre's id. **Hard cap 18 `search.list` calls per run and per UTC day** (KV `trends:ytsearch:<day>`). See [the daily keyword scan](#the-daily-keyword-scan) | daily: 21:05 (00:05 Riyadh)                                     | ≤ 19 (≤ 18 of the 100 daily search calls) |
+| `tavily` → **Tavily scan**           | 8 searches (4 Arabic, `country: saudi arabia`, `language: ar`; 3 English, `country: united states`; 1 against the weekly trend blogs), `time_range: week`, platform sites only; `#hashtags` and "quoted names" counted across pages (`volume` = pages), `why` = the best page's snippet, `tags: ["scan"]`, 14-day expiry                                                                                                                                             | weekly: Saturday 21:15 (00:15 Riyadh Sunday), once per ISO week | 8 (8 credits)                             |
+| `events` → **3z calendar**           | `planning/data/saudi-events.json` bundled at build: every moment within 60 days (running ones score 100), `tags` = kind + hashtags, expires the Riyadh midnight after its last day                                                                                                                                                                                                                                                                                   | fast                                                            | 0                                         |
+| `kworb` → **kworb.net** (off)        | TikTok trending sounds SA + US (top 30, tag `sound`, `url` a TikTok search for the sound)                                                                                                                                                                                                                                                                                                                                                                            | fast                                                            | 2                                         |
+| `x` → **trends24.in** (off)          | X trends Saudi Arabia, the latest hourly snapshot (top 30, tag `hashtag`)                                                                                                                                                                                                                                                                                                                                                                                            | fast                                                            | 1                                         |
 
 A run gets **38 outbound calls** (`RUN_BUDGET`; KV takes the rest of the 50 subrequests: one feed read, at
 most two feed writes, the search counter on daily runs (one read, a reservation write and at most one refund
-write) and the weekly stamp on weekly runs (one read, one write): at most eight). Every outbound call has a
+write) and the weekly stamp on weekly runs (one read, one write): at most eight). A fast run spends at most
+11 calls, the daily run at most 19 (18 searches and the statistics call), the weekly scan 8: every cron tick
+runs one kind, and a manual run of all three kinds at once uses exactly the 38. Every outbound call has a
 12-second limit (body included), so a hung site fails its own source and the next one still runs. A KV
 failure never wipes the feed: a failed read skips the write, a failed write answers the computed feed marked
 `degraded` with a `kv` status. A source that fails keeps its previous rows and reports `ok: false`;
 the feed is `degraded` when any configured source failed or only partly worked (`error` then carries the
 note). A missing `YOUTUBE_API_KEY` reports `not_configured` on both YouTube sources without degrading the
 feed. Other sources' rows stay until their own next run or their `expiresAt` (Google, charts, kworb 2 days;
-trends24 1 day; search 7 days; scan 14 days); the feed holds at most 200 rows, sorted by score.
+trends24 1 day; search 7 days; scan 14 days); the feed holds at most 400 rows (`MAX_ITEMS`), sorted by score.
+The cap is above what the sources hold together at their own caps (Google 50, charts 100, kworb 60, trends24
+30, the Tavily scan 40, the keyword search 100 with the default lists, plus the calendar's moments), so the
+cut never drops the low-scored rows a source still counts on. At 200 it dropped the keyword search's least
+viewed rows, mostly the Arabic genre ones, before the next day could keep them.
+
+### The daily keyword scan
+
+`youtubeSearch.ts` searches two kinds of keywords, the same way (most viewed Shorts of the last 7 days, 10 per
+keyword, Arabic against SA, English against US):
+
+- the owner's **niche keywords** (`TREND_KEYWORDS_AR` / `TREND_KEYWORDS_EN`, 6 + 6 by default);
+- the **edit genres** (round 31): `planning/data/genres.json` is bundled into the Worker (`genres.ts`, like
+  the moments calendar) and every genre gives its main Arabic query (`queries.ar[0]`) and its main English
+  one (`queries.en[0]`): 12 genres, 24 keywords. Rows a genre's query found carry `genre: "<id>"`, rows of
+  a niche keyword carry none. A niche keyword that is also a genre's main query is searched once and
+  tagged. The owner's own genres (Settings) live in the dashboard only and are not scanned.
+
+The plan is the niche keywords then the genres, per language, Arabic and English interleaved: 36 keywords by
+default, twice the day's cap. It therefore **rotates by UTC day**: with `dayNumber = floor(now / 86,400,000)`
+the day's searches start at `(dayNumber × 18) % plan.length` and take the next 18 keywords, wrapping around,
+so two days in a row search every keyword (by default one day the 12 niche keywords and the first three
+genres, the next day the other nine genres) and each day has nine Arabic and nine English searches. A plan
+of 18 keywords or fewer is not rotated; a longer one takes `ceil(length / 18)` days.
+
+- The rows of the keywords that were not searched today **stay in the feed** until their keyword's next
+  search (or their 7-day expiry), so the feed always holds both days; a keyword that left the plan loses
+  its rows at the next run.
+- The run's rows and the kept ones are ranked together by views, **each language on its own**: the Arabic
+  rows get 100 down to 100 / n among the Arabic rows, the English rows among the English ones (rank 1 = 100
+  in each). English Shorts have far more views, so one ranking for both left the Arabic rows the low scores.
+- The one `videos.list` takes 50 ids. They are taken in turns from the day's keywords (each keyword's most
+  viewed first), so a run brings two or three videos per keyword, at most 50 new rows.
+- The cap: 18 of the 100 `search.list` calls a day, 82 stay for Discover's own YouTube search. The counter
+  is reserved before the first search; a second daily run on the same UTC day answers "daily cap reached".
+- Changing the genres means editing `planning/data/genres.json` and deploying the Worker again (the
+  dashboard bundles the same file, so both change together).
 
 **Enabling kworb / trends24.** Both are third-party aggregators (the owner's question 3 in
 `planning/handovers/mastermind-2026-09-28.md`); once he agrees, add them to the `TREND_SOURCES` var in
@@ -329,24 +384,24 @@ GitHub Action (see `08-trends.md`).
 | ----------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `trends:latest`         | the `TrendsFeed` `GET /trends` serves (one document, one write per run)                                       |
 | `trends:prev`           | the previous feed, copied before a run in which at least one source succeeded                                 |
-| `trends:ytsearch:<day>` | `search.list` calls reserved on that UTC day (the 12-a-day cap, best-effort when two runs overlap), 2-day TTL |
+| `trends:ytsearch:<day>` | `search.list` calls reserved on that UTC day (the 18-a-day cap, best-effort when two runs overlap), 2-day TTL |
 | `trends:tavily:<week>`  | written after a successful weekly scan of that ISO week (e.g. `2026-W40`), 8-day TTL                          |
 
 ## Configuration
 
-| Name                                        | Kind                    | Where                                                                                                                                                                                                                |
-| ------------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TAVILY_API_KEY`                            | Worker secret           | From the `TAVILY_API_KEY` repository secret (set by the deploy workflow). Also the weekly trend scan.                                                                                                                |
-| `YOUTUBE_API_KEY`                           | Worker secret           | From the `YOUTUBE_API_KEY` repository secret: a Google Cloud API key restricted to the YouTube Data API v3 (steps in `planning/tools/08-trends.md`). Without it the radar's YouTube sources report `not_configured`. |
-| `TREND_SOURCES`                             | Var (`wrangler.jsonc`)  | Comma list of the radar's sources. Default `google,youtube,tavily,events`; add `kworb` / `x` once the owner agrees.                                                                                                  |
-| `TREND_KEYWORDS_AR`, `TREND_KEYWORDS_EN`    | Vars (`wrangler.jsonc`) | Comma lists of the owner's niche keywords for the daily YouTube search (defaults = `lib/trends.ts` `DEFAULT_TREND_KEYWORDS`).                                                                                        |
-| `SCOUT_TOKEN`                               | Worker secret           | From the `SCOUT_TOKEN` repository secret. Any long random string, e.g. `openssl rand -hex 24`. Also the key material for the stored social tokens.                                                                   |
-| `META_APP_ID`, `META_APP_SECRET`            | Worker secrets          | Meta app (Instagram API with Instagram Login + Threads API). Repository secrets of the same names.                                                                                                                   |
-| `THREADS_APP_ID`, `THREADS_APP_SECRET`      | Worker secrets          | The Meta app's Threads use case → Settings "Threads app ID" / secret (differs from the Instagram pair). Falls back to `META_*` when unset.                                                                           |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`  | Worker secrets          | Google Cloud OAuth client (YouTube Data + Analytics). Repository secrets of the same names.                                                                                                                          |
-| `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | Worker secrets          | TikTok developer app (Login Kit + Display API). Repository secrets of the same names.                                                                                                                                |
-| `ALLOWED_ORIGINS`                           | Var (`wrangler.jsonc`)  | Comma list. Default `http://localhost:3000,https://3zmd95-glitch.github.io`. Also the origins `returnTo` may point at.                                                                                               |
-| `SOCIAL_KV`                                 | KV binding              | Namespace `3z-scout-SOCIAL_KV`, created by the deploy workflow; `wrangler.jsonc` keeps a placeholder id that the workflow swaps in before deploying.                                                                 |
+| Name                                        | Kind                    | Where                                                                                                                                                                                                                                                                    |
+| ------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TAVILY_API_KEY`                            | Worker secret           | From the `TAVILY_API_KEY` repository secret (set by the deploy workflow). Also the weekly trend scan.                                                                                                                                                                    |
+| `YOUTUBE_API_KEY`                           | Worker secret           | From the `YOUTUBE_API_KEY` repository secret: a Google Cloud API key restricted to the YouTube Data API v3 (steps in `planning/tools/08-trends.md`). Without it the radar's YouTube sources report `not_configured` and `/search` answers YouTube cards without `stats`. |
+| `TREND_SOURCES`                             | Var (`wrangler.jsonc`)  | Comma list of the radar's sources. Default `google,youtube,tavily,events`; add `kworb` / `x` once the owner agrees.                                                                                                                                                      |
+| `TREND_KEYWORDS_AR`, `TREND_KEYWORDS_EN`    | Vars (`wrangler.jsonc`) | Comma lists of the owner's niche keywords for the daily YouTube search (defaults = `lib/trends.ts` `DEFAULT_TREND_KEYWORDS`). The edit genres it also searches come from `planning/data/genres.json`, not from a var.                                                    |
+| `SCOUT_TOKEN`                               | Worker secret           | From the `SCOUT_TOKEN` repository secret. Any long random string, e.g. `openssl rand -hex 24`. Also the key material for the stored social tokens.                                                                                                                       |
+| `META_APP_ID`, `META_APP_SECRET`            | Worker secrets          | Meta app (Instagram API with Instagram Login + Threads API). Repository secrets of the same names.                                                                                                                                                                       |
+| `THREADS_APP_ID`, `THREADS_APP_SECRET`      | Worker secrets          | The Meta app's Threads use case → Settings "Threads app ID" / secret (differs from the Instagram pair). Falls back to `META_*` when unset.                                                                                                                               |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`  | Worker secrets          | Google Cloud OAuth client (YouTube Data + Analytics). Repository secrets of the same names.                                                                                                                                                                              |
+| `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | Worker secrets          | TikTok developer app (Login Kit + Display API). Repository secrets of the same names.                                                                                                                                                                                    |
+| `ALLOWED_ORIGINS`                           | Var (`wrangler.jsonc`)  | Comma list. Default `http://localhost:3000,https://3zmd95-glitch.github.io`. Also the origins `returnTo` may point at.                                                                                                                                                   |
+| `SOCIAL_KV`                                 | KV binding              | Namespace `3z-scout-SOCIAL_KV`, created by the deploy workflow; `wrangler.jsonc` keeps a placeholder id that the workflow swaps in before deploying.                                                                                                                     |
 
 A platform whose two secrets are not both set shows `configured: false` and its connect button stays disabled in
 the dashboard; nothing else breaks. The exact app-creation steps, scopes and redirect URIs per platform are in

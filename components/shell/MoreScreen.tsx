@@ -21,12 +21,17 @@ const TRAINING_LINKS: readonly MoreLink[] = [
   { href: "/settings", label: "morePage.settings", testId: "more-settings" },
 ];
 
-/** Social "More": the sections that are not in the phone tab bar, Settings, and the way back to Training. */
+/**
+ * Social "More": the sections that are not in the phone tab bar, the 🔎 Discover shortcut (edit genres and
+ * search live there; a Training route, so it opens in the Training shell), Settings, and the way back to
+ * Training.
+ */
 const SOCIAL_LINKS: readonly MoreLink[] = [
   { href: "/social/website", label: "social.more.website", testId: "more-website", soon: true },
   { href: "/social/business", label: "social.more.business", testId: "more-business", soon: true },
   { href: "/social/automations", label: "social.more.automations", testId: "more-automations" },
   { href: "/social/replies", label: "social.more.replies", testId: "more-replies" },
+  { href: "/discover", label: "morePage.discover", testId: "more-discover" },
   { href: "/settings", label: "morePage.settings", testId: "more-settings" },
   { href: "/", label: "social.more.training", testId: "more-training" },
 ];

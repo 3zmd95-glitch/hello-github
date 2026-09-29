@@ -5,9 +5,17 @@ import { useMemo, useState } from "react";
 import { calendarPostHref } from "@/components/social/studio/platform";
 import { useToday } from "@/components/today/useToday";
 import { TREND_PLATFORMS, type Lang, type TrendPlatform } from "@/lib/domain";
+import { allGenres } from "@/lib/genres";
 import { useT } from "@/lib/i18n";
 import { timeAgo } from "@/lib/socialSync";
-import { DEFAULT_TREND_KEYWORDS, matchesKeywords, visibleTrends } from "@/lib/trends";
+import {
+  DEFAULT_TREND_KEYWORDS,
+  matchesNiche,
+  trendGenreHref,
+  trendGenreLabel,
+  visibleTrends,
+  type TrendFilter,
+} from "@/lib/trends";
 import { useStore } from "@/store";
 import ManualLinks from "./ManualLinks";
 import MomentsRail from "./MomentsRail";
@@ -28,27 +36,37 @@ const ALL_KEYWORDS = [...DEFAULT_TREND_KEYWORDS.ar, ...DEFAULT_TREND_KEYWORDS.en
  * platform chip, niche-keyword rows first, each with 💡 save / 📱 plan / ✕ dismiss; beside it the upcoming
  * Saudi moments and the links the owner opens by hand. Without a Worker the rail and the links still work
  * and a one-line hint points at Settings.
+ *
+ * Round 31: the feed also carries the rows the Worker found by edit genre (cars, food, anime…). The radar
+ * stays about general trends and has no genre filter: Discover is the one place for genres. A row of a genre
+ * names it in a chip, and for a genre the app knows (built in, or the owner's own from Settings) the chip is
+ * a link that opens Discover on that genre. The ⭐ is `matchesNiche`: the search words of a row's own genre
+ * do not count (the Worker tags a row with the query that found it, and "مونتاج أكل" is not the niche).
  */
 export default function TrendRadar() {
   const { t, lang } = useT();
   const today = useToday();
   const { feed, configured, loading, error, refresh } = useTrends();
   const dismissTrend = useStore((s) => s.dismissTrend);
+  const customGenres = useStore((s) => s.customGenres);
   const [tab, setTab] = useState<Lang>("ar");
   const [platform, setPlatform] = useState<PlatformFilter>("all");
   const [planned, setPlanned] = useState<PlannedPost | null>(null);
+
+  // Every genre the app can name: the built-in ones, then the owner's own (Settings).
+  const genres = useMemo(() => allGenres(customGenres), [customGenres]);
 
   const rows = useMemo(() => {
     // Arabic = the Saudi feed (SA rows are `ar` by region, whatever the title's script); English = `en` rows
     // from any region (the US charts, and Tavily / X rows whose title is Latin script). `mixed` rows show under
     // both. Calendar moments (platform `event`) live only in the moments rail, never as a dismissible row.
-    const filter =
-      tab === "ar" ? { region: "SA" as const, lang: "ar" as const } : { lang: "en" as const };
-    return visibleTrends(feed, platform === "all" ? filter : { ...filter, platform }, new Date())
+    const filter: TrendFilter = tab === "ar" ? { region: "SA", lang: "ar" } : { lang: "en" };
+    if (platform !== "all") filter.platform = platform;
+    return visibleTrends(feed, filter, new Date())
       .filter((item) => item.platform !== "event")
-      .map((item) => ({ item, star: matchesKeywords(item, ALL_KEYWORDS) }))
+      .map((item) => ({ item, star: matchesNiche(item, ALL_KEYWORDS, genres) }))
       .sort((a, b) => Number(b.star) - Number(a.star));
-  }, [feed, tab, platform]);
+  }, [feed, tab, platform, genres]);
 
   const updated = feed.fetchedAt
     ? t("trends.updated", { when: timeAgo(feed.fetchedAt, lang) })
@@ -172,6 +190,8 @@ export default function TrendRadar() {
                     key={item.id}
                     item={item}
                     star={star}
+                    genreLabel={item.genre ? trendGenreLabel(item.genre, genres, lang) : undefined}
+                    genreHref={item.genre ? trendGenreHref(item.genre, genres) : undefined}
                     onDismiss={() => dismissTrend(item.id)}
                     onPlanned={setPlanned}
                   />
