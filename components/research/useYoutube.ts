@@ -8,6 +8,7 @@ import {
   type YoutubeSearchOpts,
   type YoutubeVideo,
 } from "@/lib/research";
+import { LOADING, OFF, settledFor, type Tagged } from "./useScout";
 
 export type YoutubeState =
   | { status: "off" }
@@ -15,18 +16,20 @@ export type YoutubeState =
   | { status: "ok"; items: YoutubeVideo[] }
   | { status: "error"; error: YoutubeSearchError };
 
-type Settled =
-  | { for: string; status: "ok"; items: YoutubeVideo[] }
-  | { for: string; status: "error"; error: YoutubeSearchError };
+type Settled = Tagged<
+  { status: "ok"; items: YoutubeVideo[] } | { status: "error"; error: YoutubeSearchError }
+>;
 
 /**
  * One YouTube Data API search (null key or empty query = off), through the per-session cache so switching
- * tabs and filters back and forth doesn't spend the key's daily quota twice.
+ * tabs and filters back and forth doesn't spend the key's daily quota twice. A new `attempt` (the panel's
+ * "Search" press counter) asks again after an error. The returned state object is stable between renders.
  */
 export function useYoutubeQuery(
   apiKey: string | undefined,
   q: string,
   opts: Omit<YoutubeSearchOpts, "fetchImpl">,
+  attempt = 0,
 ): YoutubeState {
   const query = q.trim();
   const active = !!apiKey && query.length > 0;
@@ -47,8 +50,8 @@ export function useYoutubeQuery(
       if (!alive) return;
       setSettled(
         r.ok
-          ? { for: key, status: "ok", items: r.items }
-          : { for: key, status: "error", error: r.error },
+          ? { key, attempt, status: "ok", items: r.items }
+          : { key, attempt, status: "error", error: r.error },
       );
     });
     return () => {
@@ -58,6 +61,7 @@ export function useYoutubeQuery(
     active,
     apiKey,
     key,
+    attempt,
     query,
     relevanceLanguage,
     maxResults,
@@ -66,9 +70,6 @@ export function useYoutubeQuery(
     regionCode,
   ]);
 
-  if (!active) return { status: "off" };
-  if (!settled || settled.for !== key) return { status: "loading" };
-  return settled.status === "ok"
-    ? { status: "ok", items: settled.items }
-    : { status: "error", error: settled.error };
+  if (!active) return OFF;
+  return settled && settledFor(settled, key, attempt) ? settled : LOADING;
 }

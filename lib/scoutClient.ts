@@ -5,8 +5,9 @@ import type { Lang } from "./domain";
  * Tavily, oEmbed enrichment for pasted links, and a health check. The Worker URL and token live in
  * Settings (`settings.apiKeys.scoutUrl` / `scoutToken`), on this device only.
  *
- * Tavily's free plan is 1,000 searches a month, so every search is cached per topic (memory + localStorage,
- * 24 h, 50 entries) and each real call bumps a per-month counter the UI shows ("~N of 1000 this month").
+ * Tavily's free plan is 1,000 searches a month, so every search is cached per topic and Worker (memory +
+ * localStorage, 24 h, 10 min for an empty answer, 50 entries, versioned by {@link SCOUT_CACHE_VERSION}) and
+ * each real call bumps a per-month counter the UI shows ("~N of 1000 this month").
  * Nothing here throws: failures come back as a typed `{ ok: false, error }`.
  */
 
@@ -71,9 +72,21 @@ export interface ScoutOpts {
   now?: () => number;
 }
 
+export interface ScoutSearchOpts extends ScoutOpts {
+  /** Skip the cache read and ask the Worker again (a "search again" button); the answer is still cached. */
+  force?: boolean;
+}
+
 export const SCOUT_CACHE_KEY = "3z-scout-cache";
 export const SCOUT_USAGE_KEY = "3z-scout-usage";
+/**
+ * Bump when the Worker's result shape or normalization changes, so results cached from the old Worker
+ * (e.g. Instagram cards titled just "Instagram", before v2) are never served again.
+ */
+export const SCOUT_CACHE_VERSION = 2;
 export const SCOUT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+/** An empty answer is often a Tavily hiccup or a too-narrow filter: keep it only briefly. */
+export const SCOUT_CACHE_EMPTY_TTL_MS = 10 * 60 * 1000;
 export const SCOUT_CACHE_MAX = 50;
 /** Tavily's free monthly allowance (searches). */
 export const SCOUT_MONTHLY_FREE = 1000;
@@ -186,14 +199,34 @@ const memory = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<ScoutSearchResult>>();
 
 /**
- * Cache key for a search: platforms (sorted), language, max, time range, thumbnails flag and the normalized
- * query text.
+ * Request key for a search: platforms (sorted), language, max, time range, thumbnails flag and the
+ * normalized query text. Identifies the request only; the cache stores it under {@link scoutStorageKey}.
  */
 export function scoutCacheKey(p: ScoutSearchParams): string {
   const q = p.q.trim().toLowerCase().replace(/\s+/g, " ");
   const thumbs = p.thumbs === false ? "0" : "1";
   return `${[...p.platforms].sort().join(",")}|${p.lang ?? ""}|${p.max ?? ""}|${p.timeRange ?? ""}|${thumbs}|${q}`;
 }
+
+const versionPrefix = `v${SCOUT_CACHE_VERSION}|`;
+
+/**
+ * Where a search is cached: {@link SCOUT_CACHE_VERSION}, the Worker URL (a different Worker is a different
+ * source) and the request key.
+ */
+export function scoutStorageKey(config: ScoutConfig, p: ScoutSearchParams): string {
+  return `${versionPrefix}${config.url}|${scoutCacheKey(p)}`;
+}
+
+/** How long an entry stays fresh: 24 h, or 10 min for an empty result list. */
+const ttlOf = (e: CacheEntry) =>
+  e.results.length === 0 ? SCOUT_CACHE_EMPTY_TTL_MS : SCOUT_CACHE_TTL_MS;
+
+const isFresh = (key: string, e: unknown, now: number): e is CacheEntry => {
+  if (!key.startsWith(versionPrefix) || !e || typeof e !== "object") return false;
+  const c = e as CacheEntry;
+  return typeof c.at === "number" && Array.isArray(c.results) && now - c.at < ttlOf(c);
+};
 
 function readStored(storage: KeyValueStorage | null): Record<string, CacheEntry> {
   if (!storage) return {};
@@ -207,12 +240,10 @@ function readStored(storage: KeyValueStorage | null): Record<string, CacheEntry>
 
 function cacheGet(key: string, opts: ScoutOpts): ScoutResult[] | undefined {
   const now = nowOf(opts);
-  const fresh = (e?: CacheEntry): e is CacheEntry =>
-    !!e && typeof e.at === "number" && Array.isArray(e.results) && now - e.at < SCOUT_CACHE_TTL_MS;
   const mem = memory.get(key);
-  if (fresh(mem)) return mem.results;
+  if (isFresh(key, mem, now)) return mem.results;
   const stored = readStored(storageOf(opts))[key];
-  if (fresh(stored)) {
+  if (isFresh(key, stored, now)) {
     memory.set(key, stored);
     return stored.results;
   }
@@ -225,9 +256,10 @@ function cacheSet(key: string, results: ScoutResult[], opts: ScoutOpts): void {
   memory.set(key, entry);
   const storage = storageOf(opts);
   if (!storage) return;
-  const all = { ...readStored(storage), [key]: entry };
+  const all: Record<string, unknown> = { ...readStored(storage), [key]: entry };
+  // Stale, malformed and old-version entries are dropped on every write.
   const kept = Object.entries(all)
-    .filter(([, e]) => e && typeof e.at === "number" && now - e.at < SCOUT_CACHE_TTL_MS)
+    .filter((kv): kv is [string, CacheEntry] => isFresh(kv[0], kv[1], now))
     .sort(([, a], [, b]) => b.at - a.at)
     .slice(0, SCOUT_CACHE_MAX);
   try {
@@ -316,17 +348,17 @@ function parseResults(data: unknown): ScoutResult[] {
 
 /**
  * Search through the Worker. Served from the per-topic cache when possible (`cached: true`, no credit
- * spent); concurrent identical searches share one request. Each real successful call bumps the monthly
- * counter.
+ * spent) unless `opts.force`; concurrent identical searches share one request. Each real successful call
+ * bumps the monthly counter. Empty answers are cached for {@link SCOUT_CACHE_EMPTY_TTL_MS} only.
  */
 export async function scoutSearch(
   config: ScoutConfig | null,
   params: ScoutSearchParams,
-  opts: ScoutOpts = {},
+  opts: ScoutSearchOpts = {},
 ): Promise<ScoutSearchResult> {
   if (!config) return { ok: false, error: { type: "unconfigured" } };
-  const key = scoutCacheKey(params);
-  const hit = cacheGet(key, opts);
+  const key = scoutStorageKey(config, params);
+  const hit = opts.force ? undefined : cacheGet(key, opts);
   if (hit) return { ok: true, results: hit, cached: true };
   const pending = inflight.get(key);
   if (pending) return pending;
@@ -364,13 +396,15 @@ export async function scoutSearch(
 }
 
 /**
- * The cached results for a search, if any, without fetching or spending a credit (for tab count badges).
+ * The cached results for a search on this Worker, if any, without fetching or spending a credit (for tab
+ * count badges). Same key and freshness rules as {@link scoutSearch}.
  */
 export function peekScoutSearch(
+  config: ScoutConfig | null,
   params: ScoutSearchParams,
   opts: ScoutOpts = {},
 ): ScoutResult[] | undefined {
-  return cacheGet(scoutCacheKey(params), opts);
+  return config ? cacheGet(scoutStorageKey(config, params), opts) : undefined;
 }
 
 /** TikTok / YouTube oEmbed through the Worker (title, author, thumbnail for a pasted link). */

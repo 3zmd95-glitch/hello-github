@@ -61,6 +61,7 @@
   "social.studio.inboxClear": "All clear ✨",
   "social.studio.inboxOverdue": "⏰ “{name}” is overdue",
   "social.studio.inboxUnscheduled": "🎬 “{name}” is edited but has no posting day",
+  "social.studio.inboxManual": "📋 “{name}” is ready for {platforms}: post it yourself now",
   "social.studio.inboxIdeas": "💡 {n} idea(s) waiting in the bank",
   "social.studio.inboxStale": "📈 {platform} numbers are stale (over 14 days)",
   "social.studio.reminder": "⏰ Today's reminder",

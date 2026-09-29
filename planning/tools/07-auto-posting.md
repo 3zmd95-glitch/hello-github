@@ -98,10 +98,33 @@ run claims its jobs (`lockUntil`) before calling any platform, so the cron and "
     refusals now keep TikTok's code in `detail`.
   - **Threads (PR #14): confirmed**: a text "Post now" came back `published` in the same call (~13 s end to end).
 
+## Round 30 (composer, built Sep 28, 2026; plan in `../handovers/mastermind-2026-09-28.md`)
+
+1. The **new-post form** has a "🚀 انشر على" row: the post's own platform is locked on, every connected network with posting permission
+   is pre-ticked, X and Snapchat are off by default; `autoPost.platforms` is set at birth when more than the own platform is picked. The
+   row is hidden when nothing can publish.
+2. **Captions fit by themselves**: API networks get a trimmed caption on send (trailing hashtags dropped first, then a word-boundary cut
+   with "…", `lib/publish.ts trimCaption`); the 🚀 tab shows "✂️ اتقصّ" with the sent length. Overlong X / Snapchat captions only warn.
+3. A sent job is **re-sent by itself** 1.5 s after caption / hashtags / day / time edits while nothing is published yet
+   (`usePublishAutoResync`, mounted in the post popup); "Update schedule" stays for explicit use.
+4. **Post now** on a post without a day sets today's Riyadh day first, so it shows on the calendar.
+5. The results watcher also refreshes when the tab becomes visible again.
+6. Settings and the 🚀 hub warn "🔑 جدّد الربط خلال N أيام" for Instagram / Threads tokens within 7 days (Meta's 60-day tokens; YouTube
+   and TikTok refresh by themselves).
+7. The hub lists posts with a pending X / Snapchat step under "📋 عليك تنشرها بنفسك" (copy caption + open app). Copy that promised a
+   phone reminder now describes what the calendar and hub show; a push notification stays a Sprint 3 item.
+8. Once that step is due (its planned time has passed), the **Studio inbox** shows one row for the post ("📋 … جاهز لـ إكس، انشره
+   بنفسك الحين", `dueManualPosts` in `lib/publish.ts`) that links to the hub's manual list (`/social/automations/#manual`). The row
+   replaces the post's overdue row, so a post is never counted twice.
+9. The hub also follows **jobs that no local post knows about** (scheduled from another device, or from before this browser was
+   cleared): "📡 … من جهاز ثاني" shows each with its label (YouTube title or first caption line), time, per-network states and links,
+   and a cancel that asks first while something is still queued. The list is read when the hub opens and on 🔄, and belongs to the
+   Worker it was read from (switching the Worker URL or token clears it). A sent post now also stores `autoPost.jobId`.
+
 ## Later
 
 - Media upload from the phone (Supabase Storage, Sprint 3) instead of pasting a link.
 - Instagram carousels and stories, Threads carousels, TikTok photo posts (needs domain verification of the media host).
 - First comment / pinned hashtags, per-network best-time slots from real analytics, a "queue" mode (next free slot).
 - Snapchat and X through Zernio if the owner wants them automatic, or Buffer as the fallback if an audit is refused.
-- Push notification when a network fails (Sprint 3 Web Push).
+- Push notification when a network fails or a manual X / Snapchat step is due (Sprint 3 Web Push; nothing fires today).

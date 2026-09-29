@@ -125,11 +125,12 @@ describe("auth", () => {
       configured: { instagram: false, threads: false, youtube: false, tiktok: false },
       kv: false,
     };
+    const trends = { youtube: false, sources: ["google", "youtube", "tavily", "events"] };
     const authed = await handle(req("/health"), ENV);
-    expect(await authed.json()).toEqual({ ok: true, auth: true, tavily: true, social });
+    expect(await authed.json()).toEqual({ ok: true, auth: true, tavily: true, social, trends });
 
     const noKey = await handle(req("/health"), { ...ENV, TAVILY_API_KEY: undefined });
-    expect(await noKey.json()).toEqual({ ok: true, auth: true, tavily: false, social });
+    expect(await noKey.json()).toEqual({ ok: true, auth: true, tavily: false, social, trends });
 
     const wrong = await handle(req("/health", { token: "wrong" }), ENV);
     expect(wrong.status).toBe(401);
@@ -209,7 +210,7 @@ describe("POST /search", () => {
         url: "https://www.instagram.com/cutsbyfaisal/reel/C1abcDEF/",
         content: "Match cut reel",
       },
-      // Instagram post without an account in the path → hostname as handle.
+      // Instagram post without an account in the path or the text → no handle (never the hostname).
       { title: "Post", url: "https://www.instagram.com/p/XyZ123/", content: "A post" },
       // Instagram explore page → dropped.
       { title: "Explore", url: "https://www.instagram.com/explore/tags/matchcut/", content: "" },
@@ -227,7 +228,7 @@ describe("POST /search", () => {
     usage: { credits: 1 },
   };
 
-  it("sends the Tavily request with domain filters, capped max and the key", async () => {
+  it("sends the Tavily request with domain filters, capped max, the language and the key", async () => {
     const fetchMock = fakeFetch(() => jsonResponse({ results: [] }));
     const res = await handle(
       searchReq({ q: "match cut", platforms: ["tt", "ig"], lang: "en", max: 50 }),
@@ -246,13 +247,24 @@ describe("POST /search", () => {
       max_results: 20,
       search_depth: "basic",
       include_images: true,
+      language: "en",
     });
   });
 
-  it("defaults max_results to 10", async () => {
+  it("defaults max_results to 10 and sends no language when none was asked", async () => {
     const fetchMock = fakeFetch(() => jsonResponse({ results: [] }));
     await handle(searchReq({ q: "x", platforms: ["yt"] }), ENV, undefined, { fetch: fetchMock });
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).max_results).toBe(10);
+    const sent = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(sent.max_results).toBe(10);
+    expect("language" in sent).toBe(false);
+  });
+
+  it("forwards an Arabic lang as Tavily's language", async () => {
+    const fetchMock = fakeFetch(() => jsonResponse({ results: [] }));
+    await handle(searchReq({ q: "مونتاج", platforms: ["tt"], lang: "ar" }), ENV, undefined, {
+      fetch: fetchMock,
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).language).toBe("ar");
   });
 
   it("normalizes, filters non-video pages, and dedupes", async () => {
@@ -278,11 +290,11 @@ describe("POST /search", () => {
         handle: "@cutsbyfaisal",
         title: "Reel by cutsbyfaisal",
         snippet: "Match cut reel",
-        url: "https://www.instagram.com/cutsbyfaisal/reel/C1abcDEF",
+        url: "https://www.instagram.com/p/C1abcDEF",
       },
       {
         platform: "ig",
-        handle: "instagram.com",
+        handle: "",
         title: "Post",
         snippet: "A post",
         url: "https://www.instagram.com/p/XyZ123",
@@ -300,7 +312,7 @@ describe("POST /search", () => {
         handle: "youtube.com",
         title: "Short",
         snippet: "short",
-        url: "https://youtube.com/shorts/sh0rt1d",
+        url: "https://www.youtube.com/watch?v=sh0rt1d",
         thumb: "https://i.ytimg.com/vi/sh0rt1d/hqdefault.jpg",
       },
     ]);
@@ -399,7 +411,7 @@ describe("GET /oembed", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("normalizes TikTok oEmbed, prefers the @handle, and caches for a day", async () => {
+  it("normalizes TikTok oEmbed, prefers the @handle, and caches it for 6 hours", async () => {
     const video = "https://www.tiktok.com/@editor.sam/video/123";
     const fetchMock = fakeFetch(() =>
       jsonResponse({
@@ -426,7 +438,7 @@ describe("GET /oembed", () => {
     expect(waitUntil).toHaveBeenCalledTimes(1);
     await waitUntil.mock.calls[0][0];
     const cached = [...cache.store.values()][0];
-    expect(cached.headers.get("Cache-Control")).toBe("public, max-age=86400");
+    expect(cached.headers.get("Cache-Control")).toBe("public, max-age=21600");
 
     // Second call (another allowed origin) is served from the cache with that origin's CORS header.
     const second = await handle(req(path, { origin: "http://localhost:3000" }), ENV, ctx, {
@@ -532,6 +544,60 @@ describe("POST /search: timeRange and thumbnails", () => {
     }
   });
 
+  it("a 'TikTok - Make Your Day' hit ends with the oEmbed caption as its title", async () => {
+    const video = "https://www.tiktok.com/@filmbro/video/7412345678901234569";
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      if (String(input) === TAVILY_URL) {
+        return jsonResponse({
+          results: [{ title: "TikTok - Make Your Day", url: video, content: "" }],
+        });
+      }
+      return jsonResponse({
+        title: "Match cut with a door #matchcut",
+        thumbnail_url: "https://p16.tiktokcdn.com/door.jpg",
+      });
+    });
+    const res = await handle(searchReq({ q: "x", platforms: ["tt"] }), ENV, undefined, {
+      fetch: fetchMock,
+      cache: null,
+    });
+    const body = (await res.json()) as { results: ScoutResult[] };
+    expect(body.results).toEqual([
+      {
+        platform: "tt",
+        handle: "@filmbro",
+        title: "Match cut with a door #matchcut",
+        snippet: "",
+        url: video,
+        thumb: "https://p16.tiktokcdn.com/door.jpg",
+      },
+    ]);
+  });
+
+  it("caches YouTube oEmbed for a day and TikTok oEmbed for 6 hours", async () => {
+    const cache = fakeCache();
+    const fetchMock = fakeFetch(() =>
+      jsonResponse({ title: "T", thumbnail_url: "https://x/y.jpg" }),
+    );
+    for (const video of [
+      "https://www.youtube.com/watch?v=abc",
+      "https://www.tiktok.com/@a/video/1",
+    ]) {
+      await handle(req(`/oembed?url=${encodeURIComponent(video)}`), ENV, undefined, {
+        fetch: fetchMock,
+        cache,
+      });
+    }
+    const ttl = [...cache.store.entries()].map(([k, v]) => [
+      new URL(k).hostname,
+      v.headers.get("Cache-Control"),
+    ]);
+    expect(ttl).toEqual([
+      ["www.youtube.com", "public, max-age=86400"],
+      ["www.tiktok.com", "public, max-age=21600"],
+    ]);
+  });
+
   it("skips enrichment entirely with thumbs: false", async () => {
     const fetchMock = routedFetch(async () => jsonResponse({ thumbnail_url: "https://x/y.jpg" }));
     const res = await handle(
@@ -629,6 +695,70 @@ describe("enrichThumbs", () => {
     expect(peak).toBe(THUMB_ENRICH_MAX);
     expect(results.filter((r) => r.thumb)).toHaveLength(THUMB_ENRICH_MAX);
     expect(results.slice(THUMB_ENRICH_MAX).every((r) => r.thumb === undefined)).toBe(true);
+  });
+
+  it("replaces a generic TikTok title with the oEmbed caption it already fetched", async () => {
+    const results: ScoutResult[] = [
+      {
+        platform: "tt",
+        handle: "@filmbro",
+        title: "@filmbro",
+        snippet: "",
+        url: "https://www.tiktok.com/@filmbro/video/7412345678901234569",
+      },
+      {
+        platform: "tt",
+        handle: "@noor.edits",
+        title: "match cut but make it smooth #transition",
+        snippet: "",
+        url: "https://www.tiktok.com/@noor.edits/video/7412345678901234570",
+      },
+    ];
+    await enrichThumbs(
+      results,
+      vi.fn<typeof fetch>(async () =>
+        jsonResponse({
+          title: "Door match cut 🚪 #matchcut  | TikTok",
+          thumbnail_url: "https://p16.tiktokcdn.com/t.jpg",
+        }),
+      ),
+      null,
+      undefined,
+      1000,
+    );
+    expect(results[0].title).toBe("Door match cut 🚪 #matchcut");
+    // A real title is kept.
+    expect(results[1].title).toBe("match cut but make it smooth #transition");
+  });
+
+  it("keeps the card title when the oEmbed title is generic or missing", async () => {
+    const card = (): ScoutResult => ({
+      platform: "tt",
+      handle: "@a",
+      title: "@a",
+      snippet: "",
+      url: "https://www.tiktok.com/@a/video/1",
+    });
+    const generic = [card()];
+    await enrichThumbs(
+      generic,
+      vi.fn<typeof fetch>(async () => jsonResponse({ title: "TikTok - Make Your Day" })),
+      null,
+      undefined,
+      1000,
+    );
+    expect(generic[0].title).toBe("@a");
+    const none = [card()];
+    await enrichThumbs(
+      none,
+      vi.fn<typeof fetch>(async () =>
+        jsonResponse({ thumbnail_url: "https://p16.tiktokcdn.com/t.jpg" }),
+      ),
+      null,
+      undefined,
+      1000,
+    );
+    expect(none[0]).toMatchObject({ title: "@a", thumb: "https://p16.tiktokcdn.com/t.jpg" });
   });
 
   it("ignores non-https thumbnails", async () => {

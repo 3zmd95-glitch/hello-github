@@ -1,0 +1,191 @@
+"use client";
+
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { calendarPostHref } from "@/components/social/studio/platform";
+import { useToday } from "@/components/today/useToday";
+import { TREND_PLATFORMS, type Lang, type TrendPlatform } from "@/lib/domain";
+import { useT } from "@/lib/i18n";
+import { timeAgo } from "@/lib/socialSync";
+import { DEFAULT_TREND_KEYWORDS, matchesKeywords, visibleTrends } from "@/lib/trends";
+import { useStore } from "@/store";
+import ManualLinks from "./ManualLinks";
+import MomentsRail from "./MomentsRail";
+import { type PlannedPost } from "./TrendActions";
+import TrendRow from "./TrendRow";
+import { useTrends } from "./useTrends";
+
+/** The chips: the live platforms (calendar moments have their own rail). */
+const CHIP_PLATFORMS = TREND_PLATFORMS.filter((p) => p !== "event");
+type PlatformFilter = TrendPlatform | "all";
+
+/** Both keyword lists: a `mixed` row (a hashtag, an event) may match either language. */
+const ALL_KEYWORDS = [...DEFAULT_TREND_KEYWORDS.ar, ...DEFAULT_TREND_KEYWORDS.en];
+
+/**
+ * 📈 Trend Radar (round 30, planning/tools/08-trends.md, planning/handovers/mastermind-2026-09-28.md): one
+ * glance → one tap. The Worker's feed, split into an Arabic (Saudi) tab and an English one, filtered by
+ * platform chip, niche-keyword rows first, each with 💡 save / 📱 plan / ✕ dismiss; beside it the upcoming
+ * Saudi moments and the links the owner opens by hand. Without a Worker the rail and the links still work
+ * and a one-line hint points at Settings.
+ */
+export default function TrendRadar() {
+  const { t, lang } = useT();
+  const today = useToday();
+  const { feed, configured, loading, error, refresh } = useTrends();
+  const dismissTrend = useStore((s) => s.dismissTrend);
+  const [tab, setTab] = useState<Lang>("ar");
+  const [platform, setPlatform] = useState<PlatformFilter>("all");
+  const [planned, setPlanned] = useState<PlannedPost | null>(null);
+
+  const rows = useMemo(() => {
+    // Arabic = the Saudi feed (SA rows are `ar` by region, whatever the title's script); English = `en` rows
+    // from any region (the US charts, and Tavily / X rows whose title is Latin script). `mixed` rows show under
+    // both. Calendar moments (platform `event`) live only in the moments rail, never as a dismissible row.
+    const filter =
+      tab === "ar" ? { region: "SA" as const, lang: "ar" as const } : { lang: "en" as const };
+    return visibleTrends(feed, platform === "all" ? filter : { ...filter, platform }, new Date())
+      .filter((item) => item.platform !== "event")
+      .map((item) => ({ item, star: matchesKeywords(item, ALL_KEYWORDS) }))
+      .sort((a, b) => Number(b.star) - Number(a.star));
+  }, [feed, tab, platform]);
+
+  const updated = feed.fetchedAt
+    ? t("trends.updated", { when: timeAgo(feed.fetchedAt, lang) })
+    : t("trends.neverUpdated");
+  const hasFeed = feed.items.length > 0;
+
+  return (
+    <section
+      className="px-card flex flex-col gap-3"
+      data-testid="ideas-trends"
+      data-configured={configured}
+      data-tab={tab}
+      data-count={rows.length}
+      data-loading={loading}
+    >
+      <header className="flex flex-col gap-1">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-base">{t("trends.title")}</h2>
+          <button
+            type="button"
+            className="px-btn px-btn-ghost px-btn-sm shrink-0"
+            onClick={() => void refresh()}
+            disabled={loading || !configured}
+            aria-label={t("trends.refresh")}
+            title={t("trends.refresh")}
+            aria-busy={loading}
+            data-testid="trends-refresh"
+          >
+            {loading ? "⏳" : "🔄"}
+          </button>
+        </div>
+        <p className="text-ink-2 text-sm">{t("trends.sub")}</p>
+        <p className="text-muted flex flex-wrap items-center gap-2 text-xs">
+          <span data-testid="trends-updated">{loading ? t("trends.loading") : updated}</span>
+          {feed.degraded && (
+            <span className="px-chip px-chip-gold" data-testid="trends-degraded">
+              {t("trends.degraded")}
+            </span>
+          )}
+        </p>
+      </header>
+
+      {error && (
+        <p className="text-danger text-xs" data-testid="trends-error">
+          {t(error)}
+        </p>
+      )}
+
+      {!configured && (
+        <p
+          className="px-inset flex flex-wrap items-center gap-2 text-sm"
+          data-testid="trends-need-worker"
+        >
+          <span className="min-w-0 flex-1">{t("trends.needWorker")}</span>
+          <Link href="/settings/" className="px-link text-xs" data-testid="trends-need-worker-link">
+            {t("trends.needWorkerLink")}
+          </Link>
+        </p>
+      )}
+
+      {planned && (
+        <p
+          className="px-inset flex flex-wrap items-center gap-2 text-sm"
+          data-testid="trends-planned-notice"
+        >
+          <span className="text-accent min-w-0 flex-1">
+            {t("trends.planned", { name: planned.title })}
+          </span>
+          <Link
+            href={calendarPostHref(planned.id)}
+            className="px-link text-xs"
+            data-testid="trends-planned-open"
+          >
+            {t("trends.plannedOpen")}
+          </Link>
+        </p>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-[1.4fr_1fr] md:items-start">
+        {(configured || hasFeed) && (
+          <div className="flex flex-col gap-3">
+            <div className="studio-seg" role="group" aria-label={t("trends.tabLabel")}>
+              {(["ar", "en"] as const).map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  aria-pressed={tab === l}
+                  onClick={() => setTab(l)}
+                  data-testid={`trends-tab-${l}`}
+                >
+                  {t(`trends.tab.${l}`)}
+                </button>
+              ))}
+            </div>
+            <div
+              className="flex flex-wrap gap-1.5"
+              role="group"
+              aria-label={t("trends.platformLabel")}
+            >
+              {(["all", ...CHIP_PLATFORMS] as PlatformFilter[]).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className="px-fchip"
+                  aria-pressed={platform === p}
+                  onClick={() => setPlatform(p)}
+                  data-testid={`trends-platform-${p}`}
+                >
+                  {t(`trends.platform.${p}`)}
+                </button>
+              ))}
+            </div>
+            {rows.length === 0 ? (
+              <p className="text-ink-2 text-sm" data-testid="trends-empty">
+                {hasFeed ? t("trends.emptyFilter") : t("trends.empty")}
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2" data-testid="trends-list">
+                {rows.map(({ item, star }) => (
+                  <TrendRow
+                    key={item.id}
+                    item={item}
+                    star={star}
+                    onDismiss={() => dismissTrend(item.id)}
+                    onPlanned={setPlanned}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        <aside className="flex flex-col gap-4">
+          <MomentsRail today={today} onPlanned={setPlanned} />
+          <ManualLinks />
+        </aside>
+      </div>
+    </section>
+  );
+}

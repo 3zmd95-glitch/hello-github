@@ -61,6 +61,7 @@
   "social.studio.inboxClear": "كل شي تمام ✨",
   "social.studio.inboxOverdue": "⏰ فات وقت «{name}»",
   "social.studio.inboxUnscheduled": "🎬 «{name}» متمنتج بس بدون يوم نشر",
+  "social.studio.inboxManual": "📋 «{name}»: جاهز لـ {platforms}، انشره بنفسك الحين",
   "social.studio.inboxIdeas": "💡 {n} فكرة تنتظر في البنك",
   "social.studio.inboxStale": "📈 أرقام {platform} قديمة (أكثر من ١٤ يوم)",
   "social.studio.reminder": "⏰ تذكير اليوم",

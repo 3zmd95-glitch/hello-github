@@ -98,14 +98,80 @@ export function detectPlatform(url: string): RefPlatform {
   return "web";
 }
 
-/** Pull an "@handle" out of a TikTok/YouTube channel-style URL path, when the path has one. */
-function handleFromPath(pathname: string): string | undefined {
-  return pathname.match(/\/(@[\w.-]+)/)?.[1];
+/** Instagram path segments that are routes, never an account name. */
+const IG_RESERVED = new Set(["p", "reel", "reels", "tv", "explore", "stories", "accounts"]);
+
+/**
+ * Pull an "@handle" out of a URL path when it names the account: TikTok / YouTube "/@name/...", Instagram
+ * "/<name>/reel/<id>" (some shared links carry the account before the post).
+ */
+function handleFromPath(platform: RefPlatform, pathname: string): string | undefined {
+  if (platform === "tt" || platform === "yt") return pathname.match(/\/(@[\w.-]+)/)?.[1];
+  if (platform === "ig") {
+    const [first, second] = pathname.split("/").filter(Boolean);
+    if (first && second && !IG_RESERVED.has(first.toLowerCase()) && IG_RESERVED.has(second)) {
+      return `@${first}`;
+    }
+  }
+  return undefined;
+}
+
+/** YouTube video id from a watch / shorts / youtu.be URL. */
+function youtubeVideoId(u: URL): string | undefined {
+  const host = u.hostname.toLowerCase().replace(/^www\./, "");
+  if (host === "youtu.be") return u.pathname.split("/")[1] || undefined;
+  if (u.pathname === "/watch") return u.searchParams.get("v") || undefined;
+  return u.pathname.match(/^\/shorts\/([\w-]+)/)?.[1];
 }
 
 /**
- * Build a saved {@link Ref} from a pasted URL. The handle comes from a TikTok/YouTube "@name" in the URL
- * path when there is one, else the hostname; the title falls back to that handle, then the raw URL.
+ * The one canonical form of a post URL, used to store refs and to compare search cards with saved refs.
+ * MIRRORS `canonicalUrl` in `workers/scout/src/normalize.ts` (the Worker returns search results in this
+ * form); keep the two in step.
+ *
+ * - YouTube watch / shorts / youtu.be → `https://www.youtube.com/watch?v=<id>`
+ * - Instagram /p, /reel, /reels, /tv (also "/<user>/reel/<id>") → `https://www.instagram.com/p/<id>`
+ * - TikTok "/@user/video/<id>" (any subdomain) → `https://www.tiktok.com/@<user>/video/<id>`
+ * - anything else → `https://<host><path>`: host lower-cased with a leading "www." / "m." dropped ("www." put
+ *   back for tiktok.com, instagram.com and youtube.com), no query, hash or trailing "/". Instagram
+ *   "original audio" pages (/reels/audio/<id>) are not posts and take this path.
+ *
+ * An unparsable URL comes back trimmed but otherwise as given.
+ */
+export function canonicalRefUrl(platform: RefPlatform, url: string): string {
+  let u: URL;
+  try {
+    u = new URL(url.trim());
+  } catch {
+    return url.trim();
+  }
+  if (platform === "yt") {
+    const id = youtubeVideoId(u);
+    if (id) return `https://www.youtube.com/watch?v=${id}`;
+  }
+  if (platform === "ig") {
+    const id = u.pathname.match(IG_POST_PATH)?.[1];
+    if (id) return `https://www.instagram.com/p/${id}`;
+  }
+  if (platform === "tt") {
+    const m = u.pathname.match(TT_VIDEO_PATH);
+    if (m) return `https://www.tiktok.com/${m[1]}/video/${m[2]}`;
+  }
+  let host = u.hostname.toLowerCase().replace(/^(?:www|m)\./, "");
+  if (PLATFORM_HOSTS.includes(host)) host = `www.${host}`;
+  const path = u.pathname.replace(/\/+$/, "");
+  return `https://${host}${path}`;
+}
+
+/** Same patterns as `workers/scout/src/normalize.ts`: one Instagram post (never an audio page), one TikTok video. */
+const IG_POST_PATH = /^\/(?:[\w.]+\/)?(?:reels?|p|tv)\/(?!audio\/)([\w-]+)\/?$/;
+const TT_VIDEO_PATH = /^\/(@[\w.-]+)\/video\/(\d+)/;
+const PLATFORM_HOSTS: readonly string[] = ["tiktok.com", "instagram.com", "youtube.com"];
+
+/**
+ * Build a saved {@link Ref} from a pasted URL, stored in its {@link canonicalRefUrl} form so it matches the
+ * search card for the same post. The handle comes from the URL path when it names the account (TikTok /
+ * YouTube "@name", Instagram "/<name>/reel/..."), else the hostname; the title falls back to that handle.
  * Throws if `url` isn't a valid URL (the paste-a-link form should validate before calling this).
  */
 export function normalizeRef(url: string, title?: string, handle?: string): Ref {
@@ -117,13 +183,15 @@ export function normalizeRef(url: string, title?: string, handle?: string): Ref 
     parsed = undefined;
   }
   const host = parsed?.hostname.replace(/^www\./, "");
-  const fromPath =
-    parsed && (platform === "tt" || platform === "yt")
-      ? handleFromPath(parsed.pathname)
-      : undefined;
+  const fromPath = parsed ? handleFromPath(platform, parsed.pathname) : undefined;
   const finalHandle = handle?.trim() || fromPath || host || url;
   const finalTitle = title?.trim() || finalHandle;
-  return RefSchema.parse({ platform, handle: finalHandle, title: finalTitle, url });
+  return RefSchema.parse({
+    platform,
+    handle: finalHandle,
+    title: finalTitle,
+    url: parsed ? canonicalRefUrl(platform, url) : url,
+  });
 }
 
 /* ---------- YouTube Data API v3 (in-app results; owner supplies the key) ---------- */
@@ -376,9 +444,15 @@ export function hasArabic(text: string): boolean {
   return ARABIC.test(text);
 }
 
-/** Stable sort: items whose title has Arabic script first, the rest after, each group in original order. */
-export function arabicFirst<T extends { title: string }>(items: readonly T[]): T[] {
-  return [...items.filter((i) => hasArabic(i.title)), ...items.filter((i) => !hasArabic(i.title))];
+/**
+ * Stable sort: items whose title or snippet (the caption) has Arabic script first, the rest after, each
+ * group in original order. Many Arabic posts carry an English or emoji-only title over an Arabic caption.
+ */
+export function arabicFirst<T extends { title: string; snippet?: string }>(
+  items: readonly T[],
+): T[] {
+  const ar = (i: T) => hasArabic(i.title) || hasArabic(i.snippet ?? "");
+  return [...items.filter(ar), ...items.filter((i) => !ar(i))];
 }
 
 /** One card in the research panel, whatever it came from (YouTube Data API, Scout Worker, a saved ref). */
@@ -417,14 +491,19 @@ export function refFromItem(i: ResearchItem): Ref {
   };
 }
 
-/** Merge lists into one, first occurrence of each URL wins. */
+/**
+ * Merge lists into one, first occurrence of each post wins. URLs are compared in their
+ * {@link canonicalRefUrl} form (a saved "youtu.be/x?t=5" and a search card "youtube.com/watch?v=x" are one
+ * post); the kept item is returned unchanged.
+ */
 export function dedupeByUrl<T extends { url: string }>(...lists: readonly (readonly T[])[]): T[] {
   const seen = new Set<string>();
   const out: T[] = [];
   for (const list of lists) {
     for (const item of list) {
-      if (seen.has(item.url)) continue;
-      seen.add(item.url);
+      const key = canonicalRefUrl(detectPlatform(item.url), item.url);
+      if (seen.has(key)) continue;
+      seen.add(key);
       out.push(item);
     }
   }

@@ -12,33 +12,57 @@ browser:
 3. **Auto-posting** (planning/tools/07, Metricool-style): the dashboard sends one job per calendar post (media
    link, time, caption per platform) and a five-minute cron publishes it to the same four accounts. See
    [Auto-posting](#auto-posting).
+4. **Trend Radar** (planning/tools/08, round 30): what is trending now in Saudi Arabia (Arabic) and the US
+   (English) from Google Trends, the YouTube charts, a daily YouTube keyword search, a weekly Tavily scan of
+   TikTok / Instagram / Shorts pages and the Saudi moments calendar, refreshed by the same cron and served
+   as one feed. See [Trend Radar](#trend-radar).
 
 ## Endpoints
 
 Every request except `OPTIONS`, `GET /health` and the OAuth callback needs `Authorization: Bearer <SCOUT_TOKEN>`.
 Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
 
-| Route                   | What it does                                                                                                                                                                                                                              |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health`           | `{ ok: true }`. With a valid token: `{ ok: true, auth: true, tavily: <key present>, social: { configured: { instagram, threads, youtube, tiktok }, kv } }`; a wrong token → 401. Used by the Settings "Test" button and the Connect page. |
-| `POST /search`          | Body `{ q, platforms: ["tt","ig","yt"], lang?, max?, timeRange?, thumbs? }` → `{ results: [{ platform, handle, title, snippet, url, thumb? }], credits: { used } }`. See below.                                                           |
-| `GET /oembed?url=…`     | TikTok / YouTube links only → `{ title, author, thumb, url }`, cached for a day.                                                                                                                                                          |
-| `/social/*`, `/oauth/*` | The social analytics connector, see [Social analytics](#social-analytics), and the publish queue, see [Auto-posting](#auto-posting).                                                                                                      |
+| Route                   | What it does                                                                                                                                                                                                                                                                                  |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`           | `{ ok: true }`. With a valid token: `{ ok: true, auth: true, tavily: <key present>, social: { configured: { instagram, threads, youtube, tiktok }, kv }, trends: { youtube: <key present>, sources: [...] } }`; a wrong token → 401. Used by the Settings "Test" button and the Connect page. |
+| `POST /search`          | Body `{ q, platforms: ["tt","ig","yt"], lang?, max?, timeRange?, thumbs? }` → `{ results: [{ platform, handle, title, snippet, url, thumb? }], credits: { used } }`. See below.                                                                                                               |
+| `GET /oembed?url=…`     | TikTok / YouTube links only → `{ title, author, thumb, url }`, cached for a day (TikTok for 6 hours: its thumbnail URLs are signed and expire).                                                                                                                                               |
+| `/social/*`, `/oauth/*` | The social analytics connector, see [Social analytics](#social-analytics), and the publish queue, see [Auto-posting](#auto-posting).                                                                                                                                                          |
+| `/trends*`              | The Trend Radar feed, see [Trend Radar](#trend-radar).                                                                                                                                                                                                                                        |
 
 ### `POST /search` options
 
+- `lang`: `"ar" | "en"`, forwarded to Tavily as `language` (steers the results' language; before round 30 it
+  was validated and dropped, so Arabic searches came back English-only).
 - `timeRange`: `"week" | "month" | "year"`, passed to Tavily as `time_range` (only pages published in that
   window). Omit it for any time. Anything else → 400.
 - `thumbs` (default `true`): thumbnails on the cards.
   - **YouTube**: always `https://i.ytimg.com/vi/<id>/hqdefault.jpg`, derived from the video id (no call).
-  - **TikTok**: the first 8 TikTok results get `thumbnail_url` from TikTok's public oEmbed
-    (`https://www.tiktok.com/oembed?url=…`), fetched in parallel through the same day-long cache as
-    `GET /oembed`. Each call gives up after 2.5 s (AbortController); a failed or slow one just leaves that
-    card without `thumb`, the search still answers. TikTok's thumbnail URLs are signed and expire after a
-    few days, so the dashboard falls back to a placeholder when one stops loading.
+  - **TikTok**: the first 10 TikTok results get `thumbnail_url` from TikTok's public oEmbed
+    (`https://www.tiktok.com/oembed?url=…`), fetched in parallel through the same cache as `GET /oembed`
+    (6 hours for TikTok: its thumbnail URLs are signed and die after about 48 hours, and the dashboard
+    caches results on top). Each call gives up after 2.5 s (AbortController); a failed or slow one just
+    leaves that card without `thumb`, the search still answers. The dashboard falls back to a placeholder
+    when a thumbnail stops loading. The same oEmbed reply's `title` (the caption) replaces a card title
+    that is generic ("TikTok - Make Your Day", "Name (@handle)") or just the handle.
   - **Instagram**: no `thumb`. Instagram's oEmbed needs a Meta app access token (Facebook developer app +
     review), which this Worker does not have yet; the dashboard shows a placeholder tile.
   - `thumbs: false` skips the oEmbed calls (faster, fewer subrequests).
+- Cards (`normalize.ts`):
+  - Only single posts: TikTok `/@user/video/<id>`, YouTube watch / shorts / youtu.be, Instagram
+    `/reel/`, `/reels/`, `/p/`, `/tv/` `<id>` (optionally behind `/<user>/`); Instagram sound pages
+    (`/reels/audio/<id>`), profiles and explore pages are dropped.
+  - One card per post: `url` is rebuilt from the platform id (`https://www.youtube.com/watch?v=<id>`,
+    `https://www.instagram.com/p/<id>`, `https://www.tiktok.com/@user/video/<id>`), so a Short and its
+    watch link, or a reel shared with and without the account, merge. `lib/research.ts` mirrors this rule.
+  - Titles and snippets lose bidi marks and repeated whitespace. TikTok titles lose the ` | TikTok`
+    suffix and the `TikTok video from … (@h): ` prefix.
+  - Instagram: Tavily's page title is usually just "Instagram", so the card reads the handle from the
+    URL (`/<user>/reel/`), then the description (`<n> likes, <m> comments - <user> on|في <date>: "…"`),
+    then the twitter title (`(@user) •`), else `""` (never the hostname); the title is the caption from
+    `<Name> on Instagram: "…"` / `<Name> على Instagram : "…"` or the description, else a non-generic
+    page title, else the content's first sentence (not the like/comment counts), else `@user`, else
+    "Instagram reel".
 - Errors: `{ error: "quota" | "auth" | "upstream" | "bad_request" }`.
 
 The response shape is unchanged from v0: older dashboards that send neither option keep working (they get
@@ -119,8 +143,10 @@ refreshed before every sync. A refresh the provider refuses → `lastError: "tok
   the counts from the media list (likes, comments) and the insights they got on an earlier day: the daily
   cron gives each platform its own invocation, so each one gets the full budget.
 - **Cron**: one trigger every five minutes (`*/5 * * * *`); the ticks at 03:00/03:10/03:20/03:30 UTC
-  (06:00–06:30 Riyadh) sync one platform each instead of publishing (`SYNC_SLOTS` in `src/social/cron.ts`). One
-  trigger instead of five also stays inside the free plan's five cron triggers per account. `POST /social/sync` without `platforms` shares one budget across
+  (06:00–06:30 Riyadh) sync one platform each instead of publishing (`SYNC_SLOTS` in `src/social/cron.ts`),
+  and the Trend Radar ticks (`TREND_SLOTS`: 00:05/06:05/12:05/18:05 UTC fast, 21:05 UTC daily, Saturday
+  21:15 UTC weekly; every slot sits on the five-minute grid, a test guards it) refresh the trend feed instead. One trigger instead of many also stays inside the free
+  plan's five cron triggers per account. `POST /social/sync` without `platforms` shares one budget across
   every connected platform (10 calls each with four): use it as a quick refresh, not as the daily pull.
 - **KV writes**: 1,000 a day on the free plan. A sync writes about six keys (tokens when refreshed, snapshot,
   posts document, demographics, status), so manual syncs are cheap.
@@ -181,18 +207,82 @@ that. The status is polled on the next ticks (`SEND_TO_USER_INBOX` for the inbox
 calls (`PUBLISH_BUDGET`, the rest of the 50 subrequests go to KV). It claims its jobs (`lockUntil`, 10 min)
 before any platform call, so the cron and "run" never publish the same job twice.
 
+## Trend Radar
+
+Code: `src/trends/` (`run.ts` the job and the source registry, `routes.ts` HTTP, `kv.ts` the keys, one module
+per source, `normalize.ts` ids / scores / merge, `types.ts` the hand-copied `TrendItem` / `TrendsFeed` of
+`lib/domain.ts`). Design, search log and the honesty rule: `planning/tools/08-trends.md`.
+
+**Honesty rule.** Only Google Trends and the YouTube charts are real popularity rankings; every row carries
+its `source` label and the dashboard never calls a chart or a scan "trending".
+
+| Route              | Request                                                     | Response                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /trends`      |                                                             | `{ items: TrendItem[], fetchedAt, degraded, sources: [{ name, ok, at?, error? }] }` — `trends:latest`, or `{ items: [], fetchedAt: null, degraded: true, sources: [] }` (200) when nothing ran yet; `502 { error: "upstream" }` when KV fails                                                                                                                                                                                                                                                                                                                                     |
+| `POST /trends/run` | `{ "kinds"?: ["fast", "daily", "weekly"], "force"?: true }` | Runs every enabled source of those kinds now (default `["fast"]`, what the dashboard's refresh button sends) and answers the new feed. The weekly Tavily scan runs once per ISO week (KV `trends:tavily:<week>`; a second run answers `ok` with the note "already scanned this week") unless `force: true`. A body that is not `{ kinds?, force? }` answers `400 { error: "bad_request", detail: "body" }`. A KV failure inside the run answers the computed feed, `degraded`, with a `kv` status; a failure outside it answers `502 { error: "upstream" }` with the CORS headers |
+
+`TrendItem` is `{ id, platform: google|youtube|tiktok|instagram|threads|x|event, region: SA|US|global,
+lang: ar|en|mixed, title, url?, thumb?, score? (0..100, rank 1 = 100 within its source), growthPct?, volume?,
+source, why?, seenAt, expiresAt?, tags, skillHint? }`; `id` is `<platform>:<region>:<slug>` and stays the same
+across runs (the dashboard's dismissed list keys on it). `lang` follows the region (SA rows `ar`, US rows
+`en`), except hashtags / scan hits (by their script) and events (`mixed`).
+
+### Sources, slots and budgets
+
+| Source (`TREND_SOURCES` key → label) | What                                                                                                                                                                                                                                                                                                                     | When (UTC)                                                      | Calls per run                             |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- | ----------------------------------------- |
+| `google` → **Google Trends**         | "Trending now" SA + US, 24 h: the `batchexecute` RPC (`i0OFE`, volume, growth %, related queries → `tags`) enriched by the RSS feed (first headline → `why`, its link → `url`, picture → `thumb`). RSS alone when the RPC fails (`degraded`). Top 25 per region                                                          | fast: 00:05, 06:05, 12:05, 18:05                                | 4                                         |
+| `youtube` → **YouTube charts**       | `videos.list chart=mostPopular` SA + US, all categories and How-to & Style (26), 25 each; `≤ 180 s` → tag `short`; `volume` = views, `why` = channel. Since July 2025 this is the Music / Movies / Gaming chart, hence "charts"                                                                                          | fast                                                            | 4 (4 quota units)                         |
+| `youtube` → **YouTube search**       | `search.list order=viewCount publishedAfter=7d videoDuration=short` for `TREND_KEYWORDS_AR` (SA, `ar`) and `TREND_KEYWORDS_EN` (US, `en`), interleaved, then one `videos.list`; `tags` = the keyword. **Hard cap 12 `search.list` calls per run and per UTC day** (KV `trends:ytsearch:<day>`)                           | daily: 21:05 (00:05 Riyadh)                                     | ≤ 13 (≤ 12 of the 100 daily search calls) |
+| `tavily` → **Tavily scan**           | 8 searches (4 Arabic, `country: saudi arabia`, `language: ar`; 3 English, `country: united states`; 1 against the weekly trend blogs), `time_range: week`, platform sites only; `#hashtags` and "quoted names" counted across pages (`volume` = pages), `why` = the best page's snippet, `tags: ["scan"]`, 14-day expiry | weekly: Saturday 21:15 (00:15 Riyadh Sunday), once per ISO week | 8 (8 credits)                             |
+| `events` → **3z calendar**           | `planning/data/saudi-events.json` bundled at build: every moment within 60 days (running ones score 100), `tags` = kind + hashtags, expires the Riyadh midnight after its last day                                                                                                                                       | fast                                                            | 0                                         |
+| `kworb` → **kworb.net** (off)        | TikTok trending sounds SA + US (top 30, tag `sound`, `url` a TikTok search for the sound)                                                                                                                                                                                                                                | fast                                                            | 2                                         |
+| `x` → **trends24.in** (off)          | X trends Saudi Arabia, the latest hourly snapshot (top 30, tag `hashtag`)                                                                                                                                                                                                                                                | fast                                                            | 1                                         |
+
+A run gets **38 outbound calls** (`RUN_BUDGET`; KV takes the rest of the 50 subrequests: one feed read, at
+most two feed writes, the search counter on daily runs (one read, a reservation write and at most one refund
+write) and the weekly stamp on weekly runs (one read, one write): at most eight). Every outbound call has a
+12-second limit (body included), so a hung site fails its own source and the next one still runs. A KV
+failure never wipes the feed: a failed read skips the write, a failed write answers the computed feed marked
+`degraded` with a `kv` status. A source that fails keeps its previous rows and reports `ok: false`;
+the feed is `degraded` when any configured source failed or only partly worked (`error` then carries the
+note). A missing `YOUTUBE_API_KEY` reports `not_configured` on both YouTube sources without degrading the
+feed. Other sources' rows stay until their own next run or their `expiresAt` (Google, charts, kworb 2 days;
+trends24 1 day; search 7 days; scan 14 days); the feed holds at most 200 rows, sorted by score.
+
+**Enabling kworb / trends24.** Both are third-party aggregators (the owner's question 3 in
+`planning/handovers/mastermind-2026-09-28.md`); once he agrees, add them to the `TREND_SOURCES` var in
+`wrangler.jsonc` (`"google,youtube,tavily,events,kworb,x"`) and redeploy. Anything not listed there never
+runs and its old rows leave the feed at the next run.
+
+Google Trends and kworb were verified from a residential IP only. If Cloudflare's egress IPs get 429s the
+source reports `ok: false`, the last good copy stays (`trends:prev` too), and the fallback is an owner-run
+GitHub Action (see `08-trends.md`).
+
+### Storage (KV binding `SOCIAL_KV`)
+
+| Key                     | Value                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `trends:latest`         | the `TrendsFeed` `GET /trends` serves (one document, one write per run)                                       |
+| `trends:prev`           | the previous feed, copied before a run in which at least one source succeeded                                 |
+| `trends:ytsearch:<day>` | `search.list` calls reserved on that UTC day (the 12-a-day cap, best-effort when two runs overlap), 2-day TTL |
+| `trends:tavily:<week>`  | written after a successful weekly scan of that ISO week (e.g. `2026-W40`), 8-day TTL                          |
+
 ## Configuration
 
-| Name                                        | Kind                   | Where                                                                                                                                                |
-| ------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TAVILY_API_KEY`                            | Worker secret          | From the `TAVILY_API_KEY` repository secret (set by the deploy workflow).                                                                            |
-| `SCOUT_TOKEN`                               | Worker secret          | From the `SCOUT_TOKEN` repository secret. Any long random string, e.g. `openssl rand -hex 24`. Also the key material for the stored social tokens.   |
-| `META_APP_ID`, `META_APP_SECRET`            | Worker secrets         | Meta app (Instagram API with Instagram Login + Threads API). Repository secrets of the same names.                                                   |
-| `THREADS_APP_ID`, `THREADS_APP_SECRET`      | Worker secrets         | The Meta app's Threads use case → Settings "Threads app ID" / secret (differs from the Instagram pair). Falls back to `META_*` when unset.          |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`  | Worker secrets         | Google Cloud OAuth client (YouTube Data + Analytics). Repository secrets of the same names.                                                          |
-| `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | Worker secrets         | TikTok developer app (Login Kit + Display API). Repository secrets of the same names.                                                                |
-| `ALLOWED_ORIGINS`                           | Var (`wrangler.jsonc`) | Comma list. Default `http://localhost:3000,https://3zmd95-glitch.github.io`. Also the origins `returnTo` may point at.                               |
-| `SOCIAL_KV`                                 | KV binding             | Namespace `3z-scout-SOCIAL_KV`, created by the deploy workflow; `wrangler.jsonc` keeps a placeholder id that the workflow swaps in before deploying. |
+| Name                                        | Kind                    | Where                                                                                                                                                                                                                |
+| ------------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TAVILY_API_KEY`                            | Worker secret           | From the `TAVILY_API_KEY` repository secret (set by the deploy workflow). Also the weekly trend scan.                                                                                                                |
+| `YOUTUBE_API_KEY`                           | Worker secret           | From the `YOUTUBE_API_KEY` repository secret: a Google Cloud API key restricted to the YouTube Data API v3 (steps in `planning/tools/08-trends.md`). Without it the radar's YouTube sources report `not_configured`. |
+| `TREND_SOURCES`                             | Var (`wrangler.jsonc`)  | Comma list of the radar's sources. Default `google,youtube,tavily,events`; add `kworb` / `x` once the owner agrees.                                                                                                  |
+| `TREND_KEYWORDS_AR`, `TREND_KEYWORDS_EN`    | Vars (`wrangler.jsonc`) | Comma lists of the owner's niche keywords for the daily YouTube search (defaults = `lib/trends.ts` `DEFAULT_TREND_KEYWORDS`).                                                                                        |
+| `SCOUT_TOKEN`                               | Worker secret           | From the `SCOUT_TOKEN` repository secret. Any long random string, e.g. `openssl rand -hex 24`. Also the key material for the stored social tokens.                                                                   |
+| `META_APP_ID`, `META_APP_SECRET`            | Worker secrets          | Meta app (Instagram API with Instagram Login + Threads API). Repository secrets of the same names.                                                                                                                   |
+| `THREADS_APP_ID`, `THREADS_APP_SECRET`      | Worker secrets          | The Meta app's Threads use case → Settings "Threads app ID" / secret (differs from the Instagram pair). Falls back to `META_*` when unset.                                                                           |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`  | Worker secrets          | Google Cloud OAuth client (YouTube Data + Analytics). Repository secrets of the same names.                                                                                                                          |
+| `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | Worker secrets          | TikTok developer app (Login Kit + Display API). Repository secrets of the same names.                                                                                                                                |
+| `ALLOWED_ORIGINS`                           | Var (`wrangler.jsonc`)  | Comma list. Default `http://localhost:3000,https://3zmd95-glitch.github.io`. Also the origins `returnTo` may point at.                                                                                               |
+| `SOCIAL_KV`                                 | KV binding              | Namespace `3z-scout-SOCIAL_KV`, created by the deploy workflow; `wrangler.jsonc` keeps a placeholder id that the workflow swaps in before deploying.                                                                 |
 
 A platform whose two secrets are not both set shows `configured: false` and its connect button stays disabled in
 the dashboard; nothing else breaks. The exact app-creation steps, scopes and redirect URIs per platform are in
@@ -212,6 +302,7 @@ the dashboard; nothing else breaks. The exact app-creation steps, scopes and red
    - `SCOUT_TOKEN` (the random string you'll also paste into the dashboard)
    - later, per platform: `META_APP_ID` + `META_APP_SECRET`, `THREADS_APP_ID` + `THREADS_APP_SECRET`, `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`,
      `TIKTOK_CLIENT_KEY` + `TIKTOK_CLIENT_SECRET`
+   - for the Trend Radar's YouTube sources: `YOUTUBE_API_KEY`
 4. Run **Actions → Deploy Scout Worker → Run workflow** (it also runs on every push to `main` that touches
    `workers/scout/**`). Without the Cloudflare secrets the run stays green and just prints a notice.
 5. The Worker URL is `https://3z-scout.<account-subdomain>.workers.dev`; the subdomain is shown in Cloudflare

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type KeyboardEvent } from "react";
+import { usePublishAutoResync } from "@/components/social/usePublish";
 import { getSkill } from "@/data";
 import { POST_STAGES, type Post, type PostStage } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
@@ -19,7 +20,8 @@ const TABS: readonly Tab[] = ["overview", "script", "shots", "autopost"];
 /**
  * Post popup (round 17): header with platform + inline-editable title, the 6-step stage stepper with the
  * "suggested" hint, and the Overview · Script · Shots · Auto-post tabs. Edits go straight to the store, so the
- * popup updates in place (no remount, scroll kept). Closes itself when the post is deleted.
+ * popup updates in place (no remount, scroll kept). Closes itself when the post is deleted. Since round 30 the
+ * body also keeps a sent auto-post job fresh (`usePublishAutoResync`), whichever tab edits the post.
  */
 export default function PostSheet({ postId, onClose }: { postId: string; onClose: () => void }) {
   const post = useStore((s) => s.posts.find((p) => p.id === postId));
@@ -54,6 +56,7 @@ function SheetBody({
   const updatePost = useStore((s) => s.updatePost);
   const setPostStage = useStore((s) => s.setPostStage);
   const unmarkPosted = useStore((s) => s.unmarkPosted);
+  usePublishAutoResync(post);
   const [tab, setTab] = useState<Tab>("overview");
   const [urlFocus, setUrlFocus] = useState(0);
   const skill = post.skillId ? getSkill(post.skillId) : undefined;

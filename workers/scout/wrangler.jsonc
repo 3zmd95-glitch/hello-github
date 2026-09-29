@@ -1,8 +1,9 @@
-// Scout Worker (build plan 1.14): TikTok / Instagram / YouTube search via Tavily + oEmbed passthrough, and
-// the social connector (OAuth, daily analytics sync and auto-posting for Instagram, Threads, YouTube and TikTok).
+// Scout Worker (build plan 1.14): TikTok / Instagram / YouTube search via Tavily + oEmbed passthrough, the
+// social connector (OAuth, daily analytics sync and auto-posting for Instagram, Threads, YouTube and TikTok)
+// and the Trend Radar feed (round 30, planning/tools/08-trends.md).
 // Secrets (set by the deploy workflow with `wrangler secret put`, never committed): TAVILY_API_KEY,
 // SCOUT_TOKEN, META_APP_ID, META_APP_SECRET, THREADS_APP_ID, THREADS_APP_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, TIKTOK_CLIENT_KEY,
-// TIKTOK_CLIENT_SECRET.
+// TIKTOK_CLIENT_SECRET, YOUTUBE_API_KEY.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "3z-scout",
@@ -12,12 +13,22 @@
   "observability": { "enabled": true },
   "vars": {
     "ALLOWED_ORIGINS": "http://localhost:3000,https://3zmd95-glitch.github.io",
+    // Trend Radar sources (src/trends/run.ts SOURCE_KEYS): google, youtube (charts + the daily keyword
+    // search), tavily, events, and the third-party aggregators kworb (TikTok sounds) and x (trends24.in),
+    // which stay off until the owner agrees to read them with attribution.
+    "TREND_SOURCES": "google,youtube,tavily,events",
+    // The owner's niche keywords for the daily YouTube search (≤ 12 search.list calls a day); the same
+    // defaults as lib/trends.ts DEFAULT_TREND_KEYWORDS.
+    "TREND_KEYWORDS_AR": "تصوير,مونتاج,دافنشي,تصحيح الألوان,كاميرا,صانع محتوى",
+    "TREND_KEYWORDS_EN": "davinci resolve,color grading,b-roll,iphone videography,video editing,content creator",
   },
   // Tokens, status and the daily rows. The id below is a placeholder: the deploy workflow creates the
   // namespace "3z-scout-SOCIAL_KV" once and swaps the real id in before `wrangler deploy` (see
   // .github/workflows/worker.yml). Locally, `wrangler dev` uses a simulated namespace, no id needed.
   "kv_namespaces": [{ "binding": "SOCIAL_KV", "id": "00000000000000000000000000000000" }],
-  // One trigger every five minutes: the auto-post queue publishes what is due, and the 03:00/03:10/03:20/03:30
-  // UTC ticks (06:00–06:30 Riyadh) run the daily sync of one platform each instead (src/social/cron.ts).
+  // One trigger every five minutes: the auto-post queue publishes what is due, the 03:00/03:10/03:20/03:30
+  // UTC ticks (06:00–06:30 Riyadh) run the daily sync of one platform each instead, and the Trend Radar
+  // ticks (00:05/06:05/12:05/18:05 UTC fast sources, 21:05 UTC daily YouTube search, Saturday 21:15 UTC
+  // Tavily scan; every slot on this five-minute grid) refresh the trend feed (src/social/cron.ts).
   "triggers": { "crons": ["*/5 * * * *"] },
 }

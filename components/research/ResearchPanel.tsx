@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -15,6 +16,7 @@ import type { Lang, Skill } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import {
   arabicFirst,
+  canonicalRefUrl,
   dedupeByUrl,
   hashtagSlug,
   interleavePlatforms,
@@ -41,12 +43,22 @@ import {
   SCOUT_MONTHLY_FREE,
   scoutErrorMessageKey,
   type ScoutError,
+  type ScoutResult,
 } from "@/lib/scoutClient";
 import { getApiKey, useStore } from "@/store";
 import PasteLinkForm from "./PasteLinkForm";
 import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
 import SkillPicker from "./SkillPicker";
-import { scoutParams, useScoutConfig, useScoutQuery, useScoutUsage } from "./useScout";
+import {
+  groupErrors,
+  scoutParams,
+  unionCount,
+  useScoutConfig,
+  useScoutQuery,
+  useScoutUsage,
+  type PlatformPart,
+  type ScoutSearchState,
+} from "./useScout";
 import { useYoutubeQuery } from "./useYoutube";
 
 /** Last platform tab, remembered per device. */
@@ -78,6 +90,27 @@ const TAB_LABEL: Record<ResearchTab, MessageKey> = {
   ig: "research.tabIg",
 };
 const TAB_GLYPH: Record<ResearchTab, string> = { all: "◆", yt: "▶", tt: "♪", ig: "📷" };
+
+/** The platforms behind the tabs, in the All tab's order. */
+const PLATFORMS = ["yt", "tt", "ig"] as const;
+type Platform = (typeof PLATFORMS)[number];
+
+/** "Nothing on this platform for this topic" line under the All tab's cards. */
+const NONE_ON: Record<Platform, MessageKey> = {
+  yt: "research.noneYt",
+  tt: "research.noneTt",
+  ig: "research.noneIg",
+};
+
+/** A tab's share of a list (All = everything). */
+function onTab<T extends ResearchItem>(list: readonly T[], tb: ResearchTab): T[] {
+  return tb === "all" ? [...list] : list.filter((i) => i.platform === tb);
+}
+
+/** One platform's cards from its Worker answer (that platform only), or none until it has answered. */
+function scoutCards(s: ScoutSearchState, p: Platform): ScoutResult[] {
+  return s.status === "ok" ? s.results.filter((r) => r.platform === p) : [];
+}
 
 const RECENCY: { v: Recency; label: MessageKey }[] = [
   { v: "any", label: "research.timeAny" },
@@ -141,7 +174,10 @@ export default function ResearchPanel({
   const hint = programSearchHint(getProgram(skill ? skill.programId : programId));
   const q = withProgramHint(base, hintOn ? hint : undefined);
   // Instagram hashtags are Latin slugs: the skill's EN name, or the Discover topic when it's Latin.
-  const tag = hashtagSlug(skill ? skill.name.en : q);
+  // (From the typed topic, never with the program hint appended: "#matchcutdavinciresolve" finds nothing.)
+  const tag = hashtagSlug(skill ? skill.name.en : base);
+  // "Search" press counter: pressing it again after an error asks again (a cached success costs nothing).
+  const [attempt, setAttempt] = useState(0);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -152,6 +188,7 @@ export default function ResearchPanel({
       if (text) addRecentTopic(text);
     }
     setDraft(null);
+    setAttempt((a) => a + 1);
   };
 
   const pickTab = (next: ResearchTab) => {
@@ -165,24 +202,46 @@ export default function ResearchPanel({
   const searchLang: Lang = arFirst ? "ar" : queryLang;
   const timeRange = recency === "any" ? undefined : recency;
   const live = !savedOnly && q.length > 0;
-  const paramsFor = (tb: ResearchTab) =>
-    scoutParams(q, scoutPlatformsFor(tb, hasYt), searchLang, timeRange);
-  const scout = useScoutQuery(live ? paramsFor(tab) : null);
+  const videoDuration = youtubeDurationFor(length);
+  const publishedAfter = publishedAfterFor(recency, now);
   const ytOpts = {
     relevanceLanguage: searchLang,
     maxResults: YT_MAX,
-    videoDuration: youtubeDurationFor(length),
-    publishedAfter: publishedAfterFor(recency, now),
+    videoDuration,
+    publishedAfter,
   };
   const ytWanted = live && hasYt && (tab === "all" || tab === "yt");
-  const yt = useYoutubeQuery(ytWanted ? ytKey : undefined, q, ytOpts);
+  const yt = useYoutubeQuery(ytWanted ? ytKey : undefined, q, ytOpts, attempt);
+  // A key that's out of quota or refused: YouTube comes from the Worker instead. The failed query stays
+  // settled (ytWanted doesn't depend on this), so it doesn't flip back and forth.
+  const ytDown =
+    !!scoutCfg &&
+    yt.status === "error" &&
+    (yt.error.type === "quota" || yt.error.type === "forbidden");
+  const ytApi = hasYt && !ytDown;
+
+  // One Worker request per platform, each on while its own tab or All is open. All is the union of the
+  // same requests (same cache keys), so switching tabs never spends a second credit, and one platform
+  // can't crowd the others out of a shared, capped answer.
+  const paramsFor = (p: Platform) =>
+    scoutParams(q, scoutPlatformsFor(p, ytApi), searchLang, timeRange);
+  const wants = (p: Platform) => live && (tab === "all" || tab === p);
+  const scoutTt = useScoutQuery(wants("tt") ? paramsFor("tt") : null, attempt);
+  const scoutIg = useScoutQuery(wants("ig") ? paramsFor("ig") : null, attempt);
+  const scoutYt = useScoutQuery(wants("yt") ? paramsFor("yt") : null, attempt);
+  const scoutBy: Record<Platform, ScoutSearchState> = { yt: scoutYt, tt: scoutTt, ig: scoutIg };
 
   /* ---------- saved refs ---------- */
 
+  // Keyed by the canonical URL, so a ref saved in an older form (a /reel/ link, youtu.be, a query string) still
+  // shows as attached on the search card for the same post.
   const attachedTo = useMemo(() => {
     const m = new Map<string, string[]>();
     for (const [skillId, refs] of Object.entries(savedRefs)) {
-      for (const r of refs) m.set(r.url, [...(m.get(r.url) ?? []), skillId]);
+      for (const r of refs) {
+        const key = canonicalRefUrl(r.platform, r.url);
+        m.set(key, [...(m.get(key) ?? []), skillId]);
+      }
     }
     return m;
   }, [savedRefs]);
@@ -197,41 +256,79 @@ export default function ResearchPanel({
 
   /* ---------- what the active tab shows ---------- */
 
-  const onTab = <T extends ResearchItem>(list: readonly T[], tb: ResearchTab = tab) =>
-    tb === "all" ? [...list] : list.filter((i) => i.platform === tb);
-  const ytItems = yt.status === "ok" ? yt.items.map(itemFromYoutube) : [];
-  const scoutItems = scout.status === "ok" ? onTab(scout.results) : [];
-  let items = savedOnly ? onTab(savedList) : interleavePlatforms(dedupeByUrl(ytItems, scoutItems));
+  const shownPlatforms = tab === "all" ? PLATFORMS : [tab];
+  const ytItems = ytApi && yt.status === "ok" ? yt.items.map(itemFromYoutube) : [];
+  let items = savedOnly
+    ? onTab(savedList, tab)
+    : interleavePlatforms(
+        dedupeByUrl<ResearchItem>(ytItems, ...shownPlatforms.map((p) => scoutCards(scoutBy[p], p))),
+      );
   if (arFirst) items = arabicFirst(items);
-  const loading = scout.status === "loading" || yt.status === "loading";
+  const loading = [yt, scoutTt, scoutIg, scoutYt].some((s) => s.status === "loading");
 
-  /** Result count for a tab from what's already loaded or cached (no request), else undefined. */
-  const countFor = (tb: ResearchTab): number | undefined => {
-    if (savedOnly) return onTab(savedList, tb).length;
-    if (!q) return undefined;
-    const scoutPart = (x: ResearchTab) => {
-      const p = paramsFor(x);
-      if (!p) return [];
-      return scoutCfg ? peekScoutSearch(p) : null;
-    };
-    const ytPart =
-      hasYt && ytKey ? peekYoutubeSearch(ytKey, q, ytOpts, now)?.map(itemFromYoutube) : [];
-    if (tb === "all") {
-      const s = scoutPart("all");
-      if (s === undefined || ytPart === undefined || (s === null && !hasYt)) return undefined;
-      return dedupeByUrl(ytPart, s ?? []).length;
+  /**
+   * Result count per tab from each platform's own answer, or its cached one (no request); undefined (no
+   * badge) until that platform's own query has an answer. All = the distinct posts across the platforms.
+   * Worked out once per answer / query change, not on every keystroke in the search box.
+   */
+  const counts = useMemo((): Record<ResearchTab, number | undefined> => {
+    if (savedOnly) {
+      const n = (tb: ResearchTab) => onTab(savedList, tb).length;
+      return { all: n("all"), yt: n("yt"), tt: n("tt"), ig: n("ig") };
     }
-    if (tb === "yt" && hasYt) return ytPart?.length;
-    const own = scoutPart(tb);
-    if (own === null) return undefined;
-    const list = own ?? scoutPart("all");
-    return list ? list.filter((i) => i.platform === tb).length : undefined;
-  };
+    const none = { all: undefined, yt: undefined, tt: undefined, ig: undefined };
+    if (!q) return none;
+    const states: Record<Platform, ScoutSearchState> = { yt: scoutYt, tt: scoutTt, ig: scoutIg };
+    const opts = {
+      relevanceLanguage: searchLang,
+      maxResults: YT_MAX,
+      videoDuration,
+      publishedAfter,
+    };
+    const part = (p: Platform): PlatformPart<ResearchItem> => {
+      if (p === "yt" && ytApi) {
+        if (yt.status === "ok") return yt.items.map(itemFromYoutube);
+        if (yt.status === "error") return "error";
+        return ytKey ? peekYoutubeSearch(ytKey, q, opts, now)?.map(itemFromYoutube) : undefined;
+      }
+      const s = states[p];
+      if (s.status === "ok") return scoutCards(s, p);
+      if (s.status === "error") return "error";
+      const params = scoutParams(q, scoutPlatformsFor(p, ytApi), searchLang, timeRange);
+      if (!scoutCfg || !params) return undefined;
+      return peekScoutSearch(scoutCfg, params)?.filter((r) => r.platform === p);
+    };
+    const hasSource = (p: Platform) => !!scoutCfg || (p === "yt" && ytApi);
+    const parts = { yt: part("yt"), tt: part("tt"), ig: part("ig") };
+    const own = (p: Platform) => (Array.isArray(parts[p]) ? parts[p].length : undefined);
+    return {
+      all: unionCount(PLATFORMS.filter(hasSource).map((p) => parts[p])),
+      yt: own("yt"),
+      tt: own("tt"),
+      ig: own("ig"),
+    };
+  }, [
+    savedOnly,
+    savedList,
+    q,
+    searchLang,
+    timeRange,
+    videoDuration,
+    publishedAfter,
+    now,
+    ytApi,
+    ytKey,
+    scoutCfg,
+    yt,
+    scoutTt,
+    scoutIg,
+    scoutYt,
+  ]);
 
   /* ---------- per-card actions ---------- */
 
   const renderAction = (item: ResearchItem): ReactNode => {
-    const on = attachedTo.get(item.url) ?? [];
+    const on = attachedTo.get(canonicalRefUrl(item.platform, item.url)) ?? [];
     if (skill) {
       const here = on.includes(skill.id);
       return (
@@ -286,10 +383,29 @@ export default function ResearchPanel({
 
   const scoutHint = !savedOnly && !scoutCfg && tab !== "yt" && (!!q || !!skill);
   const ytHint = !savedOnly && !hasYt && !scoutCfg && (tab === "all" || tab === "yt");
-  const ytViaScout = !savedOnly && tab === "yt" && !hasYt && scout.status === "ok";
+  const ytViaScout =
+    !savedOnly && !ytApi && scoutYt.status === "ok" && (tab === "yt" || (tab === "all" && ytDown));
   const lenNote =
-    !savedOnly && length !== "any" && !hasYt && !!scoutCfg && (tab === "all" || tab === "yt");
-  const anySettled = scout.status === "ok" || yt.status === "ok";
+    !savedOnly && length !== "any" && !ytApi && !!scoutCfg && (tab === "all" || tab === "yt");
+  // Worker errors, one line per kind of error (naming the platforms on All), never hiding what worked.
+  const scoutErrors = savedOnly
+    ? []
+    : groupErrors(
+        shownPlatforms.flatMap((p) => {
+          const s = scoutBy[p];
+          return s.status === "error" ? [{ platform: p, error: s.error }] : [];
+        }),
+      );
+  // On All: the platforms whose own search answered with nothing (said once each, with a way to look there).
+  const noneOn =
+    tab === "all" && !savedOnly && items.length > 0
+      ? PLATFORMS.filter((p) =>
+          p === "yt" && ytApi
+            ? yt.status === "ok" && yt.items.length === 0
+            : scoutBy[p].status === "ok" && scoutCards(scoutBy[p], p).length === 0,
+        )
+      : [];
+  const anySettled = [yt, scoutTt, scoutIg, scoutYt].some((s) => s.status === "ok");
   const showEmpty = savedOnly
     ? items.length === 0
     : !!q && anySettled && !loading && items.length === 0;
@@ -313,6 +429,35 @@ export default function ResearchPanel({
     pickTab(RESEARCH_TABS[next]);
     tabRefs.current[next]?.focus();
   };
+
+  /* ---------- "↗ ⋯" menu: closes on an outside tap, Escape, or after a link in it ---------- */
+
+  const moreRef = useRef<HTMLDetailsElement>(null);
+  const closeMore = () => {
+    if (moreRef.current) moreRef.current.open = false;
+  };
+  useEffect(() => {
+    // Listening for the panel's whole life (two cheap checks per event) rather than from the <details>
+    // toggle event, which fires a task later: an Escape right after opening would slip through. The ref is
+    // read on each event since the menu remounts when the query is cleared and typed again.
+    const onDown = (e: PointerEvent) => {
+      const menu = moreRef.current;
+      if (menu?.open && !menu.contains(e.target as Node)) menu.open = false;
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const menu = moreRef.current;
+      if (e.key !== "Escape" || !menu?.open) return;
+      const inside = menu.contains(document.activeElement);
+      menu.open = false;
+      if (inside) menu.querySelector("summary")?.focus();
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
 
   const barBg = skill ? "bg-panel-2 -mx-3 px-3" : "bg-panel -mx-4 px-4";
 
@@ -408,7 +553,7 @@ export default function ResearchPanel({
             </button>
           )}
           {q && (
-            <details className="relative ms-auto" data-testid="research-more">
+            <details ref={moreRef} className="relative ms-auto" data-testid="research-more">
               <summary
                 className="px-btn px-btn-ghost px-btn-sm list-none [&::-webkit-details-marker]:hidden"
                 aria-label={t("research.openOn")}
@@ -417,7 +562,13 @@ export default function ResearchPanel({
               >
                 ↗ ⋯
               </summary>
-              <div className="border-edge bg-panel absolute end-0 top-full z-20 mt-1.5 flex flex-col gap-2 rounded-[2px] border-[3px] p-2 shadow-[4px_4px_0_var(--edge)]">
+              <div
+                className="border-edge bg-panel absolute end-0 top-full z-20 mt-1.5 flex flex-col gap-2 rounded-[2px] border-[3px] p-2 shadow-[4px_4px_0_var(--edge)]"
+                onClick={(e) => {
+                  // A link opens in a new tab (or the app): the menu's done.
+                  if ((e.target as Element).closest("a")) closeMore();
+                }}
+              >
                 <span className="text-muted text-xs whitespace-nowrap">{t("research.openOn")}</span>
                 <PlatformLinks q={q} idPrefix="research-link" stack />
                 {tag && (
@@ -449,6 +600,7 @@ export default function ResearchPanel({
               onClick={() => {
                 setTopic(rt);
                 setDraft(null);
+                setAttempt((a) => a + 1);
                 addRecentTopic(rt);
               }}
               data-testid="discover-recent-topic"
@@ -468,7 +620,7 @@ export default function ResearchPanel({
       >
         {RESEARCH_TABS.map((tb, i) => {
           const active = tb === tab;
-          const count = countFor(tb);
+          const count = counts[tb];
           return (
             <button
               key={tb}
@@ -603,7 +755,13 @@ export default function ResearchPanel({
         )}
         {scoutHint && <Hint testId="scout-not-configured">{t("research.scoutNotConfigured")}</Hint>}
         {ytHint && (!!q || !!skill) && <Hint testId="yt-no-key">{t("research.enableYt")}</Hint>}
-        {!savedOnly && scout.status === "error" && <ScoutErrorLine error={scout.error} />}
+        {scoutErrors.map((g) => (
+          <ScoutErrorLine
+            key={g.error.type}
+            error={g.error}
+            platforms={tab === "all" ? g.platforms : undefined}
+          />
+        ))}
         {!savedOnly && yt.status === "error" && <YoutubeErrorLine error={yt.error} />}
         {ytViaScout && (
           <p className="text-muted text-xs" data-testid="yt-via-scout">
@@ -632,6 +790,17 @@ export default function ResearchPanel({
               ))}
           </ul>
         )}
+
+        {noneOn.map((p) => (
+          <div
+            key={p}
+            className="text-muted flex flex-wrap items-center gap-2 text-xs"
+            data-testid={`research-none-${p}`}
+          >
+            <span>{t(NONE_ON[p])}</span>
+            <PlatformLinks q={q} idPrefix={`none-link-${p}`} only={p} />
+          </div>
+        ))}
 
         {showEmpty && (
           <div
@@ -765,13 +934,22 @@ function ErrorLine({
   );
 }
 
-function ScoutErrorLine({ error }: { error: ScoutError }) {
+function ScoutErrorLine({
+  error,
+  platforms,
+}: {
+  error: ScoutError;
+  /** The platforms it hit, named on the All tab. */
+  platforms?: readonly Platform[];
+}) {
   const { t } = useT();
+  const on = platforms?.map((p) => PLATFORM_META[p].label).join(" · ");
+  const message = t(scoutErrorMessageKey(error));
   return (
     <ErrorLine
       testId="scout-error"
       type={error.type}
-      message={t(scoutErrorMessageKey(error))}
+      message={on ? `${on}: ${message}` : message}
       settings={error.type === "auth" || error.type === "quota"}
     />
   );
