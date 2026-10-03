@@ -8,6 +8,7 @@ on:
       - "workers/scout/**"
       - "planning/data/saudi-events.json"
       - "planning/data/genres.json"
+      - "planning/data/edit-terms.json"
       - ".github/workflows/worker.yml"
   workflow_dispatch:
 
