@@ -5,7 +5,7 @@
  */
 
 import { riyadhDay } from "../social/time";
-import { youtubeCap, youtubeUsedToday, type FetchEnv } from "./fetchers";
+import { CALL_TIMEOUT_MS, youtubeCap, youtubeUsedToday, type FetchEnv } from "./fetchers";
 import type { PlatformError } from "./types";
 
 export const TAVILY_USAGE_URL = "https://api.tavily.com/usage";
@@ -65,6 +65,7 @@ export async function connectorUsedToday(env: UsageEnv, now: Date): Promise<numb
 async function tavilyUsage(
   env: UsageEnv,
   doFetch: typeof fetch,
+  timeoutMs: number,
 ): Promise<TavilyUsage | { error: PlatformError }> {
   if (!env.TAVILY_API_KEY) return { error: "not_configured" };
   const kept = env.SOCIAL_KV
@@ -81,19 +82,25 @@ async function tavilyUsage(
   try {
     res = await doFetch(TAVILY_USAGE_URL, {
       headers: { Authorization: `Bearer ${env.TAVILY_API_KEY}`, Accept: "application/json" },
+      // The limit covers the body read too; a call that runs out is an `upstream` error.
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
     return { error: "upstream" };
   }
   if (res.status === 401 || res.status === 403) return { error: "auth" };
+  if (res.status === 429 || res.status === 432 || res.status === 433) return { error: "quota" };
   if (!res.ok) return { error: "upstream" };
   const body = (await res.json().catch(() => null)) as TavilyUsageReply | null;
   const k = body?.key ?? {};
   const a = body?.account ?? {};
+  const used = count(a.plan_usage) ?? count(k.usage);
+  // A reply without the usage figure is no answer: nothing to show, nothing kept.
+  if (used === undefined) return { error: "upstream" };
   const paygoLimit = a.paygo_limit === null ? null : count(a.paygo_limit);
   const paygoUsed = count(a.paygo_usage);
   const usage: TavilyUsage = {
-    used: count(a.plan_usage) ?? count(k.usage) ?? 0,
+    used,
     limit: count(a.plan_limit) ?? count(k.limit) ?? null,
     ...(typeof a.current_plan === "string" ? { plan: a.current_plan } : {}),
     ...(paygoUsed !== undefined ? { paygoUsed } : {}),
@@ -107,13 +114,15 @@ async function tavilyUsage(
   return usage;
 }
 
+/** `timeoutMs`: the limit of Tavily's `/usage` call (tests shorten it). */
 export async function discoverUsage(
   env: UsageEnv,
   doFetch: typeof fetch,
   now: Date,
+  timeoutMs = CALL_TIMEOUT_MS,
 ): Promise<UsageAnswer> {
   const [tavily, yt, connector] = await Promise.all([
-    tavilyUsage(env, doFetch),
+    tavilyUsage(env, doFetch, timeoutMs),
     youtubeUsedToday(env, now).catch(() => 0),
     connectorUsedToday(env, now).catch(() => 0),
   ]);

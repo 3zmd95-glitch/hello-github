@@ -179,7 +179,9 @@ interface DiscoverResponse {
 - `/search` stays as it is (older dashboards, the paste-link form); the Trend Radar is untouched.
 - **Caches**: the Worker keeps a whole answer in KV for 6 hours (`discover:answer:<hash of the normalized request>`,
   `expirationTtl`), so the dashboard and Claude asking the same thing spend once; the browser keeps answers 24 hours
-  (`lib/discover.ts`, the `scoutClient` pattern, its own storage key). A cached answer says `cached: true` and costs nothing.
+  (`lib/discover.ts`, the `scoutClient` pattern, its own storage key). A cached answer says `cached: true` and costs nothing
+  (`cost` all 0). Only a complete answer is kept: every query answered (a key that is not set does not count against it;
+  a YouTube query over the day's cap does) and at least one card was found (an empty answer can be a fluke).
   KV, not the Cache API: Cloudflare's docs do not confirm the Cache API on `workers.dev`, and KV is global.
 - **TikTok thumbnails** are no longer fetched inside the search: the card asks `GET /oembed` (already cached a day at the
   edge) when it scrolls into view. A search makes at most ~16 outbound calls (9 searches, ≤ 2 retries, `videos.list`, KV

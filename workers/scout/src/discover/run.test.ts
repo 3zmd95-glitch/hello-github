@@ -108,6 +108,7 @@ describe("runDiscover", () => {
     const calls = fetchMock.mock.calls.length;
     const again = await runDiscover(env, { q: "  FLASH " }, { fetch: fetchMock, now: NOW });
     expect(again.cached).toBe(true);
+    expect(again.cost).toEqual({ tavily: 0, youtubeSearch: 0 });
     expect(again.items).toEqual(answer.items);
     expect(fetchMock.mock.calls.length).toBe(calls);
   });
@@ -152,6 +153,61 @@ describe("runDiscover", () => {
       false,
     );
     expect(answer.cost.youtubeSearch).toBe(0);
+  });
+
+  it("searches YouTube as far as the day's cap goes, and does not cache that part answer", async () => {
+    const env = ENV();
+    await env.SOCIAL_KV.put(discoverKeys.yt("2026-10-03"), "69");
+    const fetchMock = web();
+    const answer = await runDiscover(env, { q: "flash" }, { fetch: fetchMock, now: NOW });
+    const searches = fetchMock.mock.calls.filter(([u]) => String(u).includes("/youtube/v3/search"));
+    expect(searches).toHaveLength(1);
+    expect(answer.platforms.yt).toEqual({ ok: true });
+    expect(answer.cost.youtubeSearch).toBe(1);
+    expect([...env.SOCIAL_KV.store.keys()].some((k) => k.startsWith("discover:answer:"))).toBe(
+      false,
+    );
+  });
+
+  it("does not cache an answer that found nothing", async () => {
+    const env = ENV();
+    const empty = vi.fn<typeof fetch>(async (input) =>
+      String(input) === TAVILY_URL
+        ? json({ results: [], usage: { credits: 1 } })
+        : json({ items: [] }),
+    );
+    const answer = await runDiscover(env, { q: "flash" }, { fetch: empty, now: NOW });
+    expect(answer.items).toEqual([]);
+    expect(Object.values(answer.platforms).every((s) => s?.ok)).toBe(true);
+    expect([...env.SOCIAL_KV.store.keys()].some((k) => k.startsWith("discover:answer:"))).toBe(
+      false,
+    );
+  });
+
+  it("names a failed platform's most telling error", async () => {
+    const [examples, tutorials, arabic] = [
+      "flash transition edit",
+      "flash transition tutorial capcut davinci",
+      "شرح تأثير فلاش مونتاج",
+    ];
+    const tiktok = async (codes: Record<string, number>) => {
+      const fetchMock = web({ tavily: (body) => json({}, codes[String(body.query)]) });
+      const answer = await runDiscover(
+        ENV(),
+        { q: "flash", platforms: ["tt"] },
+        { fetch: fetchMock, now: NOW },
+      );
+      return answer.platforms.tt;
+    };
+    // quota > auth > daily_cap > not_configured > upstream, whichever query failed first.
+    expect(await tiktok({ [examples]: 500, [tutorials]: 401, [arabic]: 429 })).toEqual({
+      ok: false,
+      error: "quota",
+    });
+    expect(await tiktok({ [examples]: 500, [tutorials]: 500, [arabic]: 403 })).toEqual({
+      ok: false,
+      error: "auth",
+    });
   });
 
   it("says YouTube is not configured without its key", async () => {
@@ -221,6 +277,39 @@ describe("discoverUsage", () => {
     expect((await discoverUsage({ TAVILY_API_KEY: "k" }, refused, NOW)).tavily).toEqual({
       error: "auth",
     });
+    for (const status of [429, 432, 433]) {
+      const limited = vi.fn<typeof fetch>(async () => json({}, status));
+      expect((await discoverUsage({ TAVILY_API_KEY: "k" }, limited, NOW)).tavily).toEqual({
+        error: "quota",
+      });
+    }
+  });
+
+  it("does not keep a /usage answer without its numbers", async () => {
+    const kv = fakeKV();
+    const env = { TAVILY_API_KEY: "k", SOCIAL_KV: kv };
+    const bodies = [
+      () => json({}),
+      () => json({ key: { usage: "12" } }),
+      () => new Response("<html>"),
+    ];
+    for (const body of bodies) {
+      const odd = vi.fn<typeof fetch>(async () => body());
+      expect((await discoverUsage(env, odd, NOW)).tavily).toEqual({ error: "upstream" });
+    }
+    expect(kv.store.has(usageKeys.tavily)).toBe(false);
+  });
+
+  it("gives up on a /usage call that does not answer", async () => {
+    const hanging = vi.fn<typeof fetch>(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    );
+    const usage = await discoverUsage({ TAVILY_API_KEY: "k" }, hanging, NOW, 20);
+    expect(usage.tavily).toEqual({ error: "upstream" });
+    expect(hanging.mock.calls[0][1]?.signal?.aborted).toBe(true);
   });
 });
 

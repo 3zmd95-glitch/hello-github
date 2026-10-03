@@ -41,6 +41,15 @@ describe("parseDiscoverBody", () => {
     });
   });
 
+  it("measures text once trimmed, and drops a genre without words", () => {
+    const program = "p".repeat(60);
+    expect(parseDiscoverBody({ q: "flash", program: `  ${program}  ` })).toEqual({
+      q: "flash",
+      program,
+    });
+    expect(parseDiscoverBody({ q: "flash", genreQuery: {} })).toEqual({ q: "flash" });
+  });
+
   it("refuses bad fields", () => {
     for (const bad of [
       null,
@@ -72,9 +81,16 @@ describe("/discover routes", () => {
 
   it("answers 400 to a bad body without spending anything", async () => {
     const fetchMock = vi.fn<typeof fetch>();
-    const res = await handle(post({ q: "" }), ENV, undefined, { fetch: fetchMock });
-    expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "bad_request" });
+    const notJson = req("/discover", {
+      method: "POST",
+      body: "{q:",
+      headers: { "Content-Type": "application/json" },
+    });
+    for (const bad of [post({ q: "" }), notJson]) {
+      const res = await handle(bad, ENV, undefined, { fetch: fetchMock });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "bad_request" });
+    }
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -89,6 +105,8 @@ describe("/discover routes", () => {
     expect(body.topicKey).toBe("flash-transition");
     // Every TikTok query came back empty, so two of them were asked again (retries) — still an answer.
     expect(body.platforms).toEqual({ tt: { ok: true, retried: true } });
+    // The three queries and the two retries a search may spend, no more.
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it("serves the usage", async () => {
@@ -105,8 +123,10 @@ describe("/discover routes", () => {
     expect(((await res.json()) as { discover?: boolean }).discover).toBe(true);
   });
 
-  it("leaves unknown /discover paths to the 404", async () => {
-    const res = await handle(req("/discover/nope"), ENV, undefined, { fetch: vi.fn() });
-    expect(res.status).toBe(404);
+  it("leaves unknown /discover paths and methods to the 404", async () => {
+    for (const r of [req("/discover/nope"), req("/discover")]) {
+      const res = await handle(r, ENV, undefined, { fetch: vi.fn() });
+      expect(res.status, `${r.method} ${new URL(r.url).pathname}`).toBe(404);
+    }
   });
 });

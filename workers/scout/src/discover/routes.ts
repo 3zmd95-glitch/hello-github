@@ -20,10 +20,11 @@ function reply(body: unknown, status: number, cors: Headers): Response {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-/** undefined: absent; null: present but not a usable text of at most `max` characters. */
+/** undefined: absent; null: present but not a usable text of at most `max` characters once trimmed. */
 function optText(x: unknown, max: number): string | undefined | null {
   if (x === undefined) return undefined;
-  return typeof x === "string" && x.trim() && x.length <= max ? x.trim() : null;
+  const text = typeof x === "string" ? x.trim() : "";
+  return text && text.length <= max ? text : null;
 }
 
 export function parseDiscoverBody(raw: unknown): DiscoverRequest | null {
@@ -46,7 +47,8 @@ export function parseDiscoverBody(raw: unknown): DiscoverRequest | null {
     const ar = optText(g.ar, 100);
     const en = optText(g.en, 100);
     if (ar === null || en === null) return null;
-    genreQuery = { ...(ar ? { ar } : {}), ...(en ? { en } : {}) };
+    // `{}` (no words in either language) is no genre.
+    if (ar || en) genreQuery = { ...(ar ? { ar } : {}), ...(en ? { en } : {}) };
   }
   let platforms: Platform[] | undefined;
   if (b.platforms !== undefined) {

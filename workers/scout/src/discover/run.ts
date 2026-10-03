@@ -1,9 +1,10 @@
 /**
  * Discover v2: the whole search (planning/tools/13-discover-search-v2.md). Plan → Tavily (TikTok, Instagram) and
  * YouTube at once → one `videos.list` for the YouTube numbers → labels and creators → one answer, kept 6 h in KV
- * (`discover:answer:<sha-256 of the normalized request>`) when every platform answered, so the dashboard and the
- * connector asking the same thing spend once. At most ~16 outbound calls (9 searches, 2 retries, the statistics
- * call, KV) of the 50 a free invocation allows.
+ * (`discover:answer:<sha-256 of the normalized request>`) only when complete: every query answered (a key that is
+ * not set does not count against it) and it found at least one card. The dashboard and the connector asking the
+ * same thing then spend once; a cached answer costs nothing. At most ~16 outbound calls (9 searches, 2 retries, the
+ * statistics call, KV) of the 50 a free invocation allows.
  */
 
 import type { Platform, Profile, ScoutResult } from "../normalize";
@@ -70,11 +71,21 @@ function interleave(results: readonly QueryResult[]): { card: Card; query: Plann
   return out;
 }
 
-/** A platform answered when one of its queries did; else the first query's error. */
+/** A failed platform's error when its queries failed differently: the highest of these that occurred. */
+const ERROR_PRIORITY: readonly PlatformError[] = [
+  "quota",
+  "auth",
+  "daily_cap",
+  "not_configured",
+  "upstream",
+];
+
+/** A platform answered when one of its queries did; else its most telling error. */
 function statusOf(results: readonly QueryResult[]): PlatformStatus {
   const ok = results.filter((r) => !r.error);
   if (ok.length) return ok.some((r) => r.retried) ? { ok: true, retried: true } : { ok: true };
-  return { ok: false, error: results[0]?.error ?? "upstream" };
+  const errors = new Set(results.map((r) => r.error));
+  return { ok: false, error: ERROR_PRIORITY.find((e) => errors.has(e)) ?? "upstream" };
 }
 
 export async function runDiscover(
@@ -86,7 +97,8 @@ export async function runDiscover(
   const cached = env.SOCIAL_KV ? await env.SOCIAL_KV.get(key, "text").catch(() => null) : null;
   if (cached) {
     try {
-      return { ...(JSON.parse(cached) as DiscoverResponse), cached: true };
+      const kept = JSON.parse(cached) as DiscoverResponse;
+      return { ...kept, cost: { tavily: 0, youtubeSearch: 0 }, cached: true };
     } catch {
       // A broken entry: search again (the new answer replaces it).
     }
@@ -134,13 +146,12 @@ export async function runDiscover(
     if (!ytQueries.length) return [];
     if (!env.YOUTUBE_API_KEY)
       return ytQueries.map((query) => ({ query, cards: [], error: "not_configured" as const }));
+    // A counter that cannot be read does not stop the search (the cap is best-effort).
     const granted = await reserveYoutube(env, ytQueries.length, deps.now).catch(
       () => ytQueries.length,
     );
     youtubeSearch = granted;
-    if (granted === 0)
-      return ytQueries.map((query) => ({ query, cards: [], error: "daily_cap" as const }));
-    return Promise.all(
+    const searched = await Promise.all(
       ytQueries.slice(0, granted).map(async (query): Promise<QueryResult> => {
         const call = {
           q: query.q,
@@ -152,6 +163,11 @@ export async function runDiscover(
         return out.ok ? { query, cards: out.cards } : { query, cards: [], error: out.error };
       }),
     );
+    // The queries over the day's cap are not asked, but they count: the answer is not complete.
+    const capped = ytQueries
+      .slice(granted)
+      .map((query) => ({ query, cards: [], error: "daily_cap" as const }));
+    return [...searched, ...capped];
   })();
 
   const [tavilyResults, ytResults] = await Promise.all([Promise.all(tavily), youtube]);
@@ -175,7 +191,10 @@ export async function runDiscover(
     cost: { tavily: credits, youtubeSearch },
     cached: false,
   };
-  if (env.SOCIAL_KV && Object.values(platforms).every((s) => s?.ok)) {
+  // Complete answers only: every query answered (a key that is not set never will, so it does not block the cache)
+  // and something was found (an empty answer can be a fluke of the moment).
+  const complete = results.every((r) => !r.error || r.error === "not_configured");
+  if (env.SOCIAL_KV && complete && items.length > 0) {
     await env.SOCIAL_KV.put(key, JSON.stringify(answer), { expirationTtl: ANSWER_TTL_S }).catch(
       () => undefined,
     );

@@ -272,4 +272,15 @@ describe("reserveYoutube", () => {
     await kv.put(discoverKeys.yt("2026-10-03"), "69");
     expect(await reserveYoutube({ SOCIAL_KV: kv }, 3, NOW)).toBe(1);
   });
+
+  it("keeps the computed grant when the counter write fails (KV takes one write per key a second)", async () => {
+    const kv = fakeKV();
+    await kv.put(discoverKeys.yt("2026-10-03"), "69");
+    Object.assign(kv, {
+      put: async () => {
+        throw new Error("KV PUT failed: 429 Too Many Requests");
+      },
+    });
+    expect(await reserveYoutube({ SOCIAL_KV: kv }, 3, NOW)).toBe(1);
+  });
 });

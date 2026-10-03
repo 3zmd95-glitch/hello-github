@@ -239,7 +239,11 @@ export async function youtubeUsedToday(env: FetchEnv, now: Date): Promise<number
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
-/** Reserves up to `wanted` calls of today's cap; returns how many were granted (all of them without KV). */
+/**
+ * Reserves up to `wanted` calls of today's cap; returns how many were granted (all of them without KV). A counter
+ * write that fails (KV takes one write per key a second, so two overlapping searches can collide) still grants what
+ * was left, never more; a counter that cannot be read throws (the caller decides).
+ */
 export async function reserveYoutube(env: FetchEnv, wanted: number, now: Date): Promise<number> {
   if (!env.SOCIAL_KV) return wanted;
   const used = await youtubeUsedToday(env, now);
@@ -247,7 +251,7 @@ export async function reserveYoutube(env: FetchEnv, wanted: number, now: Date): 
   if (granted > 0) {
     await env.SOCIAL_KV.put(discoverKeys.yt(utcDay(now)), String(used + granted), {
       expirationTtl: COUNTER_TTL_S,
-    });
+    }).catch(() => undefined);
   }
   return granted;
 }
