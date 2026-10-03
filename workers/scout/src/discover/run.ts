@@ -48,6 +48,12 @@ export async function requestHash(req: DiscoverRequest): Promise<string> {
     timeRange: req.timeRange ?? "",
     ytLength: req.ytLength ?? "",
     platforms: [...(req.platforms ?? ["tt", "ig", "yt"])].sort(),
+    queries: (req.queries ?? []).map((q) => [
+      q.platform,
+      q.lang,
+      q.intent,
+      q.q.trim().toLowerCase(),
+    ]),
   });
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -88,22 +94,31 @@ function statusOf(results: readonly QueryResult[]): PlatformStatus {
   return { ok: false, error: ERROR_PRIORITY.find((e) => errors.has(e)) ?? "upstream" };
 }
 
+/** The answer kept in KV for this request (it costs nothing), or null. */
+export async function keptAnswer(
+  env: FetchEnv,
+  req: DiscoverRequest,
+): Promise<DiscoverResponse | null> {
+  const key = discoverAnswerKey(await requestHash(req));
+  const cached = env.SOCIAL_KV ? await env.SOCIAL_KV.get(key, "text").catch(() => null) : null;
+  if (!cached) return null;
+  try {
+    const kept = JSON.parse(cached) as DiscoverResponse;
+    // Only complete answers are kept (an entry from before the flag lacks it).
+    return { ...kept, cost: { tavily: 0, youtubeSearch: 0 }, cached: true, complete: true };
+  } catch {
+    // A broken entry: search again (the new answer replaces it).
+    return null;
+  }
+}
+
 export async function runDiscover(
   env: FetchEnv,
   req: DiscoverRequest,
   deps: RunDeps,
 ): Promise<DiscoverResponse> {
-  const key = discoverAnswerKey(await requestHash(req));
-  const cached = env.SOCIAL_KV ? await env.SOCIAL_KV.get(key, "text").catch(() => null) : null;
-  if (cached) {
-    try {
-      const kept = JSON.parse(cached) as DiscoverResponse;
-      // Only complete answers are kept (an entry from before the flag lacks it).
-      return { ...kept, cost: { tavily: 0, youtubeSearch: 0 }, cached: true, complete: true };
-    } catch {
-      // A broken entry: search again (the new answer replaces it).
-    }
-  }
+  const kept = await keptAnswer(env, req);
+  if (kept) return kept;
 
   const plan = planSearch(req);
   const profiles: Profile[] = [];
@@ -198,6 +213,7 @@ export async function runDiscover(
     complete,
   };
   if (env.SOCIAL_KV && complete) {
+    const key = discoverAnswerKey(await requestHash(req));
     await env.SOCIAL_KV.put(key, JSON.stringify(answer), { expirationTtl: ANSWER_TTL_S }).catch(
       () => undefined,
     );

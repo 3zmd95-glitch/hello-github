@@ -4,7 +4,8 @@
  * Instagram ask examples en, tutorials en and tutorials ar (the Arabic examples query is the Arabic retry);
  * YouTube asks the same three without retries (a retry there costs a `search.list` call). With an Anthropic key
  * this is the step that would call Claude instead. Queries keep the typed words; `topicKey` and `topicWords` are
- * in the Discover matching form (`normalizeTerm`).
+ * in the Discover matching form (`normalizeTerm`). The connector may send Claude's own queries instead (at most 9):
+ * asked as they are, without retries, hiding nothing.
  */
 
 import { PLATFORMS, type Platform } from "../normalize";
@@ -99,6 +100,33 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
   const others = [m.best, ...m.others].filter(
     (t): t is EditTerm => !!t && t !== term && !t.generic,
   );
+  const rest = m.rest.join(" ");
+  // One key for the planned search and Claude's own queries: saved picks meet both.
+  const topicKey = term ? term.id : normalizeTerm(rest || topic);
+
+  if (req.queries?.length) {
+    return {
+      topic,
+      topicKey,
+      ...(term ? { termId: term.id } : {}),
+      exact: false,
+      understood: { label: { ar: topic, en: topic }, exact: false },
+      alternatives: [],
+      topicWords: [],
+      needsEditingWord: false,
+      queries: req.queries
+        .slice(0, 9)
+        .map((q, i) => ({ ...q, q: q.q.trim().slice(0, MAX_QUERY), i }))
+        .filter((q) => q.q && platforms.includes(q.platform))
+        .map(({ q, platform, lang, intent, i }) => ({
+          id: `${platform}-${intent}-${lang}-${i}`,
+          platform,
+          lang,
+          intent,
+          q,
+        })),
+    };
+  }
 
   if (req.exact) {
     const lang: Lang = hasArabic(topic) ? "ar" : "en";
@@ -120,7 +148,6 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
     };
   }
 
-  const rest = m.rest.join(" ");
   const words = term ? termWords(term, rest) : unknownWords(rest || topic);
   const topicWords = term
     ? [...term.match.en, ...term.match.ar, term.label.en, term.label.ar]
@@ -129,7 +156,7 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
       : [topic];
   return {
     topic,
-    topicKey: term ? term.id : normalizeTerm(rest || topic),
+    topicKey,
     ...(term ? { termId: term.id } : {}),
     exact: false,
     understood: {

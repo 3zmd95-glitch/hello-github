@@ -247,6 +247,14 @@ describe("runDiscover", () => {
     expect(await requestHash({ q: "flash", platforms: ["yt", "tt"] })).toBe(
       await requestHash({ q: "flash", platforms: ["tt", "yt"] }),
     );
+    // Claude's own queries are another search than the planned one.
+    const mine = { q: "flash velocity", platform: "tt", lang: "en", intent: "examples" } as const;
+    expect(await requestHash({ q: "flash", queries: [mine] })).not.toBe(
+      await requestHash({ q: "flash" }),
+    );
+    expect(await requestHash({ q: "flash", queries: [mine] })).toBe(
+      await requestHash({ q: "flash", queries: [{ ...mine, q: " Flash Velocity " }] }),
+    );
   });
 });
 

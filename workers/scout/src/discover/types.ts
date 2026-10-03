@@ -23,10 +23,12 @@ export interface DiscoverRequest {
   ytLength?: "short" | "long";
   /** Default: all three. */
   platforms?: Platform[];
+  /** Claude's own queries (the connector only; never read from an HTTP body). At most 9 are used. */
+  queries?: { q: string; platform: Platform; lang: Lang; intent: Intent }[];
 }
 
 export interface PlannedQuery {
-  /** `<platform>-<intent>-<lang>`, unique in a plan. */
+  /** `<platform>-<intent>-<lang>` (Claude's own queries: `-<index>` added), unique in a plan. */
   id: string;
   platform: Platform;
   lang: Lang;

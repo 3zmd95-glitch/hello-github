@@ -163,3 +163,49 @@ describe("planSearch options", () => {
     expect(y["tt-tutorials-ar"].retryQ).toBeUndefined();
   });
 });
+
+describe("planSearch with Claude's own queries", () => {
+  it("uses them as they are, hides nothing and keeps the topic key", () => {
+    const plan = planSearch({
+      q: "flash",
+      queries: [
+        { q: "flash transition velocity edit", platform: "tt", lang: "en", intent: "examples" },
+        { q: "شرح فلاش كاب كت", platform: "ig", lang: "ar", intent: "tutorials" },
+        { q: "   ", platform: "yt", lang: "en", intent: "examples" },
+      ],
+    });
+    expect(plan.topicKey).toBe("flash-transition");
+    expect(plan.topicWords).toEqual([]);
+    expect(plan.alternatives).toEqual([]);
+    expect(plan.queries).toEqual([
+      {
+        id: "tt-examples-en-0",
+        platform: "tt",
+        lang: "en",
+        intent: "examples",
+        q: "flash transition velocity edit",
+      },
+      {
+        id: "ig-tutorials-ar-1",
+        platform: "ig",
+        lang: "ar",
+        intent: "tutorials",
+        q: "شرح فلاش كاب كت",
+      },
+    ]);
+  });
+
+  it("uses at most 9 of them, on the platforms asked for", () => {
+    const mine = (i: number) => ({
+      q: `query ${i}`,
+      platform: "tt" as const,
+      lang: "en" as const,
+      intent: "examples" as const,
+    });
+    const twelve = Array.from({ length: 12 }, (_, i) => mine(i));
+    expect(planSearch({ q: "flash", queries: twelve }).queries.map((q) => q.q)).toEqual(
+      twelve.slice(0, 9).map((q) => q.q),
+    );
+    expect(planSearch({ q: "flash", platforms: ["yt"], queries: [mine(0)] }).queries).toEqual([]);
+  });
+});

@@ -71,6 +71,15 @@ describe("parseDiscoverBody", () => {
       expect(parseDiscoverBody(bad), JSON.stringify(bad)).toBeNull();
     }
   });
+
+  it("never takes Claude's own queries from an HTTP body (the connector only)", () => {
+    expect(
+      parseDiscoverBody({
+        q: "flash",
+        queries: [{ q: "flash velocity", platform: "tt", lang: "en", intent: "examples" }],
+      }),
+    ).toStrictEqual({ q: "flash" });
+  });
 });
 
 describe("/discover routes", () => {
@@ -116,6 +125,14 @@ describe("/discover routes", () => {
     const res = await handle(req("/discover/usage"), ENV, undefined, { fetch: fetchMock });
     expect(res.status).toBe(200);
     expect(((await res.json()) as { tavily: unknown }).tavily).toEqual({ used: 5, limit: 1000 });
+  });
+
+  it("serves Claude's picks", async () => {
+    const res = await handle(req("/discover/picks?topic=flash"), ENV, undefined, {
+      fetch: vi.fn(),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ picks: [] });
   });
 
   it("tells the dashboard it can search the new way", async () => {

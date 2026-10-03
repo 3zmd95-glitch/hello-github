@@ -2,10 +2,12 @@
  * Discover v2 routes (planning/tools/13-discover-search-v2.md), behind the owner token like `/search`:
  *   POST /discover        → the sectioned answer (run.ts)
  *   GET  /discover/usage  → Tavily's usage and today's counters (usage.ts)
+ *   GET  /discover/picks  → Claude's picks, all or `?topic=` (picks.ts)
  * Returns null for any other path, so the router goes on (and answers 404 at the end).
  */
 
 import { PLATFORMS, type Platform } from "../normalize";
+import { readPicks } from "./picks";
 import { runDiscover } from "./run";
 import { normalizeTerm } from "./terms";
 import type { DiscoverRequest, DiscoverTimeRange } from "./types";
@@ -95,6 +97,10 @@ export async function handleDiscover(
   }
   if (pathname === "/discover/usage" && req.method === "GET") {
     return reply(await discoverUsage(env, doFetch, now), 200, cors);
+  }
+  if (pathname === "/discover/picks" && req.method === "GET") {
+    const topic = new URL(req.url).searchParams.get("topic") || undefined;
+    return reply({ picks: await readPicks(env, topic) }, 200, cors);
   }
   return null;
 }
