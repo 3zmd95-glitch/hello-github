@@ -22,6 +22,7 @@ build order. Website and social tools are recorded so nothing is forgotten, but 
 | [10-auto-replies.md](10-auto-replies.md) | Auto-replies (Beacons Smart Reply copy): comment a keyword → public reply + DM with the link; polling, limits, owner steps |
 | [11-discover-genres.md](11-discover-genres.md) | Discover by edit genre (cars, food, anime, travel…), the Most popular sort, numbers on cards, genres fed by the Trend Radar |
 | [12-watch-in-dashboard.md](12-watch-in-dashboard.md) | ▶ Watch here: the in-dashboard player for YouTube, TikTok and Instagram (plain frames, no platform script in our origin), why Instagram cards have no picture, limits |
+| [13-discover-search-v2.md](13-discover-search-v2.md) | Discover search v2 (editing dictionary, both languages, sections, creators, retries, real usage) and the Claude connector (MCP on the Worker: search, trends, picks); the editor panel and Beacons-style trends that follow |
 
 ## Rules used when picking
 
