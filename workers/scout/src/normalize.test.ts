@@ -491,7 +491,29 @@ describe("profileFromUrl", () => {
     expect(p("tt", "https://www.tiktok.com/tag/edit")).toBeUndefined();
     expect(p("ig", "https://www.instagram.com/explore/")).toBeUndefined();
     expect(p("ig", "https://www.instagram.com/p/ABC/")).toBeUndefined();
+    expect(p("ig", "https://www.instagram.com/about/")).toBeUndefined();
     expect(p("yt", "https://www.youtube.com/watch?v=x")).toBeUndefined();
+  });
+
+  it("needs the platform's own host (not help., about. or another platform)", () => {
+    expect(p("ig", "https://help.instagram.com/1077853922938491")).toBeUndefined();
+    expect(p("ig", "https://about.instagram.com/blog")).toBeUndefined();
+    expect(p("tt", "https://www.youtube.com/@cinecom")).toBeUndefined();
+  });
+
+  it("reads a profile tab as the profile", () => {
+    expect(p("yt", "https://www.youtube.com/@cinecom/videos")).toEqual({
+      platform: "yt",
+      handle: "@cinecom",
+      url: "https://www.youtube.com/@cinecom",
+    });
+    for (const tab of ["reels/", "tagged/"]) {
+      expect(p("ig", `https://www.instagram.com/nilstobli_nt/${tab}`)).toEqual({
+        platform: "ig",
+        handle: "@nilstobli_nt",
+        url: "https://www.instagram.com/nilstobli_nt/",
+      });
+    }
   });
 });
 
@@ -514,10 +536,40 @@ describe("normalizeDiscoverHits", () => {
     expect(cards[0]).toMatchObject({
       platform: "tt",
       handle: "@zenko.edit",
-      published: "2026-09-30",
+      published: "2026-09-30T00:00:00.000Z",
     });
     expect(profiles).toEqual([
       { platform: "tt", handle: "@zenko.edit", url: "https://www.tiktok.com/@zenko.edit" },
     ]);
+  });
+
+  it("keeps one profile per handle, and only the asked platform's", () => {
+    const { profiles } = normalizeDiscoverHits(
+      [
+        { url: "https://www.tiktok.com/@Zen" },
+        { url: "https://m.tiktok.com/@zen/?lang=en" },
+        { url: "https://www.youtube.com/@cinecom" },
+      ],
+      "tt",
+    );
+    expect(profiles).toEqual([
+      { platform: "tt", handle: "@Zen", url: "https://www.tiktok.com/@Zen" },
+    ]);
+  });
+});
+
+describe("normalizeHits: published", () => {
+  const card = (published_date: string) =>
+    normalizeHits(
+      [{ url: "https://www.tiktok.com/@a/video/7300000000000000001", title: "A", published_date }],
+      ["tt"],
+    )[0];
+
+  it("stores Tavily's RFC 2822 date as ISO 8601", () => {
+    expect(card("Tue, 30 Sep 2026 17:00:00 GMT").published).toBe("2026-09-30T17:00:00.000Z");
+  });
+
+  it("leaves out a date it cannot read, without throwing", () => {
+    expect(card("not a date")).not.toHaveProperty("published");
   });
 });

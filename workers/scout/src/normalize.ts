@@ -35,7 +35,7 @@ export interface ScoutResult {
    * (scout.ts `enrichYoutubeStats`). Never an empty object.
    */
   stats?: Stats;
-  /** When the page was published, as the source sent it (Tavily `published_date`, YouTube `publishedAt`). */
+  /** When the page was published, ISO 8601 (Tavily `published_date` parsed, YouTube `publishedAt`). */
   published?: string;
 }
 
@@ -415,8 +415,11 @@ export function normalizeHits(
       url,
     };
     if (thumb) result.thumb = thumb;
-    if (typeof hit.published_date === "string" && hit.published_date)
-      result.published = hit.published_date;
+    if (typeof hit.published_date === "string") {
+      // Tavily sends RFC 2822 ("Tue, 30 Sep 2026 17:00:00 GMT"); kept as ISO so dates sort as text.
+      const t = Date.parse(hit.published_date);
+      if (!Number.isNaN(t)) result.published = new Date(t).toISOString();
+    }
     if (platform !== "yt") {
       const stats = parseEngagement(content) ?? parseEngagement(rawTitle);
       if (stats) result.stats = stats;
@@ -436,18 +439,43 @@ export interface Profile {
 }
 
 const TT_PROFILE_PATH = /^\/@([\w.-]+)\/?$/;
-const IG_PROFILE_PATH = /^\/([A-Za-z0-9._]+)\/?$/;
-const YT_PROFILE_PATH = /^\/@([\w.-]+)\/?$/;
+/** `/<name>/`, also its Reels and Tagged tabs. */
+const IG_PROFILE_PATH = /^\/([A-Za-z0-9._]+)(?:\/(?:reels|tagged))?\/?$/;
+/** `/@name`, also its tabs. */
+const YT_PROFILE_PATH =
+  /^\/@([\w.-]+)(?:\/(?:videos|shorts|featured|streams|playlists|about))?\/?$/;
+/** First path segments that are Instagram pages, never an account (wider than IG_RESERVED). */
+const IG_NOT_PROFILE = new Set([
+  ...IG_RESERVED,
+  "about",
+  "directory",
+  "web",
+  "developer",
+  "legal",
+  "privacy",
+  "terms",
+  "emails",
+  "challenge",
+  "direct",
+  "session",
+  "popular",
+]);
 
-/** The account a profile page belongs to (TikTok `/@name`, Instagram `/<name>/`, YouTube `/@name`), else undefined. */
+/**
+ * The account a profile page belongs to (TikTok `/@name`, Instagram `/<name>/`, YouTube `/@name`; a
+ * profile tab counts as the profile), on the platform's own host only (never help.instagram.com), else
+ * undefined.
+ */
 export function profileFromUrl(platform: Platform, u: URL): Profile | undefined {
+  if (u.hostname.toLowerCase().replace(/^(?:www|m)\./, "") !== PLATFORM_DOMAIN[platform])
+    return undefined;
   if (platform === "tt") {
     const m = u.pathname.match(TT_PROFILE_PATH);
     return m ? { platform, handle: `@${m[1]}`, url: `https://www.tiktok.com/@${m[1]}` } : undefined;
   }
   if (platform === "ig") {
     const m = u.pathname.match(IG_PROFILE_PATH);
-    if (!m || IG_RESERVED.has(m[1].toLowerCase())) return undefined;
+    if (!m || IG_NOT_PROFILE.has(m[1].toLowerCase())) return undefined;
     return { platform, handle: `@${m[1]}`, url: `https://www.instagram.com/${m[1]}/` };
   }
   const m = u.pathname.match(YT_PROFILE_PATH);
@@ -472,7 +500,6 @@ export function normalizeDiscoverHits(
     } catch {
       continue;
     }
-    if (platformForHost(u.hostname) !== platform) continue;
     const p = profileFromUrl(platform, u);
     if (!p || seen.has(p.handle.toLowerCase())) continue;
     seen.add(p.handle.toLowerCase());
