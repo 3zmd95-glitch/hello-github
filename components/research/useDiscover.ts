@@ -10,7 +10,7 @@ import {
   type DiscoverUsage,
 } from "@/lib/discover";
 import { scoutHealth, type ScoutConfig, type ScoutError } from "@/lib/scoutClient";
-import { LOADING, OFF, settledFor, useScoutConfig, type Tagged } from "./useScout";
+import { LOADING, OFF, useScoutConfig, type Tagged } from "./useScout";
 
 /**
  * Whether the configured Worker serves Discover v2 (`/health` → `discover: true`), asked once per Worker URL and
@@ -44,6 +44,16 @@ function writeCaps(url: string, discover: boolean): void {
   }
 }
 
+/** Forget what every Worker said it serves (memory and this session's storage). Also used by tests. */
+export function clearScoutCaps(): void {
+  capsMemory.clear();
+  try {
+    sessionStorage.removeItem(CAPS_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function useScoutCaps(config: ScoutConfig | null): { discover: boolean } | null {
   const url = config?.url ?? "";
   const [checked, setChecked] = useState<{ url: string; discover: boolean } | null>(null);
@@ -74,8 +84,20 @@ export type DiscoverState =
 type Settled = Exclude<DiscoverState, typeof OFF | typeof LOADING>;
 
 /**
- * One Discover v2 search (null = off). A new `attempt` asks again after an error; `force` skips the cache, and
- * the answer it replaces does not stand meanwhile (the search shows as running).
+ * Whether a settled answer still stands for request `key` at search attempt `attempt`. The answer to this attempt
+ * does. An earlier attempt's does only while the new one is free: a complete answer with posts, which the browser
+ * cache serves at no cost (lib/discover `discoverSearch` keeps exactly those), and no `force`. Anything else is a
+ * paid search (about 6 Tavily credits), so it shows as one.
+ */
+function stands(s: Settled, key: string, attempt: number, force: boolean): boolean {
+  if (s.key !== key) return false;
+  if (s.attempt === attempt) return true;
+  return !force && s.status === "ok" && s.answer.complete && s.answer.items.length > 0;
+}
+
+/**
+ * One Discover v2 search (null = off). A new `attempt` asks again; `force` skips the cache. While a new attempt
+ * runs, the answer on screen stays only when the new one costs nothing (see {@link stands}).
  */
 export function useDiscoverQuery(
   req: DiscoverRequest | null,
@@ -104,19 +126,20 @@ export function useDiscoverQuery(
   }, [config, body, key, attempt, force]);
 
   if (!config || !req) return OFF;
-  return settled && settledFor(settled, key, attempt) && (!force || settled.attempt === attempt)
-    ? settled
-    : LOADING;
+  return settled && stands(settled, key, attempt, force) ? settled : LOADING;
 }
 
-/** `GET /discover/usage`, asked again whenever `refresh` changes (after each answered search). */
+/**
+ * `GET /discover/usage`, asked again whenever `refresh` changes to a number (after each answer lands); null while
+ * a search runs keeps the figure shown and asks nothing.
+ */
 export function useDiscoverUsage(
   config: ScoutConfig | null,
-  refresh: number,
+  refresh: number | null,
 ): DiscoverUsage | null {
   const [usage, setUsage] = useState<DiscoverUsage | null>(null);
   useEffect(() => {
-    if (!config) return;
+    if (!config || refresh === null) return;
     let alive = true;
     void discoverUsage(config).then((r) => {
       if (alive && r.ok) setUsage(r.usage);

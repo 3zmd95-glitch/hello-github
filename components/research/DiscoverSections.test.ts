@@ -6,6 +6,7 @@ import { clearDiscoverCache } from "@/lib/discover";
 import { clearScoutCache } from "@/lib/scoutClient";
 import { useStore } from "@/store";
 import ResearchPanel, { RESEARCH_TAB_KEY } from "./ResearchPanel";
+import { clearScoutCaps } from "./useDiscover";
 
 // 🔎 Discover search v2 (round 33) in the research panel, rendered in jsdom against fake Workers (a stubbed
 // global fetch; nothing leaves the machine): one that serves POST /discover (its /health says `discover: true`)
@@ -63,9 +64,37 @@ const ANSWER = {
   complete: false,
 };
 
+/** Every platform answered: kept by the Worker and on the device, so the same search again costs nothing. */
+const COMPLETE = {
+  ...ANSWER,
+  platforms: { tt: { ok: true }, ig: { ok: true }, yt: { ok: true } },
+  complete: true,
+};
+
+/** After YouTube's daily cap: TikTok and Instagram answered, YouTube is back tomorrow; kept nowhere. */
+const CAPPED = {
+  ...ANSWER,
+  topicKey: "speed-ramp",
+  understood: { termId: "speed-ramp", label: { ar: "سبيد رامب", en: "speed ramp" }, exact: false },
+  alternatives: [{ exact: true }],
+  items: ANSWER.items.filter((i) => i.platform !== "yt"),
+  platforms: { tt: { ok: true }, ig: { ok: true }, yt: { ok: false, error: "daily_cap" } },
+  cost: { tavily: 6, youtubeSearch: 0 },
+  complete: false,
+};
+
+const USAGE = {
+  tavily: { used: 412, limit: 1000 },
+  youtube: { usedToday: 9, cap: 70 },
+  connector: { usedToday: 0, cap: 60 },
+};
+
 let discovered: Record<string, unknown>[];
 let searched: { platforms: string[] }[];
 let answer: (body: Record<string, unknown>) => unknown;
+let usageBody: unknown;
+/** GET /discover/usage calls so far. */
+let usageAsked: number;
 /** Holds the old Worker's /health until the test lets it answer. */
 let releaseHealth: (() => void) | undefined;
 
@@ -89,11 +118,8 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return json(answer(body));
   }
   if (url.pathname === "/discover/usage") {
-    return json({
-      tavily: { used: 412, limit: 1000 },
-      youtube: { usedToday: 9, cap: 70 },
-      connector: { usedToday: 0, cap: 60 },
-    });
+    usageAsked++;
+    return json(usageBody);
   }
   if (url.pathname === "/search") {
     searched.push(JSON.parse(String(init?.body)) as { platforms: string[] });
@@ -123,7 +149,8 @@ async function click(el: HTMLElement | null): Promise<void> {
   await settle();
 }
 
-async function submit(text: string): Promise<void> {
+/** Type into the topic box and press Search; the caller settles (to see what shows meanwhile). */
+function search(text: string): void {
   const input = $("discover-topic") as HTMLInputElement;
   const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
   act(() => {
@@ -133,6 +160,10 @@ async function submit(text: string): Promise<void> {
   act(() => {
     $("research-bar")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
+}
+
+async function submit(text: string): Promise<void> {
+  search(text);
   await settle();
 }
 
@@ -150,10 +181,15 @@ beforeEach(() => {
   discovered = [];
   searched = [];
   answer = () => ANSWER;
+  usageBody = USAGE;
+  usageAsked = 0;
+  releaseHealth = undefined;
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   localStorage.clear();
   clearScoutCache();
   clearDiscoverCache();
+  // What each Worker said it serves is kept for the session: every test asks /health afresh.
+  clearScoutCaps();
   useStore.setState({ recentTopics: [], customGenres: [], savedRefs: {} });
   host = document.createElement("div");
   document.body.append(host);
@@ -246,6 +282,50 @@ describe("Discover v2 in the research panel", () => {
     expect($("discover-down-ig")).not.toBeNull();
   });
 
+  it("Search again on a partial answer is a paid search: it shows as one; the usage asks after it lands", async () => {
+    await mount();
+    await submit("flash"); // Instagram failed: kept neither by the Worker nor on the device
+    const asked = usageAsked;
+    search("flash");
+    expect($("discover-loading")).not.toBeNull();
+    expect($("discover-sections")).toBeNull();
+    expect(usageAsked).toBe(asked);
+    await settle();
+    expect(discovered).toHaveLength(2);
+    expect($("discover-sections")).not.toBeNull();
+    expect(usageAsked).toBe(asked + 1);
+  });
+
+  it("realistic answers: a complete one comes back from memory for free; after YouTube's cap, its line", async () => {
+    answer = (body) => (body.q === "flash" ? COMPLETE : CAPPED);
+    await mount();
+    await submit("flash");
+    expect($("discover-cached")).toBeNull();
+
+    // Search again: the device's copy answers at no cost, so the answer on screen stays meanwhile.
+    const asked = usageAsked;
+    search("flash");
+    expect($("discover-loading")).toBeNull();
+    expect($("discover-sections")).not.toBeNull();
+    expect(usageAsked).toBe(asked);
+    await settle();
+    expect(discovered).toHaveLength(1);
+    expect($("discover-cached")!.textContent).toBe("من الذاكرة، ما كلّف شي");
+    expect(usageAsked).toBe(asked + 1);
+
+    await submit("speed ramp");
+    const yt = $("discover-down-yt")!;
+    expect(yt.getAttribute("data-error")).toBe("daily_cap");
+    expect(yt.textContent).toBe("يوتيوب خلّص حدّه اليوم، يرجع بكرة");
+    expect($("discover-retry-yt")).toBeNull();
+  });
+
+  it("without Tavily's figure the usage line still shows YouTube's count", async () => {
+    usageBody = { ...USAGE, tavily: { error: "not_configured" } };
+    await mount();
+    expect($("discover-usage")!.textContent).toBe("يوتيوب 9/70 اليوم");
+  });
+
   it("a Worker from before v2: nothing is asked until /health answers, then the per-platform /search", async () => {
     await mount(OLD_WORKER);
     await submit("flash");
@@ -254,6 +334,7 @@ describe("Discover v2 in the research panel", () => {
     expect(all("result-skeleton")).toHaveLength(3);
     expect($("research-results")!.getAttribute("aria-busy")).toBe("true");
 
+    expect(releaseHealth).toBeDefined();
     await act(async () => releaseHealth!());
     await settle();
     expect(searched.map((b) => b.platforms.join()).sort()).toEqual(["ig", "tt", "yt"]);

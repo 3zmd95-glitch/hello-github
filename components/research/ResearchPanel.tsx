@@ -329,9 +329,10 @@ export default function ResearchPanel({
   // The tab badges count the posts shown; a tab is empty only with none at all (hidden ones included).
   const discShown = disc.status === "ok" ? tabCounts(disc.answer, false) : undefined;
   const discAll = disc.status === "ok" ? tabCounts(disc.answer, true) : undefined;
+  // The usage line asks again once an answer lands (each search's own attempt), never at the click.
   const discUsage = useDiscoverUsage(
     v2 ? scoutCfg : null,
-    disc.status === "ok" ? attempt + 1 : attempt,
+    disc.status === "loading" ? null : disc.status === "off" ? 0 : disc.attempt,
   );
   const onAlternative = (alt: DiscoverAlternative) => {
     setPicked({ on: pickOn, pick: "exact" in alt ? { exact: true } : { term: alt.termId } });
@@ -886,13 +887,14 @@ export default function ResearchPanel({
             </span>
           )}
         </button>
-        {scoutCfg && v2 && discUsage && "used" in discUsage.tavily && (
+        {scoutCfg && v2 && discUsage && (
           <p className="text-muted ms-auto text-xs" data-testid="discover-usage">
-            {t("search.usage", {
-              used: discUsage.tavily.used,
-              limit: discUsage.tavily.limit ?? "∞",
-            })}
-            {" · "}
+            {/* Tavily's figure when the Worker could read it; YouTube's count either way. */}
+            {"used" in discUsage.tavily &&
+              `${t("search.usage", {
+                used: discUsage.tavily.used,
+                limit: discUsage.tavily.limit ?? "∞",
+              })} · `}
             {t("search.usageYt", { used: discUsage.youtube.usedToday, cap: discUsage.youtube.cap })}
           </p>
         )}
