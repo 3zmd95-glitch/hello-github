@@ -2,8 +2,8 @@
  * 💬 Auto replies, the parts both polls share (planning/tools/14-auto-replies-v2.md): keyword matching and how a
  * reply is built — the link buttons (through the Worker's /go counter), the optional «تابعني» button, the plain-text
  * form, the button template, Instagram's size limits and the random public reply; then how Instagram's refusals are
- * read and the send call itself. The comment poll (replies.ts) and the DM poll (inbox.ts) import from here; the
- * dashboard mirrors the matching and the building in lib/replies.ts.
+ * read (with the retry and stop policy) and the send call itself. The comment poll (replies.ts) and the DM poll
+ * (inbox.ts) import from here; the dashboard mirrors the matching and the building in lib/replies.ts.
  */
 
 import { fetchJson, type Http, type JsonReply } from "./http";
@@ -211,6 +211,18 @@ export function toReplyCode(e: unknown): { code: ReplyErrorCode; detail?: string
   }
   return { code: "upstream", detail: String((e as Error)?.message ?? e), transient: true };
 }
+
+/** A glitching comment or message is tried this many times, then given up on. */
+export const MAX_RETRIES = 3;
+/** Codes after which nothing else will work this tick. */
+export const TICK_STOPPERS: ReadonlySet<ReplyErrorCode> = new Set<ReplyErrorCode>([
+  "token_expired",
+  "rate_limited",
+  "no_permission",
+  "not_connected",
+]);
+/** Log entries keep this much of the comment or message. */
+export const LOG_TEXT_CLIP = 120;
 
 /* ---------- sending ---------- */
 

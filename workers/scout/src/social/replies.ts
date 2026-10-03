@@ -9,7 +9,8 @@
  * Detection is **polling**, not webhooks: Meta only sends comment webhooks to apps that are Live with
  * Advanced Access, and the owner's app is in Development mode. So the five-minute tick (cron.ts), on ticks
  * where the publish queue moved nothing, lists the watched posts, reads the comments of the posts whose
- * `comments_count` changed (or everything once an hour), matches them against the automations and answers.
+ * `comments_count` changed (or everything once an hour), matches them against the automations and answers. The
+ * same poll then reads the newest conversations for the message rules and the default reply (`inbox.ts`).
  *
  * Instagram API with Instagram Login (scopes instagram_business_manage_comments + _manage_messages):
  *   GET  /me?fields=user_id,username                              the professional account id (cached)
@@ -26,8 +27,9 @@
  * Storage is split by writer, so no request path ever overwrites another's data (KV is last-write-wins):
  *   replies:doc     AutomationsDoc  what the owner configured (rules, pause, default reply); written only by
  *                                   POST/DELETE /social/replies and POST /social/replies/settings
- *   replies:state   PollState       what the poller learned (answered comments, counters, log, lock); written
- *                                   only by pollReplies, which also holds a short lock while it answers
+ *   replies:state   PollState       what the poller learned (answered comments, conversation positions, counters,
+ *                                   log, lock); written only by pollReplies, which also holds a short lock while
+ *                                   it answers
  *   replies:clicks  ClicksDoc       taps on the /go links; written only by handleGo (capped per day)
  * An idle tick writes nothing.
  */
@@ -37,16 +39,28 @@ import { IG_API } from "./instagram";
 import { metaList, type MetaError, type MetaPage } from "./meta";
 import { credentials, isExpired, PROVIDERS } from "./oauth";
 import {
+  answerInbox,
+  CONVO_TTL_MS,
+  inboxActive,
+  readInbox,
+  WINDOW_MS,
+  type ConversationBatch,
+  type InboxDeps,
+} from "./inbox";
+import {
   DEFAULT_STATS_ID,
   dmFits,
   DM_TEXT_BYTES,
   graph,
+  LOG_TEXT_CLIP,
   matches,
+  MAX_RETRIES,
   messageButtons,
   normalizeForMatch,
   pickPublicReply,
   ReplyError,
   sendReply,
+  TICK_STOPPERS,
   toReplyCode,
   utf8Bytes,
   type ReplyErrorCode,
@@ -117,13 +131,21 @@ export interface AutomationView extends Automation {
   stats: ReplyStats;
 }
 
+/** What a log entry answered (round 34): a comment, a DM, a story reply, or a DM with the default reply. */
+export type ReplyKind = "comment" | "message" | "story" | "default";
+
 export interface ReplyLogEntry {
   at: string;
+  kind: ReplyKind;
+  /** The rule, or DEFAULT_STATS_ID for the default reply. */
   automationId: string;
-  postId: string;
-  commentId: string;
+  /** Comments: the post and the comment. */
+  postId?: string;
+  commentId?: string;
+  /** DMs and story replies: the person's message. */
+  messageId?: string;
   username?: string;
-  /** The comment, clipped. */
+  /** The comment or message, clipped. */
   text: string;
   publicReply: "sent" | "skipped" | "failed";
   dm: "sent" | "failed";
@@ -179,6 +201,12 @@ export interface PollState {
   retries: Record<string, number>;
   /** Message id → the poll's own sends (pruned after SENT_TTL_MS): tells its DMs from the owner's (inbox.ts). */
   sent: Record<string, SentMessage>;
+  /** ISO: when the DM side first ran; nothing older is ever answered (inbox.ts). */
+  inboxSince?: string;
+  /** Conversation id → the newest message handled (pruned after CONVO_TTL_MS). */
+  convos: Record<string, { seenAt: string }>;
+  /** Instagram-scoped id → when the default reply last went to that person (pruned after a day). */
+  defaultSentAt: Record<string, string>;
   /** automationId → counters (clicks live in `replies:clicks`). */
   stats: Record<string, ReplyStats>;
   /** Newest first, at most LOG_MAX. */
@@ -186,7 +214,7 @@ export interface PollState {
   lastPollAt?: string;
   lastFullScanAt?: string;
   lastError?: ReplyErrorCode;
-  /** ISO: a poll is answering comments until then (keeps the cron and "Check now" from both answering). */
+  /** ISO: a poll is answering comments or DMs until then (keeps the cron and "Check now" from both answering). */
   lockUntil?: string;
 }
 
@@ -202,7 +230,7 @@ export interface ClicksDoc {
 
 /** Outbound calls one poll may make (the tick's publish queue moved nothing, so the budget is ours). */
 export const REPLIES_FETCH_BUDGET = 30;
-/** Comments answered per tick (each one costs up to two calls). */
+/** Answers per tick, comments and DMs together (a comment costs up to three calls, a DM one). */
 export const REPLY_CAP = 8;
 /** Newest posts watched for "any post" automations. */
 export const WATCH_ANY_MAX = 5;
@@ -218,7 +246,6 @@ export const HANDLED_TTL_MS = REPLY_WINDOW_MS;
 export const SENT_TTL_MS = 24 * 60 * 60_000;
 /** Comments are re-read regardless of the count once this often (a deleted + new comment keeps the count). */
 export const FULL_SCAN_EVERY_MS = 60 * 60_000;
-export const MAX_RETRIES = 3;
 export const LOG_MAX = 50;
 /** A poll holds the lock this long at most (a tick is five minutes; a crashed poll frees it by expiry). */
 export const POLL_LOCK_MS = 4 * 60_000;
@@ -233,18 +260,9 @@ export const BUTTON_TITLE_MAX = 20;
 export const PUBLIC_MAX = 2200;
 /** Public replies per comment rule (one is picked at random each time). */
 export const PUBLIC_REPLIES_MAX = 3;
-/** Log entries keep this much of the comment. */
-const TEXT_CLIP = 120;
 const ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
 /** Route words under /social/replies, and the default reply's stats key: never an automation id. */
 const RESERVED_IDS = new Set(["poll", "settings", DEFAULT_STATS_ID]);
-/** Codes after which nothing else will work this tick. */
-const TICK_STOPPERS = new Set<ReplyErrorCode>([
-  "token_expired",
-  "rate_limited",
-  "no_permission",
-  "not_connected",
-]);
 
 export const emptyAutomations = (): AutomationsDoc => ({ v: 1, automations: {} });
 export const emptyState = (): PollState => ({
@@ -253,6 +271,8 @@ export const emptyState = (): PollState => ({
   handled: {},
   retries: {},
   sent: {},
+  convos: {},
+  defaultSentAt: {},
   stats: {},
   log: [],
 });
@@ -450,7 +470,7 @@ export interface PollDeps {
 export interface PollResult {
   /** Posts whose comments were read. */
   checked: number;
-  /** Comment ids answered (the DM went out). */
+  /** Comment and message ids answered (the DM went out). */
   sent: string[];
   failed: string[];
   /** Why nothing was done. */
@@ -493,9 +513,9 @@ export function pickAutomation(
 }
 
 /**
- * One poll: reads the watched posts' new comments and answers the matching ones while the budget and the
- * per-tick cap allow. Writes `replies:state` once at the end (twice when it answered: the lock first), and
- * only when something changed. Never throws.
+ * One poll: reads the watched posts' new comments and the new DMs (inbox.ts) and answers the matching ones while
+ * the budget and the per-tick cap allow. Writes `replies:state` once at the end (twice when it answered: the lock
+ * first), and only when something changed. Never throws.
  */
 export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<PollResult> {
   const result: PollResult = { checked: 0, sent: [], failed: [] };
@@ -505,8 +525,11 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
   const at = now.toISOString();
   const random = deps.random ?? Math.random;
   const config = readAutomations(await store.getReplies<StoredDoc>());
-  const enabled = Object.values(config.automations).filter((a) => a.enabled && a.trigger === "comment");
-  if (!enabled.length) return { ...result, skipped: "none" };
+  const enabled = Object.values(config.automations).filter(
+    (a) => a.enabled && a.trigger === "comment",
+  );
+  const dmOn = inboxActive(config);
+  if (!enabled.length && !dmOn) return { ...result, skipped: "none" };
   // Documents written before round 34 get the new fields.
   const state: PollState = { ...emptyState(), ...(await store.getRepliesState<PollState>()) };
   if (state.lockUntil && Date.parse(state.lockUntil) > now.getTime()) {
@@ -515,6 +538,10 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
 
   let changed = false;
   const statsOf = (id: string): ReplyStats => (state.stats[id] ??= emptyStats());
+  const addLog = (entry: ReplyLogEntry) => {
+    state.log.unshift(entry);
+    if (state.log.length > LOG_MAX) state.log.length = LOG_MAX;
+  };
   const setError = (code: ReplyErrorCode | undefined) => {
     if (state.lastError !== code) {
       state.lastError = code;
@@ -529,7 +556,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
   };
   // Counters of automations the owner deleted go with them.
   for (const id of Object.keys(state.stats)) {
-    if (!config.automations[id]) {
+    if (!config.automations[id] && id !== DEFAULT_STATS_ID) {
       delete state.stats[id];
       changed = true;
     }
@@ -681,8 +708,25 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     }
     candidates.sort((x, y) => (x.comment.timestamp ?? "").localeCompare(y.comment.timestamp ?? ""));
 
-    // Claim the comments before answering, so a "Check now" landing during the cron tick waits.
-    if (candidates.length) {
+    // The DMs and story replies (inbox.ts). A conversations read that fails leaves the comments alone.
+    const inbox: InboxDeps = { http, token, igUserId, config, state, now, statsOf, log: addLog };
+    let batches: ConversationBatch[] = [];
+    if (dmOn) {
+      try {
+        const read = await readInbox(inbox);
+        batches = read.batches;
+        if (read.changed) changed = true;
+      } catch (e) {
+        const { code, detail } = toReplyCode(e);
+        if (TICK_STOPPERS.has(code)) throw e;
+        result.error = code;
+        if (detail) result.detail = detail.slice(0, 200);
+      }
+    }
+    const dmToAnswer = batches.some((b) => b.items.some((i) => !i.skip));
+
+    // Claim the comments and messages before answering, so a "Check now" landing during the cron tick waits.
+    if (candidates.length || dmToAnswer) {
       state.lockUntil = new Date(now.getTime() + POLL_LOCK_MS).toISOString();
       changed = true;
       await store.putRepliesState(state);
@@ -702,11 +746,12 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
       const s = statsOf(a.id);
       const entry: ReplyLogEntry = {
         at,
+        kind: "comment",
         automationId: a.id,
         postId: mediaId,
         commentId: id,
         ...(username ? { username } : {}),
-        text: clip(c.text, TEXT_CLIP) ?? "",
+        text: clip(c.text, LOG_TEXT_CLIP) ?? "",
         publicReply: "skipped",
         dm: "failed",
       };
@@ -772,8 +817,14 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
         }
       }
       changed = true;
-      state.log.unshift(entry);
-      if (state.log.length > LOG_MAX) state.log.length = LOG_MAX;
+      addLog(entry);
+    }
+    if (!stop && batches.length) {
+      const dms = await answerInbox(inbox, batches, REPLY_CAP - result.sent.length);
+      result.sent.push(...dms.sent);
+      result.failed.push(...dms.failed);
+      if (dms.changed) changed = true;
+      stop = dms.stop;
     }
     setError(stop);
 
@@ -807,9 +858,16 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
       changed = true;
     }
   }
-  // Expired send ids leave with the next real write: dropping them alone writes nothing (an idle poll stays idle).
+  // Expired send ids, conversation positions and default-reply times leave with the next real write: dropping them
+  // alone writes nothing (an idle poll stays idle).
   for (const [mid, s] of Object.entries(state.sent)) {
     if (now.getTime() - Date.parse(s.at) > SENT_TTL_MS) delete state.sent[mid];
+  }
+  for (const [id, c] of Object.entries(state.convos)) {
+    if (now.getTime() - Date.parse(c.seenAt) > CONVO_TTL_MS) delete state.convos[id];
+  }
+  for (const [person, when] of Object.entries(state.defaultSentAt)) {
+    if (now.getTime() - Date.parse(when) > WINDOW_MS) delete state.defaultSentAt[person];
   }
   await save();
   return result;

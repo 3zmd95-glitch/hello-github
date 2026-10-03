@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { handle, type Env } from "../scout";
 import { runTick } from "./cron";
+import { toMs } from "./inbox";
 import { mergeJob, type JobInput, type PublishJob } from "./publish";
 import {
   CLICK_WRITES_PER_DAY,
@@ -201,6 +202,48 @@ function igRoutes(over: Record<string, Handler> = {}, comments = [comment("c1", 
 }
 
 const tick = (n: number) => new Date(NOW.getTime() + n * 300_000);
+
+/* ---------- DMs ---------- */
+
+const msgAt = (minAgo: number) => new Date(NOW.getTime() - minAgo * 60_000).toISOString();
+const ME = { id: "17841", username: "3z.prod" };
+const dm = (id: string, text: string, over: Record<string, unknown> = {}) => ({
+  id,
+  message: text,
+  created_time: msgAt(1),
+  from: { id: "p1", username: "sara" },
+  ...over,
+});
+/** A conversation as the Conversations API lists it: messages newest first. */
+const convo = (id: string, messages: Record<string, unknown>[]) => ({
+  id,
+  updated_time: messages[0]?.created_time,
+  messages: { data: messages },
+});
+const camRule = (over: Partial<AutomationInput> = {}) =>
+  input({
+    id: "cam",
+    trigger: "message",
+    postId: null,
+    keywords: ["كاميرا"],
+    publicReplies: [],
+    dmText: "أصور بالآيفون",
+    buttons: [{ title: "أدواتي", url: "https://3zprod.com/gear" }],
+    ...over,
+  });
+/** The mocks of a DM poll: /me, the conversations, and the Send API (which records what it got). */
+function dmRoutes(conversations: unknown[], sent: unknown[] = []): Record<string, Handler> {
+  return {
+    [`GET ${IG}/me`]: () => ({ user_id: 17841, username: "3z.prod" }),
+    [`GET ${IG}/17841/conversations`]: () => ({ data: conversations }),
+    [`POST ${IG}/17841/messages`]: (_u, init) => {
+      sent.push(JSON.parse(String(init?.body)));
+      return { recipient_id: "p1", message_id: `out${sent.length}` };
+    },
+  };
+}
+/** The DM side has run before: messages from the last hour are new. */
+const SINCE = { inboxSince: new Date(NOW.getTime() - 3_600_000).toISOString() };
 
 /* ---------- matching ---------- */
 
@@ -617,6 +660,7 @@ describe("pollReplies", () => {
     });
     expect(state.lockUntil).toBeUndefined();
     expect(state.log[0]).toMatchObject({
+      kind: "comment",
       automationId: "lut",
       commentId: "c1",
       username: "fan_c1",
@@ -1236,6 +1280,278 @@ describe("pollReplies", () => {
     const r = await pollReplies(env, { fetch: mockFetch(igRoutes().routes), now: NOW });
     expect(r).toEqual({ checked: 0, sent: [], failed: [] });
     expect(env.SOCIAL_KV.writes).toBe(writes);
+  });
+});
+
+describe("pollReplies: DMs and story replies", () => {
+  it("the first DM poll only notes the time; nothing older is ever answered", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()]);
+    const fetchMock = mockFetch(dmRoutes([convo("t1", [dm("d1", "كاميرا؟")])]));
+    const r = await pollReplies(env, { fetch: fetchMock, now: NOW });
+    expect(r.sent).toEqual([]);
+    expect(fetchMock.calls()).not.toContain(`GET ${IG}/17841/conversations`);
+    expect((await stateOf(env)).inboxSince).toBe(NOW.toISOString());
+  });
+
+  it("answers a DM keyword with the rule's text, buttons and «تابعني», once", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule({ followButton: true })], SINCE);
+    const sent: unknown[] = [];
+    const convos = [convo("t1", [dm("d1", "إيش الكاميرا اللي تستخدمها؟")])];
+    const r = await pollReplies(env, { fetch: mockFetch(dmRoutes(convos, sent)), now: NOW });
+    expect(r.sent).toEqual(["d1"]);
+    expect(sent[0]).toEqual({
+      recipient: { id: "p1" },
+      message: {
+        attachment: {
+          type: "template",
+          payload: {
+            template_type: "button",
+            text: "أصور بالآيفون",
+            buttons: [
+              { type: "web_url", url: `${BASE}/go/cam/0`, title: "أدواتي" },
+              { type: "web_url", url: "https://www.instagram.com/3z.prod/", title: "تابعني" },
+            ],
+          },
+        },
+      },
+    });
+    const state = await stateOf(env);
+    expect(state.convos.t1).toEqual({ seenAt: msgAt(1) });
+    expect(state.stats.cam).toMatchObject({ sends: 1 });
+    expect(state.sent.out1).toEqual({ to: "p1", at: NOW.toISOString() });
+    expect(state.log[0]).toMatchObject({
+      kind: "message",
+      automationId: "cam",
+      messageId: "d1",
+      username: "sara",
+      dm: "sent",
+      publicReply: "skipped",
+    });
+
+    // The next poll finds nothing new: no send, no KV write.
+    const writes = env.SOCIAL_KV.writes;
+    const again = await pollReplies(env, { fetch: mockFetch(dmRoutes(convos)), now: tick(1) });
+    expect(again.sent).toEqual([]);
+    expect(env.SOCIAL_KV.writes).toBe(writes);
+  });
+
+  it("answers a story reply with the keyword (logged as story) and leaves story mentions alone", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    const sent: unknown[] = [];
+    const r = await pollReplies(env, {
+      fetch: mockFetch(
+        dmRoutes(
+          [
+            convo("t1", [dm("d1", "كاميرا", { story: { reply_to: { id: "s1", link: "https://cdn/x" } } })]),
+            convo("t2", [
+              dm("d2", "", { from: { id: "p2" }, story: { mention: { id: "s2", link: "https://cdn/y" } } }),
+            ]),
+          ],
+          sent,
+        ),
+      ),
+      now: NOW,
+    });
+    expect(r.sent).toEqual(["d1"]);
+    expect(sent).toHaveLength(1);
+    const state = await stateOf(env);
+    expect(state.log[0]).toMatchObject({ kind: "story", messageId: "d1" });
+    expect(state.convos.t2).toEqual({ seenAt: msgAt(1) });
+  });
+
+  it("sends the default reply once per person a day, never to story replies or emoji-only messages", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [], SINCE);
+    const store = Store.from(env)!;
+    await store.putReplies({
+      ...(await configOf(env)),
+      defaultReply: {
+        enabled: true,
+        text: "وصلت رسالتك",
+        enabledAt: SINCE.inboxSince,
+        updatedAt: SINCE.inboxSince,
+      },
+    });
+    const sent: unknown[] = [];
+    const r = await pollReplies(env, {
+      fetch: mockFetch(
+        dmRoutes(
+          [
+            convo("t1", [dm("d2", "وينك"), dm("d1", "هلا عز", { created_time: msgAt(2) })]),
+            convo("t2", [dm("d3", "🔥", { from: { id: "p2" } })]),
+            convo("t3", [dm("d4", "حلو", { from: { id: "p3" }, story: { reply_to: { id: "s1" } } })]),
+          ],
+          sent,
+        ),
+      ),
+      now: NOW,
+    });
+    expect(r.sent).toEqual(["d1"]);
+    expect(sent).toEqual([{ recipient: { id: "p1" }, message: { text: "وصلت رسالتك" } }]);
+    const state = await stateOf(env);
+    expect(state.defaultSentAt).toEqual({ p1: NOW.toISOString() });
+    expect(state.stats.default).toMatchObject({ sends: 1 });
+    expect(state.log[0]).toMatchObject({ kind: "default", automationId: "default" });
+    expect(state.convos).toEqual({
+      t1: { seenAt: msgAt(1) },
+      t2: { seenAt: msgAt(1) },
+      t3: { seenAt: msgAt(1) },
+    });
+  });
+
+  it("stays quiet where the owner wrote by hand in the last day, but not after the poll's own sends", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], {
+      ...SINCE,
+      sent: { out9: { to: "p2", at: msgAt(5) }, out8: { to: "p3", at: msgAt(5) } },
+    });
+    const r = await pollReplies(env, {
+      fetch: mockFetch(
+        dmRoutes([
+          // The owner answered by hand an hour ago.
+          convo("t1", [dm("d1", "كاميرا"), dm("h1", "هلا والله", { from: ME, created_time: msgAt(60) })]),
+          // The account's message is the poll's own send, by id.
+          convo("t2", [
+            dm("d2", "كاميرا", { from: { id: "p2" } }),
+            dm("out9", "أصور بالآيفون", { from: ME, created_time: msgAt(5) }),
+          ]),
+          // The same, matched by time: Instagram's id differs, a minute after the send to p3.
+          convo("t3", [
+            dm("d3", "كاميرا", { from: { id: "p3" } }),
+            dm("x7", "أصور بالآيفون", { from: ME, created_time: msgAt(4) }),
+          ]),
+        ]),
+      ),
+      now: NOW,
+    });
+    expect(r.sent).toEqual(["d2", "d3"]);
+    expect((await stateOf(env)).convos.t1).toEqual({ seenAt: msgAt(1) });
+  });
+
+  it("leaves alone messages from before the rule was on and messages older than a day", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], { inboxSince: msgAt(48 * 60) }, 30 * 60_000);
+    const r = await pollReplies(env, {
+      fetch: mockFetch(
+        dmRoutes([
+          convo("t1", [dm("d1", "كاميرا", { created_time: msgAt(45) })]),
+          convo("t2", [dm("d2", "كاميرا", { from: { id: "p2" }, created_time: msgAt(25 * 60) })]),
+        ]),
+      ),
+      now: NOW,
+    });
+    expect(r.sent).toEqual([]);
+    expect(Object.keys((await stateOf(env)).convos).sort()).toEqual(["t1", "t2"]);
+  });
+
+  it("answers at most REPLY_CAP DMs a poll and the rest on the next one", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    const convos = Array.from({ length: 10 }, (_, i) =>
+      convo(`t${i}`, [dm(`d${i}`, "كاميرا", { from: { id: `p${i}` } })]),
+    );
+    const r = await pollReplies(env, { fetch: mockFetch(dmRoutes(convos)), now: NOW });
+    expect(r.sent).toHaveLength(REPLY_CAP);
+    const next = await pollReplies(env, { fetch: mockFetch(dmRoutes(convos)), now: tick(1) });
+    expect(next.sent).toEqual(["d8", "d9"]);
+  });
+
+  it("a refusal is final for its message; a glitch is retried on the next poll", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    let n = 0;
+    const routes = {
+      ...dmRoutes([
+        convo("t1", [dm("d1", "كاميرا")]),
+        convo("t2", [dm("d2", "كاميرا", { from: { id: "p2" } })]),
+      ]),
+      [`POST ${IG}/17841/messages`]: () => {
+        n += 1;
+        return n === 1
+          ? json(
+              {
+                error: {
+                  code: 10,
+                  error_subcode: 2534022,
+                  message: "This message is sent outside of allowed window.",
+                },
+              },
+              400,
+            )
+          : json({ error: { message: "boom" } }, 500);
+      },
+    };
+    const r = await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
+    expect(r.failed).toEqual(["d1", "d2"]);
+    const state = await stateOf(env);
+    expect(state.convos.t1).toEqual({ seenAt: msgAt(1) });
+    expect(state.convos.t2).toBeUndefined();
+    expect(state.retries.d2).toBe(1);
+    expect(state.log.map((e) => e.error)).toEqual(["upstream", "not_eligible"]);
+  });
+
+  it("a conversations read that fails leaves the comments alone", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input(), camRule()], SINCE);
+    const { routes } = igRoutes({
+      [`GET ${IG}/17841/conversations`]: () => json({ error: { message: "boom" } }, 500),
+    });
+    const r = await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
+    expect(r.sent).toEqual(["c1"]);
+    expect(r.error).toBe("upstream");
+  });
+
+  it("forgets week-old conversation positions and day-old default replies, without a write of their own", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    // Nothing new: the account is known and no conversation moved.
+    await seed(env, [camRule()], {
+      ...SINCE,
+      igUserId: "17841",
+      ownerUsername: "3z.prod",
+      convos: { t0: { seenAt: msgAt(8 * 24 * 60) }, t1: { seenAt: msgAt(60) } },
+      defaultSentAt: { p0: msgAt(25 * 60), p1: msgAt(60) },
+    });
+    const writes = env.SOCIAL_KV.writes;
+    await pollReplies(env, { fetch: mockFetch(dmRoutes([])), now: NOW });
+    expect(env.SOCIAL_KV.writes).toBe(writes);
+    // They leave with the next real write.
+    const news = [convo("t2", [dm("d2", "كاميرا", { from: { id: "p2" } })])];
+    await pollReplies(env, { fetch: mockFetch(dmRoutes(news)), now: NOW });
+    const state = await stateOf(env);
+    expect(Object.keys(state.convos).sort()).toEqual(["t1", "t2"]);
+    expect(state.defaultSentAt).toEqual({ p1: msgAt(60) });
+  });
+
+  it("reads message times as ISO 8601 or UNIX seconds", () => {
+    const ms = Date.parse("2026-09-29T08:59:00Z");
+    expect(toMs("2026-09-29T08:59:00Z")).toBe(ms);
+    expect(toMs(ms / 1000)).toBe(ms);
+    expect(toMs(String(ms / 1000))).toBe(ms);
+    expect(toMs(undefined)).toBeNaN();
+  });
+
+  it("keeps the default reply's counters when it drops a deleted rule's", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    const zero = { sends: 1, publicReplies: 0, failures: 0, clicks: 0 };
+    await seed(env, [input()], { stats: { default: zero, gone: zero } });
+    await pollReplies(env, { fetch: mockFetch(igRoutes().routes), now: NOW });
+    const { stats } = await stateOf(env);
+    expect(stats.default).toBeDefined();
+    expect(stats.gone).toBeUndefined();
   });
 });
 
