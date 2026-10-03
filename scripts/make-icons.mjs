@@ -85,6 +85,8 @@ const g = grid();
 for (const [name, size] of [
   ["icon-192.png", 192],
   ["icon-512.png", 512],
+  // The Meta app's icon (App settings → Basic asks for 1024×1024).
+  ["icon-1024.png", 1024],
   ["apple-touch-icon.png", 180],
 ]) {
   writeFileSync(new URL(name, out), png(size, g));
