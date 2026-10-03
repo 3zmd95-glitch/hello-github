@@ -1,11 +1,16 @@
 /**
  * 💬 Auto replies, the parts both polls share (planning/tools/14-auto-replies-v2.md): keyword matching and how a
  * reply is built — the link buttons (through the Worker's /go counter), the optional «تابعني» button, the plain-text
- * form, the button template, Instagram's size limits and the random public reply. The comment poll (replies.ts) and
- * the DM poll (inbox.ts) import from here; the dashboard mirrors it in lib/replies.ts.
+ * form, the button template, Instagram's size limits and the random public reply; then how Instagram's refusals are
+ * read and the send call itself. The comment poll (replies.ts) and the DM poll (inbox.ts) import from here; the
+ * dashboard mirrors the matching and the building in lib/replies.ts.
  */
 
+import { fetchJson, type Http, type JsonReply } from "./http";
+import { IG_API } from "./instagram";
+import { metaBody, type MetaError } from "./meta";
 import type { ReplyButton, ReplyMatch } from "./replies";
+import { SocialError } from "./types";
 
 /** Instagram: a text message "must be UTF-8 and be a 1000 bytes or less" (about 500 Arabic letters). */
 export const DM_TEXT_BYTES = 1000;
@@ -124,4 +129,130 @@ export function pickPublicReply(
 ): string | undefined {
   const usable = replies.map((r) => r.trim()).filter(Boolean);
   return usable.length ? usable[Math.floor(random() * usable.length)] : undefined;
+}
+
+/* ---------- errors ---------- */
+
+export type ReplyErrorCode =
+  | "not_connected"
+  | "no_permission"
+  | "token_expired"
+  | "rate_limited"
+  /** Instagram refused (the platform's words in `detail`). */
+  | "rejected"
+  | "upstream"
+  /** Instagram takes no private reply to this comment: too old, already answered, deleted, or blocked. */
+  | "not_eligible";
+
+export class ReplyError extends Error {
+  constructor(
+    readonly code: ReplyErrorCode,
+    detail?: string,
+  ) {
+    super(detail ?? code);
+    this.name = "ReplyError";
+  }
+}
+
+/**
+ * Meta's messaging errors, code 10 = "permission denied", carry subcodes that say whose problem it is:
+ *   app-level (the token lacks the permission)      → no_permission, nothing else works this tick
+ *   this conversation (outside the messaging window) → not_eligible, final for this comment
+ *   this recipient (cannot receive messages now)    → rejected, final for this comment
+ * Code 100 with subcode 2534025 is the private-reply refusal itself ("The comment is invalid for a private
+ * reply": older than 7 days, already answered privately, deleted, or the account blocks message requests).
+ */
+const APP_PERMISSION_SUBCODES = new Set([1404170, 2534077, 1893063]);
+const WINDOW_SUBCODES = new Set([2534022, 2018278, 2018065]);
+const PRIVATE_REPLY_INVALID = { code: 100, subcode: 2534025 };
+
+/** A Graph reply as a body; refusals keep Instagram's words, permission problems get their own codes. */
+export function graph<T extends MetaError>(reply: JsonReply<T>, what: string): T {
+  const err = reply.body?.error;
+  if (err?.code === PRIVATE_REPLY_INVALID.code && err.error_subcode === PRIVATE_REPLY_INVALID.subcode) {
+    throw new ReplyError("not_eligible", err.message);
+  }
+  if (err?.code === 10) {
+    const sub = err.error_subcode;
+    if (sub !== undefined && WINDOW_SUBCODES.has(sub)) throw new ReplyError("not_eligible", err.message);
+    if (sub === undefined || APP_PERMISSION_SUBCODES.has(sub)) {
+      throw new ReplyError("no_permission", err.message ?? `${what}: permission denied`);
+    }
+    throw new ReplyError("rejected", err.message ?? `${what}: ${sub}`);
+  }
+  try {
+    return metaBody(reply, what);
+  } catch (e) {
+    if (!(e instanceof SocialError)) throw e;
+    // The log shows Instagram's own words, not our code prefixes.
+    const words = err?.message ?? `${what}: ${reply.status}`;
+    if (e.code === "upstream" && reply.status >= 400 && reply.status < 500) {
+      throw new ReplyError("rejected", words);
+    }
+    if (e.code === "token_expired" || e.code === "rate_limited") throw new ReplyError(e.code, words);
+    throw e;
+  }
+}
+
+export function toReplyCode(e: unknown): { code: ReplyErrorCode; detail?: string; transient: boolean } {
+  if (e instanceof ReplyError) {
+    return {
+      code: e.code,
+      detail: e.message,
+      transient: e.code === "upstream" || e.code === "rate_limited",
+    };
+  }
+  if (e instanceof SocialError) {
+    const code: ReplyErrorCode =
+      e.code === "token_expired" || e.code === "rate_limited" || e.code === "not_connected"
+        ? e.code
+        : "upstream";
+    return { code, detail: e.message, transient: code === "upstream" || code === "rate_limited" };
+  }
+  return { code: "upstream", detail: String((e as Error)?.message ?? e), transient: true };
+}
+
+/* ---------- sending ---------- */
+
+/** Where a reply goes: a person (inside the 24-hour window) or, for the private reply, a comment. */
+export type Recipient = { id: string } | { comment_id: string };
+
+export interface SendTarget {
+  http: Http;
+  /** The professional account id (`user_id` from GET /me). */
+  igUserId: string;
+  token: string;
+}
+
+/**
+ * Sends one reply and returns the Send API's message id. With buttons it is a button template; a private reply
+ * whose template Instagram refuses (code 100 with any subcode but 2534025, "already answered") goes once more as
+ * plain text with "title: link" lines — a refused call does not use up the comment's one private reply. Throws
+ * like `graph`.
+ */
+export async function sendReply(
+  t: SendTarget,
+  recipient: Recipient,
+  text: string,
+  buttons: readonly LinkButton[],
+): Promise<string | undefined> {
+  const post = (message: Record<string, unknown>) =>
+    fetchJson<MetaError & { message_id?: string }>(t.http, `${IG_API}/${t.igUserId}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${t.token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ recipient, message }),
+    });
+  let reply = await post(messagePayload(text, buttons));
+  const err = reply.body?.error;
+  const templateRefused =
+    buttons.length > 0 &&
+    "comment_id" in recipient &&
+    err?.code === 100 &&
+    err.error_subcode !== PRIVATE_REPLY_INVALID.subcode;
+  if (templateRefused && t.http.budget.ok) reply = await post({ text: textBody(text, buttons) });
+  return graph(reply, "dm").message_id;
 }

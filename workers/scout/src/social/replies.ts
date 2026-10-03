@@ -3,7 +3,8 @@
  * `planning/tools/14-auto-replies-v2.md`): when someone comments a keyword on one of the owner's Instagram posts,
  * send them a private DM with the link and reply under the comment. Instagram only for now (Threads and YouTube
  * have no DMs; TikTok has no comment API). The poller answers comments (this file) and DMs (`inbox.ts`); the parts
- * both share (keyword matching, building the reply, Instagram's size limits) live in `replyCore.ts`.
+ * both share (keyword matching, building and sending the reply, Instagram's size limits and refusals) live in
+ * `replyCore.ts`.
  *
  * Detection is **polling**, not webhooks: Meta only sends comment webhooks to apps that are Live with
  * Advanced Access, and the owner's app is in Development mode. So the five-minute tick (cron.ts), on ticks
@@ -15,12 +16,12 @@
  *   GET  /{ig-user-id}/media?fields=id,comments_count&limit=…     the newest posts ("any post" automations)
  *   GET  /{media-id}?fields=id,comments_count                     a specific post's count
  *   GET  /{media-id}/comments?fields=id,text,username,from,timestamp
- *   POST /{ig-user-id}/messages           { recipient: { comment_id }, message: { text } }
- *        the "private reply": one text message per comment, within 7 days of the comment. Sent FIRST: the
+ *   POST /{ig-user-id}/messages           { recipient: { comment_id }, message: { attachment | text } }
+ *        the "private reply": one message per comment, within 7 days of the comment. Sent FIRST: the
  *        public reply says "sent it to you privately", so it only goes out once the DM did.
  *   POST /{comment-id}/replies            message=…               the public reply under the comment
- *   Private replies are text only, so the DM's buttons go out as "title: link" lines through GET /go/:id/:n,
- *   which counts the click and redirects.
+ *   The DM's buttons go out as a button template through GET /go/:id/:n, which counts the click and redirects;
+ *   when Instagram refuses the template in a private reply, once more as plain text with "title: link" lines.
  *
  * Storage is split by writer, so no request path ever overwrites another's data (KV is last-write-wins):
  *   replies:doc     AutomationsDoc  what the owner configured (rules, pause, default reply); written only by
@@ -31,26 +32,31 @@
  * An idle tick writes nothing.
  */
 
-import { Budget, clip, fetchJson, formPost, int, type Http, type JsonReply } from "./http";
+import { Budget, clip, fetchJson, formPost, int, type Http } from "./http";
 import { IG_API } from "./instagram";
-import { metaBody, metaList, type MetaError, type MetaPage } from "./meta";
+import { metaList, type MetaError, type MetaPage } from "./meta";
 import { credentials, isExpired, PROVIDERS } from "./oauth";
 import {
   DEFAULT_STATS_ID,
   dmFits,
   DM_TEXT_BYTES,
+  graph,
   matches,
   messageButtons,
   normalizeForMatch,
   pickPublicReply,
-  textBody,
+  ReplyError,
+  sendReply,
+  toReplyCode,
   utf8Bytes,
+  type ReplyErrorCode,
 } from "./replyCore";
 import { Store, type SocialEnv } from "./store";
 import { riyadhDay } from "./time";
 import { SocialError, type TokenSet } from "./types";
 
-export { DEFAULT_STATS_ID, matches, normalizeForMatch } from "./replyCore";
+export { DEFAULT_STATS_ID, graph, matches, normalizeForMatch, ReplyError } from "./replyCore";
+export type { ReplyErrorCode } from "./replyCore";
 
 /* ---------- document types (shared shape with the dashboard's lib/replies.ts) ---------- */
 
@@ -126,6 +132,12 @@ export interface ReplyLogEntry {
   detail?: string;
 }
 
+/** A message the poll sent: to whom (Instagram-scoped id) and when. */
+export interface SentMessage {
+  to: string;
+  at: string;
+}
+
 /** The answer to a DM that matches no rule (round 34): at most once per person per 24 hours. */
 export interface DefaultReply {
   enabled: boolean;
@@ -165,6 +177,8 @@ export interface PollState {
   handled: Record<string, string>;
   /** commentId → failures so far (transient ones, and permission refusals). */
   retries: Record<string, number>;
+  /** Message id → the poll's own sends (pruned after SENT_TTL_MS): tells its DMs from the owner's (inbox.ts). */
+  sent: Record<string, SentMessage>;
   /** automationId → counters (clicks live in `replies:clicks`). */
   stats: Record<string, ReplyStats>;
   /** Newest first, at most LOG_MAX. */
@@ -184,17 +198,6 @@ export interface ClicksDoc {
   byAutomation: Record<string, number>;
 }
 
-export type ReplyErrorCode =
-  | "not_connected"
-  | "no_permission"
-  | "token_expired"
-  | "rate_limited"
-  /** Instagram refused (the platform's words in `detail`). */
-  | "rejected"
-  | "upstream"
-  /** Instagram takes no private reply to this comment: too old, already answered, deleted, or blocked. */
-  | "not_eligible";
-
 /* ---------- limits ---------- */
 
 /** Outbound calls one poll may make (the tick's publish queue moved nothing, so the budget is ours). */
@@ -211,6 +214,8 @@ export const COMMENTS_PAGE = 50;
 /** Instagram allows the private reply within 7 days of the comment; handled ids are kept as long. */
 export const REPLY_WINDOW_MS = 7 * 24 * 60 * 60_000;
 export const HANDLED_TTL_MS = REPLY_WINDOW_MS;
+/** The ids of the poll's own sends are kept a day (the owner-chatting check looks back 24 hours). */
+export const SENT_TTL_MS = 24 * 60 * 60_000;
 /** Comments are re-read regardless of the count once this often (a deleted + new comment keeps the count). */
 export const FULL_SCAN_EVERY_MS = 60 * 60_000;
 export const MAX_RETRIES = 3;
@@ -247,6 +252,7 @@ export const emptyState = (): PollState => ({
   watch: {},
   handled: {},
   retries: {},
+  sent: {},
   stats: {},
   log: [],
 });
@@ -429,76 +435,6 @@ export function mergeSettings(doc: AutomationsDoc, s: SettingsInput, now: Date):
   return next;
 }
 
-/* ---------- errors ---------- */
-
-export class ReplyError extends Error {
-  constructor(
-    readonly code: ReplyErrorCode,
-    detail?: string,
-  ) {
-    super(detail ?? code);
-    this.name = "ReplyError";
-  }
-}
-
-/**
- * Meta's messaging errors, code 10 = "permission denied", carry subcodes that say whose problem it is:
- *   app-level (the token lacks the permission)      → no_permission, nothing else works this tick
- *   this conversation (outside the messaging window) → not_eligible, final for this comment
- *   this recipient (cannot receive messages now)    → rejected, final for this comment
- * Code 100 with subcode 2534025 is the private-reply refusal itself ("The comment is invalid for a private
- * reply": older than 7 days, already answered privately, deleted, or the account blocks message requests).
- */
-const APP_PERMISSION_SUBCODES = new Set([1404170, 2534077, 1893063]);
-const WINDOW_SUBCODES = new Set([2534022, 2018278, 2018065]);
-const PRIVATE_REPLY_INVALID = { code: 100, subcode: 2534025 };
-
-/** A Graph reply as a body; refusals keep Instagram's words, permission problems get their own codes. */
-export function graph<T extends MetaError>(reply: JsonReply<T>, what: string): T {
-  const err = reply.body?.error;
-  if (err?.code === PRIVATE_REPLY_INVALID.code && err.error_subcode === PRIVATE_REPLY_INVALID.subcode) {
-    throw new ReplyError("not_eligible", err.message);
-  }
-  if (err?.code === 10) {
-    const sub = err.error_subcode;
-    if (sub !== undefined && WINDOW_SUBCODES.has(sub)) throw new ReplyError("not_eligible", err.message);
-    if (sub === undefined || APP_PERMISSION_SUBCODES.has(sub)) {
-      throw new ReplyError("no_permission", err.message ?? `${what}: permission denied`);
-    }
-    throw new ReplyError("rejected", err.message ?? `${what}: ${sub}`);
-  }
-  try {
-    return metaBody(reply, what);
-  } catch (e) {
-    if (!(e instanceof SocialError)) throw e;
-    // The log shows Instagram's own words, not our code prefixes.
-    const words = err?.message ?? `${what}: ${reply.status}`;
-    if (e.code === "upstream" && reply.status >= 400 && reply.status < 500) {
-      throw new ReplyError("rejected", words);
-    }
-    if (e.code === "token_expired" || e.code === "rate_limited") throw new ReplyError(e.code, words);
-    throw e;
-  }
-}
-
-function toReplyCode(e: unknown): { code: ReplyErrorCode; detail?: string; transient: boolean } {
-  if (e instanceof ReplyError) {
-    return {
-      code: e.code,
-      detail: e.message,
-      transient: e.code === "upstream" || e.code === "rate_limited",
-    };
-  }
-  if (e instanceof SocialError) {
-    const code: ReplyErrorCode =
-      e.code === "token_expired" || e.code === "rate_limited" || e.code === "not_connected"
-        ? e.code
-        : "upstream";
-    return { code, detail: e.message, transient: code === "upstream" || code === "rate_limited" };
-  }
-  return { code: "upstream", detail: String((e as Error)?.message ?? e), transient: true };
-}
-
 /* ---------- the poll ---------- */
 
 export interface PollDeps {
@@ -571,7 +507,8 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
   const config = readAutomations(await store.getReplies<StoredDoc>());
   const enabled = Object.values(config.automations).filter((a) => a.enabled && a.trigger === "comment");
   if (!enabled.length) return { ...result, skipped: "none" };
-  const state = (await store.getRepliesState<PollState>()) ?? emptyState();
+  // Documents written before round 34 get the new fields.
+  const state: PollState = { ...emptyState(), ...(await store.getRepliesState<PollState>()) };
   if (state.lockUntil && Date.parse(state.lockUntil) > now.getTime()) {
     return { ...result, skipped: "locked" };
   }
@@ -755,8 +692,10 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     let stop: ReplyErrorCode | undefined;
     for (const { comment: c, automation: a, mediaId } of candidates) {
       if (stop || result.sent.length >= REPLY_CAP) break;
+      const buttons = messageButtons(a, config.origin, state.ownerUsername);
       const pub = pickPublicReply(a.publicReplies, random);
-      if (http.budget.left < (pub ? 2 : 1)) break;
+      // The DM, its text fallback when Instagram refuses buttons, and the public reply.
+      if (http.budget.left < 1 + (buttons.length ? 1 : 0) + (pub ? 1 : 0)) break;
       const id = c.id!;
       attempted.add(id);
       const username = c.username ?? c.from?.username;
@@ -777,21 +716,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
       // The DM first: it is the part Instagram allows once per comment, and the public reply promises it.
       let dmSent = false;
       try {
-        graph(
-          await fetchJson<MetaError>(http, `${IG_API}/${igUserId}/messages`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            body: JSON.stringify({
-              recipient: { comment_id: id },
-              message: { text: textBody(a.dmText, messageButtons(a, config.origin, undefined)) },
-            }),
-          }),
-          "dm",
-        );
+        const messageId = await sendReply({ http, igUserId, token }, { comment_id: id }, a.dmText, buttons);
         dmSent = true;
         entry.dm = "sent";
         s.sends += 1;
@@ -799,6 +724,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
         s.lastError = undefined;
         state.handled[id] = at;
         delete state.retries[id];
+        if (messageId) state.sent[messageId] = { to: c.from?.id ?? "", at };
         result.sent.push(id);
       } catch (e) {
         const { code, detail, transient } = toReplyCode(e);
@@ -878,6 +804,12 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     if (now.getTime() - Date.parse(when) > HANDLED_TTL_MS) {
       delete state.handled[id];
       delete state.retries[id];
+      changed = true;
+    }
+  }
+  for (const [mid, s] of Object.entries(state.sent)) {
+    if (now.getTime() - Date.parse(s.at) > SENT_TTL_MS) {
+      delete state.sent[mid];
       changed = true;
     }
   }

@@ -574,7 +574,16 @@ describe("pollReplies", () => {
         expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer instagram-token");
         expect(JSON.parse(String(init?.body))).toEqual({
           recipient: { comment_id: "c1" },
-          message: { text: `حمل اللت من الرابط تحت وجربه على لقطاتك\n\nحمل اللت: ${BASE}/go/lut/0` },
+          message: {
+            attachment: {
+              type: "template",
+              payload: {
+                template_type: "button",
+                text: "حمل اللت من الرابط تحت وجربه على لقطاتك",
+                buttons: [{ type: "web_url", url: `${BASE}/go/lut/0`, title: "حمل اللت" }],
+              },
+            },
+          },
         });
         return { message_id: "mid1" };
       },
@@ -614,6 +623,7 @@ describe("pollReplies", () => {
       publicReply: "sent",
       dm: "sent",
     });
+    expect(state.sent).toEqual({ mid1: { to: "uc1", at: NOW.toISOString() } });
     // The poller writes only its own document: the lock, then the result.
     expect(env.SOCIAL_KV.written.slice(before)).toEqual([keys.repliesState, keys.repliesState]);
 
@@ -1099,6 +1109,106 @@ describe("pollReplies", () => {
     await pollReplies(env, { fetch: mockFetch(igRoutes().routes), now: NOW });
     const body = (await (await handle(req("/social/replies"), env)).json()) as Record<string, unknown>;
     expect(body.ownerUsername).toBe("3z.prod");
+  });
+
+  it("adds «تابعني» after the links once the account's username is known", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ followButton: true })]);
+    let sent: unknown;
+    const { routes } = igRoutes({
+      [`POST ${IG}/17841/messages`]: (_u, init) => {
+        sent = JSON.parse(String(init?.body));
+        return { message_id: "mid1" };
+      },
+    });
+    await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
+    expect(sent).toMatchObject({
+      message: {
+        attachment: {
+          payload: {
+            buttons: [
+              { type: "web_url", url: `${BASE}/go/lut/0`, title: "حمل اللت" },
+              { type: "web_url", url: "https://www.instagram.com/3z.prod/", title: "تابعني" },
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  it("sends plain text when the rule has no buttons", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ buttons: [] })]);
+    let sent: unknown;
+    const { routes } = igRoutes({
+      [`POST ${IG}/17841/messages`]: (_u, init) => {
+        sent = JSON.parse(String(init?.body));
+        return { message_id: "mid1" };
+      },
+    });
+    await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
+    expect(sent).toEqual({
+      recipient: { comment_id: "c1" },
+      message: { text: "حمل اللت من الرابط تحت وجربه على لقطاتك" },
+    });
+  });
+
+  it("sends the links as lines when Instagram refuses buttons in a private reply", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ followButton: true })]);
+    const bodies: unknown[] = [];
+    const { routes } = igRoutes({
+      [`POST ${IG}/17841/messages`]: (_u, init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return bodies.length === 1
+          ? json({ error: { code: 100, error_subcode: 2534015, message: "Invalid message data" } }, 400)
+          : { message_id: "mid1" };
+      },
+    });
+    const r = await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
+    expect(r.sent).toEqual(["c1"]);
+    expect(bodies[1]).toEqual({
+      recipient: { comment_id: "c1" },
+      message: {
+        text: `حمل اللت من الرابط تحت وجربه على لقطاتك\n\nحمل اللت: ${BASE}/go/lut/0\nتابعني: https://www.instagram.com/3z.prod/`,
+      },
+    });
+  });
+
+  it("does not resend as text when the comment already had its private reply", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    const { routes } = igRoutes({
+      [`POST ${IG}/17841/messages`]: () =>
+        json(
+          {
+            error: {
+              code: 100,
+              error_subcode: 2534025,
+              message: "The comment is invalid for a private reply",
+            },
+          },
+          400,
+        ),
+    });
+    const fetchMock = mockFetch(routes);
+    const r = await pollReplies(env, { fetch: fetchMock, now: NOW });
+    expect(r.failed).toEqual(["c1"]);
+    expect(fetchMock.calls().filter((c) => c === `POST ${IG}/17841/messages`)).toHaveLength(1);
+    expect((await stateOf(env)).log[0]).toMatchObject({ dm: "failed", error: "not_eligible" });
+  });
+
+  it("forgets the ids of its own sends after a day", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    const old = new Date(NOW.getTime() - 25 * 3_600_000).toISOString();
+    await seed(env, [input()], { sent: { mid0: { to: "p0", at: old } } });
+    await pollReplies(env, { fetch: mockFetch(igRoutes().routes), now: NOW });
+    expect((await stateOf(env)).sent).toEqual({ mid1: { to: "uc1", at: NOW.toISOString() } });
   });
 });
 
