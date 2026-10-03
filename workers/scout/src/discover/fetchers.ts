@@ -189,7 +189,9 @@ export async function youtubeCall(
         if (res.status === 400 || res.status === 403) return { ok: false, error: "auth" };
         return { ok: false, error: "upstream" };
       }
-      const cards = (body?.items ?? []).flatMap((it) => {
+      // A 2xx reply that is not JSON is no answer (an empty success would be cached for 6 h).
+      if (!body) return { ok: false, error: "upstream" };
+      const cards = (body.items ?? []).flatMap((it) => {
         const id = it.id?.videoId;
         const s = it.snippet;
         if (!id || !s?.title) return [];
@@ -224,11 +226,11 @@ export async function youtubeCall(
 
 /* ---------- the day's YouTube calls ---------- */
 
+/** `DISCOVER_YT_CAP` if it is a number ≥ 0 ("0" turns YouTube off); unset, blank or other: 70. */
 export function youtubeCap(env: FetchEnv): number {
-  const n = Number(env.DISCOVER_YT_CAP);
-  return env.DISCOVER_YT_CAP !== undefined && Number.isFinite(n) && n >= 0
-    ? Math.floor(n)
-    : DEFAULT_YT_CAP;
+  const raw = env.DISCOVER_YT_CAP?.trim();
+  const n = Number(raw);
+  return raw && Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_YT_CAP;
 }
 
 export async function youtubeUsedToday(env: FetchEnv, now: Date): Promise<number> {

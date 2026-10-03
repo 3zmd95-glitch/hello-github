@@ -1,30 +1,53 @@
 import { describe, expect, it, vi } from "vitest";
-import { discoverKeys, reserveYoutube, tavilyCall, youtubeCall } from "./fetchers";
+import { TAVILY_URL } from "../trends/tavily";
+import { discoverKeys, reserveYoutube, tavilyCall, youtubeCall, youtubeCap } from "./fetchers";
 
 const NOW = new Date("2026-10-03T09:00:00Z");
 
 type Entry = { value: string; expirationTtl?: number };
 function fakeKV() {
   const store = new Map<string, Entry>();
-  return {
+  const kv = {
     store,
+    puts: 0,
     async get(key: string) {
       return store.get(key)?.value ?? null;
     },
     async put(key: string, value: string, opts?: { expirationTtl?: number }) {
+      kv.puts += 1;
       store.set(key, { value, expirationTtl: opts?.expirationTtl });
     },
-  } as unknown as KVNamespace & { store: Map<string, Entry> };
+  };
+  return kv as unknown as KVNamespace & { store: Map<string, Entry>; puts: number };
 }
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+const answering = (status: number) => vi.fn<typeof fetch>(async () => json({}, status));
+const failing = () =>
+  vi.fn<typeof fetch>(async () => {
+    throw new TypeError("down");
+  });
+/**
+ * Never answers on its own: only the abort (the time limit) ends it, with a rejection as a real fetch's.
+ * Vitest fails the run on an unhandled rejection, so these tests also show that rejection is handled.
+ */
+const hangingFetch = () =>
+  vi.fn<typeof fetch>(
+    (_input, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      }),
+  );
 
 describe("tavilyCall", () => {
   it("asks 20 results from one platform in the query's language, with dates and usage", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       json({
-        results: [{ url: "https://www.tiktok.com/@a/video/1", title: "flash edit", content: "x" }],
+        results: [
+          { url: "https://www.tiktok.com/@a/video/1", title: "flash edit", content: "x" },
+          { url: "https://www.tiktok.com/@zen", title: "Zen (@zen) | TikTok", content: "editor" },
+        ],
         usage: { credits: 1 },
       }),
     );
@@ -34,8 +57,26 @@ describe("tavilyCall", () => {
       lang: "ar",
       timeRange: "month",
     });
-    expect(out).toMatchObject({ ok: true, credits: 1 });
-    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    // The post and the profile page, as normalizeDiscoverHits reads them for TikTok.
+    expect(out).toEqual({
+      ok: true,
+      cards: [
+        {
+          platform: "tt",
+          handle: "@a",
+          title: "flash edit",
+          snippet: "x",
+          url: "https://www.tiktok.com/@a/video/1",
+        },
+      ],
+      profiles: [{ platform: "tt", handle: "@zen", url: "https://www.tiktok.com/@zen" }],
+      credits: 1,
+    });
+    const [input, init] = fetchMock.mock.calls[0];
+    expect(input).toBe(TAVILY_URL);
+    expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer k");
+    const body = JSON.parse(String(init?.body));
     expect(body).toMatchObject({
       query: "شرح فلاش",
       include_domains: ["tiktok.com"],
@@ -49,39 +90,48 @@ describe("tavilyCall", () => {
     });
   });
 
+  it("leaves country and time_range out of an English search with no time range", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => json({ results: [] }));
+    const out = await tavilyCall({ TAVILY_API_KEY: "k" }, fetchMock, {
+      q: "flash transition",
+      platform: "ig",
+      lang: "en",
+    });
+    expect(out).toEqual({ ok: true, cards: [], profiles: [], credits: 1 });
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body).toMatchObject({ include_domains: ["instagram.com"], language: "en" });
+    expect(body).not.toHaveProperty("country");
+    expect(body).not.toHaveProperty("time_range");
+  });
+
   it("maps Tavily's errors", async () => {
     const call = { q: "x", platform: "ig" as const, lang: "en" as const };
+    const env = { TAVILY_API_KEY: "k" };
     expect(await tavilyCall({}, vi.fn(), call)).toEqual({ ok: false, error: "not_configured" });
-    expect(
-      await tavilyCall(
-        { TAVILY_API_KEY: "k" },
-        vi.fn(async () => json({}, 432)),
-        call,
-      ),
-    ).toEqual({ ok: false, error: "quota" });
-    expect(
-      await tavilyCall(
-        { TAVILY_API_KEY: "k" },
-        vi.fn(async () => json({}, 401)),
-        call,
-      ),
-    ).toEqual({ ok: false, error: "auth" });
-    expect(
-      await tavilyCall(
-        { TAVILY_API_KEY: "k" },
-        vi.fn(async () => json({}, 500)),
-        call,
-      ),
-    ).toEqual({ ok: false, error: "upstream" });
-    expect(
-      await tavilyCall(
-        { TAVILY_API_KEY: "k" },
-        vi.fn(async () => {
-          throw new TypeError("down");
-        }),
-        call,
-      ),
-    ).toEqual({ ok: false, error: "upstream" });
+    for (const [status, error] of [
+      [401, "auth"],
+      [403, "auth"],
+      [429, "quota"],
+      [432, "quota"],
+      [433, "quota"],
+      [500, "upstream"],
+    ] as const) {
+      expect(await tavilyCall(env, answering(status), call), `HTTP ${status}`).toEqual({
+        ok: false,
+        error,
+      });
+    }
+    expect(await tavilyCall(env, failing(), call)).toEqual({ ok: false, error: "upstream" });
+  });
+
+  it("gives up after the time limit: the call is aborted, the answer is upstream", async () => {
+    const fetchMock = hangingFetch();
+    const call = { q: "x", platform: "tt" as const, lang: "en" as const };
+    expect(await tavilyCall({ TAVILY_API_KEY: "k" }, fetchMock, call, 20)).toEqual({
+      ok: false,
+      error: "upstream",
+    });
+    expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
   });
 });
 
@@ -158,15 +208,58 @@ describe("youtubeCall", () => {
       ),
     ).toEqual({ ok: false, error: "auth" });
   });
+
+  it("answers upstream on a server error or a failed fetch", async () => {
+    const call = { q: "x", lang: "en" as const };
+    const env = { YOUTUBE_API_KEY: "y" };
+    expect(await youtubeCall(env, answering(500), call, NOW)).toEqual({
+      ok: false,
+      error: "upstream",
+    });
+    expect(await youtubeCall(env, failing(), call, NOW)).toEqual({ ok: false, error: "upstream" });
+  });
+
+  it("answers upstream, never an empty success, when a 2xx reply is not JSON", async () => {
+    const broken = vi.fn<typeof fetch>(
+      async () => new Response("<html>oops</html>", { status: 200 }),
+    );
+    expect(
+      await youtubeCall({ YOUTUBE_API_KEY: "y" }, broken, { q: "x", lang: "en" }, NOW),
+    ).toEqual({ ok: false, error: "upstream" });
+  });
+
+  it("gives up after the time limit: the call is aborted, the answer is upstream", async () => {
+    const fetchMock = hangingFetch();
+    const call = { q: "x", lang: "en" as const };
+    expect(await youtubeCall({ YOUTUBE_API_KEY: "y" }, fetchMock, call, NOW, 20)).toEqual({
+      ok: false,
+      error: "upstream",
+    });
+    expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+  });
+});
+
+describe("youtubeCap", () => {
+  it("reads DISCOVER_YT_CAP: blank is unset (70), only a number ≥ 0 overrides, 0 turns YouTube off", () => {
+    expect(youtubeCap({})).toBe(70);
+    expect(youtubeCap({ DISCOVER_YT_CAP: "" })).toBe(70);
+    expect(youtubeCap({ DISCOVER_YT_CAP: "   " })).toBe(70);
+    expect(youtubeCap({ DISCOVER_YT_CAP: "abc" })).toBe(70);
+    expect(youtubeCap({ DISCOVER_YT_CAP: "-1" })).toBe(70);
+    expect(youtubeCap({ DISCOVER_YT_CAP: "0" })).toBe(0);
+    expect(youtubeCap({ DISCOVER_YT_CAP: "40" })).toBe(40);
+  });
 });
 
 describe("reserveYoutube", () => {
-  it("grants calls up to the day's cap and counts them", async () => {
+  it("grants calls up to the day's cap and counts them; a full day writes nothing", async () => {
     const kv = fakeKV();
     const env = { SOCIAL_KV: kv, DISCOVER_YT_CAP: "5" };
     expect(await reserveYoutube(env, 3, NOW)).toBe(3);
     expect(await reserveYoutube(env, 3, NOW)).toBe(2);
+    expect(kv.puts).toBe(2);
     expect(await reserveYoutube(env, 3, NOW)).toBe(0);
+    expect(kv.puts).toBe(2);
     expect(kv.store.get(discoverKeys.yt("2026-10-03"))).toEqual({
       value: "5",
       expirationTtl: 172_800,
