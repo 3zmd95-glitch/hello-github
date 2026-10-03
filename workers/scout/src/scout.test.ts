@@ -129,10 +129,24 @@ describe("auth", () => {
     };
     const trends = { youtube: false, sources: ["google", "youtube", "tavily", "events"] };
     const authed = await handle(req("/health"), ENV);
-    expect(await authed.json()).toEqual({ ok: true, auth: true, tavily: true, social, trends });
+    expect(await authed.json()).toEqual({
+      ok: true,
+      auth: true,
+      tavily: true,
+      social,
+      trends,
+      discover: true,
+    });
 
     const noKey = await handle(req("/health"), { ...ENV, TAVILY_API_KEY: undefined });
-    expect(await noKey.json()).toEqual({ ok: true, auth: true, tavily: false, social, trends });
+    expect(await noKey.json()).toEqual({
+      ok: true,
+      auth: true,
+      tavily: false,
+      social,
+      trends,
+      discover: true,
+    });
 
     const wrong = await handle(req("/health", { token: "wrong" }), ENV);
     expect(wrong.status).toBe(401);

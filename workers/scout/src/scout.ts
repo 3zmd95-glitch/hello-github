@@ -8,6 +8,8 @@
  *                           text, YouTube from one `videos.list` when YOUTUBE_API_KEY is set)
  *   GET  /oembed?url=     → TikTok / YouTube oEmbed passthrough { title, author, thumb, url }, cached 1 day
  *                           (TikTok 6 h: its thumbnail URLs are signed)
+ *   POST /discover        → Discover v2: one sectioned search (discover/, planning/tools/13-discover-search-v2.md)
+ *   GET  /discover/usage  → Tavily's usage and today's YouTube / connector counters
  *   GET  /trends          → the Trend Radar feed (trends/routes.ts, round 30, planning/tools/08-trends.md)
  *   POST /trends/run      → refresh the feed now
  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
@@ -19,6 +21,7 @@
  * handlers (workerd treats every named export as an entrypoint), and the tests need `handle` and helpers.
  */
 
+import { handleDiscover } from "./discover/routes";
 import {
   normalizeHits,
   PLATFORM_DOMAIN,
@@ -47,6 +50,10 @@ export interface Env extends SocialEnv, TrendsEnv {
   SCOUT_TOKEN?: string;
   /** Var: comma-separated list of origins allowed to call the Worker from a browser. */
   ALLOWED_ORIGINS?: string;
+  /** Var: YouTube `search.list` calls Discover and the connector may spend a UTC day (default 70). */
+  DISCOVER_YT_CAP?: string;
+  /** Var: Tavily lookups the Claude connector may spend a Riyadh day (default 60). */
+  MCP_DAILY_LOOKUPS?: string;
 }
 
 /** Test seams: the global `fetch` and `caches.default` are used when these are omitted. */
@@ -466,6 +473,7 @@ export async function handle(
           tavily: !!env.TAVILY_API_KEY,
           social: healthSocial(env),
           trends: healthTrends(env),
+          discover: true,
         },
         200,
         cors,
@@ -485,6 +493,8 @@ export async function handle(
   if (pathname === "/oembed" && req.method === "GET") {
     return handleOembed(req, cors, doFetch, cache, ctx);
   }
+  const discover = await handleDiscover(req, env, cors, { fetch: deps.fetch, now: deps.now });
+  if (discover) return discover;
   const social = await handleSocial(req, env, cors, { fetch: deps.fetch, now: deps.now });
   if (social) return social;
   const trends = await handleTrends(req, env, cors, { fetch: deps.fetch, now: deps.now });

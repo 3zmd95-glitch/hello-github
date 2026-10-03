@@ -22,6 +22,11 @@
     // src/trends/genres.ts) and spends ≤ 18 search.list calls a day, rotating the keywords by UTC day.
     "TREND_KEYWORDS_AR": "تصوير,مونتاج,دافنشي,تصحيح الألوان,كاميرا,صانع محتوى",
     "TREND_KEYWORDS_EN": "davinci resolve,color grading,b-roll,iphone videography,video editing,content creator",
+    // Discover v2 (planning/tools/13-discover-search-v2.md): YouTube search.list calls Discover and the Claude
+    // connector may spend a UTC day (the radar keeps its 18 of Google's 100), and the connector's Tavily
+    // lookups a Riyadh day.
+    "DISCOVER_YT_CAP": "70",
+    "MCP_DAILY_LOOKUPS": "60",
   },
   // Tokens, status and the daily rows. The id below is a placeholder: the deploy workflow creates the
   // namespace "3z-scout-SOCIAL_KV" once and swaps the real id in before `wrangler deploy` (see

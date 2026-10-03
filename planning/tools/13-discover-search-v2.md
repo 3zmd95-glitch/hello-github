@@ -148,7 +148,7 @@ per card); everything else stays.
 ```ts
 // POST /discover  (Bearer SCOUT_TOKEN)
 interface DiscoverRequest {
-  q: string;                                  // 1–200 characters
+  q: string;                                  // 1–200 characters, at least one letter or digit ("🔥🔥" is a 400)
   exact?: boolean;                            // "search exactly": no dictionary
   term?: string;                              // a dictionary id chosen from "Not this?"
   genreQuery?: { ar?: string; en?: string };  // the genre chip's main query (built-in or custom)

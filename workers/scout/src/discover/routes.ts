@@ -1,0 +1,98 @@
+/**
+ * Discover v2 routes (planning/tools/13-discover-search-v2.md), behind the owner token like `/search`:
+ *   POST /discover        → the sectioned answer (run.ts)
+ *   GET  /discover/usage  → Tavily's usage and today's counters (usage.ts)
+ * Returns null for any other path, so the router goes on (and answers 404 at the end).
+ */
+
+import { PLATFORMS, type Platform } from "../normalize";
+import { runDiscover } from "./run";
+import { normalizeTerm } from "./terms";
+import type { DiscoverRequest, DiscoverTimeRange } from "./types";
+import { discoverUsage, type UsageEnv } from "./usage";
+
+const TIME_RANGES: readonly DiscoverTimeRange[] = ["week", "month", "year"];
+const TERM_ID = /^[a-z][a-z0-9-]{0,59}$/;
+
+function reply(body: unknown, status: number, cors: Headers): Response {
+  const headers = new Headers(cors);
+  headers.set("Content-Type", "application/json; charset=utf-8");
+  return new Response(JSON.stringify(body), { status, headers });
+}
+
+/** undefined: absent; null: present but not a usable text of at most `max` characters. */
+function optText(x: unknown, max: number): string | undefined | null {
+  if (x === undefined) return undefined;
+  return typeof x === "string" && x.trim() && x.length <= max ? x.trim() : null;
+}
+
+export function parseDiscoverBody(raw: unknown): DiscoverRequest | null {
+  if (!raw || typeof raw !== "object") return null;
+  const b = raw as Record<string, unknown>;
+  const q = typeof b.q === "string" ? b.q.trim() : "";
+  // Symbols or emoji only ("🔥🔥", "!!!"): no word left to plan or match.
+  if (!q || q.length > 200 || !normalizeTerm(q)) return null;
+  if (b.exact !== undefined && typeof b.exact !== "boolean") return null;
+  if (b.term !== undefined && (typeof b.term !== "string" || !TERM_ID.test(b.term))) return null;
+  const program = optText(b.program, 60);
+  if (program === null) return null;
+  if (b.timeRange !== undefined && !TIME_RANGES.includes(b.timeRange as DiscoverTimeRange))
+    return null;
+  if (b.ytLength !== undefined && b.ytLength !== "short" && b.ytLength !== "long") return null;
+  let genreQuery: DiscoverRequest["genreQuery"];
+  if (b.genreQuery !== undefined) {
+    if (!b.genreQuery || typeof b.genreQuery !== "object") return null;
+    const g = b.genreQuery as Record<string, unknown>;
+    const ar = optText(g.ar, 100);
+    const en = optText(g.en, 100);
+    if (ar === null || en === null) return null;
+    genreQuery = { ...(ar ? { ar } : {}), ...(en ? { en } : {}) };
+  }
+  let platforms: Platform[] | undefined;
+  if (b.platforms !== undefined) {
+    if (!Array.isArray(b.platforms) || b.platforms.length === 0) return null;
+    if (!b.platforms.every((p) => PLATFORMS.includes(p as Platform))) return null;
+    platforms = [...new Set(b.platforms as Platform[])];
+  }
+  return {
+    q,
+    ...(b.exact === true ? { exact: true } : {}),
+    ...(typeof b.term === "string" ? { term: b.term } : {}),
+    ...(genreQuery ? { genreQuery } : {}),
+    ...(program ? { program } : {}),
+    ...(b.timeRange ? { timeRange: b.timeRange as DiscoverTimeRange } : {}),
+    ...(b.ytLength ? { ytLength: b.ytLength as "short" | "long" } : {}),
+    ...(platforms ? { platforms } : {}),
+  };
+}
+
+export async function handleDiscover(
+  req: Request,
+  env: UsageEnv,
+  cors: Headers,
+  deps: { fetch?: typeof fetch; now?: () => Date },
+): Promise<Response | null> {
+  const { pathname } = new URL(req.url);
+  if (pathname !== "/discover" && !pathname.startsWith("/discover/")) return null;
+  const doFetch = deps.fetch ?? fetch;
+  const now = deps.now?.() ?? new Date();
+  if (pathname === "/discover" && req.method === "POST") {
+    let raw: unknown;
+    try {
+      raw = await req.json();
+    } catch {
+      return reply({ error: "bad_request" }, 400, cors);
+    }
+    const body = parseDiscoverBody(raw);
+    if (!body) return reply({ error: "bad_request" }, 400, cors);
+    try {
+      return reply(await runDiscover(env, body, { fetch: doFetch, now }), 200, cors);
+    } catch {
+      return reply({ error: "upstream" }, 502, cors);
+    }
+  }
+  if (pathname === "/discover/usage" && req.method === "GET") {
+    return reply(await discoverUsage(env, doFetch, now), 200, cors);
+  }
+  return null;
+}
