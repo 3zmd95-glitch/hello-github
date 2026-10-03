@@ -71,8 +71,10 @@ async function stubWorker(page: Page, discover: (body: Record<string, unknown>) 
         body: JSON.stringify(body),
       });
     if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS });
+    const authed = req.headers()["authorization"] === `Bearer ${TOKEN}`;
     if (url.pathname === "/health")
-      return reply({ ok: true, auth: true, tavily: true, discover: true });
+      return reply(authed ? { ok: true, auth: true, tavily: true, discover: true } : { ok: true });
+    if (!authed) return reply({ error: "unauthorized" }, 401);
     if (url.pathname === "/discover" && req.method() === "POST") {
       const body = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
       asked.push(body);
@@ -97,6 +99,7 @@ async function connectWorker(page: Page) {
   await freshState(page, "/settings/");
   await page.getByTestId("apikey-scoutUrl-input").fill(WORKER);
   await page.getByTestId("apikey-scoutUrl-input").press("Enter");
+  await expect(page.getByTestId("apikey-scoutUrl-status")).toHaveText("محفوظ"); // "Set"
   await page.getByTestId("apikey-scoutToken-input").fill(TOKEN);
   await page.getByTestId("apikey-scoutToken-test").click();
   await expect(page.getByTestId("apikey-scoutToken-status")).toHaveText("اتأكد ✓");
@@ -106,6 +109,18 @@ async function search(page: Page, q: string) {
   await page.goto("/discover/");
   await page.getByTestId("discover-topic").fill(q);
   await page.getByTestId("discover-topic").press("Enter");
+}
+
+// The DaVinci skill of e2e/research.spec.ts: "Smart Bins + Keywords" / "الـ Smart Bins والكلمات المفتاحية".
+const SKILL_ID = "smart-bins-keywords";
+
+async function openSkillSheet(page: Page): Promise<void> {
+  await page
+    .getByTestId("pillar-editing")
+    .locator('[data-testid="program-card"][data-program="davinci"]')
+    .click();
+  await page.locator(`[data-testid="skill-row"][data-skill="${SKILL_ID}"]`).click();
+  await expect(page.getByTestId("skill-sheet")).toBeVisible();
 }
 
 test("Discover v2: one search, sections, Not this?, tabs, hidden posts, a failed platform", async ({
@@ -137,10 +152,14 @@ test("Discover v2: one search, sections, Not this?, tabs, hidden posts, a failed
   await page.getByTestId("discover-hidden-toggle").click();
   await expect(page.getByTestId("discover-offtopic-chip")).toHaveCount(1);
 
-  // A failed platform says so, with a retry that asks again past the cache.
+  // A failed platform says so (the credits banner is for quota only), and its Retry sends the same
+  // request again.
   await expect(page.getByTestId("discover-down-ig")).toBeVisible();
+  await expect(page.getByTestId("discover-credits-out")).toHaveCount(0);
   await page.getByTestId("discover-retry-ig").click();
   await expect.poll(() => asked.length).toBe(2);
+  expect(asked[1]).toEqual(asked[0]);
+  await expect(page.getByTestId("discover-sections")).toBeVisible();
 
   // The TikTok tab filters every section.
   await page.getByTestId("tab-tt").click();
@@ -166,4 +185,34 @@ test("Discover v2: Tavily's limit shows the pay-as-you-go banner", async ({ page
   await connectWorker(page);
   await search(page, "flash");
   await expect(page.getByTestId("discover-credits-out")).toBeVisible();
+});
+
+test("Discover v2 in a skill's Research panel: one search, and a card attaches to the skill", async ({
+  page,
+}) => {
+  const asked = await stubWorker(page, () => ANSWER);
+  await connectWorker(page);
+  await page.goto("/skills/");
+  await openSkillSheet(page);
+  await page.getByTestId("research-toggle").click();
+
+  // The panel searches the skill's name (with its program) in one POST /discover.
+  const result = page
+    .getByTestId("discover-section-tutorial")
+    .locator('[data-testid="result-card"][data-platform="yt"]');
+  await expect(result).toBeVisible();
+  expect(asked).toHaveLength(1);
+  expect(asked[0]).toMatchObject({
+    q: expect.stringContaining("Smart Bins"),
+    program: "DaVinci Resolve",
+  });
+
+  // Attach toggles the reference, as on the old path (e2e/research.spec.ts).
+  const saved = page.getByTestId("saved-ref").filter({ hasText: "flash transition edit 20" });
+  await result.getByTestId("result-attach").click();
+  await expect(saved).toBeVisible();
+  await expect(result.getByTestId("result-attach")).toHaveAttribute("aria-pressed", "true");
+  await result.getByTestId("result-attach").click();
+  await expect(result.getByTestId("result-attach")).toHaveAttribute("aria-pressed", "false");
+  await expect(saved).toHaveCount(0);
 });

@@ -114,11 +114,13 @@ flash (photography), and others the owner names.
   every synonym) in one form: the auto-replies matcher's `normalizeForMatch` (lower case; Arabic diacritics and tatweel
   dropped; alef / yaa forms unified; punctuation and emoji as spaces), then ة as ه, then per word a leading "ال" dropped
   and a plural dropped: the English "s" after 4+ characters (not "ss"), the Arabic "ات". So "الشاشه", "transitions" and
-  "انتقالات" match. The longest matched synonym wins (ties: file order); every other entry that matched becomes a
-  **Not this?** chip, then "search exactly".
-- **Generic entries** (`generic: true`: the catch-all "smooth transitions", matched by "transitions") win only when
-  nothing specific matched, and are never offered as another meaning under **Not this?**. The one exception is an exact
-  search: its single chip back to the dictionary is the entry its words match, generic or not (no match, no chip).
+  "انتقالات" match. The longest matched synonym wins (ties: file order); the other entries that matched become
+  **Not this?** chips, at most 3 (the first in file order, counted before a generic one is dropped, below), then
+  "search exactly".
+- **Generic entries** (`generic: true`: the catch-all "smooth transitions", matched by "transitions") win only when no
+  non-generic entry matched (one with `specific: false` beats them too), and are never offered as another meaning under
+  **Not this?**. The one exception is an exact search: its single chip back to the dictionary is the entry its words
+  match, generic or not (no match, no chip).
 - **Intent and filler words** are ignored (`INTENT_WORDS`): edit(s), editing, video(s), tutorial(s), how, to, guide,
   reel(s), tiktok, instagram, youtube, شرح, طريقة, كيف, ايديت, مونتاج, فيديو, تعليم, درس, تعلم; for, the, with, in, on,
   of, a, an, and, my, me, ابغى, ابي, ابغا, اسوي, عن, في, حق, على, من. The other typed words the match did not cover go on
@@ -138,12 +140,12 @@ flash (photography), and others the owner names.
    en, tutorials ar), YouTube × (examples en, tutorials en, tutorials ar). Arabic tutorials are where the test found Arabic
    creators; the Arabic examples query is the retry. Time range and YouTube length pass through.
 2. **Fetch** (`run.ts`), all at once:
-   - Tavily `search` per TikTok / Instagram query: `max_results: 20`, `search_depth: "basic"`, `include_published_date:
-     true`, `include_usage: true`, `include_domains` the platform, `language` the query's, `country: "saudi arabia"` for
-     Arabic. A call that answers with no post card is **retried once** with new words: examples en "<name> video",
-     tutorials en "how to <name>" (`<name>`: the entry's English label plus the other typed words, else the topic's
-     words; no genre or program), tutorials ar the Arabic examples query. A retry that would repeat words already
-     planned on that platform is dropped; YouTube has no retries; at most two retries a search.
+   - Tavily `search` per TikTok / Instagram query: `max_results: 20`, `search_depth: "basic"`, `include_images: true`,
+     `include_published_date: true`, `include_usage: true`, `include_domains` the platform, `language` the query's,
+     `country: "saudi arabia"` for Arabic. A call that answers with no post card is **retried once** with new words:
+     examples en "<name> video", tutorials en "how to <name>" (`<name>`: the entry's English label plus the other typed
+     words, else the topic's words; no genre or program), tutorials ar the Arabic examples query. A retry that would
+     repeat words already planned on that platform is dropped; YouTube has no retries; at most two retries a search.
    - YouTube `search.list` (Worker's `YOUTUBE_API_KEY`; Arabic: `regionCode=SA`, `relevanceLanguage=ar`), then one
      `videos.list` for the numbers of every YouTube card (1 unit).
    - Profile pages (`tiktok.com/@user`, `instagram.com/<user>/`, `youtube.com/@channel`), dropped by `normalizeHits` today,
@@ -180,21 +182,22 @@ interface DiscoverRequest {
   platforms?: ("tt" | "ig" | "yt")[];         // default all three
 }
 interface DiscoverResponse {
+  topicKey: string;
   understood: { termId?: string; label: { ar: string; en: string }; exact: boolean };
-  alternatives: { termId?: string; exact?: true; label: { ar: string; en: string } }[];
+  alternatives: ({ termId: string; label: { ar: string; en: string } } | { exact: true })[];
   items: {
     platform: "tt" | "ig" | "yt"; handle: string; title: string; snippet: string; url: string;
     thumb?: string; stats?: Stats; published?: string; lang: "ar" | "en";
-    section: "example" | "tutorial"; offTopic?: true;
+    section: "example" | "tutorial"; offTopic?: true; profile?: string;
   }[];
   creators: { platform: "tt" | "ig" | "yt"; handle: string; url: string; count: number; views?: number }[];
-  platforms: Record<"tt" | "ig" | "yt",
-    { ok: true; retried?: boolean } | { ok: false; error: "quota" | "auth" | "upstream" | "daily_cap" | "not_configured" }>;
+  platforms: Partial<Record<"tt" | "ig" | "yt",
+    { ok: true; retried?: boolean } | { ok: false; error: "quota" | "auth" | "upstream" | "daily_cap" | "not_configured" }>>;
   cost: { tavily: number; youtubeSearch: number };
   cached: boolean;
   complete: boolean;                          // could be kept (see Caches); a KV hit is complete
 }
-// GET  /discover/usage → { tavily: { used, limit, plan, paygoUsed?, paygoLimit? } | { error }, youtube: { usedToday, cap },
+// GET  /discover/usage → { tavily: { used, limit, plan?, paygoUsed?, paygoLimit? } | { error }, youtube: { usedToday, cap },
 //                          connector: { usedToday, cap } }   (Tavily's figure cached 10 minutes)
 // GET  /discover/picks[?topic=] → { picks: { topicKey, topic, savedAt, items: Pick[] }[] }
 ```
