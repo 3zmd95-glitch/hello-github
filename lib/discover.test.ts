@@ -6,6 +6,7 @@ import {
   discoverSearch,
   hiddenCount,
   parseDiscoverAnswer,
+  peekDiscover,
   popularItems,
   sectionItems,
   tabCounts,
@@ -116,6 +117,8 @@ describe("discoverSearch", () => {
     // A cache hit spent nothing; the first answer keeps what it cost.
     expect(second.ok && second.answer.cost).toEqual({ tavily: 0, youtubeSearch: 0 });
     expect(first.ok && first.answer.cost).toEqual({ tavily: 6, youtubeSearch: 3 });
+    // A peek serves that same kept answer (one object: safe to read during a render).
+    expect(peekDiscover(config, { q: "flash" })).toBe(second.ok ? second.answer : undefined);
     // A reload: the memory is gone, the device's storage still has it.
     clearDiscoverCache(null);
     const third = await discoverSearch(config, { q: "flash" }, { fetchImpl, storage });

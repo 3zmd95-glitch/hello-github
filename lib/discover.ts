@@ -218,19 +218,19 @@ function readStored(storage: KeyValueStorage | null): Record<string, Entry> {
 const fresh = (e: Entry | undefined, now: number): e is Entry =>
   !!e && typeof e.at === "number" && now - e.at < DISCOVER_CACHE_TTL_MS && isObj(e.answer);
 
-/** A fresh kept answer, as served from here: `cached`, and it cost nothing this time. */
 function cacheGet(
   key: string,
   storage: KeyValueStorage | null,
   now: number,
 ): DiscoverAnswer | undefined {
-  let e = memory.get(key);
-  if (!fresh(e, now)) {
-    e = readStored(storage)[key];
-    if (!fresh(e, now)) return undefined;
-    memory.set(key, e);
+  const mem = memory.get(key);
+  if (fresh(mem, now)) return mem.answer;
+  const stored = readStored(storage)[key];
+  if (fresh(stored, now)) {
+    memory.set(key, stored);
+    return stored.answer;
   }
-  return { ...e.answer, cached: true, cost: { tavily: 0, youtubeSearch: 0 } };
+  return undefined;
 }
 
 function cacheSet(
@@ -239,7 +239,11 @@ function cacheSet(
   storage: KeyValueStorage | null,
   now: number,
 ): void {
-  const entry = { at: now, answer };
+  // Kept as a hit serves it: from the cache, and it costs nothing then.
+  const entry = {
+    at: now,
+    answer: { ...answer, cached: true, cost: { tavily: 0, youtubeSearch: 0 } },
+  };
   memory.set(key, entry);
   if (!storage) return;
   const kept = Object.entries({ ...readStored(storage), [key]: entry })
