@@ -296,6 +296,15 @@ function AccountRow({
             </>
           )}
         </span>
+        {state === "error" && status?.lastErrorDetail && (
+          <span
+            dir="ltr"
+            className="text-ink-2 font-mono text-[11px] break-words opacity-80"
+            data-testid="account-error-detail"
+          >
+            {status.lastErrorDetail}
+          </span>
+        )}
         {days !== null && (
           <span className="text-danger text-xs font-bold" data-testid="account-token-warning">
             {t(reconnectMessageKey(days), { n: days })}

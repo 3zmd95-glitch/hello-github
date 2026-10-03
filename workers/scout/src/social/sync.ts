@@ -98,13 +98,22 @@ export async function syncPlatform(
       url: result.account.url,
       lastSyncAt: now.toISOString(),
       lastError: undefined,
+      lastErrorDetail: undefined,
       tokenExpiresAt: tokens.expiresAt,
     });
     return { ok: true };
   } catch (e) {
     const code: SocialErrorCode = e instanceof SocialError ? e.code : "upstream";
+    // The code alone ("upstream") hid why Instagram/Threads failed: keep the platform's own words too.
+    const detail = String((e as Error)?.message ?? e).slice(0, 300);
+    console.log(JSON.stringify({ sync: platform, error: code, detail }));
     await store
-      .putStatus(platform, { ...status, lastError: code, tokenExpiresAt: tokens.expiresAt })
+      .putStatus(platform, {
+        ...status,
+        lastError: code,
+        lastErrorDetail: detail,
+        tokenExpiresAt: tokens.expiresAt,
+      })
       .catch(() => undefined);
     return { ok: false, error: code };
   }

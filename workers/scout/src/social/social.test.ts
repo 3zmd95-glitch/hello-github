@@ -899,6 +899,7 @@ describe("GET /oauth/:platform/callback", () => {
     expect(await kvJson(kv, "status:tiktok")).toEqual({
       connectedAt: NOW.toISOString(),
       lastError: "rate_limited",
+      lastErrorDetail: "rate_limited: user.info: rate_limit_exceeded",
       tokenExpiresAt: new Date(NOW.getTime() + 86_400_000).toISOString(),
     });
   });
@@ -1482,7 +1483,25 @@ describe("sync mapping", () => {
       ok: false,
       error: "upstream",
     });
-    expect(await kvJson(kv, "status:threads")).toMatchObject({ lastError: "upstream" });
+    expect(await kvJson(kv, "status:threads")).toMatchObject({
+      lastError: "upstream",
+      lastErrorDetail: "upstream: fetch failed: graph.threads.net",
+    });
+  });
+
+  it("keeps the platform's own error message next to the code", async () => {
+    const kv = fakeKV();
+    const env = makeEnv(kv);
+    await connectDirect(env, "threads");
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json(
+        { error: { message: "(#100) Tried accessing nonexisting field", code: 100 } },
+        { status: 400 },
+      ),
+    );
+    await syncPlatform(env, "threads", { fetch: fetchMock, now: NOW });
+    const status = (await kvJson(kv, "status:threads")) as { lastErrorDetail?: string };
+    expect(status.lastErrorDetail).toContain("(#100) Tried accessing nonexisting field");
   });
 });
 

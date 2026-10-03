@@ -726,6 +726,8 @@ export const SocialConnectionStatusSchema = z.object({
   lastSyncAt: z.string().optional(),
   /** Error code of the last sync (`token_expired`, `upstream`, …), if it failed. */
   lastError: z.string().optional(),
+  /** The platform's own words for that failure (e.g. Meta's error message), when the Worker kept them. */
+  lastErrorDetail: z.string().optional(),
   tokenExpiresAt: z.string().optional(),
 });
 export type SocialConnectionStatus = z.infer<typeof SocialConnectionStatusSchema>;
