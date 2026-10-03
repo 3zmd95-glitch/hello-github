@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useVideoPlayer, type PlayableItem } from "@/components/player/VideoPlayerContext";
 import type { RefPlatform } from "@/lib/domain";
 import { canEmbed } from "@/lib/embed";
@@ -54,6 +54,19 @@ function useThumb(item: ResearchItem): { thumb?: string; onError: () => void } {
       if (t && t !== thumb) setFresh({ url, thumb: t });
     });
   };
+  // Discover v2 sends TikTok cards without oEmbed pictures (they used to cost the search 10 calls): a card that
+  // shows up without one asks the Worker's cached /oembed itself, once per post per session.
+  useEffect(() => {
+    if (item.platform !== "tt" || item.thumb || !config) return;
+    let alive = true;
+    const url = item.url;
+    void freshTiktokThumb(config, url).then((t) => {
+      if (alive && t) setFresh({ url, thumb: t });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [config, item.platform, item.thumb, item.url]);
   return { thumb, onError };
 }
 
