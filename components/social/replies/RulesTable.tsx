@@ -40,6 +40,12 @@ export default function RulesTable({
       : a.postId
         ? (a.title ?? t("replies.table.post"))
         : t("replies.form.anyPost");
+  /**
+   * Which rule a row's controls belong to, in their screen-reader names ("أي بوست · لت"). The first keyword tells
+   * apart rules with the same content, such as two "any post" rules.
+   */
+  const ruleName = (a: AutoReply) => [content(a), a.keywords[0]].filter(Boolean).join(" · ");
+  const switchName = (a: AutoReply) => `${t("replies.form.enabled")} · ${ruleName(a)}`;
   const destination = (a: AutoReply) =>
     a.buttons[0]?.title ?? (a.followButton ? FOLLOW_TITLE : "—");
   const rate = (a: AutoReply) => {
@@ -66,11 +72,11 @@ export default function RulesTable({
       data-testid="autoreply-toggle"
     />
   );
-  const menu = (edit: () => void, remove?: () => void) => (
+  const menu = (name: string, edit: () => void, remove?: () => void) => (
     <details className="relative">
       <summary
         className="px-btn px-btn-ghost px-btn-sm cursor-pointer list-none"
-        aria-label={t("replies.table.more")}
+        aria-label={`${t("replies.table.more")} · ${name}`}
         data-testid="autoreply-menu"
       >
         ⋯
@@ -167,11 +173,10 @@ export default function RulesTable({
               <td className="p-2" data-testid="autoreply-ctr">
                 <span className="num">{rate(a)}</span>
               </td>
-              <td className="p-2">
-                {toggle(a.enabled, () => onToggle(a), t("replies.form.enabled"))}
-              </td>
+              <td className="p-2">{toggle(a.enabled, () => onToggle(a), switchName(a))}</td>
               <td className="p-2">
                 {menu(
+                  ruleName(a),
                   () => onEdit(a),
                   () => onDelete(a),
                 )}
@@ -204,7 +209,7 @@ export default function RulesTable({
             <td className="p-2">
               {toggle(!!d?.enabled, onToggleDefault, t("replies.table.default"))}
             </td>
-            <td className="p-2">{menu(onEditDefault)}</td>
+            <td className="p-2">{menu(t("replies.table.default"), onEditDefault)}</td>
           </tr>
         </tbody>
       </table>
@@ -223,8 +228,9 @@ export default function RulesTable({
               <b className="min-w-0 flex-1 truncate text-sm" dir="auto">
                 {content(a)}
               </b>
-              {toggle(a.enabled, () => onToggle(a), t("replies.form.enabled"))}
+              {toggle(a.enabled, () => onToggle(a), switchName(a))}
               {menu(
+                ruleName(a),
                 () => onEdit(a),
                 () => onDelete(a),
               )}
@@ -267,7 +273,7 @@ export default function RulesTable({
             </span>
             <b className="min-w-0 flex-1 truncate text-sm">{t("replies.table.default")}</b>
             {toggle(!!d?.enabled, onToggleDefault, t("replies.table.default"))}
-            {menu(onEditDefault)}
+            {menu(t("replies.table.default"), onEditDefault)}
           </div>
           <p className="text-ink-2 truncate text-xs" dir="auto">
             {d?.text || "—"}

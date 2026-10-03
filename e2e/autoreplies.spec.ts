@@ -334,6 +334,48 @@ test("pause all, and the default reply with its size check", async ({ page }) =>
   expect(await fitsViewport(page)).toBe(true);
 });
 
+test("each rule's switch and ⋯ menu say which rule they belong to", async ({ page }) => {
+  const fake = await stubWorker(page);
+  fake.status.instagram = { ...fake.status.instagram, canReply: true };
+  // Two "any post" rules: the same content label, told apart by their first keyword.
+  for (const [id, keyword] of [
+    ["any-1", "لت"],
+    ["any-2", "بريست"],
+  ]) {
+    fake.automations.set(id, {
+      id,
+      enabled: true,
+      postId: null,
+      keywords: [keyword, "lut"],
+      match: "contains",
+      trigger: "comment",
+      publicReplies: [],
+      followButton: false,
+      dmText: "الرابط تحت",
+      buttons: [],
+      stats: { sends: 0, publicReplies: 0, failures: 0, clicks: 0 },
+    });
+  }
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  await page.goto("/social/replies/");
+  await expect(page.locator('[data-testid="autoreply-row"]:visible')).toHaveCount(2);
+
+  for (const keyword of ["لت", "بريست"]) {
+    await expect(
+      page.getByRole("switch", { name: `شغّال · أي بوست · ${keyword}`, exact: true }),
+    ).toHaveCount(1);
+  }
+  const menus = await page
+    .locator('[data-testid="autoreply-menu"]:visible')
+    .evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
+  expect(menus).toEqual([
+    "خيارات · أي بوست · لت",
+    "خيارات · أي بوست · بريست",
+    "خيارات · الرد الافتراضي",
+  ]);
+});
+
 test("desktop: 💬 Auto replies is in the Social sidebar", async ({ page, isMobile }) => {
   test.skip(isMobile, "the sidebar is desktop only");
   await freshState(page, "/social/growth/");
