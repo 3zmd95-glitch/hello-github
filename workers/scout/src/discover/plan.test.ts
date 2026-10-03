@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { planSearch } from "./plan";
+import type { EditTerm, LangText } from "./terms";
 
 const byId = (plan: ReturnType<typeof planSearch>) =>
   Object.fromEntries(plan.queries.map((q) => [q.id, q]));
@@ -26,11 +27,11 @@ describe("planSearch with a dictionary term", () => {
     expect(plan.queries).toHaveLength(9);
     expect(q["tt-examples-en"]).toMatchObject({
       q: "flash transition edit",
-      retryQ: "flash transition tutorial capcut davinci",
+      retryQ: "flash transition video",
     });
     expect(q["ig-tutorials-en"]).toMatchObject({
       q: "flash transition tutorial capcut davinci",
-      retryQ: "flash transition edit",
+      retryQ: "how to flash transition",
     });
     expect(q["tt-tutorials-ar"]).toMatchObject({
       lang: "ar",
@@ -58,7 +59,7 @@ describe("planSearch with a dictionary term", () => {
 });
 
 describe("planSearch options", () => {
-  it("adds the genre to the examples and the program to the tutorials", () => {
+  it("adds the genre to the examples and the program to the tutorials, not to the English retries", () => {
     const q = byId(
       planSearch({
         q: "speed ramp",
@@ -70,6 +71,8 @@ describe("planSearch options", () => {
     expect(q["tt-tutorials-en"].q).toBe("speed ramp tutorial capcut DaVinci Resolve");
     expect(q["tt-tutorials-ar"].q).toBe("شرح سبيد رامب كاب كت DaVinci Resolve");
     expect(q["tt-tutorials-ar"].retryQ).toBe("ايديت سبيد رامب ايديت سيارات");
+    expect(q["tt-examples-en"].retryQ).toBe("speed ramp video");
+    expect(q["tt-tutorials-en"].retryQ).toBe("how to speed ramp");
   });
 
   it("keeps extra typed words on every query", () => {
@@ -87,6 +90,8 @@ describe("planSearch options", () => {
     expect(q["tt-examples-en"].q).toBe("bokeh balls edit");
     expect(q["tt-tutorials-en"].q).toBe("bokeh balls tutorial");
     expect(q["tt-tutorials-ar"].q).toBe("شرح bokeh balls");
+    expect(q["tt-examples-en"].retryQ).toBe("bokeh balls video");
+    expect(q["tt-tutorials-en"].retryQ).toBe("how to bokeh balls");
     expect(plan.needsEditingWord).toBe(false);
     expect(plan.topicWords).toEqual(["bokeh", "ball"]);
     expect(plan.alternatives).toEqual([{ exact: true }]);
@@ -104,6 +109,7 @@ describe("planSearch options", () => {
       { termId: "flash-transition", label: { en: "flash transition", ar: "انتقال فلاش" } },
     ]);
     expect(planSearch({ q: "فلاش", exact: true }).queries[0].lang).toBe("ar");
+    expect(planSearch({ q: "Transitions", exact: true }).topicKey).toBe("transition");
   });
 
   it("uses a term picked from Not this?", () => {
@@ -120,9 +126,40 @@ describe("planSearch options", () => {
     expect(new Set(plan.queries.map((q) => q.platform))).toEqual(new Set(["yt"]));
   });
 
-  it("never repeats a query on a platform", () => {
-    const plan = planSearch({ q: "hyperlapse" });
-    const keys = plan.queries.map((q) => `${q.platform}|${q.q.toLowerCase()}`);
-    expect(new Set(keys).size).toBe(keys.length);
+  it("never asks the same words twice on a platform", () => {
+    const entry = (name: string, examples: LangText, tutorials: LangText): EditTerm => ({
+      id: name.replace(" ", "-"),
+      kind: "transition",
+      label: { en: name, ar: name },
+      match: { en: [name], ar: [] },
+      specific: true,
+      queries: { examples, tutorials },
+    });
+    // English examples and tutorials ask the same words; the examples retry ("x cut video") is the Arabic query.
+    const x = planSearch({ q: "x cut" }, [
+      entry(
+        "x cut",
+        { en: "x cut edit", ar: "ايديت اكس كت" },
+        { en: "x cut edit", ar: "x cut video" },
+      ),
+    ]);
+    for (const platform of ["tt", "ig", "yt"]) {
+      const qs = x.queries.filter((q) => q.platform === platform);
+      const asked = qs.map((q) => q.q.toLowerCase());
+      expect(asked).toEqual(["x cut edit", "x cut video"]);
+      for (const q of qs) expect(asked).not.toContain(q.retryQ?.toLowerCase());
+    }
+    // The Arabic retry ("y cut video") is the English examples retry.
+    const y = byId(
+      planSearch({ q: "y cut" }, [
+        entry(
+          "y cut",
+          { en: "y cut edit", ar: "y cut video" },
+          { en: "y cut tutorial", ar: "شرح واي كت" },
+        ),
+      ]),
+    );
+    expect(y["tt-examples-en"].retryQ).toBe("y cut video");
+    expect(y["tt-tutorials-ar"].retryQ).toBeUndefined();
   });
 });

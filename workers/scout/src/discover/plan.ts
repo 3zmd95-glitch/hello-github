@@ -25,6 +25,8 @@ const join = (...parts: (string | undefined)[]) =>
 interface Words {
   examples: Record<Lang, string>;
   tutorials: Record<Lang, string>;
+  /** What the English retries ask about: the English label plus the extra typed words, else the typed words. */
+  name: string;
 }
 
 function termWords(term: EditTerm, rest: string): Words {
@@ -37,6 +39,7 @@ function termWords(term: EditTerm, rest: string): Words {
       en: join(term.queries.tutorials.en, rest),
       ar: join(term.queries.tutorials.ar, rest),
     },
+    name: join(term.label.en, rest),
   };
 }
 
@@ -44,6 +47,7 @@ function unknownWords(topic: string): Words {
   return {
     examples: { en: join(topic, "edit"), ar: join("ايديت", topic) },
     tutorials: { en: join(topic, "tutorial"), ar: join("شرح", topic) },
+    name: topic,
   };
 }
 
@@ -51,26 +55,30 @@ function plannedQueries(platforms: Platform[], w: Words, req: DiscoverRequest): 
   const genre = req.genreQuery ?? {};
   const ex = (l: Lang) => join(w.examples[l], genre[l]);
   const tut = (l: Lang) => join(w.tutorials[l], req.program);
+  const key = (s: string) => s.toLowerCase();
+  // [intent, lang, q, retryQ]: a retry asks new words, the plain name (no genre or program) with "video" or
+  // "how to", and in Arabic the examples query.
+  const all: [Intent, Lang, string, string][] = [
+    ["examples", "en", ex("en"), join(w.name, "video")],
+    ["tutorials", "en", tut("en"), join("how to", w.name)],
+    ["tutorials", "ar", tut("ar"), ex("ar")],
+  ];
+  // Each query once.
+  const list = all.filter(([, , q], i) => q && all.findIndex((a) => key(a[2]) === key(q)) === i);
   const out: PlannedQuery[] = [];
   for (const platform of platforms) {
-    const retry = platform !== "yt";
-    const list: [Intent, Lang, string, string | undefined][] = [
-      ["examples", "en", ex("en"), retry ? tut("en") : undefined],
-      ["tutorials", "en", tut("en"), retry ? ex("en") : undefined],
-      ["tutorials", "ar", tut("ar"), retry ? ex("ar") : undefined],
-    ];
-    const seen = new Set<string>();
+    // Words already asked on this platform: a retry repeating them would be the same call.
+    const asked = new Set(list.map(([, , q]) => key(q)));
     for (const [intent, lang, q, retryQ] of list) {
-      const key = q.toLowerCase();
-      if (!q || seen.has(key)) continue;
-      seen.add(key);
+      const retry = platform !== "yt" && !asked.has(key(retryQ));
+      if (retry) asked.add(key(retryQ));
       out.push({
         id: `${platform}-${intent}-${lang}`,
         platform,
         lang,
         intent,
         q,
-        ...(retryQ && retryQ.toLowerCase() !== key ? { retryQ } : {}),
+        ...(retry ? { retryQ } : {}),
       });
     }
   }
