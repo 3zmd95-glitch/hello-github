@@ -8,9 +8,10 @@ export default {
   fetch(req, env, ctx) {
     return handle(req, env, ctx);
   },
-  // Cron (wrangler.jsonc `triggers.crons`): every five minutes the auto-post queue, and the daily social
-  // sync on the 06:00–06:30 Riyadh ticks (social/cron.ts). Any other cron string (the four daily triggers
-  // of older deployments) still runs the sync alone.
+  // Cron (wrangler.jsonc `triggers.crons`): every minute the auto replies; on the five-minute grid the
+  // auto-post queue, the daily social sync on the 06:00–06:30 Riyadh ticks and the Trend Radar slots
+  // (social/cron.ts). Any other cron string (the four daily triggers of older deployments) still runs the
+  // sync alone.
   async scheduled(event, env) {
     const result =
       event.cron === TICK_CRON

@@ -7,10 +7,11 @@
  * `replyCore.ts`.
  *
  * Detection is **polling**, not webhooks: Meta only sends comment webhooks to apps that are Live with
- * Advanced Access, and the owner's app is in Development mode. So the five-minute tick (cron.ts), on ticks
- * where the publish queue moved nothing, lists the watched posts, reads the comments of the posts whose
- * `comments_count` changed (or everything once an hour), matches them against the automations and answers. The
- * same poll then reads the newest conversations for the message rules and the default reply (`inbox.ts`).
+ * Advanced Access, and the owner's app is in Development mode. So the cron (cron.ts) polls every minute (on the
+ * five-minute ticks only when the publish queue moved nothing): it lists the watched posts, reads the comments of
+ * the posts whose `comments_count` changed (or everything once an hour), matches them against the automations and
+ * answers. The same poll then reads the newest conversations for the message rules and the default reply
+ * (`inbox.ts`).
  *
  * Instagram API with Instagram Login (scopes instagram_business_manage_comments + _manage_messages):
  *   GET  /me?fields=user_id,username                              the professional account id (cached)
@@ -31,7 +32,7 @@
  *                                   log, lock); written only by pollReplies, which also holds a short lock while
  *                                   it answers
  *   replies:clicks  ClicksDoc       taps on the /go links; written only by handleGo (capped per day)
- * An idle tick writes nothing.
+ * An idle tick writes nothing, and the write guard (WRITE_SLOW, WRITE_STOP) caps the poller's writes per UTC day.
  */
 
 import { Budget, clip, fetchJson, formPost, int, type Http } from "./http";
@@ -217,6 +218,8 @@ export interface PollState {
   lastError?: ReplyErrorCode;
   /** ISO: a poll is answering comments or DMs until then (keeps the cron and "Check now" from both answering). */
   lockUntil?: string;
+  /** replies:state writes on a UTC day (Cloudflare's daily limits reset at 00:00 UTC). */
+  writes?: { day: string; count: number };
 }
 
 /** `replies:clicks`: taps on the /go links, with the daily write cap (Riyadh day). */
@@ -248,8 +251,14 @@ export const SENT_TTL_MS = 24 * 60 * 60_000;
 /** Comments are re-read regardless of the count once this often (a deleted + new comment keeps the count). */
 export const FULL_SCAN_EVERY_MS = 60 * 60_000;
 export const LOG_MAX = 50;
-/** A poll holds the lock this long at most (a tick is five minutes; a crashed poll frees it by expiry). */
+/** A poll holds the lock this long at most (a crashed poll frees it by expiry; the ticks until then skip). */
 export const POLL_LOCK_MS = 4 * 60_000;
+/** replies:state writes in a UTC day from which the poll runs on five-minute ticks only… */
+export const WRITE_SLOW = 300;
+/** …and from which it answers nothing until 00:00 UTC. The free plan allows 1,000 KV writes a day for every
+ * key of the Worker together (the sync, the publish queue, the Trend Radar, /go). ponytail: one shared counter;
+ * move the poller's state to D1 when instant mode (webhooks) lands, since then every event writes. */
+export const WRITE_STOP = 600;
 /** Counted clicks per day (the redirect keeps working past it; protects the free plan's KV writes). */
 export const CLICK_WRITES_PER_DAY = 200;
 /** One counted tap per visitor per link per this many seconds (Cache API, per colo). */
@@ -279,6 +288,17 @@ export const emptyState = (): PollState => ({
 });
 export const emptyClicks = (): ClicksDoc => ({ v: 1, today: 0, byAutomation: {} });
 export const emptyStats = (): ReplyStats => ({ sends: 0, publicReplies: 0, failures: 0, clicks: 0 });
+
+const utcDay = (d: Date) => d.toISOString().slice(0, 10);
+
+/** The write guard today: "slow" (five-minute ticks only), "stop" (nothing until 00:00 UTC), or nothing. */
+export function writeGuard(
+  state: Pick<PollState, "writes">,
+  now: Date,
+): "slow" | "stop" | undefined {
+  const n = state.writes?.day === utcDay(now) ? state.writes.count : 0;
+  return n >= WRITE_STOP ? "stop" : n >= WRITE_SLOW ? "slow" : undefined;
+}
 
 /** The document in the v2 shape: v1 automations become comment rules with their one public reply. */
 export function readAutomations(raw: StoredDoc | null): AutomationsDoc {
@@ -466,6 +486,8 @@ export interface PollDeps {
   force?: boolean;
   /** Picks the public reply (tests pass a fixed source). */
   random?: () => number;
+  /** False on the cron's off-grid minutes, which the guard's "slow" mode skips. Default true. */
+  fiveMinuteTick?: boolean;
 }
 
 export interface PollResult {
@@ -475,7 +497,8 @@ export interface PollResult {
   sent: string[];
   failed: string[];
   /** Why nothing was done. */
-  skipped?: "none" | "not_connected" | "no_permission" | "token_expired" | "locked";
+  skipped?:
+    "none" | "not_connected" | "no_permission" | "token_expired" | "locked" | "paused" | "guard";
   /** A failure that stopped the poll, or the last post whose comments could not be read. */
   error?: ReplyErrorCode;
   /** The failure's words (never a token). */
@@ -516,7 +539,8 @@ export function pickAutomation(
 /**
  * One poll: reads the watched posts' new comments and the new DMs (inbox.ts) and answers the matching ones while
  * the budget and the per-tick cap allow. Writes `replies:state` once at the end (twice when it answered: the lock
- * first), and only when something changed. Never throws.
+ * first), and only when something changed; the write guard counts every write. Does nothing while paused or while
+ * the guard holds it back. Never throws.
  */
 export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<PollResult> {
   const result: PollResult = { checked: 0, sent: [], failed: [] };
@@ -526,6 +550,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
   const at = now.toISOString();
   const random = deps.random ?? Math.random;
   const config = readAutomations(await store.getReplies<StoredDoc>());
+  if (config.paused) return { ...result, skipped: "paused" };
   const enabled = Object.values(config.automations).filter(
     (a) => a.enabled && a.trigger === "comment",
   );
@@ -535,6 +560,10 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
   const state: PollState = { ...emptyState(), ...(await store.getRepliesState<PollState>()) };
   if (state.lockUntil && Date.parse(state.lockUntil) > now.getTime()) {
     return { ...result, skipped: "locked" };
+  }
+  const guard = writeGuard(state, now);
+  if (guard === "stop" || (guard === "slow" && deps.fiveMinuteTick === false)) {
+    return { ...result, skipped: "guard" };
   }
 
   let changed = false;
@@ -549,11 +578,17 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
       changed = true;
     }
   };
+  // Every write of the state is counted for the write guard.
+  const put = async () => {
+    const day = utcDay(now);
+    state.writes = { day, count: (state.writes?.day === day ? state.writes.count : 0) + 1 };
+    await store.putRepliesState(state);
+  };
   const save = async () => {
     if (!changed) return;
     state.lastPollAt = at;
     state.lockUntil = undefined;
-    await store.putRepliesState(state);
+    await put();
   };
   // Counters of automations the owner deleted go with them.
   for (const id of Object.keys(state.stats)) {
@@ -730,7 +765,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     if (candidates.length || dmToAnswer) {
       state.lockUntil = new Date(now.getTime() + POLL_LOCK_MS).toISOString();
       changed = true;
-      await store.putRepliesState(state);
+      await put();
     }
 
     const attempted = new Set<string>();
@@ -886,6 +921,7 @@ export function publicDoc(
   config: AutomationsDoc,
   state: PollState,
   clicks: ClicksDoc,
+  now: Date = new Date(),
 ): Record<string, unknown> {
   return {
     automations: Object.values(config.automations)
@@ -906,6 +942,7 @@ export function publicDoc(
     ...(state.ownerUsername ? { ownerUsername: state.ownerUsername } : {}),
     ...(state.lastPollAt ? { lastPollAt: state.lastPollAt } : {}),
     ...(state.lastError ? { lastError: state.lastError } : {}),
+    ...(writeGuard(state, now) ? { guard: writeGuard(state, now) } : {}),
   };
 }
 
@@ -933,7 +970,7 @@ export async function handleReplies(
 
   if (!first && req.method === "GET") {
     if (!store) return reply.fail("not_configured");
-    return reply.json(publicDoc(...(await readAll(store))), 200);
+    return reply.json(publicDoc(...(await readAll(store)), now), 200);
   }
 
   if (!first && req.method === "POST") {
@@ -972,13 +1009,13 @@ export async function handleReplies(
     const next = mergeSettings(config, parsed.settings, now);
     next.origin = new URL(req.url).origin;
     await store.putReplies(next);
-    return reply.json(publicDoc(next, state, clicks), 200);
+    return reply.json(publicDoc(next, state, clicks, now), 200);
   }
 
   if (first === "poll" && req.method === "POST") {
     if (!store) return reply.fail("not_configured");
     const result = await pollReplies(env, { fetch: fetchImpl, now, force: true });
-    return reply.json({ result, ...publicDoc(...(await readAll(store))) }, 200);
+    return reply.json({ result, ...publicDoc(...(await readAll(store)), now) }, 200);
   }
 
   if (first && ID_RE.test(first) && req.method === "DELETE") {

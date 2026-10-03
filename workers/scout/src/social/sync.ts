@@ -156,7 +156,7 @@ export async function syncAll(
 
 /**
  * The four daily triggers of older deployments (UTC; Riyadh is UTC+3), one platform each. The current
- * wrangler.jsonc has a single five-minute trigger that syncs on the same times (cron.ts SYNC_SLOTS). An
+ * wrangler.jsonc has a single every-minute trigger that syncs on the same times (cron.ts SYNC_SLOTS). An
  * unknown cron string syncs everything with a shared budget.
  */
 export const CRON_PLATFORMS: Record<string, SocialPlatform> = {

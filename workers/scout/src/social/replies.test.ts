@@ -1690,6 +1690,50 @@ describe("pollReplies: DMs and story replies", () => {
   });
 });
 
+describe("pause and the write guard", () => {
+  const today = NOW.toISOString().slice(0, 10);
+
+  it("answers nothing while paused", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    await Store.from(env)!.putReplies({ ...(await configOf(env)), paused: true });
+    const fetchMock = mockFetch(igRoutes().routes);
+    expect(await pollReplies(env, { fetch: fetchMock, now: NOW })).toMatchObject({ skipped: "paused" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("counts its writes per UTC day; from 300 it skips the off-grid minutes", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()], { writes: { day: today, count: 300 } });
+    const fetchMock = mockFetch(igRoutes().routes);
+    expect(
+      await pollReplies(env, { fetch: fetchMock, now: NOW, fiveMinuteTick: false }),
+    ).toMatchObject({ skipped: "guard" });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const r = await pollReplies(env, { fetch: fetchMock, now: NOW });
+    expect(r.sent).toEqual(["c1"]);
+    // The lock, then the result.
+    expect((await stateOf(env)).writes).toEqual({ day: today, count: 302 });
+    const listed = (await (
+      await handle(req("/social/replies"), env, undefined, { now: () => NOW })
+    ).json()) as Record<string, unknown>;
+    expect(listed.guard).toBe("slow");
+  });
+
+  it("from 600 it answers nothing until the next UTC day", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()], { writes: { day: today, count: 600 } });
+    const fetchMock = mockFetch(igRoutes().routes);
+    expect(await pollReplies(env, { fetch: fetchMock, now: NOW })).toMatchObject({ skipped: "guard" });
+    const tomorrow = new Date(NOW.getTime() + 86_400_000);
+    expect((await pollReplies(env, { fetch: fetchMock, now: tomorrow })).sent).toEqual(["c1"]);
+  });
+});
+
 /* ---------- cron ---------- */
 
 describe("cron tick", () => {
@@ -1728,6 +1772,28 @@ describe("cron tick", () => {
     const sync = await runTick(env, tickAt("03:00"), { fetch: mockFetch({}), now: NOW });
     expect(sync).toHaveProperty("sync");
     expect(sync).not.toHaveProperty("replies");
+  });
+
+  it("polls only the replies on minutes off the five-minute grid", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    const r = await runTick(env, tickAt("09:01"), { fetch: mockFetch(igRoutes().routes), now: NOW });
+    expect(r).toMatchObject({ replies: { sent: ["c1"] } });
+    expect(r).not.toHaveProperty("publish");
+  });
+
+  it("the write guard's slow mode skips the off-grid minutes only", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()], { writes: { day: "2026-09-29", count: 300 } });
+    const fetchMock = mockFetch(igRoutes().routes);
+    expect(await runTick(env, tickAt("09:01"), { fetch: fetchMock, now: NOW })).toMatchObject({
+      replies: { skipped: "guard" },
+    });
+    expect(await runTick(env, tickAt("09:05"), { fetch: fetchMock, now: NOW })).toMatchObject({
+      replies: { sent: ["c1"] },
+    });
   });
 });
 
