@@ -226,8 +226,8 @@ interface DiscoverResponse {
   browser-side YouTube search). Without a Worker it keeps today's YouTube-key path.
 - New `DiscoverSections` (Popular strip, Examples, Tutorials, Creators, Picks), the "Understood · Not this?" line, the hidden
   count with show, per-platform error lines with Retry.
-- Settings → API keys and the Discover footer show the real numbers from `/discover/usage`: "412 of 1,000 free lookups used ·
-  resets Nov 1", "YouTube: 9 of 70 searches today". The old per-device counter goes.
+- The Discover footer shows the real numbers from `/discover/usage`: "412 of 1,000 free lookups this month · YouTube
+  9/70 today". The old per-device counter stays only for an older Worker.
 - Copy in friendly Hijazi Arabic first, English second; `messages/ar.json` and `messages/en.json` keys in parity.
 
 ## Budgets
