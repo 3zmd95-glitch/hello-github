@@ -18,9 +18,10 @@ import {
 
 /**
  * Discover v2 client (round 33, planning/tools/13-discover-search-v2.md): one `POST /discover` per search,
- * the answer cached 24 h on this device (memory + localStorage, 30 entries) when complete (every platform
- * answered or has no key) and not empty, and the pure helpers the sections screen uses. The answer's shape
- * MIRRORS workers/scout/src/discover/types.ts (hand-copied): change both together.
+ * the answer cached 24 h on this device when the Worker calls it complete and it found something (memory,
+ * and localStorage within a budget: the app's saved progress shares that quota), and the pure helpers the
+ * sections screen uses. The answer's shape MIRRORS workers/scout/src/discover/types.ts (hand-copied): change
+ * both together.
  */
 
 export type DiscoverPlatform = "tt" | "ig" | "yt";
@@ -64,6 +65,8 @@ export interface DiscoverAnswer {
   platforms: Partial<Record<DiscoverPlatform, DiscoverPlatformStatus>>;
   cost: { tavily: number; youtubeSearch: number };
   cached: boolean;
+  /** The Worker could keep it: every query answered (or had no key) and something was found. */
+  complete: boolean;
 }
 
 export interface DiscoverRequest {
@@ -88,6 +91,19 @@ export interface DiscoverPick {
 
 /* ---------- the request ---------- */
 
+/** The Worker's limits (workers/scout/src/discover/routes.ts): it refuses longer text rather than cut it. */
+const MAX_Q = 200;
+const MAX_PROGRAM = 60;
+const MAX_GENRE_QUERY = 100;
+
+/** Trimmed and cut to `max` UTF-16 units (the Worker's count), never ending in half an emoji. */
+const clip = (text: string, max: number) =>
+  text
+    .trim()
+    .slice(0, max)
+    .replace(/[\uD800-\uDBFF]$/, "")
+    .trim();
+
 export function discoverRequestFrom(input: {
   base: string;
   genre?: Pick<Genre, "queries">;
@@ -96,17 +112,21 @@ export function discoverRequestFrom(input: {
   length: LengthFilter;
   pick?: DiscoverPick;
 }): DiscoverRequest | null {
-  const genreQuery = input.genre
-    ? { ar: input.genre.queries.ar[0], en: input.genre.queries.en[0] }
-    : undefined;
-  const q = input.base.trim() || genreQuery?.en || genreQuery?.ar || "";
-  if (!q) return null;
+  const typed = clip(input.base, MAX_Q);
+  const ar = clip(input.genre?.queries.ar[0] ?? "", MAX_GENRE_QUERY);
+  const en = clip(input.genre?.queries.en[0] ?? "", MAX_GENRE_QUERY);
+  // Nothing typed: the genre's own query is the topic (English, else Arabic), so it is not sent twice.
+  const q = typed || en || ar;
+  // Symbols or emoji only: the Worker would refuse it (no word to search).
+  if (!/[\p{L}\p{N}]/u.test(q)) return null;
+  const genreQuery = { ...(ar && ar !== q ? { ar } : {}), ...(en && en !== q ? { en } : {}) };
+  const program = clip(input.programHint ?? "", MAX_PROGRAM);
   return {
     q,
     ...(input.pick?.exact ? { exact: true } : {}),
     ...(input.pick?.term ? { term: input.pick.term } : {}),
-    ...(genreQuery ? { genreQuery } : {}),
-    ...(input.programHint ? { program: input.programHint } : {}),
+    ...(genreQuery.ar || genreQuery.en ? { genreQuery } : {}),
+    ...(program ? { program } : {}),
     ...(input.recency !== "any" ? { timeRange: input.recency } : {}),
     ...(input.length !== "any" ? { ytLength: input.length } : {}),
   };
@@ -115,8 +135,17 @@ export function discoverRequestFrom(input: {
 /* ---------- the answer ---------- */
 
 const PLATFORM_SET = new Set(["tt", "ig", "yt"]);
+const PLATFORM_ERRORS = new Set(["quota", "auth", "upstream", "daily_cap", "not_configured"]);
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object";
 const isStr = (x: unknown): x is string => typeof x === "string";
+
+/** `{ ar, en }` when both are text. */
+const labelOf = (x: unknown): { ar: string; en: string } | undefined =>
+  isObj(x) && isStr(x.ar) && isStr(x.en) ? { ar: x.ar, en: x.en } : undefined;
+
+/** What the Worker spent: a number ≥ 0, else 0. */
+const spentOf = (x: unknown): number =>
+  typeof x === "number" && Number.isFinite(x) && x >= 0 ? x : 0;
 
 function parseItem(x: unknown): DiscoverItem | null {
   if (!isObj(x)) return null;
@@ -145,36 +174,85 @@ function parseItem(x: unknown): DiscoverItem | null {
   };
 }
 
-/** The Worker's answer checked field by field (a broken item is dropped, a broken answer is null). */
+function parseAlternative(x: unknown): DiscoverAlternative | null {
+  if (!isObj(x)) return null;
+  if (x.exact === true) return { exact: true };
+  const label = labelOf(x.label);
+  return isStr(x.termId) && label ? { termId: x.termId, label } : null;
+}
+
+function parseStatus(x: unknown): DiscoverPlatformStatus | null {
+  if (!isObj(x)) return null;
+  if (x.ok === true) {
+    return typeof x.retried === "boolean" ? { ok: true, retried: x.retried } : { ok: true };
+  }
+  if (x.ok === false && PLATFORM_ERRORS.has(x.error as string)) {
+    return { ok: false, error: x.error as DiscoverPlatformError };
+  }
+  return null;
+}
+
+/**
+ * The Worker's answer checked field by field: a broken item, alternative or platform status is dropped, a
+ * cost that is not a number ≥ 0 is 0, an answer without its topic, items or both labels is null.
+ */
 export function parseDiscoverAnswer(raw: unknown): DiscoverAnswer | null {
   if (!isObj(raw) || !Array.isArray(raw.items) || !isObj(raw.understood) || !isStr(raw.topicKey))
     return null;
+  const u = raw.understood;
+  const label = labelOf(u.label);
+  if (!label) return null;
   const items = raw.items.map(parseItem).filter((i): i is DiscoverItem => !!i);
   const creators = Array.isArray(raw.creators)
     ? (raw.creators.filter(
         (c) => isObj(c) && PLATFORM_SET.has(c.platform as string) && isStr(c.url),
       ) as DiscoverCreator[])
     : [];
+  const alternatives = Array.isArray(raw.alternatives)
+    ? raw.alternatives.map(parseAlternative).filter((a): a is DiscoverAlternative => !!a)
+    : [];
+  const platforms: DiscoverAnswer["platforms"] = {};
+  for (const [p, s] of Object.entries(isObj(raw.platforms) ? raw.platforms : {})) {
+    const status = parseStatus(s);
+    if (status && PLATFORM_SET.has(p)) platforms[p as DiscoverPlatform] = status;
+  }
+  const cost: Record<string, unknown> = isObj(raw.cost) ? raw.cost : {};
   return {
     topicKey: raw.topicKey,
-    understood: raw.understood as DiscoverAnswer["understood"],
-    alternatives: Array.isArray(raw.alternatives)
-      ? (raw.alternatives as DiscoverAlternative[])
-      : [],
+    understood: {
+      ...(isStr(u.termId) ? { termId: u.termId } : {}),
+      label,
+      exact: u.exact === true,
+    },
+    alternatives,
     items,
     creators,
-    platforms: isObj(raw.platforms) ? (raw.platforms as DiscoverAnswer["platforms"]) : {},
-    cost: isObj(raw.cost) ? (raw.cost as DiscoverAnswer["cost"]) : { tavily: 0, youtubeSearch: 0 },
+    platforms,
+    cost: { tavily: spentOf(cost.tavily), youtubeSearch: spentOf(cost.youtubeSearch) },
     cached: raw.cached === true,
+    // A Worker from before the flag: complete when every platform answered or has no key.
+    complete:
+      raw.complete === undefined
+        ? Object.values(platforms).every((s) => s?.ok || s?.error === "not_configured")
+        : raw.complete === true,
   };
 }
 
 /* ---------- cache ---------- */
 
 export const DISCOVER_CACHE_KEY = "3z-discover-cache";
-export const DISCOVER_CACHE_VERSION = 1;
+/** 2: only answers the Worker calls complete (version 1 also kept some with a failed query). */
+export const DISCOVER_CACHE_VERSION = 2;
 export const DISCOVER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-export const DISCOVER_CACHE_MAX = 30;
+/** Answers kept on the device, newest first (memory keeps this session's). */
+export const DISCOVER_CACHE_MAX = 8;
+/**
+ * Characters the kept answers may take in localStorage: the app's saved progress shares the quota, and its
+ * persist loses progress when that is full.
+ */
+export const DISCOVER_CACHE_BUDGET = 1_000_000;
+
+const PREFIX = `v${DISCOVER_CACHE_VERSION}|`;
 
 interface Entry {
   at: number;
@@ -182,6 +260,12 @@ interface Entry {
 }
 const memory = new Map<string, Entry>();
 const inflight = new Map<string, Promise<DiscoverResult>>();
+/**
+ * The device's kept answers, read and checked once per storage, then kept in step by each write and clear (a
+ * miss or a peek does not read storage again). ponytail: read once per tab, so another tab's answers are not
+ * seen until a reload and the next write here drops them; re-read before writing if that ever matters.
+ */
+let stored: { from: KeyValueStorage | null; entries: Record<string, Entry> } | undefined;
 
 function defaultStorage(): KeyValueStorage | null {
   try {
@@ -193,7 +277,7 @@ function defaultStorage(): KeyValueStorage | null {
 
 /** Where a request is cached: the version, the Worker URL and the request in a stable form. */
 export function discoverRequestKey(config: ScoutConfig, req: DiscoverRequest): string {
-  return `v${DISCOVER_CACHE_VERSION}|${config.url}|${JSON.stringify({
+  return `${PREFIX}${config.url}|${JSON.stringify({
     q: req.q.trim().toLowerCase().replace(/\s+/g, " "),
     exact: !!req.exact,
     term: req.term ?? "",
@@ -205,18 +289,36 @@ export function discoverRequestKey(config: ScoutConfig, req: DiscoverRequest): s
   })}`;
 }
 
-function readStored(storage: KeyValueStorage | null): Record<string, Entry> {
-  if (!storage) return {};
+/** The storage's kept answers: entries of this version with a time and a sound answer (checked once). */
+function storedOf(storage: KeyValueStorage | null): Record<string, Entry> {
+  if (stored?.from === storage) return stored.entries;
+  const entries: Record<string, Entry> = {};
   try {
-    const raw = JSON.parse(storage.getItem(DISCOVER_CACHE_KEY) ?? "{}") as unknown;
-    return isObj(raw) ? (raw as Record<string, Entry>) : {};
+    const raw = JSON.parse(storage?.getItem(DISCOVER_CACHE_KEY) ?? "{}") as unknown;
+    for (const [k, e] of Object.entries(isObj(raw) ? raw : {})) {
+      if (!k.startsWith(PREFIX) || !isObj(e) || typeof e.at !== "number") continue;
+      const answer = parseDiscoverAnswer(e.answer);
+      if (answer) entries[k] = { at: e.at, answer };
+    }
   } catch {
-    return {};
+    // Unreadable: nothing kept.
+  }
+  stored = { from: storage, entries };
+  return entries;
+}
+
+/** Drops the kept answers from the storage (memory keeps this session's). */
+function forgetStored(storage: KeyValueStorage | null): void {
+  stored = { from: storage, entries: {} };
+  try {
+    storage?.removeItem(DISCOVER_CACHE_KEY);
+  } catch {
+    // ignore
   }
 }
 
 const fresh = (e: Entry | undefined, now: number): e is Entry =>
-  !!e && typeof e.at === "number" && now - e.at < DISCOVER_CACHE_TTL_MS && isObj(e.answer);
+  !!e && now - e.at < DISCOVER_CACHE_TTL_MS;
 
 function cacheGet(
   key: string,
@@ -225,10 +327,10 @@ function cacheGet(
 ): DiscoverAnswer | undefined {
   const mem = memory.get(key);
   if (fresh(mem, now)) return mem.answer;
-  const stored = readStored(storage)[key];
-  if (fresh(stored, now)) {
-    memory.set(key, stored);
-    return stored.answer;
+  const kept = storedOf(storage)[key];
+  if (fresh(kept, now)) {
+    memory.set(key, kept);
+    return kept.answer;
   }
   return undefined;
 }
@@ -240,31 +342,39 @@ function cacheSet(
   now: number,
 ): void {
   // Kept as a hit serves it: from the cache, and it costs nothing then.
-  const entry = {
+  const entry: Entry = {
     at: now,
     answer: { ...answer, cached: true, cost: { tavily: 0, youtubeSearch: 0 } },
   };
   memory.set(key, entry);
   if (!storage) return;
-  const kept = Object.entries({ ...readStored(storage), [key]: entry })
-    .filter(([k, e]) => k.startsWith(`v${DISCOVER_CACHE_VERSION}|`) && fresh(e, now))
-    .sort(([, a], [, b]) => b.at - a.at)
-    .slice(0, DISCOVER_CACHE_MAX);
+  const older = Object.entries(storedOf(storage))
+    .filter(([k, e]) => k !== key && fresh(e, now))
+    .sort(([, a], [, b]) => b.at - a.at);
+  // Newest first, at most DISCOVER_CACHE_MAX, while the whole stays within DISCOVER_CACHE_BUDGET characters.
+  const kept: [string, Entry][] = [];
+  const parts: string[] = [];
+  let size = 2; // the braces
+  for (const [k, e] of [[key, entry] as [string, Entry], ...older]) {
+    const part = `${JSON.stringify(k)}:${JSON.stringify(e)}`;
+    size += part.length + (parts.length > 0 ? 1 : 0);
+    if (parts.length === DISCOVER_CACHE_MAX || size > DISCOVER_CACHE_BUDGET) break;
+    kept.push([k, e]);
+    parts.push(part);
+  }
   try {
-    storage.setItem(DISCOVER_CACHE_KEY, JSON.stringify(Object.fromEntries(kept)));
+    storage.setItem(DISCOVER_CACHE_KEY, `{${parts.join(",")}}`);
+    stored = { from: storage, entries: Object.fromEntries(kept) };
   } catch {
-    // Storage full or blocked: memory still saves credits for this session.
+    // Full or blocked: give the room back to the app's saved progress; memory still serves this session.
+    forgetStored(storage);
   }
 }
 
 export function clearDiscoverCache(storage: KeyValueStorage | null = defaultStorage()): void {
   memory.clear();
   inflight.clear();
-  try {
-    storage?.removeItem(DISCOVER_CACHE_KEY);
-  } catch {
-    // ignore
-  }
+  forgetStored(storage);
 }
 
 export function peekDiscover(
@@ -303,12 +413,8 @@ export async function discoverSearch(
     if (!r.ok) return r;
     const answer = parseDiscoverAnswer(r.data);
     if (!answer) return { ok: false, error: { type: "upstream" } };
-    // Kept only when complete, as the Worker does: every platform answered (one without its key never
-    // will) and something was found (an empty answer can be a fluke of the moment).
-    const complete = Object.values(answer.platforms).every(
-      (s) => s?.ok || s?.error === "not_configured",
-    );
-    if (complete && answer.items.length > 0) cacheSet(key, answer, storage, now());
+    // Kept only when the Worker calls it complete and it found something (an empty answer can be a fluke).
+    if (answer.complete && answer.items.length > 0) cacheSet(key, answer, storage, now());
     return { ok: true, answer };
   })();
   inflight.set(key, run);

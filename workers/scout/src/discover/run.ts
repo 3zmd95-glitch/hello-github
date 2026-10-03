@@ -98,7 +98,8 @@ export async function runDiscover(
   if (cached) {
     try {
       const kept = JSON.parse(cached) as DiscoverResponse;
-      return { ...kept, cost: { tavily: 0, youtubeSearch: 0 }, cached: true };
+      // Only complete answers are kept (an entry from before the flag lacks it).
+      return { ...kept, cost: { tavily: 0, youtubeSearch: 0 }, cached: true, complete: true };
     } catch {
       // A broken entry: search again (the new answer replaces it).
     }
@@ -181,6 +182,10 @@ export async function runDiscover(
     const mine = results.filter((r) => r.query.platform === p);
     if (mine.length) platforms[p] = statusOf(mine);
   }
+  // Complete answers only are kept: every query answered (a key that is not set never will, so it does not block
+  // the cache) and something was found (an empty answer can be a fluke of the moment).
+  const complete =
+    items.length > 0 && results.every((r) => !r.error || r.error === "not_configured");
   const answer: DiscoverResponse = {
     topicKey: plan.topicKey,
     understood: plan.understood,
@@ -190,11 +195,9 @@ export async function runDiscover(
     platforms,
     cost: { tavily: credits, youtubeSearch },
     cached: false,
+    complete,
   };
-  // Complete answers only: every query answered (a key that is not set never will, so it does not block the cache)
-  // and something was found (an empty answer can be a fluke of the moment).
-  const complete = results.every((r) => !r.error || r.error === "not_configured");
-  if (env.SOCIAL_KV && complete && items.length > 0) {
+  if (env.SOCIAL_KV && complete) {
     await env.SOCIAL_KV.put(key, JSON.stringify(answer), { expirationTtl: ANSWER_TTL_S }).catch(
       () => undefined,
     );

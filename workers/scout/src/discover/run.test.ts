@@ -92,6 +92,7 @@ describe("runDiscover", () => {
     expect(answer.platforms).toEqual({ tt: { ok: true }, ig: { ok: true }, yt: { ok: true } });
     expect(answer.cost).toEqual({ tavily: 6, youtubeSearch: 3 });
     expect(answer.cached).toBe(false);
+    expect(answer.complete).toBe(true);
     const tiktok = answer.items.filter((i) => i.platform === "tt");
     expect(tiktok).toHaveLength(6);
     expect(tiktok.filter((i) => i.offTopic)).toHaveLength(3);
@@ -108,6 +109,7 @@ describe("runDiscover", () => {
     const calls = fetchMock.mock.calls.length;
     const again = await runDiscover(env, { q: "  FLASH " }, { fetch: fetchMock, now: NOW });
     expect(again.cached).toBe(true);
+    expect(again.complete).toBe(true);
     expect(again.cost).toEqual({ tavily: 0, youtubeSearch: 0 });
     expect(again.items).toEqual(answer.items);
     expect(fetchMock.mock.calls.length).toBe(calls);
@@ -137,6 +139,7 @@ describe("runDiscover", () => {
     });
     const answer = await runDiscover(env, { q: "flash" }, { fetch: fetchMock, now: NOW });
     expect(answer.platforms.ig).toEqual({ ok: false, error: "upstream" });
+    expect(answer.complete).toBe(false);
     expect(answer.items.some((i) => i.platform === "tt")).toBe(true);
     expect([...env.SOCIAL_KV.store.keys()].some((k) => k.startsWith("discover:answer:"))).toBe(
       false,
@@ -163,6 +166,8 @@ describe("runDiscover", () => {
     const searches = fetchMock.mock.calls.filter(([u]) => String(u).includes("/youtube/v3/search"));
     expect(searches).toHaveLength(1);
     expect(answer.platforms.yt).toEqual({ ok: true });
+    // The platform answered, but a query did not: not complete (the dashboard keeps it no more than KV does).
+    expect(answer.complete).toBe(false);
     expect(answer.cost.youtubeSearch).toBe(1);
     expect([...env.SOCIAL_KV.store.keys()].some((k) => k.startsWith("discover:answer:"))).toBe(
       false,
@@ -179,6 +184,7 @@ describe("runDiscover", () => {
     const answer = await runDiscover(env, { q: "flash" }, { fetch: empty, now: NOW });
     expect(answer.items).toEqual([]);
     expect(Object.values(answer.platforms).every((s) => s?.ok)).toBe(true);
+    expect(answer.complete).toBe(false);
     expect([...env.SOCIAL_KV.store.keys()].some((k) => k.startsWith("discover:answer:"))).toBe(
       false,
     );
@@ -217,6 +223,8 @@ describe("runDiscover", () => {
       { fetch: web(), now: NOW },
     );
     expect(answer.platforms.yt).toEqual({ ok: false, error: "not_configured" });
+    // A key that is not set never answers, so it does not hold the answer back.
+    expect(answer.complete).toBe(true);
   });
 
   it("searches on when KV fails (KV takes one write per key a second)", async () => {

@@ -170,6 +170,7 @@ interface DiscoverResponse {
     { ok: true; retried?: boolean } | { ok: false; error: "quota" | "auth" | "upstream" | "daily_cap" | "not_configured" }>;
   cost: { tavily: number; youtubeSearch: number };
   cached: boolean;
+  complete: boolean;                          // could be kept (see Caches); a KV hit is complete
 }
 // GET  /discover/usage → { tavily: { used, limit, plan, paygoUsed?, paygoLimit? } | { error }, youtube: { usedToday, cap },
 //                          connector: { usedToday, cap } }   (Tavily's figure cached 10 minutes)
@@ -182,6 +183,9 @@ interface DiscoverResponse {
   (`lib/discover.ts`, the `scoutClient` pattern, its own storage key). A cached answer says `cached: true` and costs nothing
   (`cost` all 0). Only a complete answer is kept: every query answered (a key that is not set does not count against it;
   a YouTube query over the day's cap does) and at least one card was found (an empty answer can be a fluke).
+  The answer says so in `complete`, and the browser keeps only those (a platform's status alone cannot show that one
+  of its queries failed): at most 8 answers and 1,000,000 characters of localStorage, since the app's saved progress
+  shares that quota.
   KV, not the Cache API: Cloudflare's docs do not confirm the Cache API on `workers.dev`, and KV is global.
 - **TikTok thumbnails** are no longer fetched inside the search: the card asks `GET /oembed` (already cached a day at the
   edge) when it scrolls into view. A search makes at most ~16 outbound calls (9 searches, ≤ 2 retries, `videos.list`, KV

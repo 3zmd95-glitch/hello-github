@@ -85,4 +85,10 @@ export interface DiscoverResponse {
   platforms: Partial<Record<Platform, PlatformStatus>>;
   cost: { tavily: number; youtubeSearch: number };
   cached: boolean;
+  /**
+   * True exactly when the answer may be kept in KV: every query answered (a key that is not set never will, so
+   * it does not count against it) and at least one card was found. A KV hit is complete. The dashboard keeps
+   * only complete answers too: a platform's status alone cannot say that one of its queries failed.
+   */
+  complete: boolean;
 }
