@@ -6,7 +6,7 @@ import { useT, type MessageKey } from "@/lib/i18n";
 import {
   BUTTON_TITLE_MAX,
   BUTTONS_MAX,
-  DM_MAX,
+  dmBytesLeft,
   dmPreview,
   REPLY_PLATFORMS,
   replyProblems,
@@ -20,7 +20,9 @@ const PROBLEM_KEY: Record<ReplyProblemCode, MessageKey> = {
   keywordTooLong: "replies.problem.keywordTooLong",
   noDm: "replies.problem.noDm",
   dmTooLong: "replies.problem.dmTooLong",
+  templateTooLong: "replies.problem.templateTooLong",
   publicTooLong: "replies.problem.publicTooLong",
+  tooManyPublic: "replies.problem.tooManyPublic",
   badUrl: "replies.problem.badUrl",
   noTitle: "replies.problem.noTitle",
   tooManyButtons: "replies.problem.tooManyButtons",
@@ -60,7 +62,7 @@ export default function AutoReplyForm({
   const [tried, setTried] = useState(false);
 
   const current: AutoReply = { ...draft, keywords: splitKeywords(keywordsText) };
-  const problems = replyProblems(current, status);
+  const problems = replyProblems(current, status, origin);
   const patch = (p: Partial<AutoReply>) => setDraft((d) => ({ ...d, ...p }));
 
   const pickPost = (id: string) => {
@@ -150,8 +152,8 @@ export default function AutoReplyForm({
         <span className="text-ink-2 text-sm font-bold">{t("replies.form.publicReply")}</span>
         <textarea
           className="px-input min-h-16"
-          value={draft.publicReply}
-          onChange={(e) => patch({ publicReply: e.target.value })}
+          value={draft.publicReplies[0] ?? ""}
+          onChange={(e) => patch({ publicReplies: e.target.value ? [e.target.value] : [] })}
           data-testid="autoreply-public"
         />
         <span className="text-muted text-xs">{t("replies.form.publicHint", { username: "{username}" })}</span>
@@ -161,9 +163,7 @@ export default function AutoReplyForm({
       <label className="flex flex-col gap-1">
         <span className="flex items-center gap-2 text-sm font-bold">
           <span className="text-ink-2">{t("replies.form.dm")}</span>
-          <span className="text-muted num ms-auto text-xs">
-            {draft.dmText.length}/{DM_MAX}
-          </span>
+          <span className="text-muted num ms-auto text-xs">{dmBytesLeft(current, origin)}</span>
         </span>
         <textarea
           className="px-input min-h-24"

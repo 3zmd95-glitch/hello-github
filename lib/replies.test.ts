@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { AutoReplySchema, type AutoReply, type SocialStatusMap } from "./domain";
 import {
   ctr,
+  defaultReplyProblems,
+  dmBytesLeft,
   dmPreview,
   firstMatch,
   matchesAutoReply,
+  messageButtons,
   newAutoReply,
   normalizeForMatch,
   parseRepliesDoc,
@@ -12,9 +15,11 @@ import {
   repliesList,
   repliesPoll,
   repliesSave,
+  repliesSettings,
   replyInput,
   replyProblems,
   splitKeywords,
+  textBody,
 } from "./replies";
 
 const CONFIG = { url: "https://scout.test", token: "tok" };
@@ -59,6 +64,8 @@ describe("matching (same vectors as the Worker)", () => {
 
   it("normalizes like the Worker", () => {
     expect(normalizeForMatch("  أَهْلاً… بِكُم! 🎬 ")).toBe("اهلا بكم");
+    expect(reply().publicReplies).toEqual(["أرسلته لك 🎬"]);
+    expect(reply()).not.toHaveProperty("publicReply");
   });
 
   it("firstMatch prefers a switched-on specific-post automation over 'any post'", () => {
@@ -88,7 +95,7 @@ describe("replyProblems", () => {
     const a = reply({
       keywords: ["🙏"],
       dmText: "",
-      publicReply: "x".repeat(2201),
+      publicReplies: ["x".repeat(2201)],
       buttons: [
         { title: "", url: "http://a.test" },
         { title: "a", url: LUT },
@@ -104,9 +111,32 @@ describe("replyProblems", () => {
       "noTitle",
       "badUrl",
     ]);
-    expect(replyProblems(reply({ dmText: "x".repeat(1001) }), null)).toEqual([
-      { code: "dmTooLong", max: 1000 },
+    expect(replyProblems(reply({ buttons: [], dmText: "ل".repeat(501) }), null)).toEqual([
+      { code: "dmTooLong" },
     ]);
+    expect(replyProblems(reply({ dmText: "x".repeat(641) }), null)).toEqual([
+      { code: "templateTooLong", max: 640 },
+    ]);
+    expect(
+      replyProblems(reply({ publicReplies: ["a", "b", "c", "d"] }), null).map((p) => p.code),
+    ).toEqual(["tooManyPublic"]);
+    expect(
+      replyProblems(
+        reply({
+          followButton: true,
+          buttons: [
+            { title: "a", url: LUT },
+            { title: "b", url: LUT },
+            { title: "c", url: LUT },
+          ],
+        }),
+        null,
+      ).map((p) => p.code),
+    ).toEqual(["tooManyButtons"]);
+    // A message rule's public replies are never sent, so they never block saving.
+    expect(
+      replyProblems(reply({ trigger: "message", publicReplies: ["x".repeat(2201)] }), null),
+    ).toEqual([]);
     // Per-keyword length is the Worker's rule too (it would answer 400 "keywords" otherwise).
     expect(replyProblems(reply({ keywords: ["لت", ` ${"ك".repeat(41)} `] }), null)).toEqual([
       { code: "keywordTooLong", max: 40 },
@@ -147,13 +177,21 @@ describe("dmPreview / ctr / replyInput / newAutoReply", () => {
     expect(replyInput(a)).toEqual({
       id: "lut",
       enabled: true,
+      trigger: "comment",
       postId: "m1",
       keywords: ["لت"],
       match: "contains",
-      publicReply: "أرسلته لك 🎬",
+      publicReplies: ["أرسلته لك 🎬"],
       dmText: "حمل اللت من الرابط تحت",
       buttons: [{ title: "حمل اللت", url: LUT }],
+      followButton: false,
     });
+  });
+
+  it("sends a message rule without a post or public replies", () => {
+    const a = reply({ trigger: "message", title: "x", thumbUrl: "https://cdn.test/t.jpg" });
+    expect(replyInput(a)).toMatchObject({ trigger: "message", postId: null, publicReplies: [] });
+    expect(replyInput(a)).not.toHaveProperty("title");
   });
 
   it("starts a new automation with the defaults", () => {
@@ -201,7 +239,7 @@ describe("Worker calls", () => {
     const fetchImpl = replying({ automations: [], log: [] });
     const r = await repliesList(CONFIG, { fetchImpl });
     expect(fetchImpl.mock.calls[0][0]).toBe("https://scout.test/social/replies");
-    expect(r).toEqual({ ok: true, doc: { automations: [], log: [] } });
+    expect(r).toEqual({ ok: true, doc: { automations: [], log: [], paused: false } });
     expect(await repliesList(null)).toEqual({ ok: false, error: { type: "unconfigured" } });
   });
 
@@ -240,7 +278,7 @@ describe("Worker calls", () => {
     expect(poll.mock.calls[0][0]).toBe("https://scout.test/social/replies/poll");
     expect(r).toEqual({
       ok: true,
-      doc: { automations: [], log: [] },
+      doc: { automations: [], log: [], paused: false },
       outcome: { checked: 2, sent: 2, failed: 0 },
     });
 
@@ -252,5 +290,83 @@ describe("Worker calls", () => {
       }),
     });
     expect(locked).toMatchObject({ ok: true, outcome: { checked: 0, sent: 0, skipped: "locked" } });
+  });
+});
+
+describe("the reply as the Worker builds it", () => {
+  it("routes links through /go, puts «تابعني» last, and writes the plain-text form", () => {
+    const a = reply({ followButton: true });
+    expect(messageButtons(a, "https://w.test", "3z.prod")).toEqual([
+      { title: "حمل اللت", url: "https://w.test/go/lut/0" },
+      { title: "تابعني", url: "https://www.instagram.com/3z.prod/" },
+    ]);
+    expect(textBody("هلا", [{ title: "أ", url: LUT }])).toBe(`هلا\n\nأ: ${LUT}`);
+  });
+
+  it("counts the bytes left like the Worker's dmFits (Arabic letters are two bytes)", () => {
+    expect(dmBytesLeft(reply({ buttons: [], dmText: "ل".repeat(500) }), "https://w.test")).toBe(0);
+    expect(dmBytesLeft(reply({ buttons: [], dmText: "ل".repeat(501) }), "https://w.test")).toBe(-2);
+  });
+
+  it("firstMatch answers DMs with the oldest message rule only", () => {
+    const comment = reply({ id: "c", keywords: ["كاميرا"] });
+    const newer = reply({
+      id: "new",
+      trigger: "message",
+      keywords: ["كاميرا"],
+      createdAt: "2026-10-02T00:00:00Z",
+    });
+    const older = reply({
+      id: "old",
+      trigger: "message",
+      keywords: ["كاميرا"],
+      createdAt: "2026-10-01T00:00:00Z",
+    });
+    expect(firstMatch("كاميرا؟", [comment, newer, older], "message")?.id).toBe("old");
+    expect(firstMatch("كاميرا؟", [comment, newer, older])?.id).toBe("c");
+  });
+
+  it("checks the default reply like the Worker", () => {
+    expect(defaultReplyProblems({ enabled: true, text: " " })).toEqual([{ code: "noDm" }]);
+    expect(defaultReplyProblems({ enabled: false, text: "" })).toEqual([]);
+    expect(defaultReplyProblems({ enabled: true, text: "ل".repeat(501) })).toEqual([
+      { code: "dmTooLong" },
+    ]);
+  });
+});
+
+describe("repliesSettings", () => {
+  it("posts the settings and answers with the fresh document", async () => {
+    const fetchImpl = replying({ automations: [], log: [], paused: true, guard: "slow" });
+    const r = await repliesSettings(CONFIG, { paused: true }, { fetchImpl });
+    expect(r).toMatchObject({ ok: true, doc: { paused: true, guard: "slow" } });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(String(url)).toBe("https://scout.test/social/replies/settings");
+    expect(JSON.parse(String(init?.body))).toEqual({ paused: true });
+  });
+
+  it("reads a v2 document: default reply with its counters, log kinds", async () => {
+    const doc = parseRepliesDoc({
+      automations: [],
+      log: [
+        {
+          at: "t",
+          kind: "default",
+          automationId: "default",
+          messageId: "d1",
+          text: "هلا",
+          publicReply: "skipped",
+          dm: "sent",
+        },
+      ],
+      paused: false,
+      defaultReply: { enabled: true, text: "وصلت رسالتك", stats: { sends: 3 } },
+      ownerUsername: "3z.prod",
+    });
+    expect(doc).toMatchObject({
+      log: [{ kind: "default", messageId: "d1" }],
+      defaultReply: { enabled: true, stats: { sends: 3, clicks: 0 } },
+      ownerUsername: "3z.prod",
+    });
   });
 });
