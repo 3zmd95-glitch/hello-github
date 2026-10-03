@@ -115,6 +115,9 @@ export async function savePicks(
   const picks = inputs.map((x) => pickFromInput(x, savedAt)).filter((p): p is Pick => !!p);
   const topicKey = topicKeyOf(topic);
   if (!env.SOCIAL_KV) return { topicKey, saved: 0, rejected: inputs.length };
+  const rejected = inputs.length - picks.length;
+  // No valid post: nothing is read or written (only an explicit replace with no items clears the topic).
+  if (!picks.length && (inputs.length > 0 || !replace)) return { topicKey, saved: 0, rejected };
   const doc = await readDoc(env);
   const seen = new Set<string>();
   const items = [...picks, ...(replace ? [] : (doc[topicKey]?.items ?? []))]
@@ -122,11 +125,14 @@ export async function savePicks(
     .slice(0, MAX_PICKS);
   doc[topicKey] = { topicKey, topic: topic.trim().slice(0, 100), savedAt, items };
   const kept = Object.values(doc)
+    .filter((t) => t.items.length > 0) // a topic is never stored empty
     .sort((a, b) => b.savedAt.localeCompare(a.savedAt))
     .slice(0, MAX_TOPICS);
   await env.SOCIAL_KV.put(
     PICKS_KEY,
     JSON.stringify(Object.fromEntries(kept.map((t) => [t.topicKey, t]))),
   );
-  return { topicKey, saved: picks.length, rejected: inputs.length - picks.length };
+  // What was stored: a post sent twice, or past the 20, is not.
+  const sent = new Set(picks);
+  return { topicKey, saved: items.filter((p) => sent.has(p)).length, rejected };
 }

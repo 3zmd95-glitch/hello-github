@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { handle, type Env } from "../scout";
+import { savePicks } from "./picks";
 import { parseDiscoverBody } from "./routes";
 
 const TOKEN = "s3cret-token";
@@ -127,12 +128,28 @@ describe("/discover routes", () => {
     expect(((await res.json()) as { tavily: unknown }).tavily).toEqual({ used: 5, limit: 1000 });
   });
 
-  it("serves Claude's picks", async () => {
-    const res = await handle(req("/discover/picks?topic=flash"), ENV, undefined, {
+  it("serves Claude's picks for the topic asked", async () => {
+    const store = new Map<string, string>();
+    const SOCIAL_KV = {
+      async get(key: string) {
+        return store.get(key) ?? null;
+      },
+      async put(key: string, value: string) {
+        store.set(key, value);
+      },
+    } as unknown as KVNamespace;
+    const at = new Date("2026-10-03T09:00:00Z");
+    const pick = (n: number) => [
+      { url: `https://www.tiktok.com/@a/video/${n}`, title: `t${n}`, label: "example" as const },
+    ];
+    await savePicks({ SOCIAL_KV }, "flash", pick(1), false, at);
+    await savePicks({ SOCIAL_KV }, "speed ramp", pick(2), false, at);
+    const res = await handle(req("/discover/picks?topic=flash"), { ...ENV, SOCIAL_KV }, undefined, {
       fetch: vi.fn(),
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ picks: [] });
+    const body = (await res.json()) as { picks: { topicKey: string }[] };
+    expect(body.picks.map((t) => t.topicKey)).toEqual(["flash-transition"]);
   });
 
   it("tells the dashboard it can search the new way", async () => {

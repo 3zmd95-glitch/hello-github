@@ -20,17 +20,20 @@ function fakeKV() {
 }
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-const tavily = () =>
-  vi.fn<typeof fetch>(async (input, init) => {
+const BAD_TOPIC = { error: "bad_topic", message: "The topic needs at least one letter or digit." };
+/** Tavily answering each call with one new TikTok post. */
+const tavily = () => {
+  let n = 0;
+  return vi.fn<typeof fetch>(async (input, init) => {
     if (String(input) !== TAVILY_URL) return json({}, 404);
     const q = String((JSON.parse(String(init?.body)) as { query: string }).query);
+    n += 1;
     return json({
-      results: [
-        { url: `https://www.tiktok.com/@ed/video/${q.length}`, title: `${q} edit`, content: q },
-      ],
+      results: [{ url: `https://www.tiktok.com/@ed/video/${n}`, title: `${q} edit`, content: q }],
       usage: { credits: 1 },
     });
   });
+};
 
 describe("searchVideos", () => {
   it("runs Claude's own queries, counts the lookups and says how many are left", async () => {
@@ -47,8 +50,47 @@ describe("searchVideos", () => {
       },
     );
     expect(out.lookupsLeftToday).toBe(8);
-    expect((out.items as { platform: string }[]).every((i) => i.platform === "tiktok")).toBe(true);
+    const items = out.items as { platform: string; title: string }[];
+    expect(items.map((i) => i.title).sort()).toEqual([
+      "flash cut capcut tutorial edit",
+      "flash transition velocity edit",
+    ]);
+    expect(items.every((i) => i.platform === "tiktok")).toBe(true);
     expect(env.SOCIAL_KV.store.get(usageKeys.connector("2026-10-03"))).toBe("2");
+  });
+
+  it("refuses a topic without a letter or digit before reading or spending anything", async () => {
+    const get = vi.fn();
+    const put = vi.fn();
+    const env = { TAVILY_API_KEY: "k", SOCIAL_KV: { get, put } as unknown as KVNamespace };
+    const fetchMock = tavily();
+    for (const topic of ["🔥🔥", "!!!"]) {
+      expect(await searchVideos(env, { fetch: fetchMock, now: NOW }, { topic }), topic).toEqual(
+        BAD_TOPIC,
+      );
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the day's count can't be read", async () => {
+    const down = {
+      async get() {
+        throw new Error("KV GET failed");
+      },
+    } as unknown as KVNamespace;
+    const fetchMock = tavily();
+    const out = await searchVideos(
+      { TAVILY_API_KEY: "k", SOCIAL_KV: down },
+      { fetch: fetchMock, now: NOW },
+      { topic: "flash" },
+    );
+    expect(out).toEqual({
+      error: "unavailable",
+      message: "Usage counter unavailable, try again in a minute.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("refuses past the day's cap without searching", async () => {
@@ -97,7 +139,7 @@ describe("addConnectorLookups", () => {
 });
 
 describe("getTrends", () => {
-  it("filters the radar's feed by region and genre", async () => {
+  it("filters the radar's feed by region and genre, its web text clipped", async () => {
     const kv = fakeKV();
     await kv.put(
       trendKeys.latest,
@@ -128,6 +170,18 @@ describe("getTrends", () => {
             seenAt: "x",
             tags: [],
           },
+          {
+            id: "c",
+            platform: "youtube",
+            region: "SA",
+            lang: "ar",
+            title: "t".repeat(200),
+            why: "w".repeat(200),
+            source: "YouTube search",
+            seenAt: "x",
+            tags: [],
+            genre: "cars",
+          },
         ],
       }),
     );
@@ -140,6 +194,14 @@ describe("getTrends", () => {
         source: "YouTube search",
         genre: "cars",
         score: 90,
+      },
+      {
+        title: `${"t".repeat(159)}…`,
+        platform: "youtube",
+        region: "SA",
+        source: "YouTube search",
+        genre: "cars",
+        why: `${"w".repeat(159)}…`,
       },
     ]);
   });
@@ -167,5 +229,21 @@ describe("save / get picks", () => {
     expect((await readPicks(env, "flash"))[0].items[0].note).toBe("watch 0:03");
     const got = await getPicksTool(env, { topic: "flash" });
     expect((got.picks as unknown[]).length).toBe(1);
+  });
+
+  it("refuses a topic without a letter or digit, writing nothing", async () => {
+    const get = vi.fn();
+    const put = vi.fn();
+    const out = await savePicksTool(
+      { SOCIAL_KV: { get, put } as unknown as KVNamespace },
+      { fetch: vi.fn(), now: NOW },
+      {
+        topic: "🔥🔥",
+        items: [{ url: "https://www.tiktok.com/@ed/video/1", title: "x", label: "example" }],
+      },
+    );
+    expect(out).toEqual(BAD_TOPIC);
+    expect(get).not.toHaveBeenCalled();
+    expect(put).not.toHaveBeenCalled();
   });
 });

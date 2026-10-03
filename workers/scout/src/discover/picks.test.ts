@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
-import { MAX_PICKS, PICKS_KEY, pickFromInput, readPicks, savePicks, topicKeyOf } from "./picks";
+import { describe, expect, it, vi } from "vitest";
+import {
+  MAX_PICKS,
+  MAX_TOPICS,
+  PICKS_KEY,
+  pickFromInput,
+  readPicks,
+  savePicks,
+  topicKeyOf,
+} from "./picks";
 import { planSearch } from "./plan";
 
 const NOW = new Date("2026-10-03T09:00:00Z");
@@ -14,6 +22,26 @@ function fakeKV() {
       store.set(key, value);
     },
   } as unknown as KVNamespace & { store: Map<string, string> };
+}
+
+/** 50 stored topics "topic 0".."topic 49"; "topic 0" is the oldest, yet stored last. */
+function fullKV() {
+  const kv = fakeKV();
+  const topics = Array.from({ length: MAX_TOPICS }, (_, i) => {
+    const t = MAX_TOPICS - 1 - i;
+    const topicKey = `topic ${t}`;
+    const savedAt = new Date(Date.UTC(2026, 9, 1, 0, t)).toISOString();
+    const item = {
+      url: `https://www.tiktok.com/@a/video/${t + 1}`,
+      platform: "tt",
+      title: topicKey,
+      label: "example",
+      savedAt,
+    };
+    return [topicKey, { topicKey, topic: topicKey, savedAt, items: [item] }];
+  });
+  kv.store.set(PICKS_KEY, JSON.stringify(Object.fromEntries(topics)));
+  return kv;
 }
 
 describe("pickFromInput", () => {
@@ -124,17 +152,65 @@ describe("savePicks / readPicks", () => {
     expect(JSON.parse(env.SOCIAL_KV.store.get(PICKS_KEY)!)["speed-ramp"].topic).toBe("speed ramp");
   });
 
-  it("replaces when asked and caps the list", async () => {
+  it("replaces when asked, caps the list and counts only what it kept", async () => {
     const env = { SOCIAL_KV: fakeKV() };
     const many = Array.from({ length: MAX_PICKS + 5 }, (_, i) => ({
       url: `https://www.tiktok.com/@a/video/${i + 1}`,
       title: `t${i}`,
       label: "example" as const,
     }));
-    await savePicks(env, "flash", many, false, NOW);
-    expect((await readPicks(env, "flash"))[0].items).toHaveLength(MAX_PICKS);
-    await savePicks(env, "flash", many.slice(0, 1), true, NOW);
-    expect((await readPicks(env, "flash"))[0].items).toHaveLength(1);
+    expect(await savePicks(env, "flash", many, false, NOW)).toMatchObject({
+      saved: MAX_PICKS,
+      rejected: 0,
+    });
+    expect((await readPicks(env, "flash"))[0].items.map((i) => i.title)).toEqual(
+      many.slice(0, MAX_PICKS).map((m) => m.title),
+    );
+    // The same post twice in one call is kept once.
+    expect(await savePicks(env, "flash", [many[24], many[24]], true, NOW)).toMatchObject({
+      saved: 1,
+    });
+    expect((await readPicks(env, "flash"))[0].items.map((i) => i.title)).toEqual(["t24"]);
+    // An explicit replace with no items clears the topic: a topic is never stored empty.
+    await savePicks(env, "flash", [], true, NOW);
+    expect(await readPicks(env, "flash")).toEqual([]);
+  });
+
+  it("keeps 50 topics at most, dropping the oldest by savedAt", async () => {
+    const env = { SOCIAL_KV: fullKV() };
+    const pick = {
+      url: "https://www.tiktok.com/@b/video/9",
+      title: "x",
+      label: "example" as const,
+    };
+    await savePicks(env, "bokeh balls", [pick], false, NOW);
+    const keys = (await readPicks(env)).map((t) => t.topicKey);
+    expect(keys).toHaveLength(MAX_TOPICS);
+    expect(keys[0]).toBe("bokeh ball");
+    expect(keys).not.toContain("topic 0");
+    expect(keys.at(-1)).toBe("topic 1");
+  });
+
+  it("writes nothing when every link is refused", async () => {
+    const kv = fullKV();
+    const before = kv.store.get(PICKS_KEY);
+    const put = vi.spyOn(kv, "put");
+    // A profile and a short link: neither is one post.
+    const refused = [
+      { url: "https://www.tiktok.com/@a", title: "profile", label: "example" as const },
+      { url: "https://vm.tiktok.com/ZMabc/", title: "short link", label: "example" as const },
+    ];
+    for (const topic of ["topic 3", "bokeh balls"]) {
+      for (const replace of [false, true]) {
+        expect(await savePicks({ SOCIAL_KV: kv }, topic, refused, replace, NOW)).toEqual({
+          topicKey: topicKeyOf(topic),
+          saved: 0,
+          rejected: 2,
+        });
+      }
+    }
+    expect(put).not.toHaveBeenCalled();
+    expect(kv.store.get(PICKS_KEY)).toBe(before);
   });
 
   it("reads nothing without KV", async () => {

@@ -11,7 +11,7 @@ import { riyadhDay } from "../social/time";
 import { latestFeed } from "../trends/kv";
 import { readPicks, savePicks, type PickInput } from "./picks";
 import { keptAnswer, runDiscover } from "./run";
-import type { Lang } from "./terms";
+import { normalizeTerm, type Lang } from "./terms";
 import type { DiscoverRequest, Intent } from "./types";
 import { connectorCap, connectorUsedToday, usageKeys, type UsageEnv } from "./usage";
 
@@ -33,6 +33,8 @@ export interface SearchInput {
 }
 
 const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+/** The rule of `parseDiscoverBody`: symbols or emoji only ("🔥🔥", "!!!") leave no word to search or key by. */
+const BAD_TOPIC = "The topic needs at least one letter or digit.";
 
 /** Best-effort: KV takes one write per key a second, so a count that can't be kept never fails the tool call. */
 export async function addConnectorLookups(env: UsageEnv, n: number, now: Date): Promise<void> {
@@ -52,8 +54,13 @@ export async function searchVideos(
   deps: ToolDeps,
   input: SearchInput,
 ): Promise<Record<string, unknown>> {
+  if (!normalizeTerm(input.topic)) return { error: "bad_topic", message: BAD_TOPIC };
   const cap = connectorCap(env);
-  const used = await connectorUsedToday(env, deps.now);
+  // Fail closed: a count that can't be read could spend past the cap.
+  const used = await connectorUsedToday(env, deps.now).catch(() => null);
+  if (used === null) {
+    return { error: "unavailable", message: "Usage counter unavailable, try again in a minute." };
+  }
   const req: DiscoverRequest = {
     q: input.topic,
     ...(input.exact ? { exact: true } : {}),
@@ -121,7 +128,7 @@ export async function getTrends(
     )
     .slice(0, limit)
     .map((r) => ({
-      title: r.title,
+      title: clip(r.title, 160),
       platform: r.platform,
       region: r.region,
       ...(r.url ? { url: r.url } : {}),
@@ -129,7 +136,7 @@ export async function getTrends(
       ...(r.genre ? { genre: r.genre } : {}),
       ...(r.score !== undefined ? { score: r.score } : {}),
       ...(r.volume !== undefined ? { volume: r.volume } : {}),
-      ...(r.why ? { why: r.why } : {}),
+      ...(r.why ? { why: clip(r.why, 160) } : {}),
     }));
   return { fetchedAt: feed.fetchedAt, items };
 }
@@ -139,6 +146,7 @@ export async function savePicksTool(
   deps: ToolDeps,
   input: { topic: string; items: PickInput[]; replace?: boolean },
 ): Promise<Record<string, unknown>> {
+  if (!normalizeTerm(input.topic)) return { error: "bad_topic", message: BAD_TOPIC };
   const r = await savePicks(env, input.topic, input.items, !!input.replace, deps.now);
   return { ...r, where: `Discover → search "${input.topic}" (⭐ Claude's picks)` };
 }
