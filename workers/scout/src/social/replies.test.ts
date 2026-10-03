@@ -1210,6 +1210,33 @@ describe("pollReplies", () => {
     await pollReplies(env, { fetch: mockFetch(igRoutes().routes), now: NOW });
     expect((await stateOf(env)).sent).toEqual({ mid1: { to: "uc1", at: NOW.toISOString() } });
   });
+
+  it("reads a state saved before round 34 (no sent ids) and records its sends in it", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    await Store.from(env)!.putRepliesState({ v: 1, watch: {}, handled: {}, retries: {}, stats: {}, log: [] });
+    await pollReplies(env, { fetch: mockFetch(igRoutes().routes), now: NOW });
+    expect((await stateOf(env)).sent).toEqual({ mid1: { to: "uc1", at: NOW.toISOString() } });
+  });
+
+  it("drops expired send ids without a write of their own (an idle poll writes nothing)", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    const old = new Date(NOW.getTime() - 25 * 3_600_000).toISOString();
+    // Nothing new: the account is known, the post's count is the one last seen, the hourly full scan is not due.
+    await seed(env, [input()], {
+      igUserId: "17841",
+      ownerUsername: "3z.prod",
+      watch: { m1: { count: 3, seenAt: NOW.toISOString() } },
+      lastFullScanAt: NOW.toISOString(),
+      sent: { mid0: { to: "p0", at: old } },
+    });
+    const writes = env.SOCIAL_KV.writes;
+    const r = await pollReplies(env, { fetch: mockFetch(igRoutes().routes), now: NOW });
+    expect(r).toEqual({ checked: 0, sent: [], failed: [] });
+    expect(env.SOCIAL_KV.writes).toBe(writes);
+  });
 });
 
 /* ---------- cron ---------- */

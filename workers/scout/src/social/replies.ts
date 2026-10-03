@@ -807,11 +807,9 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
       changed = true;
     }
   }
+  // Expired send ids leave with the next real write: dropping them alone writes nothing (an idle poll stays idle).
   for (const [mid, s] of Object.entries(state.sent)) {
-    if (now.getTime() - Date.parse(s.at) > SENT_TTL_MS) {
-      delete state.sent[mid];
-      changed = true;
-    }
+    if (now.getTime() - Date.parse(s.at) > SENT_TTL_MS) delete state.sent[mid];
   }
   await save();
   return result;
