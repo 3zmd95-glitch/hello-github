@@ -1,5 +1,7 @@
 # 13 · Discover search v2, and the Claude connector (MCP)
 
+**Status:** Part A (in-app search) built on branch claude/discover-search-v2; Part B (connector) next.
+
 Owner, round 33 (Oct 3, 2026, with screenshots of "flash" finding nothing on Instagram, Beacons' Discover Trends and the
 Obsidian note "Social Media (Categories)"): "plan today the work on discover page in all aspects… browse beacons.ai discover
 trends plus we work better on our search… maybe a panel that analyze editors". Later the same day: "I want to have mcp so I
@@ -108,10 +110,22 @@ flash (photography), and others the owner names.
 }
 ```
 
-- **Matching**: lower case, Arabic normalized (diacritics, tatweel, alef / yaa forms: the auto-replies matcher's rules),
-  whole words. The longest match wins; every other entry that matches the same word becomes a **Not this?** chip.
-- **Unknown words** (no entry): examples "<topic> edit", tutorials "<topic> tutorial", Arabic "شرح <topic> مونتاج"; on-topic
-  needs only the topic's words.
+- **Matching** (`normalizeTerm` in `workers/scout/src/discover/terms.ts`): whole words, both sides (what was typed and
+  every synonym) in one form: the auto-replies matcher's `normalizeForMatch` (lower case; Arabic diacritics and tatweel
+  dropped; alef / yaa forms unified; punctuation and emoji as spaces), then ة as ه, then per word a leading "ال" dropped
+  and a plural dropped: the English "s" after 4+ characters (not "ss"), the Arabic "ات". So "الشاشه", "transitions" and
+  "انتقالات" match. The longest matched synonym wins (ties: file order); every other entry that matched becomes a
+  **Not this?** chip, then "search exactly".
+- **Generic entries** (`generic: true`: the catch-all "smooth transitions", matched by "transitions") win only when
+  nothing specific matched, and are never offered as another meaning under **Not this?**. The one exception is an exact
+  search: its single chip back to the dictionary is the entry its words match, generic or not (no match, no chip).
+- **Intent and filler words** are ignored (`INTENT_WORDS`): edit(s), editing, video(s), tutorial(s), how, to, guide,
+  reel(s), tiktok, instagram, youtube, شرح, طريقة, كيف, ايديت, مونتاج, فيديو, تعليم, درس, تعلم; for, the, with, in, on,
+  of, a, an, and, my, me, ابغى, ابي, ابغا, اسوي, عن, في, حق, على, من. The other typed words the match did not cover go on
+  the entry's queries ("speed ramp cars" → "speed ramp edit cars"); with no entry matched and only such words typed,
+  the typed words are the topic.
+- **Unknown words** (no entry): examples "<topic> edit", tutorials "<topic> tutorial", Arabic "شرح <topic>" (its retry:
+  "ايديت <topic>"); on-topic needs only the topic's words.
 - **Exact** ("search exactly 'flash'"): the typed words only, no dictionary, no editing words, nothing hidden.
 - A genre chip adds the genre's main query to the examples searches; the program ("+ DaVinci Resolve") goes on the tutorial
   searches (`withProgramHint`).
@@ -126,18 +140,26 @@ flash (photography), and others the owner names.
 2. **Fetch** (`run.ts`), all at once:
    - Tavily `search` per TikTok / Instagram query: `max_results: 20`, `search_depth: "basic"`, `include_published_date:
      true`, `include_usage: true`, `include_domains` the platform, `language` the query's, `country: "saudi arabia"` for
-     Arabic. A call that yields no post card is **retried once** with the entry's other query of that language (or
-     "<topic> video"); at most two retries a search.
+     Arabic. A call that answers with no post card is **retried once** with new words: examples en "<name> video",
+     tutorials en "how to <name>" (`<name>`: the entry's English label plus the other typed words, else the topic's
+     words; no genre or program), tutorials ar the Arabic examples query. A retry that would repeat words already
+     planned on that platform is dropped; YouTube has no retries; at most two retries a search.
    - YouTube `search.list` (Worker's `YOUTUBE_API_KEY`; Arabic: `regionCode=SA`, `relevanceLanguage=ar`), then one
      `videos.list` for the numbers of every YouTube card (1 unit).
    - Profile pages (`tiktok.com/@user`, `instagram.com/<user>/`, `youtube.com/@channel`), dropped by `normalizeHits` today,
      are kept as **creator candidates**.
-3. **Label** (`label.ts`): a card is a **Tutorial** when its title or snippet says so (tutorial, how to, guide, step by step,
-   explained, breakdown, شرح, طريقة, كيف, تعلم, درس, خطوات), else it takes its query's intent. It is **off-topic** when it
-   mentions none of the entry's words, or (entry `specific: false`) none of the editing words (edit, transition, effect,
-   capcut, davinci, premiere, after effects, cut, مونتاج, ايديت, تأثير, انتقال, كاب كت, دافنشي).
-4. **Creators**: cards grouped by platform + handle (cards without a handle are left out), ranked by on-topic cards, then
-   total views; profile-page candidates join with their link; top 8.
+3. **Label** (`label.ts`): a card is a **Tutorial** when its title or snippet says so (`TUTORIAL_RE`: tutorial(s),
+   how to, how-to, guide, step by step, explained, breakdown, learn, lesson; and in Arabic شرح, طريقة / طريقه, كيف, تعلم,
+   درس, خطوات, تعليم as whole words that may carry a prefix و ف ب ل ال بال وال لل, so "بطريقه" and "الشرح" count, "مدرسه"
+   and "كيفك" do not), else it takes its query's intent. It is **off-topic** when it mentions none of the entry's words,
+   or (entry `specific: false`) neither an editing word (`EDITING_WORDS`: edit(s), editing, editor, transition(s),
+   effect(s), capcut, davinci, premiere, after effects, final cut, cut, vfx, مونتاج, ايديت, تأثير, انتقال, كاب كت,
+   دافنشي, مونتير, فاينل كت) nor a tutorial word: a tutorial word counts as editing context too. Entry and editing words
+   compare whole, in the matching form above.
+4. **Creators**: on-topic cards grouped by platform + the YouTube channel page when the card has one (two channels with
+   one name stay apart), else platform + handle (any case); cards without a handle, or with neither a channel page nor
+   an "@handle" to link the account, are left out. Ranked by on-topic cards, then total views; profile-page candidates
+   follow (count 0) unless that account is already listed; top 8.
 5. **Answer**: one JSON (below). Popular now, the tabs, Show more, Arabic first and the sort are worked out in the browser.
 
 Seam for later: with an Anthropic key, steps 1 and 3 call Claude (plan → queries + alternatives; label → section + on-topic
@@ -187,8 +209,9 @@ interface DiscoverResponse {
   of its queries failed): at most 8 answers and 1,000,000 characters of localStorage, since the app's saved progress
   shares that quota.
   KV, not the Cache API: Cloudflare's docs do not confirm the Cache API on `workers.dev`, and KV is global.
-- **TikTok thumbnails** are no longer fetched inside the search: the card asks `GET /oembed` (already cached a day at the
-  edge) when it scrolls into view. A search makes at most ~16 outbound calls (9 searches, ≤ 2 retries, `videos.list`, KV
+- **TikTok thumbnails** are no longer fetched inside the search: a card without one asks `GET /oembed` (already cached
+  6 hours at the edge for TikTok) once per post per session, when the card is shown (it mounts); a section shows at most
+  6 cards before **Show more**. A search makes at most ~16 outbound calls (9 searches, ≤ 2 retries, `videos.list`, KV
   counters), well under the 50 a free invocation allows.
 
 ### Claude's picks (`src/discover/picks.ts`)

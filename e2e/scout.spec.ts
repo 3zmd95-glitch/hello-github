@@ -69,7 +69,8 @@ interface SearchBody {
 
 interface Calls {
   search: number;
-  oembed: number;
+  /** `GET /oembed` requests, by the post's URL. */
+  oembed: string[];
   bodies: SearchBody[];
   /** Requests to the Trend Radar's routes, as "METHOD /path" (round 31: Discover's "most viewed" strip). */
   trends: string[];
@@ -92,7 +93,7 @@ interface StubOpts {
  * platform crowds out the rest (here: YouTube only), which is why the app never sends one.
  */
 async function stubWorker(page: Page, opts: StubOpts = {}): Promise<Calls> {
-  const calls: Calls = { search: 0, oembed: 0, bodies: [], trends: [] };
+  const calls: Calls = { search: 0, oembed: [], bodies: [], trends: [] };
   await page.route(`${WORKER}/**`, async (route) => {
     const req = route.request();
     const { pathname } = new URL(req.url());
@@ -125,12 +126,15 @@ async function stubWorker(page: Page, opts: StubOpts = {}): Promise<Calls> {
       return json({ results, credits: { used: 1 } });
     }
     if (pathname === "/oembed") {
-      calls.oembed++;
+      const url = new URL(req.url()).searchParams.get("url") ?? "";
+      calls.oembed.push(url);
+      // A result sent without a picture (its oEmbed had none) has none here either.
+      const sent = RESULTS.find((r) => r.url === url);
       return json({
         title: "Speed ramp + match cut",
         author: "@editor.sam",
-        thumb: `${WORKER}/thumb/oembed.png`,
-        url: new URL(req.url()).searchParams.get("url"),
+        ...(sent && !sent.thumb ? {} : { thumb: `${WORKER}/thumb/oembed.png` }),
+        url,
       });
     }
     if (pathname.startsWith("/trends")) {
@@ -456,7 +460,10 @@ test("skill sheet: Worker results attach to the skill, and a pasted TikTok link 
     "src",
     `${WORKER}/thumb/oembed.png`,
   );
-  expect(calls.oembed).toBe(1);
+  // Looked up once (the result card without a picture asks for its own post as well).
+  expect(
+    calls.oembed.filter((u) => u === "https://www.tiktok.com/@editor.sam/video/42"),
+  ).toHaveLength(1);
 
   // ▶ Watch here (round 32): a saved reference gets a small ▶ button before its ✕; the thumbnail stays a
   // plain picture (YouTube wants 120x70 for a thumbnail that plays) and the row's link stays. It opens the
@@ -624,7 +631,7 @@ test("an expired TikTok thumbnail is swapped for a fresh one from oEmbed, asked 
   const tt = card(page, "tt").filter({ hasText: "Match cut in 10 seconds" });
   await tt.scrollIntoViewIfNeeded(); // (thumbnails load lazily)
   await expect(tt.getByTestId("result-thumb")).toHaveAttribute("src", `${WORKER}/thumb/oembed.png`);
-  expect(calls.oembed).toBe(1);
+  expect(calls.oembed.filter((u) => u === RESULTS[0].url)).toHaveLength(1);
 });
 
 /* ---------- 🎬 edit genres and the "Most popular" sort (round 31) ---------- */
@@ -1260,7 +1267,7 @@ test("▶ Watch here: a post card's poster is a ▶ that opens the player, and I
   await expect(poster).toContainText("@cutsbyfaisal");
   await expect(poster).toContainText("Match cut reel");
   await expect(poster).toContainText("انستقرام ما يعطي صورة معاينة. اضغط وتفرّج.");
-  // A thumb-less TikTok keeps its glyph tile under the ▶.
+  // A thumb-less TikTok (no picture on oEmbed either) keeps its glyph tile under the ▶.
   const bare = card(page, "tt").filter({ hasText: "ماتش كت بالجوال" });
   await expect(bare.getByTestId("result-thumb-placeholder")).not.toHaveAttribute("data-poster");
   await expect(bare.getByTestId("result-play-badge")).toBeVisible();
