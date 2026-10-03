@@ -17,6 +17,7 @@ const SOCIAL_PATHS = [
   "/social/website/",
   "/social/business/",
   "/social/automations/",
+  "/social/replies/",
 ];
 
 describe("normalizePath", () => {
@@ -51,6 +52,16 @@ describe("Social navigation", () => {
     // The same entry as in Training (one name and one icon for one place).
     const training = NAV_ITEMS.find((i) => i.href === "/discover");
     expect(training).toMatchObject({ icon: discover[0].icon, label: discover[0].label });
+  });
+
+  it("lists 💬 Auto replies in the Social desktop sidebar, before the last three", () => {
+    expect(SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/replies")).toEqual({
+      href: "/social/replies",
+      icon: "💬",
+      label: "nav.replies",
+      desktopOnly: true,
+    });
+    expect(activeHref(SOCIAL_NAV_ITEMS, "/social/replies/")).toBe("/social/replies");
   });
 
   it("keeps the phone tab bar at the five Social tabs", () => {

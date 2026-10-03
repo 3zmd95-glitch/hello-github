@@ -23,7 +23,9 @@ interface Automation {
   postId: string | null;
   keywords: string[];
   match: string;
-  publicReply: string;
+  trigger: string;
+  publicReplies: string[];
+  followButton: boolean;
   dmText: string;
   buttons: { title: string; url: string }[];
   stats: { sends: number; publicReplies: number; failures: number; clicks: number };
@@ -36,6 +38,9 @@ interface Fake {
   deleted: string[];
   polls: number;
   connects: { platform: string; publish?: boolean; replies?: boolean }[];
+  paused: boolean;
+  defaultReply?: { enabled: boolean; text: string; stats: Automation["stats"] };
+  settings: Record<string, unknown>[];
 }
 
 async function stubWorker(page: Page): Promise<Fake> {
@@ -57,12 +62,17 @@ async function stubWorker(page: Page): Promise<Fake> {
     deleted: [],
     polls: 0,
     connects: [],
+    paused: false,
+    settings: [],
   };
   const doc = () => ({
     automations: [...fake.automations.values()],
     log: [],
     origin: WORKER,
     lastPollAt: "2026-09-29T09:00:00.000Z",
+    paused: fake.paused,
+    ...(fake.defaultReply ? { defaultReply: fake.defaultReply } : {}),
+    ownerUsername: "3z.prod",
   });
   await page.route(`${WORKER}/**`, async (route) => {
     const req = route.request();
@@ -121,8 +131,27 @@ async function stubWorker(page: Page): Promise<Fake> {
       fake.automations.set(automation.id, automation);
       return json({ automation });
     }
+    if (url.pathname === "/social/replies/settings" && req.method() === "POST") {
+      const body = JSON.parse(req.postData() || "{}") as {
+        paused?: boolean;
+        defaultReply?: { enabled: boolean; text: string };
+      };
+      fake.settings.push(body);
+      if (typeof body.paused === "boolean") fake.paused = body.paused;
+      if (body.defaultReply) {
+        fake.defaultReply = {
+          ...body.defaultReply,
+          stats: fake.defaultReply?.stats ?? { sends: 0, publicReplies: 0, failures: 0, clicks: 0 },
+        };
+      }
+      return json(doc());
+    }
     if (url.pathname === "/social/replies/poll" && req.method() === "POST") {
       fake.polls += 1;
+      // Like the Worker: a paused poll does nothing and says why.
+      if (fake.paused) {
+        return json({ result: { checked: 0, sent: [], failed: [], skipped: "paused" }, ...doc() });
+      }
       return json({ result: { checked: 2, sent: ["c1"], failed: [] }, ...doc() });
     }
     const del = /^\/social\/replies\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
@@ -168,15 +197,19 @@ test("allow auto-replies in Settings, build the LUT automation, test it, read se
   const ig = page.locator('[data-testid="account-row"][data-platform="instagram"]');
   await expect(ig.getByTestId("account-allow-replies")).toBeVisible();
   await expect(
-    page.locator('[data-testid="account-row"][data-platform="tiktok"]').getByTestId("account-allow-replies"),
+    page
+      .locator('[data-testid="account-row"][data-platform="tiktok"]')
+      .getByTestId("account-allow-replies"),
   ).toHaveCount(0);
   fake.status.instagram = { ...fake.status.instagram, canReply: true };
   await ig.getByTestId("account-allow-replies").click();
-  await expect.poll(() => fake.connects).toContainEqual({
-    platform: "instagram",
-    publish: true,
-    replies: true,
-  });
+  await expect
+    .poll(() => fake.connects)
+    .toContainEqual({
+      platform: "instagram",
+      publish: true,
+      replies: true,
+    });
   await expect(page).toHaveURL(/connected=instagram/);
   // "Sync now" pulls the status again (the fake now says the permission is there).
   await page.getByTestId("accounts-sync").click();
@@ -213,21 +246,27 @@ test("allow auto-replies in Settings, build the LUT automation, test it, read se
     title: "T&O LUT reel",
     keywords: ["لت", "LUT"],
     match: "contains",
-    publicReply: "أرسلته لك على الخاص 🎬",
+    trigger: "comment",
+    publicReplies: ["أرسلته لك على الخاص 🎬"],
+    followButton: false,
     dmText: "حمل اللت من الرابط تحت وجربه على لقطاتك",
     buttons: [{ title: "حمل اللت", url: LUT }],
   });
   const id = String(fake.saved[0].id);
-  const row = page.locator(`[data-testid="autoreply-row"][data-id="${id}"]`);
+  const row = page.locator(`[data-testid="autoreply-row"][data-id="${id}"]:visible`);
   await expect(row).toHaveAttribute("data-enabled", "true");
   await expect(row.getByTestId("autoreply-sends")).toHaveText("0");
   await expect(row.getByTestId("autoreply-keyword")).toHaveCount(2);
 
   // The tester runs the same matcher.
+  await page.getByTestId("autoreplies-tester-open").click();
   await page.getByTestId("autoreplies-tester-input").fill("ابغى اللت 🙏");
   await expect(page.getByTestId("autoreplies-tester-result")).toHaveAttribute("data-match", "true");
   await page.getByTestId("autoreplies-tester-input").fill("حلو 🔥");
-  await expect(page.getByTestId("autoreplies-tester-result")).toHaveAttribute("data-match", "false");
+  await expect(page.getByTestId("autoreplies-tester-result")).toHaveAttribute(
+    "data-match",
+    "false",
+  );
 
   // "Check now" reads the fresh counters back.
   fake.automations.get(id)!.stats = { sends: 3, publicReplies: 3, failures: 0, clicks: 1 };
@@ -242,6 +281,7 @@ test("allow auto-replies in Settings, build the LUT automation, test it, read se
   await row.getByTestId("autoreply-toggle").click();
   await expect.poll(() => fake.saved.at(-1)?.enabled).toBe(false);
   await expect(row).toHaveAttribute("data-enabled", "false");
+  await row.getByTestId("autoreply-menu").click();
   await row.getByTestId("autoreply-delete").click();
   await page.getByTestId("confirm-ok").click();
   await expect.poll(() => fake.deleted).toEqual([id]);
@@ -254,4 +294,52 @@ test("without a Worker the screen says where to set it up", async ({ page }) => 
   await expect(page.getByTestId("autoreplies-new")).toHaveCount(0);
   await page.goto("/social/more/");
   await expect(page.getByTestId("more-replies")).toHaveAttribute("href", /\/social\/replies\/?$/);
+});
+
+test("pause all, and the default reply with its size check", async ({ page }) => {
+  const fake = await stubWorker(page);
+  fake.status.instagram = { ...fake.status.instagram, canReply: true };
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  await page.goto("/social/replies/");
+  const status = page.getByTestId("autoreplies-can-reply");
+  await expect(status).toHaveAttribute("data-status", "live");
+
+  await page.getByTestId("autoreplies-pause").click();
+  await expect.poll(() => fake.settings.at(-1)).toEqual({ paused: true });
+  await expect(status).toHaveAttribute("data-status", "paused");
+  // "Check now" while paused says why nothing was checked.
+  await page.getByTestId("autoreplies-check").click();
+  await expect(page.getByTestId("autoreplies-notice")).toHaveText(
+    "الردود موقّفة؛ شغّلها عشان نفحص.",
+  );
+
+  // The default reply is off until it has a text; switching it on opens its editor with a suggestion.
+  const row = page.locator('[data-testid="autoreply-default-row"]:visible');
+  await expect(row).toHaveAttribute("data-enabled", "false");
+  await row.getByTestId("autoreply-toggle").click();
+  await expect(page.getByTestId("default-reply-editor")).toBeVisible();
+  await expect(page.getByTestId("default-reply-text")).not.toHaveValue("");
+  await page.getByTestId("default-reply-text").fill("ل".repeat(501));
+  await expect(page.getByTestId("default-reply-left")).toContainText("1");
+  await page.getByTestId("default-reply-save").click();
+  await expect(page.getByTestId("default-reply-problems")).toBeVisible();
+  expect(fake.settings).toHaveLength(1);
+  await page.getByTestId("default-reply-text").fill("وصلت رسالتك 🙏");
+  await page.getByTestId("default-reply-save").click();
+  await expect
+    .poll(() => fake.settings.at(-1))
+    .toEqual({ defaultReply: { enabled: true, text: "وصلت رسالتك 🙏" } });
+  await expect(row).toHaveAttribute("data-enabled", "true");
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("desktop: 💬 Auto replies is in the Social sidebar", async ({ page, isMobile }) => {
+  test.skip(isMobile, "the sidebar is desktop only");
+  await freshState(page, "/social/growth/");
+  const link = page.getByTestId("sidenav").locator('a[href="/social/replies/"]');
+  await expect(link).toBeVisible();
+  await link.click();
+  await expect(page).toHaveURL(/\/social\/replies\/$/);
+  await expect(page.getByTestId("autoreplies-screen")).toBeVisible();
 });
