@@ -74,6 +74,13 @@ Full tables with links, verification notes and reasons are in `08-trends.md`; th
 | Hosted | ManyChat, LinkDM, Beacons Smart Reply ($10–15/month) | Beacons' builder copied field by field (`10-auto-replies.md`). |
 | Direct official API | Instagram comments + private replies (`/{comment-id}/replies`, `/{ig-user-id}/messages` with `comment_id`) | **Adopted** in the Scout Worker (`replies.ts`). |
 
+## 2026-10-03 · auto replies v2 (round 34, "I want our version")
+
+| Looked at | Found | Decision |
+| --- | --- | --- |
+| Workers comment → DM projects | [chatmany](https://github.com/ryanlaiyanip-ctrl/chatmany), [ig-comment-dm](https://github.com/CharanMN7/ig-comment-dm), [ig-autodm-worker](https://github.com/aldoprianandi/ig-autodm-worker), [ig-harness-oss](https://github.com/Shudesu/ig-harness-oss) (all MIT, 2026, D1) | Reference for logic only (new, few users, D1 and their own dashboards). Details in `14-auto-replies-v2.md`. |
+| Hosted | ManyChat (Free / $17 / $39 a month), Metricool Flows (from $20 a month), Meta Business Suite automations (free) | ManyChat and Beacons are the feature and UX models; Business Suite is Plan B if the Live test fails. ManyChat's follow gate is not copied (Meta's like/share-gating rule). |
+
 ## 2026-09-29 · Discover by edit genre (round 31)
 
 Full table in `11-discover-genres.md`. Short form:

@@ -50,7 +50,7 @@ Legend: ✅ built and live · 🟡 partly there · ⬜ to do · 🚫 not doing (
 | --- | --- | --- | --- |
 | Inbox: comments from all networks in one list | — | ⬜ C1 | IG / Threads / YouTube comments by API; TikTok comments are not in the public API |
 | Reply from the dashboard | — | ⬜ C1 | Same scopes as C1 plus reply permissions |
-| Smart Reply (comment keyword → DM with a link) | 💬 Auto replies (`/social/replies/`) | 🟡 **C2** built (Sep 29) | Instagram: public reply + private DM with the links as lines, sends/clicks/CTR, tester, log; polling every 5 min (no webhooks without a Live app). Not yet: follow-first, nudge, email ask, real buttons. Spec: `10-auto-replies.md` |
+| Smart Reply (comment keyword → DM with a link) | 💬 Auto replies (`/social/replies/`) | 🟡 **C2** built (Sep 29) | Instagram: public reply + private DM with the links as lines, sends/clicks/CTR, tester, log; polling every 5 min (no webhooks without a Live app). Not yet: follow-first, nudge, email ask, real buttons. Spec: `10-auto-replies.md`. **v2 designed (round 34):** DMs, story replies, default reply, buttons, a follow invite (no follow gate: Meta's spam rules), every-minute polling; spec `14-auto-replies-v2.md` |
 
 ### Beacons: link in bio, brand deals, money
 

@@ -542,6 +542,19 @@ Round 32 (Sep 29, 2026; owner: "why instagram doesn't show thumbnail plus i want
   pre-check; messages accepted only from the player's origin and the sheet's own frame; a `frame-src` CSP.
 - From this round on every executing agent runs on Opus 5.5 (owner's instruction); planning stays with the session model.
 
+Round 34 (Oct 3, 2026; owner: "I want us to work on auto reply its an important feature for me" → "its made with beacons.ai I
+want our version" → "I dont want anything that will get me banned"):
+- Social improvements queued in this order: **auto replies first**, then the Studio home screen, Calendar and posting, Ideas
+  and trends (each its own round, same workflow).
+- Real check first: Beacons Smart Reply is down (Instagram signed it out, 0 sends); our v1 never ran (the Meta app lacks both
+  reply permissions and is Unpublished). Public privacy, terms and data-deletion pages added (PR #24) for the **Live test**:
+  does a private reply reach a commenter with no role on the app without App Review?
+- **v2 design** (`tools/14-auto-replies-v2.md`): comment rules with buttons and a «تابعني» follow invite, DM and story-reply
+  keyword answers, a default reply (once a day per person), quiet while the owner chats by hand, a pause switch, polling
+  every minute with a KV write guard, a Beacons-style screen. **No follow gate**: Meta's spam rules forbid gating content
+  behind a follow. **Instant mode** (webhooks) after Business Verification + App Review; the owner is getting a freelance
+  document (Meta's acceptance of it is unconfirmed; a commercial registration is the safer fallback).
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|

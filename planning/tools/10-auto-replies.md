@@ -112,7 +112,8 @@ For Live, the app needs public policy pages, now on the dashboard site (`public/
 - Data deletion instructions: `https://3zmd95-glitch.github.io/hello-github/data-deletion/`
 - App icon 1024×1024: `public/icons/icon-1024.png` (from `scripts/make-icons.mjs`)
 
-Do not reconnect Beacons during the test: both would answer the same comment.
+Do not reconnect Beacons during the test: both would answer the same comment. The v2 design (DMs, story replies, a
+default reply, buttons, the Beacons-style screen) is `14-auto-replies-v2.md`.
 
 ## Later
 
