@@ -7,9 +7,11 @@ import {
   isGenericInstagramTitle,
   isGenericTikTokTitle,
   isVideoUrl,
+  normalizeDiscoverHits,
   normalizeHits,
   parseEngagement,
   platformForHost,
+  profileFromUrl,
   tiktokTitleFromOembed,
   type Stats,
   type TavilyHit,
@@ -460,5 +462,62 @@ describe("normalizeHits: stats", () => {
       ["yt", undefined],
     ]);
     expect(cards.filter((c) => "stats" in c)).toHaveLength(3);
+  });
+});
+
+describe("profileFromUrl", () => {
+  const p = (platform: "tt" | "ig" | "yt", url: string) => profileFromUrl(platform, new URL(url));
+
+  it("reads TikTok, Instagram and YouTube profile pages", () => {
+    expect(p("tt", "https://www.tiktok.com/@zenko.edit")).toEqual({
+      platform: "tt",
+      handle: "@zenko.edit",
+      url: "https://www.tiktok.com/@zenko.edit",
+    });
+    expect(p("ig", "https://www.instagram.com/nilstobli_nt/")).toEqual({
+      platform: "ig",
+      handle: "@nilstobli_nt",
+      url: "https://www.instagram.com/nilstobli_nt/",
+    });
+    expect(p("yt", "https://www.youtube.com/@cinecom")).toEqual({
+      platform: "yt",
+      handle: "@cinecom",
+      url: "https://www.youtube.com/@cinecom",
+    });
+  });
+
+  it("is not fooled by posts, tags or Instagram routes", () => {
+    expect(p("tt", "https://www.tiktok.com/@a/video/123")).toBeUndefined();
+    expect(p("tt", "https://www.tiktok.com/tag/edit")).toBeUndefined();
+    expect(p("ig", "https://www.instagram.com/explore/")).toBeUndefined();
+    expect(p("ig", "https://www.instagram.com/p/ABC/")).toBeUndefined();
+    expect(p("yt", "https://www.youtube.com/watch?v=x")).toBeUndefined();
+  });
+});
+
+describe("normalizeDiscoverHits", () => {
+  it("splits posts from profile pages and keeps the published date", () => {
+    const { cards, profiles } = normalizeDiscoverHits(
+      [
+        {
+          url: "https://www.tiktok.com/@zenko.edit/video/7300000000000000001",
+          title: "flash transition tutorial | TikTok",
+          content: "How I make the flash transition",
+          published_date: "2026-09-30",
+        },
+        { url: "https://www.tiktok.com/@zenko.edit", title: "zenko (@zenko.edit) | TikTok" },
+        { url: "https://www.instagram.com/p/XYZ/", title: "Instagram" },
+      ],
+      "tt",
+    );
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      platform: "tt",
+      handle: "@zenko.edit",
+      published: "2026-09-30",
+    });
+    expect(profiles).toEqual([
+      { platform: "tt", handle: "@zenko.edit", url: "https://www.tiktok.com/@zenko.edit" },
+    ]);
   });
 });
