@@ -1,9 +1,9 @@
 /**
  * Discover v2 step 3: sections, off-topic and creators (planning/tools/13-discover-search-v2.md). Word rules,
  * no AI: a card is a Tutorial when it says so, else its query's intent; it is off-topic when it mentions none of
- * the topic's words, or (a dictionary entry with `specific: false`) no editing word either. Both checks compare
- * whole words in the Discover matching form (`normalizeTerm`), the form `SearchPlan.topicWords` is in. With an
- * Anthropic key this is the step that would call Claude instead.
+ * the topic's words, or (a dictionary entry with `specific: false`) no editing word and no tutorial word either.
+ * Topic and editing words compare whole words in the Discover matching form (`normalizeTerm`), the form
+ * `SearchPlan.topicWords` is in. With an Anthropic key this is the step that would call Claude instead.
  */
 
 import type { Profile, ScoutResult } from "../normalize";
@@ -11,8 +11,12 @@ import { hasArabic } from "../trends/normalize";
 import { normalizeTerm } from "./terms";
 import type { Creator, DiscoverItem, PlannedQuery, SearchPlan } from "./types";
 
+/**
+ * Tutorial words, tested on the raw text. The Arabic ones are whole words that may carry a prefix (و ف ب ل ال بال
+ * وال لل): "بطريقه" and "الشرح" count, "مدرسه" (school) and "كيفك" (how are you) do not.
+ */
 export const TUTORIAL_RE =
-  /\b(?:tutorial|tutorials|how to|how-to|guide|step by step|explained|breakdown|learn|lesson)\b|شرح|طريقة|كيف|تعلم|درس|خطوات|تعليم/i;
+  /\b(?:tutorial|tutorials|how to|how-to|guide|step by step|explained|breakdown|learn|lesson)\b|(?<!\p{L})(?:و|ف|ب|ل|ال|بال|وال|لل)?(?:شرح|طريقة|طريقه|كيف|تعلم|درس|خطوات|تعليم)(?!\p{L})/iu;
 
 /** Editing words: they make a vague word an editing topic. */
 const EDITING_WORDS = [
@@ -57,11 +61,13 @@ export function labelCards(
     seen.add(card.url);
     const raw = `${card.title} ${card.snippet}`;
     const text = normalizeTerm(raw);
-    const section = TUTORIAL_RE.test(raw) || query.intent === "tutorials" ? "tutorial" : "example";
+    const tutorial = TUTORIAL_RE.test(raw);
+    const section = tutorial || query.intent === "tutorials" ? "tutorial" : "example";
+    // A vague word ("flash") needs editing context: an editing word, or a tutorial word.
     const onTopic =
       plan.topicWords.length === 0 ||
       (plan.topicWords.some((w) => mentions(text, w)) &&
-        (!plan.needsEditingWord || EDITING_FORMS.some((w) => mentions(text, w))));
+        (!plan.needsEditingWord || tutorial || EDITING_FORMS.some((w) => mentions(text, w))));
     out.push({
       ...card,
       lang: hasArabic(raw) ? "ar" : query.lang,
@@ -91,7 +97,9 @@ export function creatorsOf(
     if (item.offTopic || !item.handle) continue;
     const url = creatorUrl(item);
     if (!url) continue;
-    const key = `${item.platform}:${item.handle.toLowerCase()}`;
+    // The channel page tells two YouTube channels with one name apart; cards without one (and profile pages) key
+    // by handle.
+    const key = `${item.platform}:${(item.profile ?? item.handle).toLowerCase()}`;
     const c = byKey.get(key) ?? { platform: item.platform, handle: item.handle, url, count: 0 };
     c.count += 1;
     const views = item.stats?.views;

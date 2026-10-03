@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScoutResult } from "../normalize";
-import { creatorsOf, labelCards } from "./label";
+import { creatorsOf, labelCards, TUTORIAL_RE } from "./label";
 import { planSearch } from "./plan";
 import type { PlannedQuery } from "./types";
 
@@ -48,18 +48,21 @@ describe("labelCards", () => {
     expect(items[2].lang).toBe("ar");
   });
 
-  it("reads an Arabic card in the matching form (ال, ه for ة)", () => {
-    // "flash" is not specific: the card also needs an editing word, here with ال too.
+  it("keeps an Arabic tutorial about a vague word: ال dropped, the tutorial word is editing context", () => {
     const [item] = labelCards(
-      [
-        {
-          card: card({ title: "شرح الفلاش بطريقه سهله في المونتاج" }),
-          query: query("tt-examples-en"),
-        },
-      ],
+      [{ card: card({ title: "شرح الفلاش بطريقه سهله" }), query: query("tt-examples-en") }],
       plan,
     );
-    expect(item.section).toBe("tutorial");
+    expect(item).toMatchObject({ section: "tutorial", lang: "ar" });
+    expect(item.offTopic).toBeUndefined();
+  });
+
+  it("matches ه typed for ة", () => {
+    const split = planSearch({ q: "split screen" });
+    const [item] = labelCards(
+      [{ card: card({ title: "تقسيم الشاشه في كاب كت" }), query: split.queries[0] }],
+      split,
+    );
     expect(item.offTopic).toBeUndefined();
   });
 
@@ -78,12 +81,29 @@ describe("labelCards", () => {
     const items = labelCards(
       [
         { card: c, query: exact.queries[0] },
-        { card: { ...c }, query: exact.queries[0] },
+        { card: { ...c, title: "How to flash" }, query: query("tt-tutorials-en") },
       ],
       exact,
     );
     expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ title: "The Flash", section: "example" });
     expect(items[0].offTopic).toBeUndefined();
+  });
+});
+
+describe("TUTORIAL_RE", () => {
+  it.each([
+    ["شرح", true],
+    ["الشرح", true],
+    ["بطريقه", true],
+    ["بطريقة", true],
+    ["وكيف", true],
+    ["تعلم", true],
+    ["مدرسه", false],
+    ["مدرسة", false],
+    ["كيفك", false],
+  ])("%s → %s", (word, tutorial) => {
+    expect(TUTORIAL_RE.test(word)).toBe(tutorial);
   });
 });
 
@@ -143,6 +163,33 @@ describe("creatorsOf", () => {
         url: "https://www.instagram.com/zenko.edit/",
         count: 0,
       },
+    ]);
+  });
+
+  it("lists at most 8 creators", () => {
+    const items = labelCards(
+      Array.from({ length: 10 }, (_, i) => ({
+        card: card({ handle: `@c${i}`, title: "flash transition edit" }),
+        query: query("tt-examples-en"),
+      })),
+      plan,
+    );
+    expect(creatorsOf(items, [], 20)).toHaveLength(10);
+    expect(creatorsOf(items, [])).toHaveLength(8);
+  });
+
+  it("keeps two YouTube channels with one name apart", () => {
+    const yt = (handle: string, channel: string) => ({
+      card: {
+        ...card({ platform: "yt", handle, title: "flash transition tutorial" }),
+        profile: `https://www.youtube.com/channel/${channel}`,
+      },
+      query: query("yt-tutorials-en"),
+    });
+    const creators = creatorsOf(labelCards([yt("Cinecom", "UC1"), yt("CINECOM", "UC2")], plan), []);
+    expect(creators.map((c) => [c.handle, c.url])).toEqual([
+      ["Cinecom", "https://www.youtube.com/channel/UC1"],
+      ["CINECOM", "https://www.youtube.com/channel/UC2"],
     ]);
   });
 });
