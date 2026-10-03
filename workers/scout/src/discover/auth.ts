@@ -1,0 +1,99 @@
+/**
+ * The connector's login (round 33, planning/tools/13-discover-search-v2.md): `/authorize` is one page, Arabic and
+ * English, asking for the Scout token (dashboard → Settings → API keys, 👁 shows it). The right token completes
+ * the OAuth request for "owner"; a wrong one shows the form again (403). Only Claude's callbacks are accepted as
+ * redirect targets, because dynamic client registration lets anyone register a client. The OAuth helpers come from
+ * `env.OAUTH_PROVIDER` (`@cloudflare/workers-oauth-provider`, injected by index.ts); this module has no runtime
+ * import of that package, so Node tests run it with a fake.
+ */
+
+import { safeEqual } from "../scout";
+
+export const CLAUDE_CALLBACKS: readonly string[] = [
+  "https://claude.ai/api/mcp/auth_callback",
+  "https://claude.com/api/mcp/auth_callback",
+];
+
+export const isAllowedRedirect = (uri: string) => CLAUDE_CALLBACKS.includes(uri);
+
+/** The two `OAuthHelpers` methods used here; tsc checks the real ones against it in index.ts. */
+export interface AuthHelpers {
+  parseAuthRequest(req: Request): Promise<{ redirectUri: string; scope: string[] }>;
+  completeAuthorization(o: {
+    request: unknown;
+    userId: string;
+    scope: string[];
+    props: unknown;
+    metadata: unknown;
+  }): Promise<{ redirectTo: string }>;
+}
+
+type Notice = "wrong" | "redirect" | "bad" | undefined;
+
+const NOTICE: Record<Exclude<Notice, undefined>, string> = {
+  wrong: "التوكن غلط · Wrong token",
+  redirect: "هذا الطلب مو من Claude · This request is not from Claude",
+  bad: "الطلب ناقص · Bad request",
+};
+
+function page(notice: Notice, status = 200): Response {
+  const note = notice ? `<p class="n">${NOTICE[notice]}</p>` : "";
+  const form =
+    notice === "redirect" || notice === "bad"
+      ? ""
+      : `<form method="post">
+  <label for="t">توكن الـ Scout · Scout token</label>
+  <input id="t" name="token" type="password" autocomplete="off" required>
+  <p class="h">من لوحتك: الإعدادات ← مفاتيح API ← 👁 · From your dashboard: Settings → API keys → 👁</p>
+  <button type="submit">اربط Claude · Connect Claude</button>
+</form>`;
+  const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>3z Prod · Claude</title>
+<style>body{font:16px system-ui,sans-serif;background:#111;color:#eee;max-width:28rem;margin:3rem auto;padding:0 1rem}
+input,button{font:inherit;width:100%;padding:.6rem;margin:.4rem 0;box-sizing:border-box}button{background:#3ddc84;border:0;font-weight:700}
+.n{color:#ff8a80}.h{color:#aaa;font-size:.85rem}</style></head><body>
+<h1>3z Prod ← Claude</h1><p>Claude يبغى يدوّر في Discover ويحفظ اختيارات. · Claude wants to search Discover and save picks.</p>
+${note}${form}</body></html>`;
+  return new Response(html, {
+    status,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "X-Frame-Options": "DENY",
+      "Cache-Control": "no-store",
+      // Chrome checks form-action on the redirect that answers the POST too, so Claude's hosts are listed:
+      // `form-action 'self'` alone blocks the 302 to the callback.
+      "Content-Security-Policy":
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://claude.ai https://claude.com",
+    },
+  });
+}
+
+export async function authorize(
+  req: Request,
+  env: { SCOUT_TOKEN?: string; OAUTH_PROVIDER?: AuthHelpers },
+): Promise<Response> {
+  const helpers = env.OAUTH_PROVIDER;
+  if (!helpers) return page("bad", 500);
+  let oauthReq: Awaited<ReturnType<AuthHelpers["parseAuthRequest"]>>;
+  try {
+    oauthReq = await helpers.parseAuthRequest(req);
+  } catch {
+    return page("bad", 400);
+  }
+  if (!isAllowedRedirect(oauthReq.redirectUri)) return page("redirect", 400);
+  if (req.method === "GET") return page(undefined);
+  if (req.method !== "POST") {
+    return new Response(null, { status: 405, headers: { Allow: "GET, POST" } });
+  }
+  const form = await req.formData().catch(() => null);
+  const given = String(form?.get("token") ?? "").trim();
+  if (!env.SCOUT_TOKEN || !given || !safeEqual(given, env.SCOUT_TOKEN)) return page("wrong", 403);
+  const { redirectTo } = await helpers.completeAuthorization({
+    request: oauthReq,
+    userId: "owner",
+    scope: oauthReq.scope,
+    props: { owner: true },
+    metadata: { label: "Claude" },
+  });
+  return Response.redirect(redirectTo, 302);
+}

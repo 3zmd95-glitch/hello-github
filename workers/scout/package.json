@@ -14,5 +14,12 @@
     "typescript": "^5.9.3",
     "vitest": "^5.0.2",
     "wrangler": "^4.141.0"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "1.2.1",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "0.26.0",
+    "zod": "4.6.5"
   }
 }

@@ -157,3 +157,43 @@ export async function getPicksTool(
 ): Promise<Record<string, unknown>> {
   return { picks: await readPicks(env, input.topic) };
 }
+
+// A type, not an interface: the SDK's CallToolResult has an index signature, which only a type alias meets.
+export type ToolReply = { content: { type: "text"; text: string }[]; isError?: true };
+
+const FAILED: Record<string, unknown> = {
+  error: "failed",
+  message: "Something went wrong on the Worker. Try again in a minute.",
+};
+
+/**
+ * Every connector tool call goes through here (`mcp.ts`): the tool's answer as JSON text, and one log line
+ * (`console.log` JSON, Workers observability) with the tool, the topic, the time, the error code, whether the answer
+ * was kept, the lookups left today and how many items; never URLs, items or tokens. A thrown error (KV down, a
+ * picks document that can't be read) answers `failed` with `isError`: a result Claude can read, never the raw
+ * message (the SDK would send it as is).
+ */
+export async function toolCall(
+  tool: string,
+  input: { topic?: string },
+  run: () => Promise<Record<string, unknown>>,
+): Promise<ToolReply> {
+  const started = Date.now();
+  const out = await run().catch(() => null);
+  const res = out ?? FAILED;
+  const list = Array.isArray(res.items) ? res.items : Array.isArray(res.picks) ? res.picks : null;
+  // JSON.stringify leaves the undefined fields out.
+  console.log(
+    JSON.stringify({
+      mcp: tool,
+      topic: input.topic ? clip(input.topic, 100) : undefined,
+      ms: Date.now() - started,
+      error: typeof res.error === "string" ? res.error : undefined,
+      cached: typeof res.cached === "boolean" ? res.cached : undefined,
+      lookups: typeof res.lookupsLeftToday === "number" ? res.lookupsLeftToday : undefined,
+      count: list ? list.length : typeof res.saved === "number" ? res.saved : undefined,
+    }),
+  );
+  const content = [{ type: "text" as const, text: JSON.stringify(res) }];
+  return out ? { content } : { content, isError: true };
+}

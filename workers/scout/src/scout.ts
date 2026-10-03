@@ -13,6 +13,8 @@
  *   GET  /trends          → the Trend Radar feed (trends/routes.ts, round 30, planning/tools/08-trends.md)
  *   POST /trends/run      → refresh the feed now
  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
+ *   /mcp, /authorize, /token, /register → served by index.ts (OAuth + MCP): the Claude connector
+ *                           (discover/mcp.ts, discover/auth.ts)
  *
  * Every route but OPTIONS, GET /health, the OAuth callbacks and /go needs `Authorization: Bearer
  * <SCOUT_TOKEN>`. CORS reflects the request Origin only when it is in ALLOWED_ORIGINS.

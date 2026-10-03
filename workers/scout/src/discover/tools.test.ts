@@ -2,7 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { trendKeys } from "../trends/kv";
 import { TAVILY_URL } from "../trends/tavily";
 import { readPicks } from "./picks";
-import { addConnectorLookups, getPicksTool, getTrends, savePicksTool, searchVideos } from "./tools";
+import {
+  addConnectorLookups,
+  getPicksTool,
+  getTrends,
+  savePicksTool,
+  searchVideos,
+  toolCall,
+} from "./tools";
 import { usageKeys } from "./usage";
 
 const NOW = new Date("2026-10-03T09:00:00Z");
@@ -245,5 +252,81 @@ describe("save / get picks", () => {
     expect(out).toEqual(BAD_TOPIC);
     expect(get).not.toHaveBeenCalled();
     expect(put).not.toHaveBeenCalled();
+  });
+});
+
+describe("toolCall", () => {
+  /** Runs `fn` with console.log captured: its answer and the lines it logged. */
+  async function logged<T>(fn: () => Promise<T>): Promise<{ reply: T; lines: string[] }> {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const reply = await fn();
+      return { reply, lines: log.mock.calls.map((c) => String(c[0])) };
+    } finally {
+      log.mockRestore();
+    }
+  }
+
+  it("answers the result as JSON text and logs one line: no URLs, no items", async () => {
+    const env = { TAVILY_API_KEY: "k", SOCIAL_KV: fakeKV(), MCP_DAILY_LOOKUPS: "10" };
+    const topic = `flash ${"x".repeat(150)}`;
+    const { reply, lines } = await logged(() =>
+      toolCall("search_videos", { topic }, () =>
+        searchVideos(env, { fetch: tavily(), now: NOW }, { topic, platforms: ["tiktok"] }),
+      ),
+    );
+    expect(reply.isError).toBeUndefined();
+    const out = JSON.parse(reply.content[0].text) as { items: unknown[]; lookupsLeftToday: number };
+    expect(out.items.length).toBeGreaterThan(0);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toContain("https://");
+    expect(JSON.parse(lines[0])).toEqual({
+      mcp: "search_videos",
+      topic: `${topic.slice(0, 99)}…`,
+      ms: expect.any(Number),
+      cached: false,
+      lookups: out.lookupsLeftToday,
+      count: out.items.length,
+    });
+  });
+
+  it("logs a tool's own error code and answers it as plain content", async () => {
+    const { reply, lines } = await logged(() => toolCall("get_picks", {}, async () => BAD_TOPIC));
+    expect(reply).toEqual({ content: [{ type: "text", text: JSON.stringify(BAD_TOPIC) }] });
+    expect(lines.map((l) => JSON.parse(l))).toEqual([
+      { mcp: "get_picks", ms: expect.any(Number), error: "bad_topic" },
+    ]);
+  });
+
+  it("turns a thrown error into a readable failed result, never its message", async () => {
+    const down = {
+      async get() {
+        throw new Error("KV GET failed: internal detail");
+      },
+    } as unknown as KVNamespace;
+    const items = [
+      { url: "https://www.tiktok.com/@ed/video/1", title: "x", label: "example" as const },
+    ];
+    const { reply, lines } = await logged(() =>
+      toolCall("save_picks", { topic: "flash" }, () =>
+        savePicksTool({ SOCIAL_KV: down }, { fetch: vi.fn(), now: NOW }, { topic: "flash", items }),
+      ),
+    );
+    expect(reply).toEqual({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            error: "failed",
+            message: "Something went wrong on the Worker. Try again in a minute.",
+          }),
+        },
+      ],
+    });
+    expect(lines.join("\n")).not.toContain("internal detail");
+    expect(lines.map((l) => JSON.parse(l))).toEqual([
+      { mcp: "save_picks", topic: "flash", ms: expect.any(Number), error: "failed" },
+    ]);
   });
 });

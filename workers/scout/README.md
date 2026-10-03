@@ -16,10 +16,15 @@ browser:
    (English) from Google Trends, the YouTube charts, a daily YouTube keyword search, a weekly Tavily scan of
    TikTok / Instagram / Shorts pages and the Saudi moments calendar, refreshed by the same cron and served
    as one feed. See [Trend Radar](#trend-radar).
+5. **Claude connector** (planning/tools/13, round 33): Claude searches Discover, reads the radar and saves picks
+   into the dashboard through an MCP server at `/mcp`, behind an OAuth login with the Scout token. See
+   [Claude connector (MCP)](#claude-connector-mcp).
 
 ## Endpoints
 
-Every request except `OPTIONS`, `GET /health`, the OAuth callback and `GET /go/:id/:n` needs `Authorization: Bearer <SCOUT_TOKEN>`.
+Every request except `OPTIONS`, `GET /health`, the OAuth callback, `GET /go/:id/:n` and the Claude connector's
+routes (`/mcp` takes its own OAuth access token; `/authorize`, `/token`, `/register` and `/.well-known/*` are the
+login flow) needs `Authorization: Bearer <SCOUT_TOKEN>`.
 Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
 
 | Route                   | What it does                                                                                                                                                                                                                                                                                  |
@@ -32,6 +37,7 @@ Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
 | `/social/*`, `/oauth/*` | The social analytics connector, see [Social analytics](#social-analytics), the publish queue, see [Auto-posting](#auto-posting), and the auto-replies, see [Auto-replies](#auto-replies).                                                  |
 | `GET /go/:id/:n`        | No bearer: counts a tap on an auto-reply DM link and answers `302` to the button's URL (`Cache-Control: no-store`). 404 for an unknown automation or button.                                                                          |
 | `/trends*`              | The Trend Radar feed, see [Trend Radar](#trend-radar).                                                                                                                                                                                                                                        |
+| `/mcp`, `/authorize`, `/token`, `/register`, `/.well-known/*` | The Claude connector, see [Claude connector (MCP)](#claude-connector-mcp). |
 
 ### `POST /search` options
 
@@ -389,6 +395,71 @@ GitHub Action (see `08-trends.md`).
 | `trends:ytsearch:<day>` | `search.list` calls reserved on that UTC day (the 18-a-day cap, best-effort when two runs overlap), 2-day TTL |
 | `trends:tavily:<week>`  | written after a successful weekly scan of that ISO week (e.g. `2026-W40`), 8-day TTL                          |
 
+## Claude connector (MCP)
+
+Part B of `planning/tools/13-discover-search-v2.md` (round 33): Claude (web, desktop, phone) researches with the
+Discover pipeline and saves what it picked into the dashboard. Code: `src/discover/mcp.ts` (the MCP server),
+`src/discover/auth.ts` (the login page), `src/discover/tools.ts` (the tools as plain functions, and `toolCall`),
+`src/index.ts` (the OAuth wiring).
+
+**Endpoint**: `https://3z-scout.<sub>.workers.dev/mcp` (today `https://3z-scout.3zmd95.workers.dev/mcp`),
+Streamable HTTP, stateless: the Agents SDK's `createMcpHandler` builds a new MCP server per request, no Durable
+Objects. `@cloudflare/workers-oauth-provider` wraps the Worker's `fetch`: it guards `/mcp` (OAuth access token, 1 hour;
+refresh token, 30 days) and serves `/token`, `/register` (dynamic client registration) and the `.well-known` documents
+(`oauth-authorization-server`, `oauth-protected-resource/mcp`); `/authorize` is our login page; every other route goes
+to `handle()` exactly as before, and the cron is untouched. Without `OAUTH_KV` or `MCP_RESOURCE` only `handle()` runs.
+On `/mcp` a browser `Origin` other than `claude.ai` / `claude.com` is refused.
+
+**Login**: `/authorize` is one page, Arabic and English, asking for the Scout token (dashboard → Settings → API keys →
+👁). The right token completes the authorization for the user `owner` and sends the browser back to Claude with a
+code; a wrong one shows the form again (403). Only Claude's callbacks, `https://claude.ai/api/mcp/auth_callback` and
+`https://claude.com/api/mcp/auth_callback`, are accepted as `redirect_uri`, before the form shows: dynamic
+registration lets anyone register a client. The page is never framed (`X-Frame-Options: DENY`) or cached, and its
+CSP lets the form post only to the Worker and be redirected only to Claude's two hosts (Chrome applies `form-action` to
+that redirect too).
+
+**Tools** (zod input schemas; every answer is JSON text, web titles and snippets in it are data, clipped):
+
+| Tool            | Input                                                                                                                                                                         | Description (what Claude reads)                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search_videos` | `topic` (1–200 chars); optional `queries` (≤ 9 of `{ q, platform: tiktok\|instagram\|youtube, lang: ar\|en, intent: examples\|tutorials }`), `platforms`, `timeRange` (`week\|month\|year`), `exact` | Search TikTok, Instagram and YouTube for video-editing examples and tutorials, in Arabic and English. Give a topic (an editing effect or style, e.g. 'flash transition'); optionally your own queries (up to 9, each with platform, lang ar\|en and intent examples\|tutorials). Returns posts with section, numbers when known, creators, and lookupsLeftToday. Each new search costs about 6 lookups; repeats are free for 6 hours. |
+| `get_trends`    | optional `region` (`SA\|US`), `genre` (≤ 40 chars), `limit` (1–50)                                                                                                            | Read the owner's Trend Radar: what is trending now in Saudi Arabia (SA, Arabic) and the US (English) from Google Trends, YouTube charts and searches, and the Saudi moments calendar. Optional genre id (cars, food, anime, travel, football, coffee, perfume, camping, fashion, gaming, weddings, gym). Free.                                                                                                     |
+| `save_picks`    | `topic` (1–100 chars), `items` (1–20 of `{ url, title, handle?, label: example\|tutorial, note? }`), optional `replace`                                                        | Save the posts you picked for a topic into the owner's dashboard (Discover → ⭐ Claude's picks). Each item is one TikTok / Instagram / YouTube post URL with its title, label example\|tutorial and an optional short note on why it is worth studying. replace=true replaces the topic's earlier picks. Up to 20 per topic.                                                                                      |
+| `get_picks`     | optional `topic` (≤ 100 chars)                                                                                                                                                | Read the picks saved before, newest topic first; give a topic for that topic only.                                                                                                                                                                                                                                                                                                                              |
+
+No tool posts, deletes or touches the social accounts; the only write is the owner's picks list.
+
+**Daily cap**: Tavily lookups through the connector are counted per Riyadh day (KV `discover:mcp:<day>`) against
+`MCP_DAILY_LOOKUPS` (default 60). Past it `search_videos` answers `{ error: "daily_limit", message }` ("resets at
+midnight Riyadh time") and only a kept 6-hour answer is still served, for free. `GET /discover/usage` reports the count.
+
+**Errors and logs**: tools answer readable errors (`bad_topic`, `daily_limit`, `unavailable`). A tool that throws
+(KV down, a picks document that can't be read) answers `{ error: "failed", message }` with `isError: true`, never
+the raw message. Every tool call logs one JSON line to Workers observability:
+`{ mcp, topic?, ms, error?, cached?, lookups?, count? }` (`topic` clipped to 100 characters, `lookups` = lookups
+left today, `count` = cards, rows, topics or saved picks); never URLs, items or tokens. Arguments that don't match a
+tool's schema, and unknown tools, are answered by the MCP SDK itself and are not logged.
+
+**Config**: KV binding `OAUTH_KV` (clients, grants and tokens; the provider needs this exact name; created by the
+deploy workflow like `SOCIAL_KV`) and the var `MCP_RESOURCE`, the `/mcp` address as Claude sees it (the
+protected-resource metadata must equal it): `https://3z-scout.3zmd95.workers.dev/mcp` in `wrangler.jsonc`, and for
+local dev `MCP_RESOURCE=http://localhost:8787/mcp` in `.dev.vars` (restart `pnpm worker:dev` after changing it).
+
+**Owner's steps**, once deployed: in Claude, **Customize → Connectors → Add custom connector**, paste
+`https://3z-scout.3zmd95.workers.dev/mcp`, then log in with the Scout token on the page that opens.
+
+**Smoke test** (`scripts/mcp-smoke.mjs`): registers a client, checks that an anonymous `/mcp` call gets 401, logs in
+(a wrong token refused, the right one redirected to Claude with a code), swaps the code for a token (PKCE S256), then
+runs MCP `initialize`, `tools/list` and a `get_picks` call. The token comes from the environment, never the command
+line:
+
+```sh
+pnpm worker:dev   # in one terminal; .dev.vars holds SCOUT_TOKEN and MCP_RESOURCE
+SCOUT_TOKEN="$(grep '^SCOUT_TOKEN=' workers/scout/.dev.vars | cut -d= -f2)" \
+  node workers/scout/scripts/mcp-smoke.mjs http://localhost:8787
+# every line "ok …", ending "connector smoke test passed"
+```
+
 ## Configuration
 
 | Name                                        | Kind                    | Where                                                                                                                                                                                                                                                                    |
@@ -406,6 +477,8 @@ GitHub Action (see `08-trends.md`).
 | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | Worker secrets          | TikTok developer app (Login Kit + Display API). Repository secrets of the same names.                                                                                                                                                                                    |
 | `ALLOWED_ORIGINS`                           | Var (`wrangler.jsonc`)  | Comma list. Default `http://localhost:3000,https://3zmd95-glitch.github.io`. Also the origins `returnTo` may point at.                                                                                                                                                   |
 | `SOCIAL_KV`                                 | KV binding              | Namespace `3z-scout-SOCIAL_KV`, created by the deploy workflow; `wrangler.jsonc` keeps a placeholder id that the workflow swaps in before deploying.                                                                                                                     |
+| `OAUTH_KV`                                  | KV binding              | The Claude connector's OAuth clients, grants and tokens. Namespace `3z-scout-OAUTH_KV`, created and swapped in by the deploy workflow like `SOCIAL_KV`.                                                                                                                 |
+| `MCP_RESOURCE`                              | Var (`wrangler.jsonc`)  | The connector's `/mcp` address as Claude sees it (`https://3z-scout.3zmd95.workers.dev/mcp`); locally `http://localhost:8787/mcp` in `.dev.vars`. Unset: no connector, only the dashboard routes.                                                                       |
 
 A platform whose two secrets are not both set shows `configured: false` and its connect button stays disabled in
 the dashboard; nothing else breaks. The exact app-creation steps, scopes and redirect URIs per platform are in
@@ -416,7 +489,7 @@ the dashboard; nothing else breaks. The exact app-creation steps, scopes and red
 1. Create free accounts at [tavily.com](https://app.tavily.com) (copy the API key) and
    [cloudflare.com](https://dash.cloudflare.com) (no card needed).
 2. In Cloudflare: **My Profile → API Tokens → Create Token → "Edit Cloudflare Workers"** template. Add the
-   **Workers KV Storage: Edit** permission to it (the workflow creates the `SOCIAL_KV` namespace). Copy the
+   **Workers KV Storage: Edit** permission to it (the workflow creates the `SOCIAL_KV` and `OAUTH_KV` namespaces). Copy the
    token, and copy your **Account ID** from the Workers & Pages overview.
 3. In GitHub: **Settings → Secrets and variables → Actions → New repository secret**, add:
    - `CLOUDFLARE_API_TOKEN`
