@@ -119,6 +119,8 @@ export interface StoredStatus {
   url?: string;
   lastSyncAt?: string;
   lastError?: SocialErrorCode;
+  /** The failure's own words (e.g. Meta's error message), clipped; shown next to `lastError`. */
+  lastErrorDetail?: string;
   tokenExpiresAt?: string;
 }
 

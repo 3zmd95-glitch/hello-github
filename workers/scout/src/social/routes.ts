@@ -336,6 +336,7 @@ export async function handleOAuthCallback(
     ...previous,
     connectedAt: now.toISOString(),
     lastError: undefined,
+    lastErrorDetail: undefined,
     tokenExpiresAt: tokens.expiresAt,
   });
   // The first pull right away, so the dashboard has numbers when the owner lands back on it. A failure

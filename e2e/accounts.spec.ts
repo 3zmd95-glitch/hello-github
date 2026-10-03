@@ -36,6 +36,7 @@ interface StatusEntry {
   url?: string;
   lastSyncAt?: string;
   lastError?: string;
+  lastErrorDetail?: string;
 }
 type StatusMap = Record<string, StatusEntry>;
 
@@ -151,6 +152,31 @@ test("without a Worker the card points at the API keys, and the Beacons seed can
   await expect(page.getByTestId("accounts-sync")).toHaveCount(0);
   await expect(page.getByTestId("accounts-remove-seed")).toBeVisible();
   expect(await fitsViewport(page)).toBe(true);
+});
+
+test("a failed sync shows the platform's own error message under the row", async ({ page }) => {
+  const stub: Stub = {
+    status: {
+      instagram: { configured: true, connected: true, handle: "3z.prod" },
+      youtube: { configured: true, connected: false },
+      tiktok: { configured: false, connected: false },
+      threads: {
+        configured: true,
+        connected: true,
+        lastError: "upstream",
+        lastErrorDetail: "upstream: profile: (#100) Tried accessing nonexisting field",
+      },
+    },
+    data: EMPTY_DATA,
+    connectUrl: comeBack,
+  };
+  await stubWorker(page, stub);
+  await connectWorker(page);
+  await expect(row(page, "threads")).toHaveAttribute("data-state", "error");
+  await expect(row(page, "threads").getByTestId("account-error-detail")).toHaveText(
+    "upstream: profile: (#100) Tried accessing nonexisting field",
+  );
+  await expect(row(page, "instagram").getByTestId("account-error-detail")).toHaveCount(0);
 });
 
 test("Settings rows follow the Worker status; Connect goes through OAuth and comes back to a toast and a sync; Disconnect asks first", async ({
