@@ -1,7 +1,9 @@
 /**
- * 💬 Auto-replies (a copy of Beacons' Smart Reply, `planning/tools/10-auto-replies.md`): when someone
- * comments a keyword on one of the owner's Instagram posts, send them a private DM with the link and reply
- * under the comment. Instagram only for now (Threads and YouTube have no DMs; TikTok has no comment API).
+ * 💬 Auto-replies (a copy of Beacons' Smart Reply, `planning/tools/10-auto-replies.md`; v2 in
+ * `planning/tools/14-auto-replies-v2.md`): when someone comments a keyword on one of the owner's Instagram posts,
+ * send them a private DM with the link and reply under the comment. Instagram only for now (Threads and YouTube
+ * have no DMs; TikTok has no comment API). The poller answers comments (this file) and DMs (`inbox.ts`); the parts
+ * both share (keyword matching, building the reply, Instagram's size limits) live in `replyCore.ts`.
  *
  * Detection is **polling**, not webhooks: Meta only sends comment webhooks to apps that are Live with
  * Advanced Access, and the owner's app is in Development mode. So the five-minute tick (cron.ts), on ticks
@@ -21,7 +23,8 @@
  *   which counts the click and redirects.
  *
  * Storage is split by writer, so no request path ever overwrites another's data (KV is last-write-wins):
- *   replies:doc     AutomationsDoc  what the owner configured; written only by POST/DELETE /social/replies
+ *   replies:doc     AutomationsDoc  what the owner configured (rules, pause, default reply); written only by
+ *                                   POST/DELETE /social/replies and POST /social/replies/settings
  *   replies:state   PollState       what the poller learned (answered comments, counters, log, lock); written
  *                                   only by pollReplies, which also holds a short lock while it answers
  *   replies:clicks  ClicksDoc       taps on the /go links; written only by handleGo (capped per day)
@@ -32,9 +35,22 @@ import { Budget, clip, fetchJson, formPost, int, type Http, type JsonReply } fro
 import { IG_API } from "./instagram";
 import { metaBody, metaList, type MetaError, type MetaPage } from "./meta";
 import { credentials, isExpired, PROVIDERS } from "./oauth";
+import {
+  DEFAULT_STATS_ID,
+  dmFits,
+  DM_TEXT_BYTES,
+  matches,
+  messageButtons,
+  normalizeForMatch,
+  pickPublicReply,
+  textBody,
+  utf8Bytes,
+} from "./replyCore";
 import { Store, type SocialEnv } from "./store";
 import { riyadhDay } from "./time";
 import { SocialError, type TokenSet } from "./types";
+
+export { DEFAULT_STATS_ID, matches, normalizeForMatch } from "./replyCore";
 
 /* ---------- document types (shared shape with the dashboard's lib/replies.ts) ---------- */
 
@@ -58,11 +74,15 @@ export interface ReplyStats {
   lastError?: ReplyErrorCode;
 }
 
+/** What starts a rule (round 34): a comment on a post, or a DM / story reply. */
+export type ReplyTrigger = "comment" | "message";
+
 /** What the owner typed in the builder. */
 export interface AutomationInput {
   id: string;
   enabled: boolean;
-  /** Instagram media id; null = any post. */
+  trigger: ReplyTrigger;
+  /** Comment rules: Instagram media id; null = any of the newest posts. Always null for message rules. */
   postId: string | null;
   /** Display only (copied from the synced posts by the dashboard). */
   permalink?: string;
@@ -70,10 +90,12 @@ export interface AutomationInput {
   thumbUrl?: string;
   keywords: string[];
   match: ReplyMatch;
-  /** "" = no public reply. `{username}` becomes @handle. */
-  publicReply: string;
+  /** Comment rules: up to PUBLIC_REPLIES_MAX, one picked at random; `{username}` becomes @handle. [] = none. */
+  publicReplies: string[];
   dmText: string;
   buttons: ReplyButton[];
+  /** Adds «تابعني» (the account's profile) after the link buttons. */
+  followButton: boolean;
 }
 
 /** An automation as stored (`replies:doc`): the owner's part only, no counters. */
@@ -104,13 +126,32 @@ export interface ReplyLogEntry {
   detail?: string;
 }
 
-/** `replies:doc`: the owner's automations. */
+/** The answer to a DM that matches no rule (round 34): at most once per person per 24 hours. */
+export interface DefaultReply {
+  enabled: boolean;
+  text: string;
+  /** ISO: when it was last switched on; messages from before are left alone. */
+  enabledAt?: string;
+  updatedAt: string;
+}
+
+/** `replies:doc`: the owner's automations and settings. */
 export interface AutomationsDoc {
   v: 1;
   /** The Worker's origin, recorded on every save (the cron has no request URL for the /go links). */
   origin?: string;
+  /** Pause all: the poll answers nothing while true. */
+  paused?: boolean;
+  defaultReply?: DefaultReply;
   automations: Record<string, Automation>;
 }
+
+/** An automation as KV may hold it: documents from before round 34 lack the v2 fields and carry `publicReply`. */
+type StoredAutomation = Omit<Automation, "trigger" | "publicReplies" | "followButton"> &
+  Partial<Pick<Automation, "trigger" | "publicReplies" | "followButton">> & { publicReply?: string };
+export type StoredDoc = Omit<AutomationsDoc, "automations"> & {
+  automations: Record<string, StoredAutomation>;
+};
 
 /** `replies:state`: what the poller learned. */
 export interface PollState {
@@ -184,13 +225,14 @@ export const KEYWORDS_MAX = 10;
 export const KEYWORD_MAX = 40;
 export const BUTTONS_MAX = 3;
 export const BUTTON_TITLE_MAX = 20;
-export const DM_MAX = 1000;
 export const PUBLIC_MAX = 2200;
+/** Public replies per comment rule (one is picked at random each time). */
+export const PUBLIC_REPLIES_MAX = 3;
 /** Log entries keep this much of the comment. */
 const TEXT_CLIP = 120;
 const ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
-/** Route words under /social/replies that can never be an automation id. */
-const RESERVED_IDS = new Set(["poll"]);
+/** Route words under /social/replies, and the default reply's stats key: never an automation id. */
+const RESERVED_IDS = new Set(["poll", "settings", DEFAULT_STATS_ID]);
 /** Codes after which nothing else will work this tick. */
 const TICK_STOPPERS = new Set<ReplyErrorCode>([
   "token_expired",
@@ -211,6 +253,22 @@ export const emptyState = (): PollState => ({
 export const emptyClicks = (): ClicksDoc => ({ v: 1, today: 0, byAutomation: {} });
 export const emptyStats = (): ReplyStats => ({ sends: 0, publicReplies: 0, failures: 0, clicks: 0 });
 
+/** The document in the v2 shape: v1 automations become comment rules with their one public reply. */
+export function readAutomations(raw: StoredDoc | null): AutomationsDoc {
+  const doc: StoredDoc = raw ?? emptyAutomations();
+  const automations: Record<string, Automation> = {};
+  for (const [id, a] of Object.entries(doc.automations)) {
+    const { publicReply, ...rest } = a;
+    automations[id] = {
+      ...rest,
+      trigger: a.trigger ?? "comment",
+      publicReplies: a.publicReplies ?? (publicReply?.trim() ? [publicReply.trim()] : []),
+      followButton: a.followButton ?? false,
+    };
+  }
+  return { ...doc, automations };
+}
+
 /** An automation with its counters, as the dashboard reads it. */
 export function view(a: Automation, state: PollState, clicks: ClicksDoc): AutomationView {
   return {
@@ -219,40 +277,7 @@ export function view(a: Automation, state: PollState, clicks: ClicksDoc): Automa
   };
 }
 
-/* ---------- matching ---------- */
-
-/**
- * Comment text and keywords compared loosely: case, Arabic diacritics and tatweel, alef and yaa variants and
- * punctuation/emoji do not matter ("لَت!" matches "لت"). Same function in the dashboard (lib/replies.ts).
- */
-export function normalizeForMatch(text: string): string {
-  return text
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[ً-ْـ]/g, "")
-    .replace(/[أإآ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-export function matches(text: string, a: Pick<AutomationInput, "keywords" | "match">): boolean {
-  const t = normalizeForMatch(text);
-  if (!t) return false;
-  return a.keywords.some((k) => {
-    const n = normalizeForMatch(k);
-    return !!n && (a.match === "exact" ? t === n : t.includes(n));
-  });
-}
-
-/** The DM: the text, then one "title: link" line per button (links through /go when the origin is known). */
-export function dmBody(a: Pick<Automation, "id" | "dmText" | "buttons">, origin?: string): string {
-  const lines = a.buttons.map(
-    (b, i) => `${b.title}: ${origin ? `${origin}/go/${encodeURIComponent(a.id)}/${i}` : b.url}`,
-  );
-  return [a.dmText.trim(), lines.join("\n")].filter(Boolean).join("\n\n");
-}
+/* ---------- the public reply ---------- */
 
 const fill = (template: string, username: string | undefined) =>
   template.replace(/\{username\}/g, username ? `@${username}` : "").trim();
@@ -271,13 +296,19 @@ const isHttps = (s: unknown): s is string => {
 const optString = (v: unknown, max: number): string | undefined =>
   typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined;
 
-/** The request body as an AutomationInput, or the reason it is refused (`detail` names the field). */
+/**
+ * The request body as an AutomationInput, or the reason it is refused (`detail` names the field). `origin` (the
+ * Worker's own) sizes the /go link lines the DM carries. Message rules keep no post and no public replies.
+ */
 export function parseAutomationInput(
   body: unknown,
+  origin?: string,
 ): { ok: true; automation: AutomationInput } | { ok: false; detail: string } {
   const b = (body ?? {}) as Record<string, unknown>;
   const bad = (detail: string) => ({ ok: false as const, detail });
   if (typeof b.id !== "string" || !ID_RE.test(b.id) || RESERVED_IDS.has(b.id)) return bad("id");
+  const trigger = b.trigger ?? "comment";
+  if (trigger !== "comment" && trigger !== "message") return bad("trigger");
   if (b.postId !== null && b.postId !== undefined && typeof b.postId !== "string") {
     return bad("postId");
   }
@@ -295,13 +326,23 @@ export function parseAutomationInput(
   }
   const match = b.match ?? "contains";
   if (match !== "contains" && match !== "exact") return bad("match");
-  const publicReply = b.publicReply === undefined ? "" : b.publicReply;
-  if (typeof publicReply !== "string" || publicReply.length > PUBLIC_MAX) return bad("publicReply");
-  if (typeof b.dmText !== "string" || !b.dmText.trim() || b.dmText.length > DM_MAX) {
-    return bad("dmText");
+  // v2 sends `publicReplies`; a v1 dashboard's single `publicReply` still works.
+  const rawReplies =
+    b.publicReplies ?? (typeof b.publicReply === "string" ? [b.publicReply] : []);
+  if (!Array.isArray(rawReplies) || rawReplies.length > PUBLIC_REPLIES_MAX) {
+    return bad("publicReplies");
   }
+  const publicReplies: string[] = [];
+  for (const r of rawReplies) {
+    if (typeof r !== "string" || r.length > PUBLIC_MAX) return bad("publicReplies");
+    if (r.trim()) publicReplies.push(r.trim());
+  }
+  if (typeof b.dmText !== "string" || !b.dmText.trim()) return bad("dmText");
+  const followButton = b.followButton === true;
   const rawButtons = b.buttons === undefined ? [] : b.buttons;
-  if (!Array.isArray(rawButtons) || rawButtons.length > BUTTONS_MAX) return bad("buttons");
+  if (!Array.isArray(rawButtons) || rawButtons.length + (followButton ? 1 : 0) > BUTTONS_MAX) {
+    return bad("buttons");
+  }
   const buttons: ReplyButton[] = [];
   for (const raw of rawButtons) {
     const btn = (raw ?? {}) as Record<string, unknown>;
@@ -310,22 +351,25 @@ export function parseAutomationInput(
     if (!isHttps(btn.url)) return bad("buttons.url");
     buttons.push({ title, url: btn.url });
   }
-  return {
-    ok: true,
-    automation: {
-      id: b.id,
-      enabled: b.enabled !== false,
-      postId: typeof b.postId === "string" ? b.postId : null,
-      ...(optString(b.permalink, 300) ? { permalink: optString(b.permalink, 300) } : {}),
-      ...(optString(b.title, 120) ? { title: optString(b.title, 120) } : {}),
-      ...(isHttps(b.thumbUrl) ? { thumbUrl: b.thumbUrl } : {}),
-      keywords,
-      match,
-      publicReply: publicReply.trim(),
-      dmText: b.dmText.trim(),
-      buttons,
-    },
+  const onPost = trigger === "comment";
+  const permalink = onPost ? optString(b.permalink, 300) : undefined;
+  const title = onPost ? optString(b.title, 120) : undefined;
+  const automation: AutomationInput = {
+    id: b.id,
+    enabled: b.enabled !== false,
+    trigger,
+    postId: onPost && typeof b.postId === "string" ? b.postId : null,
+    ...(permalink ? { permalink } : {}),
+    ...(title ? { title } : {}),
+    ...(onPost && isHttps(b.thumbUrl) ? { thumbUrl: b.thumbUrl } : {}),
+    keywords,
+    match,
+    publicReplies: onPost ? publicReplies : [],
+    dmText: b.dmText.trim(),
+    buttons,
+    followButton,
   };
+  return dmFits(automation, origin) ? { ok: true, automation } : bad("dmText");
 }
 
 /** A saved automation: the new fields over the old, creation kept, `enabledAt` stamped on switch-on. */
@@ -343,6 +387,46 @@ export function mergeAutomation(
     ...(existing?.enabledAt && !turnedOn ? { enabledAt: existing.enabledAt } : {}),
     ...(turnedOn ? { enabledAt: at } : {}),
   };
+}
+
+/** `POST /social/replies/settings`: pause all, and the default reply. */
+export interface SettingsInput {
+  paused?: boolean;
+  defaultReply?: { enabled: boolean; text: string };
+}
+
+export function parseSettingsInput(
+  body: unknown,
+): { ok: true; settings: SettingsInput } | { ok: false; detail: string } {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const settings: SettingsInput = {};
+  if (b.paused !== undefined) {
+    if (typeof b.paused !== "boolean") return { ok: false, detail: "paused" };
+    settings.paused = b.paused;
+  }
+  if (b.defaultReply !== undefined) {
+    const d = (b.defaultReply ?? {}) as Record<string, unknown>;
+    const text = typeof d.text === "string" ? d.text.trim() : "";
+    if (typeof d.enabled !== "boolean" || (d.enabled && !text) || utf8Bytes(text) > DM_TEXT_BYTES) {
+      return { ok: false, detail: "defaultReply" };
+    }
+    settings.defaultReply = { enabled: d.enabled, text };
+  }
+  return { ok: true, settings };
+}
+
+/** The saved settings over the old; the default reply's `enabledAt` is stamped when it is switched on. */
+export function mergeSettings(doc: AutomationsDoc, s: SettingsInput, now: Date): AutomationsDoc {
+  const at = now.toISOString();
+  const next: AutomationsDoc = { ...doc };
+  if (s.paused !== undefined) next.paused = s.paused;
+  if (s.defaultReply) {
+    const was = doc.defaultReply;
+    const turnedOn = s.defaultReply.enabled && !was?.enabled;
+    const enabledAt = turnedOn ? at : was?.enabledAt;
+    next.defaultReply = { ...s.defaultReply, updatedAt: at, ...(enabledAt ? { enabledAt } : {}) };
+  }
+  return next;
 }
 
 /* ---------- errors ---------- */
@@ -423,6 +507,8 @@ export interface PollDeps {
   budget?: number;
   /** Read every watched post's comments even when the counts did not change ("Check now"). */
   force?: boolean;
+  /** Picks the public reply (tests pass a fixed source). */
+  random?: () => number;
 }
 
 export interface PollResult {
@@ -481,8 +567,9 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
   if (!store) return { ...result, skipped: "not_connected" };
   const now = deps.now ?? new Date();
   const at = now.toISOString();
-  const config = (await store.getReplies<AutomationsDoc>()) ?? emptyAutomations();
-  const enabled = Object.values(config.automations).filter((a) => a.enabled);
+  const random = deps.random ?? Math.random;
+  const config = readAutomations(await store.getReplies<StoredDoc>());
+  const enabled = Object.values(config.automations).filter((a) => a.enabled && a.trigger === "comment");
   if (!enabled.length) return { ...result, skipped: "none" };
   const state = (await store.getRepliesState<PollState>()) ?? emptyState();
   if (state.lockUntil && Date.parse(state.lockUntil) > now.getTime()) {
@@ -668,7 +755,8 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     let stop: ReplyErrorCode | undefined;
     for (const { comment: c, automation: a, mediaId } of candidates) {
       if (stop || result.sent.length >= REPLY_CAP) break;
-      if (http.budget.left < (a.publicReply ? 2 : 1)) break;
+      const pub = pickPublicReply(a.publicReplies, random);
+      if (http.budget.left < (pub ? 2 : 1)) break;
       const id = c.id!;
       attempted.add(id);
       const username = c.username ?? c.from?.username;
@@ -699,7 +787,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
             },
             body: JSON.stringify({
               recipient: { comment_id: id },
-              message: { text: dmBody(a, config.origin) },
+              message: { text: textBody(a.dmText, messageButtons(a, config.origin, undefined)) },
             }),
           }),
           "dm",
@@ -737,13 +825,13 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
         }
       }
       // The public reply, only once the DM went out; a failure here is logged, never retried.
-      if (dmSent && a.publicReply && http.budget.ok) {
+      if (dmSent && pub && http.budget.ok) {
         try {
           graph(
             await fetchJson<MetaError>(
               http,
               `${IG_API}/${id}/replies`,
-              formPost({ message: fill(a.publicReply, username), access_token: token }),
+              formPost({ message: fill(pub, username), access_token: token }),
             ),
             "reply",
           );
@@ -815,8 +903,18 @@ export function publicDoc(
       .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
       .map((a) => view(a, state, clicks)),
     log: state.log,
+    paused: config.paused === true,
+    ...(config.defaultReply
+      ? {
+          defaultReply: {
+            ...config.defaultReply,
+            stats: state.stats[DEFAULT_STATS_ID] ?? emptyStats(),
+          },
+        }
+      : {}),
     ...(config.origin ? { origin: config.origin } : {}),
     ...(state.igUserId ? { igUserId: state.igUserId } : {}),
+    ...(state.ownerUsername ? { ownerUsername: state.ownerUsername } : {}),
     ...(state.lastPollAt ? { lastPollAt: state.lastPollAt } : {}),
     ...(state.lastError ? { lastError: state.lastError } : {}),
   };
@@ -824,14 +922,14 @@ export function publicDoc(
 
 async function readAll(store: Store): Promise<[AutomationsDoc, PollState, ClicksDoc]> {
   const [config, state, clicks] = await Promise.all([
-    store.getReplies<AutomationsDoc>(),
+    store.getReplies<StoredDoc>(),
     store.getRepliesState<PollState>(),
     store.getReplyClicks<ClicksDoc>(),
   ]);
-  return [config ?? emptyAutomations(), state ?? emptyState(), clicks ?? emptyClicks()];
+  return [readAutomations(config), state ?? emptyState(), clicks ?? emptyClicks()];
 }
 
-/** `/social/replies[/:id | /poll]`; `rest` is the path after "replies". Null when the path is not ours. */
+/** `/social/replies[/:id | /poll | /settings]`; `rest` is the path after "replies". Null when the path is not ours. */
 export async function handleReplies(
   req: Request,
   env: SocialEnv,
@@ -856,7 +954,7 @@ export async function handleReplies(
     } catch {
       return reply.json({ error: "bad_request", detail: "json" }, 400);
     }
-    const parsed = parseAutomationInput(body);
+    const parsed = parseAutomationInput(body, new URL(req.url).origin);
     if (!parsed.ok) return reply.json({ error: "bad_request", detail: parsed.detail }, 400);
     if (!store) return reply.fail("not_configured");
     const [config, state, clicks] = await readAll(store);
@@ -871,6 +969,23 @@ export async function handleReplies(
     return reply.json({ automation: view(automation, state, clicks) }, 200);
   }
 
+  if (first === "settings" && req.method === "POST") {
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return reply.json({ error: "bad_request", detail: "json" }, 400);
+    }
+    const parsed = parseSettingsInput(body);
+    if (!parsed.ok) return reply.json({ error: "bad_request", detail: parsed.detail }, 400);
+    if (!store) return reply.fail("not_configured");
+    const [config, state, clicks] = await readAll(store);
+    const next = mergeSettings(config, parsed.settings, now);
+    next.origin = new URL(req.url).origin;
+    await store.putReplies(next);
+    return reply.json(publicDoc(next, state, clicks), 200);
+  }
+
   if (first === "poll" && req.method === "POST") {
     if (!store) return reply.fail("not_configured");
     const result = await pollReplies(env, { fetch: fetchImpl, now, force: true });
@@ -879,7 +994,7 @@ export async function handleReplies(
 
   if (first && ID_RE.test(first) && req.method === "DELETE") {
     if (!store) return reply.fail("not_configured");
-    const config = (await store.getReplies<AutomationsDoc>()) ?? emptyAutomations();
+    const config = readAutomations(await store.getReplies<StoredDoc>());
     if (config.automations[first]) {
       delete config.automations[first];
       await store.putReplies(config);
@@ -906,7 +1021,7 @@ export async function handleGo(
   cache: Cache | null = null,
 ): Promise<Response> {
   const store = Store.from(env);
-  const config = store ? await store.getReplies<AutomationsDoc>() : null;
+  const config = store ? readAutomations(await store.getReplies<StoredDoc>()) : null;
   const button = config?.automations[id]?.buttons[n];
   if (!store || !button) {
     return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });

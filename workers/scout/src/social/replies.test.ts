@@ -4,7 +4,6 @@ import { runTick } from "./cron";
 import { mergeJob, type JobInput, type PublishJob } from "./publish";
 import {
   CLICK_WRITES_PER_DAY,
-  dmBody,
   emptyAutomations,
   emptyClicks,
   emptyState,
@@ -14,6 +13,7 @@ import {
   parseAutomationInput,
   pollReplies,
   POLL_LOCK_MS,
+  PUBLIC_REPLIES_MAX,
   REPLY_CAP,
   WATCH_MAX,
   type Automation,
@@ -139,7 +139,9 @@ const input = (over: Partial<AutomationInput> = {}): AutomationInput => ({
   postId: "m1",
   keywords: ["لت"],
   match: "contains",
-  publicReply: "أرسلته لك على الخاص 🎬",
+  trigger: "comment",
+  publicReplies: ["أرسلته لك على الخاص 🎬"],
+  followButton: false,
   dmText: "حمل اللت من الرابط تحت وجربه على لقطاتك",
   buttons: [{ title: "حمل اللت", url: LUT }],
   ...over,
@@ -223,17 +225,6 @@ describe("normalizeForMatch / matches", () => {
   });
 });
 
-describe("dmBody", () => {
-  it("adds one link line per button through /go when the origin is known", () => {
-    const a = mergeAutomation(undefined, input(), NOW);
-    expect(dmBody(a, BASE)).toBe(
-      `حمل اللت من الرابط تحت وجربه على لقطاتك\n\nحمل اللت: ${BASE}/go/lut/0`,
-    );
-    expect(dmBody(a)).toContain(`حمل اللت: ${LUT}`);
-    expect(dmBody({ ...a, buttons: [] })).toBe(a.dmText);
-  });
-});
-
 /* ---------- validation ---------- */
 
 describe("parseAutomationInput", () => {
@@ -244,12 +235,14 @@ describe("parseAutomationInput", () => {
       automation: {
         id: "lut",
         enabled: true,
+        trigger: "comment",
         postId: null,
         keywords: ["لت"],
         match: "contains",
-        publicReply: "",
+        publicReplies: [],
         dmText: "x",
         buttons: [],
+        followButton: false,
       },
     });
   });
@@ -284,6 +277,141 @@ describe("mergeAutomation", () => {
     expect(off.enabledAt).toBe(NOW.toISOString());
     const on = mergeAutomation(off, input(), new Date(later.getTime() + 60_000));
     expect(on.enabledAt).toBe(new Date(later.getTime() + 60_000).toISOString());
+  });
+});
+
+describe("parseAutomationInput (v2)", () => {
+  const ar = (n: number) => "ل".repeat(n);
+  const b = { title: "t", url: LUT };
+
+  it("keeps the v2 fields, and a message rule keeps no post and no public replies", () => {
+    const r = parseAutomationInput(
+      { ...input(), trigger: "message", followButton: true, title: "x", buttons: [] },
+      BASE,
+    );
+    expect(r).toMatchObject({
+      ok: true,
+      automation: { trigger: "message", postId: null, publicReplies: [], followButton: true },
+    });
+    expect(r.ok && r.automation).not.toHaveProperty("title");
+  });
+
+  it("reads a v1 dashboard's single publicReply as one public reply", () => {
+    const v1: Record<string, unknown> = { ...input() };
+    delete v1.publicReplies;
+    expect(parseAutomationInput({ ...v1, publicReply: " هلا " }, BASE)).toMatchObject({
+      ok: true,
+      automation: { publicReplies: ["هلا"] },
+    });
+  });
+
+  it("accepts 500 Arabic letters without buttons (1,000 bytes) and 640 characters with a button", () => {
+    expect(parseAutomationInput({ ...input(), buttons: [], dmText: ar(500) }, BASE).ok).toBe(true);
+    expect(parseAutomationInput({ ...input(), dmText: "x".repeat(640) }, BASE).ok).toBe(true);
+  });
+
+  it.each([
+    [{ ...input(), trigger: "story" }, "trigger"],
+    [{ ...input(), publicReplies: ["a", "b", "c", "d"] }, "publicReplies"],
+    [{ ...input(), publicReplies: [7] }, "publicReplies"],
+    [{ ...input(), followButton: true, buttons: [b, b, b] }, "buttons"],
+    [{ ...input(), buttons: [], dmText: ar(501) }, "dmText"],
+    [{ ...input(), dmText: "x".repeat(641) }, "dmText"],
+    [{ ...input(), id: "settings" }, "id"],
+    [{ ...input(), id: "default" }, "id"],
+  ])("refuses %j → %s", (body, detail) => {
+    expect(parseAutomationInput(body, BASE)).toEqual({ ok: false, detail });
+  });
+
+  it("allows three public replies and drops the blank ones", () => {
+    expect(PUBLIC_REPLIES_MAX).toBe(3);
+    expect(parseAutomationInput({ ...input(), publicReplies: ["أ", " ", "ب"] }, BASE)).toMatchObject({
+      ok: true,
+      automation: { publicReplies: ["أ", "ب"] },
+    });
+  });
+});
+
+describe("v1 documents", () => {
+  it("read as comment rules with their one public reply and no follow button", async () => {
+    const env = makeEnv();
+    await Store.from(env)!.putReplies({
+      v: 1,
+      origin: BASE,
+      automations: {
+        lut: {
+          id: "lut",
+          enabled: true,
+          postId: "m1",
+          keywords: ["لت"],
+          match: "contains",
+          publicReply: "أرسلته لك",
+          dmText: "x",
+          buttons: [],
+          createdAt: NOW.toISOString(),
+          updatedAt: NOW.toISOString(),
+          enabledAt: NOW.toISOString(),
+        },
+      },
+    });
+    const body = (await (await handle(req("/social/replies"), env)).json()) as {
+      automations: Record<string, unknown>[];
+      paused: boolean;
+    };
+    expect(body.paused).toBe(false);
+    expect(body.automations[0]).toMatchObject({
+      trigger: "comment",
+      publicReplies: ["أرسلته لك"],
+      followButton: false,
+    });
+    expect(body.automations[0]).not.toHaveProperty("publicReply");
+  });
+});
+
+describe("/social/replies/settings", () => {
+  it("saves pause and the default reply, stamping enabledAt when it is switched on", async () => {
+    const env = makeEnv();
+    const post = (json: unknown, at = NOW) =>
+      handle(req("/social/replies/settings", { method: "POST", json }), env, undefined, {
+        now: () => at,
+      });
+    let res = await post({ paused: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ paused: true, automations: [] });
+
+    res = await post({ defaultReply: { enabled: true, text: " وصلت رسالتك " } });
+    expect(await res.json()).toMatchObject({
+      paused: true,
+      defaultReply: {
+        enabled: true,
+        text: "وصلت رسالتك",
+        enabledAt: NOW.toISOString(),
+        stats: { sends: 0 },
+      },
+    });
+
+    const later = new Date(NOW.getTime() + 60_000);
+    await post({ defaultReply: { enabled: false, text: "وصلت رسالتك" } }, later);
+    const config = await configOf(env);
+    expect(config.defaultReply).toEqual({
+      enabled: false,
+      text: "وصلت رسالتك",
+      enabledAt: NOW.toISOString(),
+      updatedAt: later.toISOString(),
+    });
+    expect(config.paused).toBe(true);
+    expect(config.origin).toBe(BASE);
+  });
+
+  it.each([
+    [{ paused: "yes" }, "paused"],
+    [{ defaultReply: { enabled: true, text: " " } }, "defaultReply"],
+    [{ defaultReply: { enabled: true, text: "ل".repeat(501) } }, "defaultReply"],
+    [{ defaultReply: { text: "x" } }, "defaultReply"],
+  ])("refuses %j → %s", async (json, detail) => {
+    const res = await handle(req("/social/replies/settings", { method: "POST", json }), makeEnv());
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "bad_request", detail });
   });
 });
 
@@ -540,10 +668,10 @@ describe("pollReplies", () => {
     const env = makeEnv();
     await connect(env, "instagram");
     await seed(env, [
-      input({ id: "any", postId: null, publicReply: "" }),
-      input({ id: "s1", postId: "old1", publicReply: "" }),
-      input({ id: "s2", postId: "old2", publicReply: "" }),
-      input({ id: "s3", postId: "old3", publicReply: "" }),
+      input({ id: "any", postId: null, publicReplies: [] }),
+      input({ id: "s1", postId: "old1", publicReplies: [] }),
+      input({ id: "s2", postId: "old2", publicReplies: [] }),
+      input({ id: "s3", postId: "old3", publicReplies: [] }),
     ]);
     const routes: Record<string, Handler> = {
       [`GET ${IG}/me`]: () => ({ user_id: 17841, username: "3z.prod" }),
@@ -615,7 +743,7 @@ describe("pollReplies", () => {
     await connect(env, "instagram", {
       issuedAt: new Date(NOW.getTime() - 31 * 86_400_000).toISOString(),
     });
-    await seed(env, [input({ postId: null, publicReply: "" })]);
+    await seed(env, [input({ postId: null, publicReplies: [] })]);
     const { routes } = igRoutes({
       "GET graph.instagram.com/refresh_access_token": (u) => {
         expect(u.searchParams.get("grant_type")).toBe("ig_refresh_token");
@@ -703,7 +831,7 @@ describe("pollReplies", () => {
   it("maps Instagram's answers: expired token and rate limit stop, refusals are final, glitches retry", async () => {
     const env = makeEnv();
     await connect(env, "instagram");
-    await seed(env, [input({ publicReply: "" })]);
+    await seed(env, [input({ publicReplies: [] })]);
     let dm: () => unknown = () => json({ error: { message: "Invalid OAuth", code: 190 } }, 400);
     const { routes } = igRoutes(
       { [`POST ${IG}/17841/messages`]: () => dm() },
@@ -737,7 +865,7 @@ describe("pollReplies", () => {
   it("tells app-level permission problems from per-comment refusals by Meta's subcodes", async () => {
     const env = makeEnv();
     await connect(env, "instagram");
-    await seed(env, [input({ publicReply: "" })]);
+    await seed(env, [input({ publicReplies: [] })]);
     // Factories, not Responses: a Response body can be read once, and the same refusal repeats over ticks.
     const answers: Record<string, () => unknown> = {};
     const { routes } = igRoutes(
@@ -819,8 +947,8 @@ describe("pollReplies", () => {
     const env = makeEnv();
     await connect(env, "instagram");
     await seed(env, [
-      input({ id: "gone", postId: "deleted9", publicReply: "" }),
-      input({ id: "any", postId: null, publicReply: "" }),
+      input({ id: "gone", postId: "deleted9", publicReplies: [] }),
+      input({ id: "any", postId: null, publicReplies: [] }),
     ]);
     let m1 = () => ({ data: [comment("c1", "لت")] }) as unknown;
     const { routes } = igRoutes({
@@ -854,7 +982,7 @@ describe("pollReplies", () => {
   it("answers at most REPLY_CAP comments a tick and picks the rest up on the very next tick", async () => {
     const env = makeEnv();
     await connect(env, "instagram");
-    await seed(env, [input({ publicReply: "" })]);
+    await seed(env, [input({ publicReplies: [] })]);
     const many = Array.from({ length: 12 }, (_, i) =>
       comment(`c${i}`, "لت", { timestamp: new Date(NOW.getTime() - (20 - i) * 60_000).toISOString() }),
     );
@@ -872,7 +1000,7 @@ describe("pollReplies", () => {
     const tight = mockFetch(igRoutes({}, many).routes);
     const env2 = makeEnv();
     await connect(env2, "instagram");
-    await seed(env2, [input({ publicReply: "" })]);
+    await seed(env2, [input({ publicReplies: [] })]);
     await pollReplies(env2, { fetch: tight, now: NOW, budget: 3 });
     expect(tight.calls().length).toBeLessThanOrEqual(3);
   });
@@ -880,7 +1008,7 @@ describe("pollReplies", () => {
   it("holds a lock while answering, so a save during the poll is kept and a second poll waits", async () => {
     const env = makeEnv();
     await connect(env, "instagram");
-    await seed(env, [input({ publicReply: "" })]);
+    await seed(env, [input({ publicReplies: [] })]);
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     const { routes } = igRoutes(
@@ -938,6 +1066,39 @@ describe("pollReplies", () => {
     });
     await pollReplies(env, { fetch: mockFetch(igRoutes({}, []).routes), now: NOW });
     expect(Object.keys((await stateOf(env)).stats)).toEqual(["lut"]);
+  });
+
+  it("picks one of the public replies at random", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ publicReplies: ["أ", "ب", "ج"] })]);
+    let said = "";
+    const { routes } = igRoutes({
+      [`POST ${IG}/c1/replies`]: (_u, init) => {
+        said = new URLSearchParams(String(init?.body)).get("message") ?? "";
+        return { id: "r1" };
+      },
+    });
+    await pollReplies(env, { fetch: mockFetch(routes), now: NOW, random: () => 0.5 });
+    expect(said).toBe("ب");
+  });
+
+  it("leaves comments to comment rules: a message rule with the same word does not answer them", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ id: "dm", trigger: "message", postId: null, publicReplies: [] })]);
+    const fetchMock = mockFetch(igRoutes().routes);
+    expect((await pollReplies(env, { fetch: fetchMock, now: NOW })).sent).toEqual([]);
+    expect(fetchMock.calls()).not.toContain(`POST ${IG}/17841/messages`);
+  });
+
+  it("lists the account's username once a poll has read it", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    await pollReplies(env, { fetch: mockFetch(igRoutes().routes), now: NOW });
+    const body = (await (await handle(req("/social/replies"), env)).json()) as Record<string, unknown>;
+    expect(body.ownerUsername).toBe("3z.prod");
   });
 });
 
