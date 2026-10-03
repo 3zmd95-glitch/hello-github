@@ -1,16 +1,18 @@
 /**
  * 💬 Auto replies, the DM side (round 34, planning/tools/14-auto-replies-v2.md): reads the newest conversations and
  * answers the DMs and story replies that carry a message rule's keyword, plus the default reply (at most once per
- * person a day). `pollReplies` (replies.ts) runs it after the comments, under the same lock, answer cap and single
- * write. It never starts a conversation: every answer is inside the 24-hour window the person's own message opened.
+ * person a day). `pollReplies` (replies.ts) runs it after the comments, under the same lock and answer cap, in at
+ * most two writes (the lock, then the result). It never starts a conversation: every answer is inside the 24-hour
+ * window the person's own message opened.
  *
  *   GET  /{IG_ID}/conversations?platform=instagram&limit=20&fields=id,updated_time,messages.limit(5){…}  one call
  *   POST /{IG_ID}/messages { recipient: { id: IGSID }, message }                         replyCore.sendReply
  *
- * Where a conversation stands: `state.convos[id].seenAt`, the newest message handled. The first poll ever only
- * stamps `state.inboxSince` and answers nothing. The owner chatting by hand (a message from the account in the last
- * day that the poll did not send) keeps rules and the default reply out of that conversation. Instagram does not
- * document the order of the list, so every returned conversation is checked.
+ * Where a conversation stands: `state.convos[id].seenAt`, the newest message handled, and never more than a day back
+ * (older messages are never answered). The first poll ever only stamps `state.inboxSince` and answers nothing. The
+ * owner chatting by hand (a message from the account in the last day that the poll did not send) keeps rules and the
+ * default reply out of that conversation. Instagram does not document the order of the list, so every returned
+ * conversation is checked.
  */
 
 import { clip, fetchJson, type Http } from "./http";
@@ -64,7 +66,10 @@ export function toMs(v: string | number | undefined): number {
   return Date.parse(v ?? "");
 }
 
-/** Whether a message from the account is one the poll sent: by id, else by time just after a send to that person. */
+/**
+ * Whether a message from the account is one the poll sent: by id, else by time just after a send to that person (from
+ * a minute before it, which tolerates clock skew between Instagram and the Worker, to OWN_SEND_SLACK_MS after).
+ */
 export function isOwnSend(
   state: Pick<PollState, "sent">,
   id: string,
@@ -85,7 +90,7 @@ export interface InboxItem {
   text: string;
   /** A reply to one of the account's stories. */
   story: boolean;
-  /** Left alone but handled: a story mention, no text, unsupported, older than a day, or the owner is chatting. */
+  /** Left alone but handled: a story mention, no text, unsupported, or the owner is chatting. */
   skip: boolean;
 }
 
@@ -146,9 +151,38 @@ export function pickMessageRule(
 }
 
 /**
+ * What answers one of the person's messages: the first matching message rule; else the default reply ("default")
+ * when it is on, the message is a DM (not a story reply) with a letter or digit that came after it was switched on,
+ * and the person got none in the last day; else nothing.
+ */
+export function answerFor(
+  d: InboxDeps,
+  batch: ConversationBatch,
+  item: InboxItem,
+): Automation | "default" | undefined {
+  if (item.skip) return undefined;
+  const rule = pickMessageRule(d.config, item.text, item.ms);
+  if (rule) return rule;
+  const def = d.config.defaultReply;
+  const last = d.state.defaultSentAt[batch.personId];
+  const useDefault =
+    !item.story &&
+    !!def?.enabled &&
+    !!def.text &&
+    !!normalizeForMatch(item.text) &&
+    (!def.enabledAt || Date.parse(def.enabledAt) <= item.ms) &&
+    !(last && d.now.getTime() - Date.parse(last) < WINDOW_MS);
+  return useDefault ? "default" : undefined;
+}
+
+/** Where a conversation stands: its position, else `inboxSince`, but never more than a day back. */
+const seenMs = (state: PollState, id: string, nowMs: number): number =>
+  Math.max(toMs(state.convos[id]?.seenAt ?? state.inboxSince), nowMs - WINDOW_MS);
+
+/**
  * The conversations with new messages from the person. The very first read only stamps `state.inboxSince`.
- * Conversations whose news is only the account's own messages move their `seenAt` here. Throws (ReplyError /
- * SocialError) when the list cannot be read.
+ * Conversations whose news is only the account's own messages move their `seenAt` here, in memory: saved with the
+ * next real write. Throws (ReplyError / SocialError) when the list cannot be read.
  */
 export async function readInbox(
   d: InboxDeps,
@@ -158,6 +192,9 @@ export async function readInbox(
     state.inboxSince = now.toISOString();
     return { batches: [], changed: true };
   }
+  /** The account's own message: its id, or its username in case Instagram's id differs from /me's user_id. */
+  const ours = (m: IgMessage) =>
+    m.from?.id === igUserId || (!!state.ownerUsername && m.from?.username === state.ownerUsername);
   const url = new URL(`${IG_API}/${igUserId}/conversations`);
   url.searchParams.set("platform", "instagram");
   url.searchParams.set("limit", String(CONVERSATIONS_PAGE));
@@ -172,10 +209,9 @@ export async function readInbox(
   );
   const nowMs = now.getTime();
   const batches: ConversationBatch[] = [];
-  let changed = false;
   for (const c of page.data ?? []) {
     if (!c.id) continue;
-    const seen = toMs(state.convos[c.id]?.seenAt ?? state.inboxSince);
+    const seen = seenMs(state, c.id, nowMs);
     const msgs = (c.messages?.data ?? [])
       .filter((m): m is IgMessage & { id: string } => !!m.id)
       .map((m) => ({ m, ms: toMs(m.created_time) }))
@@ -183,19 +219,15 @@ export async function readInbox(
       .sort((a, b) => a.ms - b.ms);
     const newestMs = msgs.length ? msgs[msgs.length - 1].ms : NaN;
     if (!(newestMs > seen)) continue;
-    const person = msgs.find((x) => x.m.from?.id && x.m.from.id !== igUserId)?.m.from;
+    const person = msgs.find((x) => x.m.from?.id && !ours(x.m))?.m.from;
     const personId = person?.id;
-    const fresh = msgs.filter((x) => x.ms > seen && x.m.from?.id !== igUserId);
+    const fresh = msgs.filter((x) => x.ms > seen && !ours(x.m));
     if (!personId || !fresh.length) {
       state.convos[c.id] = { seenAt: new Date(newestMs).toISOString() };
-      changed = true;
       continue;
     }
     const ownerChatting = msgs.some(
-      (x) =>
-        x.m.from?.id === igUserId &&
-        nowMs - x.ms <= WINDOW_MS &&
-        !isOwnSend(state, x.m.id, x.ms, personId),
+      (x) => ours(x.m) && nowMs - x.ms <= WINDOW_MS && !isOwnSend(state, x.m.id, x.ms, personId),
     );
     batches.push({
       id: c.id,
@@ -209,23 +241,18 @@ export async function readInbox(
           ms,
           text,
           story: !!m.story?.reply_to,
-          skip:
-            ownerChatting ||
-            !!m.story?.mention ||
-            !!m.is_unsupported ||
-            !text.trim() ||
-            nowMs - ms > WINDOW_MS,
+          skip: ownerChatting || !!m.story?.mention || !!m.is_unsupported || !text.trim(),
         };
       }),
     });
   }
-  return { batches, changed };
+  return { batches, changed: false };
 }
 
 /**
  * Answers the batches while `capLeft` answers and the call budget last, and moves each conversation's `seenAt` up to
- * the last message handled. A refusal is final for its message; a glitch is retried on later polls (up to
- * MAX_RETRIES) and its conversation waits for it; a tick stopper ends the poll.
+ * the last message handled. A refusal is final for its message; a glitch or a permission refusal is retried on later
+ * polls (up to MAX_RETRIES) and its conversation waits for it; a tick stopper ends the poll.
  */
 export async function answerInbox(
   d: InboxDeps,
@@ -235,31 +262,22 @@ export async function answerInbox(
   const { state, now, config } = d;
   const at = now.toISOString();
   const out: InboxOutcome = { sent: [], failed: [], changed: false };
-  const def = config.defaultReply;
   for (const batch of batches) {
     if (out.stop) break;
     let handledUpTo: number | undefined;
     let done = true;
     for (const item of batch.items) {
-      const rule = item.skip ? undefined : pickMessageRule(config, item.text, item.ms);
-      const lastDefault = state.defaultSentAt[batch.personId];
-      const useDefault =
-        !item.skip &&
-        !rule &&
-        !item.story &&
-        !!def?.enabled &&
-        !!def.text &&
-        !!normalizeForMatch(item.text) &&
-        (!def.enabledAt || Date.parse(def.enabledAt) <= item.ms) &&
-        !(lastDefault && now.getTime() - Date.parse(lastDefault) < WINDOW_MS);
-      if (!rule && !useDefault) {
+      const answer = answerFor(d, batch, item);
+      if (!answer) {
+        delete state.retries[item.id];
         handledUpTo = item.ms;
         continue;
       }
-      if (out.sent.length >= capLeft || !d.http.budget.ok) {
+      if (out.stop || out.sent.length >= capLeft || !d.http.budget.ok) {
         done = false;
         break;
       }
+      const rule = answer === "default" ? undefined : answer;
       const id = rule?.id ?? DEFAULT_STATS_ID;
       const s = d.statsOf(id);
       const entry: ReplyLogEntry = {
@@ -277,7 +295,7 @@ export async function answerInbox(
         const messageId = await sendReply(
           { http: d.http, igUserId: d.igUserId, token: d.token },
           { id: batch.personId },
-          rule ? rule.dmText : (def?.text ?? ""),
+          rule ? rule.dmText : (config.defaultReply?.text ?? ""),
           rule ? messageButtons(rule, config.origin, state.ownerUsername) : [],
         );
         entry.dm = "sent";
@@ -295,10 +313,12 @@ export async function answerInbox(
         s.failures += 1;
         s.lastError = code;
         out.failed.push(item.id);
-        if (TICK_STOPPERS.has(code)) {
-          out.stop = code;
+        if (TICK_STOPPERS.has(code)) out.stop = code;
+        if (code === "token_expired" || code === "rate_limited") {
+          // Nothing recorded: the same message is tried first next time.
           final = false;
-        } else if (transient) {
+        } else if (transient || code === "no_permission") {
+          // As with comments: given up on after MAX_RETRIES so one odd message cannot block the rest.
           const tries = (state.retries[item.id] ?? 0) + 1;
           if (tries < MAX_RETRIES) {
             state.retries[item.id] = tries;
@@ -317,8 +337,7 @@ export async function answerInbox(
       handledUpTo = item.ms;
     }
     const upTo = done ? batch.newestMs : handledUpTo;
-    const seen = toMs(state.convos[batch.id]?.seenAt ?? state.inboxSince);
-    if (upTo !== undefined && upTo > seen) {
+    if (upTo !== undefined && upTo > seenMs(state, batch.id, now.getTime())) {
       state.convos[batch.id] = { seenAt: new Date(upTo).toISOString() };
       out.changed = true;
     }

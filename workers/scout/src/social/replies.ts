@@ -39,6 +39,7 @@ import { IG_API } from "./instagram";
 import { metaList, type MetaError, type MetaPage } from "./meta";
 import { credentials, isExpired, PROVIDERS } from "./oauth";
 import {
+  answerFor,
   answerInbox,
   CONVO_TTL_MS,
   inboxActive,
@@ -197,7 +198,7 @@ export interface PollState {
   watch: Record<string, { count: number; seenAt: string }>;
   /** commentId → ISO answered (or given up on); pruned after HANDLED_TTL_MS. */
   handled: Record<string, string>;
-  /** commentId → failures so far (transient ones, and permission refusals). */
+  /** Comment or DM message id → failures so far (transient ones, and permission refusals). */
   retries: Record<string, number>;
   /** Message id → the poll's own sends (pruned after SENT_TTL_MS): tells its DMs from the owner's (inbox.ts). */
   sent: Record<string, SentMessage>;
@@ -723,7 +724,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
         if (detail) result.detail = detail.slice(0, 200);
       }
     }
-    const dmToAnswer = batches.some((b) => b.items.some((i) => !i.skip));
+    const dmToAnswer = batches.some((b) => b.items.some((i) => answerFor(inbox, b, i)));
 
     // Claim the comments and messages before answering, so a "Check now" landing during the cron tick waits.
     if (candidates.length || dmToAnswer) {

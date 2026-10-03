@@ -3,6 +3,7 @@ import { handle, type Env } from "../scout";
 import { runTick } from "./cron";
 import { toMs } from "./inbox";
 import { mergeJob, type JobInput, type PublishJob } from "./publish";
+import { MAX_RETRIES } from "./replyCore";
 import {
   CLICK_WRITES_PER_DAY,
   emptyAutomations,
@@ -1332,9 +1333,15 @@ describe("pollReplies: DMs and story replies", () => {
       publicReply: "skipped",
     });
 
-    // The next poll finds nothing new: no send, no KV write.
+    // The next poll finds only the account's own reply, as Instagram lists it: no send, no KV write.
     const writes = env.SOCIAL_KV.writes;
-    const again = await pollReplies(env, { fetch: mockFetch(dmRoutes(convos)), now: tick(1) });
+    const withReply = [
+      convo("t1", [
+        dm("out1", "أصور بالآيفون", { from: ME, created_time: msgAt(0) }),
+        dm("d1", "إيش الكاميرا اللي تستخدمها؟"),
+      ]),
+    ];
+    const again = await pollReplies(env, { fetch: mockFetch(dmRoutes(withReply)), now: tick(1) });
     expect(again.sent).toEqual([]);
     expect(env.SOCIAL_KV.writes).toBe(writes);
   });
@@ -1428,6 +1435,11 @@ describe("pollReplies: DMs and story replies", () => {
             dm("d3", "كاميرا", { from: { id: "p3" } }),
             dm("x7", "أصور بالآيفون", { from: ME, created_time: msgAt(4) }),
           ]),
+          // The owner by hand under an id that is not /me's user_id: the account's username gives it away.
+          convo("t4", [
+            dm("d4", "كاميرا", { from: { id: "p4" } }),
+            dm("h4", "هلا", { from: { id: "999", username: "3z.prod" }, created_time: msgAt(30) }),
+          ]),
         ]),
       ),
       now: NOW,
@@ -1450,7 +1462,8 @@ describe("pollReplies: DMs and story replies", () => {
       now: NOW,
     });
     expect(r.sent).toEqual([]);
-    expect(Object.keys((await stateOf(env)).convos).sort()).toEqual(["t1", "t2"]);
+    // t2's only message is older than a day: no position is kept for it.
+    expect(Object.keys((await stateOf(env)).convos)).toEqual(["t1"]);
   });
 
   it("answers at most REPLY_CAP DMs a poll and the rest on the next one", async () => {
@@ -1533,6 +1546,128 @@ describe("pollReplies: DMs and story replies", () => {
     const state = await stateOf(env);
     expect(Object.keys(state.convos).sort()).toEqual(["t1", "t2"]);
     expect(state.defaultSentAt).toEqual({ p1: msgAt(60) });
+  });
+
+  it("an old conversation still listed costs no write once its position is gone", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    // The DM side has run for 10 days; t1's last message, 8 days old, was handled and t1 is still listed.
+    await seed(env, [camRule()], {
+      inboxSince: msgAt(10 * 24 * 60),
+      igUserId: "17841",
+      ownerUsername: "3z.prod",
+      convos: { t1: { seenAt: msgAt(8 * 24 * 60) } },
+    });
+    const list = [
+      convo("t1", [dm("d1", "هلا", { created_time: msgAt(8 * 24 * 60) })]),
+      convo("t2", [dm("d2", "كاميرا", { from: { id: "p2" } })]),
+    ];
+    // The answer in t2 saves the state without t1's week-old position.
+    await pollReplies(env, { fetch: mockFetch(dmRoutes(list)), now: NOW });
+    expect((await stateOf(env)).convos).not.toHaveProperty("t1");
+    const writes = env.SOCIAL_KV.writes;
+    for (let i = 1; i <= 3; i++) {
+      await pollReplies(env, { fetch: mockFetch(dmRoutes(list)), now: tick(i) });
+    }
+    expect(env.SOCIAL_KV.writes).toBe(writes);
+  });
+
+  it("a DM refused for permission stops the poll, and is given up on after MAX_RETRIES tries", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], { ...SINCE, igUserId: "17841", ownerUsername: "3z.prod" });
+    let sends = 0;
+    const routes = {
+      ...dmRoutes([convo("t1", [dm("d1", "كاميرا")])]),
+      [`POST ${IG}/17841/messages`]: () => {
+        sends += 1;
+        return json({ error: { code: 10, message: "Application does not have permission" } }, 403);
+      },
+    };
+    await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
+    expect((await stateOf(env)).lastError).toBe("no_permission");
+    for (let i = 1; i < 5; i++) await pollReplies(env, { fetch: mockFetch(routes), now: tick(i) });
+    expect(sends).toBe(MAX_RETRIES);
+    const state = await stateOf(env);
+    expect(state.retries).toEqual({});
+    expect(state.convos.t1).toEqual({ seenAt: msgAt(1) });
+    expect(state.log.map((e) => e.error)).toEqual(["no_permission", "no_permission", "no_permission"]);
+  });
+
+  it("retries a DM glitch on the next polls and gives up after MAX_RETRIES tries", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    let sends = 0;
+    const routes = {
+      ...dmRoutes([convo("t1", [dm("d1", "كاميرا")])]),
+      [`POST ${IG}/17841/messages`]: () => {
+        sends += 1;
+        return json({ error: { message: "boom" } }, 500);
+      },
+    };
+    const poll = (i: number) => pollReplies(env, { fetch: mockFetch(routes), now: tick(i) });
+    await poll(0);
+    expect((await stateOf(env)).retries).toEqual({ d1: 1 });
+    await poll(1);
+    await poll(2);
+    const state = await stateOf(env);
+    expect(state.retries).toEqual({});
+    expect(state.convos.t1).toEqual({ seenAt: msgAt(1) });
+    await poll(3);
+    expect(sends).toBe(MAX_RETRIES);
+  });
+
+  it("drops a DM's retry count once it is handled without an answer", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    const d1 = dm("d1", "كاميرا");
+    await pollReplies(env, {
+      fetch: mockFetch({
+        ...dmRoutes([convo("t1", [d1])]),
+        [`POST ${IG}/17841/messages`]: () => json({ error: { message: "boom" } }, 500),
+      }),
+      now: NOW,
+    });
+    expect((await stateOf(env)).retries).toEqual({ d1: 1 });
+    // The owner answers by hand before the next poll: d1 is left alone, and its count goes.
+    const byHand = convo("t1", [dm("h1", "هلا والله", { from: ME, created_time: msgAt(0) }), d1]);
+    await pollReplies(env, { fetch: mockFetch(dmRoutes([byHand])), now: tick(1) });
+    const state = await stateOf(env);
+    expect(state.retries).toEqual({});
+    expect(state.convos.t1).toEqual({ seenAt: msgAt(0) });
+  });
+
+  it("takes no lock for DMs that nothing answers: one write, for the position", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], { ...SINCE, igUserId: "17841", ownerUsername: "3z.prod" });
+    const before = env.SOCIAL_KV.written.length;
+    const list = [convo("t1", [dm("d1", "هلا")])];
+    const r = await pollReplies(env, { fetch: mockFetch(dmRoutes(list)), now: NOW });
+    expect(r.sent).toEqual([]);
+    expect(env.SOCIAL_KV.written.slice(before)).toEqual([keys.repliesState]);
+    expect((await stateOf(env)).convos.t1).toEqual({ seenAt: msgAt(1) });
+  });
+
+  it("shares the answer cap with the comments: 6 comments and 2 DMs, the other DMs on the next poll", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ publicReplies: [] }), camRule()], SINCE);
+    const comments = Array.from({ length: 6 }, (_, i) => comment(`c${i}`, "لت"));
+    const convos = Array.from({ length: 4 }, (_, i) =>
+      convo(`t${i}`, [dm(`d${i}`, "كاميرا", { from: { id: `p${i}` } })]),
+    );
+    const { routes } = igRoutes(
+      { [`GET ${IG}/17841/conversations`]: () => ({ data: convos }) },
+      comments,
+    );
+    const r = await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
+    expect(REPLY_CAP).toBe(8);
+    expect(r.sent).toEqual(["c0", "c1", "c2", "c3", "c4", "c5", "d0", "d1"]);
+    const next = await pollReplies(env, { fetch: mockFetch(routes), now: tick(1) });
+    expect(next.sent).toEqual(["d2", "d3"]);
   });
 
   it("reads message times as ISO 8601 or UNIX seconds", () => {
