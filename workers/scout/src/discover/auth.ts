@@ -4,7 +4,8 @@
  * the OAuth request for "owner"; a wrong one shows the form again (403). Only Claude's callbacks are accepted as
  * redirect targets, because dynamic client registration lets anyone register a client. The OAuth helpers come from
  * `env.OAUTH_PROVIDER` (`@cloudflare/workers-oauth-provider`, injected by index.ts); this module has no runtime
- * import of that package, so Node tests run it with a fake.
+ * import of that package, so Node tests run it with a fake. Also here: which paths are the connector's
+ * (`isOAuthPath`) and the write-free `POST /register` (`register`).
  */
 
 import { safeEqual } from "../scout";
@@ -15,6 +16,15 @@ export const CLAUDE_CALLBACKS: readonly string[] = [
 ];
 
 export const isAllowedRedirect = (uri: string) => CLAUDE_CALLBACKS.includes(uri);
+
+/** The paths index.ts sends through the OAuth provider; every other route goes straight to `handle()`. */
+export const isOAuthPath = (pathname: string) =>
+  pathname === "/mcp" ||
+  pathname.startsWith("/mcp/") ||
+  pathname === "/authorize" ||
+  pathname === "/token" ||
+  pathname === "/register" ||
+  pathname.startsWith("/.well-known/oauth-");
 
 /** The two `OAuthHelpers` methods used here; tsc checks the real ones against it in index.ts. */
 export interface AuthHelpers {
@@ -42,6 +52,7 @@ function page(notice: Notice, status = 200): Response {
     notice === "redirect" || notice === "bad"
       ? ""
       : `<form method="post">
+  <p class="w">كمّل بس إذا انت للتو ضغطت Connect في Claude حقّك · Only continue if you just pressed Connect in your own Claude</p>
   <label for="t">توكن الـ Scout · Scout token</label>
   <input id="t" name="token" type="password" autocomplete="off" required>
   <p class="h">من لوحتك: الإعدادات ← مفاتيح API ← 👁 · From your dashboard: Settings → API keys → 👁</p>
@@ -51,7 +62,7 @@ function page(notice: Notice, status = 200): Response {
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>3z Prod · Claude</title>
 <style>body{font:16px system-ui,sans-serif;background:#111;color:#eee;max-width:28rem;margin:3rem auto;padding:0 1rem}
 input,button{font:inherit;width:100%;padding:.6rem;margin:.4rem 0;box-sizing:border-box}button{background:#3ddc84;border:0;font-weight:700}
-.n{color:#ff8a80}.h{color:#aaa;font-size:.85rem}</style></head><body>
+.n{color:#ff8a80}.w{color:#ffd54f}.h{color:#aaa;font-size:.85rem}</style></head><body>
 <h1>3z Prod ← Claude</h1><p>Claude يبغى يدوّر في Discover ويحفظ اختيارات. · Claude wants to search Discover and save picks.</p>
 ${note}${form}</body></html>`;
   return new Response(html, {
@@ -88,12 +99,79 @@ export async function authorize(
   const form = await req.formData().catch(() => null);
   const given = String(form?.get("token") ?? "").trim();
   if (!env.SCOUT_TOKEN || !given || !safeEqual(given, env.SCOUT_TOKEN)) return page("wrong", 403);
-  const { redirectTo } = await helpers.completeAuthorization({
-    request: oauthReq,
-    userId: "owner",
-    scope: oauthReq.scope,
-    props: { owner: true },
-    metadata: { label: "Claude" },
-  });
+  let redirectTo: string;
+  try {
+    ({ redirectTo } = await helpers.completeAuthorization({
+      request: oauthReq,
+      userId: "owner",
+      scope: oauthReq.scope,
+      props: { owner: true },
+      metadata: { label: "Claude" },
+    }));
+  } catch {
+    // The grant could not be stored (e.g. the day's KV writes are used up): the page, not a raw 500.
+    return page("bad", 503);
+  }
   return Response.redirect(redirectTo, 302);
+}
+
+/* ---------- POST /register ---------- */
+
+export const CLIENT_NAME = "Claude";
+
+/** The shared client as the provider reports it (`ClientInfo`). */
+export interface SharedClient {
+  clientId: string;
+  registrationDate?: number;
+}
+
+/** index.ts wires these to OAUTH_KV and the provider's `lookupClient` / `createClient`. */
+export interface RegisterDeps {
+  /** The shared client's id, kept under one fixed OAUTH_KV key. */
+  read(): Promise<string | null>;
+  write(clientId: string): Promise<void>;
+  lookup(clientId: string): Promise<SharedClient | null>;
+  /** A public client (token auth "none") for exactly CLAUDE_CALLBACKS. */
+  create(): Promise<SharedClient>;
+}
+
+const json = (body: unknown, status: number) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
+
+/**
+ * Dynamic client registration without a write per call: anyone may POST /register, and the Free plan's 1,000 KV
+ * writes a day are shared with the auto-post queue and the social sync. A registration naming only Claude's
+ * callbacks gets the one shared public client (RFC 7591 §3.2.1 allows a client id for many instances), created once
+ * and then only read; anything else is refused before any read or write. A confidential method asked for still gets
+ * the public client (a server may override requested metadata).
+ */
+export async function register(req: Request, deps: RegisterDeps): Promise<Response> {
+  const body = (await req.json().catch(() => null)) as { redirect_uris?: unknown } | null;
+  const uris = body?.redirect_uris;
+  const claudeOnly =
+    Array.isArray(uris) &&
+    uris.length > 0 &&
+    uris.every((u) => typeof u === "string" && isAllowedRedirect(u));
+  if (!claudeOnly) return json({ error: "invalid_redirect_uri" }, 400);
+  const stored = await deps.read();
+  let client = stored ? await deps.lookup(stored) : null;
+  if (!client) {
+    client = await deps.create();
+    await deps.write(client.clientId);
+  }
+  return json(
+    {
+      client_id: client.clientId,
+      client_name: CLIENT_NAME,
+      redirect_uris: [...CLAUDE_CALLBACKS],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      ...(client.registrationDate ? { client_id_issued_at: client.registrationDate } : {}),
+    },
+    201,
+  );
 }

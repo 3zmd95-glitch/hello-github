@@ -36,8 +36,9 @@
   "kv_namespaces": [
     { "binding": "SOCIAL_KV", "id": "00000000000000000000000000000000" },
     // The Claude connector's OAuth clients and tokens (@cloudflare/workers-oauth-provider needs this exact name).
-    // Placeholder id like SOCIAL_KV's: the deploy workflow creates "3z-scout-OAUTH_KV" once and swaps the id in.
-    { "binding": "OAUTH_KV", "id": "00000000000000000000000000000000" },
+    // Its own placeholder id, so local dev keeps two stores; the deploy workflow creates "3z-scout-OAUTH_KV" once
+    // and swaps the real id in.
+    { "binding": "OAUTH_KV", "id": "11111111111111111111111111111111" },
   ],
   // One trigger every five minutes: the auto-post queue publishes what is due, the 03:00/03:10/03:20/03:30
   // UTC ticks (06:00–06:30 Riyadh) run the daily sync of one platform each instead, and the Trend Radar

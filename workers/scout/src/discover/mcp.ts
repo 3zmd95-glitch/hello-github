@@ -45,7 +45,7 @@ export function createServer(env: UsageEnv, deps: () => ToolDeps): McpServer {
           )
           .max(9)
           .optional(),
-        platforms: z.array(PLATFORM).min(1).optional(),
+        platforms: z.array(PLATFORM).min(1).max(3).optional(),
         timeRange: z.enum(["week", "month", "year"]).optional(),
         exact: z.boolean().optional(),
       }),

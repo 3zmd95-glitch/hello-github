@@ -1,7 +1,9 @@
-// The Claude connector end to end, the way Claude's custom connector does it: register a client, log in on
-// /authorize with the Scout token, swap the code for a token (PKCE S256), then MCP initialize, tools/list and a
-// get_picks call. Usage (the token never goes on the command line):
+// The Claude connector end to end, the way Claude's custom connector does it: register a client (twice: every
+// registration gets the same shared client; a non-Claude redirect is refused), log in on /authorize with the Scout
+// token, swap the code for a token (PKCE S256), then MCP initialize, tools/list and a get_picks call. Usage (the
+// token never goes on the command line):
 //   SCOUT_TOKEN=… node workers/scout/scripts/mcp-smoke.mjs http://localhost:8787
+// Local only: a login replaces the owner's earlier grant, so against the deployed Worker it signs Claude out.
 const base = (process.argv[2] ?? "http://localhost:8787").replace(/\/$/, "");
 const token = process.env.SCOUT_TOKEN;
 if (!token) throw new Error("Set SCOUT_TOKEN in the environment");
@@ -16,20 +18,24 @@ const check = (ok, what) => {
 const anon = await fetch(`${base}/mcp`, { method: "POST" });
 check(anon.status === 401, `unauthenticated /mcp answers 401 (${anon.status})`);
 
-const reg = await (
-  await fetch(`${base}/register`, {
+const register = (redirectUris) =>
+  fetch(`${base}/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       client_name: "3z smoke test",
-      redirect_uris: [redirect],
+      redirect_uris: redirectUris,
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
     }),
-  })
-).json();
+  });
+const reg = await (await register([redirect])).json();
 check(typeof reg.client_id === "string", "client registered");
+const again = await (await register([redirect])).json();
+check(again.client_id === reg.client_id, "a second registration gets the same shared client");
+const evil = await register(["https://evil.example/cb"]);
+check(evil.status === 400, `a non-Claude redirect is refused at registration (${evil.status})`);
 
 const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
 const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));

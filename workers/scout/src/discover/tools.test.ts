@@ -110,6 +110,25 @@ describe("searchVideos", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("ignores a platform named twice: same request, same 6-hour answer", async () => {
+    const env = { TAVILY_API_KEY: "k", SOCIAL_KV: fakeKV(), MCP_DAILY_LOOKUPS: "10" };
+    const fetchMock = tavily();
+    const once = await searchVideos(
+      env,
+      { fetch: fetchMock, now: NOW },
+      { topic: "flash", platforms: ["tiktok"] },
+    );
+    expect(once.cached).toBe(false);
+    const calls = fetchMock.mock.calls.length;
+    const twice = await searchVideos(
+      env,
+      { fetch: fetchMock, now: NOW },
+      { topic: "flash", platforms: ["tiktok", "tiktok"] },
+    );
+    expect(twice).toMatchObject({ cached: true, items: once.items });
+    expect(fetchMock.mock.calls.length).toBe(calls);
+  });
+
   it("still serves a kept answer past the cap, for free", async () => {
     const env = { TAVILY_API_KEY: "k", SOCIAL_KV: fakeKV(), MCP_DAILY_LOOKUPS: "3" };
     const fetchMock = tavily();
@@ -298,10 +317,10 @@ describe("toolCall", () => {
     ]);
   });
 
-  it("turns a thrown error into a readable failed result, never its message", async () => {
+  it("turns a thrown error into a readable failed result, logging its name, never its message", async () => {
     const down = {
       async get() {
-        throw new Error("KV GET failed: internal detail");
+        throw new TypeError("KV GET failed: internal detail");
       },
     } as unknown as KVNamespace;
     const items = [
@@ -326,7 +345,13 @@ describe("toolCall", () => {
     });
     expect(lines.join("\n")).not.toContain("internal detail");
     expect(lines.map((l) => JSON.parse(l))).toEqual([
-      { mcp: "save_picks", topic: "flash", ms: expect.any(Number), error: "failed" },
+      {
+        mcp: "save_picks",
+        topic: "flash",
+        ms: expect.any(Number),
+        error: "failed",
+        cause: "TypeError",
+      },
     ]);
   });
 });

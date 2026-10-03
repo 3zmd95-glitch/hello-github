@@ -65,7 +65,10 @@ export async function searchVideos(
     q: input.topic,
     ...(input.exact ? { exact: true } : {}),
     ...(input.timeRange ? { timeRange: input.timeRange } : {}),
-    ...(input.platforms?.length ? { platforms: input.platforms.map((p) => CODE[p]) } : {}),
+    // Deduped like parseDiscoverBody's, so a platform named twice keeps the same 6-hour answer key.
+    ...(input.platforms?.length
+      ? { platforms: [...new Set(input.platforms)].map((p) => CODE[p]) }
+      : {}),
     ...(input.queries?.length
       ? { queries: input.queries.map((q) => ({ ...q, platform: CODE[q.platform] })) }
       : {}),
@@ -168,10 +171,10 @@ const FAILED: Record<string, unknown> = {
 
 /**
  * Every connector tool call goes through here (`mcp.ts`): the tool's answer as JSON text, and one log line
- * (`console.log` JSON, Workers observability) with the tool, the topic, the time, the error code, whether the answer
- * was kept, the lookups left today and how many items; never URLs, items or tokens. A thrown error (KV down, a
- * picks document that can't be read) answers `failed` with `isError`: a result Claude can read, never the raw
- * message (the SDK would send it as is).
+ * (`console.log` JSON, Workers observability) with the tool, the topic, the time, the error code (and a thrown
+ * error's name as `cause`), whether the answer was kept, the lookups left today and how many items; never URLs,
+ * items, tokens or an error's message. A thrown error (KV down, a picks document that can't be read) answers
+ * `failed` with `isError`: a result Claude can read, never the raw message (the SDK would send it as is).
  */
 export async function toolCall(
   tool: string,
@@ -179,7 +182,11 @@ export async function toolCall(
   run: () => Promise<Record<string, unknown>>,
 ): Promise<ToolReply> {
   const started = Date.now();
-  const out = await run().catch(() => null);
+  let cause: string | undefined;
+  const out = await run().catch((e: unknown) => {
+    cause = e instanceof Error ? e.name : typeof e;
+    return null;
+  });
   const res = out ?? FAILED;
   const list = Array.isArray(res.items) ? res.items : Array.isArray(res.picks) ? res.picks : null;
   // JSON.stringify leaves the undefined fields out.
@@ -189,6 +196,7 @@ export async function toolCall(
       topic: input.topic ? clip(input.topic, 100) : undefined,
       ms: Date.now() - started,
       error: typeof res.error === "string" ? res.error : undefined,
+      cause,
       cached: typeof res.cached === "boolean" ? res.cached : undefined,
       lookups: typeof res.lookupsLeftToday === "number" ? res.lookupsLeftToday : undefined,
       count: list ? list.length : typeof res.saved === "number" ? res.saved : undefined,
