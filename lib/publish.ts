@@ -404,7 +404,9 @@ export function buildJob(post: Post, auto: AutoPost, scheduledAt: string): JobIn
               : {
                   url: directMediaUrl(auto.mediaUrl),
                   kind: auto.mediaKind,
-                  ...(auto.durationSeconds ? { durationSeconds: auto.durationSeconds } : {}),
+                  ...(auto.mediaKind === "video" && auto.durationSeconds
+                    ? { durationSeconds: auto.durationSeconds }
+                    : {}),
                 },
         }
       : {}),

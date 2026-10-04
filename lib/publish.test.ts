@@ -282,6 +282,21 @@ describe("buildJob", () => {
     expect(job.media).toBeUndefined();
   });
 
+  it("does not send stale video duration after switching to an image", () => {
+    const a = auto({
+      platforms: ["instagram", "threads"],
+      mediaKind: "image",
+      mediaUrl: "https://cdn.example/photo.jpg",
+      durationSeconds: 12.5,
+    });
+    expect(publishProblems(post(), a, ready)).toEqual([]);
+    expect(buildJob(post(), a, AT).media).toEqual({
+      url: "https://cdn.example/photo.jpg",
+      kind: "image",
+    });
+    expect(buildJob(post(), { ...a, mediaKind: "video" }, AT).media?.durationSeconds).toBe(12.5);
+  });
+
   it("sends every caption trimmed to its network's limit", () => {
     const p = post({ caption: "a".repeat(2190), hashtags: ["#capcut", "#editing", "#3zprod"] });
     const a = auto({ platforms: ["threads", "instagram", "youtube"] });

@@ -15,8 +15,12 @@ that TikTok has approved public Direct Post.
   in TikTok; it does not mark the calendar post published or complete its Produce quest. Final confirmation
   requires the actual TikTok post link.
 - Photo carousel editor and API support, with ordered image URLs, cover choice, title and caption. TikTok needs
-  ownership verification for the image URL domain/prefix. New hosted-video jobs also use PULL_FROM_URL; older
-  queued jobs retain their original transfer behavior.
+  ownership verification for the image URL domain/prefix. New or resaved hosted-video jobs use PULL_FROM_URL.
+  Existing inbox jobs retain FILE_UPLOAD, and jobs already sent to TikTok continue polling their existing
+  publish ID. An old queued Direct Post lacks the new explicit consent and duration metadata: it is refused
+  with an actionable review message until the owner reviews and resaves it. That resave requires an explicit
+  Direct Post choice, privacy, consent and duration, then uses PULL_FROM_URL. No consent is inferred and no
+  existing job silently changes to inbox mode.
 - Actual TikTok granted scopes distinguish upload-to-inbox from Direct Post. Direct Post loads current creator
   metadata and privacy choices, interaction restrictions, maximum duration and disclosure/consent controls.
 - TikTok performance brief in Growth: 7/30-day publishing cohorts, median views, shares per 1,000 views,

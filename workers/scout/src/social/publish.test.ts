@@ -610,7 +610,7 @@ describe("runDue", () => {
     });
   });
 
-  it("legacy TikTok FILE_UPLOAD: explicit privacy, one-chunk upload, then the status", async () => {
+  it("TikTok FILE_UPLOAD with reviewed metadata: one-chunk upload, then the status", async () => {
     const env = makeEnv();
     // A day-old token: refreshed before use (24 h tokens).
     await connect(env, "tiktok", { issuedAt: later(-86_400_000).toISOString() }, "3z.prod");
@@ -920,6 +920,116 @@ describe("TikTok personal-account publishing", () => {
     });
     expect(existing.targets.tiktok?.tiktokMode).toBeUndefined();
     expect(existing.targets.tiktok?.tiktokSource).toBeUndefined();
+  });
+
+  it("requires review of a genuine old queued direct job and recovers only after an explicit resave", async () => {
+    const env = makeEnv();
+    await connect(env, "tiktok", { scope: "video.publish" }, "3z.prod");
+    // Exact pre-toolkit shape: neither consent, duration nor a transfer marker was stored.
+    const legacy = job({
+      targets: { tiktok: { caption: "Original caption", privacy: "SELF_ONLY" } },
+    });
+    await queue(env, legacy);
+    const fetchMock = mockFetch({
+      "POST open.tiktokapis.com/v2/post/publish/creator_info/query/": () => ({ data: creatorData }),
+      "POST open.tiktokapis.com/v2/post/publish/video/init/": (_u, init) => {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          source_info: { source: "PULL_FROM_URL", video_url: MEDIA },
+          post_info: { title: "Original caption", privacy_level: "SELF_ONLY" },
+        });
+        return { data: { publish_id: "reviewed-direct" } };
+      },
+    });
+    expect((await runDue(env, { fetch: fetchMock, now: NOW })).failed).toEqual(["post1:tiktok"]);
+    expect((await jobOf(env)).targets.tiktok).toMatchObject({
+      state: "failed",
+      error: "rejected",
+      detail: "Review TikTok's music/disclosure terms and confirm Direct Post before scheduling.",
+    });
+    expect((await jobOf(env)).targets.tiktok?.tiktokMode).toBeUndefined();
+    expect((await jobOf(env)).targets.tiktok?.tiktokConsent).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const reviewed = {
+      ...legacy,
+      targets: {
+        tiktok: {
+          caption: "Original caption",
+          privacy: "SELF_ONLY",
+          tiktokMode: "direct",
+          tiktokConsent: true,
+        },
+      },
+    };
+    const withoutDuration = await handle(
+      req("/social/publish", { method: "POST", json: reviewed }),
+      env,
+      undefined,
+      { now: () => NOW, fetch: fetchMock },
+    );
+    expect(withoutDuration.status).toBe(400);
+    expect(await withoutDuration.json()).toEqual({
+      error: "bad_request",
+      detail: "media.durationSeconds",
+    });
+    expect((await jobOf(env)).targets.tiktok?.state).toBe("failed");
+
+    const resaved = await handle(
+      req("/social/publish", {
+        method: "POST",
+        json: { ...reviewed, media: { ...legacy.media, durationSeconds: 10 } },
+      }),
+      env,
+      undefined,
+      { now: () => NOW, fetch: fetchMock },
+    );
+    expect(resaved.status).toBe(200);
+    expect((await jobOf(env)).targets.tiktok).toMatchObject({
+      state: "queued",
+      tiktokMode: "direct",
+      tiktokSource: "pull",
+      tiktokConsent: true,
+    });
+    expect((await jobOf(env)).targets.tiktok?.error).toBeUndefined();
+    await runDue(env, { fetch: fetchMock, now: NOW });
+    expect((await jobOf(env)).targets.tiktok).toMatchObject({
+      state: "processing",
+      tiktokMode: "direct",
+      containerId: "reviewed-direct",
+    });
+    expect(fetchMock.calls()).toEqual([
+      "POST open.tiktokapis.com/v2/post/publish/creator_info/query/",
+      "POST open.tiktokapis.com/v2/post/publish/video/init/",
+    ]);
+  });
+
+  it("continues polling a genuine old in-flight direct job without new consent or a second upload", async () => {
+    const env = makeEnv();
+    await connect(env, "tiktok", { scope: "video.publish" }, "3z.prod");
+    const legacy = mergeJob(
+      undefined,
+      job({ targets: { tiktok: { caption: "Already sent", privacy: "SELF_ONLY" } } }),
+      NOW,
+    );
+    legacy.targets.tiktok = {
+      ...legacy.targets.tiktok!,
+      state: "processing",
+      containerId: "existing-publish-id",
+      startedAt: NOW.toISOString(),
+    };
+    await Store.from(env)!.putJobs({ [legacy.id]: legacy });
+    const fetchMock = mockFetch({
+      "POST open.tiktokapis.com/v2/post/publish/status/fetch/": (_u, init) => {
+        expect(JSON.parse(String(init?.body))).toEqual({ publish_id: "existing-publish-id" });
+        return { data: { status: "PUBLISH_COMPLETE" } };
+      },
+    });
+    expect((await runDue(env, { fetch: fetchMock, now: NOW })).published).toEqual(["post1:tiktok"]);
+    expect((await jobOf(env)).targets.tiktok).toMatchObject({
+      state: "published",
+      privacy: "SELF_ONLY",
+    });
+    expect(fetchMock.calls()).toEqual(["POST open.tiktokapis.com/v2/post/publish/status/fetch/"]);
   });
 
   it.each([
