@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CREATOR_DAILY_LIMIT, generateCreatorDraft, type CreatorEnv } from "./ai";
 import { handleCreator } from "./routes";
 import { CreatorRequestSchema, type CreatorRequest } from "./schema";
+import type { SearchAiBinding } from "../discover/ai";
 
 const now = new Date("2026-10-04T10:00:00Z");
 const request: CreatorRequest = {
@@ -25,11 +26,23 @@ const draft = {
     { type: "closeup", text: "Cup details" },
   ],
 };
+const arabicDraft = {
+  hook: "تبغى تصوّر قهوتك بإضاءة بسيطة؟",
+  beats: ["حط الكوب جنب الشباك.", "جرّب تغيّر زاوية الكاميرا.", "قارن اللقطتين وشوف الفرق."],
+  cta: "جرّبها في تصويرك الجاي.",
+  caption: "تصوير القهوة بضوء الشباك، وتعديل اللقطة في DaVinci Resolve.",
+  hashtags: ["#تصوير_قهوة", "#windowlight"],
+  shots: [
+    { type: "hook", text: "اللقطة النهائية للكوب" },
+    { type: "wide", text: "مكان الكوب جنب الشباك" },
+    { type: "closeup", text: "تفاصيل القهوة" },
+  ],
+};
 function env() {
   const store = new Map<string, string>();
   return {
     store,
-    AI: { run: vi.fn(async () => ({ response: draft })) },
+    AI: { run: vi.fn<SearchAiBinding["run"]>(async () => ({ response: draft })) },
     SOCIAL_KV: {
       get: vi.fn(async (key: string) => store.get(key) ?? null),
       put: vi.fn(async (key: string, value: string) => {
@@ -40,6 +53,81 @@ function env() {
 }
 
 describe("creator generation", () => {
+  it("keeps Unicode hashtag validation out of a decoder without JavaScript Unicode flags", async () => {
+    const e = env();
+    e.AI.run.mockImplementation(async (_model, input) => {
+      const format = input.response_format as {
+        json_schema: { properties: { hashtags: { items: { pattern?: string } } } };
+      };
+      const pattern = format.json_schema.properties.hashtags.items.pattern;
+      // Reproduce constrained decoding that treats \p{L} as literals without the JS u flag.
+      const allowed = ["#coffee", "#تصوير_قهوة"].filter(
+        (tag) => !pattern || new RegExp(pattern).test(tag),
+      );
+      return { response: { ...draft, hashtags: allowed.length ? allowed : ["#_p", "#_p"] } };
+    });
+    expect((await generateCreatorDraft(e, request, now)).hashtags).toEqual([
+      "#coffee",
+      "#تصوير_قهوة",
+    ]);
+    const format = e.AI.run.mock.calls[0]![1].response_format as {
+      json_schema: { properties: { hashtags: { items: Record<string, unknown> } } };
+    };
+    expect(format.json_schema.properties.hashtags.items).not.toHaveProperty("pattern");
+  });
+  it("accepts natural Arabic with technical names and removes repeated hashtag suggestions", async () => {
+    const e = env();
+    e.AI.run.mockResolvedValue({
+      response: { ...arabicDraft, hashtags: [...arabicDraft.hashtags, "#تصوير_قهوة"] },
+    });
+    expect(await generateCreatorDraft(e, { ...request, language: "ar" }, now)).toEqual(arabicDraft);
+  });
+  it("accepts Arabic tatweel through its Arabic script extension", async () => {
+    const e = env();
+    const extended = { ...arabicDraft, caption: "تصـوير قهوة بضوء الشباك." };
+    e.AI.run.mockResolvedValue({ response: extended });
+    expect(await generateCreatorDraft(e, { ...request, language: "ar" }, now)).toEqual(extended);
+  });
+  it.each([
+    { ...arabicDraft, beats: ["حط الكوب جنب الشباك.", "غيّر زاويتك.", "لДобавة لمسة سينمائية"] },
+    { ...arabicDraft, hashtags: ["#_p", "#_p", "#_p"] },
+  ])(
+    "rejects live mixed-script and placeholder regressions without caching or retrying %#",
+    async (value) => {
+      const e = env();
+      e.AI.run.mockResolvedValue({ response: value });
+      await expect(
+        generateCreatorDraft(e, { ...request, language: "ar" }, now),
+      ).rejects.toMatchObject({
+        code: "ai_unavailable",
+      });
+      expect(e.AI.run).toHaveBeenCalledTimes(1);
+      expect(e.store.get("creator:budget:2026-10-04")).toBe("1");
+      expect([...e.store.keys()].some((key) => key.startsWith("creator:draft"))).toBe(false);
+    },
+  );
+  it("preserves a user-supplied proper name in another script", async () => {
+    const e = env();
+    const named = { ...draft, caption: "A window-light coffee setup with Иван." };
+    e.AI.run.mockResolvedValue({ response: named });
+    expect(
+      await generateCreatorDraft(e, { ...request, brief: `${request.brief} Featuring Иван.` }, now),
+    ).toEqual(named);
+  });
+  it("ignores old cached output and validates the current cache before reuse", async () => {
+    const e = env();
+    await generateCreatorDraft(e, request, now);
+    const key = [...e.store.keys()].find((value) => value.startsWith("creator:draft:v2:"))!;
+    expect(key).toBeDefined();
+    const broken = JSON.stringify({ ...draft, hashtags: ["#_p"] });
+    e.store.set(key.replace(":v2:", ":v1:"), broken);
+    e.store.delete(key);
+    expect(await generateCreatorDraft(e, request, now)).toEqual(draft);
+    expect(e.AI.run).toHaveBeenCalledTimes(2);
+    e.store.set(key, JSON.stringify({ ...draft, caption: "Unexpected Добав" }));
+    expect(await generateCreatorDraft(e, request, now)).toEqual(draft);
+    expect(e.AI.run).toHaveBeenCalledTimes(3);
+  });
   it("validates input, output and cached drafts, without storing the raw brief", async () => {
     const e = env();
     expect(await generateCreatorDraft(e, request, now)).toEqual(draft);
