@@ -379,22 +379,22 @@ export default function ResearchPanel({
   /* ---------- "most viewed this week": the Trend Radar's rows of the genre ---------- */
 
   const genreKey = genre?.id;
-  // From the feed the store keeps, in the search language, best score first. An extra above the results:
-  // nothing to show (no genre, no rows of it, saved only) means no strip, never an empty state or an error.
+  // Only the legacy search needs this strip. Discover v2's Popular now uses the actual filtered answer;
+  // the broad radar feed does not honor its topic, AI brief, platform or other search filters.
   const weekItems = useMemo(
-    () => (savedOnly ? [] : genreWeekItems(trends, genreKey, queryLang, new Date(now))),
-    [savedOnly, trends, genreKey, queryLang, now],
+    () => (!legacy || savedOnly ? [] : genreWeekItems(trends, genreKey, queryLang, new Date(now))),
+    [legacy, savedOnly, trends, genreKey, queryLang, now],
   );
   // A feed gone stale is read again from the Worker (GET /trends, the copy its cron wrote; the sources are
   // never run from here) once a genre is on and the strip could show: at most once in the panel's life, never
   // without a genre or a Worker. A failed read says nothing (the strip is an extra); the radar reports it.
   const weekAsked = useRef(false);
   useEffect(() => {
-    if (!genreKey || savedOnly || !scoutCfg || weekAsked.current) return;
+    if (!legacy || !genreKey || savedOnly || !scoutCfg || weekAsked.current) return;
     if (!trendsStale(useStore.getState().trends.fetchedAt, new Date())) return;
     weekAsked.current = true;
     void pullTrends();
-  }, [genreKey, savedOnly, scoutCfg]);
+  }, [legacy, genreKey, savedOnly, scoutCfg]);
 
   /* ---------- what the active tab shows ---------- */
 

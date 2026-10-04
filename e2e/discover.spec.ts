@@ -166,10 +166,23 @@ test("AI brief: preserves filters, searches only on submit, separates cache and 
     },
     alternatives: [],
   }));
+  let trendReads = 0;
+  await page.route(`${WORKER}/trends`, (route) => {
+    trendReads += 1;
+    return route.fulfill({
+      status: 200,
+      headers: CORS,
+      contentType: "application/json",
+      body: "{}",
+    });
+  });
   await connectWorker(page);
   await page.goto("/discover/");
   await page.getByTestId("genre-coffee").click();
   await expect(page.getByTestId("discover-sections")).toBeVisible();
+  // A broad genre radar must not sit above the focused v2 results or fetch unrelated posts.
+  expect(trendReads).toBe(0);
+  await expect(page.getByTestId("genre-week")).toHaveCount(0);
   const before = asked.length;
   await page.getByTestId("discover-mode-ai").click();
   await page.getByTestId("discover-topic").fill("Find coffee match cuts and DaVinci tutorials");
