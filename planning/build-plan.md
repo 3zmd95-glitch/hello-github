@@ -109,6 +109,10 @@ round 26 and shipped static (local data, manual stats); website, shop and course
 | 5.11 | **Discover by edit genre** (round 31): 12 built-in genres in `planning/data/genres.json` + the owner's own (Settings), genre chips in Discover and the skill Research panel, topic + genre queries, 🔥 Most popular sort, views / likes on cards (`videos.list` statistics, counts parsed from TikTok / Instagram descriptions), genre keywords in the radar's daily YouTube scan (18 a day, rotated); Discover is the one place for genres: a "Most viewed this week" strip from the radar's rows, the radar's genre chips link to it, a Discover shortcut in Social | ☐ built on `claude/discover-genres`, gates green; design in `tools/11-discover-genres.md`; counts on TikTok / Instagram not measured live yet |
 | 5.12 | **▶ Watch here** (round 32): one player sheet for YouTube (privacy mode), TikTok and Instagram in plain sandboxed frames, nothing loaded before the tap, tokenless pre-check, ▶ on research cards and saved references, an honest Instagram poster tile (Instagram gives no thumbnail), a `frame-src` CSP | ☐ built on `claude/watch-in-dashboard`; design in `tools/12-watch-in-dashboard.md`; iPhone Safari not verified |
 
+TikTok Personal toolkit follow-up: see `tools/16-tiktok-personal-toolkit.md` for the implemented creator
+assistant, inbox completion, photo publishing, permission checks and performance brief, plus the separate
+approval and live-test requirements. Automatic video rendering and TikTok public comment replies remain open.
+
 ## Definition of done for Sprint 1
 
 The owner opens the installed app on the iPhone in the morning, sees one main quest and one micro-action chosen for their gear,

@@ -6,7 +6,6 @@ import { useSocialSync } from "@/components/social/useSocialSync";
 import { usePublish, type PublishActionResult } from "@/components/social/usePublish";
 import {
   PLATFORMS,
-  TIKTOK_PRIVACY,
   YOUTUBE_PRIVACY,
   type AutoPost,
   type AutoPostResult,
@@ -20,7 +19,9 @@ import {
   autoPostSummary,
   CAPTION_MAX,
   captionFor,
+  captionLimit,
   captionWarnings,
+  canPublishTo,
   defaultCaption,
   directMediaUrl,
   isManual,
@@ -36,8 +37,11 @@ import { isSocialPlatform } from "@/lib/socialSync";
 import { useStore } from "@/store";
 import { formatInstant } from "./dates";
 import { PlatformChip, platformStyle } from "./PlatformChip";
+import TikTokOptions from "./TikTokOptions";
+import TikTokPhotoEditor from "./TikTokPhotoEditor";
+import TikTokFinishCard from "./TikTokFinishCard";
 
-const KINDS: readonly MediaKind[] = ["video", "image", "none"];
+const KINDS: readonly MediaKind[] = ["video", "image", "photo", "none"];
 
 export const PROBLEM_KEY: Record<Problem["code"], MessageKey> = {
   noPlatforms: "publish.problem.noPlatforms",
@@ -50,6 +54,14 @@ export const PROBLEM_KEY: Record<Problem["code"], MessageKey> = {
   empty: "publish.problem.empty",
   notConnected: "publish.problem.notConnected",
   noPermission: "publish.problem.noPermission",
+  photoCount: "publish.problem.photoCount",
+  photoOnlyTikTok: "publish.problem.photoOnlyTikTok",
+  photoCover: "publish.problem.photoCover",
+  tiktokPrivacy: "publish.problem.tiktokPrivacy",
+  tiktokConsent: "publish.problem.tiktokConsent",
+  tiktokDuration: "publish.problem.tiktokDuration",
+  tiktokBrandedPrivacy: "publish.problem.tiktokBrandedPrivacy",
+  tiktokCreator: "publish.problem.tiktokCreator",
 };
 
 const ERROR_KEY: Record<string, MessageKey> = {
@@ -89,7 +101,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
   const save = (patch: Partial<AutoPost>) => {
     setProblems([]);
     setNotice(null);
-    updatePost(post.id, { autoPost: { ...auto, ...patch } });
+    updatePost(post.id, { autoPost: { ...auto, tiktokConsent: false, ...patch } });
   };
   const toggle = (p: Platform) =>
     save({
@@ -145,7 +157,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
             else if (!status) note = "publish.net.unknown";
             else if (!st?.configured) note = "publish.net.notSetUp";
             else if (!st.connected) note = "publish.net.notConnected";
-            else if (!st.canPublish) note = "publish.net.noPermission";
+            else if (!canPublishTo(st, p, auto.tiktokMode)) note = "publish.net.noPermission";
             else note = "publish.net.ready";
             return (
               <li
@@ -166,7 +178,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
                     {t(note)}
                   </span>
                 </label>
-                {isSocialPlatform(p) && st?.connected && !st.canPublish && (
+                {isSocialPlatform(p) && st?.connected && !canPublishTo(st, p, auto.tiktokMode) && (
                   <button
                     type="button"
                     className="px-btn px-btn-sm shrink-0"
@@ -200,7 +212,8 @@ export default function AutoPostTab({ post }: { post: Post }) {
             </button>
           ))}
         </div>
-        {auto.mediaKind !== "none" && (
+        {auto.mediaKind === "photo" && <TikTokPhotoEditor auto={auto} save={save} />}
+        {auto.mediaKind !== "none" && auto.mediaKind !== "photo" && (
           <>
             <input
               type="url"
@@ -211,7 +224,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
               placeholder="https://www.dropbox.com/…/clip.mp4"
               aria-label={t("publish.mediaUrl")}
               value={auto.mediaUrl}
-              onChange={(e) => save({ mediaUrl: e.target.value })}
+              onChange={(e) => save({ mediaUrl: e.target.value, durationSeconds: undefined })}
               data-testid="autopost-media-url"
             />
             {media && media !== auto.mediaUrl.trim() && (
@@ -223,6 +236,23 @@ export default function AutoPostTab({ post }: { post: Post }) {
               </p>
             )}
             <p className="text-muted text-xs">{t("publish.mediaHint")}</p>
+            {auto.platforms.includes("tiktok") && (
+              <p className="text-muted text-xs">{t("publish.tt.verifiedUrl")}</p>
+            )}
+            {auto.mediaKind === "video" && media.startsWith("https://") && (
+              <video
+                controls
+                preload="metadata"
+                src={media}
+                className="max-h-72 w-full rounded"
+                aria-label={t("publish.tt.videoPreview")}
+                onLoadedMetadata={(e) => {
+                  const seconds = e.currentTarget.duration;
+                  if (Number.isFinite(seconds) && seconds > 0 && auto.durationSeconds !== seconds)
+                    save({ durationSeconds: seconds });
+                }}
+              />
+            )}
           </>
         )}
       </section>
@@ -240,7 +270,8 @@ export default function AutoPostTab({ post }: { post: Post }) {
               const own = auto.captions[p] !== undefined && auto.captions[p]!.trim() !== "";
               // API networks get the trimmed text; manual ones are posted by hand, so "over" only warns.
               const sent = sendCaption(post, auto, p);
-              const over = sent.text.length > CAPTION_MAX[p];
+              const limit = captionLimit(auto, p);
+              const over = sent.text.length > limit;
               const tooLong = warnings.some((w) => w.code === "tooLong" && w.platform === p);
               return (
                 <li key={p} className="px-inset flex flex-col gap-1.5" data-platform={p}>
@@ -262,7 +293,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
                       className={`num ms-auto text-xs ${over ? "text-danger font-bold" : "text-muted"}`}
                       data-testid={`autopost-count-${p}`}
                     >
-                      {sent.text.length}/{CAPTION_MAX[p]}
+                      {sent.text.length}/{limit}
                     </span>
                     <button
                       type="button"
@@ -373,37 +404,8 @@ export default function AutoPostTab({ post }: { post: Post }) {
           <p className="text-muted text-xs">{t("publish.yt.note")}</p>
         </section>
       )}
-      {auto.platforms.includes("tiktok") && (
-        <section className="flex flex-col gap-1.5" data-testid="autopost-tiktok">
-          <span className="text-ink-2 text-sm font-bold">🎵 {t("publish.tt.title")}</span>
-          <select
-            className="px-input"
-            aria-label={t("publish.tt.mode")}
-            value={auto.tiktokMode}
-            onChange={(e) => save({ tiktokMode: e.target.value as AutoPost["tiktokMode"] })}
-            data-testid="autopost-tt-mode"
-          >
-            <option value="direct">{t("publish.tt.mode.direct")}</option>
-            <option value="inbox">{t("publish.tt.mode.inbox")}</option>
-          </select>
-          {auto.tiktokMode === "direct" && (
-            <select
-              className="px-input"
-              aria-label={t("publish.privacy")}
-              value={auto.tiktokPrivacy}
-              onChange={(e) => save({ tiktokPrivacy: e.target.value as AutoPost["tiktokPrivacy"] })}
-              data-testid="autopost-tt-privacy"
-            >
-              {TIKTOK_PRIVACY.map((v) => (
-                <option key={v} value={v}>
-                  {t(`publish.tt.privacy.${v}`)}
-                </option>
-              ))}
-            </select>
-          )}
-          <p className="text-muted text-xs">{t("publish.tt.note")}</p>
-        </section>
-      )}
+      {auto.platforms.includes("tiktok") && <TikTokOptions auto={auto} save={save} />}
+      <TikTokFinishCard post={post} />
 
       {/* When */}
       <section className="flex flex-col gap-1.5">
@@ -421,7 +423,15 @@ export default function AutoPostTab({ post }: { post: Post }) {
           </span>
           <ul className="flex flex-col gap-1.5">
             {auto.platforms.filter(isSocialPlatform).map((p) => (
-              <ResultRow key={p} platform={p} result={auto.results[p]} />
+              <ResultRow
+                key={p}
+                platform={p}
+                result={
+                  p === "tiktok" && auto.tiktokCompletedAt
+                    ? { ...auto.results[p]!, inbox: false, permalink: auto.tiktokPermalink }
+                    : auto.results[p]
+                }
+              />
             ))}
           </ul>
           {auto.checkedAt && (

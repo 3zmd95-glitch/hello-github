@@ -17,7 +17,7 @@ import { call, post as jsonPost, type SocialResult, type SocialSyncOpts } from "
  * builders, so what the tester here says is what the Worker will do.
  */
 
-/** Only Instagram has comment replies and DMs in its API (Threads and YouTube: no DMs; TikTok: nothing). */
+/** Our implemented reply connector is Instagram. TikTok public comments require separate Accounts API approval. */
 export const REPLY_PLATFORMS = ["instagram"] as const;
 
 export const KEYWORDS_MAX = 10;

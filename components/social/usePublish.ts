@@ -7,7 +7,7 @@ import type { MessageKey } from "@/lib/i18n";
 import {
   autoPostActive,
   autoPostOf,
-  autoPostSummary,
+  canAutoMarkPosted,
   buildJob,
   firstPermalink,
   publishCancel,
@@ -18,6 +18,8 @@ import {
   remoteJobs,
   scheduledAtOf,
   workerKey,
+  tiktokCreatorInfo,
+  tiktokCreatorProblems,
   type Problem,
   type WorkerJob,
 } from "@/lib/publish";
@@ -78,6 +80,11 @@ async function sendJob(
   const auto = autoPostOf(post);
   const problems = publishProblems(post, auto, status, { now: !!at });
   if (problems.length) return { ok: false, problems };
+  if (auto.platforms.includes("tiktok") && auto.tiktokMode === "direct") {
+    const creator = await tiktokCreatorInfo(cfg);
+    const issues = tiktokCreatorProblems(auto, creator.ok ? creator.creator : undefined);
+    if (issues.length) return { ok: false, problems: issues };
+  }
   const when = at ?? scheduledAtOf(post);
   if (!when) return { ok: false, problems: [{ code: "noDay" }] };
   const r = await publishSchedule(cfg, buildJob(post, auto, when));
@@ -89,6 +96,9 @@ async function sendJob(
       sentAt: now.toISOString(),
       jobId: r.job.id,
       results: r.job.results,
+      ...(!(r.job.results.tiktok?.state === "published" && r.job.results.tiktok.inbox)
+        ? { tiktokCompletedAt: undefined, tiktokPermalink: undefined }
+        : {}),
       checkedAt: now.toISOString(),
     },
     ...(post.stage !== "posted" ? { stage: "scheduled" as const } : {}),
@@ -99,7 +109,7 @@ async function sendJob(
 /** Writes a Worker job's results into its post; marks the post posted once every network is out. */
 function applyJob(job: WorkerJob, markPosted: (id: string, url: string) => void, now: Date): void {
   const store = useStore.getState();
-  const post = store.posts.find((p) => p.id === job.id);
+  const post = store.posts.find((p) => p.id === job.id || p.autoPost?.jobId === job.id);
   // Canceled here while the Worker still had it: nothing to follow.
   if (!post?.autoPost?.sentAt) return;
   const autoPost = {
@@ -108,7 +118,7 @@ function applyJob(job: WorkerJob, markPosted: (id: string, url: string) => void,
     checkedAt: now.toISOString(),
   };
   store.updatePost(post.id, { autoPost });
-  if (autoPostSummary(autoPost) === "published" && post.stage !== "posted") {
+  if (canAutoMarkPosted(autoPost) && post.stage !== "posted") {
     markPosted(post.id, firstPermalink(autoPost));
   }
 }
@@ -177,7 +187,15 @@ export function usePublish() {
     if (!r.ok) return done({ ok: false, error: socialSyncErrorMessageKey(r.error) });
     const a = autoPostOf(post);
     useStore.getState().updatePost(post.id, {
-      autoPost: { ...a, sentAt: undefined, jobId: undefined, results: {}, checkedAt: undefined },
+      autoPost: {
+        ...a,
+        sentAt: undefined,
+        jobId: undefined,
+        results: {},
+        checkedAt: undefined,
+        tiktokCompletedAt: undefined,
+        tiktokPermalink: undefined,
+      },
     });
     return done({ ok: true });
   };

@@ -25,6 +25,7 @@
  */
 
 import { handleDiscover } from "./discover/routes";
+import { handleCreator } from "./creator/routes";
 import {
   normalizeHits,
   PLATFORM_DOMAIN,
@@ -519,6 +520,11 @@ export async function handle(
   }
   const discover = await handleDiscover(req, env, cors, { fetch: deps.fetch, now: deps.now });
   if (discover) return discover;
+  const creator = await handleCreator(req, env, cors, {
+    now: deps.now,
+    waitUntil: ctx ? (task) => ctx.waitUntil(task) : undefined,
+  });
+  if (creator) return creator;
   const social = await handleSocial(req, env, cors, { fetch: deps.fetch, now: deps.now });
   if (social) return social;
   const trends = await handleTrends(req, env, cors, { fetch: deps.fetch, now: deps.now });

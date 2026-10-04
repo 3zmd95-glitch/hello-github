@@ -142,6 +142,24 @@ test("Social Analytics: the seeded All view, the TikTok view with demographics, 
   expect(await fitsViewport(page)).toBe(true);
 
   // Search filters the past posts.
+  await expect(page.getByTestId("tiktok-brief-post")).toHaveCount(3);
+  await expect(page.getByTestId("tiktok-brief")).toContainText("current lifetime totals");
+  await page.getByTestId("tiktok-brief-days").selectOption("7");
+  await expect(page.getByTestId("tiktok-brief-post")).toHaveCount(2);
+  await page.getByTestId("tiktok-brief-followup").first().click();
+  await expect(page.getByTestId("tiktok-brief-draft")).toHaveAttribute(
+    "href",
+    /\/social\/calendar\/#post=/,
+  );
+  const [briefDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByTestId("tiktok-brief-export").click(),
+  ]);
+  expect(briefDownload.suggestedFilename()).toBe("tiktok-posts-7d.csv");
+  expect(readFileSync((await briefDownload.path())!, "utf8")).toContain("Lifetime views");
+  expect(await fitsViewport(page)).toBe(true);
+
+  // Search filters the past posts.
   await expect(page.getByTestId("content-post")).toHaveCount(6);
   await page.getByTestId("content-search").fill("grade");
   await expect(page.getByTestId("content-post")).toHaveCount(1);

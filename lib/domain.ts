@@ -406,7 +406,7 @@ export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /* ---------- 🚀 Auto-posting (the Worker's publish queue, workers/scout/src/social/publish.ts) ---------- */
 
-export const MEDIA_KINDS = ["video", "image", "none"] as const;
+export const MEDIA_KINDS = ["video", "image", "photo", "none"] as const;
 export const MediaKindSchema = z.enum(MEDIA_KINDS);
 export type MediaKind = z.infer<typeof MediaKindSchema>;
 
@@ -430,6 +430,7 @@ export const AutoPostResultSchema = z.object({
   publishedAt: z.string().optional(),
   /** TikTok "send to inbox": waiting in the TikTok app to be finished. */
   inbox: z.boolean().optional(),
+  uploadedAt: z.string().optional(),
   /** Worker error code (`no_permission`, `media_unreachable`, `rejected`, …). */
   error: z.string().optional(),
   /** The platform's own words about a failure. */
@@ -448,11 +449,26 @@ export const AutoPostSchema = z.object({
   /** Public https link to the file itself (Dropbox / Google Drive share links are converted). */
   mediaUrl: z.string().default(""),
   mediaKind: MediaKindSchema.default("video"),
+  photoUrls: z.array(z.string()).max(35).default([]),
+  photoTitle: z.string().default(""),
+  photoCoverIndex: z.number().int().min(0).default(0),
+  durationSeconds: z.number().positive().optional(),
   captions: z.partialRecord(PlatformSchema, z.string()).default({}),
   youtubeTitle: z.string().default(""),
   youtubePrivacy: z.enum(YOUTUBE_PRIVACY).default("public"),
-  tiktokMode: z.enum(["direct", "inbox"]).default("direct"),
-  tiktokPrivacy: z.enum(TIKTOK_PRIVACY).default("PUBLIC_TO_EVERYONE"),
+  tiktokMode: z.enum(["direct", "inbox"]).default("inbox"),
+  tiktokPrivacy: z.union([z.enum(TIKTOK_PRIVACY), z.literal("")]).default(""),
+  tiktokAllowComment: z.boolean().default(false),
+  tiktokAllowDuet: z.boolean().default(false),
+  tiktokAllowStitch: z.boolean().default(false),
+  tiktokBrandOrganic: z.boolean().default(false),
+  tiktokBrandContent: z.boolean().default(false),
+  tiktokIsAigc: z.boolean().default(false),
+  tiktokConsent: z.boolean().default(false),
+  tiktokAutoAddMusic: z.boolean().default(false),
+  /** Owner confirmed an inbox upload was actually posted in TikTok. Worker polls must retain this. */
+  tiktokCompletedAt: z.string().optional(),
+  tiktokPermalink: z.string().optional(),
   sentAt: z.string().optional(),
   results: z.partialRecord(PlatformSchema, AutoPostResultSchema).default({}),
   /** When the results were last read from the Worker. */
@@ -756,6 +772,9 @@ export const SocialConnectionStatusSchema = z.object({
   connected: z.boolean(),
   /** The token carries the publishing scopes ("Allow auto-posting"). */
   canPublish: z.boolean().optional(),
+  /** TikTok grants upload and direct publishing separately. Absent on older Workers. */
+  canUpload: z.boolean().optional(),
+  canDirectPost: z.boolean().optional(),
   /** Instagram: the token carries the comment + message scopes ("Allow auto-replies"). */
   canReply: z.boolean().optional(),
   /** Without the "@". */

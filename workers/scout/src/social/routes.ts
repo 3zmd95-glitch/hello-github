@@ -32,6 +32,7 @@ import { handleReplies } from "./replies";
 import { defaultSince, Store, type SocialEnv } from "./store";
 import { FETCH_BUDGET, syncAll, syncPlatform } from "./sync";
 import { DAY_KEY_RE } from "./time";
+import { publishingCapabilities, queryCreatorInfo } from "./tiktok";
 import {
   isSocialPlatform,
   SOCIAL_PLATFORMS,
@@ -115,6 +116,50 @@ export async function handleSocial(
   const now = deps.now?.() ?? new Date();
   const store = Store.from(env);
 
+  if (
+    action === "tiktok" &&
+    rest === "creator" &&
+    !socialPath(pathname)[2] &&
+    req.method === "GET"
+  ) {
+    if (!store) return fail("not_configured", cors);
+    const creds = credentials(env, "tiktok");
+    let tokens = await store.getTokens("tiktok");
+    if (!creds || !tokens) return fail("not_connected", cors);
+    try {
+      const http = { fetch: deps.fetch ?? fetch, budget: new Budget(3) };
+      if (PROVIDERS.tiktok.needsRefresh(tokens, now)) {
+        tokens = await PROVIDERS.tiktok.refresh(creds, tokens, http, now);
+        await store.putTokens("tiktok", tokens);
+      }
+      const caps = publishingCapabilities(tokens);
+      const creator = caps.canDirectPost
+        ? await queryCreatorInfo(http, tokens.accessToken)
+        : undefined;
+      return json(
+        {
+          ...caps,
+          ...(creator ? { creator } : {}),
+          ...(!caps.canUpload && !caps.canDirectPost
+            ? {
+                detail:
+                  "Reconnect TikTok and grant upload permission. No posting scopes were granted.",
+              }
+            : {}),
+        },
+        200,
+        cors,
+      );
+    } catch (e) {
+      const error = e instanceof SocialError ? e.code : "upstream";
+      return json(
+        { error, detail: String((e as Error)?.message ?? e).slice(0, 300) },
+        STATUS[error],
+        cors,
+      );
+    }
+  }
+
   if (action === "connect" && rest && !socialPath(pathname)[2]) {
     if (!isSocialPlatform(rest)) return fail("bad_request", cors);
     if (req.method === "POST") return connect(req, env, rest, cors, store, now);
@@ -197,7 +242,11 @@ async function status(env: SocialEnv, cors: Headers, store: Store | null): Promi
     platforms[p] = {
       configured,
       connected: !!tokens,
-      canPublish: !!tokens?.canPublish,
+      canPublish:
+        p === "tiktok"
+          ? Object.values(publishingCapabilities(tokens)).some(Boolean)
+          : !!tokens?.canPublish,
+      ...(p === "tiktok" ? publishingCapabilities(tokens) : {}),
       canReply: !!tokens?.canReply,
       ...stored,
       ...(tokens?.expiresAt ? { tokenExpiresAt: tokens.expiresAt } : {}),
@@ -322,7 +371,10 @@ export async function handleOAuthCallback(
     );
     return error(e instanceof SocialError && e.code !== "upstream" ? e.code : "exchange_failed");
   }
-  if (state.publish || state.replies) tokens = { ...tokens, canPublish: true };
+  if (platform === "tiktok") {
+    const caps = publishingCapabilities(tokens);
+    tokens = { ...tokens, canPublish: caps.canUpload || caps.canDirectPost };
+  } else if (state.publish || state.replies) tokens = { ...tokens, canPublish: true };
   if (state.replies) {
     // The reply scopes are asked for together with the posting ones (oauth.ts scopeFor), but the consent
     // dialog lets the owner untick one: trust the granted list when the provider sent it.

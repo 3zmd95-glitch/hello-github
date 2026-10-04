@@ -9,6 +9,7 @@ import InboxCard from "./studio/InboxCard";
 import NextPostHero from "./studio/NextPostHero";
 import ReminderCard from "./studio/ReminderCard";
 import WeekPlanCard from "./studio/WeekPlanCard";
+import TikTokToolkitCard from "./studio/TikTokToolkitCard";
 
 /**
  * 📱 Studio: the Social world's home (master plan round 16). Next post + countdown, today's reminder, this
@@ -35,6 +36,7 @@ export default function StudioScreen() {
       </div>
 
       <WeekPlanCard today={today} />
+      <TikTokToolkitCard />
 
       <div className="grid gap-4 md:grid-cols-3">
         <GrowthSnapshotCard />

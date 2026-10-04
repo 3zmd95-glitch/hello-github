@@ -19,8 +19,9 @@
  *   PUT  <Location> with the video bytes (streamed from the media URL) → the video resource
  * TikTok (Content Posting API, scopes video.publish for Direct Post, video.upload for "send to inbox")
  *   POST /v2/post/publish/creator_info/query/        privacy options the account allows (Direct Post only)
- *   POST /v2/post/publish/video/init/ | /inbox/video/init/   source FILE_UPLOAD → { publish_id, upload_url }
- *   PUT  <upload_url> per chunk with Content-Range (bytes streamed from the media URL, Range GETs per chunk)
+ *   POST /v2/post/publish/video/init/ | /inbox/video/init/   PULL_FROM_URL → { publish_id }
+ *   POST /v2/post/publish/content/init/                    PHOTO, PULL_FROM_URL → { publish_id }
+ *   Legacy queued jobs retain FILE_UPLOAD and streamed PUT chunks; new hosted files must use verified URLs.
  *   POST /v2/post/publish/status/fetch/              PROCESSING_* | SEND_TO_USER_INBOX | PUBLISH_COMPLETE | FAILED
  *   (an app that has not passed TikTok's audit may only post SELF_ONLY; 6 requests a minute per token)
  *
@@ -32,17 +33,20 @@ import { bearer, fetchJson, type Http, type JsonReply } from "./http";
 import { IG_API } from "./instagram";
 import { metaBody, type MetaError } from "./meta";
 import { TH_API } from "./threads";
-import { TT_API } from "./tiktok";
+import { TT_API, publishingCapabilities, queryCreatorInfo } from "./tiktok";
 import { SocialError, type SocialPlatform, type TokenSet } from "./types";
 
 /* ---------- queue types (shared with publish.ts and the dashboard's lib/publish.ts) ---------- */
 
-export type MediaKind = "video" | "image";
+export type MediaKind = "video" | "image" | "photo";
 
 export interface PublishMedia {
   /** Public https URL of the file itself. */
   url: string;
   kind: MediaKind;
+  /** TikTok photos, in display order. url mirrors the first photo for existing clients. */
+  photoUrls?: string[];
+  durationSeconds?: number;
 }
 
 export type TargetState = "queued" | "processing" | "published" | "failed";
@@ -73,6 +77,18 @@ export interface TargetSpec {
   privacy?: string;
   /** TikTok: post straight to the profile, or send to the TikTok inbox to finish in the app. */
   tiktokMode?: "direct" | "inbox";
+  /** New hosted videos use verified-domain PULL_FROM_URL. Absent on legacy queued FILE_UPLOAD jobs. */
+  tiktokSource?: "pull";
+  disableComment?: boolean;
+  disableDuet?: boolean;
+  disableStitch?: boolean;
+  brandContent?: boolean;
+  brandOrganic?: boolean;
+  isAigc?: boolean;
+  tiktokConsent?: boolean;
+  photoTitle?: string;
+  photoCoverIndex?: number;
+  autoAddMusic?: boolean;
 }
 
 /** One platform of a job and how far it got. */
@@ -92,6 +108,7 @@ export interface PublishTarget extends TargetSpec {
   publishedAt?: string;
   /** TikTok "send to inbox": the video waits in the owner's TikTok inbox. */
   inbox?: boolean;
+  uploadedAt?: string;
   error?: PublishErrorCode;
   /** The platform's own words about a failure (never a token). */
   detail?: string;
@@ -475,10 +492,16 @@ function ttBody<T>(reply: JsonReply<TtEnvelope<T>>, what: string): T {
   const code = reply.body?.error?.code;
   if (reply.ok && reply.body && (!code || code === "ok")) return (reply.body.data ?? {}) as T;
   const message = reply.body?.error?.message || code || `${what}: ${reply.status}`;
+  if (code === "scope_not_authorized") throw new PublishError("no_permission", message);
   if (reply.status === 401 || code === "access_token_invalid") {
     throw new SocialError("token_expired", `${what}: ${message}`);
   }
-  if (code === "scope_not_authorized") throw new PublishError("no_permission", message);
+  if (code === "url_ownership_unverified") {
+    throw new PublishError(
+      "rejected",
+      "TikTok requires this file's domain or URL prefix to be verified in your TikTok developer app (url_ownership_unverified). Use a publicly accessible file on your verified domain.",
+    );
+  }
   // The message alone only says "Please review our integration guidelines" (first live post).
   if (code === "unaudited_client_can_only_post_to_private_accounts") {
     throw new PublishError("private_account", message);
@@ -492,7 +515,9 @@ function ttBody<T>(reply: JsonReply<TtEnvelope<T>>, what: string): T {
   }
   // Keep TikTok's code next to its words: the message is often generic.
   const detail = code && code !== message ? `${message} (${code})` : message;
-  if (reply.status >= 400 && reply.status < 500) throw new PublishError("rejected", detail);
+  if ((reply.status >= 400 && reply.status < 500) || (reply.ok && code && code !== "ok")) {
+    throw new PublishError("rejected", detail);
+  }
   throw new PublishError("upstream", detail);
 }
 
@@ -510,6 +535,15 @@ export function ttChunks(size: number): { chunkSize: number; count: number } {
 
 export const publishTiktok: Step = async (t, ctx) => {
   const token = ctx.tokens.accessToken;
+  const caps = publishingCapabilities(ctx.tokens);
+  // Missing mode only exists on legacy queued jobs; their original direct-post intent is preserved.
+  const inbox = t.tiktokMode === "inbox";
+  if (!(inbox ? caps.canUpload : caps.canDirectPost)) {
+    throw new PublishError(
+      "no_permission",
+      `Reconnect TikTok and grant ${inbox ? "video.upload (send to inbox)" : "video.publish (Direct Post)"}. The connected token does not have that permission.`,
+    );
+  }
   if (t.containerId) {
     const st = ttBody(
       await fetchJson<
@@ -526,35 +560,125 @@ export const publishTiktok: Step = async (t, ctx) => {
       "status",
     );
     if (st.status === "FAILED") throw new PublishError("rejected", st.fail_reason ?? "failed");
-    if (st.status === "SEND_TO_USER_INBOX") return published(t, ctx, { inbox: true });
+    if (st.status === "SEND_TO_USER_INBOX") {
+      return {
+        ...published(t, ctx, { inbox: true }),
+        publishedAt: undefined,
+        uploadedAt: ctx.now.toISOString(),
+        postId: undefined,
+        permalink: undefined,
+      };
+    }
     if (st.status !== "PUBLISH_COMPLETE") return processing(t, ctx);
     const id = st.publicaly_available_post_id?.[0];
     return published(t, ctx, {
       ...(id !== undefined ? { postId: String(id) } : {}),
       ...(id !== undefined && ctx.handle
-        ? { permalink: `https://www.tiktok.com/@${ctx.handle}/video/${id}` }
+        ? {
+            permalink: `https://www.tiktok.com/@${ctx.handle}/${ctx.media?.kind === "photo" ? "photo" : "video"}/${id}`,
+          }
         : {}),
     });
   }
 
-  if (ctx.media?.kind !== "video") throw new PublishError("rejected", "tiktok needs a video");
-  const inbox = t.tiktokMode === "inbox";
-  let privacy = t.privacy ?? "SELF_ONLY";
+  if (ctx.media?.kind !== "video" && ctx.media?.kind !== "photo") {
+    throw new PublishError("rejected", "TikTok needs a video or photo post");
+  }
+  const privacy = t.privacy;
+  let postInfo: Record<string, unknown> = {};
   if (!inbox) {
-    // TikTok's guidelines: read the creator's allowed privacy levels right before posting. An app that has
-    // not passed TikTok's audit only gets SELF_ONLY here, so the post lands private until then.
-    const info = ttBody(
-      await fetchJson<TtEnvelope<{ privacy_level_options?: string[] }>>(
-        ctx.http,
-        `${TT_API}/post/publish/creator_info/query/`,
-        ttPost(token, {}),
-      ),
-      "creator_info",
-    );
-    const options = info.privacy_level_options ?? [];
-    if (options.length && !options.includes(privacy)) {
-      privacy = options.includes("SELF_ONLY") ? "SELF_ONLY" : options[0];
+    if (!t.tiktokConsent)
+      throw new PublishError(
+        "rejected",
+        "Review TikTok's music/disclosure terms and confirm Direct Post before scheduling.",
+      );
+    const info = await queryCreatorInfo(ctx.http, token);
+    if (!privacy || !info.privacyLevels.includes(privacy)) {
+      throw new PublishError(
+        "rejected",
+        "Your TikTok privacy choices changed. Open this post and select an available privacy option again.",
+      );
     }
+    if (t.brandContent && privacy === "SELF_ONLY") {
+      throw new PublishError("rejected", "Branded content cannot use Only me visibility.");
+    }
+    if (
+      ctx.media.kind === "video" &&
+      (!ctx.media.durationSeconds ||
+        ctx.media.durationSeconds <= 0 ||
+        !Number.isFinite(ctx.media.durationSeconds) ||
+        ctx.media.durationSeconds > info.maxVideoDurationSeconds)
+    ) {
+      throw new PublishError(
+        "rejected",
+        `Confirm a video duration within this account's ${info.maxVideoDurationSeconds}-second limit, or send it to TikTok inbox to finish there.`,
+      );
+    }
+    postInfo = {
+      privacy_level: privacy,
+      disable_comment: info.commentDisabled || t.disableComment !== false,
+      brand_content_toggle: t.brandContent === true,
+      brand_organic_toggle: t.brandOrganic === true,
+      ...(ctx.media.kind === "video"
+        ? {
+            disable_duet: info.duetDisabled || t.disableDuet !== false,
+            disable_stitch: info.stitchDisabled || t.disableStitch !== false,
+            is_aigc: t.isAigc === true,
+          }
+        : { auto_add_music: t.autoAddMusic === true }),
+    };
+  }
+
+  if (ctx.media.kind === "photo") {
+    const photos = ctx.media.photoUrls;
+    if (!photos?.length || photos.length > 35 || photos.some((url) => !validHttpsUrl(url))) {
+      throw new PublishError(
+        "rejected",
+        "Choose between 1 and 35 public HTTPS photo URLs on your TikTok-verified domain.",
+      );
+    }
+    const cover = t.photoCoverIndex ?? 0;
+    if (!Number.isInteger(cover) || cover < 0 || cover >= photos.length) {
+      throw new PublishError("rejected", "Choose a cover photo from this carousel.");
+    }
+    const init = ttBody(
+      await fetchJson<TtEnvelope<{ publish_id?: string }>>(
+        ctx.http,
+        `${TT_API}/post/publish/content/init/`,
+        ttPost(token, {
+          media_type: "PHOTO",
+          post_mode: inbox ? "MEDIA_UPLOAD" : "DIRECT_POST",
+          post_info: { title: t.photoTitle ?? "", description: t.caption, ...postInfo },
+          source_info: { source: "PULL_FROM_URL", photo_images: photos, photo_cover_index: cover },
+          is_aigc: t.isAigc === true,
+        }),
+      ),
+      "photo.init",
+    );
+    if (!init.publish_id) throw new PublishError("upstream", "photo.init: no publish id");
+    return processing(t, ctx, { containerId: init.publish_id });
+  }
+
+  if (t.tiktokSource === "pull") {
+    if (!validHttpsUrl(ctx.media.url))
+      throw new PublishError(
+        "rejected",
+        "Use a public HTTPS video URL on your TikTok-verified domain.",
+      );
+    const source_info = { source: "PULL_FROM_URL", video_url: ctx.media.url };
+    const init = ttBody(
+      await fetchJson<TtEnvelope<{ publish_id?: string }>>(
+        ctx.http,
+        `${TT_API}/post/publish/${inbox ? "inbox/" : ""}video/init/`,
+        ttPost(
+          token,
+          inbox ? { source_info } : { source_info, post_info: { title: t.caption, ...postInfo } },
+        ),
+      ),
+      "video.init",
+    );
+    if (!init.publish_id) throw new PublishError("upstream", "video.init: no publish id");
+    return processing(t, ctx, { containerId: init.publish_id });
   }
 
   // The first chunk (or the whole video) doubles as the size probe.
@@ -593,10 +717,7 @@ export const publishTiktok: Step = async (t, ctx) => {
             : {
                 post_info: {
                   title: t.caption,
-                  privacy_level: privacy,
-                  disable_comment: false,
-                  disable_duet: false,
-                  disable_stitch: false,
+                  ...postInfo,
                 },
                 source_info: sourceInfo,
               },
@@ -645,6 +766,16 @@ export const publishTiktok: Step = async (t, ctx) => {
   }
   return processing(t, ctx, { containerId: init.publish_id, privacy });
 };
+
+export function validHttpsUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
 
 export const STEPS: Record<SocialPlatform, Step> = {
   instagram: publishInstagram,

@@ -84,6 +84,7 @@ async function connect(
     expiresAt: new Date(NOW.getTime() + 30 * 86_400_000).toISOString(),
     userId: platform === "instagram" ? "178" : undefined,
     canPublish: true,
+    ...(platform === "tiktok" ? { scope: "video.upload,video.publish" } : {}),
     ...tokens,
   });
   await store.putStatus(platform, {
@@ -191,7 +192,7 @@ describe("parseJobInput", () => {
     );
     expect(r.ok && r.job.targets).toEqual({
       youtube: { caption: "d", title: "My title", privacy: "unlisted" },
-      tiktok: { caption: "t", privacy: "SELF_ONLY", tiktokMode: "inbox" },
+      tiktok: { caption: "t", privacy: "SELF_ONLY", tiktokMode: "inbox", tiktokSource: "pull" },
       threads: { caption: "c" },
     });
   });
@@ -489,9 +490,13 @@ describe("runDue", () => {
     let reads = 0;
     const fetchMock = mockFetch({
       "POST graph.threads.net/v1.0/me/threads": () => ({ id: "c1" }),
-      "GET graph.threads.net/v1.0/c1": () => ({ status: reads++ === 0 ? "IN_PROGRESS" : "FINISHED" }),
+      "GET graph.threads.net/v1.0/c1": () => ({
+        status: reads++ === 0 ? "IN_PROGRESS" : "FINISHED",
+      }),
       "POST graph.threads.net/v1.0/me/threads_publish": () => ({ id: "t1" }),
-      "GET graph.threads.net/v1.0/t1": () => ({ permalink: "https://www.threads.com/@3z.prod/post/t1" }),
+      "GET graph.threads.net/v1.0/t1": () => ({
+        permalink: "https://www.threads.com/@3z.prod/post/t1",
+      }),
     });
     const sleep = vi.fn(async () => undefined);
     expect((await runDue(env, { fetch: fetchMock, now: NOW, sleep })).published).toEqual([
@@ -513,7 +518,10 @@ describe("runDue", () => {
     const sleep = vi.fn(async () => undefined);
     await runDue(env, { fetch: fetchMock, now: NOW, sleep });
     expect(sleep).toHaveBeenCalledTimes(1);
-    expect((await jobOf(env)).targets.threads).toMatchObject({ state: "processing", containerId: "c1" });
+    expect((await jobOf(env)).targets.threads).toMatchObject({
+      state: "processing",
+      containerId: "c1",
+    });
   });
 
   it("a refused container fails with Meta's words", async () => {
@@ -602,13 +610,22 @@ describe("runDue", () => {
     });
   });
 
-  it("TikTok Direct Post: privacy from creator_info, one-chunk upload, then the status", async () => {
+  it("TikTok FILE_UPLOAD with reviewed metadata: one-chunk upload, then the status", async () => {
     const env = makeEnv();
     // A day-old token: refreshed before use (24 h tokens).
     await connect(env, "tiktok", { issuedAt: later(-86_400_000).toISOString() }, "3z.prod");
     await queue(
       env,
-      job({ targets: { tiktok: { caption: "match cut #capcut", privacy: "PUBLIC_TO_EVERYONE" } } }),
+      job({
+        media: { url: MEDIA, kind: "video", durationSeconds: 10 },
+        targets: {
+          tiktok: {
+            caption: "match cut #capcut",
+            privacy: "SELF_ONLY",
+            tiktokConsent: true,
+          },
+        },
+      }),
     );
     let status = "PROCESSING_UPLOAD";
     const fetchMock = mockFetch({
@@ -617,7 +634,7 @@ describe("runDue", () => {
         expires_in: 86_400,
       }),
       "POST open.tiktokapis.com/v2/post/publish/creator_info/query/": () => ({
-        data: { privacy_level_options: ["SELF_ONLY"] },
+        data: { privacy_level_options: ["SELF_ONLY"], max_video_post_duration_sec: 300 },
         error: { code: "ok" },
       }),
       "GET cdn.example/clip.mp4": () => video(4096),
@@ -627,9 +644,12 @@ describe("runDue", () => {
           post_info: {
             title: "match cut #capcut",
             privacy_level: "SELF_ONLY",
-            disable_comment: false,
-            disable_duet: false,
-            disable_stitch: false,
+            disable_comment: true,
+            disable_duet: true,
+            disable_stitch: true,
+            brand_content_toggle: false,
+            brand_organic_toggle: false,
+            is_aigc: false,
           },
           source_info: {
             source: "FILE_UPLOAD",
@@ -702,8 +722,11 @@ describe("runDue", () => {
       }),
     });
     await runDue(env, { fetch: fetchMock, now: NOW });
-    await runDue(env, { fetch: fetchMock, now: later(5 * 60_000) });
+    const sent = await runDue(env, { fetch: fetchMock, now: later(5 * 60_000) });
     expect((await jobOf(env)).targets.tiktok).toMatchObject({ state: "published", inbox: true });
+    expect((await jobOf(env)).targets.tiktok?.publishedAt).toBeUndefined();
+    expect((await jobOf(env)).targets.tiktok?.uploadedAt).toBe(later(5 * 60_000).toISOString());
+    expect(sent.published).toEqual([]);
     expect(fetchMock.calls()).not.toContain(
       "POST open.tiktokapis.com/v2/post/publish/creator_info/query/",
     );
@@ -712,7 +735,11 @@ describe("runDue", () => {
   it("TikTok before its audit: a public account fails as private_account, other refusals keep the code", async () => {
     const env = makeEnv();
     await connect(env, "tiktok");
-    await queue(env, job({ targets: { tiktok: { caption: "c", privacy: "SELF_ONLY" } } }));
+    const directJob = job({
+      media: { url: MEDIA, kind: "video", durationSeconds: 10 },
+      targets: { tiktok: { caption: "c", privacy: "SELF_ONLY", tiktokConsent: true } },
+    });
+    await queue(env, directJob);
     let code = "unaudited_client_can_only_post_to_private_accounts";
     const fetchMock = mockFetch({
       "POST open.tiktokapis.com/v2/oauth/token/": () => ({
@@ -720,7 +747,7 @@ describe("runDue", () => {
         expires_in: 86_400,
       }),
       "POST open.tiktokapis.com/v2/post/publish/creator_info/query/": () => ({
-        data: { privacy_level_options: ["SELF_ONLY"] },
+        data: { privacy_level_options: ["SELF_ONLY"], max_video_post_duration_sec: 300 },
         error: { code: "ok" },
       }),
       "GET cdn.example/clip.mp4": () => video(10),
@@ -746,7 +773,7 @@ describe("runDue", () => {
     });
 
     code = "privacy_level_option_mismatch";
-    await queue(env, job({ id: "post2", targets: { tiktok: { caption: "c" } } }));
+    await queue(env, { ...directJob, id: "post2" });
     await runDue(env, { fetch: fetchMock, now: NOW });
     const t = (await Store.from(env)!.getJobs<PublishJob>()).post2.targets.tiktok;
     expect(t).toMatchObject({ state: "failed", error: "rejected" });
@@ -865,6 +892,431 @@ describe("runDue", () => {
 });
 
 /* ---------- cron ---------- */
+
+describe("TikTok personal-account publishing", () => {
+  const photoJob = (spec = {}) =>
+    job({
+      media: { kind: "photo", url: IMAGE, photoUrls: [IMAGE, "https://cdn.example/second.webp"] },
+      targets: { tiktok: { caption: "Our colour grade", ...spec } },
+    });
+  const creatorData = {
+    creator_username: "3z.prod",
+    creator_nickname: "3z",
+    creator_avatar_url: "https://cdn.example/avatar.jpg",
+    privacy_level_options: ["PUBLIC_TO_EVERYONE", "SELF_ONLY"],
+    comment_disabled: false,
+    duet_disabled: true,
+    stitch_disabled: false,
+    max_video_post_duration_sec: 60,
+  };
+
+  it("defaults new jobs to inbox/verified-domain pull without changing an existing queued job", () => {
+    const existing = mergeJob(undefined, job({ targets: { tiktok: { caption: "old" } } }), NOW);
+    const parsed = parseJobInput(job({ targets: { tiktok: { caption: "new" } } }));
+    expect(parsed.ok && parsed.job.targets.tiktok).toEqual({
+      caption: "new",
+      tiktokMode: "inbox",
+      tiktokSource: "pull",
+    });
+    expect(existing.targets.tiktok?.tiktokMode).toBeUndefined();
+    expect(existing.targets.tiktok?.tiktokSource).toBeUndefined();
+  });
+
+  it("requires review of a genuine old queued direct job and recovers only after an explicit resave", async () => {
+    const env = makeEnv();
+    await connect(env, "tiktok", { scope: "video.publish" }, "3z.prod");
+    // Exact pre-toolkit shape: neither consent, duration nor a transfer marker was stored.
+    const legacy = job({
+      targets: { tiktok: { caption: "Original caption", privacy: "SELF_ONLY" } },
+    });
+    await queue(env, legacy);
+    const fetchMock = mockFetch({
+      "POST open.tiktokapis.com/v2/post/publish/creator_info/query/": () => ({ data: creatorData }),
+      "POST open.tiktokapis.com/v2/post/publish/video/init/": (_u, init) => {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          source_info: { source: "PULL_FROM_URL", video_url: MEDIA },
+          post_info: { title: "Original caption", privacy_level: "SELF_ONLY" },
+        });
+        return { data: { publish_id: "reviewed-direct" } };
+      },
+    });
+    expect((await runDue(env, { fetch: fetchMock, now: NOW })).failed).toEqual(["post1:tiktok"]);
+    expect((await jobOf(env)).targets.tiktok).toMatchObject({
+      state: "failed",
+      error: "rejected",
+      detail: "Review TikTok's music/disclosure terms and confirm Direct Post before scheduling.",
+    });
+    expect((await jobOf(env)).targets.tiktok?.tiktokMode).toBeUndefined();
+    expect((await jobOf(env)).targets.tiktok?.tiktokConsent).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const reviewed = {
+      ...legacy,
+      targets: {
+        tiktok: {
+          caption: "Original caption",
+          privacy: "SELF_ONLY",
+          tiktokMode: "direct",
+          tiktokConsent: true,
+        },
+      },
+    };
+    const withoutDuration = await handle(
+      req("/social/publish", { method: "POST", json: reviewed }),
+      env,
+      undefined,
+      { now: () => NOW, fetch: fetchMock },
+    );
+    expect(withoutDuration.status).toBe(400);
+    expect(await withoutDuration.json()).toEqual({
+      error: "bad_request",
+      detail: "media.durationSeconds",
+    });
+    expect((await jobOf(env)).targets.tiktok?.state).toBe("failed");
+
+    const resaved = await handle(
+      req("/social/publish", {
+        method: "POST",
+        json: { ...reviewed, media: { ...legacy.media, durationSeconds: 10 } },
+      }),
+      env,
+      undefined,
+      { now: () => NOW, fetch: fetchMock },
+    );
+    expect(resaved.status).toBe(200);
+    expect((await jobOf(env)).targets.tiktok).toMatchObject({
+      state: "queued",
+      tiktokMode: "direct",
+      tiktokSource: "pull",
+      tiktokConsent: true,
+    });
+    expect((await jobOf(env)).targets.tiktok?.error).toBeUndefined();
+    await runDue(env, { fetch: fetchMock, now: NOW });
+    expect((await jobOf(env)).targets.tiktok).toMatchObject({
+      state: "processing",
+      tiktokMode: "direct",
+      containerId: "reviewed-direct",
+    });
+    expect(fetchMock.calls()).toEqual([
+      "POST open.tiktokapis.com/v2/post/publish/creator_info/query/",
+      "POST open.tiktokapis.com/v2/post/publish/video/init/",
+    ]);
+  });
+
+  it("continues polling a genuine old in-flight direct job without new consent or a second upload", async () => {
+    const env = makeEnv();
+    await connect(env, "tiktok", { scope: "video.publish" }, "3z.prod");
+    const legacy = mergeJob(
+      undefined,
+      job({ targets: { tiktok: { caption: "Already sent", privacy: "SELF_ONLY" } } }),
+      NOW,
+    );
+    legacy.targets.tiktok = {
+      ...legacy.targets.tiktok!,
+      state: "processing",
+      containerId: "existing-publish-id",
+      startedAt: NOW.toISOString(),
+    };
+    await Store.from(env)!.putJobs({ [legacy.id]: legacy });
+    const fetchMock = mockFetch({
+      "POST open.tiktokapis.com/v2/post/publish/status/fetch/": (_u, init) => {
+        expect(JSON.parse(String(init?.body))).toEqual({ publish_id: "existing-publish-id" });
+        return { data: { status: "PUBLISH_COMPLETE" } };
+      },
+    });
+    expect((await runDue(env, { fetch: fetchMock, now: NOW })).published).toEqual(["post1:tiktok"]);
+    expect((await jobOf(env)).targets.tiktok).toMatchObject({
+      state: "published",
+      privacy: "SELF_ONLY",
+    });
+    expect(fetchMock.calls()).toEqual(["POST open.tiktokapis.com/v2/post/publish/status/fetch/"]);
+  });
+
+  it.each([
+    [[], "media.photoUrls"],
+    [Array(36).fill(IMAGE), "media.photoUrls"],
+    [["http://cdn.example/a.jpg"], "media.photoUrls"],
+    [["https://user:pass@cdn.example/a.jpg"], "media.photoUrls"],
+  ])("refuses invalid photo sets (%j)", (urls, detail) => {
+    const input = photoJob();
+    expect(parseJobInput({ ...input, media: { ...input.media, photoUrls: urls } })).toEqual({
+      ok: false,
+      detail,
+    });
+  });
+
+  it("validates cover indexes, photo text limits and explicit direct consent", () => {
+    expect(parseJobInput(photoJob({ photoCoverIndex: 2 }))).toEqual({
+      ok: false,
+      detail: "tiktok.photoCoverIndex",
+    });
+    expect(parseJobInput(photoJob({ photoTitle: "x".repeat(91) }))).toEqual({
+      ok: false,
+      detail: "tiktok.photoTitle",
+    });
+    expect(parseJobInput(photoJob({ caption: "x".repeat(4000) })).ok).toBe(true);
+    expect(parseJobInput(photoJob({ caption: "x".repeat(4001) }))).toEqual({
+      ok: false,
+      detail: "tiktok.caption",
+    });
+    expect(parseJobInput(photoJob({ tiktokMode: "direct" }))).toEqual({
+      ok: false,
+      detail: "tiktok.privacy",
+    });
+    expect(parseJobInput(photoJob({ tiktokMode: "direct", privacy: "SELF_ONLY" }))).toEqual({
+      ok: false,
+      detail: "tiktok.tiktokConsent",
+    });
+    expect(
+      parseJobInput(
+        photoJob({
+          tiktokMode: "direct",
+          privacy: "SELF_ONLY",
+          tiktokConsent: true,
+          brandContent: true,
+        }),
+      ),
+    ).toEqual({ ok: false, detail: "tiktok.brandContent" });
+  });
+
+  it("uploads a photo carousel to inbox with its title, description and cover; no creator query", async () => {
+    const env = makeEnv();
+    await connect(env, "tiktok", { scope: "video.upload" });
+    const parsed = parseJobInput(photoJob({ photoTitle: "Colour recipe", photoCoverIndex: 1 }));
+    if (!parsed.ok) throw new Error(parsed.detail);
+    await queue(env, parsed.job);
+    const fetchMock = mockFetch({
+      "POST open.tiktokapis.com/v2/post/publish/content/init/": (_u, init) => {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          media_type: "PHOTO",
+          post_mode: "MEDIA_UPLOAD",
+          post_info: { title: "Colour recipe", description: "Our colour grade" },
+          source_info: {
+            source: "PULL_FROM_URL",
+            photo_cover_index: 1,
+            photo_images: [IMAGE, "https://cdn.example/second.webp"],
+          },
+          is_aigc: false,
+        });
+        return { data: { publish_id: "photo-id" }, error: { code: "ok" } };
+      },
+      "POST open.tiktokapis.com/v2/post/publish/status/fetch/": () => ({
+        data: { status: "SEND_TO_USER_INBOX" },
+      }),
+    });
+    await runDue(env, { fetch: fetchMock, now: NOW });
+    expect((await jobOf(env)).targets.tiktok?.inbox).toBeUndefined();
+    const result = await runDue(env, { fetch: fetchMock, now: later(60_000) });
+    expect(result.published).toEqual([]);
+    expect((await jobOf(env)).targets.tiktok).toMatchObject({
+      state: "published",
+      inbox: true,
+      uploadedAt: later(60_000).toISOString(),
+    });
+    expect(fetchMock.calls()).toHaveLength(2);
+  });
+
+  it("uses verified-domain video pull for new inbox jobs instead of downloading/reuploading bytes", async () => {
+    const env = makeEnv();
+    await connect(env, "tiktok", { scope: "video.upload" });
+    const parsed = parseJobInput(job({ targets: { tiktok: { caption: "copy this in TikTok" } } }));
+    if (!parsed.ok) throw new Error(parsed.detail);
+    await queue(env, parsed.job);
+    const fetchMock = mockFetch({
+      "POST open.tiktokapis.com/v2/post/publish/inbox/video/init/": (_u, init) => {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          source_info: { source: "PULL_FROM_URL", video_url: MEDIA },
+        });
+        return { data: { publish_id: "p" } };
+      },
+    });
+    await runDue(env, { fetch: fetchMock, now: NOW });
+    expect((await jobOf(env)).targets.tiktok?.state).toBe("processing");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses fresh settings, disclosure and photo music preferences for Direct Post", async () => {
+    const env = makeEnv();
+    await connect(env, "tiktok", { scope: "video.publish" });
+    const parsed = parseJobInput(
+      photoJob({
+        tiktokMode: "direct",
+        privacy: "PUBLIC_TO_EVERYONE",
+        tiktokConsent: true,
+        disableComment: false,
+        brandContent: true,
+        brandOrganic: true,
+        isAigc: true,
+        autoAddMusic: true,
+      }),
+    );
+    if (!parsed.ok) throw new Error(parsed.detail);
+    await queue(env, parsed.job);
+    const fetchMock = mockFetch({
+      "POST open.tiktokapis.com/v2/post/publish/creator_info/query/": () => ({
+        data: { ...creatorData, comment_disabled: true },
+      }),
+      "POST open.tiktokapis.com/v2/post/publish/content/init/": (_u, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body).toMatchObject({
+          post_mode: "DIRECT_POST",
+          is_aigc: true,
+          post_info: {
+            privacy_level: "PUBLIC_TO_EVERYONE",
+            disable_comment: true,
+            brand_content_toggle: true,
+            brand_organic_toggle: true,
+            auto_add_music: true,
+          },
+        });
+        expect(body.post_info).not.toHaveProperty("disable_duet");
+        return { data: { publish_id: "p" } };
+      },
+    });
+    await runDue(env, { fetch: fetchMock, now: NOW });
+    expect((await jobOf(env)).targets.tiktok?.state).toBe("processing");
+  });
+
+  it.each([
+    ["video.upload", "direct"],
+    ["video.publish", "inbox"],
+    [undefined, "inbox"],
+    ["video.list", "direct"],
+  ] as const)("never treats requested permission as granted (%s → %s)", async (scope, mode) => {
+    const env = makeEnv();
+    await connect(env, "tiktok", { scope, canPublish: true });
+    await queue(
+      env,
+      photoJob({ tiktokMode: mode, privacy: "PUBLIC_TO_EVERYONE", tiktokConsent: true }),
+    );
+    const fetchMock = mockFetch({});
+    await runDue(env, { fetch: fetchMock, now: NOW });
+    expect((await jobOf(env)).targets.tiktok).toMatchObject({
+      state: "failed",
+      error: "no_permission",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes grant changes before executing a job", async () => {
+    const env = makeEnv();
+    await connect(env, "tiktok", {
+      issuedAt: later(-3600_000).toISOString(),
+      scope: "video.upload,video.publish",
+    });
+    await queue(
+      env,
+      photoJob({ tiktokMode: "direct", privacy: "PUBLIC_TO_EVERYONE", tiktokConsent: true }),
+    );
+    const fetchMock = mockFetch({
+      "POST open.tiktokapis.com/v2/oauth/token/": () => ({
+        access_token: "fresh",
+        scope: "video.upload",
+      }),
+    });
+    await runDue(env, { fetch: fetchMock, now: NOW });
+    expect((await jobOf(env)).targets.tiktok).toMatchObject({
+      state: "failed",
+      error: "no_permission",
+    });
+    expect((await Store.from(env)!.getTokens("tiktok"))?.scope).toBe("video.upload");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [{ privacy: "FOLLOWER_OF_CREATOR" }, 10, "privacy choices changed"],
+    [{}, 61, "60-second limit"],
+    [{}, undefined, "60-second limit"],
+    [{ tiktokConsent: false }, 10, "music/disclosure terms"],
+  ])(
+    "refuses invalid direct choices before initializing (%j)",
+    async (patch, durationSeconds, detail) => {
+      const env = makeEnv();
+      await connect(env, "tiktok");
+      await queue(
+        env,
+        job({
+          media: { url: MEDIA, kind: "video", durationSeconds },
+          targets: {
+            tiktok: {
+              caption: "",
+              tiktokMode: "direct",
+              tiktokSource: "pull",
+              tiktokConsent: true,
+              privacy: "PUBLIC_TO_EVERYONE",
+              ...patch,
+            },
+          },
+        }),
+      );
+      const fetchMock = mockFetch({
+        "POST open.tiktokapis.com/v2/post/publish/creator_info/query/": () => ({
+          data: creatorData,
+        }),
+      });
+      await runDue(env, { fetch: fetchMock, now: NOW });
+      expect((await jobOf(env)).targets.tiktok).toMatchObject({
+        state: "failed",
+        error: "rejected",
+        detail: expect.stringContaining(detail),
+      });
+      expect(fetchMock.calls().every((call) => call.endsWith("creator_info/query/"))).toBe(true);
+    },
+  );
+
+  it("shows an actionable verified-domain error without retrying", async () => {
+    const env = makeEnv();
+    await connect(env, "tiktok");
+    await queue(env, photoJob({ tiktokMode: "inbox" }));
+    const fetchMock = mockFetch({
+      "POST open.tiktokapis.com/v2/post/publish/content/init/": () =>
+        json({ error: { code: "url_ownership_unverified", message: "Unverified" } }, 403),
+    });
+    await runDue(env, { fetch: fetchMock, now: NOW });
+    expect((await jobOf(env)).targets.tiktok).toMatchObject({
+      state: "failed",
+      error: "rejected",
+      attempts: 0,
+      detail: expect.stringContaining("verified in your TikTok developer app"),
+    });
+  });
+
+  it("creator metadata endpoint is authenticated and reports separate granted capabilities", async () => {
+    const env = makeEnv();
+    const unauthed = req("/social/tiktok/creator");
+    unauthed.headers.delete("Authorization");
+    expect((await handle(unauthed, env)).status).toBe(401);
+    await connect(env, "tiktok", { scope: "video.upload" });
+    const fetchMock = mockFetch({
+      "POST open.tiktokapis.com/v2/post/publish/creator_info/query/": () => ({ data: creatorData }),
+    });
+    const upload = await handle(req("/social/tiktok/creator"), env, undefined, {
+      now: () => NOW,
+      fetch: fetchMock,
+    });
+    expect(await upload.json()).toEqual({ canUpload: true, canDirectPost: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await connect(env, "tiktok", { scope: "video.publish" });
+    const direct = await handle(req("/social/tiktok/creator"), env, undefined, {
+      now: () => NOW,
+      fetch: fetchMock,
+    });
+    expect(await direct.json()).toEqual({
+      canUpload: false,
+      canDirectPost: true,
+      creator: {
+        username: "3z.prod",
+        nickname: "3z",
+        avatarUrl: "https://cdn.example/avatar.jpg",
+        privacyLevels: ["PUBLIC_TO_EVERYONE", "SELF_ONLY"],
+        commentDisabled: false,
+        duetDisabled: true,
+        stitchDisabled: false,
+        maxVideoDurationSeconds: 60,
+      },
+    });
+  });
+});
 
 describe("runTick", () => {
   it("syncs on the 06:00–06:30 Riyadh ticks and publishes on the others", async () => {

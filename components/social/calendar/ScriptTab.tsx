@@ -5,6 +5,7 @@ import type { Post, Script } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { PLATFORM_META, scriptSeconds, scriptWords, suggestStage } from "@/lib/social";
 import { useStore } from "@/store";
+import CreatorAssistant from "./CreatorAssistant";
 
 /**
  * Hook / 3 beats / CTA, saved on every change. The first words written while the post is still an "idea"
@@ -71,7 +72,7 @@ export default function ScriptTab({ post }: { post: Post }) {
           ✓ {t("calendar.script.autoBump")}
         </p>
       )}
-      <p className="px-inset text-muted text-xs">{t("calendar.script.ai")}</p>
+      <CreatorAssistant key={post.id} post={post} />
     </div>
   );
 }
