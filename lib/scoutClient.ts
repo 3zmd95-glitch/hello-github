@@ -57,7 +57,8 @@ export interface ScoutError {
 export type ScoutSearchResult =
   { ok: true; results: ScoutResult[]; cached: boolean } | { ok: false; error: ScoutError };
 export type ScoutOembedResult = { ok: true; data: ScoutOembed } | { ok: false; error: ScoutError };
-export type ScoutHealthResult = { ok: true; tavily: boolean } | { ok: false; error: ScoutError };
+export type ScoutHealthResult =
+  { ok: true; tavily: boolean; discover: boolean } | { ok: false; error: ScoutError };
 
 /** Recency filter, sent to the Worker as `timeRange` (Tavily `time_range`). */
 export type ScoutTimeRange = "week" | "month" | "year";
@@ -201,6 +202,9 @@ async function call(
     return { ok: false, error: { type: "upstream", status: res.status } };
   }
 }
+
+/** The authenticated Worker call (JSON in and out), for the other Worker clients (lib/discover.ts). */
+export const scoutCall = call;
 
 /* ---------- search cache ---------- */
 
@@ -463,7 +467,10 @@ export async function scoutOembed(
   };
 }
 
-/** `GET /health` with the token: ok when the Worker accepts it; `tavily` says whether its key is set. */
+/**
+ * `GET /health` with the token: ok when the Worker accepts it; `tavily` says whether its key is set,
+ * `discover` whether it serves `POST /discover` (false for a Worker from before Discover v2).
+ */
 export async function scoutHealth(
   config: ScoutConfig | null,
   opts: ScoutOpts = {},
@@ -471,9 +478,9 @@ export async function scoutHealth(
   if (!config) return { ok: false, error: { type: "unconfigured" } };
   const r = await call(config, "/health", {}, opts);
   if (!r.ok) return r;
-  const d = (r.data ?? {}) as { ok?: unknown; tavily?: unknown };
+  const d = (r.data ?? {}) as { ok?: unknown; tavily?: unknown; discover?: unknown };
   // The Worker only reports `tavily` once it has accepted the token; a bare `{ ok: true }` means it didn't
   // check it (no Authorization reached it), so treat that as an auth problem too.
   if (d.ok !== true || typeof d.tavily !== "boolean") return { ok: false, error: { type: "auth" } };
-  return { ok: true, tavily: d.tavily };
+  return { ok: true, tavily: d.tavily, discover: d.discover === true };
 }

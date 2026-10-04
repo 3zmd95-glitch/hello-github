@@ -8,6 +8,7 @@ on:
       - "workers/scout/**"
       - "planning/data/saudi-events.json"
       - "planning/data/genres.json"
+      - "planning/data/edit-terms.json"
       - ".github/workflows/worker.yml"
   workflow_dispatch:
 
@@ -96,6 +97,48 @@ jobs:
             if (out === src) { console.error("placeholder not found in " + path); process.exit(1); }
             fs.writeFileSync(path, out);'
           grep -n '"SOCIAL_KV"' workers/scout/wrangler.jsonc
+
+      # The Claude connector's OAuth clients and tokens (@cloudflare/workers-oauth-provider) live in their own
+      # namespace, titled exactly "3z-scout-OAUTH_KV" (wrangler 4 uses the create argument as the title) and matched
+      # by that title only: other Cloudflare MCP templates title theirs plain "OAUTH_KV", which is never adopted.
+      - name: Ensure the OAUTH_KV namespace
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          KV_TITLE: 3z-scout-OAUTH_KV
+        run: |
+          set -euo pipefail
+          find_id() {
+            pnpm --filter 3z-scout exec wrangler kv namespace list | node -e '
+              let s = "";
+              process.stdin.on("data", (c) => (s += c)).on("end", () => {
+                const start = s.indexOf("["), end = s.lastIndexOf("]");
+                const list = start >= 0 ? JSON.parse(s.slice(start, end + 1)) : [];
+                // Only the title of this Worker (never a plain "OAUTH_KV" of another template).
+                const hit = list.find((n) => n.title === process.env.KV_TITLE);
+                process.stdout.write(hit ? hit.id : "");
+              });'
+          }
+          ID="$(find_id)"
+          if [ -z "$ID" ]; then
+            echo "Creating KV namespace $KV_TITLE"
+            pnpm --filter 3z-scout exec wrangler kv namespace create "$KV_TITLE"
+            ID="$(find_id)"
+          fi
+          if [ -z "$ID" ]; then
+            echo "::error title=OAUTH_KV::Could not find or create the KV namespace $KV_TITLE"
+            exit 1
+          fi
+          echo "OAUTH_KV id: $ID"
+          KV_ID="$ID" node -e '
+            const fs = require("fs");
+            const path = "workers/scout/wrangler.jsonc";
+            const src = fs.readFileSync(path, "utf8");
+            const out = src.replace(/("binding":\s*"OAUTH_KV",\s*"id":\s*")[0-9a-f]+(")/, `$1${process.env.KV_ID}$2`);
+            if (out === src) { console.error("placeholder not found in " + path); process.exit(1); }
+            fs.writeFileSync(path, out);'
+          grep -n '"OAUTH_KV"' workers/scout/wrangler.jsonc
 
       - name: Deploy
         if: steps.secrets.outputs.ready == 'true'

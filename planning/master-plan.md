@@ -542,6 +542,22 @@ Round 32 (Sep 29, 2026; owner: "why instagram doesn't show thumbnail plus i want
   pre-check; messages accepted only from the player's origin and the sheet's own frame; a `frame-src` CSP.
 - From this round on every executing agent runs on Opus 5.5 (owner's instruction); planning stays with the session model.
 
+Brainstorm round 33 (Oct 3, 2026; owner: "plan today the work on discover page in all aspects… beacons.ai discover trends…
+better search… maybe a panel that analyze editors", with his Obsidian creator list; then "I want to have mcp so I connect
+claude. im already subbed"):
+- Three projects in order: **(1) Discover search v2 + Claude connector**, (2) editor panel for the ~70 creators of
+  "Social Media (Categories)", (3) Beacons-style trends on top of 1 and 2. Spec of (1): `tools/13-discover-search-v2.md`.
+- A live test of 42 searches set the targets: a bare word drifts off-topic ("flash" → The Flash), 20 results cost the same as
+  10, Arabic queries find other creators, ~1 call in 6 comes back empty, TikTok / Instagram numbers are rare.
+- Decisions: results in sections (Popular now strip · Examples · Tutorials · Creators · Claude's picks), both languages on
+  every search, a built-in editing dictionary instead of in-app AI for now, the owner pays Tavily pay-as-you-go if needed.
+- **Claude through a connector, not the API** (owner): an MCP server on the Worker (OAuth login with the Scout token, tools
+  search / trends / save picks / read picks, 60 lookups a day) so Claude works on the owner's subscription; an Anthropic key
+  for in-app AI stays a later option. Supersedes the `/api/mcp` Next.js route of `tools/01-dashboard.md`.
+- Editor panel research: Instagram Business Discovery gives other creator / business accounts' followers, posts, likes,
+  comments and views, but only through Facebook Login (a Facebook Page linked to @3z.prod); TikTok has no route; YouTube
+  is free with the key.
+
 Round 34 (Oct 3, 2026; owner: "I want us to work on auto reply its an important feature for me" → "its made with beacons.ai I
 want our version" → "I dont want anything that will get me banned"):
 - Social improvements queued in this order: **auto replies first**, then the Studio home screen, Calendar and posting, Ideas
