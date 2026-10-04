@@ -1,5 +1,7 @@
 # 14 · Auto replies v2: our own Smart Reply, with DMs and story replies (round 34)
 
+**Status:** built (round 34); goes live after the Live test (step 0).
+
 Owner, Oct 3, 2026: "I want us to work on auto reply its an important feature for me. beacons.ai and metrocool and
 manychat" → "its made with beacons.ai I want our version" → "I dont want anything that will get me banned."
 Goals he picked: **send free downloads**, **grow followers**, **answer common DMs** (keyword answers, story replies,
@@ -196,7 +198,10 @@ already caches it). Docs: `developers.facebook.com/documentation/instagram-platf
 
 `TICK_CRON` becomes `* * * * *`. `runTick`: on minutes divisible by five, today's schedule; on other minutes, the
 replies poll only. Every sync and trend slot stays on the five-minute grid (a test keeps it so).
-`wrangler.jsonc` → `triggers.crons: ["* * * * *"]`.
+`wrangler.jsonc` → `triggers.crons: ["* * * * *"]`. Rolling the Worker back past commit `5e4d151` needs the trigger
+set back to `*/5 * * * *`: the old code sends any other cron string to the daily sync, so `* * * * *` would run a full
+sync every minute. During the first deploy a few old `*/5` events can still arrive and run one off-schedule sync each
+(harmless, bounded).
 
 ### Routes
 

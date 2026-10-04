@@ -157,14 +157,16 @@ refreshed before every sync. A refresh the provider refuses → `lastError: "tok
   Threads) stop when the budget is reached, roughly the newest 30 posts per sync**. Rows past the budget keep
   the counts from the media list (likes, comments) and the insights they got on an earlier day: the daily
   cron gives each platform its own invocation, so each one gets the full budget.
-- **Cron**: one trigger every five minutes (`*/5 * * * *`); the ticks at 03:00/03:10/03:20/03:30 UTC
+- **Cron**: one trigger every minute (`* * * * *`); minutes off the five-minute grid only poll the auto replies
+  (see [Auto-replies](#auto-replies)). On the grid the ticks at 03:00/03:10/03:20/03:30 UTC
   (06:00–06:30 Riyadh) sync one platform each instead of publishing (`SYNC_SLOTS` in `src/social/cron.ts`),
   and the Trend Radar ticks (`TREND_SLOTS`: 00:05/06:05/12:05/18:05 UTC fast, 21:05 UTC daily, Saturday
   21:15 UTC weekly; every slot sits on the five-minute grid, a test guards it) refresh the trend feed instead. One trigger instead of many also stays inside the free
   plan's five cron triggers per account. `POST /social/sync` without `platforms` shares one budget across
   every connected platform (10 calls each with four): use it as a quick refresh, not as the daily pull.
 - **KV writes**: 1,000 a day on the free plan. A sync writes about six keys (tokens when refreshed, snapshot,
-  posts document, demographics, status), so manual syncs are cheap.
+  posts document, demographics, status), so manual syncs are cheap. The auto-reply poll stops itself at 600
+  writes a UTC day (the write guard, see [Auto-replies](#auto-replies)).
 - Instagram's account insights cover at most 30 days per call; media older than a day or two may refuse
   insights (the row then keeps its basic counts); demographics need 100+ followers (skipped below that).
 
@@ -179,8 +181,8 @@ refreshed before every sync. A refresh the provider refuses → `lastError: "tok
 | `demo:<platform>:<day>` | `Demographic[]` of that day                                                                                                                                                                                           |
 | `state:<nonce>`         | `{ platform, returnTo, createdAt, verifier?, publish?, replies? }`, 10-minute TTL, deleted when the callback uses it                                                                                                            |
 | `publish:jobs`          | `{ [jobId]: PublishJob }`: the auto-post queue in one document (an idle cron tick is one read, no write). Finished jobs are dropped after 30 days; at most 200 jobs.                                                  |
-| `replies:doc`           | `AutomationsDoc`: the owner's auto-reply automations; written only by `POST`/`DELETE /social/replies`.                                                                                                        |
-| `replies:state`         | `PollState`: answered comments (7 days), counters, the last 50 log entries, watched posts' comment counts, the poll lock; written only by the poll, and only when something changed.                          |
+| `replies:doc`           | `AutomationsDoc`: the owner's auto-reply automations, pause and default reply; written only by `POST`/`DELETE /social/replies` and `POST /social/replies/settings`.                                           |
+| `replies:state`         | `PollState`: answered comments (7 days), conversation positions, the poll's own message ids and default-reply times (a day), counters, the last 50 log entries, watched posts' comment counts, the poll lock, the day's write count; written only by the poll, and only when something changed. |
 | `replies:clicks`        | `ClicksDoc`: taps on the `/go` links with the daily cap; written only by `GET /go/:id/:n`.                                                                                                                    |
 
 ## Auto-posting
@@ -227,63 +229,114 @@ before any platform call, so the cron and "run" never publish the same job twice
 
 ## Auto-replies
 
-Code: `src/social/replies.ts` (documents, matcher, poller, routes, `/go`), wired in `cron.ts` (polls on publish
-ticks that moved nothing) and `scout.ts` (`/go`). Product spec and owner steps: `planning/tools/10-auto-replies.md`.
-A copy of Beacons' Smart Reply: when someone comments a keyword on one of the owner's Instagram posts, the
-Worker sends the commenter a private DM with the link and replies under the comment. Instagram only (Threads
-and YouTube have no DMs in their APIs; TikTok has no comment API).
+Code: `src/social/replies.ts` (documents, the comment poll, routes, `/go`), `src/social/inbox.ts` (the DM and
+story-reply poll), `src/social/replyCore.ts` (matching, building and sending a reply, Instagram's refusals), wired
+in `cron.ts` (every minute, see the trigger below) and `scout.ts` (`/go`). Product spec and owner steps:
+`planning/tools/10-auto-replies.md` (v1) and `planning/tools/14-auto-replies-v2.md` (v2, round 34; the Live test is
+its Step 0). A copy of Beacons' Smart Reply: when someone comments a keyword on one of the owner's Instagram posts,
+the Worker sends the commenter a private DM with the link and replies under the comment. Since v2 it also answers
+DMs and story replies that carry a keyword, and a DM that matches no rule gets the default reply (at most once per
+person per 24 hours). Instagram only (Threads and YouTube have no DMs in their APIs; TikTok has no comment API).
 
 **Permission.** `POST /social/connect/instagram` with `"replies": true` asks for
 `instagram_business_manage_comments` + `instagram_business_manage_messages` on top of the posting scopes. The
 callback sets `canReply` from the permissions Instagram reports as granted (the owner can untick one in Meta's
 dialog) and `GET /social/status` reports it. Without it the poll is skipped with `lastError: "no_permission"`.
 Note: under Standard Access (Development mode) Instagram delivers private replies only to accounts with a role
-on the Meta app; DMs to everyone need App Review for `instagram_business_manage_messages`
-(`planning/tools/10-auto-replies.md`).
+on the Meta app. Whether a Live app reaches everyone without App Review for `instagram_business_manage_messages`
+is what the Live test decides (`planning/tools/14-auto-replies-v2.md`, Step 0).
 
-**Detection is polling, not webhooks**: Meta sends comment webhooks only to apps that are Live with Advanced
-Access. So on every five-minute tick where the publish queue moved nothing, the Worker lists the newest
-`WATCH_ANY_MAX` (5) posts (for "any post" automations) plus up to `WATCH_SPECIFIC_MAX` (3) specific posts (a post
-that cannot be looked up is noted on its automations and skipped), reads the comments of those whose
-`comments_count` changed (all of them once an hour, or on "Check now"; a post whose read failed is read again
-next tick), skips its own comments, comments older than 7 days, comments from before the automation was
+**Detection is polling, not webhooks**: Meta sends comment and message webhooks only to apps that are Live with
+Advanced Access. So every minute (on the five-minute grid only on publish ticks that moved nothing), the Worker
+lists the newest `WATCH_ANY_MAX` (5) posts (for "any post" automations) plus up to `WATCH_SPECIFIC_MAX` (3)
+specific posts (a post that cannot be looked up is noted on its automations and skipped), reads the comments of
+those whose `comments_count` changed (all of them once an hour, or on "Check now"; a post whose read failed is
+read again next tick), skips its own comments, comments older than 7 days, comments from before the automation was
 switched on and comments already answered, matches the rest (specific-post automations before "any post"),
-takes a short lock (`POLL_LOCK_MS`, 4 min) so the cron and "Check now" never answer the same comment, and
-answers at most `REPLY_CAP` (8) a tick, oldest first. A post with matching comments left over (cap, budget,
-stop) is read again next tick.
+takes a short lock (`POLL_LOCK_MS`, 4 min) so the cron and "Check now" never answer the same comment or message,
+and answers at most `REPLY_CAP` (8) a tick, comments and DMs together, comments first, oldest first. A post with
+matching comments left over (cap, budget, stop) is read again next tick.
 
-**Order per comment.** First the private reply, `POST /{ig-user-id}/messages { recipient: { comment_id },
-message: { text } }` (one per comment, text only, within 7 days; buttons go out as `title: <origin>/go/<id>/<n>`
-lines). Only once it went out, the public reply `POST /{comment-id}/replies` (optional; it says "sent it to you
-privately", so it never goes out without the DM, and a failed public reply is logged once, never retried).
-Budget: `REPLIES_FETCH_BUDGET` (30) outbound calls, so a tick stays inside the 50 subrequests with its KV reads.
+**Order per comment.** First the private reply, `POST /{ig-user-id}/messages { recipient: { comment_id }, message }`
+(one per comment, within 7 days): plain text, or a button template when the rule has buttons (the Send API below).
+When Instagram refuses the template in a private reply (code 100, unless the subcode is 2534025 "already
+answered"), it goes once more as plain text with `title: link` lines; a refused call does not use up the
+comment's one private reply. Only once the DM went out, the public reply `POST /{comment-id}/replies`, one of the
+rule's `publicReplies` picked at random (optional; it says "sent it to you privately", so it never goes out
+without the DM, and a failed public reply is logged once, never retried). Budget: `REPLIES_FETCH_BUDGET` (30)
+outbound calls (a comment takes up to three: the template, the text fallback, the public reply), so a tick stays
+inside the 50 subrequests with its KV reads.
+
+**DMs and story replies** (round 34, `inbox.ts`). When a message rule or the default reply is on, the same poll
+reads the conversations in one call, `GET /{IG_ID}/conversations?platform=instagram&limit=20&fields=id,updated_time,messages.limit(5){id,created_time,from,message,story,is_unsupported}`
+(`IG_ID` is `user_id` of `GET /me`, cached). Each conversation keeps its position (`convos[id].seenAt`, never more
+than 24 hours back); the person's newer messages are handled oldest first: a story mention, an unsupported message
+or one without text is skipped; a DM or a story reply with a keyword gets the first matching message rule (oldest
+rule first); a DM (not a story reply) with a letter or digit that matches no rule gets the default reply when it is
+on and the person got none in the last 24 hours. A conversation whose newest messages include one from the account
+in the last 24 hours that the poll did not send (the owner chatting by hand) is left alone. The very first DM
+poll only notes the time and answers nothing, and a rule (or the default reply) never answers a message from
+before it was switched on. Answers go through the **Send API**, `POST /{IG_ID}/messages` with
+`Authorization: Bearer`: `{ recipient: { id: <IGSID> }, message: { text } }` (1,000 UTF-8 bytes), or with
+buttons the button template
+`message: { attachment: { type: "template", payload: { template_type: "button", text, buttons: [{ type: "web_url", url, title }] } } }`
+(text ≤ 640 characters, 1–3 buttons). Link buttons go through `<origin>/go/<id>/<n>`; «تابعني» (`followButton`)
+opens `https://www.instagram.com/<username>/`. The returned `message_id` is kept a day (`sent`) to tell the
+poll's own messages from the owner's; in case Instagram's ids differ, a message from the account created from a
+minute before to 2 minutes after a send to that person also counts as the poll's.
+
+**Trigger and write guard.** One cron trigger, `* * * * *` (`TICK_CRON` in `cron.ts`): minutes off the
+five-minute grid only poll the replies; on the grid a tick keeps the five-minute schedule (a sync slot, a trend
+slot, or the publish queue, then the replies when publishing moved nothing). The poll writes `replies:state` only when
+something changed (at most twice: the lock, then the result) and counts every write per UTC day (`writes`): from
+`WRITE_SLOW` (300) it runs on five-minute ticks only, from `WRITE_STOP` (600) it answers nothing until 00:00 UTC
+(03:00 Riyadh); `GET /social/replies` then says `guard: "slow"` or `"stop"`. The free plan's 1,000 KV writes a
+day are shared by the whole Worker. `paused: true` (`POST /social/replies/settings`) holds every answer; once it is
+switched off, comments (up to 7 days old) and DMs (up to 24 hours old) from the pause can still get their answer,
+within the usual caps.
+
+**Deploy and rollback.** Commit `5e4d151` changed the trigger from `*/5 * * * *` to `* * * * *`. Before and
+after it, the Worker runs its tick only for its own `TICK_CRON` and sends any other cron string to the daily sync
+(`runScheduled`, kept for the daily triggers of older deployments). So during the first deploy a few old `*/5`
+events can still arrive and run one off-schedule sync each (harmless, bounded), and rolling the Worker back past
+`5e4d151` needs the trigger set back to `*/5 * * * *` too (`triggers.crons` in `wrangler.jsonc`): with
+`* * * * *` the old code would run a full sync every minute.
 
 **Storage, one document per writer** (KV is last-write-wins, so no path ever rewrites another's data):
-`replies:doc` = the owner's automations (dashboard routes), `replies:state` = answered comments, counters, log,
-lock (the poll only), `replies:clicks` = taps on `/go` links (`/go` only). Reads merge the three; an idle tick
-writes nothing.
+`replies:doc` = the owner's automations, pause and default reply (dashboard routes), `replies:state` = answered
+comments, conversation positions, the poll's own message ids, default-reply times, counters, log, lock and the
+day's write count (the poll only), `replies:clicks` = taps on `/go` links (`/go` only). Reads merge the three; an
+idle tick writes nothing.
 
-| Route                          | Request                                                                                                   | Response                                                                                        |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `GET /social/replies`          |                                                                                                           | `{ automations (with stats), log, origin?, igUserId?, lastPollAt?, lastError? }`                |
-| `POST /social/replies`         | `{ id, enabled?, postId?, permalink?, title?, thumbUrl?, keywords, match?, publicReply?, dmText, buttons? }` | `{ automation }` (with its counters); `400 { error, detail }`                                   |
-| `POST /social/replies/poll`    |                                                                                                           | `{ result: { checked, sent, failed, skipped?, error?, detail? }, …the GET shape }`              |
-| `DELETE /social/replies/:id`   |                                                                                                           | `{ ok: true }` (its counters go with the next poll)                                             |
+| Route                           | Request                                                                                                                                 | Response                                                                                                                                         |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /social/replies`           |                                                                                                                                         | `{ automations (with stats), log, paused, defaultReply? (with its stats), origin?, igUserId?, ownerUsername?, lastPollAt?, lastError?, guard? }` |
+| `POST /social/replies`          | `{ id, enabled?, trigger?, postId?, permalink?, title?, thumbUrl?, keywords, match?, publicReplies?, dmText, buttons?, followButton? }` | `{ automation }` (with its counters); `400 { error, detail }`                                                                                    |
+| `POST /social/replies/settings` | `{ paused?, defaultReply?: { enabled, text } }`                                                                                         | the GET shape; `400 { error, detail }`                                                                                                           |
+| `POST /social/replies/poll`     |                                                                                                                                         | `{ result: { checked, sent, failed, skipped?, error?, detail? }, …the GET shape }`                                                               |
+| `DELETE /social/replies/:id`    |                                                                                                                                         | `{ ok: true }` (its counters go with the next poll)                                                                                              |
 
-Validation: `id` is `[A-Za-z0-9_-]{1,100}` (not `poll`); `postId` is `[0-9A-Za-z_-]{1,64}`, or null/omitted for any
-post; `permalink` (≤ 300), `title` (≤ 120) and `thumbUrl` (https) are display only; 1–10 keywords of ≤ 40
-characters; `match` is `contains` (default) or `exact`; `dmText` 1–1,000 characters; `publicReply` ≤ 2,200
-(`{username}` becomes `@handle`); ≤ 3 buttons `{ title ≤ 20, url https }`. Matching ignores case, Arabic
+Validation: `id` is `[A-Za-z0-9_-]{1,100}` (not `poll`, `settings` or `default`); `trigger` is `comment` (default)
+or `message` (a message rule keeps no post, no public replies and no display fields); `postId` is
+`[0-9A-Za-z_-]{1,64}`, or null/omitted for any post; `permalink` (≤ 300), `title` (≤ 120) and `thumbUrl` (https)
+are display only; 1–10 keywords of ≤ 40 characters; `match` is `contains` (default) or `exact`; `publicReplies`
+holds up to 3 texts of ≤ 2,200 characters, blank ones dropped (`{username}` becomes `@handle`; a v1 body's single
+`publicReply` still works); ≤ 3 buttons `{ title ≤ 20, url https }`, counting «تابعني» when `followButton` is
+true; `dmText` with its `title: link` lines (and «تابعني» with a 30-character username) fits 1,000 UTF-8 bytes,
+and ≤ 640 characters when the DM has any button. Settings: `paused` is a boolean; `defaultReply` is
+`{ enabled, text }`, its text ≤ 1,000 UTF-8 bytes and required when enabled. Matching ignores case, Arabic
 diacritics and tatweel, alef/yaa variants, punctuation and emoji.
 
 Error codes (`lastError`, the log's `error`, an automation's `stats.lastError`): `not_connected`,
-`no_permission` (app-level: Meta code 10 with no subcode or an app subcode; the tick stops, the comment is given
-up on after 3 such tries), `token_expired`, `rate_limited` (the tick stops, the comment waits), `rejected`
-(Instagram refused this comment or recipient; the words in `detail`), `upstream` (retried on later reads, given
-up after 3), `not_eligible` (Instagram takes no private reply to this comment: code 100/2534025, or code 10
-with a messaging-window subcode). `skipped` on the poll result: `none`, `not_connected`, `no_permission`,
-`token_expired`, `locked`. Clicks: `GET /go/:id/:n` redirects only to an owner-saved https link, counts one tap
-per visitor per link per minute (Cache API) and at most `CLICK_WRITES_PER_DAY` (200) a day, and always redirects.
+`no_permission` (app-level: Meta code 10 with no subcode or an app subcode; the tick stops, the comment or
+message is given up on after 3 such tries), `token_expired`, `rate_limited` (the tick stops, the comment or
+message waits), `rejected` (Instagram refused this comment or recipient; the words in `detail`), `upstream`
+(retried on later reads, given up after 3), `not_eligible` (Instagram takes no private reply to this comment:
+code 100/2534025; or code 10 with a messaging-window subcode, which for a DM means it is past the 24-hour
+window). `skipped` on the poll result: `none`, `not_connected`, `no_permission`, `token_expired`, `locked`,
+`paused`, `guard`. Log entries carry `kind` (`comment`, `message`, `story`, `default`) and, for DMs, `messageId`.
+Clicks: `GET /go/:id/:n` redirects only to an owner-saved https link, counts one tap per visitor per link per minute
+(Cache API) and at most `CLICK_WRITES_PER_DAY` (200) a day, and always redirects.
 
 ## Trend Radar
 

@@ -61,6 +61,8 @@ shows up in the log with Instagram's words and the comment is marked done, nothi
 
 ## Owner's part (once)
 
+Round 34: the Live test and the steps are in `14-auto-replies-v2.md` → Step 0.
+
 1. **Meta app** (3z Prod, `2189335038677989`) → Instagram API with Instagram Login → permissions: add
    **`instagram_business_manage_comments`** and **`instagram_business_manage_messages`**. Under Settings → Roles,
    add a second Instagram account of yours as an **Instagram tester** (it can receive the test DMs).
