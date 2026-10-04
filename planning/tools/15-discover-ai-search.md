@@ -47,9 +47,9 @@ All requests below ran through the actual localhost:3000 UI against the deployed
 ### Follow-up from the live audit
 
 - Genre-only planning now retains bilingual filming/editing terms in queries and retries, instead of reducing “coffee edit” to a generic “coffee tutorial”.
-- Genre-only results must contain both the subject and filming/editing evidence. Teaching words alone no longer admit brewing lessons, exercise instruction, or other subject tutorials. Exact search remains the explicit unfiltered option.
+- Genre-only results must contain both the subject and filming/editing evidence. AI mode retains these constraints even when the model returns only a subject group. Teaching words alone no longer admit brewing lessons, exercise instruction, or other subject tutorials. Exact search remains the explicit unfiltered option.
 - Reuse the existing genre data and matching helpers; no extra library or provider is needed for this correction. Client/Worker answer cache version 4 avoids retaining the earlier generic results.
-- Regression cases use actual coffee titles observed live and cover all 12 genre-only searches in both languages. Follow-up lint/typecheck/build and all 1,622 unit tests pass. Full browser suite: 278 passed, 4 existing skips (phone and desktop). Deployed genre-only recheck pending.
+- Regression cases use actual coffee titles observed live and cover all 12 genre-only searches in both languages, including preservation in AI mode. Follow-up lint/typecheck/build and all 1,623 unit tests pass. Final full browser suite after the AI constraint correction: 278 passed, 4 existing skips (phone and desktop). Deployed genre-only recheck pending.
 
 ## Delivery and verification checklist
 
