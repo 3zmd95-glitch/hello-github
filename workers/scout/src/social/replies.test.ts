@@ -676,9 +676,14 @@ describe("pollReplies", () => {
             attachment: {
               type: "template",
               payload: {
-                template_type: "button",
-                text: "حمل اللت من الرابط تحت وجربه على لقطاتك",
-                buttons: [{ type: "web_url", url: `${BASE}/go/lut/0`, title: "حمل اللت" }],
+                template_type: "generic",
+                elements: [
+                  {
+                    title: "حمل اللت من الرابط تحت وجربه على لقطاتك",
+                    default_action: { type: "web_url", url: `${BASE}/go/lut/0` },
+                    buttons: [{ type: "web_url", url: `${BASE}/go/lut/0`, title: "حمل اللت" }],
+                  },
+                ],
               },
             },
           },
@@ -1234,9 +1239,13 @@ describe("pollReplies", () => {
       message: {
         attachment: {
           payload: {
-            buttons: [
-              { type: "web_url", url: `${BASE}/go/lut/0`, title: "حمل اللت" },
-              { type: "web_url", url: "https://www.instagram.com/3z.prod/", title: "تابعني" },
+            elements: [
+              {
+                buttons: [
+                  { type: "web_url", url: `${BASE}/go/lut/0`, title: "حمل اللت" },
+                  { type: "web_url", url: "https://www.instagram.com/3z.prod/", title: "تابعني" },
+                ],
+              },
             ],
           },
         },
@@ -1262,7 +1271,7 @@ describe("pollReplies", () => {
     });
   });
 
-  it("sends the links as lines when Instagram refuses buttons in a private reply", async () => {
+  it("sends the links as lines when Instagram refuses a generic card in a private reply", async () => {
     const env = makeEnv();
     await connect(env, "instagram");
     await seed(env, [input({ followButton: true })]);
@@ -1277,12 +1286,41 @@ describe("pollReplies", () => {
     });
     const r = await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
     expect(r.sent).toEqual(["c1"]);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toMatchObject({
+      message: { attachment: { payload: { template_type: "generic" } } },
+    });
     expect(bodies[1]).toEqual({
       recipient: { comment_id: "c1" },
       message: {
         text: `حمل اللت من الرابط تحت وجربه على لقطاتك\n\nحمل اللت: ${BASE}/go/lut/0\nتابعني: https://www.instagram.com/3z.prod/`,
       },
     });
+  });
+
+  it("does not retry an identical plain-text message when long text with links is refused", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    const text = "ل".repeat(81);
+    await seed(env, [input({ dmText: text })]);
+    const bodies: unknown[] = [];
+    const { routes } = igRoutes({
+      [`POST ${IG}/17841/messages`]: (_u, init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return json({ error: { code: 100, error_subcode: 2534015, message: "Invalid message data" } }, 400);
+      },
+    });
+    const fetchMock = mockFetch(routes);
+    const r = await pollReplies(env, { fetch: fetchMock, now: NOW });
+    expect(r.failed).toEqual(["c1"]);
+    expect(bodies).toEqual([
+      {
+        recipient: { comment_id: "c1" },
+        message: { text: `${text}\n\nحمل اللت: ${BASE}/go/lut/0` },
+      },
+    ]);
+    expect(fetchMock.calls()).not.toContain(`POST ${IG}/c1/replies`);
+    expect((await stateOf(env)).log[0]).toMatchObject({ dm: "failed", error: "rejected" });
   });
 
   it("does not resend as text when the comment already had its private reply", async () => {
@@ -1392,11 +1430,16 @@ describe("pollReplies: DMs and story replies", () => {
         attachment: {
           type: "template",
           payload: {
-            template_type: "button",
-            text: "أصور بالآيفون",
-            buttons: [
-              { type: "web_url", url: `${BASE}/go/cam/0`, title: "أدواتي" },
-              { type: "web_url", url: "https://www.instagram.com/3z.prod/", title: "تابعني" },
+            template_type: "generic",
+            elements: [
+              {
+                title: "أصور بالآيفون",
+                default_action: { type: "web_url", url: `${BASE}/go/cam/0` },
+                buttons: [
+                  { type: "web_url", url: `${BASE}/go/cam/0`, title: "أدواتي" },
+                  { type: "web_url", url: "https://www.instagram.com/3z.prod/", title: "تابعني" },
+                ],
+              },
             ],
           },
         },

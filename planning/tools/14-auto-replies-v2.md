@@ -14,11 +14,11 @@ work). v1 (round 30) is `10-auto-replies.md`; this file replaces its builder and
 ## What people get
 
 1. **Comment rule.** Someone comments a keyword on a chosen post, or on any of the 5 newest posts. They get the
-   **private DM first**: the owner's text plus up to three buttons (links, and an optional «تابعني» button that opens
-   the profile). Only if the DM went out, a **public reply** goes under the comment, picked at random from up to three
+   **private DM first**: the owner's text plus up to three links (buttons in a short-message card; link lines for longer
+   messages, including optional «تابعني» for the profile). Only if the DM went out, a **public reply** goes under the comment, picked at random from up to three
    texts (`{username}` becomes their @handle, as in v1).
 2. **Message rule.** Someone sends a DM, or replies to a story, with a keyword. They get the owner's answer (text
-   plus up to three buttons). Story mentions (someone tagging the account in their own story) are not answered.
+   plus up to three links, using the same card/text formats). Story mentions (someone tagging the account in their own story) are not answered.
 3. **Default reply.** A DM that matches no rule gets one automatic message, **at most once per person per 24 hours**.
    Never for story replies, reactions, or our own messages.
 
@@ -34,7 +34,7 @@ quiet. Comment rules still answer: the private reply belongs to the comment.
 | Who gets messaged? | **Only people who commented or wrote first**: one private reply per comment (within 7 days), DM answers inside Instagram's 24-hour window. We never start a conversation. | Meta's private-reply and messaging rules ([private replies](https://developers.facebook.com/docs/instagram-platform/private-replies/)). |
 | Speed? | **Poll every minute now.** **Instant (webhooks)** after Business Verification + App Review, as its own round; the minute poll then stays as a backup. | Webhooks for comments and messages need Advanced Access, and Advanced Access needs Business Verification ([webhooks](https://developers.facebook.com/docs/instagram-platform/webhooks/)). The owner chose instant and is getting a freelance document. |
 | Public reply? | **Up to three texts, one picked at random.** | Meta Developer Policies 5.6.2.b forbids bots "at excessively high repetition rates"; Beacons, ManyChat and Metricool all offer three variants. |
-| Buttons? | DMs use Instagram's **button template** (one to three `web_url` buttons, titles up to 20 characters, text up to 640 characters). The private reply to a comment tries the same and **falls back once to plain text with "title: link" lines** when Instagram answers code 100 with any subcode except 2534025 (already answered). | The button template is documented for the Send API; for private replies Meta documents only text, while ManyChat and two open-source Instagram Workers send buttons. A refused call does not use up the comment's one private reply. |
+| Buttons? | With links, nonblank text up to **80 UTF-16 units** becomes one **generic card**: the text is the title, the first link is also the card's default action, and all link buttons are kept. Longer text goes intact as plain text with "title: link" lines. A rejected private-reply card falls back once to those lines on code 100 except 2534025 (already answered); a plain-text rejection is not retried identically. | In the Oct 4 live test Instagram accepted the old button template but its web inbox showed the text without a usable link. Meta's generic card is the next format to test. No text is truncated, and no arbitrary image or new stored field is added. See the Oct 4 delivery update below. |
 | DM length? | Plain-text DMs must fit **1,000 UTF-8 bytes** (about 500 Arabic letters, including the link lines); a DM with buttons, **640 characters**. The builder counts what is left. | Meta: the text "must be UTF-8 and be a 1000 bytes or less". v1 allowed 1,000 characters, which Arabic text can overflow (fixed here). |
 | Clicks? | Link buttons go through v1's `/go/:id/:n` counter; the «تابعني» button links straight to `https://www.instagram.com/<username>/` (not counted). | Keeps v1's counter; counting follow taps can come later if wanted. |
 | Storage? | **KV, one document per writer**, as in v1: `replies:doc` (dashboard), `replies:state` (poller), `replies:clicks` (`/go`). | Reuses v1's tested split (no path overwrites another's data). |
@@ -166,7 +166,7 @@ Log entries gain `kind: "comment" | "message" | "story" | "default"` and, for DM
    - a DM (not a story reply) whose text has at least one letter or digit and matches no rule → the default reply, when
      it is on and this person got none in 24 hours (emoji-only messages and reactions never get it);
    - `seenAt` moves forward only once every message of the conversation was attempted.
-4. **Sending**: the Send API to the person's Instagram-scoped id, plain text or a button template; the returned
+4. **Sending**: the Send API to the person's Instagram-scoped id, plain text or a short-message generic card; the returned
    `message_id` goes into `sent`.
 5. **Caps**: at most 8 answers per tick across comments and messages (480 an hour at most, under Meta's 750 private
    replies an hour), within the tick's outbound call budget; leftovers go next tick.
@@ -193,9 +193,9 @@ already caches it). Docs: `developers.facebook.com/documentation/instagram-platf
 - **Stories in a message**: a mention is `story.mention { link, id }` (documented); a reply is `story.reply_to { link,
   id }` (not documented, seen in SDKs). Story media is never stored.
 - **Send**: `POST /{IG_ID}/messages` with `Authorization: Bearer`; text `{ recipient: { id }, message: { text } }`
-  (1,000 UTF-8 bytes); buttons `{ recipient: { id }, message: { attachment: { type: "template", payload: {
-  template_type: "button", text, buttons: [{ type: "web_url", url, title }] } } } }`. Answers `{ recipient_id,
-  message_id }`.
+  (1,000 UTF-8 bytes). The Oct 4 update uses `message.attachment` with `type: "template"` and payload
+  `{ template_type: "generic", elements: [{ title, default_action: { type: "web_url", url }, buttons:
+  [{ type: "web_url", url, title }] }] }` for short text with links. Answers `{ recipient_id, message_id }`.
 - **Private reply**: the same call with `recipient: { comment_id }`; one per comment, within 7 days. A second one
   answers `100 / 2534025` "The comment is invalid for a private reply".
 - **Errors**: outside the 24-hour window `10 / 2534022`; throttling 4, 17, 32, 613 (messaging `613 / 2534040`), 80002.
@@ -245,8 +245,9 @@ sync every minute. During the first deploy a few old `*/5` events can still arri
 
 - **Worker** (vitest, fake fetch and KV as in `replies.test.ts`): v1 documents still read; a DM keyword answer; a story
   reply; a story mention skipped; the default reply once per 24 hours and never for story replies, emoji-only messages
-  or reactions; the owner-chatting rule (by message id, and by the 2-minute fallback); the first-run guard; button
-  template, and the private-reply fallback to text lines (not on `2534025`); the 1,000-byte limit; the «تابعني» link;
+  or reactions; the owner-chatting rule (by message id, and by the 2-minute fallback); the first-run guard; generic
+  card, 80/81-unit boundary, intact long text with links, and the private-reply fallback to text lines (not on
+  `2534025`, and not for an already plain-text message); the 1,000-byte limit; the «تابعني» link;
   the per-tick cap and call budget; the write guard switching to five-minute ticks at 300 and stopping at 600; pause;
   the cron minute routing with every slot on the five-minute grid.
 - **Dashboard** (vitest): validation (buttons plus «تابعني» at most three, 1,000 bytes as plain text, 640 characters
@@ -266,6 +267,16 @@ sync every minute. During the first deploy a few old `*/5` events can still arri
 | Metricool Flows and Inbox (Starter from $20/month) | Comment, DM and story triggers, three public variants, delays; an inbox to reply by hand | Not adopted (paid). |
 | Meta Business Suite automations (free) | "Comment to message", keyword replies, instant reply; instant, no review | Plan B if the Live test fails; no stats in our dashboard. |
 | [chatmany](https://github.com/ryanlaiyanip-ctrl/chatmany) (MIT), [ig-comment-dm](https://github.com/CharanMN7/ig-comment-dm) (MIT), [ig-autodm-worker](https://github.com/aldoprianandi/ig-autodm-worker) (MIT), [ig-harness-oss](https://github.com/Shudesu/ig-harness-oss) (MIT), brightbean-chat (AGPL-3.0), insta-p8 (MIT) | Comment-to-DM on the official API; most run on Workers with D1 | References for logic only: all started in 2026 with few users, they use D1 and their own dashboards. |
+
+## Oct 4 delivery update: verify the link, not only the send
+
+The live link test returned a successful send and public reply, but Instagram web displayed only the DM text,
+without the button. Research checked Meta's [official Instagram Postman collection](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api?entity=request-23987686-b217bc6c-d9fb-4d65-bf5e-fcadf650ad5c),
+which documents both button and generic templates. Existing open-source adapters were considered as references;
+none is needed for this small payload change to our existing sender. The generic format is adopted for short
+messages; long messages retain every character and link in plain text. This does not assert that every Instagram
+client renders either template identically. The real acceptance check is a fresh comment, a visible recipient-side
+link card, opening its intended destination, and a recorded click. Until that is observed, card delivery is unverified.
 
 ## Later
 

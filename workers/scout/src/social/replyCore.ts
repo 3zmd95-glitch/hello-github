@@ -1,7 +1,7 @@
 /**
  * 💬 Auto replies, the parts both polls share (planning/tools/14-auto-replies-v2.md): keyword matching and how a
  * reply is built — the link buttons (through the Worker's /go counter), the optional «تابعني» button, the plain-text
- * form, the button template, Instagram's size limits and the random public reply; then how Instagram's refusals are
+ * form, the link card, Instagram's size limits and the random public reply; then how Instagram's refusals are
  * read (with the retry and stop policy) and the send call itself. The comment poll (replies.ts) and the DM poll
  * (inbox.ts) import from here; the dashboard mirrors the matching and the building in lib/replies.ts.
  */
@@ -14,8 +14,10 @@ import { SocialError } from "./types";
 
 /** Instagram: a text message "must be UTF-8 and be a 1000 bytes or less" (about 500 Arabic letters). */
 export const DM_TEXT_BYTES = 1000;
-/** The button template's text limit, in characters. */
+/** Existing saved-rule text limit when links are present, kept in sync with the dashboard. */
 export const TEMPLATE_TEXT_MAX = 640;
+/** A generic card's title limit; UTF-16 length is deliberately conservative for emoji. */
+export const CARD_TITLE_MAX = 80;
 /** Instagram usernames are at most 30 characters; the size check counts «تابعني» with the longest one. */
 export const USERNAME_MAX = 30;
 /** The follow invitation's button title. */
@@ -90,19 +92,30 @@ export function textBody(text: string, buttons: readonly LinkButton[]): string {
   return [text.trim(), lines.join("\n")].filter(Boolean).join("\n\n");
 }
 
-/** The Send API's `message`: plain text without buttons, else a button template. */
+/**
+ * Short text with links becomes one tappable generic card. Longer text goes out intact with link lines: the
+ * button template can be accepted but show only its text in Instagram web, hiding the links from the recipient.
+ */
 export function messagePayload(
   text: string,
   buttons: readonly LinkButton[],
 ): Record<string, unknown> {
-  if (!buttons.length) return { text: text.trim() };
+  const title = text.trim();
+  if (!buttons.length || !title || title.length > CARD_TITLE_MAX) {
+    return { text: textBody(text, buttons) };
+  }
   return {
     attachment: {
       type: "template",
       payload: {
-        template_type: "button",
-        text: text.trim(),
-        buttons: buttons.map((b) => ({ type: "web_url", url: b.url, title: b.title })),
+        template_type: "generic",
+        elements: [
+          {
+            title,
+            default_action: { type: "web_url", url: buttons[0].url },
+            buttons: buttons.map((b) => ({ type: "web_url", url: b.url, title: b.title })),
+          },
+        ],
       },
     },
   };
@@ -111,7 +124,7 @@ export function messagePayload(
 /**
  * Whether a DM fits Instagram's limits in both forms it may take: the plain text with its link lines (also what a
  * refused template falls back to) within 1,000 bytes, counting «تابعني» with the longest possible username, and a
- * template's text within 640 characters.
+ * saved rule with links within the existing 640-character limit. Cards use at most 80; longer text stays intact.
  */
 export function dmFits(
   a: { id: string; dmText: string; buttons: readonly ReplyButton[]; followButton?: boolean },
@@ -257,7 +270,7 @@ type SendAnswer = MetaError & { message_id?: string; recipient_id?: string };
 
 /**
  * Sends one reply and returns the Send API's message id and recipient (the person's Instagram-scoped id). With
- * buttons it is a button template; a private reply whose template Instagram refuses (code 100 with any subcode but
+ * links and short text it is a generic card; a private reply whose template Instagram refuses (code 100 with any subcode but
  * 2534025, "already answered") goes once more as plain text with "title: link" lines — a refused call does not use
  * up the comment's one private reply. Throws like `graph`.
  */
@@ -277,10 +290,11 @@ export async function sendReply(
       },
       body: JSON.stringify({ recipient, message }),
     });
-  let reply = await post(messagePayload(text, buttons));
+  const message = messagePayload(text, buttons);
+  let reply = await post(message);
   const err = reply.body?.error;
   const templateRefused =
-    buttons.length > 0 &&
+    "attachment" in message &&
     "comment_id" in recipient &&
     err?.code === 100 &&
     err.error_subcode !== PRIVATE_REPLY_INVALID.subcode;
