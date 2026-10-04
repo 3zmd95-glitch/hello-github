@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FetchEnv } from "./fetchers";
 import type { DiscoverRequest, SearchPlan } from "./types";
 import { AI_SYSTEM, AiPlanSchema, searchPlanFromAi } from "./ai-plan";
+import { aiSearchInput } from "./ai-schema";
 export { AiPlanSchema } from "./ai-plan";
 
 export const AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
@@ -30,7 +31,7 @@ export async function planWithAi(
   timeoutMs = AI_TIMEOUT_MS,
 ): Promise<SearchPlan> {
   if (!env.AI || !env.SOCIAL_KV) throw new SearchAiError("ai_unavailable");
-  const cacheKey = `discover:ai-plan:v1:${hash}`;
+  const cacheKey = `discover:ai-plan:v2:${hash}`;
   const get = async () => {
     try {
       const cached = await env.SOCIAL_KV!.get(cacheKey, "text");
@@ -60,11 +61,7 @@ export async function planWithAi(
             { role: "system", content: AI_SYSTEM },
             {
               role: "user",
-              content: JSON.stringify({
-                brief: req.q,
-                selectedGenre: req.genreQuery,
-                selectedProgram: req.program,
-              }),
+              content: aiSearchInput(req),
             },
           ],
           response_format: { type: "json_schema", json_schema: RESPONSE_SCHEMA },

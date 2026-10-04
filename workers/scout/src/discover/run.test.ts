@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { TAVILY_URL } from "../trends/tavily";
 import { discoverKeys } from "./fetchers";
-import { ANSWER_TTL_S, discoverAnswerKey, requestHash, runDiscover } from "./run";
+import { planSearch } from "./plan";
+import { ANSWER_TTL_S, MAX_RETRIES, discoverAnswerKey, requestHash, runDiscover } from "./run";
+import type { DiscoverRequest } from "./types";
 import { connectorCap, discoverUsage, usageKeys } from "./usage";
 
 const NOW = new Date("2026-10-03T09:00:00Z");
@@ -129,6 +131,233 @@ describe("runDiscover", () => {
     const answer = await runDiscover(ENV(), { q: "flash" }, { fetch: fetchMock, now: NOW });
     expect(answer.platforms.tt).toEqual({ ok: true, retried: true });
     expect(answer.cost.tavily).toBe(7);
+  });
+
+  it("retries category misses within the shared budget, preserving originals and YouTube call counts", async () => {
+    const req: DiscoverRequest = {
+      q: "coffee edit",
+      genreQuery: { en: "coffee edit", ar: "تصوير قهوة" },
+    };
+    const firstQueries = new Set(planSearch(req).queries.map((q) => q.q));
+    let n = 0;
+    const fetchMock = web({
+      tavily: (body) => {
+        const first = firstQueries.has(String(body.query));
+        const instagram = (body.include_domains as string[])[0] === "instagram.com";
+        return json({
+          results: [
+            {
+              url: instagram
+                ? `https://www.instagram.com/p/category${++n}/`
+                : `https://www.tiktok.com/@coffee/video/${++n}`,
+              title: first ? "Easy coffee recipes" : "Cinematic coffee video b roll",
+              content: first ? "How to prepare espresso" : "Coffee filmmaking and camera tutorial",
+            },
+          ],
+          usage: { credits: 1 },
+        });
+      },
+    });
+    const answer = await runDiscover(ENV(), req, { fetch: fetchMock, now: NOW });
+    const searches = fetchMock.mock.calls.filter(([url]) => String(url) === TAVILY_URL);
+    expect(searches).toHaveLength(6 + MAX_RETRIES);
+    expect(answer.cost).toEqual({ tavily: 6 + MAX_RETRIES, youtubeSearch: 3 });
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).includes("/youtube/v3/search")),
+    ).toHaveLength(3);
+    expect(answer.items.filter((card) => card.title === "Easy coffee recipes")).toHaveLength(6);
+    expect(
+      answer.items
+        .filter((card) => card.title === "Easy coffee recipes")
+        .every((card) => card.offTopic),
+    ).toBe(true);
+    expect(
+      answer.items.filter((card) => card.title === "Cinematic coffee video b roll"),
+    ).toHaveLength(MAX_RETRIES);
+    expect(
+      answer.items
+        .filter((card) => card.title === "Cinematic coffee video b roll")
+        .every((card) => !card.offTopic),
+    ).toBe(true);
+    expect(answer.complete).toBe(true);
+  });
+
+  it("does not spend retries when category queries already contain an eligible card", async () => {
+    const fetchMock = web();
+    const answer = await runDiscover(
+      ENV(),
+      { q: "coffee edit", genreQuery: { en: "coffee edit", ar: "تصوير قهوة" } },
+      { fetch: fetchMock, now: NOW },
+    );
+    expect(answer.cost).toEqual({ tavily: 6, youtubeSearch: 3 });
+    expect(
+      Object.values(answer.platforms).some((platform) => platform?.ok && platform.retried),
+    ).toBe(false);
+    expect(answer.complete).toBe(true);
+  });
+
+  it.each(["off-topic", "upstream"])(
+    "does not cache an all-off-topic category answer after %s retries",
+    async (retryResult) => {
+      const req: DiscoverRequest = {
+        q: "coffee edit",
+        genreQuery: { en: "coffee edit", ar: "تصوير قهوة" },
+        platforms: ["tt"],
+      };
+      const firstQueries = new Set(planSearch(req).queries.map((query) => query.q));
+      let n = 0;
+      const fetchMock = web({
+        tavily: (body) =>
+          retryResult === "upstream" && !firstQueries.has(String(body.query))
+            ? json({}, 500)
+            : json({
+                results: [
+                  {
+                    url: `https://www.tiktok.com/@recipes/video/${++n}`,
+                    title: "Coffee and espresso recipes",
+                    content: "Learn how to make coffee at home",
+                  },
+                ],
+                usage: { credits: 1 },
+              }),
+      });
+      const env = ENV();
+      const answer = await runDiscover(env, req, { fetch: fetchMock, now: NOW });
+      expect(answer.items).toHaveLength(3);
+      expect(answer.items.every((item) => item.offTopic)).toBe(true);
+      expect(answer.cost.tavily).toBe(3 + (retryResult === "upstream" ? 0 : MAX_RETRIES));
+      expect(answer.complete).toBe(false);
+      expect(env.SOCIAL_KV.store.has(discoverAnswerKey(await requestHash(req)))).toBe(false);
+      const again = await runDiscover(env, req, { fetch: fetchMock, now: NOW });
+      expect(again.cached).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(2 * (3 + MAX_RETRIES));
+    },
+  );
+
+  it("uses an eligible retry's evidence for a repeated URL instead of keeping its old off-topic label", async () => {
+    const req: DiscoverRequest = {
+      q: "coffee edit",
+      genreQuery: { en: "coffee edit", ar: "تصوير قهوة" },
+      platforms: ["ig"],
+    };
+    const firstQueries = new Set(planSearch(req).queries.map((query) => query.q));
+    const fetchMock = web({
+      tavily: (body) =>
+        json({
+          results: [
+            {
+              url: "https://www.instagram.com/p/sameCoffee/",
+              title: firstQueries.has(String(body.query))
+                ? "Making espresso at home"
+                : "Coffee cinematic b roll tutorial",
+              content: "Coffee",
+            },
+          ],
+          usage: { credits: 1 },
+        }),
+    });
+    const answer = await runDiscover(ENV(), req, { fetch: fetchMock, now: NOW });
+    expect(answer.items).toHaveLength(1);
+    expect(answer.items[0].title).toBe("Coffee cinematic b roll tutorial");
+    expect(answer.items[0].offTopic).toBeUndefined();
+    expect(answer.complete).toBe(true);
+  });
+
+  it("does not let an earlier query's off-topic duplicate hide a later query's eligible evidence", async () => {
+    const req: DiscoverRequest = {
+      q: "coffee edit",
+      genreQuery: { en: "coffee edit", ar: "تصوير قهوة" },
+      platforms: ["ig"],
+    };
+    const queries = planSearch(req).queries;
+    const fetchMock = web({
+      tavily: (body) =>
+        json({
+          results: [
+            {
+              url: "https://www.instagram.com/p/duplicateCoffee/",
+              title:
+                body.query === queries[0].q
+                  ? "How to brew espresso"
+                  : "Coffee cinematic video tutorial",
+              content: "Coffee",
+            },
+            {
+              url: "https://www.instagram.com/p/otherCoffee/",
+              title: "Coffee cinematic camera tutorial",
+            },
+          ],
+          usage: { credits: 1 },
+        }),
+    });
+    const answer = await runDiscover(ENV(), req, { fetch: fetchMock, now: NOW });
+    expect(answer.items).toHaveLength(2);
+    expect(answer.items.every((item) => !item.offTopic)).toBe(true);
+    expect(answer.items.find((item) => item.url.includes("duplicateCoffee"))?.title).toBe(
+      "Coffee cinematic video tutorial",
+    );
+    expect(answer.cost.tavily).toBe(3);
+  });
+
+  it("does not mark an AI concept search complete merely because off-topic videos were returned", async () => {
+    const req: DiscoverRequest = {
+      q: "Coffee match cuts",
+      mode: "ai",
+      platforms: ["ig"],
+      aiPlan: {
+        provider: "chatgpt",
+        model: "test-model",
+        plan: {
+          summary: { en: "Coffee match cuts", ar: "انتقالات ماتش كت للقهوة" },
+          queries: [{ q: "coffee match cut", lang: "en", intent: "examples" }],
+          concepts: [
+            ["coffee", "قهوة"],
+            ["match cut", "ماتش كت"],
+          ],
+          platforms: ["ig"],
+          timeRange: "any",
+          ytLength: "any",
+        },
+      },
+    };
+    const env = ENV();
+    const fetchMock = web({
+      tavily: () =>
+        json({
+          results: [{ url: "https://www.instagram.com/p/unrelated/", title: "Sunset travel vlog" }],
+          usage: { credits: 1 },
+        }),
+    });
+    const answer = await runDiscover(env, req, { fetch: fetchMock, now: NOW });
+    expect(answer.items).toHaveLength(1);
+    expect(answer.items[0].offTopic).toBe(true);
+    expect(answer.complete).toBe(false);
+    expect(env.SOCIAL_KV.store.has(discoverAnswerKey(await requestHash(req)))).toBe(false);
+  });
+
+  it.each<DiscoverRequest>([
+    { q: "coffee edit", exact: true },
+    {
+      q: "coffee edit",
+      genreQuery: { en: "coffee edit", ar: "تصوير قهوة" },
+      queries: [{ q: "coffee", platform: "tt", lang: "en", intent: "examples" }],
+    },
+    { q: "flash" },
+  ])("preserves non-category, exact and connector retry behavior for %j", async (request) => {
+    const req: DiscoverRequest = { ...request, platforms: ["tt"] };
+    const fetchMock = web({
+      tavily: () =>
+        json({
+          results: [{ url: "https://www.tiktok.com/@recipes/video/123", title: "A recipe" }],
+          usage: { credits: 1 },
+        }),
+    });
+    const expectedCalls = planSearch(req).queries.length;
+    const answer = await runDiscover(ENV(), req, { fetch: fetchMock, now: NOW });
+    expect(fetchMock).toHaveBeenCalledTimes(expectedCalls);
+    expect(answer.cost.tavily).toBe(expectedCalls);
+    expect(answer.platforms.tt).toEqual({ ok: true });
+    expect(answer.complete).toBe(true);
   });
 
   it("reports a platform that failed and does not cache that answer", async () => {
