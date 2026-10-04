@@ -584,11 +584,19 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     state.writes = { day, count: (state.writes?.day === day ? state.writes.count : 0) + 1 };
     await store.putRepliesState(state);
   };
+  // The result. Never thrown (the store already tried twice): a lost result is logged and reported instead.
   const save = async () => {
     if (!changed) return;
     state.lastPollAt = at;
     state.lockUntil = undefined;
-    await put();
+    try {
+      await put();
+    } catch (e) {
+      const detail = `replies:state not saved: ${String((e as Error)?.message ?? e)}`.slice(0, 200);
+      console.log(JSON.stringify({ replies: "save", error: "upstream", detail }));
+      result.error = "upstream";
+      result.detail = detail;
+    }
   };
   // Counters of automations the owner deleted go with them.
   for (const id of Object.keys(state.stats)) {
@@ -1034,7 +1042,7 @@ export async function handleReplies(
 /* ---------- HTTP: GET /go/:id/:n (public, no bearer) ---------- */
 
 /**
- * Counts the tap and redirects to the button's link. Only owner-saved https links are ever redirected to.
+ * Counts the tap (best-effort) and redirects to the button's link. Only owner-saved https links are ever redirected to.
  * Writes go to `replies:clicks` alone (never the automations or the poller's state), at most
  * CLICK_WRITES_PER_DAY a day, and one per visitor per link per minute when a Cache is available.
  */
@@ -1081,7 +1089,12 @@ export async function handleGo(
   if (clicks.today < CLICK_WRITES_PER_DAY) {
     clicks.today += 1;
     clicks.byAutomation[id] = (clicks.byAutomation[id] ?? 0) + 1;
-    await store.putReplyClicks(clicks);
+    // Counted best-effort: a refused write (KV's one write per key per second) never costs the follower the link.
+    try {
+      await store.putReplyClicks(clicks);
+    } catch (e) {
+      console.log(JSON.stringify({ go: id, error: String((e as Error)?.message ?? e) }));
+    }
   }
   return redirect();
 }

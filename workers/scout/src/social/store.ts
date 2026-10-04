@@ -63,6 +63,8 @@ export const MAX_SNAPSHOTS = 400;
 export const MAX_POSTS = 500;
 /** KV metadata may hold 1024 bytes; rows above this go without the metadata copy. */
 const META_MAX_BYTES = 1000;
+/** A failed KV write is tried once more after this (KV allows one write per key per second). */
+const WRITE_RETRY_MS = 1_100;
 
 export const keys = {
   tokens: (p: SocialPlatform) => `tokens:${p}`,
@@ -113,6 +115,20 @@ export class Store {
     return env.SOCIAL_KV && env.SCOUT_TOKEN ? new Store(env.SOCIAL_KV, env.SCOUT_TOKEN) : null;
   }
 
+  /**
+   * Every KV write goes through here. KV allows one write per key per second and refuses a quicker second one
+   * (429) — the reply poll writes `replies:state` twice in a tick (the lock, then the result) — so a failed write
+   * waits WRITE_RETRY_MS and is tried once more; a second failure is thrown.
+   */
+  private async write(key: string, value: string, options?: KVNamespacePutOptions): Promise<void> {
+    try {
+      await this.kv.put(key, value, options);
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, WRITE_RETRY_MS));
+      await this.kv.put(key, value, options);
+    }
+  }
+
   /* ---- tokens ---- */
 
   async getTokens(p: SocialPlatform): Promise<TokenSet | null> {
@@ -123,7 +139,7 @@ export class Store {
   }
 
   async putTokens(p: SocialPlatform, tokens: TokenSet): Promise<void> {
-    await this.kv.put(keys.tokens(p), await encryptJson(this.secret, tokens));
+    await this.write(keys.tokens(p), await encryptJson(this.secret, tokens));
   }
 
   async deleteTokens(p: SocialPlatform): Promise<void> {
@@ -137,7 +153,7 @@ export class Store {
   }
 
   async putStatus(p: SocialPlatform, status: StoredStatus): Promise<void> {
-    await this.kv.put(keys.status(p), JSON.stringify(status));
+    await this.write(keys.status(p), JSON.stringify(status));
   }
 
   async deleteStatus(p: SocialPlatform): Promise<void> {
@@ -147,7 +163,7 @@ export class Store {
   /* ---- OAuth state ---- */
 
   async putState(nonce: string, state: OAuthState): Promise<void> {
-    await this.kv.put(keys.state(nonce), JSON.stringify(state), { expirationTtl: STATE_TTL_S });
+    await this.write(keys.state(nonce), JSON.stringify(state), { expirationTtl: STATE_TTL_S });
   }
 
   /** Reads and deletes the state: a nonce is valid exactly once. */
@@ -164,7 +180,7 @@ export class Store {
   async putSnapshot(row: SnapshotRow): Promise<void> {
     const text = JSON.stringify(row);
     const metadata = text.length <= META_MAX_BYTES ? row : undefined;
-    await this.kv.put(keys.snap(row.platform, row.day), text, metadata ? { metadata } : undefined);
+    await this.write(keys.snap(row.platform, row.day), text, metadata ? { metadata } : undefined);
     const all = await listAll(this.kv, keys.snapPrefix(row.platform));
     // Day keys sort chronologically, so the oldest come first.
     const extra = all.length - MAX_SNAPSHOTS;
@@ -207,7 +223,7 @@ export class Store {
       .slice(0, MAX_POSTS);
     const doc: Record<string, PostRow> = {};
     for (const row of kept) doc[row.postId] = row;
-    await this.kv.put(keys.posts(p), JSON.stringify(doc));
+    await this.write(keys.posts(p), JSON.stringify(doc));
     return doc;
   }
 
@@ -215,7 +231,7 @@ export class Store {
 
   async putDemographics(p: SocialPlatform, day: string, rows: DemographicRow[]): Promise<void> {
     if (!rows.length) return;
-    await this.kv.put(keys.demo(p, day), JSON.stringify(rows));
+    await this.write(keys.demo(p, day), JSON.stringify(rows));
   }
 
   /** The most recent stored breakdown with day ≥ `since` (one day per platform), else []. */
@@ -238,7 +254,7 @@ export class Store {
   }
 
   async putJobs<J>(jobs: Record<string, J>): Promise<void> {
-    await this.kv.put(keys.publishJobs, JSON.stringify(jobs));
+    await this.write(keys.publishJobs, JSON.stringify(jobs));
   }
 
   /* ---- auto-replies (replies.ts): three documents, one per writer ---- */
@@ -249,7 +265,7 @@ export class Store {
   }
 
   async putReplies<D>(doc: D): Promise<void> {
-    await this.kv.put(keys.replies, JSON.stringify(doc));
+    await this.write(keys.replies, JSON.stringify(doc));
   }
 
   /** What the poller learned (written by the poll only). */
@@ -258,7 +274,7 @@ export class Store {
   }
 
   async putRepliesState<D>(doc: D): Promise<void> {
-    await this.kv.put(keys.repliesState, JSON.stringify(doc));
+    await this.write(keys.repliesState, JSON.stringify(doc));
   }
 
   /** Taps on the /go links (written by /go only). */
@@ -267,7 +283,7 @@ export class Store {
   }
 
   async putReplyClicks<D>(doc: D): Promise<void> {
-    await this.kv.put(keys.replyClicks, JSON.stringify(doc));
+    await this.write(keys.replyClicks, JSON.stringify(doc));
   }
 
   /* ---- disconnect ---- */

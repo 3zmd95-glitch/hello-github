@@ -65,6 +65,29 @@ function fakeKV(): FakeKV {
   return kv as unknown as FakeKV;
 }
 
+/** From now on the KV refuses a second write to a key within a second (real time), as Cloudflare's does (429). */
+function oneWritePerSecond(kv: FakeKV): void {
+  const last = new Map<string, number>();
+  const put = kv.put.bind(kv);
+  kv.put = async (key: string, value: string) => {
+    const at = Date.now();
+    if (at - (last.get(key) ?? -Infinity) < 1000) {
+      throw new Error("KV PUT failed: 429 Too Many Requests");
+    }
+    last.set(key, at);
+    return put(key, value);
+  };
+}
+
+/** A KV whose writes to `key` always fail. */
+function failingWrites(kv: FakeKV, key: string): void {
+  const put = kv.put.bind(kv);
+  kv.put = async (k: string, value: string) => {
+    if (k === key) throw new Error("KV PUT failed: 429 Too Many Requests");
+    return put(k, value);
+  };
+}
+
 function makeEnv(kv: FakeKV = fakeKV()): Env & { SOCIAL_KV: FakeKV } {
   return {
     SCOUT_TOKEN: TOKEN,
@@ -1734,6 +1757,43 @@ describe("pause and the write guard", () => {
   });
 });
 
+/* ---------- KV refuses a second write to a key within a second ---------- */
+
+describe("KV's one write per key per second", () => {
+  it("a poll that answers a comment and a DM saves its result although it wrote the lock a moment before", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ publicReplies: [] }), camRule()], SINCE);
+    const { routes } = igRoutes(dmRoutes([convo("t1", [dm("d1", "كاميرا")])]));
+    oneWritePerSecond(env.SOCIAL_KV);
+    const r = await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
+    expect(r).toMatchObject({ sent: ["c1", "d1"], failed: [] });
+    expect(r.error).toBeUndefined();
+    const state = await stateOf(env);
+    expect(state.handled).toHaveProperty("c1");
+    expect(Object.keys(state.sent).sort()).toEqual(["out1", "out2"]);
+    expect(state.log.map((e) => e.kind)).toEqual(["message", "comment"]);
+    expect(state.convos.t1).toEqual({ seenAt: msgAt(1) });
+    expect(state.lockUntil).toBeUndefined();
+  });
+
+  it("a result that cannot be saved is logged and reported, never thrown", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    failingWrites(env.SOCIAL_KV, keys.repliesState);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      // Nothing to answer, but the account id is new: one write, the result.
+      const r = await pollReplies(env, { fetch: mockFetch(igRoutes({}, []).routes), now: NOW });
+      expect(r).toMatchObject({ error: "upstream", detail: expect.stringContaining("429") });
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("429"));
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+
 /* ---------- cron ---------- */
 
 describe("cron tick", () => {
@@ -1834,6 +1894,21 @@ describe("GET /go/:id/:n", () => {
     const tomorrow = await go(env, "/go/lut/0", "1.2.3.4", null, new Date(NOW.getTime() + 86_400_000));
     expect(tomorrow.status).toBe(302);
     expect(await clicksOf(env)).toMatchObject({ day: "2026-09-30", today: 1, byAutomation: { lut: 1 } });
+  });
+
+  it("redirects even when the tap cannot be counted", async () => {
+    const env = makeEnv();
+    await seed(env, [input()]);
+    failingWrites(env.SOCIAL_KV, keys.replyClicks);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const res = await go(env, "/go/lut/0");
+      expect(res.status).toBe(302);
+      expect(res.headers.get("Location")).toBe(LUT);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("429"));
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("counts one tap per visitor per link per minute when a cache is available", async () => {
