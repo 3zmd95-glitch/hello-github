@@ -10,6 +10,7 @@
  *                           (TikTok 6 h: its thumbnail URLs are signed)
  *   POST /discover        → Discover v2: one sectioned search (discover/, planning/tools/13-discover-search-v2.md)
  *   GET  /discover/usage  → Tavily's usage and today's YouTube / connector counters
+ *   GET  /discover/picks  → Claude's picks for Discover, all or `?topic=` (saved by the connector's save_picks)
  *   GET  /trends          → the Trend Radar feed (trends/routes.ts, round 30, planning/tools/08-trends.md)
  *   POST /trends/run      → refresh the feed now
  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)

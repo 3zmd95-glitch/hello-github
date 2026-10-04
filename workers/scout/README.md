@@ -34,6 +34,7 @@ Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
 | `GET /oembed?url=…`     | TikTok / YouTube links only → `{ title, author, thumb, url }`, cached for a day (TikTok for 6 hours: its thumbnail URLs are signed and expire).                                                                                                                                               |
 | `POST /discover`        | Discover v2 (planning/tools/13-discover-search-v2.md): body `{ q, exact?, term?, genreQuery?, program?, timeRange?, ytLength?, platforms? }` → `{ topicKey, understood, alternatives, items, creators, platforms, cost, cached, complete }`. Plans English + Arabic queries from `planning/data/edit-terms.json`, asks Tavily (TikTok, Instagram: 3 each, 20 results, ≤ 2 retries) and YouTube `search.list` (3 a search, daily cap `DISCOVER_YT_CAP`), labels sections and off-topic cards, ranks creators; the answer is kept 6 h in KV only when complete: every query answered (an unset key does not count against it; a YouTube query over the day's cap does) and at least one card. |
 | `GET /discover/usage`   | `{ tavily: { used, limit, plan?, paygoUsed?, paygoLimit? } \| { error }, youtube: { usedToday, cap }, connector: { usedToday, cap } }`; Tavily's figure is kept 10 minutes. |
+| `GET /discover/picks`   | `?topic=` optional → `{ picks: [{ topicKey, topic, savedAt, items: [{ url, platform, title, handle?, thumb?, label: "example" \| "tutorial", note?, savedAt }] }] }`: Claude's picks (the connector's `save_picks`), newest topic first; with `topic`, only that topic's (by its topic key). No search credits. |
 | `/social/*`, `/oauth/*` | The social analytics connector, see [Social analytics](#social-analytics), the publish queue, see [Auto-posting](#auto-posting), and the auto-replies, see [Auto-replies](#auto-replies).                                                  |
 | `GET /go/:id/:n`        | No bearer: counts a tap on an auto-reply DM link and answers `302` to the button's URL (`Cache-Control: no-store`). 404 for an unknown automation or button.                                                                          |
 | `/trends*`              | The Trend Radar feed, see [Trend Radar](#trend-radar).                                                                                                                                                                                                                                        |
@@ -190,6 +191,11 @@ refreshed before every sync. A refresh the provider refuses → `lastError: "tok
 | `replies:doc`           | `AutomationsDoc`: the owner's auto-reply automations; written only by `POST`/`DELETE /social/replies`.                                                                                                        |
 | `replies:state`         | `PollState`: answered comments (7 days), counters, the last 50 log entries, watched posts' comment counts, the poll lock; written only by the poll, and only when something changed.                          |
 | `replies:clicks`        | `ClicksDoc`: taps on the `/go` links with the daily cap; written only by `GET /go/:id/:n`.                                                                                                                    |
+| `discover:answer:<hash>` | a complete `POST /discover` answer (also what the connector's `search_videos` reads), keyed by the SHA-256 of the normalized request, 6-hour TTL |
+| `discover:usage:tavily` | Tavily's `GET /usage` figure behind `GET /discover/usage`, 10-minute TTL |
+| `discover:mcp:<day>`    | Tavily lookups the Claude connector spent that Riyadh day (the `MCP_DAILY_LOOKUPS` cap), 2-day TTL |
+| `discover:picks`        | `{ [topicKey]: { topicKey, topic, savedAt, items } }`: Claude's picks, at most 50 topics × 20 posts; written only by the connector's `save_picks` |
+| `mcp:claude-client`     | in `OAUTH_KV`, not `SOCIAL_KV`: the id of the one shared client every `POST /register` gets; written when it is created |
 
 ## Auto-posting
 
@@ -393,6 +399,7 @@ GitHub Action (see `08-trends.md`).
 | `trends:latest`         | the `TrendsFeed` `GET /trends` serves (one document, one write per run)                                       |
 | `trends:prev`           | the previous feed, copied before a run in which at least one source succeeded                                 |
 | `trends:ytsearch:<day>` | `search.list` calls reserved on that UTC day (the 18-a-day cap, best-effort when two runs overlap), 2-day TTL |
+| `discover:yt:<day>`     | the same for Discover and the Claude connector (`DISCOVER_YT_CAP`, 70 a UTC day), 2-day TTL                  |
 | `trends:tavily:<week>`  | written after a successful weekly scan of that ISO week (e.g. `2026-W40`), 8-day TTL                          |
 
 ## Claude connector (MCP)
@@ -419,7 +426,10 @@ social sync. A request whose `redirect_uris` are all Claude's callbacks gets `20
 `token_endpoint_auth_method: "none"` (even when a confidential method was asked for), `authorization_code` +
 `refresh_token`, `code`. It is created once through the provider's `createClient` (no expiry), its id kept under the
 OAUTH_KV key `mcp:claude-client`, and re-created only if it is gone; every later registration only reads. Anything else
-(not JSON, no `redirect_uris`, any other redirect) gets `400 { "error": "invalid_redirect_uri" }` with no read or write.
+(not JSON, no `redirect_uris`, any other redirect) gets `400 { "error": "invalid_redirect_uri" }` with no read or write,
+and a body over 16 KiB `413 { "error": "invalid_client_metadata" }`, whether `Content-Length` says so or the body runs
+past it while read. KV can still answer "not found" for about 60 s after the creation, so the isolate that created the
+client hands out that same client meanwhile instead of creating another.
 If KV fails (down, or the day's writes used up) the answer is `503 { "error": "temporarily_unavailable" }`.
 A new login replaces the owner's earlier grant for this client. Possible later step: Client ID Metadata Documents
 (Claude's `client_id` as a URL), off for now because their fetch from a Worker is unverified.

@@ -1,6 +1,6 @@
 # 13 · Discover search v2, and the Claude connector (MCP)
 
-**Status:** Part A (in-app search) built on branch claude/discover-search-v2; Part B (connector) next.
+**Status:** Part A (in-app search) and Part B (Claude connector) built on branch claude/discover-search-v2; live test next.
 
 Owner, round 33 (Oct 3, 2026, with screenshots of "flash" finding nothing on Instagram, Beacons' Discover Trends and the
 Obsidian note "Social Media (Categories)"): "plan today the work on discover page in all aspects… browse beacons.ai discover
@@ -75,10 +75,10 @@ Findings:
 | Search provider | Exa, Brave Search API, SerpAPI and similar | Not tested (each needs an owner sign-up). Candidates if the golden test misses its targets |
 | Query planning | Claude API in the Worker (Haiku 4.5 / Opus 5.5) | **Deferred** (owner: connector first). The pipeline keeps one seam: `plan` and `label` are the two steps a key would switch to Claude |
 | Query planning | Built-in editing dictionary (this file) | **Adopted**: free, instant, covers the owner's words; also starts the "edit style" axis of `11-discover-genres.md` |
-| Connector | Cloudflare Agents SDK `createMcpHandler`: stateless MCP over Streamable HTTP, no Durable Objects, runs on the free plan ([docs](https://developers.cloudflare.com/agents/model-context-protocol/apis/handler-api/)) | **Adopted** |
+| Connector | Cloudflare Agents SDK (`agents` 0.26.0) `createMcpHandler`: stateless MCP over Streamable HTTP, no Durable Objects, runs on the free plan ([docs](https://developers.cloudflare.com/agents/model-context-protocol/apis/handler-api/)) | **Adopted** |
 | Connector | `McpAgent` (Durable Object per session) | Rejected: state not needed, and Cloudflare now recommends the stateless handler |
-| Connector auth | [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider): OAuth 2.1 with dynamic client registration, tokens in KV | **Adopted**: Claude's custom connectors register themselves and send the owner through `/authorize` ([Anthropic](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)) |
-| Connector | `@modelcontextprotocol/sdk` (`McpServer`, zod tool schemas) | **Adopted** (used through the Agents SDK) |
+| Connector auth | [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider) 1.2.1: OAuth 2.1 with dynamic client registration, tokens in KV | **Adopted**: Claude's custom connectors register themselves and send the owner through `/authorize` ([Anthropic](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)) |
+| Connector | `@modelcontextprotocol/server` 2.0.0 (`McpServer`, zod tool schemas) | **Adopted** (used through the Agents SDK) |
 | Connector | The `/api/mcp` route planned in `01-dashboard.md` (Next.js) | **Superseded**: the app is a static export, so the MCP server lives on the Worker |
 | Trends reference | Beacons "Discover Trends" (seen live in the owner's account): a niche card, top performing posts per platform with views / likes and "Top 25%" badges, suggested queries, a chat box, paid credits. No public statement on its data source | Reference for project 3 |
 | Creator data | Instagram Business Discovery: Facebook Login only (`graph.facebook.com`, a linked Page, `instagram_basic` + `instagram_manage_insights` + `pages_read_engagement`), Standard Access in Development mode, ~200 calls / hour, Business / Creator targets only; returns followers, media count and per post likes (unless hidden), comments, **view_count**, permalink, caption, timestamp, thumbnail (video) ([reference](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/business_discovery)) | Project 2. Not verified live (one Graph API Explorer call first) |
@@ -214,8 +214,9 @@ interface DiscoverResponse {
   KV, not the Cache API: Cloudflare's docs do not confirm the Cache API on `workers.dev`, and KV is global.
 - **TikTok thumbnails** are no longer fetched inside the search: a card without one asks `GET /oembed` (already cached
   6 hours at the edge for TikTok) once per post per session, when the card is shown (it mounts); a section shows at most
-  6 cards before **Show more**. A search makes at most ~16 outbound calls (9 searches, ≤ 2 retries, `videos.list`, KV
-  counters), well under the 50 a free invocation allows.
+  6 cards before **Show more**. The same lookup brings the caption: a card titled only by its handle (a generic TikTok
+  page title) asks too, picture or not, and shows the caption instead. A search makes at most ~16 outbound calls (9
+  searches, ≤ 2 retries, `videos.list`, KV counters), well under the 50 a free invocation allows.
 
 ### Claude's picks (`src/discover/picks.ts`)
 
@@ -237,13 +238,22 @@ interface DiscoverResponse {
 - **Login**: `/authorize` is a one-page form in Arabic and English: "Paste your Scout token (dashboard → Settings → API
   keys)". Right token → Claude gets its access token; wrong → the form again. A `redirect_uri` outside Claude's callback
   hosts (`claude.ai`, `claude.com`) is refused before the form shows, because dynamic registration lets any client register.
+  The form body is capped at 4 KiB (413, counted while read). A new login replaces the old one.
+- **Registration** (`POST /register`, answered before the provider) writes nothing in steady state: a registration that
+  names only Claude's callbacks gets one shared public client (created once, its id under the OAUTH_KV key
+  `mcp:claude-client`); anything else is a 400, a body over 16 KiB a 413.
+- **Staying logged in**: the refresh token is renewed on every use, so the login ends only after 90 days without one
+  (the provider's default was a fixed 30 days from the login).
+- **Kill switch**: the Worker var `DISCOVER_V2: "off"` makes `/health` say `discover: false`, so dashboards go back to the
+  per-platform `/search` (for Discover hitting the Free plan's CPU limit, error 1102); `/discover` stays served for the
+  connector.
 - **Tools** (zod schemas, short descriptions written for Claude):
 
 | Tool | Input | Output |
 | --- | --- | --- |
 | `search_videos` | `topic`; optional `queries` (≤ 9 of `{ q, platform, lang, intent }`, Claude's own plan), `platforms`, `timeRange`, `exact` | the `/discover` answer, snippets clipped to 160 characters, 40 cards at most, plus `lookupsLeftToday` |
 | `get_trends` | optional `region` (SA / US), `genre`, `limit` (≤ 50) | Trend Radar rows: title, platform, url, score, volume, source, genre (no credits) |
-| `save_picks` | `topic`, `items` (≤ 20 of `{ url, title, handle?, label, note? }`), optional `replace` | `{ saved, topic }` and where to see them |
+| `save_picks` | `topic`, `items` (≤ 20 of `{ url, title, handle?, label, note? }`), optional `replace` | `{ topicKey, saved, rejected, where }` (`where`: `Discover → search "<topic>" (⭐ Claude's picks)`) |
 | `get_picks` | optional `topic` | saved picks |
 
 - **Daily cap**: Tavily lookups through the connector are counted per Riyadh day (`discover:mcp:<day>`, var
