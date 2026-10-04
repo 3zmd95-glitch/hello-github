@@ -10,6 +10,7 @@
   "search.tutorials": "📘 شروحات",
   "search.creators": "👤 صناع محتوى",
   "search.creatorCount": "{n} مقطع",
+  "search.creatorCountOne": "مقطع واحد",
   "search.creatorProfile": "لقينا حسابه",
   "search.showMore": "اعرض أكثر ({n})",
   "search.showLess": "أقل",

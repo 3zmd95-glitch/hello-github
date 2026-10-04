@@ -1,6 +1,6 @@
 /**
  * The connector's login (round 33, planning/tools/13-discover-search-v2.md): `/authorize` is one page, Arabic and
- * English, asking for the Scout token (dashboard → Settings → API keys, 👁 shows it). The right token completes
+ * English, asking for the Scout token (dashboard → Settings → API keys → Show). The right token completes
  * the OAuth request for "owner"; a wrong one shows the form again (403). Only Claude's callbacks are accepted as
  * redirect targets, because dynamic client registration lets anyone register a client. The OAuth helpers come from
  * `env.OAUTH_PROVIDER` (`@cloudflare/workers-oauth-provider`, injected by index.ts); this module has no runtime
@@ -55,7 +55,7 @@ function page(notice: Notice, status = 200): Response {
   <p class="w">كمّل بس إذا انت للتو ضغطت Connect في Claude حقّك · Only continue if you just pressed Connect in your own Claude</p>
   <label for="t">توكن الـ Scout · Scout token</label>
   <input id="t" name="token" type="password" autocomplete="off" required>
-  <p class="h">من لوحتك: الإعدادات ← مفاتيح API ← 👁 · From your dashboard: Settings → API keys → 👁</p>
+  <p class="h">من لوحتك: الإعدادات ← مفاتيح API ← أظهر · From your dashboard: Settings → API keys → Show</p>
   <button type="submit">اربط Claude · Connect Claude</button>
 </form>`;
   const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">

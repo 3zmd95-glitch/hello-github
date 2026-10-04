@@ -20,54 +20,69 @@ export const PLATFORM_META: Record<RefPlatform, { glyph: string; label: string; 
 /** TikTok / Instagram are vertical video platforms: 9:16 posters. YouTube and web links are 16:9. */
 const isVertical = (p: RefPlatform) => p === "tt" || p === "ig";
 
+/** What the Worker's oEmbed says about a TikTok post: a fresh picture and its caption, when it has them. */
+interface FreshPost {
+  thumb?: string;
+  title?: string;
+}
+
 /**
- * A fresh TikTok thumbnail for a post, asked once per post per session and shared by every card showing
- * it. TikTok thumbnail URLs are signed and expire after about two days, so a saved card's image dies.
+ * A fresh TikTok thumbnail and caption for a post, asked once per post per session and shared by every card
+ * showing it. TikTok thumbnail URLs are signed and expire after about two days, so a saved card's image dies;
+ * and a card titled only by its handle (a generic TikTok page title) shows the caption instead.
  */
-const freshThumbs = new Map<string, Promise<string | undefined>>();
-function freshTiktokThumb(config: ScoutConfig, url: string): Promise<string | undefined> {
-  let p = freshThumbs.get(url);
+const freshPosts = new Map<string, Promise<FreshPost>>();
+function freshTiktok(config: ScoutConfig, url: string): Promise<FreshPost> {
+  let p = freshPosts.get(url);
   if (!p) {
-    p = scoutOembed(config, url).then((r) => (r.ok && r.data.thumb ? r.data.thumb : undefined));
-    freshThumbs.set(url, p);
+    p = scoutOembed(config, url).then((r) =>
+      r.ok ? { thumb: r.data.thumb || undefined, title: r.data.title || undefined } : {},
+    );
+    freshPosts.set(url, p);
   }
   return p;
 }
 
 /**
- * The thumbnail to show on a card, and its `onError`. When a TikTok image fails to load, asks the Worker's
- * oEmbed once for a fresh one and swaps it in (display only; the saved reference keeps its URL). When that
- * fails too, no thumbnail: the card shows its glyph tile.
+ * The thumbnail to show on a card, its `onError`, and the title to show. When a TikTok image fails to load,
+ * asks the Worker's oEmbed once for a fresh one and swaps it in (display only; the saved reference keeps its
+ * URL). When that fails too, no thumbnail: the card shows its glyph tile.
  */
-function useThumb(item: ResearchItem): { thumb?: string; onError: () => void } {
+function useThumb(item: ResearchItem): { thumb?: string; title: string; onError: () => void } {
   const config = useScoutConfig();
   const [failed, setFailed] = useState<readonly string[]>([]);
-  const [fresh, setFresh] = useState<{ url: string; thumb: string } | null>(null);
-  const renewed = fresh?.url === item.url ? fresh.thumb : undefined;
+  const [fresh, setFresh] = useState<(FreshPost & { url: string }) | null>(null);
+  const mine = fresh?.url === item.url ? fresh : undefined;
+  const renewed = mine?.thumb;
   const thumb = [renewed, item.thumb].find((s): s is string => !!s && !failed.includes(s));
+  // The Worker titles a TikTok card whose page title says nothing ("TikTok - Make Your Day") with its handle.
+  const generic = item.platform === "tt" && item.title === item.handle;
+  const title = (generic && mine?.title) || item.title;
   const onError = () => {
     if (!thumb) return;
     setFailed((f) => [...f, thumb]);
     if (item.platform !== "tt" || !config || renewed) return;
     const url = item.url;
-    void freshTiktokThumb(config, url).then((t) => {
-      if (t && t !== thumb) setFresh({ url, thumb: t });
+    void freshTiktok(config, url).then((f) => {
+      if (f.thumb && f.thumb !== thumb) setFresh({ url, ...f });
     });
   };
-  // Discover v2 sends TikTok cards without oEmbed pictures (they used to cost the search 10 calls): a card that
-  // shows up without one asks the Worker's cached /oembed itself, once per post per session.
+  // Discover v2 sends TikTok cards without oEmbed pictures or captions (they used to cost the search 10 calls): a
+  // card that shows up without a picture, or titled only by its handle, asks the Worker's cached /oembed itself,
+  // once per post per session. A card with a picture of its own keeps it (only a failed load swaps it, above).
   useEffect(() => {
-    if (item.platform !== "tt" || item.thumb || !config) return;
+    if (item.platform !== "tt" || (item.thumb && !generic) || !config) return;
     let alive = true;
     const url = item.url;
-    void freshTiktokThumb(config, url).then((t) => {
-      if (alive && t) setFresh({ url, thumb: t });
+    const own = !!item.thumb;
+    void freshTiktok(config, url).then((f) => {
+      if (alive) setFresh({ url, title: f.title, ...(own ? {} : { thumb: f.thumb }) });
     });
     return () => {
       alive = false;
     };
-  }, [config, item.platform, item.thumb, item.url]);
-  return { thumb, onError };
+  }, [config, generic, item.platform, item.thumb, item.url]);
+  return { thumb, title, onError };
 }
 
 /**
@@ -150,8 +165,8 @@ function FullCard({
 }) {
   const { t } = useT();
   const [expanded, setExpanded] = useState(false);
-  const { thumb, onError } = useThumb(item);
-  const play = usePlay(item, thumb);
+  const { thumb, title, onError } = useThumb(item);
+  const play = usePlay({ ...item, title }, thumb);
   const meta = PLATFORM_META[item.platform];
   const longSnippet = item.snippet.length > 90;
   const media = <Media item={item} thumb={thumb} onError={onError} playable={!!play} />;
@@ -165,7 +180,7 @@ function FullCard({
         <button
           type="button"
           onClick={play}
-          aria-label={t("player.watchLabel", { title: item.title })}
+          aria-label={t("player.watchLabel", { title })}
           className={`${MEDIA_FRAME} group w-full focus-visible:outline-hidden`}
           data-testid="result-play"
         >
@@ -208,7 +223,7 @@ function FullCard({
           className="text-ink line-clamp-2 text-sm leading-snug font-bold no-underline hover:underline"
           data-testid="result-title"
         >
-          {item.title}
+          {title}
         </a>
         {item.snippet && (
           <p
@@ -436,8 +451,8 @@ function InstagramPoster({ item }: { item: ResearchItem }) {
  */
 function CompactCard({ item, onRemove }: { item: ResearchItem; onRemove?: () => void }) {
   const { t } = useT();
-  const { thumb, onError } = useThumb(item);
-  const play = usePlay(item, thumb);
+  const { thumb, title, onError } = useThumb(item);
+  const play = usePlay({ ...item, title }, thumb);
   const meta = PLATFORM_META[item.platform];
   const box = `border-edge h-12 shrink-0 overflow-hidden rounded-[2px] border-2 ${isVertical(item.platform) ? "aspect-[9/16]" : "aspect-video"}`;
   return (
@@ -471,7 +486,7 @@ function CompactCard({ item, onRemove }: { item: ResearchItem; onRemove?: () => 
           dir="auto"
           className="px-link line-clamp-2 leading-snug"
         >
-          {item.title}
+          {title}
         </a>
         <span className="text-muted flex min-w-0 items-center gap-1 text-xs">
           <span aria-hidden>{meta.glyph}</span>
@@ -484,7 +499,7 @@ function CompactCard({ item, onRemove }: { item: ResearchItem; onRemove?: () => 
         <button
           type="button"
           onClick={play}
-          aria-label={t("player.watchLabel", { title: item.title })}
+          aria-label={t("player.watchLabel", { title })}
           className="px-btn px-btn-ghost px-btn-sm shrink-0"
           data-testid="result-play"
         >

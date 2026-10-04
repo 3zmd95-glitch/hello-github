@@ -246,6 +246,27 @@ describe("Discover v2 in the research panel", () => {
     expect(discovered).toHaveLength(1);
   });
 
+  it("creators: two channels with one name both show (keyed by their page); one post reads as one", async () => {
+    const errors = vi.spyOn(console, "error");
+    answer = () => ({
+      ...ANSWER,
+      creators: [
+        { platform: "yt", handle: "Cinecom", url: "https://www.youtube.com/channel/UC1", count: 2 },
+        { platform: "yt", handle: "Cinecom", url: "https://www.youtube.com/channel/UC2", count: 1 },
+      ],
+    });
+    await mount();
+    await submit("flash");
+    const chips = all("discover-creator");
+    expect(chips.map((a) => a.getAttribute("href"))).toEqual([
+      "https://www.youtube.com/channel/UC1",
+      "https://www.youtube.com/channel/UC2",
+    ]);
+    expect(chips.map((a) => a.textContent)).toEqual(["▶Cinecom2 مقطع", "▶Cinecomمقطع واحد"]);
+    expect(errors.mock.calls.flat().join(" ")).not.toContain("same key");
+    errors.mockRestore();
+  });
+
   it("Not this? asks again with the meaning picked, then exactly; another topic starts without it", async () => {
     answer = (body) => ({
       ...ANSWER,

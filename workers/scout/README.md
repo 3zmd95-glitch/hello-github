@@ -424,9 +424,9 @@ If KV fails (down, or the day's writes used up) the answer is `503 { "error": "t
 A new login replaces the owner's earlier grant for this client. Possible later step: Client ID Metadata Documents
 (Claude's `client_id` as a URL), off for now because their fetch from a Worker is unverified.
 
-**Login**: `/authorize` is one page, Arabic and English, asking for the Scout token (dashboard → Settings → API keys →
-👁). The right token completes the authorization for the user `owner` and sends the browser back to Claude with a
-code; a wrong one shows the form again (403). Only Claude's callbacks, `https://claude.ai/api/mcp/auth_callback` and
+**Login**: `/authorize` is one page, Arabic and English, asking for the Scout token (dashboard → Settings, then
+"مفاتيح API ← أظهر · API keys → Show"). The right token completes the authorization for the user `owner` and sends
+the browser back to Claude with a code; a wrong one shows the form again (403). Only Claude's callbacks, `https://claude.ai/api/mcp/auth_callback` and
 `https://claude.com/api/mcp/auth_callback`, are accepted as `redirect_uri`, before the form shows: dynamic
 registration lets anyone register a client. Above the form: "كمّل بس إذا انت للتو ضغطت Connect في Claude حقّك · Only
 continue if you just pressed Connect in your own Claude". If the grant can't be stored (KV down or out of writes) the

@@ -255,7 +255,8 @@ export default function DiscoverSections({
           </H>
           <ul className="flex flex-wrap gap-2">
             {creators.map((c) => (
-              <li key={`${c.platform}:${c.handle}`}>
+              // The account's page: two YouTube channels can share a name.
+              <li key={c.url}>
                 <a
                   href={c.url}
                   target="_blank"
@@ -267,9 +268,11 @@ export default function DiscoverSections({
                   <span aria-hidden>{PLATFORM_META[c.platform].glyph}</span>
                   <span>{c.handle}</span>
                   <span className="text-muted text-[11px]">
-                    {c.count > 0
-                      ? t("search.creatorCount", { n: c.count })
-                      : t("search.creatorProfile")}
+                    {c.count === 1
+                      ? t("search.creatorCountOne")
+                      : c.count > 0
+                        ? t("search.creatorCount", { n: c.count })
+                        : t("search.creatorProfile")}
                   </span>
                 </a>
               </li>

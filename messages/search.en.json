@@ -10,6 +10,7 @@
   "search.tutorials": "📘 Tutorials",
   "search.creators": "👤 Creators",
   "search.creatorCount": "{n} posts",
+  "search.creatorCountOne": "1 post",
   "search.creatorProfile": "profile found",
   "search.showMore": "Show more ({n})",
   "search.showLess": "Show less",

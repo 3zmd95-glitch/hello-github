@@ -112,6 +112,10 @@ describe("authorize", () => {
     expect(html).toContain('<form method="post"');
     expect(html).toContain("Scout");
     expect(html).toContain(WARNING);
+    // Settings shows the token with its text button "أظهر / Show" (messages: settings.apiShow).
+    expect(html).toContain(
+      "الإعدادات ← مفاتيح API ← أظهر · From your dashboard: Settings → API keys → Show",
+    );
   });
 
   it("refuses a redirect that is not Claude's", async () => {
