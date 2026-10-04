@@ -87,8 +87,8 @@ describe("normalizeTerm", () => {
     expect(normalizeTerm("Glitch Transitions!")).toBe("glitch transition");
   });
 
-  it("keeps short words, a double s and a bare ال", () => {
-    expect(normalizeTerm("luts cuts glass")).toBe("luts cuts glass");
+  it("keeps other short words, a double s and a bare ال while matching known short plurals", () => {
+    expect(normalizeTerm("luts cuts glass cars gyms ads")).toBe("luts cut glass car gym ad");
     expect(normalizeTerm("ال كت")).toBe("ال كت");
   });
 });

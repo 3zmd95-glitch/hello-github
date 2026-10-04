@@ -6,6 +6,26 @@ import { genreWords, mentions } from "./relevance";
 import { normalizeTerm } from "./terms";
 
 describe("every built-in edit genre", () => {
+  it("keeps short plural subjects and techniques without corrupting unrelated words", () => {
+    const plan = planSearch({ q: "match cut", genreQuery: { en: "car edit", ar: "ايديت سيارات" } });
+    const [item] = labelCards(
+      [
+        {
+          card: {
+            title: "Cinematic cars with match cuts",
+            snippet: "",
+            platform: "yt",
+            handle: "Test",
+            url: "https://www.youtube.com/watch?v=plural",
+          },
+          query: plan.queries[0],
+        },
+      ],
+      plan,
+    );
+    expect(item.offTopic).toBeUndefined();
+    expect(normalizeTerm("lens news gas")).toBe("lens news gas");
+  });
   for (const genre of genres.genres) {
     it(`${genre.id}: retains the subject in examples, tutorials and retries`, () => {
       const req = {

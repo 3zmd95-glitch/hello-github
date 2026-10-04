@@ -396,7 +396,8 @@ export function peekDiscover(
   req: DiscoverRequest | null,
 ): DiscoverAnswer | undefined {
   if (!config || !req) return undefined;
-  return cacheGet(discoverRequestKey(config, req), defaultStorage(), Date.now());
+  const hit = cacheGet(discoverRequestKey(config, req), defaultStorage(), Date.now());
+  return req.mode === "ai" && !hit?.understood.ai ? undefined : hit;
 }
 
 export async function discoverSearch(
@@ -409,7 +410,7 @@ export async function discoverSearch(
   const key = discoverRequestKey(config, req);
   if (!opts.force) {
     const hit = cacheGet(key, storage, now());
-    if (hit) return { ok: true, answer: hit };
+    if (hit && (req.mode !== "ai" || hit.understood.ai)) return { ok: true, answer: hit };
   }
   const running = inflight.get(key);
   if (running) return running;
@@ -427,6 +428,9 @@ export async function discoverSearch(
     if (!r.ok) return r;
     const answer = parseDiscoverAnswer(r.data);
     if (!answer) return { ok: false, error: { type: "upstream" } };
+    // An older Worker ignores unknown request fields. Never present its keyword answer as AI search.
+    if (req.mode === "ai" && !answer.understood.ai)
+      return { ok: false, error: { type: "ai_unavailable" } };
     // Kept only when the Worker calls it complete and it found something (an empty answer can be a fluke).
     if (answer.complete && answer.items.length > 0) cacheSet(key, answer, storage, now());
     return { ok: true, answer };
