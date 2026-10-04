@@ -21,7 +21,9 @@ import {
   tabCounts,
   type DiscoverAnswer,
   type DiscoverItem,
+  type DiscoverRequest,
 } from "./discover";
+import type { AiSelection } from "./localAi";
 import type { KeyValueStorage } from "./scoutClient";
 
 const config = { url: "https://w.example", token: "t" };
@@ -321,6 +323,209 @@ describe("discoverSearch", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     t += 1;
     await discoverSearch(config, { q: "flash" }, { fetchImpl, storage, now });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("subscription-backed Discover search", () => {
+  const selection: AiSelection = {
+    provider: "chatgpt",
+    model: "test-model",
+    effort: "high",
+    accountId: "account-a",
+  };
+  const request: DiscoverRequest = { q: "coffee match cuts", mode: "ai", subscription: selection };
+  const localPlan = {
+    provider: selection.provider,
+    model: selection.model,
+    effort: selection.effort,
+    plan: { summary: { ar: "قهوة", en: "Coffee" } },
+  };
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  const resultFor = (selected: AiSelection) =>
+    answer([item({})], {
+      understood: {
+        label: { ar: "قهوة", en: "Coffee" },
+        exact: false,
+        ai: true,
+        provider: selected.provider,
+        model: selected.model,
+        ...(selected.effort ? { effort: selected.effort } : {}),
+      },
+    });
+  beforeEach(() => clearDiscoverCache(null));
+
+  it("checks Worker capability first, plans locally without the Scout token, then sends only the validated envelope", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (url) => {
+      if (String(url).endsWith("/health")) return json({ ok: true, discoverSubscriptions: true });
+      if (url === "/api/local-ai/plan") return json(localPlan);
+      return json(resultFor(selection));
+    });
+    const req = {
+      ...request,
+      genreQuery: { en: "coffee edit" },
+      program: "DaVinci Resolve",
+      timeRange: "week" as const,
+    };
+    expect((await discoverSearch(config, req, { fetchImpl, storage: null })).ok).toBe(true);
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      "https://w.example/health",
+      "/api/local-ai/plan",
+      "https://w.example/discover",
+    ]);
+    const local = fetchImpl.mock.calls[1][1];
+    expect(new Headers(local?.headers).has("Authorization")).toBe(false);
+    expect(JSON.parse(String(local?.body))).toEqual({
+      ...selection,
+      request: { q: req.q, genreQuery: req.genreQuery, program: req.program },
+    });
+    const external = fetchImpl.mock.calls[2][1];
+    expect(new Headers(external?.headers).get("Authorization")).toBe("Bearer t");
+    expect(JSON.parse(String(external?.body))).toEqual({
+      q: req.q,
+      mode: "ai",
+      genreQuery: req.genreQuery,
+      program: req.program,
+      timeRange: "week",
+      aiPlan: localPlan,
+    });
+    expect(String(external?.body)).not.toContain("account-a");
+    expect(String(external?.body)).not.toContain("subscription");
+  });
+
+  it.each([{}, { discoverSubscriptions: false }, { discoverSubscriptions: "true" }])(
+    "does not spend inference on an older or disabled Worker: %j",
+    async (capability) => {
+      const fetchImpl = vi.fn<typeof fetch>(async () => json(capability));
+      expect(await discoverSearch(config, request, { fetchImpl, storage: null })).toEqual({
+        ok: false,
+        error: { type: "subscription_worker_upgrade" },
+      });
+      expect(fetchImpl).toHaveBeenCalledOnce();
+      expect(fetchImpl.mock.calls[0][0]).toBe("https://w.example/health");
+    },
+  );
+
+  it("propagates Worker auth failure before planning", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => json({ error: "unauthorized" }, 401));
+    expect(await discoverSearch(config, request, { fetchImpl, storage: null })).toEqual({
+      ok: false,
+      error: { type: "auth", status: 401 },
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { ...localPlan, provider: "claude" },
+    { ...localPlan, model: "downgraded-model" },
+    { ...localPlan, effort: "low" },
+  ])("rejects a local planner mismatch before contacting retrieval: %j", async (reply) => {
+    const fetchImpl = vi.fn<typeof fetch>(async (url) =>
+      String(url).endsWith("/health") ? json({ discoverSubscriptions: true }) : json(reply),
+    );
+    expect(await discoverSearch(config, request, { fetchImpl, storage: null })).toEqual({
+      ok: false,
+      error: { type: "subscription_failed" },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls.some(([url]) => String(url).endsWith("/discover"))).toBe(false);
+  });
+
+  it.each(["provider", "model", "effort"] as const)(
+    "rejects a Worker %s mismatch and does not cache or downgrade it",
+    async (field) => {
+      const storage = memoryStorage();
+      const mismatched = resultFor(selection);
+      Object.assign(mismatched.understood, {
+        [field]: field === "provider" ? "claude" : "different",
+      });
+      const fetchImpl = vi.fn<typeof fetch>(async (url) =>
+        String(url).endsWith("/health")
+          ? json({ discoverSubscriptions: true })
+          : url === "/api/local-ai/plan"
+            ? json(localPlan)
+            : json(mismatched),
+      );
+      expect(await discoverSearch(config, request, { fetchImpl, storage })).toEqual({
+        ok: false,
+        error: { type: "subscription_worker_upgrade" },
+      });
+      expect(keptKeys(storage)).toEqual([]);
+      expect(fetchImpl).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it("keeps built-in, provider, model, effort and account caches separate; identical repeats cost nothing", async () => {
+    const storage = memoryStorage();
+    const selections: AiSelection[] = [
+      selection,
+      { ...selection, provider: "claude" },
+      { ...selection, model: "other-model" },
+      { ...selection, effort: "max" },
+      { ...selection, accountId: "account-b" },
+    ];
+    const requests = selections.map((subscription) => ({ ...request, subscription }));
+    expect(
+      new Set(
+        [...requests, { ...request, subscription: undefined }, { q: request.q }].map((req) =>
+          discoverRequestKey(config, req),
+        ),
+      ).size,
+    ).toBe(7);
+    const fetchImpl = vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url).endsWith("/health")) return json({ discoverSubscriptions: true });
+      const body = JSON.parse(String(init?.body));
+      if (url === "/api/local-ai/plan")
+        return json({
+          provider: body.provider,
+          model: body.model,
+          effort: body.effort,
+          plan: localPlan.plan,
+        });
+      return json(resultFor(body.aiPlan));
+    });
+    for (const req of requests) {
+      expect((await discoverSearch(config, req, { fetchImpl, storage })).ok).toBe(true);
+      const repeat = await discoverSearch(config, req, { fetchImpl, storage });
+      expect(repeat.ok && repeat.answer.cached).toBe(true);
+      expect(repeat.ok && repeat.answer.cost).toEqual({ tavily: 0, youtubeSearch: 0 });
+    }
+    expect(fetchImpl).toHaveBeenCalledTimes(15);
+    expect(keptKeys(storage)).toHaveLength(5);
+  });
+
+  it("does not trust cached built-in output under a subscription key", async () => {
+    const storage = memoryStorage();
+    storage.setItem(
+      DISCOVER_CACHE_KEY,
+      JSON.stringify({
+        [discoverRequestKey(config, request)]: {
+          at: Date.now(),
+          answer: answer([item({})], {
+            understood: { label: { ar: "قهوة", en: "Coffee" }, exact: false, ai: true },
+          }),
+        },
+      }),
+    );
+    const fetchImpl = vi.fn<typeof fetch>(async () => json({ discoverSubscriptions: false }));
+    expect(await discoverSearch(config, request, { fetchImpl, storage })).toEqual({
+      ok: false,
+      error: { type: "subscription_worker_upgrade" },
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("returns subscription exhaustion without issuing a fallback search", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (url) =>
+      String(url).endsWith("/health")
+        ? json({ discoverSubscriptions: true })
+        : json({ error: "usage_limit" }, 429),
+    );
+    expect(await discoverSearch(config, request, { fetchImpl, storage: null })).toEqual({
+      ok: false,
+      error: { type: "subscription_limit" },
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });

@@ -147,6 +147,8 @@ export default function DiscoverSections({
         {answer.understood.ai && (
           <span className="px-chip" data-testid="discover-ai-plan">
             {t("search.aiPlan")}
+            {answer.understood.model &&
+              ` · ${answer.understood.provider === "chatgpt" ? "ChatGPT" : "Claude"} · ${answer.understood.model}${answer.understood.effort ? ` · ${answer.understood.effort}` : ""}`}
           </span>
         )}
         <span className="text-ink-2">

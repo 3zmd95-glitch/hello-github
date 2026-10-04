@@ -5,7 +5,7 @@
  */
 
 import raw from "../../../../planning/data/edit-terms.json";
-import { normalizeForMatch } from "../social/replies";
+import { normalizeForMatch } from "../social/normalization";
 
 export type Lang = "ar" | "en";
 export interface LangText {

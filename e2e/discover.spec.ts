@@ -85,7 +85,11 @@ async function stubWorker(page: Page, discover: (body: Record<string, unknown>) 
     if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS });
     const authed = req.headers()["authorization"] === `Bearer ${TOKEN}`;
     if (url.pathname === "/health")
-      return reply(authed ? { ok: true, auth: true, tavily: true, discover: true } : { ok: true });
+      return reply(
+        authed
+          ? { ok: true, auth: true, tavily: true, discover: true, discoverSubscriptions: true }
+          : { ok: true },
+      );
     if (!authed) return reply({ error: "unauthorized" }, 401);
     if (url.pathname === "/discover" && req.method() === "POST") {
       const body = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
@@ -153,6 +157,141 @@ async function search(page: Page, q: string) {
   await page.getByTestId("discover-topic").fill(q);
   await page.getByTestId("discover-topic").press("Enter");
 }
+
+const SUBSCRIPTION_PLAN = {
+  summary: { ar: "ماتش كت للقهوة", en: "Coffee match cuts" },
+  queries: [{ q: "coffee match cut tutorial", lang: "en", intent: "tutorials" }],
+  concepts: [
+    ["coffee", "قهوة"],
+    ["match cut", "matchcut"],
+  ],
+  platforms: ["yt", "ig", "tt"],
+  timeRange: "any",
+  ytLength: "any",
+};
+
+async function stubSubscriptions(page: Page, failure?: string) {
+  const plans: Record<string, unknown>[] = [];
+  const status = {
+    available: true,
+    providers: {
+      chatgpt: {
+        connected: true,
+        sharing: true,
+        account: "ChatGPT test",
+        accountId: "chatgpt-test",
+        models: [{ id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["high", "ultra"] }],
+      },
+      claude: {
+        connected: true,
+        sharing: true,
+        account: "Claude max",
+        accountId: "claude-test",
+        models: [{ id: "claude-fable-5-1", name: "Claude Fable 5.1", efforts: ["high", "max"] }],
+      },
+    },
+  };
+  await page.route("**/api/local-ai/**", async (route) => {
+    const request = route.request();
+    expect(request.headers()["x-local-ai"]).toBe("1");
+    const pathname = new URL(request.url()).pathname;
+    if (pathname.endsWith("/status")) return route.fulfill({ json: status });
+    if (pathname.endsWith("/plan")) {
+      const body = request.postDataJSON();
+      expect(request.headers()).not.toHaveProperty("authorization");
+      plans.push(body);
+      return route.fulfill({
+        status: failure ? 429 : 200,
+        json: failure
+          ? { error: failure }
+          : {
+              provider: body.provider,
+              model: body.model,
+              effort: body.effort,
+              plan: SUBSCRIPTION_PLAN,
+            },
+      });
+    }
+    return route.fulfill({ json: { ok: true } });
+  });
+  return plans;
+}
+
+test("subscriptions: explicit model choice, maximum effort, submitted identity and cache isolation", async ({
+  page,
+}) => {
+  const plans = await stubSubscriptions(page);
+  const asked = await stubWorker(page, (body) => {
+    const chosen = body.aiPlan as { provider: string; model: string; effort?: string };
+    return {
+      ...ANSWER,
+      complete: true,
+      platforms: { tt: { ok: true } },
+      alternatives: [],
+      understood: {
+        label: SUBSCRIPTION_PLAN.summary,
+        exact: false,
+        ai: true,
+        provider: chosen.provider,
+        model: chosen.model,
+        effort: chosen.effort,
+      },
+    };
+  });
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await page.getByTestId("discover-mode-ai").click();
+  await page.getByTestId("ai-provider").selectOption("chatgpt");
+  await expect(page.getByTestId("chatgpt-welcome")).toBeVisible();
+  await page.getByTestId("chatgpt-welcome").getByRole("button").click();
+  await page.getByTestId("ai-model").selectOption("gpt-6-astra");
+  await expect(page.getByTestId("ai-effort")).toHaveValue("ultra");
+  await page.getByTestId("discover-topic").fill("Find coffee match cuts");
+  expect(plans).toHaveLength(0);
+  expect(asked).toHaveLength(0);
+  await page.getByTestId("research-search").click();
+  await expect(page.getByTestId("discover-ai-plan")).toContainText("gpt-6-astra · ultra");
+  expect(plans).toHaveLength(1);
+  expect(asked[0]).not.toHaveProperty("subscription");
+  expect(asked[0].aiPlan).toMatchObject({
+    provider: "chatgpt",
+    model: "gpt-6-astra",
+    effort: "ultra",
+  });
+  await page.getByTestId("ai-provider").selectOption("claude");
+  await page.getByTestId("ai-model").selectOption("claude-fable-5-1");
+  await expect(page.getByTestId("ai-effort")).toHaveValue("max");
+  // Draft choices do not relabel or rerun the already submitted result.
+  await expect(page.getByTestId("discover-ai-plan")).toContainText("gpt-6-astra");
+  expect(plans).toHaveLength(1);
+  await page.getByTestId("research-search").click();
+  await expect(page.getByTestId("discover-ai-plan")).toContainText("claude-fable-5-1 · max");
+  expect(plans).toHaveLength(2);
+  await page.getByTestId("research-search").click();
+  await expect(page.getByTestId("discover-cached")).toBeVisible();
+  expect(plans).toHaveLength(2);
+  expect(asked).toHaveLength(2);
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("subscription allowance failure never falls back or launches video searches", async ({
+  page,
+}) => {
+  const plans = await stubSubscriptions(page, "subscription_sharing_usage_limit_exceeded");
+  const asked = await stubWorker(page, () => ANSWER);
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await page.getByTestId("discover-mode-ai").click();
+  await page.getByTestId("ai-provider").selectOption("claude");
+  await page.getByTestId("ai-model").selectOption("claude-fable-5-1");
+  await page.getByTestId("discover-topic").fill("coffee match cuts");
+  await page.getByTestId("research-search").click();
+  await expect(page.getByTestId("research-results")).toContainText("حد الاستخدام");
+  expect(plans).toHaveLength(1);
+  expect(asked).toHaveLength(0);
+  await expect(page.getByTestId("discover-ai-plan")).toHaveCount(0);
+  await expect(page.getByTestId("ai-provider")).toHaveValue("claude");
+});
 
 test("AI brief: preserves filters, searches only on submit, separates cache and shows interpretation", async ({
   page,
