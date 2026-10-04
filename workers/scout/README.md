@@ -250,7 +250,9 @@ in `cron.ts` (every minute, see the trigger below) and `scout.ts` (`/go`). Produ
 its Step 0). A copy of Beacons' Smart Reply: when someone comments a keyword on one of the owner's Instagram posts,
 the Worker sends the commenter a private DM with the link and replies under the comment. Since v2 it also answers
 DMs and story replies that carry a keyword, and a DM that matches no rule gets the default reply (at most once per
-person per 24 hours). Instagram only (Threads and YouTube have no DMs in their APIs; TikTok has no comment API).
+person per 24 hours). Our reply connector is Instagram only. TikTok's Accounts API supports public comment
+management for Personal accounts subject to separate app approval; that integration is not connected here.
+TikTok's Business Messaging API does not provide a Personal-account DM automation route.
 
 **Permission.** `POST /social/connect/instagram` with `"replies": true` asks for
 `instagram_business_manage_comments` + `instagram_business_manage_messages` on top of the posting scopes. The

@@ -76,8 +76,11 @@ const TRAILING_HASHTAG_RE = /\s*#[^\s#]+\s*$/;
  * then, if still over, cut at a word boundary (never inside an emoji) and end with "…". Text within the limit
  * comes back untouched; text over it only by trailing whitespace loses that whitespace but is not "trimmed".
  */
-export function trimCaption(platform: Platform, text: string): { text: string; trimmed: boolean } {
-  const max = CAPTION_MAX[platform];
+export function trimCaption(
+  platform: Platform,
+  text: string,
+  max = CAPTION_MAX[platform],
+): { text: string; trimmed: boolean } {
   if (text.length <= max) return { text, trimmed: false };
   let out = text.trimEnd();
   // Over only because of trailing whitespace: nothing the reader sees is lost.
@@ -109,7 +112,13 @@ export function sendCaption(
   platform: Platform,
 ): { text: string; trimmed: boolean } {
   const text = captionFor(post, auto, platform);
-  return isSocialPlatform(platform) ? trimCaption(platform, text) : { text, trimmed: false };
+  return isSocialPlatform(platform)
+    ? trimCaption(platform, text, captionLimit(auto, platform))
+    : { text, trimmed: false };
+}
+
+export function captionLimit(auto: AutoPost, platform: Platform): number {
+  return platform === "tiktok" && auto.mediaKind === "photo" ? 4000 : CAPTION_MAX[platform];
 }
 
 /**
@@ -155,7 +164,7 @@ const ACCEPTS: Record<SocialPlatform, readonly AutoPost["mediaKind"][]> = {
   instagram: ["video", "image"],
   threads: ["video", "image", "none"],
   youtube: ["video"],
-  tiktok: ["video"],
+  tiktok: ["video", "photo"],
 };
 
 export type ProblemCode =
@@ -168,7 +177,15 @@ export type ProblemCode =
   | "needsMedia"
   | "empty"
   | "notConnected"
-  | "noPermission";
+  | "noPermission"
+  | "photoCount"
+  | "photoOnlyTikTok"
+  | "photoCover"
+  | "tiktokPrivacy"
+  | "tiktokConsent"
+  | "tiktokDuration"
+  | "tiktokBrandedPrivacy"
+  | "tiktokCreator";
 
 export interface Problem {
   code: ProblemCode;
@@ -203,6 +220,53 @@ const isHttps = (url: string) => {
   }
 };
 
+/** Legacy Workers expose only canPublish; newer Workers expose each TikTok permission. */
+export function canPublishTo(
+  status: SocialConnectionStatus | undefined,
+  platform: Platform,
+  mode: AutoPost["tiktokMode"] = "inbox",
+): boolean {
+  if (!status?.connected) return false;
+  if (platform !== "tiktok") return !!status.canPublish;
+  return (mode === "inbox" ? status.canUpload : status.canDirectPost) ?? !!status.canPublish;
+}
+
+export interface TikTokCreator {
+  username: string;
+  nickname: string;
+  avatarUrl?: string;
+  privacyLevels: string[];
+  commentDisabled: boolean;
+  duetDisabled: boolean;
+  stitchDisabled: boolean;
+  maxVideoDurationSeconds: number;
+}
+
+export interface TikTokCapabilities {
+  canUpload: boolean;
+  canDirectPost: boolean;
+  creator?: TikTokCreator;
+  detail?: string;
+}
+
+/** A creator check is performed again immediately before scheduling a direct post. */
+export function tiktokCreatorProblems(
+  auto: AutoPost,
+  creator: TikTokCreator | undefined,
+): Problem[] {
+  if (!auto.platforms.includes("tiktok") || auto.tiktokMode !== "direct") return [];
+  if (!creator) return [{ code: "tiktokCreator", platform: "tiktok" }];
+  const out: Problem[] = [];
+  if (!creator.privacyLevels.includes(auto.tiktokPrivacy))
+    out.push({ code: "tiktokPrivacy", platform: "tiktok" });
+  if (
+    auto.mediaKind === "video" &&
+    (!auto.durationSeconds || auto.durationSeconds > creator.maxVideoDurationSeconds)
+  )
+    out.push({ code: "tiktokDuration", platform: "tiktok" });
+  return out;
+}
+
 /**
  * Everything that would stop the Worker from taking or finishing the job. `status` is the last connection
  * reply (null when unknown: connection problems are then not reported). `now` skips the day check. Caption
@@ -219,13 +283,18 @@ export function publishProblems(
   else if (!auto.platforms.some(isSocialPlatform)) out.push({ code: "manualOnly" });
   if (!now && !post.plannedDay && auto.platforms.length) out.push({ code: "noDay" });
   const kind = auto.mediaKind;
-  if (kind !== "none") {
+  if (kind === "photo") {
+    if (auto.photoUrls.length < 1 || auto.photoUrls.length > 35) out.push({ code: "photoCount" });
+    else if (auto.photoUrls.some((url) => !isHttps(url.trim()))) out.push({ code: "badUrl" });
+    if (auto.photoCoverIndex >= auto.photoUrls.length) out.push({ code: "photoCover" });
+    if (auto.platforms.some((p) => p !== "tiktok")) out.push({ code: "photoOnlyTikTok" });
+  } else if (kind !== "none") {
     if (!auto.mediaUrl.trim()) out.push({ code: "noMedia" });
     else if (!isHttps(directMediaUrl(auto.mediaUrl))) out.push({ code: "badUrl" });
   }
   for (const p of auto.platforms) {
     if (!isSocialPlatform(p)) continue;
-    if (!ACCEPTS[p].includes(kind)) {
+    if (kind !== "photo" && !ACCEPTS[p].includes(kind)) {
       out.push({ code: kind === "image" ? "needsVideo" : "needsMedia", platform: p });
     }
     if (kind === "none" && !sendCaption(post, auto, p).text.trim()) {
@@ -233,7 +302,16 @@ export function publishProblems(
     }
     const st = status?.[p];
     if (status && !st?.connected) out.push({ code: "notConnected", platform: p });
-    else if (status && st && !st.canPublish) out.push({ code: "noPermission", platform: p });
+    else if (status && st && !canPublishTo(st, p, auto.tiktokMode))
+      out.push({ code: "noPermission", platform: p });
+    if (p === "tiktok" && auto.tiktokMode === "direct") {
+      if (!auto.tiktokPrivacy) out.push({ code: "tiktokPrivacy", platform: p });
+      if (!auto.tiktokConsent) out.push({ code: "tiktokConsent", platform: p });
+      if (kind === "video" && !auto.durationSeconds)
+        out.push({ code: "tiktokDuration", platform: p });
+      if (auto.tiktokBrandContent && auto.tiktokPrivacy === "SELF_ONLY")
+        out.push({ code: "tiktokBrandedPrivacy", platform: p });
+    }
   }
   return out;
 }
@@ -242,11 +320,31 @@ export function publishProblems(
 export interface JobInput {
   id: string;
   scheduledAt: string;
-  media?: { url: string; kind: "video" | "image" };
+  media?: {
+    url: string;
+    kind: "video" | "image" | "photo";
+    photoUrls?: string[];
+    durationSeconds?: number;
+  };
   targets: Partial<
     Record<
       SocialPlatform,
-      { caption: string; title?: string; privacy?: string; tiktokMode?: "direct" | "inbox" }
+      {
+        caption: string;
+        title?: string;
+        privacy?: string;
+        tiktokMode?: "direct" | "inbox";
+        disableComment?: boolean;
+        disableDuet?: boolean;
+        disableStitch?: boolean;
+        brandContent?: boolean;
+        brandOrganic?: boolean;
+        isAigc?: boolean;
+        tiktokConsent?: boolean;
+        photoTitle?: string;
+        photoCoverIndex?: number;
+        autoAddMusic?: boolean;
+      }
     >
   >;
 }
@@ -264,7 +362,29 @@ export function buildJob(post: Post, auto: AutoPost, scheduledAt: string): JobIn
         privacy: auto.youtubePrivacy,
       };
     } else if (p === "tiktok") {
-      targets.tiktok = { caption, privacy: auto.tiktokPrivacy, tiktokMode: auto.tiktokMode };
+      targets.tiktok = {
+        caption,
+        tiktokMode: auto.tiktokMode,
+        ...(auto.tiktokMode === "direct"
+          ? {
+              privacy: auto.tiktokPrivacy,
+              disableComment: !auto.tiktokAllowComment,
+              disableDuet: !auto.tiktokAllowDuet,
+              disableStitch: !auto.tiktokAllowStitch,
+              brandContent: auto.tiktokBrandContent,
+              brandOrganic: auto.tiktokBrandOrganic,
+              isAigc: auto.tiktokIsAigc,
+              tiktokConsent: auto.tiktokConsent,
+            }
+          : {}),
+        ...(auto.mediaKind === "photo"
+          ? {
+              photoTitle: auto.photoTitle.trim().slice(0, 90),
+              photoCoverIndex: auto.photoCoverIndex,
+              autoAddMusic: auto.tiktokAutoAddMusic,
+            }
+          : {}),
+      };
     } else {
       targets[p] = { caption };
     }
@@ -273,7 +393,20 @@ export function buildJob(post: Post, auto: AutoPost, scheduledAt: string): JobIn
     id: post.id,
     scheduledAt,
     ...(auto.mediaKind !== "none"
-      ? { media: { url: directMediaUrl(auto.mediaUrl), kind: auto.mediaKind } }
+      ? {
+          media:
+            auto.mediaKind === "photo"
+              ? {
+                  url: auto.photoUrls[0]?.trim() ?? "",
+                  kind: "photo" as const,
+                  photoUrls: auto.photoUrls.map((url) => url.trim()),
+                }
+              : {
+                  url: directMediaUrl(auto.mediaUrl),
+                  kind: auto.mediaKind,
+                  ...(auto.durationSeconds ? { durationSeconds: auto.durationSeconds } : {}),
+                },
+        }
       : {}),
     targets,
   };
@@ -388,13 +521,26 @@ export function workerKey(config: ScoutConfig | null): string | null {
 
 /** Overall state of a post's auto-post, for chips and the hub list. */
 export type AutoPostSummary =
-  "draft" | "scheduled" | "publishing" | "published" | "partial" | "failed";
+  "draft" | "scheduled" | "publishing" | "published" | "partial" | "failed" | "needsFinish";
+
+/** TikTok accepted this upload into its inbox; the owner still needs to choose music and publish. */
+export function needsTikTokFinish(auto: AutoPost | undefined): boolean {
+  return (
+    !!auto?.sentAt &&
+    auto.platforms.includes("tiktok") &&
+    auto.results.tiktok?.state === "published" &&
+    !!auto.results.tiktok.inbox &&
+    !auto.tiktokCompletedAt
+  );
+}
 
 export function autoPostSummary(auto: AutoPost | undefined): AutoPostSummary {
   if (!auto?.sentAt) return "draft";
   const api = auto.platforms.filter(isSocialPlatform);
   const states = api.map((p) => auto.results[p]?.state ?? "queued");
   if (!states.length) return "draft";
+  if (needsTikTokFinish(auto) && !states.some((s) => s === "queued" || s === "processing"))
+    return "needsFinish";
   if (states.every((s) => s === "published")) return "published";
   if (states.some((s) => s === "processing")) return "publishing";
   if (states.every((s) => s === "failed")) return "failed";
@@ -411,9 +557,16 @@ export function autoPostActive(auto: AutoPost | undefined): boolean {
   return s === "scheduled" || s === "publishing";
 }
 
+/** A whole post earns completion only when every selected destination is published. */
+export function canAutoMarkPosted(auto: AutoPost): boolean {
+  return autoPostSummary(auto) === "published" && !auto.platforms.some(isManual);
+}
+
 /** The first published link (for "Mark as posted" and the Produce quest proof). */
 export function firstPermalink(auto: AutoPost): string {
   for (const p of auto.platforms) {
+    if (p === "tiktok" && auto.tiktokCompletedAt && auto.tiktokPermalink)
+      return auto.tiktokPermalink;
     const link = auto.results[p]?.permalink;
     if (link) return link;
   }
@@ -425,6 +578,7 @@ export function firstPermalink(auto: AutoPost): string {
  * its web intent; Snapchat has none, so it opens the site and the caption goes through the clipboard.
  */
 export function manualComposeUrl(platform: Platform, text: string): string | null {
+  if (platform === "tiktok") return "https://www.tiktok.com/";
   if (platform === "x") return `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
   if (platform === "snapchat") return "https://www.snapchat.com/";
   return null;
@@ -433,7 +587,23 @@ export function manualComposeUrl(platform: Platform, text: string): string | nul
 /** The manual networks of a post's auto-post (X, Snapchat) that the owner still has to post by hand. */
 export function pendingManualPlatforms(post: Post): Platform[] {
   if (post.stage === "posted" || !post.autoPost) return [];
-  return post.autoPost.platforms.filter(isManual);
+  return post.autoPost.platforms.filter(
+    (p) => isManual(p) || (p === "tiktok" && needsTikTokFinish(post.autoPost)),
+  );
+}
+
+/** Require an actual post link before the user confirms completion; never accept a profile link. */
+export function isTikTokPostUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw.trim());
+    return (
+      url.protocol === "https:" &&
+      ["www.tiktok.com", "tiktok.com"].includes(url.hostname) &&
+      /^\/@[^/]+\/(video|photo)\/\d+\/?$/.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -446,7 +616,11 @@ export function dueManualPosts(posts: readonly Post[], now: Date | number = Date
   const due: { post: Post; at: number }[] = [];
   for (const post of posts) {
     if (!pendingManualPlatforms(post).length) continue;
-    const iso = scheduledAtOf(post);
+    const iso =
+      scheduledAtOf(post) ??
+      (needsTikTokFinish(post.autoPost)
+        ? (post.autoPost?.results.tiktok?.uploadedAt ?? post.autoPost?.sentAt)
+        : null);
     if (!iso) continue;
     const at = Date.parse(iso);
     if (at <= nowMs) due.push({ post, at });
@@ -500,6 +674,39 @@ export function reconnectMessageKey(
 }
 
 /* ---------- Worker calls (`/social/publish`) ---------- */
+
+export async function tiktokCreatorInfo(
+  config: ScoutConfig | null,
+  opts: SocialSyncOpts = {},
+): Promise<SocialResult<TikTokCapabilities>> {
+  if (!config) return { ok: false, error: { type: "unconfigured" } };
+  const r = await call(config, "/social/tiktok/creator", {}, opts);
+  if (!r.ok) return r;
+  const data = r.data as Partial<TikTokCapabilities> | null;
+  if (typeof data?.canUpload !== "boolean" || typeof data.canDirectPost !== "boolean")
+    return { ok: false, error: { type: "upstream" } };
+  const creator = data.creator;
+  if (
+    creator &&
+    (typeof creator.nickname !== "string" ||
+      typeof creator.username !== "string" ||
+      typeof creator.commentDisabled !== "boolean" ||
+      typeof creator.duetDisabled !== "boolean" ||
+      typeof creator.stitchDisabled !== "boolean" ||
+      !Array.isArray(creator.privacyLevels) ||
+      !creator.privacyLevels.every((v) => typeof v === "string") ||
+      !Number.isFinite(creator.maxVideoDurationSeconds) ||
+      creator.maxVideoDurationSeconds <= 0)
+  )
+    return { ok: false, error: { type: "upstream" } };
+  return {
+    ok: true,
+    canUpload: data.canUpload,
+    canDirectPost: data.canDirectPost,
+    ...(creator ? { creator } : {}),
+    ...(typeof data.detail === "string" ? { detail: data.detail } : {}),
+  };
+}
 
 /** `GET /social/publish`: every job the Worker holds with its per-platform state. */
 export async function publishList(

@@ -11,6 +11,8 @@ import {
   autoPostOf,
   autoPostSummary,
   buildJob,
+  canPublishTo,
+  canAutoMarkPosted,
   CAPTION_MAX,
   captionFor,
   captionWarnings,
@@ -37,6 +39,11 @@ import {
   sendCaption,
   trimCaption,
   workerKey,
+  needsTikTokFinish,
+  isTikTokPostUrl,
+  tiktokCreatorProblems,
+  tiktokCreatorInfo,
+  type TikTokCreator,
 } from "./publish";
 
 const CONFIG = { url: "https://scout.test", token: "tok" };
@@ -263,7 +270,7 @@ describe("buildJob", () => {
       scheduledAt: "2026-10-01T18:00:00.000Z",
       media: { url: "https://dl.dropboxusercontent.com/s/abc/clip.mp4", kind: "video" },
       targets: {
-        tiktok: { caption: defaultCaption(p), privacy: "PUBLIC_TO_EVERYONE", tiktokMode: "inbox" },
+        tiktok: { caption: defaultCaption(p), tiktokMode: "inbox" },
         youtube: { caption: defaultCaption(p), title: "Match cut in 30 s", privacy: "unlisted" },
         instagram: { caption: "ig words" },
       },
@@ -284,6 +291,175 @@ describe("buildJob", () => {
     // Instagram (2200) only loses hashtags from the end; YouTube (5000) gets it all.
     expect(job.targets.instagram?.caption).toBe("a".repeat(2190) + "\n\n#capcut");
     expect(job.targets.youtube?.caption).toBe(defaultCaption(p));
+  });
+});
+
+describe("TikTok personal publishing", () => {
+  const creator: TikTokCreator = {
+    username: "3z.prod",
+    nickname: "Creator",
+    privacyLevels: ["SELF_ONLY", "PUBLIC_TO_EVERYONE"],
+    commentDisabled: false,
+    duetDisabled: true,
+    stitchDisabled: false,
+    maxVideoDurationSeconds: 300,
+  };
+
+  it("defaults to inbox without preselecting privacy, interactions, music or consent", () => {
+    const a = auto();
+    expect(a.tiktokMode).toBe("inbox");
+    expect(a.tiktokPrivacy).toBe("");
+    expect(
+      a.tiktokAllowComment ||
+        a.tiktokAllowDuet ||
+        a.tiktokAllowStitch ||
+        a.tiktokConsent ||
+        a.tiktokAutoAddMusic,
+    ).toBe(false);
+    expect(buildJob(post(), a, AT).targets.tiktok).toEqual({
+      caption: defaultCaption(post()),
+      tiktokMode: "inbox",
+    });
+  });
+
+  it("uses granular permissions without breaking older Workers", () => {
+    const st = {
+      configured: true,
+      connected: true,
+      canPublish: true,
+      canUpload: true,
+      canDirectPost: false,
+    };
+    expect(canPublishTo(st, "tiktok", "inbox")).toBe(true);
+    expect(canPublishTo(st, "tiktok", "direct")).toBe(false);
+    expect(canPublishTo(ready.tiktok, "tiktok", "inbox")).toBe(true);
+    expect(
+      publishProblems(
+        post(),
+        auto({
+          tiktokMode: "direct",
+          tiktokPrivacy: "SELF_ONLY",
+          tiktokConsent: true,
+          durationSeconds: 10,
+        }),
+        { ...ready, tiktok: st },
+      ),
+    ).toEqual([{ code: "noPermission", platform: "tiktok" }]);
+  });
+
+  it("requires creator audience, explicit consent, allowed duration and valid disclosure for direct posting", () => {
+    expect(
+      publishProblems(post(), auto({ tiktokMode: "direct" }), ready).map((p) => p.code),
+    ).toEqual(["tiktokPrivacy", "tiktokConsent", "tiktokDuration"]);
+    const a = auto({
+      tiktokMode: "direct",
+      tiktokPrivacy: "SELF_ONLY",
+      durationSeconds: 301,
+      tiktokConsent: true,
+      tiktokBrandContent: true,
+    });
+    expect(publishProblems(post(), a, ready)).toContainEqual({
+      code: "tiktokBrandedPrivacy",
+      platform: "tiktok",
+    });
+    expect(tiktokCreatorProblems(a, creator)).toEqual([
+      { code: "tiktokDuration", platform: "tiktok" },
+    ]);
+    expect(
+      tiktokCreatorProblems(
+        { ...a, tiktokPrivacy: "MUTUAL_FOLLOW_FRIENDS", durationSeconds: 10 },
+        creator,
+      ),
+    ).toEqual([{ code: "tiktokPrivacy", platform: "tiktok" }]);
+    expect(tiktokCreatorProblems(a, undefined)).toEqual([
+      { code: "tiktokCreator", platform: "tiktok" },
+    ]);
+  });
+
+  it("builds ordered photos with cover and a 4000-character description; blocks mixed-network or invalid photo jobs", () => {
+    const a = auto({
+      mediaKind: "photo",
+      mediaUrl: "",
+      photoUrls: ["https://cdn.example/b.jpg", "https://cdn.example/a.jpg"],
+      photoTitle: "My photos",
+      photoCoverIndex: 1,
+    });
+    expect(publishProblems(post(), a, ready)).toEqual([]);
+    const job = buildJob(post({ caption: "x".repeat(3500), hashtags: [] }), a, AT);
+    expect(job.media).toEqual({ url: a.photoUrls[0], kind: "photo", photoUrls: a.photoUrls });
+    expect(job.targets.tiktok).toMatchObject({
+      photoTitle: "My photos",
+      photoCoverIndex: 1,
+      autoAddMusic: false,
+      caption: "x".repeat(3500),
+    });
+    expect(publishProblems(post(), { ...a, platforms: ["tiktok", "instagram"] }, ready)).toEqual([
+      { code: "photoOnlyTikTok" },
+    ]);
+    expect(
+      publishProblems(post(), { ...a, photoUrls: ["http://cdn.example/a.jpg"] }, ready).map(
+        (p) => p.code,
+      ),
+    ).toEqual(["badUrl", "photoCover"]);
+  });
+
+  it("never considers inbox upload published; keeps waiting for mixed jobs and retains manual completion across Worker reads", () => {
+    const a = auto({
+      sentAt: AT,
+      platforms: ["tiktok", "instagram"],
+      results: {
+        tiktok: { state: "published", inbox: true, uploadedAt: AT },
+        instagram: { state: "published", permalink: "https://www.instagram.com/reel/A/" },
+      },
+    });
+    expect(needsTikTokFinish(a)).toBe(true);
+    expect(autoPostSummary(a)).toBe("needsFinish");
+    expect(autoPostActive(a)).toBe(false);
+    expect(pendingManualPlatforms(post({ autoPost: a }))).toEqual(["tiktok"]);
+    expect(
+      autoPostSummary({ ...a, results: { ...a.results, instagram: { state: "queued" } } }),
+    ).toBe("publishing");
+    expect(
+      autoPostSummary({ ...a, results: { ...a.results, instagram: { state: "failed" } } }),
+    ).toBe("needsFinish");
+    const confirmed = {
+      ...a,
+      tiktokCompletedAt: AT,
+      tiktokPermalink: "https://www.tiktok.com/@3z.prod/video/123",
+    };
+    expect(needsTikTokFinish(confirmed)).toBe(false);
+    expect(autoPostSummary(confirmed)).toBe("published");
+    expect(canAutoMarkPosted(confirmed)).toBe(true);
+    expect(canAutoMarkPosted({ ...confirmed, platforms: ["tiktok", "instagram", "x"] })).toBe(
+      false,
+    );
+    expect(canAutoMarkPosted(a)).toBe(false);
+    expect(firstPermalink(confirmed)).toBe(confirmed.tiktokPermalink);
+  });
+
+  it("accepts only full TikTok video/photo links for manual publication proof", () => {
+    expect(isTikTokPostUrl("https://www.tiktok.com/@3z.prod/video/123456")).toBe(true);
+    expect(isTikTokPostUrl("https://www.tiktok.com/@3z.prod/photo/123456?lang=en")).toBe(true);
+    for (const url of [
+      "https://www.tiktok.com/@3z.prod",
+      "https://vm.tiktok.com/abc",
+      "https://tiktok.com.evil.test/@3z.prod/video/123",
+      "http://tiktok.com/@a/video/123",
+    ])
+      expect(isTikTokPostUrl(url)).toBe(false);
+  });
+
+  it("reads creator capabilities and fails closed on malformed or old Worker responses", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify({ canUpload: true, canDirectPost: true, creator })),
+    );
+    expect(await tiktokCreatorInfo(CONFIG, { fetchImpl })).toMatchObject({ ok: true, creator });
+    expect(fetchImpl.mock.calls[0][0]).toBe("https://scout.test/social/tiktok/creator");
+    const bad = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ canPublish: true })));
+    expect(await tiktokCreatorInfo(CONFIG, { fetchImpl: bad })).toEqual({
+      ok: false,
+      error: { type: "upstream" },
+    });
   });
 });
 
@@ -449,7 +625,7 @@ describe("manual networks", () => {
   it("X opens its composer with the text; Snapchat opens the site", () => {
     expect(manualComposeUrl("x", "hi #3z")).toBe("https://x.com/intent/post?text=hi%20%233z");
     expect(manualComposeUrl("snapchat", "hi")).toBe("https://www.snapchat.com/");
-    expect(manualComposeUrl("tiktok", "hi")).toBeNull();
+    expect(manualComposeUrl("tiktok", "hi")).toBe("https://www.tiktok.com/");
   });
 
   it("lists the X / Snapchat steps still to do by hand", () => {

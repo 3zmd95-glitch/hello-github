@@ -43,6 +43,23 @@ export const TT_PUBLISH_SCOPES = "video.publish,video.upload";
 export const TT_VIDEOS_MAX = 100;
 /** A token younger than this is used without a refresh. */
 export const TT_FRESH_MS = 5 * 60_000;
+
+/** Only TikTok's granted scope list proves access; old canPublish flags recorded requested scopes. */
+export function publishingCapabilities(tokens: Pick<TokenSet, "scope"> | null | undefined) {
+  const granted = new Set(tokens?.scope?.split(/[,\s]+/).filter(Boolean) ?? []);
+  return { canUpload: granted.has("video.upload"), canDirectPost: granted.has("video.publish") };
+}
+
+export interface TiktokCreator {
+  username: string;
+  nickname: string;
+  avatarUrl?: string;
+  privacyLevels: string[];
+  commentDisabled: boolean;
+  duetDisabled: boolean;
+  stitchDisabled: boolean;
+  maxVideoDurationSeconds: number;
+}
 const PAGE = 20;
 const PLATFORM = "tiktok" as const;
 
@@ -129,6 +146,8 @@ export const auth: ProviderAuth = {
       }
       throw new SocialError("upstream", `refresh: ${err || reply.status}`);
     }
+    const scope = reply.body.scope ?? tokens.scope;
+    const caps = publishingCapabilities({ scope });
     return {
       ...tokens,
       accessToken: reply.body.access_token,
@@ -136,6 +155,8 @@ export const auth: ProviderAuth = {
       expiresAt: isoPlusSeconds(now, reply.body.expires_in ?? 86_400),
       issuedAt: now.toISOString(),
       userId: reply.body.open_id ?? tokens.userId,
+      scope,
+      canPublish: caps.canUpload || caps.canDirectPost,
     };
   },
 };
@@ -186,6 +207,40 @@ function ttData<T>(reply: JsonReply<TtEnvelope<T>>, what: string): T {
   if (reply.status === 429 || code === "rate_limit_exceeded")
     throw new SocialError("rate_limited", msg);
   throw new SocialError("upstream", msg);
+}
+
+/** Fresh creator settings are required both for the export form and immediately before Direct Post. */
+export async function queryCreatorInfo(http: Http, token: string): Promise<TiktokCreator> {
+  const data = ttData(
+    await fetchJson<
+      TtEnvelope<{
+        creator_username?: string;
+        creator_nickname?: string;
+        creator_avatar_url?: string;
+        privacy_level_options?: string[];
+        comment_disabled?: boolean;
+        duet_disabled?: boolean;
+        stitch_disabled?: boolean;
+        max_video_post_duration_sec?: number;
+      }>
+    >(http, `${TT_API}/post/publish/creator_info/query/`, {
+      method: "POST",
+      headers: bearer(token, { "Content-Type": "application/json; charset=UTF-8" }),
+      body: "{}",
+    }),
+    "creator_info",
+  );
+  return {
+    username: data.creator_username ?? "",
+    nickname: data.creator_nickname ?? "",
+    ...(data.creator_avatar_url ? { avatarUrl: data.creator_avatar_url } : {}),
+    privacyLevels: data.privacy_level_options ?? [],
+    // Missing settings must not enable interactions or admit an unknown duration.
+    commentDisabled: data.comment_disabled !== false,
+    duetDisabled: data.duet_disabled !== false,
+    stitchDisabled: data.stitch_disabled !== false,
+    maxVideoDurationSeconds: data.max_video_post_duration_sec ?? 0,
+  };
 }
 
 export function videoRow(v: TtVideo): PostRow {

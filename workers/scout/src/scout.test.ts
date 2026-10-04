@@ -172,6 +172,82 @@ describe("auth", () => {
   });
 });
 
+describe("creator route authentication", () => {
+  const input = {
+    brief: "Demonstrate a window-light coffee shot.",
+    title: "Window light",
+    platform: "tiktok",
+    language: "en",
+    tone: "educational",
+    durationSeconds: 30,
+    script: { hook: "", beats: ["", "", ""], cta: "" },
+  };
+  const draft = {
+    hook: "Try this window-light setup.",
+    beats: ["Position the cup.", "Turn toward the window.", "Show the result."],
+    cta: "Try a different angle.",
+    caption: "A coffee shot using window light.",
+    hashtags: ["#coffee"],
+    shots: [
+      { type: "hook", text: "Finished cup shot" },
+      { type: "wide", text: "Window and table" },
+      { type: "closeup", text: "Cup details" },
+    ],
+  };
+  const creatorEnv = () => {
+    const values = new Map<string, string>();
+    const get = vi.fn(async (key: string) => values.get(key) ?? null);
+    const put = vi.fn(async (key: string, value: string) => {
+      values.set(key, value);
+    });
+    const run = vi.fn(async () => ({ response: draft }));
+    const env: Env = { ...ENV, AI: { run }, SOCIAL_KV: { get, put } as unknown as KVNamespace };
+    return { env, run, get, put };
+  };
+  const creatorReq = (token: string | null, origin = APP) =>
+    req("/creator/draft", {
+      method: "POST",
+      token,
+      origin,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+
+  it.each([null, "wrong-owner-token"])(
+    "rejects owner token %s before AI or quota storage",
+    async (token) => {
+      const { env, run, get, put } = creatorEnv();
+      const response = await handle(creatorReq(token), env);
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: "unauthorized" });
+      expect(run).not.toHaveBeenCalled();
+      expect(get).not.toHaveBeenCalled();
+      expect(put).not.toHaveBeenCalled();
+    },
+  );
+
+  it("routes an authenticated request through creator validation, inference and no-store JSON", async () => {
+    const { env, run, put } = creatorEnv();
+    const response = await handle(creatorReq(TOKEN), env, undefined, {
+      now: () => new Date("2026-10-04T10:00:00Z"),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ draft });
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(APP);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(put).toHaveBeenCalledWith("creator:budget:2026-10-04", "1", expect.any(Object));
+  });
+
+  it("rejects an untrusted browser origin even with the correct owner token", async () => {
+    const { env, run, get } = creatorEnv();
+    const response = await handle(creatorReq(TOKEN, "https://untrusted.example"), env);
+    expect(response.status).toBe(403);
+    expect(run).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+  });
+});
+
 describe("CORS", () => {
   it("answers a preflight from an allowed origin and reflects it", async () => {
     const res = await handle(req("/search", { method: "OPTIONS", token: null }), ENV);
