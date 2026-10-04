@@ -26,13 +26,6 @@ const ERROR_KEY: Record<string, MessageKey> = {
   not_eligible: "replies.err.notEligible",
 };
 
-/** Why "Check now" did nothing (the poll's `skipped`) → copy; other outcomes say what was checked. */
-const SKIPPED_KEY: Record<string, MessageKey> = {
-  locked: "replies.notice.busy",
-  paused: "replies.notice.paused",
-  guard: "replies.notice.guard",
-};
-
 const errorText = (t: (k: MessageKey) => string, code: string | undefined) =>
   code ? t(ERROR_KEY[code] ?? "replies.err.upstream") : "";
 
@@ -121,12 +114,20 @@ export default function AutoRepliesScreen() {
     if (!a) return;
     if (await deleteReply(a.id)) setNotice(t("replies.notice.deleted"));
   };
+  /** "Check now" asks the Worker for a full read on its next tick; paused or stopped, nothing goes out yet. */
   const check = async () => {
     setNotice(null);
-    const r = await checkReplies();
-    if (!r) return;
-    const skipped = r.skipped ? SKIPPED_KEY[r.skipped] : undefined;
-    setNotice(skipped ? t(skipped) : t("replies.notice.checked", { n: r.checked, sent: r.sent }));
+    const fresh = await checkReplies();
+    if (!fresh) return;
+    setNotice(
+      t(
+        fresh.paused
+          ? "replies.notice.paused"
+          : fresh.guard === "stop"
+            ? "replies.notice.guard"
+            : "replies.notice.scanRequested",
+      ),
+    );
   };
 
   if (editing) {

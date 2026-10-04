@@ -250,12 +250,12 @@ is what the Live test decides (`planning/tools/14-auto-replies-v2.md`, Step 0).
 Advanced Access. So every minute (on the five-minute grid only on publish ticks that moved nothing), the Worker
 lists the newest `WATCH_ANY_MAX` (5) posts (for "any post" automations) plus up to `WATCH_SPECIFIC_MAX` (3)
 specific posts (a post that cannot be looked up is noted on its automations and skipped), reads the comments of
-those whose `comments_count` changed (all of them once an hour, or on "Check now"; a post whose read failed is
-read again next tick), skips its own comments, comments older than 7 days, comments from before the automation was
-switched on and comments already answered, matches the rest (specific-post automations before "any post"),
-takes a short lock (`POLL_LOCK_MS`, 4 min) so the cron and "Check now" never answer the same comment or message,
-and answers at most `REPLY_CAP` (8) a tick, comments and DMs together, comments first, oldest first. A post with
-matching comments left over (cap, budget, stop) is read again next tick.
+those whose `comments_count` changed (all of them once an hour, and on the tick after "Check now"; a post whose
+read failed is read again next tick), skips its own comments, comments older than 7 days, comments from before the
+automation was switched on and comments already answered, matches the rest (specific-post automations before "any
+post"), takes a short lock (`POLL_LOCK_MS`, 4 min) so two overlapping polls never answer the same comment or
+message, and answers at most `REPLY_CAP` (8) a tick, comments and DMs together, comments first, oldest first. A post
+with matching comments left over (cap, budget, stop) is read again next tick.
 
 **Order per comment.** First the private reply, `POST /{ig-user-id}/messages { recipient: { comment_id }, message }`
 (one per comment, within 7 days): plain text, or a button template when the rule has buttons (the Send API below).
@@ -303,17 +303,17 @@ events can still arrive and run one off-schedule sync each (harmless, bounded), 
 `* * * * *` the old code would run a full sync every minute.
 
 **Storage, one document per writer** (KV is last-write-wins, so no path ever rewrites another's data):
-`replies:doc` = the owner's automations, pause and default reply (dashboard routes), `replies:state` = answered
-comments, conversation positions, the poll's own message ids, default-reply times, counters, log, lock and the
-day's write count (the poll only), `replies:clicks` = taps on `/go` links (`/go` only). Reads merge the three; an
-idle tick writes nothing.
+`replies:doc` = the owner's automations, pause, default reply and "Check now" request (dashboard routes),
+`replies:state` = answered comments, conversation positions, the poll's own message ids, default-reply times,
+counters, log, lock and the day's write count (the poll only), `replies:clicks` = taps on `/go` links (`/go` only).
+Reads merge the three; an idle tick writes nothing.
 
 | Route                           | Request                                                                                                                                 | Response                                                                                                                                         |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `GET /social/replies`           |                                                                                                                                         | `{ automations (with stats), log, paused, defaultReply? (with its stats), origin?, igUserId?, ownerUsername?, lastPollAt?, lastError?, guard? }` |
 | `POST /social/replies`          | `{ id, enabled?, trigger?, postId?, permalink?, title?, thumbUrl?, keywords, match?, publicReplies?, dmText, buttons?, followButton? }` | `{ automation }` (with its counters); `400 { error, detail }`                                                                                    |
 | `POST /social/replies/settings` | `{ paused?, defaultReply?: { enabled, text } }`                                                                                         | the GET shape; `400 { error, detail }`                                                                                                           |
-| `POST /social/replies/poll`     |                                                                                                                                         | `{ result: { checked, sent, failed, skipped?, error?, detail? }, …the GET shape }`                                                               |
+| `POST /social/replies/poll`     |                                                                                                                                         | `{ scanRequested: true, …the GET shape }`: "Check now" stamps `scanRequestedAt` in `replies:doc`; the next tick reads every watched post         |
 | `DELETE /social/replies/:id`    |                                                                                                                                         | `{ ok: true }` (its counters go with the next poll)                                                                                              |
 
 Validation: `id` is `[A-Za-z0-9_-]{1,100}` (not `poll`, `settings` or `default`); `trigger` is `comment` (default)

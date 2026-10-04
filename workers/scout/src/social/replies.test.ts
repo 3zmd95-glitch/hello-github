@@ -23,6 +23,7 @@ import {
   type AutomationsDoc,
   type AutomationView,
   type ClicksDoc,
+  type PollDeps,
   type PollState,
 } from "./replies";
 import { keys, Store } from "./store";
@@ -226,6 +227,14 @@ function igRoutes(over: Record<string, Handler> = {}, comments = [comment("c1", 
 }
 
 const tick = (n: number) => new Date(NOW.getTime() + n * 300_000);
+
+/** "Check now" (the dashboard's scan request), then the tick's poll: every watched post is read. */
+async function checkThenPoll(env: Env, deps: PollDeps & { now: Date }) {
+  await handle(req("/social/replies/poll", { method: "POST" }), env, undefined, {
+    now: () => deps.now,
+  });
+  return pollReplies(env, deps);
+}
 
 /* ---------- DMs ---------- */
 
@@ -614,18 +623,38 @@ describe("/social/replies", () => {
     expect((await handle(req("/social/replies/lut/x", { method: "DELETE" }), env)).status).toBe(404);
   });
 
-  it("POST /social/replies/poll checks the comments now and answers with the document", async () => {
+  it("POST /social/replies/poll asks the next tick for a full scan and leaves the poll's state alone", async () => {
     const env = makeEnv();
     await connect(env, "instagram");
     await seed(env, [input()]);
     const fetchMock = mockFetch(igRoutes().routes);
+    // m1 was read at its current count and the hourly full scan is not due: a tick reads nothing.
+    await pollReplies(env, { fetch: fetchMock, now: NOW });
+    expect((await pollReplies(env, { fetch: fetchMock, now: tick(1) })).checked).toBe(0);
+    const calls = fetchMock.calls().length;
+
+    const before = env.SOCIAL_KV.written.length;
     const res = await handle(req("/social/replies/poll", { method: "POST" }), env, undefined, {
       fetch: fetchMock,
-      now: () => NOW,
+      now: () => tick(1),
     });
-    const body = (await res.json()) as { result: { sent: string[] }; automations: AutomationView[] };
-    expect(body.result.sent).toEqual(["c1"]);
-    expect(body.automations[0].stats.sends).toBe(1);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      scanRequested: true,
+      automations: [
+        expect.objectContaining({ id: "lut", stats: expect.objectContaining({ sends: 1 }) }),
+      ],
+    });
+    expect(body).not.toHaveProperty("result");
+    // Only the dashboard's document is written; nothing is asked of Instagram.
+    expect(env.SOCIAL_KV.written.slice(before)).toEqual([keys.replies]);
+    expect((await configOf(env)).scanRequestedAt).toBe(tick(1).toISOString());
+    expect(fetchMock.calls()).toHaveLength(calls);
+
+    // The next tick reads every watched post although no count changed; the one after is back to normal.
+    expect((await pollReplies(env, { fetch: fetchMock, now: tick(2) })).checked).toBe(1);
+    expect((await pollReplies(env, { fetch: fetchMock, now: tick(3) })).checked).toBe(0);
   });
 });
 
@@ -867,7 +896,7 @@ describe("pollReplies", () => {
     let dm: () => unknown = () => json({ error: { message: "boom", code: 1 } }, 500);
     const { routes } = igRoutes({ [`POST ${IG}/17841/messages`]: () => dm() }, [comment("c1", "لت")]);
     const fetchMock = mockFetch(routes);
-    for (let i = 0; i < 2; i++) await pollReplies(env, { fetch: fetchMock, now: tick(i), force: true });
+    for (let i = 0; i < 2; i++) await checkThenPoll(env, { fetch: fetchMock, now: tick(i) });
     expect(fetchMock.calls()).not.toContain(`POST ${IG}/c1/replies`);
     let state = await stateOf(env);
     expect(state.retries.c1).toBe(2);
@@ -875,14 +904,14 @@ describe("pollReplies", () => {
 
     // The third try succeeds: DM, then exactly one public reply.
     dm = () => ({ message_id: "mid1" });
-    await pollReplies(env, { fetch: fetchMock, now: tick(2), force: true });
+    await checkThenPoll(env, { fetch: fetchMock, now: tick(2) });
     expect(fetchMock.calls().filter((c) => c === `POST ${IG}/c1/replies`)).toHaveLength(1);
     state = await stateOf(env);
     expect(state.handled).toHaveProperty("c1");
     expect(state.stats.lut).toMatchObject({ sends: 1, publicReplies: 1, failures: 2 });
 
     // Later re-reads of the same post never touch c1 again.
-    await pollReplies(env, { fetch: fetchMock, now: tick(3), force: true });
+    await checkThenPoll(env, { fetch: fetchMock, now: tick(3) });
     expect(fetchMock.calls().filter((c) => c === `POST ${IG}/c1/replies`)).toHaveLength(1);
     expect(fetchMock.calls().filter((c) => c === `POST ${IG}/17841/messages`)).toHaveLength(3);
   });
@@ -902,7 +931,7 @@ describe("pollReplies", () => {
     expect(state.handled).toHaveProperty("c1");
     expect(state.log[0]).toMatchObject({ dm: "sent", publicReply: "failed", error: "upstream" });
     expect(state.stats.lut).toMatchObject({ sends: 1, publicReplies: 0 });
-    await pollReplies(env, { fetch: fetchMock, now: tick(1), force: true });
+    await checkThenPoll(env, { fetch: fetchMock, now: tick(1) });
     expect(fetchMock.calls().filter((c) => c === `POST ${IG}/c1/replies`)).toHaveLength(1);
   });
 
@@ -924,15 +953,13 @@ describe("pollReplies", () => {
     expect(state.log[0]).toMatchObject({ dm: "failed", error: "token_expired", detail: "Invalid OAuth" });
 
     dm = () => json({ error: { message: "slow down", code: 4 } }, 400);
-    await pollReplies(env, { fetch: fetchMock, now: tick(1), force: true });
+    await checkThenPoll(env, { fetch: fetchMock, now: tick(1) });
     state = await stateOf(env);
     expect(state.lastError).toBe("rate_limited");
     expect(state.handled).toEqual({});
 
     dm = () => json({ error: { message: "User cannot be messaged", code: 100 } }, 400);
-    expect((await pollReplies(env, { fetch: fetchMock, now: tick(2), force: true })).failed).toEqual([
-      "c1",
-    ]);
+    expect((await checkThenPoll(env, { fetch: fetchMock, now: tick(2) })).failed).toEqual(["c1"]);
     state = await stateOf(env);
     expect(state.handled).toHaveProperty("c1");
     expect(state.lastError).toBeUndefined();
@@ -997,14 +1024,14 @@ describe("pollReplies", () => {
     routes[`GET ${IG}/m1/comments`] = () => ({ data: [comment("c4", "لت"), comment("c5", "لت", { timestamp: new Date(NOW.getTime() - 9 * 60_000).toISOString() })] });
     answers.c4 = () => json({ error: { message: "permission denied", code: 10 } }, 403);
     for (let i = 1; i <= 3; i++) {
-      await pollReplies(env, { fetch: fetchMock, now: tick(i), force: true });
+      await checkThenPoll(env, { fetch: fetchMock, now: tick(i) });
       state = await stateOf(env);
       expect(state.lastError).toBe("no_permission");
     }
     expect(state.handled).toHaveProperty("c4");
     expect(state.retries).toEqual({});
     // c5 waited behind c4 and goes out once c4 is given up on.
-    await pollReplies(env, { fetch: fetchMock, now: tick(4), force: true });
+    await checkThenPoll(env, { fetch: fetchMock, now: tick(4) });
     expect((await stateOf(env)).handled).toHaveProperty("c5");
   });
 
@@ -1047,7 +1074,7 @@ describe("pollReplies", () => {
     // One post's comments cannot be read: the other post is still answered, the failing one is retried next tick.
     routes[`GET ${IG}/m2/comments`] = () => ({ data: [comment("c3", "لت")] });
     m1 = () => json({ error: { message: "boom", code: 1 } }, 500);
-    r = await pollReplies(env, { fetch: fetchMock, now: tick(1), force: true });
+    r = await checkThenPoll(env, { fetch: fetchMock, now: tick(1) });
     expect(r).toMatchObject({ checked: 1, sent: ["c3"], error: "upstream" });
     state = await stateOf(env);
     expect(state.watch).not.toHaveProperty("m1");
@@ -1108,7 +1135,7 @@ describe("pollReplies", () => {
     // Meanwhile the owner switches the automation off and adds another one…
     await handle(req("/social/replies", { method: "POST", json: input({ enabled: false }) }), env);
     await handle(req("/social/replies", { method: "POST", json: input({ id: "lut2", keywords: ["preset"] }) }), env);
-    // …and "Check now" arrives: it waits instead of answering the same comment.
+    // …and an overlapping poll starts: it waits instead of answering the same comment.
     expect(await pollReplies(env, { fetch: mockFetch({}), now: tick(0) })).toMatchObject({ skipped: "locked" });
 
     release();

@@ -150,12 +150,9 @@ async function stubWorker(page: Page): Promise<Fake> {
       return json(doc());
     }
     if (url.pathname === "/social/replies/poll" && req.method() === "POST") {
+      // Like the Worker: "Check now" only notes a scan request (the next tick reads every post).
       fake.polls += 1;
-      // Like the Worker: a paused poll does nothing and says why.
-      if (fake.paused) {
-        return json({ result: { checked: 0, sent: [], failed: [], skipped: "paused" }, ...doc() });
-      }
-      return json({ result: { checked: 2, sent: ["c1"], failed: [] }, ...doc() });
+      return json({ scanRequested: true, ...doc() });
     }
     const del = /^\/social\/replies\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
     if (del && req.method() === "DELETE") {
@@ -291,10 +288,13 @@ test("allow auto-replies in Settings, build the LUT automation, test it, read se
     "false",
   );
 
-  // "Check now" reads the fresh counters back.
+  // "Check now" asks for a scan within a minute and reads the fresh counters back.
   fake.automations.get(id)!.stats = { sends: 3, publicReplies: 3, failures: 0, clicks: 1 };
   await page.getByTestId("autoreplies-check").click();
   await expect.poll(() => fake.polls).toBe(1);
+  await expect(page.getByTestId("autoreplies-notice")).toHaveText(
+    "طلبنا فحص؛ الردود تطلع خلال دقيقة.",
+  );
   await expect(row.getByTestId("autoreply-sends")).toHaveText("3");
   await expect(row.getByTestId("autoreply-clicks")).toHaveText("1");
   await expect(row.getByTestId("autoreply-ctr")).toHaveText("33%");
@@ -469,7 +469,7 @@ test("pause all, and the default reply with its size check", async ({ page }) =>
   await page.getByTestId("autoreplies-pause").click();
   await expect.poll(() => fake.settings.at(-1)).toEqual({ paused: true });
   await expect(status).toHaveAttribute("data-status", "paused");
-  // "Check now" while paused says why nothing was checked.
+  // "Check now" while paused says nothing goes out until the replies are switched back on.
   await page.getByTestId("autoreplies-check").click();
   await expect(page.getByTestId("autoreplies-notice")).toHaveText(
     "الردود موقّفة؛ شغّلها عشان نفحص.",

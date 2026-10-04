@@ -100,6 +100,8 @@ interface AutomationsDoc {
   paused?: boolean;
   /** DMs that match no rule; at most once per person per 24 hours. */
   defaultReply?: { enabled: boolean; text: string; enabledAt?: string; updatedAt: string };
+  /** "Check now": the next poll reads every watched post when this is newer than its last full scan. */
+  scanRequestedAt?: string;
   automations: Record<string, Automation>;
 }
 
@@ -211,6 +213,12 @@ sync every minute. During the first deploy a few old `*/5` events can still arri
   joins the reserved ids.
 - `GET /social/replies` adds `paused`, `defaultReply` with its stats, and `guard: "slow" | "stop"` when the write
   guard is on today.
+- `POST /social/replies/poll` («🔄 افحص الآن», "Check now") is a **scan request**: it stamps `scanRequestedAt` in
+  `replies:doc` and answers `{ scanRequested: true, …the GET shape }`; the next tick (within a minute) reads every
+  watched post. It never polls itself: a poll from the dashboard could read a copy of `replies:state` up to a minute
+  old (KV propagation) and overwrite the cron poll's result, so `replies:state` keeps one writer. The screen says
+  «طلبنا فحص؛ الردود تطلع خلال دقيقة.», or why nothing goes out yet (paused, or the write guard stopped for the day).
+  The poll's lock now only guards overlapping cron polls.
 
 ## Dashboard
 

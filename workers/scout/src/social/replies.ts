@@ -27,7 +27,8 @@
  *
  * Storage is split by writer, so no request path ever overwrites another's data (KV is last-write-wins):
  *   replies:doc     AutomationsDoc  what the owner configured (rules, pause, default reply); written only by
- *                                   POST/DELETE /social/replies and POST /social/replies/settings
+ *                                   POST/DELETE /social/replies, POST /social/replies/settings and "Check now"
+ *                                   (POST /social/replies/poll, a scan request the next tick picks up)
  *   replies:state   PollState       what the poller learned (answered comments, conversation positions, counters,
  *                                   log, lock); written only by pollReplies, which also holds a short lock while
  *                                   it answers
@@ -179,6 +180,8 @@ export interface AutomationsDoc {
   /** Pause all: the poll answers nothing while true. */
   paused?: boolean;
   defaultReply?: DefaultReply;
+  /** ISO: "Check now" — the next poll reads every watched post (a full scan) when this is newer than its last one. */
+  scanRequestedAt?: string;
   automations: Record<string, Automation>;
 }
 
@@ -216,7 +219,7 @@ export interface PollState {
   lastPollAt?: string;
   lastFullScanAt?: string;
   lastError?: ReplyErrorCode;
-  /** ISO: a poll is answering comments or DMs until then (keeps the cron and "Check now" from both answering). */
+  /** ISO: a poll is answering comments or DMs until then (keeps two overlapping polls from both answering). */
   lockUntil?: string;
   /** replies:state writes on a UTC day (Cloudflare's daily limits reset at 00:00 UTC). */
   writes?: { day: string; count: number };
@@ -482,8 +485,6 @@ export interface PollDeps {
   fetch?: typeof fetch;
   now?: Date;
   budget?: number;
-  /** Read every watched post's comments even when the counts did not change ("Check now"). */
-  force?: boolean;
   /** Picks the public reply (tests pass a fixed source). */
   random?: () => number;
   /** False on the cron's off-grid minutes, which the guard's "slow" mode skips. Default true. */
@@ -697,10 +698,11 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
       }
     }
 
+    // Everything once an hour, and on the tick after "Check now" (the dashboard's scan request).
     const fullScan =
-      !!deps.force ||
       !state.lastFullScanAt ||
-      now.getTime() - Date.parse(state.lastFullScanAt) >= FULL_SCAN_EVERY_MS;
+      now.getTime() - Date.parse(state.lastFullScanAt) >= FULL_SCAN_EVERY_MS ||
+      Date.parse(config.scanRequestedAt ?? "") > Date.parse(state.lastFullScanAt);
     const toRead = media
       .filter((m) => fullScan || (state.watch[m.id]?.count ?? -1) !== m.count)
       .slice(0, WATCH_MAX);
@@ -769,7 +771,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     }
     const dmToAnswer = batches.some((b) => b.items.some((i) => answerFor(inbox, b, i)));
 
-    // Claim the comments and messages before answering, so a "Check now" landing during the cron tick waits.
+    // Claim the comments and messages before answering, so a poll overlapping this one waits.
     if (candidates.length || dmToAnswer) {
       state.lockUntil = new Date(now.getTime() + POLL_LOCK_MS).toISOString();
       changed = true;
@@ -966,11 +968,9 @@ async function readAll(store: Store): Promise<[AutomationsDoc, PollState, Clicks
 /** `/social/replies[/:id | /poll | /settings]`; `rest` is the path after "replies". Null when the path is not ours. */
 export async function handleReplies(
   req: Request,
-  env: SocialEnv,
   rest: string[],
   store: Store | null,
   now: Date,
-  fetchImpl: typeof fetch | undefined,
   reply: Reply,
 ): Promise<Response | null> {
   const [first, extra] = rest;
@@ -1020,10 +1020,15 @@ export async function handleReplies(
     return reply.json(publicDoc(next, state, clicks, now), 200);
   }
 
+  // "Check now" is a scan request, not a poll: the next tick reads every watched post. A poll from here would run in
+  // the dashboard's colo, could read a copy of replies:state up to a minute old and overwrite the cron's result.
   if (first === "poll" && req.method === "POST") {
     if (!store) return reply.fail("not_configured");
-    const result = await pollReplies(env, { fetch: fetchImpl, now, force: true });
-    return reply.json({ result, ...publicDoc(...(await readAll(store)), now) }, 200);
+    const [config, state, clicks] = await readAll(store);
+    config.scanRequestedAt = now.toISOString();
+    config.origin = new URL(req.url).origin;
+    await store.putReplies(config);
+    return reply.json({ scanRequested: true, ...publicDoc(config, state, clicks, now) }, 200);
   }
 
   if (first && ID_RE.test(first) && req.method === "DELETE") {

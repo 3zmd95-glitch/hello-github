@@ -9,7 +9,6 @@ import {
   repliesPoll,
   repliesSave,
   repliesSettings,
-  type PollOutcome,
   type RepliesSettings,
 } from "@/lib/replies";
 import { scoutConfig, type ScoutConfig } from "@/lib/scoutClient";
@@ -111,8 +110,8 @@ export async function saveSettings(settings: RepliesSettings): Promise<boolean> 
   return true;
 }
 
-/** "Check now": the Worker reads the comments at once and answers with the fresh document. */
-export async function checkReplies(): Promise<PollOutcome | null> {
+/** "Check now": asks the Worker to read every watched post on its next tick; returns the fresh document. */
+export async function checkReplies(): Promise<AutoRepliesDoc | null> {
   const cfg = currentConfig();
   if (!cfg) {
     fail({ type: "unconfigured" });
@@ -125,7 +124,7 @@ export async function checkReplies(): Promise<PollOutcome | null> {
     return null;
   }
   set({ doc: r.doc, busy: false, loadedAt: Date.now() });
-  return r.outcome;
+  return r.doc;
 }
 
 /** The document for a screen; loads it once the Worker is configured. */

@@ -272,33 +272,22 @@ describe("Worker calls", () => {
     ).toEqual({ ok: false, error: { type: "bad_request", status: 400 } });
   });
 
-  it("DELETEs by id and polls", async () => {
+  it("DELETEs by id, and asks for a scan with 'Check now'", async () => {
     const del = replying({ ok: true });
     expect(await repliesDelete(CONFIG, "lut", { fetchImpl: del })).toEqual({ ok: true });
     expect(del.mock.calls[0][0]).toBe("https://scout.test/social/replies/lut");
     expect(del.mock.calls[0][1]?.method).toBe("DELETE");
 
-    const poll = replying({
-      result: { checked: 2, sent: ["c1", "c2"], failed: [] },
-      automations: [],
-      log: [],
-    });
+    // The Worker only notes the request (its next tick reads every post) and answers with the document.
+    const poll = replying({ scanRequested: true, automations: [], log: [], paused: true });
     const r = await repliesPoll(CONFIG, { fetchImpl: poll });
     expect(poll.mock.calls[0][0]).toBe("https://scout.test/social/replies/poll");
-    expect(r).toEqual({
-      ok: true,
-      doc: { automations: [], log: [], paused: false },
-      outcome: { checked: 2, sent: 2, failed: 0 },
+    expect(poll.mock.calls[0][1]?.method).toBe("POST");
+    expect(r).toEqual({ ok: true, doc: { automations: [], log: [], paused: true } });
+    expect(await repliesPoll(CONFIG, { fetchImpl: replying({ automations: "no" }) })).toEqual({
+      ok: false,
+      error: { type: "upstream" },
     });
-
-    const locked = await repliesPoll(CONFIG, {
-      fetchImpl: replying({
-        result: { checked: 0, sent: [], failed: [], skipped: "locked" },
-        automations: [],
-        log: [],
-      }),
-    });
-    expect(locked).toMatchObject({ ok: true, outcome: { checked: 0, sent: 0, skipped: "locked" } });
   });
 });
 

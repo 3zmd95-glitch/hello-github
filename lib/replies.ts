@@ -317,38 +317,17 @@ export async function repliesSettings(
   return doc ? { ok: true, doc } : { ok: false, error: { type: "upstream" } };
 }
 
-export interface PollOutcome {
-  checked: number;
-  sent: number;
-  failed: number;
-  /** Why the Worker did nothing (`locked` = a check is already running). */
-  skipped?: string;
-}
-
-/** `POST /social/replies/poll`: read the comments now; answers with the outcome and the fresh document. */
+/**
+ * `POST /social/replies/poll` ("Check now"): a scan request — the Worker's next tick (within a minute) reads every
+ * watched post; answers with the fresh document.
+ */
 export async function repliesPoll(
   config: ScoutConfig | null,
   opts: SocialSyncOpts = {},
-): Promise<SocialResult<{ doc: AutoRepliesDoc; outcome: PollOutcome }>> {
+): Promise<SocialResult<{ doc: AutoRepliesDoc }>> {
   if (!config) return { ok: false, error: { type: "unconfigured" } };
   const r = await call(config, "/social/replies/poll", jsonPost({}), opts);
   if (!r.ok) return r;
   const doc = parseRepliesDoc(r.data);
-  const raw = (
-    r.data as {
-      result?: { checked?: unknown; sent?: unknown; failed?: unknown; skipped?: unknown };
-    }
-  )?.result;
-  if (!doc) return { ok: false, error: { type: "upstream" } };
-  const count = (v: unknown) => (Array.isArray(v) ? v.length : 0);
-  return {
-    ok: true,
-    doc,
-    outcome: {
-      checked: typeof raw?.checked === "number" ? raw.checked : 0,
-      sent: count(raw?.sent),
-      failed: count(raw?.failed),
-      ...(typeof raw?.skipped === "string" ? { skipped: raw.skipped } : {}),
-    },
-  };
+  return doc ? { ok: true, doc } : { ok: false, error: { type: "upstream" } };
 }
