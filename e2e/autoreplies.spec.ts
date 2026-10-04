@@ -21,6 +21,8 @@ interface Automation {
   id: string;
   enabled: boolean;
   postId: string | null;
+  title?: string;
+  permalink?: string;
   keywords: string[];
   match: string;
   trigger: string;
@@ -372,6 +374,79 @@ test("Edit far down a long list opens the editor at its top", async ({ page }) =
   await last.getByTestId("autoreply-edit").click();
   await expect(page.getByRole("heading", { name: "تعديل الرد التلقائي" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+});
+
+test("a rule on a post this browser has not synced keeps it: checked first in the grid, saved with it", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  fake.status.instagram = { ...fake.status.instagram, canReply: true };
+  // An older post: the fake's synced posts are 18001 and 18002 only.
+  fake.automations.set("old", {
+    id: "old",
+    enabled: true,
+    postId: "17990",
+    title: "Old LUT reel",
+    permalink: "https://www.instagram.com/reel/OLD/",
+    keywords: ["لت"],
+    match: "contains",
+    trigger: "comment",
+    publicReplies: [],
+    followButton: false,
+    dmText: "الرابط تحت",
+    buttons: [],
+    createdAt: "2026-09-01T09:00:00.000Z",
+    stats: { sends: 0, publicReplies: 0, failures: 0, clicks: 0 },
+  });
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  await page.goto("/social/replies/");
+  const row = page.locator('[data-testid="autoreply-row"][data-id="old"]:visible');
+  const tiles = page.getByTestId("autoreply-post-tile");
+
+  await row.getByTestId("autoreply-menu").click();
+  await row.getByTestId("autoreply-edit").click();
+  await expect(page.getByTestId("autoreply-target-post")).toHaveAttribute("aria-checked", "true");
+  await expect(tiles).toHaveCount(3);
+  await expect(tiles.first()).toHaveAttribute("data-post-id", "17990");
+  await expect(tiles.first()).toHaveAttribute("aria-checked", "true");
+  await expect(tiles.first()).toHaveText("Old LUT reel");
+  await page.getByTestId("autoreply-save").click();
+  await expect.poll(() => fake.saved.length).toBe(1);
+  expect(fake.saved[0]).toMatchObject({
+    postId: "17990",
+    title: "Old LUT reel",
+    permalink: "https://www.instagram.com/reel/OLD/",
+  });
+
+  // "Any post" and back: the post is still offered, so it can be picked again.
+  await row.getByTestId("autoreply-menu").click();
+  await row.getByTestId("autoreply-edit").click();
+  await page.getByTestId("autoreply-target-anyPost").click();
+  await page.getByTestId("autoreply-target-post").click();
+  await expect(tiles.first()).toHaveAttribute("aria-checked", "false");
+  await tiles.first().click();
+  await page.getByTestId("autoreply-save").click();
+  await expect.poll(() => fake.saved.length).toBe(2);
+  expect(fake.saved[1]).toMatchObject({ postId: "17990", title: "Old LUT reel" });
+});
+
+test("a link without https:// gets our own message, and nothing is saved", async ({ page }) => {
+  const fake = await stubWorker(page);
+  fake.status.instagram = { ...fake.status.instagram, canReply: true };
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  await page.goto("/social/replies/");
+  await page.getByTestId("autoreplies-new").click();
+  await page.getByTestId("autoreply-target-message").click();
+  await page.getByTestId("autoreply-keyword-input").fill("لت,");
+  await page.getByTestId("autoreply-dm").fill("حمل اللت من الرابط تحت");
+  await page.getByTestId("autoreply-add-button").click();
+  await page.getByTestId("autoreply-button-title-0").fill("حمل اللت");
+  await page.getByTestId("autoreply-button-url-0").fill("3zprod.com/lut");
+  await page.getByTestId("autoreply-save").click();
+  await expect(page.getByTestId("autoreply-problems")).toHaveText("الرابط لازم يبدأ بـ https://");
+  expect(fake.saved).toHaveLength(0);
 });
 
 test("without a Worker the screen says where to set it up", async ({ page }) => {

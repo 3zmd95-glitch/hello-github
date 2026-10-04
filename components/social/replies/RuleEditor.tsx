@@ -15,7 +15,7 @@ import {
   type ReplyProblemCode,
 } from "@/lib/replies";
 import PhonePreview from "./PhonePreview";
-import PostGrid from "./PostGrid";
+import PostGrid, { type PostTile } from "./PostGrid";
 
 const PROBLEM_KEY: Record<ReplyProblemCode, MessageKey> = {
   noKeywords: "replies.problem.noKeywords",
@@ -73,6 +73,20 @@ export default function RuleEditor({
   const igPosts = posts.filter((p) =>
     REPLY_PLATFORMS.includes(p.platform as (typeof REPLY_PLATFORMS)[number]),
   );
+  // The rule's own post can be missing from this browser's synced posts (older, or synced elsewhere): offer it first,
+  // so the grid shows what the rule answers, and it can be picked again after "any post" or another tile.
+  const tiles: readonly PostTile[] =
+    value.postId && !igPosts.some((p) => p.postId === value.postId)
+      ? [
+          {
+            postId: value.postId,
+            title: value.title,
+            thumbUrl: value.thumbUrl,
+            permalink: value.permalink,
+          },
+          ...igPosts,
+        ]
+      : igPosts;
   const target: Target =
     draft.trigger === "message" ? "message" : choosingPost ? "post" : "anyPost";
   const problems = replyProblems(draft, status, origin);
@@ -87,7 +101,7 @@ export default function RuleEditor({
     else if (next === "anyPost") patch({ trigger: "comment", ...NO_POST });
     else patch({ trigger: "comment" });
   };
-  const pickPost = (p: SocialPostStat) =>
+  const pickPost = (p: PostTile) =>
     patch({ postId: p.postId, permalink: p.permalink, title: p.title, thumbUrl: p.thumbUrl });
   const addWords = (text: string) => {
     patch({ keywords: splitKeywords([...draft.keywords, text].join("\n")) });
@@ -105,6 +119,8 @@ export default function RuleEditor({
     <form
       className="flex flex-col gap-4"
       data-testid="autoreply-form"
+      // Our own checks only: the browser's would stop a link without https:// before our message shows.
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
         submit();
@@ -169,9 +185,7 @@ export default function RuleEditor({
                 </button>
               ))}
             </div>
-            {target === "post" && (
-              <PostGrid posts={igPosts} value={draft.postId} onPick={pickPost} />
-            )}
+            {target === "post" && <PostGrid posts={tiles} value={draft.postId} onPick={pickPost} />}
           </section>
 
           {/* Keywords */}

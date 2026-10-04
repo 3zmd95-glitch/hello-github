@@ -74,7 +74,6 @@
   "replies.tester.match": "✓ يطابق «{name}»",
   "replies.tester.noMatch": "ما يطابق أي رد",
   "replies.log.title": "آخر الردود",
-  "replies.log.empty": "ما رددنا على أحد لسا.",
   "replies.log.dmSent": "أرسلنا الخاص ✓",
   "replies.log.dmFailed": "الخاص ما راح",
   "replies.log.publicSent": "ردينا تحت التعليق ✓",

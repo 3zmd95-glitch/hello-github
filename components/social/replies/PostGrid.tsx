@@ -3,15 +3,20 @@
 import type { SocialPostStat } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 
+/** A tile: a synced post, or a rule's own post that this browser has not synced (no date then). */
+export type PostTile = Pick<SocialPostStat, "postId" | "title" | "thumbUrl" | "permalink"> & {
+  publishedAt?: string;
+};
+
 /** The synced Instagram posts as a thumbnail grid (newest first); the chosen one is outlined. */
 export default function PostGrid({
   posts,
   value,
   onPick,
 }: {
-  posts: readonly SocialPostStat[];
+  posts: readonly PostTile[];
   value: string | null;
-  onPick: (p: SocialPostStat) => void;
+  onPick: (p: PostTile) => void;
 }) {
   const { t } = useT();
   if (!posts.length) {
@@ -21,6 +26,7 @@ export default function PostGrid({
       </p>
     );
   }
+  const label = (p: PostTile) => p.title?.trim() || p.publishedAt?.slice(0, 10) || p.postId;
   return (
     <div
       className="grid grid-cols-3 gap-1.5 sm:grid-cols-4"
@@ -33,7 +39,7 @@ export default function PostGrid({
           type="button"
           role="radio"
           aria-checked={value === p.postId}
-          aria-label={p.title?.trim() || p.publishedAt.slice(0, 10)}
+          aria-label={label(p)}
           onClick={() => onPick(p)}
           className={`relative aspect-square overflow-hidden rounded border-2 ${
             value === p.postId ? "border-accent" : "border-transparent"
@@ -45,8 +51,8 @@ export default function PostGrid({
             // eslint-disable-next-line @next/next/no-img-element -- Instagram CDN thumbnail, expires; no loader
             <img src={p.thumbUrl} alt="" className="h-full w-full object-cover" />
           ) : (
-            <span className="bg-panel-2 grid h-full w-full place-items-center p-1 text-[0.65rem] leading-tight">
-              {p.title?.trim() || p.publishedAt.slice(0, 10)}
+            <span className="bg-panel-2 grid h-full w-full place-items-center p-1 text-[0.65rem] leading-tight wrap-anywhere">
+              {label(p)}
             </span>
           )}
         </button>

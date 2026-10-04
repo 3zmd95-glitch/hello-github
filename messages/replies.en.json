@@ -74,7 +74,6 @@
   "replies.tester.match": "✓ matches “{name}”",
   "replies.tester.noMatch": "Matches no auto reply",
   "replies.log.title": "Recent replies",
-  "replies.log.empty": "Nothing answered yet.",
   "replies.log.dmSent": "DM sent ✓",
   "replies.log.dmFailed": "DM failed",
   "replies.log.publicSent": "Replied publicly ✓",
