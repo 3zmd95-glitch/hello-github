@@ -28,6 +28,17 @@ const form = (token: string) =>
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ token }).toString(),
   });
+/** A POST whose body stream breaks on the first read (a dropped connection). */
+const brokenBody = (url: string) =>
+  new Request(url, {
+    method: "POST",
+    body: new ReadableStream({
+      pull(c) {
+        c.error(new Error("connection reset"));
+      },
+    }),
+    duplex: "half",
+  } as RequestInit);
 
 describe("isAllowedRedirect", () => {
   it("allows Claude's callbacks only", () => {
@@ -152,6 +163,44 @@ describe("authorize", () => {
     expect((await authorize(new Request(URL_), { SCOUT_TOKEN: "t0k" })).status).toBe(500);
   });
 
+  it("refuses a declared form body over 4 KiB with the bilingual 413 page, before reading it", async () => {
+    const h = helpers();
+    const req = new Request(URL_, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Length": String(4 * 1024 + 1),
+      },
+      body: new URLSearchParams({ token: "t0k" }).toString(),
+    });
+    const res = await authorize(req, { SCOUT_TOKEN: "t0k", OAUTH_PROVIDER: h });
+    expect(res.status).toBe(413);
+    expect(await res.text()).toContain("الطلب ناقص · Bad request");
+    expect(req.bodyUsed).toBe(false);
+    expect(h.completeAuthorization).not.toHaveBeenCalled();
+  });
+
+  it("stops reading a form body past 4 KiB when Content-Length is missing or false", async () => {
+    const h = helpers();
+    const big = new URLSearchParams({ token: "t0k", pad: "x".repeat(4 * 1024) }).toString();
+    const type = { "Content-Type": "application/x-www-form-urlencoded" };
+    for (const headers of [type, { ...type, "Content-Length": "10" }]) {
+      const res = await authorize(new Request(URL_, { method: "POST", headers, body: big }), {
+        SCOUT_TOKEN: "t0k",
+        OAUTH_PROVIDER: h,
+      });
+      expect(res.status, JSON.stringify(headers)).toBe(413);
+    }
+    expect(h.completeAuthorization).not.toHaveBeenCalled();
+  });
+
+  it("shows the form again (403) when the body can't be read", async () => {
+    const h = helpers();
+    const res = await authorize(brokenBody(URL_), { SCOUT_TOKEN: "t0k", OAUTH_PROVIDER: h });
+    expect(res.status).toBe(403);
+    expect(h.completeAuthorization).not.toHaveBeenCalled();
+  });
+
   it("answers the bilingual page (503) when the grant can't be stored", async () => {
     const h = helpers();
     h.completeAuthorization.mockRejectedValueOnce(new Error("KV put() limit exceeded for the day"));
@@ -252,6 +301,24 @@ describe("register", () => {
       expect(await res.json()).toEqual({ error: "invalid_client_metadata" });
     }
     for (const call of kvCalls()) expect(call).not.toHaveBeenCalled();
+  });
+
+  it("answers 400 when the body can't be read, touching nothing", async () => {
+    const { deps, kvCalls } = registry();
+    const res = await register(brokenBody("https://3z-scout.example.workers.dev/register"), deps);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid_redirect_uri" });
+    for (const call of kvCalls()) expect(call).not.toHaveBeenCalled();
+  });
+
+  it("answers 503 temporarily_unavailable, without the error's words, when KV fails", async () => {
+    for (const step of ["read", "create", "write"] as const) {
+      const { deps } = registry();
+      deps[step].mockRejectedValueOnce(new Error("KV put() limit exceeded for the day"));
+      const res = await register(registration({ redirect_uris: [CLAUDE] }), deps);
+      expect(res.status, step).toBe(503);
+      expect(await res.text(), step).toBe('{"error":"temporarily_unavailable"}');
+    }
   });
 
   it("creates one client per isolate while KV still caches the miss (60 s)", async () => {

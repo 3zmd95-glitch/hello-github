@@ -34,6 +34,8 @@ type WorkerEnv = Env & {
 
 /** The OAUTH_KV key holding the id of the one client every registration gets. */
 const CLIENT_KEY = "mcp:claude-client";
+/** Claude stays logged in until it goes this long without using the connector (seconds). */
+const LOGIN_IDLE_S = 90 * 86_400;
 /** The client this isolate created and when: answered while KV still caches the miss (`register`). */
 let created: CreatedClient | undefined;
 
@@ -51,6 +53,10 @@ const options = (env: WorkerEnv): OAuthProviderOptions<WorkerEnv> => ({
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/token",
   clientRegistrationEndpoint: "/register",
+  // Renewed on use: a new login lasts 90 days, and every refresh moves its end to 90 days later (the provider's
+  // default is a fixed 30 days from the login).
+  refreshTokenTTL: LOGIN_IDLE_S,
+  refreshTokenIdleTTL: LOGIN_IDLE_S,
   resourceMetadata: { resource: env.MCP_RESOURCE ?? "" },
 });
 

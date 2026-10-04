@@ -256,6 +256,15 @@ describe("runDiscover", () => {
       await requestHash({ q: "flash", queries: [{ ...mine, q: " Flash Velocity " }] }),
     );
   });
+
+  it("hashes 'Not this?' back to the meaning the plan picks anyway as the plain search", async () => {
+    expect(await requestHash({ q: "flash", term: "flash-transition" })).toBe(
+      await requestHash({ q: "flash" }),
+    );
+    expect(await requestHash({ q: "flash", term: "camera-flash" })).not.toBe(
+      await requestHash({ q: "flash" }),
+    );
+  });
 });
 
 describe("discoverUsage", () => {

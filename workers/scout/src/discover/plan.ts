@@ -23,6 +23,16 @@ const join = (...parts: (string | undefined)[]) =>
     .trim()
     .slice(0, MAX_QUERY);
 
+/**
+ * The query with the program hint added once, case-insensitively ("… tutorial davinci resolve" + "DaVinci Resolve"
+ * stays as it is). MIRRORED from the dashboard's `withProgramHint` (lib/research.ts), which the Worker can't import.
+ */
+function withProgramHint(query: string, hint?: string): string {
+  const q = query.trim();
+  if (!hint || !q) return q;
+  return q.toLowerCase().includes(hint.toLowerCase()) ? q : join(q, hint);
+}
+
 interface Words {
   examples: Record<Lang, string>;
   tutorials: Record<Lang, string>;
@@ -55,7 +65,7 @@ function unknownWords(topic: string): Words {
 function plannedQueries(platforms: Platform[], w: Words, req: DiscoverRequest): PlannedQuery[] {
   const genre = req.genreQuery ?? {};
   const ex = (l: Lang) => join(w.examples[l], genre[l]);
-  const tut = (l: Lang) => join(w.tutorials[l], req.program);
+  const tut = (l: Lang) => withProgramHint(w.tutorials[l], req.program);
   const key = (s: string) => s.toLowerCase();
   // [intent, lang, q, retryQ]: a retry asks new words, the plain name (no genre or program) with "video" or
   // "how to", and in Arabic the examples query.

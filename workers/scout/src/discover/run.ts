@@ -18,6 +18,7 @@ import {
 } from "./fetchers";
 import { creatorsOf, labelCards } from "./label";
 import { planSearch } from "./plan";
+import { matchTerms } from "./terms";
 import type {
   DiscoverRequest,
   DiscoverResponse,
@@ -37,12 +38,16 @@ export interface RunDeps {
   timeoutMs?: number;
 }
 
-/** SHA-256 of the request in a normal form (case, spaces and platform order do not matter). */
+/**
+ * SHA-256 of the request in a normal form (case, spaces and platform order do not matter). A `term` that is the
+ * entry the plan picks on its own ("Not this?" back to the first meaning) counts as none: the same answer.
+ */
 export async function requestHash(req: DiscoverRequest): Promise<string> {
+  const term = req.term && req.term !== matchTerms(req.q).best?.id ? req.term : "";
   const canonical = JSON.stringify({
     q: req.q.trim().toLowerCase().replace(/\s+/g, " "),
     exact: !!req.exact,
-    term: req.term ?? "",
+    term,
     genre: [req.genreQuery?.ar ?? "", req.genreQuery?.en ?? ""],
     program: req.program ?? "",
     timeRange: req.timeRange ?? "",

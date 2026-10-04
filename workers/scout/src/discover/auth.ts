@@ -79,6 +79,9 @@ ${note}${form}</body></html>`;
   });
 }
 
+/** The login form is one token field; anyone may POST, so a body past this is refused before it is read whole. */
+export const MAX_AUTHORIZE_BYTES = 4 * 1024;
+
 export async function authorize(
   req: Request,
   env: { SCOUT_TOKEN?: string; OAUTH_PROVIDER?: AuthHelpers },
@@ -96,8 +99,11 @@ export async function authorize(
   if (req.method !== "POST") {
     return new Response(null, { status: 405, headers: { Allow: "GET, POST" } });
   }
-  const form = await req.formData().catch(() => null);
-  const given = String(form?.get("token") ?? "").trim();
+  if (Number(req.headers.get("Content-Length") ?? 0) > MAX_AUTHORIZE_BYTES) return page("bad", 413);
+  // Counted while read, whatever Content-Length says; a body that can't be read is no token.
+  const text = await readCapped(req, MAX_AUTHORIZE_BYTES).catch(() => "");
+  if (text === undefined) return page("bad", 413);
+  const given = (new URLSearchParams(text).get("token") ?? "").trim();
   if (!env.SCOUT_TOKEN || !given || !safeEqual(given, env.SCOUT_TOKEN)) return page("wrong", 403);
   let redirectTo: string;
   try {
@@ -154,7 +160,7 @@ const json = (body: unknown, status: number) =>
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 
-/** The body as text, or undefined once it passes `max` bytes, whatever Content-Length says. */
+/** The body as text, or undefined once it passes `max` bytes, whatever Content-Length says (/register, /authorize). */
 async function readCapped(req: Request, max: number): Promise<string | undefined> {
   const reader = req.body?.getReader();
   if (!reader) return "";
@@ -180,12 +186,13 @@ async function readCapped(req: Request, max: number): Promise<string | undefined
  * and then only read; anything else is refused before any read or write, and a body over 16 KiB before it is read
  * whole (413). A confidential method asked for still gets the public client (a server may override requested
  * metadata). While KV still caches the miss right after a creation, this isolate answers the client it created
- * (for 60 s) instead of creating another.
+ * (for 60 s) instead of creating another. A KV failure answers 503 `temporarily_unavailable`.
  */
 export async function register(req: Request, deps: RegisterDeps): Promise<Response> {
   const tooBig = json({ error: "invalid_client_metadata" }, 413);
   if (Number(req.headers.get("Content-Length") ?? 0) > MAX_REGISTRATION_BYTES) return tooBig;
-  const text = await readCapped(req, MAX_REGISTRATION_BYTES);
+  // A body that can't be read is no registration: refused below like one that isn't JSON.
+  const text = await readCapped(req, MAX_REGISTRATION_BYTES).catch(() => "");
   if (text === undefined) return tooBig;
   let body: { redirect_uris?: unknown } | null = null;
   try {
@@ -199,14 +206,20 @@ export async function register(req: Request, deps: RegisterDeps): Promise<Respon
     uris.length > 0 &&
     uris.every((u) => typeof u === "string" && isAllowedRedirect(u));
   if (!claudeOnly) return json({ error: "invalid_redirect_uri" }, 400);
-  const stored = await deps.read();
-  let client = stored ? await deps.lookup(stored) : null;
-  const created = deps.memo.get();
-  if (!client && created && deps.now() - created.at < CREATED_MEMO_MS) client = created.client;
-  if (!client) {
-    client = await deps.create();
-    deps.memo.set({ client, at: deps.now() });
-    await deps.write(client.clientId);
+  let client: SharedClient | null;
+  try {
+    const stored = await deps.read();
+    client = stored ? await deps.lookup(stored) : null;
+    const created = deps.memo.get();
+    if (!client && created && deps.now() - created.at < CREATED_MEMO_MS) client = created.client;
+    if (!client) {
+      client = await deps.create();
+      deps.memo.set({ client, at: deps.now() });
+      await deps.write(client.clientId);
+    }
+  } catch {
+    // KV down or out of the day's writes: an answer Claude can read, never the raw error.
+    return json({ error: "temporarily_unavailable" }, 503);
   }
   return json(
     {

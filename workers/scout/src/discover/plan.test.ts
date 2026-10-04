@@ -75,6 +75,12 @@ describe("planSearch options", () => {
     expect(q["tt-tutorials-en"].retryQ).toBe("how to speed ramp");
   });
 
+  it("adds the program once: a tutorials query that names it already stays as it is", () => {
+    const q = byId(planSearch({ q: "color grading", program: "DaVinci Resolve" }));
+    expect(q["tt-tutorials-en"].q).toBe("color grading tutorial davinci resolve");
+    expect(q["yt-tutorials-en"].q).toBe("color grading tutorial davinci resolve");
+  });
+
   it("keeps extra typed words on every query", () => {
     expect(byId(planSearch({ q: "speed ramp cars" }))["ig-examples-en"].q).toBe(
       "speed ramp edit cars",
