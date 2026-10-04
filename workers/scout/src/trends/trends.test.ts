@@ -2111,7 +2111,7 @@ describe("cron slots", () => {
   });
 
   it("every slot sits on the five-minute grid of the one trigger, and trend slots never take a sync slot", () => {
-    expect(TICK_CRON).toBe("*/5 * * * *");
+    expect(TICK_CRON).toBe("* * * * *");
     const slots = [...Object.keys(TREND_SLOTS), WEEKLY_SLOT, ...Object.keys(SYNC_SLOTS)];
     for (const slot of slots) {
       expect(slot).toMatch(/^([01]\d|2[0-3]):[0-5]\d$/);

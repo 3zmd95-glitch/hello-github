@@ -464,9 +464,10 @@ export type AutoPost = z.infer<typeof AutoPostSchema>;
 export type AutoPostInput = z.input<typeof AutoPostSchema>;
 
 /*
- * 💬 Auto replies (a copy of Beacons' Smart Reply, round 30): the Worker answers Instagram comments that carry a
- * keyword with a public reply and a private DM. The Worker's KV document is the source of truth; these schemas
- * only parse what it sends back (lib/replies.ts).
+ * 💬 Auto replies, our own Smart Reply (round 30; DMs, story replies and the default reply since round 34): the
+ * Worker answers Instagram comments and messages that carry a keyword with a private DM (and, on a comment, a
+ * public reply). The Worker's KV document is the source of truth; these schemas only parse what it sends back
+ * (lib/replies.ts).
  */
 export const REPLY_MATCHES = ["contains", "exact"] as const;
 export const ReplyMatchSchema = z.enum(REPLY_MATCHES);
@@ -484,34 +485,53 @@ export const AutoReplyStatsSchema = z.object({
   lastError: z.string().optional(),
 });
 
-export const AutoReplySchema = z.object({
-  id: z.string().min(1),
-  enabled: z.boolean().default(true),
-  /** Instagram media id; null = any post. */
-  postId: z.string().nullable().default(null),
-  /** Display only, copied from the synced post. */
-  permalink: z.string().optional(),
-  title: z.string().optional(),
-  thumbUrl: z.string().optional(),
-  keywords: z.array(z.string()).default([]),
-  match: ReplyMatchSchema.default("contains"),
-  /** "" = no public reply; `{username}` becomes @handle. */
-  publicReply: z.string().default(""),
-  dmText: z.string().default(""),
-  buttons: z.array(AutoReplyButtonSchema).default([]),
-  createdAt: z.string().optional(),
-  updatedAt: z.string().optional(),
-  enabledAt: z.string().optional(),
-  stats: AutoReplyStatsSchema.default({ sends: 0, publicReplies: 0, failures: 0, clicks: 0 }),
-});
+export const REPLY_TRIGGERS = ["comment", "message"] as const;
+export const ReplyTriggerSchema = z.enum(REPLY_TRIGGERS);
+export type ReplyTrigger = z.infer<typeof ReplyTriggerSchema>;
+
+export const AutoReplySchema = z
+  .object({
+    id: z.string().min(1),
+    enabled: z.boolean().default(true),
+    /** "comment": a comment on a post; "message": a DM or a story reply. */
+    trigger: ReplyTriggerSchema.default("comment"),
+    /** Instagram media id; null = any post. Always null for message rules. */
+    postId: z.string().nullable().default(null),
+    /** Display only, copied from the synced post. */
+    permalink: z.string().optional(),
+    title: z.string().optional(),
+    thumbUrl: z.string().optional(),
+    keywords: z.array(z.string()).default([]),
+    match: ReplyMatchSchema.default("contains"),
+    /** Comment rules: up to 3, one picked at random; `{username}` becomes @handle. */
+    publicReplies: z.array(z.string()).default([]),
+    /** Only from a Worker older than round 34: its single public reply (read into `publicReplies`). */
+    publicReply: z.string().optional(),
+    dmText: z.string().default(""),
+    buttons: z.array(AutoReplyButtonSchema).default([]),
+    /** Adds «تابعني» (the profile) after the link buttons. */
+    followButton: z.boolean().default(false),
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
+    enabledAt: z.string().optional(),
+    stats: AutoReplyStatsSchema.default({ sends: 0, publicReplies: 0, failures: 0, clicks: 0 }),
+  })
+  .transform(({ publicReply, ...a }) => ({
+    ...a,
+    publicReplies:
+      a.publicReplies.length || !publicReply?.trim() ? a.publicReplies : [publicReply.trim()],
+  }));
 export type AutoReply = z.infer<typeof AutoReplySchema>;
 export type AutoReplyInput = z.input<typeof AutoReplySchema>;
 
 export const AutoReplyLogSchema = z.object({
   at: z.string(),
+  /** What was answered; entries from before round 34 are comments. */
+  kind: z.enum(["comment", "message", "story", "default"]).default("comment"),
   automationId: z.string(),
-  postId: z.string(),
-  commentId: z.string(),
+  postId: z.string().optional(),
+  commentId: z.string().optional(),
+  messageId: z.string().optional(),
   username: z.string().optional(),
   text: z.string().default(""),
   publicReply: z.enum(["sent", "skipped", "failed"]),
@@ -521,13 +541,32 @@ export const AutoReplyLogSchema = z.object({
 });
 export type AutoReplyLog = z.infer<typeof AutoReplyLogSchema>;
 
+/** The answer to a DM that matches no rule: at most once per person a day. */
+export const DefaultReplySchema = z.object({
+  enabled: z.boolean().default(false),
+  text: z.string().default(""),
+  enabledAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+  stats: AutoReplyStatsSchema.default({ sends: 0, publicReplies: 0, failures: 0, clicks: 0 }),
+});
+export type DefaultReply = z.infer<typeof DefaultReplySchema>;
+
 export const AutoRepliesDocSchema = z.object({
   automations: z.array(AutoReplySchema).default([]),
   log: z.array(AutoReplyLogSchema).default([]),
+  /** Pause all. */
+  paused: z.boolean().default(false),
+  defaultReply: DefaultReplySchema.optional(),
+  /** The KV write guard today: "slow" = every five minutes, "stop" = nothing until 03:00 Riyadh. */
+  guard: z.enum(["slow", "stop"]).optional(),
+  /** The Instagram username the Worker read (the «تابعني» link). */
+  ownerUsername: z.string().optional(),
   origin: z.string().optional(),
   igUserId: z.string().optional(),
   lastPollAt: z.string().optional(),
   lastError: z.string().optional(),
+  /** Instagram's words for that error, with Meta's code at the end (shown under it on the account card). */
+  lastErrorDetail: z.string().optional(),
 });
 export type AutoRepliesDoc = z.infer<typeof AutoRepliesDocSchema>;
 

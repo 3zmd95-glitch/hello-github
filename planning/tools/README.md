@@ -23,6 +23,7 @@ build order. Website and social tools are recorded so nothing is forgotten, but 
 | [11-discover-genres.md](11-discover-genres.md) | Discover by edit genre (cars, food, anime, travel…), the Most popular sort, numbers on cards, genres fed by the Trend Radar |
 | [12-watch-in-dashboard.md](12-watch-in-dashboard.md) | ▶ Watch here: the in-dashboard player for YouTube, TikTok and Instagram (plain frames, no platform script in our origin), why Instagram cards have no picture, limits |
 | [13-discover-search-v2.md](13-discover-search-v2.md) | Discover search v2 (editing dictionary, both languages, sections, creators, retries, real usage) and the Claude connector (MCP on the Worker: search, trends, picks); the editor panel and Beacons-style trends that follow |
+| [14-auto-replies-v2.md](14-auto-replies-v2.md) | Auto replies v2 (round 34): our own Smart Reply with DMs, story replies, a default reply, buttons and a follow invite; every-minute polling, the Live test, the paperwork for instant mode, the Beacons-style screen |
 
 ## Rules used when picking
 

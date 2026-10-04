@@ -42,9 +42,11 @@
     // and swaps the real id in.
     { "binding": "OAUTH_KV", "id": "11111111111111111111111111111111" },
   ],
-  // One trigger every five minutes: the auto-post queue publishes what is due, the 03:00/03:10/03:20/03:30
-  // UTC ticks (06:00–06:30 Riyadh) run the daily sync of one platform each instead, and the Trend Radar
-  // ticks (00:05/06:05/12:05/18:05 UTC fast sources, 21:05 UTC daily YouTube search, Saturday 21:15 UTC
-  // Tavily scan; every slot on this five-minute grid) refresh the trend feed (src/social/cron.ts).
-  "triggers": { "crons": ["*/5 * * * *"] },
+  // One trigger every minute: the auto replies poll Instagram comments and DMs. On the five-minute grid the
+  // auto-post queue publishes what is due (the replies poll after it when it moved nothing), the
+  // 03:00/03:10/03:20/03:30 UTC ticks (06:00–06:30 Riyadh) run the daily sync of one platform each instead,
+  // and the Trend Radar ticks (00:05/06:05/12:05/18:05 UTC fast sources, 21:05 UTC daily YouTube search,
+  // Saturday 21:15 UTC Tavily scan; every slot on the five-minute grid) refresh the trend feed
+  // (src/social/cron.ts).
+  "triggers": { "crons": ["* * * * *"] },
 }

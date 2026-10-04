@@ -29,8 +29,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
 
 /**
  * Social-world navigation (round 16). Phones: Studio · Calendar · Growth · Ideas · More;
- * Website and Business ("soon"), Auto-posting (the Automations route), the 🔎 Discover shortcut (round 31b)
- * and Settings live in the desktop sidebar and behind More.
+ * Website and Business ("soon"), 💬 Auto replies (round 34), Auto-posting (the Automations route), the
+ * 🔎 Discover shortcut (round 31b) and Settings live in the desktop sidebar and behind More.
  *
  * Discover and Settings are Training routes, and the world comes from the URL: they open in the Training
  * shell, so inside Social they are never the active item and never the remembered "last Social route".
@@ -43,6 +43,7 @@ export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
   { href: "/social/more", icon: "☰", label: "nav.more" },
   { href: "/social/website", icon: "🌐", label: "nav.website", soon: true, desktopOnly: true },
   { href: "/social/business", icon: "💼", label: "nav.business", soon: true, desktopOnly: true },
+  { href: "/social/replies", icon: "💬", label: "nav.replies", desktopOnly: true },
   { href: "/social/automations", icon: "🚀", label: "nav.automations", desktopOnly: true },
   { href: "/discover", icon: "🔎", label: "nav.discover", desktopOnly: true },
   { href: "/settings", icon: "⚙️", label: "nav.settings", desktopOnly: true },

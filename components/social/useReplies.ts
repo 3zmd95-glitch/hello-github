@@ -8,7 +8,8 @@ import {
   repliesList,
   repliesPoll,
   repliesSave,
-  type PollOutcome,
+  repliesSettings,
+  type RepliesSettings,
 } from "@/lib/replies";
 import { scoutConfig, type ScoutConfig } from "@/lib/scoutClient";
 import { socialSyncErrorMessageKey } from "@/lib/socialSync";
@@ -81,7 +82,7 @@ export async function saveReply(automation: AutoReply): Promise<boolean> {
   set({ busy: true, error: null });
   const r = await repliesSave(cfg, automation);
   if (!r.ok) return fail(r.error);
-  const doc = state.doc ?? { automations: [], log: [] };
+  const doc = state.doc ?? { automations: [], log: [], paused: false };
   const rest = doc.automations.filter((a) => a.id !== r.automation.id);
   set({ doc: { ...doc, automations: [r.automation, ...rest] }, busy: false });
   return true;
@@ -93,13 +94,24 @@ export async function deleteReply(id: string): Promise<boolean> {
   set({ busy: true, error: null });
   const r = await repliesDelete(cfg, id);
   if (!r.ok) return fail(r.error);
-  const doc = state.doc ?? { automations: [], log: [] };
+  const doc = state.doc ?? { automations: [], log: [], paused: false };
   set({ doc: { ...doc, automations: doc.automations.filter((a) => a.id !== id) }, busy: false });
   return true;
 }
 
-/** "Check now": the Worker reads the comments at once and answers with the fresh document. */
-export async function checkReplies(): Promise<PollOutcome | null> {
+/** Pause all, or the default reply; the document comes back fresh from the Worker. */
+export async function saveSettings(settings: RepliesSettings): Promise<boolean> {
+  const cfg = currentConfig();
+  if (!cfg) return fail({ type: "unconfigured" });
+  set({ busy: true, error: null });
+  const r = await repliesSettings(cfg, settings);
+  if (!r.ok) return fail(r.error);
+  set({ doc: r.doc, busy: false, loadedAt: Date.now() });
+  return true;
+}
+
+/** "Check now": asks the Worker to read every watched post on its next tick; returns the fresh document. */
+export async function checkReplies(): Promise<AutoRepliesDoc | null> {
   const cfg = currentConfig();
   if (!cfg) {
     fail({ type: "unconfigured" });
@@ -112,7 +124,7 @@ export async function checkReplies(): Promise<PollOutcome | null> {
     return null;
   }
   set({ doc: r.doc, busy: false, loadedAt: Date.now() });
-  return r.outcome;
+  return r.doc;
 }
 
 /** The document for a screen; loads it once the Worker is configured. */

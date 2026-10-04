@@ -37,7 +37,7 @@ shows up in the log with Instagram's words and the comment is marked done, nothi
 | Buttons in the DM? | **Text only, links as lines** (`title: link`) | Meta documents the private reply to a comment as `message.text` only; buttons come with the 24-hour messaging window after the person writes back (v2, needs the `messages` webhook). Buttons are stored as buttons so v2 needs no migration. |
 | Follow-first, nudge, email ask (Beacons extras) | **Not in v1** | `is_user_follow_business` needs an IGSID that only exists once the person messages us; the nudge needs the messaging window; the email ask needs our own list (D4). |
 | Storage | **Three KV documents, one per writer**: automations (dashboard), poll state (poller), clicks (`/go`) | KV is last-write-wins with no transactions. Review finding: one shared document let a poll's final write revert an owner's toggle, and a public `/go` tap rewrite the poller's state. Now no path ever writes another's data. |
-| Cron vs "Check now" | A short **lock** (4 min) in the poll state while comments are being answered | Two overlapping polls would answer the same comment twice; "Check now" during a tick now says "a check is already running". |
+| Cron vs "Check now" | A short **lock** (4 min) in the poll state while comments are being answered | Two overlapping polls would answer the same comment twice; "Check now" during a tick now says "a check is already running". v2 (round 34): "Check now" is a scan request for the next tick, so only the cron polls (`14-auto-replies-v2.md`). |
 | Click tracking | `GET /go/:id/:n` on the Worker: counts into its own document and redirects | Our `/go/[slug]` link tracking (D1) is not built yet. One counted tap per visitor per link per minute (Cache API) and 200 a day, so a bot cannot burn the free plan's KV writes; the redirect only ever goes to an owner-saved https link. |
 | Meta error code 10 | Read the **subcode**: app-level → stop the tick; messaging-window → final for this comment; other recipient subcodes → final for this comment | Review finding: treating every code 10 as "app has no permission" let one un-messageable commenter block every newer comment for 7 days. |
 | Where in the dashboard | Own route `/social/replies/` | The 🚀 hub is about the queue; replies have their own builder, tester and log. |
@@ -60,6 +60,8 @@ shows up in the log with Instagram's words and the comment is marked done, nothi
 - Rate limits count per account; the Worker answers at most 8 comments a tick.
 
 ## Owner's part (once)
+
+Round 34: the Live test and the steps are in `14-auto-replies-v2.md` → Step 0.
 
 1. **Meta app** (3z Prod, `2189335038677989`) → Instagram API with Instagram Login → permissions: add
    **`instagram_business_manage_comments`** and **`instagram_business_manage_messages`**. Under Settings → Roles,
@@ -112,7 +114,8 @@ For Live, the app needs public policy pages, now on the dashboard site (`public/
 - Data deletion instructions: `https://3zmd95-glitch.github.io/hello-github/data-deletion/`
 - App icon 1024×1024: `public/icons/icon-1024.png` (from `scripts/make-icons.mjs`)
 
-Do not reconnect Beacons during the test: both would answer the same comment.
+Do not reconnect Beacons during the test: both would answer the same comment. The v2 design (DMs, story replies, a
+default reply, buttons, the Beacons-style screen) is `14-auto-replies-v2.md`.
 
 ## Later
 

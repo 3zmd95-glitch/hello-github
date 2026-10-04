@@ -13,7 +13,8 @@
  *   DELETE /social/publish/:id                       → { ok: true }     cancel
  *   GET    /social/replies                           → { automations, log, … }   auto-replies (replies.ts)
  *   POST   /social/replies            { id, keywords, dmText, … } → { automation }   add or replace
- *   POST   /social/replies/poll                      → { result, automations, … } check the comments now
+ *   POST   /social/replies/settings   { paused?, defaultReply? } → { automations, … }   pause all, the default reply
+ *   POST   /social/replies/poll                      → { scanRequested, automations, … } "Check now" (next tick)
  *   DELETE /social/replies/:id                       → { ok: true }
  *
  * `POST /social/connect/:platform` takes `publish: true` (posting scopes) and, for Instagram, `replies: true`
@@ -125,7 +126,7 @@ export async function handleSocial(
     return null;
   }
   if (action === "replies") {
-    return handleReplies(req, env, socialPath(pathname).slice(1), store, now, deps.fetch, {
+    return handleReplies(req, socialPath(pathname).slice(1), store, now, {
       json: (body, status) => json(body, status, cors),
       fail: (error) => fail(error, cors),
     });

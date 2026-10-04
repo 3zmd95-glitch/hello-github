@@ -1689,7 +1689,8 @@
   white-space: nowrap;
 }
 .cal-tab[aria-pressed="true"],
-.cal-tab[aria-selected="true"] {
+.cal-tab[aria-selected="true"],
+.cal-tab[aria-checked="true"] {
   background: var(--panel);
   color: var(--ink);
   box-shadow: var(--shadow-sm);
