@@ -44,6 +44,8 @@ interface Fake {
   paused: boolean;
   defaultReply?: { enabled: boolean; text: string; stats: Automation["stats"] };
   settings: Record<string, unknown>[];
+  /** More of the GET document (the log, the poll's last error). */
+  extra: Record<string, unknown>;
 }
 
 async function stubWorker(page: Page): Promise<Fake> {
@@ -67,6 +69,7 @@ async function stubWorker(page: Page): Promise<Fake> {
     connects: [],
     paused: false,
     settings: [],
+    extra: {},
   };
   const doc = () => ({
     automations: [...fake.automations.values()],
@@ -76,6 +79,7 @@ async function stubWorker(page: Page): Promise<Fake> {
     paused: fake.paused,
     ...(fake.defaultReply ? { defaultReply: fake.defaultReply } : {}),
     ownerUsername: "3z.prod",
+    ...fake.extra,
   });
   await page.route(`${WORKER}/**`, async (route) => {
     const req = route.request();
@@ -535,6 +539,48 @@ test("each rule's switch and ⋯ menu say which rule they belong to", async ({ p
     "خيارات · أي بوست · بريست",
     "خيارات · الرد الافتراضي",
   ]);
+});
+
+test("the account card shows the poll's last error in Instagram's words", async ({ page }) => {
+  const fake = await stubWorker(page);
+  fake.status.instagram = { ...fake.status.instagram, canReply: true };
+  const words =
+    "conversations: messages came without created_time/from — the field expansion was not returned";
+  fake.extra = { lastError: "upstream", lastErrorDetail: words };
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  await page.goto("/social/replies/");
+  await expect(page.getByTestId("autoreplies-last-error")).toHaveText("فيه مشكلة عند إنستقرام");
+  await expect(page.getByTestId("autoreplies-last-error-detail")).toHaveText(words);
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("the log shows Instagram's words for every failure, not only refusals", async ({ page }) => {
+  const fake = await stubWorker(page);
+  fake.status.instagram = { ...fake.status.instagram, canReply: true };
+  fake.extra = {
+    log: [
+      {
+        at: "2026-09-29T09:00:00.000Z",
+        kind: "message",
+        automationId: "cam",
+        messageId: "d1",
+        username: "sara",
+        text: "كاميرا",
+        publicReply: "skipped",
+        dm: "failed",
+        error: "not_eligible",
+        detail: "This message is sent outside of allowed window. [10/2534022]",
+      },
+    ],
+  };
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  await page.goto("/social/replies/");
+  await page.getByTestId("autoreplies-log").locator("summary").click();
+  await expect(page.getByTestId("autoreplies-log-row")).toContainText(
+    "This message is sent outside of allowed window. [10/2534022]",
+  );
 });
 
 test("desktop: 💬 Auto replies is in the Social sidebar", async ({ page, isMobile }) => {

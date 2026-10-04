@@ -308,13 +308,13 @@ events can still arrive and run one off-schedule sync each (harmless, bounded), 
 counters, log, lock and the day's write count (the poll only), `replies:clicks` = taps on `/go` links (`/go` only).
 Reads merge the three; an idle tick writes nothing.
 
-| Route                           | Request                                                                                                                                 | Response                                                                                                                                         |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /social/replies`           |                                                                                                                                         | `{ automations (with stats), log, paused, defaultReply? (with its stats), origin?, igUserId?, ownerUsername?, lastPollAt?, lastError?, guard? }` |
-| `POST /social/replies`          | `{ id, enabled?, trigger?, postId?, permalink?, title?, thumbUrl?, keywords, match?, publicReplies?, dmText, buttons?, followButton? }` | `{ automation }` (with its counters); `400 { error, detail }`                                                                                    |
-| `POST /social/replies/settings` | `{ paused?, defaultReply?: { enabled, text } }`                                                                                         | the GET shape; `400 { error, detail }`                                                                                                           |
-| `POST /social/replies/poll`     |                                                                                                                                         | `{ scanRequested: true, …the GET shape }`: "Check now" stamps `scanRequestedAt` in `replies:doc`; the next tick reads every watched post         |
-| `DELETE /social/replies/:id`    |                                                                                                                                         | `{ ok: true }` (its counters go with the next poll)                                                                                              |
+| Route                           | Request                                                                                                                                 | Response                                                                                                                                                           |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /social/replies`           |                                                                                                                                         | `{ automations (with stats), log, paused, defaultReply? (with its stats), origin?, igUserId?, ownerUsername?, lastPollAt?, lastError?, lastErrorDetail?, guard? }` |
+| `POST /social/replies`          | `{ id, enabled?, trigger?, postId?, permalink?, title?, thumbUrl?, keywords, match?, publicReplies?, dmText, buttons?, followButton? }` | `{ automation }` (with its counters); `400 { error, detail }`                                                                                                      |
+| `POST /social/replies/settings` | `{ paused?, defaultReply?: { enabled, text } }`                                                                                         | the GET shape; `400 { error, detail }`                                                                                                                             |
+| `POST /social/replies/poll`     |                                                                                                                                         | `{ scanRequested: true, …the GET shape }`: "Check now" stamps `scanRequestedAt` in `replies:doc`; the next tick reads every watched post                           |
+| `DELETE /social/replies/:id`    |                                                                                                                                         | `{ ok: true }` (its counters go with the next poll)                                                                                                                |
 
 Validation: `id` is `[A-Za-z0-9_-]{1,100}` (not `poll`, `settings` or `default`); `trigger` is `comment` (default)
 or `message` (a message rule keeps no post, no public replies and no display fields); `postId` is
@@ -327,7 +327,9 @@ and ≤ 640 characters when the DM has any button. Settings: `paused` is a boole
 `{ enabled, text }`, its text ≤ 1,000 UTF-8 bytes and required when enabled. Matching ignores case, Arabic
 diacritics and tatweel, alef/yaa variants, punctuation and emoji.
 
-Error codes (`lastError`, the log's `error`, an automation's `stats.lastError`): `not_connected`,
+Error codes (`lastError`, the log's `error`, an automation's `stats.lastError`; Instagram's words, ending with Meta's
+`[code/subcode]`, are the log's `detail` and `lastErrorDetail`, which also records a failed conversations read,
+e.g. "messages came without created_time/from" when Instagram ignores the `messages{…}` expansion): `not_connected`,
 `no_permission` (app-level: Meta code 10 with no subcode or an app subcode; the tick stops, the comment or
 message is given up on after 3 such tries), `token_expired`, `rate_limited` (the tick stops, the comment or
 message waits), `rejected` (Instagram refused this comment or recipient; the words in `detail`), `upstream`

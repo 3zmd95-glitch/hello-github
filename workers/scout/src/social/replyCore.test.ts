@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
+import type { MetaError } from "./meta";
 import {
   DM_TEXT_BYTES,
   dmFits,
   FOLLOW_TITLE,
+  graph,
   messageButtons,
   messagePayload,
   pickPublicReply,
   profileUrl,
   textBody,
+  toReplyCode,
   utf8Bytes,
 } from "./replyCore";
 
@@ -78,6 +81,59 @@ describe("dmFits", () => {
     const long = { id: "lut", dmText: ar(470), buttons: [] };
     expect(dmFits(long, ORIGIN)).toBe(true);
     expect(dmFits({ ...long, buttons: rule.buttons, followButton: true }, ORIGIN)).toBe(false);
+  });
+});
+
+describe("graph", () => {
+  /** What a refused call becomes: the code, and the words the log shows. */
+  const refusal = (status: number, error?: MetaError["error"]) => {
+    try {
+      graph({ status, ok: false, body: error ? { error } : null }, "dm");
+    } catch (e) {
+      const { code, detail } = toReplyCode(e);
+      return { code, detail };
+    }
+    throw new Error("graph accepted a refusal");
+  };
+
+  it("ends Meta's words with its code and subcode, so the log says exactly what Meta answered", () => {
+    expect(
+      refusal(400, { message: "Invalid for a private reply", code: 100, error_subcode: 2534025 }),
+    ).toEqual({ code: "not_eligible", detail: "Invalid for a private reply [100/2534025]" });
+    expect(refusal(400, { message: "outside window", code: 10, error_subcode: 2534022 })).toEqual({
+      code: "not_eligible",
+      detail: "outside window [10/2534022]",
+    });
+    expect(refusal(403, { message: "permission denied", code: 10 })).toEqual({
+      code: "no_permission",
+      detail: "permission denied [10]",
+    });
+    expect(refusal(400, { message: "can't receive", code: 10, error_subcode: 2018108 })).toEqual({
+      code: "rejected",
+      detail: "can't receive [10/2018108]",
+    });
+    expect(refusal(400, { message: "User cannot be messaged", code: 100 })).toEqual({
+      code: "rejected",
+      detail: "User cannot be messaged [100]",
+    });
+    expect(refusal(400, { message: "Invalid OAuth", code: 190 })).toEqual({
+      code: "token_expired",
+      detail: "Invalid OAuth [190]",
+    });
+    expect(refusal(400, { message: "slow down", code: 4 })).toEqual({
+      code: "rate_limited",
+      detail: "slow down [4]",
+    });
+    expect(refusal(500, { message: "boom", code: 1 })).toEqual({
+      code: "upstream",
+      detail: "boom [1]",
+    });
+    // Without a code from Meta there is nothing to add.
+    expect(refusal(500)).toEqual({ code: "upstream", detail: "dm: 500" });
+    expect(refusal(400, { message: "Bad request" })).toEqual({
+      code: "rejected",
+      detail: "Bad request",
+    });
   });
 });
 

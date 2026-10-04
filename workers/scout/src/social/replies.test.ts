@@ -950,7 +950,11 @@ describe("pollReplies", () => {
     let state = await stateOf(env);
     expect(state.lastError).toBe("token_expired");
     expect(state.handled).toEqual({});
-    expect(state.log[0]).toMatchObject({ dm: "failed", error: "token_expired", detail: "Invalid OAuth" });
+    expect(state.log[0]).toMatchObject({
+      dm: "failed",
+      error: "token_expired",
+      detail: "Invalid OAuth [190]",
+    });
 
     dm = () => json({ error: { message: "slow down", code: 4 } }, 400);
     await checkThenPoll(env, { fetch: fetchMock, now: tick(1) });
@@ -963,7 +967,10 @@ describe("pollReplies", () => {
     state = await stateOf(env);
     expect(state.handled).toHaveProperty("c1");
     expect(state.lastError).toBeUndefined();
-    expect(state.log[0]).toMatchObject({ error: "rejected", detail: "User cannot be messaged" });
+    expect(state.log[0]).toMatchObject({
+      error: "rejected",
+      detail: "User cannot be messaged [100]",
+    });
     expect(state.stats.lut.failures).toBe(3);
   });
 
@@ -1045,7 +1052,10 @@ describe("pollReplies", () => {
     });
     const r = await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
     expect(r.error).toBe("no_permission");
-    expect((await stateOf(env)).lastError).toBe("no_permission");
+    expect(await stateOf(env)).toMatchObject({
+      lastError: "no_permission",
+      lastErrorDetail: "(#10) Application does not have permission [10]",
+    });
   });
 
   it("one deleted post or one failed comments read does not stop the others", async () => {
@@ -1564,16 +1574,62 @@ describe("pollReplies: DMs and story replies", () => {
     expect(state.log.map((e) => e.error)).toEqual(["upstream", "not_eligible"]);
   });
 
-  it("a conversations read that fails leaves the comments alone", async () => {
+  it("a conversations read that fails leaves the comments alone and is the poll's error until a read works", async () => {
     const env = makeEnv();
     await connect(env, "instagram");
     await seed(env, [input(), camRule()], SINCE);
     const { routes } = igRoutes({
-      [`GET ${IG}/17841/conversations`]: () => json({ error: { message: "boom" } }, 500),
+      [`GET ${IG}/17841/conversations`]: () => json({ error: { message: "boom", code: 2 } }, 500),
     });
     const r = await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
     expect(r.sent).toEqual(["c1"]);
-    expect(r.error).toBe("upstream");
+    expect(r).toMatchObject({ error: "upstream", detail: "boom [2]" });
+    expect(await stateOf(env)).toMatchObject({
+      lastError: "upstream",
+      lastErrorDetail: "boom [2]",
+    });
+    const listed = await (await handle(req("/social/replies"), env)).json();
+    expect(listed).toMatchObject({ lastError: "upstream", lastErrorDetail: "boom [2]" });
+
+    routes[`GET ${IG}/17841/conversations`] = () => ({ data: [] });
+    await pollReplies(env, { fetch: mockFetch(routes), now: tick(1) });
+    const state = await stateOf(env);
+    expect(state.lastError).toBeUndefined();
+    expect(state.lastErrorDetail).toBeUndefined();
+  });
+
+  it("a stop while answering is the poll's error rather than a failed conversations read", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ publicReplies: [] }), camRule()], SINCE);
+    const { routes } = igRoutes({
+      [`GET ${IG}/17841/conversations`]: () => json({ error: { message: "boom", code: 2 } }, 500),
+      [`POST ${IG}/17841/messages`]: () => json({ error: { message: "slow down", code: 4 } }, 400),
+    });
+    const r = await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
+    expect(r.failed).toEqual(["c1"]);
+    expect(await stateOf(env)).toMatchObject({
+      lastError: "rate_limited",
+      lastErrorDetail: "slow down [4]",
+    });
+  });
+
+  it("fails loudly when the conversations come back without the messages' times or senders", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    const words =
+      "conversations: messages came without created_time/from — the field expansion was not returned";
+    for (const messages of [[{ id: "d1" }, { id: "d2" }], [{ id: "d1", created_time: msgAt(1) }]]) {
+      const sent: unknown[] = [];
+      const r = await pollReplies(env, {
+        fetch: mockFetch(dmRoutes([{ id: "t1", messages: { data: messages } }], sent)),
+        now: NOW,
+      });
+      expect(r).toMatchObject({ error: "upstream", detail: words });
+      expect(sent).toEqual([]);
+      expect(await stateOf(env)).toMatchObject({ lastError: "upstream", lastErrorDetail: words });
+    }
   });
 
   it("forgets week-old conversation positions and day-old default replies, without a write of their own", async () => {

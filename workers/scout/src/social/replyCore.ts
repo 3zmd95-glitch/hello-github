@@ -144,6 +144,12 @@ export type ReplyErrorCode =
   /** Instagram takes no private reply to this comment: too old, already answered, deleted, or blocked. */
   | "not_eligible";
 
+/** A failure as the poll records it: the code, and the platform's words. */
+export interface ReplyFailure {
+  code: ReplyErrorCode;
+  detail?: string;
+}
+
 export class ReplyError extends Error {
   constructor(
     readonly code: ReplyErrorCode,
@@ -166,31 +172,41 @@ const APP_PERMISSION_SUBCODES = new Set([1404170, 2534077, 1893063]);
 const WINDOW_SUBCODES = new Set([2534022, 2018278, 2018065]);
 const PRIVATE_REPLY_INVALID = { code: 100, subcode: 2534025 };
 
-/** A Graph reply as a body; refusals keep Instagram's words, permission problems get their own codes. */
+/**
+ * A Graph reply as a body; refusals keep Instagram's words, permission problems get their own codes. Every message
+ * ends with Meta's code and subcode when it sent one ("… [10/2534022]"), so the log says exactly what Meta answered.
+ */
 export function graph<T extends MetaError>(reply: JsonReply<T>, what: string): T {
   const err = reply.body?.error;
+  const tag =
+    err?.code === undefined
+      ? ""
+      : ` [${err.code}${err.error_subcode === undefined ? "" : `/${err.error_subcode}`}]`;
+  const said = (fallback: string) => `${err?.message ?? fallback}${tag}`;
   if (err?.code === PRIVATE_REPLY_INVALID.code && err.error_subcode === PRIVATE_REPLY_INVALID.subcode) {
-    throw new ReplyError("not_eligible", err.message);
+    throw new ReplyError("not_eligible", said(`${what}: invalid for a private reply`));
   }
   if (err?.code === 10) {
     const sub = err.error_subcode;
-    if (sub !== undefined && WINDOW_SUBCODES.has(sub)) throw new ReplyError("not_eligible", err.message);
-    if (sub === undefined || APP_PERMISSION_SUBCODES.has(sub)) {
-      throw new ReplyError("no_permission", err.message ?? `${what}: permission denied`);
+    if (sub !== undefined && WINDOW_SUBCODES.has(sub)) {
+      throw new ReplyError("not_eligible", said(`${what}: outside the messaging window`));
     }
-    throw new ReplyError("rejected", err.message ?? `${what}: ${sub}`);
+    if (sub === undefined || APP_PERMISSION_SUBCODES.has(sub)) {
+      throw new ReplyError("no_permission", said(`${what}: permission denied`));
+    }
+    throw new ReplyError("rejected", said(`${what}: refused`));
   }
   try {
     return metaBody(reply, what);
   } catch (e) {
     if (!(e instanceof SocialError)) throw e;
     // The log shows Instagram's own words, not our code prefixes.
-    const words = err?.message ?? `${what}: ${reply.status}`;
+    const words = said(`${what}: ${reply.status}`);
     if (e.code === "upstream" && reply.status >= 400 && reply.status < 500) {
       throw new ReplyError("rejected", words);
     }
     if (e.code === "token_expired" || e.code === "rate_limited") throw new ReplyError(e.code, words);
-    throw e;
+    throw new ReplyError("upstream", words);
   }
 }
 

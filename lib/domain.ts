@@ -565,6 +565,8 @@ export const AutoRepliesDocSchema = z.object({
   igUserId: z.string().optional(),
   lastPollAt: z.string().optional(),
   lastError: z.string().optional(),
+  /** Instagram's words for that error, with Meta's code at the end (shown under it on the account card). */
+  lastErrorDetail: z.string().optional(),
 });
 export type AutoRepliesDoc = z.infer<typeof AutoRepliesDocSchema>;
 

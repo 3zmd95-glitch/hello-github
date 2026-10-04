@@ -142,6 +142,8 @@ interface PollState {
   /** replies:state writes today (UTC day): 300 → five-minute ticks only, 600 → no answers until 00:00 UTC. */
   writes: { day: string; count: number };
   stats: Record<string, ReplyStats>; // also keyed "default" for the default reply
+  /** Instagram's words for lastError, ending with Meta's [code/subcode]; the account card shows them under it. */
+  lastErrorDetail?: string;
 }
 ```
 
@@ -170,7 +172,9 @@ Log entries gain `kind: "comment" | "message" | "story" | "default"` and, for DM
    replies an hour), within the tick's outbound call budget; leftovers go next tick.
 6. **Errors**: v1's codes and rules (`not_eligible`, `rejected`, `no_permission`, `token_expired`, `rate_limited`,
    `upstream`, `not_connected`); a DM outside the 24-hour window is `not_eligible` for that message; an app-level
-   permission error stops the tick. Instagram's own words go into the log.
+   permission error stops the tick. Instagram's own words, ending with Meta's `[code/subcode]` (`… [10/2534022]`), go
+   into the log; the poll's own error (a stop, else a failed conversations read) shows them under it on the account
+   card (`lastErrorDetail`).
 
 ### Instagram API facts (checked Oct 3, 2026)
 
@@ -183,7 +187,9 @@ already caches it). Docs: `developers.facebook.com/documentation/instagram-platf
   Messages come newest first; only the 20 most recent of a conversation can be read; `from.id == IG_ID` means the
   account sent it (the Worker or the owner by hand); `message` is empty without text; `is_unsupported` appears only when
   true; timestamps may be ISO 8601 or UNIX seconds (read both). Requests-folder conversations idle for 30+ days are not
-  listed. Limit: 2 calls a second per account.
+  listed. Limit: 2 calls a second per account. **Plan B** if the live account ignores the `messages{…}` expansion (the
+  poll then fails loudly: "messages came without created_time/from"): read each message with
+  `GET /{message-id}?fields=id,created_time,from,to,message,story`.
 - **Stories in a message**: a mention is `story.mention { link, id }` (documented); a reply is `story.reply_to { link,
   id }` (not documented, seen in SDKs). Story media is never stored.
 - **Send**: `POST /{IG_ID}/messages` with `Authorization: Bearer`; text `{ recipient: { id }, message: { text } }`

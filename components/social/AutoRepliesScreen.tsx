@@ -254,6 +254,15 @@ export default function AutoRepliesScreen() {
             {errorText(t, doc.lastError)}
           </p>
         )}
+        {doc?.lastError && doc.lastErrorDetail && (
+          <p
+            className="text-muted text-xs break-words"
+            dir="auto"
+            data-testid="autoreplies-last-error-detail"
+          >
+            {doc.lastErrorDetail}
+          </p>
+        )}
         {error && (
           <p role="alert" className="text-danger text-xs" data-testid="autoreplies-error">
             {t(error)}
@@ -426,7 +435,7 @@ function LogRow({ e }: { e: AutoReplyLog }) {
         {e.error && (
           <span>
             {errorText(t, e.error)}
-            {e.detail && e.error === "rejected" ? ` («${e.detail}»)` : ""}
+            {e.detail ? ` («${e.detail}»)` : ""}
           </span>
         )}
       </div>

@@ -368,11 +368,15 @@ describe("repliesSettings", () => {
       paused: false,
       defaultReply: { enabled: true, text: "وصلت رسالتك", stats: { sends: 3 } },
       ownerUsername: "3z.prod",
+      lastError: "upstream",
+      lastErrorDetail: "boom [2]",
     });
     expect(doc).toMatchObject({
       log: [{ kind: "default", messageId: "d1" }],
       defaultReply: { enabled: true, stats: { sends: 3, clicks: 0 } },
       ownerUsername: "3z.prod",
+      lastError: "upstream",
+      lastErrorDetail: "boom [2]",
     });
   });
 });

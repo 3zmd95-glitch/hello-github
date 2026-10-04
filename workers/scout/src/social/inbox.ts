@@ -26,10 +26,11 @@ import {
   MAX_RETRIES,
   messageButtons,
   normalizeForMatch,
+  ReplyError,
   sendReply,
   TICK_STOPPERS,
   toReplyCode,
-  type ReplyErrorCode,
+  type ReplyFailure,
 } from "./replyCore";
 import type { Automation, AutomationsDoc, PollState, ReplyLogEntry, ReplyStats } from "./replies";
 
@@ -123,7 +124,7 @@ export interface InboxOutcome {
   sent: string[];
   failed: string[];
   /** A failure after which nothing else will work this poll. */
-  stop?: ReplyErrorCode;
+  stop?: ReplyFailure;
   changed: boolean;
 }
 
@@ -211,9 +212,16 @@ export async function readInbox(
   const batches: ConversationBatch[] = [];
   for (const c of page.data ?? []) {
     if (!c.id) continue;
+    const listed = (c.messages?.data ?? []).filter((m): m is IgMessage & { id: string } => !!m.id);
+    // Bare message ids mean Instagram ignored the messages{…} expansion: fail loudly, not quietly answer nothing.
+    if (listed.length && (!listed.some((m) => m.created_time) || !listed.some((m) => m.from))) {
+      throw new ReplyError(
+        "upstream",
+        "conversations: messages came without created_time/from — the field expansion was not returned",
+      );
+    }
     const seen = seenMs(state, c.id, nowMs);
-    const msgs = (c.messages?.data ?? [])
-      .filter((m): m is IgMessage & { id: string } => !!m.id)
+    const msgs = listed
       .map((m) => ({ m, ms: toMs(m.created_time) }))
       .filter((x) => Number.isFinite(x.ms))
       .sort((a, b) => a.ms - b.ms);
@@ -313,7 +321,7 @@ export async function answerInbox(
         s.failures += 1;
         s.lastError = code;
         out.failed.push(item.id);
-        if (TICK_STOPPERS.has(code)) out.stop = code;
+        if (TICK_STOPPERS.has(code)) out.stop = { code, detail };
         if (code === "token_expired" || code === "rate_limited") {
           // Nothing recorded: the same message is tried first next time.
           final = false;

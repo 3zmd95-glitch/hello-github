@@ -67,6 +67,7 @@ import {
   toReplyCode,
   utf8Bytes,
   type ReplyErrorCode,
+  type ReplyFailure,
 } from "./replyCore";
 import { Store, type SocialEnv } from "./store";
 import { riyadhDay } from "./time";
@@ -219,6 +220,8 @@ export interface PollState {
   lastPollAt?: string;
   lastFullScanAt?: string;
   lastError?: ReplyErrorCode;
+  /** The platform's words for lastError (Meta's code and subcode at the end), when it gave any. */
+  lastErrorDetail?: string;
   /** ISO: a poll is answering comments or DMs until then (keeps two overlapping polls from both answering). */
   lockUntil?: string;
   /** replies:state writes on a UTC day (Cloudflare's daily limits reset at 00:00 UTC). */
@@ -573,9 +576,12 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     state.log.unshift(entry);
     if (state.log.length > LOG_MAX) state.log.length = LOG_MAX;
   };
-  const setError = (code: ReplyErrorCode | undefined) => {
-    if (state.lastError !== code) {
-      state.lastError = code;
+  // The poll's error, with its words for the account card (cleared by a poll that ends without one).
+  const setError = (failure?: ReplyFailure) => {
+    const detail = failure?.detail?.slice(0, 200);
+    if (state.lastError !== failure?.code || state.lastErrorDetail !== detail) {
+      state.lastError = failure?.code;
+      state.lastErrorDetail = detail;
       changed = true;
     }
   };
@@ -616,12 +622,12 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
   const creds = credentials(env, "instagram");
   let tokens: TokenSet | null = await store.getTokens("instagram");
   if (!creds || !tokens) {
-    setError("not_connected");
+    setError({ code: "not_connected" });
     await save();
     return { ...result, skipped: "not_connected" };
   }
   if (!tokens.canReply) {
-    setError("no_permission");
+    setError({ code: "no_permission" });
     await save();
     return { ...result, skipped: "no_permission" };
   }
@@ -635,7 +641,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     }
   } catch (e) {
     const { code, detail } = toReplyCode(e);
-    setError(code);
+    setError({ code, detail });
     await save();
     return {
       ...result,
@@ -754,9 +760,11 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     }
     candidates.sort((x, y) => (x.comment.timestamp ?? "").localeCompare(y.comment.timestamp ?? ""));
 
-    // The DMs and story replies (inbox.ts). A conversations read that fails leaves the comments alone.
+    // The DMs and story replies (inbox.ts). A conversations read that fails leaves the comments alone, and is the
+    // poll's error unless answering stops it.
     const inbox: InboxDeps = { http, token, igUserId, config, state, now, statsOf, log: addLog };
     let batches: ConversationBatch[] = [];
+    let readError: ReplyFailure | undefined;
     if (dmOn) {
       try {
         const read = await readInbox(inbox);
@@ -765,6 +773,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
       } catch (e) {
         const { code, detail } = toReplyCode(e);
         if (TICK_STOPPERS.has(code)) throw e;
+        readError = { code, detail };
         result.error = code;
         if (detail) result.detail = detail.slice(0, 200);
       }
@@ -779,7 +788,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     }
 
     const attempted = new Set<string>();
-    let stop: ReplyErrorCode | undefined;
+    let stop: ReplyFailure | undefined;
     for (const { comment: c, automation: a, mediaId } of candidates) {
       if (stop || result.sent.length >= REPLY_CAP) break;
       const buttons = messageButtons(a, config.origin, state.ownerUsername);
@@ -801,8 +810,8 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
         publicReply: "skipped",
         dm: "failed",
       };
-      const finish = (code: ReplyErrorCode) => {
-        if (TICK_STOPPERS.has(code)) stop = code;
+      const finish = (code: ReplyErrorCode, detail?: string) => {
+        if (TICK_STOPPERS.has(code)) stop = { code, detail };
       };
       // The DM first: it is the part Instagram allows once per comment, and the public reply promises it.
       let dmSent = false;
@@ -824,7 +833,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
         s.failures += 1;
         s.lastError = code;
         result.failed.push(id);
-        finish(code);
+        finish(code, detail);
         if (code === "token_expired" || code === "rate_limited") {
           // Nothing recorded: the same comment is tried first next time.
         } else if (transient || code === "no_permission") {
@@ -859,7 +868,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
           entry.publicReply = "failed";
           entry.error ??= code;
           if (detail && !entry.detail) entry.detail = detail.slice(0, 200);
-          finish(code);
+          finish(code, detail);
         }
       }
       changed = true;
@@ -872,7 +881,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
       if (dms.changed) changed = true;
       stop = dms.stop;
     }
-    setError(stop);
+    setError(stop ?? readError);
 
     // Remember each read post's count only once every matching comment on it was attempted; a post with
     // comments left (cap, budget, stop) is read again next tick.
@@ -891,7 +900,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     }
   } catch (e) {
     const { code, detail } = toReplyCode(e);
-    setError(code);
+    setError({ code, detail });
     result.error = code;
     if (detail) result.detail = detail.slice(0, 200);
   }
@@ -952,6 +961,7 @@ export function publicDoc(
     ...(state.ownerUsername ? { ownerUsername: state.ownerUsername } : {}),
     ...(state.lastPollAt ? { lastPollAt: state.lastPollAt } : {}),
     ...(state.lastError ? { lastError: state.lastError } : {}),
+    ...(state.lastErrorDetail ? { lastErrorDetail: state.lastErrorDetail } : {}),
     ...(writeGuard(state, now) ? { guard: writeGuard(state, now) } : {}),
   };
 }
