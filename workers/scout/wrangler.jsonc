@@ -22,11 +22,26 @@
     // src/trends/genres.ts) and spends ≤ 18 search.list calls a day, rotating the keywords by UTC day.
     "TREND_KEYWORDS_AR": "تصوير,مونتاج,دافنشي,تصحيح الألوان,كاميرا,صانع محتوى",
     "TREND_KEYWORDS_EN": "davinci resolve,color grading,b-roll,iphone videography,video editing,content creator",
+    // Discover v2 (planning/tools/13-discover-search-v2.md): YouTube search.list calls Discover and the Claude
+    // connector may spend a UTC day (the radar keeps its 18 of Google's 100), and the connector's Tavily
+    // lookups a Riyadh day.
+    "DISCOVER_YT_CAP": "70",
+    "MCP_DAILY_LOOKUPS": "60",
+    // "off" sends dashboards back to the old per-platform search.
+    "DISCOVER_V2": "on",
+    // The connector's address as Claude sees it (OAuth protected-resource metadata must equal it).
+    "MCP_RESOURCE": "https://3z-scout.3zmd95.workers.dev/mcp",
   },
   // Tokens, status and the daily rows. The id below is a placeholder: the deploy workflow creates the
   // namespace "3z-scout-SOCIAL_KV" once and swaps the real id in before `wrangler deploy` (see
   // .github/workflows/worker.yml). Locally, `wrangler dev` uses a simulated namespace, no id needed.
-  "kv_namespaces": [{ "binding": "SOCIAL_KV", "id": "00000000000000000000000000000000" }],
+  "kv_namespaces": [
+    { "binding": "SOCIAL_KV", "id": "00000000000000000000000000000000" },
+    // The Claude connector's OAuth clients and tokens (@cloudflare/workers-oauth-provider needs this exact name).
+    // Its own placeholder id, so local dev keeps two stores; the deploy workflow creates "3z-scout-OAUTH_KV" once
+    // and swaps the real id in.
+    { "binding": "OAUTH_KV", "id": "11111111111111111111111111111111" },
+  ],
   // One trigger every five minutes: the auto-post queue publishes what is due, the 03:00/03:10/03:20/03:30
   // UTC ticks (06:00–06:30 Riyadh) run the daily sync of one platform each instead, and the Trend Radar
   // ticks (00:05/06:05/12:05/18:05 UTC fast sources, 21:05 UTC daily YouTube search, Saturday 21:15 UTC

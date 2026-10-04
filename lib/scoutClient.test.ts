@@ -463,15 +463,25 @@ describe("scoutOembed", () => {
 });
 
 describe("scoutHealth", () => {
-  it("is ok with a token-confirmed reply and reports the Tavily key", async () => {
+  it("is ok with a token-confirmed reply and reports the Tavily key and Discover", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse({ ok: true, auth: true, tavily: false }),
     );
-    expect(await scoutHealth(CONFIG, { fetchImpl })).toEqual({ ok: true, tavily: false });
+    expect(await scoutHealth(CONFIG, { fetchImpl })).toEqual({
+      ok: true,
+      tavily: false,
+      discover: false,
+    });
     expect(fetchImpl.mock.calls[0][0]).toBe("https://scout.test/health");
     expect((fetchImpl.mock.calls[0][1]?.headers as Record<string, string>).Authorization).toBe(
       "Bearer tok",
     );
+    const v2 = vi.fn(async () => jsonResponse({ ok: true, tavily: true, discover: true }));
+    expect(await scoutHealth(CONFIG, { fetchImpl: v2 })).toEqual({
+      ok: true,
+      tavily: true,
+      discover: true,
+    });
   });
 
   it("treats a wrong token (401) or an unauthenticated reply as auth", async () => {

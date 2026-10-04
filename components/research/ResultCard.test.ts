@@ -320,6 +320,85 @@ describe("ResultCard ▶ (full card)", () => {
     click($("result-play"));
     expect(opened[0].thumb).toBe(fresh);
   });
+
+  it("a TikTok card that arrives without a picture asks the Worker's oEmbed, once per post", async () => {
+    // Discover v2 sends TikTok cards without pictures; the card asks for one itself.
+    const fresh = `${WORKER}/thumb/asked.png`;
+    const asked: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        asked.push(new URL(String(input)).searchParams.get("url") ?? "");
+        return new Response(JSON.stringify({ title: "", author: "", thumb: fresh, url: "" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+    act(() =>
+      useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
+    );
+    const item = {
+      ...TT,
+      thumb: undefined,
+      url: "https://www.tiktok.com/@editor.sam/video/7300000000000000010",
+    };
+    render({ item });
+    await settle();
+    expect(asked).toEqual([item.url]);
+    expect($("result-thumb")!.getAttribute("src")).toBe(fresh);
+
+    // The same post elsewhere (the saved row) gets the same picture without asking again; YouTube never asks.
+    render({ item, compact: true });
+    await settle();
+    expect($("saved-ref-thumb")!.getAttribute("src")).toBe(fresh);
+    render({ item: { ...YT, thumb: undefined } });
+    await settle();
+    expect(asked).toHaveLength(1);
+  });
+
+  it("a TikTok card titled only by its handle shows the post's caption from the same lookup", async () => {
+    // Discover v2 keeps a generic TikTok page title ("TikTok - Make Your Day") as the handle and no longer asks
+    // oEmbed inside the search; the card's own lookup brings the caption.
+    const caption = "Flash transition in CapCut 🔥";
+    const asked: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        asked.push(new URL(String(input)).searchParams.get("url") ?? "");
+        return new Response(
+          JSON.stringify({ title: caption, author: "@editor.sam", thumb: "", url: "" }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }),
+    );
+    act(() =>
+      useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
+    );
+    const item = {
+      ...TT,
+      title: "@editor.sam",
+      url: "https://www.tiktok.com/@editor.sam/video/7300000000000000011",
+    };
+    // It has a picture, so only the title sends it to ask.
+    render({ item });
+    await settle();
+    expect(asked).toEqual([item.url]);
+    expect($("result-title")!.textContent).toBe(caption);
+    expect($("result-play")!.getAttribute("aria-label")).toBe(`شاهد «${caption}» هنا`);
+    expect($("result-thumb")!.getAttribute("src")).toBe(TT.thumb);
+    click($("result-play"));
+    expect(opened[0].title).toBe(caption);
+
+    // The saved row of the same post shows it without asking again; a card with a real title keeps its own.
+    render({ item, compact: true });
+    await settle();
+    expect(host.querySelector("a")!.textContent).toBe(caption);
+    render({ item: { ...item, title: "Match cut in 10 seconds" } });
+    await settle();
+    expect($("result-title")!.textContent).toBe("Match cut in 10 seconds");
+    expect(asked).toHaveLength(1);
+  });
 });
 
 describe("ResultCard ▶ (compact: the skill sheet's saved references)", () => {

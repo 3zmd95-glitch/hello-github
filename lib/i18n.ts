@@ -31,6 +31,8 @@ import arGenres from "@/messages/genres.ar.json";
 import enGenres from "@/messages/genres.en.json";
 import arPlayer from "@/messages/player.ar.json";
 import enPlayer from "@/messages/player.en.json";
+import arSearch from "@/messages/search.ar.json";
+import enSearch from "@/messages/search.en.json";
 import type { Lang, LText } from "@/lib/domain";
 import { useStore } from "@/store";
 
@@ -66,6 +68,8 @@ export const MESSAGE_FILES = {
   genres: { ar: arGenres, en: enGenres },
   // ▶ Watch here (round 32): the in-dashboard video player and the cards' play button.
   player: { ar: arPlayer, en: enPlayer },
+  // 🔎 Discover search v2 (round 33, planning/tools/13-discover-search-v2.md): the sections screen.
+  search: { ar: arSearch, en: enSearch },
 } as const;
 
 const ar = {
@@ -85,6 +89,7 @@ const ar = {
   ...arTrends,
   ...arGenres,
   ...arPlayer,
+  ...arSearch,
 };
 const en = {
   ...enBase,
@@ -103,6 +108,7 @@ const en = {
   ...enTrends,
   ...enGenres,
   ...enPlayer,
+  ...enSearch,
 };
 
 export type MessageKey = keyof typeof ar;

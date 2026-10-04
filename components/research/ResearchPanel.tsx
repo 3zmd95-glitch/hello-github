@@ -13,6 +13,13 @@ import {
 } from "react";
 import { pullTrends } from "@/components/social/trends/useTrends";
 import { getProgram, getSkill, programs } from "@/data";
+import {
+  discoverRequestFrom,
+  picksFor,
+  tabCounts,
+  type DiscoverAlternative,
+  type DiscoverPick,
+} from "@/lib/discover";
 import type { Lang, Skill } from "@/lib/domain";
 import { allGenres } from "@/lib/genres";
 import { useT, type MessageKey } from "@/lib/i18n";
@@ -53,9 +60,12 @@ import {
 } from "@/lib/scoutClient";
 import { trendsStale } from "@/lib/trends";
 import { getApiKey, useStore } from "@/store";
+import DiscoverSections from "./DiscoverSections";
 import PasteLinkForm from "./PasteLinkForm";
+import PicksSection from "./PicksSection";
 import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
 import SkillPicker from "./SkillPicker";
+import { useDiscoverPicks, useDiscoverQuery, useDiscoverUsage, useScoutCaps } from "./useDiscover";
 import {
   groupErrors,
   scoutParams,
@@ -190,6 +200,14 @@ export default function ResearchPanel({
   const ytKey = useStore((s) => getApiKey(s, "youtube"));
   const scoutCfg = useScoutConfig();
   const usage = useScoutUsage();
+  const caps = useScoutCaps(scoutCfg);
+  // Discover v2 when the Worker says it can; the per-platform /search path otherwise (and without a Worker).
+  const v2 = !!scoutCfg && caps?.discover === true;
+  const legacy = !scoutCfg || caps?.discover === false;
+  // The "Not this?" choice, for the topic it was made on (another topic or genre drops it), and the search
+  // attempt a failed platform's Retry sends past the cache.
+  const [picked, setPicked] = useState<{ on: string; pick: DiscoverPick } | null>(null);
+  const [forceAt, setForceAt] = useState(-1);
 
   /* ---------- the query ---------- */
 
@@ -216,6 +234,7 @@ export default function ResearchPanel({
       if (text) addRecentTopic(text);
     }
     setDraft(null);
+    setPicked(null);
   };
 
   const submit = (e: FormEvent) => {
@@ -270,7 +289,7 @@ export default function ResearchPanel({
     publishedAfter,
     order: ytOrder,
   };
-  const ytWanted = live && hasYt && (tab === "all" || tab === "yt");
+  const ytWanted = live && legacy && hasYt && (tab === "all" || tab === "yt");
   const yt = useYoutubeQuery(ytWanted ? ytKey : undefined, q, ytOpts, attempt);
   // A key that's out of quota or refused: YouTube comes from the Worker instead. The failed query stays
   // settled (ytWanted doesn't depend on this), so it doesn't flip back and forth.
@@ -285,11 +304,48 @@ export default function ResearchPanel({
   // can't crowd the others out of a shared, capped answer.
   const paramsFor = (p: Platform) =>
     scoutParams(q, scoutPlatformsFor(p, ytApi), searchLang, timeRange);
-  const wants = (p: Platform) => live && (tab === "all" || tab === p);
+  const wants = (p: Platform) => live && legacy && (tab === "all" || tab === p);
   const scoutTt = useScoutQuery(wants("tt") ? paramsFor("tt") : null, attempt);
   const scoutIg = useScoutQuery(wants("ig") ? paramsFor("ig") : null, attempt);
   const scoutYt = useScoutQuery(wants("yt") ? paramsFor("yt") : null, attempt);
   const scoutBy: Record<Platform, ScoutSearchState> = { yt: scoutYt, tt: scoutTt, ig: scoutIg };
+
+  // Discover v2: one request for every platform, both languages. A memo, so the React Compiler sees it frozen
+  // (built inline, it keeps the inputs of `q` open past the `counts` memo below).
+  const pickOn = `${genre?.id ?? ""}|${base}`;
+  const discoverReq = useMemo(
+    () =>
+      v2 && !savedOnly
+        ? discoverRequestFrom({
+            base,
+            genre,
+            programHint: hintOn ? hint : undefined,
+            recency,
+            length,
+            pick: picked?.on === pickOn ? picked.pick : undefined,
+          })
+        : null,
+    [v2, savedOnly, base, genre, hintOn, hint, recency, length, picked, pickOn],
+  );
+  const disc = useDiscoverQuery(discoverReq, attempt, forceAt === attempt);
+  // Claude's picks (free: a KV read), asked when v2 opens and again at each search attempt.
+  const picks = useDiscoverPicks(v2 ? scoutCfg : null, attempt);
+  // The tab badges count the posts shown; a tab is empty only with none at all (hidden ones included).
+  const discShown = disc.status === "ok" ? tabCounts(disc.answer, false) : undefined;
+  const discAll = disc.status === "ok" ? tabCounts(disc.answer, true) : undefined;
+  // The usage line asks again once an answer lands (each search's own attempt), never at the click.
+  const discUsage = useDiscoverUsage(
+    v2 ? scoutCfg : null,
+    disc.status === "loading" ? null : disc.status === "off" ? 0 : disc.attempt,
+  );
+  const onAlternative = (alt: DiscoverAlternative) => {
+    setPicked({ on: pickOn, pick: "exact" in alt ? { exact: true } : { term: alt.termId } });
+    setAttempt((a) => a + 1);
+  };
+  const onRetry = () => {
+    setForceAt(attempt + 1);
+    setAttempt(attempt + 1);
+  };
 
   /* ---------- saved refs ---------- */
 
@@ -347,7 +403,12 @@ export default function ResearchPanel({
   // stable) the Arabic posts on top, each group still by popularity.
   if (sort === "popular") items = sortByPopularity(items);
   if (arFirst) items = arabicFirst(items);
-  const loading = [yt, scoutTt, scoutIg, scoutYt].some((s) => s.status === "loading");
+  // Until the Worker has said which search it serves (/health, once a session), the search is on its way.
+  const loading =
+    (live && !!scoutCfg && caps === null) ||
+    (v2
+      ? disc.status === "loading"
+      : [yt, scoutTt, scoutIg, scoutYt].some((s) => s.status === "loading"));
 
   /**
    * Result count per tab from each platform's own answer, or its cached one (no request); undefined (no
@@ -409,6 +470,10 @@ export default function ResearchPanel({
     scoutIg,
     scoutYt,
   ]);
+  const shownCounts =
+    v2 && !savedOnly
+      ? (discShown ?? { all: undefined, yt: undefined, tt: undefined, ig: undefined })
+      : counts;
 
   /* ---------- per-card actions ---------- */
 
@@ -497,9 +562,13 @@ export default function ResearchPanel({
         )
       : [];
   const anySettled = [yt, scoutTt, scoutIg, scoutYt].some((s) => s.status === "ok");
+  // v2: nothing on this tab, hidden posts included; or no word to search in what was typed (emoji only).
+  const v2Empty = v2 && !savedOnly && (discoverReq ? discAll?.[tab] === 0 : live);
   const showEmpty = savedOnly
     ? items.length === 0
-    : !!q && anySettled && !loading && items.length === 0;
+    : v2
+      ? v2Empty
+      : !!q && anySettled && !loading && items.length === 0;
   const activeFilters =
     (recency !== "any" ? 1 : 0) +
     (length !== "any" ? 1 : 0) +
@@ -767,7 +836,7 @@ export default function ResearchPanel({
       >
         {RESEARCH_TABS.map((tb, i) => {
           const active = tb === tab;
-          const count = counts[tb];
+          const count = shownCounts[tb];
           return (
             <button
               key={tb}
@@ -822,7 +891,18 @@ export default function ResearchPanel({
             </span>
           )}
         </button>
-        {scoutCfg && (
+        {scoutCfg && v2 && discUsage && (
+          <p className="text-muted ms-auto text-xs" data-testid="discover-usage">
+            {/* Tavily's figure when the Worker could read it; YouTube's count either way. */}
+            {"used" in discUsage.tavily &&
+              `${t("search.usage", {
+                used: discUsage.tavily.used,
+                limit: discUsage.tavily.limit ?? "∞",
+              })} · `}
+            {t("search.usageYt", { used: discUsage.youtube.usedToday, cap: discUsage.youtube.cap })}
+          </p>
+        )}
+        {scoutCfg && !v2 && (
           <p className="text-muted ms-auto text-xs" data-testid="scout-usage" data-count={usage}>
             {t("research.scoutUsage", { n: usage, max: SCOUT_MONTHLY_FREE })}
           </p>
@@ -952,22 +1032,37 @@ export default function ResearchPanel({
             {t("research.startTyping")}
           </p>
         )}
+        {v2 && !skill && !q && !savedOnly && picks.length > 0 && (
+          <div className="flex flex-col gap-3" data-testid="discover-picks-latest">
+            <h2 className="text-sm font-bold">{t("search.picksLatest")}</h2>
+            {picks.slice(0, 3).map((saved) => (
+              <PicksSection
+                key={saved.topicKey}
+                topic={saved}
+                headingLevel="h3"
+                renderAction={renderAction}
+                showTopic
+              />
+            ))}
+          </div>
+        )}
         {scoutHint && <Hint testId="scout-not-configured">{t("research.scoutNotConfigured")}</Hint>}
         {ytHint && (!!q || !!skill) && <Hint testId="yt-no-key">{t("research.enableYt")}</Hint>}
-        {scoutErrors.map((g) => (
-          <ScoutErrorLine
-            key={g.error.type}
-            error={g.error}
-            platforms={tab === "all" ? g.platforms : undefined}
-          />
-        ))}
-        {!savedOnly && yt.status === "error" && <YoutubeErrorLine error={yt.error} />}
-        {ytViaScout && (
+        {!v2 &&
+          scoutErrors.map((g) => (
+            <ScoutErrorLine
+              key={g.error.type}
+              error={g.error}
+              platforms={tab === "all" ? g.platforms : undefined}
+            />
+          ))}
+        {!v2 && !savedOnly && yt.status === "error" && <YoutubeErrorLine error={yt.error} />}
+        {!v2 && ytViaScout && (
           <p className="text-muted text-xs" data-testid="yt-via-scout">
             {t("research.ytViaScout")}
           </p>
         )}
-        {lenNote && (
+        {!v2 && lenNote && (
           <p className="text-muted text-xs" data-testid="len-needs-key">
             {t("research.lenNeedsKey")}
           </p>
@@ -978,7 +1073,7 @@ export default function ResearchPanel({
           </p>
         )}
 
-        {(items.length > 0 || (loading && !savedOnly)) && (
+        {(!v2 || savedOnly) && (items.length > 0 || (loading && !savedOnly)) && (
           <ul
             className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3"
             aria-label={t("research.results")}
@@ -995,16 +1090,46 @@ export default function ResearchPanel({
           </ul>
         )}
 
-        {noneOn.map((p) => (
-          <div
-            key={p}
-            className="text-muted flex flex-wrap items-center gap-2 text-xs"
-            data-testid={`research-none-${p}`}
-          >
-            <span>{t(NONE_ON[p])}</span>
-            <PlatformLinks q={q} idPrefix={`none-link-${p}`} only={p} />
+        {!v2 &&
+          noneOn.map((p) => (
+            <div
+              key={p}
+              className="text-muted flex flex-wrap items-center gap-2 text-xs"
+              data-testid={`research-none-${p}`}
+            >
+              <span>{t(NONE_ON[p])}</span>
+              <PlatformLinks q={q} idPrefix={`none-link-${p}`} only={p} />
+            </div>
+          ))}
+
+        {v2 && !savedOnly && disc.status === "error" && <ScoutErrorLine error={disc.error} />}
+        {v2 && !savedOnly && loading && (
+          <div className="flex flex-col gap-2" data-testid="discover-loading">
+            <p className="text-muted text-xs">{t("search.searching")}</p>
+            <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
+              {Array.from({ length: 3 }, (_, i) => (
+                <SkeletonCard key={i} vertical={i % 3 !== 1} />
+              ))}
+            </ul>
           </div>
-        ))}
+        )}
+        {/* Also on an empty tab: the understood line, "Not this?" and why a platform failed stay above the
+            empty box. A new search starts with its off-topic posts hidden and its sections closed. */}
+        {v2 && !savedOnly && disc.status === "ok" && (
+          <DiscoverSections
+            key={disc.key}
+            answer={disc.answer}
+            q={discoverReq?.q ?? q}
+            tab={tab}
+            sort={sort}
+            arFirst={arFirst}
+            headingLevel={skill ? "h3" : "h2"}
+            renderAction={renderAction}
+            onAlternative={onAlternative}
+            onRetry={onRetry}
+            picks={picksFor(picks, disc.answer.topicKey)}
+          />
+        )}
 
         {showEmpty && (
           <div

@@ -129,13 +129,41 @@ describe("auth", () => {
     };
     const trends = { youtube: false, sources: ["google", "youtube", "tavily", "events"] };
     const authed = await handle(req("/health"), ENV);
-    expect(await authed.json()).toEqual({ ok: true, auth: true, tavily: true, social, trends });
+    expect(await authed.json()).toEqual({
+      ok: true,
+      auth: true,
+      tavily: true,
+      social,
+      trends,
+      discover: true,
+    });
 
     const noKey = await handle(req("/health"), { ...ENV, TAVILY_API_KEY: undefined });
-    expect(await noKey.json()).toEqual({ ok: true, auth: true, tavily: false, social, trends });
+    expect(await noKey.json()).toEqual({
+      ok: true,
+      auth: true,
+      tavily: false,
+      social,
+      trends,
+      discover: true,
+    });
 
     const wrong = await handle(req("/health", { token: "wrong" }), ENV);
     expect(wrong.status).toBe(401);
+  });
+
+  it("DISCOVER_V2 'off' sends dashboards back to /search; the /discover routes stay served", async () => {
+    const discover = async (DISCOVER_V2?: string) => {
+      const res = await handle(req("/health"), { ...ENV, DISCOVER_V2 });
+      return ((await res.json()) as { discover?: boolean }).discover;
+    };
+    expect(await discover("off")).toBe(false);
+    expect(await discover(undefined)).toBe(true);
+    expect(await discover("on")).toBe(true);
+    // The connector runs the same pipeline, so the routes answer either way.
+    const picks = await handle(req("/discover/picks"), { ...ENV, DISCOVER_V2: "off" });
+    expect(picks.status).toBe(200);
+    expect(await picks.json()).toEqual({ picks: [] });
   });
 
   it("unknown routes are 404 (after auth)", async () => {

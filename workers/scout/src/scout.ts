@@ -8,9 +8,14 @@
  *                           text, YouTube from one `videos.list` when YOUTUBE_API_KEY is set)
  *   GET  /oembed?url=     → TikTok / YouTube oEmbed passthrough { title, author, thumb, url }, cached 1 day
  *                           (TikTok 6 h: its thumbnail URLs are signed)
+ *   POST /discover        → Discover v2: one sectioned search (discover/, planning/tools/13-discover-search-v2.md)
+ *   GET  /discover/usage  → Tavily's usage and today's YouTube / connector counters
+ *   GET  /discover/picks  → Claude's picks for Discover, all or `?topic=` (saved by the connector's save_picks)
  *   GET  /trends          → the Trend Radar feed (trends/routes.ts, round 30, planning/tools/08-trends.md)
  *   POST /trends/run      → refresh the feed now
  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
+ *   /mcp, /authorize, /token, /register → served by index.ts (OAuth + MCP): the Claude connector
+ *                           (discover/mcp.ts, discover/auth.ts)
  *
  * Every route but OPTIONS, GET /health, the OAuth callbacks and /go needs `Authorization: Bearer
  * <SCOUT_TOKEN>`. CORS reflects the request Origin only when it is in ALLOWED_ORIGINS.
@@ -19,15 +24,14 @@
  * handlers (workerd treats every named export as an entrypoint), and the tests need `handle` and helpers.
  */
 
+import { handleDiscover } from "./discover/routes";
 import {
   normalizeHits,
   PLATFORM_DOMAIN,
   PLATFORMS,
   tiktokTitleFromOembed,
-  youtubeVideoId,
   type Platform,
   type ScoutResult,
-  type Stats,
   type TavilyHit,
 } from "./normalize";
 import { allowedOrigins, DEFAULT_ALLOWED_ORIGINS } from "./origins";
@@ -37,9 +41,10 @@ import type { SocialEnv } from "./social/store";
 import { handleTrends, healthTrends } from "./trends/routes";
 import { TAVILY_URL } from "./trends/tavily";
 import type { TrendsEnv } from "./trends/types";
-import { YT_VIDEOS_URL } from "./trends/youtube";
+import { enrichYoutubeStats } from "./youtubeStats";
 
 export { DEFAULT_ALLOWED_ORIGINS, TAVILY_URL };
+export { enrichYoutubeStats, YT_STATS_MAX, youtubeStatsUrl } from "./youtubeStats";
 
 export interface Env extends SocialEnv, TrendsEnv {
   /** Secret: Tavily API key (https://app.tavily.com). */
@@ -48,6 +53,12 @@ export interface Env extends SocialEnv, TrendsEnv {
   SCOUT_TOKEN?: string;
   /** Var: comma-separated list of origins allowed to call the Worker from a browser. */
   ALLOWED_ORIGINS?: string;
+  /** Var: YouTube `search.list` calls Discover and the connector may spend a UTC day (default 70). */
+  DISCOVER_YT_CAP?: string;
+  /** Var: Tavily lookups the Claude connector may spend a Riyadh day (default 60). */
+  MCP_DAILY_LOOKUPS?: string;
+  /** Var: "off" makes /health say `discover: false`, so dashboards go back to /search (default on). */
+  DISCOVER_V2?: string;
 }
 
 /** Test seams: the global `fetch` and `caches.default` are used when these are omitted. */
@@ -77,8 +88,6 @@ export const THUMB_ENRICH_MAX = 10;
  * cards then stay as they were.
  */
 export const THUMB_TIMEOUT_MS = 2500;
-/** `videos.list` takes at most this many ids in one call. */
-export const YT_STATS_MAX = 50;
 const TIME_RANGES = ["week", "month", "year"] as const;
 export type TimeRange = (typeof TIME_RANGES)[number];
 
@@ -419,95 +428,6 @@ export async function enrichThumbs(
   );
 }
 
-/* ---------- YouTube statistics ---------- */
-
-/** What `videos.list?part=statistics` returns, the fields used here (the counts are numeric strings). */
-interface YtStatsReply {
-  items?: {
-    id?: unknown;
-    statistics?: { viewCount?: unknown; likeCount?: unknown; commentCount?: unknown };
-  }[];
-}
-
-/** A count as the API sends it, as a whole number ≥ 0; undefined when it is missing (hidden likes) or odd. */
-function ytCount(x: unknown): number | undefined {
-  const n = typeof x === "number" ? x : typeof x === "string" && x.trim() ? Number(x) : Number.NaN;
-  return Number.isSafeInteger(n) && n >= 0 ? n : undefined;
-}
-
-export function youtubeStatsUrl(key: string, ids: readonly string[]): string {
-  const u = new URL(YT_VIDEOS_URL);
-  u.searchParams.set("part", "statistics");
-  u.searchParams.set("id", ids.slice(0, YT_STATS_MAX).join(","));
-  u.searchParams.set("key", key);
-  return u.toString();
-}
-
-/**
- * Give YouTube results their view, like and comment counts (round 31, the "Most popular" sort): ONE
- * `videos.list?part=statistics` for every YouTube card (at most {@link YT_STATS_MAX} ids, 1 quota unit,
- * one subrequest), only when `YOUTUBE_API_KEY` is set. It never fails the search: without the key, on
- * an HTTP error, a broken body or after `timeoutMs` the cards stay as they were. A count YouTube does
- * not send (hidden likes, comments off) is left out, and a card never gets an empty `stats`. Mutates
- * `results` in place.
- */
-export async function enrichYoutubeStats(
-  results: ScoutResult[],
-  env: Pick<Env, "YOUTUBE_API_KEY">,
-  doFetch: typeof fetch,
-  timeoutMs = THUMB_TIMEOUT_MS,
-): Promise<void> {
-  const key = env.YOUTUBE_API_KEY;
-  if (!key) return;
-  const byId = new Map<string, ScoutResult>();
-  for (const r of results) {
-    if (r.platform !== "yt" || byId.size >= YT_STATS_MAX) continue;
-    let id: string | undefined;
-    try {
-      id = youtubeVideoId(new URL(r.url));
-    } catch {
-      // Not a URL: the card just stays without counts.
-    }
-    if (id && !byId.has(id)) byId.set(id, r);
-  }
-  if (!byId.size) return;
-
-  const ac = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<undefined>((resolve) => {
-    timer = setTimeout(() => {
-      ac.abort();
-      resolve(undefined);
-    }, timeoutMs);
-  });
-  const ask = async (): Promise<YtStatsReply | undefined> => {
-    const res = await doFetch(youtubeStatsUrl(key, [...byId.keys()]), {
-      headers: { Accept: "application/json" },
-      signal: ac.signal,
-    });
-    return res.ok ? ((await res.json()) as YtStatsReply) : undefined;
-  };
-  try {
-    // The race also ends a call that ignores the abort signal; the body read is inside the limit.
-    const reply = await Promise.race([ask().catch(() => undefined), timeout]);
-    const items = Array.isArray(reply?.items) ? reply.items : [];
-    for (const item of items) {
-      const card = typeof item?.id === "string" ? byId.get(item.id) : undefined;
-      if (!card) continue;
-      const stats: Stats = {};
-      const views = ytCount(item.statistics?.viewCount);
-      const likes = ytCount(item.statistics?.likeCount);
-      const comments = ytCount(item.statistics?.commentCount);
-      if (views !== undefined) stats.views = views;
-      if (likes !== undefined) stats.likes = likes;
-      if (comments !== undefined) stats.comments = comments;
-      if (Object.keys(stats).length) card.stats = stats;
-    }
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 /* ---------- router ---------- */
 
 function defaultCache(): Cache | null {
@@ -558,6 +478,8 @@ export async function handle(
           tavily: !!env.TAVILY_API_KEY,
           social: healthSocial(env),
           trends: healthTrends(env),
+          // The kill switch: /discover stays served (the connector runs the same pipeline).
+          discover: env.DISCOVER_V2 !== "off",
         },
         200,
         cors,
@@ -577,6 +499,8 @@ export async function handle(
   if (pathname === "/oembed" && req.method === "GET") {
     return handleOembed(req, cors, doFetch, cache, ctx);
   }
+  const discover = await handleDiscover(req, env, cors, { fetch: deps.fetch, now: deps.now });
+  if (discover) return discover;
   const social = await handleSocial(req, env, cors, { fetch: deps.fetch, now: deps.now });
   if (social) return social;
   const trends = await handleTrends(req, env, cors, { fetch: deps.fetch, now: deps.now });

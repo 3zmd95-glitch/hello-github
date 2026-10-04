@@ -35,6 +35,8 @@ export interface ScoutResult {
    * (scout.ts `enrichYoutubeStats`). Never an empty object.
    */
   stats?: Stats;
+  /** When the page was published, ISO 8601 (Tavily `published_date` parsed, YouTube `publishedAt`). */
+  published?: string;
 }
 
 /** One hit as Tavily returns it (only the fields we read). */
@@ -45,6 +47,7 @@ export interface TavilyHit {
   /** Not documented for /search today, but read when present (future-proof, costs nothing). */
   image?: string;
   images?: (string | { url?: string })[];
+  published_date?: string;
 }
 
 const SNIPPET_MAX = 220;
@@ -412,6 +415,11 @@ export function normalizeHits(
       url,
     };
     if (thumb) result.thumb = thumb;
+    if (typeof hit.published_date === "string") {
+      // Tavily sends RFC 2822 ("Tue, 30 Sep 2026 17:00:00 GMT"); kept as ISO so dates sort as text.
+      const t = Date.parse(hit.published_date);
+      if (!Number.isNaN(t)) result.published = new Date(t).toISOString();
+    }
     if (platform !== "yt") {
       const stats = parseEngagement(content) ?? parseEngagement(rawTitle);
       if (stats) result.stats = stats;
@@ -419,4 +427,83 @@ export function normalizeHits(
     out.push(result);
   }
   return out;
+}
+
+/* ---------- profile pages (Discover v2: creator candidates) ---------- */
+
+export interface Profile {
+  platform: Platform;
+  /** "@name". */
+  handle: string;
+  url: string;
+}
+
+const TT_PROFILE_PATH = /^\/@([\w.-]+)\/?$/;
+/** `/<name>/`, also its Reels and Tagged tabs. */
+const IG_PROFILE_PATH = /^\/([A-Za-z0-9._]+)(?:\/(?:reels|tagged))?\/?$/;
+/** `/@name`, also its tabs. */
+const YT_PROFILE_PATH =
+  /^\/@([\w.-]+)(?:\/(?:videos|shorts|featured|streams|playlists|about))?\/?$/;
+/** First path segments that are Instagram pages, never an account (wider than IG_RESERVED). */
+const IG_NOT_PROFILE = new Set([
+  ...IG_RESERVED,
+  "about",
+  "directory",
+  "web",
+  "developer",
+  "legal",
+  "privacy",
+  "terms",
+  "emails",
+  "challenge",
+  "direct",
+  "session",
+  "popular",
+]);
+
+/**
+ * The account a profile page belongs to (TikTok `/@name`, Instagram `/<name>/`, YouTube `/@name`; a
+ * profile tab counts as the profile), on the platform's own host only (never help.instagram.com), else
+ * undefined.
+ */
+export function profileFromUrl(platform: Platform, u: URL): Profile | undefined {
+  if (u.hostname.toLowerCase().replace(/^(?:www|m)\./, "") !== PLATFORM_DOMAIN[platform])
+    return undefined;
+  if (platform === "tt") {
+    const m = u.pathname.match(TT_PROFILE_PATH);
+    return m ? { platform, handle: `@${m[1]}`, url: `https://www.tiktok.com/@${m[1]}` } : undefined;
+  }
+  if (platform === "ig") {
+    const m = u.pathname.match(IG_PROFILE_PATH);
+    if (!m || IG_NOT_PROFILE.has(m[1].toLowerCase())) return undefined;
+    return { platform, handle: `@${m[1]}`, url: `https://www.instagram.com/${m[1]}/` };
+  }
+  const m = u.pathname.match(YT_PROFILE_PATH);
+  return m ? { platform, handle: `@${m[1]}`, url: `https://www.youtube.com/@${m[1]}` } : undefined;
+}
+
+/**
+ * One platform's Tavily hits as Discover wants them: the post cards (`normalizeHits`) and, apart, the profile
+ * pages a search found (dropped by `/search`; Discover lists them as creators).
+ */
+export function normalizeDiscoverHits(
+  hits: readonly TavilyHit[],
+  platform: Platform,
+): { cards: ScoutResult[]; profiles: Profile[] } {
+  const cards = normalizeHits(hits, [platform]);
+  const seen = new Set<string>();
+  const profiles: Profile[] = [];
+  for (const hit of hits) {
+    let u: URL;
+    try {
+      u = new URL(hit.url ?? "");
+    } catch {
+      continue;
+    }
+    const p = profileFromUrl(platform, u);
+    if (!p || seen.has(p.handle.toLowerCase())) continue;
+    seen.add(p.handle.toLowerCase());
+    profiles.push(p);
+  }
+  return { cards, profiles };
 }

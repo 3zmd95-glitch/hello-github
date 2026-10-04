@@ -98,6 +98,21 @@ Full table in `12-watch-in-dashboard.md`. Short form:
 | Players | [react-lite-youtube-embed](https://github.com/ibrahimcesar/react-lite-youtube-embed), lite-youtube-embed, `@next/third-parties`, Mux's youtube-video-element / tiktok-video-element | Reference (the facade idea) |
 | Instagram pictures | Meta oEmbed, `/media/`, `og:image`, the embed page's HTML, Iframely / Microlink | None permitted and stable |
 
+## 2026-10-03 · Discover search v2 and the Claude connector (round 33)
+
+Full table in `13-discover-search-v2.md`. Short form:
+
+| Area | Find | Decision |
+| --- | --- | --- |
+| Search | Tavily `max_results` 20 at the same price, `include_published_date`, `include_usage`, `GET /usage` | **Adopted** |
+| Search | Exa, Brave Search API, SerpAPI | Not tested (owner sign-ups); candidates if the golden test misses |
+| Query planning | Built-in editing dictionary (`planning/data/edit-terms.json`) | **Adopted**; Claude API in the Worker deferred (owner: connector first) |
+| MCP server | Cloudflare Agents SDK `createMcpHandler` (stateless, free plan) + `@modelcontextprotocol/sdk` | **Adopted** |
+| MCP server | `McpAgent` (Durable Objects) | Rejected (no state needed) |
+| MCP auth | [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider) | **Adopted** (OAuth 2.1 + dynamic registration for Claude's custom connectors) |
+| Creator analysis | Instagram Business Discovery (Facebook Login only) · YouTube Data API · TikTok Research / Display APIs · Meta Content Library | Project 2 / project 2 / rejected (not eligible) / rejected (academic only) |
+| Trends reference | Beacons Discover Trends | Reference for project 3 (data source not public) |
+
 ## How to add to this log
 
 One row per find: area · link · decision (adopt / adopt candidate / reference / rejected + why). Re-run a search when a new phase starts

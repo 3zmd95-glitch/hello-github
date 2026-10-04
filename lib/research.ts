@@ -62,7 +62,10 @@ export function programSearchHint(program: Pick<Program, "kind" | "name"> | unde
   return program?.kind === "app" ? program.name.en : undefined;
 }
 
-/** The query with the program hint appended (once, case-insensitively), or the query as is. */
+/**
+ * The query with the program hint appended (once, case-insensitively), or the query as is. MIRRORED in the Worker's
+ * Discover plan (workers/scout/src/discover/plan.ts): change both together.
+ */
 export function withProgramHint(query: string, hint?: string): string {
   const q = query.trim();
   if (!hint || !q) return q;
