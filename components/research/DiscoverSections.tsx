@@ -36,7 +36,7 @@ const toItem = (i: DiscoverItem): ResearchItem => ({
  * Discover v2 (round 33, planning/tools/13-discover-search-v2.md): how the search was understood (and the other
  * meanings), ⭐ Claude's picks for the topic when the connector saved some, one line per platform that failed, the
  * Popular now strip, Examples, Tutorials and Creators (each section 6 cards, then "Show more"), and the off-topic
- * cards behind a count. The platform tab filters every part but Claude's picks.
+ * cards behind a count. The platform tab filters every part.
  */
 export default function DiscoverSections({
   answer,
@@ -74,6 +74,7 @@ export default function DiscoverSections({
   const hidden = hiddenCount(answer, tab);
   const popular = popularItems(answer, view);
   const creators = creatorsOn(answer, tab);
+  const pickItems = picks?.items.filter((p) => tab === "all" || p.platform === tab) ?? [];
   const failed = (
     Object.entries(answer.platforms) as [DiscoverPlatform, DiscoverPlatformStatus | undefined][]
   ).flatMap(([p, s]) =>
@@ -167,8 +168,12 @@ export default function DiscoverSections({
         )}
       </div>
 
-      {picks && (
-        <PicksSection topic={picks} headingLevel={headingLevel} renderAction={renderAction} />
+      {picks && pickItems.length > 0 && (
+        <PicksSection
+          topic={{ ...picks, items: pickItems }}
+          headingLevel={headingLevel}
+          renderAction={renderAction}
+        />
       )}
 
       {quota && (

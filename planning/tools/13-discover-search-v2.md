@@ -224,8 +224,9 @@ interface DiscoverResponse {
   the URL must be one post (`isVideoUrl`) and is stored canonical.
 - `topicKey` = the dictionary id when the topic matches an entry, else the normalized words, so "flash" and "Flash
   transition" meet.
-- Discover reads the document when it opens and shows ⭐ Claude's picks for the searched topic; with nothing typed, the
-  newest three topics' picks.
+- Discover reads the picks (`GET /discover/picks`, no search credits) when it opens and again after each search, and
+  shows ⭐ Claude's picks for the searched topic, filtered by the platform tab like every section; with nothing typed,
+  the newest three topics' picks (no tab filter there).
 
 ### The connector (`src/discover/mcp.ts`, `src/discover/auth.ts`)
 

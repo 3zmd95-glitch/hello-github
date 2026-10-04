@@ -1034,12 +1034,12 @@ export default function ResearchPanel({
         )}
         {v2 && !skill && !q && !savedOnly && picks.length > 0 && (
           <div className="flex flex-col gap-3" data-testid="discover-picks-latest">
-            <p className="text-sm font-bold">{t("search.picksLatest")}</p>
+            <h2 className="text-sm font-bold">{t("search.picksLatest")}</h2>
             {picks.slice(0, 3).map((saved) => (
               <PicksSection
                 key={saved.topicKey}
                 topic={saved}
-                headingLevel="h2"
+                headingLevel="h3"
                 renderAction={renderAction}
                 showTopic
               />

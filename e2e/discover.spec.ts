@@ -281,7 +281,14 @@ test("Discover v2: Claude's picks show on the topic and on an empty Discover", a
     "data-topic",
     "flash-transition",
   );
-  // The topic line is part of the section's name (the empty Discover can list three topics).
+  // Headings: the group's title, then each topic's picks with the topic in its heading (and its region's name), so
+  // the three topics an empty Discover can list read apart.
+  await expect(
+    latest.getByRole("heading", { level: 2, name: "⭐ آخر اختيارات Claude", exact: true }),
+  ).toBeVisible();
+  await expect(
+    latest.getByRole("heading", { level: 3, name: "⭐ اختيارات Claude عن «flash»", exact: true }),
+  ).toBeVisible();
   await expect(
     latest.getByRole("region", { name: "⭐ اختيارات Claude عن «flash»", exact: true }),
   ).toBeVisible();
@@ -296,15 +303,24 @@ test("Discover v2: Claude's picks show on the topic and on an empty Discover", a
 
   await page.getByTestId("discover-topic").fill("flash");
   await page.getByTestId("discover-topic").press("Enter");
-  await expect(page.getByTestId("discover-sections").getByTestId("discover-picks")).toHaveAttribute(
-    "data-topic",
-    "flash-transition",
-  );
-  await expect(page.getByTestId("discover-pick-note")).toContainText("watch 0:03");
+  const topicPicks = page.getByTestId("discover-sections").getByTestId("discover-picks");
+  await expect(topicPicks).toHaveAttribute("data-topic", "flash-transition");
+  // Claude's note in « », which mirror in Arabic.
+  await expect(page.getByTestId("discover-pick-note")).toHaveText("«watch 0:03»");
   await expect(latest).toHaveCount(0);
   expect(await fitsViewport(page)).toBe(true);
   // Asked again with the search (a KV read, no credits).
   await expect.poll(() => picksAsked.length).toBe(2);
+
+  // Picks follow the platform tab like every section: none on Instagram (Claude picked TikTok and YouTube), the
+  // YouTube one on YouTube.
+  await page.getByTestId("tab-ig").click();
+  await expect(page.getByTestId("research-results")).toHaveAttribute("data-tab", "ig");
+  await expect(topicPicks).toHaveCount(0);
+  await page.getByTestId("tab-yt").click();
+  await expect(topicPicks.getByTestId("result-card")).toHaveCount(1);
+  await expect(topicPicks.getByTestId("result-card")).toHaveAttribute("data-platform", "yt");
+  await page.getByTestId("tab-all").click();
 
   // Another meaning of the word: its own topic, so the flash transition's picks are not shown.
   await page.getByTestId("discover-alt-camera-flash").click();
