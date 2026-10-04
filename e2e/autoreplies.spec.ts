@@ -28,6 +28,7 @@ interface Automation {
   followButton: boolean;
   dmText: string;
   buttons: { title: string; url: string }[];
+  createdAt?: string;
   stats: { sends: number; publicReplies: number; failures: number; clicks: number };
 }
 
@@ -188,6 +189,7 @@ async function connectWorker(page: Page): Promise<void> {
 
 test("allow auto-replies in Settings, build the LUT automation, test it, read sends and clicks, switch off, delete", async ({
   page,
+  isMobile,
 }) => {
   const fake = await stubWorker(page);
   await freshState(page, "/settings/");
@@ -223,34 +225,53 @@ test("allow auto-replies in Settings, build the LUT automation, test it, read se
   await expect(page.getByTestId("autoreplies-empty")).toBeVisible();
   expect(await fitsViewport(page)).toBe(true);
 
-  // Build the LUT automation.
+  // Build the LUT automation in the full-page editor.
   await page.getByTestId("autoreplies-new").click();
   await page.getByTestId("autoreply-save").click();
   await expect(page.getByTestId("autoreply-problems")).toBeVisible();
   expect(fake.saved).toHaveLength(0);
-  await page.getByTestId("autoreply-post").selectOption("18001");
-  await page.getByTestId("autoreply-keywords").fill("لت, LUT");
-  await page.getByTestId("autoreply-public").fill("أرسلته لك على الخاص 🎬");
+  await page.getByTestId("autoreply-target-post").click();
+  // "A specific post" with none picked yet would save as "any post": listed until a tile is picked.
+  await expect(page.getByTestId("autoreply-problems")).toContainText("اختر البوست من الشبكة.");
+  await page.locator('[data-testid="autoreply-post-tile"][data-post-id="18001"]').click();
+  await expect(page.getByTestId("autoreply-problems")).not.toContainText("اختر البوست");
+  await page.getByTestId("autoreply-keyword-input").fill("لت, LUT,");
+  await expect(page.getByTestId("autoreply-keyword-chip")).toHaveCount(2);
+  await page.getByTestId("autoreply-public-on").check();
+  await page.getByTestId("autoreply-public-0").fill("أرسلته لك على الخاص 🎬");
+  await page.getByTestId("autoreply-public-add").click();
+  await page.getByTestId("autoreply-public-1").fill("شيّك على الخاص {username}");
   await page.getByTestId("autoreply-dm").fill("حمل اللت من الرابط تحت وجربه على لقطاتك");
   await page.getByTestId("autoreply-add-button").click();
   await page.getByTestId("autoreply-button-title-0").fill("حمل اللت");
   await page.getByTestId("autoreply-button-url-0").fill(LUT);
-  await expect(page.getByTestId("autoreply-preview")).toContainText(`${WORKER}/go/`);
+  await page.getByTestId("autoreply-follow").check();
+
+  // The phone preview: the DM with both buttons, and the comment with a public reply under it.
+  if (isMobile) await page.getByTestId("autoreply-preview-open").click();
+  const preview = page.locator('[data-testid="autoreply-preview"]:visible');
+  await expect(preview.getByTestId("autoreply-preview-button")).toHaveText(["حمل اللت", "تابعني"]);
+  await preview.getByTestId("autoreply-preview-tab-comments").click();
+  await expect(preview.getByTestId("autoreply-preview-comments")).toContainText(
+    "أرسلته لك على الخاص 🎬",
+  );
+  expect(await fitsViewport(page)).toBe(true);
+
   await page.getByTestId("autoreply-save").click();
   await expect(page.getByTestId("autoreplies-notice")).toBeVisible();
   expect(fake.saved).toHaveLength(1);
   expect(fake.saved[0]).toMatchObject({
     enabled: true,
+    trigger: "comment",
     postId: "18001",
     permalink: "https://www.instagram.com/reel/LUT1/",
     title: "T&O LUT reel",
     keywords: ["لت", "LUT"],
     match: "contains",
-    trigger: "comment",
-    publicReplies: ["أرسلته لك على الخاص 🎬"],
-    followButton: false,
+    publicReplies: ["أرسلته لك على الخاص 🎬", "شيّك على الخاص {username}"],
     dmText: "حمل اللت من الرابط تحت وجربه على لقطاتك",
     buttons: [{ title: "حمل اللت", url: LUT }],
+    followButton: true,
   });
   const id = String(fake.saved[0].id);
   const row = page.locator(`[data-testid="autoreply-row"][data-id="${id}"]:visible`);
@@ -286,6 +307,71 @@ test("allow auto-replies in Settings, build the LUT automation, test it, read se
   await page.getByTestId("confirm-ok").click();
   await expect.poll(() => fake.deleted).toEqual([id]);
   await expect(page.getByTestId("autoreplies-empty")).toBeVisible();
+});
+
+test("a DM rule has no post or public replies, and the counter stops a DM that is too long", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  fake.status.instagram = { ...fake.status.instagram, canReply: true };
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  await page.goto("/social/replies/");
+  await page.getByTestId("autoreplies-new").click();
+  await page.getByTestId("autoreply-target-message").click();
+  await expect(page.getByTestId("autoreply-public-section")).toHaveCount(0);
+  await page.getByTestId("autoreply-keyword-input").fill("كاميرا");
+  await page.getByTestId("autoreply-keyword-input").press("Enter");
+  await page.getByTestId("autoreply-dm").fill("ل".repeat(501));
+  await expect(page.getByTestId("autoreply-dm-left")).toContainText("1");
+  await page.getByTestId("autoreply-save").click();
+  await expect(page.getByTestId("autoreply-problems")).toBeVisible();
+  expect(fake.saved).toHaveLength(0);
+
+  await page.getByTestId("autoreply-dm").fill("أصور بالآيفون 17 برو");
+  await page.getByTestId("autoreply-save").click();
+  await expect.poll(() => fake.saved.length).toBe(1);
+  expect(fake.saved[0]).toMatchObject({
+    trigger: "message",
+    postId: null,
+    publicReplies: [],
+    keywords: ["كاميرا"],
+  });
+  const id = String(fake.saved[0].id);
+  await expect(
+    page.locator(`[data-testid="autoreply-row"][data-id="${id}"]:visible`),
+  ).toContainText("الخاص والستوري");
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("Edit far down a long list opens the editor at its top", async ({ page }) => {
+  const fake = await stubWorker(page);
+  fake.status.instagram = { ...fake.status.instagram, canReply: true };
+  for (let i = 0; i < 12; i++) {
+    fake.automations.set(`dm-${i}`, {
+      id: `dm-${i}`,
+      enabled: true,
+      postId: null,
+      keywords: [`كلمة${i}`],
+      match: "contains",
+      trigger: "message",
+      publicReplies: [],
+      followButton: false,
+      dmText: "الرابط تحت",
+      buttons: [],
+      createdAt: "2026-10-01T09:00:00.000Z",
+      stats: { sends: 0, publicReplies: 0, failures: 0, clicks: 0 },
+    });
+  }
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  await page.goto("/social/replies/");
+  const last = page.locator('[data-testid="autoreply-row"][data-id="dm-11"]:visible');
+  await last.getByTestId("autoreply-menu").click();
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await last.getByTestId("autoreply-edit").click();
+  await expect(page.getByRole("heading", { name: "تعديل الرد التلقائي" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 });
 
 test("without a Worker the screen says where to set it up", async ({ page }) => {

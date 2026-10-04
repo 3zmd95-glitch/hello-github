@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import type { AutoReply, AutoReplyLog, ReplyTrigger } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
@@ -9,8 +9,8 @@ import { firstMatch, newAutoReply } from "@/lib/replies";
 import { timeAgo } from "@/lib/socialSync";
 import { postStatsFor, useStore } from "@/store";
 import { formatInstant } from "./calendar/dates";
-import AutoReplyForm from "./replies/AutoReplyForm";
 import DefaultReplyEditor from "./replies/DefaultReplyEditor";
+import RuleEditor from "./replies/RuleEditor";
 import RulesTable from "./replies/RulesTable";
 import { checkReplies, deleteReply, saveReply, saveSettings, useReplies } from "./useReplies";
 import { useSocialSync } from "./useSocialSync";
@@ -66,6 +66,10 @@ export default function AutoRepliesScreen() {
   const [editing, setEditing] = useState<Editing>(null);
   const [pendingDelete, setPendingDelete] = useState<AutoReply | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The editors are full pages: open them at their top, even when Edit was tapped far down a phone page.
+  useEffect(() => {
+    if (editing) window.scrollTo(0, 0);
+  }, [editing]);
 
   const ig = status?.instagram;
   const automations = doc?.automations ?? [];
@@ -128,6 +132,12 @@ export default function AutoRepliesScreen() {
   if (editing) {
     return (
       <div className="flex flex-col gap-4" data-testid="autoreplies-screen">
+        {/* Above the editor: the rule editor is long, and Save is at its top. */}
+        {error && (
+          <p role="alert" className="text-danger text-xs" data-testid="autoreplies-error">
+            {t(error)}
+          </p>
+        )}
         {editing.kind === "default" ? (
           <DefaultReplyEditor
             value={doc?.defaultReply}
@@ -136,21 +146,17 @@ export default function AutoRepliesScreen() {
             onCancel={() => setEditing(null)}
           />
         ) : (
-          <AutoReplyForm
+          <RuleEditor
             key={editing.rule.id}
             value={editing.rule}
             posts={posts}
             status={status}
             origin={origin}
+            username={username}
             busy={busy}
             onSave={(a) => void saveRule(a)}
             onCancel={() => setEditing(null)}
           />
-        )}
-        {error && (
-          <p role="alert" className="text-danger text-xs" data-testid="autoreplies-error">
-            {t(error)}
-          </p>
         )}
       </div>
     );

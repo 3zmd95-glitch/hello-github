@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { AutoReplySchema, type AutoReply, type SocialStatusMap } from "./domain";
 import {
+  aboutLetters,
   ctr,
   defaultReplyProblems,
   dmBytesLeft,
-  dmPreview,
   firstMatch,
   matchesAutoReply,
   messageButtons,
@@ -25,6 +25,7 @@ import {
 const CONFIG = { url: "https://scout.test", token: "tok" };
 const LUT = "https://3zprod.com/lut";
 
+// `publicReply` is v1's single reply: the schema reads it into `publicReplies` only when `publicReplies` is empty.
 const reply = (over: Partial<AutoReply> = {}): AutoReply =>
   AutoReplySchema.parse({
     id: "lut",
@@ -41,11 +42,12 @@ const ready: SocialStatusMap = {
 };
 
 function replying(body: unknown, status = 200) {
-  return vi.fn<typeof fetch>(async () =>
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { "Content-Type": "application/json" },
-    }),
+  return vi.fn<typeof fetch>(
+    async () =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      }),
   );
 }
 
@@ -147,6 +149,15 @@ describe("replyProblems", () => {
     ).toEqual([{ code: "tooManyKeywords" }]);
   });
 
+  it("checks the public replies as they are sent: trimmed, blanks dropped", () => {
+    // An empty editor slot never blocks saving (replyInput drops it).
+    expect(replyProblems(reply({ publicReplies: ["أ", "", "ب", "  ", "ج"] }), null)).toEqual([]);
+    expect(replyProblems(reply({ publicReplies: [` ${"x".repeat(2200)} `] }), null)).toEqual([]);
+    expect(replyProblems(reply({ publicReplies: ["أ", "ب", "ج", "د", " "] }), null)).toEqual([
+      { code: "tooManyPublic", max: 3 },
+    ]);
+  });
+
   it("reports the account state", () => {
     expect(replyProblems(reply(), { instagram: { configured: true, connected: false } })).toEqual([
       { code: "notConnected" },
@@ -157,15 +168,7 @@ describe("replyProblems", () => {
   });
 });
 
-describe("dmPreview / ctr / replyInput / newAutoReply", () => {
-  it("renders the DM the way the Worker sends it", () => {
-    expect(dmPreview(reply(), "https://w.test")).toBe(
-      "حمل اللت من الرابط تحت\n\nحمل اللت: https://w.test/go/lut/0",
-    );
-    expect(dmPreview(reply())).toBe(`حمل اللت من الرابط تحت\n\nحمل اللت: ${LUT}`);
-    expect(dmPreview(reply({ buttons: [] }))).toBe("حمل اللت من الرابط تحت");
-  });
-
+describe("ctr / replyInput / newAutoReply", () => {
   it("computes the click rate in whole percent", () => {
     expect(ctr(0, 0)).toBeNull();
     expect(ctr(3, 1)).toBe(33);
@@ -173,7 +176,10 @@ describe("dmPreview / ctr / replyInput / newAutoReply", () => {
   });
 
   it("builds the Worker body without the counters", () => {
-    const a = reply({ keywords: [" لت ", "🙏"], stats: { sends: 9, clicks: 2, publicReplies: 0, failures: 0 } });
+    const a = reply({
+      keywords: [" لت ", "🙏"],
+      stats: { sends: 9, clicks: 2, publicReplies: 0, failures: 0 },
+    });
     expect(replyInput(a)).toEqual({
       id: "lut",
       enabled: true,
@@ -244,7 +250,10 @@ describe("Worker calls", () => {
   });
 
   it("POSTs the automation and parses the saved one", async () => {
-    const saved = { ...replyInput(reply()), stats: { sends: 0, publicReplies: 0, failures: 0, clicks: 0 } };
+    const saved = {
+      ...replyInput(reply()),
+      stats: { sends: 0, publicReplies: 0, failures: 0, clicks: 0 },
+    };
     const fetchImpl = replying({ automation: saved });
     const r = await repliesSave(CONFIG, reply(), { fetchImpl });
     const [url, init] = fetchImpl.mock.calls[0];
@@ -306,6 +315,14 @@ describe("the reply as the Worker builds it", () => {
   it("counts the bytes left like the Worker's dmFits (Arabic letters are two bytes)", () => {
     expect(dmBytesLeft(reply({ buttons: [], dmText: "ل".repeat(500) }), "https://w.test")).toBe(0);
     expect(dmBytesLeft(reply({ buttons: [], dmText: "ل".repeat(501) }), "https://w.test")).toBe(-2);
+    // «تابعني» is counted with a 30-character username even when the username is unknown.
+    expect(
+      dmBytesLeft(reply({ buttons: [], followButton: true, dmText: "ل".repeat(500) }), undefined),
+    ).toBe(-73);
+  });
+
+  it("shows the bytes as about how many Arabic letters, rounding 'too long' up", () => {
+    expect([1000, 3, 1, 0, -1, -2, -3].map(aboutLetters)).toEqual([500, 1, 0, 0, 1, 1, 2]);
   });
 
   it("firstMatch answers DMs with the oldest message rule only", () => {

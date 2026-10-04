@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { DefaultReply } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import {
+  aboutLetters,
   defaultReplyProblems,
   DM_TEXT_BYTES,
   utf8Bytes,
@@ -33,7 +34,7 @@ export default function DefaultReplyEditor({
   const [tried, setTried] = useState(false);
   const problems = defaultReplyProblems({ enabled, text });
   const left = DM_TEXT_BYTES - utf8Bytes(text.trim());
-  const letters = Math.trunc(Math.abs(left) / 2);
+  const letters = aboutLetters(left);
 
   const submit = () => {
     setTried(true);

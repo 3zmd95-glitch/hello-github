@@ -50,10 +50,7 @@ export function normalizeForMatch(text: string): string {
     .trim();
 }
 
-export function matchesAutoReply(
-  text: string,
-  a: Pick<AutoReply, "keywords" | "match">,
-): boolean {
+export function matchesAutoReply(text: string, a: Pick<AutoReply, "keywords" | "match">): boolean {
   const t = normalizeForMatch(text);
   if (!t) return false;
   return a.keywords.some((k) => {
@@ -148,6 +145,10 @@ export function dmBytesLeft(
   );
 }
 
+/** Bytes left (negative = over) as about how many Arabic letters, two bytes each; one byte over never reads 0. */
+export const aboutLetters = (bytesLeft: number): number =>
+  bytesLeft < 0 ? Math.ceil(-bytesLeft / 2) : Math.trunc(bytesLeft / 2);
+
 export type ReplyProblemCode =
   | "noKeywords"
   | "tooManyKeywords"
@@ -196,10 +197,12 @@ export function replyProblems(
     out.push({ code: "templateTooLong", max: TEMPLATE_TEXT_MAX });
   }
   if (a.trigger === "comment") {
-    if (a.publicReplies.length > PUBLIC_REPLIES_MAX) {
+    // The replies replyInput sends: an empty editor slot never blocks saving.
+    const publicReplies = a.publicReplies.map((r) => r.trim()).filter(Boolean);
+    if (publicReplies.length > PUBLIC_REPLIES_MAX) {
       out.push({ code: "tooManyPublic", max: PUBLIC_REPLIES_MAX });
     }
-    if (a.publicReplies.some((r) => r.length > PUBLIC_MAX)) {
+    if (publicReplies.some((r) => r.length > PUBLIC_MAX)) {
       out.push({ code: "publicTooLong", max: PUBLIC_MAX });
     }
   }
@@ -220,14 +223,6 @@ export function defaultReplyProblems(d: { enabled: boolean; text: string }): Rep
   if (d.enabled && !text) return [{ code: "noDm" }];
   if (utf8Bytes(text) > DM_TEXT_BYTES) return [{ code: "dmTooLong" }];
   return [];
-}
-
-/** The DM as the Worker sends it: the text, then one "title: link" line per button (via /go when known). */
-export function dmPreview(
-  a: Pick<AutoReply, "id" | "dmText" | "buttons" | "followButton">,
-  origin?: string,
-): string {
-  return textBody(a.dmText, messageButtons(a, origin, undefined));
 }
 
 /** Click-through rate in whole percent, or null before the first send. */
