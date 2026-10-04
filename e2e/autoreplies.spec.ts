@@ -225,6 +225,8 @@ test("allow auto-replies in Settings, build the LUT automation, test it, read se
   await page.goto("/social/replies/");
   await expect(page.getByTestId("autoreplies-screen")).toBeVisible();
   await expect(page.getByTestId("autoreplies-can-reply")).toBeVisible();
+  // The Worker stamps lastPollAt only when a poll wrote something: "last activity", not "last check".
+  await expect(page.getByTestId("autoreplies-account")).toContainText("آخر نشاط");
   await expect(page.getByTestId("autoreplies-empty")).toBeVisible();
   expect(await fitsViewport(page)).toBe(true);
 

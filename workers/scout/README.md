@@ -301,7 +301,11 @@ after it, the Worker runs its tick only for its own `TICK_CRON` and sends any ot
 (`runScheduled`, kept for the daily triggers of older deployments). So during the first deploy a few old `*/5`
 events can still arrive and run one off-schedule sync each (harmless, bounded), and rolling the Worker back past
 `5e4d151` needs the trigger set back to `*/5 * * * *` too (`triggers.crons` in `wrangler.jsonc`): with
-`* * * * *` the old code would run a full sync every minute.
+`* * * * *` the old code would run a full sync every minute. A code-only rollback (the Cloudflare dashboard's, or
+`wrangler rollback`) keeps the cron triggers as they are: roll back with `git revert` and a deploy (which ships
+`wrangler.jsonc`'s triggers), or set `triggers.crons` back to `["*/5 * * * *"]` and run `wrangler triggers deploy`.
+Switch the message rules off before rolling back: code from before v2 reads a message rule (no post, no trigger it
+knows) as an "any post" comment rule.
 
 **Storage, one document per writer** (KV is last-write-wins, so no path ever rewrites another's data):
 `replies:doc` = the owner's automations, pause, default reply and "Check now" request (dashboard routes),

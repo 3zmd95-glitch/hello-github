@@ -65,7 +65,7 @@ reports say messages to people with no role on the app fail. The test decides:
 6. Auto replies → copy the Beacons rule: the LUT reel (`instagram.com/reel/DY5FTWxta5s`), keyword «لت» (exact),
    DM «حمل اللت من الزر تحت وجربه على لقطاتك», link «تحميل اللت» → the Beacons product link.
 7. Beacons: switch its rule **off** and do not reconnect Instagram there (both would answer the same comment).
-8. A friend **with no role on the Meta app** comments «لت». Within five minutes (v1's cadence):
+8. A friend **with no role on the Meta app** comments «لت». Within five minutes on v1, within a minute on v2:
    - **DM arrives:** Standard Access is enough; v2 goes live as soon as it is built.
    - **DM refused** (the log shows Instagram's words, for example "recipient user does not have role on app"): DMs to
      the public need Advanced Access. v2 still gets built and tested with a tester account, and goes live after the
