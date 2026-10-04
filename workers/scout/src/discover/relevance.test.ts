@@ -27,6 +27,36 @@ describe("every built-in edit genre", () => {
     expect(normalizeTerm("lens news gas")).toBe("lens news gas");
   });
   for (const genre of genres.genres) {
+    it(`${genre.id}: genre alone requires filming/editing context in either language`, () => {
+      for (const q of [genre.queries.en[0], genre.queries.ar[0]]) {
+        const plan = planSearch({ q });
+        const subject = genreWords({ q })[0];
+        const items = labelCards(
+          [
+            `${subject} explained: a beginner lesson`,
+            `Cinematic ${subject} lighting tutorial`,
+            `شرح تصوير ${subject}`,
+          ].map((title, i) => ({
+            card: {
+              title,
+              snippet: "",
+              platform: "yt" as const,
+              handle: "Test",
+              url: `https://www.youtube.com/watch?v=${i}`,
+            },
+            query: plan.queries[0],
+          })),
+          plan,
+        );
+        expect(items.map((item) => !!item.offTopic)).toEqual([true, false, false]);
+        expect(plan.queries.find((query) => query.id === "yt-tutorials-en")?.q).toContain(
+          "filming editing tutorial",
+        );
+        expect(plan.queries.find((query) => query.id === "yt-tutorials-ar")?.q).toContain(
+          "تصوير ومونتاج",
+        );
+      }
+    });
     it(`${genre.id}: retains the subject in examples, tutorials and retries`, () => {
       const req = {
         q: "match cut",
@@ -64,6 +94,31 @@ describe("every built-in edit genre", () => {
       expect(items.map((item) => !!item.offTopic)).toEqual([true, false, false]);
     });
   }
+
+  it("rejects brewing lessons found in the live Coffee audit but keeps filming examples", () => {
+    const plan = planSearch({ q: "coffee edit", genreQuery: { ar: "تصوير قهوة" } });
+    const items = labelCards(
+      [
+        "All Espresso Drinks Explained: Cappuccino vs Latte vs Flat White",
+        "Homemade Cold Brew Coffee Tutorial",
+        "شرح تحضير قهوة للمبتدئين",
+        "Coffee pour b-roll lighting tutorial",
+        "2 AM COFFEE - A short film | Sony FX3",
+        "شرح كواليس تصوير كوب قهوة",
+      ].map((title, i) => ({
+        card: {
+          title,
+          snippet: "",
+          platform: "yt" as const,
+          handle: "Test",
+          url: `https://www.youtube.com/watch?v=${i}`,
+        },
+        query: plan.queries[0],
+      })),
+      plan,
+    );
+    expect(items.map((item) => !!item.offTopic)).toEqual([true, true, true, false, false, false]);
+  });
 
   it("handles Arabic attached articles without matching inside unrelated words", () => {
     for (const text of ["للقهوة", "بالقهوة", "القهوة", "والقهوة"])

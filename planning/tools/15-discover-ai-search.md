@@ -26,8 +26,30 @@ Owner goal (2026-10-04): audit Discover, improve specific edit-genre searches, a
 - Native Workers AI binding: Llama 3.3 70B structured query planning, Zod validation, 20 new plans/UTC day (KV best effort across instances), 20-second timeout, 900 output-token cap, 24-hour plan cache. Date/duration changes reuse the plan. Missing AI, malformed responses and exhausted allowance fail explicitly; no silent keyword fallback.
 - Only Tavily/YouTube provide result URLs. AI provides queries and required core-concept synonym groups, checked against retrieved titles/snippets. This is text-based relevance evidence, not analysis of the video pixels.
 - All 12 built-in genres have subject matching regression coverage and two bilingual specific prompt suggestions.
-- Full unit suite: 1,601 passed. Full browser suite: 276 passed, 4 existing skips. Mobile form fix verified directly at localhost:3000 with no overflow and clickable filters. Lint/typecheck/build pass; final targeted rerun follows partial-failure changes.
-- Worker dry-run bundle: 379.65 KiB gzip; AI binding recognized. Actual model inference and provider relevance still require the deployed backend and live verification before calling the feature complete.
+- PR #28 final unit suite: 1,605 passed. Full browser suite: 276 passed, 4 existing skips, then 72 focused tests and a final 16-test Discover rerun. Exact-head GitHub CI passed before merge. Mobile form verified directly at localhost:3000 with no overflow and clickable filters; Arabic RTL and English layouts checked.
+- Worker dry-run bundle: 379.65 KiB gzip; AI binding recognized. PR #28 merged as d7369a3; Worker deployment 37183509425 and Pages deployment 37183509438 succeeded.
+
+## Live verification, 2026-10-04
+
+All requests below ran through the actual localhost:3000 UI against the deployed Worker, using its configured real providers:
+
+| Search | Visible results (YT / TikTok / Instagram) | Observations |
+| --- | --- | --- |
+| AI: Find coffee match cut reels and tutorials in Arabic and English | 0 / 1 / 10 | Model interpretation rendered; 83 off-topic posts hidden. All 14 rendered image elements decoded. Repeat showed “From memory, cost nothing”. |
+| AI: أبغى شروحات سبيد رامب للسيارات في دافنشي ريزولف, Cars selected | 1 / 0 / 0 | Correct interpretation and a real DaVinci car speed-ramp tutorial; 27 off-topic posts hidden. Sparse results are preferable to unrelated filler. |
+| Keywords: match cut + Cars | 5 / 11 / 11 | Car match-cut examples and tutorials; 89 off-topic posts hidden. Each platform tab showed its own results. |
+| Keywords: match cut, no genre | 38 / 27 / 30 | All three platforms present. Most popular and Arabic first worked; YouTube player dialog loaded the expected embed and closed back to results. |
+| Coffee genre alone | 51 / 25 / 44 before follow-up | Found a genuine defect: brewing lessons and generic coffee posts were admitted because subject matching alone was enough. Follow-up below; not a passed relevance check. |
+
+- No application console errors in the initial live AI checks. Some Instagram posts expose no usable preview; those retain the truthful watch/open fallback. No claim that every external post can embed or provide a thumbnail.
+- Live usage rose from 42 to 56 of the existing 70/day YouTube search cap across these five unique searches. Tavily's displayed monthly counter is cached and is not a per-request cost measurement.
+
+### Follow-up from the live audit
+
+- Genre-only planning now retains bilingual filming/editing terms in queries and retries, instead of reducing “coffee edit” to a generic “coffee tutorial”.
+- Genre-only results must contain both the subject and filming/editing evidence. Teaching words alone no longer admit brewing lessons, exercise instruction, or other subject tutorials. Exact search remains the explicit unfiltered option.
+- Reuse the existing genre data and matching helpers; no extra library or provider is needed for this correction. Client/Worker answer cache version 4 avoids retaining the earlier generic results.
+- Regression cases use actual coffee titles observed live and cover all 12 genre-only searches in both languages. Follow-up lint/typecheck/build and all 1,622 unit tests pass. Full browser suite: 278 passed, 4 existing skips (phone and desktop). Deployed genre-only recheck pending.
 
 ## Delivery and verification checklist
 
@@ -35,7 +57,7 @@ Owner goal (2026-10-04): audit Discover, improve specific edit-genre searches, a
 - [x] Natural-language AI search implemented with visible interpretation, real source retrieval, bounded usage, truthful failures (live inference pending below).
 - [x] Genre-specific starting prompts and clear search/filter behavior.
 - [x] Regression coverage: planner, matching, HTTP validation, cache keys, AI errors, stale requests.
-- [ ] UI audit: every platform, dates/durations, sorting, Arabic first, saved/attach, player/preview, empty/error/retry, genre/deep links, mobile/RTL.
+- [x] UI audit: automated coverage of every platform, dates/durations, sorting, Arabic first, saved/attach, player/preview, empty/error/retry, genre/deep links. Mobile/RTL and the live subset above also checked directly.
 - [x] All repository gates: lint, typecheck, tests, build, browser suite. Final Discover/Research/Scout/player rerun: 72 passed on phone and desktop, including partial failures.
 - [ ] Live localhost:3000 checks after backend deployment; record actual queries, relevance, image loading, errors and quota limitations.
 

@@ -74,18 +74,63 @@ export const subjectWords = (text: string): string[] =>
     .split(" ")
     .filter((w) => w.length > 1 && !GENERIC.has(w));
 
-/** Synonyms of the selected built-in genre, or meaningful custom-genre terms. */
-export function genreWords(req: DiscoverRequest): string[] {
+/** Recognize a built-in genre from either its selected chip or its standalone search phrase. */
+export function selectedGenre(req: DiscoverRequest) {
   const hints = [req.genreQuery?.en, req.genreQuery?.ar].filter((x): x is string => !!x);
-  const selected = genres.genres.find((g) =>
+  return genres.genres.find((g) =>
     [...g.queries.en, ...g.queries.ar].some((q) =>
       [...hints, req.q].some((h) => normalizeTerm(q) === normalizeTerm(h)),
     ),
   );
+}
+
+/** Synonyms of the selected built-in genre, or meaningful custom-genre terms. */
+export function genreWords(req: DiscoverRequest): string[] {
+  const hints = [req.genreQuery?.en, req.genreQuery?.ar].filter((x): x is string => !!x);
+  const selected = selectedGenre(req);
   const words = selected
     ? [...SUBJECTS[selected.id], ...selected.hashtags]
     : hints.flatMap(subjectWords);
   return [...new Set(words.map(normalizeTerm))];
+}
+
+/** A genre is an editing/filming subject, not a request for recipes, sports lessons or shopping. */
+export function genreVisualWords(req: DiscoverRequest): string[] {
+  return [
+    "edit",
+    "editing",
+    "montage",
+    "cinematic",
+    "b roll",
+    "broll",
+    "commercial",
+    "filmmaking",
+    "videography",
+    "photography",
+    "short film",
+    "transition",
+    "vfx",
+    "camera",
+    "lighting",
+    "capcut",
+    "davinci",
+    "premiere",
+    "after effects",
+    "تصوير",
+    "مونتاج",
+    "ايديت",
+    "سينمائي",
+    "اعلان",
+    "اضاءه",
+    "كاميرا",
+    "انتقال",
+    "كاب كت",
+    "كاب كات",
+    "دافنشي",
+    ...(selectedGenre(req)?.hashtags.filter((tag) =>
+      /edit|montage|film|videography|transition|amv/i.test(tag),
+    ) ?? []),
+  ].map(normalizeTerm);
 }
 
 /** Whole words, with common Arabic attached prepositions and definite article handled. */
