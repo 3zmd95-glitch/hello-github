@@ -1,14 +1,15 @@
 /**
  * Discover v2 step 3: sections, off-topic and creators (planning/tools/13-discover-search-v2.md). Word rules,
- * no AI: a card is a Tutorial when it says so, else its query's intent; it is off-topic when it mentions none of
+ * a card is a Tutorial only when its text suggests teaching; it is off-topic when it mentions none of
  * the topic's words, or (a dictionary entry with `specific: false`) no editing word and no tutorial word either.
  * Topic and editing words compare whole words in the Discover matching form (`normalizeTerm`), the form
- * `SearchPlan.topicWords` is in. With an Anthropic key this is the step that would call Claude instead.
+ * `SearchPlan.topicWords` is in. Selected genre and AI concept groups also require matching evidence.
  */
 
 import type { Profile, ScoutResult } from "../normalize";
 import { hasArabic } from "../trends/normalize";
 import { normalizeTerm } from "./terms";
+import { mentions } from "./relevance";
 import type { Creator, DiscoverItem, PlannedQuery, SearchPlan } from "./types";
 
 /**
@@ -48,8 +49,6 @@ const EDITING_WORDS = [
 /** The editing words in matching form, once: "edits" and "edit" meet, "تأثير" matches "تاثير". */
 const EDITING_FORMS = [...new Set(EDITING_WORDS.map(normalizeTerm))];
 
-const mentions = (text: string, phrase: string) => !!phrase && ` ${text} `.includes(` ${phrase} `);
-
 export function labelCards(
   found: { card: ScoutResult & { profile?: string }; query: PlannedQuery }[],
   plan: SearchPlan,
@@ -62,12 +61,13 @@ export function labelCards(
     const raw = `${card.title} ${card.snippet}`;
     const text = normalizeTerm(raw);
     const tutorial = TUTORIAL_RE.test(raw);
-    const section = tutorial || query.intent === "tutorials" ? "tutorial" : "example";
+    const section = tutorial ? "tutorial" : "example";
     // A vague word ("flash") needs editing context: an editing word, or a tutorial word.
     const onTopic =
-      plan.topicWords.length === 0 ||
-      (plan.topicWords.some((w) => mentions(text, w)) &&
-        (!plan.needsEditingWord || tutorial || EDITING_FORMS.some((w) => mentions(text, w))));
+      (plan.topicWords.length === 0 ||
+        (plan.topicWords.some((w) => mentions(text, w)) &&
+          (!plan.needsEditingWord || tutorial || EDITING_FORMS.some((w) => mentions(text, w))))) &&
+      (plan.requiredGroups ?? []).every((group) => group.some((w) => mentions(text, w)));
     out.push({
       ...card,
       lang: hasArabic(raw) ? "ar" : query.lang,

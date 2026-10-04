@@ -19,6 +19,7 @@ import type { Lang } from "./terms";
 import type { DiscoverTimeRange, PlatformError } from "./types";
 
 export interface FetchEnv {
+  AI?: import("./ai").SearchAiBinding;
   TAVILY_API_KEY?: string;
   YOUTUBE_API_KEY?: string;
   SOCIAL_KV?: KVNamespace;

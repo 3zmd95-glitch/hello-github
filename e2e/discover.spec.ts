@@ -90,7 +90,9 @@ async function stubWorker(page: Page, discover: (body: Record<string, unknown>) 
     if (url.pathname === "/discover" && req.method() === "POST") {
       const body = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
       asked.push(body);
-      return reply(discover(body));
+      const result = discover(body);
+      const error = (result as { error?: string })?.error;
+      return reply(result, error === "ai_limit" ? 429 : error ? 503 : 200);
     }
     if (url.pathname === "/discover/usage") {
       return reply({
@@ -151,6 +153,87 @@ async function search(page: Page, q: string) {
   await page.getByTestId("discover-topic").fill(q);
   await page.getByTestId("discover-topic").press("Enter");
 }
+
+test("AI brief: preserves filters, searches only on submit, separates cache and shows interpretation", async ({
+  page,
+}) => {
+  const asked = await stubWorker(page, (body) => ({
+    ...ANSWER,
+    understood: {
+      label: { ar: "ماتش كت للقهوة", en: "Coffee match cuts" },
+      exact: false,
+      ...(body.mode === "ai" ? { ai: true } : {}),
+    },
+    alternatives: [],
+  }));
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await page.getByTestId("genre-coffee").click();
+  await expect(page.getByTestId("discover-sections")).toBeVisible();
+  const before = asked.length;
+  await page.getByTestId("discover-mode-ai").click();
+  await page.getByTestId("discover-topic").fill("Find coffee match cuts and DaVinci tutorials");
+  await expect(page.getByTestId("genre-coffee")).toHaveAttribute("aria-pressed", "true");
+  expect(asked).toHaveLength(before);
+  await page.getByTestId("discover-topic").press("Enter");
+  await expect(page.getByTestId("discover-ai-plan")).toBeVisible();
+  expect(asked.at(-1)).toMatchObject({
+    mode: "ai",
+    q: "Find coffee match cuts and DaVinci tutorials",
+    genreQuery: { en: "coffee edit", ar: "تصوير قهوة" },
+  });
+  await expect(page.getByTestId("discover-understood")).toContainText("ماتش كت للقهوة");
+  await expect(page.getByTestId("discover-prompts")).toContainText("قهوة");
+  expect(await fitsViewport(page)).toBe(true);
+  if (await page.getByTestId("filters-toggle").isVisible())
+    await page.getByTestId("filters-toggle").click();
+  await page.getByTestId("filter-time-week").click();
+  await expect.poll(() => asked.at(-1)).toMatchObject({ mode: "ai", timeRange: "week" });
+  await page.getByTestId("filter-len-short").click();
+  await expect.poll(() => asked.at(-1)).toMatchObject({ mode: "ai", ytLength: "short" });
+  await expect(page.getByTestId("discover-sections")).toBeVisible();
+  const afterFilters = asked.length;
+  await page.getByTestId("tab-yt").click();
+  await page.getByTestId("filter-sort-popular").click();
+  await page.getByTestId("filter-arfirst").click();
+  expect(asked).toHaveLength(afterFilters);
+  await page.getByTestId("discover-mode-keyword").click();
+  await expect(page.getByTestId("discover-topic")).toHaveValue(
+    "Find coffee match cuts and DaVinci tutorials",
+  );
+  expect(asked).toHaveLength(afterFilters);
+  await page.getByTestId("research-search").click();
+  await expect.poll(() => asked.length).toBe(afterFilters + 1);
+  expect(asked.at(-1)).not.toHaveProperty("mode");
+  await expect(page.getByTestId("discover-ai-plan")).toHaveCount(0);
+});
+
+test("AI unavailable and daily limit are honest, with a working keyword recovery", async ({
+  page,
+}) => {
+  let limited = false;
+  const asked = await stubWorker(page, (body) =>
+    body.mode === "ai" ? { error: limited ? "ai_limit" : "ai_unavailable" } : ANSWER,
+  );
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await page.getByTestId("discover-mode-ai").click();
+  await page.getByTestId("discover-topic").fill("coffee match cut");
+  await page.getByTestId("research-search").click();
+  await expect(page.getByTestId("research-results")).toContainText("مو متاح دحين");
+  await expect(page.getByTestId("discover-ai-plan")).toHaveCount(0);
+  limited = true;
+  await page.getByTestId("research-search").click();
+  await expect(page.getByTestId("research-results")).toContainText("الـ٢٠");
+  await page.getByTestId("discover-mode-keyword").click();
+  await page.getByTestId("research-search").click();
+  await expect(page.getByTestId("discover-sections")).toBeVisible();
+  await page.getByTestId("discover-mode-ai").click();
+  await page.getByTestId("genre-cars").click();
+  await expect
+    .poll(() => asked.at(-1))
+    .toMatchObject({ mode: "ai", genreQuery: { en: "car edit" } });
+});
 
 test("Instagram cards load missing previews and keep a playable fallback when unavailable", async ({
   page,
@@ -290,6 +373,19 @@ test("Discover v2: Tavily's limit shows the pay-as-you-go banner", async ({ page
   await connectWorker(page);
   await search(page, "flash");
   await expect(page.getByTestId("discover-credits-out")).toBeVisible();
+});
+
+test("partial platform results stay visible with a retry warning", async ({ page }) => {
+  await stubWorker(page, () => ({
+    ...ANSWER,
+    platforms: { tt: { ok: true, partial: "upstream" }, ig: { ok: true }, yt: { ok: true } },
+  }));
+  await connectWorker(page);
+  await search(page, "flash");
+  await expect(page.getByTestId("discover-section-example")).toBeVisible();
+  await expect(page.getByTestId("discover-down-tt")).toContainText("النتائج هذي ناقصة");
+  await expect(page.getByTestId("discover-retry-tt")).toBeVisible();
+  await expect(page.getByTestId("research-lang-en")).toHaveCount(0);
 });
 
 test("Discover v2 in a skill's Research panel: one search, and a card attaches to the skill", async ({

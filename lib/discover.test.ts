@@ -198,6 +198,37 @@ describe("discoverSearch", () => {
     clearDiscoverCache(null);
   });
 
+  it("rejects an older Worker's silent keyword fallback for an AI request", async () => {
+    const storage = memoryStorage();
+    const result = await discoverSearch(
+      config,
+      { q: "coffee match cuts", mode: "ai" },
+      {
+        storage,
+        fetchImpl: replying(answer([item({})])),
+      },
+    );
+    expect(result).toEqual({ ok: false, error: { type: "ai_unavailable" } });
+    expect(keptKeys(storage)).toEqual([]);
+  });
+
+  it("does not reuse a keyword answer accidentally stored under an AI cache key", async () => {
+    const storage = memoryStorage();
+    const req = { q: "coffee match cuts", mode: "ai" as const };
+    storage.setItem(
+      DISCOVER_CACHE_KEY,
+      JSON.stringify({
+        [discoverRequestKey(config, req)]: { at: Date.now(), answer: answer([item({})]) },
+      }),
+    );
+    const fetchImpl = replying(answer([item({})]));
+    expect(await discoverSearch(config, req, { storage, fetchImpl })).toEqual({
+      ok: false,
+      error: { type: "ai_unavailable" },
+    });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
   it("asks once, caches a complete answer, and serves it from the cache", async () => {
     const storage = memoryStorage();
     const fetchImpl = replying(answer([item({})]));

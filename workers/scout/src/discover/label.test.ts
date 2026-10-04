@@ -17,7 +17,44 @@ const card = (over: Partial<ScoutResult>): ScoutResult => ({
 });
 
 describe("labelCards", () => {
-  it("files tutorials by their words and the rest by their query", () => {
+  it("requires both the technique and selected genre, in either language", () => {
+    const coffee = planSearch({
+      q: "match cut",
+      genreQuery: { en: "coffee edit", ar: "تصوير قهوة" },
+    });
+    const items = labelCards(
+      [
+        "Match cut coffee commercial tutorial",
+        "Match cut football edit tutorial",
+        "Coffee pour b-roll",
+        "شرح ماتش كت للقهوة",
+      ].map((title) => ({ card: card({ title }), query: coffee.queries[0] })),
+      coffee,
+    );
+    expect(items.map((i) => !!i.offTopic)).toEqual([false, true, true, false]);
+  });
+
+  it("does not call a finished edit a tutorial just because of the query", () => {
+    const [item] = labelCards(
+      [{ card: card({ title: "My flash transition edit" }), query: query("tt-tutorials-en") }],
+      plan,
+    );
+    expect(item.section).toBe("example");
+  });
+
+  it("requires the subject for a genre-only search, not just the word edit", () => {
+    const cars = planSearch({ q: "car edit", genreQuery: { ar: "ايديت سيارات" } });
+    const items = labelCards(
+      ["Football edit", "Cinematic BMW edit", "ايديت سيارات"].map((title) => ({
+        card: card({ title }),
+        query: cars.queries[0],
+      })),
+      cars,
+    );
+    expect(items.map((i) => !!i.offTopic)).toEqual([true, false, false]);
+  });
+
+  it("files tutorials by evidence of teaching in their words", () => {
     const items = labelCards(
       [
         {
@@ -29,7 +66,7 @@ describe("labelCards", () => {
       ],
       plan,
     );
-    expect(items.map((i) => i.section)).toEqual(["tutorial", "tutorial", "example"]);
+    expect(items.map((i) => i.section)).toEqual(["tutorial", "example", "example"]);
   });
 
   it("marks cards that are not about the effect as off-topic", () => {

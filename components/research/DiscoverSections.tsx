@@ -78,7 +78,9 @@ export default function DiscoverSections({
   const failed = (
     Object.entries(answer.platforms) as [DiscoverPlatform, DiscoverPlatformStatus | undefined][]
   ).flatMap(([p, s]) =>
-    s && !s.ok && (tab === "all" || tab === p) ? [{ p, error: s.error }] : [],
+    s && (tab === "all" || tab === p) && (!s.ok || s.partial)
+      ? [{ p, error: s.ok ? s.partial! : s.error, partial: s.ok }]
+      : [],
   );
   const quota = failed.some((f) => f.error === "quota");
 
@@ -142,10 +144,15 @@ export default function DiscoverSections({
         className="flex flex-wrap items-center gap-1.5 text-xs"
         data-testid="discover-understood"
       >
+        {answer.understood.ai && (
+          <span className="px-chip" data-testid="discover-ai-plan">
+            {t("search.aiPlan")}
+          </span>
+        )}
         <span className="text-ink-2">
           {answer.understood.exact
             ? t("search.exactNow", { q })
-            : `${t("search.understood", { label: L(answer.understood.label) })} · ${t("search.bothLangs")}`}
+            : `${t("search.understood", { label: L(answer.understood.label) })}${answer.understood.ai ? "" : ` · ${t("search.bothLangs")}`}`}
         </span>
         {answer.alternatives.length > 0 && (
           <span className="text-muted">{t("search.notThis")}</span>
@@ -189,7 +196,7 @@ export default function DiscoverSections({
       )}
       {failed
         .filter((f) => f.error !== "quota")
-        .map(({ p, error }) => {
+        .map(({ p, error, partial }) => {
           const name = PLATFORM_META[p].label;
           return (
             <div
@@ -205,7 +212,9 @@ export default function DiscoverSections({
                     ? t("search.platformAuth", { platform: name })
                     : error === "not_configured"
                       ? t("search.platformNotSet", { platform: name })
-                      : t("search.platformDown", { platform: name })}
+                      : t(partial ? "search.platformPartial" : "search.platformDown", {
+                          platform: name,
+                        })}
               </span>
               {error === "upstream" && (
                 <button

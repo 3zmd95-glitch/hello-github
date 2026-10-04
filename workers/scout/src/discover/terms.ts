@@ -87,9 +87,19 @@ export const TERMS: readonly EditTerm[] = parseTerms(raw);
 const ARTICLE = /^ال[ء-ي]{2,}$/;
 const EN_PLURAL = /^[a-z0-9]{4,}s$/;
 const AR_PLURAL = /^[ء-ي]{3,}ات$/;
+// Common editing/genre nouns shorter than the conservative plural rule below.
+// Keep words such as "lens", "news" and "gas" intact.
+const SHORT_PLURALS: Record<string, string> = {
+  cars: "car",
+  cuts: "cut",
+  gyms: "gym",
+  ads: "ad",
+  amvs: "amv",
+};
 
 function stem(word: string): string {
   const w = ARTICLE.test(word) ? word.slice(2) : word;
+  if (Object.hasOwn(SHORT_PLURALS, w)) return SHORT_PLURALS[w];
   if (EN_PLURAL.test(w) && !w.endsWith("ss")) return w.slice(0, -1);
   return AR_PLURAL.test(w) ? w.slice(0, -2) : w;
 }
