@@ -14,4 +14,8 @@ Requested 2026-10-04: enhance Cars, Coffee, Travel and the other subject-categor
 
 ## Validation
 
-Implementation and verification in progress. Live results are assessed from returned titles/snippets; a successful request alone is not a quality benchmark.
+- `pnpm lint`, `pnpm typecheck` (app and Worker), and production build passed.
+- `pnpm test`: 1,880 tests passed across 80 files after integrating the latest main branch.
+- Full Playwright suite on localhost:3000: 289 passed, four existing viewport-specific skips, and one unrelated phone mastery test hit its cumulative 30-second timeout under eight-worker load. Its trace showed all assertions passing; an isolated one-worker rerun passed three consecutive times (19–21 seconds each). No test timeout or product code was changed to mask the failure.
+- Desktop and phone Discover coverage passed, including category ideas, category-only search, preserved filters/model selection, Arabic RTL layout, platform results and Instagram preview regressions.
+- Live category checks follow deployment. Results are assessed from returned titles/snippets; a successful request alone is not a quality benchmark. The existing YouTube daily cap is preserved.
