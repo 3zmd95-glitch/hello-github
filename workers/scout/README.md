@@ -281,9 +281,10 @@ before it was switched on. Answers go through the **Send API**, `POST /{IG_ID}/m
 buttons the button template
 `message: { attachment: { type: "template", payload: { template_type: "button", text, buttons: [{ type: "web_url", url, title }] } } }`
 (text ≤ 640 characters, 1–3 buttons). Link buttons go through `<origin>/go/<id>/<n>`; «تابعني» (`followButton`)
-opens `https://www.instagram.com/<username>/`. The returned `message_id` is kept a day (`sent`) to tell the
-poll's own messages from the owner's; in case Instagram's ids differ, a message from the account created from a
-minute before to 2 minutes after a send to that person also counts as the poll's.
+opens `https://www.instagram.com/<username>/`. The returned `message_id` is kept a day (`sent`, with the
+`recipient_id` it went to) to tell the poll's own messages from the owner's; in case Instagram's ids differ, a
+message from the account created from a minute before to 2 minutes after a send to that person also counts as the
+poll's.
 
 **Trigger and write guard.** One cron trigger, `* * * * *` (`TICK_CRON` in `cron.ts`): minutes off the
 five-minute grid only poll the replies; on the grid a tick keeps the five-minute schedule (a sync slot, a trend

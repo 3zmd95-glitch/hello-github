@@ -583,6 +583,37 @@ test("the log shows Instagram's words for every failure, not only refusals", asy
   );
 });
 
+test("the DM card keeps what was typed for a comment: switching back restores the public replies and the post", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  fake.status.instagram = { ...fake.status.instagram, canReply: true };
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  await page.goto("/social/replies/");
+  await page.getByTestId("autoreplies-new").click();
+  await page.getByTestId("autoreply-target-post").click();
+  const tile = page.locator('[data-testid="autoreply-post-tile"][data-post-id="18001"]');
+  await tile.click();
+  await page.getByTestId("autoreply-public-on").check();
+  await page.getByTestId("autoreply-public-0").fill("أرسلته لك على الخاص 🎬");
+
+  await page.getByTestId("autoreply-target-message").click();
+  await expect(page.getByTestId("autoreply-public-section")).toHaveCount(0);
+  await page.getByTestId("autoreply-target-post").click();
+  await expect(page.getByTestId("autoreply-public-0")).toHaveValue("أرسلته لك على الخاص 🎬");
+  await expect(tile).toHaveAttribute("aria-checked", "true");
+
+  // Saved as a DM rule, the comment parts stay out of what the Worker gets.
+  await page.getByTestId("autoreply-target-message").click();
+  await page.getByTestId("autoreply-keyword-input").fill("كاميرا,");
+  await page.getByTestId("autoreply-dm").fill("أصور بالآيفون");
+  await page.getByTestId("autoreply-save").click();
+  await expect.poll(() => fake.saved.length).toBe(1);
+  expect(fake.saved[0]).toMatchObject({ trigger: "message", postId: null, publicReplies: [] });
+  expect(fake.saved[0]).not.toHaveProperty("title");
+});
+
 test("desktop: 💬 Auto replies is in the Social sidebar", async ({ page, isMobile }) => {
   test.skip(isMobile, "the sidebar is desktop only");
   await freshState(page, "/social/growth/");

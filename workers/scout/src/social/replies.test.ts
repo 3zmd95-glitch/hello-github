@@ -484,6 +484,8 @@ describe("/social/replies/settings", () => {
     [{ defaultReply: { enabled: true, text: " " } }, "defaultReply"],
     [{ defaultReply: { enabled: true, text: "ل".repeat(501) } }, "defaultReply"],
     [{ defaultReply: { text: "x" } }, "defaultReply"],
+    [{ defaultReply: { enabled: false, text: 5 } }, "defaultReply"],
+    [{ defaultReply: { enabled: false } }, "defaultReply"],
   ])("refuses %j → %s", async (json, detail) => {
     const res = await handle(req("/social/replies/settings", { method: "POST", json }), makeEnv());
     expect(res.status).toBe(400);
@@ -1313,7 +1315,7 @@ describe("pollReplies", () => {
     const old = new Date(NOW.getTime() - 25 * 3_600_000).toISOString();
     await seed(env, [input()], { sent: { mid0: { to: "p0", at: old } } });
     await pollReplies(env, { fetch: mockFetch(igRoutes().routes), now: NOW });
-    expect((await stateOf(env)).sent).toEqual({ mid1: { to: "uc1", at: NOW.toISOString() } });
+    expect((await stateOf(env)).sent).toEqual({ mid1: { to: "u1", at: NOW.toISOString() } });
   });
 
   it("reads a state saved before round 34 (no sent ids) and records its sends in it", async () => {
@@ -1322,7 +1324,27 @@ describe("pollReplies", () => {
     await seed(env, [input()]);
     await Store.from(env)!.putRepliesState({ v: 1, watch: {}, handled: {}, retries: {}, stats: {}, log: [] });
     await pollReplies(env, { fetch: mockFetch(igRoutes().routes), now: NOW });
-    expect((await stateOf(env)).sent).toEqual({ mid1: { to: "uc1", at: NOW.toISOString() } });
+    expect((await stateOf(env)).sent).toEqual({ mid1: { to: "u1", at: NOW.toISOString() } });
+  });
+
+  it("records each send under the Send API's recipient_id, else the commenter or person it went to", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ publicReplies: [] }), camRule()], SINCE);
+    let n = 0;
+    const { routes } = igRoutes({
+      ...dmRoutes([convo("t1", [dm("d1", "كاميرا")])]),
+      [`POST ${IG}/17841/messages`]: (_u, init) => {
+        n += 1;
+        const to = JSON.parse(String(init?.body)).recipient;
+        return { recipient_id: to.comment_id ? "igsid-c1" : "igsid-p1", message_id: `out${n}` };
+      },
+    });
+    await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
+    expect((await stateOf(env)).sent).toEqual({
+      out1: { to: "igsid-c1", at: NOW.toISOString() },
+      out2: { to: "igsid-p1", at: NOW.toISOString() },
+    });
   });
 
   it("drops expired send ids without a write of their own (an idle poll writes nothing)", async () => {
@@ -1598,6 +1620,23 @@ describe("pollReplies: DMs and story replies", () => {
     expect(state.lastErrorDetail).toBeUndefined();
   });
 
+  it("a stopper on the conversations read waits for the comments to be answered, then ends the poll", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ publicReplies: [] }), camRule()], SINCE);
+    const { routes } = igRoutes({
+      [`GET ${IG}/17841/conversations`]: () =>
+        json({ error: { message: "slow down", code: 613 } }, 400),
+    });
+    const r = await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
+    expect(r).toMatchObject({ sent: ["c1"], error: "rate_limited", detail: "slow down [613]" });
+    expect(await stateOf(env)).toMatchObject({
+      handled: { c1: NOW.toISOString() },
+      lastError: "rate_limited",
+      lastErrorDetail: "slow down [613]",
+    });
+  });
+
   it("a stop while answering is the poll's error rather than a failed conversations read", async () => {
     const env = makeEnv();
     await connect(env, "instagram");
@@ -1632,7 +1671,7 @@ describe("pollReplies: DMs and story replies", () => {
     }
   });
 
-  it("forgets week-old conversation positions and day-old default replies, without a write of their own", async () => {
+  it("forgets day-old conversation positions and default replies, without a write of their own", async () => {
     const env = makeEnv();
     await connect(env, "instagram");
     // Nothing new: the account is known and no conversation moved.
@@ -1640,7 +1679,11 @@ describe("pollReplies: DMs and story replies", () => {
       ...SINCE,
       igUserId: "17841",
       ownerUsername: "3z.prod",
-      convos: { t0: { seenAt: msgAt(8 * 24 * 60) }, t1: { seenAt: msgAt(60) } },
+      convos: {
+        t0: { seenAt: msgAt(8 * 24 * 60) },
+        t9: { seenAt: msgAt(25 * 60) },
+        t1: { seenAt: msgAt(60) },
+      },
       defaultSentAt: { p0: msgAt(25 * 60), p1: msgAt(60) },
     });
     const writes = env.SOCIAL_KV.writes;
@@ -1722,6 +1765,26 @@ describe("pollReplies: DMs and story replies", () => {
     expect(state.convos.t1).toEqual({ seenAt: msgAt(1) });
     await poll(3);
     expect(sends).toBe(MAX_RETRIES);
+  });
+
+  it("a DM that fails for good leaves no retry count behind", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    let answer = () => json({ error: { message: "boom" } }, 500);
+    const routes = {
+      ...dmRoutes([convo("t1", [dm("d1", "كاميرا")])]),
+      [`POST ${IG}/17841/messages`]: () => answer(),
+    };
+    await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
+    expect((await stateOf(env)).retries).toEqual({ d1: 1 });
+    // The retry is refused for good (outside the window): final, and its count goes with it.
+    answer = () =>
+      json({ error: { message: "outside window", code: 10, error_subcode: 2534022 } }, 400);
+    await pollReplies(env, { fetch: mockFetch(routes), now: tick(1) });
+    const state = await stateOf(env);
+    expect(state.retries).toEqual({});
+    expect(state.convos.t1).toEqual({ seenAt: msgAt(1) });
   });
 
   it("drops a DM's retry count once it is handled without an answer", async () => {

@@ -42,8 +42,8 @@ export const MESSAGES_PER_CONVERSATION = 5;
 export const WINDOW_MS = 24 * 60 * 60_000;
 /** A message from the account this soon after a poll's send to the same person is that send (ids may differ). */
 export const OWN_SEND_SLACK_MS = 2 * 60_000;
-/** Conversation positions are forgotten after a week without news. */
-export const CONVO_TTL_MS = 7 * 24 * 60 * 60_000;
+/** Conversation positions are forgotten after a day without news (they never sit further back than the window). */
+export const CONVO_TTL_MS = WINDOW_MS;
 
 interface IgMessage {
   id?: string;
@@ -300,7 +300,7 @@ export async function answerInbox(
       };
       let final = true;
       try {
-        const messageId = await sendReply(
+        const { messageId, recipientId } = await sendReply(
           { http: d.http, igUserId: d.igUserId, token: d.token },
           { id: batch.personId },
           rule ? rule.dmText : (config.defaultReply?.text ?? ""),
@@ -310,7 +310,7 @@ export async function answerInbox(
         s.sends += 1;
         s.lastSentAt = at;
         s.lastError = undefined;
-        if (messageId) state.sent[messageId] = { to: batch.personId, at };
+        if (messageId) state.sent[messageId] = { to: recipientId ?? batch.personId, at };
         if (!rule) state.defaultSentAt[batch.personId] = at;
         delete state.retries[item.id];
         out.sent.push(item.id);
@@ -331,10 +331,10 @@ export async function answerInbox(
           if (tries < MAX_RETRIES) {
             state.retries[item.id] = tries;
             final = false;
-          } else {
-            delete state.retries[item.id];
           }
         }
+        // A final failure leaves no retry count behind (as on the comment path).
+        if (final) delete state.retries[item.id];
       }
       d.log(entry);
       out.changed = true;

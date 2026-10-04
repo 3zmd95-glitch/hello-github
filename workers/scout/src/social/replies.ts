@@ -459,8 +459,11 @@ export function parseSettingsInput(
   }
   if (b.defaultReply !== undefined) {
     const d = (b.defaultReply ?? {}) as Record<string, unknown>;
-    const text = typeof d.text === "string" ? d.text.trim() : "";
-    if (typeof d.enabled !== "boolean" || (d.enabled && !text) || utf8Bytes(text) > DM_TEXT_BYTES) {
+    if (typeof d.enabled !== "boolean" || typeof d.text !== "string") {
+      return { ok: false, detail: "defaultReply" };
+    }
+    const text = d.text.trim();
+    if ((d.enabled && !text) || utf8Bytes(text) > DM_TEXT_BYTES) {
       return { ok: false, detail: "defaultReply" };
     }
     settings.defaultReply = { enabled: d.enabled, text };
@@ -760,8 +763,9 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     }
     candidates.sort((x, y) => (x.comment.timestamp ?? "").localeCompare(y.comment.timestamp ?? ""));
 
-    // The DMs and story replies (inbox.ts). A conversations read that fails leaves the comments alone, and is the
-    // poll's error unless answering stops it.
+    // The DMs and story replies (inbox.ts). A conversations read that fails leaves the comments alone, even a tick
+    // stopper (the comments are answered, then the poll ends: there are no DMs to answer), and is the poll's error
+    // unless answering stops it.
     const inbox: InboxDeps = { http, token, igUserId, config, state, now, statsOf, log: addLog };
     let batches: ConversationBatch[] = [];
     let readError: ReplyFailure | undefined;
@@ -772,7 +776,6 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
         if (read.changed) changed = true;
       } catch (e) {
         const { code, detail } = toReplyCode(e);
-        if (TICK_STOPPERS.has(code)) throw e;
         readError = { code, detail };
         result.error = code;
         if (detail) result.detail = detail.slice(0, 200);
@@ -816,7 +819,12 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
       // The DM first: it is the part Instagram allows once per comment, and the public reply promises it.
       let dmSent = false;
       try {
-        const messageId = await sendReply({ http, igUserId, token }, { comment_id: id }, a.dmText, buttons);
+        const { messageId, recipientId } = await sendReply(
+          { http, igUserId, token },
+          { comment_id: id },
+          a.dmText,
+          buttons,
+        );
         dmSent = true;
         entry.dm = "sent";
         s.sends += 1;
@@ -824,7 +832,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
         s.lastError = undefined;
         state.handled[id] = at;
         delete state.retries[id];
-        if (messageId) state.sent[messageId] = { to: c.from?.id ?? "", at };
+        if (messageId) state.sent[messageId] = { to: recipientId ?? c.from?.id ?? "", at };
         result.sent.push(id);
       } catch (e) {
         const { code, detail, transient } = toReplyCode(e);

@@ -97,7 +97,9 @@ export default function RuleEditor({
 
   const setTarget = (next: Target) => {
     setChoosingPost(next === "post");
-    if (next === "message") patch({ trigger: "message", publicReplies: [], ...NO_POST });
+    // The DM card keeps what was typed for a comment (back on a comment card it is all there); replyInput and the
+    // Worker leave the post and the public replies out of a message rule.
+    if (next === "message") patch({ trigger: "message" });
     else if (next === "anyPost") patch({ trigger: "comment", ...NO_POST });
     else patch({ trigger: "comment" });
   };

@@ -252,20 +252,23 @@ export interface SendTarget {
   token: string;
 }
 
+/** The Send API's answer: `{ recipient_id, message_id }`. */
+type SendAnswer = MetaError & { message_id?: string; recipient_id?: string };
+
 /**
- * Sends one reply and returns the Send API's message id. With buttons it is a button template; a private reply
- * whose template Instagram refuses (code 100 with any subcode but 2534025, "already answered") goes once more as
- * plain text with "title: link" lines — a refused call does not use up the comment's one private reply. Throws
- * like `graph`.
+ * Sends one reply and returns the Send API's message id and recipient (the person's Instagram-scoped id). With
+ * buttons it is a button template; a private reply whose template Instagram refuses (code 100 with any subcode but
+ * 2534025, "already answered") goes once more as plain text with "title: link" lines — a refused call does not use
+ * up the comment's one private reply. Throws like `graph`.
  */
 export async function sendReply(
   t: SendTarget,
   recipient: Recipient,
   text: string,
   buttons: readonly LinkButton[],
-): Promise<string | undefined> {
+): Promise<{ messageId?: string; recipientId?: string }> {
   const post = (message: Record<string, unknown>) =>
-    fetchJson<MetaError & { message_id?: string }>(t.http, `${IG_API}/${t.igUserId}/messages`, {
+    fetchJson<SendAnswer>(t.http, `${IG_API}/${t.igUserId}/messages`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${t.token}`,
@@ -282,5 +285,6 @@ export async function sendReply(
     err?.code === 100 &&
     err.error_subcode !== PRIVATE_REPLY_INVALID.subcode;
   if (templateRefused && t.http.budget.ok) reply = await post({ text: textBody(text, buttons) });
-  return graph(reply, "dm").message_id;
+  const sent = graph(reply, "dm");
+  return { messageId: sent.message_id, recipientId: sent.recipient_id };
 }

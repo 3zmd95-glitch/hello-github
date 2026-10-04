@@ -133,11 +133,11 @@ interface AutomationInput {
 ```ts
 interface PollState {
   // …v1 fields (watch, handled, retries, stats, log, lastPollAt, lastFullScanAt, lastError, lockUntil, igUserId, ownerUsername)
-  /** conversation id → the newest message time processed (pruned after 7 days). */
+  /** conversation id → the newest message time processed (pruned after 24 hours, the window it never predates). */
   convos: Record<string, { seenAt: string }>;
   /** Instagram-scoped user id → when the default reply last went to them (pruned after 24 hours). */
   defaultSentAt: Record<string, string>;
-  /** Messages the Worker sent, by the Send API's message id → { to: the person's id, at } (pruned after 24 hours). */
+  /** The Worker's sends, by the Send API's message id → { to: its recipient_id, at } (pruned after 24 hours). */
   sent: Record<string, { to: string; at: string }>;
   /** replies:state writes today (UTC day): 300 → five-minute ticks only, 600 → no answers until 00:00 UTC. */
   writes: { day: string; count: number };
