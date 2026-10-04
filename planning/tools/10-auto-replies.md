@@ -90,6 +90,30 @@ public `GET /go/:id/:n`. Three KV documents (`replies:doc`, `replies:state`, `re
 | [AutoDMX](https://github.com/Aditya5688/AutoDMX), [open-autodm](https://github.com/andaveti42-cmyk/open-autodm), [instagram-dm-automation](https://github.com/ElAmir-Mansour/instagram-dm-automation), [ig-automation](https://github.com/elmlahym-wq/ig-automation) | Self-hosted comment → DM bots on the official API, but Next.js/FastAPI servers with Postgres/SQLite and **webhooks** (Live app + Advanced Access) | Reference for the flow; not adopted: nothing runs on a free Worker with KV and polling. About 1,800 lines written across Worker + dashboard, plus about 1,300 lines of tests. |
 | ManyChat, LinkDM, Beacons Smart Reply | Hosted, $10–15/month, need their own Meta app review | The UX model (Beacons' builder was copied field by field). |
 
+## Round 34 (Oct 3, 2026): our version replaces Beacons, the Live test first
+
+Owner: "its made with beacons.ai I want our version"; goals: free downloads, grow followers, answer common DMs.
+What the real check found (read-only, Oct 3):
+
+- Beacons Smart Reply is down: "Instagram needs to be reconnected", 0 sends, 193 clicks. Its one rule: the LUT
+  reel (`instagram.com/reel/DY5FTWxta5s`), keyword «لت» (exact), DM «حمل اللت من الزر تحت وجربه على لقطاتك» with
+  the button «تحميل اللت» → the Beacons store product.
+- Ours never ran: the Meta app has neither `instagram_business_manage_comments` nor
+  `instagram_business_manage_messages` added (only basic, insights and publish are "Ready for testing"), and the
+  app is Unpublished (Development mode).
+- Meta's docs say Standard Access is enough for a business you own (App Review "Not required"), and several
+  open-source comment-to-DM Workers report DMs reaching everyone once the app is **Live**, without review. The docs
+  also contradict that, so a real test decides: Live → a friend with no role on the app comments «لت».
+
+For Live, the app needs public policy pages, now on the dashboard site (`public/`, plain HTML, Arabic then English):
+
+- Privacy Policy: `https://3zmd95-glitch.github.io/hello-github/privacy/`
+- Terms of Service: `https://3zmd95-glitch.github.io/hello-github/terms/`
+- Data deletion instructions: `https://3zmd95-glitch.github.io/hello-github/data-deletion/`
+- App icon 1024×1024: `public/icons/icon-1024.png` (from `scripts/make-icons.mjs`)
+
+Do not reconnect Beacons during the test: both would answer the same comment.
+
 ## Later
 
 - Webhooks (`comments` + `messages`) once the Meta app is Live with Advanced Access: instant replies, real buttons
