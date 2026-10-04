@@ -8,6 +8,7 @@
 
 import { PLATFORMS, type Platform } from "../normalize";
 import { SearchAiError } from "./ai";
+import { ExternalAiPlanSchema } from "./ai-plan";
 import { readPicks } from "./picks";
 import { runDiscover } from "./run";
 import { normalizeTerm } from "./terms";
@@ -38,6 +39,13 @@ export function parseDiscoverBody(raw: unknown): DiscoverRequest | null {
   if (b.mode !== undefined && b.mode !== "ai") return null;
   if (!q || q.length > (b.mode === "ai" ? 600 : 200) || !normalizeTerm(q)) return null;
   if (b.mode === "ai" && (b.exact || b.term)) return null;
+  let aiPlan: DiscoverRequest["aiPlan"];
+  if (b.aiPlan !== undefined) {
+    if (b.mode !== "ai") return null;
+    const parsed = ExternalAiPlanSchema.safeParse(b.aiPlan);
+    if (!parsed.success) return null;
+    aiPlan = parsed.data;
+  }
   if (b.exact !== undefined && typeof b.exact !== "boolean") return null;
   if (b.term !== undefined && (typeof b.term !== "string" || !TERM_ID.test(b.term))) return null;
   const program = optText(b.program, 60);
@@ -64,6 +72,7 @@ export function parseDiscoverBody(raw: unknown): DiscoverRequest | null {
   return {
     q,
     ...(b.mode === "ai" ? { mode: "ai" as const } : {}),
+    ...(aiPlan ? { aiPlan } : {}),
     ...(b.exact === true ? { exact: true } : {}),
     ...(typeof b.term === "string" ? { term: b.term } : {}),
     ...(genreQuery ? { genreQuery } : {}),

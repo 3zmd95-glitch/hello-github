@@ -496,6 +496,8 @@ export async function handle(
           trends: healthTrends(env),
           // The kill switch: /discover stays served (the connector runs the same pipeline).
           discover: env.DISCOVER_V2 !== "off",
+          // Clients check this before spending subscription inference on a local plan.
+          discoverSubscriptions: env.DISCOVER_V2 !== "off",
         },
         200,
         cors,

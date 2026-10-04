@@ -154,7 +154,14 @@ describe("/discover routes", () => {
 
   it("tells the dashboard it can search the new way", async () => {
     const res = await handle(req("/health"), ENV, undefined, { fetch: vi.fn() });
-    expect(((await res.json()) as { discover?: boolean }).discover).toBe(true);
+    expect(await res.json()).toMatchObject({ discover: true, discoverSubscriptions: true });
+  });
+
+  it("only advertises subscription planning to authenticated enabled dashboards", async () => {
+    const open = await handle(req("/health", { token: null }), ENV);
+    expect(await open.json()).toEqual({ ok: true });
+    const disabled = await handle(req("/health"), { ...ENV, DISCOVER_V2: "off" });
+    expect(await disabled.json()).toMatchObject({ discover: false, discoverSubscriptions: false });
   });
 
   it("leaves unknown /discover paths and methods to the 404", async () => {

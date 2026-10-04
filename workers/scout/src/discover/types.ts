@@ -4,6 +4,7 @@
  */
 
 import type { Platform, ScoutResult } from "../normalize";
+import type { AiPlanMetadata, ExternalAiPlan } from "./ai-schema";
 import type { Lang, LangText } from "./terms";
 
 export type Intent = "examples" | "tutorials";
@@ -12,6 +13,8 @@ export type DiscoverTimeRange = "week" | "month" | "year";
 export interface DiscoverRequest {
   q: string;
   mode?: "ai";
+  /** Validated search plan from the owner's local subscription bridge. Only valid in AI mode. */
+  aiPlan?: ExternalAiPlan;
   /** "Search exactly this": no dictionary, no editing words, nothing hidden. */
   exact?: boolean;
   /** A dictionary id the owner picked from "Not this?". */
@@ -48,7 +51,12 @@ export interface SearchPlan {
   topicKey: string;
   termId?: string;
   exact: boolean;
-  understood: { termId?: string; label: LangText; exact: boolean; ai?: boolean };
+  understood: {
+    termId?: string;
+    label: LangText;
+    exact: boolean;
+    ai?: boolean;
+  } & Partial<AiPlanMetadata>;
   timeRange?: DiscoverTimeRange;
   ytLength?: "short" | "long";
   alternatives: Alternative[];

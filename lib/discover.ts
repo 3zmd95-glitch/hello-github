@@ -1,4 +1,5 @@
 import type { Genre, Lang } from "./domain";
+import { subscriptionPlan, type AiSelection } from "./localAi";
 import {
   popularityOf,
   type LengthFilter,
@@ -59,7 +60,15 @@ export type DiscoverPlatformStatus =
 
 export interface DiscoverAnswer {
   topicKey: string;
-  understood: { termId?: string; label: { ar: string; en: string }; exact: boolean; ai?: boolean };
+  understood: {
+    termId?: string;
+    label: { ar: string; en: string };
+    exact: boolean;
+    ai?: boolean;
+    provider?: "chatgpt" | "claude";
+    model?: string;
+    effort?: string;
+  };
   alternatives: DiscoverAlternative[];
   items: DiscoverItem[];
   creators: DiscoverCreator[];
@@ -73,6 +82,8 @@ export interface DiscoverAnswer {
 export interface DiscoverRequest {
   q: string;
   mode?: "ai";
+  /** Local planner selection; only its validated plan is sent to Scout. No credentials. */
+  subscription?: AiSelection;
   exact?: boolean;
   term?: string;
   genreQuery?: { ar?: string; en?: string };
@@ -108,6 +119,7 @@ const clip = (text: string, max: number) =>
 
 export function discoverRequestFrom(input: {
   mode?: "ai";
+  subscription?: AiSelection;
   base: string;
   genre?: Pick<Genre, "queries">;
   programHint?: string;
@@ -127,6 +139,7 @@ export function discoverRequestFrom(input: {
   return {
     q,
     ...(input.mode === "ai" ? { mode: "ai" as const } : {}),
+    ...(input.mode === "ai" && input.subscription ? { subscription: input.subscription } : {}),
     ...(input.pick?.exact ? { exact: true } : {}),
     ...(input.pick?.term ? { term: input.pick.term } : {}),
     ...(genreQuery.ar || genreQuery.en ? { genreQuery } : {}),
@@ -234,6 +247,9 @@ export function parseDiscoverAnswer(raw: unknown): DiscoverAnswer | null {
       label,
       exact: u.exact === true,
       ...(u.ai === true ? { ai: true } : {}),
+      ...(u.provider === "chatgpt" || u.provider === "claude" ? { provider: u.provider } : {}),
+      ...(isStr(u.model) ? { model: u.model } : {}),
+      ...(isStr(u.effort) ? { effort: u.effort } : {}),
     },
     alternatives,
     items,
@@ -293,6 +309,15 @@ export function discoverRequestKey(config: ScoutConfig, req: DiscoverRequest): s
   return `${PREFIX}${config.url}|${JSON.stringify({
     q: req.q.trim().toLowerCase().replace(/\s+/g, " "),
     mode: req.mode ?? "keyword",
+    subscription:
+      req.mode === "ai" && req.subscription
+        ? [
+            req.subscription.provider,
+            req.subscription.model,
+            req.subscription.effort ?? "",
+            req.subscription.accountId ?? "",
+          ]
+        : undefined,
     exact: !!req.exact,
     term: req.term ?? "",
     genre: [req.genreQuery?.ar ?? "", req.genreQuery?.en ?? ""],
@@ -397,7 +422,17 @@ export function peekDiscover(
 ): DiscoverAnswer | undefined {
   if (!config || !req) return undefined;
   const hit = cacheGet(discoverRequestKey(config, req), defaultStorage(), Date.now());
-  return req.mode === "ai" && !hit?.understood.ai ? undefined : hit;
+  return hit && answerMatchesPlanner(hit, req) ? hit : undefined;
+}
+
+function answerMatchesPlanner(answer: DiscoverAnswer, req: DiscoverRequest): boolean {
+  if (req.mode !== "ai") return true;
+  if (!answer.understood.ai) return false;
+  return req.subscription
+    ? answer.understood.provider === req.subscription.provider &&
+        answer.understood.model === req.subscription.model &&
+        answer.understood.effort === req.subscription.effort
+    : !answer.understood.provider;
 }
 
 export async function discoverSearch(
@@ -410,18 +445,36 @@ export async function discoverSearch(
   const key = discoverRequestKey(config, req);
   if (!opts.force) {
     const hit = cacheGet(key, storage, now());
-    if (hit && (req.mode !== "ai" || hit.understood.ai)) return { ok: true, answer: hit };
+    if (hit && answerMatchesPlanner(hit, req)) return { ok: true, answer: hit };
   }
   const running = inflight.get(key);
   if (running) return running;
   const run = (async (): Promise<DiscoverResult> => {
+    const { subscription, ...body } = req;
+    let aiPlan;
+    if (req.mode === "ai" && subscription) {
+      // Check before inference: older Workers silently ignore aiPlan and run their own model.
+      const capabilities = await scoutCall(
+        config,
+        "/health",
+        { method: "GET", signal: opts.signal },
+        opts,
+      );
+      if (!capabilities.ok) return capabilities;
+      if (!isObj(capabilities.data) || capabilities.data.discoverSubscriptions !== true)
+        return { ok: false, error: { type: "subscription_worker_upgrade" } };
+      const planned = await subscriptionPlan(subscription, req, opts.fetchImpl, opts.signal);
+      if (!planned.ok) return planned;
+      aiPlan = planned.data;
+    }
     const r = await scoutCall(
       config,
       "/discover",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req),
+        body: JSON.stringify({ ...body, ...(aiPlan ? { aiPlan } : {}) }),
+        signal: opts.signal,
       },
       opts,
     );
@@ -429,17 +482,25 @@ export async function discoverSearch(
     const answer = parseDiscoverAnswer(r.data);
     if (!answer) return { ok: false, error: { type: "upstream" } };
     // An older Worker ignores unknown request fields. Never present its keyword answer as AI search.
-    if (req.mode === "ai" && !answer.understood.ai)
-      return { ok: false, error: { type: "ai_unavailable" } };
+    if (!answerMatchesPlanner(answer, req))
+      return {
+        ok: false,
+        error: { type: subscription ? "subscription_worker_upgrade" : "ai_unavailable" },
+      };
     // Kept only when the Worker calls it complete and it found something (an empty answer can be a fluke).
     if (answer.complete && answer.items.length > 0) cacheSet(key, answer, storage, now());
     return { ok: true, answer };
   })();
   inflight.set(key, run);
+  const forget = () => {
+    if (inflight.get(key) === run) inflight.delete(key);
+  };
+  opts.signal?.addEventListener("abort", forget, { once: true });
   try {
     return await run;
   } finally {
-    inflight.delete(key);
+    opts.signal?.removeEventListener("abort", forget);
+    forget();
   }
 }
 

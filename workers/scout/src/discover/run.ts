@@ -9,6 +9,7 @@
 
 import type { Platform, Profile, ScoutResult } from "../normalize";
 import { enrichYoutubeStats } from "../youtubeStats";
+import { ExternalAiPlanSchema, searchPlanFromAi } from "./ai-plan";
 import {
   reserveYoutube,
   tavilyCall,
@@ -47,6 +48,7 @@ export async function requestHash(req: DiscoverRequest): Promise<string> {
   const canonical = JSON.stringify({
     version: 4,
     mode: req.mode ?? "keyword",
+    ...(req.aiPlan ? { aiPlan: req.aiPlan } : {}),
     q: req.q.trim().toLowerCase().replace(/\s+/g, " "),
     exact: !!req.exact,
     term,
@@ -131,11 +133,19 @@ export async function runDiscover(
   req: DiscoverRequest,
   deps: RunDeps,
 ): Promise<DiscoverResponse> {
+  // Also guard internal callers: an invalid bridge plan must not touch caches, quotas or providers.
+  const external = req.aiPlan === undefined ? undefined : ExternalAiPlanSchema.parse(req.aiPlan);
+  if (external && req.mode !== "ai") throw new Error("An external AI plan requires AI mode");
   const kept = await keptAnswer(env, req);
   if (kept) return kept;
 
-  const plan =
-    req.mode === "ai"
+  const plan = external
+    ? searchPlanFromAi(req, external.plan, {
+        provider: external.provider,
+        model: external.model,
+        ...(external.effort ? { effort: external.effort } : {}),
+      })
+    : req.mode === "ai"
       ? await (
           await import("./ai")
         ).planWithAi(

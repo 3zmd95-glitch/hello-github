@@ -136,6 +136,7 @@ describe("auth", () => {
       social,
       trends,
       discover: true,
+      discoverSubscriptions: true,
     });
 
     const noKey = await handle(req("/health"), { ...ENV, TAVILY_API_KEY: undefined });
@@ -146,6 +147,7 @@ describe("auth", () => {
       social,
       trends,
       discover: true,
+      discoverSubscriptions: true,
     });
 
     const wrong = await handle(req("/health", { token: "wrong" }), ENV);

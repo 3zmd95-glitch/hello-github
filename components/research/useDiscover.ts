@@ -114,7 +114,9 @@ export function useDiscoverQuery(
   useEffect(() => {
     if (!config || !body) return;
     let alive = true;
-    void discoverSearch(config, JSON.parse(body) as DiscoverRequest, { force }).then((r) => {
+    const request = JSON.parse(body) as DiscoverRequest;
+    const controller = request.subscription ? new AbortController() : undefined;
+    void discoverSearch(config, request, { force, signal: controller?.signal }).then((r) => {
       if (!alive) return;
       setSettled(
         r.ok
@@ -124,6 +126,7 @@ export function useDiscoverQuery(
     });
     return () => {
       alive = false;
+      controller?.abort();
     };
   }, [config, body, key, attempt, force]);
 

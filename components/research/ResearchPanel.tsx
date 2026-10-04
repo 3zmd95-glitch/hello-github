@@ -24,6 +24,7 @@ import type { Lang, Skill } from "@/lib/domain";
 import { discoverPrompts } from "@/lib/discoverPrompts";
 import { allGenres } from "@/lib/genres";
 import { useT, type MessageKey } from "@/lib/i18n";
+import type { AiChoice, AiSelection } from "@/lib/localAi";
 import {
   arabicFirst,
   canonicalRefUrl,
@@ -62,6 +63,7 @@ import {
 import { trendsStale } from "@/lib/trends";
 import { getApiKey, useStore } from "@/store";
 import DiscoverSections from "./DiscoverSections";
+import AiConnectionControls from "./AiConnectionControls";
 import PasteLinkForm from "./PasteLinkForm";
 import PicksSection from "./PicksSection";
 import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
@@ -179,6 +181,8 @@ export default function ResearchPanel({
   const [topic, setTopic] = useState("");
   const [searchMode, setSearchMode] = useState<"keyword" | "ai">("keyword");
   const [submittedMode, setSubmittedMode] = useState<"keyword" | "ai">("keyword");
+  const [aiChoice, setAiChoice] = useState<AiChoice>({ provider: "builtin", model: "" });
+  const [submittedAi, setSubmittedAi] = useState<AiSelection | undefined>(undefined);
   const [programId, setProgramId] = useState("");
   const [hintOn, setHintOn] = useState(true);
   const [tab, setTab] = useState<ResearchTab>(readTab);
@@ -232,6 +236,9 @@ export default function ResearchPanel({
   /** The typed text becomes the topic (Discover: remembered as a recent topic) or the skill's override. */
   const commit = (text: string) => {
     setSubmittedMode(searchMode);
+    setSubmittedAi(
+      aiChoice.provider === "builtin" ? undefined : { ...aiChoice, provider: aiChoice.provider },
+    );
     if (skill) setOverride(!text || text === defaultName ? null : text);
     else {
       setTopic(text);
@@ -253,6 +260,9 @@ export default function ResearchPanel({
    */
   const pickGenre = (id: string | null) => {
     setSubmittedMode(searchMode);
+    setSubmittedAi(
+      aiChoice.provider === "builtin" ? undefined : { ...aiChoice, provider: aiChoice.provider },
+    );
     if (draft !== null) commit(draft.trim());
     setGenreId(id === genreId ? null : id);
     setAttempt((a) => a + 1);
@@ -323,6 +333,7 @@ export default function ResearchPanel({
       v2 && !savedOnly
         ? discoverRequestFrom({
             mode: submittedMode === "ai" ? "ai" : undefined,
+            subscription: submittedAi,
             base,
             genre,
             programHint: hintOn ? hint : undefined,
@@ -331,7 +342,20 @@ export default function ResearchPanel({
             pick: picked?.on === pickOn ? picked.pick : undefined,
           })
         : null,
-    [v2, savedOnly, base, genre, hintOn, hint, recency, length, picked, pickOn, submittedMode],
+    [
+      v2,
+      savedOnly,
+      base,
+      genre,
+      hintOn,
+      hint,
+      recency,
+      length,
+      picked,
+      pickOn,
+      submittedMode,
+      submittedAi,
+    ],
   );
   const disc = useDiscoverQuery(discoverReq, attempt, forceAt === attempt);
   // Claude's picks (free: a KV read), asked when v2 opens and again at each search attempt.
@@ -660,6 +684,9 @@ export default function ResearchPanel({
               ))}
             </div>
             {searchMode === "ai" && <p className="text-ink-2 text-xs">{t("search.aiHelp")}</p>}
+            {searchMode === "ai" && (
+              <AiConnectionControls value={aiChoice} onChange={setAiChoice} />
+            )}
           </div>
         )}
         <div className={`flex gap-2 ${searchMode === "ai" ? "flex-col sm:flex-row" : ""}`}>
@@ -700,6 +727,7 @@ export default function ResearchPanel({
             type="submit"
             className="px-btn shrink-0 self-start"
             data-testid="research-search"
+            disabled={searchMode === "ai" && aiChoice.provider !== "builtin" && !aiChoice.model}
           >
             {t(searchMode === "ai" ? "search.aiSearch" : "research.searchBtn")}
           </button>

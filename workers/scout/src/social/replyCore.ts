@@ -6,6 +6,7 @@
  * (inbox.ts) import from here; the dashboard mirrors the matching and the building in lib/replies.ts.
  */
 
+import { normalizeForMatch } from "./normalization";
 import { fetchJson, type Http, type JsonReply } from "./http";
 import { IG_API } from "./instagram";
 import { metaBody, type MetaError } from "./meta";
@@ -27,21 +28,7 @@ export const DEFAULT_STATS_ID = "default";
 
 /* ---------- matching ---------- */
 
-/**
- * Comment text and keywords compared loosely: case, Arabic diacritics and tatweel, alef and yaa variants and
- * punctuation/emoji do not matter ("لَت!" matches "لت"). Same function in the dashboard (lib/replies.ts).
- */
-export function normalizeForMatch(text: string): string {
-  return text
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[ً-ْـ]/g, "")
-    .replace(/[أإآ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+export { normalizeForMatch } from "./normalization";
 
 export function matches(
   text: string,
@@ -196,7 +183,10 @@ export function graph<T extends MetaError>(reply: JsonReply<T>, what: string): T
       ? ""
       : ` [${err.code}${err.error_subcode === undefined ? "" : `/${err.error_subcode}`}]`;
   const said = (fallback: string) => `${err?.message ?? fallback}${tag}`;
-  if (err?.code === PRIVATE_REPLY_INVALID.code && err.error_subcode === PRIVATE_REPLY_INVALID.subcode) {
+  if (
+    err?.code === PRIVATE_REPLY_INVALID.code &&
+    err.error_subcode === PRIVATE_REPLY_INVALID.subcode
+  ) {
     throw new ReplyError("not_eligible", said(`${what}: invalid for a private reply`));
   }
   if (err?.code === 10) {
@@ -218,12 +208,17 @@ export function graph<T extends MetaError>(reply: JsonReply<T>, what: string): T
     if (e.code === "upstream" && reply.status >= 400 && reply.status < 500) {
       throw new ReplyError("rejected", words);
     }
-    if (e.code === "token_expired" || e.code === "rate_limited") throw new ReplyError(e.code, words);
+    if (e.code === "token_expired" || e.code === "rate_limited")
+      throw new ReplyError(e.code, words);
     throw new ReplyError("upstream", words);
   }
 }
 
-export function toReplyCode(e: unknown): { code: ReplyErrorCode; detail?: string; transient: boolean } {
+export function toReplyCode(e: unknown): {
+  code: ReplyErrorCode;
+  detail?: string;
+  transient: boolean;
+} {
   if (e instanceof ReplyError) {
     return {
       code: e.code,

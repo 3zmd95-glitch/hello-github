@@ -49,7 +49,19 @@ export interface ScoutOembed {
 }
 
 export type ScoutErrorType =
-  "unconfigured" | "quota" | "auth" | "network" | "upstream" | "ai_unavailable" | "ai_limit";
+  | "unconfigured"
+  | "quota"
+  | "auth"
+  | "network"
+  | "upstream"
+  | "ai_unavailable"
+  | "ai_limit"
+  | "local_ai_unavailable"
+  | "subscription_auth"
+  | "subscription_limit"
+  | "subscription_model"
+  | "subscription_failed"
+  | "subscription_worker_upgrade";
 export interface ScoutError {
   type: ScoutErrorType;
   status?: number;
@@ -88,6 +100,7 @@ export interface ScoutOpts {
 }
 
 export interface ScoutSearchOpts extends ScoutOpts {
+  signal?: AbortSignal;
   /** Skip the cache read and ask the Worker again (a "search again" button); the answer is still cached. */
   force?: boolean;
 }
@@ -144,6 +157,12 @@ const nowOf = (opts: ScoutOpts) => (opts.now ?? Date.now)();
 /* ---------- error mapping ---------- */
 
 export type ScoutErrorMessageKey =
+  | "search.localAiUnavailable"
+  | "search.subscriptionAuth"
+  | "search.subscriptionLimit"
+  | "search.subscriptionModel"
+  | "search.subscriptionFailed"
+  | "search.subscriptionWorkerUpgrade"
   | "search.aiUnavailable"
   | "search.aiLimit"
   | "research.scoutNotConfigured"
@@ -155,6 +174,18 @@ export type ScoutErrorMessageKey =
 /** Message key (in `messages/*.json`) for a {@link ScoutError}. */
 export function scoutErrorMessageKey(error: ScoutError): ScoutErrorMessageKey {
   switch (error.type) {
+    case "local_ai_unavailable":
+      return "search.localAiUnavailable";
+    case "subscription_auth":
+      return "search.subscriptionAuth";
+    case "subscription_limit":
+      return "search.subscriptionLimit";
+    case "subscription_model":
+      return "search.subscriptionModel";
+    case "subscription_failed":
+      return "search.subscriptionFailed";
+    case "subscription_worker_upgrade":
+      return "search.subscriptionWorkerUpgrade";
     case "ai_unavailable":
       return "search.aiUnavailable";
     case "ai_limit":
