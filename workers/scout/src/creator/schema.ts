@@ -33,7 +33,7 @@ export const CreatorDraftSchema = z.strictObject({
   beats: z.tuple([outputText(900), outputText(900), outputText(900)]),
   cta: outputText(400),
   caption: outputText(1600),
-  hashtags: z.array(z.string().regex(/^#[\p{L}\p{N}][\p{L}\p{N}_]{0,49}$/u)).max(8),
+  hashtags: z.array(z.string().regex(/^#[\p{L}\p{N}][\p{L}\p{N}\p{M}_]{0,49}$/u)).max(8),
   shots: z
     .array(z.strictObject({ type: z.enum(shotTypes), text: outputText(400) }))
     .min(3)

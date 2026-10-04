@@ -88,9 +88,21 @@ describe("creator generation", () => {
     e.AI.run.mockResolvedValue({ response: extended });
     expect(await generateCreatorDraft(e, { ...request, language: "ar" }, now)).toEqual(extended);
   });
+  it("accepts Arabic hashtag diacritics such as shadda without rejecting the draft", async () => {
+    const e = env();
+    const vocalized = {
+      ...arabicDraft,
+      hashtags: ["#تصوير_الجوّال", "#إضاءة_طبيعيّة"],
+    };
+    e.AI.run.mockResolvedValue({ response: vocalized });
+    expect(await generateCreatorDraft(e, { ...request, language: "ar" }, now)).toEqual(vocalized);
+    expect(await generateCreatorDraft(e, { ...request, language: "ar" }, now)).toEqual(vocalized);
+    expect(e.AI.run).toHaveBeenCalledTimes(1);
+  });
   it.each([
     { ...arabicDraft, beats: ["حط الكوب جنب الشباك.", "غيّر زاويتك.", "لДобавة لمسة سينمائية"] },
     { ...arabicDraft, hashtags: ["#_p", "#_p", "#_p"] },
+    { ...arabicDraft, hashtags: ["#ّقهوة"] },
   ])(
     "rejects live mixed-script and placeholder regressions without caching or retrying %#",
     async (value) => {
@@ -117,10 +129,14 @@ describe("creator generation", () => {
   it("ignores old cached output and validates the current cache before reuse", async () => {
     const e = env();
     await generateCreatorDraft(e, request, now);
-    const key = [...e.store.keys()].find((value) => value.startsWith("creator:draft:v2:"))!;
+    const key = [...e.store.keys()].find((value) => value.startsWith("creator:draft:v3:"))!;
     expect(key).toBeDefined();
     const broken = JSON.stringify({ ...draft, hashtags: ["#_p"] });
-    e.store.set(key.replace(":v2:", ":v1:"), broken);
+    e.store.set(key.replace(":v3:", ":v1:"), broken);
+    e.store.set(
+      key.replace(":v3:", ":v2:"),
+      JSON.stringify({ ...draft, caption: "An older cached caption. #coffee" }),
+    );
     e.store.delete(key);
     expect(await generateCreatorDraft(e, request, now)).toEqual(draft);
     expect(e.AI.run).toHaveBeenCalledTimes(2);
