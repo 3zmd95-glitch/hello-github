@@ -152,6 +152,20 @@ describe("auth", () => {
     expect(wrong.status).toBe(401);
   });
 
+  it("DISCOVER_V2 'off' sends dashboards back to /search; the /discover routes stay served", async () => {
+    const discover = async (DISCOVER_V2?: string) => {
+      const res = await handle(req("/health"), { ...ENV, DISCOVER_V2 });
+      return ((await res.json()) as { discover?: boolean }).discover;
+    };
+    expect(await discover("off")).toBe(false);
+    expect(await discover(undefined)).toBe(true);
+    expect(await discover("on")).toBe(true);
+    // The connector runs the same pipeline, so the routes answer either way.
+    const picks = await handle(req("/discover/picks"), { ...ENV, DISCOVER_V2: "off" });
+    expect(picks.status).toBe(200);
+    expect(await picks.json()).toEqual({ picks: [] });
+  });
+
   it("unknown routes are 404 (after auth)", async () => {
     expect((await handle(req("/nope"), ENV)).status).toBe(404);
     expect((await handle(req("/nope", { token: null }), ENV)).status).toBe(401);

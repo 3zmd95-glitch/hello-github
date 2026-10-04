@@ -27,6 +27,8 @@
     // lookups a Riyadh day.
     "DISCOVER_YT_CAP": "70",
     "MCP_DAILY_LOOKUPS": "60",
+    // "off" sends dashboards back to the old per-platform search.
+    "DISCOVER_V2": "on",
     // The connector's address as Claude sees it (OAuth protected-resource metadata must equal it).
     "MCP_RESOURCE": "https://3z-scout.3zmd95.workers.dev/mcp",
   },

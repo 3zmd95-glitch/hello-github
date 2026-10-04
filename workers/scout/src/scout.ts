@@ -56,6 +56,8 @@ export interface Env extends SocialEnv, TrendsEnv {
   DISCOVER_YT_CAP?: string;
   /** Var: Tavily lookups the Claude connector may spend a Riyadh day (default 60). */
   MCP_DAILY_LOOKUPS?: string;
+  /** Var: "off" makes /health say `discover: false`, so dashboards go back to /search (default on). */
+  DISCOVER_V2?: string;
 }
 
 /** Test seams: the global `fetch` and `caches.default` are used when these are omitted. */
@@ -475,7 +477,8 @@ export async function handle(
           tavily: !!env.TAVILY_API_KEY,
           social: healthSocial(env),
           trends: healthTrends(env),
-          discover: true,
+          // The kill switch: /discover stays served (the connector runs the same pipeline).
+          discover: env.DISCOVER_V2 !== "off",
         },
         200,
         cors,
