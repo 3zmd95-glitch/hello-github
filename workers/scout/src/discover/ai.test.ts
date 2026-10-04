@@ -36,6 +36,27 @@ function env() {
 }
 
 describe("AI content search", () => {
+  it("keeps genre-only filming constraints even when AI supplies only a subject group", async () => {
+    const e: FetchEnv = {
+      ...env(),
+      AI: { run: async () => ({ response: { ...response, concepts: [["coffee", "قهوة"]] } }) },
+    };
+    const plan = await planWithAi(e, { q: "coffee edit", mode: "ai" }, "genre-only", NOW);
+    const items = labelCards(
+      ["Coffee brewing tutorial", "Cinematic coffee lighting tutorial"].map((title, i) => ({
+        card: {
+          title,
+          snippet: "",
+          url: `https://www.instagram.com/reel/genre${i}/`,
+          platform: "ig" as const,
+          handle: "@test",
+        },
+        query: plan.queries[0],
+      })),
+      plan,
+    );
+    expect(items.map((item) => !!item.offTopic)).toEqual([true, false]);
+  });
   it("plans real-provider queries and requires every core concept", async () => {
     const e = env();
     const plan = await planWithAi(e, brief, "coffee", NOW);

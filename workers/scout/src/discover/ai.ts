@@ -2,7 +2,7 @@ import { z } from "zod";
 import { PLATFORMS } from "../normalize";
 import type { FetchEnv } from "./fetchers";
 import { planSearch, withoutPrograms } from "./plan";
-import { genreWords, subjectWords } from "./relevance";
+import { subjectWords } from "./relevance";
 import { normalizeTerm } from "./terms";
 import type { DiscoverRequest, SearchPlan } from "./types";
 
@@ -147,7 +147,6 @@ export async function planWithAi(
   const data = await running;
   const platforms = req.platforms ?? PLATFORMS.filter((p) => data.platforms.includes(p));
   const baseline = planSearch(req);
-  const genre = genreWords(req);
   return {
     ...baseline,
     topicKey: normalizeTerm(data.summary.en),
@@ -157,7 +156,7 @@ export async function planWithAi(
     needsEditingWord: false,
     requiredGroups: [
       ...data.concepts.map((g) => [...new Set(g.map(normalizeTerm).filter(Boolean))]),
-      ...(genre.length ? [genre] : []),
+      ...(baseline.requiredGroups ?? []),
     ],
     timeRange: req.timeRange ?? (data.timeRange === "any" ? undefined : data.timeRange),
     ytLength: req.ytLength ?? (data.ytLength === "any" ? undefined : data.ytLength),

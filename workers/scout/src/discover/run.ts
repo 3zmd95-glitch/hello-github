@@ -45,7 +45,7 @@ export interface RunDeps {
 export async function requestHash(req: DiscoverRequest): Promise<string> {
   const term = req.term && req.term !== matchTerms(req.q).best?.id ? req.term : "";
   const canonical = JSON.stringify({
-    version: 3,
+    version: 4,
     mode: req.mode ?? "keyword",
     q: req.q.trim().toLowerCase().replace(/\s+/g, " "),
     exact: !!req.exact,

@@ -10,7 +10,7 @@
 
 import { PLATFORMS, type Platform } from "../normalize";
 import { hasArabic } from "../trends/normalize";
-import { genreWords, subjectWords } from "./relevance";
+import { genreVisualWords, genreWords, selectedGenre, subjectWords } from "./relevance";
 import { matchTerms, normalizeTerm, TERMS, type EditTerm, type Lang } from "./terms";
 import type { Alternative, DiscoverRequest, Intent, PlannedQuery, SearchPlan } from "./types";
 
@@ -170,8 +170,29 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
     };
   }
 
-  const words = term ? termWords(term, rest, req.program) : unknownWords(rest || topic);
   const subject = genreWords(req);
+  const genreOnly =
+    !term &&
+    subject.length > 0 &&
+    subjectWords(rest || topic).every((word) => subject.includes(word));
+  const genre = selectedGenre(req);
+  const genreEn = genre?.queries.en[0] ?? req.genreQuery?.en ?? topic;
+  const genreAr = genre?.queries.ar[0] ?? req.genreQuery?.ar ?? topic;
+  const words = genreOnly
+    ? {
+        examples: {
+          en: join(genre?.queries.en[1] ?? genreEn, "cinematic video"),
+          ar: join(genreAr, "تصوير سينمائي"),
+        },
+        tutorials: {
+          en: join(genreEn, "video filming editing tutorial"),
+          ar: join("شرح", genreAr, "تصوير ومونتاج"),
+        },
+        name: join(genreEn, "filmmaking"),
+      }
+    : term
+      ? termWords(term, rest, req.program)
+      : unknownWords(rest || topic);
   const topicWords = term
     ? [...term.match.en, ...term.match.ar, term.label.en, term.label.ar]
     : subject.length && !subjectWords(rest).some((w) => !subject.includes(w))
@@ -192,7 +213,7 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
     alternatives: [...others.map(termAlternative), { exact: true }],
     topicWords: [...new Set(topicWords.map(normalizeTerm))].filter(Boolean),
     needsEditingWord: term ? !term.specific : false,
-    requiredGroups: subject.length ? [subject] : [],
+    requiredGroups: subject.length ? [subject, ...(genreOnly ? [genreVisualWords(req)] : [])] : [],
     queries: plannedQueries(platforms, words, req),
   };
 }
