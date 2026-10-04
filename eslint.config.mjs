@@ -17,6 +17,8 @@ const eslintConfig = defineConfig([
     // Playwright's output (an interrupted `pnpm e2e` leaves a report with bundled trace-viewer scripts).
     "playwright-report/**",
     "test-results/**",
+    // Wrangler generates bundled dependencies here during local Worker preview/testing.
+    "**/.wrangler/**",
   ]),
 ]);
 

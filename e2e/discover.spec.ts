@@ -152,6 +152,70 @@ async function search(page: Page, q: string) {
   await page.getByTestId("discover-topic").press("Enter");
 }
 
+test("Instagram cards load missing previews and keep a playable fallback when unavailable", async ({
+  page,
+}) => {
+  const posts = ["previewReady", "previewUnavailable"].map((id, n) =>
+    item(40 + n, {
+      platform: "ig",
+      url: `https://www.instagram.com/p/${id}/`,
+      thumb: undefined,
+      title: n === 0 ? "Flash transition preview" : "Unavailable preview",
+    }),
+  );
+  await stubWorker(page, () => ({
+    ...ANSWER,
+    items: posts,
+    creators: [],
+    platforms: { tt: { ok: true }, ig: { ok: true }, yt: { ok: true } },
+  }));
+  await page.route(`${WORKER}/discover/picks*`, (route) =>
+    route.fulfill({
+      headers: CORS,
+      contentType: "application/json",
+      body: JSON.stringify({ picks: [] }),
+    }),
+  );
+  const lookups: string[] = [];
+  await page.route(`${WORKER}/oembed?*`, async (route) => {
+    if (route.request().method() === "OPTIONS")
+      return route.fulfill({ status: 204, headers: CORS });
+    const url = new URL(route.request().url()).searchParams.get("url")!;
+    lookups.push(url);
+    await route.fulfill({
+      headers: CORS,
+      contentType: "application/json",
+      body: JSON.stringify({
+        url,
+        title: "",
+        author: "",
+        thumb: url === posts[0].url ? `${WORKER}/preview.png` : "",
+      }),
+    });
+  });
+  await page.route(`${WORKER}/preview.png`, (route) =>
+    route.fulfill({ contentType: "image/png", body: PNG }),
+  );
+  await connectWorker(page);
+  await search(page, "flash");
+  const cards = page.getByTestId("discover-section-example").getByTestId("result-card");
+  const ready = cards.filter({ hasText: "Flash transition preview" });
+  const missing = cards.filter({ hasText: "Unavailable preview" });
+  await expect(ready.getByTestId("result-thumb")).toHaveAttribute("src", `${WORKER}/preview.png`);
+  await expect(ready.getByTestId("result-thumb")).toBeVisible();
+  await expect
+    .poll(() =>
+      ready.getByTestId("result-thumb").evaluate((img: HTMLImageElement) => img.naturalWidth),
+    )
+    .toBe(1);
+  await expect(missing.getByTestId("result-thumb-placeholder")).toContainText(
+    "المعاينة مو متوفّرة",
+  );
+  await expect(missing.getByTestId("result-play")).toBeVisible();
+  expect(lookups.sort()).toEqual(posts.map((p) => p.url).sort());
+  expect(await fitsViewport(page)).toBe(true);
+});
+
 // The DaVinci skill of e2e/research.spec.ts: "Smart Bins + Keywords" / "الـ Smart Bins والكلمات المفتاحية".
 const SKILL_ID = "smart-bins-keywords";
 

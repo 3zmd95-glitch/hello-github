@@ -7,7 +7,7 @@
  *                           `stats` on a card when its counts are known: TikTok / Instagram from the page
  *                           text, YouTube from one `videos.list` when YOUTUBE_API_KEY is set)
  *   GET  /oembed?url=     → TikTok / YouTube oEmbed passthrough { title, author, thumb, url }, cached 1 day
- *                           (TikTok 6 h: its thumbnail URLs are signed)
+ *                           (TikTok 6 h; Instagram public Open Graph preview 1 h, unavailable 5 min)
  *   POST /discover        → Discover v2: one sectioned search (discover/, planning/tools/13-discover-search-v2.md)
  *   GET  /discover/usage  → Tavily's usage and today's YouTube / connector counters
  *   GET  /discover/picks  → Claude's picks for Discover, all or `?topic=` (saved by the connector's save_picks)
@@ -295,6 +295,21 @@ async function lookupOembed(
   ctx?: ExecutionContext,
   signal?: AbortSignal,
 ): Promise<OembedLookup> {
+  // Load the HTML parser only for Instagram card previews, never for searches or other platforms.
+  const host = (() => {
+    try {
+      return new URL(videoUrl).hostname;
+    } catch {
+      return "";
+    }
+  })();
+  if (["instagram.com", "www.instagram.com", "m.instagram.com"].includes(host)) {
+    const { instagramPostUrl, lookupInstagramPreview } = await import("./instagramPreview");
+    const post = instagramPostUrl(videoUrl);
+    return post
+      ? lookupInstagramPreview(post, doFetch, cache, ctx)
+      : { ok: false, error: "bad_request" };
+  }
   const endpoint = oembedEndpoint(videoUrl);
   if (!endpoint) return { ok: false, error: "bad_request" };
 
@@ -407,7 +422,7 @@ async function oembedThumb(
  * parallel, each capped at `timeoutMs`; failures are ignored). The same reply's title (the caption)
  * replaces a card title that is generic ("TikTok - Make Your Day") or just the handle. YouTube results already carry the
  * `i.ytimg.com` thumbnail from `normalizeHits`. Instagram's oEmbed returns no thumbnail (Meta removed it on
- * 2025-11-03; planning/tools/12-watch-in-dashboard.md), so Instagram cards stay without one. Mutates
+ * 2025-11-03); cards request public Instagram previews separately through /oembed. Mutates
  * `results` in place.
  */
 export async function enrichThumbs(

@@ -1266,7 +1266,7 @@ test("▶ Watch here: a post card's poster is a ▶ that opens the player, and I
   await expect(poster).toHaveAttribute("data-poster", "ig");
   await expect(poster).toContainText("@cutsbyfaisal");
   await expect(poster).toContainText("Match cut reel");
-  await expect(poster).toContainText("انستقرام ما يعطي صورة معاينة. اضغط وتفرّج.");
+  await expect(poster).toContainText("المعاينة مو متوفّرة. اضغط وتفرّج.");
   // A thumb-less TikTok (no picture on oEmbed either) keeps its glyph tile under the ▶.
   const bare = card(page, "tt").filter({ hasText: "ماتش كت بالجوال" });
   await expect(bare.getByTestId("result-thumb-placeholder")).not.toHaveAttribute("data-poster");

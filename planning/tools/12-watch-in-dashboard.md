@@ -5,6 +5,11 @@ show thumbnail plus i want to watch the video in my dashboard". Built on the res
 
 ## What it does
 
+**October 4 update:** The owner's renewed request for Instagram thumbnails supersedes the earlier
+placeholder-only decision below. Missing and expired pictures now request a bounded public Open Graph
+preview through Scout; private, blocked, and unavailable posts keep the poster. This is best-effort public
+page metadata, not a supported Meta thumbnail API. See `14-instagram-previews.md` for scope and validation.
+
 1. Every card that is one post of YouTube, TikTok or Instagram has a **▶** : the picture of a full card (Discover, the skill
    Research panel, the "Most viewed this week" row), and a small ▶ button on a saved reference in the skill sheet.
 2. ▶ opens **one player sheet** over the page (from the bottom on the phone, centred on desktop) with the platform's own

@@ -15,5 +15,5 @@
   "player.igTwoTaps": "Instagram needs a second tap on the play button inside the frame.",
   "player.ttConsent": "If TikTok asks about cookies, answer it and the video will play.",
   "player.privacy": "The video plays in {platform}'s own player, which knows that you watched.",
-  "player.igNoPreview": "Instagram gives no preview image. Tap to watch."
+  "player.igNoPreview": "Preview unavailable. Tap to watch."
 }
