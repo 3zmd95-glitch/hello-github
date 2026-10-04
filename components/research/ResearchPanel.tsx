@@ -252,6 +252,7 @@ export default function ResearchPanel({
    * on, or off when it's the active chip (null = off). A genre alone never lands in the recent topics.
    */
   const pickGenre = (id: string | null) => {
+    setSubmittedMode(searchMode);
     if (draft !== null) commit(draft.trim());
     setGenreId(id === genreId ? null : id);
     setAttempt((a) => a + 1);

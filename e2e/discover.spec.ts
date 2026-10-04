@@ -212,7 +212,7 @@ test("AI unavailable and daily limit are honest, with a working keyword recovery
   page,
 }) => {
   let limited = false;
-  await stubWorker(page, (body) =>
+  const asked = await stubWorker(page, (body) =>
     body.mode === "ai" ? { error: limited ? "ai_limit" : "ai_unavailable" } : ANSWER,
   );
   await connectWorker(page);
@@ -228,6 +228,11 @@ test("AI unavailable and daily limit are honest, with a working keyword recovery
   await page.getByTestId("discover-mode-keyword").click();
   await page.getByTestId("research-search").click();
   await expect(page.getByTestId("discover-sections")).toBeVisible();
+  await page.getByTestId("discover-mode-ai").click();
+  await page.getByTestId("genre-cars").click();
+  await expect
+    .poll(() => asked.at(-1))
+    .toMatchObject({ mode: "ai", genreQuery: { en: "car edit" } });
 });
 
 test("Instagram cards load missing previews and keep a playable fallback when unavailable", async ({
