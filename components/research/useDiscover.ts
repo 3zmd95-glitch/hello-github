@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import {
+  discoverPicks,
   discoverRequestKey,
   discoverSearch,
   discoverUsage,
   type DiscoverAnswer,
   type DiscoverRequest,
   type DiscoverUsage,
+  type PicksTopic,
 } from "@/lib/discover";
 import { scoutHealth, type ScoutConfig, type ScoutError } from "@/lib/scoutClient";
 import { LOADING, OFF, useScoutConfig, type Tagged } from "./useScout";
@@ -149,4 +151,23 @@ export function useDiscoverUsage(
     };
   }, [config, refresh]);
   return config ? usage : null;
+}
+
+/**
+ * Claude's picks from the Worker (a KV read, no search credits), asked again whenever `refresh` changes (each
+ * search, each Discover visit); null asks nothing. A failed read shows nothing: the last picks stay.
+ */
+export function useDiscoverPicks(config: ScoutConfig | null, refresh: number): PicksTopic[] {
+  const [picks, setPicks] = useState<PicksTopic[]>([]);
+  useEffect(() => {
+    if (!config) return;
+    let alive = true;
+    void discoverPicks(config).then((r) => {
+      if (alive && r.ok) setPicks(r.picks);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [config, refresh]);
+  return config ? picks : [];
 }

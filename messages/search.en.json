@@ -27,5 +27,8 @@
   "search.usage": "{used} of {limit} free lookups this month",
   "search.usageYt": "YouTube {used}/{cap} today",
   "search.cached": "From memory, cost nothing",
-  "search.searching": "Searching TikTok, Instagram and YouTube in Arabic and English…"
+  "search.searching": "Searching TikTok, Instagram and YouTube in Arabic and English…",
+  "search.picks": "⭐ Claude's picks",
+  "search.picksLatest": "⭐ Latest from Claude",
+  "search.picksTopic": "for “{topic}”"
 }

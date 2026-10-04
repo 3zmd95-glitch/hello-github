@@ -27,5 +27,8 @@
   "search.usage": "{used} من {limit} بحث مجاني هالشهر",
   "search.usageYt": "يوتيوب {used}/{cap} اليوم",
   "search.cached": "من الذاكرة، ما كلّف شي",
-  "search.searching": "أدوّر في تيك توك وانستقرام ويوتيوب بالعربي والإنجليزي…"
+  "search.searching": "أدوّر في تيك توك وانستقرام ويوتيوب بالعربي والإنجليزي…",
+  "search.picks": "⭐ اختيارات Claude",
+  "search.picksLatest": "⭐ آخر اختيارات Claude",
+  "search.picksTopic": "عن «{topic}»"
 }

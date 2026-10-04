@@ -12,9 +12,11 @@ import {
   type DiscoverPlatform,
   type DiscoverPlatformStatus,
   type DiscoverSection,
+  type PicksTopic,
 } from "@/lib/discover";
 import { useT, type MessageKey } from "@/lib/i18n";
 import type { ResearchItem, ResearchTab, SortMode } from "@/lib/research";
+import PicksSection from "./PicksSection";
 import ResultCard, { PLATFORM_META } from "./ResultCard";
 
 const SHOW = 6;
@@ -32,8 +34,9 @@ const toItem = (i: DiscoverItem): ResearchItem => ({
 
 /**
  * Discover v2 (round 33, planning/tools/13-discover-search-v2.md): how the search was understood (and the other
- * meanings), one line per platform that failed, the Popular now strip, Examples, Tutorials and Creators (each
- * section 6 cards, then "Show more"), and the off-topic cards behind a count. The platform tab filters every part.
+ * meanings), ⭐ Claude's picks for the topic when the connector saved some, one line per platform that failed, the
+ * Popular now strip, Examples, Tutorials and Creators (each section 6 cards, then "Show more"), and the off-topic
+ * cards behind a count. The platform tab filters every part but Claude's picks.
  */
 export default function DiscoverSections({
   answer,
@@ -45,6 +48,7 @@ export default function DiscoverSections({
   renderAction,
   onAlternative,
   onRetry,
+  picks,
 }: {
   answer: DiscoverAnswer;
   q: string;
@@ -55,6 +59,8 @@ export default function DiscoverSections({
   renderAction: (item: ResearchItem) => ReactNode;
   onAlternative: (alt: DiscoverAlternative) => void;
   onRetry: () => void;
+  /** Claude's picks saved for this answer's topic. */
+  picks?: PicksTopic;
 }) {
   const { t, L } = useT();
   const ids = useId();
@@ -160,6 +166,10 @@ export default function DiscoverSections({
           </span>
         )}
       </div>
+
+      {picks && (
+        <PicksSection topic={picks} headingLevel={headingLevel} renderAction={renderAction} />
+      )}
 
       {quota && (
         <div

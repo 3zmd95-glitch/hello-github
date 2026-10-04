@@ -13,7 +13,9 @@ import {
   discoverUsage,
   hiddenCount,
   parseDiscoverAnswer,
+  parsePicks,
   peekDiscover,
+  picksFor,
   popularItems,
   sectionItems,
   tabCounts,
@@ -430,5 +432,73 @@ describe("views over an answer", () => {
   it("lists creators of the tab", () => {
     expect(creatorsOn(a, "tt")).toHaveLength(1);
     expect(creatorsOn(a, "yt")).toHaveLength(0);
+  });
+});
+
+describe("picks", () => {
+  it("parses the Worker's picks and finds a topic's", () => {
+    const picks = parsePicks({
+      picks: [
+        {
+          topicKey: "flash-transition",
+          topic: "flash",
+          savedAt: "2026-10-03T09:00:00Z",
+          items: [
+            {
+              url: "https://www.tiktok.com/@ed/video/1",
+              platform: "tt",
+              title: "clean flash",
+              label: "example",
+              note: "0:03",
+              savedAt: "x",
+            },
+            { url: 5, platform: "tt", title: "broken", label: "example", savedAt: "x" },
+          ],
+        },
+        { nope: true },
+      ],
+    });
+    expect(picks).toHaveLength(1);
+    expect(picks[0].items).toHaveLength(1);
+    expect(picksFor(picks, "flash-transition")?.topic).toBe("flash");
+    expect(picksFor(picks, "speed-ramp")).toBeUndefined();
+  });
+
+  it("keeps only https posts, and a picture only when it is https (Claude picked them off the web)", () => {
+    const yt = { platform: "yt", title: "flash tutorial", label: "tutorial", savedAt: "x" };
+    const picks = parsePicks({
+      picks: [
+        {
+          topicKey: "flash-transition",
+          topic: "flash",
+          savedAt: "x",
+          items: [
+            {
+              ...yt,
+              url: "https://www.youtube.com/watch?v=a",
+              thumb: "https://i.ytimg.com/vi/a/hqdefault.jpg",
+            },
+            {
+              ...yt,
+              url: "https://www.youtube.com/watch?v=b",
+              thumb: "http://i.ytimg.com/vi/b/hqdefault.jpg",
+            },
+            { ...yt, url: "http://www.youtube.com/watch?v=c" },
+          ],
+        },
+        // Its only post is not a link to open: the topic goes with it.
+        {
+          topicKey: "zoom",
+          topic: "zoom",
+          savedAt: "x",
+          items: [{ ...yt, url: "javascript:alert(1)" }],
+        },
+      ],
+    });
+    expect(picks.map((t) => t.topicKey)).toEqual(["flash-transition"]);
+    expect(picks[0].items.map((p) => [p.url, p.thumb])).toEqual([
+      ["https://www.youtube.com/watch?v=a", "https://i.ytimg.com/vi/a/hqdefault.jpg"],
+      ["https://www.youtube.com/watch?v=b", undefined],
+    ]);
   });
 });

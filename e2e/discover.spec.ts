@@ -9,6 +9,18 @@ const CORS = {
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
 };
 
+// The YouTube pick's picture (the Worker sets i.ytimg.com ones), served as a 1x1 PNG so nothing leaves the machine.
+const PICK_THUMB = "https://i.ytimg.com/vi/fl4shPick01/hqdefault.jpg";
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
+
+// The page does not scroll sideways: measured against the page's own width, not `innerWidth`, which on the
+// phone (mobile emulation) grows to fit whatever overflows.
+const fitsViewport = (page: Page) =>
+  page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+
 const item = (n: number, over: Record<string, unknown>) => ({
   platform: "tt",
   handle: "@ed",
@@ -85,6 +97,35 @@ async function stubWorker(page: Page, discover: (body: Record<string, unknown>) 
         tavily: { used: 412, limit: 1000 },
         youtube: { usedToday: 9, cap: 70 },
         connector: { usedToday: 0, cap: 60 },
+      });
+    }
+    if (url.pathname === "/discover/picks") {
+      return reply({
+        picks: [
+          {
+            topicKey: "flash-transition",
+            topic: "flash",
+            savedAt: "2026-10-03T09:00:00Z",
+            items: [
+              {
+                url: "https://www.tiktok.com/@ed/video/99",
+                platform: "tt",
+                title: "the cleanest flash",
+                label: "example",
+                note: "watch 0:03",
+                savedAt: "x",
+              },
+              {
+                url: "https://www.youtube.com/watch?v=fl4shPick01",
+                platform: "yt",
+                title: "flash transition in DaVinci",
+                thumb: PICK_THUMB,
+                label: "tutorial",
+                savedAt: "x",
+              },
+            ],
+          },
+        ],
       });
     }
     return reply({ error: "not_found" }, 404);
@@ -215,4 +256,58 @@ test("Discover v2 in a skill's Research panel: one search, and a card attaches t
   await result.getByTestId("result-attach").click();
   await expect(result.getByTestId("result-attach")).toHaveAttribute("aria-pressed", "false");
   await expect(saved).toHaveCount(0);
+});
+
+test("Discover v2: Claude's picks show on the topic and on an empty Discover", async ({ page }) => {
+  // "Not this?" answers another meaning: another topic, without picks of its own.
+  await stubWorker(page, (body) => (body.term ? { ...ANSWER, topicKey: body.term } : ANSWER));
+  // Registered last, so it answers before the stub's block of the platforms' hosts.
+  await page.route("https://i.ytimg.com/**", (r) =>
+    r.fulfill({ status: 200, contentType: "image/png", body: PNG }),
+  );
+  const picksAsked: string[] = [];
+  page.on("request", (r) => {
+    if (r.method() === "GET" && r.url().startsWith(`${WORKER}/discover/picks`))
+      picksAsked.push(r.url());
+  });
+  await connectWorker(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/discover/");
+
+  // Nothing typed: the newest topics' picks, each saying its topic, asked once on opening.
+  const latest = page.getByTestId("discover-picks-latest");
+  await expect(latest).toBeVisible();
+  await expect(latest.getByTestId("discover-picks")).toHaveAttribute(
+    "data-topic",
+    "flash-transition",
+  );
+  // The topic line is part of the section's name (the empty Discover can list three topics).
+  await expect(
+    latest.getByRole("region", { name: "⭐ اختيارات Claude عن «flash»", exact: true }),
+  ).toBeVisible();
+  // The YouTube pick shows its picture; the row scrolls sideways, the 375 px page never does.
+  await expect(
+    latest.locator('[data-testid="result-card"][data-platform="yt"]').getByTestId("result-thumb"),
+  ).toHaveAttribute("src", PICK_THUMB);
+  const row = latest.getByTestId("discover-picks").locator("ul");
+  expect(await row.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  expect(await fitsViewport(page)).toBe(true);
+  expect(picksAsked).toHaveLength(1);
+
+  await page.getByTestId("discover-topic").fill("flash");
+  await page.getByTestId("discover-topic").press("Enter");
+  await expect(page.getByTestId("discover-sections").getByTestId("discover-picks")).toHaveAttribute(
+    "data-topic",
+    "flash-transition",
+  );
+  await expect(page.getByTestId("discover-pick-note")).toContainText("watch 0:03");
+  await expect(latest).toHaveCount(0);
+  expect(await fitsViewport(page)).toBe(true);
+  // Asked again with the search (a KV read, no credits).
+  await expect.poll(() => picksAsked.length).toBe(2);
+
+  // Another meaning of the word: its own topic, so the flash transition's picks are not shown.
+  await page.getByTestId("discover-alt-camera-flash").click();
+  await expect(page.getByTestId("discover-sections")).toHaveAttribute("data-topic", "camera-flash");
+  await expect(page.getByTestId("discover-picks")).toHaveCount(0);
 });

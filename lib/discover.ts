@@ -521,3 +521,76 @@ export async function discoverUsage(
   }
   return { ok: true, usage: d };
 }
+
+/* ---------- Claude's picks ---------- */
+
+/** One post the connector's `save_picks` stored. MIRRORS `Pick` in workers/scout/src/discover/picks.ts. */
+export interface ClaudePick {
+  url: string;
+  platform: DiscoverPlatform;
+  title: string;
+  handle?: string;
+  /** YouTube only (an i.ytimg.com picture); a TikTok card asks /oembed itself, Instagram has none. */
+  thumb?: string;
+  label: DiscoverSection;
+  note?: string;
+  savedAt: string;
+}
+
+export interface PicksTopic {
+  topicKey: string;
+  topic: string;
+  savedAt: string;
+  items: ClaudePick[];
+}
+
+const isHttps = (x: unknown): x is string => isStr(x) && x.startsWith("https://");
+
+/** Claude chose these after reading web pages: only https links and pictures get onto a card. */
+function parsePick(x: unknown): ClaudePick | null {
+  if (!isObj(x) || !PLATFORM_SET.has(x.platform as string) || !isHttps(x.url) || !isStr(x.title))
+    return null;
+  return {
+    url: x.url,
+    platform: x.platform as DiscoverPlatform,
+    title: x.title,
+    label: x.label === "tutorial" ? "tutorial" : "example",
+    savedAt: isStr(x.savedAt) ? x.savedAt : "",
+    ...(isStr(x.handle) ? { handle: x.handle } : {}),
+    ...(isHttps(x.thumb) ? { thumb: x.thumb } : {}),
+    ...(isStr(x.note) ? { note: x.note } : {}),
+  };
+}
+
+/** The Worker's `{ picks }`, newest topic first; a broken pick is dropped, and a topic left without any. */
+export function parsePicks(raw: unknown): PicksTopic[] {
+  if (!isObj(raw) || !Array.isArray(raw.picks)) return [];
+  return raw.picks.flatMap((t) => {
+    if (!isObj(t) || !isStr(t.topicKey) || !isStr(t.topic) || !Array.isArray(t.items)) return [];
+    const items = t.items.map(parsePick).filter((p): p is ClaudePick => !!p);
+    return items.length
+      ? [
+          {
+            topicKey: t.topicKey,
+            topic: t.topic,
+            savedAt: isStr(t.savedAt) ? t.savedAt : "",
+            items,
+          },
+        ]
+      : [];
+  });
+}
+
+/** `GET /discover/picks`: a KV read on the Worker, no search credits. */
+export async function discoverPicks(
+  config: ScoutConfig,
+  opts: ScoutSearchOpts = {},
+): Promise<{ ok: true; picks: PicksTopic[] } | { ok: false; error: ScoutError }> {
+  const r = await scoutCall(config, "/discover/picks", {}, opts);
+  return r.ok ? { ok: true, picks: parsePicks(r.data) } : r;
+}
+
+/** A topic's picks: the one saved under the answer's `topicKey` (one meaning of a word, not its spelling). */
+export function picksFor(picks: readonly PicksTopic[], topicKey: string): PicksTopic | undefined {
+  return picks.find((t) => t.topicKey === topicKey);
+}

@@ -15,6 +15,7 @@ import { pullTrends } from "@/components/social/trends/useTrends";
 import { getProgram, getSkill, programs } from "@/data";
 import {
   discoverRequestFrom,
+  picksFor,
   tabCounts,
   type DiscoverAlternative,
   type DiscoverPick,
@@ -61,9 +62,10 @@ import { trendsStale } from "@/lib/trends";
 import { getApiKey, useStore } from "@/store";
 import DiscoverSections from "./DiscoverSections";
 import PasteLinkForm from "./PasteLinkForm";
+import PicksSection from "./PicksSection";
 import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
 import SkillPicker from "./SkillPicker";
-import { useDiscoverQuery, useDiscoverUsage, useScoutCaps } from "./useDiscover";
+import { useDiscoverPicks, useDiscoverQuery, useDiscoverUsage, useScoutCaps } from "./useDiscover";
 import {
   groupErrors,
   scoutParams,
@@ -326,6 +328,8 @@ export default function ResearchPanel({
     [v2, savedOnly, base, genre, hintOn, hint, recency, length, picked, pickOn],
   );
   const disc = useDiscoverQuery(discoverReq, attempt, forceAt === attempt);
+  // Claude's picks (free: a KV read), asked when v2 opens and again at each search attempt.
+  const picks = useDiscoverPicks(v2 ? scoutCfg : null, attempt);
   // The tab badges count the posts shown; a tab is empty only with none at all (hidden ones included).
   const discShown = disc.status === "ok" ? tabCounts(disc.answer, false) : undefined;
   const discAll = disc.status === "ok" ? tabCounts(disc.answer, true) : undefined;
@@ -1028,6 +1032,20 @@ export default function ResearchPanel({
             {t("research.startTyping")}
           </p>
         )}
+        {v2 && !skill && !q && !savedOnly && picks.length > 0 && (
+          <div className="flex flex-col gap-3" data-testid="discover-picks-latest">
+            <p className="text-sm font-bold">{t("search.picksLatest")}</p>
+            {picks.slice(0, 3).map((saved) => (
+              <PicksSection
+                key={saved.topicKey}
+                topic={saved}
+                headingLevel="h2"
+                renderAction={renderAction}
+                showTopic
+              />
+            ))}
+          </div>
+        )}
         {scoutHint && <Hint testId="scout-not-configured">{t("research.scoutNotConfigured")}</Hint>}
         {ytHint && (!!q || !!skill) && <Hint testId="yt-no-key">{t("research.enableYt")}</Hint>}
         {!v2 &&
@@ -1109,6 +1127,7 @@ export default function ResearchPanel({
             renderAction={renderAction}
             onAlternative={onAlternative}
             onRetry={onRetry}
+            picks={picksFor(picks, disc.answer.topicKey)}
           />
         )}
 
