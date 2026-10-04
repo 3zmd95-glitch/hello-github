@@ -43,17 +43,65 @@ describe("message building", () => {
     expect(textBody("هلا", [])).toBe("هلا");
   });
 
-  it("sends text without buttons and a button template with them", () => {
+  it("sends text without buttons and a generic link card with them", () => {
     expect(messagePayload(" هلا ", [])).toEqual({ text: "هلا" });
     expect(messagePayload("هلا", [{ title: "أ", url: LUT }])).toEqual({
       attachment: {
         type: "template",
         payload: {
-          template_type: "button",
-          text: "هلا",
-          buttons: [{ type: "web_url", url: LUT, title: "أ" }],
+          template_type: "generic",
+          elements: [
+            {
+              title: "هلا",
+              default_action: { type: "web_url", url: LUT },
+              buttons: [{ type: "web_url", url: LUT, title: "أ" }],
+            },
+          ],
         },
       },
+    });
+  });
+
+  it("keeps tracked links in the card action and every button", () => {
+    const buttons = messageButtons({ ...rule, followButton: true }, ORIGIN, "3z.prod");
+    expect(messagePayload(rule.dmText, buttons)).toMatchObject({
+      attachment: {
+        payload: {
+          elements: [
+            {
+              default_action: { type: "web_url", url: `${ORIGIN}/go/lut/0` },
+              buttons: [
+                { type: "web_url", title: "تحميل اللت", url: `${ORIGIN}/go/lut/0` },
+                { type: "web_url", title: "تابعني", url: "https://www.instagram.com/3z.prod/" },
+              ],
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it("uses a card through 80 UTF-16 units, then preserves the whole text and all links", () => {
+    const buttons = [{ title: "تحميل اللت", url: `${ORIGIN}/go/lut/0` }];
+    const eighty = "ل".repeat(80);
+    expect(messagePayload(` ${eighty} `, buttons)).toMatchObject({
+      attachment: { payload: { elements: [{ title: eighty }] } },
+    });
+    for (const text of ["ل".repeat(81), "x".repeat(640), "🎬".repeat(41)]) {
+      expect(messagePayload(text, buttons)).toEqual({
+        text: `${text}\n\nتحميل اللت: ${ORIGIN}/go/lut/0`,
+      });
+    }
+    expect(messagePayload("🎬".repeat(40), buttons)).toHaveProperty("attachment");
+    const text = "first line\n" + "second line ".repeat(8);
+    expect(messagePayload(text, [...buttons, { title: "تابعني", url: LUT }])).toEqual({
+      text: `${text.trim()}\n\nتحميل اللت: ${ORIGIN}/go/lut/0\nتابعني: ${LUT}`,
+    });
+  });
+
+  it("keeps links as text instead of constructing a card with a blank title", () => {
+    expect(messagePayload(" \n ", [{ title: "تحميل اللت", url: LUT }])).toEqual({
+      text: `تحميل اللت: ${LUT}`,
     });
   });
 
@@ -73,7 +121,7 @@ describe("dmFits", () => {
     expect(dmFits({ id: "x", dmText: ar(501), buttons: [] }, ORIGIN)).toBe(false);
   });
 
-  it("counts the link lines and «تابعني» with the longest username, and caps a template's text at 640", () => {
+  it("counts the link lines and «تابعني» with the longest username, and retains the saved-rule limit of 640", () => {
     const withButton = { ...rule, dmText: "x".repeat(640) };
     expect(dmFits(withButton, ORIGIN)).toBe(true);
     expect(dmFits({ ...withButton, dmText: "x".repeat(641) }, ORIGIN)).toBe(false);

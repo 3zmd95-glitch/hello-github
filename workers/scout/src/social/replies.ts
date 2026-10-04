@@ -22,8 +22,8 @@
  *        the "private reply": one message per comment, within 7 days of the comment. Sent FIRST: the
  *        public reply says "sent it to you privately", so it only goes out once the DM did.
  *   POST /{comment-id}/replies            message=…               the public reply under the comment
- *   The DM's buttons go out as a button template through GET /go/:id/:n, which counts the click and redirects;
- *   when Instagram refuses the template in a private reply, once more as plain text with "title: link" lines.
+ *   Short DMs with links go out as a generic card through GET /go/:id/:n, which counts the click and redirects;
+ *   longer DMs keep the full text and "title: link" lines. A refused private-reply card falls back once to those lines.
  *
  * Storage is split by writer, so no request path ever overwrites another's data (KV is last-write-wins):
  *   replies:doc     AutomationsDoc  what the owner configured (rules, pause, default reply); written only by
