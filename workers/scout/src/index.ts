@@ -3,7 +3,14 @@ import type {
   OAuthProvider,
   OAuthProviderOptions,
 } from "@cloudflare/workers-oauth-provider";
-import { authorize, CLAUDE_CALLBACKS, CLIENT_NAME, isOAuthPath, register } from "./discover/auth";
+import {
+  authorize,
+  CLAUDE_CALLBACKS,
+  CLIENT_NAME,
+  isOAuthPath,
+  register,
+  type CreatedClient,
+} from "./discover/auth";
 import { handle, type Env } from "./scout";
 import { runTick, TICK_CRON } from "./social/cron";
 import { runScheduled } from "./social/sync";
@@ -27,6 +34,8 @@ type WorkerEnv = Env & {
 
 /** The OAUTH_KV key holding the id of the one client every registration gets. */
 const CLIENT_KEY = "mcp:claude-client";
+/** The client this isolate created and when: answered while KV still caches the miss (`register`). */
+let created: CreatedClient | undefined;
 
 const options = (env: WorkerEnv): OAuthProviderOptions<WorkerEnv> => ({
   apiRoute: "/mcp",
@@ -68,6 +77,13 @@ export default {
             grantTypes: ["authorization_code", "refresh_token"],
             responseTypes: ["code"],
           }),
+        now: Date.now,
+        memo: {
+          get: () => created,
+          set: (c) => {
+            created = c;
+          },
+        },
       });
     }
     provider ??= new OAuthProvider<WorkerEnv>(options(env));

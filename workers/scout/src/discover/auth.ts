@@ -125,7 +125,13 @@ export interface SharedClient {
   registrationDate?: number;
 }
 
-/** index.ts wires these to OAUTH_KV and the provider's `lookupClient` / `createClient`. */
+/** The client this isolate created and when (ms), kept in module scope by index.ts. */
+export interface CreatedClient {
+  client: SharedClient;
+  at: number;
+}
+
+/** index.ts wires these to OAUTH_KV, the provider's `lookupClient` / `createClient`, the clock and its memo. */
 export interface RegisterDeps {
   /** The shared client's id, kept under one fixed OAUTH_KV key. */
   read(): Promise<string | null>;
@@ -133,7 +139,14 @@ export interface RegisterDeps {
   lookup(clientId: string): Promise<SharedClient | null>;
   /** A public client (token auth "none") for exactly CLAUDE_CALLBACKS. */
   create(): Promise<SharedClient>;
+  now(): number;
+  memo: { get(): CreatedClient | undefined; set(created: CreatedClient): void };
 }
+
+/** Claude's registration is a few hundred bytes (the provider's own handler allowed 1 MiB). */
+export const MAX_REGISTRATION_BYTES = 16 * 1024;
+/** KV caches a miss for about 60 s, so a client this isolate just created may not be readable yet. */
+export const CREATED_MEMO_MS = 60_000;
 
 const json = (body: unknown, status: number) =>
   new Response(JSON.stringify(body), {
@@ -141,15 +154,45 @@ const json = (body: unknown, status: number) =>
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 
+/** The body as text, or undefined once it passes `max` bytes, whatever Content-Length says. */
+async function readCapped(req: Request, max: number): Promise<string | undefined> {
+  const reader = req.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let text = "";
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return text + decoder.decode();
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      return undefined;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+}
+
 /**
  * Dynamic client registration without a write per call: anyone may POST /register, and the Free plan's 1,000 KV
  * writes a day are shared with the auto-post queue and the social sync. A registration naming only Claude's
  * callbacks gets the one shared public client (RFC 7591 §3.2.1 allows a client id for many instances), created once
- * and then only read; anything else is refused before any read or write. A confidential method asked for still gets
- * the public client (a server may override requested metadata).
+ * and then only read; anything else is refused before any read or write, and a body over 16 KiB before it is read
+ * whole (413). A confidential method asked for still gets the public client (a server may override requested
+ * metadata). While KV still caches the miss right after a creation, this isolate answers the client it created
+ * (for 60 s) instead of creating another.
  */
 export async function register(req: Request, deps: RegisterDeps): Promise<Response> {
-  const body = (await req.json().catch(() => null)) as { redirect_uris?: unknown } | null;
+  const tooBig = json({ error: "invalid_client_metadata" }, 413);
+  if (Number(req.headers.get("Content-Length") ?? 0) > MAX_REGISTRATION_BYTES) return tooBig;
+  const text = await readCapped(req, MAX_REGISTRATION_BYTES);
+  if (text === undefined) return tooBig;
+  let body: { redirect_uris?: unknown } | null = null;
+  try {
+    body = JSON.parse(text) as { redirect_uris?: unknown } | null;
+  } catch {
+    // not JSON: refused below
+  }
   const uris = body?.redirect_uris;
   const claudeOnly =
     Array.isArray(uris) &&
@@ -158,8 +201,11 @@ export async function register(req: Request, deps: RegisterDeps): Promise<Respon
   if (!claudeOnly) return json({ error: "invalid_redirect_uri" }, 400);
   const stored = await deps.read();
   let client = stored ? await deps.lookup(stored) : null;
+  const created = deps.memo.get();
+  if (!client && created && deps.now() - created.at < CREATED_MEMO_MS) client = created.client;
   if (!client) {
     client = await deps.create();
+    deps.memo.set({ client, at: deps.now() });
     await deps.write(client.clientId);
   }
   return json(

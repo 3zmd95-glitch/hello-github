@@ -7,6 +7,7 @@ import {
   register,
   type AuthHelpers,
   type RegisterDeps,
+  type SharedClient,
 } from "./auth";
 
 const URL_ = "https://3z-scout.example.workers.dev/authorize?client_id=c&redirect_uri=x&state=s";
@@ -170,29 +171,42 @@ const registration = (body: unknown) =>
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 
-/** The fixed OAUTH_KV key and the provider's client records, in memory, behind the four injected calls. */
-function registry() {
+/**
+ * The fixed OAUTH_KV key and the provider's client records, in memory, behind the injected calls, with a clock and
+ * the isolate's memo. `blind: true` is a PoP whose KV still caches the miss: nothing written is seen yet.
+ */
+function registry({ blind = false } = {}) {
   const clients = new Map<string, { clientId: string; registrationDate: number }>();
   let stored: string | null = null;
   let n = 0;
+  let memo: { client: SharedClient; at: number } | undefined;
+  const clock = { now: 1_790_000_000_000 };
   const deps = {
-    read: vi.fn(async () => stored),
+    read: vi.fn(async () => (blind ? null : stored)),
     write: vi.fn(async (id: string) => {
       stored = id;
     }),
-    lookup: vi.fn(async (id: string) => clients.get(id) ?? null),
+    lookup: vi.fn(async (id: string) => (blind ? null : (clients.get(id) ?? null))),
     create: vi.fn(async () => {
       const client = { clientId: `client-${++n}`, registrationDate: 1_790_000_000 };
       clients.set(client.clientId, client);
       return client;
     }),
+    now: () => clock.now,
+    memo: {
+      get: () => memo,
+      set: (m: { client: SharedClient; at: number }) => {
+        memo = m;
+      },
+    },
   } satisfies RegisterDeps;
-  return { clients, deps };
+  const kvCalls = () => [deps.read, deps.write, deps.lookup, deps.create];
+  return { clients, deps, clock, kvCalls };
 }
 
 describe("register", () => {
   it("refuses anything but Claude's callbacks, touching nothing", async () => {
-    const { deps } = registry();
+    const { deps, kvCalls } = registry();
     for (const body of [
       { redirect_uris: ["https://evil.example/cb"] },
       { redirect_uris: [CLAUDE, "https://evil.example/cb"] },
@@ -204,7 +218,57 @@ describe("register", () => {
       expect(res.status, JSON.stringify(body)).toBe(400);
       expect(await res.json()).toEqual({ error: "invalid_redirect_uri" });
     }
-    for (const call of Object.values(deps)) expect(call).not.toHaveBeenCalled();
+    for (const call of kvCalls()) expect(call).not.toHaveBeenCalled();
+  });
+
+  it("refuses a declared body over 16 KiB with 413 before reading it or KV", async () => {
+    const { deps, kvCalls } = registry();
+    const res = await register(
+      new Request("https://3z-scout.example.workers.dev/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Content-Length": String(16 * 1024 + 1) },
+        body: JSON.stringify({ redirect_uris: [CLAUDE] }),
+      }),
+      deps,
+    );
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: "invalid_client_metadata" });
+    for (const call of kvCalls()) expect(call).not.toHaveBeenCalled();
+  });
+
+  it("stops reading a body past 16 KiB when Content-Length is missing or false", async () => {
+    const { deps, kvCalls } = registry();
+    const big = JSON.stringify({ redirect_uris: [CLAUDE], pad: "x".repeat(16 * 1024) });
+    for (const headers of [{}, { "Content-Length": "10" }] as Record<string, string>[]) {
+      const res = await register(
+        new Request("https://3z-scout.example.workers.dev/register", {
+          method: "POST",
+          headers,
+          body: big,
+        }),
+        deps,
+      );
+      expect(res.status, JSON.stringify(headers)).toBe(413);
+      expect(await res.json()).toEqual({ error: "invalid_client_metadata" });
+    }
+    for (const call of kvCalls()) expect(call).not.toHaveBeenCalled();
+  });
+
+  it("creates one client per isolate while KV still caches the miss (60 s)", async () => {
+    const { deps, clock } = registry({ blind: true });
+    const ids: string[] = [];
+    for (const wait of [0, 30_000, 29_000]) {
+      clock.now += wait;
+      const res = await register(registration({ redirect_uris: [CLAUDE] }), deps);
+      ids.push(((await res.json()) as { client_id: string }).client_id);
+    }
+    expect(ids).toEqual(["client-1", "client-1", "client-1"]);
+    expect(deps.create).toHaveBeenCalledTimes(1);
+    expect(deps.write).toHaveBeenCalledTimes(1);
+    clock.now += 1_001; // 60.001 s after the creation
+    const later = await register(registration({ redirect_uris: [CLAUDE] }), deps);
+    expect(await later.json()).toMatchObject({ client_id: "client-2" });
+    expect(deps.create).toHaveBeenCalledTimes(2);
   });
 
   it("creates the shared public client once; later registrations only read", async () => {
@@ -242,10 +306,11 @@ describe("register", () => {
     expect(deps.write).toHaveBeenCalledTimes(1);
   });
 
-  it("re-creates the client when the stored one is gone", async () => {
-    const { clients, deps } = registry();
+  it("re-creates the client when the stored one is gone (past the isolate's 60 s memo)", async () => {
+    const { clients, deps, clock } = registry();
     await register(registration({ redirect_uris: [CLAUDE] }), deps);
     clients.clear();
+    clock.now += 61_000;
     const res = await register(registration({ redirect_uris: [CLAUDE] }), deps);
     expect(res.status).toBe(201);
     expect(await res.json()).toMatchObject({ client_id: "client-2" });
