@@ -1,6 +1,6 @@
 # 13 · Discover search v2, and the Claude connector (MCP)
 
-**Status:** Part A (in-app search) and Part B (Claude connector) built on branch claude/discover-search-v2; live test next.
+**Status:** PR #26 merged and deployed on October 4, 2026. Ten live searches and cache repeats passed functional checks; CPU use exceeds the documented Free-plan allowance. Claude connector discovery is live; owner sign-in and a research chat remain unverified. See the live results below.
 
 Owner, round 33 (Oct 3, 2026, with screenshots of "flash" finding nothing on Instagram, Beacons' Discover Trends and the
 Obsidian note "Social Media (Categories)"): "plan today the work on discover page in all aspects… browse beacons.ai discover
@@ -320,6 +320,64 @@ authorize form); dashboard unit tests (cache, sections, tabs over sections, Show
 skill Research panel). All inside the usual gates: lint, typecheck, test, build, e2e.
 
 **Live**: the owner adds the connector once and we run one research chat together.
+
+### Live verification — October 4, 2026
+
+PR [#26](https://github.com/3zmd95-glitch/hello-github/pull/26) merged as
+`2212b722756181fce0ac0ab15ac6b577b232ca51`. Both the
+[Scout deployment](https://github.com/3zmd95-glitch/hello-github/actions/runs/37177321263) and
+[Pages deployment](https://github.com/3zmd95-glitch/hello-github/actions/runs/37177321268) succeeded.
+The Worker deployment created its OAUTH_KV namespace and ran all 486 Worker tests successfully.
+PR CI had passed all gates. The post-merge CI check job passed; its E2E job was cancelled when a subsequent
+main-branch merge superseded the run, not because a test failed. The subsequent
+[main CI run](https://github.com/3zmd95-glitch/hello-github/actions/runs/37177402354) then passed both its check
+and E2E jobs.
+
+Measured through the existing localhost Discover UI against the production Scout Worker, approximately
+07:34–07:39 Riyadh time. Default time range, no program or genre restriction, all platforms. Counts below are
+the UI's on-topic counts, not an independent human judgement of relevance. Hidden counts are across all
+platforms. Request durations and CPU times come from the ten chronological POST /discover invocation logs
+in Cloudflare Observability. Repeat timings include browser automation overhead.
+
+| Topic | Shown | YouTube | TikTok | Instagram | Hidden | Worker wall time | CPU | Cached repeat |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| flash | 99 | 41 | 26 | 32 | 22 | 7,545 ms | 24 ms | 97 ms |
+| matchcut | 90 | 38 | 21 | 31 | 19 | 6,887 ms | 24 ms | 94 ms |
+| speed ramp | 106 | 47 | 30 | 29 | 16 | 7,312 ms | 16 ms | 117 ms |
+| color grading | 99 | 51 | 33 | 15 | 27 | 7,288 ms | 17 ms | 72 ms |
+| velocity edit | 79 | 40 | 26 | 13 | 24 | 5,713 ms | 14 ms | 80 ms |
+| mask transition | 82 | 34 | 19 | 29 | 40 | 6,479 ms | 19 ms | 74 ms |
+| whip pan | 64 | 24 | 22 | 18 | 61 | 7,089 ms | 15 ms | 75 ms |
+| تلوين سينمائي | 100 | 47 | 39 | 14 | 29 | 3,614 ms | 16 ms | 70 ms |
+| شرح سبيد رامب | 96 | 44 | 31 | 21 | 30 | 2,881 ms | 17 ms | 76 ms |
+| film look | 73 | 29 | 21 | 23 | 75 | 6,525 ms | 15 ms | 83 ms |
+
+Results against the targets:
+
+- **Volume:** 888 shown cards, averaging 88.8 per search; all ten exceeded 25. There were also 343 hidden cards.
+- **Sections:** all ten had populated Popular now, Examples, Tutorials and Creators sections.
+- **Empty platforms:** zero out of 30 platform/topic combinations; no platform error lines appeared.
+- **Speed:** all ten Worker wall times were below 12 seconds. Browser repeats all showed the cached label;
+  a further flash repeat after a page reload also showed cached, in 412 ms. YouTube usage remained 30/70
+  through every repeat, versus 0/70 before the first search.
+- **Credits:** ten fresh searches were run, within the planned 60–80 Tavily-credit envelope by the implemented
+  query/retry cap. Exact billed credits were not independently measured: the usage footer remained at its
+  ten-minute cached baseline of 66/1,000. Do not interpret that stale number as zero fresh-search cost.
+- **Relevance:** the classifier kept 72.1% of all returned cards. This is not a manual precision measurement
+  of the displayed cards, so the target of 90% genuinely relevant shown cards is still unverified. In particular,
+  whip pan and film look returned many hidden candidates; inspect their shown cards before changing matching
+  rules or choosing a second provider.
+- **CPU: target not met.** All ten invocation outcomes succeeded, with zero logged errors in the filtered
+  window, but every fresh search used 14–24 ms. Cloudflare documents a
+  [10 ms Free-plan CPU allowance](https://developers.cloudflare.com/workers/platform/limits/#cpu-time) with
+  limited overage flexibility. Successful requests therefore do not establish reliable Free-plan operation.
+  Next step: profile the search pipeline and reduce CPU before claiming this gate passes. The existing
+  DISCOVER_V2 fallback remains available if resource-limit errors occur; no plan or feature switch was changed.
+
+Connector deployment checks: both OAuth authorization-server metadata and protected-resource metadata returned
+200 with the expected Worker URLs. An unauthenticated GET /mcp returned 401 and advertised the correct protected
+resource metadata URL. No production OAuth registration, token replacement, or picks write was performed.
+The owner still needs to sign in from Claude and verify a research chat plus saved picks end to end.
 
 ## Honest limits
 

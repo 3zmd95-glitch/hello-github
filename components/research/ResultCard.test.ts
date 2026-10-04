@@ -220,9 +220,7 @@ describe("ResultCard ▶ (full card)", () => {
     expect(caption.textContent).toBe("ماتش كت من باب لباب");
     expect(caption.getAttribute("dir")).toBe("auto");
     expect(caption.className.split(" ")).toContain("line-clamp-3");
-    expect($("result-poster-note", poster)!.textContent).toBe(
-      "انستقرام ما يعطي صورة معاينة. اضغط وتفرّج.",
-    );
+    expect($("result-poster-note", poster)!.textContent).toBe("المعاينة مو متوفّرة. اضغط وتفرّج.");
     // A 9:16 box in the Instagram chip's colours (no Instagram logo or gradient), never wider than 9:16.
     const box = poster.firstElementChild!;
     expect(box.className.split(" ")).toEqual(
@@ -249,9 +247,7 @@ describe("ResultCard ▶ (full card)", () => {
     expect(poster.getAttribute("data-poster")).toBe("ig");
     expect($("result-poster-handle")).toBeNull();
     expect($("result-poster-caption")).toBeNull();
-    expect($("result-poster-note")!.textContent).toBe(
-      "Instagram gives no preview image. Tap to watch.",
-    );
+    expect($("result-poster-note")!.textContent).toBe("Preview unavailable. Tap to watch.");
     expect($("result-play")!.getAttribute("aria-label")).toBe("Watch “instagram.com” here");
   });
 
@@ -292,70 +288,90 @@ describe("ResultCard ▶ (full card)", () => {
     expect(opened).toEqual([]);
   });
 
-  it("an expired TikTok picture is swapped for a fresh one, and the player gets the fresh one", async () => {
-    const fresh = `${WORKER}/thumb/fresh.png`;
-    const asked: string[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = new URL(String(input));
-        asked.push(url.pathname);
-        return new Response(JSON.stringify({ title: "", author: "", thumb: fresh, url: "" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }),
-    );
-    act(() =>
-      useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
-    );
-    const item = { ...TT, url: "https://www.tiktok.com/@editor.sam/video/7300000000000000009" };
-    render({ item });
-    act(() => {
-      $("result-thumb")!.dispatchEvent(new Event("error"));
-    });
-    await settle();
-    expect(asked).toEqual(["/oembed"]);
-    expect($("result-thumb")!.getAttribute("src")).toBe(fresh);
-    click($("result-play"));
-    expect(opened[0].thumb).toBe(fresh);
-  });
+  it.each([TT, IG])(
+    "an expired $platform picture is refreshed and passed to the player",
+    async (post) => {
+      const fresh = `${WORKER}/thumb/fresh.png`;
+      const asked: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = new URL(String(input));
+          asked.push(url.pathname);
+          return new Response(JSON.stringify({ title: "", author: "", thumb: fresh, url: "" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }),
+      );
+      act(() =>
+        useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
+      );
+      const item = {
+        ...post,
+        thumb: `${WORKER}/thumb/expired.png`,
+        url:
+          post.platform === "tt"
+            ? "https://www.tiktok.com/@editor.sam/video/7300000000000000009"
+            : "https://www.instagram.com/p/expiredPreview/",
+      };
+      render({ item });
+      act(() => {
+        $("result-thumb")!.dispatchEvent(new Event("error"));
+      });
+      await settle();
+      expect(asked).toEqual(["/oembed"]);
+      expect($("result-thumb")!.getAttribute("src")).toBe(fresh);
+      click($("result-play"));
+      expect(opened[0].thumb).toBe(fresh);
+      act(() => $("result-thumb")!.dispatchEvent(new Event("error")));
+      await settle();
+      expect($("result-thumb")).toBeNull();
+      expect(asked).toEqual(["/oembed"]);
+    },
+  );
 
-  it("a TikTok card that arrives without a picture asks the Worker's oEmbed, once per post", async () => {
-    // Discover v2 sends TikTok cards without pictures; the card asks for one itself.
-    const fresh = `${WORKER}/thumb/asked.png`;
-    const asked: string[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        asked.push(new URL(String(input)).searchParams.get("url") ?? "");
-        return new Response(JSON.stringify({ title: "", author: "", thumb: fresh, url: "" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }),
-    );
-    act(() =>
-      useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
-    );
-    const item = {
-      ...TT,
-      thumb: undefined,
-      url: "https://www.tiktok.com/@editor.sam/video/7300000000000000010",
-    };
-    render({ item });
-    await settle();
-    expect(asked).toEqual([item.url]);
-    expect($("result-thumb")!.getAttribute("src")).toBe(fresh);
+  it.each([TT, IG])(
+    "a $platform card without a picture loads one preview shared with saved cards",
+    async (post) => {
+      // Discover v2 sends TikTok cards without pictures; the card asks for one itself.
+      const fresh = `${WORKER}/thumb/asked.png`;
+      const asked: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          asked.push(new URL(String(input)).searchParams.get("url") ?? "");
+          return new Response(JSON.stringify({ title: "", author: "", thumb: fresh, url: "" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }),
+      );
+      act(() =>
+        useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
+      );
+      const item = {
+        ...post,
+        thumb: undefined,
+        url:
+          post.platform === "tt"
+            ? "https://www.tiktok.com/@editor.sam/video/7300000000000000010"
+            : "https://www.instagram.com/p/previewTest1/",
+      };
+      render({ item });
+      await settle();
+      expect(asked).toEqual([item.url]);
+      expect($("result-thumb")!.getAttribute("src")).toBe(fresh);
 
-    // The same post elsewhere (the saved row) gets the same picture without asking again; YouTube never asks.
-    render({ item, compact: true });
-    await settle();
-    expect($("saved-ref-thumb")!.getAttribute("src")).toBe(fresh);
-    render({ item: { ...YT, thumb: undefined } });
-    await settle();
-    expect(asked).toHaveLength(1);
-  });
+      // The same post elsewhere (the saved row) gets the same picture without asking again; YouTube never asks.
+      render({ item, compact: true });
+      await settle();
+      expect($("saved-ref-thumb")!.getAttribute("src")).toBe(fresh);
+      render({ item: { ...YT, thumb: undefined } });
+      await settle();
+      expect(asked).toHaveLength(1);
+    },
+  );
 
   it("a TikTok card titled only by its handle shows the post's caption from the same lookup", async () => {
     // Discover v2 keeps a generic TikTok page title ("TikTok - Make Your Day") as the handle and no longer asks

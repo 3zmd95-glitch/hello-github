@@ -20,33 +20,32 @@ export const PLATFORM_META: Record<RefPlatform, { glyph: string; label: string; 
 /** TikTok / Instagram are vertical video platforms: 9:16 posters. YouTube and web links are 16:9. */
 const isVertical = (p: RefPlatform) => p === "tt" || p === "ig";
 
-/** What the Worker's oEmbed says about a TikTok post: a fresh picture and its caption, when it has them. */
+/** A fresh post preview from the Worker, with a caption when the provider supplies one. */
 interface FreshPost {
   thumb?: string;
   title?: string;
 }
 
 /**
- * A fresh TikTok thumbnail and caption for a post, asked once per post per session and shared by every card
- * showing it. TikTok thumbnail URLs are signed and expire after about two days, so a saved card's image dies;
- * and a card titled only by its handle (a generic TikTok page title) shows the caption instead.
+ * Refresh missing or expired TikTok / Instagram previews once per post and Scout configuration per session,
+ * shared by every card showing it. TikTok also supplies captions for cards titled only by their handle.
  */
 const freshPosts = new Map<string, Promise<FreshPost>>();
-function freshTiktok(config: ScoutConfig, url: string): Promise<FreshPost> {
-  let p = freshPosts.get(url);
+function freshPost(config: ScoutConfig, url: string): Promise<FreshPost> {
+  const key = `${config.url}|${config.token}|${url}`;
+  let p = freshPosts.get(key);
   if (!p) {
     p = scoutOembed(config, url).then((r) =>
       r.ok ? { thumb: r.data.thumb || undefined, title: r.data.title || undefined } : {},
     );
-    freshPosts.set(url, p);
+    freshPosts.set(key, p);
   }
   return p;
 }
 
 /**
- * The thumbnail to show on a card, its `onError`, and the title to show. When a TikTok image fails to load,
- * asks the Worker's oEmbed once for a fresh one and swaps it in (display only; the saved reference keeps its
- * URL). When that fails too, no thumbnail: the card shows its glyph tile.
+ * The thumbnail, error handler, and title to show. Missing or expired TikTok / Instagram images get one
+ * cached Worker lookup (display only; the saved reference keeps its URL). Unavailable previews keep the tile.
  */
 function useThumb(item: ResearchItem): { thumb?: string; title: string; onError: () => void } {
   const config = useScoutConfig();
@@ -61,21 +60,31 @@ function useThumb(item: ResearchItem): { thumb?: string; title: string; onError:
   const onError = () => {
     if (!thumb) return;
     setFailed((f) => [...f, thumb]);
-    if (item.platform !== "tt" || !config || renewed) return;
+    if (
+      !["tt", "ig"].includes(item.platform) ||
+      !canEmbed(item.platform, item.url) ||
+      !config ||
+      renewed
+    )
+      return;
     const url = item.url;
-    void freshTiktok(config, url).then((f) => {
+    void freshPost(config, url).then((f) => {
       if (f.thumb && f.thumb !== thumb) setFresh({ url, ...f });
     });
   };
-  // Discover v2 sends TikTok cards without oEmbed pictures or captions (they used to cost the search 10 calls): a
-  // card that shows up without a picture, or titled only by its handle, asks the Worker's cached /oembed itself,
-  // once per post per session. A card with a picture of its own keeps it (only a failed load swaps it, above).
+  // Fetch missing post previews outside the search request. Keep a provider picture until it fails to load.
   useEffect(() => {
-    if (item.platform !== "tt" || (item.thumb && !generic) || !config) return;
+    if (
+      !["tt", "ig"].includes(item.platform) ||
+      !canEmbed(item.platform, item.url) ||
+      (item.thumb && !generic) ||
+      !config
+    )
+      return;
     let alive = true;
     const url = item.url;
     const own = !!item.thumb;
-    void freshTiktok(config, url).then((f) => {
+    void freshPost(config, url).then((f) => {
       if (alive) setFresh({ url, title: f.title, ...(own ? {} : { thumb: f.thumb }) });
     });
     return () => {
@@ -386,10 +395,8 @@ function PlayBadge() {
 }
 
 /**
- * An Instagram post without a picture. Instagram gives none we may use (its oEmbed dropped `thumbnail_url`
- * on 2025-11-03; the post page and the embed page would be scraping), so the card draws its own 9:16 poster
- * in the Instagram chip's colours, with no Instagram logo or gradient: the ▶, the @handle when the card
- * knows it, the first line of the caption (the card's title) and, in small print, why there is no picture.
+ * Fallback while a public preview loads or when Instagram withholds it. Draw the app's own 9:16 poster
+ * with the handle and caption so private, removed, and blocked posts remain usable.
  * Only for a post that plays here: "tap to watch" has to be true.
  */
 function InstagramPoster({ item }: { item: ResearchItem }) {
