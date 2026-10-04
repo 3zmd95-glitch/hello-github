@@ -1600,7 +1600,14 @@ describe("GET /social/status", () => {
         },
         threads: { configured: true, connected: false, canPublish: false, canReply: false },
         youtube: { configured: true, connected: false, canPublish: false, canReply: false },
-        tiktok: { configured: false, connected: false, canPublish: false, canReply: false },
+        tiktok: {
+          configured: false,
+          connected: false,
+          canPublish: false,
+          canReply: false,
+          canUpload: false,
+          canDirectPost: false,
+        },
       },
     });
   });
@@ -1613,6 +1620,8 @@ describe("GET /social/status", () => {
       connected: false,
       canPublish: false,
       canReply: false,
+      canUpload: false,
+      canDirectPost: false,
     });
   });
 });
@@ -1642,6 +1651,8 @@ describe("DELETE /social/connect/:platform", () => {
       connected: false,
       canPublish: false,
       canReply: false,
+      canUpload: false,
+      canDirectPost: false,
     });
     // Idempotent.
     expect((await handle(req("/social/connect/tiktok", { method: "DELETE" }), env)).status).toBe(

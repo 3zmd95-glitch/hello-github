@@ -74,6 +74,24 @@ async function stubWorker(page: Page): Promise<Fake> {
       return json({ ok: true, auth: true, tavily: true, social: { configured: {}, kv: true } });
     }
     if (url.pathname === "/social/status") return json({ platforms: fake.status });
+    if (url.pathname === "/social/tiktok/creator")
+      return json({
+        canUpload: fake.status.tiktok.canUpload ?? fake.status.tiktok.canPublish,
+        canDirectPost: fake.status.tiktok.canDirectPost ?? fake.status.tiktok.canPublish,
+        ...(fake.status.tiktok.canDirectPost
+          ? {
+              creator: {
+                username: "3z.prod",
+                nickname: "3z Creator",
+                privacyLevels: ["SELF_ONLY", "PUBLIC_TO_EVERYONE"],
+                commentDisabled: false,
+                duetDisabled: true,
+                stitchDisabled: false,
+                maxVideoDurationSeconds: 300,
+              },
+            }
+          : {}),
+      });
     if (url.pathname === "/social/data") {
       return json({ accounts: [], snapshots: [], postStats: [], demographics: [], syncedAt: {} });
     }
@@ -128,7 +146,7 @@ async function connectWorker(page: Page): Promise<void> {
   await expect(page.getByTestId("apikey-scoutToken-status")).toHaveText("اتأكد ✓");
 }
 
-test("schedule a post everywhere from the popup, follow it in the hub, and it is marked posted", async ({
+test("schedule API networks from the popup and keep the manual network unfinished", async ({
   page,
 }) => {
   const fake = await stubWorker(page);
@@ -207,7 +225,7 @@ test("schedule a post everywhere from the popup, follow it in the hub, and it is
   await expect(page.getByTestId("post-sheet")).toHaveAttribute("data-stage", "scheduled");
   await page.getByTestId("post-close").click();
 
-  // The Worker publishes Instagram; the hub's refresh reads it back and the post is marked posted.
+  // The Worker publishes Instagram; X still needs the owner to finish it.
   const job = fake.jobs.get(id)!;
   job.targets.instagram = {
     ...job.targets.instagram,
@@ -232,11 +250,8 @@ test("schedule a post everywhere from the popup, follow it in the hub, and it is
   expect(await fitsViewport(page)).toBe(true);
 
   await page.goto(`/social/calendar/#post=${id}`);
-  await expect(page.getByTestId("post-sheet")).toHaveAttribute("data-stage", "posted");
-  await expect(page.getByTestId("post-posted-link")).toHaveAttribute(
-    "href",
-    "https://www.instagram.com/reel/XYZ/",
-  );
+  await expect(page.getByTestId("post-sheet")).toHaveAttribute("data-stage", "scheduled");
+  await expect(page.getByTestId("post-posted-link")).toHaveCount(0);
   await page.getByTestId("post-close").click();
 
   // "Allow posting" from the hub reconnects TikTok with the publishing scopes.
@@ -511,6 +526,154 @@ test("the hub drops another Worker's jobs once the settings point elsewhere", as
   await expect(page.getByTestId("autopost-screen")).toBeVisible();
   await expect(page.getByTestId("autopost-remote")).toHaveCount(0);
   expect(fake.deleted).toEqual([]);
+});
+
+test("TikTok inbox completion stays manual until a real post link is confirmed, including after refresh", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  fake.status.tiktok = {
+    configured: true,
+    connected: true,
+    canPublish: true,
+    canUpload: true,
+    canDirectPost: false,
+    handle: "3z.prod",
+  };
+  await connectWorker(page);
+  await page.goto("/social/calendar/");
+  await page.getByTestId("calendar-new").click();
+  await page.getByTestId("post-platform-tiktok").click();
+  await page.getByTestId("post-net-instagram").click();
+  await page.getByTestId("post-title").fill("Keep the trending music");
+  await page.getByTestId("post-day").fill(riyadhDay());
+  await page.getByTestId("post-save").click();
+  const card = page.getByTestId("post-card").first();
+  const id = (await card.getAttribute("data-post"))!;
+  await card.locator("button").first().click();
+  await page.getByTestId("post-tab-autopost").click();
+  await expect(page.getByTestId("autopost-tt-mode")).toHaveValue("inbox");
+  await page.getByTestId("autopost-media-url").fill("https://cdn.example/clip.mp4");
+  await page.getByTestId("autopost-schedule").click();
+  await expect(page.getByTestId("autopost-notice")).toBeVisible();
+  expect(fake.posted[0].targets.tiktok).toMatchObject({ tiktokMode: "inbox" });
+  expect(fake.posted[0].targets.tiktok.privacy).toBeUndefined();
+  await page.getByTestId("post-close").click();
+  fake.jobs.get(id)!.targets.tiktok = {
+    state: "published",
+    inbox: true,
+    uploadedAt: new Date().toISOString(),
+  };
+  await page.goto("/social/automations/");
+  await expect(page.getByTestId("tiktok-finish-card")).toBeVisible();
+  await expect(page.getByTestId("autopost-done")).toHaveCount(0);
+  await page.goto(`/social/calendar/#post=${id}`);
+  await expect(page.getByTestId("post-sheet")).toHaveAttribute("data-stage", "scheduled");
+  await page.getByTestId("post-tab-autopost").click();
+  await expect(page.getByTestId("post-autopost")).toHaveAttribute("data-summary", "needsFinish");
+  await expect(page.getByTestId("tiktok-finish-save")).toBeDisabled();
+  await page.getByTestId("tiktok-finish-url").fill("https://www.tiktok.com/@3z.prod");
+  await page.getByTestId("tiktok-finish-confirm").check();
+  await expect(page.getByTestId("tiktok-finish-save")).toBeDisabled();
+  await page.getByTestId("tiktok-finish-url").fill("https://www.tiktok.com/@3z.prod/video/123456");
+  await page.getByTestId("tiktok-finish-save").click();
+  await expect(page.getByTestId("post-sheet")).toHaveAttribute("data-stage", "posted");
+  await page.getByTestId("post-close").click();
+  await page.goto("/social/automations/");
+  await page.getByTestId("autopost-refresh").click();
+  await expect(page.getByTestId("tiktok-finish-card")).toHaveCount(0);
+  await expect(page.getByTestId("autopost-done")).toBeVisible();
+});
+
+test("TikTok direct posting requires creator privacy and explicit music consent", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  fake.status.tiktok = {
+    configured: true,
+    connected: true,
+    canPublish: true,
+    canUpload: true,
+    canDirectPost: true,
+    handle: "3z.prod",
+  };
+  await connectWorker(page);
+  await page.goto("/social/calendar/");
+  await page.getByTestId("calendar-new").click();
+  await page.getByTestId("post-platform-tiktok").click();
+  await page.getByTestId("post-net-instagram").click();
+  await page.getByTestId("post-title").fill("Direct only after review");
+  await page.getByTestId("post-day").fill(riyadhDay());
+  await page.getByTestId("post-save").click();
+  await page.getByTestId("post-card").first().locator("button").first().click();
+  await page.getByTestId("post-tab-autopost").click();
+  await page.getByTestId("autopost-media-url").fill("https://cdn.example/clip.mp4");
+  await page.getByTestId("autopost-tt-mode").selectOption("direct");
+  await expect(page.getByTestId("autopost-tt-creator")).toContainText("3z Creator");
+  await expect(page.getByTestId("autopost-tt-privacy")).toHaveValue("");
+  await page.getByTestId("autopost-schedule").click();
+  await expect(page.getByTestId("autopost-problems")).toBeVisible();
+  expect(fake.posted).toHaveLength(0);
+  await page.getByTestId("autopost-tt-privacy").selectOption("SELF_ONLY");
+  await page.getByTestId("autopost-tt-duration").fill("30");
+  await page.getByTestId("autopost-tt-consent").check();
+  await page.getByTestId("autopost-schedule").click();
+  await expect(page.getByTestId("autopost-notice")).toBeVisible();
+  expect(fake.posted[0].targets.tiktok).toMatchObject({
+    tiktokMode: "direct",
+    privacy: "SELF_ONLY",
+    tiktokConsent: true,
+    disableComment: true,
+    disableDuet: true,
+    disableStitch: true,
+  });
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("TikTok photo carousel preserves order and cover before an inbox upload", async ({ page }) => {
+  const fake = await stubWorker(page);
+  fake.status.tiktok = {
+    configured: true,
+    connected: true,
+    canPublish: true,
+    canUpload: true,
+    canDirectPost: false,
+  };
+  await connectWorker(page);
+  await page.goto("/social/calendar/");
+  await page.getByTestId("calendar-new").click();
+  await page.getByTestId("post-platform-tiktok").click();
+  await page.getByTestId("post-net-instagram").click();
+  await page.getByTestId("post-title").fill("Photo story");
+  await page.getByTestId("post-day").fill(riyadhDay());
+  await page.getByTestId("post-save").click();
+  await page.getByTestId("post-card").first().locator("button").first().click();
+  await page.getByTestId("post-tab-autopost").click();
+  await page.getByTestId("autopost-kind-photo").click();
+  await page.getByTestId("autopost-photo-add").click();
+  await page.getByTestId("autopost-photo-0").fill("https://cdn.example/first.jpg");
+  await page.getByTestId("autopost-photo-add").click();
+  await page.getByTestId("autopost-photo-1").fill("https://cdn.example/second.jpg");
+  await page.getByTestId("autopost-photo-title").fill("Two views");
+  const editor = page.getByTestId("autopost-photo-editor");
+  await editor.locator('input[type="radio"]').nth(1).check();
+  await editor.getByRole("button", { name: "قدّم الصورة 2" }).click();
+  await expect(page.getByTestId("autopost-photo-0")).toHaveValue("https://cdn.example/second.jpg");
+  await expect(editor.locator('input[type="radio"]').first()).toBeChecked();
+  await page.getByTestId("autopost-schedule").click();
+  await expect(page.getByTestId("autopost-notice")).toBeVisible();
+  expect(fake.posted[0].media).toMatchObject({
+    kind: "photo",
+    url: "https://cdn.example/second.jpg",
+    photoUrls: ["https://cdn.example/second.jpg", "https://cdn.example/first.jpg"],
+  });
+  expect(fake.posted[0].targets.tiktok).toMatchObject({
+    tiktokMode: "inbox",
+    photoTitle: "Two views",
+    photoCoverIndex: 0,
+    autoAddMusic: false,
+  });
+  expect(await fitsViewport(page)).toBe(true);
 });
 
 test("a job sent from this browser keeps its Worker id and is not listed as another device's", async ({

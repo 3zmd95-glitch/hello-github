@@ -33,6 +33,10 @@ import arPlayer from "@/messages/player.ar.json";
 import enPlayer from "@/messages/player.en.json";
 import arSearch from "@/messages/search.ar.json";
 import enSearch from "@/messages/search.en.json";
+import arCreator from "@/messages/creator.ar.json";
+import enCreator from "@/messages/creator.en.json";
+import arTikTok from "@/messages/tiktok.ar.json";
+import enTikTok from "@/messages/tiktok.en.json";
 import type { Lang, LText } from "@/lib/domain";
 import { useStore } from "@/store";
 
@@ -70,6 +74,8 @@ export const MESSAGE_FILES = {
   player: { ar: arPlayer, en: enPlayer },
   // 🔎 Discover search v2 (round 33, planning/tools/13-discover-search-v2.md): the sections screen.
   search: { ar: arSearch, en: enSearch },
+  creator: { ar: arCreator, en: enCreator },
+  tiktok: { ar: arTikTok, en: enTikTok },
 } as const;
 
 const ar = {
@@ -90,6 +96,8 @@ const ar = {
   ...arGenres,
   ...arPlayer,
   ...arSearch,
+  ...arCreator,
+  ...arTikTok,
 };
 const en = {
   ...enBase,
@@ -109,6 +117,8 @@ const en = {
   ...enGenres,
   ...enPlayer,
   ...enSearch,
+  ...enCreator,
+  ...enTikTok,
 };
 
 export type MessageKey = keyof typeof ar;

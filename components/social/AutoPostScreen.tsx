@@ -12,9 +12,11 @@ import {
   autoPostSummary,
   CAPTION_MAX,
   captionFor,
+  canPublishTo,
   jobActive,
   manualComposeUrl,
   pendingManualPlatforms,
+  needsTikTokFinish,
   reconnectInDays,
   reconnectMessageKey,
   scheduledAtOf,
@@ -28,6 +30,7 @@ import { PlatformChip, platformStyle } from "./calendar/PlatformChip";
 import { calendarPostHref } from "./studio/platform";
 import { cancelWorkerJob, refreshPublishJobs, useWorkerOnlyJobs } from "./usePublish";
 import { useSocialSync } from "./useSocialSync";
+import TikTokFinishCard from "./calendar/TikTokFinishCard";
 
 /** Newest finished auto-posts shown under "Already out". */
 const DONE_MAX = 20;
@@ -58,12 +61,15 @@ export default function AutoPostScreen() {
     .filter((p) => autoPostActive(p.autoPost))
     .sort((a, b) => (at(a) < at(b) ? -1 : 1));
   const done = sent
-    .filter((p) => !autoPostActive(p.autoPost))
+    .filter((p) => !autoPostActive(p.autoPost) && !needsTikTokFinish(p.autoPost))
     .sort((a, b) => (at(a) < at(b) ? 1 : -1))
     .slice(0, DONE_MAX);
   // Planned posts with an X / Snapchat step still to do by hand (no Worker needed for these).
   const manual = posts
-    .filter((p) => p.plannedDay && pendingManualPlatforms(p).length > 0)
+    .filter(
+      (p) =>
+        (p.plannedDay || needsTikTokFinish(p.autoPost)) && pendingManualPlatforms(p).length > 0,
+    )
     .sort((a, b) => (at(a) < at(b) ? -1 : 1));
 
   const refresh = async () => {
@@ -106,7 +112,7 @@ export default function AutoPostScreen() {
                   style={platformStyle(p)}
                   data-testid="autopost-account"
                   data-platform={p}
-                  data-can-post={!!st?.canPublish}
+                  data-can-post={canPublishTo(st, p)}
                 >
                   <PlatformChip platform={p} />
                   <span className="text-muted min-w-0 flex-1 truncate text-xs">
@@ -114,11 +120,11 @@ export default function AutoPostScreen() {
                       ? t("publish.net.notSetUp")
                       : !st?.connected
                         ? t("publish.net.notConnected")
-                        : st.canPublish
-                          ? t("publish.hub.canPost")
+                        : canPublishTo(st, p)
+                          ? t(p === "tiktok" ? "publish.tt.canUpload" : "publish.hub.canPost")
                           : t("publish.net.noPermission")}
                   </span>
-                  {st?.connected && !st.canPublish && (
+                  {st?.connected && !canPublishTo(st, p) && (
                     <button
                       type="button"
                       className="px-btn px-btn-sm shrink-0"
@@ -291,6 +297,7 @@ function ManualRow({ post }: { post: Post }) {
           );
         })}
       </ul>
+      <TikTokFinishCard post={post} />
     </li>
   );
 }
@@ -315,7 +322,17 @@ function JobRow({ post }: { post: Post }) {
         </Link>
       </div>
       <span className="text-muted num text-xs">{formatInstant(when, lang)}</span>
-      <NetworkStates platforms={auto.platforms} results={auto.results} />
+      <NetworkStates
+        platforms={auto.platforms}
+        results={
+          auto.tiktokCompletedAt
+            ? {
+                ...auto.results,
+                tiktok: { ...auto.results.tiktok!, inbox: false, permalink: auto.tiktokPermalink },
+              }
+            : auto.results
+        }
+      />
     </li>
   );
 }
@@ -375,6 +392,19 @@ function RemoteJobRow({ job }: { job: WorkerJob }) {
       </div>
       <span className="text-muted num text-xs">{formatInstant(job.scheduledAt, lang)}</span>
       <NetworkStates platforms={platforms} results={job.results} />
+      {job.results.tiktok?.inbox && job.results.tiktok.state === "published" && (
+        <p className="text-sm font-semibold">
+          {t("publish.tt.finishSteps")}{" "}
+          <a
+            href="https://www.tiktok.com/"
+            className="px-link"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {t("publish.openApp", { platform: "TikTok" })}
+          </a>
+        </p>
+      )}
       {error && (
         <p className="text-danger text-xs" role="alert" data-testid="autopost-remote-error">
           {t(error)}

@@ -268,9 +268,22 @@ function AccountRow({
         <span className="flex items-center gap-2 text-sm font-bold">
           <span aria-hidden className="acc-dot" />
           {L(meta.name)}
-          {state === "connected" && status?.canPublish && (
+          {state === "connected" && status?.canPublish && platform !== "tiktok" && (
             <span className="px-chip px-chip-green text-xs" data-testid="account-can-post">
               {t("publish.hub.canPost")}
+            </span>
+          )}
+          {state === "connected" && platform === "tiktok" && (
+            <span
+              className="flex flex-wrap gap-1 text-xs"
+              data-testid="account-tiktok-capabilities"
+            >
+              {(status?.canUpload ?? status?.canPublish) && (
+                <span className="px-chip px-chip-green">{t("publish.tt.canUpload")}</span>
+              )}
+              {status?.canDirectPost && (
+                <span className="px-chip px-chip-green">{t("publish.tt.canDirectPost")}</span>
+              )}
             </span>
           )}
           {replies && state === "connected" && status?.canReply && (

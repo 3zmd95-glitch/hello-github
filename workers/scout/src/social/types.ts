@@ -130,6 +130,9 @@ export interface PlatformStatus extends StoredStatus {
   connected: boolean;
   /** The stored token carries the publishing scopes (auto-posting works for this platform). */
   canPublish: boolean;
+  /** TikTok only: independently granted upload and direct-publishing permissions. */
+  canUpload?: boolean;
+  canDirectPost?: boolean;
   /** Instagram: the token carries the comment + message scopes (auto-replies work). */
   canReply: boolean;
 }

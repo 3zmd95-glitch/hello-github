@@ -24,6 +24,7 @@ import PostActivity from "./growth/PostActivity";
 import PostImport, { sourceForPlatform } from "./growth/PostImport";
 import SnapshotForm from "./growth/SnapshotForm";
 import WhatChanged from "./growth/WhatChanged";
+import TikTokBrief from "./growth/TikTokBrief";
 import { formatDayShort } from "@/components/planner/weekLabel";
 import { fmtEngagement } from "./growth/format";
 
@@ -235,6 +236,8 @@ export default function GrowthScreen() {
         today={today}
         onImport={() => setDialog("content")}
       />
+
+      {(filter === "all" || filter === "tiktok") && <TikTokBrief now={now} />}
 
       <AudienceAsks platform={platform} />
 

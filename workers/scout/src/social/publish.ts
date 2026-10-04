@@ -16,6 +16,7 @@ import {
   PublishError,
   STEP_MIN_BUDGET,
   STEPS,
+  validHttpsUrl,
   type MediaKind,
   type PublishErrorCode,
   type PublishMedia,
@@ -23,6 +24,7 @@ import {
   type TargetSpec,
 } from "./publishers";
 import { Store, type SocialEnv } from "./store";
+import { publishingCapabilities } from "./tiktok";
 import {
   isSocialPlatform,
   SOCIAL_PLATFORMS,
@@ -68,12 +70,12 @@ export const CAPTION_MAX: Record<SocialPlatform, number> = {
   tiktok: 2200,
 };
 
-/** What each platform can post: Threads also takes text alone; YouTube and TikTok only video here. */
+/** What each platform can post; TikTok photo carousels use the verified-domain photo API. */
 export const ACCEPTS: Record<SocialPlatform, (MediaKind | "text")[]> = {
   instagram: ["video", "image"],
   threads: ["video", "image", "text"],
   youtube: ["video"],
-  tiktok: ["video"],
+  tiktok: ["video", "photo"],
 };
 
 const ACTIVE = new Set(["queued", "processing"]);
@@ -116,9 +118,30 @@ export function parseJobInput(
     } catch {
       url = null;
     }
-    if (!url || url.protocol !== "https:") return bad("media.url");
-    if (m.kind !== "video" && m.kind !== "image") return bad("media.kind");
+    if (!url || !validHttpsUrl(m.url)) return bad("media.url");
+    if (m.kind !== "video" && m.kind !== "image" && m.kind !== "photo") return bad("media.kind");
     media = { url: url.toString(), kind: m.kind };
+    if (m.kind === "photo") {
+      if (
+        !Array.isArray(m.photoUrls) ||
+        !m.photoUrls.length ||
+        m.photoUrls.length > 35 ||
+        !m.photoUrls.every(validHttpsUrl)
+      )
+        return bad("media.photoUrls");
+      media.photoUrls = m.photoUrls.map((photo) => new URL(photo).toString());
+      media.url = media.photoUrls[0];
+    }
+    if (m.durationSeconds !== undefined) {
+      if (
+        m.kind !== "video" ||
+        typeof m.durationSeconds !== "number" ||
+        !Number.isFinite(m.durationSeconds) ||
+        m.durationSeconds <= 0
+      )
+        return bad("media.durationSeconds");
+      media.durationSeconds = m.durationSeconds;
+    }
   }
   const raw = b.targets;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return bad("targets");
@@ -127,7 +150,8 @@ export function parseJobInput(
     if (!isSocialPlatform(p)) return bad(`targets.${p}`);
     const s = (spec ?? {}) as Record<string, unknown>;
     const caption = typeof s.caption === "string" ? s.caption : "";
-    if (caption.length > CAPTION_MAX[p]) return bad(`${p}.caption`);
+    const captionMax = p === "tiktok" && media?.kind === "photo" ? 4000 : CAPTION_MAX[p];
+    if (caption.length > captionMax) return bad(`${p}.caption`);
     if (!ACCEPTS[p].includes(media?.kind ?? "text")) return bad(`${p}.media`);
     if (!media && !caption.trim()) return bad(`${p}.caption`);
     const out: TargetSpec = { caption };
@@ -136,8 +160,53 @@ export function parseJobInput(
       if (typeof s.privacy === "string" && YT_PRIVACY.includes(s.privacy)) out.privacy = s.privacy;
     }
     if (p === "tiktok") {
-      if (typeof s.privacy === "string" && TT_PRIVACY.includes(s.privacy)) out.privacy = s.privacy;
-      if (s.tiktokMode === "inbox" || s.tiktokMode === "direct") out.tiktokMode = s.tiktokMode;
+      if (
+        s.privacy !== undefined &&
+        (typeof s.privacy !== "string" || !TT_PRIVACY.includes(s.privacy))
+      )
+        return bad("tiktok.privacy");
+      if (typeof s.privacy === "string") out.privacy = s.privacy;
+      if (s.tiktokMode !== undefined && s.tiktokMode !== "inbox" && s.tiktokMode !== "direct")
+        return bad("tiktok.tiktokMode");
+      out.tiktokMode = s.tiktokMode === "direct" ? "direct" : "inbox";
+      // All newly saved hosted media uses TikTok's verified-domain transfer path. Existing KV jobs are untouched.
+      out.tiktokSource = "pull";
+      for (const flag of [
+        "disableComment",
+        "disableDuet",
+        "disableStitch",
+        "brandContent",
+        "brandOrganic",
+        "isAigc",
+        "tiktokConsent",
+        "autoAddMusic",
+      ] as const) {
+        if (s[flag] !== undefined) {
+          if (typeof s[flag] !== "boolean") return bad(`tiktok.${flag}`);
+          out[flag] = s[flag];
+        }
+      }
+      if (s.photoTitle !== undefined) {
+        if (typeof s.photoTitle !== "string" || s.photoTitle.length > 90)
+          return bad("tiktok.photoTitle");
+        out.photoTitle = s.photoTitle;
+      }
+      if (s.photoCoverIndex !== undefined) {
+        if (
+          !Number.isInteger(s.photoCoverIndex) ||
+          (s.photoCoverIndex as number) < 0 ||
+          media?.kind !== "photo" ||
+          (s.photoCoverIndex as number) >= media.photoUrls!.length
+        )
+          return bad("tiktok.photoCoverIndex");
+        out.photoCoverIndex = s.photoCoverIndex as number;
+      }
+      if (out.tiktokMode === "direct") {
+        if (!out.privacy) return bad("tiktok.privacy");
+        if (!out.tiktokConsent) return bad("tiktok.tiktokConsent");
+        if (out.brandContent && out.privacy === "SELF_ONLY") return bad("tiktok.brandContent");
+        if (media?.kind === "video" && !media.durationSeconds) return bad("media.durationSeconds");
+      }
     }
     targets[p] = out;
   }
@@ -272,7 +341,7 @@ async function tokensFor(
   const creds = credentials(env, platform);
   let tokens = await store.getTokens(platform);
   if (!creds || !tokens) return "not_connected";
-  if (!tokens.canPublish) return "no_permission";
+  if (platform !== "tiktok" && !tokens.canPublish) return "no_permission";
   const provider = PROVIDERS[platform];
   if (provider.needsRefresh(tokens, now)) {
     tokens = await provider.refresh(creds, tokens, http, now);
@@ -280,6 +349,8 @@ async function tokensFor(
   } else if (isExpired(tokens, now)) {
     return "token_expired";
   }
+  if (platform === "tiktok" && !Object.values(publishingCapabilities(tokens)).some(Boolean))
+    return "no_permission";
   return tokens;
 }
 
@@ -351,7 +422,7 @@ export async function runDue(env: SocialEnv, deps: RunDeps = {}): Promise<RunRes
       }
       job.targets[p] = next;
       result.advanced.push(key);
-      if (next.state === "published") result.published.push(key);
+      if (next.state === "published" && !next.inbox) result.published.push(key);
       if (next.state === "failed") result.failed.push(key);
     }
     const { lockUntil: _released, ...rest } = job;
