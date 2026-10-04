@@ -7,11 +7,12 @@ describe("Discover prompt coverage", () => {
     const seen = new Set<string>();
     for (const genre of GENRES) {
       const prompts = discoverPrompts(genre.id);
-      expect(prompts.length).toBeGreaterThanOrEqual(2);
+      expect(prompts).toHaveLength(3);
       for (const p of prompts) {
         expect(p.ar).toMatch(/[ء-ي]/);
         expect(p.en.length).toBeLessThanOrEqual(200);
         expect(p.ar.length).toBeLessThanOrEqual(200);
+        expect(p.en).not.toMatch(/davinci|premiere|capcut|after effects|final cut/i);
         expect(seen.has(p.en)).toBe(false);
         seen.add(p.en);
       }

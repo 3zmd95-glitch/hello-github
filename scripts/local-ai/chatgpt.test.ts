@@ -56,13 +56,14 @@ async function harness(
   let refreshError: string | undefined;
   let modelError = false;
   let revokeError = false;
+  let responseError: Record<string, string> | undefined;
   let events = defaultEvents();
   let catalog: unknown[] = [
     {
       slug: "account-premium",
       display_name: "Premium model",
       visibility: "list",
-      supported_reasoning_levels: [{ effort: "high" }, { effort: "ultra" }],
+      supported_reasoning_levels: [{ effort: "high" }, { effort: "max" }, { effort: "ultra" }],
     },
     { slug: "hidden", display_name: "Hidden model", visibility: "hide" },
     { slug: "account-fast", display_name: "Fast model", visibility: "list" },
@@ -128,6 +129,7 @@ async function harness(
         body: JSON.parse(String(init?.body)),
         authorization: new Headers(init?.headers).get("authorization"),
       });
+      if (responseError) return Response.json({ error: responseError }, { status: 400 });
       return stream(events);
     }
     if (url === `${ISSUER}/api/accounts/oauth/revoke`)
@@ -201,6 +203,9 @@ async function harness(
     setRevokeError: () => {
       revokeError = true;
     },
+    setResponseError: (value: Record<string, string>) => {
+      responseError = value;
+    },
     plan: (model = "account-premium", effort?: string) =>
       provider.plan({
         model,
@@ -230,7 +235,7 @@ describe("ChatGPT plan connection", { timeout: 15_000 }, () => {
       accountId: CLIENT,
     });
     expect(status.models.map((model) => model.id)).toEqual(["account-premium", "account-fast"]);
-    expect(status.models[0].efforts).toEqual(["high", "ultra"]);
+    expect(status.models[0].efforts).toEqual(["high", "max"]);
     expect(JSON.stringify(status)).not.toMatch(/access-0|refresh-0|idToken/);
     expect(h.authorization().searchParams.get("agent_name_hint")).toBe("3z Prod");
     expect(h.authorization().searchParams.get("client_id")).toBe("dynamic_agent_client");
@@ -381,7 +386,7 @@ describe("ChatGPT structured search plans", { timeout: 15_000 }, () => {
     await expect(h.plan("account-fast", "ultra")).rejects.toMatchObject({
       code: "chatgpt_effort_unavailable",
     });
-    expect(await h.plan("account-premium", "ultra")).toEqual({
+    expect(await h.plan("account-premium", "max")).toEqual({
       model: "account-premium",
       text: '{"queries":["match cut"]}',
     });
@@ -390,13 +395,63 @@ describe("ChatGPT structured search plans", { timeout: 15_000 }, () => {
       store: false,
       stream: true,
       input: [{ role: "user", content: "Find match cut videos" }],
-      reasoning: { effort: "ultra" },
+      reasoning: { effort: "max" },
       text: { format: { type: "json_schema", strict: true } },
     });
     expect(h.bodies[0].body).not.toHaveProperty("max_output_tokens");
     expect(h.bodies[0].body).not.toHaveProperty("temperature");
     expect(h.bodies[0].url).toBe(`${API}/responses`);
   });
+
+  it.each(["supported_reasoning_levels", "supported_reasoning_efforts"])(
+    "filters catalog-only efforts from %s and rejects them before inference",
+    async (field) => {
+      const h = await harness();
+      const efforts = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+      h.setCatalog([
+        {
+          slug: "gpt-6-astra",
+          display_name: "GPT-6 Astra",
+          visibility: "list",
+          [field]:
+            field === "supported_reasoning_levels"
+              ? efforts.map((effort) => ({ effort }))
+              : efforts,
+        },
+      ]);
+      const status = await h.signedIn();
+      expect(status.models[0].efforts).toEqual(efforts.slice(0, -1));
+      await expect(h.plan("gpt-6-astra", "ultra")).rejects.toMatchObject({
+        code: "chatgpt_effort_unavailable",
+      });
+      expect(h.bodies).toHaveLength(0);
+      await h.plan("gpt-6-astra", "max");
+      expect(h.bodies).toHaveLength(1);
+      expect(h.bodies[0].body).toMatchObject({
+        model: "gpt-6-astra",
+        reasoning: { effort: "max" },
+      });
+    },
+  );
+
+  it.each([
+    ["reasoning.effort", "chatgpt_effort_unavailable"],
+    ["text.format", "chatgpt_request_failed"],
+  ])(
+    "classifies invalid_value for %s without leaking error text or retrying",
+    async (param, code) => {
+      const h = await harness();
+      await h.signedIn();
+      h.setResponseError({
+        type: "invalid_request_error",
+        code: "invalid_value",
+        param,
+        message: "Sensitive diagnostic text must not reach the browser",
+      });
+      await expect(h.plan("account-premium", "max")).rejects.toMatchObject({ code, message: code });
+      expect(h.bodies).toHaveLength(1);
+    },
+  );
 
   it.each([
     [{ type: "response.output_text.delta", delta: '{"ok":true}' }],

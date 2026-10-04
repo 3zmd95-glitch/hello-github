@@ -203,7 +203,7 @@ describe("subscription AI plans", () => {
     expect(plan).toMatchObject({ timeRange: "week", ytLength: "short" });
     expect(plan.queries).toHaveLength(1);
     expect(plan.queries[0]).toMatchObject({ platform: "yt", intent: "tutorials" });
-    expect(plan.queries[0].q).toContain("car edit");
+    expect(plan.queries[0].q).toContain("car");
     expect(plan.queries[0].q).toContain("DaVinci Resolve");
     expect(plan.queries[0].q.toLowerCase()).not.toContain("capcut");
     const items = labelCards(
@@ -227,5 +227,84 @@ describe("subscription AI plans", () => {
     expect(AiPlanSchema.safeParse(malformed).success).toBe(false);
     expect(ExternalAiPlanSchema.safeParse({ ...ENVELOPE, plan: malformed }).success).toBe(false);
     expect(() => searchPlanFromAi(REQUEST, malformed)).toThrow();
+  });
+
+  it("keeps fluent category queries without repeating generic edit wording", () => {
+    const req = { q: "coffee edit", genreQuery: { ar: "تصوير قهوة" } };
+    const plan = searchPlanFromAi(req, {
+      ...PLAN,
+      queries: [{ q: "espresso cinematic lighting tutorial", lang: "en", intent: "tutorials" }],
+    });
+    expect(plan.queries[0].q).toBe("espresso cinematic lighting tutorial");
+    expect(plan.queries[0].retryQ).toMatch(/coffee|cafe/);
+    expect(plan.requiredGroups?.some((group) => group.includes("coffee"))).toBe(true);
+  });
+
+  it("uses bounded category retries without broadening a detailed AI-only brief", () => {
+    const category = searchPlanFromAi({ q: "coffee edit", platforms: ["ig", "yt"] }, PLAN);
+    expect(category.queries.find((q) => q.platform === "ig")?.retryQ).toBeTruthy();
+    expect(category.queries.find((q) => q.platform === "yt")?.retryQ).toBeUndefined();
+    const detailed = searchPlanFromAi(
+      {
+        q: "Coffee pouring with red studio lighting and slow steam",
+        genreQuery: { en: "coffee edit" },
+      },
+      PLAN,
+    );
+    expect(detailed.queries.every((q) => q.retryQ === undefined)).toBe(true);
+  });
+
+  it("preserves custom category wording and the selected built-in category over the topic", () => {
+    const selected = searchPlanFromAi({ q: "car edit", genreQuery: { en: "coffee edit" } }, PLAN);
+    expect(selected.requiredGroups?.some((group) => group.includes("coffee"))).toBe(true);
+    const custom = searchPlanFromAi(
+      { q: "coffee edit", genreQuery: { en: "neon interiors" } },
+      PLAN,
+    );
+    expect(custom.queries[0].q).toContain("neon interiors");
+    expect(custom.queries[0].retryQ).toBeUndefined();
+  });
+
+  it("never spends category retries on another primary query or reserved retry", () => {
+    const plan = searchPlanFromAi(
+      { q: "coffee edit", platforms: ["ig", "tt"] },
+      {
+        ...PLAN,
+        queries: [
+          { q: "coffee cinematic tutorial", lang: "en", intent: "tutorials" },
+          { q: "coffee videography lighting tutorial", lang: "en", intent: "tutorials" },
+          { q: "coffee lighting setup tutorial", lang: "en", intent: "tutorials" },
+        ],
+      },
+    );
+    for (const platform of ["ig", "tt"]) {
+      const queries = plan.queries.filter((q) => q.platform === platform);
+      const all = queries.flatMap((q) => [q.q, ...(q.retryQ ? [q.retryQ] : [])]);
+      expect(new Set(all.map((q) => q.toLowerCase())).size).toBe(all.length);
+    }
+  });
+
+  it("keeps a recognized typed technique even when the model omits it", () => {
+    const plan = searchPlanFromAi(
+      { q: "match cut", genreQuery: { en: "coffee edit" } },
+      {
+        ...PLAN,
+        concepts: [["coffee", "قهوة"]],
+      },
+    );
+    const items = labelCards(
+      ["Coffee commercial", "Coffee match cut tutorial"].map((title, i) => ({
+        card: {
+          title,
+          snippet: "",
+          platform: "ig" as const,
+          handle: "",
+          url: `https://www.instagram.com/reel/typed${i}/`,
+        },
+        query: plan.queries[0],
+      })),
+      plan,
+    );
+    expect(items.map((item) => !!item.offTopic)).toEqual([true, false]);
   });
 });

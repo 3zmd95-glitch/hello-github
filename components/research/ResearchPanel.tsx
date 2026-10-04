@@ -232,6 +232,8 @@ export default function ResearchPanel({
   const tag = researchHashtag(base, skill ? skill.name.en : base, genre);
   // "Search" press counter: pressing it again after an error asks again (a cached success costs nothing).
   const [attempt, setAttempt] = useState(0);
+  const aiSearchBlocked = searchMode === "ai" && aiChoice.provider !== "builtin" && !aiChoice.model;
+  const hasDraftTopic = Boolean((draft ?? base).trim());
 
   /** The typed text becomes the topic (Discover: remembered as a recent topic) or the skill's override. */
   const commit = (text: string) => {
@@ -250,6 +252,7 @@ export default function ResearchPanel({
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    if (aiSearchBlocked) return;
     commit((draft ?? base).trim());
     setAttempt((a) => a + 1);
   };
@@ -259,12 +262,19 @@ export default function ResearchPanel({
    * on, or off when it's the active chip (null = off). A genre alone never lands in the recent topics.
    */
   const pickGenre = (id: string | null) => {
+    if (aiSearchBlocked) return;
     setSubmittedMode(searchMode);
     setSubmittedAi(
       aiChoice.provider === "builtin" ? undefined : { ...aiChoice, provider: aiChoice.provider },
     );
     if (draft !== null) commit(draft.trim());
     setGenreId(id === genreId ? null : id);
+    setAttempt((a) => a + 1);
+  };
+
+  const searchGenreOnly = () => {
+    if (!genre || aiSearchBlocked) return;
+    commit("");
     setAttempt((a) => a + 1);
   };
 
@@ -727,31 +737,28 @@ export default function ResearchPanel({
             type="submit"
             className="px-btn shrink-0 self-start"
             data-testid="research-search"
-            disabled={searchMode === "ai" && aiChoice.provider !== "builtin" && !aiChoice.model}
+            disabled={aiSearchBlocked}
           >
             {t(searchMode === "ai" ? "search.aiSearch" : "research.searchBtn")}
           </button>
         </div>
-        {!skill &&
-          v2 &&
-          (searchMode === "ai" || genre) &&
-          discoverPrompts(genre?.id).length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5" data-testid="discover-prompts">
-              <span className="text-muted text-xs">{t("search.trySpecific")}</span>
-              {discoverPrompts(genre?.id).map((prompt) => (
-                <button
-                  type="button"
-                  key={prompt.en}
-                  className="px-fchip max-w-full text-start whitespace-normal"
-                  onClick={() => {
-                    setDraft(L(prompt));
-                  }}
-                >
-                  {L(prompt)}
-                </button>
-              ))}
-            </div>
-          )}
+        {!skill && v2 && searchMode === "ai" && !genre && (
+          <div className="flex flex-wrap items-center gap-1.5" data-testid="discover-prompts">
+            <span className="text-muted text-xs">{t("search.trySpecific")}</span>
+            {discoverPrompts().map((prompt) => (
+              <button
+                type="button"
+                key={prompt.en}
+                className="px-fchip max-w-full text-start whitespace-normal"
+                onClick={() => {
+                  setDraft(L(prompt));
+                }}
+              >
+                {L(prompt)}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-1.5">
           {!v2 && (
             <div
@@ -907,6 +914,7 @@ export default function ResearchPanel({
               type="button"
               className="px-fchip shrink-0"
               aria-pressed={g.id === genre?.id}
+              disabled={aiSearchBlocked}
               onClick={() => pickGenre(g.id)}
               data-testid={`genre-${g.id}`}
             >
@@ -922,6 +930,7 @@ export default function ResearchPanel({
             className="px-fchip shrink-0"
             aria-label={t("genres.clear")}
             title={t("genres.clear")}
+            disabled={aiSearchBlocked}
             onClick={() => pickGenre(null)}
             data-testid="genres-clear"
           >
@@ -929,6 +938,47 @@ export default function ResearchPanel({
           </button>
         )}
       </div>
+
+      {!skill && v2 && genre && (
+        <div className="flex min-w-0 flex-col gap-1.5" data-testid="discover-category-ideas">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+            <p className="text-ink-2 text-xs" data-testid="discover-category-focus">
+              <span className="font-bold">{t("search.genreFocus", { genre: L(genre.name) })}</span>
+              {hasDraftTopic && (
+                <span className="text-muted ms-2">{t("search.genreWithTopic")}</span>
+              )}
+            </p>
+            {hasDraftTopic && (
+              <button
+                type="button"
+                className="px-fchip max-w-full text-start whitespace-normal"
+                onClick={searchGenreOnly}
+                disabled={aiSearchBlocked}
+                data-testid="discover-category-only"
+              >
+                {t("search.genreOnly", { genre: L(genre.name) })}
+              </button>
+            )}
+          </div>
+          {discoverPrompts(genre.id).length > 0 && (
+            <>
+              <p className="text-muted text-xs">{t("search.genreIdeaHelp")}</p>
+              <div className="flex min-w-0 flex-wrap gap-1.5" data-testid="discover-prompts">
+                {discoverPrompts(genre.id).map((prompt) => (
+                  <button
+                    type="button"
+                    key={prompt.en}
+                    className="px-fchip max-w-full text-start whitespace-normal"
+                    onClick={() => setDraft(L(prompt))}
+                  >
+                    {L(prompt)}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* ---------- platform tabs ---------- */}
       <div

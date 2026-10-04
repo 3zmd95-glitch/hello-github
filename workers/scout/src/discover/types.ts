@@ -38,7 +38,7 @@ export interface PlannedQuery {
   lang: Lang;
   intent: Intent;
   q: string;
-  /** Asked once more with these words when the first answer holds no post (TikTok / Instagram only). */
+  /** Bounded retry for missing posts or entirely off-topic category hits (TikTok / Instagram only). */
   retryQ?: string;
 }
 
@@ -103,7 +103,7 @@ export interface DiscoverResponse {
   cached: boolean;
   /**
    * True exactly when the answer may be kept in KV: every query answered (a key that is not set never will, so
-   * it does not count against it) and at least one card was found. A KV hit is complete. The dashboard keeps
+   * it does not count against it) and at least one useful card was found. A KV hit is complete. The dashboard keeps
    * only complete answers too: a platform's status alone cannot say that one of its queries failed.
    */
   complete: boolean;

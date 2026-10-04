@@ -10,7 +10,14 @@
 
 import { PLATFORMS, type Platform } from "../normalize";
 import { hasArabic } from "../trends/normalize";
-import { genreVisualWords, genreWords, selectedGenre, subjectWords } from "./relevance";
+import { CATEGORY_PROFILES } from "./category-profiles";
+import {
+  categoryHint,
+  genreVisualWords,
+  genreWords,
+  isCategoryOnly,
+  selectedGenre,
+} from "./relevance";
 import { matchTerms, normalizeTerm, TERMS, type EditTerm, type Lang } from "./terms";
 import type { Alternative, DiscoverRequest, Intent, PlannedQuery, SearchPlan } from "./types";
 
@@ -49,6 +56,8 @@ interface Words {
   tutorials: Record<Lang, string>;
   /** What the English retries ask about: the English label plus the extra typed words, else the typed words. */
   name: string;
+  retryExamples?: Record<Lang, string>;
+  retryTutorials?: Record<Lang, string>;
 }
 
 function termWords(term: EditTerm, rest: string, program?: string): Words {
@@ -75,16 +84,35 @@ function unknownWords(topic: string): Words {
   };
 }
 
-function plannedQueries(platforms: Platform[], w: Words, req: DiscoverRequest): PlannedQuery[] {
-  const genre = req.genreQuery ?? {};
-  const ex = (l: Lang) => join(w.examples[l], genre[l]);
-  const tut = (l: Lang) => withProgramHint(join(w.tutorials[l], genre[l]), req.program);
+function plannedQueries(
+  platforms: Platform[],
+  w: Words,
+  req: DiscoverRequest,
+  genreOnly = false,
+): PlannedQuery[] {
+  const withGenre = (query: string, lang: Lang) => {
+    const hint = genreOnly ? undefined : categoryHint(req, lang);
+    const present = hint && ` ${normalizeTerm(query)} `.includes(` ${normalizeTerm(hint)} `);
+    return join(query, present ? undefined : hint);
+  };
+  const ex = (l: Lang) => withGenre(w.examples[l], l);
+  const tut = (l: Lang) => withProgramHint(withGenre(w.tutorials[l], l), req.program);
   const key = (s: string) => s.toLowerCase();
   // Retries vary the wording while preserving the requested genre and tutorial program.
   const all: [Intent, Lang, string, string][] = [
-    ["examples", "en", ex("en"), join(w.name, "video", genre.en)],
-    ["tutorials", "en", tut("en"), withProgramHint(join("how to", w.name, genre.en), req.program)],
-    ["tutorials", "ar", tut("ar"), withProgramHint(ex("ar"), req.program)],
+    ["examples", "en", ex("en"), withGenre(w.retryExamples?.en ?? join(w.name, "video"), "en")],
+    [
+      "tutorials",
+      "en",
+      tut("en"),
+      withProgramHint(withGenre(w.retryTutorials?.en ?? join("how to", w.name), "en"), req.program),
+    ],
+    [
+      "tutorials",
+      "ar",
+      tut("ar"),
+      withProgramHint(withGenre(w.retryTutorials?.ar ?? w.examples.ar, "ar"), req.program),
+    ],
   ];
   // Each query once.
   const list = all.filter(([, , q], i) => q && all.findIndex((a) => key(a[2]) === key(q)) === i);
@@ -117,7 +145,10 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
   const platforms = PLATFORMS.filter((p) => !req.platforms || req.platforms.includes(p));
   const m = matchTerms(topic, terms);
   const picked = req.term ? terms.find((t) => t.id === req.term) : undefined;
-  const term = picked ?? m.best;
+  // A built-in category query may itself contain a dictionary technique (for example b-roll).
+  // That wording identifies the category; only a separately typed technique narrows it.
+  const term =
+    picked ?? (!req.exact && !req.queries?.length && isCategoryOnly(req) ? undefined : m.best);
   // A generic catch-all ("transitions") is not another meaning of what was typed.
   const others = [m.best, ...m.others].filter(
     (t): t is EditTerm => !!t && t !== term && !t.generic,
@@ -171,23 +202,31 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
   }
 
   const subject = genreWords(req);
+  const genre = selectedGenre(req);
   const genreOnly =
     !term &&
-    subject.length > 0 &&
-    subjectWords(rest || topic).every((word) => subject.includes(word));
-  const genre = selectedGenre(req);
-  const genreEn = genre?.queries.en[0] ?? req.genreQuery?.en ?? topic;
-  const genreAr = genre?.queries.ar[0] ?? req.genreQuery?.ar ?? topic;
+    (isCategoryOnly(req) ||
+      (!genre &&
+        subject.length > 0 &&
+        Object.values(req.genreQuery ?? {}).some(
+          (hint) => normalizeTerm(hint) === normalizeTerm(topic),
+        )));
+  const profile = genre ? CATEGORY_PROFILES[genre.id] : undefined;
+  const genreEn = categoryHint(req, "en") ?? topic;
+  const genreAr = categoryHint(req, "ar") ?? topic;
   const words = genreOnly
     ? {
-        examples: {
-          en: join(genre?.queries.en[1] ?? genreEn, "cinematic video"),
+        examples: profile?.examples ?? {
+          en: join(genreEn, "cinematic video"),
           ar: join(genreAr, "تصوير سينمائي"),
         },
-        tutorials: {
+        tutorials: profile?.tutorials ?? {
           en: join(genreEn, "video filming editing tutorial"),
           ar: join("شرح", genreAr, "تصوير ومونتاج"),
         },
+        ...(profile
+          ? { retryExamples: profile.retryExamples, retryTutorials: profile.retryTutorials }
+          : {}),
         name: join(genreEn, "filmmaking"),
       }
     : term
@@ -195,7 +234,7 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
       : unknownWords(rest || topic);
   const topicWords = term
     ? [...term.match.en, ...term.match.ar, term.label.en, term.label.ar]
-    : subject.length && !subjectWords(rest).some((w) => !subject.includes(w))
+    : genreOnly
       ? subject
       : m.rest.length
         ? m.rest
@@ -213,7 +252,7 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
     alternatives: [...others.map(termAlternative), { exact: true }],
     topicWords: [...new Set(topicWords.map(normalizeTerm))].filter(Boolean),
     needsEditingWord: term ? !term.specific : false,
-    requiredGroups: subject.length ? [subject, ...(genreOnly ? [genreVisualWords(req)] : [])] : [],
-    queries: plannedQueries(platforms, words, req),
+    requiredGroups: subject.length ? [subject, ...(!term ? [genreVisualWords(req)] : [])] : [],
+    queries: plannedQueries(platforms, words, req, genreOnly),
   };
 }

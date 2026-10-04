@@ -67,13 +67,13 @@ describe("planSearch options", () => {
         program: "DaVinci Resolve",
       }),
     );
-    expect(q["tt-examples-en"].q).toBe("speed ramp edit car edit");
-    expect(q["tt-tutorials-en"].q).toBe("speed ramp tutorial car edit DaVinci Resolve");
-    expect(q["tt-tutorials-ar"].q).toBe("شرح سبيد رامب ايديت سيارات DaVinci Resolve");
-    expect(q["tt-tutorials-ar"].retryQ).toContain("ايديت سيارات");
+    expect(q["tt-examples-en"].q).toBe("speed ramp edit car");
+    expect(q["tt-tutorials-en"].q).toBe("speed ramp tutorial car DaVinci Resolve");
+    expect(q["tt-tutorials-ar"].q).toBe("شرح سبيد رامب سيارات DaVinci Resolve");
+    expect(q["tt-tutorials-ar"].retryQ).toContain("سيارات");
     expect(q["tt-tutorials-ar"].retryQ).toContain("DaVinci Resolve");
-    expect(q["tt-examples-en"].retryQ).toBe("speed ramp video car edit");
-    expect(q["tt-tutorials-en"].retryQ).toBe("how to speed ramp car edit DaVinci Resolve");
+    expect(q["tt-examples-en"].retryQ).toBe("speed ramp video car");
+    expect(q["tt-tutorials-en"].retryQ).toBe("how to speed ramp car DaVinci Resolve");
   });
 
   it("adds the program once: a tutorials query that names it already stays as it is", () => {

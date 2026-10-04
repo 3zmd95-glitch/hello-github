@@ -173,6 +173,19 @@ describe("local subscription HTTP boundary", () => {
     expect(f.provider.plan).not.toHaveBeenCalled();
   });
 
+  it("passes bilingual category guidance through the real subscription HTTP boundary", async () => {
+    const f = await fixture();
+    const result = await f.post({
+      ...body,
+      request: { q: "coffee edit", genreQuery: { ar: "تصوير قهوة" } },
+    });
+    expect(result.status).toBe(200);
+    const argument = vi.mocked(f.provider.plan).mock.calls[0][0];
+    const input = JSON.parse(argument.input);
+    expect(input.categoryContext).toMatchObject({ categoryOnly: true, name: { en: "Coffee" } });
+    expect(input.categoryContext.tutorials.ar).toMatch(/[ء-ي]/);
+  });
+
   it("plans from the fixed system/schema, validates results and caches only by account/model/effort/brief", async () => {
     const f = await fixture();
     const expected = { provider: "claude", model: body.model, effort: "max", plan };

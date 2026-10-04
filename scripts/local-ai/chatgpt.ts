@@ -13,6 +13,9 @@ const ISSUER = "https://auth.openai.com";
 const RESOURCE = "https://api.openai.com/v1";
 const SHARING = "chatgpt.tokens.use.direct";
 const SCOPES = `openid profile email offline_access resource.invoke ${SHARING}`;
+// The account catalog can advertise efforts used by other ChatGPT clients.
+// Offer only the intersection accepted by this app's public Responses route.
+const RESPONSES_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const TERMINAL_REFRESH = new Set([
   "invalid_grant",
   "invalid_refresh_token",
@@ -275,6 +278,14 @@ export function createChatGptProvider(runtimeDir: string, options: Options = {})
       return fail("chatgpt_invalid_response");
     }
     if (!response.ok) {
+      if (
+        response.status === 400 &&
+        object(data) &&
+        object(data.error) &&
+        data.error.code === "invalid_value" &&
+        data.error.param === "reasoning.effort"
+      )
+        fail("chatgpt_effort_unavailable");
       const error =
         object(data) && object(data.error)
           ? data.error.code
@@ -509,7 +520,7 @@ export function createChatGptProvider(runtimeDir: string, options: Options = {})
         : model.supported_reasoning_efforts;
       const efforts = Array.isArray(levels)
         ? levels.filter(
-            (level): level is string => typeof level === "string" && /^[a-z]{1,16}$/.test(level),
+            (level): level is string => typeof level === "string" && RESPONSES_EFFORTS.has(level),
           )
         : [];
       result.push({

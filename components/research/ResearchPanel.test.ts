@@ -3,11 +3,14 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getSkill, skills } from "@/data";
+import { clearDiscoverCache } from "@/lib/discover";
+import { discoverPrompts } from "@/lib/discoverPrompts";
 import type { TrendItemInput, TrendsFeedInput } from "@/lib/domain";
 import { clearYoutubeCache } from "@/lib/research";
 import { clearScoutCache } from "@/lib/scoutClient";
 import { useStore } from "@/store";
 import ResearchPanel, { RESEARCH_TAB_KEY } from "./ResearchPanel";
+import { clearScoutCaps } from "./useDiscover";
 
 // 🎬 The research panel's genre row, "Most popular" sort, stats chips and "Most viewed this week" strip
 // (round 31), rendered for real in jsdom against a fake Scout Worker and a fake YouTube Data API (a stubbed
@@ -72,12 +75,75 @@ let statsDown: boolean;
 let workerFeed: TrendsFeedInput | null;
 /** Every request to the Worker's trends routes, as "METHOD /path". */
 let trendsCalls: string[];
+let discoverV2: boolean;
+let discoverAsked: Record<string, unknown>[];
+let localPlans: Record<string, unknown>[];
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const url = new URL(String(input));
+  const url = new URL(String(input), window.location.href);
+  if (url.pathname === "/api/local-ai/status")
+    return json({
+      available: true,
+      providers: {
+        chatgpt: { connected: false, models: [] },
+        claude: {
+          connected: true,
+          sharing: true,
+          accountId: "test-account",
+          models: [{ id: "claude-fable-5-1", name: "Fable", efforts: ["high", "max"] }],
+        },
+      },
+    });
+  if (url.pathname === "/api/local-ai/plan") {
+    const body = JSON.parse(String(init?.body));
+    localPlans.push(body);
+    return json({
+      provider: body.provider,
+      model: body.model,
+      effort: body.effort,
+      plan: {
+        summary: { ar: "قهوة", en: "Coffee" },
+        queries: [{ q: "coffee lighting tutorial", lang: "en", intent: "tutorials" }],
+        concepts: [["coffee", "قهوة"]],
+        platforms: ["yt", "tt", "ig"],
+        timeRange: "any",
+        ytLength: "any",
+      },
+    });
+  }
+  if (url.origin === WORKER && url.pathname === "/health")
+    return json({
+      ok: true,
+      auth: true,
+      tavily: true,
+      discover: discoverV2,
+      discoverSubscriptions: true,
+    });
+  if (url.origin === WORKER && url.pathname === "/discover") {
+    const body = JSON.parse(String(init?.body));
+    discoverAsked.push(body);
+    return json({
+      topicKey: "test-category",
+      understood: {
+        label: { ar: "بحث النوع", en: "Category search" },
+        exact: false,
+        ...(body.mode === "ai" ? { ai: true } : {}),
+        ...(body.aiPlan
+          ? { provider: body.aiPlan.provider, model: body.aiPlan.model, effort: body.aiPlan.effort }
+          : {}),
+      },
+      items: [],
+      creators: [],
+      alternatives: [],
+      platforms: { yt: { ok: true }, tt: { ok: true }, ig: { ok: true } },
+      cost: { tavily: 0, youtubeSearch: 0 },
+      cached: false,
+      complete: false,
+    });
+  }
   if (url.origin === WORKER && url.pathname === "/search") {
     const body = JSON.parse(String(init?.body)) as Asked;
     asked.push(body);
@@ -130,8 +196,11 @@ async function click(testId: string): Promise<void> {
 
 /** Type into the topic box without submitting (React listens to the native input event). */
 function type(text: string): void {
-  const el = ($<HTMLInputElement>("discover-topic") ?? $<HTMLInputElement>("research-topic"))!;
-  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  const el = ($<HTMLInputElement | HTMLTextAreaElement>("discover-topic") ??
+    $<HTMLInputElement>("research-topic"))!;
+  const prototype =
+    el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const setValue = Object.getOwnPropertyDescriptor(prototype, "value")!.set!;
   act(() => {
     setValue.call(el, text);
     el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -148,12 +217,20 @@ async function submit(text: string): Promise<void> {
 }
 
 async function mount(
-  opts: { skillId?: string; tab?: string; youtubeKey?: string; worker?: boolean } = {},
+  opts: {
+    skillId?: string;
+    tab?: string;
+    youtubeKey?: string;
+    worker?: boolean;
+    v2?: boolean;
+    lang?: "ar" | "en";
+  } = {},
 ) {
+  discoverV2 = opts.v2 ?? false;
   const s = useStore.getState();
   const on = opts.worker ?? true;
   s.setSettings({
-    lang: "ar",
+    lang: opts.lang ?? "ar",
     apiKeys: {
       scoutUrl: on ? WORKER : "",
       scoutToken: on ? "tok" : "",
@@ -174,9 +251,14 @@ beforeEach(() => {
   statsDown = false;
   workerFeed = null;
   trendsCalls = [];
+  discoverV2 = false;
+  discoverAsked = [];
+  localPlans = [];
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   localStorage.clear();
   clearScoutCache();
+  clearScoutCaps();
+  clearDiscoverCache();
   clearYoutubeCache();
   useStore.setState({ recentTopics: [], customGenres: [], savedRefs: {} });
   useStore.getState().clearTrends();
@@ -316,6 +398,136 @@ describe("ResearchPanel genre row", () => {
     expect(link("research-link-tt")).toContain("Keywords%20car%20edit%20DaVinci%20Resolve");
     // Served from the cache: the same search as before the override.
     expect(asked).toHaveLength(4);
+  });
+});
+
+async function select(testId: string, value: string): Promise<void> {
+  const element = $<HTMLSelectElement>(testId)!;
+  act(() => {
+    element.value = value;
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await settle();
+}
+
+describe("Discover category ideas", () => {
+  it.each([
+    ["cars", "en", "Cars"],
+    ["coffee", "ar", "قهوة"],
+    ["travel", "en", "Travel"],
+  ] as const)(
+    "places %s ideas under its buttons and fills the draft without searching",
+    async (genre, lang, name) => {
+      await mount({ v2: true, lang });
+      await click(`genre-${genre}`);
+      expect(discoverAsked).toHaveLength(1);
+      const ideas = $("discover-category-ideas")!;
+      expect($("genres-row")!.nextElementSibling).toBe(ideas);
+      expect($("research-bar")!.contains(ideas)).toBe(false);
+      expect($("discover-category-focus")!.textContent).toContain(name);
+      expect($("discover-category-only")).toBeNull();
+      const prompts = [...$("discover-prompts")!.querySelectorAll<HTMLButtonElement>("button")];
+      expect(prompts.map((button) => button.textContent)).toEqual(
+        discoverPrompts(genre).map((prompt) => prompt[lang]),
+      );
+      expect(prompts).toHaveLength(3);
+      act(() => prompts[2].click());
+      await settle();
+      expect($<HTMLInputElement>("discover-topic")!.value).toBe(discoverPrompts(genre)[2][lang]);
+      expect(pressed(`genre-${genre}`)).toBe("true");
+      expect(discoverAsked).toHaveLength(1);
+      expect($("discover-category-only")).not.toBeNull();
+      expect(prompts.every((button) => button.className.includes("whitespace-normal"))).toBe(true);
+    },
+  );
+
+  it("keeps default AI briefs when no category is selected and replaces them with category ideas", async () => {
+    await mount({ v2: true });
+    await click("discover-mode-ai");
+    expect($("research-bar")!.contains($("discover-prompts"))).toBe(true);
+    expect($("discover-prompts")!.querySelectorAll("button")).toHaveLength(2);
+    expect(discoverAsked).toHaveLength(0);
+    await click("genre-coffee");
+    expect($("research-bar")!.querySelector('[data-testid="discover-prompts"]')).toBeNull();
+    expect(
+      $("discover-category-ideas")!.querySelectorAll('[data-testid="discover-prompts"] button'),
+    ).toHaveLength(3);
+    await click("genres-clear");
+    expect($("discover-category-ideas")).toBeNull();
+    expect($("research-bar")!.contains($("discover-prompts"))).toBe(true);
+  });
+
+  it("searches only the category while preserving the selected AI model, program and filters", async () => {
+    await mount({ v2: true, lang: "en", tab: "all" });
+    await click("discover-mode-ai");
+    await select("ai-provider", "claude");
+    await select("ai-model", "claude-fable-5-1");
+    await select("discover-program", "davinci");
+    await click("filter-time-week");
+    await click("filter-len-short");
+    await click("filter-sort-popular");
+    await click("filter-arfirst");
+    type("coffee match cuts");
+    await click("genre-coffee");
+    type("a different unsubmitted coffee idea");
+    const before = discoverAsked.length;
+    await click("discover-category-only");
+    expect(discoverAsked).toHaveLength(before + 1);
+    expect(discoverAsked.at(-1)).toMatchObject({
+      mode: "ai",
+      q: "coffee edit",
+      genreQuery: { ar: "تصوير قهوة" },
+      program: "DaVinci Resolve",
+      timeRange: "week",
+      ytLength: "short",
+      aiPlan: { provider: "claude", model: "claude-fable-5-1", effort: "max" },
+    });
+    expect(localPlans.at(-1)).toMatchObject({
+      provider: "claude",
+      model: "claude-fable-5-1",
+      effort: "max",
+      request: { q: "coffee edit" },
+    });
+    expect($<HTMLTextAreaElement>("discover-topic")!.value).toBe("");
+    expect($<HTMLSelectElement>("ai-provider")!.value).toBe("claude");
+    expect($<HTMLSelectElement>("ai-model")!.value).toBe("claude-fable-5-1");
+    expect($<HTMLSelectElement>("discover-program")!.value).toBe("davinci");
+    expect(pressed("genre-coffee")).toBe("true");
+    expect(pressed("filter-time-week")).toBe("true");
+    expect(pressed("filter-len-short")).toBe("true");
+    expect(pressed("filter-sort-popular")).toBe("true");
+    expect(pressed("filter-arfirst")).toBe("true");
+    expect($("discover-category-only")).toBeNull();
+  });
+
+  it("blocks category-only and form/Enter submissions until a subscription model is selected", async () => {
+    await mount({ v2: true });
+    type("match cut");
+    await click("genre-cars");
+    await click("discover-mode-ai");
+    await select("ai-provider", "claude");
+    const before = discoverAsked.length;
+    expect($<HTMLButtonElement>("research-search")!.disabled).toBe(true);
+    expect($<HTMLButtonElement>("discover-category-only")!.disabled).toBe(true);
+    expect($<HTMLButtonElement>("genre-travel")!.disabled).toBe(true);
+    await click("discover-category-only");
+    await submit("unsubmitted new brief");
+    expect(discoverAsked).toHaveLength(before);
+    expect(localPlans).toHaveLength(0);
+    expect(pressed("genre-cars")).toBe("true");
+    expect($<HTMLTextAreaElement>("discover-topic")!.value).toBe("unsubmitted new brief");
+    // The suggestions can still prepare a draft without spending anything.
+    act(() => $("discover-prompts")!.querySelector<HTMLButtonElement>("button")!.click());
+    await settle();
+    expect(localPlans).toHaveLength(0);
+    expect(discoverAsked).toHaveLength(before);
+  });
+
+  it("does not add Discover ideas or category-only actions to skill or legacy panels", async () => {
+    await mount({ skillId: "smart-bins-keywords" });
+    await click("genre-cars");
+    expect($("discover-category-ideas")).toBeNull();
+    expect($("discover-category-only")).toBeNull();
   });
 });
 

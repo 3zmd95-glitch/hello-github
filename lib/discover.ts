@@ -270,8 +270,8 @@ export function parseDiscoverAnswer(raw: unknown): DiscoverAnswer | null {
 /* ---------- cache ---------- */
 
 export const DISCOVER_CACHE_KEY = "3z-discover-cache";
-/** 3: genre relevance + AI plans; older generic answers must not bypass the new pipeline. */
-export const DISCOVER_CACHE_VERSION = 4;
+/** 5: focused category plans/retries; older generic answers must not bypass the new pipeline. */
+export const DISCOVER_CACHE_VERSION = 5;
 export const DISCOVER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Answers kept on the device, newest first (memory keeps this session's). */
 export const DISCOVER_CACHE_MAX = 8;

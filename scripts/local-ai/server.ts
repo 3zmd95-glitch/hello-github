@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import handler from "serve-handler";
 import { z } from "zod";
-import { AI_SYSTEM, AiPlanSchema } from "../../workers/scout/src/discover/ai-schema";
+import { AI_SYSTEM, AiPlanSchema, aiSearchInput } from "../../workers/scout/src/discover/ai-schema";
 import { normalizeTerm } from "../../workers/scout/src/discover/terms";
 import { createClaudeProvider } from "./claude";
 import { LocalAiProviderError, type LocalAiProvider, type LocalAiProviderStatus } from "./types";
@@ -270,11 +270,7 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
           model: body.model,
           effort: body.effort,
           instructions: AI_SYSTEM,
-          input: JSON.stringify({
-            brief: body.request.q,
-            selectedGenre: body.request.genreQuery,
-            selectedProgram: body.request.program,
-          }),
+          input: aiSearchInput(body.request),
           schema: SCHEMA,
           signal: controller.signal,
         }),

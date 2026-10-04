@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import genres from "../../../../planning/data/genres.json";
-import { labelCards } from "./label";
+import { labelCards, TUTORIAL_RE } from "./label";
 import { planSearch } from "./plan";
-import { genreWords, mentions } from "./relevance";
+import { categoryHint, genreWords, isCategoryOnly, mentions, selectedGenre } from "./relevance";
 import { normalizeTerm } from "./terms";
 
 describe("every built-in edit genre", () => {
@@ -28,8 +28,10 @@ describe("every built-in edit genre", () => {
   });
   for (const genre of genres.genres) {
     it(`${genre.id}: genre alone requires filming/editing context in either language`, () => {
-      for (const q of [genre.queries.en[0], genre.queries.ar[0]]) {
+      for (const q of [genre.name.en, genre.name.ar, ...genre.queries.en, ...genre.queries.ar]) {
         const plan = planSearch({ q });
+        expect(selectedGenre({ q })?.id).toBe(genre.id);
+        expect(isCategoryOnly({ q })).toBe(true);
         const subject = genreWords({ q })[0];
         const items = labelCards(
           [
@@ -49,12 +51,38 @@ describe("every built-in edit genre", () => {
           plan,
         );
         expect(items.map((item) => !!item.offTopic)).toEqual([true, false, false]);
-        expect(plan.queries.find((query) => query.id === "yt-tutorials-en")?.q).toContain(
-          "filming editing tutorial",
+        const queries = plan.queries.filter((query) => query.platform === "yt");
+        expect(queries.map(({ intent, lang }) => [intent, lang])).toEqual([
+          ["examples", "en"],
+          ["tutorials", "en"],
+          ["tutorials", "ar"],
+        ]);
+        expect(queries.every((query) => query.q.length <= 80)).toBe(true);
+        expect(
+          queries
+            .filter((query) => query.intent === "tutorials")
+            .every((query) => TUTORIAL_RE.test(query.q)),
+        ).toBe(true);
+        const queryCards = labelCards(
+          plan.queries.map((query, i) => ({
+            card: {
+              title: query.q,
+              snippet: "",
+              platform: query.platform,
+              handle: "",
+              url: `query-${i}`,
+            },
+            query,
+          })),
+          plan,
         );
-        expect(plan.queries.find((query) => query.id === "yt-tutorials-ar")?.q).toContain(
-          "تصوير ومونتاج",
-        );
+        expect(queryCards.every((item) => !item.offTopic)).toBe(true);
+        for (const platform of ["yt", "tt", "ig"]) {
+          const own = plan.queries.filter((query) => query.platform === platform);
+          expect(own).toHaveLength(3);
+          const words = own.flatMap((query) => [query.q, ...(query.retryQ ? [query.retryQ] : [])]);
+          expect(new Set(words.map(normalizeTerm)).size).toBe(words.length);
+        }
       }
     });
     it(`${genre.id}: retains the subject in examples, tutorials and retries`, () => {
@@ -65,8 +93,9 @@ describe("every built-in edit genre", () => {
       };
       const plan = planSearch(req);
       for (const query of plan.queries) {
-        expect(query.q).toContain(req.genreQuery[query.lang]);
-        if (query.retryQ) expect(query.retryQ).toContain(req.genreQuery[query.lang]);
+        const hint = categoryHint(req, query.lang)!;
+        expect(query.q).toContain(hint);
+        if (query.retryQ) expect(query.retryQ).toContain(hint);
         if (query.intent === "tutorials") expect(query.q).toContain(req.program);
       }
       const words = genreWords(req);
@@ -125,5 +154,93 @@ describe("every built-in edit genre", () => {
       expect(mentions(normalizeTerm(text), normalizeTerm("قهوة"))).toBe(true);
     expect(mentions("carpet", "car")).toBe(false);
     expect(mentions("مدرسه", "درس")).toBe(false);
+  });
+});
+
+describe("category constraints", () => {
+  const coffee = { en: "coffee edit", ar: "تصوير قهوة" };
+  const titles = (plan: ReturnType<typeof planSearch>, values: string[]) =>
+    labelCards(
+      values.map((title, i) => ({
+        card: {
+          title,
+          snippet: "",
+          platform: "yt" as const,
+          handle: "",
+          url: `https://www.youtube.com/watch?v=${i}`,
+        },
+        query: plan.queries[0],
+      })),
+      plan,
+    ).map((item) => !!item.offTopic);
+
+  it("gives an explicit category precedence over a category in the typed topic", () => {
+    const req = { q: "car edit", genreQuery: coffee };
+    expect(selectedGenre(req)?.id).toBe("coffee");
+    expect(isCategoryOnly(req)).toBe(false);
+    const plan = planSearch(req);
+    expect(
+      titles(plan, [
+        "Cinematic car edit",
+        "Coffee commercial lighting",
+        "Car and coffee cinematic edit",
+      ]),
+    ).toEqual([true, true, false]);
+  });
+
+  it("does not replace an explicit custom category with a built-in topic", () => {
+    const req = { q: "coffee edit", genreQuery: { en: "ceramics", ar: "سيراميك" } };
+    expect(selectedGenre(req)).toBeUndefined();
+    expect(isCategoryOnly(req)).toBe(false);
+    expect(categoryHint(req, "en")).toBe("ceramics");
+    expect(
+      titles(planSearch(req), [
+        "Coffee cinematic b roll",
+        "Ceramics commercial",
+        "Coffee ceramic cup lighting tutorial",
+      ]),
+    ).toEqual([true, true, false]);
+  });
+
+  it("keeps a typed technique and category as separate mandatory concepts", () => {
+    const plan = planSearch({ q: "match cut", genreQuery: coffee });
+    expect(
+      titles(plan, [
+        "Coffee commercial",
+        "Travel match cut tutorial",
+        "Coffee match cut tutorial",
+        "شرح ماتش كت للقهوة",
+      ]),
+    ).toEqual([true, true, false, false]);
+  });
+
+  it("does not broaden a specific coffee subject into the whole category", () => {
+    const req = { q: "espresso", genreQuery: coffee };
+    expect(isCategoryOnly(req)).toBe(false);
+    const plan = planSearch(req);
+    expect(plan.queries.every((query) => query.q.includes("espresso"))).toBe(true);
+    expect(
+      titles(plan, [
+        "Coffee cinematic lighting",
+        "Espresso brewing explained",
+        "Espresso commercial lighting tutorial",
+      ]),
+    ).toEqual([true, true, false]);
+  });
+
+  it("uses focused bilingual category searches without repeated edit boilerplate", () => {
+    const plan = planSearch({ q: "coffee edit", genreQuery: coffee, program: "DaVinci Resolve" });
+    expect(plan.queries.filter((query) => query.platform === "yt").map((query) => query.q)).toEqual(
+      [
+        "coffee commercial cinematic b roll",
+        "coffee videography lighting tutorial DaVinci Resolve",
+        "شرح تصوير القهوة وإضاءتها DaVinci Resolve",
+      ],
+    );
+    expect(
+      plan.queries
+        .filter((query) => query.intent === "tutorials")
+        .every((query) => !query.retryQ || query.retryQ.includes("DaVinci Resolve")),
+    ).toBe(true);
   });
 });

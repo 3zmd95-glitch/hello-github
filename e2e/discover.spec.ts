@@ -358,6 +358,28 @@ test("AI brief: preserves filters, searches only on submit, separates cache and 
   await expect.poll(() => asked.length).toBe(afterFilters + 1);
   expect(asked.at(-1)).not.toHaveProperty("mode");
   await expect(page.getByTestId("discover-ai-plan")).toHaveCount(0);
+  const ideas = page.getByTestId("discover-category-ideas");
+  await expect(ideas).toBeVisible();
+  await expect(page.getByTestId("discover-category-focus")).toContainText("قهوة");
+  const suggestions = ideas.getByTestId("discover-prompts").getByRole("button");
+  await expect(suggestions).toHaveCount(3);
+  const beforeIdea = asked.length;
+  const idea = await suggestions.first().innerText();
+  await suggestions.first().click();
+  await expect(page.getByTestId("discover-topic")).toHaveValue(idea);
+  expect(asked).toHaveLength(beforeIdea);
+  await page.getByTestId("discover-category-only").click();
+  await expect
+    .poll(() => asked.at(-1))
+    .toMatchObject({
+      q: "coffee edit",
+      genreQuery: { ar: "تصوير قهوة" },
+      timeRange: "week",
+      ytLength: "short",
+    });
+  await expect(page.getByTestId("discover-topic")).toHaveValue("");
+  await expect(page.getByTestId("genre-coffee")).toHaveAttribute("aria-pressed", "true");
+  expect(await fitsViewport(page)).toBe(true);
 });
 
 test("AI unavailable and daily limit are honest, with a working keyword recovery", async ({
