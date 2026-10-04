@@ -54,11 +54,12 @@ export type DiscoverAlternative =
   { termId: string; label: { ar: string; en: string } } | { exact: true };
 export type DiscoverPlatformError = "quota" | "auth" | "upstream" | "daily_cap" | "not_configured";
 export type DiscoverPlatformStatus =
-  { ok: true; retried?: boolean } | { ok: false; error: DiscoverPlatformError };
+  | { ok: true; retried?: boolean; partial?: DiscoverPlatformError }
+  | { ok: false; error: DiscoverPlatformError };
 
 export interface DiscoverAnswer {
   topicKey: string;
-  understood: { termId?: string; label: { ar: string; en: string }; exact: boolean };
+  understood: { termId?: string; label: { ar: string; en: string }; exact: boolean; ai?: boolean };
   alternatives: DiscoverAlternative[];
   items: DiscoverItem[];
   creators: DiscoverCreator[];
@@ -71,6 +72,7 @@ export interface DiscoverAnswer {
 
 export interface DiscoverRequest {
   q: string;
+  mode?: "ai";
   exact?: boolean;
   term?: string;
   genreQuery?: { ar?: string; en?: string };
@@ -105,6 +107,7 @@ const clip = (text: string, max: number) =>
     .trim();
 
 export function discoverRequestFrom(input: {
+  mode?: "ai";
   base: string;
   genre?: Pick<Genre, "queries">;
   programHint?: string;
@@ -112,7 +115,7 @@ export function discoverRequestFrom(input: {
   length: LengthFilter;
   pick?: DiscoverPick;
 }): DiscoverRequest | null {
-  const typed = clip(input.base, MAX_Q);
+  const typed = clip(input.base, input.mode === "ai" ? 600 : MAX_Q);
   const ar = clip(input.genre?.queries.ar[0] ?? "", MAX_GENRE_QUERY);
   const en = clip(input.genre?.queries.en[0] ?? "", MAX_GENRE_QUERY);
   // Nothing typed: the genre's own query is the topic (English, else Arabic), so it is not sent twice.
@@ -123,6 +126,7 @@ export function discoverRequestFrom(input: {
   const program = clip(input.programHint ?? "", MAX_PROGRAM);
   return {
     q,
+    ...(input.mode === "ai" ? { mode: "ai" as const } : {}),
     ...(input.pick?.exact ? { exact: true } : {}),
     ...(input.pick?.term ? { term: input.pick.term } : {}),
     ...(genreQuery.ar || genreQuery.en ? { genreQuery } : {}),
@@ -184,7 +188,13 @@ function parseAlternative(x: unknown): DiscoverAlternative | null {
 function parseStatus(x: unknown): DiscoverPlatformStatus | null {
   if (!isObj(x)) return null;
   if (x.ok === true) {
-    return typeof x.retried === "boolean" ? { ok: true, retried: x.retried } : { ok: true };
+    return {
+      ok: true,
+      ...(typeof x.retried === "boolean" ? { retried: x.retried } : {}),
+      ...(PLATFORM_ERRORS.has(x.partial as string)
+        ? { partial: x.partial as DiscoverPlatformError }
+        : {}),
+    };
   }
   if (x.ok === false && PLATFORM_ERRORS.has(x.error as string)) {
     return { ok: false, error: x.error as DiscoverPlatformError };
@@ -223,6 +233,7 @@ export function parseDiscoverAnswer(raw: unknown): DiscoverAnswer | null {
       ...(isStr(u.termId) ? { termId: u.termId } : {}),
       label,
       exact: u.exact === true,
+      ...(u.ai === true ? { ai: true } : {}),
     },
     alternatives,
     items,
@@ -233,7 +244,9 @@ export function parseDiscoverAnswer(raw: unknown): DiscoverAnswer | null {
     // A Worker from before the flag: complete when every platform answered or has no key.
     complete:
       raw.complete === undefined
-        ? Object.values(platforms).every((s) => s?.ok || s?.error === "not_configured")
+        ? Object.values(platforms).every((s) =>
+            s?.ok ? !s.partial : s?.error === "not_configured",
+          )
         : raw.complete === true,
   };
 }
@@ -241,8 +254,8 @@ export function parseDiscoverAnswer(raw: unknown): DiscoverAnswer | null {
 /* ---------- cache ---------- */
 
 export const DISCOVER_CACHE_KEY = "3z-discover-cache";
-/** 2: only answers the Worker calls complete (version 1 also kept some with a failed query). */
-export const DISCOVER_CACHE_VERSION = 2;
+/** 3: genre relevance + AI plans; older generic answers must not bypass the new pipeline. */
+export const DISCOVER_CACHE_VERSION = 3;
 export const DISCOVER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Answers kept on the device, newest first (memory keeps this session's). */
 export const DISCOVER_CACHE_MAX = 8;
@@ -279,6 +292,7 @@ function defaultStorage(): KeyValueStorage | null {
 export function discoverRequestKey(config: ScoutConfig, req: DiscoverRequest): string {
   return `${PREFIX}${config.url}|${JSON.stringify({
     q: req.q.trim().toLowerCase().replace(/\s+/g, " "),
+    mode: req.mode ?? "keyword",
     exact: !!req.exact,
     term: req.term ?? "",
     genre: [req.genreQuery?.ar ?? "", req.genreQuery?.en ?? ""],

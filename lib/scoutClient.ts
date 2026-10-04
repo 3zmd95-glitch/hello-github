@@ -48,7 +48,8 @@ export interface ScoutOembed {
   url: string;
 }
 
-export type ScoutErrorType = "unconfigured" | "quota" | "auth" | "network" | "upstream";
+export type ScoutErrorType =
+  "unconfigured" | "quota" | "auth" | "network" | "upstream" | "ai_unavailable" | "ai_limit";
 export interface ScoutError {
   type: ScoutErrorType;
   status?: number;
@@ -143,6 +144,8 @@ const nowOf = (opts: ScoutOpts) => (opts.now ?? Date.now)();
 /* ---------- error mapping ---------- */
 
 export type ScoutErrorMessageKey =
+  | "search.aiUnavailable"
+  | "search.aiLimit"
   | "research.scoutNotConfigured"
   | "research.scoutErrQuota"
   | "research.scoutErrAuth"
@@ -152,6 +155,10 @@ export type ScoutErrorMessageKey =
 /** Message key (in `messages/*.json`) for a {@link ScoutError}. */
 export function scoutErrorMessageKey(error: ScoutError): ScoutErrorMessageKey {
   switch (error.type) {
+    case "ai_unavailable":
+      return "search.aiUnavailable";
+    case "ai_limit":
+      return "search.aiLimit";
     case "unconfigured":
       return "research.scoutNotConfigured";
     case "quota":
@@ -175,6 +182,7 @@ async function errorFrom(res: Response): Promise<ScoutError> {
   if (res.status === 401 || code === "auth" || code === "unauthorized" || code === "origin") {
     return { type: "auth", status: res.status };
   }
+  if (code === "ai_unavailable" || code === "ai_limit") return { type: code, status: res.status };
   if (code === "quota" || res.status === 429) return { type: "quota", status: res.status };
   return { type: "upstream", status: res.status };
 }

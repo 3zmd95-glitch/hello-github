@@ -165,7 +165,7 @@ describe("runDiscover", () => {
     const answer = await runDiscover(env, { q: "flash" }, { fetch: fetchMock, now: NOW });
     const searches = fetchMock.mock.calls.filter(([u]) => String(u).includes("/youtube/v3/search"));
     expect(searches).toHaveLength(1);
-    expect(answer.platforms.yt).toEqual({ ok: true });
+    expect(answer.platforms.yt).toEqual({ ok: true, partial: "daily_cap" });
     // The platform answered, but a query did not: not complete (the dashboard keeps it no more than KV does).
     expect(answer.complete).toBe(false);
     expect(answer.cost.youtubeSearch).toBe(1);

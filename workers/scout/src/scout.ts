@@ -47,6 +47,7 @@ export { DEFAULT_ALLOWED_ORIGINS, TAVILY_URL };
 export { enrichYoutubeStats, YT_STATS_MAX, youtubeStatsUrl } from "./youtubeStats";
 
 export interface Env extends SocialEnv, TrendsEnv {
+  AI?: import("./discover/ai").SearchAiBinding;
   /** Secret: Tavily API key (https://app.tavily.com). */
   TAVILY_API_KEY?: string;
   /** Secret: the shared owner token the dashboard sends as a Bearer token. */

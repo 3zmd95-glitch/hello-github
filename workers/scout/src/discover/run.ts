@@ -45,6 +45,8 @@ export interface RunDeps {
 export async function requestHash(req: DiscoverRequest): Promise<string> {
   const term = req.term && req.term !== matchTerms(req.q).best?.id ? req.term : "";
   const canonical = JSON.stringify({
+    version: 3,
+    mode: req.mode ?? "keyword",
     q: req.q.trim().toLowerCase().replace(/\s+/g, " "),
     exact: !!req.exact,
     term,
@@ -94,8 +96,15 @@ const ERROR_PRIORITY: readonly PlatformError[] = [
 /** A platform answered when one of its queries did; else its most telling error. */
 function statusOf(results: readonly QueryResult[]): PlatformStatus {
   const ok = results.filter((r) => !r.error);
-  if (ok.length) return ok.some((r) => r.retried) ? { ok: true, retried: true } : { ok: true };
   const errors = new Set(results.map((r) => r.error));
+  if (ok.length) {
+    const partial = ERROR_PRIORITY.find((e) => errors.has(e));
+    return {
+      ok: true,
+      ...(ok.some((r) => r.retried) ? { retried: true } : {}),
+      ...(partial ? { partial } : {}),
+    };
+  }
   return { ok: false, error: ERROR_PRIORITY.find((e) => errors.has(e)) ?? "upstream" };
 }
 
@@ -125,7 +134,22 @@ export async function runDiscover(
   const kept = await keptAnswer(env, req);
   if (kept) return kept;
 
-  const plan = planSearch(req);
+  const plan =
+    req.mode === "ai"
+      ? await (
+          await import("./ai")
+        ).planWithAi(
+          env,
+          req,
+          await requestHash({
+            q: req.q,
+            mode: "ai",
+            genreQuery: req.genreQuery,
+            program: req.program,
+          }),
+          deps.now,
+        )
+      : planSearch(req);
   const profiles: Profile[] = [];
   let credits = 0;
   let retriesLeft = MAX_RETRIES;
@@ -137,7 +161,7 @@ export async function runDiscover(
         q: query.q,
         platform: query.platform as "tt" | "ig",
         lang: query.lang,
-        timeRange: req.timeRange,
+        timeRange: plan.timeRange ?? req.timeRange,
       };
       let out: TavilyOutcome = await tavilyCall(env, deps.fetch, call, deps.timeoutMs);
       if (out.ok) credits += out.credits;
@@ -177,8 +201,8 @@ export async function runDiscover(
         const call = {
           q: query.q,
           lang: query.lang,
-          timeRange: req.timeRange,
-          ytLength: req.ytLength,
+          timeRange: plan.timeRange ?? req.timeRange,
+          ytLength: plan.ytLength ?? req.ytLength,
         };
         const out = await youtubeCall(env, deps.fetch, call, deps.now, deps.timeoutMs);
         return out.ok ? { query, cards: out.cards } : { query, cards: [], error: out.error };

@@ -7,6 +7,7 @@
  */
 
 import { PLATFORMS, type Platform } from "../normalize";
+import { SearchAiError } from "./ai";
 import { readPicks } from "./picks";
 import { runDiscover } from "./run";
 import { normalizeTerm } from "./terms";
@@ -34,7 +35,9 @@ export function parseDiscoverBody(raw: unknown): DiscoverRequest | null {
   const b = raw as Record<string, unknown>;
   const q = typeof b.q === "string" ? b.q.trim() : "";
   // Symbols or emoji only ("🔥🔥", "!!!"): no word left to plan or match.
-  if (!q || q.length > 200 || !normalizeTerm(q)) return null;
+  if (b.mode !== undefined && b.mode !== "ai") return null;
+  if (!q || q.length > (b.mode === "ai" ? 600 : 200) || !normalizeTerm(q)) return null;
+  if (b.mode === "ai" && (b.exact || b.term)) return null;
   if (b.exact !== undefined && typeof b.exact !== "boolean") return null;
   if (b.term !== undefined && (typeof b.term !== "string" || !TERM_ID.test(b.term))) return null;
   const program = optText(b.program, 60);
@@ -60,6 +63,7 @@ export function parseDiscoverBody(raw: unknown): DiscoverRequest | null {
   }
   return {
     q,
+    ...(b.mode === "ai" ? { mode: "ai" as const } : {}),
     ...(b.exact === true ? { exact: true } : {}),
     ...(typeof b.term === "string" ? { term: b.term } : {}),
     ...(genreQuery ? { genreQuery } : {}),
@@ -91,7 +95,9 @@ export async function handleDiscover(
     if (!body) return reply({ error: "bad_request" }, 400, cors);
     try {
       return reply(await runDiscover(env, body, { fetch: doFetch, now }), 200, cors);
-    } catch {
+    } catch (error) {
+      if (error instanceof SearchAiError)
+        return reply({ error: error.code }, error.code === "ai_limit" ? 429 : 503, cors);
       return reply({ error: "upstream" }, 502, cors);
     }
   }

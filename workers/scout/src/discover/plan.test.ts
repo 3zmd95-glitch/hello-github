@@ -59,7 +59,7 @@ describe("planSearch with a dictionary term", () => {
 });
 
 describe("planSearch options", () => {
-  it("adds the genre to the examples and the program to the tutorials, not to the English retries", () => {
+  it("preserves genre and selected program in tutorials and retries", () => {
     const q = byId(
       planSearch({
         q: "speed ramp",
@@ -68,17 +68,18 @@ describe("planSearch options", () => {
       }),
     );
     expect(q["tt-examples-en"].q).toBe("speed ramp edit car edit");
-    expect(q["tt-tutorials-en"].q).toBe("speed ramp tutorial capcut DaVinci Resolve");
-    expect(q["tt-tutorials-ar"].q).toBe("شرح سبيد رامب كاب كت DaVinci Resolve");
-    expect(q["tt-tutorials-ar"].retryQ).toBe("ايديت سبيد رامب ايديت سيارات");
-    expect(q["tt-examples-en"].retryQ).toBe("speed ramp video");
-    expect(q["tt-tutorials-en"].retryQ).toBe("how to speed ramp");
+    expect(q["tt-tutorials-en"].q).toBe("speed ramp tutorial car edit DaVinci Resolve");
+    expect(q["tt-tutorials-ar"].q).toBe("شرح سبيد رامب ايديت سيارات DaVinci Resolve");
+    expect(q["tt-tutorials-ar"].retryQ).toContain("ايديت سيارات");
+    expect(q["tt-tutorials-ar"].retryQ).toContain("DaVinci Resolve");
+    expect(q["tt-examples-en"].retryQ).toBe("speed ramp video car edit");
+    expect(q["tt-tutorials-en"].retryQ).toBe("how to speed ramp car edit DaVinci Resolve");
   });
 
   it("adds the program once: a tutorials query that names it already stays as it is", () => {
     const q = byId(planSearch({ q: "color grading", program: "DaVinci Resolve" }));
-    expect(q["tt-tutorials-en"].q).toBe("color grading tutorial davinci resolve");
-    expect(q["yt-tutorials-en"].q).toBe("color grading tutorial davinci resolve");
+    expect(q["tt-tutorials-en"].q).toBe("color grading tutorial DaVinci Resolve");
+    expect(q["yt-tutorials-en"].q).toBe("color grading tutorial DaVinci Resolve");
   });
 
   it("keeps extra typed words on every query", () => {

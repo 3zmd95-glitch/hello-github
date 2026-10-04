@@ -2,14 +2,15 @@
  * Discover v2 step 1: what to search (planning/tools/13-discover-search-v2.md, "The pipeline"). A dictionary
  * entry gives the queries; an unknown topic gets "<topic> edit" / "<topic> tutorial" / "شرح <topic>". TikTok and
  * Instagram ask examples en, tutorials en and tutorials ar (the Arabic examples query is the Arabic retry);
- * YouTube asks the same three without retries (a retry there costs a `search.list` call). With an Anthropic key
- * this is the step that would call Claude instead. Queries keep the typed words; `topicKey` and `topicWords` are
+ * YouTube asks the same three without retries (a retry there costs a `search.list` call). AI-mode briefs use
+ * ai.ts instead. Queries keep the typed words; `topicKey` and `topicWords` are
  * in the Discover matching form (`normalizeTerm`). The connector may send Claude's own queries instead (at most 9):
  * asked as they are, without retries, hiding nothing.
  */
 
 import { PLATFORMS, type Platform } from "../normalize";
 import { hasArabic } from "../trends/normalize";
+import { genreWords, subjectWords } from "./relevance";
 import { matchTerms, normalizeTerm, TERMS, type EditTerm, type Lang } from "./terms";
 import type { Alternative, DiscoverRequest, Intent, PlannedQuery, SearchPlan } from "./types";
 
@@ -24,13 +25,23 @@ const join = (...parts: (string | undefined)[]) =>
     .slice(0, MAX_QUERY);
 
 /**
- * The query with the program hint added once, case-insensitively ("… tutorial davinci resolve" + "DaVinci Resolve"
- * stays as it is). MIRRORED from the dashboard's `withProgramHint` (lib/research.ts), which the Worker can't import.
+ * A selected program overrides dictionary defaults and conflicting programs in tutorial queries.
  */
-function withProgramHint(query: string, hint?: string): string {
+export function withProgramHint(query: string, hint?: string): string {
   const q = query.trim();
   if (!hint || !q) return q;
-  return q.toLowerCase().includes(hint.toLowerCase()) ? q : join(q, hint);
+  return join(withoutPrograms(q), hint);
+}
+
+/** Replace dictionary-supplied programs only; preserve the owner's own topic words. */
+export function withoutPrograms(query: string): string {
+  return query
+    .replace(
+      /\b(?:davinci(?: resolve)?|capcut|premiere(?: pro)?|after effects|final cut(?: pro)?)\b|كاب كت|دافنشي(?: ريزولف)?|بريمير|افتر افكت/gi,
+      "",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 interface Words {
@@ -40,15 +51,17 @@ interface Words {
   name: string;
 }
 
-function termWords(term: EditTerm, rest: string): Words {
+function termWords(term: EditTerm, rest: string, program?: string): Words {
+  const tutorial = (l: Lang) =>
+    program ? withoutPrograms(term.queries.tutorials[l]) : term.queries.tutorials[l];
   return {
     examples: {
       en: join(term.queries.examples.en, rest),
       ar: join(term.queries.examples.ar, rest),
     },
     tutorials: {
-      en: join(term.queries.tutorials.en, rest),
-      ar: join(term.queries.tutorials.ar, rest),
+      en: join(tutorial("en"), rest),
+      ar: join(tutorial("ar"), rest),
     },
     name: join(term.label.en, rest),
   };
@@ -65,14 +78,13 @@ function unknownWords(topic: string): Words {
 function plannedQueries(platforms: Platform[], w: Words, req: DiscoverRequest): PlannedQuery[] {
   const genre = req.genreQuery ?? {};
   const ex = (l: Lang) => join(w.examples[l], genre[l]);
-  const tut = (l: Lang) => withProgramHint(w.tutorials[l], req.program);
+  const tut = (l: Lang) => withProgramHint(join(w.tutorials[l], genre[l]), req.program);
   const key = (s: string) => s.toLowerCase();
-  // [intent, lang, q, retryQ]: a retry asks new words, the plain name (no genre or program) with "video" or
-  // "how to", and in Arabic the examples query.
+  // Retries vary the wording while preserving the requested genre and tutorial program.
   const all: [Intent, Lang, string, string][] = [
-    ["examples", "en", ex("en"), join(w.name, "video")],
-    ["tutorials", "en", tut("en"), join("how to", w.name)],
-    ["tutorials", "ar", tut("ar"), ex("ar")],
+    ["examples", "en", ex("en"), join(w.name, "video", genre.en)],
+    ["tutorials", "en", tut("en"), withProgramHint(join("how to", w.name, genre.en), req.program)],
+    ["tutorials", "ar", tut("ar"), withProgramHint(ex("ar"), req.program)],
   ];
   // Each query once.
   const list = all.filter(([, , q], i) => q && all.findIndex((a) => key(a[2]) === key(q)) === i);
@@ -158,12 +170,15 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
     };
   }
 
-  const words = term ? termWords(term, rest) : unknownWords(rest || topic);
+  const words = term ? termWords(term, rest, req.program) : unknownWords(rest || topic);
+  const subject = genreWords(req);
   const topicWords = term
     ? [...term.match.en, ...term.match.ar, term.label.en, term.label.ar]
-    : m.rest.length
-      ? m.rest
-      : [topic];
+    : subject.length && !subjectWords(rest).some((w) => !subject.includes(w))
+      ? subject
+      : m.rest.length
+        ? m.rest
+        : [topic];
   return {
     topic,
     topicKey,
@@ -177,6 +192,7 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
     alternatives: [...others.map(termAlternative), { exact: true }],
     topicWords: [...new Set(topicWords.map(normalizeTerm))].filter(Boolean),
     needsEditingWord: term ? !term.specific : false,
+    requiredGroups: subject.length ? [subject] : [],
     queries: plannedQueries(platforms, words, req),
   };
 }

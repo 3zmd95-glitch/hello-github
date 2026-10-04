@@ -21,6 +21,7 @@ import {
   type DiscoverPick,
 } from "@/lib/discover";
 import type { Lang, Skill } from "@/lib/domain";
+import { discoverPrompts } from "@/lib/discoverPrompts";
 import { allGenres } from "@/lib/genres";
 import { useT, type MessageKey } from "@/lib/i18n";
 import {
@@ -176,6 +177,8 @@ export default function ResearchPanel({
   const [draft, setDraft] = useState<string | null>(null);
   const [override, setOverride] = useState<string | null>(null);
   const [topic, setTopic] = useState("");
+  const [searchMode, setSearchMode] = useState<"keyword" | "ai">("keyword");
+  const [submittedMode, setSubmittedMode] = useState<"keyword" | "ai">("keyword");
   const [programId, setProgramId] = useState("");
   const [hintOn, setHintOn] = useState(true);
   const [tab, setTab] = useState<ResearchTab>(readTab);
@@ -228,6 +231,7 @@ export default function ResearchPanel({
 
   /** The typed text becomes the topic (Discover: remembered as a recent topic) or the skill's override. */
   const commit = (text: string) => {
+    setSubmittedMode(searchMode);
     if (skill) setOverride(!text || text === defaultName ? null : text);
     else {
       setTopic(text);
@@ -317,6 +321,7 @@ export default function ResearchPanel({
     () =>
       v2 && !savedOnly
         ? discoverRequestFrom({
+            mode: submittedMode === "ai" ? "ai" : undefined,
             base,
             genre,
             programHint: hintOn ? hint : undefined,
@@ -325,7 +330,7 @@ export default function ResearchPanel({
             pick: picked?.on === pickOn ? picked.pick : undefined,
           })
         : null,
-    [v2, savedOnly, base, genre, hintOn, hint, recency, length, picked, pickOn],
+    [v2, savedOnly, base, genre, hintOn, hint, recency, length, picked, pickOn, submittedMode],
   );
   const disc = useDiscoverQuery(discoverReq, attempt, forceAt === attempt);
   // Claude's picks (free: a KV read), asked when v2 opens and again at each search attempt.
@@ -634,45 +639,114 @@ export default function ResearchPanel({
       <form
         onSubmit={submit}
         role="search"
-        className={`${barBg} border-edge z-10 flex flex-col gap-2 border-b-2 pt-1 pb-2.5 max-md:sticky ${stickyTop}`}
+        className={`${barBg} border-edge z-10 flex flex-col gap-2 border-b-2 pt-1 pb-2.5 ${skill ? `max-md:sticky ${stickyTop}` : ""}`}
         data-testid="research-bar"
       >
-        <div className="flex gap-2">
-          <input
-            type="search"
-            enterKeyHint="search"
-            autoComplete="off"
-            dir="auto"
-            className="px-input flex-1"
-            placeholder={skill ? defaultName : t("discover.topicPh")}
-            aria-label={t("research.topicLabel")}
-            value={draft ?? base}
-            onChange={(e) => setDraft(e.target.value)}
-            data-testid={skill ? "research-topic" : "discover-topic"}
-          />
-          <button type="submit" className="px-btn shrink-0" data-testid="research-search">
-            {t("research.searchBtn")}
+        {!skill && v2 && (
+          <div className="flex flex-col gap-2">
+            <div role="group" aria-label={t("search.modeLabel")} className="flex flex-wrap gap-2">
+              {(["keyword", "ai"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className="px-fchip"
+                  aria-pressed={searchMode === mode}
+                  data-testid={`discover-mode-${mode}`}
+                  onClick={() => setSearchMode(mode)}
+                >
+                  {t(mode === "ai" ? "search.aiMode" : "search.keywordMode")}
+                </button>
+              ))}
+            </div>
+            {searchMode === "ai" && <p className="text-ink-2 text-xs">{t("search.aiHelp")}</p>}
+          </div>
+        )}
+        <div className={`flex gap-2 ${searchMode === "ai" ? "flex-col sm:flex-row" : ""}`}>
+          {searchMode === "ai" && !skill ? (
+            <textarea
+              rows={3}
+              maxLength={600}
+              dir="auto"
+              className="px-input min-w-0 flex-1 resize-y"
+              placeholder={t("search.aiPlaceholder")}
+              aria-label={t("research.topicLabel")}
+              value={draft ?? base}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit();
+                }
+              }}
+              data-testid="discover-topic"
+            />
+          ) : (
+            <input
+              type="search"
+              enterKeyHint="search"
+              autoComplete="off"
+              dir="auto"
+              className="px-input flex-1"
+              placeholder={skill ? defaultName : t("discover.topicPh")}
+              aria-label={t("research.topicLabel")}
+              value={draft ?? base}
+              onChange={(e) => setDraft(e.target.value)}
+              data-testid={skill ? "research-topic" : "discover-topic"}
+              maxLength={200}
+            />
+          )}
+          <button
+            type="submit"
+            className="px-btn shrink-0 self-start"
+            data-testid="research-search"
+          >
+            {t(searchMode === "ai" ? "search.aiSearch" : "research.searchBtn")}
           </button>
         </div>
+        {!skill &&
+          v2 &&
+          (searchMode === "ai" || genre) &&
+          discoverPrompts(genre?.id).length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5" data-testid="discover-prompts">
+              <span className="text-muted text-xs">{t("search.trySpecific")}</span>
+              {discoverPrompts(genre?.id).map((prompt) => (
+                <button
+                  type="button"
+                  key={prompt.en}
+                  className="px-fchip max-w-full text-start whitespace-normal"
+                  onClick={() => {
+                    setDraft(L(prompt));
+                  }}
+                >
+                  {L(prompt)}
+                </button>
+              ))}
+            </div>
+          )}
         <div className="flex flex-wrap items-center gap-1.5">
-          <div
-            role="group"
-            aria-label={t("research.lang")}
-            className="border-edge bg-edge flex w-fit gap-[2px] rounded-[2px] border-2"
-          >
-            {(["ar", "en"] as const).map((l) => (
-              <button
-                key={l}
-                type="button"
-                aria-pressed={queryLang === l}
-                onClick={() => setQueryLang(l)}
-                className={`num min-h-7 px-2.5 text-xs font-bold ${l === queryLang ? "bg-gold text-gold-ink" : "bg-panel-2 text-ink-2"}`}
-                data-testid={`research-lang-${l}`}
-              >
-                {l.toUpperCase()}
-              </button>
-            ))}
-          </div>
+          {!v2 && (
+            <div
+              role="group"
+              aria-label={t("research.lang")}
+              className="border-edge bg-edge flex w-fit gap-[2px] rounded-[2px] border-2"
+            >
+              {(["ar", "en"] as const).map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  aria-pressed={queryLang === l}
+                  onClick={() => setQueryLang(l)}
+                  className={`num min-h-7 px-2.5 text-xs font-bold ${l === queryLang ? "bg-gold text-gold-ink" : "bg-panel-2 text-ink-2"}`}
+                  data-testid={`research-lang-${l}`}
+                >
+                  {l.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          )}
+          {v2 && searchMode === "keyword" && (
+            <span className="text-muted text-xs">{t("search.bothLangs")}</span>
+          )}
           {!skill && (
             <select
               className="px-input w-auto max-w-[12.5rem] py-1"

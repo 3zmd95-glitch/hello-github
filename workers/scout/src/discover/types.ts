@@ -11,6 +11,7 @@ export type DiscoverTimeRange = "week" | "month" | "year";
 
 export interface DiscoverRequest {
   q: string;
+  mode?: "ai";
   /** "Search exactly this": no dictionary, no editing words, nothing hidden. */
   exact?: boolean;
   /** A dictionary id the owner picked from "Not this?". */
@@ -47,12 +48,16 @@ export interface SearchPlan {
   topicKey: string;
   termId?: string;
   exact: boolean;
-  understood: { termId?: string; label: LangText; exact: boolean };
+  understood: { termId?: string; label: LangText; exact: boolean; ai?: boolean };
+  timeRange?: DiscoverTimeRange;
+  ytLength?: "short" | "long";
   alternatives: Alternative[];
   /** Normalized words / phrases; a card must mention one of them to be on-topic (empty: nothing is hidden). */
   topicWords: string[];
   /** The card must also mention an editing word (dictionary entries with `specific: false`). */
   needsEditingWord: boolean;
+  /** Every group must match; synonyms inside one group are alternatives. */
+  requiredGroups?: string[][];
   queries: PlannedQuery[];
 }
 
@@ -76,7 +81,8 @@ export interface Creator {
 }
 
 export type PlatformError = "quota" | "auth" | "upstream" | "daily_cap" | "not_configured";
-export type PlatformStatus = { ok: true; retried?: boolean } | { ok: false; error: PlatformError };
+export type PlatformStatus =
+  { ok: true; retried?: boolean; partial?: PlatformError } | { ok: false; error: PlatformError };
 
 export interface DiscoverResponse {
   topicKey: string;

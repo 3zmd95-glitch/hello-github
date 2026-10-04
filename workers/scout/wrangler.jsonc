@@ -11,6 +11,7 @@
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
   "observability": { "enabled": true },
+  "ai": { "binding": "AI" },
   "vars": {
     "ALLOWED_ORIGINS": "http://localhost:3000,https://3zmd95-glitch.github.io",
     // Trend Radar sources (src/trends/run.ts SOURCE_KEYS): google, youtube (charts + the daily keyword
