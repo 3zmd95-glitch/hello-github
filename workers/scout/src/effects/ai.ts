@@ -126,8 +126,12 @@ export async function cleanWithAi(
           count(i.path.length ? `${i.path.map(String).join(".")}:${i.code}` : i.code),
         );
       else if (!known.has(v.data.key)) count("unknown_key");
-      else if (v.data.sameAs && !known.has(v.data.sameAs)) count("unknown_sameAs");
-      else return [v.data];
+      else if (v.data.sameAs && !known.has(v.data.sameAs)) {
+        // A merge into a name it was not given (live runs: 15 a day): the verdict stands, the merge does not.
+        count("unknown_sameAs");
+        const { key, keep, name, what } = v.data;
+        return [{ key, keep, name, what }];
+      } else return [v.data];
       return [];
     });
     return { verdicts, rejects };

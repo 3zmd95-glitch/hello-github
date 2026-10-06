@@ -50,11 +50,14 @@ export function mergeHistory(
 ): Record<string, HistoryEntry[]> {
   const out: Record<string, HistoryEntry[]> = {};
   for (const [key, entries] of Object.entries(history)) {
-    const kept = entries.filter((e) => e.day !== day && daysBetween(e.day, day) < HISTORY_DAYS);
+    const kept = entries.filter((e) => daysBetween(e.day, day) < HISTORY_DAYS);
     if (kept.length) out[key] = kept;
   }
+  // Another run the same day (Scan again) adds to the day's creators: a name it does not find keeps its earlier ones.
   for (const [key, c] of today) {
-    out[key] = [...(out[key] ?? []), { day, ids: [...c.ids].slice(0, IDS_PER_DAY) }];
+    const earlier = out[key]?.find((e) => e.day === day);
+    const ids = [...new Set([...(earlier?.ids ?? []), ...c.ids])].slice(0, IDS_PER_DAY);
+    out[key] = [...(out[key] ?? []).filter((e) => e.day !== day), { ...earlier, day, ids }];
   }
   const keys = Object.keys(out);
   if (keys.length > HISTORY_KEYS) {

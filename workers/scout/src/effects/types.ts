@@ -60,6 +60,8 @@ export interface EffectsDoc {
   items: EffectItem[];
   meta: Record<string, EffectMeta>;
   history: Record<string, HistoryEntry[]>;
+  /** The turn of families searched last (0: 1–6, 1: 7–12, 2: 13–18): another run the same day searches the next. */
+  slot?: number;
 }
 export const MIN_CREATORS = 3,
   MAX_ITEMS = 8,

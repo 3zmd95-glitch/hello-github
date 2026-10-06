@@ -9,7 +9,7 @@ import { TERMS } from "../discover/terms";
 import { utcDay } from "../trends/kv";
 import { cleanWithAi, type AiVerdict } from "./ai";
 import { extractCandidates } from "./extract";
-import { FAMILY_QUERIES, familiesForDay, QUERIES_PER_DAY } from "./families";
+import { daySlot, familiesForSlot, SLOTS } from "./families";
 import { readEffects, writeEffects } from "./kv";
 import { creatorsBetween, daysBetween, mergeHistory, scoreEffects, setViews } from "./score";
 import {
@@ -204,10 +204,14 @@ async function scan(
   opts: RunOptions,
 ): Promise<{ doc: EffectsDoc; credits: number; families: FamilyStats[]; memory?: Memory }> {
   // The first scan (no memory yet: no document, or every run so far failed) searches families 1–6, which hold the
-  // owner's two reels (the clone effect, GIF stickers); then the day's rotation.
-  const queries = Object.keys(prev?.history ?? {}).length
-    ? familiesForDay(today)
-    : FAMILY_QUERIES.slice(0, QUERIES_PER_DAY);
+  // owner's two reels (the clone effect, GIF stickers). A day's first run searches the day's 6; another good run that
+  // day (Scan again) the next 6, so each tap covers families not yet searched today.
+  const slot = !Object.keys(prev?.history ?? {}).length
+    ? 0
+    : prev?.ranOn === today && prev.status !== "failed"
+      ? ((prev.slot ?? daySlot(today)) + 1) % SLOTS
+      : daySlot(today);
+  const queries = familiesForSlot(slot);
   const { posts, credits, errors, families, tight } = await searchFamilies(
     env,
     doFetch,
@@ -299,6 +303,7 @@ async function scan(
       items,
       meta,
       history: merged,
+      slot,
     },
   };
 }

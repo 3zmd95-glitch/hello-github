@@ -21,8 +21,19 @@ export const FAMILY_QUERIES: readonly string[] = [
 ];
 export const QUERIES_PER_DAY = 6;
 
-export function familiesForDay(day: string): string[] {
-  const dayNumber = Math.floor(Date.parse(`${day}T00:00:00Z`) / 86_400_000);
-  const start = (dayNumber % 3) * QUERIES_PER_DAY;
+/** The turns of the rotation: 18 families, 6 at a time. */
+export const SLOTS = FAMILY_QUERIES.length / QUERIES_PER_DAY;
+
+/** A UTC day's turn: 0 (families 1–6), 1 (7–12) or 2 (13–18), one after another. */
+export function daySlot(day: string): number {
+  return Math.floor(Date.parse(`${day}T00:00:00Z`) / 86_400_000) % SLOTS;
+}
+
+export function familiesForSlot(slot: number): string[] {
+  const start = slot * QUERIES_PER_DAY;
   return FAMILY_QUERIES.slice(start, start + QUERIES_PER_DAY);
+}
+
+export function familiesForDay(day: string): string[] {
+  return familiesForSlot(daySlot(day));
 }

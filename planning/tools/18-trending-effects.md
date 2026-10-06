@@ -98,6 +98,10 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
      - "speed ramp trend edit"
      - "ai effect video trend"
    - **The first scan** (no memory yet: no stored document, or one whose history is empty) searches families 1–6 instead. They hold both of the owner's reels: "clone yourself video trend" and "gif stickers". After that, the rotation goes by UTC day number.
+   - **Another run the same day** (🔄 Scan again, live fix 2) searches the next 6 families, not the day's 6 again: the
+     document keeps the turn it searched last (`slot`: 0 is families 1–6, 1 is 7–12, 2 is 13–18). Three taps cover all
+     18; a fourth starts over. A day whose run failed retries the day's own turn. A document saved before `slot`
+     existed counts as the day's turn. Its creators add to the day's, not replace them (step 4).
    - **Budget guard.** Before searching, the run reads Discover's cached Tavily figure (`discover:usage:tavily`, kept
      10 minutes by `discover/usage.ts`). At 90 % of the month or more it makes only the Instagram month search per
      family (6 calls) and notes `tavily_budget` (status `partial`). A missing or unreadable figure, or one with no
@@ -134,7 +138,10 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
      - a `sameAs` of `""`, `null`, blanks or the verdict's own key means no merge;
      - text is trimmed, then clipped instead of rejected: names to 40 characters, lines to 90, cut at the last space in
        the final 15 characters when there is one (names too);
-     - text too short or missing after trimming still rejects that verdict, as do the known-key checks.
+     - text too short or missing after trimming still rejects that verdict, as does a key it was not given;
+     - a key or `sameAs` echoed as words ("Speed Ramp", "speed_ramp") is put in our form first;
+     - a `sameAs` naming a key it was not given (the second live run: 15 of 25) keeps the verdict and drops only the
+       merge, counted as `"unknown_sameAs"` (live fix 2).
    - **Rejects.** `cleanWithAi` answers `{ verdicts, rejects }` (`null` still means no answer: unavailable, slow or no
      list). `rejects` counts why verdicts failed, by zod's field path and code (`"what.en:too_small"`,
      `"keep:invalid_type"`), `"unknown_key"` or `"unknown_sameAs"`: counts only, never text.
@@ -166,6 +173,7 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
 
 - **Main signal:** distinct **creators** on TikTok and Instagram mentioning the effect over the **last 7 days of scans**. Creators are counted, not posts, so one account can't fake a trend.
   - Each day's creators are kept per effect in the history as short hashes. The 7-day count is the union, so a trend builds up across the rotation.
+  - Another run the same day adds its creators to the day's entry (the same creator counts once), and a name it does not find keeps the day's earlier creators. Before live fix 2 a second run replaced the day's entry: the second live run dropped the first scan's speed ramp (17 creators).
 - **Minimum to show:** 3 distinct creators over the 7 days, and at least one in the last 3 days (see growth).
 - **Named trends:** besides "___ effect / transition / trick / filter" phrases and hashtags, the rules also keep names before "trend"
   (any case) and Title-Case names before "Edit". Tavily titles these posts like "How to Edit the New CapCut Reverse Trend" and "Clone
@@ -435,3 +443,28 @@ The first real scan, from the dashboard's "Run the first scan" after the deploy:
 - AI verdicts are tidied as the model writes them, and rejects are counted (§1 step 3).
 - The log line gains `families`, `dictionary` and `ai.rejects` (§3).
 - The row gains "updated just now" and 🔄 Scan again (§4).
+
+**Second live run** (after live fix 1, 🔄 Scan again the same day):
+- The memory from the first scan made it the day's turn, families 13–18, not the owner's 1–6.
+- Status `ok`. 3 chips: smooth-slowmo (18 creators), beat-sync (15), light-leak (5). "updated just now" showed.
+- Log: credits 18, keys 39, protected 15, trimmed 0.
+  - `ai`: judged 10, dictionary 4, approved 4, dropped 1, merged 1.
+  - `rejects`: `unknown_sameAs` 15.
+- Per family (TikTok / Instagram week / Instagram month → posts after dedupe):
+
+  | Family | TikTok | Instagram week | Instagram month | Posts |
+  | --- | --- | --- | --- | --- |
+  | 13 | 1 | 1 | 3 | 5 |
+  | 14 | 8 | 8 | 8 | 23 |
+  | 15 | 0 | 0 | 3 | 3 |
+  | 16 | 19 | 1 | 0 | 20 |
+  | 17 | 0 | 0 | 19 | 19 |
+  | 18 | 3 | 19 | 2 | 24 |
+
+  No window or platform wins everywhere, so all three searches stay.
+- CPU 68 ms, wall 69 s (mostly the AI call). The run was not cut off.
+- The run replaced the day's history entries, so the first scan's speed ramp (17 creators) dropped out.
+
+**Live fix 2** (branch `claude/trending-live-fix-2`):
+- Another run the same day searches the next 6 families (`slot`, §1 step 1) and adds to the day's creators (§2).
+- A verdict whose `sameAs` names a key it was not given keeps its verdict; only the merge is dropped (§1 step 3).

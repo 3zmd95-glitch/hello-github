@@ -37,16 +37,18 @@ describe("cleanWithAi", () => {
     expect(user).not.toContain("x".repeat(100)); // each title is clipped to 100 characters
   });
 
-  it("drops verdicts about keys it was not given, or merging into one, and counts them", async () => {
+  it("drops verdicts about keys it was not given; one merging into such a key keeps its verdict, not the merge", async () => {
     const e = answering([
       verdict("clone-effect"),
       verdict("made-up"),
       verdict("clone-trend", { sameAs: "made-up" }),
     ]);
-    expect(await cleanWithAi(e, candidates)).toEqual({
-      verdicts: [verdict("clone-effect")],
+    const out = await cleanWithAi(e, candidates);
+    expect(out).toEqual({
+      verdicts: [verdict("clone-effect"), verdict("clone-trend")],
       rejects: { unknown_key: 1, unknown_sameAs: 1 },
     });
+    expect(out!.verdicts[1]).not.toHaveProperty("sameAs");
   });
 
   it("real model output: a sameAs of '', null, blanks or its own key merges nothing", async () => {
