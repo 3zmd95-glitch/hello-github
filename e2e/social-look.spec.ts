@@ -23,6 +23,8 @@ for (const scheme of ["light", "dark"] as const) {
       test(`${path} uses the iOS tokens and fits the screen`, async ({ page }) => {
         await freshState(page, path);
         await expect(page.locator("html")).toHaveAttribute("data-world", "social");
+        // Routes ship only the splash: wait for the screen so the fit check measures real content.
+        await expect(page.locator("main h1").first()).toBeVisible();
         const css = await page.evaluate(() => {
           const s = getComputedStyle(document.body);
           return { font: s.fontFamily, bg: s.backgroundColor };
@@ -41,14 +43,13 @@ for (const scheme of ["light", "dark"] as const) {
 test("Training keeps the pixel look", async ({ page }) => {
   await freshState(page, "/");
   await expect(page.locator("html")).toHaveAttribute("data-world", "training");
-  const css = await page.evaluate(() => {
-    const card = document.querySelector(".px-card") as HTMLElement;
-    return {
-      font: getComputedStyle(document.body).fontFamily,
-      radius: parseFloat(getComputedStyle(card).borderRadius),
-      border: parseFloat(getComputedStyle(card).borderTopWidth),
-    };
-  });
+  const card = page.locator(".px-card").first();
+  await expect(card).toBeVisible();
+  const css = await card.evaluate((el) => ({
+    font: getComputedStyle(document.body).fontFamily,
+    radius: parseFloat(getComputedStyle(el).borderRadius),
+    border: parseFloat(getComputedStyle(el).borderTopWidth),
+  }));
   expect(css.font).toContain("Baloo Bhaijaan 2");
   expect(css.radius).toBe(2);
   expect(css.border).toBe(3);
