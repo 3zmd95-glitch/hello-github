@@ -2921,8 +2921,9 @@
   line-height: 1.3;
   letter-spacing: -0.01em;
 }
-/* Next-post ring (60px): the stroke empties as the post time comes (the offset is set inline). On the first visit
- * (the card stack's stagger) it draws in from empty once the card has risen. */
+/* Next-post ring (60px): the stroke empties as the post time comes (the offset is set inline); once the time has
+ * passed it shows full in warn. On the first visit (the card stack's stagger) it draws in from empty once the card
+ * has risen. */
 .studio-ring {
   width: 60px;
   height: 60px;
@@ -2942,6 +2943,9 @@
   stroke-linecap: round;
   stroke-dasharray: 150.8;
   transition: stroke-dashoffset 1.4s var(--out);
+}
+.studio-hero[data-overdue="true"] .studio-ring-fg {
+  stroke: var(--warn);
 }
 .ios-stagger .studio-ring-fg {
   animation: studio-ring-in 1.4s var(--out) 0.45s backwards;

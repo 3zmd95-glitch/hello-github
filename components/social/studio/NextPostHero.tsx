@@ -21,7 +21,8 @@ const RING_SPAN_MS = 48 * 3_600_000;
 
 /**
  * The Studio's hero: the next planned post with a live countdown and a ring that empties as its time comes. When
- * nothing is due later but a planned post's time already passed, that one shows in its overdue state instead.
+ * nothing is due later but a planned post's time already passed, that one shows in its overdue state instead: the
+ * countdown line and a full ring in warn.
  * Empty → plan the first post.
  */
 export default function NextPostHero({ today }: { today: string }) {
@@ -71,7 +72,7 @@ export default function NextPostHero({ today }: { today: string }) {
       : `${post.plannedDay ? formatDayShort(post.plannedDay, lang) : ""} · ${time}`.trim();
   const cd = next ? countdownText(next.countdownMs) : null;
   const left = Math.min(1, (next?.countdownMs ?? 0) / RING_SPAN_MS);
-  const offset = Math.round(RING * (1 - left) * 10) / 10;
+  const offset = isOverdue ? 0 : Math.round(RING * (1 - left) * 10) / 10;
 
   return (
     <Card
