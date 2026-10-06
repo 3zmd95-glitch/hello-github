@@ -33,15 +33,22 @@ function clip(s: unknown, max: number): unknown {
   return t.slice(0, space >= max - 15 ? space : max).trimEnd();
 }
 
-/** A verdict as the model really writes it, made checkable: text trimmed and clipped to its limit, and a `sameAs`
- * that merges nothing ("", null, blanks, its own key) left out. Anything else is the schema's to judge. */
+/** Our keys are lowercase words joined by "-": the model may echo one as "Speed Ramp" or "speed_ramp". */
+const asKey = (s: unknown): unknown =>
+  typeof s === "string"
+    ? s
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9؀-ۿ]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+    : s;
+
+/** A verdict as the model really writes it, made checkable: keys in our form, text trimmed and clipped to its limit,
+ * and a `sameAs` that merges nothing ("", null, blanks, its own key) left out. Anything else is the schema's to judge. */
 function tidy(x: unknown): unknown {
   if (!isRecord(x)) return x;
-  const v: Record<string, unknown> = {
-    ...x,
-    key: typeof x.key === "string" ? x.key.trim() : x.key,
-  };
-  const same = typeof v.sameAs === "string" ? v.sameAs.trim() : v.sameAs;
+  const v: Record<string, unknown> = { ...x, key: asKey(x.key) };
+  const same = asKey(v.sameAs);
   if (same == null || same === "" || same === v.key) delete v.sameAs;
   else v.sameAs = same;
   for (const [field, max] of [

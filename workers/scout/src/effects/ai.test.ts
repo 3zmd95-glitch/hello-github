@@ -69,6 +69,18 @@ describe("cleanWithAi", () => {
     for (const v of out!.verdicts) expect(v).not.toHaveProperty("sameAs");
   });
 
+  it("real model output: a key or sameAs echoed as words ('Clone Trend', 'clone_effect') is matched to ours", async () => {
+    const out = await cleanWithAi(
+      answering([verdict(" Clone Effect "), verdict("clone_trend", { sameAs: "Clone Effect" })]),
+      candidates,
+    );
+    expect(out?.rejects).toEqual({});
+    expect(out?.verdicts.map((v) => [v.key, v.sameAs])).toEqual([
+      ["clone-effect", undefined],
+      ["clone-trend", "clone-effect"],
+    ]);
+  });
+
   it("real model output: text is trimmed and clipped to its limit (a line at a word near the end), not rejected", async () => {
     const line =
       "You walk into the frame and meet yourself, then a second and a third copy of you joins in";
