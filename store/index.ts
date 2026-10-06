@@ -333,6 +333,8 @@ export interface StoreActions {
   addPost(input: NewPostInput, now?: Date): Post;
   /** Merge a patch into a post (validated; bumps updatedAt). Undefined when the id is unknown. */
   updatePost(id: string, patch: PostPatch, now?: Date): Post | undefined;
+  /** Merge several post patches in one save (a whole publish-queue read); unknown ids are skipped. */
+  updatePosts(patches: ReadonlyMap<string, PostPatch>, now?: Date): void;
   /** Delete a post and unlink any idea that pointed at it. */
   removePost(id: string): void;
   /**
@@ -1151,6 +1153,17 @@ export const useStore = create<StoreState>()(
         return patchPost(get, set, id, patch, now);
       },
 
+      updatePosts(patches, now = new Date()) {
+        const s = get();
+        if (!s.posts.some((p) => patches.has(p.id))) return;
+        set({
+          posts: s.posts.map((p) => {
+            const patch = patches.get(p.id);
+            return patch ? patched(p, patch, now) : p;
+          }),
+        });
+      },
+
       removePost(id) {
         const s = get();
         if (!s.posts.some((p) => p.id === id)) return;
@@ -1527,15 +1540,20 @@ function patchPost(
   const s = get();
   const existing = s.posts.find((p) => p.id === id);
   if (!existing) return undefined;
-  const post = PostSchema.parse({
+  const post = patched(existing, patch, now);
+  set({ posts: s.posts.map((p) => (p.id === id ? post : p)) });
+  return post;
+}
+
+/** The post with a patch merged in: validated, id and createdAt kept, updatedAt bumped. */
+function patched(existing: Post, patch: PostPatch, now: Date): Post {
+  return PostSchema.parse({
     ...existing,
     ...patch,
-    id,
+    id: existing.id,
     createdAt: existing.createdAt,
     updatedAt: now.toISOString(),
   });
-  set({ posts: s.posts.map((p) => (p.id === id ? post : p)) });
-  return post;
 }
 
 /** Bonus freezes after adding n, keeping earned + bonus within FREEZE_TOTAL_CAP. */
@@ -1546,7 +1564,28 @@ function addBonusFreezes(s: PersistedState, n: number, now: Date): number {
 
 /** Load saved progress from localStorage. Call once on the client (e.g. in a root useEffect). */
 export function hydrateStore(): Promise<void> | void {
+  followOtherTabs();
   return useStore.persist.rehydrate();
+}
+
+let followingOtherTabs = false;
+
+/**
+ * Every write saves the whole state, so a tab still holding an older copy would wipe what another tab saved
+ * since (its publish watcher writes every minute). Reload the copy whenever another tab saves, and when the
+ * page comes back from the back/forward cache, where it heard no saves.
+ * ponytail: two tabs saving within the same few milliseconds can still lose one save; merge posts by
+ * updatedAt if that ever shows up.
+ */
+function followOtherTabs(): void {
+  if (followingOtherTabs || typeof window === "undefined") return;
+  followingOtherTabs = true;
+  window.addEventListener("storage", (e) => {
+    if (e.key === STORAGE_KEY && e.newValue) void useStore.persist.rehydrate();
+  });
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted) void useStore.persist.rehydrate();
+  });
 }
 
 /* ---------- Selectors (pure; pass the state from useStore or useStore.getState()) ---------- */
