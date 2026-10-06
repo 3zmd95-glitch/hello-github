@@ -192,8 +192,9 @@ animates; measure on an iPhone in the installed PWA (Safari engine): 60 fps whil
 top slab visible.
 
 Implementation: plain CSS + small hooks (`useScrollChrome`, `usePullToRefresh`, `useSwipeAction`, `useCountUp`,
-`useChartScrub`). No animation library in this round (the mockup proves it is not needed). `vaul` provides the sheet's
-gesture, snap points, scroll lock and dialog semantics.
+`useChartScrub`). No animation library in this round (the mockup proves it is not needed). The sheet is built in-house
+(Oct 6 execution ruling: `vaul`'s Radix modal traps focus and dismisses on outside clicks, which breaks the app's own
+stacked layers: the skill popup over the post popup, the player, alerts, celebrations).
 
 ### 3.6 Icons
 
@@ -235,7 +236,7 @@ gesture, snap points, scroll lock and dialog semantics.
 | `ListGroup` + `ListRow` (icon, iconTone, title, sub, trailing, chevron, href / onClick) | ad-hoc `px-inset` rows, More links | hairline separators, press highlight |
 | `Segmented` (options, value, onChange, role tablist / radiogroup) | `.cal-tabs`, `.gr-tabs`, `.studio-seg` | equal widths, spring thumb, keyboard arrows |
 | `Switch` | `role="switch"` checkboxes in Auto replies | styled native `<input type="checkbox" role="switch">` (tests already query `getByRole("switch")`) |
-| `Sheet` (title, detents, children) on **vaul** `Drawer` | `SheetFrame`, `GrowthDialog`, post popup | `direction="bottom"`, `snapPoints=[0.6, 0.92]`, `useBackToClose`, focus trap from Radix Dialog, RTL-safe |
+| `Sheet` (title, detents, children), in-house | `SheetFrame`, `GrowthDialog`, post popup | portaled on z-39 under the skill popup / alerts / player / celebrations; detents `[0.6, 0.92]`, drag + fling, `useBackToClose`, focus in and out, scroll lock |
 | `Alert` = `ConfirmDialog` restyled by `data-world` | centered 270px iOS alert: title, message, stacked buttons with hairlines | one component for both worlds |
 | `Chip` (`.px-chip` restyle) | tone: default / tint / warn | 24px pill, 12px / 600 |
 | `StatTile` (label, value, delta, countUp) | `.an-kpi`, Studio growth tiles | 24px tabular numbers |
@@ -312,7 +313,7 @@ running transitions on the tab bar, and the Training Today page still has the pi
 | Liquid glass | [liquid-glass-react](https://github.com/rdev/liquid-glass-react), [simple-liquid-glass](https://github.com/lucaperullo/simple-liquid-glass), [liquid-glass-showcase](https://github.com/aryankholqi/liquid-glass-showcase) | **Rejected / reference**: refraction needs SVG filters WebKit ignores; own 12-line CSS recipe adopted |
 | 21st.dev | Segmented Control (ddoemonn), Bottom Nav Bar (arunachalam), Animated Tabs (Build UI), shadcn Drawer | **Reference patterns** (all need `framer-motion`; converted to CSS + logical properties) |
 | Primitives | shadcn/ui on Base UI, Radix, [Konsta UI](https://konstaui.com), Ark UI, Silk | shadcn/Base UI **maybe later** (no popovers / menus needed now); Konsta **rejected** (whole-app theme fights our tokens); Silk rejected (commercial) |
-| Bottom sheet | [vaul](https://github.com/emilkowalski/vaul) 1.1.x (MIT, 18.5 KB gz incl. Radix Dialog) | **Adopted** for bottom sheets only (snap points, drag, scroll lock, dialog a11y); README says "unmaintained" but it is still shadcn's Drawer and React 19 works |
+| Bottom sheet | [vaul](https://github.com/emilkowalski/vaul) 1.1.x (MIT, 18.5 KB gz incl. Radix Dialog) | First adopted, then **rejected at execution** (Oct 6): its Radix modal (focus trap, outside-click dismiss, hidden siblings) fights the app's stacked overlays, and its background scale needs a viewport-sized wrapper; in-house sheet instead (the mockup's) |
 | Icons | [Lucide](https://lucide.dev) (ISC), Hugeicons free, Phosphor, Tabler, Heroicons | **Lucide adopted** (`lucide-react`, tree-shaken); Hugeicons fallback for missing glyphs |
 | Brand glyphs | [simple-icons](https://github.com/simple-icons/simple-icons) (CC0) | **Adopted as copied paths**, no dependency |
 | Motion | [Motion](https://motion.dev) (`m` + `LazyMotion` ≈ 20 KB), CSS `linear()` springs, React `<ViewTransition>` | **CSS adopted**; Motion deferred; `<ViewTransition>` a stretch task for route changes |
@@ -353,5 +354,5 @@ running transitions on the tab bar, and the Training Today page still has the pi
 - `backdrop-filter` cost on iOS WebKit over scrolling content: cap at three blurred surfaces; measure on the owner's phone.
 - RTL regressions in pasted patterns: use logical properties; the mockup is the reference for direction (chevrons point
   left, swipe toward the left, week strip starts at the right).
-- `vaul` maintenance: pinned version; the wrapper hides it so a swap stays local.
+- The in-house sheet must match native feel: drag, fling and detents are checked on the owner's iPhone in phase 4.
 - The emoji sweep touches ~190 strings and 29 components: do it last, in one PR, with the parity test and the e2e suite.

@@ -10,12 +10,12 @@ world stays pixel-identical.
 **Architecture:** The `[data-world="social"]` token block in `app/globals.css` is rewritten with light and dark values
 (same token names, so every `.px-*` class and Tailwind color utility restyles on its own) plus new glass, tint and
 motion tokens. A small primitive set in `components/ui/ios/` (PageHeader, Card, ListGroup/ListRow, Segmented, Switch,
-Sheet on vaul, Chip, StatTile, PlatformBadge, EmptyState) and five hooks carry the behaviors; the shell gets Social
+an in-house Sheet, Chip, StatTile, PlatformBadge, EmptyState) and a few hooks carry the behaviors; the shell gets Social
 variants of the top area, tab bar and sidebar; then each Social screen moves onto the primitives, one PR per phase.
 The approved interactive mockup `planning/social-ios-mockup.html` is the visual and motion reference for every task.
 
 **Tech Stack:** Next.js 16 App Router (static export), React 19, TypeScript strict, Tailwind v4 (`@theme inline`),
-zustand, Vitest + jsdom, Playwright (phone = iPhone 14 on Chromium, desktop). New: `lucide-react`, `vaul`.
+zustand, Vitest + jsdom, Playwright (phone = iPhone 14 on Chromium, desktop). New: `lucide-react`.
 
 **Spec:** `planning/tools/18-social-ios-design.md` (read it first; this plan argues from it). Mockup:
 `planning/social-ios-mockup.html` (open it in a browser; live copy https://claude.ai/artifact/H7TN2Yh1gA3ZkabVpGj28f).
@@ -25,7 +25,7 @@ zustand, Vitest + jsdom, Playwright (phone = iPhone 14 on Chromium, desktop). Ne
 - **Training is untouched.** No change to the `:root` / `:root[data-world="training"]` tokens, to `components/today`,
   `components/map`, `components/skills` or any Training route. Shared files (shell, `ConfirmDialog`, `CelebrationProvider`,
   `globals.css`) change only inside `[data-world="social"]` selectors or behind `world === "social"` branches.
-- Only two new dependencies: `lucide-react` and `vaul` (pinned). No animation library, no UI kit.
+- Only one new dependency: `lucide-react` (pinned). No animation library, no UI kit, no sheet library (ruling in Task 1.1).
 - Every animation runs on `transform` or `opacity` (never `width`, `height`, `padding`, `blur`). Every duration comes
   from the tokens `--t-fast` 160ms · `--t-med` 320ms · `--t-spring` 500ms; `prefers-reduced-motion: reduce` zeroes them.
 - Glass (`.glass`, `.slab`) only on: top slab, world capsule, gear button, tab bar, Calendar "+" button, toasts, pull
@@ -67,12 +67,13 @@ zustand, Vitest + jsdom, Playwright (phone = iPhone 14 on Chromium, desktop). Ne
 | `components/ui/ios/StatTile.tsx` (new) | label / value / delta, count-up |
 | `components/ui/ios/PlatformBadge.tsx` (new) | brand glyph on platform color |
 | `components/ui/ios/EmptyState.tsx` (new) | icon, title, hint, action |
-| `components/ui/ios/Sheet.tsx` (new) | vaul drawer with two detents, back closes |
+| `components/ui/ios/Sheet.tsx` (new) | in-house sheet: detents, drag, spring, back closes, portaled on z-39 |
 | `components/ui/ios/useCountUp.ts` (new) | count-up hook |
-| `components/ui/ios/useScrollChrome.ts` (new) | writes `--scroll-p`, `data-compact`, `data-tabbar` |
-| `components/ui/ios/usePullToRefresh.ts` (new) | window-level pull on the Studio |
-| `components/ui/ios/useSwipeAction.ts` (new) | leading swipe on a row |
-| `components/ui/ios/Segmented.test.tsx`, `Switch.test.tsx`, `useCountUp.test.ts` (new) | unit tests |
+| `components/ui/ios/useScrollChrome.ts` (new, Task 2.2) | writes `--scroll-p`, `data-compact`, `data-tabbar` |
+| `components/ui/ios/usePullToRefresh.ts` (new, Task 3.1) | window-level pull on the Studio |
+| `components/ui/ios/useFirstVisit.ts` (new, Task 3.1) | entrance stagger only on a screen's first visit |
+| `components/ui/ios/useSwipeAction.ts` (new, Task 6.1) | leading swipe on a row |
+| `components/ui/ios/*.test.tsx`, `useCountUp.test.ts`, `lib/platformIcons.test.ts` (new) | unit tests |
 | `components/ui/ConfirmDialog.tsx` (modify) | class hooks for the iOS alert style |
 | `components/celebrate/CelebrationProvider.tsx` (modify) | Social toast class |
 | `components/shell/nav.ts`, `nav.test.ts` (modify) | `lucide` icon per Social item |
@@ -95,29 +96,33 @@ zustand, Vitest + jsdom, Playwright (phone = iPhone 14 on Chromium, desktop). Ne
 
 # Phase 1 — Foundations (branch `claude/social-ios-1-foundations`)
 
-### Task 1.1: Dependencies
+### Task 1.1: Dependency
 
 **Files:**
 - Modify: `package.json`, `pnpm-lock.yaml`
 
 **Interfaces:**
-- Produces: `lucide-react` icons (`import { Clapperboard } from "lucide-react"`), `vaul` (`import { Drawer } from "vaul"`).
+- Produces: `lucide-react` icons (`import { Clapperboard } from "lucide-react"`).
 
-- [ ] **Step 1: Add the two packages, pinned**
+Ruling (executor, Oct 6): `vaul` is **not** added. Its Radix modal dialog traps focus, dismisses on outside clicks and
+hides siblings from assistive tech, which breaks the app's own stacked layers (the skill popup opened from the post
+popup, the player, ConfirmDialog, celebrations), and its background scaling assumes a viewport-sized wrapper while the
+dashboard scrolls the document. Task 1.9 builds the sheet in-house instead (the approved mockup already does).
 
-Run: `pnpm.cmd add lucide-react@latest vaul@latest` then open `package.json` and replace the `^` on both with the exact
-version installed (e.g. `"lucide-react": "0.5xx.0"`, `"vaul": "1.1.2"`).
+- [ ] **Step 1: Add the package, pinned**
 
-- [ ] **Step 2: Verify the build still passes with the new modules importable**
+Run: `pnpm.cmd add lucide-react@latest`, then open `package.json` and replace the `^` with the exact version installed.
+
+- [ ] **Step 2: Verify**
 
 Run: `pnpm.cmd typecheck && pnpm.cmd build`
-Expected: both succeed; bundle size unchanged (nothing imports them yet).
+Expected: both succeed (nothing imports it yet).
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add package.json pnpm-lock.yaml
-git commit -m "chore: add lucide-react and vaul for the Social iOS look"
+git commit -m "chore: add lucide-react for the Social iOS look"
 ```
 
 ### Task 1.2: Vazirmatn
@@ -1161,12 +1166,13 @@ git commit -m "feat(social): iOS component skin for px classes and the ios-* set
   ```ts
   export function prefersReducedMotion(): boolean;
   export function clamp01(n: number): number;
-  export function easeOutCubic(p: number): number;            // 1 - (1 - p)^3
-  export function rubberBand(raw: number, limit: number, k?: number): number; // raw ≤ limit unchanged, beyond it log resistance
-  export const MINI_DOWN = 140, MINI_UP = 80, MINI_DELTA = 6, TITLE_SPAN = 56, COMPACT_AT = 44;
+  export function easeOutCubic(p: number): number; // 1 - (1 - p)^3
+  export function rubberBand(raw: number, limit: number, k?: number): number; // 1:1 up to limit, log resistance beyond (swipe rows)
+  export function overdrag(px: number, k?: number): number; // a sheet pulled above its top: log1p(px / k) * k
+  export const TITLE_SPAN = 56, COMPACT_AT = 44, MINI_DOWN = 140, MINI_UP = 80, MINI_DELTA = 6, FLING = 0.6;
   export function nextMini(prev: boolean, y: number, lastY: number): boolean;
   export function pullOffset(dy: number, resistance?: number, max?: number): number;
-  export function pickDetent(y: number, velocity: number, heights: { medium: number; closed: number }): "large" | "medium" | "closed";
+  export function settleStop(y: number, velocity: number, stops: readonly number[]): number; // index into stops
   ```
 
 - [ ] **Step 1: Write the failing tests**
@@ -1174,7 +1180,7 @@ git commit -m "feat(social): iOS component skin for px classes and the ios-* set
 ```ts
 // lib/motion.test.ts
 import { describe, expect, it } from "vitest";
-import { clamp01, easeOutCubic, nextMini, pickDetent, pullOffset, rubberBand } from "./motion";
+import { clamp01, easeOutCubic, nextMini, overdrag, pullOffset, rubberBand, settleStop } from "./motion";
 
 describe("motion helpers", () => {
   it("clamps and eases", () => {
@@ -1192,13 +1198,19 @@ describe("motion helpers", () => {
     expect(rubberBand(200, 96)).toBeLessThan(130);
   });
 
+  it("overdrag grows slower than the finger", () => {
+    expect(overdrag(0)).toBe(0);
+    expect(overdrag(30)).toBeCloseTo(30 * Math.log(2));
+    expect(overdrag(300)).toBeLessThan(80);
+  });
+
   it("minimizes the tab bar only after a clear scroll down past 140px, restores on scroll up or above 80px", () => {
-    expect(nextMini(false, 150, 140)).toBe(true); // down by 10 past the threshold
-    expect(nextMini(false, 150, 148)).toBe(false); // down by 2: ignored
-    expect(nextMini(false, 100, 50)).toBe(false); // below 140 never minimizes
-    expect(nextMini(true, 300, 310)).toBe(false); // up by 10 restores
-    expect(nextMini(true, 300, 302)).toBe(true); // up by 2: stays mini
-    expect(nextMini(true, 60, 60)).toBe(false); // above 80px (near the top) restores
+    expect(nextMini(false, 150, 140)).toBe(true);
+    expect(nextMini(false, 150, 148)).toBe(false);
+    expect(nextMini(false, 100, 50)).toBe(false);
+    expect(nextMini(true, 300, 310)).toBe(false);
+    expect(nextMini(true, 300, 302)).toBe(true);
+    expect(nextMini(true, 60, 60)).toBe(false);
   });
 
   it("pull offset applies resistance and a cap", () => {
@@ -1207,14 +1219,16 @@ describe("motion helpers", () => {
     expect(pullOffset(1000)).toBe(130);
   });
 
-  it("picks the sheet detent from position and velocity", () => {
-    const h = { medium: 200, closed: 500 };
-    expect(pickDetent(10, 0, h)).toBe("large");
-    expect(pickDetent(190, 0, h)).toBe("medium");
-    expect(pickDetent(420, 0, h)).toBe("closed");
-    expect(pickDetent(50, 1, h)).toBe("medium"); // flung down from large
-    expect(pickDetent(250, 1, h)).toBe("closed"); // flung down from medium
-    expect(pickDetent(250, -1, h)).toBe("large"); // flung up
+  it("settles on the nearest stop, or one stop further in the fling direction", () => {
+    const stops = [0, 200, 500]; // large, medium, closed (translateY px)
+    expect(settleStop(10, 0, stops)).toBe(0);
+    expect(settleStop(190, 0, stops)).toBe(1);
+    expect(settleStop(420, 0, stops)).toBe(2);
+    expect(settleStop(50, 1, stops)).toBe(1); // flung down from near large: medium
+    expect(settleStop(250, 1, stops)).toBe(2); // flung down past medium: closed
+    expect(settleStop(250, -1, stops)).toBe(1); // flung up from below medium: medium
+    expect(settleStop(150, -1, stops)).toBe(0); // flung up from above medium: large
+    expect(settleStop(300, 0, [0, 500])).toBe(1); // one detent: nearest wins
   });
 });
 ```
@@ -1248,11 +1262,18 @@ export function rubberBand(raw: number, limit: number, k = 24): number {
   return limit + Math.log1p((raw - limit) / k) * (k * 0.6);
 }
 
+/** How far a sheet follows a finger that pulls it above its top edge. */
+export function overdrag(px: number, k = 30): number {
+  return Math.log1p(Math.max(0, px) / k) * k;
+}
+
 export const TITLE_SPAN = 56;
 export const COMPACT_AT = 44;
 export const MINI_DOWN = 140;
 export const MINI_UP = 80;
 export const MINI_DELTA = 6;
+/** px/ms: a release faster than this steps one stop in its direction. */
+export const FLING = 0.6;
 
 /** Tab bar minimize state: down by ≥ 6px past 140px minimizes; up by ≥ 6px or above 80px restores. */
 export function nextMini(prev: boolean, y: number, lastY: number): boolean {
@@ -1268,32 +1289,34 @@ export function pullOffset(dy: number, resistance = 0.55, max = 130): number {
 }
 
 /**
- * Sheet detent after a drag. `y` = current translateY in px (0 = large), `velocity` in px/ms (positive = down).
- * A fling (|v| > 0.6) steps one detent; otherwise the nearest detent wins.
+ * Where a released drag settles. `stops` are translateY positions in px, ascending (the last one is "closed");
+ * `velocity` is px/ms, positive = down. A fling goes to the next stop in its direction; otherwise the nearest wins.
  */
-export function pickDetent(
-  y: number,
-  velocity: number,
-  heights: { medium: number; closed: number },
-): "large" | "medium" | "closed" {
-  if (velocity > 0.6) return y < heights.medium / 2 ? "medium" : y < heights.medium ? "medium" : "closed";
-  if (velocity < -0.6) return "large";
-  if (y < heights.medium / 2) return "large";
-  if (y < (heights.medium + heights.closed) / 2) return "medium";
-  return "closed";
+export function settleStop(y: number, velocity: number, stops: readonly number[]): number {
+  if (velocity > FLING) {
+    const i = stops.findIndex((s) => s > y + 1);
+    return i === -1 ? stops.length - 1 : i;
+  }
+  if (velocity < -FLING) {
+    for (let i = stops.length - 1; i >= 0; i--) if (stops[i] < y - 1) return i;
+    return 0;
+  }
+  let best = 0;
+  for (let i = 1; i < stops.length; i++) if (Math.abs(stops[i] - y) < Math.abs(stops[best] - y)) best = i;
+  return best;
 }
 ```
 
 - [ ] **Step 4: Run the tests**
 
 Run: `pnpm.cmd test lib/motion.test.ts`
-Expected: PASS (5 tests).
+Expected: PASS (6 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add lib/motion.ts lib/motion.test.ts
-git commit -m "feat(social): pure motion helpers (rubber band, tab bar minimize, pull, detents)"
+git commit -m "feat(social): pure motion helpers (rubber band, overdrag, tab bar minimize, pull, settle)"
 ```
 
 ### Task 1.6: Primitives — chrome store, PageHeader, Card, ListGroup/ListRow, Chip, StatTile, EmptyState
@@ -1326,31 +1349,33 @@ git commit -m "feat(social): pure motion helpers (rubber band, tab bar minimize,
 
 - [ ] **Step 1: Write the failing test for PageHeader (title registration)**
 
+There is no Testing Library in this repo: follow `components/player/PlayerSheet.test.ts` (react-dom/client + `act`).
+
 ```tsx
 // components/ui/ios/PageHeader.test.tsx
 // @vitest-environment jsdom
-import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { describe, expect, it } from "vitest";
 import PageHeader from "./PageHeader";
 import { useChrome } from "./chrome";
 
-afterEach(cleanup);
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("PageHeader", () => {
   it("renders the large title and registers it for the compact bar", () => {
-    const { getByRole, unmount } = render(<PageHeader title="الاستوديو" sub="مساحتك" eyebrow="الثلاثاء" />);
-    expect(getByRole("heading", { level: 1 }).textContent).toBe("الاستوديو");
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => root.render(<PageHeader title="الاستوديو" sub="مساحتك" eyebrow="الثلاثاء" />));
+    expect(host.querySelector("h1")?.textContent).toBe("الاستوديو");
+    expect(host.querySelector(".ios-eyebrow")?.textContent).toBe("الثلاثاء");
     expect(useChrome.getState().title).toBe("الاستوديو");
-    unmount();
+    act(() => root.unmount());
     expect(useChrome.getState().title).toBe("");
   });
 });
 ```
-
-If `@testing-library/react` is not installed, check `package.json` first: the repo tests hooks and components with
-plain `vitest` + `jsdom` (see `components/discover/DiscoverScreen.test.ts` for the pattern used here) — follow that
-pattern instead of adding a dependency: render with `react-dom/client` into a `document.createElement("div")` inside
-`act()` from `react`.
 
 - [ ] **Step 2: Run to see it fail**
 
@@ -1616,8 +1641,7 @@ export default function EmptyState({
 }
 ```
 
-`StatTile` imports `useCountUp` from Task 1.10; create that file in this task with the final code from Task 1.10 so
-the typecheck passes (the two tasks ship in the same PR).
+`StatTile` imports `useCountUp` from Task 1.10, which runs before this task (execution order 1.5 → 1.10 → 1.6).
 
 - [ ] **Step 4: Run the test and the typecheck**
 
@@ -1881,178 +1905,484 @@ git add components/ui/ios/Switch.tsx components/ui/ios/Switch.test.tsx
 git commit -m "feat(social): iOS Switch on a native checkbox"
 ```
 
-### Task 1.9: Sheet on vaul
+### Task 1.9: Sheet (in-house, no library)
 
 **Files:**
 - Create: `components/ui/ios/Sheet.tsx`
-- Modify: `components/shell/AppShell.tsx` (add `data-vaul-drawer-wrapper` to the outer `<div className="flex min-h-dvh flex-col">`)
-- Modify: `app/globals.css` (sheet classes, appended inside the Social `@layer components` block from Task 1.4)
+- Test: `components/ui/ios/Sheet.test.tsx`
+- Modify: `app/globals.css` (sheet classes, inside the Social `@layer components` block from Task 1.4)
 
 **Interfaces:**
+- Consumes: `overdrag`, `prefersReducedMotion`, `settleStop` (Task 1.5); `useBackToClose(open, onClose)` from
+  `components/player/useBackToClose.ts`; `useT()`; key `common.close` (exists: "سكّر" / "Close").
 - Produces:
   ```tsx
   export default function Sheet(p: {
-    open: boolean;
-    onClose: () => void;
+    onClose: () => void;            // runs after the exit animation; the caller unmounts the sheet
     title: string;
     sub?: string;
     titleId: string;
     testId: string;
-    /** Fractions of the viewport height; default two detents: medium 0.6, large 0.92. One value = a single height. */
-    detents?: number[];
-    /** Opens on this detent (index into `detents`), default 0. */
-    initialDetent?: number;
-    footer?: ReactNode;
-    attrs?: Record<string, string>;
+    detents?: readonly number[];    // visible fractions of the viewport height, ascending; default [0.6, 0.92]
+    initialDetent?: number;         // index into detents; default 0
+    attrs?: Record<string, string>; // extra data-* attributes on the dialog panel
+    backCloses?: boolean;           // the phone's Back closes it (default true)
     children: ReactNode;
-  }): JSX.Element;
+  }): JSX.Element | null;
+  export function useSheetClose(): () => void; // children close the sheet with its exit animation
   ```
-  Behaviors: drag from the grabber, snap to the detents, swipe down past the lowest closes, Esc and backdrop close,
-  focus trap and `aria-modal` from vaul's Radix Dialog, the phone's Back closes (`useBackToClose`), body scroll locked,
-  the content behind scales to 0.965 (vaul `shouldScaleBackground` on the wrapper).
+  Mounted = open (same contract as today's `SheetFrame`). The backdrop keeps `data-testid="sheet-backdrop"`.
 
-- [ ] **Step 1: Implement**
+Ruling (executor, Oct 6): the sheet is built in-house (see Task 1.1). It is **portaled to `<body>`** on a **z-39**
+layer so the skill popup (z-40), ConfirmDialog (z-50), the player (z-60) and celebrations (z-80) still open above it,
+and so `#main` can scale back behind it on phones without dragging the sheet along.
+
+Behavior (the approved mockup's sheet):
+- Phones: a bottom sheet as tall as the largest detent; each detent is a `translate3d(0, y, 0)`; opens from below
+  with the spring, starts at `initialDetent`; dragging the grabber/header moves it 1:1 (above the top it follows
+  `overdrag`); release settles with `settleStop` (fling ±0.6 px/ms steps one stop; the last stop closes). Taps on
+  buttons/links/inputs in the header never start a drag. At the medium detent `--sheet-hidden` pads the body so its
+  end can scroll into view.
+- md+: a centered dialog (no drag), max 560px wide, max 85dvh, fades and scales in.
+- Closing (✕, backdrop, Esc, a drag past the last stop, Back when `backCloses`) plays the exit (280ms) then calls
+  `onClose`; under reduced motion it calls `onClose` at once. `useSheetClose()` gives children the same close.
+- While open: body scroll locked, focus moved to the panel and restored after, and on phones `#main` gets
+  `.ios-behind` (scale .965 around the viewport center, spring), counted so nested sheets keep it until the last
+  one closes.
+
+- [ ] **Step 1: Write the failing test**
+
+Follow the pattern of `components/player/PlayerSheet.test.ts` (react-dom/client + `act`, jsdom docblock; there is no
+Testing Library in this repo).
+
+```tsx
+// components/ui/ios/Sheet.test.tsx
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import Sheet from "./Sheet";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+let root: Root | null = null;
+
+beforeEach(() => {
+  // Phone layout, reduced motion: closing calls onClose at once.
+  vi.stubGlobal("matchMedia", (q: string) => ({
+    matches: q.includes("reduce"),
+    media: q,
+    addEventListener() {},
+    removeEventListener() {},
+  }));
+});
+afterEach(() => {
+  if (root) act(() => root!.unmount());
+  root = null;
+  vi.unstubAllGlobals();
+  document.body.innerHTML = "";
+});
+
+function mount(onClose: () => void) {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  root = createRoot(host);
+  act(() =>
+    root!.render(
+      <Sheet onClose={onClose} title="بوست جديد" titleId="t1" testId="sheet">
+        <button type="button">داخل</button>
+      </Sheet>,
+    ),
+  );
+}
+
+describe("Sheet", () => {
+  it("is a labelled modal dialog in <body> that locks page scroll while mounted", () => {
+    mount(() => {});
+    const dlg = document.querySelector('[data-testid="sheet"]')!;
+    expect(dlg.getAttribute("role")).toBe("dialog");
+    expect(dlg.getAttribute("aria-modal")).toBe("true");
+    expect(dlg.getAttribute("aria-labelledby")).toBe("t1");
+    expect(document.getElementById("t1")?.textContent).toBe("بوست جديد");
+    expect(document.body.style.overflow).toBe("hidden");
+    act(() => root!.unmount());
+    root = null;
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("closes on Escape", () => {
+    const onClose = vi.fn();
+    mount(onClose);
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes on a backdrop tap", () => {
+    const onClose = vi.fn();
+    mount(onClose);
+    act(() => (document.querySelector('[data-testid="sheet-backdrop"]') as HTMLElement).click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes from its close button, once", () => {
+    const onClose = vi.fn();
+    mount(onClose);
+    const close = document.querySelector(".ios-close") as HTMLButtonElement;
+    act(() => close.click());
+    act(() => close.click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+```
+
+- [ ] **Step 2: Run to see it fail**
+
+Run: `pnpm.cmd test components/ui/ios/Sheet.test.tsx`
+Expected: FAIL (module not found).
+
+- [ ] **Step 3: Implement**
 
 ```tsx
 // components/ui/ios/Sheet.tsx
 "use client";
 
 import { X } from "lucide-react";
-import { useState, type ReactNode } from "react";
-import { Drawer } from "vaul";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import { useBackToClose } from "@/components/player/useBackToClose";
 import { useT } from "@/lib/i18n";
+import { overdrag, prefersReducedMotion, settleStop } from "@/lib/motion";
 
-const DETENTS = [0.6, 0.92];
+const CloseContext = createContext<() => void>(() => {});
 
-/** iOS bottom sheet: two heights, drag, spring, back-button close. Replaces SheetFrame / GrowthDialog in Social. */
+/** Close the surrounding sheet with its exit animation (for example after Save). */
+export function useSheetClose(): () => void {
+  return useContext(CloseContext);
+}
+
+type Phase = "enter" | "open" | "exit";
+const DESKTOP = "(min-width: 768px)";
+/** The exit transition takes 280ms; onClose runs after this. */
+const EXIT_MS = 300;
+/** Sheets open right now: #main stays scaled back until the last one closes. */
+let behind = 0;
+
+/**
+ * iOS sheet (tools/18 §3.5). Portaled to <body> on the z-39 layer, so the skill popup (z-40), ConfirmDialog (z-50),
+ * the player (z-60) and celebrations (z-80) open above it. Phones: a bottom sheet with detents (visible fractions of
+ * the viewport), dragged by its grabber/header. md+: a centered dialog. Mounted = open; ✕, the backdrop, Esc, a drag
+ * past the last detent and Back play the exit, then `onClose` runs (the caller unmounts it).
+ */
 export default function Sheet({
-  open,
   onClose,
   title,
   sub,
   titleId,
   testId,
-  detents = DETENTS,
+  detents = [0.6, 0.92],
   initialDetent = 0,
-  footer,
   attrs,
+  backCloses = true,
   children,
 }: {
-  open: boolean;
   onClose: () => void;
   title: string;
   sub?: string;
   titleId: string;
   testId: string;
-  detents?: number[];
+  detents?: readonly number[];
   initialDetent?: number;
-  footer?: ReactNode;
   attrs?: Record<string, string>;
+  backCloses?: boolean;
   children: ReactNode;
 }) {
   const { t } = useT();
-  const [snap, setSnap] = useState<number | string | null>(detents[initialDetent] ?? detents[0]);
-  useBackToClose(open, onClose);
-  return (
-    <Drawer.Root
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) onClose();
-        else setSnap(detents[initialDetent] ?? detents[0]);
-      }}
-      snapPoints={detents}
-      activeSnapPoint={snap}
-      setActiveSnapPoint={setSnap}
-      fadeFromIndex={0}
-      direction="bottom"
-      shouldScaleBackground
-      setBackgroundColorOnScale={false}
-    >
-      <Drawer.Portal>
-        <Drawer.Overlay className="ios-backdrop" data-testid="sheet-backdrop" />
-        <Drawer.Content
-          className="ios-sheet"
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [phase, setPhase] = useState<Phase>("enter");
+  const [detent, setDetent] = useState(() => Math.min(Math.max(initialDetent, 0), detents.length - 1));
+  const [dragY, setDragY] = useState<number | null>(null);
+  const [vh, setVh] = useState(() => (typeof window === "undefined" ? 0 : window.innerHeight));
+  const [desktop, setDesktop] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(DESKTOP).matches,
+  );
+  const closing = useRef(false);
+  const drag = useRef<{ y0: number; base: number; y: number; lastY: number; lastT: number; v: number } | null>(
+    null,
+  );
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Viewport size and phone / desktop mode.
+  useEffect(() => {
+    const mq = window.matchMedia(DESKTOP);
+    const read = () => {
+      setVh(window.innerHeight);
+      setDesktop(mq.matches);
+    };
+    window.addEventListener("resize", read);
+    mq.addEventListener("change", read);
+    return () => {
+      window.removeEventListener("resize", read);
+      mq.removeEventListener("change", read);
+    };
+  }, []);
+
+  // Enter: one painted frame below the screen, then spring to the first detent.
+  useEffect(() => {
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setPhase("open"));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, []);
+
+  const requestClose = useCallback(() => {
+    if (closing.current) return;
+    closing.current = true;
+    if (prefersReducedMotion()) {
+      onCloseRef.current();
+      return;
+    }
+    setPhase("exit");
+    window.setTimeout(() => onCloseRef.current(), EXIT_MS);
+  }, []);
+
+  useBackToClose(backCloses, requestClose);
+
+  // Scroll lock, focus in and back out, Esc.
+  useEffect(() => {
+    const prevFocus = document.activeElement as HTMLElement | null;
+    const body = document.body;
+    const prevOverflow = body.style.overflow;
+    body.style.overflow = "hidden";
+    panelRef.current?.focus({ preventScroll: true });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") requestClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      body.style.overflow = prevOverflow;
+      prevFocus?.focus?.({ preventScroll: true });
+    };
+  }, [requestClose]);
+
+  // Phones: the page behind scales back while a sheet is open (#main only; the sheet lives outside it).
+  useEffect(() => {
+    if (desktop || phase !== "open" || prefersReducedMotion()) return;
+    const main = document.getElementById("main");
+    if (!main) return;
+    const top = main.getBoundingClientRect().top;
+    main.style.transformOrigin = `50% ${Math.round(window.innerHeight / 2 - top)}px`;
+    behind += 1;
+    main.classList.add("ios-behind");
+    return () => {
+      behind -= 1;
+      if (behind === 0) main.classList.remove("ios-behind");
+    };
+  }, [desktop, phase]);
+
+  // Phone geometry: the panel is as tall as the largest detent; each detent is a translateY from there.
+  const large = Math.max(...detents);
+  const height = Math.round(large * vh);
+  const restY = (i: number) => Math.round((large - detents[i]) * vh);
+  const closedY = height + 24;
+  const order = detents.map((_, i) => i).sort((a, b) => restY(a) - restY(b));
+  const stops = [...order.map(restY), closedY];
+
+  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    if (desktop || phase !== "open" || e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button, a, input, textarea, select")) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const base = restY(detent);
+    drag.current = { y0: e.clientY, base, y: base, lastY: e.clientY, lastT: e.timeStamp, v: 0 };
+    setDragY(base);
+  };
+  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    if (!d) return;
+    const raw = d.base + (e.clientY - d.y0);
+    d.y = raw < 0 ? -overdrag(-raw) : raw;
+    const dt = e.timeStamp - d.lastT;
+    if (dt > 0) d.v = (e.clientY - d.lastY) / dt;
+    d.lastY = e.clientY;
+    d.lastT = e.timeStamp;
+    setDragY(d.y);
+  };
+  const onPointerEnd = () => {
+    const d = drag.current;
+    if (!d) return;
+    drag.current = null;
+    const i = settleStop(d.y, d.v, stops);
+    setDragY(null);
+    if (i === stops.length - 1) requestClose();
+    else setDetent(order[i]);
+  };
+
+  if (typeof document === "undefined") return null;
+  const y = phase === "open" ? (dragY ?? restY(detent)) : closedY;
+  const style = desktop
+    ? undefined
+    : ({
+        height,
+        transform: `translate3d(0, ${y}px, 0)`,
+        transition: dragY === null ? undefined : "none",
+        "--sheet-hidden": `${phase === "open" && dragY === null ? restY(detent) : 0}px`,
+      } as CSSProperties);
+
+  return createPortal(
+    <CloseContext.Provider value={requestClose}>
+      <div className="ios-sheet-root" data-phase={phase}>
+        <div className="ios-backdrop" data-testid="sheet-backdrop" onClick={requestClose} />
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
           aria-labelledby={titleId}
-          aria-describedby={undefined}
+          tabIndex={-1}
+          className="ios-sheet"
+          data-mode={desktop ? "dialog" : "sheet"}
           data-testid={testId}
+          style={style}
           {...attrs}
         >
-          <div className="ios-grab">
-            <Drawer.Handle className="ios-handle" />
+          <div
+            className="ios-grab"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerEnd}
+            onPointerCancel={onPointerEnd}
+          >
+            {!desktop && <span className="ios-handle" aria-hidden />}
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <Drawer.Title id={titleId} className="text-[20px] font-bold tracking-tight">
+                <h2 id={titleId} className="ios-sheet-title">
                   {title}
-                </Drawer.Title>
-                {sub && <p className="text-muted text-[12px]">{sub}</p>}
+                </h2>
+                {sub && <p className="ios-sheet-sub">{sub}</p>}
               </div>
-              <Drawer.Close className="ios-close" aria-label={t("common.close")}>
-                <X size={16} strokeWidth={1.75} />
-              </Drawer.Close>
+              <button type="button" className="ios-close" aria-label={t("common.close")} onClick={requestClose}>
+                <X size={16} strokeWidth={1.75} aria-hidden />
+              </button>
             </div>
           </div>
           <div className="ios-sheet-body">{children}</div>
-          {footer && <div className="ios-sheet-footer">{footer}</div>}
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
+        </div>
+      </div>
+    </CloseContext.Provider>,
+    document.body,
   );
 }
 ```
 
-Check `messages/ar.json` for the close label key: the inventory lists `common.*` with 3 keys; if none is "close", add
-`common.close` = `إغلاق` / `Close` to `messages/ar.json` and `messages/en.json`.
+If `pnpm.cmd lint` (React Compiler rules of `eslint-config-next` 16) flags a pattern here, restructure to satisfy it
+without changing behavior, and say what changed in the report.
 
-- [ ] **Step 2: Sheet CSS** (append inside the Social `@layer components` block):
+- [ ] **Step 4: Sheet CSS** (append inside the Social `@layer components` block):
 
 ```css
-  [data-world="social"] .ios-backdrop {
+  /* Sheet (Task 1.9): portaled to <body> on z-39; phones = bottom sheet with detents, md+ = centered dialog. */
+  .ios-sheet-root {
     position: fixed;
     inset: 0;
-    z-index: 40;
+    z-index: 39;
+  }
+  .ios-backdrop {
+    position: absolute;
+    inset: 0;
     background: rgba(0, 0, 0, 0.38);
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
+    opacity: 0;
+    transition: opacity var(--t-med) var(--out);
   }
-  [data-world="social"] .ios-sheet {
-    position: fixed;
+  .ios-sheet-root[data-phase="open"] .ios-backdrop {
+    opacity: 1;
+  }
+  .ios-sheet {
+    position: absolute;
     inset-inline: 0;
     bottom: 0;
-    z-index: 41;
-    height: 92dvh;
     display: flex;
     flex-direction: column;
     background: var(--panel);
+    color: var(--ink);
     border-radius: 30px 30px 0 0;
     box-shadow:
       0 -10px 40px rgba(0, 0, 0, 0.25),
       inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
     outline: none;
+    transition: transform var(--t-spring) var(--spring);
   }
-  @media (min-width: 768px) {
-    [data-world="social"] .ios-sheet {
-      inset-inline: auto;
-      left: 50%;
-      width: min(560px, 100vw - 32px);
-      transform: translateX(-50%);
-    }
+  .ios-sheet-root[data-phase="exit"] .ios-sheet {
+    transition: transform 0.28s cubic-bezier(0.4, 0, 1, 1);
   }
-  [data-world="social"] .ios-grab {
+  .ios-sheet[data-mode="dialog"] {
+    inset: auto;
+    left: 50%;
+    top: 50%;
+    width: min(560px, calc(100vw - 32px));
+    max-height: 85dvh;
+    border-radius: var(--radius);
+    transform: translate(-50%, -50%);
+    transition:
+      transform var(--t-spring) var(--spring),
+      opacity var(--t-med) var(--out);
+  }
+  .ios-sheet-root:not([data-phase="open"]) .ios-sheet[data-mode="dialog"] {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  .ios-sheet-root[data-phase="exit"] .ios-sheet[data-mode="dialog"] {
+    transition:
+      transform 0.2s var(--out),
+      opacity 0.2s var(--out);
+  }
+  .ios-grab {
     flex: none;
     padding: 8px 16px 6px;
+    touch-action: none;
     cursor: grab;
   }
-  [data-world="social"] .ios-handle {
+  .ios-sheet[data-mode="dialog"] .ios-grab {
+    padding-top: 16px;
+    cursor: default;
+  }
+  .ios-handle {
     display: block;
     width: 38px;
     height: 5px;
     margin: 0 auto 10px;
     border-radius: 3px;
     background: var(--fill);
-    opacity: 1;
   }
-  [data-world="social"] .ios-close {
+  .ios-sheet-title {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .ios-sheet-sub {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .ios-close {
     width: 32px;
     height: 32px;
     border-radius: 50%;
@@ -2061,98 +2391,109 @@ Check `messages/ar.json` for the close label key: the inventory lists `common.*`
     display: grid;
     place-items: center;
     flex: none;
+    transition: transform var(--t-fast) var(--out);
   }
-  [data-world="social"] .ios-sheet-body {
+  .ios-close:active {
+    transform: scale(0.9);
+  }
+  .ios-sheet-body {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding: 8px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    padding: 8px 16px calc(16px + var(--sheet-hidden, 0px) + env(safe-area-inset-bottom, 0px));
     display: flex;
     flex-direction: column;
     gap: 14px;
   }
-  [data-world="social"] .ios-sheet-footer {
-    flex: none;
-    padding: 8px 16px calc(12px + env(safe-area-inset-bottom, 0px));
-    border-top: 0.5px solid var(--hair);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+  [data-world="social"] #main {
+    transition: transform var(--t-spring) var(--spring);
   }
-  [data-world="social"] [data-vaul-drawer-wrapper] {
-    transition: transform var(--t-spring) var(--spring), border-radius var(--t-spring) var(--spring) !important;
+  [data-world="social"] #main.ios-behind {
+    transform: scale(0.965);
   }
 ```
 
-vaul positions the drawer with its own inline transforms; on desktop the `translateX(-50%)` centering is overridden
-while dragging, so keep the desktop rule simple: if centering fights vaul in testing, use `inset-inline: 0; margin-inline: auto; width: min(560px, 100vw - 32px)` instead.
+- [ ] **Step 5: Run the test and a browser smoke check**
 
-- [ ] **Step 3: Smoke test in the browser (no unit test: vaul needs a real layout)**
+Run: `pnpm.cmd test components/ui/ios/Sheet.test.tsx` → PASS (4 tests).
+Then temporarily render `<Sheet>` behind a button in `components/social/SoonScreen.tsx`, run `pnpm.cmd dev -p 3141`,
+open `/social/website/` on a 390px viewport and check: it springs up to 60%, drags up to 92% with rubber band above,
+a fling down closes, Esc / backdrop / ✕ close with the exit, browser Back closes it without leaving the page, the page
+behind scales back. Remove the temporary button before committing.
 
-Temporarily render `<Sheet open … >` from `components/social/SoonScreen.tsx` behind a button, run
-`pnpm.cmd dev -p 3141`, open `/social/website` on the phone project in the Browser pane, verify: opens at 60%, drag up
-to 92%, drag down closes, Esc closes, backdrop closes, browser Back closes without leaving the page, content behind
-scales. Remove the temporary button before committing.
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add components/ui/ios/Sheet.tsx components/shell/AppShell.tsx app/globals.css messages/ar.json messages/en.json
-git commit -m "feat(social): Sheet primitive on vaul with two detents and back-to-close"
+git add components/ui/ios/Sheet.tsx components/ui/ios/Sheet.test.tsx app/globals.css
+git commit -m "feat(social): in-house iOS sheet with detents, drag, spring and back-to-close"
 ```
 
-### Task 1.10: Hooks — useCountUp, useScrollChrome, usePullToRefresh, useSwipeAction
+### Task 1.10: useCountUp (run it before Task 1.6, whose StatTile imports it)
 
 **Files:**
-- Create: `components/ui/ios/useCountUp.ts`, `useScrollChrome.ts`, `usePullToRefresh.ts`, `useSwipeAction.ts`
+- Create: `components/ui/ios/useCountUp.ts`
 - Test: `components/ui/ios/useCountUp.test.ts`
 
-**Interfaces:**
-- Produces:
-  ```ts
-  export function useCountUp(target: number, o?: { decimals?: number; duration?: number; enabled?: boolean }): string;
-  export function useScrollChrome(enabled: boolean, resetKey: string): void; // writes html.style --scroll-p, html[data-compact], html[data-tabbar="mini"]
-  export function usePullToRefresh(onRefresh: () => Promise<unknown> | void, o?: { enabled?: boolean; threshold?: number; targetRef?: RefObject<HTMLElement | null> }): { pull: number; refreshing: boolean };
-  export function useSwipeAction(onTrigger: () => void, o?: { max?: number; arm?: number; enabled?: boolean }): { handlers: Pick<HTMLAttributes<HTMLElement>, "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel">; x: number; armed: boolean; dragging: boolean };
-  ```
+Ruling (executor, Oct 6): the other three hooks move to the tasks that first use them, so each is built and checked
+with its consumer: `useScrollChrome` → Task 2.2, `usePullToRefresh` → Task 3.1, `useSwipeAction` → Task 6.1.
 
-- [ ] **Step 1: Failing test for useCountUp (formatting + reduced motion short-circuit)**
+**Interfaces:**
+- Consumes: `easeOutCubic`, `prefersReducedMotion` (Task 1.5).
+- Produces: `export function useCountUp(target: number, o?: { decimals?: number; duration?: number; enabled?: boolean }): string;`
+  (Western digits with thousands separators, `en-US` formatting.)
+
+- [ ] **Step 1: Failing test (formatting + reduced motion)**
 
 ```ts
 // components/ui/ios/useCountUp.test.ts
 // @vitest-environment jsdom
-import { act } from "react";
-import { createRoot } from "react-dom/client";
-import { createElement } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useCountUp } from "./useCountUp";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 function Probe({ v, dec }: { v: number; dec?: number }) {
   return createElement("b", null, useCountUp(v, { decimals: dec }));
 }
 
+let root: Root | null = null;
+afterEach(() => {
+  if (root) act(() => root!.unmount());
+  root = null;
+  vi.unstubAllGlobals();
+});
+
+function render(v: number, dec?: number) {
+  const host = document.createElement("div");
+  root = createRoot(host);
+  act(() => root!.render(createElement(Probe, { v, dec })));
+  return host;
+}
+
 describe("useCountUp", () => {
-  it("renders the final value at once when motion is reduced", () => {
+  it("shows the final value at once when motion is reduced", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
-    const host = document.createElement("div");
-    act(() => createRoot(host).render(createElement(Probe, { v: 12430 })));
-    expect(host.textContent).toBe("12,430");
-    vi.unstubAllGlobals();
+    expect(render(12430).textContent).toBe("12,430");
   });
 
   it("keeps the decimals and starts from zero when animating", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
-    vi.stubGlobal("requestAnimationFrame", () => 0);
-    const host = document.createElement("div");
-    act(() => createRoot(host).render(createElement(Probe, { v: 184.2, dec: 1 })));
-    expect(host.textContent).toBe("0.0");
-    vi.unstubAllGlobals();
+    vi.stubGlobal("requestAnimationFrame", () => 1);
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    expect(render(184.2, 1).textContent).toBe("0.0");
   });
 });
 ```
 
-- [ ] **Step 2: Run to see it fail**, then **Step 3: Implement the four hooks**
+- [ ] **Step 2: Run to see it fail**
+
+Run: `pnpm.cmd test components/ui/ios/useCountUp.test.ts`
+Expected: FAIL (module not found).
+
+- [ ] **Step 3: Implement**
 
 ```ts
 // components/ui/ios/useCountUp.ts
@@ -2165,18 +2506,15 @@ function fmt(v: number, decimals: number): string {
   return v.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
-/** Counts from 0 to `target` once (1000ms, ease-out cubic). Reduced motion or `enabled: false` shows the target. */
+/** Counts from 0 to `target` (1000ms, ease-out cubic). Reduced motion or `enabled: false` shows the target. */
 export function useCountUp(
   target: number,
   { decimals = 0, duration = 1000, enabled = true }: { decimals?: number; duration?: number; enabled?: boolean } = {},
 ): string {
   const still = !enabled || prefersReducedMotion();
-  const [shown, setShown] = useState(() => fmt(still ? target : 0, decimals));
+  const [shown, setShown] = useState(() => fmt(0, decimals));
   useEffect(() => {
-    if (still) {
-      setShown(fmt(target, decimals));
-      return;
-    }
+    if (still) return;
     let raf = 0;
     const start = performance.now();
     const step = (now: number) => {
@@ -2187,280 +2525,86 @@ export function useCountUp(
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
   }, [target, decimals, duration, still]);
-  return shown;
+  return still ? fmt(target, decimals) : shown;
 }
 ```
 
-```ts
-// components/ui/ios/useScrollChrome.ts
-"use client";
-
-import { useEffect } from "react";
-import { clamp01, COMPACT_AT, nextMini, TITLE_SPAN } from "@/lib/motion";
-
-/**
- * Scroll-linked chrome for the Social shell: `--scroll-p` (0–1 over the first 56px) feeds the large title,
- * `data-compact` shows the glass slab + compact title past 44px, `data-tabbar="mini"` minimizes the tab bar on a
- * clear scroll down. Passive listener, one write per frame. `resetKey` (the pathname) restarts the direction memory.
- */
-export function useScrollChrome(enabled: boolean, resetKey: string): void {
-  useEffect(() => {
-    const html = document.documentElement;
-    const clear = () => {
-      html.style.removeProperty("--scroll-p");
-      delete html.dataset.compact;
-      delete html.dataset.tabbar;
-    };
-    if (!enabled) {
-      clear();
-      return;
-    }
-    let last = window.scrollY;
-    let mini = false;
-    let ticking = false;
-    const run = () => {
-      ticking = false;
-      const y = window.scrollY;
-      html.style.setProperty("--scroll-p", clamp01(y / TITLE_SPAN).toFixed(3));
-      if (y > COMPACT_AT) html.dataset.compact = "true";
-      else delete html.dataset.compact;
-      mini = nextMini(mini, y, last);
-      if (mini) html.dataset.tabbar = "mini";
-      else delete html.dataset.tabbar;
-      last = y;
-    };
-    const onScroll = () => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(run);
-    };
-    run();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      clear();
-    };
-  }, [enabled, resetKey]);
-}
-```
-
-```ts
-// components/ui/ios/usePullToRefresh.ts
-"use client";
-
-import { useEffect, useRef, useState, type RefObject } from "react";
-import { pullOffset } from "@/lib/motion";
-
-/**
- * Pull-to-refresh on the window scroll (the dashboard scrolls the document). Touch only (desktop has a button).
- * While pulling, the target element (default `#main`) is translated down with resistance; past `threshold` the
- * release calls `onRefresh`, holds the content at 56px with `refreshing: true`, then springs back (≥ 1.1s).
- */
-export function usePullToRefresh(
-  onRefresh: () => Promise<unknown> | void,
-  {
-    enabled = true,
-    threshold = 70,
-    targetRef,
-  }: { enabled?: boolean; threshold?: number; targetRef?: RefObject<HTMLElement | null> } = {},
-): { pull: number; refreshing: boolean } {
-  const [pull, setPull] = useState(0);
-  const [refreshing, setRefreshing] = useState(false);
-  const cb = useRef(onRefresh);
-  cb.current = onRefresh;
-
-  useEffect(() => {
-    if (!enabled) return;
-    const target = () => targetRef?.current ?? document.getElementById("main");
-    let y0 = 0;
-    let dy = 0;
-    let pulling = false;
-    let busy = false;
-    const setY = (px: number, animate: boolean) => {
-      const el = target();
-      if (!el) return;
-      el.style.transition = animate ? "transform var(--t-spring) var(--spring)" : "none";
-      el.style.transform = px ? `translateY(${px}px)` : "";
-    };
-    const start = (e: TouchEvent) => {
-      if (busy || window.scrollY > 0) return;
-      pulling = true;
-      y0 = e.touches[0].clientY;
-      dy = 0;
-    };
-    const move = (e: TouchEvent) => {
-      if (!pulling) return;
-      const raw = e.touches[0].clientY - y0;
-      dy = pullOffset(raw);
-      if (dy > 0) {
-        if (e.cancelable) e.preventDefault();
-        setY(dy, false);
-        setPull(dy);
-      }
-    };
-    const end = () => {
-      if (!pulling) return;
-      pulling = false;
-      if (dy >= threshold) {
-        busy = true;
-        setRefreshing(true);
-        setY(56, true);
-        const done = Promise.all([Promise.resolve(cb.current()), new Promise((r) => setTimeout(r, 1100))]);
-        done.finally(() => {
-          busy = false;
-          setRefreshing(false);
-          setPull(0);
-          setY(0, true);
-          setTimeout(() => {
-            const el = target();
-            if (el) el.style.transition = "";
-          }, 600);
-        });
-      } else {
-        setPull(0);
-        setY(0, true);
-      }
-    };
-    window.addEventListener("touchstart", start, { passive: true });
-    window.addEventListener("touchmove", move, { passive: false });
-    window.addEventListener("touchend", end);
-    window.addEventListener("touchcancel", end);
-    return () => {
-      window.removeEventListener("touchstart", start);
-      window.removeEventListener("touchmove", move);
-      window.removeEventListener("touchend", end);
-      window.removeEventListener("touchcancel", end);
-      setY(0, false);
-    };
-  }, [enabled, threshold, targetRef]);
-
-  return { pull, refreshing };
-}
-```
-
-```ts
-// components/ui/ios/useSwipeAction.ts
-"use client";
-
-import { useRef, useState, type HTMLAttributes, type PointerEvent } from "react";
-import { rubberBand } from "@/lib/motion";
-
-type Handlers = Pick<HTMLAttributes<HTMLElement>, "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel">;
-
-/**
- * Leading swipe on a row (toward the end edge: left in RTL). Returns the translateX to apply to the row, whether
- * the action is armed (past `arm` px) and pointer handlers. A vertical move at the start hands the gesture back to
- * scrolling (the row has `touch-action: pan-y`). Releasing while armed calls `onTrigger` and springs back.
- */
-export function useSwipeAction(
-  onTrigger: () => void,
-  { max = 96, arm = 64, enabled = true }: { max?: number; arm?: number; enabled?: boolean } = {},
-): { handlers: Handlers; x: number; armed: boolean; dragging: boolean } {
-  const [x, setX] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const s = useRef({ x0: 0, y0: 0, active: false, decided: false, rtl: true });
-
-  const onPointerDown = (e: PointerEvent<HTMLElement>) => {
-    if (!enabled || e.button) return;
-    const st = s.current;
-    st.x0 = e.clientX;
-    st.y0 = e.clientY;
-    st.active = true;
-    st.decided = false;
-    st.rtl = (e.currentTarget.closest("[dir]") as HTMLElement | null)?.dir !== "ltr";
-  };
-  const onPointerMove = (e: PointerEvent<HTMLElement>) => {
-    const st = s.current;
-    if (!st.active) return;
-    const mx = e.clientX - st.x0;
-    const my = e.clientY - st.y0;
-    if (!st.decided) {
-      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
-      if (Math.abs(my) > Math.abs(mx)) {
-        st.active = false;
-        return;
-      }
-      st.decided = true;
-      setDragging(true);
-      e.currentTarget.setPointerCapture(e.pointerId);
-    }
-    // Toward the end edge only: negative in RTL, positive in LTR.
-    const toward = st.rtl ? -mx : mx;
-    const d = rubberBand(Math.max(0, toward), max);
-    setX(st.rtl ? -d : d);
-  };
-  const finish = () => {
-    const st = s.current;
-    if (!st.active) return;
-    st.active = false;
-    const armed = Math.abs(x) >= arm;
-    setDragging(false);
-    setX(0);
-    if (st.decided && armed) onTrigger();
-  };
-  return {
-    handlers: { onPointerDown, onPointerMove, onPointerUp: finish, onPointerCancel: finish },
-    x,
-    armed: Math.abs(x) >= arm,
-    dragging,
-  };
-}
-```
-
-- [ ] **Step 4: Run the tests and typecheck**
-
-Run: `pnpm.cmd test components/ui/ios && pnpm.cmd typecheck`
-Expected: PASS.
+- [ ] **Step 4: Run the test** → PASS (2 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add components/ui/ios
-git commit -m "feat(social): motion hooks: count-up, scroll chrome, pull to refresh, swipe action"
+git add components/ui/ios/useCountUp.ts components/ui/ios/useCountUp.test.ts
+git commit -m "feat(social): useCountUp hook"
 ```
 
 ### Task 1.11: Platform glyphs and PlatformBadge
 
 **Files:**
-- Create: `lib/platformIcons.tsx`, `components/ui/ios/PlatformBadge.tsx`
-- Modify: `lib/social.ts:60-66` (`PlatformMeta` gets `glyph`), `lib/social.ts:76-160` (colors → tokens)
-- Test: `lib/social.test.ts` (existing; add one assertion)
+- Create: `lib/platformIcons.tsx`, `lib/platformIcons.test.ts`, `components/ui/ios/PlatformBadge.tsx`
+
+Ruling (executor, Oct 6): `PLATFORM_META.color` keeps its hex values (charts, `--c` / `--pc` styles, the Settings
+accounts card and `lib/social.test.ts` read it); the iOS badge uses the new `--pc-*` tokens from Task 1.3 instead.
 
 **Interfaces:**
 - Produces:
   ```tsx
   // lib/platformIcons.tsx
   export const PLATFORM_PATHS: Record<Platform, string>; // 24×24 simple-icons path data (CC0)
-  export function PlatformGlyph(p: { platform: Platform; size?: number; className?: string }): JSX.Element; // <svg viewBox="0 0 24 24" fill="currentColor">
+  export function PlatformGlyph(p: { platform: Platform; size?: number; className?: string }): JSX.Element;
   // components/ui/ios/PlatformBadge.tsx
-  export default function PlatformBadge(p: { platform: Platform; size?: number; className?: string }): JSX.Element; // colored square with the white glyph
+  export default function PlatformBadge(p: { platform: Platform; size?: number; className?: string }): JSX.Element;
   ```
-  `PLATFORM_META[p].color` becomes `var(--pc-<platform>)` strings; `PLATFORM_META[p].glyph = true` marks that a glyph exists (the emoji `icon` stays for Training users of the meta).
 
-- [ ] **Step 1: Fetch the six brand paths (CC0) into the module**
+- [ ] **Step 1: Failing test**
 
-Run, from the repo root (each prints an `<svg>` whose single `<path d="…">` is the data to copy):
+```ts
+// lib/platformIcons.test.ts
+import { describe, expect, it } from "vitest";
+import { PLATFORM_PATHS } from "./platformIcons";
+import { PLATFORM_META, type Platform } from "./social";
+
+describe("platform glyphs", () => {
+  it("has a path for every platform", () => {
+    for (const p of Object.keys(PLATFORM_META) as Platform[]) {
+      expect(PLATFORM_PATHS[p], p).toMatch(/^M/);
+      expect(PLATFORM_PATHS[p].length, p).toBeGreaterThan(40);
+    }
+  });
+});
+```
+
+(Read `lib/social.ts` for the `Platform` type export; adjust the import if its name differs.)
+
+- [ ] **Step 2: Fetch the six brand paths (CC0) and write the module**
 
 ```bash
 for s in tiktok instagram youtube snapchat x threads; do echo "== $s"; curl -s "https://cdn.simpleicons.org/$s" | grep -o 'd="[^"]*"' | head -1; done
 ```
 
-Create `lib/platformIcons.tsx` with the six `d` strings:
-
 ```tsx
+// lib/platformIcons.tsx
 import type { Platform } from "./social";
 
 /** Brand marks from simple-icons (CC0 1.0), 24×24, filled. White on the platform color in PlatformBadge. */
 export const PLATFORM_PATHS: Record<Platform, string> = {
-  tiktok: "<paste tiktok d>",
-  instagram: "<paste instagram d>",
-  youtube: "<paste youtube d>",
-  snapchat: "<paste snapchat d>",
-  x: "<paste x d>",
-  threads: "<paste threads d>",
+  tiktok: "…",
+  instagram: "…",
+  youtube: "…",
+  snapchat: "…",
+  x: "…",
+  threads: "…",
 };
 
-export function PlatformGlyph({ platform, size = 20, className }: { platform: Platform; size?: number; className?: string }) {
+export function PlatformGlyph({
+  platform,
+  size = 20,
+  className,
+}: {
+  platform: Platform;
+  size?: number;
+  className?: string;
+}) {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" className={className} aria-hidden>
       <path d={PLATFORM_PATHS[platform]} />
@@ -2469,18 +2613,26 @@ export function PlatformGlyph({ platform, size = 20, className }: { platform: Pl
 }
 ```
 
-(The `<paste … d>` placeholders are filled by the curl output in this step; the module must not ship with them.)
+Each `"…"` is the `d` value printed by the curl loop for that platform.
 
-- [ ] **Step 2: PlatformBadge**
+- [ ] **Step 3: PlatformBadge**
 
 ```tsx
 // components/ui/ios/PlatformBadge.tsx
-import type { Platform } from "@/lib/social";
 import { PlatformGlyph } from "@/lib/platformIcons";
+import type { Platform } from "@/lib/social";
 
-/** 40px (default) rounded square in the platform color with its white glyph; Snapchat and X use dark glyphs. */
-export default function PlatformBadge({ platform, size = 40, className = "" }: { platform: Platform; size?: number; className?: string }) {
-  const dark = platform === "snapchat";
+/** Rounded square in the platform color with its glyph (white; dark on Snapchat yellow; page color on X / Threads ink). */
+export default function PlatformBadge({
+  platform,
+  size = 40,
+  className = "",
+}: {
+  platform: Platform;
+  size?: number;
+  className?: string;
+}) {
+  const fg = platform === "snapchat" ? "#111" : platform === "x" || platform === "threads" ? "var(--bg)" : "#fff";
   return (
     <span
       className={`grid shrink-0 place-items-center ${className}`}
@@ -2489,7 +2641,7 @@ export default function PlatformBadge({ platform, size = 40, className = "" }: {
         height: size,
         borderRadius: Math.round(size * 0.33),
         background: `var(--pc-${platform})`,
-        color: dark ? "#111" : platform === "x" || platform === "threads" ? "var(--bg)" : "#fff",
+        color: fg,
       }}
       aria-hidden
     >
@@ -2499,60 +2651,125 @@ export default function PlatformBadge({ platform, size = 40, className = "" }: {
 }
 ```
 
-- [ ] **Step 3: Tokens in `PLATFORM_META`**
+- [ ] **Step 4: Run tests and typecheck** → PASS.
 
-In `lib/social.ts` add `glyph: true` to each entry's type and object, and set `color` to `"var(--pc-tiktok)"`,
-`"var(--pc-instagram)"`, `"var(--pc-youtube)"`, `"var(--pc-threads)"`, `"var(--pc-x)"`, `"var(--pc-snapchat)"`.
-Then grep every reader of `.color` (`PlatformTab.tsx:74` chart lines, `calendar/PlatformChip.tsx`, `studio/platform.tsx`,
-`globals.css` `--pc` usages) and confirm each passes the string into CSS (`style={{ color }}`, `stroke={color}`,
-`--pc: ${color}`), which all accept `var()`. Add to `lib/social.test.ts`:
-
-```ts
-it("platform colors are theme tokens", () => {
-  for (const m of Object.values(PLATFORM_META)) expect(m.color).toMatch(/^var\(--pc-[a-z]+\)$/);
-});
-```
-
-Training does not render platform colors (verify with `grep -rn "PLATFORM_META" components/today components/map components/skills` → no hits).
-
-- [ ] **Step 4: Run tests and typecheck** → PASS. **Step 5: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add lib/platformIcons.tsx lib/social.ts lib/social.test.ts components/ui/ios/PlatformBadge.tsx
-git commit -m "feat(social): brand glyphs and token colors for platforms"
+git add lib/platformIcons.tsx lib/platformIcons.test.ts components/ui/ios/PlatformBadge.tsx
+git commit -m "feat(social): brand glyphs and the iOS platform badge"
 ```
 
-### Task 1.12: ConfirmDialog as an iOS alert, Social toast class
+### Task 1.12: ConfirmDialog as an iOS alert in Social, glass toast
 
 **Files:**
-- Modify: `components/ui/ConfirmDialog.tsx` (class hooks only, markup order unchanged)
-- Modify: `components/celebrate/CelebrationProvider.tsx:269` (the small toast element)
+- Modify: `components/ui/ConfirmDialog.tsx`
+- Modify: `components/celebrate/CelebrationProvider.tsx` (`SmallToast`, and the big celebration's pixel font in Social)
+- Modify: `app/globals.css` (alert root class, inside the Social `@layer components` block)
 
-- [ ] **Step 1: ConfirmDialog hooks**
+Ruling (executor, Oct 6): Training keeps today's ConfirmDialog markup byte for byte; the Social branch is a separate
+component **portaled to `<body>`**, so it centers on the screen even when opened from inside a sheet (a transformed
+panel would trap a `position: fixed` child). Esc is caught on `document` in the capture phase and stopped, so the
+sheet underneath does not close with it.
 
-In the panel `<div role="alertdialog" … className="px-card anim-popin flex w-full max-w-[400px] flex-col gap-3">` add
-the class `ios-alert`; wrap the `<h2>` and `<p>` in `<div className="ios-alert-body">`; give the buttons' container the
-class `ios-alert-actions` and put `data-primary="true"` on the confirm button and `data-danger={danger ? "true" : undefined}`
-on it when `danger`. In Training nothing changes (the `ios-alert*` rules are scoped to `[data-world="social"]`).
-Keep `data-testid="confirm-dialog"`, the ids and the focus logic.
+- [ ] **Step 1: ConfirmDialog**
 
-- [ ] **Step 2: Toast class**
+Read `components/ui/ConfirmDialog.tsx` fully. Rename the current component body to `PixelConfirm` (unchanged) and
+export a wrapper:
 
-At `CelebrationProvider.tsx:269` the small toast has `rounded-[2px] border-[3px] text-[#16202c] …`. Read the world with
-`useWorld()` inside the toast component and render `className={world === "social" ? "ios-toast glass anim-toast" : <existing classes>}`.
-Keep `data-testid="toast"` and `data-kind`. Also at `:390` and `:405` (`font-pixel`, 3px text-shadow on the big
-celebration) wrap those classes the same way: in Social use `font-semibold` and no text-shadow.
+```tsx
+export default function ConfirmDialog(props: ConfirmProps) {
+  return useWorld() === "social" ? <IosAlert {...props} /> : <PixelConfirm {...props} />;
+}
+```
 
-- [ ] **Step 3: Check both worlds in the browser**
+`IosAlert` keeps every test hook of today's dialog: `role="alertdialog"`, `aria-modal`, `aria-labelledby="confirm-title"`,
+`aria-describedby="confirm-body"`, `data-testid="confirm-dialog"`, the same button labels (`cancelLabel ?? t("common.cancel")`,
+`confirmLabel ?? t("common.confirm")`) and any `data-testid` the existing buttons carry. Markup:
 
-Run `pnpm.cmd dev -p 3141`; on `/social/calendar` open a post and delete it (ConfirmDialog) → the 270px centered
-alert with stacked buttons; on `/` complete a quest → the pixel toast unchanged.
+```tsx
+createPortal(
+  <div className="ios-alert-root" onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
+    <div role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body" className="ios-alert" data-testid="confirm-dialog">
+      <div className="ios-alert-body">
+        <h2 id="confirm-title">{title}</h2>
+        <p id="confirm-body">{body}</p>
+      </div>
+      <div className="ios-alert-actions">
+        <button ref={cancelRef} type="button" onClick={onCancel}>{cancelLabel ?? t("common.cancel")}</button>
+        <button type="button" onClick={onConfirm} data-primary="true" data-danger={danger ? "true" : undefined}>{confirmLabel ?? t("common.confirm")}</button>
+      </div>
+    </div>
+  </div>,
+  document.body,
+)
+```
+
+Focus goes to Cancel on mount and back to the previously focused element on unmount; Esc:
+`document.addEventListener("keydown", onKey, true)` with `e.stopPropagation()` before calling `onCancel`. Return
+`null` when `typeof document === "undefined"`.
+
+CSS (Social block; the `.ios-alert*` rules from Task 1.4 already style the panel and buttons — change
+`.ios-alert-actions` there to two columns):
+
+```css
+  .ios-alert-root {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.32);
+    animation: px-fade var(--t-med) var(--out);
+  }
+  [data-world="social"] .ios-alert {
+    background: var(--panel);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    animation: ios-alert-in var(--t-spring) var(--spring);
+  }
+  [data-world="social"] .ios-alert-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-top: 0.5px solid var(--hair);
+  }
+  [data-world="social"] .ios-alert-actions > button + button {
+    border-top: 0;
+    border-inline-start: 0.5px solid var(--hair);
+  }
+  @keyframes ios-alert-in {
+    from {
+      opacity: 0;
+      transform: scale(1.1);
+    }
+  }
+```
+
+- [ ] **Step 2: Toast**
+
+In `CelebrationProvider.tsx`, `SmallToast` reads `useWorld()`. In Social it renders, in the same positioned wrapper:
+
+```tsx
+<div data-testid="toast" data-kind={item.kind} className="ios-toast glass anim-toast">
+  {icon === "⚠️" ? <TriangleAlert size={18} strokeWidth={1.75} className="text-warn" aria-hidden /> : <Check size={18} strokeWidth={1.75} aria-hidden />}
+  <span>{text}</span>
+</div>
+```
+
+(the emoji `icon` string is no longer shown in Social; Training's toast is unchanged). In `BigCelebration`, the two
+spots that use `font-pixel` and a 3px text-shadow get `font-semibold` and no shadow when `useWorld() === "social"`.
+There were no e2e assertions on toast text with emoji when this was written (`grep -rn 'getByTestId("toast")' e2e`).
+
+- [ ] **Step 3: Check both worlds**
+
+Run `pnpm.cmd dev -p 3141`: on `/social/calendar/` delete a post (alert centered, two buttons side by side, Esc closes
+only the alert); on `/` finish a quest (pixel toast unchanged); on `/social/` any notice toast shows the glass capsule.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add components/ui/ConfirmDialog.tsx components/celebrate/CelebrationProvider.tsx
-git commit -m "feat(social): iOS alert style for ConfirmDialog and glass toast in Social"
+git add components/ui/ConfirmDialog.tsx components/celebrate/CelebrationProvider.tsx app/globals.css
+git commit -m "feat(social): iOS alert for ConfirmDialog and a glass toast in Social"
 ```
 
 ### Task 1.13: Phase 1 gates and PR
@@ -2575,7 +2792,7 @@ gh pr create --title "Social iOS look 1/8: foundations (tokens, Vazirmatn, primi
 Phase 1 of planning/plans/2026-10-06-social-ios-design.md (spec: planning/tools/18-social-ios-design.md).
 
 - Light + dark tokens for the Social world, glass + motion tokens, Vazirmatn
-- `.px-*` Social skin and the `ios-*` classes; iOS primitives in components/ui/ios (PageHeader, Card, List, Segmented, Switch, Sheet on vaul, Chip, StatTile, PlatformBadge, EmptyState) and the motion hooks
+- `.px-*` Social skin and the `ios-*` classes; iOS primitives in components/ui/ios (PageHeader, Card, List, Segmented, Switch, an in-house Sheet, Chip, StatTile, PlatformBadge, EmptyState), useCountUp and the motion helpers
 - ConfirmDialog as an iOS alert and a glass toast in Social
 - New e2e: e2e/social-look.spec.ts (both schemes, Training guard)
 
@@ -2658,10 +2875,65 @@ export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
 - Test: `e2e/social-look.spec.ts` (tab bar + compact title checks), `e2e/world.spec.ts` (hrefs unchanged)
 
 **Interfaces:**
-- Consumes: `useScrollChrome(enabled, pathname)`, `useChrome` (Task 1.6/1.10), `NavItem.lucide` (Task 2.1).
+- Consumes: `useChrome` (Task 1.6), `PageHeader` (Task 1.6), `NavItem.lucide` (Task 2.1). Creates `useScrollChrome` (Step 0).
 - Produces: `data-testid="tabbar"` (kept), `data-testid="sidenav"` (kept), new `data-testid="social-top"`,
   `data-testid="compact-title"`, `data-testid="tab-indicator"`; `<html data-compact data-tabbar>` attributes;
   `<meta name="theme-color">` follows the world and scheme.
+
+- [ ] **Step 0: Create the scroll-chrome hook** (moved here from Task 1.10)
+
+```ts
+// components/ui/ios/useScrollChrome.ts
+"use client";
+
+import { useEffect } from "react";
+import { clamp01, COMPACT_AT, nextMini, TITLE_SPAN } from "@/lib/motion";
+
+/**
+ * Scroll-linked chrome for the Social shell: `--scroll-p` (0–1 over the first 56px) feeds the large title,
+ * `data-compact` shows the glass slab + compact title past 44px, `data-tabbar="mini"` minimizes the tab bar on a
+ * clear scroll down. Passive listener, one write per frame. `resetKey` (the pathname) restarts the direction memory.
+ */
+export function useScrollChrome(enabled: boolean, resetKey: string): void {
+  useEffect(() => {
+    const html = document.documentElement;
+    const clear = () => {
+      html.style.removeProperty("--scroll-p");
+      delete html.dataset.compact;
+      delete html.dataset.tabbar;
+    };
+    if (!enabled) {
+      clear();
+      return;
+    }
+    let last = window.scrollY;
+    let mini = false;
+    let ticking = false;
+    const run = () => {
+      ticking = false;
+      const y = window.scrollY;
+      html.style.setProperty("--scroll-p", clamp01(y / TITLE_SPAN).toFixed(3));
+      if (y > COMPACT_AT) html.dataset.compact = "true";
+      else delete html.dataset.compact;
+      mini = nextMini(mini, y, last);
+      if (mini) html.dataset.tabbar = "mini";
+      else delete html.dataset.tabbar;
+      last = y;
+    };
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(run);
+    };
+    run();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      clear();
+    };
+  }, [enabled, resetKey]);
+}
+```
 
 - [ ] **Step 1: Extend the e2e first**
 
@@ -2704,7 +2976,6 @@ In `AppShell()` after `useDocumentWorld();` add:
   const world = useWorld();
   useScrollChrome(world === "social", pathname ?? "/");
   useThemeColor(world);
-  useLaunch(world);
 ```
 
 and these helpers at module level:
@@ -2730,25 +3001,12 @@ function useThemeColor(world: World): void {
   }, [world]);
 }
 
-/** Launch choreography: `data-launch` on <html> for the first 1.4s of a Social page load (CSS does the rest). */
-function useLaunch(world: World): void {
-  useEffect(() => {
-    if (world !== "social") return;
-    const html = document.documentElement;
-    html.dataset.launch = "boot";
-    const t1 = requestAnimationFrame(() => requestAnimationFrame(() => (html.dataset.launch = "in")));
-    const t2 = setTimeout(() => delete html.dataset.launch, 1400);
-    return () => {
-      cancelAnimationFrame(t1);
-      clearTimeout(t2);
-      delete html.dataset.launch;
-    };
-    // Runs once per full load (world only changes with a navigation that remounts nothing here).
-  }, [world]);
-}
 ```
 
 `viewport.themeColor` in `app/layout.tsx` stays `#0d141d` (first paint); the hook corrects it after hydration.
+Ruling (executor, Oct 6): the launch choreography is plain CSS keyframes on the shell elements (they play when the
+Social shell mounts: a full load or a switch from Training), not a `data-launch` attribute timed by JS: the shell
+first renders a splash while the store hydrates, so a timer started on mount would finish before the UI appears.
 
 Replace `TopBar()` with a world switch:
 
@@ -2943,35 +3201,24 @@ function TabBar() {
   .ios-icbtn:active {
     transform: scale(0.9);
   }
-  /* Launch choreography (useLaunch): boot = hidden, in = springs into place, then the attribute is removed. */
-  .ios-top-brand, .ios-world, .ios-top-end {
-    transition:
-      opacity 0.5s var(--out),
-      transform 0.7s var(--spring);
+  /* Launch choreography: the Social shell springs in when it mounts. `backwards` fill only covers the delay, so the
+   * tab bar's own minimize transition keeps working after the entrance. Reduced motion turns animations off. */
+  .ios-top-brand,
+  .ios-world,
+  .ios-top-end {
+    animation: ios-drop 0.7s var(--spring) backwards;
   }
-  [data-launch="boot"] :is(.ios-top-brand, .ios-world, .ios-top-end) {
-    opacity: 0;
-    transform: translateY(-14px);
-    transition: none;
+  .ios-world {
+    animation-delay: 0.07s;
   }
-  [data-launch="in"] .ios-world { transition-delay: 0.07s; }
-  [data-launch="in"] .ios-top-end { transition-delay: 0.13s; }
-  [data-launch="boot"] .ios-tabbar {
-    transform: translateY(160%);
-    transition: none;
+  .ios-top-end {
+    animation-delay: 0.13s;
   }
-  [data-launch="in"] .ios-tabbar {
-    transition-delay: 0.22s;
-  }
-  [data-launch="boot"] .ios-lt {
-    opacity: 0;
-    transform: translateY(14px);
-    transition: none;
+  .ios-tabbar {
+    animation: ios-rise 0.8s var(--spring) 0.22s backwards;
   }
   .ios-lt {
-    transition:
-      opacity 0.6s var(--out) 0.05s,
-      transform 0.8s var(--spring) 0.05s;
+    animation: ios-up 0.7s var(--out) 0.05s backwards;
   }
 
   /* Tab bar: floating glass capsule, lens under the active tab, minimizes on scroll down. */
@@ -3084,10 +3331,22 @@ function TabBar() {
   }
 ```
 
-Also add the two keyframes next to the others: `@keyframes ios-bounce { 35% { transform: translateY(-5px) scale(1.18); } }`
-and `@keyframes ios-lens { 35% { transform: scaleX(1.24) scaleY(0.9); } }`. The main content needs room under the
+Also add the keyframes next to the others: `@keyframes ios-bounce { 35% { transform: translateY(-5px) scale(1.18); } }`,
+`@keyframes ios-lens { 35% { transform: scaleX(1.24) scaleY(0.9); } }`, `@keyframes ios-drop { from { opacity: 0; transform: translateY(-14px); } }`
+and `@keyframes ios-rise { from { transform: translateY(160%); } }`. The main content needs room under the
 floating bar: `.pb-safe-tabbar` already pads by `--tabbar-h + 24px`; in Social set `--tabbar-h: 76px` on
 `:root[data-world="social"]` (Task 1.3 block) so content clears the capsule.
+
+- [ ] **Step 4b: Large titles on every Social screen** (ruling: moved here from Task 3.1, so the compact title
+  works on every screen as soon as the shell ships)
+
+Replace the copy-pasted `<header className="flex flex-col gap-1"><h1 …>…</h1><p …>…</p></header>` in `StudioScreen`,
+`CalendarScreen`, `GrowthScreen`, `IdeasScreen`, `AutoPostScreen`, `AutoRepliesScreen`, `SoonScreen` and the Social
+branch of `components/shell/MoreScreen.tsx` with `<PageHeader title={…} sub={…} />` (same keys, keep any test id the
+header carried). Remove the leading emoji and its space from those title keys in both `*.ar.json` and `*.en.json`
+(e.g. `social.studio.title` "🎬 الاستوديو" → "الاستوديو"), after grepping that each key is used only by its
+Social screen. Update e2e expectations that read those headings with the emoji
+(`grep -rn "🎬\|📊\|📅\|💡\|🚀\|💬" e2e/*.ts`).
 
 - [ ] **Step 5: Run the shell tests**
 
@@ -3127,18 +3386,51 @@ CSS (Social block): `.ios-world-btn { position: relative; width: 40px; height: 3
 ### Task 2.4: Language and sound move into More (Social)
 
 **Files:**
-- Modify: `components/shell/MoreScreen.tsx` (Social branch only)
-- Test: `components/shell/MoreScreen.test.ts` (link order unchanged; add a check that the two controls exist in Social)
+- Modify: `components/shell/MoreScreen.tsx` (Social branch only), `components/shell/MoreScreen.test.ts`
+- Modify: `messages/ar.json`, `messages/en.json` (`more.quick`)
+- Modify: `e2e/helpers.ts` (new `switchLang`), and the specs that click `lang-en` / `lang-ar` while on a Social route
+  (`growth.spec.ts:51`, `studio.spec.ts:218,287`, `trends.spec.ts:388,618`, `world.spec.ts:191,197`; check
+  `layout.spec.ts:34,38` and `scout.spec.ts:1122,1131` too: if they are on Training routes they can stay)
 
-- [ ] **Step 1:** Read `MoreScreen.tsx`. In the Social world it renders a list of `Link.px-card` rows per `SOCIAL_NAV_ITEMS`
-  (desktop-only items). Keep that list and its order (the unit test checks hrefs in order). Below the links add a
-  `ListGroup header={t("more.quick")}` with two `ListRow`s: language (`Languages` icon; trailing
-  `<Segmented options={[{value:"ar",label:"عربي"},{value:"en",label:"EN"}]} value={lang} onChange={(l) => setSettings({ lang: l })} label={t("top.lang")} role="radiogroup" className="w-[118px]" />`
-  with `data-testid="lang-ar"` / `lang-en` on the options, since `settings.spec`/`world.spec` may click them) and sound
-  (`Volume2` icon; trailing `<Switch checked={sound} onChange={(v) => setSettings({ sound: v })} label={t(sound ? "top.soundOn" : "top.soundOff")} testId="sound-toggle" />`).
-  Add keys `more.quick` = `الإعدادات السريعة` / `Quick settings` to `messages/ar.json` and `messages/en.json`.
-- [ ] **Step 2:** grep the e2e for `lang-en`, `lang-ar`, `sound-toggle` (`settings.spec.ts`, `world.spec.ts`, `layout.spec.ts`): any test that clicks them while on a Social route must now open `/social/more/` first; update those tests accordingly (Training routes still have them in the top bar).
-- [ ] **Step 3:** `pnpm.cmd test components/shell && E2E_PORT=3141 pnpm.cmd e2e e2e/world.spec.ts e2e/settings.spec.ts e2e/layout.spec.ts` → PASS.
+**Interfaces:**
+- Consumes: `ListGroup`, `ListRow`, `Segmented`, `Switch` (Phase 1).
+- Produces: in Social More, `data-testid="lang-ar"` / `"lang-en"` on the language options and `data-testid="sound-toggle"`
+  on the sound switch; `export async function switchLang(page: Page, lang: "ar" | "en"): Promise<void>` in `e2e/helpers.ts`.
+
+- [ ] **Step 1: Quick settings in Social More**
+
+Read `MoreScreen.tsx` and its test. Keep the Social link list and its order (the unit test checks hrefs in order).
+Below the links add `<ListGroup header={t("more.quick")}>` with two `ListRow`s: language (`Languages` icon; trailing
+`<Segmented role="radiogroup" label={t("top.lang")} value={lang} onChange={(l) => setSettings({ lang: l })} className="w-[118px]"
+options={[{ value: "ar", label: "عربي", testId: "lang-ar" }, { value: "en", label: "EN", testId: "lang-en" }]} />`) and sound
+(`Volume2` icon; trailing `<Switch checked={sound} onChange={(v) => setSettings({ sound: v })} label={t(sound ? "top.soundOn" : "top.soundOff")} testId="sound-toggle" />`).
+New key `more.quick` = `الإعدادات السريعة` / `Quick settings`.
+
+- [ ] **Step 2: The e2e helper**
+
+```ts
+/** Switch the app language. Training keeps the toggle in its top bar; Social keeps it in More (iOS look, round 35). */
+export async function switchLang(page: Page, lang: "ar" | "en"): Promise<void> {
+  const direct = page.getByTestId(`lang-${lang}`);
+  if (await direct.isVisible()) {
+    await direct.click();
+    return;
+  }
+  await page.locator('a[href="/social/more/"]:visible').first().click();
+  await page.getByTestId(`lang-${lang}`).click();
+  await page.goBack();
+}
+```
+
+Replace the direct clicks in the specs listed above with `await switchLang(page, "en")` / `"ar"`. Where a test's
+point is the toggle itself inside Social (`world.spec.ts` "RTL / LTR toggle works inside Social"), rewrite it to
+use the More screen's control and keep its assertions on `dir` / `lang`.
+
+- [ ] **Step 3: Run**
+
+Run: `pnpm.cmd test components/shell && E2E_PORT=3141 pnpm.cmd e2e e2e/world.spec.ts e2e/studio.spec.ts e2e/growth.spec.ts e2e/trends.spec.ts e2e/layout.spec.ts`
+Expected: PASS.
+
 - [ ] **Step 4: Commit** `feat(social): language and sound controls in More`.
 
 ### Task 2.5: Phase 2 gates, screenshots, PR
@@ -3158,8 +3450,126 @@ inbox list, asks list). Keep every `data-testid` the Studio e2e uses (`studio-sc
 **Files:**
 - Modify: `components/social/StudioScreen.tsx`
 
+- [ ] **Step 0: Create the two hooks** (moved here from Task 1.10; `useFirstVisit` is new)
+
+```ts
+// components/ui/ios/usePullToRefresh.ts
+"use client";
+
+import { useEffect, useRef, useState, type RefObject } from "react";
+import { pullOffset } from "@/lib/motion";
+
+/**
+ * Pull-to-refresh on the window scroll (the dashboard scrolls the document). Touch only (desktop has a button).
+ * While pulling, the target element (default `#main`) is translated down with resistance; past `threshold` the
+ * release calls `onRefresh`, holds the content at 56px with `refreshing: true`, then springs back (≥ 1.1s).
+ */
+export function usePullToRefresh(
+  onRefresh: () => Promise<unknown> | void,
+  {
+    enabled = true,
+    threshold = 70,
+    targetRef,
+  }: { enabled?: boolean; threshold?: number; targetRef?: RefObject<HTMLElement | null> } = {},
+): { pull: number; refreshing: boolean } {
+  const [pull, setPull] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const cb = useRef(onRefresh);
+  cb.current = onRefresh;
+
+  useEffect(() => {
+    if (!enabled) return;
+    const target = () => targetRef?.current ?? document.getElementById("main");
+    let y0 = 0;
+    let dy = 0;
+    let pulling = false;
+    let busy = false;
+    const setY = (px: number, animate: boolean) => {
+      const el = target();
+      if (!el) return;
+      el.style.transition = animate ? "transform var(--t-spring) var(--spring)" : "none";
+      el.style.transform = px ? `translateY(${px}px)` : "";
+    };
+    const start = (e: TouchEvent) => {
+      if (busy || window.scrollY > 0) return;
+      pulling = true;
+      y0 = e.touches[0].clientY;
+      dy = 0;
+    };
+    const move = (e: TouchEvent) => {
+      if (!pulling) return;
+      const raw = e.touches[0].clientY - y0;
+      dy = pullOffset(raw);
+      if (dy > 0) {
+        if (e.cancelable) e.preventDefault();
+        setY(dy, false);
+        setPull(dy);
+      }
+    };
+    const end = () => {
+      if (!pulling) return;
+      pulling = false;
+      if (dy >= threshold) {
+        busy = true;
+        setRefreshing(true);
+        setY(56, true);
+        const done = Promise.all([Promise.resolve(cb.current()), new Promise((r) => setTimeout(r, 1100))]);
+        done.finally(() => {
+          busy = false;
+          setRefreshing(false);
+          setPull(0);
+          setY(0, true);
+          setTimeout(() => {
+            const el = target();
+            if (el) el.style.transition = "";
+          }, 600);
+        });
+      } else {
+        setPull(0);
+        setY(0, true);
+      }
+    };
+    window.addEventListener("touchstart", start, { passive: true });
+    window.addEventListener("touchmove", move, { passive: false });
+    window.addEventListener("touchend", end);
+    window.addEventListener("touchcancel", end);
+    return () => {
+      window.removeEventListener("touchstart", start);
+      window.removeEventListener("touchmove", move);
+      window.removeEventListener("touchend", end);
+      window.removeEventListener("touchcancel", end);
+      setY(0, false);
+    };
+  }, [enabled, threshold, targetRef]);
+
+  return { pull, refreshing };
+}
+```
+
+```ts
+// components/ui/ios/useFirstVisit.ts
+"use client";
+
+import { useEffect, useState } from "react";
+
+const seen = new Set<string>();
+
+/** True on the first visit of a screen in this page load (entrance stagger), false on later visits. */
+export function useFirstVisit(key: string): boolean {
+  const [first] = useState(() => !seen.has(key));
+  useEffect(() => {
+    seen.add(key);
+  }, [key]);
+  return first;
+}
+```
+
+Use it as `className={first ? "ios-stagger …" : "…"}` on the Studio's card stack (and later screens' stacks).
+While pulling, the page must not also rubber-band natively: set `document.documentElement.style.overscrollBehaviorY = "none"`
+while the hook is enabled and restore it on cleanup.
+
 - [ ] **Step 1:** Replace the `<header>` with
-  `<PageHeader eyebrow={eyebrow} title={t("social.studio.title")} sub={t("social.studio.sub")} />` where
+  `<PageHeader eyebrow={eyebrow} title={t("social.studio.title")} sub={t("social.studio.sub")} />` (already there from Task 2.2; add the eyebrow) where
   `eyebrow = new Intl.DateTimeFormat(lang === "ar" ? "ar-SA-u-ca-gregory-nu-arab" : "en-GB", { weekday: "long", day: "numeric", month: "long" }).format(new Date(nowMinute))`.
   Wrap the cards in `<div className="ios-stagger flex flex-col gap-3 md:grid md:grid-cols-[1.6fr_1fr] …">` keeping
   the current responsive grid (hero + reminder on one row from md; week plan + toolkit; growth / asks / inbox three
@@ -3250,7 +3660,7 @@ the open button as its **first** `<button>` (12 e2e places), `data-testid`s of `
 - Modify: `components/social/calendar/PostSheet.tsx`, `PostForm.tsx`, `SheetFrame.tsx` (becomes a thin wrapper), `CalendarScreen.tsx:76` (`open`), `components/skills/SkillSheet.tsx:68`
 - Modify: `app/globals.css` (`.cal-sheet` rules → delete)
 
-- [ ] **Step 1 — SheetFrame delegates to Sheet:** keep `SheetFrame`'s props (`testId`, `titleId`, `onClose`, `wide`, `attrs`, `children`) so `PostSheet`, `PostForm` and `CreatorAssistant` do not change their call sites; inside, in the Social world render `<Sheet open onClose={onClose} title={title} titleId={titleId} testId={testId} attrs={attrs} detents={wide ? [0.92] : [0.6, 0.92]} initialDetent={0}>{children}</Sheet>` — this needs the title: add a `title: string` prop to `SheetFrame` and pass it from the three callers (they already render an `<h2 id={titleId}>`; move that text into the prop and delete the `<h2>`). Keep `data-testid="sheet-backdrop"` (the overlay) because the e2e clicks it to close.
+- [ ] **Step 1 — SheetFrame delegates to Sheet:** keep `SheetFrame`'s props (`testId`, `titleId`, `onClose`, `wide`, `attrs`, `children`) so `PostSheet`, `PostForm` and `CreatorAssistant` do not change their call sites; inside, in the Social world render `<Sheet onClose={onClose} title={title} titleId={titleId} testId={testId} attrs={attrs} detents={wide ? [0.92] : [0.6, 0.92]}>{children}</Sheet>` — this needs the title: add a `title: string` prop to `SheetFrame` and pass it from the three callers (they already render an `<h2 id={titleId}>`; move that text into the prop and delete the `<h2>`). Keep `data-testid="sheet-backdrop"` (the overlay) because the e2e clicks it to close.
 - [ ] **Step 2 — Tabs inside the post sheet:** `PostSheet` renders its Overview · Script · Shots tabs with `<Segmented role="tablist" …>`; read the test ids the e2e uses for those tabs first and pass them as `testId` on each option.
 - [ ] **Step 3 — Back closes, deep link kept:** in `CalendarScreen.tsx` change `open()` from `history.replaceState(null, "", postHash(id))` to `history.pushState(null, "", postHash(id))` and `close()` to `history.back()` **when** `window.location.hash.startsWith("#post=")`, else `clearHash()`; keep the `hashchange` listener (going back to a URL without the hash sets `openId` to null through `apply()`: add `if (!h.post) setOpenId(null)` there). Because `Sheet` also calls `useBackToClose`, remove that hook call inside `Sheet` when the caller passes `historyManaged` → simpler: give `Sheet` a prop `backCloses?: boolean` (default `true`) and pass `backCloses={false}` from `SheetFrame` when `attrs?.["data-post"]` is set (the post popup manages history itself). Check `e2e/calendar.spec.ts` for tests that read `location.hash` after closing and keep them green.
 - [ ] **Step 4 — SkillSheet corner:** in `components/skills/SkillSheet.tsx:68` replace `md:rounded-[2px]` with `md:rounded-[var(--radius)]` (Training's `--radius` is 2px, so Training is unchanged).
@@ -3302,7 +3712,7 @@ itself with finger scrub + glass tooltip, top posts list). Contracts: `growth.sp
 **Files:**
 - Modify: `growth/PlatformTab.tsx`, `growth/PlatformCards.tsx`, `growth/PostCard.tsx`, `growth/MyContent.tsx`, `growth/SnapshotForm.tsx`, `growth/CsvImport.tsx`, `growth/PostImport.tsx`, `growth/DemographicsForm.tsx`, `growth/GrowthDialog.tsx`, `growth/AudienceAsks.tsx`, `growth/SourceBadge.tsx`, `growth/AiButton.tsx`, `app/globals.css` (`.an-*`, `.gr-cta`, `.src-badge`, `.acc-spin`)
 
-- [ ] **Step 1 — GrowthDialog → Sheet:** `GrowthDialog` keeps its props and renders `<Sheet open onClose title titleId testId detents={[0.92]}>` in Social (it is Social-only, so no world branch is needed). The four users (snapshot form, CSV import, post import, demographics form) therefore open as full-height sheets; their `ConfirmDialog`s are already iOS alerts (Task 1.12).
+- [ ] **Step 1 — GrowthDialog → Sheet:** `GrowthDialog` keeps its props and renders `<Sheet onClose title titleId testId detents={[0.92]}>` in Social (it is Social-only, so no world branch is needed). The four users (snapshot form, CSV import, post import, demographics form) therefore open as full-height sheets; their `ConfirmDialog`s are already iOS alerts (Task 1.12).
 - [ ] **Step 2 — Platform cards:** `.an-pcard` → `ios-card` with a `PlatformBadge` header, handle as `text-ink-2`, numbers as `StatTile`s (`countUp={false}` inside lists to avoid 20 animations at once), the per-platform chart with `scrub`.
 - [ ] **Step 3 — Top posts:** `growth/PostCard.tsx` rows → `ListRow` with `icon={<PlatformBadge platform size={40} />}` (pass `iconTone="fill"` and let the badge override the square: give `ListRow` an `iconRaw?: ReactNode` prop rendered without the `ios-ic` wrapper — add it to `List.tsx`), sub = relative date, trailing = `Chip icon={<Eye size={13} />}` with the view count in `.num`.
 - [ ] **Step 4 — Asks, tips, badges:** `AudienceAsks` → `ListGroup` with `MessageCircle` rows and the same "turn into idea" button as Studio; `SourceBadge` → `Chip` (`tint` for live, default for manual); `AiButton` → `px-btn px-btn-ghost px-btn-sm` with `Sparkles`; `.acc-spin` keeps its spinner but uses `LoaderCircle` with `ios-spin`; replace every emoji in these files' JSX with the matching Lucide icon (`➕` → `Plus`, flags in `Demographics.tsx:234` stay — they are content).
@@ -3320,6 +3730,77 @@ itself with finger scrub + glass tooltip, top posts list). Contracts: `growth.sp
 
 **Files:**
 - Modify: `components/social/IdeasScreen.tsx`, `ideas/IdeaRow.tsx`, `ideas/AddIdeaForm.tsx`, `ideas/SkillSuggestions.tsx`, `ideas/TrendsCard.tsx`, `trends/TrendRow.tsx`, `trends/TrendRadar.tsx`, `trends/MomentsRail.tsx`, `app/globals.css` (`.studio-seg`, `.studio-pfilter`, `.studio-pbtn`, `.trend-row`)
+
+- [ ] **Step 0: Create the swipe hook** (moved here from Task 1.10)
+
+```ts
+// components/ui/ios/useSwipeAction.ts
+"use client";
+
+import { useRef, useState, type HTMLAttributes, type PointerEvent } from "react";
+import { rubberBand } from "@/lib/motion";
+
+type Handlers = Pick<HTMLAttributes<HTMLElement>, "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel">;
+
+/**
+ * Leading swipe on a row (toward the end edge: left in RTL). Returns the translateX to apply to the row, whether
+ * the action is armed (past `arm` px) and pointer handlers. A vertical move at the start hands the gesture back to
+ * scrolling (the row has `touch-action: pan-y`). Releasing while armed calls `onTrigger` and springs back.
+ */
+export function useSwipeAction(
+  onTrigger: () => void,
+  { max = 96, arm = 64, enabled = true }: { max?: number; arm?: number; enabled?: boolean } = {},
+): { handlers: Handlers; x: number; armed: boolean; dragging: boolean } {
+  const [x, setX] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const s = useRef({ x0: 0, y0: 0, active: false, decided: false, rtl: true });
+
+  const onPointerDown = (e: PointerEvent<HTMLElement>) => {
+    if (!enabled || e.button) return;
+    const st = s.current;
+    st.x0 = e.clientX;
+    st.y0 = e.clientY;
+    st.active = true;
+    st.decided = false;
+    st.rtl = (e.currentTarget.closest("[dir]") as HTMLElement | null)?.dir !== "ltr";
+  };
+  const onPointerMove = (e: PointerEvent<HTMLElement>) => {
+    const st = s.current;
+    if (!st.active) return;
+    const mx = e.clientX - st.x0;
+    const my = e.clientY - st.y0;
+    if (!st.decided) {
+      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+      if (Math.abs(my) > Math.abs(mx)) {
+        st.active = false;
+        return;
+      }
+      st.decided = true;
+      setDragging(true);
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    // Toward the end edge only: negative in RTL, positive in LTR.
+    const toward = st.rtl ? -mx : mx;
+    const d = rubberBand(Math.max(0, toward), max);
+    setX(st.rtl ? -d : d);
+  };
+  const finish = () => {
+    const st = s.current;
+    if (!st.active) return;
+    st.active = false;
+    const armed = Math.abs(x) >= arm;
+    setDragging(false);
+    setX(0);
+    if (st.decided && armed) onTrigger();
+  };
+  return {
+    handlers: { onPointerDown, onPointerMove, onPointerUp: finish, onPointerCancel: finish },
+    x,
+    armed: Math.abs(x) >= arm,
+    dragging,
+  };
+}
+```
 
 - [ ] **Step 1:** `<PageHeader title sub />` (emoji stripped from `ideas.*` title keys). Filters: the `.studio-seg` becomes `Segmented` (status: all · favorites · waiting · used; keep test ids), the platform filter stays `.px-fchip` with glyphs.
 - [ ] **Step 2 — IdeaRow with swipe-to-favorite:** wrap each row: `<div className="ios-swipe" data-armed={armed} data-dragging={dragging}><div className="ios-act"><Star size={22} /></div><div className="ios-row" style={{ transform: `translateX(${x}px)` }} {...handlers}>…</div></div>` using `useSwipeAction(() => toggleFavorite(idea.id))`; title + sub (source: `MessageCircle` for comments, `TrendingUp` for trends, `Sparkles` for skills, `RefreshCw` when used, with counts in `.num`); trailing = the star button (`className="ios-starb"` → CSS: `.ios-starb { width:40px; height:40px; border-radius:50%; display:grid; place-items:center; color:var(--muted); transition: transform var(--t-fast) var(--out), color .2s; } .ios-starb[aria-pressed="true"] { color: var(--warn); } .ios-starb[aria-pressed="true"] svg { fill: var(--warn); } .ios-starb:active { transform: scale(.85); }`) that gets `ios-pop` re-applied on each favorite. Replace `⭐⏳🔄` in JSX with `Star` / `Clock` / `RefreshCw`.
@@ -3351,7 +3832,7 @@ itself with finger scrub + glass tooltip, top posts list). Contracts: `growth.sp
 Contracts: `getByRole("switch", { name, exact: true })` (`autoreplies.spec.ts:533`), the `<details>`/`<summary>` tester (`:582`), `getByRole("heading", { name: "تعديل الرد التلقائي" })` (`:381`), `input[type="radio"]` tiles.
 
 - [ ] **Step 1:** `<PageHeader …>` (emoji stripped from `replies.*` title keys). `RulesTable` → `ListGroup` of `ListRow`s: title = keyword, sub = reply preview (one line, ellipsis), trailing = `<Switch checked label={<same accessible name as today>} />` (the accessible name must stay byte-identical to what the test passes: read `autoreplies.spec.ts:533` and keep the `aria-label` text), chevron opens the editor.
-- [ ] **Step 2:** `RuleEditor` and `DefaultReplyEditor` open in `<Sheet detents={[0.92]} title={t("replies.editTitle")}>` so the `<h2>` heading text "تعديل الرد التلقائي" stays (Sheet renders `Drawer.Title` as an `h2`); the platform picker tiles keep `input[type="radio"]`; the "قدّم الصورة 2" button keeps its name.
+- [ ] **Step 2:** `RuleEditor` and `DefaultReplyEditor` open in `<Sheet detents={[0.92]} title={t("replies.editTitle")}>` so the `<h2>` heading text "تعديل الرد التلقائي" stays (Sheet renders its title as an `h2`); the platform picker tiles keep `input[type="radio"]`; the "قدّم الصورة 2" button keeps its name.
 - [ ] **Step 3:** `PhonePreview.tsx:34` `rounded-[28px] border-2` → `rounded-[28px] border border-hair bg-panel-2`; `PostGrid.tsx:44` `border-2` → `border border-hair`; replace `💬📌📣🕒` in JSX with `MessageCircle` / `Pin` / `Megaphone` / `Clock` (all in lucide-react). The tester stays a `<details>` block; style `summary` as an `ios-row` with a chevron.
 - [ ] **Step 4:** `E2E_PORT=3141 pnpm.cmd e2e e2e/autoreplies.spec.ts` → PASS. **Commit** `feat(replies): grouped rules with switches, editor as a sheet`.
 
@@ -3450,6 +3931,6 @@ test("Social navigation has no emoji", async ({ page }) => {
 ## Self-review (done while writing; keep for the executor)
 
 - Spec coverage: §3.1 tokens → Task 1.3; §3.2 type → 1.2, 1.4 (`.ios-lt`, sizes), 8.2 (Plex removed); §3.3 shape → 1.4; §3.4 glass → 1.4 (+ allowed surfaces 2.2, 4.4, 5.2, 3.1); §3.5 motion → 1.4, 1.5, 1.10, 2.2 (launch, title, tab bar), 3.x (count-up, ring, draw), 4.3 (sheet), 6.1 (swipe), reduced motion (1.3 tokens + hooks); §3.6 icons → 1.11, 2.1, per screen, 8.2; §4 shell → 2.2–2.4; §5 primitives → 1.6–1.10 (+ `iconRaw`, `as` props added in 5.3 and 7.2); §6 screens → phases 3–7; §7 sweep → 8.1–8.2; §8 tests → 1.2, 1.3, 2.2, 4.4, 7.2, 8.1, 8.2; §11 acceptance → 8.3; §12 follow-ups stay out.
-- Names used across tasks: `useChrome.setTitle`, `useScrollChrome(enabled, resetKey)`, `usePullToRefresh(onRefresh, { enabled, threshold, targetRef })`, `useSwipeAction(onTrigger, { max, arm, enabled })` → `{ handlers, x, armed, dragging }`, `useCountUp(target, { decimals, duration, enabled })`, `Segmented({ options, value, onChange, label, role, className, testId })`, `Switch({ checked, onChange, label, disabled, testId, id })`, `Sheet({ open, onClose, title, sub, titleId, testId, detents, initialDetent, footer, attrs, children, backCloses })`, `ListRow({ icon, iconRaw, iconTone, title, sub, trailing, chevron, href, onClick, testId, className, as })`, `StatTile({ label, value, decimals, suffix, prefix, delta, countUp, className, testId })`, `PlatformBadge({ platform, size, className })`, `PlatformGlyph({ platform, size, className })`, `PageHeader({ title, sub, eyebrow, trailing, testId })`, `Card({ hero, pressable, className, testId })`, `Chip({ tone, icon, className })`, `EmptyState({ icon, title, hint, action, testId })`. `pickDetent` (1.5) is used by nothing after vaul took over snapping; keep it tested, delete it in Task 8.2 if still unused.
+- Names used across tasks: `useChrome.setTitle`, `useScrollChrome(enabled, resetKey)`, `usePullToRefresh(onRefresh, { enabled, threshold, targetRef })`, `useSwipeAction(onTrigger, { max, arm, enabled })` → `{ handlers, x, armed, dragging }`, `useCountUp(target, { decimals, duration, enabled })`, `Segmented({ options, value, onChange, label, role, className, testId })`, `Switch({ checked, onChange, label, disabled, testId, id })`, `Sheet({ onClose, title, sub, titleId, testId, detents, initialDetent, attrs, backCloses, children })` + `useSheetClose()`, `ListRow({ icon, iconRaw, iconTone, title, sub, trailing, chevron, href, onClick, testId, className, as })`, `StatTile({ label, value, decimals, suffix, prefix, delta, countUp, className, testId })`, `PlatformBadge({ platform, size, className })`, `PlatformGlyph({ platform, size, className })`, `PageHeader({ title, sub, eyebrow, trailing, testId })`, `Card({ hero, pressable, className, testId })`, `Chip({ tone, icon, className })`, `EmptyState({ icon, title, hint, action, testId })`. `settleStop` and `overdrag` (1.5) drive the Sheet's drag; `rubberBand` drives the swipe rows.
 - Placeholders: the only literal placeholders are the six `<paste … d>` strings in Task 1.11, filled by that task's curl step before the file is committed.
 
