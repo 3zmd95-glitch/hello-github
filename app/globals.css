@@ -1175,8 +1175,9 @@
 }
 
 @layer components {
-  /* Glass: navigation layer only (spec §3.4). */
-  [data-world="social"] .glass {
+  /* Glass: navigation layer only (spec §3.4). `:where()` keeps it at class weight, so a later class on the
+     same element wins (`.ios-fab` / `.ios-ptr` need their position: fixed). */
+  :where([data-world="social"]) .glass {
     position: relative;
     background: var(--glass-bg);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
@@ -1186,7 +1187,7 @@
       inset 0 1px 0 var(--glass-hi),
       inset 0 0 0 0.5px var(--glass-rim);
   }
-  [data-world="social"] .glass::before {
+  :where([data-world="social"]) .glass::before {
     content: "";
     position: absolute;
     inset: 0;
@@ -1194,24 +1195,24 @@
     pointer-events: none;
     background: linear-gradient(180deg, var(--glass-spec), transparent 45%);
   }
-  [data-world="social"] .slab {
+  :where([data-world="social"]) .slab {
     background: var(--glass-bg);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
     backdrop-filter: blur(var(--glass-blur)) saturate(180%);
     box-shadow: 0 0.5px 0 var(--hair);
   }
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    [data-world="social"] :is(.glass, .slab) {
+    :where([data-world="social"]) :is(.glass, .slab) {
       background: var(--panel);
     }
   }
   @media (prefers-reduced-transparency: reduce) {
-    [data-world="social"] :is(.glass, .slab) {
+    :where([data-world="social"]) :is(.glass, .slab) {
       background: var(--panel);
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
     }
-    [data-world="social"] .glass::before {
+    :where([data-world="social"]) .glass::before {
       display: none;
     }
   }
@@ -1223,11 +1224,17 @@
     box-shadow: var(--shadow);
     padding: 16px;
   }
+  /* --panel-2 equals --bg in light: an inset on the page reads as a small card, inside a surface it stays an inset. */
   [data-world="social"] .px-inset {
     border: 0;
     border-radius: 16px;
-    background: var(--panel-2);
+    background: var(--panel);
+    box-shadow: var(--shadow-sm);
     padding: 12px 14px;
+  }
+  [data-world="social"] :is(.px-card, .ios-card, .ios-list, .ios-sheet) .px-inset {
+    background: var(--panel-2);
+    box-shadow: none;
   }
   [data-world="social"] .px-btn {
     border: 0;
@@ -1256,7 +1263,7 @@
   }
   [data-world="social"] .px-btn-danger {
     background: var(--danger);
-    color: #fff;
+    color: var(--panel);
   }
   [data-world="social"] .px-btn-sm {
     min-height: 34px;
@@ -1308,8 +1315,12 @@
     background: var(--panel-2);
     border: 0;
     border-radius: 14px;
+    box-shadow: inset 0 0 0 0.5px var(--hair);
     padding: 11px 14px;
     color: var(--ink);
+  }
+  [data-world="social"] :is(.px-card, .ios-card, .ios-list, .ios-sheet) .px-inset .px-input {
+    background: var(--panel);
   }
   [data-world="social"] .px-input:focus-visible {
     outline: 2px solid var(--tint);
@@ -1471,6 +1482,11 @@
   }
   :is(button, a).ios-row:active {
     background: var(--panel-2);
+  }
+  /* Ring drawn inside: the list's overflow: hidden would clip an outside one. */
+  [data-world="social"] :is(.ios-row, .ios-list a, .ios-list button):focus-visible {
+    outline: 2px solid var(--tint);
+    outline-offset: -2px;
   }
   .ios-ic {
     width: 34px;
@@ -1675,7 +1691,7 @@
     display: grid;
     place-items: center;
     background: var(--warn);
-    color: #fff;
+    color: var(--gold-ink);
     transform: scale(0.8);
     opacity: 0.7;
     transition:
@@ -1809,6 +1825,11 @@
   }
   [data-world="social"] .ios-alert-actions > button[data-primary="true"] {
     font-weight: 600;
+  }
+  /* `all: unset` above drops the base focus ring; draw it inside the clipped alert. */
+  [data-world="social"] .ios-alert-actions > button:focus-visible {
+    outline: 2px solid var(--tint);
+    outline-offset: -2px;
   }
 
   /* Staggered entrance for the first view of a screen (max 8 children). */
