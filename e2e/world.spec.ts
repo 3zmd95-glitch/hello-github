@@ -188,15 +188,21 @@ test("RTL / LTR toggle works inside Social", async ({ page }) => {
   await expect(html).toHaveAttribute("dir", "rtl");
   await expect(html).toHaveAttribute("lang", "ar");
 
-  await page.getByTestId("lang-en").click();
+  // Social keeps the language control in More's quick settings (iOS look, round 35): use that one.
+  await page.locator('a[href="/social/more/"]:visible').first().click();
+  await expect(page).toHaveURL(/\/social\/more\/$/);
+  const more = page.locator("main");
+  await more.getByTestId("lang-en").click();
   await expect(html).toHaveAttribute("dir", "ltr");
   await expect(html).toHaveAttribute("lang", "en");
   await expect(html).toHaveAttribute("data-world", "social");
   await expect(page.getByTestId("world-social")).toContainText("Social");
+  await expect(more.getByTestId("lang-en")).toHaveAttribute("aria-checked", "true");
 
-  await page.getByTestId("lang-ar").click();
+  await more.getByTestId("lang-ar").click();
   await expect(html).toHaveAttribute("dir", "rtl");
   await expect(html).toHaveAttribute("lang", "ar");
+  await expect(more.getByTestId("lang-ar")).toHaveAttribute("aria-checked", "true");
 });
 
 for (const path of SOCIAL_PATHS) {

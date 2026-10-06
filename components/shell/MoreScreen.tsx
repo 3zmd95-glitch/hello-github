@@ -1,7 +1,12 @@
 "use client";
 
+import { Languages, Volume2 } from "lucide-react";
 import Link from "next/link";
+import { ListGroup, ListRow } from "@/components/ui/ios/List";
+import Segmented from "@/components/ui/ios/Segmented";
+import Switch from "@/components/ui/ios/Switch";
 import { useT, type MessageKey } from "@/lib/i18n";
+import { useStore } from "@/store";
 import type { World } from "./useWorld";
 
 interface MoreLink {
@@ -67,6 +72,49 @@ export default function MoreScreen({ world = "training" }: { world?: World }) {
           </li>
         ))}
       </ul>
+      {world === "social" && <QuickSettings />}
     </>
+  );
+}
+
+/** Social keeps language and sound here, not in its top bar (iOS look, round 35); Training keeps its top bar. */
+function QuickSettings() {
+  const { t, lang } = useT();
+  const sound = useStore((s) => s.settings.sound);
+  const setSettings = useStore((s) => s.setSettings);
+  return (
+    <ListGroup header={t("more.quick")}>
+      <ListRow
+        icon={<Languages size={22} strokeWidth={1.75} aria-hidden />}
+        iconTone="fill"
+        title={t("settings.lang")}
+        trailing={
+          <Segmented
+            role="radiogroup"
+            label={t("top.lang")}
+            value={lang}
+            onChange={(l) => setSettings({ lang: l })}
+            className="w-[118px]"
+            options={[
+              { value: "ar", label: "عربي", testId: "lang-ar" },
+              { value: "en", label: "EN", testId: "lang-en" },
+            ]}
+          />
+        }
+      />
+      <ListRow
+        icon={<Volume2 size={22} strokeWidth={1.75} aria-hidden />}
+        iconTone="fill"
+        title={t("settings.sound")}
+        trailing={
+          <Switch
+            checked={sound}
+            onChange={(v) => setSettings({ sound: v })}
+            label={t(sound ? "top.soundOn" : "top.soundOff")}
+            testId="sound-toggle"
+          />
+        }
+      />
+    </ListGroup>
   );
 }

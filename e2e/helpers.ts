@@ -54,3 +54,15 @@ export async function drainCelebrations(
   }
   return seen;
 }
+
+/** Switch the app language. Training keeps the toggle in its top bar; Social keeps it in More (iOS look, round 35). */
+export async function switchLang(page: Page, lang: "ar" | "en"): Promise<void> {
+  const direct = page.getByTestId(`lang-${lang}`);
+  if (await direct.isVisible()) {
+    await direct.click();
+    return;
+  }
+  await page.locator('a[href="/social/more/"]:visible').first().click();
+  await page.getByTestId(`lang-${lang}`).click();
+  await page.goBack();
+}
