@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
-import type { Post, SocialStatusMap } from "@/lib/domain";
+import type { AutoPost, Post, SocialStatusMap } from "@/lib/domain";
 import type { MessageKey } from "@/lib/i18n";
 import {
   autoPostActive,
@@ -106,20 +106,33 @@ async function sendJob(
   return { ok: true };
 }
 
-/** Writes a Worker job's results into its post; marks the post posted once every network is out. */
-function applyJob(job: WorkerJob, markPosted: (id: string, url: string) => void, now: Date): void {
+/**
+ * Writes the Worker jobs' results into their posts, then marks each post posted once every network is out.
+ * All in one save: every save writes the whole state, and while a burst of saves runs this tab cannot hear
+ * another tab's saves, so the last of them would undo what was typed there meanwhile.
+ */
+export function applyJobs(
+  jobs: readonly WorkerJob[],
+  markPosted: (id: string, url: string) => void,
+  now: Date,
+): void {
   const store = useStore.getState();
-  const post = store.posts.find((p) => p.id === job.id || p.autoPost?.jobId === job.id);
-  // Canceled here while the Worker still had it: nothing to follow.
-  if (!post?.autoPost?.sentAt) return;
-  const autoPost = {
-    ...post.autoPost,
-    results: { ...post.autoPost.results, ...job.results },
-    checkedAt: now.toISOString(),
-  };
-  store.updatePost(post.id, { autoPost });
-  if (canAutoMarkPosted(autoPost) && post.stage !== "posted") {
-    markPosted(post.id, firstPermalink(autoPost));
+  const next = new Map<string, AutoPost>();
+  for (const job of jobs) {
+    const post = store.posts.find((p) => p.id === job.id || p.autoPost?.jobId === job.id);
+    // Canceled here while the Worker still had it: nothing to follow.
+    if (!post?.autoPost?.sentAt) continue;
+    const before = next.get(post.id) ?? post.autoPost;
+    next.set(post.id, {
+      ...before,
+      results: { ...before.results, ...job.results },
+      checkedAt: now.toISOString(),
+    });
+  }
+  store.updatePosts(new Map([...next].map(([id, autoPost]) => [id, { autoPost }])), now);
+  for (const [id, autoPost] of next) {
+    const stage = store.posts.find((p) => p.id === id)?.stage;
+    if (canAutoMarkPosted(autoPost) && stage !== "posted") markPosted(id, firstPermalink(autoPost));
   }
 }
 
@@ -173,7 +186,7 @@ export function usePublish() {
     setBusy(true);
     const r = await publishRun(cfg, post.id);
     if (!r.ok) return done({ ok: false, error: socialSyncErrorMessageKey(r.error) });
-    applyJob(r.job, mark, new Date());
+    applyJobs([r.job], mark, new Date());
     return done({ ok: true });
   };
 
@@ -356,8 +369,7 @@ export function refreshPublishJobs(
     // The settings point at another Worker now (or none): this list is not theirs.
     if (workerKey(config()) !== key) return NO_JOBS;
     if (!r.ok) return workerOnly.key === key ? workerOnly.jobs : NO_JOBS;
-    const now = new Date();
-    for (const job of r.jobs) applyJob(job, markPosted, now);
+    applyJobs(r.jobs, markPosted, new Date());
     setWorkerOnly(key, remoteJobs(r.jobs, useStore.getState().posts, canceledSince(startedAt)));
     return workerOnly.jobs;
   })().finally(() => {

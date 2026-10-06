@@ -333,6 +333,8 @@ export interface StoreActions {
   addPost(input: NewPostInput, now?: Date): Post;
   /** Merge a patch into a post (validated; bumps updatedAt). Undefined when the id is unknown. */
   updatePost(id: string, patch: PostPatch, now?: Date): Post | undefined;
+  /** Merge several post patches in one save (a whole publish-queue read); unknown ids are skipped. */
+  updatePosts(patches: ReadonlyMap<string, PostPatch>, now?: Date): void;
   /** Delete a post and unlink any idea that pointed at it. */
   removePost(id: string): void;
   /**
@@ -1151,6 +1153,17 @@ export const useStore = create<StoreState>()(
         return patchPost(get, set, id, patch, now);
       },
 
+      updatePosts(patches, now = new Date()) {
+        const s = get();
+        if (!s.posts.some((p) => patches.has(p.id))) return;
+        set({
+          posts: s.posts.map((p) => {
+            const patch = patches.get(p.id);
+            return patch ? patched(p, patch, now) : p;
+          }),
+        });
+      },
+
       removePost(id) {
         const s = get();
         if (!s.posts.some((p) => p.id === id)) return;
@@ -1527,15 +1540,20 @@ function patchPost(
   const s = get();
   const existing = s.posts.find((p) => p.id === id);
   if (!existing) return undefined;
-  const post = PostSchema.parse({
+  const post = patched(existing, patch, now);
+  set({ posts: s.posts.map((p) => (p.id === id ? post : p)) });
+  return post;
+}
+
+/** The post with a patch merged in: validated, id and createdAt kept, updatedAt bumped. */
+function patched(existing: Post, patch: PostPatch, now: Date): Post {
+  return PostSchema.parse({
     ...existing,
     ...patch,
-    id,
+    id: existing.id,
     createdAt: existing.createdAt,
     updatedAt: now.toISOString(),
   });
-  set({ posts: s.posts.map((p) => (p.id === id ? post : p)) });
-  return post;
 }
 
 /** Bonus freezes after adding n, keeping earned + bonus within FREEZE_TOTAL_CAP. */

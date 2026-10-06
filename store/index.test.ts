@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getSkill, pillars, programsByPillar } from "@/data";
 import { CHEST_EVERY, lootFor } from "@/lib/chests";
 import { FREEZE_REWARD_ID, GEM_RULES, defaultRewards } from "@/lib/gems";
@@ -1186,6 +1186,33 @@ describe("social: posts", () => {
     expect(() => S().updatePost(p.id, { plannedTime: "25:00" })).toThrow();
     expect(S().posts[0].plannedTime).toBe("20:30");
     expect(S().updatePost("nope", { caption: "x" })).toBeUndefined();
+  });
+
+  it("updatePosts merges several patches in one save; unknown ids are skipped", () => {
+    const a = S().addPost({ platform: "instagram", title: "A" }, now);
+    const b = S().addPost({ platform: "tiktok", title: "B" }, now);
+    const later = at("2026-09-27T11:00:00Z");
+    const saves = vi.spyOn(Storage.prototype, "setItem");
+    S().updatePosts(
+      new Map([
+        [a.id, { caption: "one" }],
+        [b.id, { caption: "two" }],
+        ["nope", { caption: "x" }],
+      ]),
+      later,
+    );
+    expect(saves).toHaveBeenCalledTimes(1);
+    expect(postById(S(), a.id)).toMatchObject({
+      caption: "one",
+      createdAt: now.toISOString(),
+      updatedAt: later.toISOString(),
+    });
+    expect(postById(S(), b.id)?.caption).toBe("two");
+    S().updatePosts(new Map([["nope", { caption: "x" }]]));
+    expect(saves).toHaveBeenCalledTimes(1);
+    expect(() => S().updatePosts(new Map([[a.id, { plannedTime: "25:00" }]]))).toThrow();
+    expect(postById(S(), a.id)?.caption).toBe("one");
+    saves.mockRestore();
   });
 
   it("setPostStage moves the pipeline; posted here stamps postedAt but completes no quest", () => {
