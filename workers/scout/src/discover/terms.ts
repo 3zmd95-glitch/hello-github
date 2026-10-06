@@ -35,6 +35,9 @@ export interface EditTerm {
   specific: boolean;
   /** true: a catch-all ("transitions") that is `best` only when no other entry matched. */
   generic?: boolean;
+  /** true: a trend (the clone effect), not an editing technique that always has many creators (slow motion): the
+   * trending-effects list shows trends first. Discover ignores it. */
+  trend?: boolean;
   queries: { examples: LangText; tutorials: LangText };
 }
 
@@ -64,6 +67,7 @@ function parseTerm(x: unknown): EditTerm | null {
     match: { ar, en },
     specific: t.specific,
     ...(typeof t.generic === "boolean" ? { generic: t.generic } : {}),
+    ...(typeof t.trend === "boolean" ? { trend: t.trend } : {}),
     queries: { examples: q.examples as LangText, tutorials: q.tutorials as LangText },
   };
 }
