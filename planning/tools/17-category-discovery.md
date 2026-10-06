@@ -10,6 +10,7 @@ Requested 2026-10-04: enhance Cars, Coffee, Travel and the other subject-categor
 - Preserve the user's typed technique and clicked category as separate constraints. Explicit category selection takes precedence over category inference from the text. Category-only results must still show shooting/editing evidence, rather than recipes, shopping, or general subject advice.
 - Give both local subscription models and built-in AI the same category context. Do not let missing AI category wording remove the selected subject from retrieval or relevance checks.
 - Retry nonempty but entirely off-topic category responses within the existing budget; retain rejected cards behind the existing off-topic disclosure and avoid caching an unusable answer as complete.
+- Decided 2026-10-06 with the owner, after the live check below: a typed idea (or AI brief) inside a selected category stays strict while any card matches both. When none does, the cards that match the idea alone are shown, marked `outsideCategory`, with a one-line note in Discover. The category groups are `SearchPlan.categoryGroups`; AI concepts that repeat the category count as category groups. Category-only, exact and plain searches never relax. No library fits this repository-specific rule; it reuses the existing matcher.
 - Move category-specific ideas next to the category buttons and offer an explicit category-only search action when text is present. Selecting a suggested idea fills the input; searching remains explicit.
 
 ## Validation
@@ -49,4 +50,4 @@ Requested 2026-10-04: enhance Cars, Coffee, Travel and the other subject-categor
   - Needs a fix; owner to decide (see the proposed fix below).
 - **ChatGPT:** the ChatGPT search was refused with the app's "subscription reached a usage limit" message. The plan's allowance was exhausted — the same limit that stopped the Codex session. No retrieval request or Tavily credit was spent.
 - **Usage after the checks:** YouTube 18/70 today. The Tavily figure in the footer (222/1000) is cached for 10 minutes and had not caught up yet.
-- **Proposed fix (not built):** when a selected category would hide every card that matches the typed technique, show those technique matches anyway, with category matches ranked first. Keep category-only searches strict.
+- **Fix built (same day, owner approved):** when nothing matches both the selected category and the typed idea, the idea's matches show, marked outside the category, with a note. Category-only searches stay strict. Tests cover the Worker labelling, the keyword and AI plans, the run and the dashboard note.
