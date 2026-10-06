@@ -54,7 +54,13 @@ export default function Segmented<T extends string>({
     }
     const ro = new ResizeObserver(place);
     ro.observe(seg);
-    return () => ro.disconnect();
+    // <html dir> flips after this effect (useDocumentLang is a passive effect) and mirrors the row without resizing it.
+    const mo = new MutationObserver(place);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["dir"] });
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
   }, [value, options.length]);
 
   const idx = options.findIndex((o) => o.value === value);

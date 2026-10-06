@@ -22,6 +22,8 @@ afterEach(() => {
   if (root) act(() => root!.unmount());
   root = null;
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  document.documentElement.removeAttribute("dir");
 });
 
 function mount(ui: ReactElement, dir?: "ltr") {
@@ -79,5 +81,25 @@ describe("Segmented", () => {
     press(radios[0], "ArrowRight"); // LTR: forward
     expect(seen).toEqual(["stages", "month"]);
     expect(document.activeElement).toBe(radios[1]);
+  });
+
+  it("re-places the thumb when the page direction flips", async () => {
+    // Fake layout: 100px segments, mirrored in RTL.
+    vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const btns = [...this.parentElement!.querySelectorAll("button")];
+      const i = btns.indexOf(this as HTMLButtonElement);
+      return 100 * (document.documentElement.dir === "ltr" ? i : btns.length - 1 - i);
+    });
+    document.documentElement.dir = "rtl";
+    const host = mount(<Segmented options={opts} value="week" onChange={() => {}} label="العرض" />);
+    const thumb = host.querySelector<HTMLElement>(".ios-seg-thumb")!;
+    expect(thumb.style.getPropertyValue("--x")).toBe("200px"); // RTL: the first option is rightmost
+    // The language picker flips <html dir> in a passive effect, after the thumb was placed.
+    await act(async () => {
+      document.documentElement.dir = "ltr";
+    });
+    expect(thumb.style.getPropertyValue("--x")).toBe("0px");
   });
 });
