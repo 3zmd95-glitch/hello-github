@@ -80,5 +80,6 @@
   "social.toast.connected": "اتربط {name} ✓",
   "social.toast.connectError": "ما قدرنا نربط {name}: {reason}",
   "social.toast.synced": "تحدثت الأرقام ✓",
-  "social.studio.lastSync": "🔗 آخر مزامنة {ago}"
+  "social.studio.lastSync": "🔗 آخر مزامنة {ago}",
+  "social.studio.refreshed": "تم التحديث الحين"
 }

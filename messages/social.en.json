@@ -80,5 +80,6 @@
   "social.toast.connected": "{name} connected ✓",
   "social.toast.connectError": "Could not connect {name}: {reason}",
   "social.toast.synced": "Numbers updated ✓",
-  "social.studio.lastSync": "🔗 Last sync {ago}"
+  "social.studio.lastSync": "🔗 Last sync {ago}",
+  "social.studio.refreshed": "Refreshed just now"
 }
