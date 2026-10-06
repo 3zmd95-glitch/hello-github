@@ -15,13 +15,15 @@ const GENERIC = new Set(
     "instagram ig reel reels the this that these a an my your our how to do make made making with and of for in on " +
     "popular most top full quick free template templates tutorial tutorials effect effects transition transitions " +
     "filter filters trick tricks style sound special visual aesthetic cinematic smooth fun crazy insane fyp foryou " +
-    "foryoupage part one day today week 2026 ai dance challenge"
+    "foryoupage part one day today week 2026 ai dance challenge " +
+    // Lowercase-"trend" junk ("hottest trend", "her trend", "pov trend").
+    "hottest biggest favorite favourite current next big year her his their it let pov"
   ).split(" "),
 );
 
-/** Whole names that are not editing effects ("sound", "special" and "visual" are generic, so those never form). */
+/** Whole names that are not editing effects ("sound", "special" and "visual" are generic, so those never form;
+ * any name ending in "after effect" is the software, see `named`). */
 const BLOCK = new Set([
-  "after effect",
   "butterfly effect",
   "domino effect",
   "side effect",
@@ -95,18 +97,26 @@ function dictionaryName(name: string): EditTerm | undefined {
 }
 
 /** A name from the words right before the suffix, back to the first generic word ("glitch and zoom transition" →
- * "zoom transition"; a possessive "'s" is dropped first); none when no word is left or the name is blocked. */
+ * "zoom transition"; a possessive "'s" and apostrophes are dropped first). A capitalised suffix starts the name at
+ * the run's first capitalised word ("omg Swagger Trend" → "swagger trend"). None when no word is left, the name is
+ * blocked or it is the After Effects software. */
 function named(words: readonly string[], suffix: string): string | undefined {
   const clean = words.map((w) =>
     w
       .toLowerCase()
       .replace(/['’]s$/, "")
-      .replace(/[^a-z0-9'-]/g, ""),
+      .replace(/[^a-z0-9-]/g, ""),
   );
   let start = clean.length;
   while (start > 0 && !GENERIC.has(clean[start - 1])) start--;
+  if (/^[A-Z]/.test(suffix)) {
+    const capital = words.findIndex((w, i) => i >= start && /^[A-Z]/.test(w));
+    if (capital >= 0) start = capital;
+  }
   const name = [...clean.slice(start), suffix.toLowerCase()].join(" ");
-  return start < clean.length && !BLOCK.has(name) ? name : undefined;
+  return start < clean.length && !BLOCK.has(name) && !/\bafter effect$/.test(name)
+    ? name
+    : undefined;
 }
 
 export function candidatesOf(text: string): { key: string; name: string; termId?: string }[] {
@@ -115,7 +125,10 @@ export function candidatesOf(text: string): { key: string; name: string; termId?
   const addTerm = (t: EditTerm) => out.set(t.id, { key: t.id, name: t.label.en, termId: t.id });
   const add = (name: string | undefined) => {
     if (!name) return;
-    const term = dictionaryName(name);
+    // "speed ramp trend" is the speed ramp: a dictionary phrase before "trend" names that entry.
+    const term =
+      dictionaryName(name) ??
+      (name.endsWith(" trend") ? dictionaryName(name.slice(0, -" trend".length)) : undefined);
     if (!term) out.set(slug(name), { key: slug(name), name });
     else if (!term.generic) addTerm(term); // a catch-all phrase ("seamless transition") names no trend
   };
@@ -136,8 +149,10 @@ export function candidatesOf(text: string): { key: string; name: string; termId?
   return [...out.values()];
 }
 
+/** "@User" and "user" are one creator. An Instagram card often has no handle: its post URL is the id then. */
 export async function creatorId(platform: EffectPlatform, handleOrUrl: string): Promise<string> {
-  const bytes = new TextEncoder().encode(`${platform}:${handleOrUrl.toLowerCase()}`);
+  const handle = handleOrUrl.trim().toLowerCase().replace(/^@/, "");
+  const bytes = new TextEncoder().encode(`${platform}:${handle}`);
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   return [...digest.slice(0, 4)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }

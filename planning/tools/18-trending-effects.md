@@ -134,7 +134,7 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
   never part of a name.
 - **Growth:** compares the creators of the last 3 days with the 3 days before them.
   - Each family is searched once in every 3-day window, so the two windows are like for like.
-  - `growth = |creators, days 0–2| / max(1, |creators, days 3–5|)`.
+  - `growth = |creators, days 0–2| / |creators, days 3–5|`, rounded to 0.01, when days 3–5 have creators. Otherwise it is 3 or 0, as below.
   - An effect with creators in days 0–2 but none in days 3–5 counts as growth 3. That covers effects never seen before.
   - An effect with no creators in days 0–5, seen only 6 days ago, has growth 0: it is fading.
 - **NEW:** the effect is not in the dictionary and was first seen in the last 7 days.
