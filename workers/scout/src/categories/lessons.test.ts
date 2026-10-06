@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 import type { Platform, ScoutResult } from "../normalize";
+import { TAVILY_URL } from "../trends/tavily";
 import { categoryById } from "./defs";
 import {
   lessonsDue,
@@ -16,6 +17,12 @@ const CARS = categoryById("cars")!;
 const NOW = new Date("2026-10-07T05:41:00Z");
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+/** YouTube's key is set, so a YouTube Data API call would really be made and `tavilyOnly` would see it: lessons find
+ * their YouTube videos through Tavily (planning/tools/19-category-trends.md §4). */
+const KEYS = { TAVILY_API_KEY: "t", YOUTUBE_API_KEY: "y" };
+/** Every request was a Tavily search. */
+const tavilyOnly = (f: Mock<typeof fetch>) =>
+  f.mock.calls.every(([input]) => String(input) === TAVILY_URL);
 const env = (run: (model: string, input: Record<string, unknown>) => Promise<unknown>) => ({
   AI: { run: vi.fn(run) },
 });
@@ -281,14 +288,9 @@ describe("refreshLessons", () => {
 
   it("3 techniques an area, 9 + 1 searches, the how-tos; a technique with no video is hidden", async () => {
     const { fetch, searched } = web();
-    const { lessons, counts } = await refreshLessons(
-      { TAVILY_API_KEY: "t", AI: ai() },
-      fetch,
-      CARS,
-      [],
-      NOW,
-    );
+    const { lessons, counts } = await refreshLessons({ ...KEYS, AI: ai() }, fetch, CARS, [], NOW);
     expect(searched).toHaveLength(10);
+    expect(tavilyOnly(fetch)).toBe(true);
     expect(searched[0]).toEqual({
       query: "car panning tutorial",
       domains: ["youtube.com", "instagram.com", "tiktok.com"],
@@ -353,34 +355,35 @@ describe("refreshLessons", () => {
         samples: [{ url: "https://www.tiktok.com/@r1/video/1", title: "Rolling shot of my M4" }],
       },
     ];
-    const { lessons } = await refreshLessons(
-      { TAVILY_API_KEY: "t", AI: ai() },
-      fetch,
-      CARS,
-      items,
-      NOW,
-    );
+    const { lessons } = await refreshLessons({ ...KEYS, AI: ai() }, fetch, CARS, items, NOW);
     expect(lessons!.video[0].videos.map((v) => [v.kind, v.url])).toEqual([
       ["example", "https://www.tiktok.com/@r1/video/1"],
       ["tutorial", "https://www.youtube.com/watch?v=tutOnly0001"],
     ]);
+    expect(tavilyOnly(fetch)).toBe(true);
   });
 
   it("is null when the AI picks nothing, every search fails, or the how-to answers nothing", async () => {
-    const none = { TAVILY_API_KEY: "t", AI: { run: vi.fn(async () => ({ response: {} })) } };
-    expect((await refreshLessons(none, web().fetch, CARS, [], NOW)).lessons).toBeNull();
+    // Nothing picked: nothing searched.
+    const none = { ...KEYS, AI: { run: vi.fn(async () => ({ response: {} })) } };
+    const unsearched = web().fetch;
+    expect((await refreshLessons(none, unsearched, CARS, [], NOW)).lessons).toBeNull();
+    expect(unsearched).not.toHaveBeenCalled();
     const down = vi.fn<typeof fetch>(async () => json({ error: "quota" }, 432));
-    const failed = await refreshLessons({ TAVILY_API_KEY: "t", AI: ai() }, down, CARS, [], NOW);
+    const failed = await refreshLessons({ ...KEYS, AI: ai() }, down, CARS, [], NOW);
     expect(failed.lessons).toBeNull();
     expect(failed.counts).toMatchObject({ picked: 9, withVideos: 0, credits: 0, searchErrors: 10 });
+    expect(tavilyOnly(down)).toBe(true);
+    const searched = web().fetch;
     const mute = await refreshLessons(
-      { TAVILY_API_KEY: "t", AI: ai({ techniques: "nope" }) },
-      web().fetch,
+      { ...KEYS, AI: ai({ techniques: "nope" }) },
+      searched,
       CARS,
       [],
       NOW,
     );
     expect(mute.lessons).toBeNull();
     expect(mute.counts).toMatchObject({ withVideos: 8, written: 0 });
+    expect(tavilyOnly(searched)).toBe(true);
   });
 });
