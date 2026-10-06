@@ -74,5 +74,13 @@
   "search.searching": "Searching TikTok, Instagram and YouTube in Arabic and English…",
   "search.picks": "⭐ Claude's picks",
   "search.picksLatest": "⭐ Latest from Claude",
-  "search.picksTopic": "for “{topic}”"
+  "search.picksTopic": "for “{topic}”",
+  "search.trendingTitle": "🔥 Trending effects this week",
+  "search.trendingUpdated": "updated {n} h ago",
+  "search.trendingNew": "NEW",
+  "search.trendingCreators": "{n} creators",
+  "search.trendingStale": "Couldn't update today",
+  "search.trendingRun": "Run the first scan",
+  "search.trendingRunning": "Scanning for trends… can take a minute",
+  "search.trendingCreative": "TikTok Creative Center ↗"
 }

@@ -363,9 +363,11 @@ describe("Discover v2 in the research panel", () => {
     expect($("discover-sections")).toBeNull();
     expect($("scout-usage")).not.toBeNull();
     expect($("discover-usage")).toBeNull();
-    // Nor does it ask for Claude's picks (a v2 route).
+    // Nor does it ask for Claude's picks or the trending effects (v2 routes).
     const asked = vi.mocked(fetch).mock.calls.map(([input]) => new URL(String(input)).pathname);
     expect(asked).toContain("/search");
     expect(asked).not.toContain("/discover/picks");
+    expect(asked).not.toContain("/effects/trending");
+    expect($("trending-effects")).toBeNull();
   });
 });

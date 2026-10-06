@@ -68,6 +68,7 @@ import PasteLinkForm from "./PasteLinkForm";
 import PicksSection from "./PicksSection";
 import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
 import SkillPicker from "./SkillPicker";
+import TrendingEffects from "./TrendingEffects";
 import { useDiscoverPicks, useDiscoverQuery, useDiscoverUsage, useScoutCaps } from "./useDiscover";
 import {
   groupErrors,
@@ -862,6 +863,20 @@ export default function ResearchPanel({
           )}
         </div>
       </form>
+      {/* 🔥 This week's trending effects (Discover v2 only): a chip is a search for the effect, like a recent
+          topic, with the category cleared. */}
+      {!skill && v2 && scoutCfg && (
+        <TrendingEffects
+          config={scoutCfg}
+          onPick={(query) => {
+            setGenreId(null);
+            setTopic(query);
+            setDraft(null);
+            setAttempt((a) => a + 1);
+            addRecentTopic(query);
+          }}
+        />
+      )}
       {!skill && recentTopics.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-muted text-xs">{t("discover.recent")}</span>
