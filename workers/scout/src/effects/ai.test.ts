@@ -16,6 +16,8 @@ const verdict = (key: string, extra: object = {}) => ({
 const env = (run: (model: string, input: Record<string, unknown>) => Promise<unknown>) => ({
   AI: { run: vi.fn(run) },
 });
+/** A built-in AI answering these verdicts, as the real one does (the list in `response`, already parsed). */
+const answering = (effects: unknown[]) => env(async () => ({ response: { effects } }));
 
 describe("cleanWithAi", () => {
   it("returns the checked verdicts, the titles clipped and passed as data", async () => {
@@ -23,7 +25,7 @@ describe("cleanWithAi", () => {
       effects: [verdict("clone-effect"), verdict("clone-trend", { sameAs: "clone-effect" })],
     };
     const e = env(async () => ({ response: JSON.stringify(reply) }));
-    expect(await cleanWithAi(e, candidates)).toEqual(reply.effects);
+    expect(await cleanWithAi(e, candidates)).toEqual({ verdicts: reply.effects, rejects: {} });
     const [model, input] = e.AI.run.mock.calls[0];
     expect(model).toBe(AI_MODEL);
     // The owner's dialect: Hijazi, not a generic Gulf Arabic.
@@ -35,27 +37,89 @@ describe("cleanWithAi", () => {
     expect(user).not.toContain("x".repeat(100)); // each title is clipped to 100 characters
   });
 
-  it("drops verdicts about keys it was not given, or merging into one", async () => {
-    const e = env(async () => ({
-      response: {
-        effects: [
-          verdict("clone-effect"),
-          verdict("made-up"),
-          verdict("clone-trend", { sameAs: "made-up" }),
-        ],
-      },
-    }));
-    expect(await cleanWithAi(e, candidates)).toEqual([verdict("clone-effect")]);
+  it("drops verdicts about keys it was not given, or merging into one, and counts them", async () => {
+    const e = answering([
+      verdict("clone-effect"),
+      verdict("made-up"),
+      verdict("clone-trend", { sameAs: "made-up" }),
+    ]);
+    expect(await cleanWithAi(e, candidates)).toEqual({
+      verdicts: [verdict("clone-effect")],
+      rejects: { unknown_key: 1, unknown_sameAs: 1 },
+    });
   });
 
-  it("checks each verdict on its own: a broken one never costs the others", async () => {
-    const longArabic = verdict("clone-trend", { name: { en: "Clone trend", ar: "ا".repeat(41) } });
-    const reply = (effects: unknown[]) => env(async () => ({ response: { effects } }));
-    expect(await cleanWithAi(reply([verdict("clone-effect"), longArabic]), candidates)).toEqual([
-      verdict("clone-effect"),
+  it("real model output: a sameAs of '', null, blanks or its own key merges nothing", async () => {
+    const out = await cleanWithAi(
+      answering([
+        verdict("clone-effect", { sameAs: "" }),
+        verdict("clone-trend", { sameAs: null }),
+        verdict("clone-effect", { sameAs: "   " }),
+        verdict("clone-trend", { sameAs: " clone-trend " }),
+      ]),
+      candidates,
+    );
+    expect(out?.rejects).toEqual({});
+    expect(out?.verdicts.map((v) => v.key)).toEqual([
+      "clone-effect",
+      "clone-trend",
+      "clone-effect",
+      "clone-trend",
     ]);
-    const short = verdict("clone-effect", { what: { en: "x", ar: "y" } });
-    expect(await cleanWithAi(reply([short, longArabic, "junk"]), candidates)).toEqual([]);
+    for (const v of out!.verdicts) expect(v).not.toHaveProperty("sameAs");
+  });
+
+  it("real model output: text is trimmed and clipped to its limit (a line at a word near the end), not rejected", async () => {
+    const line =
+      "You walk into the frame and meet yourself, then a second and a third copy of you joins in";
+    const long = `  ${line} the same shot, all at one time  `;
+    expect(long.trim()).toHaveLength(120);
+    const out = await cleanWithAi(
+      answering([
+        verdict("clone-effect", {
+          name: { en: " Clone effect ", ar: "ا".repeat(41) },
+          what: { en: long, ar: "ا".repeat(120) },
+        }),
+      ]),
+      candidates,
+    );
+    expect(out).toEqual({
+      verdicts: [
+        verdict("clone-effect", {
+          name: { en: "Clone effect", ar: "ا".repeat(40) },
+          // Cut at the last space within the line's final 15 characters; no space there: a plain cut.
+          what: { en: line, ar: "ا".repeat(90) },
+        }),
+      ],
+      rejects: {},
+    });
+    expect(line.length).toBeLessThanOrEqual(90);
+  });
+
+  it("rejects a verdict with too short or missing text, or a broken field, and counts why: never the rest", async () => {
+    const out = await cleanWithAi(
+      answering([
+        verdict("clone-effect"),
+        verdict("clone-trend", { what: undefined }),
+        verdict("clone-trend", { what: { en: "x", ar: "  وصف قصير  " } }),
+        verdict("clone-trend", { name: { en: " ", ar: "ا" } }),
+        verdict("clone-trend", { keep: "yes" }),
+        "junk",
+      ]),
+      candidates,
+    );
+    expect(out).toEqual({
+      verdicts: [verdict("clone-effect")],
+      // Counts by field and zod's code: never the text.
+      rejects: {
+        "what:invalid_type": 1,
+        "what.en:too_small": 1,
+        "name.en:too_small": 1,
+        "name.ar:too_small": 1,
+        "keep:invalid_type": 1,
+        invalid_type: 1,
+      },
+    });
   });
 
   it("gives null on invalid JSON, no list, no binding, an error or a timeout", async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { usageKeys } from "../discover/usage";
 import { TAVILY_URL } from "../trends/tavily";
 import { searchFamilies, youtubeCheck } from "./sources";
 
@@ -7,83 +8,149 @@ const json = (body: unknown, status = 200) =>
 const ENV = { TAVILY_API_KEY: "k", YOUTUBE_API_KEY: "y" };
 const NOW = new Date("2026-10-07T05:35:00Z");
 
+type Body = { query: string; include_domains: string[]; time_range: string };
+const bodyOf = (init?: RequestInit) => JSON.parse(String(init?.body)) as Body;
+/** Which search a request is: "ig week", "ig month", "tt month". */
+const kindOf = ({ include_domains: [site], time_range }: Body) =>
+  `${site === "instagram.com" ? "ig" : "tt"} ${time_range}`;
+/** A KV holding Discover's cached Tavily usage as this text (or throwing it). */
+const usageKv = (text: string | Error) =>
+  ({
+    get: vi.fn(async (key: string) => {
+      if (text instanceof Error) throw text;
+      return key === usageKeys.tavily ? text : null;
+    }),
+  }) as unknown as KVNamespace;
+
 describe("searchFamilies", () => {
-  it("asks Tavily once per query over both sites, keeps post pages and sums the credits", async () => {
+  it("asks Tavily 3 times a family (Instagram over a week and a month, TikTok over a month), keeps each family's post pages once and sums the credits", async () => {
+    const reel = (id: string, handle: string, title: string) => ({
+      url: `https://www.instagram.com/${handle}/reel/${id}/`,
+      title,
+      content: "gif stickers by @theboogley",
+    });
+    const replies: Record<string, unknown[]> = {
+      // Each window finds its own posts, and both find C1: one post.
+      "ig week": [reel("C1", "mia", "Swagger Trend"), { url: "https://www.instagram.com/mia/" }],
+      "ig month": [reel("C1", "mia", "Swagger Trend"), reel("C2", "zoe", "moving stickers")],
+      "tt month": [
+        { url: "https://www.tiktok.com/@ed/video/1", title: "Clone yourself", content: "#clone" },
+        { url: "https://www.tiktok.com/@ed", title: "ed on TikTok" },
+      ],
+    };
     const doFetch = vi.fn<typeof fetch>(async (_url, init) => {
-      const { query } = JSON.parse(String(init?.body)) as { query: string };
-      if (query !== "clone yourself video trend") return json({ results: [] }); // no usage: 1 credit
-      return json({
-        results: [
-          {
-            url: "https://www.tiktok.com/@ed/video/1",
-            title: "Clone yourself in CapCut",
-            content: "#cloneyourself",
-          },
-          {
-            url: "https://www.instagram.com/mia/reel/C1/",
-            title: "Swagger Trend",
-            content: "clone effect",
-          },
-          { url: "https://www.tiktok.com/@ed", title: "ed on TikTok" },
-          { url: "https://www.instagram.com/mia/", title: "mia" },
-        ],
-        usage: { credits: 2 },
-      });
+      const body = bodyOf(init);
+      if (body.query !== "gif stickers") return json({ results: [] }); // no usage: 1 credit
+      return json({ results: replies[kindOf(body)], usage: { credits: 2 } });
     });
-    const out = await searchFamilies(ENV, doFetch, [
-      "clone yourself video trend",
-      "speed ramp trend edit",
-    ]);
-    expect(doFetch).toHaveBeenCalledTimes(2);
+    const out = await searchFamilies(ENV, doFetch, ["gif stickers", "speed ramp trend edit"]);
+
+    expect(doFetch).toHaveBeenCalledTimes(6);
     expect(String(doFetch.mock.calls[0][0])).toBe(TAVILY_URL);
-    expect(JSON.parse(String(doFetch.mock.calls[0][1]?.body))).toEqual({
-      query: "clone yourself video trend",
-      include_domains: ["tiktok.com", "instagram.com"],
-      max_results: 20,
-      search_depth: "basic",
-      include_published_date: true,
-      include_usage: true,
-      time_range: "week",
-      language: "en",
-    });
+    const bodies = doFetch.mock.calls.map(([, init]) => bodyOf(init));
+    expect(bodies.filter((b) => b.query === "gif stickers").map(kindOf)).toEqual([
+      "ig week",
+      "ig month",
+      "tt month",
+    ]);
+    for (const body of bodies)
+      expect(body).toMatchObject({
+        max_results: 20,
+        search_depth: "basic",
+        include_published_date: true,
+        include_usage: true,
+        language: "en",
+      });
     expect(out).toEqual({
       posts: [
-        {
-          platform: "tt",
-          handle: "@ed",
-          title: "Clone yourself in CapCut",
-          snippet: "#cloneyourself",
-          url: "https://www.tiktok.com/@ed/video/1",
-        },
         {
           platform: "ig",
           handle: "@mia",
           title: "Swagger Trend",
-          snippet: "clone effect",
+          snippet: "gif stickers by @theboogley",
           url: "https://www.instagram.com/p/C1",
         },
+        {
+          platform: "ig",
+          handle: "@zoe",
+          title: "moving stickers",
+          snippet: "gif stickers by @theboogley",
+          url: "https://www.instagram.com/p/C2",
+        },
+        {
+          platform: "tt",
+          handle: "@ed",
+          title: "Clone yourself",
+          snippet: "#clone",
+          url: "https://www.tiktok.com/@ed/video/1",
+        },
       ],
-      credits: 3,
+      credits: 9,
       errors: [],
+      // Family numbers in FAMILY_QUERIES (1-based); post pages found by each search; posts once each.
+      families: [
+        { family: 2, tt: 1, igWeek: 1, igMonth: 2, posts: 3 },
+        { family: 5, tt: 0, igWeek: 0, igMonth: 0, posts: 0 },
+      ],
+      tight: false,
     });
+  });
+
+  it("with Tavily's month 90 % spent (Discover's cached figure), only the Instagram month search a family", async () => {
+    const scan = async (kv?: KVNamespace) => {
+      const doFetch = vi.fn<typeof fetch>(async () => json({ results: [] }));
+      const out = await searchFamilies({ ...ENV, SOCIAL_KV: kv }, doFetch, ["a", "b"]);
+      return { out, kinds: doFetch.mock.calls.map(([, init]) => kindOf(bodyOf(init))) };
+    };
+    const tight = await scan(usageKv(JSON.stringify({ used: 900, limit: 1000, plan: "free" })));
+    expect(tight.kinds).toEqual(["ig month", "ig month"]);
+    expect(tight.out).toMatchObject({ credits: 2, tight: true });
+    // Under 90 %, no figure kept, a broken one, no known limit, or KV failing: every search.
+    for (const kv of [
+      usageKv(JSON.stringify({ used: 899, limit: 1000 })),
+      undefined,
+      usageKv(""),
+      usageKv("{not json"),
+      usageKv(JSON.stringify({ used: 950, limit: null })),
+      usageKv(new Error("KV GET failed")),
+    ]) {
+      const full = await scan(kv);
+      expect(full.kinds).toHaveLength(6);
+      expect(full.out.tight).toBe(false);
+    }
   });
 
   it("names each failure: auth, quota, upstream, a timeout, no key", async () => {
     const status: Record<string, number> = { a: 401, b: 432, c: 429, d: 500 };
     const doFetch = vi.fn<typeof fetch>(async (_url, init) => {
-      const { query } = JSON.parse(String(init?.body)) as { query: string };
+      const { query } = bodyOf(init);
       if (query === "slow") return new Promise<Response>(() => {});
       return json({ error: "no" }, status[query]);
     });
     const out = await searchFamilies(ENV, doFetch, ["a", "b", "c", "d", "slow"], 20);
-    expect(out).toEqual({
-      posts: [],
-      credits: 0,
-      errors: ["auth", "quota", "quota", "upstream", "upstream"],
-    });
+    expect(out).toMatchObject({ posts: [], credits: 0 });
+    // Each of the 3 searches a family.
+    expect(out.errors).toEqual(
+      Array(3).fill(["auth", "quota", "quota", "upstream", "upstream"]).flat(),
+    );
     const none = vi.fn<typeof fetch>();
     expect((await searchFamilies({}, none, ["a"])).errors).toEqual(["not_configured"]);
     expect(none).not.toHaveBeenCalled();
+  });
+
+  it("runs 6 searches at a time, so none waits for a connection while its time runs", async () => {
+    let open = 0;
+    let most = 0;
+    const doFetch = vi.fn<typeof fetch>(async () => {
+      most = Math.max(most, ++open);
+      await new Promise((r) => setTimeout(r, 5));
+      open--;
+      return json({ results: [] });
+    });
+    const six = ["a", "b", "c", "d", "e", "f"];
+    expect((await searchFamilies(ENV, doFetch, six)).errors).toEqual([]);
+    expect(doFetch).toHaveBeenCalledTimes(18);
+    expect(most).toBe(6);
   });
 });
 

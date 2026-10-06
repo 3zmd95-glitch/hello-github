@@ -68,6 +68,10 @@ describe("candidatesOf", () => {
       "how to add moving stickers to your reels",
       "Hiking vlog with animated stickers ✨",
       "#stickeroverlay",
+      // The owner's reel caption, as its creators write it (handles replaced), and two the live check found.
+      "music: playground by @artist / gif stickers by @maker / #cinematicreels #naturevibes #visualstorytelling",
+      "Gif sticker by @maker",
+      "This moving sticker trend is everywhere",
     ])
       expect(keys(text), text).toEqual(["gif-stickers"]);
   });

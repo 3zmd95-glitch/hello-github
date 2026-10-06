@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { usageKeys } from "../discover/usage";
 import { TAVILY_URL } from "../trends/tavily";
 import { FAMILY_QUERIES, familiesForDay } from "./families";
 import { EFFECTS_KEY } from "./kv";
@@ -86,12 +87,14 @@ function web(
   return { fetch, count, queries, searched };
 }
 
-/** Answers the day's hits to the first family search only (as one family finds a trend); the rest find nothing. */
+/** Answers the day's hits to the first family's searches only (as one family finds a trend); the rest find nothing. */
 function firstSearchOnly() {
-  let served = false;
-  return () => (served ? json({ results: [] }) : ((served = true), undefined));
+  let first: string | undefined;
+  return (query: string) => ((first ??= query) === query ? undefined : json({ results: [] }));
 }
 const docBytes = (doc: EffectsDoc) => new TextEncoder().encode(JSON.stringify(doc)).length;
+/** The family queries a run searched, in order (each is asked 3 times). */
+const familiesOf = (searched: string[]) => [...new Set(searched)];
 
 type Verdict = Record<string, unknown>;
 const titleCase = (s: string) => s.replace(/\b[a-z]/g, (c) => c.toUpperCase());
@@ -182,7 +185,8 @@ describe("runEffects", () => {
     expect(doc).toMatchObject({ ranOn: "2026-10-07", updatedAt: NOW.toISOString(), status: "ok" });
     expect(doc.notes).toBeUndefined();
 
-    expect(count).toEqual({ tavily: 6, search: 2, stats: 1 });
+    // 3 Tavily searches a family (Instagram over a week and a month, TikTok over a month).
+    expect(count).toEqual({ tavily: 18, search: 2, stats: 1 });
     expect(AI.run).toHaveBeenCalledTimes(1);
     expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY]);
     expect(stored(KV)).toEqual(doc);
@@ -193,15 +197,47 @@ describe("runEffects", () => {
       effects: {
         status: "ok",
         items: 2,
-        credits: 6,
+        credits: 18,
+        // Each family's post pages per search (the same PROBE every time), and its posts once each.
+        families: [1, 2, 3, 4, 5, 6].map((family) => ({
+          family,
+          tt: 9,
+          igWeek: 3,
+          igMonth: 3,
+          posts: 12,
+        })),
         keys: 3,
         protected: 3,
         trimmed: 0,
-        // The AI's counts: 3 names judged, 1 of them the dictionary's, 2 new names approved.
-        ai: { judged: 3, dictionary: 1, approved: 2, dropped: 0, merged: 0 },
+        // The AI's counts: 3 names judged, 1 of them the dictionary's, 2 new names approved, none rejected.
+        ai: { judged: 3, dictionary: 1, approved: 2, dropped: 0, merged: 0, rejects: {} },
+        // The dictionary effects seen today, by our own ids, with today's creators.
+        dictionary: { "clone-effect": 8 },
       },
     });
-    expect(line).not.toMatch(/c1|Clone/); // no handles, no titles
+    // No handles, titles or links.
+    expect(line).not.toMatch(/\b(c[1-8]|r1|g[1-3])\b|Swagger|CapCut|https?:/i);
+    for (const hit of PROBE) expect(line).not.toContain(hit.title);
+  });
+
+  it("with Tavily's month 90 % spent (Discover's cached figure), only the Instagram month search a family, noted", async () => {
+    const { env, KV } = setup();
+    KV.store.set(usageKeys.tavily, JSON.stringify({ used: 950, limit: 1000 }));
+    const { fetch, count } = web();
+    const doc = await runEffects(env, { fetch, now: NOW });
+
+    expect(count.tavily).toBe(6);
+    expect(doc).toMatchObject({ status: "partial", notes: ["tavily_budget"] });
+    // Instagram's 3 swagger-trend creators, who clone themselves: both still show.
+    expect(doc.items.map((i) => [i.key, i.creators])).toEqual([
+      ["clone-effect", 3],
+      ["swagger-trend", 3],
+    ]);
+    const { effects } = JSON.parse(String(log.mock.calls[0][0]));
+    expect(effects).toMatchObject({ credits: 6, notes: ["tavily_budget"] });
+    expect(effects.families).toEqual(
+      [1, 2, 3, 4, 5, 6].map((family) => ({ family, tt: 0, igWeek: 0, igMonth: 3, posts: 3 })),
+    );
   });
 
   it("runs once a day; force runs again and replaces the day's creators", async () => {
@@ -217,7 +253,7 @@ describe("runEffects", () => {
 
     // A forced run is not counted against the day's cap.
     const forced = await runEffects(env, { fetch, now: later, force: true });
-    expect(count).toEqual({ tavily: 12, search: 4, stats: 2 });
+    expect(count).toEqual({ tavily: 36, search: 4, stats: 2 });
     expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY, EFFECTS_KEY]);
     expect(forced.items[0]).toMatchObject({ key: "clone-effect", creators: 8 });
     expect(forced.history["clone-effect"]).toHaveLength(1);
@@ -227,19 +263,16 @@ describe("runEffects", () => {
     // 2026-10-06's rotation is families 13–18.
     const day = new Date("2026-10-06T05:35:00Z");
     expect(familiesForDay("2026-10-06")).toEqual(FAMILY_QUERIES.slice(12, 18));
-    expect(FAMILY_QUERIES.slice(0, 2)).toEqual([
-      "clone yourself video trend",
-      "gif sticker overlay reel trend",
-    ]);
+    expect(FAMILY_QUERIES.slice(0, 2)).toEqual(["clone yourself video trend", "gif stickers"]);
     const first = web();
     const doc = await runEffects(setup().env, { fetch: first.fetch, now: day });
-    expect(first.searched).toEqual(FAMILY_QUERIES.slice(0, 6));
+    expect(familiesOf(first.searched)).toEqual(FAMILY_QUERIES.slice(0, 6));
 
     // A stored document with no memory (every run so far failed) is a first scan too.
     const retry = web();
     const noMemory = { ...doc, status: "failed" as const, items: [], meta: {}, history: {} };
     await runEffects(setup({ stored: noMemory }).env, { fetch: retry.fetch, now: day });
-    expect(retry.searched).toEqual(FAMILY_QUERIES.slice(0, 6));
+    expect(familiesOf(retry.searched)).toEqual(FAMILY_QUERIES.slice(0, 6));
 
     // With a memory, the day's rotation: 2026-10-09 is families 13–18 again.
     const later = web();
@@ -247,7 +280,7 @@ describe("runEffects", () => {
       fetch: later.fetch,
       now: new Date("2026-10-09T05:35:00Z"),
     });
-    expect(later.searched).toEqual(FAMILY_QUERIES.slice(12, 18));
+    expect(familiesOf(later.searched)).toEqual(FAMILY_QUERIES.slice(12, 18));
   });
 
   it("a day whose run failed runs again without force (the first-scan button's retry); a good day does not", async () => {
@@ -262,7 +295,7 @@ describe("runEffects", () => {
     const later = new Date("2026-10-07T09:00:00Z");
     const { fetch, count } = web();
     const doc = await runEffects(env, { fetch, now: later });
-    expect(count).toEqual({ tavily: 6, search: 2, stats: 1 });
+    expect(count).toEqual({ tavily: 18, search: 2, stats: 1 });
     expect(doc).toMatchObject({
       status: "ok",
       ranOn: "2026-10-07",
@@ -310,7 +343,7 @@ describe("runEffects", () => {
         now: new Date(Date.UTC(2026, 9, 7, hour)),
       });
       expect(failedRun).toMatchObject({ status: "failed", notes: ["quota"] });
-      expect(down.count.tavily).toBe(6);
+      expect(down.count.tavily).toBe(18);
     }
     expect(KV.store.get(ATTEMPTS)).toBe("3");
 
@@ -329,15 +362,16 @@ describe("runEffects", () => {
     const forced = web();
     KV.get.mockClear();
     const doc = await runEffects(env, { fetch: forced.fetch, now: NOW, force: true });
-    expect(forced.count.tavily).toBe(6);
+    expect(forced.count.tavily).toBe(18);
     expect(doc.status).toBe("ok");
-    expect(KV.get.mock.calls.map(([key]) => key)).toEqual([EFFECTS_KEY]);
+    // It reads its list and Discover's Tavily figure (the budget guard), never the attempt counter.
+    expect(KV.get.mock.calls.map(([key]) => key)).toEqual([EFFECTS_KEY, usageKeys.tavily]);
     expect(KV.store.get(ATTEMPTS)).toBe("3");
 
     // The next UTC day starts a new count.
     const tomorrow = web();
     await runEffects(env, { fetch: tomorrow.fetch, now: NEXT_DAY });
-    expect(tomorrow.count.tavily).toBe(6);
+    expect(tomorrow.count.tavily).toBe(18);
     expect(KV.store.get("effects:attempts:2026-10-08")).toBe("1");
   });
 
@@ -373,7 +407,7 @@ describe("runEffects", () => {
     for (const { env, KV } of [unreadable, unwritable]) {
       const { fetch, count } = web();
       const doc = await runEffects(env, { fetch, now: NOW });
-      expect(count.tavily).toBe(6);
+      expect(count.tavily).toBe(18);
       expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
       // The run itself went well: still "ok", with the note.
       expect(doc).toMatchObject({ status: "ok", notes: ["attempts_kv"] });
@@ -390,7 +424,7 @@ describe("runEffects", () => {
 
     expect(doc).toEqual({ ...prev, ranOn: "2026-10-08", status: "failed", notes: ["quota"] });
     expect(doc.items).toHaveLength(2);
-    expect(count).toEqual({ tavily: 6, search: 0, stats: 0 });
+    expect(count).toEqual({ tavily: 18, search: 0, stats: 0 });
     expect(AI.run).not.toHaveBeenCalled();
     expect(writes(KV)).toEqual(["effects:attempts:2026-10-08", EFFECTS_KEY]);
   });
@@ -405,7 +439,7 @@ describe("runEffects", () => {
     expect(doc.status).toBe("partial");
     expect(doc.notes).toEqual(["quota"]);
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
-    expect(count).toEqual({ tavily: 6, search: 2, stats: 1 });
+    expect(count).toEqual({ tavily: 18, search: 2, stats: 1 });
   });
 
   it("without the AI the chips are dictionary effects and names it approved before; new names wait for a day it works", async () => {
@@ -472,10 +506,9 @@ describe("runEffects", () => {
     expect(third.items[0]).toMatchObject({ key: "clone-effect", what: line });
   });
 
-  it("applies the AI's valid verdicts when one of them breaks the schema", async () => {
+  it("applies the AI's valid verdicts when one of them breaks the schema, and logs why it broke", async () => {
     const { env } = setup({
-      judge: (key) =>
-        key === "swagger-trend" ? { name: { en: "Swagger Trend", ar: "ا".repeat(41) } } : {},
+      judge: (key) => (key === "swagger-trend" ? { what: undefined } : {}),
     });
     const { fetch, count } = web();
     const doc = await runEffects(env, { fetch, now: NOW });
@@ -488,6 +521,10 @@ describe("runEffects", () => {
     });
     expect(doc.meta["swagger-trend"]).toMatchObject({ checked: false });
     expect(count.search).toBe(1);
+    expect(JSON.parse(String(log.mock.calls[0][0])).effects.ai).toMatchObject({
+      judged: 2,
+      rejects: { "what:invalid_type": 1 },
+    });
   });
 
   it("an AI answer with no usable verdict is noted ai_empty and shows dictionary effects only", async () => {
@@ -499,6 +536,44 @@ describe("runEffects", () => {
     expect(doc.notes).toEqual(["ai_empty"]);
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect"]);
     expect(count.search).toBe(1);
+    // The log says why, as counts: all 3 verdicts on their keep field.
+    expect(JSON.parse(String(log.mock.calls[0][0])).effects.ai).toMatchObject({
+      judged: 0,
+      rejects: { "keep:invalid_type": 3 },
+    });
+  });
+
+  it("the AI's real output (an empty, null or self merge; over-long lines) is used, not ai_empty (live check 2026-10-06)", async () => {
+    const sameAs: Record<string, unknown> = {
+      "clone-effect": "",
+      "swagger-trend": null,
+      "reverse-trend": "reverse-trend",
+    };
+    const what =
+      "Two of you share one shot: you walk in, meet yourself, then both of you dance the same steps in sync until the beat drops";
+    const { env } = setup({
+      judge: (key) => ({ sameAs: sameAs[key], what: { en: what, ar: "وصف قصير للتأثير" } }),
+    });
+    const doc = await runEffects(env, { fetch: web().fetch, now: NOW });
+
+    expect(doc.status).toBe("ok");
+    expect(doc.notes).toBeUndefined();
+    expect(doc.items.map((i) => [i.key, i.checked])).toEqual([
+      ["clone-effect", true],
+      ["swagger-trend", true],
+    ]);
+    // 121 characters, clipped at a word within the limit of 90.
+    expect(doc.items[1].what!.en).toBe(
+      "Two of you share one shot: you walk in, meet yourself, then both of you dance the same",
+    );
+    expect(JSON.parse(String(log.mock.calls[0][0])).effects.ai).toEqual({
+      judged: 3,
+      dictionary: 1,
+      approved: 2,
+      dropped: 0,
+      merged: 0,
+      rejects: {},
+    });
   });
 
   it("AI cleanup drops a junk name and merges a spelling into the clone effect", async () => {
@@ -535,6 +610,7 @@ describe("runEffects", () => {
       approved: 2,
       dropped: 1,
       merged: 1,
+      rejects: {},
     });
   });
 
@@ -666,7 +742,7 @@ describe("runEffects", () => {
     expect(doc.notes).toEqual(["youtube_cap"]);
     expect(doc.items.length).toBeGreaterThan(0);
     expect(doc.items.every((i) => i.youtube === undefined)).toBe(true);
-    expect(count).toEqual({ tavily: 6, search: 1, stats: 0 });
+    expect(count).toEqual({ tavily: 18, search: 1, stats: 0 });
   });
 
   it("YouTube answering the first effect, then hitting the cap, keeps the first effect's numbers", async () => {
@@ -677,7 +753,7 @@ describe("runEffects", () => {
     expect(doc.notes).toEqual(["youtube_cap"]);
     expect(doc.items[0].youtube).toEqual({ newVideos: 2, views7d: 2000 });
     expect(doc.items[1].youtube).toBeUndefined();
-    expect(count).toEqual({ tavily: 6, search: 2, stats: 1 });
+    expect(count).toEqual({ tavily: 18, search: 2, stats: 1 });
   });
 
   it("a failed YouTube stats call gives no numbers and a youtube_stats note", async () => {
@@ -688,7 +764,7 @@ describe("runEffects", () => {
     expect(doc.status).toBe("partial");
     expect(doc.notes).toEqual(["youtube_stats"]);
     expect(doc.items.every((i) => i.youtube === undefined)).toBe(true);
-    expect(count).toEqual({ tavily: 6, search: 2, stats: 1 });
+    expect(count).toEqual({ tavily: 18, search: 2, stats: 1 });
   });
 
   it(
@@ -715,30 +791,36 @@ describe("runEffects", () => {
     },
   );
 
-  it("a name building on its family's day survives a busy memory, is judged and shows", async () => {
-    // Scans D, D+3, D+6 search the same families. Each brings 150 one-creator names; the slow name gains 1 creator.
-    let prev: EffectsDoc | undefined;
-    for (const [scan, day] of [
-      [1, "2026-10-01"],
-      [2, "2026-10-04"],
-      [3, "2026-10-07"],
-    ] as const) {
-      const junk = Array.from({ length: 150 }, (_, i) =>
-        tt(`j${scan}x${i}`, `Zork${scan}x${i} Trend`, scan * 1000 + i),
-      );
-      const hits = [...junk, tt(`s${scan}`, "Ghost Walk Trend", scan)];
-      const { env } = setup({ stored: prev });
-      prev = await runEffects(env, {
-        fetch: web({ hits, tavily: firstSearchOnly() }).fetch,
-        now: new Date(`${day}T05:35:00Z`),
-      });
-    }
-    expect(prev!.items.map((i) => [i.key, i.creators, i.checked])).toEqual([
-      ["ghost-walk-trend", 3, true],
-    ]);
-    expect(Object.keys(prev!.history)).toHaveLength(HISTORY_KEYS); // 451 names trimmed to the cap
-    expect(docBytes(prev!)).toBeLessThan(250_000);
-  });
+  // Three runs over a full memory: well under 1 s alone, but over 5 s in the full suite on a busy machine
+  // (2026-10-06), so it gets its own limit like the two below.
+  it(
+    "a name building on its family's day survives a busy memory, is judged and shows",
+    { timeout: 60_000 },
+    async () => {
+      // Scans D, D+3, D+6 search the same families. Each brings 150 one-creator names; the slow name gains 1 creator.
+      let prev: EffectsDoc | undefined;
+      for (const [scan, day] of [
+        [1, "2026-10-01"],
+        [2, "2026-10-04"],
+        [3, "2026-10-07"],
+      ] as const) {
+        const junk = Array.from({ length: 150 }, (_, i) =>
+          tt(`j${scan}x${i}`, `Zork${scan}x${i} Trend`, scan * 1000 + i),
+        );
+        const hits = [...junk, tt(`s${scan}`, "Ghost Walk Trend", scan)];
+        const { env } = setup({ stored: prev });
+        prev = await runEffects(env, {
+          fetch: web({ hits, tavily: firstSearchOnly() }).fetch,
+          now: new Date(`${day}T05:35:00Z`),
+        });
+      }
+      expect(prev!.items.map((i) => [i.key, i.creators, i.checked])).toEqual([
+        ["ghost-walk-trend", 3, true],
+      ]);
+      expect(Object.keys(prev!.history)).toHaveLength(HISTORY_KEYS); // 451 names trimmed to the cap
+      expect(docBytes(prev!)).toBeLessThan(250_000);
+    },
+  );
 
   // These two simulate many daily runs: about 1 s alone, but over 5 s on a busy machine, so they get their own limit.
   it(

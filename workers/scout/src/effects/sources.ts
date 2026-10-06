@@ -1,15 +1,16 @@
 /**
- * Trending effects, the outbound calls (planning/tools/18-trending-effects.md §1): one Tavily search per effect family
- * over TikTok and Instagram together (1 credit each), and the YouTube check of the top effects (one `search.list` each,
- * then one `videos.list` for all their views).
+ * Trending effects, the outbound calls (planning/tools/18-trending-effects.md §1): three Tavily searches per effect
+ * family, Discover's own per-platform call (1 credit each), and the YouTube check of the top effects (one
+ * `search.list` each, then one `videos.list` for all their views).
  */
 
 import type { SearchAiBinding } from "../discover/ai";
-import { CALL_TIMEOUT_MS, timed, youtubeCall } from "../discover/fetchers";
-import { normalizeDiscoverHits, type ScoutResult, type TavilyHit } from "../normalize";
-import { TAVILY_URL } from "../trends/tavily";
+import { CALL_TIMEOUT_MS, tavilyCall, youtubeCall } from "../discover/fetchers";
+import { usageKeys, type TavilyUsage } from "../discover/usage";
+import type { ScoutResult } from "../normalize";
 import { enrichYoutubeStats, YT_STATS_MAX } from "../youtubeStats";
-import type { EffectPlatform, EffectPost } from "./types";
+import { FAMILY_QUERIES } from "./families";
+import type { EffectPost } from "./types";
 
 export interface EffectsEnv {
   TAVILY_API_KEY?: string;
@@ -22,53 +23,40 @@ export interface EffectsEnv {
 export const YT_EFFECTS = 6;
 /** One `videos.list` takes ≤ 50 ids, so each effect's views7d sums its first 8 videos (6 × 8 = 48). */
 const VIEWS_PER_EFFECT = Math.floor(YT_STATS_MAX / YT_EFFECTS);
-const PLATFORMS: readonly EffectPlatform[] = ["tt", "ig"];
 
-type Search = { posts: EffectPost[]; credits: number } | { error: string };
+/**
+ * Each family's searches. Neither window wins alone (live, 2026-10-06): "clone yourself video trend" found 9 clone
+ * posts over a week and 2 over a month; "gif stickers" found 0 sticker posts over a week and 7 over a month. TikTok
+ * gave 1 post a search either way: the month only.
+ */
+const SEARCHES = [
+  { platform: "ig", timeRange: "week", stat: "igWeek" },
+  { platform: "ig", timeRange: "month", stat: "igMonth" },
+  { platform: "tt", timeRange: "month", stat: "tt" },
+] as const;
+/** Tavily's month nearly spent (Discover's cached usage figure): the Instagram month search alone. */
+const TIGHT_SEARCHES = [SEARCHES[1]];
+const TIGHT_SHARE = 0.9;
 
-async function searchOne(
-  key: string,
-  doFetch: typeof fetch,
-  query: string,
-  timeoutMs: number,
-): Promise<Search> {
+/** A family's post pages found by each search, and its posts once each (the log line's figures). */
+export type FamilyStats = {
+  family: number;
+  tt: number;
+  igWeek: number;
+  igMonth: number;
+  posts: number;
+};
+
+/** True when Discover's cached Tavily figure (10 minutes in KV) says ≥ 90 % of the month is used; a missing or
+ * unreadable figure, or no known limit, is not tight. */
+async function budgetTight(env: EffectsEnv): Promise<boolean> {
   try {
-    const out = await timed(timeoutMs, async (signal): Promise<Search> => {
-      const res = await doFetch(TAVILY_URL, {
-        method: "POST",
-        signal,
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify({
-          query,
-          include_domains: ["tiktok.com", "instagram.com"],
-          max_results: 20,
-          search_depth: "basic",
-          include_published_date: true,
-          include_usage: true,
-          time_range: "week",
-          language: "en",
-        }),
-      });
-      if (res.status === 401 || res.status === 403) return { error: "auth" };
-      if (res.status === 429 || res.status === 432 || res.status === 433) return { error: "quota" };
-      if (!res.ok) return { error: "upstream" };
-      const data = (await res.json()) as { results?: unknown; usage?: { credits?: number } };
-      const hits = (Array.isArray(data.results) ? data.results : []) as TavilyHit[];
-      // Each platform keeps its own post pages; profile pages are dropped.
-      const posts = PLATFORMS.flatMap((platform) =>
-        normalizeDiscoverHits(hits, platform).cards.map(({ handle, title, snippet, url }) => ({
-          platform,
-          handle,
-          title,
-          snippet,
-          url,
-        })),
-      );
-      return { posts, credits: data.usage?.credits ?? 1 };
-    });
-    return out ?? { error: "upstream" };
+    const usage = JSON.parse(
+      (await env.SOCIAL_KV?.get(usageKeys.tavily, "text")) ?? "null",
+    ) as TavilyUsage | null;
+    return usage?.limit ? usage.used / usage.limit >= TIGHT_SHARE : false;
   } catch {
-    return { error: "upstream" };
+    return false;
   }
 }
 
@@ -77,19 +65,47 @@ export async function searchFamilies(
   doFetch: typeof fetch,
   queries: readonly string[],
   timeoutMs = CALL_TIMEOUT_MS,
-): Promise<{ posts: EffectPost[]; credits: number; errors: string[] }> {
-  const key = env.TAVILY_API_KEY;
-  if (!key) return { posts: [], credits: 0, errors: ["not_configured"] };
-  const replies = await Promise.all(queries.map((q) => searchOne(key, doFetch, q, timeoutMs)));
+): Promise<{
+  posts: EffectPost[];
+  credits: number;
+  errors: string[];
+  families: FamilyStats[];
+  tight: boolean;
+}> {
+  if (!env.TAVILY_API_KEY)
+    return { posts: [], credits: 0, errors: ["not_configured"], families: [], tight: false };
+  const tight = await budgetTight(env);
   const out = { posts: [] as EffectPost[], credits: 0, errors: [] as string[] };
-  for (const r of replies) {
-    if ("error" in r) out.errors.push(r.error);
-    else {
-      out.posts.push(...r.posts);
+  const families = queries.map((q) => ({
+    stats: { family: FAMILY_QUERIES.indexOf(q) + 1, tt: 0, igWeek: 0, igMonth: 0, posts: 0 },
+    urls: new Set<string>(),
+  }));
+  // One search of each family at a time (6 calls): a Worker keeps 6 connections open and queues the rest, whose time
+  // limit would run while they wait.
+  for (const { platform, timeRange, stat } of tight ? TIGHT_SEARCHES : SEARCHES) {
+    const replies = await Promise.all(
+      queries.map((q) =>
+        tavilyCall(env, doFetch, { q, platform, lang: "en", timeRange }, timeoutMs),
+      ),
+    );
+    replies.forEach((r, i) => {
+      if (!r.ok) return void out.errors.push(r.error);
       out.credits += r.credits;
-    }
+      const { stats, urls } = families[i];
+      stats[stat] = r.cards.length;
+      // A post two searches found is one post.
+      for (const { handle, title, snippet, url } of r.cards)
+        if (!urls.has(url)) {
+          urls.add(url);
+          out.posts.push({ platform, handle, title, snippet, url });
+        }
+    });
   }
-  return out;
+  return {
+    ...out,
+    families: families.map(({ stats, urls }) => ({ ...stats, posts: urls.size })),
+    tight,
+  };
 }
 
 /**
