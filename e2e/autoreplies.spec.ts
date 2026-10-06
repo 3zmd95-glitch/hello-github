@@ -215,7 +215,11 @@ test("allow auto-replies in Settings, build the LUT automation, test it, read se
       publish: true,
       replies: true,
     });
-  await expect(page).toHaveURL(/connected=instagram/);
+  // Back from the fake OAuth: the app takes `?connected=` off the address as soon as it loads, too fast to
+  // catch, so wait for the toast it shows for that return instead.
+  await expect(page.locator('[data-testid="toast"][data-kind="notice"]')).toContainText(
+    "اتربط إنستقرام ✓",
+  );
   // "Sync now" pulls the status again (the fake now says the permission is there).
   await page.getByTestId("accounts-sync").click();
   await expect(ig.getByTestId("account-can-reply")).toBeVisible();
