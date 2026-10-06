@@ -1,5 +1,10 @@
 # 02 · Website tools (later, Phase 3+)
 
+> Owner answers on Oct 6, 2026 (round 35, then paused the same hour: "Dont do the website now only the social panel"): the site lives in this
+> Next.js project (not Framer; he only takes inspiration from Framer marketplace templates such as Smooth Approach, Fuel, Content Aim);
+> version 1 = **Portfolio first**: Home, Work, About + CV, Services & Contact, Links page; Work videos are **embedded from TikTok /
+> Instagram / YouTube** with the dashboard's players (no uploads); same iOS 26 theme as `18-social-ios-design.md`. Main goal unanswered.
+
 Public bilingual site: bio, CV, articles, course landing, shop, link-in-bio, newsletter. Same Next.js app as the dashboard.
 Recorded now so nothing is forgotten; built after the dashboard's daily loop works.
 

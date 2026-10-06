@@ -3,7 +3,8 @@
  * a card is a Tutorial only when its text suggests teaching; it is off-topic when it mentions none of
  * the topic's words, or (a dictionary entry with `specific: false`) no editing word and no tutorial word either.
  * Topic and editing words compare whole words in the Discover matching form (`normalizeTerm`), the form
- * `SearchPlan.topicWords` is in. Selected genre and AI concept groups also require matching evidence.
+ * `SearchPlan.topicWords` is in. Selected genre and AI concept groups also require matching evidence; when the owner
+ * typed an idea inside a category and no card has both, the idea's matches show, marked `outsideCategory`.
  */
 
 import type { Profile, ScoutResult } from "../normalize";
@@ -52,9 +53,19 @@ const EDITING_FORMS = [...new Set(EDITING_WORDS.map(normalizeTerm))];
 export function labelCards(
   found: { card: ScoutResult & { profile?: string }; query: PlannedQuery }[],
   plan: SearchPlan,
+  opts: { relaxCategory?: boolean } = {},
 ): DiscoverItem[] {
   const seen = new Set<string>();
   const out: DiscoverItem[] = [];
+  const groups = plan.requiredGroups ?? [];
+  const category = new Set((plan.categoryGroups ?? []).map((g) => JSON.stringify(g)));
+  const ideaGroups = groups.filter((g) => !category.has(JSON.stringify(g)));
+  // Letting the category give way needs an idea of its own to match, or every card would pass.
+  const canRelax =
+    !!opts.relaxCategory &&
+    category.size > 0 &&
+    (ideaGroups.length > 0 || plan.topicWords.length > 0);
+  const ideaOnly: boolean[] = [];
   for (const { card, query } of found) {
     if (seen.has(card.url)) continue;
     seen.add(card.url);
@@ -62,17 +73,28 @@ export function labelCards(
     const text = normalizeTerm(raw);
     const tutorial = TUTORIAL_RE.test(raw);
     const section = tutorial ? "tutorial" : "example";
+    const matches = (group: string[]) => group.some((w) => mentions(text, w));
     // A vague word ("flash") needs editing context: an editing word, or a tutorial word.
-    const onTopic =
-      (plan.topicWords.length === 0 ||
-        (plan.topicWords.some((w) => mentions(text, w)) &&
-          (!plan.needsEditingWord || tutorial || EDITING_FORMS.some((w) => mentions(text, w))))) &&
-      (plan.requiredGroups ?? []).every((group) => group.some((w) => mentions(text, w)));
+    const topicOk =
+      plan.topicWords.length === 0 ||
+      (plan.topicWords.some((w) => mentions(text, w)) &&
+        (!plan.needsEditingWord || tutorial || EDITING_FORMS.some((w) => mentions(text, w))));
+    const onTopic = topicOk && groups.every(matches);
+    ideaOnly.push(!onTopic && topicOk && ideaGroups.every(matches));
     out.push({
       ...card,
       lang: hasArabic(raw) ? "ar" : query.lang,
       section,
       ...(onTopic ? {} : { offTopic: true as const }),
+    });
+  }
+  // A typed idea inside a category: when nothing has both, show the idea's matches rather than nothing.
+  if (canRelax && !out.some((item) => !item.offTopic) && ideaOnly.some(Boolean)) {
+    return out.map((item, i) => {
+      if (!ideaOnly[i]) return item;
+      const shown: DiscoverItem = { ...item, outsideCategory: true };
+      delete shown.offTopic;
+      return shown;
     });
   }
   return out;

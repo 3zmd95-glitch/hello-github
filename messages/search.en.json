@@ -61,6 +61,7 @@
   "search.showHidden": "show",
   "search.hideHidden": "hide",
   "search.offTopicChip": "Off-topic?",
+  "search.outsideCategory": "Nothing matched both the category and your idea, so these match your idea without the category.",
   "search.platformDown": "{platform} didn't answer",
   "search.platformAuth": "{platform}: the Worker's key was refused",
   "search.platformNotSet": "{platform} isn't set up in the Worker",

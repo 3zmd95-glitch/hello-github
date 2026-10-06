@@ -923,7 +923,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   - the storage block: add `meta`, as built;
   - a "Built" section: files, tests, budgets;
   - after the live check, a "Live check" section.
-- Modify: `planning/master-plan.md`: one line in Round 35 saying it was built and where.
+- Modify: `planning/master-plan.md`: one line in Round 36 saying it was built and where.
 
 - [ ] **Step 1:** Update the spec's storage block to the `EffectsDoc` built in Task 1 (with `meta`), and add a short "Built (2026-10-06)" section.
 - [ ] **Step 2: Full gates:** `pnpm.cmd lint && pnpm.cmd typecheck && pnpm.cmd test && pnpm.cmd build && E2E_PORT=3100 pnpm.cmd e2e`. All must pass; record the counts.

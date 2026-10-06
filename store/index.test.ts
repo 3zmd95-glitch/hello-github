@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getSkill, pillars, programsByPillar } from "@/data";
 import { CHEST_EVERY, lootFor } from "@/lib/chests";
 import { FREEZE_REWARD_ID, GEM_RULES, defaultRewards } from "@/lib/gems";
@@ -233,6 +233,41 @@ describe("settings, export/import, persistence", () => {
     await hydrateStore();
     expect(S().completions).toHaveLength(1);
     expect(totalXp(S())).toBe(15);
+  });
+
+  it("keeps what another tab saved when this tab writes next", async () => {
+    await hydrateStore();
+    const edited = S().addPost({ platform: "tiktok", title: "Coffee film" });
+    const polled = S().addPost({ platform: "tiktok", title: "Inbox test" });
+    // Another tab, opened on the same save, applies a Creator script to the first post and saves.
+    const other = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    other.state.posts = other.state.posts.map((p: { id: string; script: object }) =>
+      p.id === edited.id ? { ...p, script: { ...p.script, hook: "Watch the light" } } : p,
+    );
+    const raw = JSON.stringify(other);
+    localStorage.setItem(STORAGE_KEY, raw);
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: STORAGE_KEY, newValue: raw, storageArea: localStorage }),
+    );
+    // This tab's publish watcher then stamps the other post: every write saves the whole state.
+    S().updatePost(polled.id, { title: "Inbox test, checked" });
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)!).state.posts;
+    expect(saved.find((p: { id: string }) => p.id === edited.id).script.hook).toBe(
+      "Watch the light",
+    );
+    expect(postById(S(), edited.id)?.script.hook).toBe("Watch the light");
+  });
+
+  it("reloads the save when the page comes back from the back/forward cache", async () => {
+    await hydrateStore();
+    const post = S().addPost({ platform: "tiktok", title: "Before" });
+    const other = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    other.state.posts[0].title = "Saved while this page was cached";
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(other));
+    window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false }));
+    expect(postById(S(), post.id)?.title).toBe("Before");
+    window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    expect(postById(S(), post.id)?.title).toBe("Saved while this page was cached");
   });
 
   it("fills in new default settings when stored settings are partial", async () => {
@@ -1151,6 +1186,33 @@ describe("social: posts", () => {
     expect(() => S().updatePost(p.id, { plannedTime: "25:00" })).toThrow();
     expect(S().posts[0].plannedTime).toBe("20:30");
     expect(S().updatePost("nope", { caption: "x" })).toBeUndefined();
+  });
+
+  it("updatePosts merges several patches in one save; unknown ids are skipped", () => {
+    const a = S().addPost({ platform: "instagram", title: "A" }, now);
+    const b = S().addPost({ platform: "tiktok", title: "B" }, now);
+    const later = at("2026-09-27T11:00:00Z");
+    const saves = vi.spyOn(Storage.prototype, "setItem");
+    S().updatePosts(
+      new Map([
+        [a.id, { caption: "one" }],
+        [b.id, { caption: "two" }],
+        ["nope", { caption: "x" }],
+      ]),
+      later,
+    );
+    expect(saves).toHaveBeenCalledTimes(1);
+    expect(postById(S(), a.id)).toMatchObject({
+      caption: "one",
+      createdAt: now.toISOString(),
+      updatedAt: later.toISOString(),
+    });
+    expect(postById(S(), b.id)?.caption).toBe("two");
+    S().updatePosts(new Map([["nope", { caption: "x" }]]));
+    expect(saves).toHaveBeenCalledTimes(1);
+    expect(() => S().updatePosts(new Map([[a.id, { plannedTime: "25:00" }]]))).toThrow();
+    expect(postById(S(), a.id)?.caption).toBe("one");
+    saves.mockRestore();
   });
 
   it("setPostStage moves the pipeline; posted here stamps postedAt but completes no quest", () => {

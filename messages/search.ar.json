@@ -61,6 +61,7 @@
   "search.showHidden": "اعرضها",
   "search.hideHidden": "خبّيها",
   "search.offTopicChip": "برا الموضوع؟",
+  "search.outsideCategory": "ما لقينا شي يجمع التصنيف مع فكرتك، فهذي اللي تطابق فكرتك بدون التصنيف",
   "search.platformDown": "{platform} ما رد",
   "search.platformAuth": "{platform}: مفتاح الـ Worker مرفوض",
   "search.platformNotSet": "{platform} مو مضبوط في الـ Worker",

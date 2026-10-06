@@ -34,6 +34,48 @@ describe("labelCards", () => {
     expect(items.map((i) => !!i.offTopic)).toEqual([false, true, true, false]);
   });
 
+  describe("category fallback", () => {
+    const coffee = planSearch({
+      q: "match cut",
+      genreQuery: { en: "coffee edit", ar: "تصوير قهوة" },
+    });
+    const label = (titles: string[], relaxCategory?: boolean) =>
+      labelCards(
+        titles.map((title) => ({ card: card({ title }), query: coffee.queries[0] })),
+        coffee,
+        { relaxCategory },
+      ).map((i) => [!!i.offTopic, !!i.outsideCategory]);
+
+    it("shows the idea's matches, marked, when nothing matches the idea and the category together", () => {
+      expect(label(["Match cut football edit tutorial", "Cooking recipe vlog"], true)).toEqual([
+        [false, true],
+        [true, false],
+      ]);
+    });
+
+    it("stays strict while anything matches both, and when the caller does not ask", () => {
+      expect(
+        label(["Match cut coffee commercial tutorial", "Match cut football edit tutorial"], true),
+      ).toEqual([
+        [false, false],
+        [true, false],
+      ]);
+      expect(label(["Match cut football edit tutorial"])).toEqual([[true, false]]);
+    });
+
+    it("never relaxes a category-only search", () => {
+      const cars = planSearch({ q: "car edit", genreQuery: { ar: "ايديت سيارات" } });
+      expect(cars.categoryGroups).toBeUndefined();
+      const [item] = labelCards(
+        [{ card: card({ title: "Football edit" }), query: cars.queries[0] }],
+        cars,
+        { relaxCategory: true },
+      );
+      expect(item.offTopic).toBe(true);
+      expect(item.outsideCategory).toBeUndefined();
+    });
+  });
+
   it("does not call a finished edit a tutorial just because of the query", () => {
     const [item] = labelCards(
       [{ card: card({ title: "My flash transition edit" }), query: query("tt-tutorials-en") }],

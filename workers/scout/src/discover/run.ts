@@ -257,7 +257,7 @@ export async function runDiscover(
   const ordered = relevanceAware
     ? [...found.filter(({ card, query }) => eligibleCards([card], query).length > 0), ...found]
     : found;
-  const items = labelCards(ordered, plan);
+  const items = labelCards(ordered, plan, { relaxCategory: true });
   const platforms: Partial<Record<Platform, PlatformStatus>> = {};
   for (const p of ["tt", "ig", "yt"] as const) {
     const mine = results.filter((r) => r.query.platform === p);
