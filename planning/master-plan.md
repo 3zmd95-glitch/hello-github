@@ -571,6 +571,21 @@ want our version" → "I dont want anything that will get me banned"):
   behind a follow. **Instant mode** (webhooks) after Business Verification + App Review; the owner is getting a freelance
   document (Meta's acceptance of it is unconfirmed; a commercial registration is the safer fallback).
 
+Round 35 (Oct 6, 2026). The owner shared a clone-effect reel and asked: "does it show in discover page as trendy or our discover
+page needs working?"
+- **Answer: no.** Nothing tracks editing-effect trends. The Trend Radar follows general topics, and "Popular now" only ranks one
+  search. A manual "clone effect" search works, but its Arabic side mixes in biology "الاستنساخ".
+- **Owner's picks for Trending effects:**
+  - catch new effects early;
+  - global first, Instagram and TikTok first;
+  - compact chips at the top of Discover, refreshed every day;
+  - new names cleaned up by the free built-in AI.
+- **The daily job:** 6 Tavily mention searches, then rules plus one AI cleanup, then a YouTube numbers check on the top 6, then
+  the chips.
+- **Cost:** about 180 Tavily credits a month. YouTube use rises to 94 of the 100 searches a day in total.
+- **Rejected:** scraping TikTok Creative Center, which TikTok's rules forbid since April 2026. We link to it instead.
+- **Spec:** `tools/18-trending-effects.md`.
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|
