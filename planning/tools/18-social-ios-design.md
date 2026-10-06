@@ -61,15 +61,15 @@ on its own. New tokens are added next to them. Training's `:root` block does not
 | `--edge` (alias `--hair`) | `rgba(16,22,30,.10)` | `rgba(255,255,255,.08)` | hairline separators only (cards have no border) |
 | `--ink` | `#0B0D10` | `#F2F4F7` | primary text |
 | `--ink-2` | `#555D69` | `#A9B1BC` | secondary text (AA on surfaces) |
-| `--muted` | `#6B7482` | `#8B94A1` | tertiary text, chevrons, day letters (AA on surfaces) |
+| `--muted` | `#676F7D` | `#8B94A1` | tertiary text, chevrons, day letters (AA on surfaces) |
 | `--accent` | `#45E08E` | `#45E08E` | brand green: filled buttons, rings, active dots, switch on |
 | `--accent-ink` | `#06130D` | `#06130D` | text on accent |
-| `--tint` (new; `--sky` aliases it) | `#0F7A47` | `#5BE59F` | green for text, icons, links, active tab |
+| `--tint` (new; `--sky` aliases it) | `#0E7443` | `#5BE59F` | green for text, icons, links, active tab |
 | `--tint-bg` (new) | `rgba(18,138,81,.12)` | `rgba(69,224,142,.15)` | tinted icon squares, secondary buttons |
-| `--gold` / `--orange` (alias `--warn`) | `#9A5B00` | `#FFB75A` | warnings, overdue, favorites |
+| `--gold` / `--orange` (alias `--warn`) | `#945700` | `#FFB75A` | warnings, overdue, favorites |
 | `--warn-bg` (new) | `rgba(184,110,0,.12)` | `rgba(255,183,90,.14)` | warning icon squares, chips |
 | `--gold-ink` | `#FFFFFF` | `#1E1606` | text on a solid warn fill |
-| `--danger` | `#D4342C` | `#FF6B6B` | destructive text and buttons |
+| `--danger` | `#D0332B` | `#FF6B6B` | destructive text and buttons |
 | `--pc-tiktok` `--pc-instagram` `--pc-youtube` `--pc-snapchat` `--pc-x` `--pc-threads` | `#FE2C55` `#E1306C` `#E60000` `#E6C700` `var(--ink)` `var(--ink)` | same, Snapchat `#FFFC00` | platform badges, calendar dots, chart lines (replaces the hex in `lib/social.ts`) |
 
 Glass and elevation tokens (new):

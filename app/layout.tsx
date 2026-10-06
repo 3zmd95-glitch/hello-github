@@ -5,9 +5,9 @@ import RegisterSW from "@/components/pwa/RegisterSW";
 import { basePath, withBasePath } from "@/lib/basePath";
 import "./globals.css";
 
-// Training: Baloo Bhaijaan 2 + Pixelify Sans. Social: IBM Plex Sans Arabic (master plan "Tech stack").
+// Training: Baloo Bhaijaan 2 + Pixelify Sans. Social: Vazirmatn (round 35).
 const FONTS_CSS =
-  "https://fonts.googleapis.com/css2?family=Baloo+Bhaijaan+2:wght@400;600;800&family=Pixelify+Sans:wght@400;700&family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap";
+  "https://fonts.googleapis.com/css2?family=Baloo+Bhaijaan+2:wght@400;600;800&family=Pixelify+Sans:wght@400;700&family=Vazirmatn:wght@400;500;600;700&display=swap";
 
 /**
  * Static export: every page ships with `data-world="training"`, so on a direct load of a Social route this

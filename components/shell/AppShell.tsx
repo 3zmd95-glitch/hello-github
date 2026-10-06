@@ -24,7 +24,7 @@ import WorldSwitch from "./WorldSwitch";
  * switch), the active world's phone tab bar / desktop sidebar, and the providers for the skill popup, the
  * ▶ video player (around the skill popup's, so its saved references can play too) and celebrations. The
  * world comes from the URL (`useWorld`) and is mirrored onto `<html data-world>` so the CSS tokens in
- * globals.css switch between the pixel and the cinematic look.
+ * globals.css switch between the pixel and the iOS look.
  */
 export default function AppShell({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);

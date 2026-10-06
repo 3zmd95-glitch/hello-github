@@ -581,8 +581,8 @@ seeing both in the mockup) · motion first (springs, title collapse, minimizing 
 chart scrub, swipe to favorite). Approved mockup: `planning/social-ios-mockup.html` (live copy
 https://claude.ai/artifact/H7TN2Yh1gA3ZkabVpGj28f). Spec: `tools/18-social-ios-design.md`; plan:
 `plans/2026-10-06-social-ios-design.md` (Fable designed and planned; Opus 5.5 executes, one PR per phase). Search before building:
-own CSS glass (libraries need SVG filters WebKit ignores), `lucide-react`, `vaul` for sheets, simple-icons paths for platform
-glyphs; Konsta UI, shadcn/Base UI and Motion not adopted this round (`tools/05-found-on-github.md`). The owner briefly
+own CSS glass (libraries need SVG filters WebKit ignores), `lucide-react`, an in-house bottom sheet (`vaul` was rejected at
+execution: its Radix modal fights the app's stacked overlays), simple-icons paths for platform glyphs; Konsta UI, shadcn/Base UI and Motion not adopted this round (`tools/05-found-on-github.md`). The owner briefly
 asked for the public website first ("i want to build the website first not the app… in ios theme"), chose "Portfolio first" pages and
 platform-embedded videos, then stopped it: "Dont do the website now only the social panel". Those website answers are kept in
 `tools/02-website.md` for the day it comes back.

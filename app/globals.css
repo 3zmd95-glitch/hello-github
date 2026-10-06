@@ -3,9 +3,9 @@
 /*
  * 3z Prod design tokens. Each world sets its own variables on the root element
  * (`data-world="training"` = cute pixel style: chunky borders, hard shadows, dark bg, green accent;
- * `data-world="social"` = cinematic creator studio: near-black, soft borders and shadows, rounded cards).
- * The shell sets the attribute from the route; the Social block lives at the end of this file and
- * redefines every token here, so the shared `.px-*` classes and color utilities restyle on their own.
+ * `data-world="social"` = iOS 26 look: glass navigation, solid cards, light + dark following the phone,
+ * Vazirmatn). The shell sets the attribute from the route; the Social world block further down redefines
+ * every token here, so the shared `.px-*` classes and color utilities restyle on their own.
  */
 :root,
 :root[data-world="training"] {
@@ -49,6 +49,12 @@
   --color-danger: var(--danger);
   --color-sky: var(--sky);
   --color-orange: var(--orange);
+  --color-tint: var(--tint, var(--sky));
+  --color-tint-bg: var(--tint-bg, transparent);
+  --color-warn: var(--warn, var(--gold));
+  --color-warn-bg: var(--warn-bg, transparent);
+  --color-fill: var(--fill, var(--panel-3));
+  --color-hair: var(--hair, var(--edge));
   --font-body: "Baloo Bhaijaan 2", system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
   --font-pixel: "Pixelify Sans", "Baloo Bhaijaan 2", ui-monospace, monospace;
   --shadow-px: 4px 4px 0 var(--edge);
@@ -1022,136 +1028,1010 @@
 /* ---- /Today ---- */
 
 /* ---- Social world ---- */
-/* 📱 Social = the cinematic "creator studio" look of the Framer site: near-black, soft 1px borders, soft
- * shadows, rounded cards, IBM Plex Sans Arabic, no pixel art. A screen opts in by living under /social:
- * the shell mirrors the route onto <html data-world>, this block redefines every Training token, and the
- * shared `.px-*` classes plus the color utilities (bg-panel, text-ink, border-edge...) restyle on their own.
- * Overrides sit in the same layers as the originals so Tailwind utilities keep winning. */
+/* 📱 Social = iOS 26 look (round 35, tools/18): glass navigation layer, solid cards, light + dark following the
+ * phone, Vazirmatn, Lucide icons, spring motion. Same token names as Training so every `.px-*` class and color
+ * utility restyles on its own; the new tokens below are Social-only. Dark values live in the media query after it.
+ * The component skin further down overrides each class in the same CSS layer as its original, so a Tailwind
+ * utility on an element still wins over it. */
 :root[data-world="social"] {
-  color-scheme: dark;
-  --radius: 14px;
-  --radius-sm: 10px;
-  --bg: #0b0d10;
+  color-scheme: light dark;
+  --radius: 22px;
+  --radius-sm: 14px;
+  --bg: #f2f3f6;
   --bg-dot: transparent;
-  --panel: #141820;
-  --panel-2: #1a2029;
-  --panel-3: #232a35;
-  --edge: #232a35;
-  --ink: #eef1f5;
-  --ink-2: #b7c0cc;
-  --muted: #7d8794;
+  --panel: #ffffff;
+  --panel-2: #f2f3f6;
+  --panel-3: #e4e7ec;
+  --fill: var(--panel-3);
+  --edge: rgba(16, 22, 30, 0.1);
+  --hair: var(--edge);
+  --ink: #0b0d10;
+  --ink-2: #555d69;
+  --muted: #676f7d;
   --accent: #45e08e;
   --accent-ink: #06130d;
-  --gold: #e3c06f;
-  --gold-ink: #1e1606;
-  --danger: #ff7a70;
-  --sky: #7fc4ff;
-  --orange: #ffb067;
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-  --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.3);
-  --font-body: "IBM Plex Sans Arabic", system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+  --tint: #0e7443;
+  --tint-bg: rgba(18, 138, 81, 0.12);
+  --sky: var(--tint);
+  --gold: #945700;
+  --gold-ink: #ffffff;
+  --orange: var(--gold);
+  --warn: var(--gold);
+  --warn-bg: rgba(184, 110, 0, 0.12);
+  --danger: #d0332b;
+  --pc-tiktok: #fe2c55;
+  --pc-instagram: #e1306c;
+  --pc-youtube: #e60000;
+  --pc-snapchat: #e6c700;
+  --pc-x: var(--ink);
+  --pc-threads: var(--ink);
+  --shadow: 0 1px 1px rgba(16, 24, 32, 0.03), 0 8px 24px rgba(16, 24, 32, 0.05);
+  --shadow-sm: 0 1px 3px rgba(16, 24, 32, 0.08);
+  --glass-bg: rgba(255, 255, 255, 0.66);
+  --glass-blur: 22px;
+  --glass-rim: rgba(255, 255, 255, 0.95);
+  --glass-hi: rgba(255, 255, 255, 0.9);
+  --glass-spec: rgba(255, 255, 255, 0.55);
+  --glass-shadow: 0 10px 30px rgba(16, 24, 32, 0.1), 0 0 0 0.5px rgba(16, 24, 32, 0.08);
+  --lens: rgba(255, 255, 255, 0.92);
+  --lens-shadow: 0 2px 8px rgba(16, 24, 32, 0.14), inset 0 0 0 0.5px #fff;
+  --spring: cubic-bezier(0.34, 1.3, 0.64, 1);
+  --out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --t-fast: 0.16s;
+  --t-med: 0.32s;
+  --t-spring: 0.5s;
+  --font-body: "Vazirmatn", -apple-system, "SF Arabic", "Segoe UI", system-ui, sans-serif;
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root[data-world="social"] {
+    --spring: linear(
+      0,
+      0.004 0.8%,
+      0.019 1.7%,
+      0.073 3.5%,
+      0.164 5.5%,
+      0.309 8%,
+      0.484 10.6%,
+      0.671 13.4%,
+      0.834 16.2%,
+      0.955 18.9%,
+      1.036 21.8%,
+      1.08 24.7%,
+      1.094 27.5%,
+      1.083 30.5%,
+      1.059 33.8%,
+      1.028 37.6%,
+      1.002 41.9%,
+      0.99 46%,
+      0.987 51.7%,
+      1 71.1%,
+      1
+    );
+  }
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-world="social"] {
+    --bg: #0b0d10;
+    --panel: #15181e;
+    --panel-2: #1c2027;
+    --panel-3: #262b34;
+    --edge: rgba(255, 255, 255, 0.08);
+    --ink: #f2f4f7;
+    --ink-2: #a9b1bc;
+    --muted: #8b94a1;
+    --tint: #5be59f;
+    --tint-bg: rgba(69, 224, 142, 0.15);
+    --gold: #ffb75a;
+    --gold-ink: #1e1606;
+    --warn-bg: rgba(255, 183, 90, 0.14);
+    --danger: #ff6b6b;
+    --pc-snapchat: #fffc00;
+    --shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 30px rgba(0, 0, 0, 0.35);
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.35);
+    --glass-bg: rgba(24, 28, 34, 0.58);
+    --glass-rim: rgba(255, 255, 255, 0.12);
+    --glass-hi: rgba(255, 255, 255, 0.08);
+    --glass-spec: rgba(255, 255, 255, 0.1);
+    --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+    --lens: rgba(255, 255, 255, 0.14);
+    --lens-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.18), 0 2px 10px rgba(0, 0, 0, 0.35);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-world="social"] {
+    --t-fast: 0s;
+    --t-med: 0s;
+    --t-spring: 0s;
+  }
 }
 
 @layer base {
   [data-world="social"] body {
-    /* No pixel dots: one soft green glow in the top corner instead. */
-    background-image: radial-gradient(
-      circle at 80% -10%,
-      color-mix(in srgb, var(--accent) 9%, transparent),
-      transparent 45%
-    );
-    background-size: auto;
-    background-repeat: no-repeat;
+    background-image: none;
+    background-color: var(--bg);
+    transition: background-color var(--t-med) var(--out);
   }
+}
+
+/* ---- Social world: component skin (round 35, tools/18 §3.3–3.5; the mockup is the reference) ---- */
+@layer base {
   [data-world="social"] :is(h1, h2, h3) {
     font-weight: 700;
+    letter-spacing: -0.01em;
   }
   [data-world="social"] :where(button, a, summary, input, select, textarea):focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--tint);
+    outline-offset: 2px;
+  }
+  [data-world="social"] a {
+    color: var(--tint);
+  }
+  @supports (corner-shape: squircle) {
+    [data-world="social"]
+      :is(.px-card, .px-inset, .ios-card, .ios-list, .ios-ic, .ios-stat, .ios-seg, .ios-sheet) {
+      corner-shape: squircle;
+    }
   }
 }
 
 @layer components {
-  [data-world="social"] .px-card,
+  /* Glass: navigation layer only (spec §3.4). `:where()` keeps it at class weight, so a later class on the
+     same element wins (`.ios-fab` / `.ios-ptr` need their position: fixed). */
+  :where([data-world="social"]) .glass {
+    position: relative;
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    box-shadow:
+      var(--glass-shadow),
+      inset 0 1px 0 var(--glass-hi),
+      inset 0 0 0 0.5px var(--glass-rim);
+  }
+  :where([data-world="social"]) .glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(180deg, var(--glass-spec), transparent 45%);
+  }
+  :where([data-world="social"]) .slab {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    box-shadow: 0 0.5px 0 var(--hair);
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    :where([data-world="social"]) :is(.glass, .slab) {
+      background: var(--panel);
+    }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    :where([data-world="social"]) :is(.glass, .slab) {
+      background: var(--panel);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+    :where([data-world="social"]) .glass::before {
+      display: none;
+    }
+    /* The sheet backdrop keeps its dim, without the blur (`[data-world]` outweighs the later `.ios-backdrop`). */
+    [data-world="social"] .ios-backdrop {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+
+  /* Existing pixel classes, restyled (spec §5: screens migrate one by one). */
+  [data-world="social"] .px-card {
+    border: 0;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 16px;
+  }
+  /* --panel-2 equals --bg in light: an inset on the page reads as a small card, inside a surface it stays an inset. */
   [data-world="social"] .px-inset {
-    border-width: 1px;
+    border: 0;
+    border-radius: 16px;
+    background: var(--panel);
+    box-shadow: var(--shadow-sm);
+    padding: 12px 14px;
+  }
+  [data-world="social"] :is(.px-card, .ios-card, .ios-list, .ios-sheet) .px-inset {
+    background: var(--panel-2);
+    box-shadow: none;
   }
   [data-world="social"] .px-btn {
-    border: 1px solid transparent;
+    border: 0;
     border-radius: 999px;
     box-shadow: none;
+    min-height: 44px;
+    padding: 0 18px;
     font-weight: 600;
-    padding: 7px 16px;
+    font-size: 15px;
     transition:
-      transform 0.12s ease,
-      opacity 0.12s ease,
-      background-color 0.12s ease;
+      transform var(--t-fast) var(--out),
+      opacity var(--t-fast) var(--out),
+      background-color var(--t-fast) var(--out);
   }
   [data-world="social"] .px-btn:active:not(:disabled) {
     transform: scale(0.97);
     box-shadow: none;
   }
   [data-world="social"] .px-btn-ghost {
-    background: transparent;
-    border-color: var(--edge);
-    color: var(--ink);
+    background: var(--tint-bg);
+    color: var(--tint);
+  }
+  [data-world="social"] .px-btn-gold {
+    background: var(--warn-bg);
+    color: var(--warn);
+  }
+  [data-world="social"] .px-btn-danger {
+    background: var(--danger);
+    color: var(--panel);
   }
   [data-world="social"] .px-btn-sm {
-    padding: 3px 12px;
-    box-shadow: none;
+    min-height: 34px;
+    padding: 0 12px;
+    font-size: 13px;
   }
   [data-world="social"] .px-chip {
-    border-width: 1px;
+    border: 0;
     border-radius: 999px;
-    padding: 0 10px;
+    height: 24px;
+    padding: 0 9px;
+    background: var(--fill);
+    color: var(--ink-2);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  [data-world="social"] :is(.px-chip-green, .px-chip-t1) {
+    background: var(--tint-bg);
+    color: var(--tint);
+  }
+  [data-world="social"] :is(.px-chip-gold, .px-chip-t2) {
+    background: var(--warn-bg);
+    color: var(--warn);
+  }
+  [data-world="social"] .px-chip-t3 {
+    background: var(--danger);
+    color: var(--panel);
   }
   [data-world="social"] .px-chip-lock {
-    border-style: solid;
+    border: 0;
+    background: var(--fill);
+    color: var(--ink-2);
   }
   [data-world="social"] .px-bar {
     height: 8px;
     border: 0;
     border-radius: 999px;
-    background: var(--panel-3);
+    background: var(--fill);
   }
   [data-world="social"] .px-bar > i {
     background: var(--c, var(--accent));
     border-radius: 999px;
-    transition: width 0.5s ease;
+    transition: width var(--t-spring) var(--out);
   }
   [data-world="social"] .px-bar-sm {
     height: 6px;
   }
   [data-world="social"] .px-input {
-    background: var(--bg);
-    border: 1px solid var(--edge);
-    padding: 8px 12px;
+    background: var(--panel-2);
+    border: 0;
+    border-radius: 14px;
+    box-shadow: inset 0 0 0 0.5px var(--hair);
+    padding: 11px 14px;
+    color: var(--ink);
+  }
+  [data-world="social"] :is(.px-card, .ios-card, .ios-list, .ios-sheet) .px-inset .px-input {
+    background: var(--panel);
   }
   [data-world="social"] .px-input:focus-visible {
-    border-color: var(--accent);
-    outline: none;
+    outline: 2px solid var(--tint);
+    outline-offset: 0;
   }
   [data-world="social"] .px-check {
-    border-width: 1px;
+    border: 0;
     border-radius: 8px;
     box-shadow: none;
+    background: var(--fill);
     font-family: var(--font-body);
+    transition:
+      background-color var(--t-fast) var(--out),
+      transform var(--t-fast) var(--out);
+  }
+  [data-world="social"] .px-check:active {
+    transform: scale(0.9);
   }
   [data-world="social"] .px-pip {
-    border-width: 1px;
+    border: 0;
     border-radius: 999px;
+    background: var(--fill);
+  }
+  /* The rules above come after the base `[data-on="true"]` ones with the same specificity: keep "on" filled. */
+  [data-world="social"] :is(.px-check, .px-pip)[data-on="true"] {
+    background: var(--accent);
   }
   [data-world="social"] .px-fchip {
-    border-width: 1px;
+    border: 0;
     border-radius: 999px;
-    box-shadow: none;
+    min-height: 34px;
+    padding: 0 13px;
+    background: var(--panel);
+    color: var(--ink-2);
+    box-shadow: var(--shadow-sm);
+    transition:
+      background-color var(--t-med) var(--out),
+      color var(--t-med) var(--out),
+      transform var(--t-fast) var(--out);
+  }
+  [data-world="social"] .px-fchip[aria-pressed="true"] {
+    background: var(--ink);
+    color: var(--bg);
+  }
+  [data-world="social"] .px-fchip:active {
+    transform: scale(0.95);
   }
   [data-world="social"] .px-tile {
     background-image: none;
   }
   [data-world="social"] .px-skel {
-    border-radius: 6px;
+    border-radius: 8px;
     animation-timing-function: ease-in-out;
+  }
+  /* Underlined: a link inside a sentence is not told apart by color alone. */
+  [data-world="social"] .px-link {
+    color: var(--tint);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    font-weight: 600;
+  }
+
+  /* Page header: large title that fades and shrinks with --scroll-p (written by the shell, Task 2.2). */
+  .ios-lt {
+    padding: 4px 4px 14px;
+  }
+  .ios-eyebrow {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+  .ios-lt h1 {
+    font-size: 34px;
+    line-height: 1.15;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    transform-origin: 100% 0;
+    opacity: calc(1 - var(--scroll-p, 0));
+    transform: translateY(calc(var(--scroll-p, 0) * -6px))
+      scale(calc(1 - var(--scroll-p, 0) * 0.06));
+  }
+  [dir="ltr"] .ios-lt h1 {
+    transform-origin: 0 0;
+  }
+  .ios-lt p {
+    margin-top: 4px;
+    color: var(--ink-2);
+    font-size: 15px;
+    opacity: calc(1 - var(--scroll-p, 0) * 1.4);
+  }
+
+  /* Cards, lists, rows. */
+  .ios-card {
+    position: relative;
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: var(--shadow);
+    min-width: 0;
+  }
+  .ios-hero {
+    overflow: hidden;
+  }
+  .ios-hero::before {
+    content: "";
+    position: absolute;
+    inset: -40%;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        closest-side at 72% 28%,
+        color-mix(in srgb, var(--accent) 26%, transparent),
+        transparent 72%
+      ),
+      radial-gradient(
+        closest-side at 22% 85%,
+        color-mix(in srgb, var(--pc-tiktok) 9%, transparent),
+        transparent 70%
+      );
+    animation: ios-drift 16s ease-in-out infinite alternate;
+  }
+  .ios-hero > * {
+    position: relative;
+    z-index: 1;
+  }
+  .ios-list {
+    background: var(--panel);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .ios-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 58px;
+    padding: 11px 16px;
+    text-align: start;
+    color: inherit;
+    text-decoration: none;
+    transition: background-color var(--t-fast) var(--out);
+  }
+  .ios-row + .ios-row::before,
+  .ios-swipe + .ios-swipe > .ios-row::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    inset-inline-start: 62px;
+    inset-inline-end: 0;
+    height: 0.5px;
+    background: var(--hair);
+  }
+  .ios-row[data-sep="16"]::before,
+  .ios-swipe + .ios-swipe > .ios-row::before {
+    inset-inline-start: 16px;
+  }
+  :is(button, a).ios-row:active {
+    background: var(--panel-2);
+  }
+  /* Ring drawn inside: the list's overflow: hidden would clip an outside one. */
+  [data-world="social"] :is(.ios-row, .ios-list a, .ios-list button):focus-visible {
+    outline: 2px solid var(--tint);
+    outline-offset: -2px;
+  }
+  .ios-ic {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    background: var(--tint-bg);
+    color: var(--tint);
+    flex: none;
+  }
+  .ios-ic.warn {
+    background: var(--warn-bg);
+    color: var(--warn);
+  }
+  .ios-ic.fill {
+    background: var(--fill);
+    color: var(--ink-2);
+  }
+  .ios-tx {
+    flex: 1;
+    min-width: 0;
+  }
+  .ios-tx b {
+    display: block;
+    font-weight: 500;
+    font-size: 15px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ios-tx small {
+    display: block;
+    color: var(--ink-2);
+    font-size: 13px;
+    margin-top: 1px;
+  }
+  .ios-gh {
+    padding: 0 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+  .ios-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 9px;
+    border-radius: 999px;
+    background: var(--fill);
+    color: var(--ink-2);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .ios-chip.tint {
+    background: var(--tint-bg);
+    color: var(--tint);
+  }
+  .ios-chip.warn {
+    background: var(--warn-bg);
+    color: var(--warn);
+  }
+  .ios-stat {
+    background: var(--panel-2);
+    border-radius: 16px;
+    padding: 12px 14px;
+    min-width: 0;
+  }
+  .ios-stat.ios-card {
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .ios-stat small {
+    display: block;
+    color: var(--ink-2);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .ios-stat b {
+    display: block;
+    margin-top: 2px;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    direction: ltr;
+    text-align: match-parent;
+    unicode-bidi: isolate;
+  }
+  .ios-delta {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+    margin-top: 4px;
+    color: var(--tint);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .ios-pressable {
+    transition: transform var(--t-fast) var(--out);
+  }
+  .ios-pressable:active {
+    transform: scale(0.97);
+  }
+
+  /* Segmented control: equal segments, thumb moves on transform only (width is set once by the component). The
+     track clips, so the spring's overshoot never pushes the thumb past it. */
+  .ios-seg {
+    position: relative;
+    display: flex;
+    background: var(--fill);
+    border-radius: 12px;
+    padding: 3px;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .ios-seg > button {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 0;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-2);
+    white-space: nowrap;
+    transition:
+      color var(--t-med) var(--out),
+      transform var(--t-fast) var(--out);
+  }
+  .ios-seg > button:is([aria-selected="true"], [aria-checked="true"]) {
+    color: var(--ink);
+  }
+  .ios-seg > button:active {
+    transform: scale(0.96);
+  }
+  /* The clipped track would cut the outer focus ring: draw it inside the segment. */
+  [data-world="social"] .ios-seg > button:focus-visible {
+    outline: 2px solid var(--tint);
+    outline-offset: -2px;
+  }
+  .ios-seg-thumb {
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    left: 0;
+    border-radius: 9px;
+    background: var(--panel);
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.14),
+      0 0 0 0.5px rgba(0, 0, 0, 0.04);
+    transform: translateX(var(--x, 0px));
+    transition: transform var(--t-spring) var(--spring);
+    pointer-events: none;
+  }
+  /* Dark: the thumb is lighter than the track, as on iOS (--panel would sit darker than --fill). */
+  @media (prefers-color-scheme: dark) {
+    [data-world="social"] .ios-seg-thumb {
+      background: var(--lens);
+    }
+  }
+
+  /* iOS switch on a native checkbox (keeps role="switch" for the tests). */
+  .ios-switch {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 51px;
+    height: 31px;
+    margin: 0;
+    border-radius: 999px;
+    background: var(--fill);
+    position: relative;
+    flex: none;
+    cursor: pointer;
+    transition: background-color var(--t-med) var(--out);
+  }
+  .ios-switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    inset-inline-start: 2px;
+    width: 27px;
+    height: 27px;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow:
+      0 3px 8px rgba(0, 0, 0, 0.22),
+      0 0 0 0.5px rgba(0, 0, 0, 0.04);
+    transition: transform var(--t-spring) var(--spring);
+  }
+  .ios-switch:checked {
+    background: var(--accent);
+  }
+  .ios-switch:checked::after {
+    transform: translateX(-20px);
+  }
+  [dir="ltr"] .ios-switch:checked::after {
+    transform: translateX(20px);
+  }
+  .ios-switch:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  /* Swipe-to-action row wrapper (Task 1.10 hook). */
+  .ios-swipe {
+    position: relative;
+    overflow: hidden;
+  }
+  .ios-swipe > .ios-act {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 96px;
+    display: grid;
+    place-items: center;
+    background: var(--warn);
+    color: var(--gold-ink);
+    transform: scale(0.8);
+    opacity: 0.7;
+    transition:
+      transform 0.35s var(--spring),
+      opacity var(--t-fast) var(--out);
+  }
+  .ios-swipe[data-armed="true"] > .ios-act {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  .ios-swipe > .ios-row {
+    background: var(--panel);
+    touch-action: pan-y;
+    transition:
+      transform var(--t-spring) var(--spring),
+      background-color var(--t-fast) var(--out);
+  }
+  .ios-swipe[data-dragging="true"] > .ios-row {
+    transition: none;
+  }
+
+  /* Floating action button, pull indicator, toast, alert. */
+  .ios-fab {
+    position: fixed;
+    inset-inline-end: 16px;
+    bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 26px);
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: var(--tint);
+    z-index: 35;
+    transform: scale(0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform var(--t-spring) var(--spring),
+      opacity var(--t-med) var(--out);
+  }
+  .ios-fab[data-show="true"] {
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
+  }
+  [data-tabbar="mini"] .ios-fab[data-show="true"] {
+    transform: translateY(10px) scale(0.9);
+  }
+  .ios-fab[data-show="true"]:active {
+    transform: scale(0.9);
+  }
+  .ios-ptr {
+    position: fixed;
+    top: calc(56px + env(safe-area-inset-top, 0px) + 6px);
+    left: 50%;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: var(--tint);
+    z-index: 36;
+    opacity: 0;
+    transform: translate(-50%, 0) scale(0.6);
+    pointer-events: none;
+  }
+  .ios-ptr[data-spin="true"] svg {
+    animation: ios-spin 0.8s linear infinite;
+  }
+  /* A long text (an error reason the owner must read, a post title) wraps inside the screen, never truncated. */
+  [data-world="social"] .ios-toast {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    max-width: 100%;
+    padding-block: 10px;
+    padding-inline: 14px 18px;
+    border-radius: 22px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--ink);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  [data-world="social"] .ios-toast svg {
+    flex: none;
+    color: var(--tint);
+  }
+  /* ConfirmDialog in Social = iOS alert, portaled to <body> on the z-50 layer (above sheets, under the player). */
+  .ios-alert-root {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.32);
+    animation: px-fade var(--t-med) var(--out);
+  }
+  [data-world="social"] .ios-alert {
+    width: 270px;
+    max-width: 100%;
+    padding: 0;
+    border-radius: 14px;
+    overflow: hidden;
+    text-align: center;
+    background: var(--panel);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    animation: ios-alert-in var(--t-spring) var(--spring);
+  }
+  /* Dark: an elevated gray, so the alert stands out from the dimmed sheet under it (both would be --panel). */
+  @media (prefers-color-scheme: dark) {
+    [data-world="social"] .ios-alert {
+      background: var(--panel-3);
+    }
+  }
+  [data-world="social"] .ios-alert-body {
+    padding: 18px 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  [data-world="social"] .ios-alert-body h2 {
+    font-size: 17px;
+    font-weight: 600;
+  }
+  [data-world="social"] .ios-alert-body p {
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+  [data-world="social"] .ios-alert-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-top: 0.5px solid var(--hair);
+  }
+  [data-world="social"] .ios-alert-actions > button {
+    all: unset;
+    cursor: pointer;
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    font-size: 17px;
+    color: var(--tint);
+    transition: background-color var(--t-fast) var(--out);
+  }
+  [data-world="social"] .ios-alert-actions > button + button {
+    border-inline-start: 0.5px solid var(--hair);
+  }
+  [data-world="social"] .ios-alert-actions > button:active {
+    background: var(--panel-2);
+  }
+  [data-world="social"] .ios-alert-actions > button[data-danger="true"] {
+    color: var(--danger);
+  }
+  [data-world="social"] .ios-alert-actions > button[data-primary="true"] {
+    font-weight: 600;
+  }
+  /* `all: unset` above drops the base focus ring; draw it inside the clipped alert. */
+  [data-world="social"] .ios-alert-actions > button:focus-visible {
+    outline: 2px solid var(--tint);
+    outline-offset: -2px;
+  }
+
+  /* Staggered entrance for the first view of a screen (max 8 children). */
+  .ios-stagger > * {
+    animation: ios-up 0.6s var(--out) backwards;
+  }
+  .ios-stagger > :nth-child(2) {
+    animation-delay: 0.05s;
+  }
+  .ios-stagger > :nth-child(3) {
+    animation-delay: 0.1s;
+  }
+  .ios-stagger > :nth-child(4) {
+    animation-delay: 0.15s;
+  }
+  .ios-stagger > :nth-child(5) {
+    animation-delay: 0.2s;
+  }
+  .ios-stagger > :nth-child(6) {
+    animation-delay: 0.25s;
+  }
+  .ios-stagger > :nth-child(7) {
+    animation-delay: 0.3s;
+  }
+  .ios-stagger > :nth-child(n + 8) {
+    animation-delay: 0.35s;
+  }
+
+  /* Sheet (Task 1.9): portaled to <body> on z-39; phones = bottom sheet with detents, md+ = centered dialog. */
+  .ios-sheet-root {
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+  }
+  .ios-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.38);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    opacity: 0;
+    transition: opacity var(--t-med) var(--out);
+  }
+  .ios-sheet-root[data-phase="open"] .ios-backdrop {
+    opacity: 1;
+  }
+  .ios-sheet {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    color: var(--ink);
+    border-radius: 30px 30px 0 0;
+    box-shadow:
+      0 -10px 40px rgba(0, 0, 0, 0.25),
+      inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
+    outline: none;
+    transition: transform var(--t-spring) var(--spring);
+  }
+  .ios-sheet-root[data-phase="exit"] .ios-sheet {
+    transition: transform 0.28s cubic-bezier(0.4, 0, 1, 1);
+  }
+  /* The panel goes on below the screen edge: a pull above the top (or the spring's overshoot) shows no gap. It
+     overlaps the panel by 1px (two anti-aliased edges at a fractional offset leave a hairline) and sits under the
+     content (z-index -1 inside the panel's own stacking context). */
+  .ios-sheet[data-mode="sheet"]::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: calc(100% - 1px);
+    height: 121px;
+    background: inherit;
+    z-index: -1;
+  }
+  .ios-sheet[data-mode="dialog"] {
+    inset: auto;
+    left: 50%;
+    top: 50%;
+    width: min(560px, calc(100vw - 32px));
+    max-height: 85dvh;
+    border-radius: var(--radius);
+    transform: translate(-50%, -50%);
+    transition:
+      transform var(--t-spring) var(--spring),
+      opacity var(--t-med) var(--out);
+  }
+  .ios-sheet-root:not([data-phase="open"]) .ios-sheet[data-mode="dialog"] {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  .ios-sheet-root[data-phase="exit"] .ios-sheet[data-mode="dialog"] {
+    transition:
+      transform 0.2s var(--out),
+      opacity 0.2s var(--out);
+  }
+  .ios-grab {
+    flex: none;
+    padding: 8px 16px 6px;
+    touch-action: none;
+    cursor: grab;
+  }
+  .ios-sheet[data-mode="dialog"] .ios-grab {
+    padding-top: 16px;
+    cursor: default;
+  }
+  .ios-handle {
+    display: block;
+    width: 38px;
+    height: 5px;
+    margin: 0 auto 10px;
+    border-radius: 3px;
+    background: var(--fill);
+  }
+  .ios-sheet-title {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .ios-sheet-sub {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .ios-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--fill);
+    color: var(--ink-2);
+    display: grid;
+    place-items: center;
+    flex: none;
+    transition: transform var(--t-fast) var(--out);
+  }
+  .ios-close:active {
+    transform: scale(0.9);
+  }
+  .ios-sheet-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px 16px calc(16px + var(--sheet-hidden, 0px) + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  [data-world="social"] #main {
+    transition: transform var(--t-spring) var(--spring);
+  }
+  [data-world="social"] #main.ios-behind {
+    transform: scale(0.965);
   }
 }
 
@@ -1163,14 +2043,54 @@
   }
 }
 
-/* Motion: smooth easing instead of the pixel steps(). */
+/* Motion: eased curves instead of the pixel steps(). No spring on `.anim-sheet`: its overshoot would lift the old
+   bottom sheets off the screen edge on every open. */
 [data-world="social"] :is(.anim-popin, .anim-sheet, .anim-toast, .anim-fade, .anim-pop) {
-  animation-timing-function: ease-out;
+  animation-timing-function: var(--out);
 }
 [data-world="social"] .px-particle {
   border-radius: 999px;
   box-shadow: none;
-  animation-timing-function: ease-out;
+  animation-timing-function: var(--out);
+}
+@keyframes ios-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+@keyframes ios-pin {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.992);
+  }
+}
+@keyframes ios-pout {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@keyframes ios-pop {
+  50% {
+    transform: scale(1.35);
+  }
+}
+@keyframes ios-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes ios-drift {
+  to {
+    transform: translate(-7%, 5%) rotate(10deg) scale(1.08);
+  }
+}
+@keyframes ios-alert-in {
+  from {
+    opacity: 0;
+    transform: scale(1.1);
+  }
 }
 /* ---- /Social world ---- */
 
