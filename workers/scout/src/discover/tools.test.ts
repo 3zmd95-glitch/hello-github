@@ -233,7 +233,7 @@ describe("getTrends", () => {
     ]);
   });
 
-  it("adds this week's trending effects; none when their document can't be read", async () => {
+  it("adds this week's trending effects; none when their document or an item can't be read", async () => {
     const kv = fakeKV();
     const what = { en: "You appear twice in one shot", ar: "تطلع مرتين في نفس اللقطة" };
     const youtube = { newVideos: 2, views7d: 2000, growth: 1.5 };
@@ -334,11 +334,28 @@ describe("getTrends", () => {
         return key === trendKeys.latest ? JSON.stringify(feed) : null;
       },
     } as unknown as KVNamespace;
-    expect(await getTrends({ SOCIAL_KV: down }, {})).toEqual({
+    const radarOnly = {
       fetchedAt: "2026-10-03T06:00:00Z",
       items: [{ title: "car edit", platform: "youtube", region: "SA", source: "YouTube search" }],
       effects: [],
-    });
+    };
+    expect(await getTrends({ SOCIAL_KV: down }, {})).toEqual(radarOnly);
+
+    // So does a stored item that is not an effect (say, from an older deploy): no name to read.
+    const odd = fakeKV();
+    await odd.put(trendKeys.latest, JSON.stringify(feed));
+    await odd.put(
+      EFFECTS_KEY,
+      JSON.stringify({
+        ranOn: "2026-10-03",
+        updatedAt: "2026-10-03T05:35:00.000Z",
+        status: "ok",
+        items: [{ key: "clone-effect", creators: 9, isNew: false, growth: 2 }],
+        meta: {},
+        history: {},
+      }),
+    );
+    expect(await getTrends({ SOCIAL_KV: odd }, {})).toEqual(radarOnly);
   });
 });
 

@@ -127,8 +127,25 @@ export async function getTrends(
   env: UsageEnv,
   input: { region?: "SA" | "US"; genre?: string; limit?: number },
 ): Promise<Record<string, unknown>> {
-  // The effects are a bonus: a document that can't be read gives none, never a failed call.
-  const [feed, effects] = await Promise.all([latestFeed(env), readEffects(env).catch(() => null)]);
+  // This week's trending editing effects (effects/, planning/tools/18-trending-effects.md); names and lines come from
+  // web text, so they are clipped like the radar's. A bonus: a document or an item that can't be read gives none,
+  // never a failed call (readEffects checks only the document's top level).
+  const [feed, effects] = await Promise.all([
+    latestFeed(env),
+    readEffects(env)
+      .then(
+        (doc) =>
+          doc?.items.map((i) => ({
+            name: clipText(i.name, 40),
+            what: i.what && clipText(i.what, 90),
+            creators: i.creators,
+            isNew: i.isNew,
+            growth: i.growth,
+            youtube: i.youtube,
+          })) ?? [],
+      )
+      .catch(() => []),
+  ]);
   const limit = Math.max(1, Math.min(input.limit ?? 20, 50));
   const items = feed.items
     .filter(
@@ -147,21 +164,7 @@ export async function getTrends(
       ...(r.volume !== undefined ? { volume: r.volume } : {}),
       ...(r.why ? { why: clip(r.why, 160) } : {}),
     }));
-  return {
-    fetchedAt: feed.fetchedAt,
-    items,
-    // This week's trending editing effects (effects/, planning/tools/18-trending-effects.md); names and lines come
-    // from web text, so they are clipped like the radar's.
-    effects:
-      effects?.items.map((i) => ({
-        name: clipText(i.name, 40),
-        what: i.what && clipText(i.what, 90),
-        creators: i.creators,
-        isNew: i.isNew,
-        growth: i.growth,
-        youtube: i.youtube,
-      })) ?? [],
-  };
+  return { fetchedAt: feed.fetchedAt, items, effects };
 }
 
 export async function savePicksTool(

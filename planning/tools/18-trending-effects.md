@@ -193,16 +193,21 @@ History trimming:
   2. then the most creators over the last 7 days;
   3. then the most recently seen.
 
-  The 400 keys are sized for about 120 new candidates a day: a 1-creator name then survives until its family's next scan, 3 days later. That assumes about 12 AI approvals a day and few dictionary names in memory: both are protected, so each takes a key from the 1-creator names. A simulation of daily runs (one new 1-creator name per candidate) gives:
+  The 400 keys are sized for about 120 new candidates a day: a 1-creator name then survives until its family's next scan, 3 days later. That assumes about 12 AI approvals a day and few dictionary names in memory: both are protected, so each takes a key from the 1-creator names. It also counts on the AI's drops: the AI judges 25 names a day, and the ones it does not approve (~13) leave the memory at once (`applyVerdicts` in `run.ts`). A day without a usable AI answer (`ai_fallback`, `ai_empty`) drops nothing, so such a day holds fewer new candidates than the row says.
 
   | Dictionary names in memory | AI approvals/day | Holds up to |
   | --- | --- | --- |
   | 0 | 12 | 130/day |
-  | 20 | 12 | 116/day |
-  | 36 | 12 | 106/day |
+  | 20 | 12 | 123/day |
+  | 36 | 12 | 118/day |
   | 0 | 25 | 99/day |
 
-  The run's log line reports `keys`, `protected` and `trimmed` (counts, no names). The live check reads them against this table: `protected` (dictionary names plus about a week of approvals, ~84 at 12 a day) picks the row, and at the cap (`keys` 400) `trimmed` is about the day's new names. Above the row's limit, a slow name is cut before its family's next scan: raise `HISTORY_KEYS` (the document stays far under KV's 25 MiB) or tighten extraction.
+  These were found with the real `runEffects` and fake Tavily, YouTube, AI and KV, like `run.test.ts`'s daily-runs test (a throwaway script, not committed). Each day brings N new 1-creator names and the dictionary names (seen daily); the AI approves the first A names it judges and drops the rest; and the slow name, last among its day's ties, gains a creator on days s, s+3 and s+6 (s = 7–10). "Holds up to" is the largest N at which the slow name always shows with 3 creators.
+
+  The run's log line reports `keys`, `protected` and `trimmed` (counts, no names). The live check reads them against this table:
+  - `protected` (dictionary names plus about a week of approvals, ~84 at 12 a day) picks the row.
+  - At the cap (`keys` 400), `trimmed` is about the day's new candidates minus the AI's drops: 108 at 120 a day with 12 approvals. Add the drops (~13) back before comparing with the table; read raw, it overstates the headroom by about 10%.
+  - Above the row's limit, a slow name is cut before its family's next scan: raise `HISTORY_KEYS` (the document stays far under KV's 25 MiB) or tighten extraction.
 - An effect's first-seen day is its earliest kept entry.
 
 Handles are hashed (SHA-256, first 8 hex) so the stored document holds no account names. Only the 2 sample posts keep a visible handle.
@@ -242,7 +247,7 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
 | `updatedAt` older than 3 days, or missing | Nothing; the row hides |
 | `status: "failed"` with a list at most 3 days old (stale-failed) | The old list, plus a faint "ما قدرت أحدّثها اليوم" / "Couldn't update today"; no button |
 
-**The first scan.** `POST /effects/run`, one at a time per Worker: the Worker's once-a-day check has no lock, so a second tap, or a tap after leaving Discover and coming back, waits for the same answer. Leaving Discover never cancels it; the list it finds is kept like a fetched one, so a revisit shows it even when the scan answered while the revisit's own GET was on its way. When the chips arrive, focus moves to the row's heading, without scrolling, unless the owner is busy elsewhere on the page.
+**The first scan.** `POST /effects/run`, one at a time per Worker within a browser tab (`lib/effects.ts` keeps the running scan in the page's memory): a second tap, or a tap after leaving Discover and coming back, waits for the same answer. The Worker's once-a-day check has no lock, so a second tab or the phone can still start a second run, spending its credits again, while the first is going. Leaving Discover never cancels it; the list it finds is kept like a fetched one, so a revisit shows it even when the scan answered while the revisit's own GET was on its way. When the chips arrive, focus moves to the row's heading, without scrolling, unless the owner is busy elsewhere on the page.
 
 **Copy and fetching.**
 - The copy lives in `messages/search.{ar,en}.json`, with key parity and Hijazi Arabic first.
@@ -306,7 +311,7 @@ Plan: `planning/plans/2026-10-06-trending-effects.md` (5 tasks), on branch `clau
 - **Tests.**
   - Worker: 79 in `src/effects/`. They cover extraction, scoring, the 400-key memory, the sources, the AI's schema and fallback, the run's budgets, a 14-day steady-state run, the routes and the 05:35 slot. The connector's `effects` are tested in `discover/tools.test.ts`, and the slot joins the cron grid test.
   - Dashboard: 29 in `lib/effects.test.ts` and `TrendingEffects.test.ts`, 2 in `ResearchPanel.test.ts`, and 1 e2e test in `e2e/discover.spec.ts`.
-  - Totals: `pnpm test` 2,000 tests in 90 files (the Worker's 806 included), after Task 4's round 2. e2e 292 passed and 4 skipped by design (tests that run on one screen size only) of 296 on Task 5's full run, on phone and desktop; round 2 re-ran `e2e/discover.spec.ts` (22 passed). Lint, typecheck and build clean.
+  - Totals on the final full run (Task 5's fix round, on top of Task 4's round 2): `pnpm test` 2,000 tests in 90 files (the Worker's 806 included); e2e 292 passed and 4 skipped by design (tests that run on one screen size only) of 296, on phone (145 passed) and desktop (147 passed). Lint, typecheck and build clean.
 - **Budgets per run.**
   - 6 Tavily credits (about 180 a month), ≤ 6 YouTube `search.list` + 1 `videos.list`, 1 AI call (`max_tokens` 3000, 60 s), 1 KV write, about 16 subrequests.
   - A second run the same UTC day spends nothing, unless that day's run failed (the retry runs again).

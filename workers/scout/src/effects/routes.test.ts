@@ -165,9 +165,9 @@ describe("/effects routes", () => {
     const first = await handle(run(), env, ctx, { fetch: fetchMock, now: () => NOW });
     expect(first.status).toBe(200);
     expect(first.headers.get("Access-Control-Allow-Origin")).toBe(APP);
-    // The run is handed to waitUntil too, so a request dropped mid-run still finishes it.
+    // The run itself is handed to waitUntil too, so a request dropped mid-run still finishes it.
     expect(waitUntil).toHaveBeenCalledTimes(1);
-    expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise));
+    await expect(waitUntil.mock.calls[0][0]).resolves.toEqual(storedDoc(kv));
     const body = (await first.json()) as ReturnType<typeof answer>;
     expect(body).toEqual(answer(storedDoc(kv)));
     expect(body).toMatchObject({ ranOn: "2026-10-06", updatedAt: NOW.toISOString() });
