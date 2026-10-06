@@ -66,6 +66,12 @@ export interface SearchPlan {
   needsEditingWord: boolean;
   /** Every group must match; synonyms inside one group are alternatives. */
   requiredGroups?: string[][];
+  /**
+   * The selected category's share of `requiredGroups` when the owner also typed an idea. If no card matches the
+   * idea and the category together, the idea's matches are shown anyway, marked `outsideCategory`. Absent for
+   * category-only, exact and plain searches: those stay strict.
+   */
+  categoryGroups?: string[][];
   queries: PlannedQuery[];
 }
 
@@ -75,6 +81,8 @@ export interface DiscoverItem extends ScoutResult {
   lang: Lang;
   section: Section;
   offTopic?: true;
+  /** Shown for the typed idea although it does not mention the selected category (nothing had both). */
+  outsideCategory?: true;
   /** The creator's page (YouTube channel, TikTok / Instagram profile) when known. */
   profile?: string;
 }

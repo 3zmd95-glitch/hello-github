@@ -177,6 +177,12 @@ export default function DiscoverSections({
         )}
       </div>
 
+      {answer.items.some((i) => i.outsideCategory) && (
+        <p className="text-ink-2 text-xs" data-testid="discover-outside-category">
+          {t("search.outsideCategory")}
+        </p>
+      )}
+
       {picks && pickItems.length > 0 && (
         <PicksSection
           topic={{ ...picks, items: pickItems }}

@@ -587,6 +587,22 @@ asked for the public website first ("i want to build the website first not the a
 platform-embedded videos, then stopped it: "Dont do the website now only the social panel". Those website answers are kept in
 `tools/02-website.md` for the day it comes back.
 
+Round 36 (Oct 6, 2026). The owner shared a clone-effect reel and asked: "does it show in discover page as trendy or our discover
+page needs working?"
+- **Answer: no.** Nothing tracks editing-effect trends. The Trend Radar follows general topics, and "Popular now" only ranks one
+  search. A manual "clone effect" search works, but its Arabic side mixes in biology "الاستنساخ".
+- **Owner's picks for Trending effects:**
+  - catch new effects early;
+  - global first, Instagram and TikTok first;
+  - compact chips at the top of Discover, refreshed every day;
+  - new names cleaned up by the free built-in AI.
+- **The daily job:** 6 Tavily mention searches, then rules plus one AI cleanup, then a YouTube numbers check on the top 6, then
+  the chips.
+- **Cost:** about 180 Tavily credits a month. YouTube use rises to 94 of the 100 searches a day in total.
+- **Rejected:** scraping TikTok Creative Center, which TikTok's rules forbid since April 2026. We link to it instead.
+- **Spec:** `tools/18-trending-effects.md`.
+- **Built** on branch `claude/trending-effects-spec` (PR #41); the live check follows the merge and the Worker deploy.
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|

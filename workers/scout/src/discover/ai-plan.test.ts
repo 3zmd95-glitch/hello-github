@@ -254,6 +254,25 @@ describe("subscription AI plans", () => {
     expect(detailed.queries.every((q) => q.retryQ === undefined)).toBe(true);
   });
 
+  it("lets a detailed brief drop only the selected category, never its own idea", () => {
+    const plan = searchPlanFromAi(
+      {
+        q: "Coffee pouring with red studio lighting and slow steam",
+        genreQuery: { en: "coffee edit" },
+      },
+      PLAN,
+    );
+    const key = (g: string[]) => JSON.stringify(g);
+    const category = new Set((plan.categoryGroups ?? []).map(key));
+    // The model's "coffee" concept and the chip's own groups are the category; "match cut" is the idea.
+    expect([...category].some((g) => g.includes("coffee"))).toBe(true);
+    const idea = plan.requiredGroups?.filter((g) => !category.has(key(g))) ?? [];
+    expect(idea).toContainEqual(["match cut", "ماتش كت"]);
+    expect(idea.some((g) => g.includes("coffee"))).toBe(false);
+    // A category-only brief has nothing else to show: it stays strict.
+    expect(searchPlanFromAi({ q: "coffee edit" }, PLAN).categoryGroups).toBeUndefined();
+  });
+
   it("preserves custom category wording and the selected built-in category over the topic", () => {
     const selected = searchPlanFromAi({ q: "car edit", genreQuery: { en: "coffee edit" } }, PLAN);
     expect(selected.requiredGroups?.some((group) => group.includes("coffee"))).toBe(true);

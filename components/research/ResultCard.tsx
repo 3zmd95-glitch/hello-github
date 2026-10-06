@@ -5,6 +5,7 @@ import { useVideoPlayer, type PlayableItem } from "@/components/player/VideoPlay
 import type { RefPlatform } from "@/lib/domain";
 import { canEmbed } from "@/lib/embed";
 import { useT } from "@/lib/i18n";
+import { localInstagramPreview } from "@/lib/localAi";
 import { compactCount, headlineStat, type ResearchItem } from "@/lib/research";
 import { scoutOembed, type ScoutConfig, type Stats } from "@/lib/scoutClient";
 import { useScoutConfig } from "./useScout";
@@ -26,20 +27,34 @@ interface FreshPost {
   title?: string;
 }
 
+/** A missing preview is asked again after this long: Instagram turns lookups away for a while (the Worker keeps
+ * its miss 5 minutes). */
+export const PREVIEW_RETRY_MS = 5 * 60_000;
+
 /**
- * Refresh missing or expired TikTok / Instagram previews once per post and Scout configuration per session,
- * shared by every card showing it. TikTok also supplies captions for cards titled only by their handle.
+ * Refresh missing or expired TikTok / Instagram previews once per post and Scout configuration, shared by every card
+ * showing it; a miss is forgotten after {@link PREVIEW_RETRY_MS}. TikTok also supplies captions for cards titled only
+ * by their handle. Instagram asks this computer's local server first (its own connection, which Instagram answers;
+ * it turned away about 4 in 10 of the Cloudflare Worker's reads), the Worker when there is none or it finds nothing.
  */
 const freshPosts = new Map<string, Promise<FreshPost>>();
-function freshPost(config: ScoutConfig, url: string): Promise<FreshPost> {
+function freshPost(config: ScoutConfig, url: string, platform: RefPlatform): Promise<FreshPost> {
   const key = `${config.url}|${config.token}|${url}`;
-  let p = freshPosts.get(key);
-  if (!p) {
-    p = scoutOembed(config, url).then((r) =>
-      r.ok ? { thumb: r.data.thumb || undefined, title: r.data.title || undefined } : {},
-    );
-    freshPosts.set(key, p);
-  }
+  const known = freshPosts.get(key);
+  if (known) return known;
+  const p = (async (): Promise<FreshPost> => {
+    const local = platform === "ig" ? await localInstagramPreview(url) : null;
+    if (local) return { thumb: local };
+    const r = await scoutOembed(config, url);
+    return r.ok ? { thumb: r.data.thumb || undefined, title: r.data.title || undefined } : {};
+  })();
+  freshPosts.set(key, p);
+  void p.then((f) => {
+    if (!f.thumb)
+      setTimeout(() => {
+        if (freshPosts.get(key) === p) freshPosts.delete(key);
+      }, PREVIEW_RETRY_MS);
+  });
   return p;
 }
 
@@ -68,7 +83,7 @@ function useThumb(item: ResearchItem): { thumb?: string; title: string; onError:
     )
       return;
     const url = item.url;
-    void freshPost(config, url).then((f) => {
+    void freshPost(config, url, item.platform).then((f) => {
       if (f.thumb && f.thumb !== thumb) setFresh({ url, ...f });
     });
   };
@@ -82,13 +97,21 @@ function useThumb(item: ResearchItem): { thumb?: string; title: string; onError:
     )
       return;
     let alive = true;
+    let again: ReturnType<typeof setTimeout> | undefined;
     const url = item.url;
     const own = !!item.thumb;
-    void freshPost(config, url).then((f) => {
-      if (alive) setFresh({ url, title: f.title, ...(own ? {} : { thumb: f.thumb }) });
-    });
+    const look = (retried: boolean) =>
+      void freshPost(config, url, item.platform).then((f) => {
+        if (!alive) return;
+        setFresh({ url, title: f.title, ...(own ? {} : { thumb: f.thumb }) });
+        // No picture yet: asked once more a little later, while the card is showing.
+        if (!own && !f.thumb && !retried)
+          again = setTimeout(() => look(true), PREVIEW_RETRY_MS + 1_000);
+      });
+    look(false);
     return () => {
       alive = false;
+      clearTimeout(again);
     };
   }, [config, generic, item.platform, item.thumb, item.url]);
   return { thumb, title, onError };

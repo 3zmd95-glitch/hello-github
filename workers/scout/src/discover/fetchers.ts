@@ -41,7 +41,7 @@ export const discoverKeys = {
 };
 
 /** Runs `run` with a hard limit (body included) so one slow site cannot hold the whole search. */
-async function timed<T>(
+export async function timed<T>(
   timeoutMs: number,
   run: (signal: AbortSignal) => Promise<T>,
 ): Promise<T | undefined> {

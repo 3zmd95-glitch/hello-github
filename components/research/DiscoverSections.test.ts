@@ -341,6 +341,20 @@ describe("Discover v2 in the research panel", () => {
     expect($("discover-retry-yt")).toBeNull();
   });
 
+  it("an idea's matches shown outside the category say so; a normal answer has no such line", async () => {
+    answer = (body) =>
+      body.q === "drone reveal"
+        ? { ...COMPLETE, items: COMPLETE.items.map((i) => ({ ...i, outsideCategory: true })) }
+        : COMPLETE;
+    await mount();
+    await submit("flash");
+    expect($("discover-outside-category")).toBeNull();
+    await submit("drone reveal");
+    expect($("discover-outside-category")!.textContent).toBe(
+      "ما لقينا شي يجمع التصنيف مع فكرتك، فهذي اللي تطابق فكرتك بدون التصنيف",
+    );
+  });
+
   it("without Tavily's figure the usage line still shows YouTube's count", async () => {
     usageBody = { ...USAGE, tavily: { error: "not_configured" } };
     await mount();
@@ -363,9 +377,11 @@ describe("Discover v2 in the research panel", () => {
     expect($("discover-sections")).toBeNull();
     expect($("scout-usage")).not.toBeNull();
     expect($("discover-usage")).toBeNull();
-    // Nor does it ask for Claude's picks (a v2 route).
+    // Nor does it ask for Claude's picks or the trending effects (v2 routes).
     const asked = vi.mocked(fetch).mock.calls.map(([input]) => new URL(String(input)).pathname);
     expect(asked).toContain("/search");
     expect(asked).not.toContain("/discover/picks");
+    expect(asked).not.toContain("/effects/trending");
+    expect($("trending-effects")).toBeNull();
   });
 });

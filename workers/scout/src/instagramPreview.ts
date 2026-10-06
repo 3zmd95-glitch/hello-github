@@ -85,7 +85,8 @@ export async function lookupInstagramPreview(
   post: string,
   doFetch: typeof fetch,
   cache: Cache | null,
-  ctx?: ExecutionContext,
+  // A Worker's ExecutionContext, by shape: the local server (scripts/local-ai) imports this file too.
+  ctx?: { waitUntil(promise: Promise<unknown>): void },
 ) {
   const key = new Request(
     `https://www.instagram.com/__scout_preview_v1/${encodeURIComponent(post)}`,

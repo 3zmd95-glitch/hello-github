@@ -21,7 +21,7 @@ import { runScheduled } from "./social/sync";
 // Claude connector (round 33, planning/tools/13-discover-search-v2.md): only the connector's own paths
 // (`isOAuthPath`: /mcp, /authorize, /token, /register, /.well-known/oauth-*) go through OAuthProvider, and only with
 // OAUTH_KV and MCP_RESOURCE set. Every other request goes straight to `handle()` exactly as before and never loads
-// the provider, the Agents or MCP SDKs or zod: the Free plan allows 10 ms of CPU a request, and a provider failure
+// the provider or the Agents and MCP SDKs: the Free plan allows 10 ms of CPU a request, and a provider failure
 // can't take the dashboard routes down. `/authorize` is our login page, and POST /register is answered here without
 // a KV write (`register` in discover/auth.ts). The provider and mcp.ts are imported lazily: the OAuth package
 // imports `cloudflare:workers`, and the plain-Node tests import this module (social.test.ts).
@@ -41,8 +41,8 @@ let created: CreatedClient | undefined;
 
 const options = (env: WorkerEnv): OAuthProviderOptions<WorkerEnv> => ({
   apiRoute: "/mcp",
-  // An object, not createMcpHandler's function (that throws at construction). mcp.ts, with the Agents and MCP SDKs
-  // and zod, loads on the first /mcp call that carries a valid token.
+  // An object, not createMcpHandler's function (that throws at construction). mcp.ts, with the Agents and MCP SDKs,
+  // loads on the first /mcp call that carries a valid token.
   apiHandler: {
     fetch: async (req, e, ctx) => (await import("./discover/mcp")).mcpFetch(req, e, ctx),
   },
@@ -96,9 +96,9 @@ export default {
     return provider.fetch(req, env, ctx);
   },
   // Cron (wrangler.jsonc `triggers.crons`): every minute the auto replies; on the five-minute grid the
-  // auto-post queue, the daily social sync on the 06:00–06:30 Riyadh ticks and the Trend Radar slots
-  // (social/cron.ts). Any other cron string (the four daily triggers of older deployments) still runs the
-  // sync alone.
+  // auto-post queue, the daily social sync on the 06:00–06:30 Riyadh ticks, the Trend Radar slots and the daily
+  // trending effects slot at 05:35 UTC (social/cron.ts). Any other cron string (the four daily triggers of older
+  // deployments) still runs the sync alone.
   async scheduled(event, env) {
     const result =
       event.cron === TICK_CRON

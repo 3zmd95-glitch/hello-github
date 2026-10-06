@@ -61,6 +61,7 @@
   "search.showHidden": "اعرضها",
   "search.hideHidden": "خبّيها",
   "search.offTopicChip": "برا الموضوع؟",
+  "search.outsideCategory": "ما لقينا شي يجمع التصنيف مع فكرتك، فهذي اللي تطابق فكرتك بدون التصنيف",
   "search.platformDown": "{platform} ما رد",
   "search.platformAuth": "{platform}: مفتاح الـ Worker مرفوض",
   "search.platformNotSet": "{platform} مو مضبوط في الـ Worker",
@@ -74,5 +75,18 @@
   "search.searching": "أدوّر في تيك توك وانستقرام ويوتيوب بالعربي والإنجليزي…",
   "search.picks": "⭐ اختيارات Claude",
   "search.picksLatest": "⭐ آخر اختيارات Claude",
-  "search.picksTopic": "عن «{topic}»"
+  "search.picksTopic": "عن «{topic}»",
+  "search.trendingTitle": "🔥 ترند المؤثرات هالأسبوع",
+  "search.trendingUpdated": "تحدّثت قبل {n} س",
+  "search.trendingUpdatedNow": "تحدّثت الحين",
+  "search.trendingRescan": "🔄 دوّر من جديد",
+  "search.trendingNew": "جديد",
+  "search.trendingCreators": "{n} صنّاع",
+  "search.trendingStale": "ما قدرت أحدّثها اليوم",
+  "search.trendingRun": "شغّل أول فحص",
+  "search.trendingRunning": "أدوّر على الترندات… ممكن تاخذ دقيقة",
+  "search.trendingRunFailed": "ما قدرت أشغّل الفحص، جرّب بعد شوي",
+  "search.trendingRunLimit": "جرّبت كذا مرة اليوم، أرجع أجرّب بكرة",
+  "search.trendingNone": "لسه ما فيه مؤثر منتشر كفاية، أرجع أشيّك بكرة",
+  "search.trendingCreative": "TikTok Creative Center ↗"
 }
