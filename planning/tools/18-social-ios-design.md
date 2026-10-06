@@ -225,7 +225,8 @@ stacked layers: the skill popup over the post popup, the player, alerts, celebra
 - **Scroll chrome**: the shell listens to window scroll (passive + rAF) and writes `--scroll-p` (0–1 over 56px),
   `data-compact` and `data-tabbar="mini"` on `<html>`; `PageHeader` and the bars read them. Screens register their title
   for the compact bar through `PageHeader`.
-- **Launch choreography** runs once per full page load.
+- **Launch choreography** plays when the Social shell mounts (a full load, or switching from Training): CSS keyframes, no JS timers.
+- **As built (Phase 2, Oct 7):** theme-color comes from `app/social/layout.tsx` (`viewport.themeColor` light/dark pair, `colorScheme: "light dark"`), so it is in the static HTML and Next swaps it on navigation; the compact title sits between the two side groups (never under the world switch); the tab-bar lens is absent on routes without a tab; language and sound live in More.
 
 ## 5. Primitives (`components/ui/ios/`)
 

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { freshState } from "./helpers";
+import { freshState, switchLang } from "./helpers";
 
 /** Riyadh day key of now, shifted by `offset` days (mirrors lib/streak dayKey + addDays). */
 function riyadhDay(offset = 0): string {
@@ -48,7 +48,7 @@ test("Social Analytics: the seeded All view, the TikTok view with demographics, 
   expect(await fitsViewport(page)).toBe(true);
 
   // English labels for the card checks; RTL was checked above.
-  await page.getByTestId("lang-en").click();
+  await switchLang(page, "en");
   await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
   await expect(page.getByTestId("growth-screen")).toContainText("Social Analytics");
   const ytCard = page.locator('[data-testid="platform-card"][data-platform="youtube"]');

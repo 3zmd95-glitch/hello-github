@@ -2,6 +2,7 @@
 
 import { useNow } from "@/components/today/useNow";
 import { useToday } from "@/components/today/useToday";
+import PageHeader from "@/components/ui/ios/PageHeader";
 import { useT } from "@/lib/i18n";
 import AsksCard from "./studio/AsksCard";
 import GrowthSnapshotCard from "./studio/GrowthSnapshotCard";
@@ -25,10 +26,7 @@ export default function StudioScreen() {
 
   return (
     <div className="flex flex-col gap-4" data-testid="studio-screen">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl">{t("social.studio.title")}</h1>
-        <p className="text-ink-2 text-sm">{t("social.studio.sub")}</p>
-      </header>
+      <PageHeader title={t("social.studio.title")} sub={t("social.studio.sub")} />
 
       <div className="grid gap-4 md:grid-cols-[1.6fr_1fr] md:items-stretch">
         <NextPostHero today={today} />

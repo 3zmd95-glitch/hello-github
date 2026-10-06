@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { freshState } from "./helpers";
+import { freshState, switchLang } from "./helpers";
 
 // 📈 Trend Radar (round 30, planning/tools/08-trends.md): the radar in the ideas bank against a fake Scout
 // Worker at https://scout.test stubbed with page.route (same pattern as autopost.spec.ts), plus the
@@ -385,7 +385,7 @@ test("a volume chip says what its number counts: views on a YouTube row, searche
   expect(await fitsViewport(page)).toBe(true);
 
   // English UI: the same units in English, on the same Arabic tab.
-  await page.getByTestId("lang-en").click();
+  await switchLang(page, "en");
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expect(page.getByTestId("trends-tab-ar")).toHaveAttribute("aria-pressed", "true");
   await expect(views).toHaveAttribute("data-unit", "views");
@@ -614,9 +614,11 @@ test("the genre chip names the owner's custom genre, speaks English when the app
     driftRow.getByRole("link", { name: "افتح ✨ Drift في «اكتشف»", exact: true }),
   ).toHaveAttribute("data-testid", "trend-genre");
 
-  // English UI: the chips and their names speak English; the unknown id stays as it is.
-  await page.getByTestId("lang-en").click();
+  // English UI: the chips and their names speak English; the unknown id stays as it is. In Social the
+  // switch goes through More, and coming back opens the radar on its Arabic tab again: back to English.
+  await switchLang(page, "en");
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await page.getByTestId("trends-tab-en").click();
   await expect(rows).toHaveCount(5);
   const carsEn = page.locator('[data-testid="trend-row"][data-id="youtube:US:kw:cars-en"]');
   await expect(carsEn.getByTestId("trend-genre")).toHaveText("🚗 Cars");

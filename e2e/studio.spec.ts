@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { freshState } from "./helpers";
+import { freshState, switchLang } from "./helpers";
 
 // The tier-2 DaVinci skill the mastery and map specs use; first in the seed, so it always shows up in the
 // ideas bank's "skills without a video" list.
@@ -215,7 +215,7 @@ test("RTL and LTR both render the Studio without horizontal scroll", async ({ pa
   await freshState(page, "/social/");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   expect(await fitsViewport(page)).toBe(true);
-  await page.getByTestId("lang-en").click();
+  await switchLang(page, "en");
   await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
   await expect(page.getByTestId("studio-next")).toContainText("No post planned yet");
   expect(await fitsViewport(page)).toBe(true);
@@ -284,7 +284,7 @@ test("a post whose X step is due shows a manual inbox row that opens the hub's l
   await expect(page.getByTestId("studio-inbox")).toHaveAttribute("data-count", "1");
   expect(await fitsViewport(page)).toBe(true);
 
-  await page.getByTestId("lang-en").click();
+  await switchLang(page, "en");
   await expect(manual).toContainText("ready for X");
 
   // It lands on the hub's "Post these yourself" list, scrolled into view.
