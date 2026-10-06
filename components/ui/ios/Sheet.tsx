@@ -72,6 +72,7 @@ export default function Sheet({
     () => typeof window !== "undefined" && window.matchMedia(DESKTOP).matches,
   );
   const closing = useRef(false);
+  const exitTimer = useRef(0);
   const drag = useRef<{
     y0: number;
     base: number;
@@ -120,8 +121,10 @@ export default function Sheet({
       return;
     }
     setPhase("exit");
-    window.setTimeout(() => onCloseRef.current(), EXIT_MS);
+    exitTimer.current = window.setTimeout(() => onCloseRef.current(), EXIT_MS);
   }, []);
+  // Unmounted mid-exit (the caller dropped it early): a late onClose could close the sheet opened next.
+  useEffect(() => () => window.clearTimeout(exitTimer.current), []);
 
   // Armed once the sheet has left "enter": an update, so React's development double effect (which runs on mount
   // only) never pushes, pops and pushes again (that popstate would close the sheet at once). Kept through the exit,
@@ -208,7 +211,9 @@ export default function Sheet({
         height,
         transform: `translate3d(0, ${y}px, 0)`,
         transition: dragY === null ? undefined : "none",
-        "--sheet-hidden": `${phase === "open" && dragY === null ? restY(detent) : 0}px`,
+        // The resting detent's hidden part, also while dragged and closing: shrinking it would clamp the body's
+        // scrollTop and jump the content. It changes only when a drag settles on another detent.
+        "--sheet-hidden": `${restY(detent)}px`,
       } as CSSProperties);
 
   return createPortal(

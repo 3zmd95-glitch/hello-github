@@ -109,35 +109,46 @@ describe("Sheet", () => {
   });
 });
 
-describe("Sheet drag (phone, motion on)", () => {
-  it("settles a fast drag that stopped before the release; a quick flick closes after the exit", () => {
+describe("Sheet with motion (phone)", () => {
+  let frames: FrameRequestCallback[] = [];
+  beforeEach(() => {
     vi.stubGlobal("matchMedia", (q: string) => ({
       matches: false,
       media: q,
       addEventListener() {},
       removeEventListener() {},
     }));
-    const frames: FrameRequestCallback[] = [];
+    frames = [];
     vi.stubGlobal("requestAnimationFrame", (f: FrameRequestCallback) => frames.push(f));
     vi.stubGlobal("cancelAnimationFrame", () => {});
     HTMLElement.prototype.setPointerCapture ??= () => {}; // jsdom has no pointer capture
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const onClose = vi.fn();
+  });
+
+  /** Mount, run the enter frames (phase "open"), and hand back the panel and a pointer driver for its grabber. */
+  function open(onClose: () => void) {
     mount(onClose);
     act(() => {
-      while (frames.length) frames.shift()!(0); // the enter frames: phase "open"
+      while (frames.length) frames.shift()!(0);
     });
     const sheet = document.querySelector<HTMLElement>('[data-testid="sheet"]')!;
     const grab = sheet.querySelector(".ios-grab")!;
-    const medium = `translate3d(0, ${Math.round((0.92 - 0.6) * window.innerHeight)}px, 0)`;
-    expect(sheet.style.transform).toBe(medium);
-
     const fire = (type: string, y: number, t: number) =>
       act(() => {
         const e = new PointerEvent(type, { bubbles: true, clientY: y, pointerId: 1 });
         Object.defineProperty(e, "timeStamp", { value: t });
         grab.dispatchEvent(e);
       });
+    return { sheet, fire };
+  }
+  const mediumY = () => Math.round((0.92 - 0.6) * window.innerHeight);
+  const closeButton = () => document.querySelector(".ios-close") as HTMLButtonElement;
+
+  it("settles a fast drag that stopped before the release; a quick flick closes after the exit", () => {
+    const onClose = vi.fn();
+    const { sheet, fire } = open(onClose);
+    const medium = `translate3d(0, ${mediumY()}px, 0)`;
+    expect(sheet.style.transform).toBe(medium);
     const drag = (upAt: number) => {
       fire("pointerdown", 300, 1000);
       fire("pointermove", 400, 1050); // 100px down in 50ms = 2 px/ms, a fling's speed
@@ -153,5 +164,34 @@ describe("Sheet drag (phone, motion on)", () => {
     expect(onClose).not.toHaveBeenCalled(); // the exit plays first
     act(() => vi.advanceTimersByTime(300));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // The body's end padding (--sheet-hidden) is what lets its last item scroll into view at the medium detent. If it
+  // shrank while the sheet moves, the browser would clamp scrollTop and the content would jump.
+  it("keeps the body's scroll padding at the resting detent while dragged and while closing", () => {
+    const { sheet, fire } = open(() => {});
+    const padding = () => sheet.style.getPropertyValue("--sheet-hidden");
+    const medium = `${mediumY()}px`;
+    expect(padding()).toBe(medium);
+    fire("pointerdown", 300, 1000);
+    expect(padding()).toBe(medium);
+    fire("pointermove", 340, 1100);
+    expect(padding()).toBe(medium);
+    fire("pointerup", 340, 1300); // held still: back to the medium detent
+    expect(padding()).toBe(medium);
+    act(() => closeButton().click());
+    expect(sheet.closest(".ios-sheet-root")!.getAttribute("data-phase")).toBe("exit");
+    expect(padding()).toBe(medium);
+  });
+
+  it("drops its exit timer when unmounted mid-exit, so a late onClose never reaches the next sheet", () => {
+    const onClose = vi.fn();
+    open(onClose);
+    act(() => closeButton().click()); // the 300ms exit starts
+    act(() => vi.advanceTimersByTime(100));
+    act(() => root!.unmount());
+    root = null;
+    act(() => vi.advanceTimersByTime(1000));
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
