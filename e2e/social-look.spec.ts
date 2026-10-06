@@ -31,8 +31,19 @@ for (const scheme of ["light", "dark"] as const) {
         });
         expect(css.font).toContain("Vazirmatn");
         expect(css.bg).toBe(BG[scheme]);
+        const card = await page.evaluate(() => {
+          const el = document.querySelector(".px-card, .ios-card, .ios-list") as HTMLElement | null;
+          if (!el) return null;
+          const s = getComputedStyle(el);
+          return { border: parseFloat(s.borderTopWidth), radius: parseFloat(s.borderRadius) };
+        });
+        if (card) {
+          expect(card.border).toBe(0);
+          expect(card.radius).toBeGreaterThanOrEqual(16);
+        }
+        // Against the page's own width: on the phone (mobile emulation) innerWidth grows to fit any overflow.
         const fits = await page.evaluate(
-          () => document.documentElement.scrollWidth <= window.innerWidth,
+          () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
         );
         expect(fits).toBe(true);
       });
