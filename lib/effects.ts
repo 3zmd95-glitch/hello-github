@@ -27,8 +27,8 @@ export interface TrendingEffects {
 }
 
 const STATUSES = new Set(["ok", "partial", "failed", "never"]);
-/** The Worker shows its top 8 (MAX_ITEMS in the Worker's types.ts). */
-const MAX_ITEMS = 8;
+/** The Worker shows its top 12 (MAX_ITEMS in the Worker's types.ts). */
+const MAX_ITEMS = 12;
 const CACHE_TTL_MS = 60 * 60 * 1000;
 /** A list older than this is not "this week" any more: the row hides. */
 const MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;

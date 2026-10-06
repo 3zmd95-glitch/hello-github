@@ -64,7 +64,9 @@ export interface EffectsDoc {
   slot?: number;
 }
 export const MIN_CREATORS = 3,
-  MAX_ITEMS = 8,
+  // 12, not 8: on a memory's first day every effect is new, so the big evergreen effects (slow motion, beat sync, glitch)
+  // fill the top and a specific trend with 6 creators (the owner's GIF stickers, third live run) ranked 10th.
+  MAX_ITEMS = 12,
   HISTORY_DAYS = 14,
   HISTORY_KEYS = 400,
   IDS_PER_DAY = 30;

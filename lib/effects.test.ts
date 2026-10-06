@@ -130,7 +130,7 @@ describe("parseTrendingEffects", () => {
     });
   });
 
-  it("drops a broken effect or the broken part of one, and keeps at most 8", () => {
+  it("drops a broken effect or the broken part of one, and keeps at most 12", () => {
     const parsed = parseTrendingEffects({
       ...DOC,
       items: [
@@ -152,7 +152,7 @@ describe("parseTrendingEffects", () => {
           youtube: { newVideos: 4, views7d: 900, growth: "3" },
         },
         { ...CLONE, key: "no-views", youtube: { newVideos: 4, views7d: "many" } },
-        ...Array.from({ length: 8 }, (_, i) => ({ ...SWAGGER, key: `fx-${i}` })),
+        ...Array.from({ length: 12 }, (_, i) => ({ ...SWAGGER, key: `fx-${i}` })),
       ],
     });
     expect(parsed!.items[0]).toEqual({
@@ -167,7 +167,7 @@ describe("parseTrendingEffects", () => {
     expect(parsed!.items.map((e) => e.key)).toEqual([
       "odd-parts",
       "no-views",
-      ...Array.from({ length: 6 }, (_, i) => `fx-${i}`),
+      ...Array.from({ length: 10 }, (_, i) => `fx-${i}`),
     ]);
   });
 
