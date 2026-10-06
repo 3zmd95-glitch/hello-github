@@ -88,5 +88,21 @@
   "search.trendingRunFailed": "ما قدرت أشغّل الفحص، جرّب بعد شوي",
   "search.trendingRunLimit": "جرّبت كذا مرة اليوم، أرجع أجرّب بكرة",
   "search.trendingNone": "لسه ما فيه مؤثر منتشر كفاية، أرجع أشيّك بكرة",
-  "search.trendingCreative": "TikTok Creative Center ↗"
+  "search.trendingCreative": "TikTok Creative Center ↗",
+  "search.categoryTrends": "🔥 الترند في {genre} هالأسبوع",
+  "search.categoryUpdatedDays": "تحدّثت قبل {n} يوم",
+  "search.categoryRun": "افحص {genre} دحين",
+  "search.categoryRunning": "أفحص {genre}… ممكن ياخذ دقيقة",
+  "search.categoryNoTrends": "لسه ما فيه ستايل منتشر كفاية هنا",
+  "search.categoryNoLessons": "الدروس توصل مع الفحص الجاي",
+  "search.categoryPhoto": "📷 تصوير فوتو",
+  "search.categoryVideo": "🎥 تصوير فيديو",
+  "search.categoryEdit": "✂️ مونتاج",
+  "search.categoryAiNote": "كتبها الذكاء الاصطناعي من الشروحات",
+  "search.categorySkill": "افتح مهارة {skill}",
+  "search.categoryExample": "مثال",
+  "search.categoryTutorial": "شرح",
+  "search.categoryTutorialAr": "شرح بالعربي",
+  "search.categorySearchAll": "شوف كل فيديوهات {genre} ←",
+  "search.categoryBudget": "وقّفت الفحص عشان عمليات البحث حق هالشهر قرّبت تخلص"
 }

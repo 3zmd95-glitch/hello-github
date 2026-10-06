@@ -88,5 +88,21 @@
   "search.trendingRunFailed": "Couldn't run the scan — try again in a bit",
   "search.trendingRunLimit": "Tried a few times today — I'll try again tomorrow",
   "search.trendingNone": "Nothing is trending widely enough yet — I'll check again tomorrow",
-  "search.trendingCreative": "TikTok Creative Center ↗"
+  "search.trendingCreative": "TikTok Creative Center ↗",
+  "search.categoryTrends": "🔥 Trending in {genre} this week",
+  "search.categoryUpdatedDays": "updated {n} d ago",
+  "search.categoryRun": "Scan {genre} now",
+  "search.categoryRunning": "Scanning {genre}… can take a minute",
+  "search.categoryNoTrends": "Nothing here is trending widely enough yet",
+  "search.categoryNoLessons": "Lessons come with the next scan",
+  "search.categoryPhoto": "📷 Photography",
+  "search.categoryVideo": "🎥 Videography",
+  "search.categoryEdit": "✂️ Editing",
+  "search.categoryAiNote": "Written by AI from the tutorials",
+  "search.categorySkill": "Open the skill {skill}",
+  "search.categoryExample": "Example",
+  "search.categoryTutorial": "Tutorial",
+  "search.categoryTutorialAr": "Arabic tutorial",
+  "search.categorySearchAll": "Search all {genre} videos →",
+  "search.categoryBudget": "Scans paused — this month's lookups are nearly used up"
 }

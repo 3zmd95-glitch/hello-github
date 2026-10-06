@@ -124,6 +124,75 @@ const EFFECTS = {
   ],
 };
 
+/** The Worker's Cars page (`GET /categories/cars`, workers/scout/src/categories/routes.ts): 2 styles and one technique
+ * on each shelf, made 30 hours ago. */
+const technique = (en: string, ar: string, n: number, skillId?: string) => ({
+  name: { en, ar },
+  howTo: {
+    en: `Shoot the ${en} at 1/30 s from a moving car, then smooth it in the edit.`,
+    ar: `صوّر ${ar} على 1/30 من سيارة ماشية، وبعدين نعّمها في المونتاج.`,
+  },
+  ...(skillId ? { skillId } : {}),
+  videos: [
+    {
+      url: `https://www.tiktok.com/@cars/video/${n}01`,
+      title: `${en} example`,
+      platform: "tt",
+      kind: "example",
+      lang: "en",
+    },
+    {
+      url: `https://www.instagram.com/p/CARS${n}/`,
+      title: `${en} reel`,
+      platform: "ig",
+      kind: "example",
+      lang: "en",
+    },
+    {
+      url: `https://www.youtube.com/watch?v=carTutor00${n}`,
+      title: `${en} tutorial`,
+      platform: "yt",
+      kind: "tutorial",
+      lang: "en",
+    },
+  ],
+});
+const CATEGORY_CARS = {
+  status: "ok",
+  updatedAt: new Date(Date.now() - 30 * 3_600_000).toISOString(),
+  items: [
+    {
+      key: "rolling-shot",
+      name: { en: "rolling shot", ar: "لقطة متحركة" },
+      isNew: true,
+      checked: true,
+      creators: 6,
+      posts: 7,
+      platforms: ["ig", "tt"],
+      growth: 3,
+      samples: [],
+    },
+    {
+      key: "speed-ramp",
+      name: { en: "speed ramp", ar: "سبيد رامب" },
+      termId: "speed-ramp",
+      isNew: false,
+      checked: true,
+      creators: 9,
+      posts: 12,
+      platforms: ["tt"],
+      growth: 1.2,
+      samples: [],
+    },
+  ],
+  lessons: {
+    updatedAt: new Date(Date.now() - 30 * 3_600_000).toISOString(),
+    photo: [technique("panning", "بانينق", 1, "phone-180-shutter")],
+    video: [technique("rolling shot", "لقطة متحركة", 2)],
+    edit: [technique("speed ramp", "سبيد رامب", 3, "speed-ramp-retime")],
+  },
+};
+
 async function stubWorker(page: Page, discover: (body: Record<string, unknown>) => unknown) {
   const asked: Record<string, unknown>[] = [];
   await page.route(`${WORKER}/**`, async (route) => {
@@ -149,6 +218,10 @@ async function stubWorker(page: Page, discover: (body: Record<string, unknown>) 
     // Scan again: the run's fresh list.
     if (url.pathname === "/effects/run" && req.method() === "POST")
       return reply({ ...EFFECTS, updatedAt: new Date().toISOString() });
+    if (url.pathname === "/categories/cars") return reply(CATEGORY_CARS);
+    // Scan again: the scan's fresh page.
+    if (url.pathname === "/categories/cars/run" && req.method() === "POST")
+      return reply({ ...CATEGORY_CARS, updatedAt: new Date().toISOString() });
     if (url.pathname === "/discover" && req.method() === "POST") {
       const body = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
       asked.push(body);
@@ -761,5 +834,70 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   await expect(page.getByTestId("discover-topic")).toHaveValue("clone effect");
   await expect(page.getByTestId("discover-recent-topic").first()).toHaveText("clone effect");
   await expect(page.getByTestId("discover-sections")).toBeVisible();
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("Discover v2: a category with nothing typed opens its page — trends, lessons, Scan again, Search all", async ({
+  page,
+}) => {
+  const asked = await stubWorker(page, () => ANSWER);
+  await connectWorker(page);
+  await page.goto("/discover/");
+
+  // Arabic first: the page replaces the automatic category search.
+  await page.getByTestId("genre-cars").click();
+  const cat = page.getByTestId("category-page");
+  await expect(cat).toHaveAttribute("data-state", "page");
+  await expect(cat.getByRole("heading", { level: 2 })).toHaveText("🚗 سيارات");
+  await expect(cat).toContainText("تحدّثت قبل 1 يوم");
+  await expect(cat.getByTestId("category-style")).toHaveCount(2);
+  await expect(cat.getByTestId("category-shelf")).toHaveCount(3);
+  await expect(cat.getByTestId("category-technique")).toHaveCount(3);
+  await expect(page.getByTestId("research-results")).toBeHidden();
+  expect(asked).toHaveLength(0);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // A technique's skill opens that skill; its videos play in the app's player.
+  const panning = cat.getByTestId("category-technique").first();
+  await expect(panning.getByTestId("category-ai")).toHaveText("✦ AI");
+  await panning.getByTestId("category-skill").click();
+  await expect(page.getByTestId("skill-sheet")).toBeVisible();
+  await page.getByTestId("sheet-close").click();
+  await panning.locator('[data-testid="category-video"][data-kind="example"]').first().click();
+  await expect(page.getByTestId("player-sheet")).toBeVisible();
+  await page.getByTestId("player-close").click();
+
+  // 🔄 Scan again: forced, and the new page is "just now".
+  const scan = page.waitForRequest(
+    (r) => r.url() === `${WORKER}/categories/cars/run` && r.method() === "POST",
+  );
+  await cat.getByTestId("category-rescan").click();
+  expect((await scan).postDataJSON()).toEqual({ force: true });
+  await expect(cat).toContainText("تحدّثت الحين");
+
+  // A trending style: that style within Cars, in Keywords.
+  await cat.locator('[data-testid="category-style"][data-key="rolling-shot"]').click();
+  await expect.poll(() => asked.length).toBe(1);
+  expect(asked[0]).toEqual({
+    q: "rolling shot",
+    genreQuery: { ar: "ايديت سيارات", en: "car edit" },
+  });
+  await expect(page.getByTestId("category-page")).toHaveCount(0);
+  await expect(page.getByTestId("discover-sections")).toBeVisible();
+
+  // English: Cars off, the box cleared, Cars again opens the page; "Search all" runs today's category search.
+  await page.getByTestId("lang-en").click();
+  await page.getByTestId("genre-cars").click();
+  await page.getByTestId("discover-topic").fill("");
+  await page.getByTestId("genre-cars").click();
+  await expect(
+    cat.getByRole("heading", { level: 3, name: "🔥 Trending in Cars this week" }),
+  ).toBeVisible();
+  await expect(cat.getByTestId("category-search-all")).toHaveText("Search all Cars videos →");
+  await cat.getByTestId("category-search-all").click();
+  await expect
+    .poll(() => asked.at(-1))
+    .toEqual({ q: "car edit", genreQuery: { ar: "ايديت سيارات" } });
+  await expect(page.getByTestId("category-page")).toHaveCount(0);
   expect(await fitsViewport(page)).toBe(true);
 });

@@ -81,6 +81,8 @@ let localPlans: Record<string, unknown>[];
 /** What the fake Worker's `GET /effects/trending` answers; null = no such route (a 404). */
 let effectsDoc: unknown;
 let effectsAsked: number;
+/** What the fake Worker's `GET /categories/:id` answers; null = no such route (a 404, an older Worker). */
+let categoryDoc: unknown;
 
 /** This week's trending effects: one dictionary effect. */
 const EFFECTS = {
@@ -181,6 +183,8 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     effectsAsked++;
     return effectsDoc ? json(effectsDoc) : json({ error: "not_found" }, 404);
   }
+  if (url.origin === WORKER && url.pathname.startsWith("/categories/"))
+    return categoryDoc ? json(categoryDoc) : json({ error: "not_found" }, 404);
   if (url.hostname === "www.googleapis.com" && url.pathname.endsWith("/videos")) {
     ytStats.push(url);
     if (statsDown) return json({ error: {} }, 500);
@@ -284,6 +288,7 @@ beforeEach(() => {
   localPlans = [];
   effectsDoc = null;
   effectsAsked = 0;
+  categoryDoc = null;
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   localStorage.clear();
   // The trending effects' 1 h copy lives in this tab's sessionStorage.
@@ -918,5 +923,96 @@ describe("ResearchPanel Most viewed this week", () => {
     act(() => attach().click());
     await settle();
     expect(useStore.getState().savedRefs["smart-bins-keywords"] ?? []).toEqual([]);
+  });
+});
+
+describe("Discover category pages (planning/tools/19-category-trends.md §1)", () => {
+  const CATEGORY = {
+    status: "ok",
+    updatedAt: new Date().toISOString(),
+    items: [
+      {
+        key: "rolling-shot",
+        name: { en: "rolling shot", ar: "لقطة متحركة" },
+        isNew: true,
+        checked: true,
+        creators: 4,
+        posts: 4,
+        platforms: ["tt"],
+        growth: 3,
+        samples: [],
+      },
+    ],
+  };
+
+  it("a category tapped with nothing typed shows its page instead of searching; Search all runs the category search", async () => {
+    categoryDoc = CATEGORY;
+    await mount({ v2: true, lang: "en" });
+    await click("genre-cars");
+    expect($("category-page")).not.toBeNull();
+    expect(discoverAsked).toHaveLength(0);
+    expect(pressed("genre-cars")).toBe("true");
+    expect($("research-results")!.hidden).toBe(true);
+    await click("category-search-all");
+    expect($("category-page")).toBeNull();
+    expect($("research-results")!.hidden).toBe(false);
+    expect(discoverAsked).toEqual([{ q: "car edit", genreQuery: { ar: "ايديت سيارات" } }]);
+  });
+
+  it("a style is a Keywords search of it within the category, even from AI mode", async () => {
+    categoryDoc = CATEGORY;
+    await mount({ v2: true });
+    await click("discover-mode-ai");
+    await click("genre-cars");
+    act(() =>
+      host
+        .querySelector<HTMLElement>('[data-testid="category-style"][data-key="rolling-shot"]')!
+        .click(),
+    );
+    await settle();
+    expect(discoverAsked).toEqual([
+      { q: "rolling shot", genreQuery: { ar: "ايديت سيارات", en: "car edit" } },
+    ]);
+    expect(pressed("discover-mode-keyword")).toBe("true");
+    expect($("category-page")).toBeNull();
+    expect($<HTMLInputElement>("discover-topic")!.value).toBe("rolling shot");
+  });
+
+  it("typed text still narrows the search; an older Worker (404) gets the category search", async () => {
+    categoryDoc = CATEGORY;
+    await mount({ v2: true });
+    type("drift");
+    await click("genre-cars");
+    expect($("category-page")).toBeNull();
+    expect(discoverAsked.at(-1)).toMatchObject({ q: "drift", genreQuery: { en: "car edit" } });
+    categoryDoc = null;
+    await click("genres-clear");
+    type("");
+    await click("genre-food");
+    expect($("category-page")).toBeNull();
+    expect(discoverAsked.at(-1)).toMatchObject({ q: "food edit" });
+  });
+
+  it("an owner-added category keeps searching: only the built-in ones have a page", async () => {
+    categoryDoc = CATEGORY; // the fake Worker would answer a page for any id
+    useStore.getState().addCustomGenre("Drift", "drift edit");
+    await mount({ v2: true, lang: "en" });
+    await click("genre-custom-drift");
+    expect($("category-page")).toBeNull();
+    expect(discoverAsked).toEqual([{ q: "drift edit" }]);
+  });
+
+  it("with Saved only on, a category leaves the saved list in view; its page opens once Saved only is off", async () => {
+    categoryDoc = CATEGORY;
+    await mount({ v2: true, lang: "en" });
+    await click("filter-saved");
+    await click("genre-cars");
+    expect($("category-page")).toBeNull();
+    expect($("research-results")!.hidden).toBe(false);
+    expect($("filters")!.hidden).toBe(false);
+    await click("filter-saved");
+    expect($("category-page")).not.toBeNull();
+    expect($("research-results")!.hidden).toBe(true);
+    expect(discoverAsked).toHaveLength(0);
   });
 });
