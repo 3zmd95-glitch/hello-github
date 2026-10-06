@@ -1857,6 +1857,133 @@
   .ios-stagger > :nth-child(n + 8) {
     animation-delay: 0.35s;
   }
+
+  /* Sheet (Task 1.9): portaled to <body> on z-39; phones = bottom sheet with detents, md+ = centered dialog. */
+  .ios-sheet-root {
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+  }
+  .ios-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.38);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    opacity: 0;
+    transition: opacity var(--t-med) var(--out);
+  }
+  .ios-sheet-root[data-phase="open"] .ios-backdrop {
+    opacity: 1;
+  }
+  .ios-sheet {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    color: var(--ink);
+    border-radius: 30px 30px 0 0;
+    box-shadow:
+      0 -10px 40px rgba(0, 0, 0, 0.25),
+      inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
+    outline: none;
+    transition: transform var(--t-spring) var(--spring);
+  }
+  .ios-sheet-root[data-phase="exit"] .ios-sheet {
+    transition: transform 0.28s cubic-bezier(0.4, 0, 1, 1);
+  }
+  /* The panel goes on below the screen edge: a pull above the top (or the spring's overshoot) shows no gap. It
+     overlaps the panel by 1px (two anti-aliased edges at a fractional offset leave a hairline) and sits under the
+     content (z-index -1 inside the panel's own stacking context). */
+  .ios-sheet[data-mode="sheet"]::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: calc(100% - 1px);
+    height: 121px;
+    background: inherit;
+    z-index: -1;
+  }
+  .ios-sheet[data-mode="dialog"] {
+    inset: auto;
+    left: 50%;
+    top: 50%;
+    width: min(560px, calc(100vw - 32px));
+    max-height: 85dvh;
+    border-radius: var(--radius);
+    transform: translate(-50%, -50%);
+    transition:
+      transform var(--t-spring) var(--spring),
+      opacity var(--t-med) var(--out);
+  }
+  .ios-sheet-root:not([data-phase="open"]) .ios-sheet[data-mode="dialog"] {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  .ios-sheet-root[data-phase="exit"] .ios-sheet[data-mode="dialog"] {
+    transition:
+      transform 0.2s var(--out),
+      opacity 0.2s var(--out);
+  }
+  .ios-grab {
+    flex: none;
+    padding: 8px 16px 6px;
+    touch-action: none;
+    cursor: grab;
+  }
+  .ios-sheet[data-mode="dialog"] .ios-grab {
+    padding-top: 16px;
+    cursor: default;
+  }
+  .ios-handle {
+    display: block;
+    width: 38px;
+    height: 5px;
+    margin: 0 auto 10px;
+    border-radius: 3px;
+    background: var(--fill);
+  }
+  .ios-sheet-title {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .ios-sheet-sub {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .ios-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--fill);
+    color: var(--ink-2);
+    display: grid;
+    place-items: center;
+    flex: none;
+    transition: transform var(--t-fast) var(--out);
+  }
+  .ios-close:active {
+    transform: scale(0.9);
+  }
+  .ios-sheet-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px 16px calc(16px + var(--sheet-hidden, 0px) + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  [data-world="social"] #main {
+    transition: transform var(--t-spring) var(--spring);
+  }
+  [data-world="social"] #main.ios-behind {
+    transform: scale(0.965);
+  }
 }
 
 @layer utilities {
