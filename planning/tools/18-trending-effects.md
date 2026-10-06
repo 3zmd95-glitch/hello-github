@@ -85,10 +85,15 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
    - At most 120 posts a day; about 840 over the rolling week.
    - Why families and not generic wording: see the live probe below.
 2. **Pull out candidates (rules, free).**
-   - Every dictionary entry matched in a post's title or snippet (`matchTerms`, the same matching form as search).
-   - English phrases of 1–3 words before "effect", "transition", "trick", "edit trend" or "filter".
+   - Every dictionary entry matched in a post's title or snippet (`matchTerms`, the same matching form as search). Three refinements:
+     - An entry that is not `specific` needs one of its longer phrases: "flash" alone is not a flash transition.
+     - A multi-word phrase also counts written as one hashtag (`#cloneyourself`, `#greenscreen`).
+     - The catch-all "transitions" entry never counts, and a name equal to one of its phrases ("seamless transition") is dropped.
+   - English phrases of 1–3 words before "effect", "transition", "trick", "filter" or "trend" (any case), and Title-Case names before "Edit".
+     - "edit trend" names "… edit".
+     - The name is the run of words right before the suffix, back to the first generic word: "glitch and zoom transition" → "zoom transition", "First Month Edit Trend" → "first month edit".
    - Hashtags ending in those words. `#cloneeffect` becomes "clone effect": the known suffix is split off and the rest is kept as one word.
-   - A block list drops known junk: "sound effect(s)", "butterfly effect", "special effects", "video effect", "the effect", "visual effect".
+   - A block list drops known junk: "sound effect(s)", "butterfly effect", "special effects", "video effect", "the effect", "visual effect", "After Effects".
    - For each candidate, record:
      - distinct posts
      - distinct creators (by handle, per platform)
@@ -123,13 +128,15 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
 - **Main signal:** distinct **creators** on TikTok and Instagram mentioning the effect over the **last 7 days of scans**. Creators are counted, not posts, so one account can't fake a trend.
   - Each day's creators are kept per effect in the history as short hashes. The 7-day count is the union, so a trend builds up across the rotation.
 - **Minimum to show:** 3 distinct creators over the 7 days.
-- **Named trends:** besides "___ effect / transition / trick / filter" phrases and hashtags, the rules also keep Title-Case names before
-  "Trend" or "Edit". Tavily titles these posts like "How to Edit the New CapCut Reverse Trend" and "Clone Yourself with One Hair (Swagger
-  Trend)". Generic words (viral, new, latest, capcut, tiktok, video, edit, trend) never count as a name on their own.
+- **Named trends:** besides "___ effect / transition / trick / filter" phrases and hashtags, the rules also keep names before "trend"
+  (any case) and Title-Case names before "Edit". Tavily titles these posts like "How to Edit the New CapCut Reverse Trend" and "Clone
+  Yourself with One Hair (Swagger Trend)". Generic words (viral, new, latest, capcut, tiktok, video, edit, trend, dance, challenge) are
+  never part of a name.
 - **Growth:** compares the creators of the last 3 days with the 3 days before them.
   - Each family is searched once in every 3-day window, so the two windows are like for like.
   - `growth = |creators, days 0–2| / max(1, |creators, days 3–5|)`.
-  - An effect with no creators in days 3–5 counts as growth 3. That covers effects never seen before.
+  - An effect with creators in days 0–2 but none in days 3–5 counts as growth 3. That covers effects never seen before.
+  - An effect with no creators in days 0–5, seen only 6 days ago, has growth 0: it is fading.
 - **NEW:** the effect is not in the dictionary and was first seen in the last 7 days.
 - **YouTube bonus:** `views7d` growth of at least 1.5×, against the effect's last recorded `views7d`. It adds a small boost and the "▶ ↑N×" note. No data means no penalty.
 - **Score:** `creators × min(growth, 4) × (youtubeBonus ? 1.25 : 1)`.
@@ -167,7 +174,8 @@ KV `effects:trending` holds one document, written at most once a day:
 
 History trimming:
 - Entries older than 14 days are dropped.
-- If more than 60 keys remain, the keys with the fewest creators over their last 7 days are dropped first.
+- If more than 60 keys remain, the keys with the fewest creators over their last 7 days are dropped first. On a tie, the key last seen
+  longest ago goes first, so today's new keys stay.
 - An effect's first-seen day is its earliest kept entry.
 
 Handles are hashed (SHA-256, first 8 hex) so the stored document holds no account names. Only the 2 sample posts keep a visible handle.

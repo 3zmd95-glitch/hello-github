@@ -61,6 +61,35 @@ describe("scoring", () => {
     expect(merged.k0).toBeUndefined();
   });
 
+  it("on a tie at the 60-key cut, keeps the key seen most recently", () => {
+    const history: Record<string, HistoryEntry[]> = {};
+    for (let i = 0; i < 60; i++) history[`old${i}`] = [{ day: "2026-10-01", ids: ["a"] }];
+    const merged = mergeHistory(history, "2026-10-06", new Map([["fresh", cand("fresh", ["z"])]]));
+    expect(Object.keys(merged)).toHaveLength(60);
+    expect(merged.fresh).toBeDefined();
+  });
+
+  it("keeps 13-day-old entries, drops 14-day-old ones, and replaces today's entry on a re-run", () => {
+    const merged = mergeHistory(
+      {
+        k: [
+          { day: "2026-09-22", ids: ["old"] },
+          { day: "2026-09-23", ids: ["kept"] },
+          { day: "2026-10-06", ids: ["first-run"] },
+        ],
+        gone: [{ day: "2026-10-06", ids: ["x"] }],
+      },
+      "2026-10-06",
+      new Map([["k", cand("k", ["re-run"])]]),
+    );
+    expect(merged).toEqual({
+      k: [
+        { day: "2026-09-23", ids: ["kept"] },
+        { day: "2026-10-06", ids: ["re-run"] },
+      ],
+    });
+  });
+
   it("unions creators over windows and computes growth between 3-day windows", () => {
     const entries: HistoryEntry[] = [
       { day: "2026-10-01", ids: ["a"] },
@@ -124,6 +153,27 @@ describe("scoring", () => {
     expect(items.slice(0, 2).map((i) => i.key)).toEqual(["newer", "older"]);
   });
 
+  it("gives an effect seen only 6 days ago growth 0, below a steady one", () => {
+    const abc = ["a", "b", "c"];
+    const history: Record<string, HistoryEntry[]> = {
+      faded: [{ day: "2026-09-30", ids: abc }],
+      steady: [
+        { day: "2026-10-02", ids: abc },
+        { day: "2026-10-06", ids: abc },
+      ],
+    };
+    const items = scoreEffects(
+      history,
+      { faded: meta("faded"), steady: meta("steady") },
+      "2026-10-06",
+      {},
+    );
+    expect(items.map((i) => [i.key, i.growth])).toEqual([
+      ["steady", 1],
+      ["faded", 0],
+    ]);
+  });
+
   it("stops marking an effect NEW 7 days after it was first seen", () => {
     const history = {
       old: [
@@ -141,11 +191,32 @@ describe("scoring", () => {
       { day: "2026-10-06", ids: ["a", "b", "c"], views7d: 3000 },
     ];
     expect(youtubeGrowth(entries, "2026-10-06")).toBe(3);
-    const history = { x: entries };
+    // y has x's creators and growth and was first seen more recently: only the boost puts x first.
+    const history = { x: entries, y: sameAsXButNewer };
     setViews(history, "2026-10-06", { x: 3000 });
-    const [item] = scoreEffects(history, { x: meta("x") }, "2026-10-06", {
+    const items = scoreEffects(history, { x: meta("x"), y: meta("y") }, "2026-10-06", {
       x: { newVideos: 12, views7d: 3000 },
     });
-    expect(item.youtube).toEqual({ newVideos: 12, views7d: 3000, growth: 3 });
+    expect(items.map((i) => i.key)).toEqual(["x", "y"]);
+    expect(items[0].youtube).toEqual({ newVideos: 12, views7d: 3000, growth: 3 });
+  });
+
+  it("boosts only at a real 1.5× (1.46× shows as 1.5 but gets no boost)", () => {
+    const history = {
+      x: [
+        { day: "2026-10-03", ids: ["a"], views7d: 1000 },
+        { day: "2026-10-06", ids: ["a", "b", "c"], views7d: 1460 },
+      ],
+      y: sameAsXButNewer,
+    };
+    expect(youtubeGrowth(history.x, "2026-10-06")).toBe(1.5);
+    const items = scoreEffects(history, { x: meta("x"), y: meta("y") }, "2026-10-06", {});
+    expect(items.map((i) => i.key)).toEqual(["y", "x"]);
   });
 });
+
+/** 3 creators, growth 3, first seen 2026-10-04: ties with the "x" effects above, which were first seen on 10-03. */
+const sameAsXButNewer: HistoryEntry[] = [
+  { day: "2026-10-04", ids: ["a"] },
+  { day: "2026-10-06", ids: ["a", "b", "c"] },
+];

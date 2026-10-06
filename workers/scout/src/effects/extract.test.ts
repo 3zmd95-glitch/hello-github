@@ -72,6 +72,36 @@ describe("candidatesOf", () => {
     // The nearest suffix wins: "Edit" before "Trend".
     expect(names("First Month Edit Trend")).toEqual(["first month edit"]);
   });
+
+  it("never makes a name out of the catch-all 'transitions' entry", () => {
+    expect(keys("seamless transition tutorial")).toEqual([]);
+    expect(keys("#seamlesstransition")).toEqual([]);
+  });
+
+  it("reads a multi-word dictionary phrase written as one hashtag, never a bare word", () => {
+    expect(keys("#cloneyourself #capcut #fyp")).toEqual(["clone-effect"]);
+    expect(keys("#greenscreen")).toEqual(["chroma-key"]);
+    expect(keys("#glitch #zoom")).toEqual([]);
+  });
+
+  it("reads 'trend' in any case, and 'edit trend' as a named edit", () => {
+    expect(keys("Swagger trend tutorial")).toEqual(["swagger-trend"]);
+    expect(keys("Reverse trend on CapCut")).toEqual(["reverse-trend"]);
+    expect(keys("swagger edit trend")).toEqual(["swagger-edit"]);
+    expect(keys("first month edit trend")).toEqual(["first-month-edit"]); // the Title-Case key
+    expect(keys("New Dance Trend")).toEqual([]);
+  });
+
+  it("drops software names and possessives", () => {
+    expect(keys("After Effects tutorial")).toEqual([]);
+    expect(keys("Today's Trend")).toEqual([]);
+    expect(keys("Today’s Trend")).toEqual([]);
+    expect(keys("CapCut's Reverse Trend")).toEqual(["reverse-trend"]);
+  });
+
+  it("reads styled Unicode letters", () => {
+    expect(keys("𝐒𝐰𝐚𝐠𝐠𝐞𝐫 𝐓𝐫𝐞𝐧𝐝")).toEqual(["swagger-trend"]);
+  });
 });
 
 describe("extractCandidates", () => {
@@ -105,6 +135,33 @@ describe("extractCandidates", () => {
   it("counts a post that two searches both returned once", async () => {
     const p = post("@a", "clone effect tutorial");
     expect((await extractCandidates([p, p])).get("clone-effect")!.posts).toBe(1);
+  });
+
+  it("never runs a name across the title and the snippet", async () => {
+    const found = await extractCandidates([
+      { ...post("@a", "Insane Ghost"), snippet: "Effect pack download" },
+    ]);
+    expect([...found.keys()]).toEqual([]);
+  });
+
+  it("reads a day's 120 posts quickly (the Free plan allows 10 ms of CPU per run)", async () => {
+    const titles = [
+      "CapCut clone effect tutorial: how to clone yourself in a video",
+      "How to Edit the New CapCut Reverse Trend | Easy Tutorial",
+      "Chanel Confidence: Clone Yourself with One Hair (Swagger Trend)",
+      "Most Trending Flash Clone Edit Tutorial: How to Make It",
+    ];
+    const snippet =
+      "Learn this viral editing trick step by step: a smooth zoom transition, a speed ramp and a glitch effect, " +
+      "all made in CapCut on your phone. Save it for later and follow for more editing tutorials every week. " +
+      "Template in bio. #capcut #edit #transition #fyp #viral #trend #reels #tutorial";
+    const posts = Array.from({ length: 120 }, (_, i) => ({
+      ...post(`@u${i}`, titles[i % titles.length]),
+      snippet,
+    }));
+    const start = performance.now();
+    await extractCandidates(posts);
+    expect(performance.now() - start).toBeLessThan(50); // lenient so it never flakes
   });
 
   it("hashes creators so no handle is stored", async () => {

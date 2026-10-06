@@ -38,7 +38,7 @@ export function creatorsBetween(
 }
 
 /** Today's creators replace any earlier run of the same day; entries older than 14 days go, then the keys with the
- * fewest creators this week until 60 are left. */
+ * fewest creators this week until 60 are left (on a tie, the key last seen longest ago goes first). */
 export function mergeHistory(
   history: Record<string, HistoryEntry[]>,
   day: string,
@@ -55,8 +55,12 @@ export function mergeHistory(
   const keys = Object.keys(out);
   if (keys.length > HISTORY_KEYS) {
     const week = new Map(keys.map((k) => [k, creatorsBetween(out[k], day, 0, 6).size]));
-    for (const k of keys.sort((a, b) => week.get(b)! - week.get(a)!).slice(HISTORY_KEYS))
-      delete out[k];
+    const last = new Map(
+      keys.map((k) => [k, out[k].reduce((d, e) => (e.day > d ? e.day : d), "")]),
+    );
+    const order = (a: string, b: string) =>
+      week.get(b)! - week.get(a)! || daysBetween(last.get(a)!, last.get(b)!);
+    for (const k of keys.sort(order).slice(HISTORY_KEYS)) delete out[k];
   }
   return out;
 }
@@ -72,14 +76,19 @@ export function setViews(
   }
 }
 
-/** Today's YouTube views7d against the last earlier recorded views7d, rounded to 0.1. */
-export function youtubeGrowth(entries: readonly HistoryEntry[], today: string): number | undefined {
+/** Today's YouTube views7d against the last earlier recorded views7d. */
+function viewsRatio(entries: readonly HistoryEntry[], today: string): number | undefined {
   const now = entries.find((e) => e.day === today)?.views7d;
   const before = entries
     .filter((e) => e.day < today && e.views7d !== undefined)
     .sort((a, b) => daysBetween(a.day, b.day))[0]?.views7d;
-  if (now === undefined || before === undefined || before <= 0) return undefined;
-  return Math.round((now / before) * 10) / 10;
+  return now === undefined || before === undefined || before <= 0 ? undefined : now / before;
+}
+
+/** The YouTube views ratio rounded to 0.1, for the "▶ ↑N×" note. */
+export function youtubeGrowth(entries: readonly HistoryEntry[], today: string): number | undefined {
+  const ratio = viewsRatio(entries, today);
+  return ratio === undefined ? undefined : Math.round(ratio * 10) / 10;
 }
 
 export function scoreEffects(
@@ -95,11 +104,12 @@ export function scoreEffects(
     if (creators < MIN_CREATORS) return [];
     const recent = creatorsBetween(entries, today, 0, 2).size;
     const before = creatorsBetween(entries, today, 3, 5).size;
-    const growth = before === 0 ? 3 : Math.round((recent / before) * 100) / 100;
+    // No creators in days 3–5: new (growth 3) when seen in days 0–2, else fading (growth 0).
+    const growth = before === 0 ? (recent > 0 ? 3 : 0) : Math.round((recent / before) * 100) / 100;
     const firstSeen = entries.reduce((d, e) => (e.day < d ? e.day : d), today);
     const ytGrowth = youtubeGrowth(entries, today);
     const yt = youtube[key];
-    const boost = ytGrowth !== undefined && ytGrowth >= 1.5 ? 1.25 : 1;
+    const boost = (viewsRatio(entries, today) ?? 0) >= 1.5 ? 1.25 : 1; // the real ratio, not the rounded one
     const item: EffectItem = {
       key,
       name: m.name,
