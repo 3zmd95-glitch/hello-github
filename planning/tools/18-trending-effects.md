@@ -91,13 +91,16 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
    - The six are taken in turn from a pool of **18 effect-family queries**, rotated by UTC day, so every family is searched every
      3 days. Examples:
      - "clone yourself video trend"
-     - "gif stickers": creators caption the owner's trend "gif stickers by @…"; the first wording, "gif sticker overlay
-       reel trend", brought junk (a coffee shop, a sticker-album collection)
+     - "gif stickers video edit": creators caption the owner's trend "gif stickers by @…". The first wording, "gif sticker
+       overlay reel trend", brought junk (a coffee shop, a sticker-album collection). The bare "gif stickers" (live fix 1)
+       found 1 sticker creator in the third live run, where Discover's search for "gif stickers" (it asks the dictionary
+       entry's "gif stickers video edit", "gif stickers tutorial capcut" and "شرح ستيكرات متحركة") found 7 posts of
+       the owner's trend, captioned "Gif sticker by @… / Editor Video / edited on Premiere Pro" (live fix 3)
      - "new transition trend reels"
      - "text effect trend capcut"
      - "speed ramp trend edit"
      - "ai effect video trend"
-   - **The first scan** (no memory yet: no stored document, or one whose history is empty) searches families 1–6 instead. They hold both of the owner's reels: "clone yourself video trend" and "gif stickers". After that, the rotation goes by UTC day number.
+   - **The first scan** (no memory yet: no stored document, or one whose history is empty) searches families 1–6 instead. They hold both of the owner's reels: "clone yourself video trend" and "gif stickers video edit". After that, the rotation goes by UTC day number.
    - **Another run the same day** (🔄 Scan again, live fix 2) searches the next 6 families, not the day's 6 again: the
      document keeps the turn it searched last (`slot`: 0 is families 1–6, 1 is 7–12, 2 is 13–18). Three taps cover all
      18; a fourth starts over. A day whose run failed retries the day's own turn. A document saved before `slot`
@@ -468,3 +471,22 @@ The first real scan, from the dashboard's "Run the first scan" after the deploy:
 **Live fix 2** (branch `claude/trending-live-fix-2`):
 - Another run the same day searches the next 6 families (`slot`, §1 step 1) and adds to the day's creators (§2).
 - A verdict whose `sameAs` names a key it was not given keeps its verdict; only the merge is dropped (§1 step 3).
+
+**Third live run** (after live fix 2, 🔄 Scan again the same day):
+- Families 1–6 (the turn after the day's). Status `ok`. **The clone effect showed: 8 creators**, the owner's first reel.
+- 8 chips (the list was full):
+
+  | Effect | Creators | Note |
+  | --- | --- | --- |
+  | smooth-slowmo | 18 | kept from the second run |
+  | text-animation | 18 | |
+  | beat-sync | 15 | kept from the second run |
+  | clone-effect | 8 | |
+  | font-text-effect | 6 | NEW, AI-approved |
+  | light-leak | 5 | |
+  | text-transition | 4 | NEW, AI-approved |
+  | speed-ramp | 4 | |
+
+- KV: 77 keys, `slot` 0. `gif-stickers` had 1 creator: the bare "gif stickers" search missed the posts that Discover's search found.
+
+**Live fix 3:** family 2 asks "gif stickers video edit", the dictionary entry's example query that found the owner's trend through Discover.

@@ -40,15 +40,18 @@ describe("searchFamilies", () => {
     };
     const doFetch = vi.fn<typeof fetch>(async (_url, init) => {
       const body = bodyOf(init);
-      if (body.query !== "gif stickers") return json({ results: [] }); // no usage: 1 credit
+      if (body.query !== "gif stickers video edit") return json({ results: [] }); // no usage: 1 credit
       return json({ results: replies[kindOf(body)], usage: { credits: 2 } });
     });
-    const out = await searchFamilies(ENV, doFetch, ["gif stickers", "speed ramp trend edit"]);
+    const out = await searchFamilies(ENV, doFetch, [
+      "gif stickers video edit",
+      "speed ramp trend edit",
+    ]);
 
     expect(doFetch).toHaveBeenCalledTimes(6);
     expect(String(doFetch.mock.calls[0][0])).toBe(TAVILY_URL);
     const bodies = doFetch.mock.calls.map(([, init]) => bodyOf(init));
-    expect(bodies.filter((b) => b.query === "gif stickers").map(kindOf)).toEqual([
+    expect(bodies.filter((b) => b.query === "gif stickers video edit").map(kindOf)).toEqual([
       "ig week",
       "ig month",
       "tt month",

@@ -321,7 +321,10 @@ describe("runEffects", () => {
     // 2026-10-06's rotation is families 13–18.
     const day = new Date("2026-10-06T05:35:00Z");
     expect(familiesForDay("2026-10-06")).toEqual(FAMILY_QUERIES.slice(12, 18));
-    expect(FAMILY_QUERIES.slice(0, 2)).toEqual(["clone yourself video trend", "gif stickers"]);
+    expect(FAMILY_QUERIES.slice(0, 2)).toEqual([
+      "clone yourself video trend",
+      "gif stickers video edit",
+    ]);
     const first = web();
     const doc = await runEffects(setup().env, { fetch: first.fetch, now: day });
     expect(familiesOf(first.searched)).toEqual(FAMILY_QUERIES.slice(0, 6));
