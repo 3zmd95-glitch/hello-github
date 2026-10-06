@@ -146,8 +146,10 @@ category a day (`category:attempts:<id>:<day>`).
 That is about 900 over the free plan, roughly $7.50 a month at $0.008 a credit with pay-as-you-go. The owner turns
 pay-as-you-go on in his Tavily account; Claude never handles payments.
 
-**Budget guard.** At 90% of the month's credits (Discover's cached figure), category scans and lessons pause and keep
-their last results. They add the note `tavily_budget`. Trending effects cuts back as it already does.
+**Budget guard.** At 90% of the month's credits (Discover's cached figure; when none is kept, Tavily's own `GET /usage`,
+asked once and kept 10 minutes), category scans and lessons pause and keep their last results. The month is the plan
+plus a positive pay-as-you-go limit; an unknown figure is not tight. They add the note `tavily_budget`. Trending
+effects cuts back as it already does, on the same figure.
 
 **YouTube.** Lessons find YouTube videos through Tavily, so the shared `search.list` 100 a day is untouched.
 

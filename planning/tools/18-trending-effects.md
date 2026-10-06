@@ -106,9 +106,11 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
      18; a fourth starts over. A day whose run failed retries the day's own turn. A document saved before `slot`
      existed counts as the day's turn. Its creators add to the day's, not replace them (step 4).
    - **Budget guard.** Before searching, the run reads Discover's cached Tavily figure (`discover:usage:tavily`, kept
-     10 minutes by `discover/usage.ts`). At 90 % of the month or more it makes only the Instagram month search per
-     family (6 calls) and notes `tavily_budget` (status `partial`). A missing or unreadable figure, or one with no
-     limit, means the full 18: the usual case at 05:35, when nobody has opened Discover in the last 10 minutes.
+     10 minutes by `discover/usage.ts`). When none is kept (the usual case at 05:35, when nobody has opened Discover in
+     the last 10 minutes), it asks Tavily's own `GET /usage` once and keeps the answer 10 minutes, as Discover does
+     (2026-10-07: reading the cache alone, the cron ran blind past 90 %). At 90 % of the month or more it makes only the
+     Instagram month search per family (6 calls) and notes `tavily_budget` (status `partial`). A figure still unknown
+     (that call failed), or one with no limit, means the full 18.
    - At most 360 post pages a day (18 × 20), fewer after the dedupe.
    - Why families and not generic wording: see the live probe below.
 2. **Pull out candidates (rules, free).**
@@ -164,7 +166,8 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
 
 **Per-run budget.**
 - At most 31 subrequests (the limit is 50): 18 Tavily, ≤ 6 YouTube `search.list` + 1 `videos.list`, 1 AI call, and 5 KV
-  operations (the list's read and write, the Tavily figure's read, the attempt counter's read and write).
+  operations (the list's read and write, the Tavily figure's read, the attempt counter's read and write). When no
+  Tavily figure is kept, 1 more: Tavily's `GET /usage` (and the figure's KV write).
 - 18 Tavily credits, about 540 a month: owner-approved ("I dont care about search credit… test until I can catch the
   trends", 2026-10-06). 6 when the budget guard is on.
 - 6 of YouTube's 100 daily searches. With the radar's 18 and Discover's 70, the total is 94.
@@ -325,7 +328,7 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
 ### 5. Failures and safety
 
 - **Tavily quota or auth failure:** status `failed`. The previous items are kept; only the date and notes are written. Like any spending run, it writes twice: the attempt counter, then the list.
-- **Tavily's month nearly spent** (≥ 90 % in Discover's cached figure): only the Instagram month search per family, status `partial`, note `tavily_budget` (§1 step 1).
+- **Tavily's month nearly spent** (≥ 90 % in Discover's cached figure, else Tavily's `GET /usage`): only the Instagram month search per family, status `partial`, note `tavily_budget` (§1 step 1).
 - **AI failure or no usable verdict:** the rule list is used: dictionary effects and names the AI approved before show, new names wait (see step 3). Status `partial`, note `ai_fallback` or `ai_empty`.
 - **YouTube cap reached:** the check is skipped, with status `partial`.
 - **Lost runs:** a run cut off before it saves (the CPU limit, a first scan dropped after `waitUntil`'s 30 s) leaves the day open. The cap of 3 spending runs a UTC day (§1) stops paying for retries; the 4th answers with the note `attempts`.
