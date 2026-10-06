@@ -254,6 +254,23 @@ describe("runCategory", () => {
     expect(writes(KV)).toEqual([ATTEMPTS, KEY]);
   });
 
+  it("KV trouble: an unreadable page spends and writes nothing; a counter or a save that fails is noted", async () => {
+    const unreadable = setup({ stored: OLD });
+    unreadable.KV.get.mockRejectedValue(new Error("KV GET failed: 500"));
+    const searched = web();
+    expect(
+      await runCategory(unreadable.env, "cars", { fetch: searched.fetch, now: NOW }),
+    ).toMatchObject({ status: "failed", notes: ["kv"] });
+    expect(searched.count.tavily).toBe(0);
+    expect(unreadable.KV.put).not.toHaveBeenCalled();
+
+    const unwritable = setup({ stored: OLD });
+    unwritable.KV.put.mockRejectedValue(new Error("KV PUT failed: 500"));
+    const doc = await runCategory(unwritable.env, "cars", { fetch: web().fetch, now: NOW });
+    expect(doc).toMatchObject({ status: "ok", ranOn: "2026-10-07" });
+    expect(doc.notes).toEqual(["attempts_kv", "kv"]);
+  });
+
   it("keeps at most 200 names in a category's memory, today's names first", async () => {
     const history = Object.fromEntries(
       Array.from({ length: 260 }, (_, i) => [`old-${i}`, [{ day: "2026-10-04", ids: ["a"] }]]),
