@@ -190,7 +190,8 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
 - **NEW:** the effect is not in the dictionary and was first seen in the last 7 days.
 - **YouTube bonus:** `views7d` growth of at least 1.5×, against the effect's last recorded `views7d`. It adds a small boost and the "▶ ↑N×" note. No data means no penalty.
 - **Score:** `creators × min(growth, 4) × (youtubeBonus ? 1.25 : 1)`.
-- **Shown:** the top 12 by score (live fix 4; 8 before). Ties go to whichever was first seen more recently. On a memory's first days every effect is new, so the big evergreen effects lead and a specific trend needs the room: the owner's GIF stickers (6 creators) ranked 10th in the third live run. From then on growth separates rising trends from steady ones.
+- **Shown:** trends first, then editing techniques (live fix 5): a trend is a name the AI found outside the dictionary, or a dictionary entry marked `"trend": true` (the clone effect, GIF stickers); the other dictionary entries are techniques that always have many creators (slow motion, glitch, beat sync). Within each, the top by score, 12 in all (live fix 4; 8 before). Verified in Chrome after live fix 4: one more Scan again raised velocity to 7 creators and pushed GIF stickers (6) out of the 12.
+- **Before live fix 5:** the top 12 by score. Ties go to whichever was first seen more recently. On a memory's first days every effect is new, so the big evergreen effects lead and a specific trend needs the room: the owner's GIF stickers (6 creators) ranked 10th in the third live run. From then on growth separates rising trends from steady ones.
 - **Honest labels.** TikTok and Instagram figures say "mentioned by N creators this week". They are web-index mentions, never views. Only YouTube shows real view numbers.
 
 ### 3. Storage and routes

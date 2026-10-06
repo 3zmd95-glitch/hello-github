@@ -167,6 +167,34 @@ describe("scoring", () => {
     expect(items.slice(0, 2).map((i) => i.key)).toEqual(["newer", "older"]);
   });
 
+  it("shows trends first (new names, dictionary trends), then the busy editing techniques", () => {
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => `c${i}`);
+    const today = (n: number): HistoryEntry[] => [{ day: "2026-10-06", ids: ids(n) }];
+    // The third live run's shape: techniques with 30 creators, the owner's GIF stickers with 6.
+    const history: Record<string, HistoryEntry[]> = {
+      "smooth-slowmo": today(30),
+      glitch: today(30),
+      "gif-stickers": today(6),
+      "clone-effect": today(21),
+      "reverse-transition": today(8),
+    };
+    const metas = {
+      "smooth-slowmo": meta("smooth-slowmo", "smooth-slowmo"),
+      glitch: meta("glitch", "glitch"),
+      "gif-stickers": meta("gif-stickers", "gif-stickers"),
+      "clone-effect": meta("clone-effect", "clone-effect"),
+      "reverse-transition": meta("reverse-transition"),
+    };
+    const items = scoreEffects(history, metas, "2026-10-06", {});
+    expect(items.map((i) => [i.key, i.creators])).toEqual([
+      ["clone-effect", 21],
+      ["reverse-transition", 8],
+      ["gif-stickers", 6],
+      ["smooth-slowmo", 30],
+      ["glitch", 30],
+    ]);
+  });
+
   it("leaves out a fading effect: 3 creators or more, but none in the last 3 days (score 0)", () => {
     const abc = ["a", "b", "c"];
     const history: Record<string, HistoryEntry[]> = {

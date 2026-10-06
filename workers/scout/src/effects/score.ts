@@ -5,6 +5,7 @@
  * YouTube boost. History holds ≤ 14 days and ≤ 400 keys.
  */
 
+import { TERMS } from "../discover/terms";
 import {
   HISTORY_DAYS,
   HISTORY_KEYS,
@@ -18,6 +19,8 @@ import {
 } from "./types";
 
 const DAY_MS = 86_400_000;
+/** Dictionary entries that are trends (the clone effect, GIF stickers), not always-busy editing techniques. */
+const TREND_TERMS = new Set(TERMS.filter((t) => t.trend).map((t) => t.id));
 
 /** b - a in whole UTC days. */
 export function daysBetween(a: string, b: string): number {
@@ -139,11 +142,20 @@ export function scoreEffects(
         : {}),
       samples: m.samples,
     };
-    return [{ item, score: creators * Math.min(growth, 4) * boost, firstSeen }];
+    // A trend: a name the AI found outside the dictionary, or a dictionary entry marked `trend`.
+    const trend = !m.termId || TREND_TERMS.has(m.termId);
+    return [{ item, score: creators * Math.min(growth, 4) * boost, firstSeen, trend }];
   });
-  // Equal scores: the effect first seen more recently goes first.
+  // Trends first, then the editing techniques the dictionary knows (slow motion, glitch), which always have many
+  // creators: live, they filled the list and pushed the owner's GIF stickers (6 creators) out of it. Within each, by
+  // score; equal scores: the effect first seen more recently goes first.
   return scored
-    .sort((a, b) => b.score - a.score || daysBetween(a.firstSeen, b.firstSeen))
+    .sort(
+      (a, b) =>
+        Number(b.trend) - Number(a.trend) ||
+        b.score - a.score ||
+        daysBetween(a.firstSeen, b.firstSeen),
+    )
     .slice(0, MAX_ITEMS)
     .map((s) => s.item);
 }
