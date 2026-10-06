@@ -10,7 +10,7 @@ import { cleanWithAi, type AiVerdict } from "./ai";
 import { extractCandidates } from "./extract";
 import { familiesForDay } from "./families";
 import { readEffects, writeEffects } from "./kv";
-import { creatorsBetween, mergeHistory, scoreEffects, setViews } from "./score";
+import { creatorsBetween, daysBetween, mergeHistory, scoreEffects, setViews } from "./score";
 import { searchFamilies, youtubeCheck, YT_EFFECTS, type EffectsEnv } from "./sources";
 import {
   IDS_PER_DAY,
@@ -25,6 +25,8 @@ const AI_CANDIDATES = 25;
 const ARABIC_LABEL = new Map(TERMS.map((t) => [t.id, t.label.ar]));
 
 type History = Record<string, HistoryEntry[]>;
+/** For the run's log line, to tune the cap at the live check: no names. */
+type Memory = { keys: number; protected: number; trimmed: number };
 type Meta = Record<string, EffectMeta>;
 
 /** A day that could not run: the previous chips, history and update time stay, with today's date and why. */
@@ -144,7 +146,7 @@ async function scan(
   now: Date,
   today: string,
   opts: RunOptions,
-): Promise<{ doc: EffectsDoc; credits: number }> {
+): Promise<{ doc: EffectsDoc; credits: number; memory?: Memory }> {
   const { posts, credits, errors } = await searchFamilies(
     env,
     doFetch,
@@ -171,9 +173,15 @@ async function scan(
   const meta: Meta = { ...prev?.meta };
   applyVerdicts(cands, byKey, history, meta);
   for (const [key, c] of cands) meta[key] = metaOf(c, byKey.get(key), meta[key]);
-  // At the memory's cap, dictionary and AI-approved names stay first.
-  const approved = Object.keys(meta).filter((k) => meta[k].termId || meta[k].checked);
-  const merged = mergeHistory(history, today, cands, new Set(approved));
+  // At the memory's cap, dictionary names stay first, and approved names while seen this week: an older one has no
+  // creators in the 7-day window, so it cannot show and competes like any other name.
+  const seenThisWeek = (k: string) =>
+    cands.has(k) || (history[k] ?? []).some((e) => daysBetween(e.day, today) <= 6);
+  const kept = new Set(
+    Object.keys(meta).filter((k) => meta[k].termId || (meta[k].checked && seenThisWeek(k))),
+  );
+  const cut: string[] = [];
+  const merged = mergeHistory(history, today, cands, kept, cut);
   for (const key of Object.keys(meta)) if (!merged[key]) delete meta[key];
 
   // Chips: dictionary effects, plus names the AI kept — none of those on a day the AI did not judge (junk waits).
@@ -198,6 +206,7 @@ async function scan(
   const items = scoreEffects(merged, shown, today, youtube.results);
   return {
     credits,
+    memory: { keys: Object.keys(merged).length, protected: kept.size, trimmed: cut.length },
     doc: {
       ranOn: today,
       updatedAt: now.toISOString(),
@@ -218,10 +227,11 @@ export async function runEffects(env: EffectsEnv, opts: RunOptions = {}): Promis
   if (prev && !opts.force && prev.ranOn === today) return prev;
   let doc = failed(null, today, now, ["kv"]);
   let credits = 0;
+  let memory: Memory | undefined;
   let error: string | undefined;
   if (prev !== undefined) {
     try {
-      ({ doc, credits } = await scan(env, opts.fetch ?? fetch, prev, now, today, opts));
+      ({ doc, credits, memory } = await scan(env, opts.fetch ?? fetch, prev, now, today, opts));
     } catch (e) {
       // A code error, not post text; clipped all the same.
       error = (e instanceof Error ? e.message : String(e)).slice(0, 200);
@@ -230,7 +240,14 @@ export async function runEffects(env: EffectsEnv, opts: RunOptions = {}): Promis
   }
   console.log(
     JSON.stringify({
-      effects: { status: doc.status, items: doc.items.length, credits, notes: doc.notes, error },
+      effects: {
+        status: doc.status,
+        items: doc.items.length,
+        credits,
+        notes: doc.notes,
+        error,
+        ...memory,
+      },
     }),
   );
   if (prev !== undefined)

@@ -32,7 +32,7 @@ describe("scoring", () => {
     expect(daysBetween("2026-10-01", "2026-10-06")).toBe(5);
   });
 
-  it("adds today's ids (≤ 30), drops entries older than 14 days, keeps ≤ 300 keys", () => {
+  it("adds today's ids (≤ 30), drops entries older than 14 days, keeps ≤ 400 keys", () => {
     const old: Record<string, HistoryEntry[]> = { gone: [{ day: "2026-09-20", ids: ["x"] }] };
     const merged = mergeHistory(
       old,
@@ -52,8 +52,8 @@ describe("scoring", () => {
     expect(merged["clone-effect"][0].ids).toHaveLength(30);
   });
 
-  it("keeps the 300 keys with the most creators this week", () => {
-    expect(HISTORY_KEYS).toBe(300);
+  it("keeps the 400 keys with the most creators this week", () => {
+    expect(HISTORY_KEYS).toBe(400);
     const history: Record<string, HistoryEntry[]> = {};
     for (let i = 0; i <= HISTORY_KEYS; i++)
       history[`k${i}`] = [{ day: "2026-10-05", ids: i ? ["a", "b"] : ["a"] }];

@@ -102,7 +102,7 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
 3. **AI cleanup (built-in AI, 1 call).**
    - **Input:** the 25 candidates with the most distinct creators over the last 7 days (history plus today), so a name that builds slowly across the rotation still gets judged. On a tie, names the AI has never approved go first. Each comes with up to 2 sample titles. Titles are clipped and passed as data, never as instructions.
    - **Output:** JSON. Each verdict is checked on its own against a strict schema, and an invalid one is skipped without costing the rest. For each kept candidate:
-     - `key` and `isEditingEffect`
+     - `key` and `keep`
      - `sameAs`, which merges spellings (for example "cloning" and "clone yourself" into "clone effect")
      - `name: { en, ar }`
      - `what: { en, ar }`: one line, at most 90 characters
@@ -110,7 +110,7 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
      - Dictionary effects keep their own `label`.
      - New candidates keep their English text and are marked `checked: false`.
    - **Chips** are dictionary effects and names the AI has approved. On a day with no answer (`ai_fallback`) or no usable verdict (`ai_empty`), only dictionary effects show. New names stay in memory until a day the AI judges them.
-   - **Time limits:** the AI call has its own 60 s. Each Tavily and YouTube call has 12 s.
+   - **Time limits:** the AI call has its own 60 s. Each Tavily call and YouTube search has 12 s; the views call (`videos.list`) keeps its own 2.5 s (`STATS_TIMEOUT_MS`).
    - This call is separate from Discover's 20 AI plans a day.
 4. **YouTube check (6 `search.list` + 1 `videos.list`).**
    - For each of the top 6 cleaned effects: `search.list q="<query> edit" publishedAfter=now-7d` (20 results).
@@ -171,18 +171,18 @@ KV `effects:trending` holds one document, written at most once a day:
     samples: { url: string; title: string }[]; // ≤ 2, canonical post URLs
   }[];                            // ≤ 8
   history: Record<string, { day: string; ids: string[]; views7d?: number }[]>;
-  // ids: short hashes of "platform:handle" seen that day, ≤ 30. ≤ 14 days per key, ≤ 300 keys.
+  // ids: short hashes of "platform:handle" seen that day, ≤ 30. ≤ 14 days per key, ≤ 400 keys.
 }
 ```
 
 History trimming:
 - Entries older than 14 days are dropped.
-- If more than 300 keys remain, the cut keeps keys in this order:
-  1. dictionary effects and AI-approved names;
+- If more than 400 keys remain, the cut keeps keys in this order:
+  1. dictionary effects, and AI-approved names seen in the last 7 days (an older approved name has no creators in the 7-day window, so it cannot show and competes like any other);
   2. then the most creators over the last 7 days;
   3. then the most recently seen.
 
-  With ~100+ candidates a day, a 1-creator name then survives until its family's next scan, 3 days later.
+  The 400 keys are sized for about 120 candidates a day: a 1-creator name then survives until its family's next scan, 3 days later. A simulation of daily runs holds up to 130 a day and breaks at 140. The run's log line reports `keys`, `protected` and `trimmed` for tuning.
 - An effect's first-seen day is its earliest kept entry.
 
 Handles are hashed (SHA-256, first 8 hex) so the stored document holds no account names. Only the 2 sample posts keep a visible handle.

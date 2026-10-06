@@ -79,6 +79,7 @@ The dashboard reads `GET /effects/trending` and renders the chips.
   export function youtubeGrowth(entries: readonly HistoryEntry[], today: string): number | undefined;
   export function scoreEffects(history: Record<string, HistoryEntry[]>, meta: Record<string, EffectMeta>, today: string, youtube: Record<string, { newVideos: number; views7d: number }>): EffectItem[];
   ```
+  Note (Task 2 review): `HISTORY_KEYS` became 400, and `mergeHistory` takes the protected set (dictionary names, plus approved names seen in the last 7 days) as an optional 4th argument (an optional 5th collects the keys the cap cut, for the run log).
   Note: `EffectsDoc` adds `meta` to the spec's document: the name and samples for each key. An effect that drops out of today's scan then keeps its name while it is still in the 7-day memory. Task 5 updates the spec's storage block to match.
 
 - [ ] **Step 1: Write `types.ts`** exactly as in the Interfaces block above. Give it a one-paragraph header comment that points to `planning/tools/18-trending-effects.md`.
