@@ -353,3 +353,129 @@ describe("runCategory", () => {
     expect(KV.put).not.toHaveBeenCalled();
   });
 });
+
+describe("runCategory's lessons (§3)", () => {
+  const HOW = {
+    en: "Pan with the car at 1/30 s and keep it sharp, then add motion blur in the edit.",
+    ar: "تابع السيارة بالكاميرا على 1/30 وخلّها حادة، وبعدين زيد البلر في المونتاج.",
+  };
+  const pick = (en: string, query: string) => ({ name: { en, ar: `اسم ${en}` }, query });
+  const PICKS = {
+    photo: [
+      pick("panning", "car panning"),
+      pick("light painting", "car light painting"),
+      pick("hero shot", "car hero shot"),
+    ],
+    video: [
+      pick("rolling shot", "car rolling shot"),
+      pick("drone chase", "drone car chase"),
+      pick("gimbal reveal", "gimbal car reveal"),
+    ],
+    edit: [
+      pick("speed ramp", "speed ramp car"),
+      pick("sound design", "car sound design"),
+      pick("color grade", "car color grade"),
+    ],
+  };
+  /** Last week's page: its lessons are 8 days old, so they are due. */
+  const LAST_WEEK: CategoryDoc = {
+    ...OLD,
+    lessons: { ...OLD.lessons!, updatedAt: "2026-09-29T05:40:00.000Z" },
+  };
+  /** The cleanup of the fake above, plus the lessons' two calls: PICKS, then every how-to (the first linked to a
+   * skill). */
+  function lessonsAi(howTos?: unknown) {
+    const cleanup = ai();
+    return {
+      run: vi.fn(async (model: string, input: Record<string, unknown>): Promise<unknown> => {
+        const [system, user] = (input.messages as { content: string }[]).map((m) => m.content);
+        if (system.startsWith("You plan")) return { response: PICKS };
+        if (system.startsWith("You write")) {
+          const techniques = [...user.matchAll(/^- (\d+) \|/gm)].map(([, i]) => ({
+            i: Number(i),
+            howTo: HOW,
+            ...(i === "0" ? { skillId: "phone-180-shutter" } : {}),
+          }));
+          return { response: howTos ?? { techniques } };
+        }
+        return cleanup.run(model, input);
+      }),
+    };
+  }
+
+  it("a scan with lessons due refreshes them after saving the trends: 9 + 1 more searches", async () => {
+    const { env, KV } = setup();
+    env.AI = lessonsAi();
+    const { fetch, count, searched } = web();
+    const doc = await runCategory(env, "cars", { fetch, now: NOW });
+    // PROBE answers every search: its TikTok / Instagram posts are the examples, its "tutorial" title the tutorial.
+    expect(count.tavily).toBe(16);
+    // Lessons find their YouTube videos through Tavily: no YouTube call (the env has YouTube's key).
+    expect(count.other).toBe(0);
+    expect(searched).toContain("car panning tutorial");
+    expect(searched).toContain("شرح تصوير ومونتاج سيارات");
+    expect(writes(KV)).toEqual([ATTEMPTS, KEY, KEY]);
+    expect(doc.lessons!.photo).toHaveLength(3);
+    expect(doc.lessons!.photo[0]).toMatchObject({ skillId: "phone-180-shutter", howTo: HOW });
+    expect(doc.lessons!.video[0].videos.map((v) => v.kind)).toEqual([
+      "example",
+      "example",
+      "tutorial",
+    ]);
+    expect(stored(KV).lessons).toEqual(doc.lessons);
+    expect(stored(KV).diagnostics).toMatchObject({
+      lessons: { picked: 9, written: 9, credits: 10 },
+    });
+    expect(doc.notes ?? []).not.toContain("lessons");
+  });
+
+  it("lessons under 7 days old stay as they are", async () => {
+    const { env, KV } = setup({ stored: OLD }); // 3 days old
+    env.AI = lessonsAi();
+    const { fetch, count } = web();
+    await runCategory(env, "cars", { fetch, now: NOW });
+    expect(stored(KV).lessons).toEqual(OLD.lessons);
+    expect(writes(KV)).toEqual([ATTEMPTS, KEY]);
+    expect(count.tavily).toBe(6);
+  });
+
+  it("a refresh that keeps nothing keeps last week's lessons, noted 'lessons'", async () => {
+    const { env, KV } = setup({ stored: LAST_WEEK });
+    env.AI = lessonsAi({ techniques: "nope" });
+    const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW });
+    expect(doc.lessons).toEqual(LAST_WEEK.lessons);
+    expect(doc.notes).toContain("lessons");
+    expect(writes(KV)).toEqual([ATTEMPTS, KEY, KEY]);
+    expect(stored(KV).diagnostics).toMatchObject({ lessons: { picked: 9, written: 0 } });
+  });
+
+  it("without the AI binding no refresh is tried, and the page is saved once", async () => {
+    const { KV } = setup();
+    const noAi = {
+      TAVILY_API_KEY: "t",
+      YOUTUBE_API_KEY: "y",
+      SOCIAL_KV: KV as unknown as KVNamespace,
+    };
+    const { fetch, count } = web();
+    await runCategory(noAi, "cars", { fetch, now: NOW });
+    expect(count.tavily).toBe(6);
+    expect(count.other).toBe(0);
+    expect(writes(KV)).toEqual([ATTEMPTS, KEY]);
+  });
+
+  it("a tight month pauses the lessons with the scan: no search, no AI, last week's lessons kept", async () => {
+    const { env, KV } = setup({ stored: LAST_WEEK });
+    env.AI = lessonsAi();
+    KV.store.set(usageKeys.tavily, JSON.stringify({ used: 950, limit: 1000 }));
+    const { fetch, count } = web();
+    const doc = await runCategory(env, "cars", { fetch, now: NOW });
+    expect(count).toEqual({ tavily: 0, usage: 0, other: 0 });
+    expect(env.AI.run).not.toHaveBeenCalled();
+    expect(doc).toMatchObject({
+      status: "failed",
+      notes: ["tavily_budget"],
+      lessons: LAST_WEEK.lessons,
+    });
+    expect(writes(KV)).toEqual([KEY]);
+  });
+});
