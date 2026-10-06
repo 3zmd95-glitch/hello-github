@@ -40,7 +40,7 @@ describe("candidatesOf", () => {
 
   it("counts every dictionary effect a post names, but never the catch-all 'transitions'", () => {
     // Spec §1 step 2: every matched entry counts, so an earlier entry in the file never hides a later one.
-    expect(keys("speed ramp and glitch combo")).toEqual(["glitch", "speed-ramp"]);
+    expect(keys("speed ramp and match cut combo")).toEqual(["match-cut", "speed-ramp"]);
     // A bare "transition" is a generic word, not a trend (the dictionary marks that entry `generic`).
     expect(keys("new transition trend reels #transitions")).toEqual([]);
   });
@@ -48,6 +48,29 @@ describe("candidatesOf", () => {
   it("reads hashtags ending in trick or a plural, and starts names at a word", () => {
     expect(keys("#clonetrick #glitcheffects")).toEqual(["clone-effect", "glitch"]);
     expect(keys("3D text effect")).toEqual(["text-animation"]); // not "d text effect"
+  });
+
+  it("files clone-yourself posts under the clone effect, but not biology cloning", () => {
+    expect(keys("Clone yourself in CapCut 🔥 #cloneyourself")).toEqual(["clone-effect"]);
+    expect(keys("طريقة استنساخ نفسك بالفيديو")).toEqual(["clone-effect"]);
+    expect(keys("درس الاستنساخ في الأحياء")).toEqual([]);
+  });
+
+  it("needs more than a bare word in the post for entries whose word means other things", () => {
+    const flash = keys("Most Trending Flash Clone Edit Tutorial: How to Make It");
+    expect(flash).toContain("flash-clone-edit");
+    expect(flash).not.toContain("flash-transition"); // "flash" alone: flash-transition is not `specific`
+    expect(keys("flash transition tutorial")).toContain("flash-transition");
+    expect(keys("cloning myself in capcut")).toEqual(["clone-effect"]); // a specific entry keeps its words
+  });
+
+  it("names an effect by the words right before its suffix, never across a generic word", () => {
+    const names = (text: string) => candidatesOf(text).map((c) => c.name);
+    expect(keys("glitch and zoom transition")).toEqual(["zoom-transition"]);
+    expect(names("New CapCut Reverse Trend")).toEqual(["reverse trend"]);
+    expect(names("Trending Flash Clone Edit")).toEqual(["flash clone edit"]);
+    // The nearest suffix wins: "Edit" before "Trend".
+    expect(names("First Month Edit Trend")).toEqual(["first month edit"]);
   });
 });
 

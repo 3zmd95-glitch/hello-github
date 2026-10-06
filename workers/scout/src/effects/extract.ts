@@ -8,14 +8,14 @@ import { mentions } from "../discover/relevance";
 import { normalizeTerm, TERMS, type EditTerm } from "../discover/terms";
 import type { Candidate, EffectPlatform, EffectPost } from "./types";
 
-/** Words that never make a name on their own (a name needs at least one other word). */
+/** Words that are never part of a name: walking back from the suffix, the first one ends the name. */
 const GENERIC = new Set(
   (
     "viral new latest trending trend trends best easy simple cool video videos edit edits editing capcut tiktok " +
     "instagram ig reel reels the this that these a an my your our how to do make made making with and of for in on " +
     "popular most top full quick free template templates tutorial tutorials effect effects transition transitions " +
     "filter filters trick tricks style sound special visual aesthetic cinematic smooth fun crazy insane fyp foryou " +
-    "foryoupage part one first day today week 2026 ai"
+    "foryoupage part one day today week 2026 ai"
   ).split(" "),
 );
 
@@ -37,12 +37,16 @@ const BLOCK = new Set([
 /**
  * Dictionary entries about editing, with their phrases and labels in matching form (worked out once at load). Audio
  * and photo entries are left out, and so is the catch-all "transitions" entry: a bare "transition" is a generic word.
+ * `textForms` are what a post's text has to mention: an entry that is not `specific` ("flash", "zoom" also mean other
+ * things) needs one of its longer phrases there.
  */
 const EDIT_TERMS = TERMS.filter((t) => t.kind !== "audio" && t.kind !== "photo" && !t.generic).map(
-  (term) => ({
-    term,
-    forms: [...term.match.en, ...term.match.ar, term.label.en, term.label.ar].map(normalizeTerm),
-  }),
+  (term) => {
+    const forms = [...term.match.en, ...term.match.ar, term.label.en, term.label.ar].map(
+      normalizeTerm,
+    );
+    return { term, forms, textForms: term.specific ? forms : forms.filter((f) => f.includes(" ")) };
+  },
 );
 
 const slug = (name: string) =>
@@ -54,7 +58,7 @@ const slug = (name: string) =>
 /** Lookup 1, the post text: every dictionary effect it mentions anywhere (whole words). */
 function dictionaryHits(text: string): EditTerm[] {
   const form = normalizeTerm(text);
-  return EDIT_TERMS.filter((e) => e.forms.some((w) => mentions(form, w))).map((e) => e.term);
+  return EDIT_TERMS.filter((e) => e.textForms.some((w) => mentions(form, w))).map((e) => e.term);
 }
 
 /** Lookup 2, a candidate name: a dictionary effect only when the whole name equals one of its phrases ("flash" alone
@@ -64,13 +68,14 @@ function dictionaryName(name: string): EditTerm | undefined {
   return EDIT_TERMS.find((e) => e.forms.includes(form))?.term;
 }
 
-/** A name from words + suffix with the generic words dropped; none when no other word is left or the name is blocked. */
+/** A name from the words right before the suffix, back to the first generic word ("glitch and zoom transition" →
+ * "zoom transition"); none when no word is left or the name is blocked. */
 function named(words: readonly string[], suffix: string): string | undefined {
-  const kept = words
-    .map((w) => w.toLowerCase().replace(/[^a-z0-9'-]/g, ""))
-    .filter((w) => w && !GENERIC.has(w));
-  const name = `${kept.join(" ")} ${suffix.toLowerCase()}`;
-  return kept.length && !BLOCK.has(name) ? name : undefined;
+  const clean = words.map((w) => w.toLowerCase().replace(/[^a-z0-9'-]/g, ""));
+  let start = clean.length;
+  while (start > 0 && !GENERIC.has(clean[start - 1])) start--;
+  const name = [...clean.slice(start), suffix.toLowerCase()].join(" ");
+  return start < clean.length && !BLOCK.has(name) ? name : undefined;
 }
 
 export function candidatesOf(text: string): { key: string; name: string; termId?: string }[] {
@@ -84,13 +89,14 @@ export function candidatesOf(text: string): { key: string; name: string; termId?
   };
   // Dictionary effects anywhere in the text.
   dictionaryHits(text).forEach(addTerm);
-  // "ghost trail effect", "zoom transition": up to 3 whole words before the suffix (lower or mixed case).
+  // "ghost trail effect", "zoom transition": up to 3 whole words before the nearest suffix (lower or mixed case).
   for (const m of text.matchAll(
-    /\b((?:[A-Za-z][A-Za-z'-]*\s+){1,3})(effect|transition|trick|filter)s?\b/gi,
+    /\b((?:[A-Za-z][A-Za-z'-]*\s+){1,3}?)(effect|transition|trick|filter)s?\b/gi,
   ))
     add(named(m[1].trim().split(/\s+/), m[2]));
-  // Title-Case named trends: "CapCut Reverse Trend", "Swagger Trend", "Flash Clone Edit".
-  for (const m of text.matchAll(/\b((?:[A-Z][\w'-]*\s+){1,3})(Trend|Edit)\b/g))
+  // Title-Case named trends: "CapCut Reverse Trend", "Swagger Trend", "Flash Clone Edit". The nearest suffix wins:
+  // "First Month Edit Trend" → "first month edit".
+  for (const m of text.matchAll(/\b((?:[A-Z][\w'-]*\s+){1,3}?)(Trend|Edit)\b/g))
     add(named(m[1].trim().split(/\s+/), m[2]));
   // Hashtags: #cloneeffect → "clone effect", #reversetrend → "reverse trend", #glitcheffects → "glitch effect".
   for (const m of text.matchAll(/#([a-z0-9]{3,30}?)(effect|transition|trick|trend|filter)s?\b/gi))

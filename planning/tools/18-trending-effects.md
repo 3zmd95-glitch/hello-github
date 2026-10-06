@@ -241,4 +241,8 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
 
 ## Open items
 
-- **Arabic clone-effect words.** The dictionary's bare "استنساخ" also matches biology cloning. On 2026-10-06 the owner was offered the small fix (editing phrases like "استنساخ نفسك بالفيديو") and has not picked it yet. A trending chip for the clone effect would run that same search.
+- **Arabic clone-effect words — done (2026-10-06, Task 1 of the build).** The dictionary's bare "استنساخ" also matched biology cloning. In `planning/data/edit-terms.json`, `clone-effect` now:
+  - matches the Arabic "استنساخ نفسك" in place of the bare word, and keeps "تأثير الاستنساخ";
+  - also matches the English "clone yourself", the wording of the "clone yourself video trend" posts.
+
+  A trending chip for the clone effect runs this same, cleaner search. Typing the bare word "استنساخ" in Discover no longer selects the clone effect.
