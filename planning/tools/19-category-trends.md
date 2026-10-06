@@ -105,7 +105,8 @@ category a day (`category:attempts:<id>:<day>`).
 
 ### 3. Lessons (weekly)
 
-- **When.** On a category's scan when its lessons are 7 or more days old, or missing.
+- **When.** On a category's scan when its lessons are 6 or more days old, or missing. Scans come every 3 days, so that is
+  every second scan.
 - **Picking techniques.** One AI call picks 3 techniques for each area (`photo`, `video`, `edit`). It chooses from the
   category's top trending styles, the editing dictionary, and standard techniques for the subject (for Cars
   photography: panning at a slow shutter, light painting, low-angle hero shots). For each technique it returns
@@ -114,22 +115,30 @@ category a day (`category:attempts:<id>:<day>`).
   - One English Tavily search per technique ("`query` tutorial") over youtube.com, instagram.com and tiktok.com. It keeps
     1 tutorial (YouTube preferred; titles with "how to" or "tutorial") and 2 examples (Instagram or TikTok preferred).
     Examples can also come from the category's trend samples.
-  - One Arabic search per category ("شرح تصوير ومونتاج <Arabic name>", YouTube). The AI gives each Arabic tutorial to at
-    most one technique.
-  - That is **10 credits per category per week**.
+  - One Arabic search per category ("شرح تصوير ومونتاج <Arabic name>", YouTube). Each Arabic tutorial goes to at most one
+    technique: the first that the AI names it for, photo → video → edit.
+  - That is **10 credits a refresh**, every 6 days per category.
   - A technique with no video found is not shown.
-- **How-to.** One AI call writes a how-to per technique in English and Arabic: 2–3 lines, at most 220 characters each. It
-  is written from the found tutorials' titles and snippets: shoot, settings or gear, edit. The page marks it ✦ AI.
-- **Skill link.** The same call picks at most one skill id per technique from the real skill list, or none. The list holds
-  id plus English and Arabic names, from the DaVinci packs and the craft skills. A test keeps the Worker's copy in sync
-  with the app's. An id outside the list is dropped.
+- **How-to.** One AI call per area, the 3 at once, writes a how-to per technique in English and Arabic: 2–3 lines, at most
+  220 characters each. It is written from the found tutorials' titles and snippets: shoot, settings or gear, edit. The
+  page marks it ✦ AI.
+- **Skill link.** Each call also picks at most one skill id per technique from the real skill list, or none. The list
+  holds id plus English and Arabic names, from the DaVinci packs and the craft skills. A test keeps the Worker's copy in
+  sync with the app's. An id outside the list is dropped; a bad skill id or Arabic tutorial number costs only itself,
+  never the how-to.
 - **Storage.** `lessons: { updatedAt, photo: Technique[], video: Technique[], edit: Technique[] }`, where:
 
   ```
   Technique = { name: { en, ar }, howTo: { en, ar }, skillId?, videos: { url, title, platform, kind: "example" | "tutorial", lang }[] }
   ```
 
-- **On failure.** A failed refresh keeps last week's lessons.
+- **On failure.**
+  - A refresh with nothing new keeps last week's lessons whole, with the note `lessons`.
+  - An area with nothing new keeps last week's techniques for that area: its how-to call failed, or none of its
+    techniques kept a video and a how-to. The other areas still get their new techniques.
+  - No refresh is tried when the trends' save failed: lessons that can't be stored stay due for the next scan.
+- **Saving.** The trends are saved first. The lessons are saved a second time, at least 1.1 s later, because KV takes
+  one write a key a second and refuses a quicker one.
 
 ### 4. Cost, safety and testing
 
@@ -138,12 +147,12 @@ category a day (`category:attempts:<id>:<day>`).
 | Use | Credits |
 | --- | --- |
 | Category trends (4 × 6 a day) | ~720 |
-| Category lessons (12 × 10 a week) | ~520 |
+| Category lessons (12 × 10 every 6 days) | ~600 |
 | Trending effects | ~540 |
 | Normal Discover use | ~150 |
-| **Total** | **~1,900** |
+| **Total** | **~2,000** |
 
-That is about 900 over the free plan, roughly $7.50 a month at $0.008 a credit with pay-as-you-go. The owner turns
+That is about 1,000 over the free plan, roughly $8 a month at $0.008 a credit with pay-as-you-go. The owner turns
 pay-as-you-go on in his Tavily account; Claude never handles payments.
 
 **Budget guard.** At 90% of the month's credits (Discover's cached figure; when none is kept, Tavily's own `GET /usage`,
@@ -155,14 +164,18 @@ effects cuts back as it already does, on the same figure.
 
 **Workers AI.** The estimate is about 6,000 of the free 10,000 neurons a day for categories:
 - 4 scans × 3 batches;
-- about 2 lesson refreshes × 2 calls;
+- about 2 lesson refreshes × 4 calls (1 pick, then 3 how-to calls, one per area);
 - plus Trending effects and Discover.
 
 On a day the AI is unavailable, new names wait (`ai_fallback`) and lessons keep last week's. If that happens often,
 Workers Paid ($5 a month) lifts the limit; the live check measures it first.
 
 **Each invocation.** One category per invocation, either a cron slot or a POST. CPU is about 70–90 ms, as for effects;
-Cloudflare has reported no CPU-limit errors so far. Subrequests per run are at most about 30 (Tavily, AI, KV).
+Cloudflare has reported no CPU-limit errors so far. Subrequests per run are at most about 31, under the 50 a free
+invocation allows:
+- 16 Tavily searches and 1 Tavily `/usage`;
+- 7 AI calls: 3 cleanup batches, 1 pick and 3 how-to calls;
+- 7 KV operations.
 
 **KV writes.** About 6 a day plus the attempt counters, well under 1,000.
 

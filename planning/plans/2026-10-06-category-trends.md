@@ -4,7 +4,7 @@
 
 **Goal:** When the owner taps a category in Discover (🚗 Cars) with nothing typed, its page opens. It shows what is trending in that category this week (chips, refreshed every 3 days), then weekly Photography / Videography / Editing lessons: technique cards with a ✦ AI how-to, the skill each one practices, and example and tutorial videos that play in the app's player.
 
-**Architecture:** The Worker gets a `src/categories/` module built from Trending effects' parts, parameterized rather than copied: the same Tavily searches, extraction, AI cleanup, 7-day memory and scoring, plus camera words, the category's own generic words, a context line for the AI and a 200-name memory. Four cron slots (05:40–05:55 UTC) each scan one category, in a 3-day rotation of `genres.json`. When a category's lessons are a week old, its scan also refreshes them: 2 AI calls and 10 Tavily searches, saved after the trends are saved. The dashboard reads `GET /categories/:id` into a `CategoryPage`, which ResearchPanel shows instead of the automatic category search.
+**Architecture:** The Worker gets a `src/categories/` module built from Trending effects' parts, parameterized rather than copied: the same Tavily searches, extraction, AI cleanup, 7-day memory and scoring, plus camera words, the category's own generic words, a context line for the AI and a 200-name memory. Four cron slots (05:40–05:55 UTC) each scan one category, in a 3-day rotation of `genres.json`. When a category's lessons are 6 days old (every second scan), its scan also refreshes them: 4 AI calls (a pick, then one how-to call per area, the 3 at once) and 10 Tavily searches, saved after the trends are saved. The dashboard reads `GET /categories/:id` into a `CategoryPage`, which ResearchPanel shows instead of the automatic category search.
 
 **Tech Stack:**
 - Worker: Cloudflare Workers (TypeScript, Vitest in plain Node, KV `SOCIAL_KV`, Workers AI binding `AI`, zod).
@@ -17,7 +17,7 @@
 
 - **Turns:** `CATEGORY_SLOTS` "05:40", "05:45", "05:50", "05:55" (UTC). The 12 categories in `genres.json` order make 3 groups of 4 by **UTC day number % 3**: 0 = cars, food, anime, travel; 1 = football, coffee, perfume, camping; 2 = fashion, gaming, weddings, gym. Slot i runs the day's i-th category. One category per invocation.
 - **Searches:** **2 English queries** per category, from `queries.en`: the first with " trend" added ("car edit trend"), the second as it is ("cinematic car edit"). Each is asked **3 times** (Instagram over a week, Instagram over a month, TikTok over a month), so **6 Tavily credits a scan**. Posts are deduped by URL.
-- **Lessons:** **10 credits per category per week**: 9 technique searches + 1 Arabic search. 2 AI calls (pick, then how-to).
+- **Lessons:** **10 credits a refresh, every 6 days per category**: 9 technique searches + 1 Arabic search. 4 AI calls (pick, then one how-to call per area, the 3 at once).
 - **Scoring:** distinct creators over 7 days, **MIN_CREATORS 3**, growth, NEW, **top 12, trends first** (names outside the dictionary and dictionary `trend` entries), then techniques.
 - **Memory:** per category, **14 days and at most 200 keys**.
 - **Storage:** KV `category:<id>` = `{ ranOn, updatedAt, status, notes?, items, lessons?, meta, history, diagnostics }`. Attempts counter `category:attempts:<id>:<day>`, **at most 3 spending runs per category a UTC day** (2-day TTL).
@@ -31,7 +31,7 @@
 - **Dashboard copy:** friendly **Hijazi Arabic** first, then English. Every new key goes in both `messages/search.ar.json` and `messages/search.en.json`; `messages/messages.test.ts` enforces key and placeholder parity.
 - **Official APIs only, no scraping** (Tavily search API, Workers AI). TikTok Creative Center stays a link.
 - **Free plans:**
-  - Worker: ≤ 50 subrequests per invocation; a category run uses ≤ 27 (16 Tavily, ≤ 5 AI, ≤ 6 KV). CPU live 50–90 ms is tolerated.
+  - Worker: ≤ 50 subrequests per invocation; a category run uses ≤ 31 (16 Tavily searches + 1 Tavily `/usage`, ≤ 7 AI, ≤ 7 KV). CPU live 50–90 ms is tolerated.
   - KV: 1,000 writes a day; categories add about 10.
   - Workers AI: 10k neurons a day.
   - Tavily: 1,000 credits a month free; the owner turns pay-as-you-go on himself, and Claude never handles payments.
@@ -1516,6 +1516,14 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ### Task 3: Weekly lessons
 
 A category's scan refreshes its lessons when they are 7 or more days old, or missing. The refresh runs after the trends are saved, so a slow or failed refresh never costs the trends.
+
+> **Fix round 1 (2026-10-07, after review; the code below is the original brief):**
+> - `LESSON_DAYS = 6`: every second scan, about 600 credits a month.
+> - The how-to is one AI call per area (3, under `Promise.all`, `maxTokens` 1000), and `failed` counts the areas with no answer. Each Arabic tutorial goes to one technique, deduped at the merge, photo → video → edit.
+> - An area with nothing new keeps last week's techniques: `refreshLessons(…, now, last?, opts?)`. A refresh with nothing new is still null.
+> - A bad `skillId` (not text) or `arTutorial` (not a whole number ≥ 0) drops only that field. `duplicate_i` is counted apart from `unknown_i`.
+> - `runCategory` skips the refresh when the trends' save failed (`kv`), and saves the lessons at least 1.1 s after the trends (`sleep` option for tests).
+> - A run is ≤ 7 AI calls and ≤ 31 subrequests.
 
 **Files:**
 - Modify: `workers/scout/src/discover/fetchers.ts` (`tavilyCall` takes several platforms), with a test in `workers/scout/src/discover/fetchers.test.ts`.
@@ -3852,9 +3860,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   The four ticks at 05:40/05:45/05:50/05:55 UTC (`CATEGORY_SLOTS` in `src/categories/defs.ts`) each scan one
   Discover category instead (planning/tools/19-category-trends.md): the 12 categories of genres.json in 3 groups of 4
   by UTC day % 3, so each one every 3 days. A scan spends 6 Tavily credits (2 queries × 3 searches; about 720 a
-  month), up to 3 built-in AI calls (the cleanup in batches of 9) and no YouTube. When a category's lessons are 7 or
-  more days old, its scan also spends 10 credits (about 520 a month) and 2 AI calls on them, and saves a second time.
-  At most 27 subrequests (16 Tavily, 5 AI, 6 KV operations).
+  month), up to 3 built-in AI calls (the cleanup in batches of 9) and no YouTube. When a category's lessons are 6 or
+  more days old, its scan also spends 10 credits (about 600 a month) and 4 AI calls on them (a pick, then one how-to
+  call per area), and saves a second time at least 1.1 s later. At most 31 subrequests (16 Tavily searches, 1 Tavily
+  `/usage`, 7 AI, 7 KV operations).
 ```
 
   - In the storage table, after `effects:attempts:<day>`:
@@ -3901,9 +3910,9 @@ Expected: all pass. Note the counts (test files and tests, e2e passed and skippe
 - **Tests:** <Step 2's counts: app + Worker unit tests, e2e passed/skipped>.
 - **Budgets:**
   - 6 Tavily credits a scan, 4 scans a day (about 720 a month);
-  - lessons 10 credits a category a week (about 520 a month);
+  - lessons 10 credits a category every 6 days (about 600 a month);
   - no YouTube Data API;
-  - ≤ 27 subrequests a run;
+  - ≤ 31 subrequests a run (≤ 7 AI calls);
   - about 10 KV writes a day.
 ```
 
@@ -3917,10 +3926,10 @@ and the most trendy … I wanna learn from each category how it will benefit me 
 and editing".
 - **Owner's picks:** trends, then lessons; every 3 days, with lessons weekly; videos plus a short ✦ AI how-to; his
   skills linked; layout B (shelves); category scans like Trending effects; English first.
-- **The job:** 4 category slots a day (05:40–05:55 UTC), 6 Tavily credits a scan, lessons 10 credits a category a
-  week. A category tapped with nothing typed shows its page instead of the automatic search.
-- **Cost:** about 1,900 Tavily credits a month in all, about $7.50 over the free plan with pay-as-you-go (the owner
-  turns it on).
+- **The job:** 4 category slots a day (05:40–05:55 UTC), 6 Tavily credits a scan, lessons 10 credits a category every
+  6 days. A category tapped with nothing typed shows its page instead of the automatic search.
+- **Cost:** about 2,000 Tavily credits a month in all, about $8 over the free plan with pay-as-you-go (the owner turns
+  it on).
 - **Rejected:** scraping-based trend tools (social-trend-agent, trendscope).
 - **Spec:** `tools/19-category-trends.md`. **Plan:** `plans/2026-10-06-category-trends.md`.
 - **Built** on branch `claude/category-trends-spec`; the live check follows the merge and the Worker deploy.
@@ -3976,7 +3985,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 | §4 budget guard at 90 %, `tavily_budget` | Task 2 (`monthTight`, pause test) |
 | §4 no YouTube Data API | Task 2 Step 1 (`count.other` 0), Task 3 (YouTube through Tavily) |
 | §4 AI unavailable → `ai_fallback`, lessons keep last week's | Task 2 routes test (no AI), Task 3 Step 13 |
-| §4 one category per invocation, ≤ ~30 subrequests, KV writes | Task 2 Step 8 (one per tick), Task 5 Step 1 (27) |
+| §4 one category per invocation, ≤ ~31 subrequests, KV writes | Task 2 Step 8 (one per tick), Task 5 Step 1 (31) |
 | §4 testing list | Worker: Tasks 1–3. Dashboard: Task 4 Steps 2, 7, 11. e2e: Task 4 Step 15. Live check: Task 5 Step 7 |
 | §5 open items (neurons, CPU, examples' source) | Task 5 Step 7 |
 | Project rules: search before building, planning updated, gates, ports | Spec's "Search before building"; Task 5 Steps 1–4; Global Constraints |
