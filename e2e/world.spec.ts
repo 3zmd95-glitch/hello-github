@@ -196,7 +196,7 @@ test("RTL / LTR toggle works inside Social", async ({ page }) => {
   await expect(html).toHaveAttribute("dir", "ltr");
   await expect(html).toHaveAttribute("lang", "en");
   await expect(html).toHaveAttribute("data-world", "social");
-  await expect(page.getByTestId("world-social")).toContainText("Social");
+  await expect(page.getByTestId("world-social")).toHaveAccessibleName(/Social/);
   await expect(more.getByTestId("lang-en")).toHaveAttribute("aria-checked", "true");
 
   await more.getByTestId("lang-ar").click();

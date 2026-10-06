@@ -1443,6 +1443,27 @@
   .ios-icbtn:active {
     transform: scale(0.9);
   }
+  /* World switch (Task 2.3): two icon buttons in a glass capsule, the active world on a lens. */
+  .ios-world-btn {
+    position: relative;
+    width: 40px;
+    height: 34px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    color: var(--ink-2);
+    transition:
+      color var(--t-med) var(--out),
+      transform var(--t-fast) var(--out);
+  }
+  .ios-world-btn:active {
+    transform: scale(0.92);
+  }
+  .ios-world-btn.on {
+    background: var(--lens);
+    box-shadow: var(--lens-shadow);
+    color: var(--tint);
+  }
   /* Launch choreography: the Social shell springs in when it mounts. `backwards` fill only covers the delay, so the
    * tab bar's own minimize transition keeps working after the entrance. Reduced motion turns animations off. */
   .ios-top-brand,
