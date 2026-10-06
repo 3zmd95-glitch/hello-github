@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowDown, LoaderCircle } from "lucide-react";
+import { useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useNow } from "@/components/today/useNow";
@@ -33,12 +34,17 @@ export default function StudioScreen() {
   const tick = useNow(true);
   const nowMinute = Math.floor(tick / 60_000) * 60_000;
   const first = useFirstVisit("studio");
-  const eyebrow = new Intl.DateTimeFormat(lang === "ar" ? "ar-SA-u-ca-gregory-nu-arab" : "en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    timeZone: TIME_ZONE,
-  }).format(new Date(nowMinute));
+  const eyebrowFmt = useMemo(
+    () =>
+      new Intl.DateTimeFormat(lang === "ar" ? "ar-SA-u-ca-gregory-nu-arab" : "en-GB", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        timeZone: TIME_ZONE,
+      }),
+    [lang],
+  );
+  const eyebrow = eyebrowFmt.format(new Date(nowMinute));
 
   return (
     <div className="flex flex-col" data-testid="studio-screen">
@@ -47,7 +53,8 @@ export default function StudioScreen() {
 
       {/* Every card is a direct child, so the first-visit entrance staggers them one by one. From md: three
           tracks, the hero takes two next to the reminder, the week plan and the toolkit span the row, then
-          growth · asks · inbox side by side. */}
+          growth · asks · inbox side by side. The spans go by position, so the first four cards always render
+          (each has its own empty state and never returns null). */}
       <div
         className={`${first ? "ios-stagger" : ""} flex flex-col gap-3 md:grid md:grid-cols-3 md:[&>:first-child]:col-span-2 md:[&>:nth-child(3)]:col-span-3 md:[&>:nth-child(4)]:col-span-3`}
       >

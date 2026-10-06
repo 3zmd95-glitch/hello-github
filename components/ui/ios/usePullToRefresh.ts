@@ -3,13 +3,17 @@
 import { useEffect, useEffectEvent, useState, type RefObject } from "react";
 import { pullOffset } from "@/lib/motion";
 
+/** A refresh still running after this long lets the content spring back; the caller's toast lands when it settles. */
+const HOLD_MAX_MS = 8000;
+
 /**
  * Pull-to-refresh on the window scroll (the dashboard scrolls the document). Touch only (desktop has a button).
  * A touch that starts inside the target (default `#main`) with the page at the top translates the target down with
  * resistance; past `threshold` the release calls `onRefresh`, holds the content at 56px with `refreshing: true`
- * (≥ 1.1s), then springs back. While enabled the page's own overscroll bounce is off, so the two never stack.
- * `onRefresh` gets `held`, which resolves when the spinner's minimum time is over (a toast that awaits it lands as
- * the content springs back). A failed `onRefresh` still springs back: the caller reports its own errors.
+ * (≥ 1.1s, at most 8s), then springs back. While enabled the page's own overscroll bounce is off, so the two never
+ * stack. `onRefresh` gets `held`, which resolves when the spinner's minimum time is over (a toast that awaits it
+ * lands as the content springs back). A failed `onRefresh` still springs back: the caller reports its own errors.
+ * A new pull waits until the running refresh settles, also after the 8s spring back.
  */
 export function usePullToRefresh(
   onRefresh: (held: Promise<void>) => Promise<unknown> | void,
@@ -31,9 +35,12 @@ export function usePullToRefresh(
     const target = () => targetRef?.current ?? document.getElementById("main");
     let alive = true;
     let settle: ReturnType<typeof setTimeout> | undefined;
+    let cap: ReturnType<typeof setTimeout> | undefined;
     let y0 = 0;
     let dy = 0;
     let pulling = false;
+    // This pull wrote a transform (and `transition: none`), so its release must spring back and clear them.
+    let moved = false;
     let busy = false;
     const setY = (px: number, animate: boolean) => {
       const el = target();
@@ -53,6 +60,7 @@ export function usePullToRefresh(
     const start = (e: TouchEvent) => {
       if (busy || window.scrollY > 0 || !target()?.contains(e.target as Node)) return;
       pulling = true;
+      moved = false;
       y0 = e.touches[0].clientY;
       dy = 0;
     };
@@ -63,6 +71,7 @@ export function usePullToRefresh(
       if (next > 0 && e.cancelable) e.preventDefault();
       if (next === dy) return;
       dy = next;
+      moved = true;
       setY(dy, false);
       setPull(dy);
     };
@@ -70,18 +79,25 @@ export function usePullToRefresh(
       if (!pulling) return;
       pulling = false;
       if (dy < threshold) {
-        if (dy > 0) springBack(); // a plain tap moved nothing
+        if (moved) springBack(); // a plain tap wrote nothing
         return;
       }
       busy = true;
       setRefreshing(true);
       setY(56, true);
       const held = new Promise<void>((r) => setTimeout(r, 1100));
-      void Promise.allSettled([held, Promise.resolve().then(() => refresh(held))]).then(() => {
+      const settled = Promise.allSettled([held, Promise.resolve().then(() => refresh(held))]);
+      const capped = new Promise<void>((r) => {
+        cap = setTimeout(r, HOLD_MAX_MS);
+      });
+      void Promise.race([settled, capped]).then(() => {
         if (!alive) return;
-        busy = false;
         setRefreshing(false);
         springBack();
+      });
+      void settled.then(() => {
+        busy = false;
+        clearTimeout(cap);
       });
     };
     window.addEventListener("touchstart", start, { passive: true });
@@ -91,6 +107,7 @@ export function usePullToRefresh(
     return () => {
       alive = false;
       clearTimeout(settle);
+      clearTimeout(cap);
       window.removeEventListener("touchstart", start);
       window.removeEventListener("touchmove", move);
       window.removeEventListener("touchend", end);
