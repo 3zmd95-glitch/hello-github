@@ -120,6 +120,21 @@ Full table in `13-discover-search-v2.md`. Short form:
 | Creator analysis | Instagram Business Discovery (Facebook Login only) · YouTube Data API · TikTok Research / Display APIs · Meta Content Library | Project 2 / project 2 / rejected (not eligible) / rejected (academic only) |
 | Trends reference | Beacons Discover Trends | Reference for project 3 (data source not public) |
 
+## 2026-10-06 · Social world, iOS 26 look (round 35)
+
+Full table in `18-social-ios-design.md` §9. Short form:
+
+| Area | Find | Decision |
+| --- | --- | --- |
+| Glass effect | [liquid-glass-react](https://github.com/rdev/liquid-glass-react), [simple-liquid-glass](https://github.com/lucaperullo/simple-liquid-glass), [liquid-glass-showcase](https://github.com/aryankholqi/liquid-glass-showcase) | Rejected / reference: SVG-filter refraction is Chromium-only; own `backdrop-filter` recipe adopted |
+| iOS components | 21st.dev segmented control, bottom nav bar, animated tabs, shadcn drawer | Reference patterns, rebuilt in CSS with logical properties |
+| Primitives | shadcn/ui (Base UI), Radix, Konsta UI, Ark UI, Silk | Not adopted this round (Konsta fights our tokens; Silk commercial; shadcn maybe later for menus) |
+| Bottom sheet | [vaul](https://github.com/emilkowalski/vaul) | Adopted in the design, **rejected at execution**: its Radix modal fights the app's stacked overlays (skill popup over the post popup, player, alerts); in-house sheet instead |
+| Icons | [Lucide](https://lucide.dev) · Hugeicons · Phosphor · Tabler · Heroicons | **Lucide adopted** (`lucide-react`, stroke 1.75); SF Symbols not licensed for the web |
+| Brand glyphs | [simple-icons](https://github.com/simple-icons/simple-icons) (CC0) | **Adopted as copied SVG paths**, no package |
+| Motion | [Motion](https://motion.dev) · CSS `linear()` springs · React `<ViewTransition>` | CSS adopted; Motion deferred; ViewTransition a stretch task |
+| Arabic font | Vazirmatn · IBM Plex Sans Arabic · Noto Sans Arabic · Readex Pro · Cairo · Tajawal · Almarai · Rubik | **Vazirmatn adopted** (owner's pick) |
+
 ## How to add to this log
 
 One row per find: area · link · decision (adopt / adopt candidate / reference / rejected + why). Re-run a search when a new phase starts

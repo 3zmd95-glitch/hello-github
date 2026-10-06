@@ -571,6 +571,22 @@ want our version" → "I dont want anything that will get me banned"):
   behind a follow. **Instant mode** (webhooks) after Business Verification + App Review; the owner is getting a freelance
   document (Meta's acceptance of it is unconfirmed; a commercial registration is the safer fallback).
 
+Brainstorm round 35 (Oct 6, 2026; owner: "you are like the head designer at apple ios system. premium and sleek", "change only
+cinematic", "I want real icons", "dont forget the smooth animation thats the most important thing", "plan with fable first then we
+gonna execute with opus 5.5"): **the Social world gets an iOS 26 look**; the Training pixel world is untouched. Owner picks, one
+question at a time: glass navigation layer + solid content cards (not full Liquid Glass, not classic grouped lists) · light + dark
+following the iPhone (no in-app switch) · real line icons everywhere in Social (Lucide; emoji only inside his own content) · full
+depth, screen by screen (not a skin-only pass, not a ready-made kit) · font **Vazirmatn** (chosen over IBM Plex Sans Arabic after
+seeing both in the mockup) · motion first (springs, title collapse, minimizing tab bar, sheets with two heights, pull to refresh,
+chart scrub, swipe to favorite). Approved mockup: `planning/social-ios-mockup.html` (live copy
+https://claude.ai/artifact/H7TN2Yh1gA3ZkabVpGj28f). Spec: `tools/18-social-ios-design.md`; plan:
+`plans/2026-10-06-social-ios-design.md` (Fable designed and planned; Opus 5.5 executes, one PR per phase). Search before building:
+own CSS glass (libraries need SVG filters WebKit ignores), `lucide-react`, `vaul` for sheets, simple-icons paths for platform
+glyphs; Konsta UI, shadcn/Base UI and Motion not adopted this round (`tools/05-found-on-github.md`). The owner briefly
+asked for the public website first ("i want to build the website first not the app… in ios theme"), chose "Portfolio first" pages and
+platform-embedded videos, then stopped it: "Dont do the website now only the social panel". Those website answers are kept in
+`tools/02-website.md` for the day it comes back.
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|
@@ -583,7 +599,7 @@ want our version" → "I dont want anything that will get me banned"):
 | AI coach | Claude API (Haiku for cheap tasks, Sonnet for weekly plan) + web search tool | Hard cap: app-side budget counter + spend limit in the Anthropic Console |
 | Video | Bunny Stream (~$1–5/mo) | Token-signed playback for paid students only |
 | Payments | Moyasar (mada, Apple Pay, STC Pay) | Switched on when the CR/freelance document is approved; until then products show "Notify me" |
-| Fonts / look | Dark cinematic, green accent from Framer, 3z logo, Arabic font (e.g. IBM Plex Sans Arabic) + Latin pairing | Continuity with the current brand |
+| Fonts / look | Training: cute pixel world (Baloo Bhaijaan 2 + Pixelify Sans). Social (round 35): iOS 26 look, light + dark, Vazirmatn, Lucide icons, green accent from Framer | Two worlds, one brand green; see `tools/18-social-ios-design.md` |
 
 Note: the Supabase free tier pauses after 7 days with no activity. Daily dashboard use plus a cron ping prevents it.
 
