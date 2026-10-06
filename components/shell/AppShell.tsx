@@ -193,7 +193,7 @@ function SocialTop() {
     <header className="ios-top pt-safe" data-testid="social-top">
       <div className="ios-top-bg slab" aria-hidden />
       <div className="relative mx-auto flex h-14 max-w-[1180px] items-center gap-2 px-3 md:px-6">
-        <div className="flex flex-1 basis-0 items-center gap-2">
+        <div className="flex flex-1 items-center gap-2">
           <Link href="/social" className="ios-top-brand" aria-label={t("app.name")}>
             <Logo />
           </Link>
@@ -202,7 +202,7 @@ function SocialTop() {
         <div className="ios-top-title" data-testid="compact-title" aria-hidden>
           {title}
         </div>
-        <div className="ios-top-end flex flex-1 basis-0 items-center justify-end gap-2">
+        <div className="ios-top-end flex flex-1 items-center justify-end gap-2">
           <Link
             href="/settings"
             aria-label={t("top.settings")}
