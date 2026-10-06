@@ -83,8 +83,8 @@ export async function tavilyCall(
   const key = env.TAVILY_API_KEY;
   // One platform: Discover's call (post cards and profile pages). Several, for category lessons (YouTube, Instagram
   // and TikTok for 1 credit): their post cards only.
-  const platforms: readonly Platform[] =
-    typeof call.platform === "string" ? [call.platform] : call.platform;
+  const one = typeof call.platform === "string" ? call.platform : undefined;
+  const platforms: readonly Platform[] = [call.platform].flat();
   try {
     const out = await timed(timeoutMs, async (signal): Promise<TavilyOutcome> => {
       const res = await doFetch(TAVILY_URL, {
@@ -112,10 +112,9 @@ export async function tavilyCall(
       const hits = (Array.isArray(data.results) ? data.results : []) as Parameters<
         typeof normalizeDiscoverHits
       >[0];
-      const { cards, profiles } =
-        typeof call.platform === "string"
-          ? normalizeDiscoverHits(hits, call.platform)
-          : { cards: normalizeHits(hits, call.platform), profiles: [] };
+      const { cards, profiles } = one
+        ? normalizeDiscoverHits(hits, one)
+        : { cards: normalizeHits(hits, platforms), profiles: [] };
       return { ok: true, cards, profiles, credits: data.usage?.credits ?? 1 };
     });
     return out ?? { ok: false, error: "upstream" };
