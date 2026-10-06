@@ -171,7 +171,9 @@ async function scan(
   const meta: Meta = { ...prev?.meta };
   applyVerdicts(cands, byKey, history, meta);
   for (const [key, c] of cands) meta[key] = metaOf(c, byKey.get(key), meta[key]);
-  const merged = mergeHistory(history, today, cands);
+  // At the memory's cap, dictionary and AI-approved names stay first.
+  const approved = Object.keys(meta).filter((k) => meta[k].termId || meta[k].checked);
+  const merged = mergeHistory(history, today, cands, new Set(approved));
   for (const key of Object.keys(meta)) if (!merged[key]) delete meta[key];
 
   // Chips: dictionary effects, plus names the AI kept — none of those on a day the AI did not judge (junk waits).

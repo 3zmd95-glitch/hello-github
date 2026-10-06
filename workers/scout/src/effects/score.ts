@@ -1,7 +1,7 @@
 /**
  * Trending effects, scoring (planning/tools/18-trending-effects.md §2): distinct creators over the last 7 days of scans,
  * growth between the last 3 days and the 3 before (each family is searched once per 3-day window), NEW for effects
- * outside the dictionary first seen within 7 days, a small YouTube boost. History holds ≤ 14 days and ≤ 60 keys.
+ * outside the dictionary first seen within 7 days, a small YouTube boost. History holds ≤ 14 days and ≤ 300 keys.
  */
 
 import {
@@ -37,12 +37,13 @@ export function creatorsBetween(
   return ids;
 }
 
-/** Today's creators replace any earlier run of the same day; entries older than 14 days go, then the keys with the
- * fewest creators this week until 60 are left (on a tie, the key last seen longest ago goes first). */
+/** Today's creators replace any earlier run of the same day; entries older than 14 days go. Over 300 keys, the cut
+ * keeps `keepFirst` (dictionary and AI-approved names) first, then the most creators this week, then the latest seen. */
 export function mergeHistory(
   history: Record<string, HistoryEntry[]>,
   day: string,
   today: Map<string, Candidate>,
+  keepFirst: ReadonlySet<string> = new Set(),
 ): Record<string, HistoryEntry[]> {
   const out: Record<string, HistoryEntry[]> = {};
   for (const [key, entries] of Object.entries(history)) {
@@ -59,7 +60,9 @@ export function mergeHistory(
       keys.map((k) => [k, out[k].reduce((d, e) => (e.day > d ? e.day : d), "")]),
     );
     const order = (a: string, b: string) =>
-      week.get(b)! - week.get(a)! || daysBetween(last.get(a)!, last.get(b)!);
+      Number(keepFirst.has(b)) - Number(keepFirst.has(a)) ||
+      week.get(b)! - week.get(a)! ||
+      daysBetween(last.get(a)!, last.get(b)!);
     for (const k of keys.sort(order).slice(HISTORY_KEYS)) delete out[k];
   }
   return out;

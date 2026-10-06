@@ -100,8 +100,8 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
      - platforms
      - up to 2 sample posts (url, title)
 3. **AI cleanup (built-in AI, 1 call).**
-   - **Input:** the top 25 candidates by creators, each with up to 2 sample titles. Titles are clipped and passed as data, never as instructions.
-   - **Output:** JSON, checked against a strict schema. For each kept candidate:
+   - **Input:** the 25 candidates with the most distinct creators over the last 7 days (history plus today), so a name that builds slowly across the rotation still gets judged. On a tie, names the AI has never approved go first. Each comes with up to 2 sample titles. Titles are clipped and passed as data, never as instructions.
+   - **Output:** JSON. Each verdict is checked on its own against a strict schema, and an invalid one is skipped without costing the rest. For each kept candidate:
      - `key` and `isEditingEffect`
      - `sameAs`, which merges spellings (for example "cloning" and "clone yourself" into "clone effect")
      - `name: { en, ar }`
@@ -109,11 +109,14 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
    - **On failure or invalid output:** fall back to the rule list.
      - Dictionary effects keep their own `label`.
      - New candidates keep their English text and are marked `checked: false`.
+   - **Chips** are dictionary effects and names the AI has approved. On a day with no answer (`ai_fallback`) or no usable verdict (`ai_empty`), only dictionary effects show. New names stay in memory until a day the AI judges them.
+   - **Time limits:** the AI call has its own 60 s. Each Tavily and YouTube call has 12 s.
    - This call is separate from Discover's 20 AI plans a day.
 4. **YouTube check (6 `search.list` + 1 `videos.list`).**
-   - For each of the top 6 cleaned effects: `search.list q="<en name> edit" publishedAfter=now-7d order=viewCount maxResults=25`.
-   - Then one `videos.list` gets the views for all returned ids.
-   - Per effect this gives `newVideos` (count) and `views7d` (sum).
+   - For each of the top 6 cleaned effects: `search.list q="<query> edit" publishedAfter=now-7d` (20 results).
+     - The query never changes for an effect, so `views7d` compares like with like: the dictionary label for a dictionary effect, else the key's words. It is never the AI's renaming.
+   - Then one `videos.list` gets the views. It takes at most 50 ids, so each effect counts its first 8 videos (6 × 8 = 48).
+   - Per effect this gives `newVideos` (all results) and `views7d` (the sum over those 8).
    - If YouTube's daily cap is reached, the step is skipped, with no penalty.
 5. **Score and save (1 KV write)** to `effects:trending`; see below.
 
@@ -168,14 +171,18 @@ KV `effects:trending` holds one document, written at most once a day:
     samples: { url: string; title: string }[]; // ≤ 2, canonical post URLs
   }[];                            // ≤ 8
   history: Record<string, { day: string; ids: string[]; views7d?: number }[]>;
-  // ids: short hashes of "platform:handle" seen that day, ≤ 30. ≤ 14 days per key, ≤ 60 keys.
+  // ids: short hashes of "platform:handle" seen that day, ≤ 30. ≤ 14 days per key, ≤ 300 keys.
 }
 ```
 
 History trimming:
 - Entries older than 14 days are dropped.
-- If more than 60 keys remain, the keys with the fewest creators over their last 7 days are dropped first. On a tie, the key last seen
-  longest ago goes first, so today's new keys stay.
+- If more than 300 keys remain, the cut keeps keys in this order:
+  1. dictionary effects and AI-approved names;
+  2. then the most creators over the last 7 days;
+  3. then the most recently seen.
+
+  With ~100+ candidates a day, a 1-creator name then survives until its family's next scan, 3 days later.
 - An effect's first-seen day is its earliest kept entry.
 
 Handles are hashed (SHA-256, first 8 hex) so the stored document holds no account names. Only the 2 sample posts keep a visible handle.
@@ -213,7 +220,7 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
 ### 5. Failures and safety
 
 - **Tavily quota or auth failure:** status `failed`. The previous items are kept; only the date and notes are written, still one write.
-- **AI failure:** the rule list is used (see step 3), with status `partial`.
+- **AI failure or no usable verdict:** the rule list is used, with dictionary-only chips that day (see step 3). Status `partial`, note `ai_fallback` or `ai_empty`.
 - **YouTube cap reached:** the check is skipped, with status `partial`.
 - **Untrusted text:** web titles and snippets are treated as data. The AI prompt says so, its output is validated, and names and lines are clipped.
 - **No side effects:** nothing posts or touches the owner's social accounts. Sample URLs are canonical post links (`isVideoUrl`).

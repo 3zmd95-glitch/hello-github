@@ -7,7 +7,7 @@ import {
   setViews,
   youtubeGrowth,
 } from "./score";
-import type { Candidate, EffectMeta, HistoryEntry } from "./types";
+import { HISTORY_KEYS, type Candidate, type EffectMeta, type HistoryEntry } from "./types";
 
 const cand = (key: string, ids: string[], termId?: string): Candidate => ({
   key,
@@ -32,7 +32,7 @@ describe("scoring", () => {
     expect(daysBetween("2026-10-01", "2026-10-06")).toBe(5);
   });
 
-  it("adds today's ids (≤ 30), drops entries older than 14 days, keeps ≤ 60 keys", () => {
+  it("adds today's ids (≤ 30), drops entries older than 14 days, keeps ≤ 300 keys", () => {
     const old: Record<string, HistoryEntry[]> = { gone: [{ day: "2026-09-20", ids: ["x"] }] };
     const merged = mergeHistory(
       old,
@@ -52,21 +52,33 @@ describe("scoring", () => {
     expect(merged["clone-effect"][0].ids).toHaveLength(30);
   });
 
-  it("keeps the 60 keys with the most creators this week", () => {
+  it("keeps the 300 keys with the most creators this week", () => {
+    expect(HISTORY_KEYS).toBe(300);
     const history: Record<string, HistoryEntry[]> = {};
-    for (let i = 0; i < 61; i++)
+    for (let i = 0; i <= HISTORY_KEYS; i++)
       history[`k${i}`] = [{ day: "2026-10-05", ids: i ? ["a", "b"] : ["a"] }];
     const merged = mergeHistory(history, "2026-10-06", new Map());
-    expect(Object.keys(merged)).toHaveLength(60);
+    expect(Object.keys(merged)).toHaveLength(HISTORY_KEYS);
     expect(merged.k0).toBeUndefined();
   });
 
-  it("on a tie at the 60-key cut, keeps the key seen most recently", () => {
+  it("on a tie at the cut, keeps the key seen most recently", () => {
     const history: Record<string, HistoryEntry[]> = {};
-    for (let i = 0; i < 60; i++) history[`old${i}`] = [{ day: "2026-10-01", ids: ["a"] }];
+    for (let i = 0; i < HISTORY_KEYS; i++) history[`old${i}`] = [{ day: "2026-10-01", ids: ["a"] }];
     const merged = mergeHistory(history, "2026-10-06", new Map([["fresh", cand("fresh", ["z"])]]));
-    expect(Object.keys(merged)).toHaveLength(60);
+    expect(Object.keys(merged)).toHaveLength(HISTORY_KEYS);
     expect(merged.fresh).toBeDefined();
+  });
+
+  it("at the cut, keeps dictionary and AI-approved keys first, before more creators or newer days", () => {
+    const history: Record<string, HistoryEntry[]> = {
+      approved: [{ day: "2026-10-01", ids: ["a"] }], // 1 creator, 5 days ago
+    };
+    for (let i = 0; i < HISTORY_KEYS; i++)
+      history[`busy${i}`] = [{ day: "2026-10-05", ids: ["a", "b"] }];
+    const merged = mergeHistory(history, "2026-10-06", new Map(), new Set(["approved"]));
+    expect(Object.keys(merged)).toHaveLength(HISTORY_KEYS);
+    expect(merged.approved).toBeDefined();
   });
 
   it("keeps 13-day-old entries, drops 14-day-old ones, and replaces today's entry on a re-run", () => {

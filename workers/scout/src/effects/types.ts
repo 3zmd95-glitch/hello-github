@@ -64,5 +64,5 @@ export interface EffectsDoc {
 export const MIN_CREATORS = 3,
   MAX_ITEMS = 8,
   HISTORY_DAYS = 14,
-  HISTORY_KEYS = 60,
+  HISTORY_KEYS = 300,
   IDS_PER_DAY = 30;

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TAVILY_URL } from "../trends/tavily";
 import { EFFECTS_KEY } from "./kv";
 import { runEffects } from "./run";
-import type { EffectsDoc } from "./types";
+import { HISTORY_KEYS, type EffectsDoc } from "./types";
 
 const NOW = new Date("2026-10-07T05:35:00Z");
 const NEXT_DAY = new Date("2026-10-08T05:35:00Z");
@@ -427,23 +427,73 @@ describe("runEffects", () => {
     expect(count).toEqual({ tavily: 6, search: 2, stats: 1 });
   });
 
-  it("a short search timeout never cuts the AI short; the AI has its own", async () => {
-    const { env } = setup();
-    const answer = env.AI.run.getMockImplementation()!;
-    env.AI.run.mockImplementation(async (model, input) => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      return answer(model, input);
-    });
-    const doc = await runEffects(env, { fetch: web().fetch, now: NOW, timeoutMs: 150 });
-    expect(doc.status).toBe("ok");
+  it(
+    "a shorter search timeout never cuts the AI short; the AI has its own",
+    { timeout: 15_000 },
+    async () => {
+      const { env } = setup();
+      const answer = env.AI.run.getMockImplementation()!;
+      env.AI.run.mockImplementation(async (model, input) => {
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        return answer(model, input);
+      });
+      // 2 s for each instant fake search call, so a pause under parallel load cannot time one out; the AI takes 2.5 s.
+      const doc = await runEffects(env, { fetch: web().fetch, now: NOW, timeoutMs: 2000 });
+      expect(doc.status).toBe("ok");
 
-    const cut = await runEffects(env, {
-      fetch: web().fetch,
-      now: NOW,
-      force: true,
-      aiTimeoutMs: 50,
-    });
-    expect(cut.notes).toEqual(["ai_fallback"]);
+      const cut = await runEffects(env, {
+        fetch: web().fetch,
+        now: NOW,
+        force: true,
+        aiTimeoutMs: 100,
+      });
+      expect(cut.notes).toEqual(["ai_fallback"]);
+    },
+  );
+
+  it("a name building on its family's day survives a busy memory, is judged and shows", async () => {
+    // Scans D, D+3, D+6 search the same families. Each brings 120 one-creator names; the slow name gains 1 creator.
+    let prev: EffectsDoc | undefined;
+    for (const [scan, day] of [
+      [1, "2026-10-01"],
+      [2, "2026-10-04"],
+      [3, "2026-10-07"],
+    ] as const) {
+      const junk = Array.from({ length: 120 }, (_, i) =>
+        tt(`j${scan}x${i}`, `Zork${scan}x${i} Trend`, scan * 1000 + i),
+      );
+      const hits = [...junk, tt(`s${scan}`, "Ghost Walk Trend", scan)];
+      const { env } = setup({ stored: prev });
+      prev = await runEffects(env, {
+        fetch: web({ hits }).fetch,
+        now: new Date(`${day}T05:35:00Z`),
+      });
+    }
+    expect(prev!.items.map((i) => [i.key, i.creators, i.checked])).toEqual([
+      ["ghost-walk-trend", 3, true],
+    ]);
+    expect(Object.keys(prev!.history)).toHaveLength(HISTORY_KEYS); // 361 names trimmed to the cap
+    const bytes = new TextEncoder().encode(JSON.stringify(prev)).length;
+    expect(bytes).toBeLessThan(250_000); // well under KV's limits and cheap to parse
+  });
+
+  it("at the memory's cap, names the AI approved stay before newer unchecked ones", async () => {
+    const approved =
+      "alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike november " +
+      "oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee";
+    const day1 = approved.split(" ").map((w, i) => tt(`a${i}`, `${titleCase(w)} Trend`, i));
+    const first = setup();
+    const prev = await runEffects(first.env, { fetch: web({ hits: day1 }).fetch, now: NOW });
+    const keys = Object.keys(prev.meta);
+    expect(keys).toHaveLength(25);
+    expect(keys.every((k) => prev.meta[k].checked)).toBe(true);
+
+    // The next day: 300 new one-creator names, newer than the approved 25, so 325 keys must lose 25.
+    const day2 = Array.from({ length: 300 }, (_, i) => tt(`z${i}`, `Zork${i} Trend`, 1000 + i));
+    const { env } = setup({ stored: prev });
+    const doc = await runEffects(env, { fetch: web({ hits: day2 }).fetch, now: NEXT_DAY });
+    expect(Object.keys(doc.history)).toHaveLength(HISTORY_KEYS);
+    expect(keys.filter((k) => !doc.history[k] || !doc.meta[k])).toEqual([]);
   });
 
   it("history across days: 3 creators on day D, 6 new ones on D+3 → growth 2 over 9 creators", async () => {
