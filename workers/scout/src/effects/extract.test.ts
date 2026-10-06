@@ -56,6 +56,35 @@ describe("candidatesOf", () => {
     expect(keys("درس الاستنساخ في الأحياء")).toEqual([]);
   });
 
+  it("files 'clone trend' posts under the clone effect, never as a separate trend", () => {
+    expect(keys("The Clone Trend 👥 #clonetrend")).toEqual(["clone-effect"]);
+    // "Flash Clone Edit" stays its own named trend.
+    expect(keys("Flash Clone Edit")).toEqual(["flash-clone-edit"]);
+  });
+
+  it("files GIF-sticker posts under the dictionary's GIF stickers (the owner's second reel)", () => {
+    for (const text of [
+      "Animated GIF stickers on my hiking video 🏔️ | #gifstickers",
+      "how to add moving stickers to your reels",
+      "Hiking vlog with animated stickers ✨",
+      "#stickeroverlay",
+    ])
+      expect(keys(text), text).toEqual(["gif-stickers"]);
+  });
+
+  it("gives plural and singular spellings of a new name one key, keeping the name as written", () => {
+    expect(keys("gif stickers trend")).toEqual(keys("gif sticker trend"));
+    expect(keys("ghost frames trend")).toEqual(["ghost-frame-trend"]);
+    expect(keys("ghost frame trend")).toEqual(["ghost-frame-trend"]);
+    expect(candidatesOf("ghost frames trend").map((c) => c.name)).toEqual(["ghost frames trend"]);
+  });
+
+  it("never names a year", () => {
+    expect(keys("2027 trend")).toEqual([]);
+    expect(keys("#2027trend")).toEqual([]);
+    expect(keys("1999 effect")).toEqual([]);
+  });
+
   it("needs more than a bare word in the post for entries whose word means other things", () => {
     const flash = keys("Most Trending Flash Clone Edit Tutorial: How to Make It");
     expect(flash).toContain("flash-clone-edit");

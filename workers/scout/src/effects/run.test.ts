@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TAVILY_URL } from "../trends/tavily";
+import { FAMILY_QUERIES, familiesForDay } from "./families";
 import { EFFECTS_KEY } from "./kv";
 import { runEffects } from "./run";
 import { HISTORY_KEYS, type EffectsDoc } from "./types";
@@ -54,11 +55,13 @@ function web(
 ) {
   const count = { tavily: 0, search: 0, stats: 0 };
   const queries: string[] = [];
+  const searched: string[] = [];
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const url = new URL(String(input));
     if (url.href === TAVILY_URL) {
       count.tavily++;
       const { query } = JSON.parse(String(init?.body)) as { query: string };
+      searched.push(query);
       return over.tavily?.(query) ?? json({ results: over.hits ?? PROBE, usage: { credits: 1 } });
     }
     if (url.pathname.endsWith("/youtube/v3/search")) {
@@ -80,7 +83,7 @@ function web(
     }
     return json({ error: "not_found" }, 404);
   });
-  return { fetch, count, queries };
+  return { fetch, count, queries, searched };
 }
 
 /** Answers the day's hits to the first family search only (as one family finds a trend); the rest find nothing. */
@@ -204,6 +207,33 @@ describe("runEffects", () => {
     expect(forced.history["clone-effect"]).toHaveLength(1);
   });
 
+  it("the first scan (no memory yet) searches families 1–6, the owner's two reels; later scans the day's rotation", async () => {
+    // 2026-10-06's rotation is families 13–18.
+    const day = new Date("2026-10-06T05:35:00Z");
+    expect(familiesForDay("2026-10-06")).toEqual(FAMILY_QUERIES.slice(12, 18));
+    expect(FAMILY_QUERIES.slice(0, 2)).toEqual([
+      "clone yourself video trend",
+      "gif sticker overlay reel trend",
+    ]);
+    const first = web();
+    const doc = await runEffects(setup().env, { fetch: first.fetch, now: day });
+    expect(first.searched).toEqual(FAMILY_QUERIES.slice(0, 6));
+
+    // A stored document with no memory (every run so far failed) is a first scan too.
+    const retry = web();
+    const noMemory = { ...doc, status: "failed" as const, items: [], meta: {}, history: {} };
+    await runEffects(setup({ stored: noMemory }).env, { fetch: retry.fetch, now: day });
+    expect(retry.searched).toEqual(FAMILY_QUERIES.slice(0, 6));
+
+    // With a memory, the day's rotation: 2026-10-09 is families 13–18 again.
+    const later = web();
+    await runEffects(setup({ stored: doc }).env, {
+      fetch: later.fetch,
+      now: new Date("2026-10-09T05:35:00Z"),
+    });
+    expect(later.searched).toEqual(FAMILY_QUERIES.slice(12, 18));
+  });
+
   it("a day whose run failed runs again without force (the first-scan button's retry); a good day does not", async () => {
     const { env, KV } = setup();
     // The day's first run fails: Tavily's quota on every search, nothing to show yet.
@@ -319,7 +349,7 @@ describe("runEffects", () => {
   it("AI cleanup drops a junk name and merges a spelling into the clone effect", async () => {
     const judged: Record<string, Verdict> = {
       "outfit-trend": { keep: false },
-      "clone-trend": { sameAs: "clone-effect" },
+      "twin-trend": { sameAs: "clone-effect" },
       // A dictionary effect is never dropped or merged away.
       "clone-effect": { keep: false, sameAs: "swagger-trend" },
     };
@@ -329,15 +359,15 @@ describe("runEffects", () => {
       tt("o1", "Fit check: Outfit Trend", 20),
       tt("o2", "Fit check: Outfit Trend", 21),
       tt("o3", "Fit check: Outfit Trend", 22),
-      tt("n1", "The Clone Trend everyone is doing", 23),
-      ig("n2", "The Clone Trend everyone is doing", 24),
+      tt("n1", "The Twin Trend everyone is doing", 23),
+      ig("n2", "The Twin Trend everyone is doing", 24),
     ];
     const { fetch, count } = web({ hits });
     const doc = await runEffects(env, { fetch, now: NOW });
 
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
-    expect(doc.items[0]).toMatchObject({ creators: 10, checked: false }); // 8 + the 2 "clone trend" creators
-    for (const gone of ["outfit-trend", "clone-trend"]) {
+    expect(doc.items[0]).toMatchObject({ creators: 10, checked: false }); // 8 + the 2 "twin trend" creators
+    for (const gone of ["outfit-trend", "twin-trend"]) {
       expect(doc.meta[gone]).toBeUndefined();
       expect(doc.history[gone]).toBeUndefined();
     }
@@ -348,7 +378,7 @@ describe("runEffects", () => {
     const day1 = setup();
     const hits = [
       ...PROBE,
-      tt("n1", "The Clone Trend everyone is doing", 23),
+      tt("n1", "The Twin Trend everyone is doing", 23),
       tt("o1", "Fit check: Outfit Trend", 20),
       tt("o2", "Fit check: Outfit Trend", 21),
       tt("o3", "Fit check: Outfit Trend", 22),
@@ -363,25 +393,25 @@ describe("runEffects", () => {
       judge: (key) =>
         key === "outfit-trend"
           ? { keep: false }
-          : key === "clone-trend"
+          : key === "twin-trend"
             ? { sameAs: "clone-effect" }
             : {},
     });
     const today = [
       tt("c1", "clone effect tutorial | CapCut", 31),
-      tt("n2", "The Clone Trend everyone is doing", 30),
+      tt("n2", "The Twin Trend everyone is doing", 30),
       ...hits.slice(-3),
     ];
     const second = web({ hits: today });
     const doc = await runEffects(env, { fetch: second.fetch, now: NEXT_DAY });
 
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
-    // c1–c8 and n1 yesterday (n1 moved over from "clone trend"), c1 and n2 today: 9 without the move.
+    // c1–c8 and n1 yesterday (n1 moved over from "twin trend"), c1 and n2 today: 9 without the move.
     expect(doc.items[0].creators).toBe(10);
     // Yesterday's YouTube views survive the move, so today's growth compares with them.
     expect(doc.history["clone-effect"].find((e) => e.day === "2026-10-07")?.views7d).toBe(2000);
     expect(doc.items[0].youtube).toEqual({ newVideos: 2, views7d: 2000, growth: 1 });
-    expect(doc.history["clone-trend"]).toBeUndefined();
+    expect(doc.history["twin-trend"]).toBeUndefined();
     expect(doc.history["outfit-trend"]).toBeUndefined();
     expect(second.count.search).toBe(2);
   });

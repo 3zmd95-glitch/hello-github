@@ -15,11 +15,13 @@ const GENERIC = new Set(
     "instagram ig reel reels the this that these a an my your our how to do make made making with and of for in on " +
     "popular most top full quick free template templates tutorial tutorials effect effects transition transitions " +
     "filter filters trick tricks style sound special visual aesthetic cinematic smooth fun crazy insane fyp foryou " +
-    "foryoupage part one day today week 2026 ai dance challenge " +
+    "foryoupage part one day today week ai dance challenge " +
     // Lowercase-"trend" junk ("hottest trend", "her trend", "pov trend").
     "hottest biggest favorite favourite current next big year her his their it let pov"
   ).split(" "),
 );
+/** A year ("2027 trend") is generic too. */
+const isGeneric = (word: string) => GENERIC.has(word) || /^(19|20)\d\d$/.test(word);
 
 /** Whole names that are not editing effects ("sound", "special" and "visual" are generic, so those never form;
  * any name ending in "after effect" is the software, see `named`). */
@@ -108,7 +110,7 @@ function named(words: readonly string[], suffix: string): string | undefined {
       .replace(/[^a-z0-9-]/g, ""),
   );
   let start = clean.length;
-  while (start > 0 && !GENERIC.has(clean[start - 1])) start--;
+  while (start > 0 && !isGeneric(clean[start - 1])) start--;
   if (/^[A-Z]/.test(suffix)) {
     const capital = words.findIndex((w, i) => i >= start && /^[A-Z]/.test(w));
     if (capital >= 0) start = capital;
@@ -129,8 +131,14 @@ export function candidatesOf(text: string): { key: string; name: string; termId?
     const term =
       dictionaryName(name) ??
       (name.endsWith(" trend") ? dictionaryName(name.slice(0, -" trend".length)) : undefined);
-    if (!term) out.set(slug(name), { key: slug(name), name });
-    else if (!term.generic) addTerm(term); // a catch-all phrase ("seamless transition") names no trend
+    if (term) {
+      if (!term.generic) addTerm(term); // a catch-all phrase ("seamless transition") names no trend
+      return;
+    }
+    // A new name is keyed by its words in matching form, as dictionary lookups are, so "ghost frames trend" and
+    // "ghost frame trend" are one effect; the name stays as written.
+    const key = slug(normalizeTerm(name));
+    out.set(key, { key, name });
   };
   // Dictionary effects anywhere in the text.
   dictionaryHits(plain).forEach(addTerm);

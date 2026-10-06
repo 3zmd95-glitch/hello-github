@@ -8,7 +8,7 @@ import { TERMS } from "../discover/terms";
 import { utcDay } from "../trends/kv";
 import { cleanWithAi, type AiVerdict } from "./ai";
 import { extractCandidates } from "./extract";
-import { familiesForDay } from "./families";
+import { FAMILY_QUERIES, familiesForDay, QUERIES_PER_DAY } from "./families";
 import { readEffects, writeEffects } from "./kv";
 import { creatorsBetween, daysBetween, mergeHistory, scoreEffects, setViews } from "./score";
 import { searchFamilies, youtubeCheck, YT_EFFECTS, type EffectsEnv } from "./sources";
@@ -147,12 +147,12 @@ async function scan(
   today: string,
   opts: RunOptions,
 ): Promise<{ doc: EffectsDoc; credits: number; memory?: Memory }> {
-  const { posts, credits, errors } = await searchFamilies(
-    env,
-    doFetch,
-    familiesForDay(today),
-    opts.timeoutMs,
-  );
+  // The first scan (no memory yet: no document, or every run so far failed) searches families 1–6, which hold the
+  // owner's two reels (the clone effect, GIF stickers); then the day's rotation.
+  const families = Object.keys(prev?.history ?? {}).length
+    ? familiesForDay(today)
+    : FAMILY_QUERIES.slice(0, QUERIES_PER_DAY);
+  const { posts, credits, errors } = await searchFamilies(env, doFetch, families, opts.timeoutMs);
   const notes = new Set(errors);
   if (!posts.length && notes.size) return { doc: failed(prev, today, now, [...notes]), credits };
 
