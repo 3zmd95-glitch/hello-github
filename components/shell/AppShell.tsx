@@ -406,29 +406,38 @@ function TabBar() {
     const nav = ref.current;
     const ind = nav?.querySelector<HTMLElement>("[data-indicator]");
     if (!nav || !ind) return;
-    const place = () => {
+    /** Puts the lens under the active tab (`instant`: without the glide). No-op when it is already there. */
+    const place = (instant: boolean) => {
       const a = nav.querySelectorAll<HTMLElement>(".ios-tab")[activeIndex];
       if (!a) return;
-      ind.style.width = `${a.offsetWidth}px`;
-      ind.style.setProperty("--x", `${a.offsetLeft}px`);
+      const w = `${a.offsetWidth}px`;
+      const x = `${a.offsetLeft}px`;
+      if (ind.style.width === w && ind.style.getPropertyValue("--x") === x) return;
+      if (instant) ind.style.transition = "none";
+      ind.style.width = w;
+      ind.style.setProperty("--x", x);
+      if (instant) {
+        void ind.offsetWidth; // commit the position before the transition comes back
+        ind.style.transition = "";
+      }
     };
     if (ind.style.width) {
       // Another tab: the lens glides over with a squish.
-      place();
+      place(false);
       ind.classList.remove("pulse");
       void ind.offsetWidth;
       ind.classList.add("pulse");
     } else {
       // A new lens (launch, a switch from Training, back from a route without a tab) appears in place.
-      ind.style.transition = "none";
-      place();
-      void ind.offsetWidth; // commit the position before the transition comes back
-      ind.style.transition = "";
+      place(true);
     }
-    const ro = new ResizeObserver(place);
+    // A re-measure puts the lens in place, only when it moved: a resize (rotation), or <html dir> flipping after this
+    // effect (useDocumentLang is a passive effect) and mirroring the row. The ResizeObserver's first call finds it in
+    // place, so a glide in progress goes on.
+    const snap = () => place(true);
+    const ro = new ResizeObserver(snap);
     ro.observe(nav);
-    // <html dir> flips after this effect (useDocumentLang is a passive effect) and mirrors the row without resizing it.
-    const mo = new MutationObserver(place);
+    const mo = new MutationObserver(snap);
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["dir"] });
     return () => {
       ro.disconnect();

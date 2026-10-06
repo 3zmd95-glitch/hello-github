@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { freshState } from "./helpers";
+import { expect, test, type Page } from "@playwright/test";
+import { freshState, switchLang } from "./helpers";
 
 const SOCIAL_PATHS = [
   "/social/",
@@ -81,6 +81,73 @@ test("Social shell: glass tab bar with icons, compact title after scrolling", as
   await expect(page.locator("html")).toHaveAttribute("data-compact", "true");
   await expect(page.getByTestId("compact-title")).toHaveText("الاستوديو");
   await expect(page.getByTestId("compact-title")).toHaveCSS("opacity", "1");
+});
+
+/** Largest gap (px) between the tab bar lens and the tab at `href`, read in one frame (Infinity if either is missing). */
+function lensGap(page: Page, href: string): Promise<number> {
+  return page.evaluate((href) => {
+    const lens = document.querySelector('[data-testid="tab-indicator"]');
+    const tab = document.querySelector(`[data-testid="tabbar"] a[href="${href}"]`);
+    if (!lens || !tab) return Infinity;
+    const a = lens.getBoundingClientRect();
+    const b = tab.getBoundingClientRect();
+    return Math.max(
+      Math.abs(a.x - b.x),
+      Math.abs(a.y - b.y),
+      Math.abs(a.width - b.width),
+      Math.abs(a.height - b.height),
+    );
+  }, href);
+}
+
+test("Social tab bar: the lens follows the active tab, no lens without a tab, mini on scroll", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "tab bar is phone only");
+  const html = page.locator("html");
+  const tabbar = page.getByTestId("tabbar");
+  // The suite runs with reduced motion, so no glide is in flight: the lens is on its final box at once.
+  const lensOn = async (href: string) => {
+    await expect(tabbar.locator(`a[href="${href}"]`)).toHaveAttribute("aria-current", "page");
+    await expect.poll(() => lensGap(page, href)).toBeLessThanOrEqual(1);
+  };
+
+  await freshState(page, "/social/");
+  await lensOn("/social/");
+
+  // A clear scroll down minimizes the bar; back at the top it returns.
+  await page.evaluate(() => window.scrollTo(0, 400));
+  await expect(html).toHaveAttribute("data-tabbar", "mini");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(html).not.toHaveAttribute("data-tabbar");
+
+  await tabbar.locator('a[href="/social/calendar/"]').click();
+  await lensOn("/social/calendar/");
+
+  // A language flip mirrors the row: the lens stays on the active tab both ways.
+  await switchLang(page, "en");
+  await expect(html).toHaveAttribute("dir", "ltr");
+  await lensOn("/social/calendar/");
+  await switchLang(page, "ar");
+  await expect(html).toHaveAttribute("dir", "rtl");
+  await lensOn("/social/calendar/");
+
+  // The same with the lens on screen during the flip: More holds the language control.
+  await tabbar.locator('a[href="/social/more/"]').click();
+  await lensOn("/social/more/");
+  await page.getByTestId("lang-en").click();
+  await expect(html).toHaveAttribute("dir", "ltr");
+  await lensOn("/social/more/");
+  await page.getByTestId("lang-ar").click();
+  await expect(html).toHaveAttribute("dir", "rtl");
+  await lensOn("/social/more/");
+
+  // A route without a tab (opened from More) keeps the bar and shows no lens.
+  await page.getByTestId("more-replies").click();
+  await expect(page).toHaveURL(/\/social\/replies\/$/);
+  await expect(tabbar).toBeVisible();
+  await expect(page.getByTestId("tab-indicator")).toHaveCount(0);
 });
 
 test("theme-color follows the world and survives client navigation", async ({ page }) => {

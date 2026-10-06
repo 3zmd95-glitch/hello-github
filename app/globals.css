@@ -1947,7 +1947,7 @@
   .ios-fab {
     position: fixed;
     inset-inline-end: 16px;
-    bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 26px);
+    bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 14px);
     width: 52px;
     height: 52px;
     border-radius: 50%;

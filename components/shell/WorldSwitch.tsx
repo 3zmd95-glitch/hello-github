@@ -14,7 +14,7 @@ const WORLDS: readonly { id: World; icon: string; name: MessageKey; full: Messag
  * The big switch between 🎮 Training and 📱 Social. Training goes home to "/";
  * Social returns to the last Social route of this session (or the Studio home).
  * Training: phones show the emoji only (the top bar is 390px wide); the full name is the accessible label.
- * Social: a glass capsule of two icons, the active world on a lens (tools/18 §4).
+ * Social: a glass capsule of two icons, the active world on a lens (tools/18 §4), each named without its emoji.
  */
 export default function WorldSwitch() {
   const { t } = useT();
@@ -43,8 +43,8 @@ export default function WorldSwitch() {
               key={w.id}
               type="button"
               aria-pressed={on}
-              aria-label={t(w.full)}
-              title={t(w.full)}
+              aria-label={t(w.name)}
+              title={t(w.name)}
               onClick={() => go(w.id)}
               data-testid={`world-${w.id}`}
               className={`ios-world-btn ${on ? "on" : ""}`}

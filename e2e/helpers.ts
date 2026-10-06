@@ -55,11 +55,14 @@ export async function drainCelebrations(
   return seen;
 }
 
-/** Switch the app language. Training keeps the toggle in its top bar; Social keeps it in More (iOS look, round 35). */
+/**
+ * Switch the app language. Training keeps the toggle in its top bar; Social keeps it in More (iOS look, round 35).
+ * The world is read from `<html data-world>`. The Social path navigates to More and back, so screen-local state
+ * (an open tab, a filter, an unsaved field) resets.
+ */
 export async function switchLang(page: Page, lang: "ar" | "en"): Promise<void> {
-  const direct = page.getByTestId(`lang-${lang}`);
-  if (await direct.isVisible()) {
-    await direct.click();
+  if ((await page.locator("html").getAttribute("data-world")) === "training") {
+    await page.getByTestId(`lang-${lang}`).click();
     return;
   }
   await page.locator('a[href="/social/more/"]:visible').first().click();

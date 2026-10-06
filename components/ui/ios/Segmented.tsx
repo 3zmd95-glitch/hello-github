@@ -37,25 +37,31 @@ export default function Segmented<T extends string>({
     const seg = ref.current;
     const th = thumb.current;
     if (!seg || !th) return;
-    const place = () => {
+    /** Puts the thumb under the selected segment (`instant`: without the glide). No-op when it is already there. */
+    const place = (instant: boolean) => {
       const btn = seg.querySelector<HTMLButtonElement>(`button[data-v="${CSS.escape(value)}"]`);
       if (!btn) return;
-      th.style.width = `${btn.offsetWidth}px`;
-      th.style.setProperty("--x", `${btn.offsetLeft}px`);
+      const w = `${btn.offsetWidth}px`;
+      const x = `${btn.offsetLeft}px`;
+      if (th.style.width === w && th.style.getPropertyValue("--x") === x) return;
+      if (instant) th.style.transition = "none";
+      th.style.width = w;
+      th.style.setProperty("--x", x);
+      if (instant) {
+        void th.offsetWidth; // commit the position before the transition comes back
+        th.style.transition = "";
+      }
     };
-    if (placed.current) place();
-    else {
-      // The first placement is instant (as in the mockup); otherwise the thumb springs in from the left edge.
-      th.style.transition = "none";
-      place();
-      void th.offsetWidth; // commit the position before the transition comes back
-      th.style.transition = "";
-      placed.current = true;
-    }
-    const ro = new ResizeObserver(place);
+    // The first placement is instant (as in the mockup, not a spring in from the left edge); a new value glides.
+    place(!placed.current);
+    placed.current = true;
+    // A re-measure puts the thumb in place, only when it moved: a resize, or <html dir> flipping after this effect
+    // (useDocumentLang is a passive effect) and mirroring the row. The ResizeObserver's first call finds it in place,
+    // so a glide in progress goes on.
+    const snap = () => place(true);
+    const ro = new ResizeObserver(snap);
     ro.observe(seg);
-    // <html dir> flips after this effect (useDocumentLang is a passive effect) and mirrors the row without resizing it.
-    const mo = new MutationObserver(place);
+    const mo = new MutationObserver(snap);
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["dir"] });
     return () => {
       ro.disconnect();
