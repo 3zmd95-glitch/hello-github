@@ -8,7 +8,9 @@
 
 import {
   normalizeDiscoverHits,
+  normalizeHits,
   PLATFORM_DOMAIN,
+  type Platform,
   type Profile,
   type ScoutResult,
 } from "../normalize";
@@ -69,11 +71,20 @@ export type TavilyOutcome =
 export async function tavilyCall(
   env: FetchEnv,
   doFetch: typeof fetch,
-  call: { q: string; platform: "tt" | "ig"; lang: Lang; timeRange?: DiscoverTimeRange },
+  call: {
+    q: string;
+    platform: Platform | readonly Platform[];
+    lang: Lang;
+    timeRange?: DiscoverTimeRange;
+  },
   timeoutMs = CALL_TIMEOUT_MS,
 ): Promise<TavilyOutcome> {
   if (!env.TAVILY_API_KEY) return { ok: false, error: "not_configured" };
   const key = env.TAVILY_API_KEY;
+  // One platform: Discover's call (post cards and profile pages). Several, for category lessons (YouTube, Instagram
+  // and TikTok for 1 credit): their post cards only.
+  const platforms: readonly Platform[] =
+    typeof call.platform === "string" ? [call.platform] : call.platform;
   try {
     const out = await timed(timeoutMs, async (signal): Promise<TavilyOutcome> => {
       const res = await doFetch(TAVILY_URL, {
@@ -82,7 +93,7 @@ export async function tavilyCall(
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify({
           query: call.q,
-          include_domains: [PLATFORM_DOMAIN[call.platform]],
+          include_domains: platforms.map((p) => PLATFORM_DOMAIN[p]),
           max_results: RESULTS_PER_CALL,
           search_depth: "basic",
           include_images: true,
@@ -101,7 +112,10 @@ export async function tavilyCall(
       const hits = (Array.isArray(data.results) ? data.results : []) as Parameters<
         typeof normalizeDiscoverHits
       >[0];
-      const { cards, profiles } = normalizeDiscoverHits(hits, call.platform);
+      const { cards, profiles } =
+        typeof call.platform === "string"
+          ? normalizeDiscoverHits(hits, call.platform)
+          : { cards: normalizeHits(hits, call.platform), profiles: [] };
       return { ok: true, cards, profiles, credits: data.usage?.credits ?? 1 };
     });
     return out ?? { ok: false, error: "upstream" };
