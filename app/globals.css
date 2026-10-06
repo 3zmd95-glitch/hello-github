@@ -2915,30 +2915,41 @@
 /* 📱 Studio home, ideas bank and the Training ↔ Social bridge (round 16). Everything here is built on the
  * world tokens, so the same classes read as chunky pixel chips in the Training world (skill sheet, map)
  * and as soft pills under /social. */
-.studio-hero {
-  position: relative;
-  overflow: hidden;
+.studio-hero h3 {
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
 }
-.studio-hero::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    circle at 100% 0%,
-    color-mix(in srgb, var(--c, var(--accent)) 22%, transparent),
-    transparent 55%
-  );
+/* Next-post ring (60px): the stroke empties as the post time comes (the offset is set inline). On the first visit
+ * (the card stack's stagger) it draws in from empty once the card has risen. */
+.studio-ring {
+  width: 60px;
+  height: 60px;
+  flex: none;
+  transform: rotate(-90deg);
 }
-[dir="rtl"] .studio-hero::before {
-  background: radial-gradient(
-    circle at 0% 0%,
-    color-mix(in srgb, var(--c, var(--accent)) 22%, transparent),
-    transparent 55%
-  );
+.studio-ring-bg,
+.studio-ring-fg {
+  fill: none;
+  stroke-width: 5;
 }
-.studio-hero > * {
-  position: relative;
+.studio-ring-bg {
+  stroke: var(--fill);
+}
+.studio-ring-fg {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-dasharray: 150.8;
+  transition: stroke-dashoffset 1.4s var(--out);
+}
+.ios-stagger .studio-ring-fg {
+  animation: studio-ring-in 1.4s var(--out) 0.45s backwards;
+}
+@keyframes studio-ring-in {
+  from {
+    stroke-dashoffset: 150.8;
+  }
 }
 
 /* Platform chip / dot / button: `--c` is the platform's brand color. */
