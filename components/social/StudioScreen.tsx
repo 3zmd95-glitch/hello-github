@@ -62,7 +62,7 @@ export default function StudioScreen() {
         <ReminderCard today={today} now={nowMinute} />
         <WeekPlanCard today={today} />
         <TikTokToolkitCard />
-        <GrowthSnapshotCard />
+        <GrowthSnapshotCard today={today} first={first} />
         <AsksCard />
         <InboxCard today={today} now={nowMinute} />
       </div>

@@ -1695,6 +1695,14 @@
   :is(button, a).ios-row:active {
     background: var(--panel-2);
   }
+  /* The one row inside a card (Studio reminder): no row padding, and its title may wrap (it is the card's message). */
+  .ios-row.bare {
+    padding: 0;
+    min-height: 0;
+  }
+  .ios-row.bare .ios-tx b {
+    white-space: normal;
+  }
   /* Ring drawn inside: the list's overflow: hidden would clip an outside one. */
   [data-world="social"] :is(.ios-row, .ios-list a, .ios-list button):focus-visible {
     outline: 2px solid var(--tint);
@@ -2977,22 +2985,12 @@
   padding: 0 10px;
   border-color: color-mix(in srgb, var(--c, var(--accent)) 45%, transparent);
 }
+/* A post on the week strip: `--pc` is the platform's color token. */
 .studio-pdot {
-  display: inline-grid;
-  place-items: center;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 4px;
-  font-size: 0.62rem;
-  font-weight: 800;
-  border: 2px solid var(--edge);
-  border-radius: var(--radius-sm);
-  background: var(--c, var(--accent));
-  color: #0b0d10;
-}
-[data-world="social"] .studio-pdot {
-  border: 0;
-  border-radius: 999px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pc, var(--muted));
 }
 .studio-pbtn {
   display: inline-flex;
@@ -3065,7 +3063,7 @@
   border-radius: 999px;
 }
 
-/* This week's plan: 7 day cells, Saturday first. */
+/* This week's plan: 7 day cells, Saturday first (mockup `.week` / `.day`); a cell with posts is a link. */
 .studio-week {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -3078,18 +3076,73 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  min-height: 74px;
-  padding: 6px 2px;
-  border: 2px solid var(--edge);
-  border-radius: var(--radius-sm);
-  background: var(--panel-2);
+  gap: 6px;
+  padding: 8px 0 6px;
+  border-radius: 14px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  text-decoration: none;
 }
-.studio-wday[data-today="true"] {
-  border-color: var(--accent);
+.studio-wday small {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
 }
-[data-world="social"] .studio-wday {
-  border-width: 1px;
+.studio-wday b {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition:
+    background-color var(--t-med) var(--out),
+    color var(--t-med) var(--out),
+    transform var(--t-spring) var(--spring);
+}
+.studio-wday[data-today="true"] b {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+a.studio-wday:active b {
+  transform: scale(0.9);
+}
+
+/* Growth snapshot sparkline (mockup `.chart`). Without `data-drawn` it shows drawn; the card sets "false" then "true"
+ * on the first visit, so the area fades in and the end dot pops after the line has drawn itself. */
+.studio-spark {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 12px;
+  overflow: visible;
+}
+.studio-spark-ln {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.studio-spark-ar {
+  transition: opacity var(--t-spring) var(--out) 0.5s;
+}
+.studio-spark-dot {
+  fill: var(--accent);
+  stroke: var(--panel);
+  stroke-width: 3;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform var(--t-spring) var(--spring) 1.1s;
+}
+.studio-spark[data-drawn="false"] .studio-spark-ar {
+  opacity: 0;
+}
+.studio-spark[data-drawn="false"] .studio-spark-dot {
+  transform: scale(0);
 }
 
 /* 📱 badge on a map node whose video is planned in the calendar (mirrors .map-lock on the other corner).
