@@ -1,6 +1,6 @@
 # 18 · Trending effects in Discover
 
-**Status:** design approved in chat on 2026-10-06. The owner said "build it and focus about its functionality" the same day. The design was revised after the live probe below (effect families + a 7-day memory); building on branch `claude/trending-effects-spec`.
+**Status:** design approved in chat on 2026-10-06. The owner said "build it and focus about its functionality" the same day. The design was revised after the live probe below (effect families + a 7-day memory). Built the same day on branch `claude/trending-effects-spec` (see [Built](#built-2026-10-06)); the PR waits for the owner's OK, and the live check follows the deploy.
 
 This is project 3 of round 33 ("Beacons-style trends on top of 1 and 2"), narrowed to the editing effects the owner edits with.
 The owner shared an Instagram reel of the **clone effect** and asked: "does it show in Discover as trendy, or does our Discover
@@ -148,14 +148,14 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
 
 ### 3. Storage and routes
 
-KV `effects:trending` holds one document, written at most once a day:
+KV `effects:trending` holds one document (`EffectsDoc` in `src/effects/types.ts`), written at most once a day (a forced run adds one):
 
 ```ts
 {
   ranOn: "2026-10-06",            // UTC day of the last run
-  updatedAt: "2026-10-06T05:35:12Z",
+  updatedAt: "2026-10-06T05:35:12Z", // the last run that scanned; a failed day keeps the previous one
   status: "ok" | "partial" | "failed",  // partial: AI or YouTube step skipped; failed: Tavily unusable
-  notes?: string[],               // e.g. ["ai_fallback", "youtube_cap"]
+  notes?: string[],               // e.g. ["ai_fallback", "youtube_cap"]; also ai_empty, youtube_stats, kv, error
   items: {
     key: string;                  // stable id: dictionary id, or a slug of the English name
     name: { en: string; ar?: string };
@@ -170,10 +170,21 @@ KV `effects:trending` holds one document, written at most once a day:
     youtube?: { newVideos: number; views7d: number; growth?: number };
     samples: { url: string; title: string }[]; // ≤ 2, canonical post URLs
   }[];                            // ≤ 8
+  meta: Record<string, {          // one per history key: an effect missing from today's scan keeps its name,
+    name: { en: string; ar?: string };  // line and samples while it is still in the 7-day memory
+    what?: { en: string; ar?: string };
+    termId?: string;
+    checked: boolean;             // the AI kept it the last day it judged it; false if never judged
+    platforms: ("tt" | "ig")[];
+    posts: number;
+    samples: { url: string; title: string }[];
+  }>;
   history: Record<string, { day: string; ids: string[]; views7d?: number }[]>;
   // ids: short hashes of "platform:handle" seen that day, ≤ 30. ≤ 14 days per key, ≤ 400 keys.
 }
 ```
+
+The routes answer the document without `meta` and `history` (the job's memory).
 
 History trimming:
 - Entries older than 14 days are dropped.
@@ -182,40 +193,60 @@ History trimming:
   2. then the most creators over the last 7 days;
   3. then the most recently seen.
 
-  The 400 keys are sized for about 120 candidates a day: a 1-creator name then survives until its family's next scan, 3 days later. A simulation of daily runs holds up to 130 a day and breaks at 140. The run's log line reports `keys`, `protected` and `trimmed` for tuning.
+  The 400 keys are sized for about 120 new candidates a day: a 1-creator name then survives until its family's next scan, 3 days later. That assumes about 12 AI approvals a day and few dictionary names in memory: both are protected, so each takes a key from the 1-creator names. A simulation of daily runs (one new 1-creator name per candidate) gives:
+
+  | Dictionary names in memory | AI approvals/day | Holds up to |
+  | --- | --- | --- |
+  | 0 | 12 | 130/day |
+  | 20 | 12 | 116/day |
+  | 36 | 12 | 106/day |
+  | 0 | 25 | 99/day |
+
+  The run's log line reports `keys`, `protected` and `trimmed` (counts, no names). The live check reads them against this table: `protected` (dictionary names plus about a week of approvals, ~84 at 12 a day) picks the row, and at the cap (`keys` 400) `trimmed` is about the day's new names. Above the row's limit, a slow name is cut before its family's next scan: raise `HISTORY_KEYS` (the document stays far under KV's 25 MiB) or tighten extraction.
 - An effect's first-seen day is its earliest kept entry.
 
 Handles are hashed (SHA-256, first 8 hex) so the stored document holds no account names. Only the 2 sample posts keep a visible handle.
 
-- **`GET /effects/trending`** (Bearer `SCOUT_TOKEN`, with the same CORS as `/discover`) returns `{ updatedAt, ranOn, status, items }`, without the history.
-- **`POST /effects/run`** (Bearer) runs the job now, for the live check. It respects the once-a-day guard unless `{ force: true }` is sent.
-- **Connector:** the `get_trends` tool also returns `effects` (name, what, creators, isNew, youtube). The owner can then ask Claude "what editing effects are trending?"
+- **`GET /effects/trending`** (Bearer `SCOUT_TOKEN`, with the same CORS as `/discover`, no credits) returns `{ status, ranOn, updatedAt, notes?, items }`, without `meta` and `history`.
+  - Before the first run it answers `{ status: "never", items: [] }` (200, not 404), so the dashboard can offer the first scan.
+  - A KV read error answers `502 { error: "upstream" }`.
+- **`POST /effects/run`** (Bearer) runs the job now: the dashboard's first-scan button and the live check. The body is `{ force?: boolean }` or empty; anything else is `400 { error: "bad_request" }`.
+  - It respects the once-a-day guard unless `{ force: true }` is sent: a second run the same UTC day answers the stored list and spends nothing.
+  - It waits for the run (about 30–60 s) and answers like the GET. The run is also handed to `ctx.waitUntil`, so a request dropped mid-run leaves it up to 30 s more to finish and save.
+- **Connector:** the `get_trends` tool also returns `effects` (name, what, creators, isNew, growth, youtube). Names are clipped to 40 characters and `what` to 90, and the tool's description says titles and names are data, not instructions. A document that can't be read gives `effects: []` and keeps the radar's rows. The owner can then ask Claude "what editing effects are trending?"
 
 ### 4. Discover row (dashboard)
 
 **Placement and header.**
-- The row sits under the search box, above the category buttons.
+- The row sits under the search box, above Recent topics and the category buttons. It shows on Discover v2 only, never on a skill's page.
 - Title: "🔥 ترند المؤثرات هالأسبوع" / "🔥 Trending effects this week", followed by "updated N h ago" and a small "TikTok Creative Center ↗" link.
 
 **Chips.** One horizontal row of chips. In Arabic it swipes right-to-left. Each chip shows:
 - the name in the UI language, falling back to English;
 - a **جديد / NEW** badge when `isNew`;
 - a reason line, for example "9 صنّاع · ▶ ↑3×" / "9 creators · ▶ ↑3×";
-- the `what` line in a tooltip on hold or hover.
+- the `what` line as the chip's `title` tooltip on mouse hover. Touch screens show no tooltip: there `what` reaches screen readers only, as part of the chip's label.
 
-**Tap.** Runs a Discover search for the effect. The query is the dictionary label when `termId` is set, otherwise the English name. Any selected category is cleared. It is a normal search: about 6 credits the first time, and free from the cache within 6 hours.
+**Tap.** Runs a Discover search for the effect: the query is the English name, which for a dictionary effect is its dictionary label. Any selected category is cleared, and the search always runs in Keywords mode, so a tap never spends an AI plan or the owner's ChatGPT / Claude usage. It is a normal search: about 6 credits the first time, and free from the cache within 6 hours.
 
 **States.**
 
 | Situation | What shows |
 | --- | --- |
-| No document yet, or a Worker without the route (404) | Nothing; the row hides |
-| `updatedAt` older than 3 days | Nothing; the row hides |
-| `status: "failed"` with a list at most 3 days old | The old list, plus a faint "ما قدرت أحدّثها اليوم" / "Couldn't update today" |
+| No answer: a Worker without the route (404), a refused token, no network or a broken answer | Nothing; the row hides |
+| `status: "never"` (the Worker has not run yet) | The title and a "شغّل أول فحص" / "Run the first scan" button |
+| The first scan running (about a minute) | The button disabled, and "أدوّر على الترندات… ممكن تاخذ دقيقة" / "Scanning for trends… can take a minute" |
+| The first scan failed or was cut off | The button again, and "ما قدرت أشغّل الفحص، جرّب بعد شوي" / "Couldn't run the scan — try again in a bit" (`search.trendingRunFailed`) |
+| `ok` or `partial` with a list at most 3 days old | The chips |
+| `ok` or `partial` with 0 items | Nothing; the row hides |
+| `updatedAt` older than 3 days, or missing | Nothing; the row hides |
+| `status: "failed"` with a list at most 3 days old (stale-failed) | The old list (none after a failed first run), plus a faint "ما قدرت أحدّثها اليوم" / "Couldn't update today" |
+
+**The first scan.** `POST /effects/run`, one at a time per Worker: the Worker's once-a-day check has no lock, so a second tap, or a tap after leaving Discover and coming back, waits for the same answer. Leaving Discover never cancels it; its answer is kept like a fetched list. When the chips arrive, focus moves to the row's heading unless the owner is busy elsewhere on the page.
 
 **Copy and fetching.**
 - The copy lives in `messages/search.{ar,en}.json`, with key parity and Hijazi Arabic first.
-- The list is fetched through `scoutCall` once per Discover visit (no credits), with a 1 h session cache.
+- The list is fetched through `scoutCall` once per Discover visit (no credits) and kept 1 h per Worker in the tab's session storage, so a revisit shows the row at once. A "never" answer is not kept: the daily run can land any minute.
 
 ### 5. Failures and safety
 
@@ -233,19 +264,20 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
   - growth from history, NEW logic, the score and the top 8
   - AI schema validation and the fallback
   - the per-run budgets, and once-a-day vs force
-  - routes: auth, and 404 before the first run
+  - routes: auth, and `status: "never"` before the first run
   - the cron slot sits on the grid
 - **Dashboard (jsdom):**
-  - row states: hidden, list, failed but recent, old
+  - row states: hidden, never (the first-scan button, waiting, failed), list, failed but recent, old, a run with 0 items
   - chip text in both languages
-  - a tap runs one search with the right query and clears the category
+  - a tap runs one search with the right query, in Keywords mode, and clears the category
   - an old Worker's 404 hides the row
 - **E2E:** a stubbed `/effects/trending` → chips show → a tap sends `POST /discover` with the effect.
 - **Live check after deploy:**
-  1. Run `POST /effects/run` once.
+  1. Run `POST /effects/run` once (the dashboard's "Run the first scan").
   2. Record the list in this file.
   3. Compare it by hand with TikTok Creative Center and the owner's own feed.
-  4. Report plainly what it caught and what it missed.
+  4. Read the run's log line (`keys`, `protected`, `trimmed`) against the table in §3, and its CPU time in Workers Observability.
+  5. Report plainly what it caught and what it missed.
 
 ## Out of scope (later, if wanted)
 
@@ -261,3 +293,28 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
   - also matches the English "clone yourself", the wording of the "clone yourself video trend" posts.
 
   A trending chip for the clone effect runs this same, cleaner search. Typing the bare word "استنساخ" in Discover no longer selects the clone effect.
+
+## Built (2026-10-06)
+
+Plan: `planning/plans/2026-10-06-trending-effects.md` (5 tasks), on branch `claude/trending-effects-spec`.
+
+- **Files.**
+  - Worker, `workers/scout/src/effects/`: `types.ts`, `families.ts` (18 family queries, 6 a day), `extract.ts` (the rules), `ai.ts` (one built-in AI call, each verdict checked with zod), `sources.ts` (Tavily, YouTube), `score.ts` (the 7-day memory, growth, score), `kv.ts`, `run.ts` (the daily run) and `routes.ts`, with 8 test files beside them.
+  - Worker wiring: `scout.ts` (the routes), `social/cron.ts` (`EFFECTS_SLOT` 05:35 UTC), `discover/tools.ts` and `mcp.ts` (the connector's `effects`), the README.
+  - Dashboard: `lib/effects.ts`, `components/research/TrendingEffects.tsx` (placed by `ResearchPanel.tsx`), 9 copy keys in `messages/search.{ar,en}.json`.
+  - Dictionary: the `clone-effect` words in `planning/data/edit-terms.json` (Open items).
+- **Tests.**
+  - Worker: 78 in `src/effects/`. They cover extraction, scoring, the 400-key memory, the sources, the AI's schema and fallback, the run's budgets, a 14-day steady-state run, the routes and the 05:35 slot. The connector's `effects` are tested in `discover/tools.test.ts`, and the slot joins the cron grid test.
+  - Dashboard: 25 in `lib/effects.test.ts` and `TrendingEffects.test.ts`, 2 in `ResearchPanel.test.ts`, and 1 e2e test in `e2e/discover.spec.ts`.
+  - Totals at the end of the build: `pnpm test` 1,995 tests in 90 files (the Worker's 805 included); e2e 292 passed and 4 skipped by design (tests that run on one screen size only) of 296, on phone and desktop. Lint, typecheck and build clean.
+- **Budgets per run.**
+  - 6 Tavily credits (about 180 a month), ≤ 6 YouTube `search.list` + 1 `videos.list`, 1 AI call (`max_tokens` 3000, 60 s), 1 KV write, about 16 subrequests.
+  - A second run the same UTC day spends nothing.
+  - The document is ~104 KB at 400 keys after 14 daily runs in the test (≤ 250 KB asserted). A realistic worst case is ~0.4–0.7 MB, against KV's 25 MiB per value.
+- **Reviews.** Every task was reviewed against this spec and every fix round re-reviewed. Task 1 (extraction, scoring) took one fix round, its faster lookup re-checked on 22,976 texts with 0 mismatches. Task 2 (sources, AI, run) took three, ending with the 400-key memory and the 7-day protection. Task 3 (routes, slot, connector) passed first time. Task 4 (the row) took one; its re-review ran alongside Task 5 (these docs, the reviews' small leftovers, the gates).
+- **Not verified until the live check:**
+  - **CPU on the Free plan** (10 ms per request or cron run). Extraction alone measured ~7.5–10 ms warm and ~17 ms cold in Node. Read the run's CPU time in Workers Observability. If it is over, split the job across two slots: search and extract, then AI, YouTube and score.
+  - **The AI call's time and size.** 25 bilingual verdicts were estimated at 2,000–2,500 tokens; that has not been measured on the real model.
+  - **Real candidate volume.** The memory's table (§3) assumes about 12 approvals a day. The log's `keys`, `protected` and `trimmed` show which row applies.
+  - **How well the sticker trend is separated.** The "gif sticker overlay" family mixes crowns, hearts and caption stickers. Nobody knows yet whether the AI names the owner's hiking-reel style apart.
+  - **The first scan's wall time.** It should be about 30–60 s, under the edge's ~100 s limit; if not, the owner waits for the 05:35 run.

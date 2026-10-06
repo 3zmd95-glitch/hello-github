@@ -585,6 +585,7 @@ page needs working?"
 - **Cost:** about 180 Tavily credits a month. YouTube use rises to 94 of the 100 searches a day in total.
 - **Rejected:** scraping TikTok Creative Center, which TikTok's rules forbid since April 2026. We link to it instead.
 - **Spec:** `tools/18-trending-effects.md`.
+- **Built** on branch `claude/trending-effects-spec` (a separate worktree); the PR waits for the owner's OK.
 
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
