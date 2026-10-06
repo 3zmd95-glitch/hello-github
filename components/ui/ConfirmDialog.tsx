@@ -1,21 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import { useWorld } from "@/components/shell/useWorld";
 import { useT } from "@/lib/i18n";
 
-/**
- * Small pixel confirm dialog (Esc / backdrop / Cancel close it). `cancelLabel` renames the dismiss button when
- * a plain "Cancel" could read as the action itself (canceling a schedule).
- */
-export default function ConfirmDialog({
-  title,
-  body,
-  confirmLabel,
-  cancelLabel,
-  danger,
-  onConfirm,
-  onCancel,
-}: {
+type ConfirmProps = {
   title: string;
   body: string;
   confirmLabel?: string;
@@ -23,7 +13,26 @@ export default function ConfirmDialog({
   danger?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
-}) {
+};
+
+/** Confirm dialog: the pixel one in Training, an iOS alert in 📱 Social. */
+export default function ConfirmDialog(props: ConfirmProps) {
+  return useWorld() === "social" ? <IosAlert {...props} /> : <PixelConfirm {...props} />;
+}
+
+/**
+ * Small pixel confirm dialog (Esc / backdrop / Cancel close it). `cancelLabel` renames the dismiss button when
+ * a plain "Cancel" could read as the action itself (canceling a schedule).
+ */
+function PixelConfirm({
+  title,
+  body,
+  confirmLabel,
+  cancelLabel,
+  danger,
+  onConfirm,
+  onCancel,
+}: ConfirmProps) {
   const { t } = useT();
   const cancelRef = useRef<HTMLButtonElement>(null);
   const onCancelRef = useRef(onCancel);
@@ -80,5 +89,80 @@ export default function ConfirmDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The iOS alert, portaled to <body> on the z-50 layer: it centers on the screen even when opened from a sheet (a
+ * transformed panel would trap a fixed child). Esc is caught on document in the capture phase and stopped there,
+ * so the sheet underneath stays open. Same roles, ids and test ids as the pixel dialog; focus goes to Cancel and
+ * back to where it was.
+ */
+function IosAlert({
+  title,
+  body,
+  confirmLabel,
+  cancelLabel,
+  danger,
+  onConfirm,
+  onCancel,
+}: ConfirmProps) {
+  const { t } = useT();
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const onCancelRef = useRef(onCancel);
+  useEffect(() => {
+    onCancelRef.current = onCancel;
+  }, [onCancel]);
+  useEffect(() => {
+    const prevFocus = document.activeElement as HTMLElement | null;
+    cancelRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onCancelRef.current();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      prevFocus?.focus?.({ preventScroll: true });
+    };
+  }, []);
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      className="ios-alert-root"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+        aria-describedby="confirm-body"
+        className="ios-alert"
+        data-testid="confirm-dialog"
+      >
+        <div className="ios-alert-body">
+          <h2 id="confirm-title">{title}</h2>
+          <p id="confirm-body">{body}</p>
+        </div>
+        <div className="ios-alert-actions">
+          <button ref={cancelRef} type="button" onClick={onCancel} data-testid="confirm-cancel">
+            {cancelLabel ?? t("common.cancel")}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            data-primary="true"
+            data-danger={danger ? "true" : undefined}
+            data-testid="confirm-ok"
+          >
+            {confirmLabel ?? t("common.confirm")}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }

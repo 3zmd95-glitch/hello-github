@@ -1766,17 +1766,34 @@
     align-items: center;
     gap: 8px;
     height: 44px;
-    padding: 0 18px 0 14px;
+    max-width: 100%;
+    padding-inline: 14px 18px;
     border-radius: 999px;
     font-weight: 600;
     font-size: 14px;
     color: var(--ink);
     white-space: nowrap;
   }
+  /* One line, like the mockup: a long text (a post title) ends in an ellipsis inside the screen. */
+  [data-world="social"] .ios-toast > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   [data-world="social"] .ios-toast svg {
+    flex: none;
     color: var(--tint);
   }
-  /* ConfirmDialog in Social = iOS alert (Task 1.12 adds the class hooks). */
+  /* ConfirmDialog in Social = iOS alert, portaled to <body> on the z-50 layer (above sheets, under the player). */
+  .ios-alert-root {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.32);
+    animation: px-fade var(--t-med) var(--out);
+  }
   [data-world="social"] .ios-alert {
     width: 270px;
     max-width: 100%;
@@ -1784,6 +1801,9 @@
     border-radius: 14px;
     overflow: hidden;
     text-align: center;
+    background: var(--panel);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    animation: ios-alert-in var(--t-spring) var(--spring);
   }
   [data-world="social"] .ios-alert-body {
     padding: 18px 16px 14px;
@@ -1800,8 +1820,8 @@
     color: var(--ink-2);
   }
   [data-world="social"] .ios-alert-actions {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     border-top: 0.5px solid var(--hair);
   }
   [data-world="social"] .ios-alert-actions > button {
@@ -1815,7 +1835,7 @@
     transition: background-color var(--t-fast) var(--out);
   }
   [data-world="social"] .ios-alert-actions > button + button {
-    border-top: 0.5px solid var(--hair);
+    border-inline-start: 0.5px solid var(--hair);
   }
   [data-world="social"] .ios-alert-actions > button:active {
     background: var(--panel-2);
@@ -2038,6 +2058,12 @@
 @keyframes ios-drift {
   to {
     transform: translate(-7%, 5%) rotate(10deg) scale(1.08);
+  }
+}
+@keyframes ios-alert-in {
+  from {
+    opacity: 0;
+    transform: scale(1.1);
   }
 }
 /* ---- /Social world ---- */
