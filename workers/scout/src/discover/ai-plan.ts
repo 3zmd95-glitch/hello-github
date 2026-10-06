@@ -27,6 +27,15 @@ export function searchPlanFromAi(
   const categorySubjects = genreWords(req);
   // A curated retry must not erase constraints from a detailed, free-form brief.
   const categoryRetry = !!category && (isCategoryOnly(req) || !!baseline.termId);
+  const concepts = data.concepts.map((g) => [...new Set(g.map(normalizeTerm).filter(Boolean))]);
+  const typedTopic =
+    baseline.topicWords.length &&
+    (baseline.termId || (typedCategory && category && typedCategory.id !== category.id))
+      ? [baseline.topicWords]
+      : [];
+  // The model often repeats the category as a concept ("travel"): that group belongs to the category too.
+  const categoryLike = (g: string[]) => categorySubjects.some((w) => g.includes(w));
+  const idea = [...concepts.filter((g) => !categoryLike(g)), ...typedTopic];
   return {
     ...baseline,
     topicKey: normalizeTerm(data.summary.en),
@@ -34,14 +43,12 @@ export function searchPlanFromAi(
     alternatives: [],
     topicWords: [],
     needsEditingWord: false,
-    requiredGroups: [
-      ...data.concepts.map((g) => [...new Set(g.map(normalizeTerm).filter(Boolean))]),
-      ...(baseline.topicWords.length &&
-      (baseline.termId || (typedCategory && category && typedCategory.id !== category.id))
-        ? [baseline.topicWords]
-        : []),
-      ...(baseline.requiredGroups ?? []),
-    ],
+    requiredGroups: [...concepts, ...typedTopic, ...(baseline.requiredGroups ?? [])],
+    // Only a brief with an idea of its own may let the category give way (label.ts); category-only stays strict.
+    categoryGroups:
+      baseline.categoryGroups && idea.length
+        ? [...concepts.filter(categoryLike), ...baseline.categoryGroups]
+        : undefined,
     timeRange: req.timeRange ?? (data.timeRange === "any" ? undefined : data.timeRange),
     ytLength: req.ytLength ?? (data.ytLength === "any" ? undefined : data.ytLength),
     queries: platforms.flatMap((platform) => {

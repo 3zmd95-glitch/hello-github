@@ -100,6 +100,7 @@ export async function searchVideos(
       section: i.section,
       lang: i.lang,
       ...(i.offTopic ? { offTopic: true } : {}),
+      ...(i.outsideCategory ? { outsideCategory: true } : {}),
       ...(i.stats?.views !== undefined ? { views: i.stats.views } : {}),
       ...(i.stats?.likes !== undefined ? { likes: i.stats.likes } : {}),
       ...(i.published ? { published: i.published } : {}),

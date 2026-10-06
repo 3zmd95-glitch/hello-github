@@ -149,6 +149,16 @@ describe("parseDiscoverAnswer", () => {
     expect(parseDiscoverAnswer({ nope: true })).toBeNull();
   });
 
+  it("keeps the outside-category mark only when it is true", () => {
+    const parsed = parseDiscoverAnswer(
+      answer([
+        item({ outsideCategory: true }),
+        { ...item({}), outsideCategory: "yes" } as unknown as DiscoverItem,
+      ]),
+    );
+    expect(parsed?.items.map((i) => i.outsideCategory)).toEqual([true, undefined]);
+  });
+
   it("checks the nested fields: no answer without its label, broken parts dropped or zeroed", () => {
     const a = answer([item({})]);
     expect(parseDiscoverAnswer({ ...a, understood: { ...a.understood, label: null } })).toBeNull();

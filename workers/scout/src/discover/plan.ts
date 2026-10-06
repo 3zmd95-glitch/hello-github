@@ -239,6 +239,7 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
       : m.rest.length
         ? m.rest
         : [topic];
+  const groups = subject.length ? [subject, ...(!term ? [genreVisualWords(req)] : [])] : [];
   return {
     topic,
     topicKey,
@@ -252,7 +253,9 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
     alternatives: [...others.map(termAlternative), { exact: true }],
     topicWords: [...new Set(topicWords.map(normalizeTerm))].filter(Boolean),
     needsEditingWord: term ? !term.specific : false,
-    requiredGroups: subject.length ? [subject, ...(!term ? [genreVisualWords(req)] : [])] : [],
+    requiredGroups: groups,
+    // A typed idea inside a category: the category gives way only when nothing has both (label.ts).
+    ...(!genreOnly && groups.length ? { categoryGroups: groups } : {}),
     queries: plannedQueries(platforms, words, req, genreOnly),
   };
 }

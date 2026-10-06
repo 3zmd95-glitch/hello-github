@@ -196,6 +196,39 @@ describe("runDiscover", () => {
     expect(answer.complete).toBe(true);
   });
 
+  it("shows the typed idea's matches, marked outside the category, when nothing has both", async () => {
+    const req: DiscoverRequest = {
+      q: "match cut",
+      genreQuery: { en: "coffee edit", ar: "تصوير قهوة" },
+      platforms: ["tt"],
+    };
+    let n = 0;
+    const fetchMock = web({
+      tavily: () =>
+        json({
+          results: [
+            {
+              url: `https://www.tiktok.com/@cuts/video/${++n}`,
+              title: "Match cut football edit tutorial",
+              content: "match cut transitions",
+            },
+            {
+              url: `https://www.tiktok.com/@chef/video/${++n}`,
+              title: "Coffee and espresso recipes",
+              content: "Learn how to make coffee at home",
+            },
+          ],
+          usage: { credits: 1 },
+        }),
+    });
+    const answer = await runDiscover(ENV(), req, { fetch: fetchMock, now: NOW });
+    const shown = answer.items.filter((item) => !item.offTopic);
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown.every((item) => item.outsideCategory && /match cut/i.test(item.title))).toBe(true);
+    expect(answer.items.some((item) => /recipes/.test(item.title) && !item.offTopic)).toBe(false);
+    expect(answer.complete).toBe(true);
+  });
+
   it.each(["off-topic", "upstream"])(
     "does not cache an all-off-topic category answer after %s retries",
     async (retryResult) => {

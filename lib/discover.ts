@@ -40,6 +40,8 @@ export interface DiscoverItem {
   lang: Lang;
   section: DiscoverSection;
   offTopic?: true;
+  /** Shown for the typed idea although it does not mention the selected category (nothing had both). */
+  outsideCategory?: true;
   profile?: string;
 }
 
@@ -187,6 +189,7 @@ function parseItem(x: unknown): DiscoverItem | null {
     ...(stats ? { stats } : {}),
     ...(isStr(x.published) ? { published: x.published } : {}),
     ...(x.offTopic === true ? { offTopic: true as const } : {}),
+    ...(x.outsideCategory === true ? { outsideCategory: true as const } : {}),
     ...(isStr(x.profile) ? { profile: x.profile } : {}),
   };
 }
