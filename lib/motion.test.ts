@@ -1,13 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clamp01,
   easeOutCubic,
   nextMini,
   overdrag,
+  prefersReducedMotion,
   pullOffset,
   rubberBand,
   settleStop,
 } from "./motion";
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("motion helpers", () => {
   it("clamps and eases", () => {
@@ -56,5 +59,11 @@ describe("motion helpers", () => {
     expect(settleStop(250, -1, stops)).toBe(1); // flung up from below medium: medium
     expect(settleStop(150, -1, stops)).toBe(0); // flung up from above medium: large
     expect(settleStop(300, 0, [0, 500])).toBe(1); // one detent: nearest wins
+  });
+
+  it("reports no reduced-motion preference where matchMedia is missing, instead of throwing", () => {
+    expect(prefersReducedMotion()).toBe(false); // node: no window at all
+    vi.stubGlobal("window", {}); // a window without matchMedia, like jsdom's
+    expect(prefersReducedMotion()).toBe(false);
   });
 });

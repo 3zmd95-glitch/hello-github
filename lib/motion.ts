@@ -1,9 +1,9 @@
 /** Pure motion helpers for the Social iOS look (tools/18 §3.5). No DOM here except prefersReducedMotion(). */
 
+/** False without a window or matchMedia (server prerender, jsdom tests), so callers never throw. */
 export function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 export function clamp01(n: number): number {
