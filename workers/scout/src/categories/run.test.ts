@@ -382,14 +382,17 @@ describe("runCategory's lessons (§3)", () => {
     ...OLD,
     lessons: { ...OLD.lessons!, updatedAt: "2026-09-29T05:40:00.000Z" },
   };
-  /** The cleanup of the fake above, plus the lessons' two calls: PICKS, then every how-to (the first linked to a
-   * skill). */
-  function lessonsAi(howTos?: unknown) {
+  /** The cleanup of the fake above, plus the lessons' calls: PICKS, then each area's how-tos (its first technique
+   * linked to a skill); `onPick` runs when the pick is asked. */
+  function lessonsAi(howTos?: unknown, onPick = () => {}) {
     const cleanup = ai();
     return {
       run: vi.fn(async (model: string, input: Record<string, unknown>): Promise<unknown> => {
         const [system, user] = (input.messages as { content: string }[]).map((m) => m.content);
-        if (system.startsWith("You plan")) return { response: PICKS };
+        if (system.startsWith("You plan")) {
+          onPick();
+          return { response: PICKS };
+        }
         if (system.startsWith("You write")) {
           const techniques = [...user.matchAll(/^- (\d+) \|/gm)].map(([, i]) => ({
             i: Number(i),
@@ -402,6 +405,11 @@ describe("runCategory's lessons (§3)", () => {
       }),
     };
   }
+  /** The system prompts the AI was asked with, in order. */
+  const asked = (run: { mock: { calls: unknown[][] } }) =>
+    run.mock.calls.map(
+      ([, input]) => (input as { messages: { content: string }[] }).messages[0].content,
+    );
 
   it("a scan with lessons due refreshes them after saving the trends: 9 + 1 more searches", async () => {
     const { env, KV } = setup();
@@ -415,6 +423,14 @@ describe("runCategory's lessons (§3)", () => {
     expect(searched).toContain("car panning tutorial");
     expect(searched).toContain("شرح تصوير ومونتاج سيارات");
     expect(writes(KV)).toEqual([ATTEMPTS, KEY, KEY]);
+    // The trends were saved first, without lessons: a refresh that never ends still leaves them saved.
+    const trends = JSON.parse(KV.put.mock.calls[1][1]) as CategoryDoc;
+    expect(trends.items).toEqual(doc.items);
+    expect(trends.lessons).toBeUndefined();
+    // The cleanup, the pick, then one how-to call an area: at most 7 AI calls a run.
+    const systems = asked(env.AI.run);
+    expect(systems.filter((s) => s.startsWith("You write"))).toHaveLength(3);
+    expect(systems.length).toBeLessThanOrEqual(7);
     expect(doc.lessons!.photo).toHaveLength(3);
     expect(doc.lessons!.photo[0]).toMatchObject({ skillId: "phone-180-shutter", howTo: HOW });
     expect(doc.lessons!.video[0].videos.map((v) => v.kind)).toEqual([
@@ -429,7 +445,7 @@ describe("runCategory's lessons (§3)", () => {
     expect(doc.notes ?? []).not.toContain("lessons");
   });
 
-  it("lessons under 7 days old stay as they are", async () => {
+  it("lessons under 6 days old stay as they are", async () => {
     const { env, KV } = setup({ stored: OLD }); // 3 days old
     env.AI = lessonsAi();
     const { fetch, count } = web();
@@ -446,7 +462,61 @@ describe("runCategory's lessons (§3)", () => {
     expect(doc.lessons).toEqual(LAST_WEEK.lessons);
     expect(doc.notes).toContain("lessons");
     expect(writes(KV)).toEqual([ATTEMPTS, KEY, KEY]);
-    expect(stored(KV).diagnostics).toMatchObject({ lessons: { picked: 9, written: 0 } });
+    expect(stored(KV).diagnostics).toMatchObject({
+      lessons: { picked: 9, written: 0, failed: 3 },
+    });
+  });
+
+  it("an area whose how-to call fails keeps last week's techniques there; the others are new", async () => {
+    const { env, KV } = setup({ stored: LAST_WEEK });
+    const answering = lessonsAi();
+    env.AI = {
+      run: vi.fn(async (model: string, input: Record<string, unknown>): Promise<unknown> => {
+        const [system, user] = (input.messages as { content: string }[]).map((m) => m.content);
+        // The videography call answers nothing.
+        if (system.startsWith("You write") && / \| video \| /.test(user)) return { response: {} };
+        return answering.run(model, input);
+      }),
+    };
+    const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW });
+    expect(doc.lessons!.updatedAt).toBe(NOW.toISOString());
+    expect(doc.lessons!.video).toEqual(LAST_WEEK.lessons!.video);
+    expect(doc.lessons!.photo.map((t) => t.name.en)).toEqual([
+      "panning",
+      "light painting",
+      "hero shot",
+    ]);
+    expect(doc.notes ?? []).not.toContain("lessons");
+    expect(stored(KV).lessons).toEqual(doc.lessons);
+    expect(stored(KV).diagnostics).toMatchObject({ lessons: { written: 6, failed: 1 } });
+  });
+
+  it("a refresh that throws keeps last week's lessons, noted 'lessons'", async () => {
+    const { env, KV } = setup({ stored: LAST_WEEK });
+    const cleanup = ai();
+    env.AI = {
+      run: vi.fn(async (model: string, input: Record<string, unknown>): Promise<unknown> => {
+        const [system] = (input.messages as { content: string }[]).map((m) => m.content);
+        // A pick whose reading throws: a code error inside the refresh, not a missing answer.
+        if (system.startsWith("You plan"))
+          return {
+            response: {
+              get photo(): never {
+                throw new Error("boom");
+              },
+            },
+          };
+        return cleanup.run(model, input);
+      }),
+    };
+    const { fetch, count } = web();
+    const doc = await runCategory(env, "cars", { fetch, now: NOW });
+    expect(doc.lessons).toEqual(LAST_WEEK.lessons);
+    expect(doc.notes).toContain("lessons");
+    expect(count.tavily).toBe(6);
+    expect(writes(KV)).toEqual([ATTEMPTS, KEY, KEY]);
+    expect(stored(KV).lessons).toEqual(LAST_WEEK.lessons);
+    expect(stored(KV).diagnostics).toMatchObject({ lessons: { error: "boom" } });
   });
 
   it("without the AI binding no refresh is tried, and the page is saved once", async () => {

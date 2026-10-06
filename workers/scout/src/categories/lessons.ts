@@ -1,14 +1,16 @@
 /**
- * Category lessons (planning/tools/19-category-trends.md §3), refreshed on a category's scan when they are 7 or more
- * days old or missing:
+ * Category lessons (planning/tools/19-category-trends.md §3), refreshed on a category's scan when they are 6 or more
+ * days old or missing (scans come every 3 days, so every second scan):
  * - one AI call picks 3 techniques for each area (photography, videography, editing);
  * - one Tavily search per technique over YouTube, Instagram and TikTok gives 1 tutorial and 2 examples;
  * - one Arabic YouTube search gives the category's Arabic tutorials;
- * - one AI call writes each technique's how-to (English and Arabic, ≤ 220 characters), links the skill it practices
- *   from the real list, and gives each Arabic tutorial to one technique at most.
- * 10 Tavily credits and 2 AI calls a refresh. Titles and snippets are untrusted data: clipped, the prompts say so, and
- * every answer is checked entry by entry. A technique with no video, or no usable how-to, is never kept; a refresh that
- * keeps nothing gives null, and the category keeps last week's lessons.
+ * - one AI call an area, the 3 at once, writes each technique's how-to (English and Arabic, ≤ 220 characters), links the
+ *   skill it practices from the real list and names its Arabic tutorial; each Arabic tutorial then goes to one
+ *   technique at most, photo → video → edit.
+ * 10 Tavily credits and 4 AI calls a refresh. Titles and snippets are untrusted data: clipped, the prompts say so, and
+ * every answer is checked entry by entry. A technique with no video, or no usable how-to, is never kept; an area with
+ * nothing new keeps last week's techniques; a refresh with nothing new gives null, and the category keeps last week's
+ * lessons.
  */
 
 import { z } from "zod";
@@ -21,9 +23,9 @@ import type { EffectItem } from "../effects/types";
 import { platformForHost, type Platform, type ScoutResult } from "../normalize";
 import type { Genre } from "../trends/genres";
 import { SKILL_IDS, SKILLS } from "./skills";
-import { AREAS, type Area, type LessonVideo, type Lessons } from "./types";
+import { AREAS, type Area, type LessonVideo, type Lessons, type Technique } from "./types";
 
-export const LESSON_DAYS = 7;
+export const LESSON_DAYS = 6;
 const PER_AREA = 3;
 const NAME_MAX = 40;
 const QUERY_MAX = 80;
@@ -33,6 +35,8 @@ const AR_TUTORIALS = 6;
 /** Tavily calls at a time: a Worker keeps 6 connections open and queues the rest, whose time limit runs meanwhile. */
 const AT_ONCE = 5;
 const AI_TIMEOUT_MS = 60_000;
+/** An area's 3 bilingual how-tos run ~700 tokens (Arabic costs more): room for that. */
+const AREA_TOKENS = 1000;
 const TUTORIAL = /how to|tutorial/i;
 const SHORT = new Set<Platform>(["ig", "tt"]);
 
@@ -47,7 +51,8 @@ const PICK_SCHEMA = z.toJSONSchema(
 const HowToEntry = z.object({
   i: z.number().int().min(0),
   howTo: z.object({ en: z.string().min(20).max(HOWTO_MAX), ar: z.string().min(20).max(HOWTO_MAX) }),
-  skillId: z.string().min(1).max(80).optional(),
+  // Any text: SKILL_IDS decides which ids are kept.
+  skillId: z.string().min(1).optional(),
   arTutorial: z.number().int().min(0).optional(),
 });
 const HOWTO_SCHEMA = z.toJSONSchema(z.object({ techniques: z.array(HowToEntry) }));
@@ -75,13 +80,20 @@ export type Written = { howTo: { en: string; ar: string }; skillId?: string; ar?
 export type LessonCounts = {
   picked: number;
   withVideos: number;
+  /** New techniques kept (last week's an area keeps are not counted). */
   written: number;
+  /** Areas whose how-to call gave no answer (as cleanWithAi's failed batches). */
+  failed: number;
   credits: number;
   searchErrors: number;
   rejects: Record<string, number>;
 };
 
-/** Due when missing, or 7 or more days old; a date that can't be read is due too. */
+/** Counts one reject by why (field and zod code, or our own reason): never the model's text. */
+const tally = (rejects: Record<string, number>, why: string) =>
+  void (rejects[why] = (rejects[why] ?? 0) + 1);
+
+/** Due when missing, or 6 or more days old; a date that can't be read is due too. */
 export function lessonsDue(lessons: Lessons | undefined, today: string): boolean {
   return !lessons || !(daysBetween(lessons.updatedAt.slice(0, 10), today) < LESSON_DAYS);
 }
@@ -177,21 +189,27 @@ export function pickVideos(
   ];
 }
 
-/** A how-to as the model writes it, made checkable: texts trimmed and clipped, and a skill or number it leaves empty
- * (null, "", or -1 for no Arabic tutorial: Workers AI does not hold it to the schema's minimum) left out. */
+/** A how-to as the model writes it, made checkable: texts trimmed and clipped; a skill id that is no text, or an Arabic
+ * tutorial that is no list number (null, -1, "1", 0.5), left out, never costing the how-to. Workers AI does not hold
+ * answers to the schema. */
 function tidyHowTo(x: unknown): unknown {
   if (!isRecord(x)) return x;
   const v: Record<string, unknown> = { ...x };
   if (isRecord(x.howTo))
     v.howTo = { ...x.howTo, en: clip(x.howTo.en, HOWTO_MAX), ar: clip(x.howTo.ar, HOWTO_MAX) };
-  if (typeof v.skillId === "string") v.skillId = v.skillId.trim();
-  for (const k of ["skillId", "arTutorial"]) {
-    const none = v[k];
-    if (none == null || none === "" || (typeof none === "number" && none < 0)) delete v[k];
-  }
+  const skill = typeof v.skillId === "string" ? v.skillId.trim() : "";
+  if (skill) v.skillId = skill;
+  else delete v.skillId;
+  const ar = v.arTutorial;
+  if (!(typeof ar === "number" && Number.isInteger(ar) && ar >= 0)) delete v.arTutorial;
   return v;
 }
 
+/**
+ * One area's how-tos, one AI call: each technique's checked how-to, the skill it practices when the id is on the real
+ * list, and the Arabic tutorial the model named for it (refreshLessons gives each to one technique at most, across the
+ * areas). null with no answer.
+ */
 export async function writeHowTos(
   env: EffectsEnv,
   g: Genre,
@@ -213,35 +231,36 @@ export async function writeHowTos(
   ].join("\n");
   const data = await askAi(
     env,
-    { system: HOWTO_SYSTEM, user, schema: HOWTO_SCHEMA, maxTokens: 2600 },
+    { system: HOWTO_SYSTEM, user, schema: HOWTO_SCHEMA, maxTokens: AREA_TOKENS },
     timeoutMs,
   );
   const list = isRecord(data) ? data.techniques : undefined;
   if (!Array.isArray(list)) return null;
-  const count = (why: string) => void (rejects[why] = (rejects[why] ?? 0) + 1);
   const out = new Map<number, Written>();
-  const given = new Set<number>();
   for (const x of list) {
     const h = HowToEntry.safeParse(tidyHowTo(x));
     if (!h.success) {
-      h.error.issues.forEach((i) =>
-        count(i.path.length ? `${i.path.map(String).join(".")}:${i.code}` : i.code),
+      h.error.issues.forEach((issue) =>
+        tally(
+          rejects,
+          issue.path.length ? `${issue.path.map(String).join(".")}:${issue.code}` : issue.code,
+        ),
       );
       continue;
     }
     const { i, howTo, skillId, arTutorial } = h.data;
-    if (i >= drafts.length || out.has(i)) {
-      count("unknown_i");
+    if (out.has(i)) {
+      tally(rejects, "duplicate_i");
+      continue;
+    }
+    if (i >= drafts.length) {
+      tally(rejects, "unknown_i");
       continue;
     }
     // A skill outside the real list is dropped, never shown (§3).
-    if (skillId && !SKILL_IDS.has(skillId)) count("unknown_skill");
-    const ar =
-      arTutorial !== undefined && arTutorial < arabic.length && !given.has(arTutorial)
-        ? arabic[arTutorial]
-        : undefined;
-    if (arTutorial !== undefined && !ar) count("unknown_ar");
-    if (ar) given.add(arTutorial!);
+    if (skillId && !SKILL_IDS.has(skillId)) tally(rejects, "unknown_skill");
+    const ar = arTutorial === undefined ? undefined : arabic[arTutorial];
+    if (arTutorial !== undefined && !ar) tally(rejects, "unknown_ar");
     out.set(i, {
       howTo,
       ...(skillId && SKILL_IDS.has(skillId) ? { skillId } : {}),
@@ -257,12 +276,15 @@ export async function refreshLessons(
   g: Genre,
   items: readonly EffectItem[],
   now: Date,
+  /** Last week's lessons: an area with nothing new keeps its techniques. */
+  last?: Lessons,
   opts: { timeoutMs?: number; aiTimeoutMs?: number } = {},
 ): Promise<{ lessons: Lessons | null; counts: LessonCounts }> {
   const counts: LessonCounts = {
     picked: 0,
     withVideos: 0,
     written: 0,
+    failed: 0,
     credits: 0,
     searchErrors: 0,
     rejects: {},
@@ -318,20 +340,41 @@ export async function refreshLessons(
   });
   counts.withVideos = drafts.length;
   if (!drafts.length) return { lessons: null, counts };
-  const written = await writeHowTos(env, g, drafts, arabic, opts.aiTimeoutMs, counts.rejects);
-  if (!written) return { lessons: null, counts };
+  // One how-to call an area, all at once (as cleanWithAi's batches): a slow or failed area costs only itself.
+  const byArea = AREAS.map((area) => drafts.filter((d) => d.area === area));
+  const answers = await Promise.all(
+    byArea.map((list) =>
+      list.length
+        ? writeHowTos(env, g, list, arabic, opts.aiTimeoutMs, counts.rejects)
+        : new Map<number, Written>(),
+    ),
+  );
+  counts.failed = answers.filter((a) => !a).length;
+  // Each Arabic tutorial to one technique at most: the first that names it, photo → video → edit.
+  const given = new Set<string>();
+  const fresh = byArea.map((list, a) =>
+    list.flatMap((d, i): Technique[] => {
+      const w = answers[a]?.get(i);
+      // No usable how-to: not kept (a technique always has one).
+      if (!w) return [];
+      const ar = w.ar && !given.has(w.ar.url) ? w.ar : undefined;
+      if (w.ar && !ar) tally(counts.rejects, "duplicate_ar");
+      if (ar) given.add(ar.url);
+      return [
+        {
+          name: d.pick.name,
+          howTo: w.howTo,
+          ...(w.skillId ? { skillId: w.skillId } : {}),
+          videos: [...d.videos, ...(ar ? [ar] : [])],
+        },
+      ];
+    }),
+  );
+  counts.written = fresh.flat().length;
+  if (!counts.written) return { lessons: null, counts };
+  // An area with nothing new (its call failed, or none of its techniques kept a video and a how-to) keeps last
+  // week's techniques.
   const lessons: Lessons = { updatedAt: now.toISOString(), photo: [], video: [], edit: [] };
-  drafts.forEach((d, i) => {
-    const w = written.get(i);
-    // No usable how-to: not kept (a technique always has one).
-    if (!w) return;
-    lessons[d.area].push({
-      name: d.pick.name,
-      howTo: w.howTo,
-      ...(w.skillId ? { skillId: w.skillId } : {}),
-      videos: [...d.videos, ...(w.ar ? [w.ar] : [])],
-    });
-  });
-  counts.written = AREAS.reduce((n, a) => n + lessons[a].length, 0);
-  return { lessons: counts.written ? lessons : null, counts };
+  AREAS.forEach((area, a) => (lessons[area] = fresh[a].length ? fresh[a] : (last?.[area] ?? [])));
+  return { lessons, counts };
 }

@@ -4,7 +4,7 @@
  * its context line and a 200-name memory → its top 12, trends first, with no YouTube check → one KV document
  * `category:<id>`. Once per UTC day unless forced or that day's run failed; at most 3 spending runs a category a UTC
  * day, forced ones included (`category:attempts:<id>:<day>`); paused at 90 % of the month's Tavily credits (§4).
- * When its lessons are 7 or more days old (or missing) the scan also refreshes them (lessons.ts), saved after the
+ * When its lessons are 6 or more days old (or missing) the scan also refreshes them (lessons.ts), saved after the
  * trends. Never throws: a day that fails keeps the last page and its lessons.
  */
 
@@ -194,16 +194,16 @@ export async function runCategory(
   console.log(JSON.stringify({ category: diagnostics }));
   if (attempt === false || prev === undefined) return doc;
   doc = await save(env, key, { ...doc, diagnostics });
-  // The week's lessons (§3): after a scan that searched (a tight month never does), when they are 7 days old or
-  // missing; they need the AI. Saved a second time, so a slow refresh (the request dropped, waitUntil's 30 s over)
-  // never costs the trends.
+  // The lessons (§3): after a scan that searched (a tight month never does), when they are 6 days old or missing;
+  // they need the AI. Saved a second time, so a slow refresh (the request dropped, waitUntil's 30 s over) never costs
+  // the trends.
   // ponytail: lessons share the scan's invocation (spec §4); if live CPU or wall time is too high, give them a slot.
   if (doc.status === "failed" || !env.AI || !lessonsDue(prev?.lessons, today)) return doc;
   let lessons: Record<string, unknown>;
   try {
-    const r = await refreshLessons(env, opts.fetch ?? fetch, g, doc.items, now, opts);
+    const r = await refreshLessons(env, opts.fetch ?? fetch, g, doc.items, now, doc.lessons, opts);
     lessons = r.counts;
-    // A refresh that kept nothing: last week's lessons stay (§3).
+    // A refresh with nothing new: last week's lessons stay (§3).
     doc = r.lessons ? { ...doc, lessons: r.lessons } : noted(doc, "lessons");
   } catch (e) {
     lessons = { error: (e instanceof Error ? e.message : String(e)).slice(0, 200) };
