@@ -1,6 +1,6 @@
 # 18 · Trending effects in Discover
 
-**Status:** design approved in chat on 2026-10-06; the spec is waiting for the owner's review. Nothing is built yet.
+**Status:** design approved in chat on 2026-10-06. The owner said "build it and focus about its functionality" the same day. The design was revised after the live probe below (effect families + a 7-day memory); building on branch `claude/trending-effects-spec`.
 
 This is project 3 of round 33 ("Beacons-style trends on top of 1 and 2"), narrowed to the editing effects the owner edits with.
 The owner shared an Instagram reel of the **clone effect** and asked: "does it show in Discover as trendy, or does our Discover
@@ -44,6 +44,23 @@ Searching "clone effect" by hand did work: 66 posts, with strong English tutoria
   - the cron slot pattern (`social/cron.ts` `TREND_SLOTS`)
   - Discover's chip and row styles
 
+## Live probe (2026-10-06, before building)
+
+These were run through Discover's own Worker (Posted: Week). They cost about 35 credits.
+
+- **Generic wording ("viral edit trend", "capcut trend edit", "new reels editing trend")**
+  - 337 posts came back: 115 TikTok, 60 Instagram, 162 YouTube.
+  - The rules found 265 candidates, but the top ones were generic: "video edit", "viral trend", "dance trend", "the trend".
+  - The real named trends ("CapCut Reverse Trend", "Mention Trend", "First Month Edit Trend") each came from only 1–2 creators.
+  - **0 posts mentioned the clone effect**, and 0 mentioned the owner's second reel (animated GIF stickers over cinematic hiking footage).
+- **Family wording**
+  - **"clone yourself video trend"**: 34 TikTok/Instagram posts, **8 distinct creators** posting clone edits. It also surfaced sub-trends:
+    "Flash Clone Edit" and "Swagger Trend" (clone yourself with one hair). The clone effect would pass the 3-creator bar.
+  - **"gif sticker overlay reel trend"**: 12 TikTok/Instagram posts, and 7 creators mention stickers or GIF overlays. These are mixed (crowns,
+    hearts, caption stickers) rather than the exact hiking-reel style. The AI naming step has to separate them, and the live check will
+    report how well it does.
+- **Decision:** rotate effect families, keep a 7-day memory of creators, and name trends from Title-Case "… Trend / Edit" phrases.
+
 ## Design
 
 ### 1. Daily job (Worker, `src/effects/`)
@@ -54,11 +71,19 @@ Searching "clone effect" by hand did work: 66 posts, with strong English tutoria
 
 **Steps.**
 
-1. **Find mentions (Tavily, 6 credits).** Six searches, global (no country) and in English:
+1. **Find mentions (Tavily, 6 credits).** Six searches a day, global (no country) and in English, each on
+   `include_domains: ["tiktok.com", "instagram.com"]`:
    - Settings: `time_range: "week"`, `max_results: 20`, `search_depth: "basic"`.
-   - 3 searches with `include_domains: ["tiktok.com"]` and 3 with `include_domains: ["instagram.com"]`.
-   - Fixed wording aimed at editing trends, for example "viral video editing effect trend", "trending capcut edit effect tutorial", "new transition effect reel".
-   - At most 120 posts in total.
+   - The six are taken in turn from a pool of **18 effect-family queries**, rotated by UTC day, so every family is searched every
+     3 days. Examples:
+     - "clone yourself video trend"
+     - "gif sticker overlay reel trend"
+     - "new transition trend reels"
+     - "text effect trend capcut"
+     - "speed ramp trend edit"
+     - "ai effect video trend"
+   - At most 120 posts a day; about 840 over the rolling week.
+   - Why families and not generic wording: see the live probe below.
 2. **Pull out candidates (rules, free).**
    - Every dictionary entry matched in a post's title or snippet (`matchTerms`, the same matching form as search).
    - English phrases of 1–3 words before "effect", "transition", "trick", "edit trend" or "filter".
@@ -95,12 +120,16 @@ Searching "clone effect" by hand did work: 66 posts, with strong English tutoria
 
 ### 2. What counts as trending
 
-- **Main signal:** distinct **creators** on TikTok and Instagram mentioning the effect this week. Creators are counted, not posts, so one account can't fake a trend.
-- **Minimum to show:** 3 distinct creators.
-- **Growth:** today's creators compared with the same effect 3 days earlier in the 14-day history.
-  - `then` is the effect's most recent history entry that is at least 3 days old.
-  - `growth = today / max(1, then)`.
-  - An effect with no such entry counts as growth 3. That covers effects never seen before and effects first seen 1–2 days ago.
+- **Main signal:** distinct **creators** on TikTok and Instagram mentioning the effect over the **last 7 days of scans**. Creators are counted, not posts, so one account can't fake a trend.
+  - Each day's creators are kept per effect in the history as short hashes. The 7-day count is the union, so a trend builds up across the rotation.
+- **Minimum to show:** 3 distinct creators over the 7 days.
+- **Named trends:** besides "___ effect / transition / trick / filter" phrases and hashtags, the rules also keep Title-Case names before
+  "Trend" or "Edit". Tavily titles these posts like "How to Edit the New CapCut Reverse Trend" and "Clone Yourself with One Hair (Swagger
+  Trend)". Generic words (viral, new, latest, capcut, tiktok, video, edit, trend) never count as a name on their own.
+- **Growth:** compares the creators of the last 3 days with the 3 days before them.
+  - Each family is searched once in every 3-day window, so the two windows are like for like.
+  - `growth = |creators, days 0–2| / max(1, |creators, days 3–5|)`.
+  - An effect with no creators in days 3–5 counts as growth 3. That covers effects never seen before.
 - **NEW:** the effect is not in the dictionary and was first seen in the last 7 days.
 - **YouTube bonus:** `views7d` growth of at least 1.5×, against the effect's last recorded `views7d`. It adds a small boost and the "▶ ↑N×" note. No data means no penalty.
 - **Score:** `creators × min(growth, 4) × (youtubeBonus ? 1.25 : 1)`.
@@ -131,12 +160,17 @@ KV `effects:trending` holds one document, written at most once a day:
     youtube?: { newVideos: number; views7d: number; growth?: number };
     samples: { url: string; title: string }[]; // ≤ 2, canonical post URLs
   }[];                            // ≤ 8
-  history: Record<string, { day: string; creators: number; views7d?: number }[]>; // ≤ 14 days per key, ≤ 60 keys
+  history: Record<string, { day: string; ids: string[]; views7d?: number }[]>;
+  // ids: short hashes of "platform:handle" seen that day, ≤ 30. ≤ 14 days per key, ≤ 60 keys.
 }
 ```
 
-History trimming: entries older than 14 days are dropped. If more than 60 keys remain, the keys with the fewest creators
-on their latest day are dropped first. An effect's first-seen day is its earliest kept entry.
+History trimming:
+- Entries older than 14 days are dropped.
+- If more than 60 keys remain, the keys with the fewest creators over their last 7 days are dropped first.
+- An effect's first-seen day is its earliest kept entry.
+
+Handles are hashed (SHA-256, first 8 hex) so the stored document holds no account names. Only the 2 sample posts keep a visible handle.
 
 - **`GET /effects/trending`** (Bearer `SCOUT_TOKEN`, with the same CORS as `/discover`) returns `{ updatedAt, ranOn, status, items }`, without the history.
 - **`POST /effects/run`** (Bearer) runs the job now, for the live check. It respects the once-a-day guard unless `{ force: true }` is sent.
