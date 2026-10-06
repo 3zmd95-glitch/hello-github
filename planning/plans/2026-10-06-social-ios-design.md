@@ -3910,6 +3910,7 @@ console.log(`total ${total}`);
 ```ts
 test("Social navigation has no emoji", async ({ page }) => {
   await freshState(page, "/social/more/");
+  await expect(page.locator("main h1").first()).toBeVisible(); // the splash has no content yet
   const text = await page.evaluate(
     () => (document.querySelector('[data-testid="tabbar"], [data-testid="sidenav"]')?.textContent ?? "") +
       (document.querySelector("main")?.querySelector("h1")?.textContent ?? ""),
