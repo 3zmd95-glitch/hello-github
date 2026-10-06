@@ -84,7 +84,7 @@ export async function runTick(
   deps: SyncDeps = {},
 ): Promise<TickResult> {
   const now = deps.now ?? new Date(scheduledTime);
-  // Off the five-minute grid only the replies run (every sync, effects and trend slot sits on the grid).
+  // Off the five-minute grid only the replies run (every sync, effects, category and trend slot sits on the grid).
   if (new Date(scheduledTime).getUTCMinutes() % 5 !== 0) {
     return { replies: await pollReplies(env, { fetch: deps.fetch, now, fiveMinuteTick: false }) };
   }

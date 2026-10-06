@@ -5,9 +5,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { usageKeys } from "../discover/usage";
 import { handle, type Env } from "../scout";
 import { runTick } from "../social/cron";
 import { TAVILY_URL } from "../trends/tavily";
+import { handleCategories } from "./routes";
 import type { CategoryDoc } from "./types";
 
 const TOKEN = "s3cret-token";
@@ -36,6 +38,9 @@ function tavily() {
 function setup(stored?: CategoryDoc) {
   const store = new Map<string, string>();
   if (stored) store.set(KEY, JSON.stringify(stored));
+  // Discover's Tavily figure kept, 8 % of the month: no run here asks Tavily's /usage, so the fetch counts are the
+  // searches alone (run.test.ts covers no figure kept).
+  store.set(usageKeys.tavily, JSON.stringify({ used: 80, limit: 1000 }));
   const kv = {
     store,
     get: vi.fn(async (key: string) => store.get(key) ?? null),
@@ -47,6 +52,8 @@ function setup(stored?: CategoryDoc) {
     SCOUT_TOKEN: TOKEN,
     ALLOWED_ORIGINS: APP,
     TAVILY_API_KEY: "t",
+    // So a YouTube call would really go out and show in the fetch counts: categories make none.
+    YOUTUBE_API_KEY: "y",
     SOCIAL_KV: kv as unknown as KVNamespace,
   };
   return { env, kv };
@@ -202,6 +209,21 @@ describe("/categories routes", () => {
       expect(res.status, body).toBe(400);
       expect(await res.json()).toEqual({ error: "bad_request" });
     }
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(kv.put).not.toHaveBeenCalled();
+  });
+
+  it("a POST to an unknown category, or to a page without /run, is not ours: the router's 404, nothing read or spent", async () => {
+    const { env, kv } = setup();
+    const fetchMock = tavily();
+    const deps = { fetch: fetchMock, now: () => NOW };
+    const posts = () => [
+      run("drift", "{}"),
+      req("/categories/cars", { method: "POST", body: "{}" }),
+    ];
+    for (const r of posts()) expect(await handleCategories(r, env, new Headers(), deps)).toBeNull();
+    expect(kv.get).not.toHaveBeenCalled();
+    for (const r of posts()) expect((await handle(r, env, undefined, deps)).status).toBe(404);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(kv.put).not.toHaveBeenCalled();
   });

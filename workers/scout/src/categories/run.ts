@@ -13,7 +13,7 @@ import { readEffects, writeEffects } from "../effects/kv";
 import { countAttempt, failed, noted, rememberPosts, type Memory } from "../effects/run";
 import { scoreEffects } from "../effects/score";
 import {
-  cachedTavilyUsage,
+  monthUsage,
   searchFamilies,
   TIGHT_SHARE,
   type EffectsEnv,
@@ -146,11 +146,13 @@ export async function runCategory(
   let families: FamilyStats[] | undefined;
   let memory: Memory | undefined;
   let error: string | undefined;
-  // true: counted; false: over the day's cap (nothing spent or written); undefined: the counter could not be kept.
+  // The day's cap. true: the page may be saved (the attempt counted, or none needed: a pause spends nothing); false:
+  // over the cap, nothing spent or written; undefined: the counter could not be kept (saved, noted "attempts_kv").
   let attempt: boolean | undefined = true;
   if (prev === undefined) doc = failed(null, today, now, ["kv"]);
-  // The month's credits nearly spent: paused before any search, the last page kept, no attempt counted.
-  else if (monthTight(await cachedTavilyUsage(env)))
+  // The month's credits nearly spent (Discover's figure, else Tavily's /usage): paused before any search, the last
+  // page kept, no attempt counted.
+  else if (monthTight(await monthUsage(env, opts.fetch ?? fetch, opts.timeoutMs)))
     doc = failed(prev, today, now, ["tavily_budget"]);
   else {
     // Every spending run counts, forced ones too (§2: at most 3 a category a UTC day).

@@ -2125,7 +2125,7 @@ describe("cron slots", () => {
       expect(slot).toMatch(/^([01]\d|2[0-3]):[0-5]\d$/);
       expect(Number(slot.slice(3)) % 5, slot).toBe(0);
     }
-    // The trend, weekly and daily effects slots never take a sync slot or one another's.
+    // The trend, weekly, daily effects and category slots never take a sync slot or one another's.
     expect(new Set(slots).size, slots.join(" ")).toBe(slots.length);
   });
 

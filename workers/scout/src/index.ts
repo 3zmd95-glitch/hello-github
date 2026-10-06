@@ -96,9 +96,9 @@ export default {
     return provider.fetch(req, env, ctx);
   },
   // Cron (wrangler.jsonc `triggers.crons`): every minute the auto replies; on the five-minute grid the
-  // auto-post queue, the daily social sync on the 06:00–06:30 Riyadh ticks, the Trend Radar slots and the daily
-  // trending effects slot at 05:35 UTC (social/cron.ts). Any other cron string (the four daily triggers of older
-  // deployments) still runs the sync alone.
+  // auto-post queue, the daily social sync on the 06:00–06:30 Riyadh ticks, the Trend Radar slots, the daily
+  // trending effects slot at 05:35 UTC and the four Discover category slots at 05:40–05:55 UTC (social/cron.ts). Any
+  // other cron string (the four daily triggers of older deployments) still runs the sync alone.
   async scheduled(event, env) {
     const result =
       event.cron === TICK_CRON

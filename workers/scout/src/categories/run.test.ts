@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { usageKeys } from "../discover/usage";
+import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
 import { TAVILY_URL } from "../trends/tavily";
 import { aiContext, categoryById } from "./defs";
 import { monthTight, runCategory } from "./run";
@@ -42,11 +42,18 @@ const PROBE: Hit[] = [
   tt("g2", "cinematic car edit", 13),
 ];
 
-/** A fake internet: every Tavily search answers `PROBE` unless `tavily` says otherwise; anything else is counted. */
-function web(over: { tavily?: (query: string) => Response | undefined } = {}) {
-  const count = { tavily: 0, other: 0 };
+/** A fake internet: every Tavily search answers `PROBE` unless `tavily` says otherwise; Tavily's /usage answers `usage`
+ * (by default no figure: a 404, nothing kept); anything else is counted. */
+function web(
+  over: { tavily?: (query: string) => Response | undefined; usage?: () => Response } = {},
+) {
+  const count = { tavily: 0, usage: 0, other: 0 };
   const searched: string[] = [];
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+    if (String(input) === TAVILY_USAGE_URL) {
+      count.usage++;
+      return over.usage?.() ?? json({ error: "not_found" }, 404);
+    }
     if (String(input) !== TAVILY_URL) {
       count.other++;
       return json({ error: "not_found" }, 404);
@@ -91,7 +98,13 @@ function setup(over: { stored?: CategoryDoc } = {}) {
     }),
   };
   const AI = ai();
-  const env = { TAVILY_API_KEY: "t", AI, SOCIAL_KV: KV as unknown as KVNamespace };
+  // A YouTube key too, so a YouTube call would really go out (and be counted): categories make none.
+  const env = {
+    TAVILY_API_KEY: "t",
+    YOUTUBE_API_KEY: "y",
+    AI,
+    SOCIAL_KV: KV as unknown as KVNamespace,
+  };
   return { env, KV, AI };
 }
 type FakeKV = ReturnType<typeof setup>["KV"];
@@ -238,6 +251,43 @@ describe("runCategory", () => {
     );
     await runCategory(env, "cars", { fetch, now: NOW });
     expect(count.tavily).toBe(6);
+    // A figure Discover keeps (10 minutes) is used as it is: Tavily's /usage is never asked.
+    expect(count.usage).toBe(0);
+  });
+
+  it("with no figure kept (the cron's usual case), asks Tavily's /usage once and keeps it: 95 % pauses", async () => {
+    const { env, KV } = setup({ stored: OLD });
+    const { fetch, count } = web({
+      usage: () => json({ account: { plan_usage: 950, plan_limit: 1000 } }),
+    });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW });
+    expect(doc).toMatchObject({ status: "failed", notes: ["tavily_budget"], items: OLD.items });
+    expect(count).toEqual({ tavily: 0, usage: 1, other: 0 });
+    // Kept 10 minutes, as Discover keeps it (the next slots read it), then the paused page.
+    expect(KV.put.mock.calls[0]).toEqual([
+      usageKeys.tavily,
+      JSON.stringify({ used: 950, limit: 1000 }),
+      { expirationTtl: 600 },
+    ]);
+    expect(writes(KV)).toEqual([usageKeys.tavily, KEY]);
+  });
+
+  it("with no figure kept and Tavily's /usage failing, the month is unknown: not tight, the scan runs", async () => {
+    const { env, KV } = setup({ stored: OLD });
+    const { fetch, count } = web({ usage: () => json({ error: "upstream" }, 500) });
+    expect(await runCategory(env, "cars", { fetch, now: NOW })).toMatchObject({ status: "ok" });
+    expect(count).toEqual({ tavily: 6, usage: 1, other: 0 });
+    expect(writes(KV)).toEqual([ATTEMPTS, KEY]);
+  });
+
+  it("answers a page scanned fine today before looking at the budget: a tight month pauses nothing, writes nothing", async () => {
+    const today: CategoryDoc = { ...OLD, ranOn: "2026-10-07", updatedAt: NOW.toISOString() };
+    const { env, KV } = setup({ stored: today });
+    KV.store.set(usageKeys.tavily, JSON.stringify({ used: 950, limit: 1000 }));
+    const { fetch, count } = web();
+    expect(await runCategory(env, "cars", { fetch, now: LATER })).toEqual(today);
+    expect(count).toEqual({ tavily: 0, usage: 0, other: 0 });
+    expect(KV.put).not.toHaveBeenCalled();
   });
 
   it("Tavily refusing every search: failed, the last page and lessons kept, the attempt counted", async () => {
@@ -255,6 +305,7 @@ describe("runCategory", () => {
   });
 
   it("KV trouble: an unreadable page spends and writes nothing; a counter or a save that fails is noted", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const unreadable = setup({ stored: OLD });
     unreadable.KV.get.mockRejectedValue(new Error("KV GET failed: 500"));
     const searched = web();
@@ -269,6 +320,10 @@ describe("runCategory", () => {
     const doc = await runCategory(unwritable.env, "cars", { fetch: web().fetch, now: NOW });
     expect(doc).toMatchObject({ status: "ok", ranOn: "2026-10-07" });
     expect(doc.notes).toEqual(["attempts_kv", "kv"]);
+    // The lost save is logged (Workers Logs), counts only.
+    expect(error).toHaveBeenCalledExactlyOnceWith(
+      JSON.stringify({ category: { write: "failed" } }),
+    );
   });
 
   it("keeps at most 200 names in a category's memory, today's names first", async () => {

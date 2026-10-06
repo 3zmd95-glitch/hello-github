@@ -5,6 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { usageKeys } from "../discover/usage";
 import { handle, type Env } from "../scout";
 import { runTick } from "../social/cron";
 import { TAVILY_URL } from "../trends/tavily";
@@ -35,6 +36,9 @@ function tavily() {
 function setup(stored?: EffectsDoc) {
   const store = new Map<string, string>();
   if (stored) store.set(EFFECTS_KEY, JSON.stringify(stored));
+  // Discover's Tavily figure kept, 8 % of the month: no run here asks Tavily's /usage, so the fetch counts are the
+  // searches alone (sources.test.ts covers no figure kept).
+  store.set(usageKeys.tavily, JSON.stringify({ used: 80, limit: 1000 }));
   const kv = {
     store,
     get: vi.fn(async (key: string) => store.get(key) ?? null),

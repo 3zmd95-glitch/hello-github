@@ -1,11 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { usageKeys } from "../discover/usage";
+import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
 import { TAVILY_URL } from "../trends/tavily";
 import { searchFamilies, youtubeCheck } from "./sources";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-const ENV = { TAVILY_API_KEY: "k", YOUTUBE_API_KEY: "y" };
 const NOW = new Date("2026-10-07T05:35:00Z");
 
 type Body = { query: string; include_domains: string[]; time_range: string };
@@ -21,6 +20,12 @@ const usageKv = (text: string | Error) =>
       return key === usageKeys.tavily ? text : null;
     }),
   }) as unknown as KVNamespace;
+/** Discover's figure kept, 8 % of the month: the searches here never ask Tavily's /usage first. */
+const ENV = {
+  TAVILY_API_KEY: "k",
+  YOUTUBE_API_KEY: "y",
+  SOCIAL_KV: usageKv(JSON.stringify({ used: 80, limit: 1000 })),
+};
 
 describe("searchFamilies", () => {
   it("asks Tavily 3 times a family (Instagram over a week and a month, TikTok over a month), keeps each family's post pages once and sums the credits", async () => {
@@ -99,27 +104,44 @@ describe("searchFamilies", () => {
     });
   });
 
-  it("with Tavily's month 90 % spent (Discover's cached figure), only the Instagram month search a family", async () => {
-    const scan = async (kv?: KVNamespace) => {
-      const doFetch = vi.fn<typeof fetch>(async () => json({ results: [] }));
+  it("with Tavily's month 90 % spent, only the Instagram month search a family: Discover's figure, else Tavily's /usage asked once", async () => {
+    /** `usage`: Tavily's /usage answer when no figure is kept (by default none: a 404). */
+    const scan = async (kv?: KVNamespace, usage = () => json({ error: "not_found" }, 404)) => {
+      const doFetch = vi.fn<typeof fetch>(async (url) =>
+        String(url) === TAVILY_USAGE_URL ? usage() : json({ results: [] }),
+      );
       const out = await searchFamilies({ ...ENV, SOCIAL_KV: kv }, doFetch, ["a", "b"]);
-      return { out, kinds: doFetch.mock.calls.map(([, init]) => kindOf(bodyOf(init))) };
+      const searches = doFetch.mock.calls.filter(([url]) => String(url) === TAVILY_URL);
+      return {
+        out,
+        kinds: searches.map(([, init]) => kindOf(bodyOf(init))),
+        asked: doFetch.mock.calls.length - searches.length,
+      };
     };
+    // A figure Discover keeps: used as it is.
     const tight = await scan(usageKv(JSON.stringify({ used: 900, limit: 1000, plan: "free" })));
-    expect(tight.kinds).toEqual(["ig month", "ig month"]);
+    expect(tight).toMatchObject({ kinds: ["ig month", "ig month"], asked: 0 });
     expect(tight.out).toMatchObject({ credits: 2, tight: true });
-    // Under 90 %, no figure kept, a broken one, no known limit, or KV failing: every search.
-    for (const kv of [
-      usageKv(JSON.stringify({ used: 899, limit: 1000 })),
-      undefined,
-      usageKv(""),
-      usageKv("{not json"),
-      usageKv(JSON.stringify({ used: 950, limit: null })),
-      usageKv(new Error("KV GET failed")),
-    ]) {
-      const full = await scan(kv);
-      expect(full.kinds).toHaveLength(6);
-      expect(full.out.tight).toBe(false);
+    // None kept (05:35 UTC: nobody opened Discover in the last 10 minutes): Tavily's own figure, asked once.
+    const asked = await scan(undefined, () =>
+      json({ account: { plan_usage: 950, plan_limit: 1000 } }),
+    );
+    expect(asked).toMatchObject({ kinds: ["ig month", "ig month"], asked: 1 });
+    expect(asked.out.tight).toBe(true);
+    // Under 90 % or no known limit (nothing asked), or no figure at all (none kept, a broken one or KV failing, and
+    // the /usage call failing): every search.
+    const full: [KVNamespace | undefined, number][] = [
+      [usageKv(JSON.stringify({ used: 899, limit: 1000 })), 0],
+      [usageKv(JSON.stringify({ used: 950, limit: null })), 0],
+      [undefined, 1],
+      [usageKv(""), 1],
+      [usageKv("{not json"), 1],
+      [usageKv(new Error("KV GET failed")), 1],
+    ];
+    for (const [kv, calls] of full) {
+      const out = await scan(kv);
+      expect(out.kinds).toHaveLength(6);
+      expect(out).toMatchObject({ asked: calls, out: { tight: false } });
     }
   });
 
