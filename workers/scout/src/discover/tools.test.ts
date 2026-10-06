@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { EFFECTS_KEY } from "../effects/kv";
 import { trendKeys } from "../trends/kv";
 import { TAVILY_URL } from "../trends/tavily";
 import { readPicks } from "./picks";
@@ -230,6 +231,77 @@ describe("getTrends", () => {
         why: `${"w".repeat(159)}…`,
       },
     ]);
+  });
+
+  it("adds this week's trending effects; none when their document can't be read", async () => {
+    const kv = fakeKV();
+    const what = { en: "You appear twice in one shot", ar: "تطلع مرتين في نفس اللقطة" };
+    const youtube = { newVideos: 2, views7d: 2000, growth: 1.5 };
+    await kv.put(
+      EFFECTS_KEY,
+      JSON.stringify({
+        ranOn: "2026-10-03",
+        updatedAt: "2026-10-03T05:35:00.000Z",
+        status: "ok",
+        items: [
+          {
+            key: "clone-effect",
+            name: { en: "clone effect", ar: "تأثير الاستنساخ" },
+            what,
+            termId: "clone-effect",
+            isNew: false,
+            checked: true,
+            creators: 9,
+            posts: 12,
+            platforms: ["ig", "tt"],
+            growth: 2,
+            youtube,
+            samples: [{ url: "https://www.tiktok.com/@c1/video/1", title: "Clone Yourself" }],
+          },
+          {
+            key: "swagger-trend",
+            name: { en: "Swagger Trend" },
+            isNew: true,
+            checked: true,
+            creators: 3,
+            posts: 3,
+            platforms: ["ig"],
+            growth: 3,
+            samples: [],
+          },
+        ],
+        meta: {},
+        history: {},
+      }),
+    );
+    expect(await getTrends({ SOCIAL_KV: kv }, {})).toEqual({
+      fetchedAt: null,
+      items: [],
+      effects: [
+        {
+          name: { en: "clone effect", ar: "تأثير الاستنساخ" },
+          what,
+          creators: 9,
+          isNew: false,
+          growth: 2,
+          youtube,
+        },
+        { name: { en: "Swagger Trend" }, creators: 3, isNew: true, growth: 3 },
+      ],
+    });
+
+    // A read error costs the effects only, never the radar's rows or the tool call.
+    const down = {
+      async get(key: string) {
+        if (key === EFFECTS_KEY) throw new Error("KV GET failed");
+        return null;
+      },
+    } as unknown as KVNamespace;
+    expect(await getTrends({ SOCIAL_KV: down }, {})).toEqual({
+      fetchedAt: null,
+      items: [],
+      effects: [],
+    });
   });
 });
 

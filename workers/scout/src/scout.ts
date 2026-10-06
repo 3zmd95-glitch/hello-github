@@ -13,6 +13,9 @@
  *   GET  /discover/picks  → Claude's picks for Discover, all or `?topic=` (saved by the connector's save_picks)
  *   GET  /trends          → the Trend Radar feed (trends/routes.ts, round 30, planning/tools/08-trends.md)
  *   POST /trends/run      → refresh the feed now
+ *   GET  /effects/trending → this week's trending editing effects (effects/routes.ts,
+ *                           planning/tools/18-trending-effects.md)
+ *   POST /effects/run     → run the daily effects job now (once per UTC day unless `force: true`)
  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
  *   /mcp, /authorize, /token, /register → served by index.ts (OAuth + MCP): the Claude connector
  *                           (discover/mcp.ts, discover/auth.ts)
@@ -26,6 +29,7 @@
 
 import { handleDiscover } from "./discover/routes";
 import { handleCreator } from "./creator/routes";
+import { handleEffects } from "./effects/routes";
 import {
   normalizeHits,
   PLATFORM_DOMAIN,
@@ -529,5 +533,7 @@ export async function handle(
   if (social) return social;
   const trends = await handleTrends(req, env, cors, { fetch: deps.fetch, now: deps.now });
   if (trends) return trends;
+  const effects = await handleEffects(req, env, cors, { fetch: deps.fetch, now: deps.now });
+  if (effects) return effects;
   return fail("not_found", 404, cors);
 }

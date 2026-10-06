@@ -6,6 +6,7 @@
  * cap it is still served.
  */
 
+import { readEffects } from "../effects/kv";
 import type { Platform } from "../normalize";
 import { riyadhDay } from "../social/time";
 import { latestFeed } from "../trends/kv";
@@ -122,7 +123,8 @@ export async function getTrends(
   env: UsageEnv,
   input: { region?: "SA" | "US"; genre?: string; limit?: number },
 ): Promise<Record<string, unknown>> {
-  const feed = await latestFeed(env);
+  // The effects are a bonus: a document that can't be read gives none, never a failed call.
+  const [feed, effects] = await Promise.all([latestFeed(env), readEffects(env).catch(() => null)]);
   const limit = Math.max(1, Math.min(input.limit ?? 20, 50));
   const items = feed.items
     .filter(
@@ -141,7 +143,20 @@ export async function getTrends(
       ...(r.volume !== undefined ? { volume: r.volume } : {}),
       ...(r.why ? { why: clip(r.why, 160) } : {}),
     }));
-  return { fetchedAt: feed.fetchedAt, items };
+  return {
+    fetchedAt: feed.fetchedAt,
+    items,
+    // This week's trending editing effects (effects/, planning/tools/18-trending-effects.md).
+    effects:
+      effects?.items.map((i) => ({
+        name: i.name,
+        what: i.what,
+        creators: i.creators,
+        isNew: i.isNew,
+        growth: i.growth,
+        youtube: i.youtube,
+      })) ?? [],
+  };
 }
 
 export async function savePicksTool(
