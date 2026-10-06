@@ -3,9 +3,9 @@
 /*
  * 3z Prod design tokens. Each world sets its own variables on the root element
  * (`data-world="training"` = cute pixel style: chunky borders, hard shadows, dark bg, green accent;
- * `data-world="social"` = cinematic creator studio: near-black, soft borders and shadows, rounded cards).
- * The shell sets the attribute from the route; the Social block lives at the end of this file and
- * redefines every token here, so the shared `.px-*` classes and color utilities restyle on their own.
+ * `data-world="social"` = iOS 26 look: glass navigation, solid cards, light + dark following the phone,
+ * Vazirmatn). The shell sets the attribute from the route; the Social world block further down redefines
+ * every token here, so the shared `.px-*` classes and color utilities restyle on their own.
  */
 :root,
 :root[data-world="training"] {
@@ -1030,7 +1030,9 @@
 /* ---- Social world ---- */
 /* 📱 Social = iOS 26 look (round 35, tools/18): glass navigation layer, solid cards, light + dark following the
  * phone, Vazirmatn, Lucide icons, spring motion. Same token names as Training so every `.px-*` class and color
- * utility restyles on its own; the new tokens below are Social-only. Dark values live in the media query after it. */
+ * utility restyles on its own; the new tokens below are Social-only. Dark values live in the media query after it.
+ * The component skin further down overrides each class in the same CSS layer as its original, so a Tailwind
+ * utility on an element still wins over it. */
 :root[data-world="social"] {
   color-scheme: light dark;
   --radius: 22px;
