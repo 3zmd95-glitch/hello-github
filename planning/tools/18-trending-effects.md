@@ -67,7 +67,7 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
 
 **When it runs.**
 - A new UTC slot, `"05:35"` (08:35 Riyadh), sits beside `TREND_SLOTS` on the five-minute grid. It is clear of the sync minutes (03:00–03:30) and the trend minutes (:05), and a test guards it.
-- It runs **at most once per UTC day**. The saved document's `ranOn` is checked first, so this guard costs no extra KV write.
+- It runs **at most once per UTC day**, unless that day's run failed. The saved document's `ranOn` and `status` are checked first, so this guard costs no extra KV write.
 
 **Steps.**
 
@@ -148,7 +148,7 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
 
 ### 3. Storage and routes
 
-KV `effects:trending` holds one document (`EffectsDoc` in `src/effects/types.ts`), written at most once a day (a forced run adds one):
+KV `effects:trending` holds one document (`EffectsDoc` in `src/effects/types.ts`), written at most once a day (a forced run, or a retry after a failed run, adds one):
 
 ```ts
 {
@@ -211,7 +211,7 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
   - Before the first run it answers `{ status: "never", items: [] }` (200, not 404), so the dashboard can offer the first scan.
   - A KV read error answers `502 { error: "upstream" }`.
 - **`POST /effects/run`** (Bearer) runs the job now: the dashboard's first-scan button and the live check. The body is `{ force?: boolean }` or empty; anything else is `400 { error: "bad_request" }`.
-  - It respects the once-a-day guard unless `{ force: true }` is sent: a second run the same UTC day answers the stored list and spends nothing.
+  - It respects the once-a-day guard unless `{ force: true }` is sent, or unless that day's run failed: a second run the same UTC day answers the stored list and spends nothing. After a failed run it runs again, so the dashboard's "Run the first scan" can retry.
   - It waits for the run (about 30–60 s) and answers like the GET. The run is also handed to `ctx.waitUntil`, so a request dropped mid-run leaves it up to 30 s more to finish and save.
 - **Connector:** the `get_trends` tool also returns `effects` (name, what, creators, isNew, growth, youtube). Names are clipped to 40 characters and `what` to 90, and the tool's description says titles and names are data, not instructions. A document that can't be read gives `effects: []` and keeps the radar's rows. The owner can then ask Claude "what editing effects are trending?"
 
@@ -236,17 +236,17 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
 | No answer: a Worker without the route (404), a refused token, no network or a broken answer | Nothing; the row hides |
 | `status: "never"` (the Worker has not run yet) | The title and a "شغّل أول فحص" / "Run the first scan" button |
 | The first scan running (about a minute) | The button disabled, and "أدوّر على الترندات… ممكن تاخذ دقيقة" / "Scanning for trends… can take a minute" |
-| The first scan failed or was cut off | The button again, and "ما قدرت أشغّل الفحص، جرّب بعد شوي" / "Couldn't run the scan — try again in a bit" (`search.trendingRunFailed`) |
+| The first scan failed or was cut off, or `status: "failed"` with no list yet (every run so far failed: Tavily's quota or key, a code error, KV), from the GET or the scan | The never state: the button again, enabled for a retry, and "ما قدرت أشغّل الفحص، جرّب بعد شوي" / "Couldn't run the scan — try again in a bit" (`search.trendingRunFailed`) |
 | `ok` or `partial` with a list at most 3 days old | The chips |
 | `ok` or `partial` with 0 items | Nothing; the row hides |
 | `updatedAt` older than 3 days, or missing | Nothing; the row hides |
-| `status: "failed"` with a list at most 3 days old (stale-failed) | The old list (none after a failed first run), plus a faint "ما قدرت أحدّثها اليوم" / "Couldn't update today" |
+| `status: "failed"` with a list at most 3 days old (stale-failed) | The old list, plus a faint "ما قدرت أحدّثها اليوم" / "Couldn't update today"; no button |
 
-**The first scan.** `POST /effects/run`, one at a time per Worker: the Worker's once-a-day check has no lock, so a second tap, or a tap after leaving Discover and coming back, waits for the same answer. Leaving Discover never cancels it; its answer is kept like a fetched list. When the chips arrive, focus moves to the row's heading unless the owner is busy elsewhere on the page.
+**The first scan.** `POST /effects/run`, one at a time per Worker: the Worker's once-a-day check has no lock, so a second tap, or a tap after leaving Discover and coming back, waits for the same answer. Leaving Discover never cancels it; the list it finds is kept like a fetched one, so a revisit shows it even when the scan answered while the revisit's own GET was on its way. When the chips arrive, focus moves to the row's heading, without scrolling, unless the owner is busy elsewhere on the page.
 
 **Copy and fetching.**
 - The copy lives in `messages/search.{ar,en}.json`, with key parity and Hijazi Arabic first.
-- The list is fetched through `scoutCall` once per Discover visit (no credits) and kept 1 h per Worker in the tab's session storage, so a revisit shows the row at once. A "never" answer is not kept: the daily run can land any minute.
+- The list is fetched through `scoutCall` once per Discover visit (no credits) and kept 1 h per Worker in the tab's session storage, so a revisit shows the row at once. Only a list is kept: a "never" answer, a failed first run or an empty run is asked again, as the next run can land any minute.
 
 ### 5. Failures and safety
 
@@ -263,11 +263,11 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
   - the block list, and creators counted per platform
   - growth from history, NEW logic, the score and the top 8
   - AI schema validation and the fallback
-  - the per-run budgets, and once-a-day vs force
+  - the per-run budgets, and once-a-day vs force (a day whose run failed runs again)
   - routes: auth, and `status: "never"` before the first run
   - the cron slot sits on the grid
 - **Dashboard (jsdom):**
-  - row states: hidden, never (the first-scan button, waiting, failed), list, failed but recent, old, a run with 0 items
+  - row states: hidden, never (the first-scan button, waiting, failed, and the Worker's own failed first run), list, failed but recent, old, a run with 0 items
   - chip text in both languages
   - a tap runs one search with the right query, in Keywords mode, and clears the category
   - an old Worker's 404 hides the row
@@ -304,14 +304,14 @@ Plan: `planning/plans/2026-10-06-trending-effects.md` (5 tasks), on branch `clau
   - Dashboard: `lib/effects.ts`, `components/research/TrendingEffects.tsx` (placed by `ResearchPanel.tsx`), 9 copy keys in `messages/search.{ar,en}.json`.
   - Dictionary: the `clone-effect` words in `planning/data/edit-terms.json` (Open items).
 - **Tests.**
-  - Worker: 78 in `src/effects/`. They cover extraction, scoring, the 400-key memory, the sources, the AI's schema and fallback, the run's budgets, a 14-day steady-state run, the routes and the 05:35 slot. The connector's `effects` are tested in `discover/tools.test.ts`, and the slot joins the cron grid test.
-  - Dashboard: 25 in `lib/effects.test.ts` and `TrendingEffects.test.ts`, 2 in `ResearchPanel.test.ts`, and 1 e2e test in `e2e/discover.spec.ts`.
-  - Totals at the end of the build: `pnpm test` 1,995 tests in 90 files (the Worker's 805 included); e2e 292 passed and 4 skipped by design (tests that run on one screen size only) of 296, on phone and desktop. Lint, typecheck and build clean.
+  - Worker: 79 in `src/effects/`. They cover extraction, scoring, the 400-key memory, the sources, the AI's schema and fallback, the run's budgets, a 14-day steady-state run, the routes and the 05:35 slot. The connector's `effects` are tested in `discover/tools.test.ts`, and the slot joins the cron grid test.
+  - Dashboard: 29 in `lib/effects.test.ts` and `TrendingEffects.test.ts`, 2 in `ResearchPanel.test.ts`, and 1 e2e test in `e2e/discover.spec.ts`.
+  - Totals: `pnpm test` 2,000 tests in 90 files (the Worker's 806 included), after Task 4's round 2. e2e 292 passed and 4 skipped by design (tests that run on one screen size only) of 296 on Task 5's full run, on phone and desktop; round 2 re-ran `e2e/discover.spec.ts` (22 passed). Lint, typecheck and build clean.
 - **Budgets per run.**
   - 6 Tavily credits (about 180 a month), ≤ 6 YouTube `search.list` + 1 `videos.list`, 1 AI call (`max_tokens` 3000, 60 s), 1 KV write, about 16 subrequests.
-  - A second run the same UTC day spends nothing.
+  - A second run the same UTC day spends nothing, unless that day's run failed (the retry runs again).
   - The document is ~104 KB at 400 keys after 14 daily runs in the test (≤ 250 KB asserted). A realistic worst case is ~0.4–0.7 MB, against KV's 25 MiB per value.
-- **Reviews.** Every task was reviewed against this spec and every fix round re-reviewed. Task 1 (extraction, scoring) took one fix round, its faster lookup re-checked on 22,976 texts with 0 mismatches. Task 2 (sources, AI, run) took three, ending with the 400-key memory and the 7-day protection. Task 3 (routes, slot, connector) passed first time. Task 4 (the row) took one; its re-review ran alongside Task 5 (these docs, the reviews' small leftovers, the gates).
+- **Reviews.** Every task was reviewed against this spec and every fix round re-reviewed. Task 1 (extraction, scoring) took one fix round, its faster lookup re-checked on 22,976 texts with 0 mismatches. Task 2 (sources, AI, run) took three, ending with the 400-key memory and the 7-day protection. Task 3 (routes, slot, connector) passed first time. Task 4 (the row) took two: its re-review came back clean, and round 2 added the retry after a failed first run (the button and the failure line, and the Worker's guard running a failed day again), the scroll fix and the cache re-read.
 - **Not verified until the live check:**
   - **CPU on the Free plan** (10 ms per request or cron run). Extraction alone measured ~7.5–10 ms warm and ~17 ms cold in Node. Read the run's CPU time in Workers Observability. If it is over, split the job across two slots: search and extract, then AI, YouTube and score.
   - **The AI call's time and size.** 25 bilingual verdicts were estimated at 2,000–2,500 tokens; that has not been measured on the real model.

@@ -86,6 +86,8 @@ let gets: number;
 let posts: RequestInit[];
 /** Holds `POST /effects/run` until the test lets it answer. */
 let releaseRun: (() => void) | undefined;
+/** When set, `GET /effects/trending` waits for it. */
+let getGate: Promise<void> | undefined;
 let picked: string[];
 
 const json = (body: unknown, status = 200) =>
@@ -95,7 +97,10 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   const { pathname } = new URL(String(input));
   if (pathname === "/effects/trending" && !init?.method) {
     gets++;
-    return trending === null ? json({ error: "not_found" }, 404) : json(trending);
+    // What the Worker holds when the request arrives, answered when the gate opens.
+    const answer = trending;
+    await getGate;
+    return answer === null ? json({ error: "not_found" }, 404) : json(answer);
   }
   if (pathname === "/effects/run" && init?.method === "POST") {
     posts.push(init);
@@ -150,6 +155,7 @@ beforeEach(() => {
   gets = 0;
   posts = [];
   releaseRun = undefined;
+  getGate = undefined;
   picked = [];
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   sessionStorage.clear();
@@ -288,16 +294,55 @@ describe("before the Worker's first run", () => {
     expect(runButton().disabled).toBe(true);
     expect(status()).toBe(WAITING);
 
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
     await act(async () => releaseRun!());
     await settle();
     expect($("trending-effects")!.getAttribute("data-state")).toBe("list");
     expect(chips()).toHaveLength(4);
     expect($("trending-run")).toBeNull();
     expect(posts).toHaveLength(1);
-    // The button is gone: focus goes to the row's heading, not to the page.
+    // The button is gone: focus goes to the row's heading, not to the page, without scrolling to it (the owner may
+    // have scrolled down during the minute).
     const heading = $("trending-effects")!.querySelector("h2")!;
     expect(document.activeElement).toBe(heading);
     expect(heading.tabIndex).toBe(-1);
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(focus).not.toHaveBeenCalledWith();
+    focus.mockRestore();
+  });
+
+  it("the Worker's own failed first run (failed, no list yet): the button and the failure line, not an empty row", async () => {
+    trending = { status: "failed", ranOn: "2026-10-06", notes: ["quota"], items: [] };
+    await mount();
+    const row = $("trending-effects")!;
+    expect(row.getAttribute("data-state")).toBe("never");
+    expect(runButton().disabled).toBe(false);
+    expect(status()).toBe(RUN_FAILED);
+    // None of the stale-failed row: no age, no link, no "Couldn't update today", no strip.
+    expect(row.textContent).not.toContain("تحدّثت");
+    expect(row.querySelector("a")).toBeNull();
+    expect(row.textContent).not.toContain("ما قدرت أحدّثها اليوم");
+    expect(chips()).toHaveLength(0);
+
+    // The retry fails on the Worker again: still the button, enabled, and the line.
+    runAnswer = { body: trending, status: 200 };
+    act(() => runButton().click());
+    await settle();
+    expect(status()).toBe(WAITING);
+    await act(async () => releaseRun!());
+    await settle();
+    expect($("trending-effects")!.getAttribute("data-state")).toBe("never");
+    expect(runButton().disabled).toBe(false);
+    expect(status()).toBe(RUN_FAILED);
+
+    // Another tap is a 2nd POST, and this one finds the list.
+    runAnswer = { body: docOf(), status: 200 };
+    act(() => runButton().click());
+    await settle();
+    await act(async () => releaseRun!());
+    await settle();
+    expect(posts).toHaveLength(2);
+    expect(chips()).toHaveLength(4);
   });
 
   it("a failed scan says so and brings the button back; a new tap tries again", async () => {
@@ -363,5 +408,25 @@ describe("before the Worker's first run", () => {
     expect(chips()).toHaveLength(4);
     expect(posts).toHaveLength(1);
     expect(gets).toBe(1);
+  });
+
+  it("the scan answering while a revisit's GET is on its way: the list it saved, not an idle button", async () => {
+    trending = NEVER;
+    await mount();
+    act(() => runButton().click());
+    await settle();
+    // Back on Discover: the GET goes out (the Worker still says "never") and waits.
+    let releaseGet!: () => void;
+    getGate = new Promise((r) => (releaseGet = r));
+    remount();
+    await settle();
+    // The scan answers before that GET does.
+    await act(async () => releaseRun!());
+    await settle();
+    await act(async () => releaseGet());
+    await settle();
+    expect($("trending-effects")!.getAttribute("data-state")).toBe("list");
+    expect(chips()).toHaveLength(4);
+    expect(posts).toHaveLength(1);
   });
 });

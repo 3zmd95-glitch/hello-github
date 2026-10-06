@@ -39,7 +39,7 @@ Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
 | `GET /go/:id/:n`        | No bearer: counts a tap on an auto-reply DM link and answers `302` to the button's URL (`Cache-Control: no-store`). 404 for an unknown automation or button.                                                                          |
 | `/trends*`              | The Trend Radar feed, see [Trend Radar](#trend-radar).                                                                                                                                                                                                                                        |
 | `GET /effects/trending` | Trending effects (planning/tools/18-trending-effects.md): `{ status: "ok" \| "partial" \| "failed", ranOn, updatedAt, notes?, items }`, this week's top editing effects on TikTok / Instagram by creators × growth (≤ 8 items `{ key, name: { en, ar? }, what?, termId?, isNew, checked, creators, posts, platforms, growth, youtube?: { newVideos, views7d, growth? }, samples }`), without the job's memory (`history`, `meta`); `{ status: "never", items: [] }` before the first run; `502 { error: "upstream" }` when KV can't be read. No credits. |
-| `POST /effects/run`     | Body `{ force?: boolean }` or none → runs the daily effects job now and answers like `GET /effects/trending` once the run is done (about 30–60 s; a request dropped mid-run leaves the run up to 30 s more to finish and save). Once per UTC day: a second run that day answers the stored list and spends nothing, unless `force: true`. Any other body → `400 { error: "bad_request" }`. A run spends what the daily 05:35 slot does (see [Limits to know](#limits-to-know)). |
+| `POST /effects/run`     | Body `{ force?: boolean }` or none → runs the daily effects job now and answers like `GET /effects/trending` once the run is done (about 30–60 s; a request dropped mid-run leaves the run up to 30 s more to finish and save). Once per UTC day: a second run that day answers the stored list and spends nothing, unless `force: true` or that day's run failed (then it runs again: the dashboard's "Run the first scan" retry). Any other body → `400 { error: "bad_request" }`. A run spends what the daily 05:35 slot does (see [Limits to know](#limits-to-know)). |
 | `/mcp`, `/authorize`, `/token`, `/register`, `/.well-known/oauth-*` | The Claude connector, see [Claude connector (MCP)](#claude-connector-mcp). |
 
 ### `POST /search` options
@@ -173,7 +173,8 @@ refreshed before every sync. A refresh the provider refuses → `lastError: "tok
   (06:00–06:30 Riyadh) sync one platform each instead of publishing (`SYNC_SLOTS` in `src/social/cron.ts`),
   and the Trend Radar ticks (`TREND_SLOTS`: 00:05/06:05/12:05/18:05 UTC fast, 21:05 UTC daily, Saturday
   21:15 UTC weekly) refresh the trend feed instead. The 05:35 UTC tick (08:35 Riyadh, `EFFECTS_SLOT`) runs the
-  daily trending effects job (planning/tools/18-trending-effects.md, at most once per UTC day) instead; its budget:
+  daily trending effects job (planning/tools/18-trending-effects.md, at most once per UTC day unless that day's run
+  failed) instead; its budget:
   6 Tavily credits (about 180 a month), ≤ 6 YouTube `search.list` calls + 1 `videos.list` (with the radar's 18 and
   Discover's 70, 94 of the 100 a day), 1 built-in AI call (apart from Discover's 20 a day) and 1 KV write, about 16
   of the 50 subrequests. Every slot sits on the five-minute grid and no two jobs share one (a test guards it).
@@ -204,7 +205,7 @@ refreshed before every sync. A refresh the provider refuses → `lastError: "tok
 | `discover:usage:tavily` | Tavily's `GET /usage` figure behind `GET /discover/usage`, 10-minute TTL |
 | `discover:mcp:<day>`    | Tavily lookups the Claude connector spent that Riyadh day (the `MCP_DAILY_LOOKUPS` cap), 2-day TTL |
 | `discover:picks`        | `{ [topicKey]: { topicKey, topic, savedAt, items } }`: Claude's picks, at most 50 topics × 20 posts; written only by the connector's `save_picks` |
-| `effects:trending`      | the trending effects document (`src/effects/`, planning/tools/18-trending-effects.md §3): `{ ranOn, updatedAt, status, notes?, items, meta, history }`, `history` holding each effect's creators per day as 8-hex hashes (≤ 14 days, ≤ 400 effects). One document, no TTL, 1 write a day (the 05:35 run; a forced `POST /effects/run` adds one) |
+| `effects:trending`      | the trending effects document (`src/effects/`, planning/tools/18-trending-effects.md §3): `{ ranOn, updatedAt, status, notes?, items, meta, history }`, `history` holding each effect's creators per day as 8-hex hashes (≤ 14 days, ≤ 400 effects). One document, no TTL, 1 write a day (the 05:35 run; a forced `POST /effects/run`, or a retry of a failed day, adds one) |
 | `mcp:claude-client`     | in `OAUTH_KV`, not `SOCIAL_KV`: the id of the one shared client every `POST /register` gets; written when it is created |
 
 ## Auto-posting

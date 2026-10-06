@@ -1,7 +1,7 @@
 /**
  * Trending effects, the daily run (planning/tools/18-trending-effects.md §1): 6 family searches → candidates → one AI
  * cleanup → the 7-day history → a YouTube check of the top 6 → one KV write. It runs at most once per UTC day unless
- * forced and never throws: a day that fails keeps the previous chips.
+ * forced or that day's run failed, and never throws: a day that fails keeps the previous chips.
  */
 
 import { TERMS } from "../discover/terms";
@@ -224,7 +224,8 @@ export async function runEffects(env: EffectsEnv, opts: RunOptions = {}): Promis
   const today = utcDay(now);
   // undefined: KV could not be read, so nothing is written over a history this run never saw.
   const prev = await readEffects(env).catch(() => undefined);
-  if (prev && !opts.force && prev.ranOn === today) return prev;
+  // Once a day, unless forced; a day whose run failed may run again (the dashboard's retry), a good day may not.
+  if (prev && !opts.force && prev.ranOn === today && prev.status !== "failed") return prev;
   let doc = failed(null, today, now, ["kv"]);
   let credits = 0;
   let memory: Memory | undefined;

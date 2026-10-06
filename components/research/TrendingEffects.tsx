@@ -39,9 +39,10 @@ export default function TrendingEffects({
   // Captured once, like the panel's: the age line needs no ticking clock.
   const [now] = useState(() => Date.now());
   // This tab's copy first (an hour at most; lib reads it in try/catch), so a revisit renders the row at once and
-  // nothing pops in under a tap. Mounted on the client only (after /health), so the server never renders it.
+  // nothing pops in under a tap. Read in render safely: AppShell shows its Splash until the store hydrates on the
+  // client (`skipHydration`), so the server never renders this row and no hydration can mismatch.
   const [data, setData] = useState<Trending | null>(() => cachedTrendingEffects(config));
-  // The first scan: running, or failed (its line shows until the next tap).
+  // The first scan from this row: running, or failed to answer (its line shows until the next tap).
   const [scan, setScan] = useState<"idle" | "running" | "failed">("idle");
   const mounted = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -53,25 +54,30 @@ export default function TrendingEffects({
     };
   }, []);
 
-  /** A first scan's answer: its list, or the failure line (null). */
+  /** A first scan's answer: its list; the Worker's own failed run (the button and the failure line stay); or the
+   * failure line (null: the request failed). */
   const landed = useCallback((r: Trending | null) => {
     setScan(r ? "idle" : "failed");
     if (!r) return;
     setData(r);
+    if (!r.items.length) return;
     // The button goes: focus moves to the row's heading rather than drop to the page, unless the owner is busy
-    // elsewhere meanwhile.
+    // elsewhere meanwhile; without scrolling to it, as the owner may have scrolled down during the minute.
     const h = heading.current;
     const at = document.activeElement;
-    if (h && (!at || at === document.body || h.closest("section")?.contains(at))) h.focus();
+    if (h && (!at || at === document.body || h.closest("section")?.contains(at)))
+      h.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {
     let alive = true;
     void fetchTrendingEffects(config).then((r) => {
       if (!alive) return;
-      setData(r);
-      // Back on Discover while this tab's first scan still runs: that scan, waiting, then its answer.
-      const pending = r?.status === "never" ? scanInFlight(config) : undefined;
+      // No list yet: this tab's first scan may still run (show it waiting, then its answer), or may have answered
+      // into the tab's copy while this GET was on its way (show that list).
+      const pending = r && !r.items.length ? scanInFlight(config) : undefined;
+      const meanwhile = r && !r.items.length && !pending ? cachedTrendingEffects(config) : null;
+      setData(meanwhile ?? r);
       if (!pending) return;
       setScan("running");
       void pending.then((s) => {
@@ -86,7 +92,7 @@ export default function TrendingEffects({
   const state = rowVisible(data, now);
   if (!data || state === "hidden") return null;
 
-  // About a minute. Leaving Discover never cancels it (lib/effects keeps its answer for the next visit, and a
+  // About a minute. Leaving Discover never cancels it (lib/effects keeps the list it finds for the next visit, and a
   // revisit meanwhile waits for it); this row then ignores its answer.
   const runNow = () => {
     setScan("running");
@@ -181,11 +187,12 @@ export default function TrendingEffects({
           >
             {t("search.trendingRun")}
           </button>
-          {/* Always there (empty while idle), so its next words are announced. */}
+          {/* Always there (empty while idle), so its next words are announced. A scan that could not answer, or
+              the Worker's own failed run (no list yet), says so; the button stays for a retry. */}
           <p role="status" className="text-muted text-xs">
             {scan === "running"
               ? t("search.trendingRunning")
-              : scan === "failed"
+              : scan === "failed" || data.status === "failed"
                 ? t("search.trendingRunFailed")
                 : ""}
           </p>

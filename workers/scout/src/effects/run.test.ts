@@ -204,6 +204,37 @@ describe("runEffects", () => {
     expect(forced.history["clone-effect"]).toHaveLength(1);
   });
 
+  it("a day whose run failed runs again without force (the first-scan button's retry); a good day does not", async () => {
+    const { env, KV } = setup();
+    // The day's first run fails: Tavily's quota on every search, nothing to show yet.
+    const down = web({ tavily: () => json({ error: "quota" }, 432) });
+    const failedRun = await runEffects(env, { fetch: down.fetch, now: NOW });
+    expect(failedRun).toMatchObject({ status: "failed", ranOn: "2026-10-07", items: [] });
+    expect(KV.put).toHaveBeenCalledTimes(1);
+
+    // A retry the same UTC day runs the job again and replaces the failed document.
+    const later = new Date("2026-10-07T09:00:00Z");
+    const { fetch, count } = web();
+    const doc = await runEffects(env, { fetch, now: later });
+    expect(count).toEqual({ tavily: 6, search: 2, stats: 1 });
+    expect(doc).toMatchObject({
+      status: "ok",
+      ranOn: "2026-10-07",
+      updatedAt: later.toISOString(),
+    });
+    expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
+    expect(KV.put).toHaveBeenCalledTimes(2);
+    expect(stored(KV)).toEqual(doc);
+
+    // That good day is once a day again: another run answers the stored list and spends nothing.
+    const again = web();
+    expect(
+      await runEffects(env, { fetch: again.fetch, now: new Date("2026-10-07T20:00:00Z") }),
+    ).toEqual(doc);
+    expect(again.fetch).not.toHaveBeenCalled();
+    expect(KV.put).toHaveBeenCalledTimes(2);
+  });
+
   it("a Tavily quota on every call fails the day but keeps the previous chips", async () => {
     const day1 = setup();
     const prev = await runEffects(day1.env, { fetch: web().fetch, now: NOW });

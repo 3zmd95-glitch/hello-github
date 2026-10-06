@@ -194,12 +194,16 @@ describe("rowVisible", () => {
     expect(rowVisible({ status: "ok", updatedAt: "yesterday", items }, NOW)).toBe("hidden");
   });
 
-  it("hides a run that found nothing; a failed one still says it could not update", () => {
+  it("hides a run that found nothing", () => {
     expect(rowVisible({ status: "ok", updatedAt: at(HOUR), items: [] }, NOW)).toBe("hidden");
     expect(rowVisible({ status: "partial", updatedAt: at(HOUR), items: [] }, NOW)).toBe("hidden");
-    expect(rowVisible({ status: "failed", updatedAt: at(HOUR), items: [] }, NOW)).toBe(
-      "stale-failed",
-    );
+  });
+
+  it("offers the first scan again when every run so far failed (no list yet), however long ago", () => {
+    expect(rowVisible({ status: "failed", updatedAt: at(HOUR), items: [] }, NOW)).toBe("never");
+    // A failed run keeps its first failure's time: the button stays past 3 days, or with no time at all.
+    expect(rowVisible({ status: "failed", updatedAt: at(5 * DAY), items: [] }, NOW)).toBe("never");
+    expect(rowVisible({ status: "failed", items: [] }, NOW)).toBe("never");
   });
 });
 
@@ -252,14 +256,20 @@ describe("fetchTrendingEffects", () => {
     expect(await fetchTrendingEffects(config, { fetchImpl: broken, now: NOW })).toBeNull();
   });
 
-  it("does not keep 'never': the daily run can land any minute", async () => {
-    const fetchImpl = replying({ status: "never", items: [] });
-    expect(await fetchTrendingEffects(config, { fetchImpl, now: NOW })).toEqual({
-      status: "never",
-      items: [],
-    });
-    await fetchTrendingEffects(config, { fetchImpl, now: NOW });
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  it("keeps only a list: not 'never', a failed first run or an empty run (the next run can land any minute)", async () => {
+    for (const answer of [
+      { status: "never", items: [] },
+      { status: "failed", ranOn: "2026-10-06", updatedAt: DOC.updatedAt, items: [] },
+      { status: "ok", ranOn: "2026-10-06", updatedAt: DOC.updatedAt, items: [] },
+    ]) {
+      const fetchImpl = replying(answer);
+      expect(await fetchTrendingEffects(config, { fetchImpl, now: NOW })).toEqual(
+        parseTrendingEffects(answer),
+      );
+      await fetchTrendingEffects(config, { fetchImpl, now: NOW });
+      expect(fetchImpl, answer.status).toHaveBeenCalledTimes(2);
+      expect(cachedTrendingEffects(config, NOW)).toBeNull();
+    }
   });
 
   it("works with session storage blocked: it just asks each time", async () => {
@@ -319,5 +329,16 @@ describe("runTrendingEffectsNow", () => {
   it("is null when the scan fails", async () => {
     const fetchImpl = replying({ error: "upstream" }, 502);
     expect(await runTrendingEffectsNow(config, { fetchImpl })).toBeNull();
+  });
+
+  it("answers the Worker's own failed run (no list yet) without keeping it", async () => {
+    const failedRun = { status: "failed", ranOn: "2026-10-06", notes: ["quota"], items: [] };
+    const fetchImpl = replying({ ...failedRun, updatedAt: DOC.updatedAt });
+    expect(await runTrendingEffectsNow(config, { fetchImpl })).toEqual({
+      status: "failed",
+      updatedAt: DOC.updatedAt,
+      items: [],
+    });
+    expect(cachedTrendingEffects(config)).toBeNull();
   });
 });

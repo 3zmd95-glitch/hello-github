@@ -114,7 +114,8 @@ export function cachedTrendingEffects(
 
 /**
  * The list, from this tab's copy when it is under an hour old; null hides the row (an older Worker's 404, a refused
- * token, no network, a broken answer), and is not kept. Nor is "never": the daily run can land any minute.
+ * token, no network, a broken answer). Only a list is kept: not null, not "never" or a failed first run (the next
+ * run can land any minute), not an empty run.
  */
 export async function fetchTrendingEffects(
   config: ScoutConfig,
@@ -125,7 +126,7 @@ export async function fetchTrendingEffects(
   if (kept) return kept;
   const r = await scoutCall(config, "/effects/trending", {}, { fetchImpl: opts.fetchImpl });
   const data = r.ok ? parseTrendingEffects(r.data) : null;
-  if (data && data.status !== "never") writeCache(config.url, data, now);
+  if (data?.items.length) writeCache(config.url, data, now);
   return data;
 }
 
@@ -133,9 +134,10 @@ const running = new Map<string, Promise<TrendingEffects | null>>();
 
 /**
  * Runs the Worker's scan now (the first one; about 30–60 s, at most once a day: the Worker answers the day's list
- * after that). One request per Worker at a time, since the Worker's once-a-day check has no lock: a second tap, or
- * a tap after leaving Discover and coming back, waits for the same answer. The answer is kept like a fetched list,
- * so it is not lost when the row has gone; null when the scan failed.
+ * after that, unless the day's run failed). One request per Worker at a time, since the Worker's once-a-day check has
+ * no lock: a second tap, or a tap after leaving Discover and coming back, waits for the same answer. A list is kept
+ * like a fetched one, so it is not lost when the row has gone; null when the request failed (the Worker's own failed
+ * run answers `failed` with no list, and the button stays).
  */
 export async function runTrendingEffectsNow(
   config: ScoutConfig,
@@ -146,7 +148,7 @@ export async function runTrendingEffectsNow(
   const run = (async () => {
     const r = await scoutCall(config, "/effects/run", { method: "POST" }, opts);
     const data = r.ok ? parseTrendingEffects(r.data) : null;
-    if (data) writeCache(config.url, data, Date.now());
+    if (data?.items.length) writeCache(config.url, data, Date.now());
     return data;
   })();
   running.set(config.url, run);
@@ -176,7 +178,9 @@ export function rowVisible(
   now: number,
 ): "hidden" | "never" | "list" | "stale-failed" {
   if (!t) return "hidden";
-  if (t.status === "never") return "never";
+  // Never run, or every run so far failed (no list yet; a failed run keeps its first failure's time, so before the
+  // age check): the first-scan button.
+  if (t.status === "never" || (t.status === "failed" && !t.items.length)) return "never";
   // Older than 3 days, or no date to tell: not shown as this week's.
   if (!(now - Date.parse(t.updatedAt ?? "") <= MAX_AGE_MS)) return "hidden";
   if (t.status === "failed") return "stale-failed";
