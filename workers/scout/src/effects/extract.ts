@@ -134,8 +134,35 @@ function named(
 /** What a category scan adds to the rules (planning/tools/19-category-trends.md §2): camera words as more suffixes
  * ("rolling shot", "low angle") and the category's own words as generic ("car edit" is never a style). */
 export interface ExtractExtra {
+  /** Plain words only: they go into the RegExps unescaped. */
   suffixes?: readonly string[];
   generic?: ReadonlySet<string>;
+}
+
+const PATTERNS = new Map<string, { phrase: RegExp; hashtag: RegExp }>();
+
+/** The suffix phrase and hashtag RegExps of a suffix list (none: Trending effects'), built once per list rather than
+ * for every post. `matchAll` reads a copy, so one global RegExp serves every call. */
+export function suffixPatterns(suffixes: readonly string[] = []): {
+  phrase: RegExp;
+  hashtag: RegExp;
+} {
+  const more = suffixes.map((s) => `|${s}`).join("");
+  let p = PATTERNS.get(more);
+  if (!p) {
+    p = {
+      phrase: new RegExp(
+        String.raw`\b((?:[A-Za-z][\w'’-]*\s+){1,3}?)(edit(?=\s+trends?\b)|effect|transition|trick|filter|trend${more})s?\b`,
+        "gi",
+      ),
+      hashtag: new RegExp(
+        String.raw`#([a-z0-9]{3,30}?)(effect|transition|trick|trend|filter${more})s?\b`,
+        "gi",
+      ),
+    };
+    PATTERNS.set(more, p);
+  }
+  return p;
 }
 
 export function candidatesOf(
@@ -143,7 +170,7 @@ export function candidatesOf(
   extra: ExtractExtra = {},
 ): { key: string; name: string; termId?: string }[] {
   const generic = (w: string) => isGeneric(w) || !!extra.generic?.has(w);
-  const more = (extra.suffixes ?? []).map((s) => `|${s}`).join("");
+  const { phrase, hashtag } = suffixPatterns(extra.suffixes);
   const plain = text.normalize("NFKC"); // styled letters ("𝐒𝐰𝐚𝐠𝐠𝐞𝐫") read as plain ones
   const out = new Map<string, { key: string; name: string; termId?: string }>();
   const addTerm = (t: EditTerm) => out.set(t.id, { key: t.id, name: t.label.en, termId: t.id });
@@ -165,24 +192,12 @@ export function candidatesOf(
   dictionaryHits(plain).forEach(addTerm);
   // "ghost trail effect", "zoom transition", "reverse trend": up to 3 whole words before the nearest suffix, any case.
   // "first month edit trend" is named "first month edit", like the Title-Case form below.
-  for (const m of plain.matchAll(
-    new RegExp(
-      String.raw`\b((?:[A-Za-z][\w'’-]*\s+){1,3}?)(edit(?=\s+trends?\b)|effect|transition|trick|filter|trend${more})s?\b`,
-      "gi",
-    ),
-  ))
-    add(named(m[1].trim().split(/\s+/), m[2], generic));
+  for (const m of plain.matchAll(phrase)) add(named(m[1].trim().split(/\s+/), m[2], generic));
   // Title-Case named edits: "Flash Clone Edit". A lowercase "edit" is too common to name anything.
   for (const m of plain.matchAll(/\b((?:[A-Z][\w'’-]*\s+){1,3}?)Edit\b/g))
     add(named(m[1].trim().split(/\s+/), "edit", generic));
   // Hashtags: #cloneeffect → "clone effect", #reversetrend → "reverse trend", #glitcheffects → "glitch effect".
-  for (const m of plain.matchAll(
-    new RegExp(
-      String.raw`#([a-z0-9]{3,30}?)(effect|transition|trick|trend|filter${more})s?\b`,
-      "gi",
-    ),
-  ))
-    add(named([m[1]], m[2], generic));
+  for (const m of plain.matchAll(hashtag)) add(named([m[1]], m[2], generic));
   return [...out.values()];
 }
 

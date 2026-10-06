@@ -104,6 +104,8 @@ export async function tavilyCall(
           ...(call.timeRange ? { time_range: call.timeRange } : {}),
         }),
       });
+      // A refused answer's body is never read: let it go, so it does not hold one of the Worker's 6 connections.
+      if (!res.ok) await res.body?.cancel().catch(() => undefined);
       if (res.status === 401 || res.status === 403) return { ok: false, error: "auth" };
       if (res.status === 429 || res.status === 432 || res.status === 433)
         return { ok: false, error: "quota" };

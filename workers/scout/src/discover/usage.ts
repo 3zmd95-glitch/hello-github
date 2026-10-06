@@ -90,6 +90,8 @@ export async function tavilyUsage(
   } catch {
     return { error: "upstream" };
   }
+  // A refused answer's body is never read: let it go, so it does not hold the connection.
+  if (!res.ok) await res.body?.cancel().catch(() => undefined);
   if (res.status === 401 || res.status === 403) return { error: "auth" };
   if (res.status === 429 || res.status === 432 || res.status === 433) return { error: "quota" };
   if (!res.ok) return { error: "upstream" };

@@ -226,7 +226,7 @@ describe("writeHowTos", () => {
     ).toBeNull();
   });
 
-  it("a bad skill id or Arabic tutorial (none, -1, '1', 0.5, a number, 100 characters) costs only itself", async () => {
+  it("a bad skill id or Arabic tutorial (none, -1, '1', 0.5, 2^53, a number, 100 characters) costs only itself, counted", async () => {
     const rejects: Record<string, number> = {};
     const e = answering({
       techniques: [
@@ -234,13 +234,16 @@ describe("writeHowTos", () => {
         { i: 1, howTo: HOW, skillId: null, arTutorial: null },
         { i: 2, howTo: HOW, skillId: 5, arTutorial: "1" },
         { i: 3, howTo: HOW, skillId: "x".repeat(100), arTutorial: 0.5 },
+        // Past the safe integers: zod's .int() refuses it, which would cost the whole entry.
+        { i: 4, howTo: HOW, arTutorial: 2 ** 53 },
       ],
     });
-    const drafts = ["a", "b", "c", "d"].map((en) => draft("photo", en));
+    const drafts = ["a", "b", "c", "d", "e"].map((en) => draft("photo", en));
     const out = await writeHowTos(e, CARS, drafts, [ar(0), ar(1)], 1000, rejects);
-    for (const i of [0, 1, 2, 3]) expect(out!.get(i)).toEqual({ howTo: HOW });
-    // A long id is still read as an id: off the real list, so it is not kept.
-    expect(rejects).toEqual({ unknown_skill: 1 });
+    for (const i of [0, 1, 2, 3, 4]) expect(out!.get(i)).toEqual({ howTo: HOW });
+    // Each field dropped is counted (null is the model leaving it out), so a model that always writes "0" shows. A
+    // long id is still read as an id: off the real list, so it is not kept.
+    expect(rejects).toEqual({ bad_skill: 2, bad_ar: 4, unknown_skill: 1 });
   });
 });
 
@@ -392,6 +395,7 @@ describe("refreshLessons", () => {
       failed: 0,
       credits: 10,
       searchErrors: 0,
+      kept: [],
     });
   });
 
@@ -414,6 +418,41 @@ describe("refreshLessons", () => {
       [0, 0, 0],
     ]);
     expect(counts.rejects).toEqual({ duplicate_ar: 7 });
+  });
+
+  it("never hands out again an Arabic tutorial that an area keeping last cycle's techniques holds", async () => {
+    // The Arabic search's only find, as Arabic tutorial 0.
+    const X: LessonVideo = {
+      url: "https://www.youtube.com/watch?v=arCars00001",
+      title: "شرح تصوير السيارات",
+      platform: "yt",
+      kind: "tutorial",
+      lang: "ar",
+    };
+    const keptEdit: Technique = { ...old("old edit"), videos: [...old("old edit").videos, X] };
+    const AI = {
+      run: vi.fn(async (_model: string, input: Record<string, unknown>): Promise<unknown> => {
+        const { system, user } = messages(input);
+        if (system.startsWith("You plan")) return { response: PICKS };
+        const techniques = shown(user);
+        // Editing's call fails, so editing keeps last cycle's technique and its Arabic tutorial X.
+        if (techniques[0].area === "edit") return { response: { techniques: "nope" } };
+        // Every new technique asks for X.
+        return {
+          response: { techniques: techniques.map(({ i }) => ({ i, howTo: HOW, arTutorial: 0 })) },
+        };
+      }),
+    };
+    const { lessons, counts } = await refreshLessons({ ...KEYS, AI }, web().fetch, CARS, [], NOW, {
+      ...LAST,
+      edit: [keptEdit],
+    });
+    expect(lessons!.edit).toEqual([keptEdit]);
+    const newArabic = [...lessons!.photo, ...lessons!.video].flatMap((t) =>
+      t.videos.filter((v) => v.lang === "ar"),
+    );
+    expect(newArabic).toEqual([]);
+    expect(counts.rejects).toEqual({ duplicate_ar: 5 });
   });
 
   it("an area whose how-to call fails keeps last week's techniques there; it costs no other area", async () => {
@@ -442,7 +481,8 @@ describe("refreshLessons", () => {
     ]);
     expect(lessons!.video).toHaveLength(2);
     expect(lessons!.edit).toEqual(LAST.edit);
-    expect(counts).toMatchObject({ written: 5, failed: 1 });
+    // The diagnostics name the area, so a fallback that recurs shows at the live check.
+    expect(counts).toMatchObject({ written: 5, failed: 1, kept: ["edit"] });
     // No lessons last week: that area is empty.
     const first = await refreshLessons({ ...KEYS, AI: editFails }, web().fetch, CARS, [], NOW);
     expect(first.lessons!.edit).toEqual([]);

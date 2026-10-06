@@ -208,6 +208,15 @@ it("tells the AI a category's context, after the usual instructions (planning/to
   expect(system.endsWith(" These posts are about Cars, for car videos.")).toBe(true);
 });
 
+it("without a context line, Trending effects' prompt is exactly as it was: it ends 'Answer JSON only.'", async () => {
+  const e = answering([verdict("clone-effect")]);
+  await cleanWithAi(e, candidates, 1000);
+  const system = (e.AI.run.mock.calls[0][1].messages as { content: string }[])[0].content;
+  expect(system.endsWith("what the effect looks like in both languages. Answer JSON only.")).toBe(
+    true,
+  );
+});
+
 describe("askAi", () => {
   const call = { system: "s", user: "u", schema: {}, maxTokens: 10 };
   it("answers the parsed JSON, whether the model sends text or an object", async () => {

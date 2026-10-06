@@ -6,7 +6,7 @@
  * - one Arabic YouTube search gives the category's Arabic tutorials;
  * - one AI call an area, the 3 at once, writes each technique's how-to (English and Arabic, ≤ 220 characters), links the
  *   skill it practices from the real list and names its Arabic tutorial; each Arabic tutorial then goes to one
- *   technique at most, photo → video → edit.
+ *   technique at most, across the areas (an area keeping last week's techniques keeps its own), photo → video → edit.
  * 10 Tavily credits and 4 AI calls a refresh. Titles and snippets are untrusted data: clipped, the prompts say so, and
  * every answer is checked entry by entry. A technique with no video, or no usable how-to, is never kept; an area with
  * nothing new keeps last week's techniques; a refresh with nothing new gives null, and the category keeps last week's
@@ -84,6 +84,8 @@ export type LessonCounts = {
   written: number;
   /** Areas whose how-to call gave no answer (as cleanWithAi's failed batches). */
   failed: number;
+  /** Areas with nothing new, which keep last cycle's techniques: the live check sees a fallback that recurs. */
+  kept: Area[];
   credits: number;
   searchErrors: number;
   rejects: Record<string, number>;
@@ -190,18 +192,25 @@ export function pickVideos(
 }
 
 /** A how-to as the model writes it, made checkable: texts trimmed and clipped; a skill id that is no text, or an Arabic
- * tutorial that is no list number (null, -1, "1", 0.5), left out, never costing the how-to. Workers AI does not hold
+ * tutorial that is no list number (-1, "1", 0.5, past the safe integers zod's `.int()` takes), left out and counted
+ * (`bad_skill`, `bad_ar`; null is the model leaving it out), never costing the how-to. Workers AI does not hold
  * answers to the schema. */
-function tidyHowTo(x: unknown): unknown {
+function tidyHowTo(x: unknown, rejects: Record<string, number>): unknown {
   if (!isRecord(x)) return x;
   const v: Record<string, unknown> = { ...x };
   if (isRecord(x.howTo))
     v.howTo = { ...x.howTo, en: clip(x.howTo.en, HOWTO_MAX), ar: clip(x.howTo.ar, HOWTO_MAX) };
   const skill = typeof v.skillId === "string" ? v.skillId.trim() : "";
   if (skill) v.skillId = skill;
-  else delete v.skillId;
+  else {
+    if (v.skillId != null) tally(rejects, "bad_skill");
+    delete v.skillId;
+  }
   const ar = v.arTutorial;
-  if (!(typeof ar === "number" && Number.isInteger(ar) && ar >= 0)) delete v.arTutorial;
+  if (!(typeof ar === "number" && Number.isSafeInteger(ar) && ar >= 0)) {
+    if (ar != null) tally(rejects, "bad_ar");
+    delete v.arTutorial;
+  }
   return v;
 }
 
@@ -238,7 +247,7 @@ export async function writeHowTos(
   if (!Array.isArray(list)) return null;
   const out = new Map<number, Written>();
   for (const x of list) {
-    const h = HowToEntry.safeParse(tidyHowTo(x));
+    const h = HowToEntry.safeParse(tidyHowTo(x, rejects));
     if (!h.success) {
       h.error.issues.forEach((issue) =>
         tally(
@@ -285,6 +294,7 @@ export async function refreshLessons(
     withVideos: 0,
     written: 0,
     failed: 0,
+    kept: [],
     credits: 0,
     searchErrors: 0,
     rejects: {},
@@ -350,8 +360,20 @@ export async function refreshLessons(
     ),
   );
   counts.failed = answers.filter((a) => !a).length;
-  // Each Arabic tutorial to one technique at most: the first that names it, photo → video → edit.
-  const given = new Set<string>();
+  // An area with nothing new (its call failed, or none of its techniques kept a video and a how-to) keeps last cycle's
+  // techniques. Decided first: it never depends on the Arabic tutorials, and the kept ones are taken.
+  counts.kept = AREAS.filter((_, a) => !byArea[a].some((_, i) => answers[a]?.has(i)));
+  // Each Arabic tutorial to one technique at most, across the areas: a kept area's stay its own; any other goes to the
+  // first new technique that names it, photo → video → edit. (Stored techniques are checked loosely: KV is untrusted.)
+  const given = new Set(
+    counts.kept.flatMap((area) =>
+      (last?.[area] ?? []).flatMap((t) =>
+        (Array.isArray(t?.videos) ? t.videos : []).flatMap((v) =>
+          v?.lang === "ar" ? [v.url] : [],
+        ),
+      ),
+    ),
+  );
   const fresh = byArea.map((list, a) =>
     list.flatMap((d, i): Technique[] => {
       const w = answers[a]?.get(i);
@@ -372,9 +394,9 @@ export async function refreshLessons(
   );
   counts.written = fresh.flat().length;
   if (!counts.written) return { lessons: null, counts };
-  // An area with nothing new (its call failed, or none of its techniques kept a video and a how-to) keeps last
-  // week's techniques.
   const lessons: Lessons = { updatedAt: now.toISOString(), photo: [], video: [], edit: [] };
-  AREAS.forEach((area, a) => (lessons[area] = fresh[a].length ? fresh[a] : (last?.[area] ?? [])));
+  AREAS.forEach(
+    (area, a) => (lessons[area] = counts.kept.includes(area) ? (last?.[area] ?? []) : fresh[a]),
+  );
   return { lessons, counts };
 }

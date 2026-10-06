@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { candidatesOf, creatorId, extractCandidates } from "./extract";
+import { candidatesOf, creatorId, extractCandidates, suffixPatterns } from "./extract";
 import type { EffectPost } from "./types";
 
 const keys = (text: string) =>
@@ -290,5 +290,11 @@ describe("a category's extras (planning/tools/19-category-trends.md §2)", () =>
   it("leaves Trending effects' rules as they were without extras", () => {
     expect(keys("insane rolling shot on the highway")).toEqual([]);
     expect(keys("clone effect tutorial | CapCut")).toEqual(["clone-effect"]);
+  });
+
+  it("builds its RegExps once per suffix list, not on every post (CPU on the free plan)", () => {
+    expect(suffixPatterns([...CARS.suffixes])).toBe(suffixPatterns(CARS.suffixes));
+    expect(suffixPatterns()).toBe(suffixPatterns([]));
+    expect(suffixPatterns()).not.toBe(suffixPatterns(CARS.suffixes));
   });
 });
