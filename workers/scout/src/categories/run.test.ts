@@ -519,6 +519,57 @@ describe("runCategory's lessons (§3)", () => {
     expect(stored(KV).diagnostics).toMatchObject({ lessons: { error: "boom" } });
   });
 
+  it("a trends save that failed buys no lessons: they stay due for the next run", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { env, KV } = setup({ stored: LAST_WEEK });
+    env.AI = lessonsAi();
+    KV.put.mockRejectedValue(new Error("KV PUT failed: 500"));
+    const { fetch, count } = web();
+    const doc = await runCategory(env, "cars", { fetch, now: NOW });
+    expect(doc.notes).toContain("kv");
+    expect(doc.notes).not.toContain("lessons");
+    expect(doc.lessons).toEqual(LAST_WEEK.lessons);
+    expect(count.tavily).toBe(6);
+    expect(asked(env.AI.run).filter((s) => s.startsWith("You plan"))).toEqual([]);
+    // The page was not saved, so neither tried a second time.
+    expect(writes(KV)).toEqual([ATTEMPTS, KEY]);
+  });
+
+  describe("the second save's spacing (KV takes one write a key a second, a quicker one is refused)", () => {
+    /** A first scan with lessons due, on a clock the refresh moves by `took` ms (the pick moves it): the KV writes
+     * and the waits, in order. */
+    async function spaced(took: number) {
+      let clock = Date.parse("2026-10-07T05:40:00Z");
+      vi.spyOn(Date, "now").mockImplementation(() => clock);
+      const { env, KV } = setup();
+      env.AI = lessonsAi(undefined, () => (clock += took));
+      const order: string[] = [];
+      KV.put.mockImplementation(async (key: string, value: string) => {
+        KV.store.set(key, value);
+        order.push(key);
+      });
+      const sleep = vi.fn(async (ms: number) => void order.push(`wait ${ms}`));
+      await runCategory(env, "cars", { fetch: web().fetch, now: NOW, sleep });
+      return order;
+    }
+
+    it("a quick refresh waits out the rest of 1.1 s after the trends' save", async () => {
+      expect(await spaced(0)).toEqual([ATTEMPTS, KEY, "wait 1100", KEY]);
+    });
+
+    it("waits only what is left of the 1.1 s", async () => {
+      expect(await spaced(400)).toEqual([ATTEMPTS, KEY, "wait 700", KEY]);
+    });
+
+    it("a refresh that took 1.1 s or more saves at once", async () => {
+      expect(await spaced(1_100)).toEqual([ATTEMPTS, KEY, KEY]);
+    });
+
+    it("never waits longer than 1.1 s, even with the clock set back", async () => {
+      expect(await spaced(-60_000)).toEqual([ATTEMPTS, KEY, "wait 1100", KEY]);
+    });
+  });
+
   it("without the AI binding no refresh is tried, and the page is saved once", async () => {
     const { KV } = setup();
     const noAi = {

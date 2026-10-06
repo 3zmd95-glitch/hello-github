@@ -43,7 +43,14 @@ export type CategoryRunOptions = {
   timeoutMs?: number;
   /** Each AI call (default 60 s). */
   aiTimeoutMs?: number;
+  /** The wait before the lessons' save (default a timer; tests pass their own). */
+  sleep?: (ms: number) => Promise<void>;
 };
+
+/** KV takes one write a key a second and refuses a quicker one (429, social/store.ts): the lessons' save comes at least
+ * this long after the trends'. */
+const SAVE_GAP_MS = 1_100;
+const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
  * The month's credits nearly spent: ≥ 90 % (Trending effects' `TIGHT_SHARE`) of the plan plus a positive pay-as-you-go
@@ -194,11 +201,18 @@ export async function runCategory(
   console.log(JSON.stringify({ category: diagnostics }));
   if (attempt === false || prev === undefined) return doc;
   doc = await save(env, key, { ...doc, diagnostics });
-  // The lessons (§3): after a scan that searched (a tight month never does), when they are 6 days old or missing;
-  // they need the AI. Saved a second time, so a slow refresh (the request dropped, waitUntil's 30 s over) never costs
-  // the trends.
+  const savedAt = Date.now();
+  // The lessons (§3): after a scan that searched (a tight month never does) and saved (lessons that can't be stored
+  // aren't bought: they stay due), when they are 6 days old or missing; they need the AI. Saved a second time, so a
+  // slow refresh (the request dropped, waitUntil's 30 s over) never costs the trends.
   // ponytail: lessons share the scan's invocation (spec §4); if live CPU or wall time is too high, give them a slot.
-  if (doc.status === "failed" || !env.AI || !lessonsDue(prev?.lessons, today)) return doc;
+  if (
+    doc.status === "failed" ||
+    doc.notes?.includes("kv") ||
+    !env.AI ||
+    !lessonsDue(prev?.lessons, today)
+  )
+    return doc;
   let lessons: Record<string, unknown>;
   try {
     const r = await refreshLessons(env, opts.fetch ?? fetch, g, doc.items, now, doc.lessons, opts);
@@ -210,5 +224,8 @@ export async function runCategory(
     doc = noted(doc, "lessons");
   }
   console.log(JSON.stringify({ category: { id, lessons } }));
+  // Whatever is left of the 1.1 s since the trends' save (never more, if the clock moved back).
+  const wait = SAVE_GAP_MS - Math.max(0, Date.now() - savedAt);
+  if (wait > 0) await (opts.sleep ?? realSleep)(wait);
   return save(env, key, { ...doc, diagnostics: { ...diagnostics, lessons } });
 }
