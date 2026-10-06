@@ -1047,18 +1047,18 @@
   --hair: var(--edge);
   --ink: #0b0d10;
   --ink-2: #555d69;
-  --muted: #6b7482;
+  --muted: #676f7d;
   --accent: #45e08e;
   --accent-ink: #06130d;
-  --tint: #0f7a47;
+  --tint: #0e7443;
   --tint-bg: rgba(18, 138, 81, 0.12);
   --sky: var(--tint);
-  --gold: #9a5b00;
+  --gold: #955800;
   --gold-ink: #ffffff;
   --orange: var(--gold);
   --warn: var(--gold);
   --warn-bg: rgba(184, 110, 0, 0.12);
-  --danger: #d4342c;
+  --danger: #d0332b;
   --pc-tiktok: #fe2c55;
   --pc-instagram: #e1306c;
   --pc-youtube: #e60000;
@@ -1215,6 +1215,11 @@
     :where([data-world="social"]) .glass::before {
       display: none;
     }
+    /* The sheet backdrop keeps its dim, without the blur (`[data-world]` outweighs the later `.ios-backdrop`). */
+    [data-world="social"] .ios-backdrop {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
   }
 
   /* Existing pixel classes, restyled (spec §5: screens migrate one by one). */
@@ -1289,13 +1294,13 @@
     color: var(--warn);
   }
   [data-world="social"] .px-chip-t3 {
-    background: color-mix(in srgb, var(--danger) 14%, transparent);
-    color: var(--danger);
+    background: var(--danger);
+    color: var(--panel);
   }
   [data-world="social"] .px-chip-lock {
     border: 0;
     background: var(--fill);
-    color: var(--muted);
+    color: var(--ink-2);
   }
   [data-world="social"] .px-bar {
     height: 8px;
@@ -1375,9 +1380,11 @@
     border-radius: 8px;
     animation-timing-function: ease-in-out;
   }
+  /* Underlined: a link inside a sentence is not told apart by color alone. */
   [data-world="social"] .px-link {
     color: var(--tint);
-    text-decoration: none;
+    text-decoration: underline;
+    text-underline-offset: 3px;
     font-weight: 600;
   }
 
@@ -1558,6 +1565,11 @@
     padding: 12px 14px;
     min-width: 0;
   }
+  .ios-stat.ios-card {
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
   .ios-stat small {
     display: block;
     color: var(--ink-2);
@@ -1591,7 +1603,8 @@
     transform: scale(0.97);
   }
 
-  /* Segmented control: equal segments, thumb moves on transform only (width is set once by the component). */
+  /* Segmented control: equal segments, thumb moves on transform only (width is set once by the component). The
+     track clips, so the spring's overshoot never pushes the thumb past it. */
   .ios-seg {
     position: relative;
     display: flex;
@@ -1599,6 +1612,7 @@
     border-radius: 12px;
     padding: 3px;
     min-width: 0;
+    overflow: hidden;
   }
   .ios-seg > button {
     position: relative;
@@ -1621,6 +1635,11 @@
   .ios-seg > button:active {
     transform: scale(0.96);
   }
+  /* The clipped track would cut the outer focus ring: draw it inside the segment. */
+  [data-world="social"] .ios-seg > button:focus-visible {
+    outline: 2px solid var(--tint);
+    outline-offset: -2px;
+  }
   .ios-seg-thumb {
     position: absolute;
     top: 3px;
@@ -1634,6 +1653,12 @@
     transform: translateX(var(--x, 0px));
     transition: transform var(--t-spring) var(--spring);
     pointer-events: none;
+  }
+  /* Dark: the thumb is lighter than the track, as on iOS (--panel would sit darker than --fill). */
+  @media (prefers-color-scheme: dark) {
+    [data-world="social"] .ios-seg-thumb {
+      background: var(--lens);
+    }
   }
 
   /* iOS switch on a native checkbox (keeps role="switch" for the tests). */
@@ -1775,6 +1800,7 @@
     font-size: 14px;
     color: var(--ink);
     white-space: normal;
+    overflow-wrap: anywhere;
   }
   [data-world="social"] .ios-toast svg {
     flex: none;
@@ -1857,7 +1883,7 @@
 
   /* Staggered entrance for the first view of a screen (max 8 children). */
   .ios-stagger > * {
-    animation: ios-up 0.6s var(--out) both;
+    animation: ios-up 0.6s var(--out) backwards;
   }
   .ios-stagger > :nth-child(2) {
     animation-delay: 0.05s;
@@ -2017,13 +2043,10 @@
   }
 }
 
-/* Motion: springs instead of the pixel steps(). */
+/* Motion: eased curves instead of the pixel steps(). No spring on `.anim-sheet`: its overshoot would lift the old
+   bottom sheets off the screen edge on every open. */
 [data-world="social"] :is(.anim-popin, .anim-sheet, .anim-toast, .anim-fade, .anim-pop) {
   animation-timing-function: var(--out);
-}
-[data-world="social"] .anim-sheet {
-  animation-timing-function: var(--spring);
-  animation-duration: var(--t-spring);
 }
 [data-world="social"] .px-particle {
   border-radius: 999px;
