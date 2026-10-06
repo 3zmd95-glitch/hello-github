@@ -1,7 +1,7 @@
 /**
  * Trending effects, the AI cleanup (planning/tools/18-trending-effects.md §1 step 3): one built-in AI call a day keeps
  * real editing effects, merges spellings and names them in English and Gulf Arabic. Post titles are untrusted data:
- * they are clipped, the prompt says so, and the answer must pass a strict schema and name only the keys it was given.
+ * they are clipped, the prompt says so, and each verdict must pass a strict schema and name only the keys it was given.
  */
 
 import { z } from "zod";
@@ -32,7 +32,8 @@ const SYSTEM =
   "of the same effect with sameAs (the key it belongs to). Give a short English name, a natural Gulf Arabic name, and " +
   "a one-line description of what the effect looks like in both languages. Answer JSON only.";
 
-/** The verdicts, or null when the AI is unavailable, slow or answers outside the schema. */
+/** The verdicts that pass the schema one by one ([] when none does), or null when the AI is unavailable, slow or
+ * answers without a list. */
 export async function cleanWithAi(
   env: EffectsEnv,
   candidates: readonly { key: string; name: string; samples: string[] }[],
@@ -62,12 +63,19 @@ export async function cleanWithAi(
       }),
     ]);
     const response = (result as { response?: unknown })?.response;
-    const parsed = Reply.safeParse(typeof response === "string" ? JSON.parse(response) : response);
-    if (!parsed.success) return null;
+    const data = (typeof response === "string" ? JSON.parse(response) : response) as {
+      effects?: unknown;
+    } | null;
+    const list = data?.effects;
+    if (!Array.isArray(list)) return null;
     const known = new Set(candidates.map((c) => c.key));
-    return parsed.data.effects.filter(
-      (v) => known.has(v.key) && (!v.sameAs || known.has(v.sameAs)),
-    );
+    // Each verdict on its own: one broken line (an over-long name) must not cost the rest.
+    return list.flatMap((x: unknown) => {
+      const v = Verdict.safeParse(x);
+      return v.success && known.has(v.data.key) && (!v.data.sameAs || known.has(v.data.sameAs))
+        ? [v.data]
+        : [];
+    });
   } catch {
     return null;
   } finally {

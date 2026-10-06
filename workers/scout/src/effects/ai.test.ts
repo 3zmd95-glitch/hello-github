@@ -44,17 +44,26 @@ describe("cleanWithAi", () => {
     expect(await cleanWithAi(e, candidates)).toEqual([verdict("clone-effect")]);
   });
 
-  it("gives null on invalid JSON, a bad shape, no binding, an error or a timeout", async () => {
+  it("checks each verdict on its own: a broken one never costs the others", async () => {
+    const longArabic = verdict("clone-trend", { name: { en: "Clone trend", ar: "ا".repeat(41) } });
+    const reply = (effects: unknown[]) => env(async () => ({ response: { effects } }));
+    expect(await cleanWithAi(reply([verdict("clone-effect"), longArabic]), candidates)).toEqual([
+      verdict("clone-effect"),
+    ]);
+    const short = verdict("clone-effect", { what: { en: "x", ar: "y" } });
+    expect(await cleanWithAi(reply([short, longArabic, "junk"]), candidates)).toEqual([]);
+  });
+
+  it("gives null on invalid JSON, no list, no binding, an error or a timeout", async () => {
     expect(
       await cleanWithAi(
         env(async () => ({ response: "{not json" })),
         candidates,
       ),
     ).toBeNull();
-    const short = { effects: [verdict("clone-effect", { what: { en: "x", ar: "y" } })] };
     expect(
       await cleanWithAi(
-        env(async () => ({ response: short })),
+        env(async () => ({ response: { verdicts: [verdict("clone-effect")] } })),
         candidates,
       ),
     ).toBeNull();

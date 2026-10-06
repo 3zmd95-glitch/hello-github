@@ -10,7 +10,7 @@ import { cleanWithAi, type AiVerdict } from "./ai";
 import { extractCandidates } from "./extract";
 import { familiesForDay } from "./families";
 import { readEffects, writeEffects } from "./kv";
-import { mergeHistory, scoreEffects, setViews } from "./score";
+import { creatorsBetween, mergeHistory, scoreEffects, setViews } from "./score";
 import { searchFamilies, youtubeCheck, YT_EFFECTS, type EffectsEnv } from "./sources";
 import {
   IDS_PER_DAY,
@@ -20,7 +20,7 @@ import {
   type HistoryEntry,
 } from "./types";
 
-/** Candidates the AI sees, the most creators first. */
+/** Candidates the AI sees, the most creators this week first. */
 const AI_CANDIDATES = 25;
 const ARABIC_LABEL = new Map(TERMS.map((t) => [t.id, t.label.ar]));
 
@@ -38,13 +38,14 @@ function failed(prev: EffectsDoc | null, today: string, now: Date, notes: string
   };
 }
 
-/** Moves a merged spelling's days into its effect, day by day (new objects: the previous document stays as it was). */
+/** Moves a merged spelling's days into its effect, day by day (new objects: the previous document stays as it was).
+ * The effect keeps its own YouTube views; the spelling's were for another query. */
 function fold(history: History, from: string, to: string): void {
   const days = new Map((history[to] ?? []).map((e) => [e.day, e]));
   for (const e of history[from] ?? []) {
     const same = days.get(e.day);
     const ids = same ? [...new Set([...same.ids, ...e.ids])].slice(0, IDS_PER_DAY) : e.ids;
-    days.set(e.day, { day: e.day, ids });
+    days.set(e.day, { ...same, day: e.day, ids });
   }
   history[to] = [...days.values()];
   delete history[from];
@@ -112,34 +113,60 @@ function metaOf(c: Candidate, v: AiVerdict | undefined, old: EffectMeta | undefi
   };
 }
 
+type RunOptions = {
+  fetch?: typeof fetch;
+  now?: Date;
+  force?: boolean;
+  /** Each Tavily and YouTube call (default 12 s). */
+  timeoutMs?: number;
+  /** The AI call, apart, so a short search limit never cuts it (default 60 s). */
+  aiTimeoutMs?: number;
+};
+
+/** The AI's slots go to the most creators this week (history plus today), so a name that builds slowly across the
+ * 3-day rotation still gets judged; on a tie, names the AI never approved go first. */
+function forAi(cands: Map<string, Candidate>, prev: EffectsDoc | null, today: string): Candidate[] {
+  return [...cands.values()]
+    .map((c) => {
+      const week = creatorsBetween(prev?.history[c.key] ?? [], today, 1, 6);
+      c.ids.forEach((id) => week.add(id));
+      return { c, week: week.size, checked: prev?.meta[c.key]?.checked ? 1 : 0 };
+    })
+    .sort((a, b) => b.week - a.week || a.checked - b.checked)
+    .slice(0, AI_CANDIDATES)
+    .map((r) => r.c);
+}
+
 async function scan(
   env: EffectsEnv,
   doFetch: typeof fetch,
   prev: EffectsDoc | null,
   now: Date,
   today: string,
-  timeoutMs: number | undefined,
+  opts: RunOptions,
 ): Promise<{ doc: EffectsDoc; credits: number }> {
   const { posts, credits, errors } = await searchFamilies(
     env,
     doFetch,
     familiesForDay(today),
-    timeoutMs,
+    opts.timeoutMs,
   );
   const notes = new Set(errors);
   if (!posts.length && notes.size) return { doc: failed(prev, today, now, [...notes]), credits };
 
   const cands = await extractCandidates(posts);
-  const top = [...cands.values()].sort((a, b) => b.ids.size - a.ids.size).slice(0, AI_CANDIDATES);
-  const verdicts = top.length
+  const top = forAi(cands, prev, today);
+  const reply = top.length
     ? await cleanWithAi(
         env,
         top.map((c) => ({ key: c.key, name: c.name, samples: c.samples.map((s) => s.title) })),
-        timeoutMs,
+        opts.aiTimeoutMs,
       )
     : [];
-  if (!verdicts) notes.add("ai_fallback");
-  const byKey = new Map((verdicts ?? []).map((v) => [v.key, v]));
+  // The AI judged (or had nothing to judge). Otherwise: no answer, or no usable verdict in it.
+  const judged = !top.length || !!reply?.length;
+  if (!judged) notes.add(reply ? "ai_empty" : "ai_fallback");
+  const byKey = new Map((reply ?? []).map((v) => [v.key, v]));
   const history: History = { ...prev?.history };
   const meta: Meta = { ...prev?.meta };
   applyVerdicts(cands, byKey, history, meta);
@@ -147,17 +174,18 @@ async function scan(
   const merged = mergeHistory(history, today, cands);
   for (const key of Object.keys(meta)) if (!merged[key]) delete meta[key];
 
-  // Chips: dictionary effects, plus names the AI kept — none of those on a day the AI failed (unchecked junk waits).
+  // Chips: dictionary effects, plus names the AI kept — none of those on a day the AI did not judge (junk waits).
   const shown = Object.fromEntries(
-    Object.entries(meta).filter(([, m]) => m.termId || (verdicts && m.checked)),
+    Object.entries(meta).filter(([, m]) => m.termId || (judged && m.checked)),
   );
   const top6 = scoreEffects(merged, shown, today, {}).slice(0, YT_EFFECTS);
+  // The same query every day (never today's AI name), so views7d compares like with like.
   const youtube = await youtubeCheck(
     env,
     doFetch,
-    top6.map((i) => ({ key: i.key, en: i.name.en })),
+    top6.map((i) => ({ key: i.key, en: i.termId ? i.name.en : i.key.replace(/-/g, " ") })),
     now,
-    timeoutMs,
+    opts.timeoutMs,
   );
   setViews(
     merged,
@@ -180,10 +208,7 @@ async function scan(
   };
 }
 
-export async function runEffects(
-  env: EffectsEnv,
-  opts: { fetch?: typeof fetch; now?: Date; force?: boolean; timeoutMs?: number } = {},
-): Promise<EffectsDoc> {
+export async function runEffects(env: EffectsEnv, opts: RunOptions = {}): Promise<EffectsDoc> {
   const now = opts.now ?? new Date();
   const today = utcDay(now);
   // undefined: KV could not be read, so nothing is written over a history this run never saw.
@@ -191,16 +216,19 @@ export async function runEffects(
   if (prev && !opts.force && prev.ranOn === today) return prev;
   let doc = failed(null, today, now, ["kv"]);
   let credits = 0;
+  let error: string | undefined;
   if (prev !== undefined) {
     try {
-      ({ doc, credits } = await scan(env, opts.fetch ?? fetch, prev, now, today, opts.timeoutMs));
-    } catch {
+      ({ doc, credits } = await scan(env, opts.fetch ?? fetch, prev, now, today, opts));
+    } catch (e) {
+      // A code error, not post text; clipped all the same.
+      error = (e instanceof Error ? e.message : String(e)).slice(0, 200);
       doc = failed(prev, today, now, ["error"]);
     }
   }
   console.log(
     JSON.stringify({
-      effects: { status: doc.status, items: doc.items.length, credits, notes: doc.notes },
+      effects: { status: doc.status, items: doc.items.length, credits, notes: doc.notes, error },
     }),
   );
   if (prev !== undefined)

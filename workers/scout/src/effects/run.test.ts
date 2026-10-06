@@ -9,6 +9,7 @@ const NEXT_DAY = new Date("2026-10-08T05:35:00Z");
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+const youtubeCap = () => json({ error: { errors: [{ reason: "quotaExceeded" }] } }, 403);
 
 type Hit = { url: string; title: string; content: string };
 const tt = (handle: string, title: string, n: number): Hit => ({
@@ -39,44 +40,61 @@ const PROBE: Hit[] = [
   tt("g3", "Hopping on the Latest CapCut Trend 🙈 #viraltrend #capcuttrend", 12),
 ];
 
-/** A fake internet: every Tavily family search answers `hits`; YouTube finds 2 videos per effect, 1,000 views each. */
-function web(over: { hits?: Hit[]; tavily?: () => Response; youtubeSearch?: () => Response } = {}) {
+/**
+ * A fake internet: every Tavily family search answers `hits`; YouTube finds 2 videos per effect, 1,000 views each.
+ * `tavily`, `youtubeSearch` (given the call's number) and `stats` may answer instead.
+ */
+function web(
+  over: {
+    hits?: Hit[];
+    tavily?: (query: string) => Response | undefined;
+    youtubeSearch?: (n: number) => Response | undefined;
+    stats?: () => Response;
+  } = {},
+) {
   const count = { tavily: 0, search: 0, stats: 0 };
-  const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+  const queries: string[] = [];
+  const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const url = new URL(String(input));
     if (url.href === TAVILY_URL) {
       count.tavily++;
-      return over.tavily?.() ?? json({ results: over.hits ?? PROBE, usage: { credits: 1 } });
+      const { query } = JSON.parse(String(init?.body)) as { query: string };
+      return over.tavily?.(query) ?? json({ results: over.hits ?? PROBE, usage: { credits: 1 } });
     }
     if (url.pathname.endsWith("/youtube/v3/search")) {
       count.search++;
-      if (over.youtubeSearch) return over.youtubeSearch();
       const q = url.searchParams.get("q") ?? "";
-      return json({
-        items: [1, 2].map((n) => ({ id: { videoId: `${q}-${n}` }, snippet: { title: q } })),
-      });
+      queries.push(q);
+      return (
+        over.youtubeSearch?.(count.search) ??
+        json({
+          items: [1, 2].map((n) => ({ id: { videoId: `${q}-${n}` }, snippet: { title: q } })),
+        })
+      );
     }
     if (url.pathname.endsWith("/youtube/v3/videos")) {
       count.stats++;
+      if (over.stats) return over.stats();
       const ids = (url.searchParams.get("id") ?? "").split(",");
       return json({ items: ids.map((id) => ({ id, statistics: { viewCount: "1000" } })) });
     }
     return json({ error: "not_found" }, 404);
   });
-  return { fetch, count };
+  return { fetch, count, queries };
 }
 
 type Verdict = Record<string, unknown>;
-/** A fake built-in AI: keeps every candidate it is shown, unless `judge` says otherwise. */
+const titleCase = (s: string) => s.replace(/\b[a-z]/g, (c) => c.toUpperCase());
+/** A fake built-in AI: keeps every candidate it is shown under a Title-Case English name, unless `judge` says
+ * otherwise. */
 function ai(judge: (key: string) => Verdict = () => ({})) {
   return {
     run: vi.fn(async (_model: string, input: Record<string, unknown>): Promise<unknown> => {
-      const user = (input.messages as { content: string }[])[1].content;
-      const effects = [...user.matchAll(/^- key: (\S+) \| name: (.+?) \| posts:/gm)].map(
+      const effects = [...userText(input).matchAll(/^- key: (\S+) \| name: (.+?) \| posts:/gm)].map(
         ([, key, name]) => ({
           key,
           keep: true,
-          name: { en: name.slice(0, 40), ar: "اسم التأثير" },
+          name: { en: titleCase(name).slice(0, 40), ar: "اسم التأثير" },
           what: { en: `What ${name} looks like`.slice(0, 90), ar: "وصف قصير للتأثير" },
           ...judge(key),
         }),
@@ -85,6 +103,8 @@ function ai(judge: (key: string) => Verdict = () => ({})) {
     }),
   };
 }
+const userText = (input: Record<string, unknown>) =>
+  (input.messages as { content: string }[])[1].content;
 
 function kv(stored?: EffectsDoc) {
   const store = new Map<string, string>();
@@ -128,7 +148,7 @@ describe("runEffects", () => {
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
     expect(doc.items[0]).toMatchObject({
       termId: "clone-effect",
-      name: { en: "clone effect", ar: "اسم التأثير" },
+      name: { en: "clone effect", ar: "اسم التأثير" }, // the dictionary label, not the AI's "Clone Effect"
       creators: 8,
       isNew: false,
       growth: 3,
@@ -136,14 +156,17 @@ describe("runEffects", () => {
       platforms: ["ig", "tt"],
       youtube: { newVideos: 2, views7d: 2000 },
     });
-    expect(doc.items[1]).toMatchObject({ creators: 3, isNew: true, checked: true });
+    expect(doc.items[1]).toMatchObject({
+      name: { en: "Swagger Trend", ar: "اسم التأثير" }, // a new name takes the AI's English name
+      creators: 3,
+      isNew: true,
+      checked: true,
+    });
     expect(doc.meta["reverse-trend"]).toBeDefined(); // remembered, but 1 creator is below the bar
     expect(doc).toMatchObject({ ranOn: "2026-10-07", updatedAt: NOW.toISOString(), status: "ok" });
     expect(doc.notes).toBeUndefined();
 
-    expect(count.tavily).toBe(6);
-    expect(count.search).toBeLessThanOrEqual(6);
-    expect(count.stats).toBe(1);
+    expect(count).toEqual({ tavily: 6, search: 2, stats: 1 });
     expect(AI.run).toHaveBeenCalledTimes(1);
     expect(KV.put).toHaveBeenCalledTimes(1);
     expect(stored(KV)).toEqual(doc);
@@ -166,7 +189,7 @@ describe("runEffects", () => {
     expect(KV.put).toHaveBeenCalledTimes(1);
 
     const forced = await runEffects(env, { fetch, now: later, force: true });
-    expect(count.tavily).toBe(12);
+    expect(count).toEqual({ tavily: 12, search: 4, stats: 2 });
     expect(KV.put).toHaveBeenCalledTimes(2);
     expect(forced.items[0]).toMatchObject({ key: "clone-effect", creators: 8 });
     expect(forced.history["clone-effect"]).toHaveLength(1);
@@ -186,10 +209,24 @@ describe("runEffects", () => {
     expect(KV.put).toHaveBeenCalledTimes(1);
   });
 
+  it("some Tavily calls failing still makes a list, noted as partial", async () => {
+    const { env } = setup();
+    const { fetch, count } = web({
+      tavily: (q) => (q === "clone yourself video trend" ? undefined : json({}, 432)),
+    });
+    const doc = await runEffects(env, { fetch, now: NOW });
+
+    expect(doc.status).toBe("partial");
+    expect(doc.notes).toEqual(["quota"]);
+    expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
+    expect(count).toEqual({ tavily: 6, search: 2, stats: 1 });
+  });
+
   it("without the AI the chips are dictionary effects only; new names wait for a day the AI works", async () => {
     const { env, KV } = setup();
     env.AI.run.mockResolvedValue({ response: "{not json" });
-    const doc = await runEffects(env, { fetch: web().fetch, now: NOW });
+    const day1 = web();
+    const doc = await runEffects(env, { fetch: day1.fetch, now: NOW });
 
     expect(doc.status).toBe("partial");
     expect(doc.notes).toEqual(["ai_fallback"]);
@@ -203,11 +240,40 @@ describe("runEffects", () => {
       name: { en: "swagger trend" },
       checked: false,
     });
+    expect(day1.count.search).toBe(1);
     expect(KV.put).toHaveBeenCalledTimes(1);
 
-    const next = await runEffects({ ...env, AI: ai() }, { fetch: web().fetch, now: NEXT_DAY });
+    const day2 = web();
+    const next = await runEffects({ ...env, AI: ai() }, { fetch: day2.fetch, now: NEXT_DAY });
     expect(next.status).toBe("ok");
     expect(next.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
+    expect(day2.count.search).toBe(2);
+  });
+
+  it("applies the AI's valid verdicts when one of them breaks the schema", async () => {
+    const { env } = setup({
+      judge: (key) =>
+        key === "swagger-trend" ? { name: { en: "Swagger Trend", ar: "ا".repeat(41) } } : {},
+    });
+    const { fetch, count } = web();
+    const doc = await runEffects(env, { fetch, now: NOW });
+
+    expect(doc.status).toBe("ok");
+    expect(doc.items.map((i) => i.key)).toEqual(["clone-effect"]); // swagger-trend was never approved
+    expect(doc.items[0]).toMatchObject({ checked: true, name: { ar: "اسم التأثير" } });
+    expect(doc.meta["swagger-trend"]).toMatchObject({ checked: false });
+    expect(count.search).toBe(1);
+  });
+
+  it("an AI answer with no usable verdict is noted ai_empty and shows dictionary effects only", async () => {
+    const { env } = setup({ judge: () => ({ keep: "yes" }) });
+    const { fetch, count } = web();
+    const doc = await runEffects(env, { fetch, now: NOW });
+
+    expect(doc.status).toBe("partial");
+    expect(doc.notes).toEqual(["ai_empty"]);
+    expect(doc.items.map((i) => i.key)).toEqual(["clone-effect"]);
+    expect(count.search).toBe(1);
   });
 
   it("AI cleanup drops a junk name and merges a spelling into the clone effect", async () => {
@@ -226,7 +292,8 @@ describe("runEffects", () => {
       tt("n1", "The Clone Trend everyone is doing", 23),
       ig("n2", "The Clone Trend everyone is doing", 24),
     ];
-    const doc = await runEffects(env, { fetch: web({ hits }).fetch, now: NOW });
+    const { fetch, count } = web({ hits });
+    const doc = await runEffects(env, { fetch, now: NOW });
 
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
     expect(doc.items[0]).toMatchObject({ creators: 10, checked: false }); // 8 + the 2 "clone trend" creators
@@ -234,6 +301,7 @@ describe("runEffects", () => {
       expect(doc.meta[gone]).toBeUndefined();
       expect(doc.history[gone]).toBeUndefined();
     }
+    expect(count.search).toBe(2);
   });
 
   it("a merged spelling's earlier days move into its effect; a dropped name's earlier days go", async () => {
@@ -245,8 +313,10 @@ describe("runEffects", () => {
       tt("o2", "Fit check: Outfit Trend", 21),
       tt("o3", "Fit check: Outfit Trend", 22),
     ];
-    const prev = await runEffects(day1.env, { fetch: web({ hits }).fetch, now: NOW });
+    const first = web({ hits });
+    const prev = await runEffects(day1.env, { fetch: first.fetch, now: NOW });
     expect(prev.items.map((i) => i.key)).toContain("outfit-trend");
+    expect(first.count.search).toBe(3);
 
     const { env } = setup({
       stored: prev,
@@ -262,38 +332,131 @@ describe("runEffects", () => {
       tt("n2", "The Clone Trend everyone is doing", 30),
       ...hits.slice(-3),
     ];
-    const doc = await runEffects(env, { fetch: web({ hits: today }).fetch, now: NEXT_DAY });
+    const second = web({ hits: today });
+    const doc = await runEffects(env, { fetch: second.fetch, now: NEXT_DAY });
 
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
     // c1–c8 and n1 yesterday (n1 moved over from "clone trend"), c1 and n2 today: 9 without the move.
     expect(doc.items[0].creators).toBe(10);
+    // Yesterday's YouTube views survive the move, so today's growth compares with them.
+    expect(doc.history["clone-effect"].find((e) => e.day === "2026-10-07")?.views7d).toBe(2000);
+    expect(doc.items[0].youtube).toEqual({ newVideos: 2, views7d: 2000, growth: 1 });
     expect(doc.history["clone-trend"]).toBeUndefined();
     expect(doc.history["outfit-trend"]).toBeUndefined();
+    expect(second.count.search).toBe(2);
+  });
+
+  it("gives the AI's slots by creators this week: a slowly building name is judged and shows", async () => {
+    // 26 names by the same 2 creators every day, then one name by 1 new creator a day: below every day's top 25 by
+    // today's creators.
+    const nato =
+      "alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike november oscar papa quebec " +
+      "romeo sierra tango uniform victor whiskey xray yankee zulu";
+    const fillers = nato
+      .split(" ")
+      .flatMap((w, i) =>
+        ["fa", "fb"].map((h, j) => tt(h, `${titleCase(w)} Trend`, 100 + 2 * i + j)),
+      );
+    let prev: EffectsDoc | undefined;
+    const judged: boolean[] = [];
+    for (const day of [5, 6, 7]) {
+      const { env, AI } = setup({ stored: prev });
+      const hits = [...fillers, tt(`s${day}`, "Ghost Walk Trend", 200 + day)];
+      prev = await runEffects(env, {
+        fetch: web({ hits }).fetch,
+        now: new Date(`2026-10-0${day}T05:35:00Z`),
+      });
+      judged.push(userText(AI.run.mock.calls[0][1]).includes("- key: ghost-walk-trend |"));
+    }
+    // Day 2: it ties the fillers at 2 creators and was never checked, so it goes first. Day 3: 3 creators lead.
+    expect(judged).toEqual([false, true, true]);
+    expect(prev!.items.map((i) => [i.key, i.creators, i.checked])).toEqual([
+      ["ghost-walk-trend", 3, true],
+    ]);
+  });
+
+  it("asks YouTube the same query for an effect whatever the AI calls it today", async () => {
+    const day1 = setup();
+    const first = web();
+    const prev = await runEffects(day1.env, { fetch: first.fetch, now: NOW });
+
+    const { env } = setup({
+      stored: prev,
+      judge: (key) =>
+        key === "swagger-trend" ? { name: { en: "Swagger Hair Trend", ar: "ترند الشعرة" } } : {},
+    });
+    const second = web();
+    const doc = await runEffects(env, { fetch: second.fetch, now: NEXT_DAY });
+
+    expect(doc.items[1].name.en).toBe("Swagger Hair Trend");
+    expect(first.queries).toEqual(["clone effect edit", "swagger trend edit"]);
+    expect(second.queries).toEqual(first.queries);
   });
 
   it("YouTube's daily cap: no YouTube numbers, a youtube_cap note, no more calls", async () => {
     const { env } = setup();
-    const { fetch, count } = web({
-      youtubeSearch: () => json({ error: { errors: [{ reason: "quotaExceeded" }] } }, 403),
-    });
+    const { fetch, count } = web({ youtubeSearch: youtubeCap });
     const doc = await runEffects(env, { fetch, now: NOW });
 
     expect(doc.status).toBe("partial");
     expect(doc.notes).toEqual(["youtube_cap"]);
     expect(doc.items.length).toBeGreaterThan(0);
     expect(doc.items.every((i) => i.youtube === undefined)).toBe(true);
-    expect(count).toMatchObject({ search: 1, stats: 0 });
+    expect(count).toEqual({ tavily: 6, search: 1, stats: 0 });
+  });
+
+  it("YouTube answering the first effect, then hitting the cap, keeps the first effect's numbers", async () => {
+    const { env } = setup();
+    const { fetch, count } = web({ youtubeSearch: (n) => (n > 1 ? youtubeCap() : undefined) });
+    const doc = await runEffects(env, { fetch, now: NOW });
+
+    expect(doc.notes).toEqual(["youtube_cap"]);
+    expect(doc.items[0].youtube).toEqual({ newVideos: 2, views7d: 2000 });
+    expect(doc.items[1].youtube).toBeUndefined();
+    expect(count).toEqual({ tavily: 6, search: 2, stats: 1 });
+  });
+
+  it("a failed YouTube stats call gives no numbers and a youtube_stats note", async () => {
+    const { env } = setup();
+    const { fetch, count } = web({ stats: () => json({ error: "down" }, 500) });
+    const doc = await runEffects(env, { fetch, now: NOW });
+
+    expect(doc.status).toBe("partial");
+    expect(doc.notes).toEqual(["youtube_stats"]);
+    expect(doc.items.every((i) => i.youtube === undefined)).toBe(true);
+    expect(count).toEqual({ tavily: 6, search: 2, stats: 1 });
+  });
+
+  it("a short search timeout never cuts the AI short; the AI has its own", async () => {
+    const { env } = setup();
+    const answer = env.AI.run.getMockImplementation()!;
+    env.AI.run.mockImplementation(async (model, input) => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return answer(model, input);
+    });
+    const doc = await runEffects(env, { fetch: web().fetch, now: NOW, timeoutMs: 150 });
+    expect(doc.status).toBe("ok");
+
+    const cut = await runEffects(env, {
+      fetch: web().fetch,
+      now: NOW,
+      force: true,
+      aiTimeoutMs: 50,
+    });
+    expect(cut.notes).toEqual(["ai_fallback"]);
   });
 
   it("history across days: 3 creators on day D, 6 new ones on D+3 → growth 2 over 9 creators", async () => {
     const clone = (handles: string[], from: number) =>
       handles.map((h, i) => tt(h, "clone effect tutorial | CapCut", from + i));
     const day = setup();
+    const dayD = web({ hits: clone(["a", "b", "c"], 1) });
     const d = await runEffects(day.env, {
-      fetch: web({ hits: clone(["a", "b", "c"], 1) }).fetch,
+      fetch: dayD.fetch,
       now: new Date("2026-10-04T05:35:00Z"),
     });
     expect(d.items[0]).toMatchObject({ key: "clone-effect", creators: 3, growth: 3 });
+    expect(dayD.count.search).toBe(1);
 
     const { env } = setup({ stored: d });
     const doc = await runEffects(env, {
@@ -314,8 +477,13 @@ describe("runEffects", () => {
 
     const prev = await runEffects(setup().env, { fetch: web().fetch, now: NOW });
     const broken = setup({ stored: { ...prev, history: { "clone-effect": 5 } } as never });
+    log.mockClear();
     const failed = await runEffects(broken.env, { fetch: web().fetch, now: NEXT_DAY });
     expect(failed).toMatchObject({ status: "failed", notes: ["error"], items: prev.items });
     expect(broken.KV.put).toHaveBeenCalledTimes(1);
+    // The log line says why (a code error, clipped), never post text.
+    const { error } = JSON.parse(String(log.mock.calls[0][0])).effects as { error: string };
+    expect(error).toMatch(/ is not /); // "… is not iterable" or "… is not a function"
+    expect(error.length).toBeLessThanOrEqual(200);
   });
 });
