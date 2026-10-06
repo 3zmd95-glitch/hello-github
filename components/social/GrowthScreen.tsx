@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useToday } from "@/components/today/useToday";
+import PageHeader from "@/components/ui/ios/PageHeader";
 import { useSocialSync } from "@/components/social/useSocialSync";
 import { allOverview, platformOverview } from "@/lib/analytics";
 import type { Platform } from "@/lib/domain";
@@ -82,51 +83,46 @@ export default function GrowthScreen() {
 
   return (
     <div className="flex flex-col gap-4" data-testid="growth-screen" data-tab={filter}>
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1">
-          <h1 className="text-2xl">{t("social.growth.title")}</h1>
-          <p className="text-ink-2 text-sm">{t("social.growth.sub")}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {sync.configured && (
-            <button
-              type="button"
-              className="px-btn px-btn-ghost px-btn-sm"
-              onClick={onSync}
-              disabled={sync.busy}
-              aria-busy={sync.busy}
-              data-testid="growth-sync"
-            >
-              {sync.busy ? (
-                <>
-                  <span aria-hidden className="acc-spin">
-                    ⟳
-                  </span>{" "}
-                  {t("growth.sync.busy")}
-                </>
-              ) : (
-                t("growth.sync.button")
-              )}
-            </button>
-          )}
-          <button
-            type="button"
-            className="px-btn px-btn-sm"
-            onClick={() => setDialog("add")}
-            data-testid="growth-add"
-          >
-            ➕ {t("growth.add")}
-          </button>
+      <PageHeader title={t("social.growth.title")} sub={t("social.growth.sub")} />
+      <div className="flex flex-wrap gap-2">
+        {sync.configured && (
           <button
             type="button"
             className="px-btn px-btn-ghost px-btn-sm"
-            onClick={() => setDialog("import")}
-            data-testid="growth-import"
+            onClick={onSync}
+            disabled={sync.busy}
+            aria-busy={sync.busy}
+            data-testid="growth-sync"
           >
-            📄 {t("growth.import")}
+            {sync.busy ? (
+              <>
+                <span aria-hidden className="acc-spin">
+                  ⟳
+                </span>{" "}
+                {t("growth.sync.busy")}
+              </>
+            ) : (
+              t("growth.sync.button")
+            )}
           </button>
-        </div>
-      </header>
+        )}
+        <button
+          type="button"
+          className="px-btn px-btn-sm"
+          onClick={() => setDialog("add")}
+          data-testid="growth-add"
+        >
+          ➕ {t("growth.add")}
+        </button>
+        <button
+          type="button"
+          className="px-btn px-btn-ghost px-btn-sm"
+          onClick={() => setDialog("import")}
+          data-testid="growth-import"
+        >
+          📄 {t("growth.import")}
+        </button>
+      </div>
 
       <PlatformFilter value={filter} onChange={setFilter} />
 

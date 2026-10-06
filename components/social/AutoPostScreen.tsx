@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import PageHeader from "@/components/ui/ios/PageHeader";
 import type { AutoPost, Platform, Post } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import {
@@ -85,10 +86,7 @@ export default function AutoPostScreen() {
 
   return (
     <div className="flex flex-col gap-4" data-testid="autopost-screen">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl">{t("publish.hub.title")}</h1>
-        <p className="text-ink-2 text-sm">{t("publish.hub.sub")}</p>
-      </header>
+      <PageHeader title={t("publish.hub.title")} sub={t("publish.hub.sub")} />
 
       <section className="px-card flex flex-col gap-3" data-testid="autopost-accounts">
         <h2 className="text-base">{t("publish.hub.accounts")}</h2>

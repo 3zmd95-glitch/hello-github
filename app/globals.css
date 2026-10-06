@@ -1080,6 +1080,8 @@
   --t-fast: 0.16s;
   --t-med: 0.32s;
   --t-spring: 0.5s;
+  /* The floating glass tab bar: 64px capsule + 12px above the edge; .pb-safe-tabbar keeps content clear of it. */
+  --tabbar-h: 76px;
   --font-body: "Vazirmatn", -apple-system, "SF Arabic", "Segoe UI", system-ui, sans-serif;
 }
 @supports (transition-timing-function: linear(0, 1)) {
@@ -1385,6 +1387,188 @@
     color: var(--tint);
     text-decoration: underline;
     text-underline-offset: 3px;
+    font-weight: 600;
+  }
+
+  /* Shell (Task 2.2). Top area: clear at rest with glass capsules; a slab + the compact title once scrolled. The
+     row is positioned so the brand and the title paint above the slab. */
+  .ios-top {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+  .ios-top-bg {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity var(--t-med) var(--out);
+    pointer-events: none;
+  }
+  [data-compact] .ios-top-bg {
+    opacity: 1;
+  }
+  .ios-top-title {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    font-size: 17px;
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+    transition:
+      opacity var(--t-med) var(--out),
+      transform var(--t-spring) var(--spring);
+    pointer-events: none;
+  }
+  [data-compact] .ios-top-title {
+    opacity: 1;
+    transform: none;
+  }
+  .ios-top-brand {
+    display: inline-flex;
+    text-decoration: none;
+  }
+  .ios-icbtn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: var(--ink);
+    text-decoration: none;
+    transition: transform var(--t-fast) var(--out);
+  }
+  .ios-icbtn:active {
+    transform: scale(0.9);
+  }
+  /* Launch choreography: the Social shell springs in when it mounts. `backwards` fill only covers the delay, so the
+   * tab bar's own minimize transition keeps working after the entrance. Reduced motion turns animations off. */
+  .ios-top-brand,
+  .ios-world,
+  .ios-top-end {
+    animation: ios-drop 0.7s var(--spring) backwards;
+  }
+  .ios-world {
+    animation-delay: 0.07s;
+  }
+  .ios-top-end {
+    animation-delay: 0.13s;
+  }
+  .ios-tabbar {
+    animation: ios-rise 0.8s var(--spring) 0.22s backwards;
+  }
+  .ios-lt {
+    animation: ios-up 0.7s var(--out) 0.05s backwards;
+  }
+
+  /* Tab bar: floating glass capsule, lens under the active tab, minimizes on scroll down. */
+  .ios-tabbar {
+    position: fixed;
+    inset-inline: 14px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    height: 64px;
+    border-radius: 999px;
+    display: flex;
+    padding: 6px;
+    z-index: 30;
+    transform-origin: 50% 100%;
+    transition: transform var(--t-spring) var(--spring);
+  }
+  [data-tabbar="mini"] .ios-tabbar {
+    transform: translateY(10px) scale(0.88);
+  }
+  .ios-tab {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border-radius: 999px;
+    color: var(--ink-2);
+    font-size: 11px;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+      color var(--t-med) var(--out),
+      transform var(--t-fast) var(--out);
+  }
+  .ios-tab > span {
+    max-width: 100%;
+    transition:
+      opacity 0.25s var(--out),
+      transform 0.3s var(--out);
+  }
+  [data-tabbar="mini"] .ios-tab > span {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  .ios-tab[data-active="true"] {
+    color: var(--tint);
+  }
+  .ios-tab:active {
+    transform: scale(0.9);
+  }
+  .ios-tab > svg {
+    transition: transform var(--t-spring) var(--spring);
+  }
+  .ios-tab[data-active="true"] > svg {
+    transform: translateY(-1px) scale(1.08);
+    animation: ios-bounce 0.6s var(--spring);
+  }
+  .ios-ind {
+    position: absolute;
+    top: 6px;
+    bottom: 6px;
+    left: 0;
+    width: 0;
+    transform: translateX(var(--x, 0px));
+    transition: transform var(--t-spring) var(--spring);
+  }
+  .ios-ind::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: var(--lens);
+    box-shadow: var(--lens-shadow);
+  }
+  .ios-ind.pulse::before {
+    animation: ios-lens 0.55s var(--out);
+  }
+
+  /* Sidebar (md+): solid rows, lens-style active row. */
+  .ios-side-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: 12px;
+    color: var(--ink-2);
+    font-size: 15px;
+    font-weight: 500;
+    text-decoration: none;
+    transition:
+      background-color var(--t-fast) var(--out),
+      color var(--t-fast) var(--out),
+      transform var(--t-fast) var(--out);
+  }
+  .ios-side-item:hover {
+    background: var(--panel);
+  }
+  .ios-side-item:active {
+    transform: scale(0.98);
+  }
+  .ios-side-item[data-active="true"] {
+    background: var(--panel);
+    color: var(--tint);
+    box-shadow: var(--shadow-sm);
     font-weight: 600;
   }
 
@@ -2090,6 +2274,27 @@
   from {
     opacity: 0;
     transform: scale(1.1);
+  }
+}
+@keyframes ios-bounce {
+  35% {
+    transform: translateY(-5px) scale(1.18);
+  }
+}
+@keyframes ios-lens {
+  35% {
+    transform: scaleX(1.24) scaleY(0.9);
+  }
+}
+@keyframes ios-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+@keyframes ios-rise {
+  from {
+    transform: translateY(160%);
   }
 }
 /* ---- /Social world ---- */

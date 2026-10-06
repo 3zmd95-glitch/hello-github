@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useToday } from "@/components/today/useToday";
+import PageHeader from "@/components/ui/ios/PageHeader";
 import { PLATFORMS, type Platform, type Post } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { PLATFORM_META } from "@/lib/social";
@@ -90,10 +91,7 @@ export default function CalendarScreen() {
 
   return (
     <div className="flex flex-col gap-4" data-testid="calendar-screen" data-view={view}>
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl">{t("social.calendar.title")}</h1>
-        <p className="text-ink-2 text-sm">{t("social.calendar.sub")}</p>
-      </header>
+      <PageHeader title={t("social.calendar.title")} sub={t("social.calendar.sub")} />
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="cal-tabs" role="group" aria-label={t("social.calendar.title")}>

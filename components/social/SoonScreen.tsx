@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import PageHeader from "@/components/ui/ios/PageHeader";
 import { useT, type MessageKey } from "@/lib/i18n";
 
 export type SoonKind = "website" | "business";
@@ -29,13 +30,11 @@ export default function SoonScreen({ kind }: { kind: SoonKind }) {
   const c = COPY[kind];
   return (
     <div className="flex flex-col gap-4" data-testid={`${kind}-screen`}>
-      <header className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl">{t(c.title)}</h1>
-          <span className="px-chip">{t("nav.soon")}</span>
-        </div>
-        <p className="text-ink-2 text-sm">{t(c.sub)}</p>
-      </header>
+      <PageHeader
+        title={t(c.title)}
+        sub={t(c.sub)}
+        trailing={<span className="px-chip">{t("nav.soon")}</span>}
+      />
       <section className="px-card flex flex-col items-start gap-3">
         <span aria-hidden className="text-3xl leading-none">
           {c.icon}

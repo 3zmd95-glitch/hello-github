@@ -1,13 +1,16 @@
 "use client";
 
+import { Settings } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import CelebrationProvider, { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import VideoPlayerProvider from "@/components/player/VideoPlayerProvider";
 import SkillSheetProvider from "@/components/skills/SkillSheetProvider";
 import { usePublishWatcher } from "@/components/social/usePublish";
 import { confirmConnected, pullIfDue, syncSocialNow } from "@/components/social/useSocialSync";
+import { useChrome } from "@/components/ui/ios/chrome";
+import { useScrollChrome } from "@/components/ui/ios/useScrollChrome";
 import { applySocialSeed } from "@/data/social-seed";
 import { useDocumentLang, useT } from "@/lib/i18n";
 import { scoutConfig } from "@/lib/scoutClient";
@@ -47,6 +50,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   useDocumentLang();
   useDocumentWorld();
+  const pathname = usePathname();
+  const world = useWorld();
+  useScrollChrome(world === "social", pathname ?? "/");
   const sound = useStore((s) => s.settings.sound);
   useEffect(() => setMuted(!sound), [sound]);
 
@@ -157,7 +163,7 @@ function Logo({ size = 36 }: { size?: number }) {
   const look =
     world === "training"
       ? "border-edge font-pixel rounded-[2px] border-[3px] shadow-[3px_3px_0_var(--edge)]"
-      : "rounded-[12px] shadow-[0_6px_18px_rgba(69,224,142,0.25)]";
+      : "rounded-[12px] shadow-[0_6px_18px_color-mix(in_srgb,var(--accent)_30%,transparent)]";
   return (
     <span
       aria-hidden
@@ -170,6 +176,49 @@ function Logo({ size = 36 }: { size?: number }) {
 }
 
 function TopBar() {
+  const world = useWorld();
+  return world === "social" ? <SocialTop /> : <TrainingTopBar />;
+}
+
+/**
+ * Social top area (tools/18 §4): no bar at rest. Start: brand mark + the world switch as a glass capsule.
+ * End: the gear in a glass circle. A glass slab with the page title fades in once the page scrolls (`data-compact`).
+ * The language toggle lives in More and Settings in Social. The two side groups share the row equally, so the title
+ * sits in the middle of the screen when it fits and moves toward the gear (then truncates) when it does not.
+ */
+function SocialTop() {
+  const { t } = useT();
+  const title = useChrome((s) => s.title);
+  return (
+    <header className="ios-top pt-safe" data-testid="social-top">
+      <div className="ios-top-bg slab" aria-hidden />
+      <div className="relative mx-auto flex h-14 max-w-[1180px] items-center gap-2 px-3 md:px-6">
+        <div className="flex flex-1 basis-0 items-center gap-2">
+          <Link href="/social" className="ios-top-brand" aria-label={t("app.name")}>
+            <Logo />
+          </Link>
+          <WorldSwitch />
+        </div>
+        <div className="ios-top-title" data-testid="compact-title" aria-hidden>
+          {title}
+        </div>
+        <div className="ios-top-end flex flex-1 basis-0 items-center justify-end gap-2">
+          <Link
+            href="/settings"
+            aria-label={t("top.settings")}
+            title={t("top.settings")}
+            className="ios-icbtn glass"
+          >
+            <Settings size={20} strokeWidth={1.75} aria-hidden />
+          </Link>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/** Training's pixel top bar, moved here unchanged (its Social branches are no longer reached). */
+function TrainingTopBar() {
   const { t, lang } = useT();
   const world = useWorld();
   const pixel = world === "training";
@@ -269,17 +318,34 @@ function NavEntry({
   const { t } = useT();
   const side = variant === "side";
   const pixel = world === "training";
-  const shape = pixel ? "rounded-[2px] border-2" : "rounded-[10px] border";
+  if (!pixel) {
+    const Icon = item.lucide;
+    return (
+      <Link
+        href={item.href}
+        aria-current={active ? "page" : undefined}
+        className={side ? "ios-side-item" : "ios-tab"}
+        data-active={active ? "true" : undefined}
+      >
+        {Icon ? (
+          <Icon size={side ? 20 : 23} strokeWidth={1.75} aria-hidden />
+        ) : (
+          <span aria-hidden>{item.icon}</span>
+        )}
+        <span className="truncate">{t(item.label)}</span>
+        {item.soon && (
+          <span className={`ios-chip ${side ? "ms-auto" : "hidden"}`}>{t("nav.soon")}</span>
+        )}
+      </Link>
+    );
+  }
+  const shape = "rounded-[2px] border-2";
   const base = side
     ? `flex items-center gap-3 ${shape} px-3 py-2 text-[0.95rem] font-semibold no-underline`
     : `flex min-w-0 flex-1 flex-col items-center gap-0.5 ${shape} px-1 py-1 text-[0.7rem] font-semibold no-underline`;
-  const tone = pixel
-    ? active
-      ? "border-edge bg-panel-2 text-gold shadow-[3px_3px_0_var(--edge)]"
-      : "border-transparent text-ink-2 hover:bg-panel-2"
-    : active
-      ? "border-transparent bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-accent"
-      : "border-transparent text-ink-2 hover:bg-panel-2";
+  const tone = active
+    ? "border-edge bg-panel-2 text-gold shadow-[3px_3px_0_var(--edge)]"
+    : "border-transparent text-ink-2 hover:bg-panel-2";
   const soon = item.soon ? "text-muted" : "";
   return (
     <Link
@@ -306,7 +372,11 @@ function SideNav() {
   return (
     <nav
       aria-label={t("nav.main")}
-      className="sticky top-[calc(56px+3px+24px)] hidden h-fit w-[210px] shrink-0 flex-col gap-1 pt-6 md:flex"
+      className={
+        world === "training"
+          ? "sticky top-[calc(56px+3px+24px)] hidden h-fit w-[210px] shrink-0 flex-col gap-1 pt-6 md:flex"
+          : "ios-side sticky top-[80px] hidden h-fit w-[210px] shrink-0 flex-col gap-1 pt-6 md:flex"
+      }
       data-testid="sidenav"
     >
       {items.map((item) => (
@@ -326,15 +396,54 @@ function TabBar() {
   const { t } = useT();
   const { world, items, current } = useNav();
   const pixel = world === "training";
-  return (
-    <nav
-      aria-label={t("nav.main")}
-      className={`border-edge bg-panel fixed inset-x-0 bottom-0 z-30 flex gap-1 px-2 pt-1.5 pb-[calc(6px+env(safe-area-inset-bottom,0px))] md:hidden ${pixel ? "border-t-[3px]" : "border-t"}`}
-      data-testid="tabbar"
-    >
-      {items
-        .filter((i) => !i.desktopOnly)
-        .map((item) => (
+  const visible = items.filter((i) => !i.desktopOnly);
+  const ref = useRef<HTMLElement>(null);
+  const activeIndex = visible.findIndex((i) => i.href === current);
+
+  // Social: the glass lens sits under the active tab; measured once per layout, moved on transform only.
+  useLayoutEffect(() => {
+    if (pixel) return;
+    const nav = ref.current;
+    const ind = nav?.querySelector<HTMLElement>("[data-indicator]");
+    if (!nav || !ind) return;
+    const place = () => {
+      const a = nav.querySelectorAll<HTMLElement>(".ios-tab")[activeIndex];
+      if (!a) return;
+      ind.style.width = `${a.offsetWidth}px`;
+      ind.style.setProperty("--x", `${a.offsetLeft}px`);
+    };
+    if (ind.style.width) {
+      // Another tab: the lens glides over with a squish.
+      place();
+      ind.classList.remove("pulse");
+      void ind.offsetWidth;
+      ind.classList.add("pulse");
+    } else {
+      // A new lens (launch, a switch from Training, back from a route without a tab) appears in place.
+      ind.style.transition = "none";
+      place();
+      void ind.offsetWidth; // commit the position before the transition comes back
+      ind.style.transition = "";
+    }
+    const ro = new ResizeObserver(place);
+    ro.observe(nav);
+    // <html dir> flips after this effect (useDocumentLang is a passive effect) and mirrors the row without resizing it.
+    const mo = new MutationObserver(place);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["dir"] });
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
+  }, [pixel, activeIndex, visible.length]);
+
+  if (pixel) {
+    return (
+      <nav
+        aria-label={t("nav.main")}
+        className="border-edge bg-panel fixed inset-x-0 bottom-0 z-30 flex gap-1 border-t-[3px] px-2 pt-1.5 pb-[calc(6px+env(safe-area-inset-bottom,0px))] md:hidden"
+        data-testid="tabbar"
+      >
+        {visible.map((item) => (
           <NavEntry
             key={item.href}
             item={item}
@@ -343,6 +452,29 @@ function TabBar() {
             world={world}
           />
         ))}
+      </nav>
+    );
+  }
+  // Routes without a tab (Website, Business, Replies, Automations come from More) show no lens.
+  return (
+    <nav
+      ref={ref}
+      aria-label={t("nav.main")}
+      className="ios-tabbar glass md:hidden"
+      data-testid="tabbar"
+    >
+      {activeIndex >= 0 && (
+        <i className="ios-ind" data-indicator data-testid="tab-indicator" aria-hidden />
+      )}
+      {visible.map((item) => (
+        <NavEntry
+          key={item.href}
+          item={item}
+          variant="tab"
+          active={item.href === current}
+          world={world}
+        />
+      ))}
     </nav>
   );
 }

@@ -3,6 +3,7 @@
 import { Languages, Volume2 } from "lucide-react";
 import Link from "next/link";
 import { ListGroup, ListRow } from "@/components/ui/ios/List";
+import PageHeader from "@/components/ui/ios/PageHeader";
 import Segmented from "@/components/ui/ios/Segmented";
 import Switch from "@/components/ui/ios/Switch";
 import { useT, type MessageKey } from "@/lib/i18n";
@@ -51,10 +52,14 @@ export default function MoreScreen({ world = "training" }: { world?: World }) {
   const { title, sub, links } = COPY[world];
   return (
     <>
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl">{t(title)}</h1>
-        <p className="text-ink-2 text-sm">{t(sub)}</p>
-      </header>
+      {world === "social" ? (
+        <PageHeader title={t(title)} sub={t(sub)} />
+      ) : (
+        <header className="flex flex-col gap-1">
+          <h1 className="text-2xl">{t(title)}</h1>
+          <p className="text-ink-2 text-sm">{t(sub)}</p>
+        </header>
+      )}
       <ul className="flex flex-col gap-2">
         {links.map((l) => (
           <li key={l.href}>

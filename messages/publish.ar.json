@@ -93,7 +93,7 @@
   "publish.now": "🚀 انشر الحين",
   "publish.cancel": "إلغاء الجدولة",
   "publish.updateHint": "عدّلت الكابشن أو الموعد؟ التعديل يوصل للجدولة لحاله بعد لحظة؛ «حدّث الجدولة» لو تبيه يوصل الحين.",
-  "publish.hub.title": "🚀 النشر التلقائي",
+  "publish.hub.title": "النشر التلقائي",
   "publish.hub.sub": "كل منشور مجدول، وين وصل، وأي حساب يقدر ينشر لحاله.",
   "publish.hub.accounts": "الحسابات",
   "publish.hub.upcoming": "الجاي",

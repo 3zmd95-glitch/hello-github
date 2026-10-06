@@ -65,3 +65,42 @@ test("Training keeps the pixel look", async ({ page }) => {
   expect(css.radius).toBe(2);
   expect(css.border).toBe(3);
 });
+
+test("Social shell: glass tab bar with icons, compact title after scrolling", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "tab bar is phone only");
+  await freshState(page, "/social/");
+  const tabbar = page.getByTestId("tabbar");
+  await expect(tabbar).toHaveClass(/glass/);
+  await expect(tabbar.locator("svg")).toHaveCount(5);
+  await expect(tabbar.locator('a[href="/social/"]')).toHaveAttribute("aria-current", "page");
+  await expect(page.getByTestId("compact-title")).toHaveCSS("opacity", "0");
+  await page.evaluate(() => window.scrollTo(0, 400));
+  await expect(page.locator("html")).toHaveAttribute("data-compact", "true");
+  await expect(page.getByTestId("compact-title")).toHaveText("الاستوديو");
+  await expect(page.getByTestId("compact-title")).toHaveCSS("opacity", "1");
+});
+
+test("theme-color follows the world and survives client navigation", async ({ page }) => {
+  await freshState(page, "/social/");
+  const colors = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('meta[name="theme-color"]')].map(
+        (m) => `${m.getAttribute("media") ?? "all"} ${m.getAttribute("content")}`,
+      ),
+    );
+  // Social: the page color per scheme (spec §3.1 --bg); Training: the pixel navy of the root layout.
+  const social = ["(prefers-color-scheme: light) #f2f3f6", "(prefers-color-scheme: dark) #0b0d10"];
+  await expect.poll(colors).toEqual(social);
+  await page.locator('a[href="/social/more/"]:visible').first().click();
+  await expect(page).toHaveURL(/\/social\/more\/$/);
+  await expect.poll(colors).toEqual(social);
+  await page.getByTestId("world-training").click();
+  await expect(page.locator("html")).toHaveAttribute("data-world", "training");
+  await expect.poll(colors).toEqual(["all #0d141d"]);
+  await page.getByTestId("world-social").click();
+  await expect(page.locator("html")).toHaveAttribute("data-world", "social");
+  await expect.poll(colors).toEqual(social);
+});

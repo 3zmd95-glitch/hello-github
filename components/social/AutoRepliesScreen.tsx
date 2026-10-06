@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import PageHeader from "@/components/ui/ios/PageHeader";
 import type { AutoReply, AutoReplyLog, ReplyTrigger } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { firstMatch, newAutoReply } from "@/lib/replies";
@@ -165,10 +166,7 @@ export default function AutoRepliesScreen() {
 
   return (
     <div className="flex flex-col gap-4" data-testid="autoreplies-screen">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl">{t("replies.hub.title")}</h1>
-        <p className="text-ink-2 text-sm">{t("replies.hub.sub")}</p>
-      </header>
+      <PageHeader title={t("replies.hub.title")} sub={t("replies.hub.sub")} />
 
       <section className="px-card flex flex-col gap-2" data-testid="autoreplies-account">
         {!configured ? (
