@@ -253,7 +253,7 @@ History trimming:
 
   These were found with the real `runEffects` and fake Tavily, YouTube, AI and KV, like `run.test.ts`'s daily-runs test (a throwaway script, not committed). Each day brings N new 1-creator names and the dictionary names (seen daily, never judged by the AI: the run's behaviour once each has its line); the AI approves the first A names it judges and drops the rest; and the slow name, last among its day's ties, gains a creator on days s, s+3 and s+6 (s = 7–10). "Holds up to" is the largest N at which the slow name always shows with 3 creators. Re-run on the final review's fixes (2026-10-06), it gave the same four numbers.
 
-  The run's log line reports `keys`, `protected` and `trimmed`, and what the AI did, `ai: { judged, dictionary, approved, dropped, merged, rejects }`: the usable verdicts it gave, how many of them were on dictionary effects, the new names it approved, dropped or merged into another, and why the other verdicts failed (`rejects`, §1 step 3). All counts, no names. `judged` counts usable verdicts only, so an `ai_empty` day logs 0 even though the AI answered (as does an `ai_fallback` day, when it did not). Since live fix 1 it also reports, with no names or post text:
+  The run's log line reports `keys`, `protected` and `trimmed`, and what the AI did, `ai: { judged, dictionary, approved, dropped, merged, rejects }`: the usable verdicts it gave, how many of them were on dictionary effects, the new names it approved, dropped or merged into another, and why the other verdicts failed (`rejects`, §1 step 3). All counts, no names. `judged` counts usable verdicts only, so an `ai_empty` day logs 0 even though the AI answered (as does an `ai_fallback` day, when it did not). Since live fix 6 the same counts are also kept in the stored document as `diagnostics` (the GET answer leaves them out), because Workers Logs dropped the line for several live runs: the live check reads them from KV. Since live fix 1 it also reports, with no names or post text:
   - `families: [{ family, tt, igWeek, igMonth, posts }]`: each family searched (its 1-based number in `FAMILY_QUERIES`), the post pages each search found, and its posts once each;
   - `dictionary: { [termId]: creators }`: each dictionary effect seen today (our own dictionary ids) with today's creators. A missing `clone-effect` or `gif-stickers` here means the searches never brought the owner's trends, whatever the AI did.
 
@@ -502,3 +502,18 @@ The first real scan, from the dashboard's "Run the first scan" after the deploy:
 **Live fix 4:**
 - The AI asks in 3 parallel batches (§1 step 3).
 - The list shows the top 12 (§3).
+
+**Verified in Chrome after live fix 4:**
+- Every part of the row checked out:
+  - title, "updated just now" and the Creative Center link (new tab, `noopener`);
+  - 🔄 Scan again, with a real click: disabled with the waiting line while it runs, then the new list;
+  - 12 chips with Arabic names, creator counts, the NEW badge and the `what` line as tooltip and label.
+- **Clone effect chip:** a tap searched "clone effect" in Keywords mode. 12 results came back (10 Instagram), 8 of them clone edits ("This is called the dynamic clone effect…").
+- **GIF stickers chip:** a tap searched "GIF stickers". 14 results came back (12 Instagram), 10 of them sticker edits, including the owner's trend ("…Gif sticker by @theboogley").
+- One more Scan again raised velocity to 7 creators and pushed GIF stickers (6) out of the 12. That led to live fix 5.
+
+**Verified after live fix 5:**
+- The list led with clone effect 22, reverse transition (NEW) 8, GIF stickers 7, then 9 other new names.
+- The run was `partial` with `ai_empty`. Its log line was missing from Workers Logs, so the rejects were unknown. That led to live fix 6.
+- Three new names meant the same thing ("reverse transition / effect / edit"): the AI did not merge them.
+- 21.8 s wall time and 88 ms CPU with the AI in 3 parallel batches (69 s before).

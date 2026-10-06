@@ -62,6 +62,8 @@ export interface EffectsDoc {
   history: Record<string, HistoryEntry[]>;
   /** The turn of families searched last (0: 1–6, 1: 7–12, 2: 13–18): another run the same day searches the next. */
   slot?: number;
+  /** The last run's log line (counts only: families, memory, the AI's verdicts and rejects), for the live check. */
+  diagnostics?: Record<string, unknown>;
 }
 export const MIN_CREATORS = 3,
   // 12, not 8: on a memory's first day every effect is new, so the big evergreen effects (slow motion, beat sync, glitch)
