@@ -52,15 +52,15 @@ test("the world switch moves from 🎮 Training to 📱 Social and restyles the 
   // 🔎 Discover is a Training tab: Social reaches it from More and the sidebar, never from its tab bar.
   await expect(tabbar.locator('a[href="/discover/"]')).toHaveCount(0);
 
-  // Cinematic look: rounded cards and IBM Plex Sans Arabic.
+  // iOS look: rounded cards and Vazirmatn.
   expect(await cardRadius(page)).toBeGreaterThanOrEqual(10);
-  expect(await bodyFont(page)).toContain("IBM Plex Sans Arabic");
+  expect(await bodyFont(page)).toContain("Vazirmatn");
 });
 
 test("switching back to Training returns home with the pixel tokens", async ({ page }) => {
   await freshState(page, "/social/");
   await expect(page.locator("html")).toHaveAttribute("data-world", "social");
-  expect(await bodyFont(page)).toContain("IBM Plex Sans Arabic");
+  expect(await bodyFont(page)).toContain("Vazirmatn");
 
   await page.getByTestId("world-training").click();
   await expect(page).toHaveURL(/\/$/);

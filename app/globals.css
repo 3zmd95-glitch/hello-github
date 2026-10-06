@@ -1049,7 +1049,7 @@
   --orange: #ffb067;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.3);
-  --font-body: "IBM Plex Sans Arabic", system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+  --font-body: "Vazirmatn", -apple-system, "SF Arabic", "Segoe UI", system-ui, sans-serif;
 }
 
 @layer base {
