@@ -66,7 +66,7 @@ on its own. New tokens are added next to them. Training's `:root` block does not
 | `--accent-ink` | `#06130D` | `#06130D` | text on accent |
 | `--tint` (new; `--sky` aliases it) | `#0E7443` | `#5BE59F` | green for text, icons, links, active tab |
 | `--tint-bg` (new) | `rgba(18,138,81,.12)` | `rgba(69,224,142,.15)` | tinted icon squares, secondary buttons |
-| `--gold` / `--orange` (alias `--warn`) | `#955800` | `#FFB75A` | warnings, overdue, favorites |
+| `--gold` / `--orange` (alias `--warn`) | `#945700` | `#FFB75A` | warnings, overdue, favorites |
 | `--warn-bg` (new) | `rgba(184,110,0,.12)` | `rgba(255,183,90,.14)` | warning icon squares, chips |
 | `--gold-ink` | `#FFFFFF` | `#1E1606` | text on a solid warn fill |
 | `--danger` | `#D0332B` | `#FF6B6B` | destructive text and buttons |
