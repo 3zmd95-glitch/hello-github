@@ -340,6 +340,23 @@ describe("runTrendingEffectsNow", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("Scan again sends { force: true } (past the Worker's once-a-day guard and its tries cap) and keeps the new list", async () => {
+    const old = { ...DOC, items: [SWAGGER] };
+    await fetchTrendingEffects(config, { fetchImpl: replying(old) });
+    expect(cachedTrendingEffects(config)).toEqual(parseTrendingEffects(old));
+    const fetchImpl = replying(DOC);
+    expect(await runTrendingEffectsNow(config, { fetchImpl, force: true })).toEqual(
+      parseTrendingEffects(DOC),
+    );
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("https://w.example/effects/run");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ force: true });
+    expect(new Headers(init?.headers).get("Content-Type")).toBe("application/json");
+    // The tab's copy is the new list.
+    expect(cachedTrendingEffects(config)).toEqual(parseTrendingEffects(DOC));
+  });
+
   it("is null when the scan fails", async () => {
     const fetchImpl = replying({ error: "upstream" }, 502);
     expect(await runTrendingEffectsNow(config, { fetchImpl })).toBeNull();

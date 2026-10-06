@@ -78,6 +78,8 @@
   "search.picksTopic": "for “{topic}”",
   "search.trendingTitle": "🔥 Trending effects this week",
   "search.trendingUpdated": "updated {n} h ago",
+  "search.trendingUpdatedNow": "updated just now",
+  "search.trendingRescan": "🔄 Scan again",
   "search.trendingNew": "NEW",
   "search.trendingCreators": "{n} creators",
   "search.trendingStale": "Couldn't update today",

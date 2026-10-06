@@ -146,6 +146,9 @@ async function stubWorker(page: Page, discover: (body: Record<string, unknown>) 
       );
     if (!authed) return reply({ error: "unauthorized" }, 401);
     if (url.pathname === "/effects/trending") return reply(EFFECTS);
+    // Scan again: the run's fresh list.
+    if (url.pathname === "/effects/run" && req.method() === "POST")
+      return reply({ ...EFFECTS, updatedAt: new Date().toISOString() });
     if (url.pathname === "/discover" && req.method() === "POST") {
       const body = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
       asked.push(body);
@@ -734,6 +737,18 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   // The 8 chips overflow their strip, which scrolls sideways; the 375 px page never does.
   const strip = row.getByTestId("trending-effect").first().locator("xpath=..");
   expect(await strip.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // 🔄 Scan again runs the job now, forced past the Worker's once-a-day guard; the new list is "just now".
+  await expect(row).toContainText("تحدّثت قبل 2 س");
+  const scan = page.waitForRequest(
+    (r) => r.url() === `${WORKER}/effects/run` && r.method() === "POST",
+  );
+  await row.getByTestId("trending-rescan").click();
+  expect((await scan).postDataJSON()).toEqual({ force: true });
+  await expect(row).toContainText("تحدّثت الحين");
+  await expect(row.getByTestId("trending-effect")).toHaveCount(8);
+  await expect(row.getByTestId("trending-rescan")).toBeEnabled();
   expect(await fitsViewport(page)).toBe(true);
 
   // With a category on, a chip searches the effect alone: the dictionary effect by its English label.

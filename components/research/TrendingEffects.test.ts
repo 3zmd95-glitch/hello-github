@@ -122,6 +122,8 @@ const chips = () => [...host.querySelectorAll<HTMLElement>('[data-testid="trendi
 const chip = (key: string) =>
   host.querySelector<HTMLElement>(`[data-testid="trending-effect"][data-key="${key}"]`)!;
 const runButton = () => $("trending-run") as HTMLButtonElement;
+const rescanButton = () => $("trending-rescan") as HTMLButtonElement;
+const chipKeys = () => chips().map((c) => c.getAttribute("data-key"));
 /** The scan's live line (always there before the first run, empty while idle). */
 const status = () => $("trending-effects")!.querySelector('[role="status"]')!.textContent;
 
@@ -274,6 +276,135 @@ describe("the trending-effects row", () => {
     expect(chips()).toHaveLength(4);
     await settle();
     expect(gets).toBe(1);
+  });
+
+  it("says 'updated just now' under an hour, then the hours", async () => {
+    trending = docOf({ updatedAt: new Date(Date.now() - 59 * 60_000).toISOString() });
+    await mount("en");
+    expect($("trending-effects")!.textContent).toContain("updated just now");
+    trending = docOf({ updatedAt: new Date(Date.now() - 61 * 60_000).toISOString() });
+    sessionStorage.clear();
+    remount("en");
+    await settle();
+    expect($("trending-effects")!.textContent).toContain("updated 1 h ago");
+  });
+});
+
+describe("Scan again (a list on screen)", () => {
+  /** A fresh run's list: two effects, made just now. */
+  const fresh = () => ({
+    body: docOf({ updatedAt: new Date().toISOString(), items: [SPEED, CLONE] }),
+    status: 200,
+  });
+
+  it("sits by the age line; a tap posts force, waits, then the new list replaces the old, updated just now, kept for the tab", async () => {
+    await mount();
+    expect(rescanButton().textContent).toBe("🔄 دوّر من جديد");
+    expect(rescanButton().disabled).toBe(false);
+    expect(status()).toBe("");
+
+    runAnswer = fresh();
+    rescanButton().focus();
+    act(() => {
+      rescanButton().click();
+      rescanButton().click();
+    });
+    await settle();
+    // One run, forced past the Worker's once-a-day guard; the old list stays meanwhile.
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(String(posts[0].body))).toEqual({ force: true });
+    expect(rescanButton().disabled).toBe(true);
+    expect(status()).toBe(WAITING);
+    expect(chips()).toHaveLength(4);
+
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    await act(async () => releaseRun!());
+    await settle();
+    expect(chipKeys()).toEqual(["speed-ramp", "clone-effect"]);
+    expect($("trending-effects")!.textContent).toContain("تحدّثت الحين");
+    expect(rescanButton().disabled).toBe(false);
+    expect(status()).toBe("");
+    // Focus back on the button, enabled again, without scrolling.
+    expect(document.activeElement).toBe(rescanButton());
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    focus.mockRestore();
+
+    // This tab keeps the new list: a revisit shows it at once and asks nothing.
+    remount();
+    expect(chipKeys()).toEqual(["speed-ramp", "clone-effect"]);
+    await settle();
+    expect(gets).toBe(1);
+  });
+
+  it("shows on a failed day's list too, never before the first run", async () => {
+    trending = docOf({
+      status: "failed",
+      notes: ["quota"],
+      updatedAt: new Date(Date.now() - 30 * HOUR).toISOString(),
+    });
+    await mount("en");
+    expect($("trending-effects")!.getAttribute("data-state")).toBe("stale-failed");
+    expect(rescanButton().textContent).toBe("🔄 Scan again");
+    runAnswer = fresh();
+    act(() => rescanButton().click());
+    await settle();
+    expect(JSON.parse(String(posts[0].body))).toEqual({ force: true });
+    await act(async () => releaseRun!());
+    await settle();
+    expect($("trending-effects")!.getAttribute("data-state")).toBe("list");
+    expect(chipKeys()).toEqual(["speed-ramp", "clone-effect"]);
+
+    trending = NEVER;
+    sessionStorage.clear();
+    remount();
+    await settle();
+    expect($("trending-effects")!.getAttribute("data-state")).toBe("never");
+    expect($("trending-rescan")).toBeNull();
+  });
+
+  it("a scan that fails keeps the list and says so; the button is back for another try", async () => {
+    await mount();
+    // The request fails; then the Worker's run fails before it reads its list (no list in the answer).
+    for (const answer of [
+      { body: { error: "upstream" }, status: 502 },
+      { body: { status: "failed", ranOn: "2026-10-06", notes: ["kv"], items: [] }, status: 200 },
+    ]) {
+      runAnswer = answer;
+      act(() => rescanButton().click());
+      await settle();
+      await act(async () => releaseRun!());
+      await settle();
+      expect($("trending-effects")!.getAttribute("data-state"), String(answer.status)).toBe("list");
+      expect(chips()).toHaveLength(4);
+      expect(status()).toBe(RUN_FAILED);
+      expect(rescanButton().disabled).toBe(false);
+    }
+    // Another tap tries again, and this one brings the new list.
+    runAnswer = fresh();
+    act(() => rescanButton().click());
+    await settle();
+    expect(status()).toBe(WAITING);
+    await act(async () => releaseRun!());
+    await settle();
+    expect(posts).toHaveLength(3);
+    expect(chipKeys()).toEqual(["speed-ramp", "clone-effect"]);
+    expect(status()).toBe("");
+  });
+
+  it("back on Discover before it answers: the same scan, still waiting, then its list", async () => {
+    await mount();
+    runAnswer = fresh();
+    act(() => rescanButton().click());
+    await settle();
+    remount();
+    await settle();
+    expect(rescanButton().disabled).toBe(true);
+    expect(status()).toBe(WAITING);
+    await act(async () => releaseRun!());
+    await settle();
+    expect(chipKeys()).toEqual(["speed-ramp", "clone-effect"]);
+    expect(rescanButton().disabled).toBe(false);
+    expect(posts).toHaveLength(1);
   });
 });
 
