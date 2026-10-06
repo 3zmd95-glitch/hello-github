@@ -7,6 +7,7 @@ import handler from "serve-handler";
 import { z } from "zod";
 import { AI_SYSTEM, AiPlanSchema, aiSearchInput } from "../../workers/scout/src/discover/ai-schema";
 import { normalizeTerm } from "../../workers/scout/src/discover/terms";
+import { instagramPostUrl, lookupInstagramPreview } from "../../workers/scout/src/instagramPreview";
 import { createClaudeProvider } from "./claude";
 import { LocalAiProviderError, type LocalAiProvider, type LocalAiProviderStatus } from "./types";
 
@@ -72,7 +73,16 @@ export interface LocalAiServerOptions {
   providers: Providers;
   planTimeoutMs?: number;
   now?: () => number;
+  /** Instagram preview lookups (tests inject one); the real fetch otherwise. */
+  previewFetch?: typeof fetch;
 }
+
+/** Previews found are kept 1 hour, misses 5 minutes (as the Worker keeps them); at most this many posts. */
+const PREVIEW_TTL_MS = 3_600_000;
+const PREVIEW_MISS_TTL_MS = 300_000;
+const MAX_PREVIEWS = 500;
+/** Instagram page reads a minute, at most (a page of results asks for about a dozen). */
+const PREVIEWS_PER_MINUTE = 120;
 
 function reply(res: ServerResponse, status: number, data: unknown) {
   if (res.destroyed || res.writableEnded) return;
@@ -147,8 +157,11 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
   const now = options.now ?? Date.now;
   const active = new Map<ProviderName, AbortController>();
   const cache = new Map<string, { until: number; value: unknown }>();
+  const previews = new Map<string, { until: number; thumb: string }>();
   let rateWindow = now();
   let mutations = 0;
+  let previewWindow = now();
+  let previewReads = 0;
   const serve = async (req: IncomingMessage, res: ServerResponse) => {
     const address = server.address();
     const port = typeof address === "object" && address ? address.port : 3000;
@@ -199,6 +212,35 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
         safeStatus(options.providers.claude),
       ]);
       reply(res, 200, { available: true, providers: { chatgpt, claude } });
+      return;
+    }
+    // An Instagram post's preview read over this computer's own connection: Instagram turned away about 4 in 10 of
+    // the Cloudflare Worker's reads (Oct 6, 2026) and none from here. The same bounded public-metadata read as the
+    // Worker's (no login, cookies or scripts), cached the same way.
+    if (url.pathname === "/api/local-ai/instagram-preview" && req.method === "GET") {
+      const post = instagramPostUrl(url.searchParams.get("url") ?? "");
+      if (!post) {
+        reply(res, 400, { error: "bad_request" });
+        return;
+      }
+      const hit = previews.get(post);
+      if (hit && hit.until > now()) {
+        reply(res, 200, { thumb: hit.thumb });
+        return;
+      }
+      if (now() - previewWindow > 60_000) {
+        previewWindow = now();
+        previewReads = 0;
+      }
+      if (++previewReads > PREVIEWS_PER_MINUTE) {
+        reply(res, 429, { error: "local_rate_limit" });
+        return;
+      }
+      const found = await lookupInstagramPreview(post, options.previewFetch ?? fetch, null);
+      const thumb = found.ok ? found.data.thumb : "";
+      if (previews.size >= MAX_PREVIEWS) previews.delete(previews.keys().next().value!);
+      previews.set(post, { until: now() + (thumb ? PREVIEW_TTL_MS : PREVIEW_MISS_TTL_MS), thumb });
+      reply(res, 200, { thumb });
       return;
     }
     if (req.method !== "POST") {

@@ -11,7 +11,7 @@ import type { Lang } from "@/lib/domain";
 import type { ResearchItem } from "@/lib/research";
 import { clearScoutCache } from "@/lib/scoutClient";
 import { useStore } from "@/store";
-import ResultCard from "./ResultCard";
+import ResultCard, { PREVIEW_RETRY_MS } from "./ResultCard";
 
 // ▶ Watch here (round 32), the cards' side: a card that is one post of YouTube, TikTok or Instagram turns
 // its poster into a ▶ button that hands the post to the app's player (a fake one here: the sheet itself is
@@ -372,6 +372,81 @@ describe("ResultCard ▶ (full card)", () => {
       expect(asked).toHaveLength(1);
     },
   );
+
+  it("an Instagram card on this computer takes its picture from the local server; the Worker is not asked", async () => {
+    const local = "https://scontent.cdninstagram.com/v/local.jpg";
+    const asked: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const href = String(input);
+        asked.push(href.startsWith("/") ? href.split("?")[0] : new URL(href).pathname);
+        if (href.startsWith("/api/local-ai/instagram-preview")) {
+          expect(new Headers(init?.headers).get("X-Local-AI")).toBe("1");
+          return Response.json({ thumb: local });
+        }
+        return Response.json({
+          title: "",
+          author: "",
+          thumb: `${WORKER}/thumb/worker.png`,
+          url: "",
+        });
+      }),
+    );
+    act(() =>
+      useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
+    );
+    render({ item: { ...IG, thumb: undefined, url: "https://www.instagram.com/p/localFirst1/" } });
+    await settle();
+    expect(asked).toEqual(["/api/local-ai/instagram-preview"]);
+    expect($("result-thumb")!.getAttribute("src")).toBe(local);
+  });
+
+  it("no local picture: the Worker's; none at all: asked again 5 minutes later while the card shows", async () => {
+    const fresh = `${WORKER}/thumb/later.png`;
+    let workerAsks = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const href = String(input);
+        // The local server found nothing (Instagram turned this computer away too).
+        if (href.startsWith("/api/local-ai/instagram-preview")) return Response.json({ thumb: "" });
+        workerAsks += 1;
+        return Response.json({
+          title: "",
+          author: "",
+          thumb: workerAsks > 1 ? fresh : "",
+          url: "",
+        });
+      }),
+    );
+    act(() =>
+      useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
+    );
+    vi.useFakeTimers();
+    try {
+      render({
+        item: { ...IG, thumb: undefined, url: "https://www.instagram.com/p/retryLater1/" },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      expect(workerAsks).toBe(1);
+      expect($("result-thumb")).toBeNull();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(PREVIEW_RETRY_MS + 1_000);
+      });
+      expect(workerAsks).toBe(2);
+      expect($("result-thumb")!.getAttribute("src")).toBe(fresh);
+      // Once only: no third ask.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(PREVIEW_RETRY_MS * 3);
+      });
+      expect(workerAsks).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("a TikTok card titled only by its handle shows the post's caption from the same lookup", async () => {
     // Discover v2 keeps a generic TikTok page title ("TikTok - Make Your Day") as the handle and no longer asks
