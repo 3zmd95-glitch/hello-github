@@ -218,6 +218,8 @@ describe("runEffects", () => {
     // No handles, titles or links.
     expect(line).not.toMatch(/\b(c[1-8]|r1|g[1-3])\b|Swagger|CapCut|https?:/i);
     for (const hit of PROBE) expect(line).not.toContain(hit.title);
+    // The same counts are kept with the list (Workers Logs dropped the line on live runs).
+    expect(stored(KV).diagnostics).toEqual(JSON.parse(line).effects);
   });
 
   it("with Tavily's month 90 % spent (Discover's cached figure), only the Instagram month search a family, noted", async () => {
@@ -483,7 +485,14 @@ describe("runEffects", () => {
     const { fetch, count } = web({ tavily: () => json({ error: "quota" }, 432) });
     const doc = await runEffects(env, { fetch, now: NEXT_DAY });
 
-    expect(doc).toEqual({ ...prev, ranOn: "2026-10-08", status: "failed", notes: ["quota"] });
+    expect(doc).toEqual({
+      ...prev,
+      ranOn: "2026-10-08",
+      status: "failed",
+      notes: ["quota"],
+      // The failed run's own counts, not the previous day's.
+      diagnostics: expect.objectContaining({ status: "failed", items: 2, notes: ["quota"] }),
+    });
     expect(doc.items).toHaveLength(2);
     expect(count).toEqual({ tavily: 18, search: 0, stats: 0 });
     expect(AI.run).not.toHaveBeenCalled();

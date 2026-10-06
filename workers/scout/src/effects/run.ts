@@ -345,19 +345,19 @@ export async function runEffects(env: EffectsEnv, opts: RunOptions = {}): Promis
     }
     if (attempt === undefined) doc = noted(doc, "attempts_kv");
   }
-  console.log(
-    JSON.stringify({
-      effects: {
-        status: doc.status,
-        items: doc.items.length,
-        credits,
-        notes: doc.notes,
-        error,
-        families,
-        ...memory,
-      },
-    }),
-  );
+  const diagnostics = {
+    status: doc.status,
+    items: doc.items.length,
+    credits,
+    notes: doc.notes,
+    error,
+    families,
+    ...memory,
+  };
+  console.log(JSON.stringify({ effects: diagnostics }));
+  // The same counts kept with the list (never names or post text): Workers Logs dropped this line for several live
+  // runs, so the live check reads it from KV. The GET answer leaves it out.
+  if (attempt !== false) doc = { ...doc, diagnostics };
   if (prev !== undefined && attempt !== false) {
     try {
       await writeEffects(env, doc);
