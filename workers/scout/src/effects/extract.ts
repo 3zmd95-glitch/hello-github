@@ -1,7 +1,8 @@
 /**
  * Trending effects, step 2 (planning/tools/18-trending-effects.md): candidate effect names from TikTok / Instagram post
  * text — dictionary effects, "___ effect / transition / trick / filter / trend / edit trend" phrases, Title-Case
- * "___ Edit" names and hashtags — with distinct creators counted as short hashes (no handle is stored).
+ * "___ Edit" names and hashtags — with distinct creators counted as short hashes (no handle is stored). Category scans
+ * pass camera suffixes and their own generic words (planning/tools/19-category-trends.md §2).
  */
 
 import { mentions } from "../discover/relevance";
@@ -107,7 +108,11 @@ function dictionaryName(name: string): EditTerm | undefined {
  * "zoom transition"; a possessive "'s" and apostrophes are dropped first). A capitalised suffix starts the name at
  * the run's first capitalised word ("omg Swagger Trend" → "swagger trend"). None when no word is left, the name is
  * blocked or it is the After Effects software. */
-function named(words: readonly string[], suffix: string): string | undefined {
+function named(
+  words: readonly string[],
+  suffix: string,
+  generic: (word: string) => boolean = isGeneric,
+): string | undefined {
   const clean = words.map((w) =>
     w
       .toLowerCase()
@@ -115,7 +120,7 @@ function named(words: readonly string[], suffix: string): string | undefined {
       .replace(/[^a-z0-9-]/g, ""),
   );
   let start = clean.length;
-  while (start > 0 && !isGeneric(clean[start - 1])) start--;
+  while (start > 0 && !generic(clean[start - 1])) start--;
   if (/^[A-Z]/.test(suffix)) {
     const capital = words.findIndex((w, i) => i >= start && /^[A-Z]/.test(w));
     if (capital >= 0) start = capital;
@@ -126,7 +131,19 @@ function named(words: readonly string[], suffix: string): string | undefined {
     : undefined;
 }
 
-export function candidatesOf(text: string): { key: string; name: string; termId?: string }[] {
+/** What a category scan adds to the rules (planning/tools/19-category-trends.md §2): camera words as more suffixes
+ * ("rolling shot", "low angle") and the category's own words as generic ("car edit" is never a style). */
+export interface ExtractExtra {
+  suffixes?: readonly string[];
+  generic?: ReadonlySet<string>;
+}
+
+export function candidatesOf(
+  text: string,
+  extra: ExtractExtra = {},
+): { key: string; name: string; termId?: string }[] {
+  const generic = (w: string) => isGeneric(w) || !!extra.generic?.has(w);
+  const more = (extra.suffixes ?? []).map((s) => `|${s}`).join("");
   const plain = text.normalize("NFKC"); // styled letters ("𝐒𝐰𝐚𝐠𝐠𝐞𝐫") read as plain ones
   const out = new Map<string, { key: string; name: string; termId?: string }>();
   const addTerm = (t: EditTerm) => out.set(t.id, { key: t.id, name: t.label.en, termId: t.id });
@@ -149,15 +166,23 @@ export function candidatesOf(text: string): { key: string; name: string; termId?
   // "ghost trail effect", "zoom transition", "reverse trend": up to 3 whole words before the nearest suffix, any case.
   // "first month edit trend" is named "first month edit", like the Title-Case form below.
   for (const m of plain.matchAll(
-    /\b((?:[A-Za-z][\w'’-]*\s+){1,3}?)(edit(?=\s+trends?\b)|effect|transition|trick|filter|trend)s?\b/gi,
+    new RegExp(
+      String.raw`\b((?:[A-Za-z][\w'’-]*\s+){1,3}?)(edit(?=\s+trends?\b)|effect|transition|trick|filter|trend${more})s?\b`,
+      "gi",
+    ),
   ))
-    add(named(m[1].trim().split(/\s+/), m[2]));
+    add(named(m[1].trim().split(/\s+/), m[2], generic));
   // Title-Case named edits: "Flash Clone Edit". A lowercase "edit" is too common to name anything.
   for (const m of plain.matchAll(/\b((?:[A-Z][\w'’-]*\s+){1,3}?)Edit\b/g))
-    add(named(m[1].trim().split(/\s+/), "edit"));
+    add(named(m[1].trim().split(/\s+/), "edit", generic));
   // Hashtags: #cloneeffect → "clone effect", #reversetrend → "reverse trend", #glitcheffects → "glitch effect".
-  for (const m of plain.matchAll(/#([a-z0-9]{3,30}?)(effect|transition|trick|trend|filter)s?\b/gi))
-    add(named([m[1]], m[2]));
+  for (const m of plain.matchAll(
+    new RegExp(
+      String.raw`#([a-z0-9]{3,30}?)(effect|transition|trick|trend|filter${more})s?\b`,
+      "gi",
+    ),
+  ))
+    add(named([m[1]], m[2], generic));
   return [...out.values()];
 }
 
@@ -171,6 +196,7 @@ export async function creatorId(platform: EffectPlatform, handleOrUrl: string): 
 
 export async function extractCandidates(
   posts: readonly EffectPost[],
+  extra: ExtractExtra = {},
 ): Promise<Map<string, Candidate>> {
   const found = new Map<string, Candidate>();
   const seen = new Set<string>();
@@ -179,7 +205,7 @@ export async function extractCandidates(
     seen.add(post.url);
     const id = await creatorId(post.platform, post.handle || post.url);
     // " | " keeps a name from running from the title into the snippet.
-    for (const c of candidatesOf(`${post.title} | ${post.snippet}`)) {
+    for (const c of candidatesOf(`${post.title} | ${post.snippet}`, extra)) {
       const cand: Candidate = found.get(c.key) ?? {
         ...c,
         ids: new Set<string>(),

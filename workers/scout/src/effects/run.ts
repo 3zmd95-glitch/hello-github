@@ -8,7 +8,7 @@
 import { TERMS } from "../discover/terms";
 import { utcDay } from "../trends/kv";
 import { cleanWithAi, type AiVerdict } from "./ai";
-import { extractCandidates } from "./extract";
+import { extractCandidates, type ExtractExtra } from "./extract";
 import { daySlot, familiesForSlot, SLOTS } from "./families";
 import { readEffects, writeEffects } from "./kv";
 import { creatorsBetween, daysBetween, mergeHistory, scoreEffects, setViews } from "./score";
@@ -23,6 +23,7 @@ import {
   IDS_PER_DAY,
   type Candidate,
   type EffectMeta,
+  type EffectPost,
   type EffectsDoc,
   type HistoryEntry,
 } from "./types";
@@ -35,7 +36,7 @@ const ARABIC_LABEL = new Map(TERMS.map((t) => [t.id, t.label.ar]));
 const MAX_ATTEMPTS = 3;
 const ATTEMPTS_TTL_S = 172_800;
 
-type History = Record<string, HistoryEntry[]>;
+export type History = Record<string, HistoryEntry[]>;
 /** What the AI did today, as counts: verdicts it gave, how many were on dictionary effects, the new names it
  * approved, dropped or merged into another, and why the verdicts it could not use failed ("what.en:too_small"). */
 type AiCounts = {
@@ -47,7 +48,7 @@ type AiCounts = {
   rejects: Record<string, number>;
 };
 /** For the run's log line, to tune the job at the live check: counts and our own dictionary ids, no names. */
-type Memory = {
+export type Memory = {
   keys: number;
   protected: number;
   trimmed: number;
@@ -55,28 +56,32 @@ type Memory = {
   /** Today's creators of each dictionary effect seen today. */
   dictionary: Record<string, number>;
 };
-type Meta = Record<string, EffectMeta>;
+export type Meta = Record<string, EffectMeta>;
 
-/** A day that could not run: the previous chips, history and update time stay, with today's date and why. */
-function failed(prev: EffectsDoc | null, today: string, now: Date, notes: string[]): EffectsDoc {
+/** A day that could not run: the previous page, history and update time stay, with today's date and why. */
+export function failed<T extends EffectsDoc = EffectsDoc>(
+  prev: T | null,
+  today: string,
+  now: Date,
+  notes: string[],
+): T {
   return {
     ...(prev ?? { items: [], meta: {}, history: {} }),
     ranOn: today,
     updatedAt: prev?.updatedAt ?? now.toISOString(),
     status: "failed",
     notes,
-  };
+  } as T;
 }
 
-const noted = (doc: EffectsDoc, note: string): EffectsDoc => ({
+export const noted = <T extends EffectsDoc>(doc: T, note: string): T => ({
   ...doc,
   notes: [...new Set([...(doc.notes ?? []), note])],
 });
 
-/** Counts a spending run against the day's cap: false at the cap. undefined when the counter can't be read or
- * written: a counter KV can't keep never stops a run (fail-open). */
-async function countAttempt(env: EffectsEnv, today: string): Promise<boolean | undefined> {
-  const key = `effects:attempts:${today}`;
+/** Counts a spending run against the day's cap, kept under `key` (the day's counter): false at the cap. undefined
+ * when the counter can't be read or written: a counter KV can't keep never stops a run (fail-open). */
+export async function countAttempt(env: EffectsEnv, key: string): Promise<boolean | undefined> {
   try {
     const used = Number(await env.SOCIAL_KV?.get(key)) || 0;
     if (used >= MAX_ATTEMPTS) return false;
@@ -195,42 +200,34 @@ function forAi(cands: Map<string, Candidate>, prev: EffectsDoc | null, today: st
     .map((r) => r.c);
 }
 
-async function scan(
+/**
+ * Today's posts into the memory (planning/tools/18-trending-effects.md §1 steps 2–4; shared with category scans,
+ * planning/tools/19-category-trends.md §2): the rule candidates, the AI's cleanup in batches of 9, each key's meta and
+ * the 7-day history. Notes "ai_fallback" / "ai_empty" / "ai_partial" go into `notes`. A category passes its camera
+ * words and own generic words, its context line for the AI and its smaller memory.
+ */
+export async function rememberPosts(
   env: EffectsEnv,
-  doFetch: typeof fetch,
   prev: EffectsDoc | null,
-  now: Date,
   today: string,
-  opts: RunOptions,
-): Promise<{ doc: EffectsDoc; credits: number; families: FamilyStats[]; memory?: Memory }> {
-  // The first scan (no memory yet: no document, or every run so far failed) searches families 1–6, which hold the
-  // owner's two reels (the clone effect, GIF stickers). A day's first run searches the day's 6; another good run that
-  // day (Scan again) the next 6, so each tap covers families not yet searched today.
-  const slot = !Object.keys(prev?.history ?? {}).length
-    ? 0
-    : prev?.ranOn === today && prev.status !== "failed"
-      ? ((prev.slot ?? daySlot(today)) + 1) % SLOTS
-      : daySlot(today);
-  const queries = familiesForSlot(slot);
-  const { posts, credits, errors, families, tight } = await searchFamilies(
-    env,
-    doFetch,
-    queries,
-    opts.timeoutMs,
-  );
-  const notes = new Set(errors);
-  // Tavily's month nearly spent: a smaller scan, and the list says so.
-  if (tight) notes.add("tavily_budget");
-  if (!posts.length && errors.length)
-    return { doc: failed(prev, today, now, [...notes]), credits, families };
-
-  const cands = await extractCandidates(posts);
+  posts: readonly EffectPost[],
+  notes: Set<string>,
+  opts: { aiTimeoutMs?: number; extract?: ExtractExtra; aiContext?: string; maxKeys?: number } = {},
+): Promise<{
+  cands: Map<string, Candidate>;
+  history: History;
+  meta: Meta;
+  shown: Meta;
+  memory: Memory;
+}> {
+  const cands = await extractCandidates(posts, opts.extract);
   const top = forAi(cands, prev, today);
   const reply = top.length
     ? await cleanWithAi(
         env,
         top.map((c) => ({ key: c.key, name: c.name, samples: c.samples.map((s) => s.title) })),
         opts.aiTimeoutMs,
+        opts.aiContext,
       )
     : { verdicts: [], rejects: {}, failed: 0 };
   // The AI judged (or had nothing to judge). Otherwise: no answer, or no usable verdict in it.
@@ -262,12 +259,63 @@ async function scan(
     Object.keys(meta).filter((k) => meta[k].termId || (meta[k].checked && seenThisWeek(k))),
   );
   const cut: string[] = [];
-  const merged = mergeHistory(history, today, cands, kept, cut);
+  const merged = mergeHistory(history, today, cands, kept, cut, opts.maxKeys);
   for (const key of Object.keys(meta)) if (!merged[key]) delete meta[key];
 
   // Chips: dictionary effects, plus names the AI approved, today or on an earlier day. A new name it has never
   // judged waits for a day it does, so junk never shows unjudged.
   const shown = Object.fromEntries(Object.entries(meta).filter(([, m]) => m.termId || m.checked));
+  return {
+    cands,
+    history: merged,
+    meta,
+    shown,
+    memory: {
+      keys: Object.keys(merged).length,
+      protected: kept.size,
+      trimmed: cut.length,
+      ai,
+      dictionary,
+    },
+  };
+}
+
+async function scan(
+  env: EffectsEnv,
+  doFetch: typeof fetch,
+  prev: EffectsDoc | null,
+  now: Date,
+  today: string,
+  opts: RunOptions,
+): Promise<{ doc: EffectsDoc; credits: number; families: FamilyStats[]; memory?: Memory }> {
+  // The first scan (no memory yet: no document, or every run so far failed) searches families 1–6, which hold the
+  // owner's two reels (the clone effect, GIF stickers). A day's first run searches the day's 6; another good run that
+  // day (Scan again) the next 6, so each tap covers families not yet searched today.
+  const slot = !Object.keys(prev?.history ?? {}).length
+    ? 0
+    : prev?.ranOn === today && prev.status !== "failed"
+      ? ((prev.slot ?? daySlot(today)) + 1) % SLOTS
+      : daySlot(today);
+  const queries = familiesForSlot(slot);
+  const { posts, credits, errors, families, tight } = await searchFamilies(
+    env,
+    doFetch,
+    queries,
+    opts.timeoutMs,
+  );
+  const notes = new Set(errors);
+  // Tavily's month nearly spent: a smaller scan, and the list says so.
+  if (tight) notes.add("tavily_budget");
+  if (!posts.length && errors.length)
+    return { doc: failed(prev, today, now, [...notes]), credits, families };
+
+  const {
+    cands,
+    history: merged,
+    meta,
+    shown,
+    memory,
+  } = await rememberPosts(env, prev, today, posts, notes, { aiTimeoutMs: opts.aiTimeoutMs });
   // YouTube checks the top 6 of the names mentioned today: their views are kept on today's history entry.
   const mentioned = Object.fromEntries(Object.entries(shown).filter(([k]) => cands.has(k)));
   const top6 = scoreEffects(merged, mentioned, today, {}).slice(0, YT_EFFECTS);
@@ -290,13 +338,7 @@ async function scan(
   return {
     credits,
     families,
-    memory: {
-      keys: Object.keys(merged).length,
-      protected: kept.size,
-      trimmed: cut.length,
-      ai,
-      dictionary,
-    },
+    memory,
     doc: {
       ranOn: today,
       updatedAt: now.toISOString(),
@@ -318,7 +360,8 @@ export async function runEffects(env: EffectsEnv, opts: RunOptions = {}): Promis
   // Once a day, unless forced; a day whose run failed may run again (the dashboard's retry), a good day may not.
   if (prev && !opts.force && prev.ranOn === today && prev.status !== "failed") return prev;
   // A run that would spend counts itself against the day's cap before its first search; force skips the cap.
-  const attempt = prev === undefined || opts.force ? true : await countAttempt(env, today);
+  const attempt =
+    prev === undefined || opts.force ? true : await countAttempt(env, `effects:attempts:${today}`);
   let doc: EffectsDoc;
   let credits = 0;
   let families: FamilyStats[] | undefined;

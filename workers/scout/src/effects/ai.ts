@@ -21,11 +21,11 @@ const Verdict = z.object({
 const Reply = z.object({ effects: z.array(Verdict).max(30) });
 export type AiVerdict = z.infer<typeof Verdict>;
 
-const isRecord = (x: unknown): x is Record<string, unknown> =>
+export const isRecord = (x: unknown): x is Record<string, unknown> =>
   !!x && typeof x === "object" && !Array.isArray(x);
 
 /** Trimmed, and at most `max` long: cut at the last space in its final 15 characters, else right at `max`. */
-function clip(s: unknown, max: number): unknown {
+export function clip(s: unknown, max: number): unknown {
   if (typeof s !== "string") return s;
   const t = s.trim();
   if (t.length <= max) return t;
@@ -82,16 +82,51 @@ const SYSTEM =
 type Candidate = { key: string; name: string; samples: string[] };
 type Cleaned = { verdicts: AiVerdict[]; rejects: Record<string, number> };
 
+/** One built-in AI call answering JSON (shared with category lessons, planning/tools/19-category-trends.md §3): the
+ * parsed answer, or null when the AI is not bound, is slow, fails or answers no JSON. The caller checks its shape. */
+export async function askAi(
+  env: EffectsEnv,
+  call: { system: string; user: string; schema: unknown; maxTokens: number },
+  timeoutMs: number,
+): Promise<unknown> {
+  if (!env.AI) return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      env.AI.run(AI_MODEL, {
+        messages: [
+          { role: "system", content: call.system },
+          { role: "user", content: call.user },
+        ],
+        response_format: { type: "json_schema", json_schema: call.schema },
+        max_tokens: call.maxTokens,
+        temperature: 0,
+      }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
+      }),
+    ]);
+    const response = (result as { response?: unknown })?.response;
+    return typeof response === "string" ? JSON.parse(response) : (response ?? null);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * The verdicts that pass the schema one by one ([] when none does), with why the others did not, as counts by field
  * and zod's code ("what.en:too_small") or "unknown_key" / "unknown_sameAs": never their text. The candidates are asked
  * in parallel batches of 9; `failed` counts the batches with no answer. null when no batch answered (the AI
- * unavailable, slow or answering without a list).
+ * unavailable, slow or answering without a list). A category scan passes `context`, a line added after the
+ * instructions ("These posts are about Cars…", planning/tools/19-category-trends.md §2).
  */
 export async function cleanWithAi(
   env: EffectsEnv,
   candidates: readonly Candidate[],
   timeoutMs = TIMEOUT_MS,
+  context?: string,
 ): Promise<(Cleaned & { failed: number }) | null> {
   if (!env.AI || !candidates.length) return null;
   const known = new Set(candidates.map((c) => c.key));
@@ -99,7 +134,9 @@ export async function cleanWithAi(
   const batches = Array.from({ length: Math.ceil(sorted.length / BATCH) }, (_, i) =>
     sorted.slice(i * BATCH, (i + 1) * BATCH),
   );
-  const replies = await Promise.all(batches.map((b) => cleanBatch(env, b, known, timeoutMs)));
+  const replies = await Promise.all(
+    batches.map((b) => cleanBatch(env, b, known, timeoutMs, context)),
+  );
   const answered = replies.filter((r): r is Cleaned => r !== null);
   if (!answered.length) return null;
   const rejects: Record<string, number> = {};
@@ -118,58 +155,43 @@ async function cleanBatch(
   candidates: readonly Candidate[],
   known: ReadonlySet<string>,
   timeoutMs: number,
+  context?: string,
 ): Promise<Cleaned | null> {
-  if (!env.AI) return null;
   const input = candidates
     .map(
       (c) =>
         `- key: ${c.key} | name: ${c.name} | posts: ${c.samples.map((s) => s.slice(0, 100)).join(" / ")}`,
     )
     .join("\n");
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const result = await Promise.race([
-      env.AI.run(AI_MODEL, {
-        messages: [
-          { role: "system", content: SYSTEM },
-          { role: "user", content: input },
-        ],
-        response_format: { type: "json_schema", json_schema: SCHEMA },
-        max_tokens: MAX_TOKENS,
-        temperature: 0,
-      }),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
-      }),
-    ]);
-    const response = (result as { response?: unknown })?.response;
-    const data = (typeof response === "string" ? JSON.parse(response) : response) as {
-      effects?: unknown;
-    } | null;
-    const list = data?.effects;
-    if (!Array.isArray(list)) return null;
-    const rejects: Record<string, number> = {};
-    const count = (why: string) => void (rejects[why] = (rejects[why] ?? 0) + 1);
-    // Each verdict on its own: one broken line must not cost the rest.
-    const verdicts = list.flatMap((x: unknown) => {
-      const v = Verdict.safeParse(tidy(x));
-      if (!v.success)
-        v.error.issues.forEach((i) =>
-          count(i.path.length ? `${i.path.map(String).join(".")}:${i.code}` : i.code),
-        );
-      else if (!known.has(v.data.key)) count("unknown_key");
-      else if (v.data.sameAs && !known.has(v.data.sameAs)) {
-        // A merge into a name it was not given (live runs: 15 a day): the verdict stands, the merge does not.
-        count("unknown_sameAs");
-        const { key, keep, name, what } = v.data;
-        return [{ key, keep, name, what }];
-      } else return [v.data];
-      return [];
-    });
-    return { verdicts, rejects };
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+  const data = (await askAi(
+    env,
+    {
+      system: context ? `${SYSTEM} ${context}` : SYSTEM,
+      user: input,
+      schema: SCHEMA,
+      maxTokens: MAX_TOKENS,
+    },
+    timeoutMs,
+  )) as { effects?: unknown } | null;
+  const list = data?.effects;
+  if (!Array.isArray(list)) return null;
+  const rejects: Record<string, number> = {};
+  const count = (why: string) => void (rejects[why] = (rejects[why] ?? 0) + 1);
+  // Each verdict on its own: one broken line must not cost the rest.
+  const verdicts = list.flatMap((x: unknown) => {
+    const v = Verdict.safeParse(tidy(x));
+    if (!v.success)
+      v.error.issues.forEach((i) =>
+        count(i.path.length ? `${i.path.map(String).join(".")}:${i.code}` : i.code),
+      );
+    else if (!known.has(v.data.key)) count("unknown_key");
+    else if (v.data.sameAs && !known.has(v.data.sameAs)) {
+      // A merge into a name it was not given (live runs: 15 a day): the verdict stands, the merge does not.
+      count("unknown_sameAs");
+      const { key, keep, name, what } = v.data;
+      return [{ key, keep, name, what }];
+    } else return [v.data];
+    return [];
+  });
+  return { verdicts, rejects };
 }

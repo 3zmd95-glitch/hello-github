@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { AI_MODEL } from "../discover/ai";
-import { cleanWithAi } from "./ai";
+import { askAi, cleanWithAi } from "./ai";
 
 const candidates = [
   { key: "clone-effect", name: "clone effect", samples: ["Clone Yourself " + "x".repeat(200)] },
@@ -197,5 +197,59 @@ describe("cleanWithAi", () => {
     ).toBeNull();
     const never = env(() => new Promise(() => {}));
     expect(await cleanWithAi(never, candidates, 20)).toBeNull();
+  });
+});
+
+it("tells the AI a category's context, after the usual instructions (planning/tools/19-category-trends.md §2)", async () => {
+  const e = answering([verdict("clone-effect")]);
+  await cleanWithAi(e, candidates, 1000, "These posts are about Cars, for car videos.");
+  const system = (e.AI.run.mock.calls[0][1].messages as { content: string }[])[0].content;
+  expect(system).toContain("Hijazi Arabic (the Saudi western-region dialect)");
+  expect(system.endsWith(" These posts are about Cars, for car videos.")).toBe(true);
+});
+
+describe("askAi", () => {
+  const call = { system: "s", user: "u", schema: {}, maxTokens: 10 };
+  it("answers the parsed JSON, whether the model sends text or an object", async () => {
+    expect(
+      await askAi(
+        env(async () => ({ response: '{"a":1}' })),
+        call,
+        1000,
+      ),
+    ).toEqual({ a: 1 });
+    expect(
+      await askAi(
+        env(async () => ({ response: { a: 1 } })),
+        call,
+        1000,
+      ),
+    ).toEqual({ a: 1 });
+  });
+  it("is null without a binding, on broken JSON, an error or a timeout", async () => {
+    expect(await askAi({}, call, 1000)).toBeNull();
+    expect(
+      await askAi(
+        env(async () => ({ response: "{bad" })),
+        call,
+        1000,
+      ),
+    ).toBeNull();
+    expect(
+      await askAi(
+        env(async () => {
+          throw new Error("down");
+        }),
+        call,
+        1000,
+      ),
+    ).toBeNull();
+    expect(
+      await askAi(
+        env(() => new Promise(() => {})),
+        call,
+        20,
+      ),
+    ).toBeNull();
   });
 });

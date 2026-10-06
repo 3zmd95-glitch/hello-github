@@ -261,3 +261,34 @@ describe("extractCandidates", () => {
     expect(await creatorId("tt", " @SomeOne ")).toBe(await creatorId("tt", "someone"));
   });
 });
+
+describe("a category's extras (planning/tools/19-category-trends.md §2)", () => {
+  const CARS = {
+    suffixes: ["shot", "angle", "lighting", "look"],
+    generic: new Set(["car", "cars", "edit", "cinematic"]),
+  };
+  const keysFor = (text: string) =>
+    candidatesOf(text, CARS)
+      .map((c) => c.key)
+      .sort();
+
+  it("names camera shots, angles, lighting and looks, in phrases and hashtags", () => {
+    expect(keysFor("insane rolling shot on the highway")).toEqual(["rolling-shot"]);
+    expect(keysFor("Cinematic Rolling Shot | BMW M3")).toEqual(["rolling-shot"]);
+    expect(keysFor("Low Angle hero shots of my M4")).toEqual(["hero-shot", "low-angle"]);
+    expect(keysFor("golden hour lighting #rollingshots")).toEqual([
+      "golden-hour-lighting",
+      "rolling-shot",
+    ]);
+  });
+
+  it("never makes a style of the category's own words", () => {
+    expect(keysFor("car edit trend #caredit")).toEqual([]);
+    expect(keysFor("cinematic car shot")).toEqual([]);
+  });
+
+  it("leaves Trending effects' rules as they were without extras", () => {
+    expect(keys("insane rolling shot on the highway")).toEqual([]);
+    expect(keys("clone effect tutorial | CapCut")).toEqual(["clone-effect"]);
+  });
+});

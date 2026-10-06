@@ -155,6 +155,24 @@ describe("searchFamilies", () => {
     expect(doFetch).toHaveBeenCalledTimes(18);
     expect(most).toBe(6);
   });
+
+  it("numbers a category's searches by their place in its own list, and takes its budget decision", async () => {
+    const get = vi.fn(async () => JSON.stringify({ used: 999, limit: 1000 }));
+    const doFetch = vi.fn<typeof fetch>(async () => json({ results: [] }));
+    const queries = ["car edit trend", "cinematic car edit"];
+    const out = await searchFamilies(
+      { ...ENV, SOCIAL_KV: { get } as unknown as KVNamespace },
+      doFetch,
+      queries,
+      undefined,
+      { numbering: queries, tight: false },
+    );
+    expect(out.families.map((f) => f.family)).toEqual([1, 2]);
+    // All 3 searches of each query: the 99 % figure is never read, because the caller already decided.
+    expect(out.tight).toBe(false);
+    expect(doFetch).toHaveBeenCalledTimes(6);
+    expect(get).not.toHaveBeenCalled();
+  });
 });
 
 /** A fake YouTube: `search.list` answers each query's video ids, `videos.list` their views. */
