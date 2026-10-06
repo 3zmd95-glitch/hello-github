@@ -110,7 +110,7 @@ function QuickSettings() {
           <Switch
             checked={sound}
             onChange={(v) => setSettings({ sound: v })}
-            label={t(sound ? "top.soundOn" : "top.soundOff")}
+            label={t("settings.sound")}
             testId="sound-toggle"
           />
         }

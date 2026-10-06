@@ -86,6 +86,8 @@ describe("Social More", () => {
     const en = entry("lang-en")!;
     expect(en.getAttribute("role")).toBe("radio");
     expect(entry("lang-ar")!.getAttribute("aria-checked")).toBe("true");
+    // The switch is named by its row title (WCAG 2.5.3); its state is the checkbox's own.
+    expect(entry("sound-toggle")!.getAttribute("aria-label")).toBe("الأصوات");
     act(() => en.click());
     expect(useStore.getState().settings.lang).toBe("en");
     expect(entry("lang-en")!.getAttribute("aria-checked")).toBe("true");
@@ -94,10 +96,11 @@ describe("Social More", () => {
     const sound = entry("sound-toggle") as HTMLInputElement;
     expect(sound.getAttribute("role")).toBe("switch");
     expect(sound.checked).toBe(true);
+    expect(sound.getAttribute("aria-label")).toBe("Sounds");
     act(() => sound.click());
     expect(useStore.getState().settings.sound).toBe(false);
     expect(sound.checked).toBe(false);
-    expect(sound.getAttribute("aria-label")).toBe("Sound off, tap to unmute");
+    expect(sound.getAttribute("aria-label")).toBe("Sounds");
   });
 });
 
