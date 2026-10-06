@@ -78,6 +78,30 @@ let trendsCalls: string[];
 let discoverV2: boolean;
 let discoverAsked: Record<string, unknown>[];
 let localPlans: Record<string, unknown>[];
+/** What the fake Worker's `GET /effects/trending` answers; null = no such route (a 404). */
+let effectsDoc: unknown;
+let effectsAsked: number;
+
+/** This week's trending effects: one dictionary effect. */
+const EFFECTS = {
+  status: "ok",
+  ranOn: "2026-10-06",
+  updatedAt: new Date().toISOString(),
+  items: [
+    {
+      key: "clone-effect",
+      name: { en: "clone effect", ar: "تأثير الاستنساخ" },
+      termId: "clone-effect",
+      isNew: false,
+      checked: true,
+      creators: 9,
+      posts: 14,
+      platforms: ["tt"],
+      growth: 2,
+      samples: [],
+    },
+  ],
+};
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -152,6 +176,10 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   if (url.origin === WORKER && url.pathname.startsWith("/trends")) {
     trendsCalls.push(`${init?.method ?? "GET"} ${url.pathname}`);
     return workerFeed ? json(workerFeed) : json({ error: "not_found" }, 404);
+  }
+  if (url.origin === WORKER && url.pathname === "/effects/trending") {
+    effectsAsked++;
+    return effectsDoc ? json(effectsDoc) : json({ error: "not_found" }, 404);
   }
   if (url.hostname === "www.googleapis.com" && url.pathname.endsWith("/videos")) {
     ytStats.push(url);
@@ -254,8 +282,12 @@ beforeEach(() => {
   discoverV2 = false;
   discoverAsked = [];
   localPlans = [];
+  effectsDoc = null;
+  effectsAsked = 0;
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   localStorage.clear();
+  // The trending effects' 1 h copy lives in this tab's sessionStorage.
+  sessionStorage.clear();
   clearScoutCache();
   clearScoutCaps();
   clearDiscoverCache();
@@ -528,6 +560,38 @@ describe("Discover category ideas", () => {
     await click("genre-cars");
     expect($("discover-category-ideas")).toBeNull();
     expect($("discover-category-only")).toBeNull();
+  });
+});
+
+describe("Discover's trending effects row", () => {
+  it("a chip is a Keywords search, even right after an AI search: no AI plan, no subscription use", async () => {
+    effectsDoc = EFFECTS;
+    await mount({ v2: true, lang: "en" });
+    await click("discover-mode-ai");
+    await select("ai-provider", "claude");
+    await select("ai-model", "claude-fable-5-1");
+    await submit("coffee match cuts");
+    expect(discoverAsked.at(-1)).toMatchObject({ mode: "ai", q: "coffee match cuts" });
+    expect(localPlans).toHaveLength(1);
+
+    const chip = host.querySelector<HTMLElement>(
+      '[data-testid="trending-effect"][data-key="clone-effect"]',
+    )!;
+    act(() => chip.click());
+    await settle();
+    expect(discoverAsked.at(-1)).toEqual({ q: "clone effect" });
+    expect(localPlans).toHaveLength(1);
+    expect(pressed("discover-mode-keyword")).toBe("true");
+    expect(pressed("discover-mode-ai")).toBe("false");
+    expect($<HTMLInputElement>("discover-topic")!.value).toBe("clone effect");
+  });
+
+  it("is not in a skill's panel, even on a Discover v2 Worker", async () => {
+    effectsDoc = EFFECTS;
+    await mount({ skillId: "smart-bins-keywords", v2: true });
+    expect(discoverAsked).toHaveLength(1);
+    expect($("trending-effects")).toBeNull();
+    expect(effectsAsked).toBe(0);
   });
 });
 

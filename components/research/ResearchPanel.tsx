@@ -864,11 +864,14 @@ export default function ResearchPanel({
         </div>
       </form>
       {/* 🔥 This week's trending effects (Discover v2 only): a chip is a search for the effect, like a recent
-          topic, with the category cleared. */}
+          topic, with the category cleared, and always in Keywords: a tap never spends an AI plan or the owner's
+          ChatGPT / Claude usage. */}
       {!skill && v2 && scoutCfg && (
         <TrendingEffects
           config={scoutCfg}
           onPick={(query) => {
+            setSearchMode("keyword");
+            setSubmittedMode("keyword");
             setGenreId(null);
             setTopic(query);
             setDraft(null);

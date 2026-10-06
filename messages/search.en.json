@@ -82,5 +82,6 @@
   "search.trendingStale": "Couldn't update today",
   "search.trendingRun": "Run the first scan",
   "search.trendingRunning": "Scanning for trends… can take a minute",
+  "search.trendingRunFailed": "Couldn't run the scan — try again in a bit",
   "search.trendingCreative": "TikTok Creative Center ↗"
 }

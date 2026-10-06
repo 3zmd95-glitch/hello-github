@@ -70,7 +70,7 @@ const ANSWER = {
   complete: false,
 };
 
-/** The Worker's trending effects (`GET /effects/trending`): a dictionary effect, and a new one with YouTube up 3×. */
+/** The Worker's trending effects (`GET /effects/trending`), 8 (its cap): a dictionary effect, a new one with YouTube up 3×, … */
 const EFFECTS = {
   status: "ok",
   ranOn: "2026-10-06",
@@ -102,6 +102,25 @@ const EFFECTS = {
       youtube: { newVideos: 12, views7d: 52000, growth: 3 },
       samples: [],
     },
+    // Up to the Worker's cap of 8.
+    ...[
+      ["speed-ramp", "speed ramp", "سبيد رامب"],
+      ["first-month-edit", "first month edit", "ايديت أول شهر"],
+      ["mention-trend", "mention trend", "ترند المنشن"],
+      ["reverse-trend", "reverse trend", "ترند العكس"],
+      ["zoom-transition", "zoom transition", "انتقال زوم"],
+      ["gif-sticker-overlay", "gif sticker overlay", "ستيكرات GIF فوق الفيديو"],
+    ].map(([key, en, ar]) => ({
+      key,
+      name: { en, ar },
+      isNew: true,
+      checked: true,
+      creators: 3,
+      posts: 3,
+      platforms: ["tt"],
+      growth: 3,
+      samples: [],
+    })),
   ],
 };
 
@@ -708,11 +727,13 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
 
   const row = page.getByTestId("trending-effects");
   await expect(row).toHaveAttribute("data-state", "list");
-  await expect(row.getByTestId("trending-effect")).toHaveCount(2);
+  await expect(row.getByTestId("trending-effect")).toHaveCount(8);
   const fresh = row.locator('[data-testid="trending-effect"][data-key="swagger-trend"]');
   await expect(fresh.getByText("جديد", { exact: true })).toBeVisible();
   await expect(fresh).toContainText("4 صنّاع · ▶ ↑3×");
-  // The chips scroll inside their row; the 375 px page never scrolls sideways.
+  // The 8 chips overflow their strip, which scrolls sideways; the 375 px page never does.
+  const strip = row.getByTestId("trending-effect").first().locator("xpath=..");
+  expect(await strip.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
   expect(await fitsViewport(page)).toBe(true);
 
   // With a category on, a chip searches the effect alone: the dictionary effect by its English label.

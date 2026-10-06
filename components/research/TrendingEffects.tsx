@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
+  cachedTrendingEffects,
   effectQuery,
   fetchTrendingEffects,
   rowVisible,
   runTrendingEffectsNow,
+  scanInFlight,
   type TrendingEffect,
   type TrendingEffects as Trending,
 } from "@/lib/effects";
@@ -36,9 +38,13 @@ export default function TrendingEffects({
   const id = useId();
   // Captured once, like the panel's: the age line needs no ticking clock.
   const [now] = useState(() => Date.now());
-  const [data, setData] = useState<Trending | null>(null);
-  const [running, setRunning] = useState(false);
+  // This tab's copy first (an hour at most; lib reads it in try/catch), so a revisit renders the row at once and
+  // nothing pops in under a tap. Mounted on the client only (after /health), so the server never renders it.
+  const [data, setData] = useState<Trending | null>(() => cachedTrendingEffects(config));
+  // The first scan: running, or failed (its line shows until the next tap).
+  const [scan, setScan] = useState<"idle" | "running" | "failed">("idle");
   const mounted = useRef(false);
+  const heading = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -47,27 +53,45 @@ export default function TrendingEffects({
     };
   }, []);
 
+  /** A first scan's answer: its list, or the failure line (null). */
+  const landed = useCallback((r: Trending | null) => {
+    setScan(r ? "idle" : "failed");
+    if (!r) return;
+    setData(r);
+    // The button goes: focus moves to the row's heading rather than drop to the page, unless the owner is busy
+    // elsewhere meanwhile.
+    const h = heading.current;
+    const at = document.activeElement;
+    if (h && (!at || at === document.body || h.closest("section")?.contains(at))) h.focus();
+  }, []);
+
   useEffect(() => {
     let alive = true;
     void fetchTrendingEffects(config).then((r) => {
-      if (alive) setData(r);
+      if (!alive) return;
+      setData(r);
+      // Back on Discover while this tab's first scan still runs: that scan, waiting, then its answer.
+      const pending = r?.status === "never" ? scanInFlight(config) : undefined;
+      if (!pending) return;
+      setScan("running");
+      void pending.then((s) => {
+        if (alive) landed(s);
+      });
     });
     return () => {
       alive = false;
     };
-  }, [config]);
+  }, [config, landed]);
 
   const state = rowVisible(data, now);
   if (!data || state === "hidden") return null;
 
-  // About a minute. Leaving Discover never cancels it (lib/effects keeps its answer for the next visit); here its
-  // answer is then ignored.
+  // About a minute. Leaving Discover never cancels it (lib/effects keeps its answer for the next visit, and a
+  // revisit meanwhile waits for it); this row then ignores its answer.
   const runNow = () => {
-    setRunning(true);
+    setScan("running");
     void runTrendingEffectsNow(config).then((r) => {
-      if (!mounted.current) return;
-      if (r) setData(r);
-      setRunning(false);
+      if (mounted.current) landed(r);
     });
   };
 
@@ -122,7 +146,7 @@ export default function TrendingEffects({
       data-state={state}
     >
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <h2 id={`${id}-title`} className="text-sm font-bold">
+        <h2 ref={heading} id={`${id}-title`} tabIndex={-1} className="text-sm font-bold">
           {t("search.trendingTitle")}
         </h2>
         {state !== "never" && (
@@ -151,17 +175,20 @@ export default function TrendingEffects({
           <button
             type="button"
             className="px-btn px-btn-sm"
-            disabled={running}
+            disabled={scan === "running"}
             onClick={runNow}
             data-testid="trending-run"
           >
             {t("search.trendingRun")}
           </button>
-          {running && (
-            <p role="status" className="text-muted text-xs">
-              {t("search.trendingRunning")}
-            </p>
-          )}
+          {/* Always there (empty while idle), so its next words are announced. */}
+          <p role="status" className="text-muted text-xs">
+            {scan === "running"
+              ? t("search.trendingRunning")
+              : scan === "failed"
+                ? t("search.trendingRunFailed")
+                : ""}
+          </p>
         </div>
       ) : (
         // One row that scrolls sideways (the page never does), like the genre chips.

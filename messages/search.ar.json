@@ -82,5 +82,6 @@
   "search.trendingStale": "ما قدرت أحدّثها اليوم",
   "search.trendingRun": "شغّل أول فحص",
   "search.trendingRunning": "أدوّر على الترندات… ممكن تاخذ دقيقة",
+  "search.trendingRunFailed": "ما قدرت أشغّل الفحص، جرّب بعد شوي",
   "search.trendingCreative": "TikTok Creative Center ↗"
 }

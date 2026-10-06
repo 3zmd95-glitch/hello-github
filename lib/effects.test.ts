@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  cachedTrendingEffects,
   effectQuery,
   fetchTrendingEffects,
   parseTrendingEffects,
   rowVisible,
   runTrendingEffectsNow,
+  scanInFlight,
 } from "./effects";
 
 // 🔥 Trending effects in Discover (planning/tools/18-trending-effects.md §4): the Worker's answer checked field by
@@ -172,25 +174,32 @@ describe("parseTrendingEffects", () => {
 
 describe("rowVisible", () => {
   const at = (age: number) => new Date(NOW - age).toISOString();
+  const items = parseTrendingEffects(DOC)!.items;
 
   it("hidden without an answer; the first-scan button before the first run; the list; a failed run's list", () => {
     expect(rowVisible(null, NOW)).toBe("hidden");
     expect(rowVisible({ status: "never", items: [] }, NOW)).toBe("never");
-    expect(rowVisible({ status: "ok", updatedAt: at(2 * HOUR), items: [] }, NOW)).toBe("list");
-    expect(rowVisible({ status: "partial", updatedAt: at(2 * HOUR), items: [] }, NOW)).toBe("list");
-    expect(rowVisible({ status: "failed", updatedAt: at(2 * DAY), items: [] }, NOW)).toBe(
+    expect(rowVisible({ status: "ok", updatedAt: at(2 * HOUR), items }, NOW)).toBe("list");
+    expect(rowVisible({ status: "partial", updatedAt: at(2 * HOUR), items }, NOW)).toBe("list");
+    expect(rowVisible({ status: "failed", updatedAt: at(2 * DAY), items }, NOW)).toBe(
       "stale-failed",
     );
   });
 
   it("hides a list older than 3 days, or one that does not say when it was made", () => {
-    expect(rowVisible({ status: "ok", updatedAt: at(3 * DAY), items: [] }, NOW)).toBe("list");
-    expect(rowVisible({ status: "ok", updatedAt: at(3 * DAY + 1), items: [] }, NOW)).toBe("hidden");
-    expect(rowVisible({ status: "failed", updatedAt: at(3 * DAY + 1), items: [] }, NOW)).toBe(
-      "hidden",
+    expect(rowVisible({ status: "ok", updatedAt: at(3 * DAY), items }, NOW)).toBe("list");
+    expect(rowVisible({ status: "ok", updatedAt: at(3 * DAY + 1), items }, NOW)).toBe("hidden");
+    expect(rowVisible({ status: "failed", updatedAt: at(3 * DAY + 1), items }, NOW)).toBe("hidden");
+    expect(rowVisible({ status: "ok", items }, NOW)).toBe("hidden");
+    expect(rowVisible({ status: "ok", updatedAt: "yesterday", items }, NOW)).toBe("hidden");
+  });
+
+  it("hides a run that found nothing; a failed one still says it could not update", () => {
+    expect(rowVisible({ status: "ok", updatedAt: at(HOUR), items: [] }, NOW)).toBe("hidden");
+    expect(rowVisible({ status: "partial", updatedAt: at(HOUR), items: [] }, NOW)).toBe("hidden");
+    expect(rowVisible({ status: "failed", updatedAt: at(HOUR), items: [] }, NOW)).toBe(
+      "stale-failed",
     );
-    expect(rowVisible({ status: "ok", items: [] }, NOW)).toBe("hidden");
-    expect(rowVisible({ status: "ok", updatedAt: "yesterday", items: [] }, NOW)).toBe("hidden");
   });
 });
 
@@ -213,6 +222,10 @@ describe("fetchTrendingEffects", () => {
 
     expect(await fetchTrendingEffects(config, { fetchImpl, now: NOW + HOUR - 1 })).toEqual(first);
     expect(fetchImpl).toHaveBeenCalledOnce();
+    // The same copy, read at once (no request): what a revisit renders first.
+    expect(cachedTrendingEffects(config, NOW + HOUR - 1)).toEqual(first);
+    expect(cachedTrendingEffects(config, NOW + HOUR)).toBeNull();
+    expect(cachedTrendingEffects({ ...config, url: "https://other.example" }, NOW)).toBeNull();
     // Another Worker has its own list.
     await fetchTrendingEffects(
       { ...config, url: "https://other.example" },
@@ -262,6 +275,7 @@ describe("fetchTrendingEffects", () => {
     );
     await fetchTrendingEffects(config, { fetchImpl, now: NOW });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(cachedTrendingEffects(config, NOW)).toBeNull();
   });
 });
 
@@ -273,11 +287,17 @@ describe("runTrendingEffectsNow", () => {
       await gate;
       return new Response(JSON.stringify(DOC));
     });
+    expect(scanInFlight(config)).toBeUndefined();
     const first = runTrendingEffectsNow(config, { fetchImpl });
     const second = runTrendingEffectsNow(config, { fetchImpl });
+    // A revisit of Discover meanwhile can wait for this same scan.
+    const followed = scanInFlight(config);
+    expect(scanInFlight({ ...config, url: "https://other.example" })).toBeUndefined();
     release();
     expect(await first).toEqual(parseTrendingEffects(DOC));
     expect(await second).toEqual(parseTrendingEffects(DOC));
+    expect(await followed).toEqual(parseTrendingEffects(DOC));
+    expect(scanInFlight(config)).toBeUndefined();
     expect(fetchImpl).toHaveBeenCalledOnce();
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe("https://w.example/effects/run");

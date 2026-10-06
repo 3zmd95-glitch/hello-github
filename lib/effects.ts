@@ -104,6 +104,14 @@ function writeCache(url: string, data: TrendingEffects, now: number): void {
   }
 }
 
+/** This tab's copy of the list when it is under an hour old, read at once (no request); null otherwise. */
+export function cachedTrendingEffects(
+  config: ScoutConfig,
+  now = Date.now(),
+): TrendingEffects | null {
+  return readCache(config.url, now);
+}
+
 /**
  * The list, from this tab's copy when it is under an hour old; null hides the row (an older Worker's 404, a refused
  * token, no network, a broken answer), and is not kept. Nor is "never": the daily run can land any minute.
@@ -113,7 +121,7 @@ export async function fetchTrendingEffects(
   opts: { fetchImpl?: typeof fetch; now?: number } = {},
 ): Promise<TrendingEffects | null> {
   const now = opts.now ?? Date.now();
-  const kept = readCache(config.url, now);
+  const kept = cachedTrendingEffects(config, now);
   if (kept) return kept;
   const r = await scoutCall(config, "/effects/trending", {}, { fetchImpl: opts.fetchImpl });
   const data = r.ok ? parseTrendingEffects(r.data) : null;
@@ -149,6 +157,11 @@ export async function runTrendingEffectsNow(
   }
 }
 
+/** The scan this tab is running on that Worker, if any: Discover, opened again meanwhile, waits for it. */
+export function scanInFlight(config: ScoutConfig): Promise<TrendingEffects | null> | undefined {
+  return running.get(config.url);
+}
+
 /**
  * What a chip searches: the effect's English name. For a dictionary effect (`termId`) the Worker sends the
  * dictionary's own English label there, so Discover reads the same entry.
@@ -166,5 +179,7 @@ export function rowVisible(
   if (t.status === "never") return "never";
   // Older than 3 days, or no date to tell: not shown as this week's.
   if (!(now - Date.parse(t.updatedAt ?? "") <= MAX_AGE_MS)) return "hidden";
-  return t.status === "failed" ? "stale-failed" : "list";
+  if (t.status === "failed") return "stale-failed";
+  // A run that found nothing has nothing to show.
+  return t.items.length ? "list" : "hidden";
 }
