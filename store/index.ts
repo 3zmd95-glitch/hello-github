@@ -1546,7 +1546,28 @@ function addBonusFreezes(s: PersistedState, n: number, now: Date): number {
 
 /** Load saved progress from localStorage. Call once on the client (e.g. in a root useEffect). */
 export function hydrateStore(): Promise<void> | void {
+  followOtherTabs();
   return useStore.persist.rehydrate();
+}
+
+let followingOtherTabs = false;
+
+/**
+ * Every write saves the whole state, so a tab still holding an older copy would wipe what another tab saved
+ * since (its publish watcher writes every minute). Reload the copy whenever another tab saves, and when the
+ * page comes back from the back/forward cache, where it heard no saves.
+ * ponytail: two tabs saving within the same few milliseconds can still lose one save; merge posts by
+ * updatedAt if that ever shows up.
+ */
+function followOtherTabs(): void {
+  if (followingOtherTabs || typeof window === "undefined") return;
+  followingOtherTabs = true;
+  window.addEventListener("storage", (e) => {
+    if (e.key === STORAGE_KEY && e.newValue) void useStore.persist.rehydrate();
+  });
+  window.addEventListener("pageshow", (e) => {
+    if (e.persisted) void useStore.persist.rehydrate();
+  });
 }
 
 /* ---------- Selectors (pure; pass the state from useStore or useStore.getState()) ---------- */

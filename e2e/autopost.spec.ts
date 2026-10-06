@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { freshState } from "./helpers";
 
 // 🚀 Auto-posting: the post popup's Auto-post tab and the hub, against a fake Scout Worker at
@@ -42,7 +42,8 @@ interface Fake {
   holdList: Promise<void> | null;
 }
 
-async function stubWorker(page: Page): Promise<Fake> {
+/** Stubs the Worker for one page, or for every tab of a context. */
+async function stubWorker(page: Page | BrowserContext): Promise<Fake> {
   const fake: Fake = {
     status: {
       tiktok: { configured: true, connected: true, canPublish: false, handle: "3z.prod" },
@@ -710,4 +711,93 @@ test("a job sent from this browser keeps its Worker id and is not listed as anot
   await page.getByTestId("autopost-refresh").click();
   await expect(page.getByTestId("autopost-refresh")).toBeEnabled();
   await expect(page.getByTestId("autopost-remote")).toHaveCount(0);
+});
+
+test("a Creator script applied in another tab survives this tab's job polling and a reload", async ({
+  page,
+  context,
+}) => {
+  const hook = "Watch the light change.";
+  const fake = await stubWorker(context);
+  await context.route(`${WORKER}/creator/draft`, (route) =>
+    route.request().method() === "OPTIONS"
+      ? route.fulfill({ status: 204, headers: CORS })
+      : route.fulfill({
+          headers: CORS,
+          json: {
+            draft: {
+              hook,
+              beats: ["Place the cup by a window.", "Move to the side.", "Show the final frame."],
+              cta: "Try it on your next shoot.",
+              caption: "A simple window-light setup.",
+              hashtags: ["#تصوير"],
+              shots: [
+                { type: "hook", text: "Finished shot" },
+                { type: "wide", text: "Window setup" },
+                { type: "closeup", text: "Cup detail" },
+              ],
+            },
+          },
+        }),
+  );
+  await connectWorker(page);
+
+  // Tab A sends a job, so its watcher keeps reading the Worker's results (and saving them).
+  await page.goto("/social/calendar/");
+  await page.getByTestId("calendar-new").click();
+  await page.getByTestId("post-platform-instagram").click();
+  await page.getByTestId("post-title").fill("Inbox test");
+  await page.getByTestId("post-day").fill(riyadhDay());
+  await page.getByTestId("post-save").click();
+  const sent = page.getByTestId("post-card").first();
+  const sentId = (await sent.getAttribute("data-post")) ?? "";
+  await sent.locator("button").first().click();
+  await page.getByTestId("post-caption").fill("Test clip");
+  await page.getByTestId("post-tab-autopost").click();
+  await page.getByTestId("autopost-media-url").fill("https://cdn.example/clip.mp4");
+  await page.getByTestId("autopost-schedule").click();
+  await expect(page.getByTestId("autopost-notice")).toBeVisible();
+  await page.getByTestId("post-close").click();
+
+  // Tab B, opened later, applies a Creator script to a new draft.
+  const other = await context.newPage();
+  await other.goto("/social/calendar/");
+  await other.getByTestId("calendar-new").click();
+  await other.getByTestId("post-platform-tiktok").click();
+  await other.getByTestId("post-title").fill("Coffee film");
+  await other.getByTestId("post-template").uncheck();
+  await other.getByTestId("post-day").fill(riyadhDay());
+  await other.getByTestId("post-save").click();
+  const coffee = (p: Page) => p.locator('[data-testid="post-card"]', { hasText: "Coffee film" });
+  await coffee(other).locator("button").first().click();
+  await other.getByTestId("post-tab-script").click();
+  await other.getByTestId("creator-brief").fill("Show coffee with window light");
+  await other.getByTestId("creator-generate").click();
+  await expect(other.getByTestId("creator-preview")).toBeVisible();
+  await other.getByTestId("creator-apply-script").check();
+  await other.getByTestId("creator-apply").click();
+  await expect(other.getByTestId("script-hook")).toHaveValue(hook);
+
+  // Tab A follows B's save without a reload, then reads the job again as it comes back into view.
+  await expect(coffee(page)).toHaveAttribute("data-stage", "script");
+  const checkedAt = () =>
+    page.evaluate((id) => {
+      const saved = JSON.parse(localStorage.getItem("3z-prod-v1") ?? "{}") as {
+        state?: { posts?: { id: string; autoPost?: { checkedAt?: string } }[] };
+      };
+      return saved.state?.posts?.find((p) => p.id === id)?.autoPost?.checkedAt ?? null;
+    }, sentId);
+  const before = await checkedAt();
+  await page.bringToFront();
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await expect.poll(checkedAt).not.toBe(before);
+
+  // B reloads from what A saved last: the script is still there.
+  await other.reload();
+  await expect(coffee(other)).toHaveAttribute("data-stage", "script");
+  // The address still names the post, so its popup opens again by itself.
+  await expect(other.getByTestId("post-sheet")).toHaveAttribute("data-stage", "script");
+  await other.getByTestId("post-tab-script").click();
+  await expect(other.getByTestId("script-hook")).toHaveValue(hook);
+  expect(fake.listed).toBeGreaterThan(0);
 });
