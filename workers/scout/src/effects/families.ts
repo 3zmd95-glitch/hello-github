@@ -1,7 +1,7 @@
 /** Effect families searched in turn (planning/tools/18-trending-effects.md §1): 6 a day, each family every 3 days. */
 export const FAMILY_QUERIES: readonly string[] = [
   "clone yourself video trend",
-  "gif sticker overlay reel trend",
+  "gif stickers",
   "new transition trend reels",
   "text effect trend capcut",
   "speed ramp trend edit",

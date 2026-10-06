@@ -28,21 +28,20 @@ const SCAN_LINE = {
   none: "search.trendingNone",
 } as const;
 
-/** Where the row rests after a first scan's answer `r` (null: the request failed). */
+/** Where the row rests after a scan's answer `r` (null: the request failed). */
 function afterScan(r: Trending | null): "idle" | "failed" | "limit" | "none" {
-  if (!r) return "failed";
-  if (r.items.length) return "idle";
+  if (r?.items.length) return "idle";
   // The Worker's tries for the day are spent: the button rests until the next visit.
-  if (r.notes?.includes("attempts")) return "limit";
-  // A run that found nothing rests too; the Worker's own failed run keeps the button (its answer says it failed).
-  return r.status === "ok" || r.status === "partial" ? "none" : "idle";
+  if (r?.notes?.includes("attempts")) return "limit";
+  // A run that found nothing rests too. No answer, or the Worker's own failed run with no list: a retry.
+  return r?.status === "ok" || r?.status === "partial" ? "none" : "failed";
 }
 
 /**
  * 🔥 Discover's row of this week's trending editing effects (planning/tools/18-trending-effects.md §4): the Worker's
- * daily list as chips that each run a search, a first-scan button before the Worker's first run, and nothing at all
- * for an older Worker, a list older than 3 days or an answer that did not come. TikTok / Instagram figures are
- * creators mentioning the effect, never views; only the YouTube note counts views.
+ * daily list as chips that each run a search, with "Scan again" to run the job now; a first-scan button before the
+ * Worker's first run, and nothing at all for an older Worker, a list older than 3 days or an answer that did not
+ * come. TikTok / Instagram figures are creators mentioning the effect, never views; only the YouTube note counts views.
  */
 export default function TrendingEffects({
   config,
@@ -60,15 +59,16 @@ export default function TrendingEffects({
   // nothing pops in under a tap. Read in render safely: AppShell shows its Splash until the store hydrates on the
   // client (`skipHydration`), so the server never renders this row and no hydration can mismatch.
   const [data, setData] = useState<Trending | null>(() => cachedTrendingEffects(config));
-  // The first scan from this row: running; failed to answer (its line shows until the next tap); or answered without
-  // a list and resting until the next visit, the button off: the Worker's tries for the day are spent ("limit"), or
-  // nothing trends widely enough yet ("none").
+  // A scan from this row: running; failed to answer (its line shows until the next tap, and what the row showed
+  // stays); or a first scan answered without a list and resting until the next visit, the button off: the Worker's
+  // tries for the day are spent ("limit"), or nothing trends widely enough yet ("none").
   const [scan, setScan] = useState<"idle" | "running" | "failed" | "limit" | "none">("idle");
   const mounted = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const runButton = useRef<HTMLButtonElement>(null);
-  /** Where focus goes once a scan's answer is on screen. */
-  const focusNext = useRef<HTMLElement | null>(null);
+  const rescanButton = useRef<HTMLButtonElement>(null);
+  /** Where focus goes once a scan's answer is on screen, read after that render. */
+  const focusNext = useRef<(() => HTMLElement | null) | null>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -80,31 +80,35 @@ export default function TrendingEffects({
   // After the render that shows a scan's answer: the button is enabled again by then. Without scrolling to it, as the
   // owner may have scrolled down during the minute.
   useEffect(() => {
-    focusNext.current?.focus({ preventScroll: true });
+    focusNext.current?.()?.focus({ preventScroll: true });
     focusNext.current = null;
   });
 
-  /** A first scan's answer (null: the request failed). */
-  const landed = useCallback((r: Trending | null) => {
-    if (r) setData(r);
+  /** A scan's answer (null: the request failed); `rescan`: it came from Scan again. */
+  const landed = useCallback((r: Trending | null, rescan = false) => {
     const next = afterScan(r);
+    // A failed scan changes only its line: the list on screen stays, or the first-scan button.
+    if (r && next !== "failed") setData(r);
     setScan(next);
-    // Focus goes back to the button when it is enabled again for a retry (Chrome drops it to the page while the button
-    // is disabled), else to the heading: the chips replaced the button, or it rests disabled. Not when the owner is
-    // busy elsewhere.
-    const retry = !r?.items.length && (next === "failed" || next === "idle");
+    // Focus goes back to the button when it is enabled again (Chrome drops it to the page while the button is
+    // disabled): Scan again, or the first-scan button for a retry. Else to the heading: the chips replaced the
+    // first-scan button, or it rests disabled. Not when the owner is busy elsewhere.
     const at = document.activeElement;
     const free = !at || at === document.body || heading.current?.closest("section")?.contains(at);
-    focusNext.current = free ? (retry ? runButton.current : heading.current) : null;
+    focusNext.current = free
+      ? () =>
+          (rescan ? rescanButton.current : next === "failed" ? runButton.current : null) ??
+          heading.current
+      : null;
   }, []);
 
   useEffect(() => {
     let alive = true;
     void fetchTrendingEffects(config).then((r) => {
       if (!alive) return;
-      // No list yet: this tab's first scan may still run (show it waiting, then its answer), or may have answered
+      // This tab's scan may still run (show it waiting, then its answer). With no list yet, it may also have answered
       // into the tab's copy while this GET was on its way (show that list).
-      const pending = r && !r.items.length ? scanInFlight(config) : undefined;
+      const pending = r ? scanInFlight(config) : undefined;
       const meanwhile = r && !r.items.length && !pending ? cachedTrendingEffects(config) : null;
       setData(meanwhile ?? r);
       if (!pending) return;
@@ -123,13 +127,22 @@ export default function TrendingEffects({
   if (!data || state === "hidden") return null;
 
   // About a minute. Leaving Discover never cancels it (lib/effects keeps the list it finds for the next visit, and a
-  // revisit meanwhile waits for it); this row then ignores its answer.
-  const runNow = () => {
+  // revisit meanwhile waits for it); this row then ignores its answer. `force`: Scan again, past the Worker's
+  // once-a-day guard and its 3 tries a day.
+  const runNow = (force: boolean) => {
     setScan("running");
-    void runTrendingEffectsNow(config).then((r) => {
-      if (mounted.current) landed(r);
+    void runTrendingEffectsNow(config, { force }).then((r) => {
+      if (mounted.current) landed(r, force);
     });
   };
+  // The scan's line: waiting, or why it rests; before the first run, also the Worker's own failed run.
+  const line =
+    scan !== "idle"
+      ? t(SCAN_LINE[scan])
+      : state === "never" && data.status === "failed"
+        ? t(SCAN_LINE.failed)
+        : "";
+  const age = now - Date.parse(data.updatedAt ?? "");
 
   // The UI language, English when the effect has no Arabic name or line.
   const text = (x: { en: string; ar?: string }) => L({ en: x.en, ar: x.ar || x.en });
@@ -188,9 +201,10 @@ export default function TrendingEffects({
         {state !== "never" && (
           <>
             <span className="text-muted text-xs">
-              {t("search.trendingUpdated", {
-                n: Math.max(1, Math.round((now - Date.parse(data.updatedAt ?? "")) / HOUR)),
-              })}
+              {/* A list made under an hour ago (or after this page opened: a scan just now) is "just now". */}
+              {age < HOUR
+                ? t("search.trendingUpdatedNow")
+                : t("search.trendingUpdated", { n: Math.round(age / HOUR) })}
             </span>
             <a
               href={CREATIVE_CENTER}
@@ -200,6 +214,21 @@ export default function TrendingEffects({
             >
               {t("search.trendingCreative")}
             </a>
+            <button
+              ref={rescanButton}
+              type="button"
+              className="px-link text-xs disabled:opacity-50"
+              disabled={scan === "running"}
+              onClick={() => runNow(true)}
+              data-testid="trending-rescan"
+            >
+              {t("search.trendingRescan")}
+            </button>
+            {/* Always there (empty while idle), so its next words are announced: waiting, or a scan that failed
+                (the list stays). */}
+            <span role="status" className="text-muted text-xs">
+              {line}
+            </span>
           </>
         )}
       </div>
@@ -213,7 +242,7 @@ export default function TrendingEffects({
             type="button"
             className="px-btn px-btn-sm"
             disabled={scan === "running" || scan === "limit" || scan === "none"}
-            onClick={runNow}
+            onClick={() => runNow(false)}
             data-testid="trending-run"
           >
             {t("search.trendingRun")}
@@ -222,11 +251,7 @@ export default function TrendingEffects({
               the Worker's own failed run (no list yet), says so; the button stays for a retry. The day's tries
               spent, or nothing trending yet, rest the button with their own line. */}
           <p role="status" className="text-muted text-xs">
-            {scan !== "idle"
-              ? t(SCAN_LINE[scan])
-              : data.status === "failed"
-                ? t(SCAN_LINE.failed)
-                : ""}
+            {line}
           </p>
         </div>
       ) : (

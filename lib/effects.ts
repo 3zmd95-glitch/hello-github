@@ -136,8 +136,9 @@ export async function fetchTrendingEffects(
 const running = new Map<string, Promise<TrendingEffects | null>>();
 
 /**
- * Runs the Worker's scan now (the first one; about 30–60 s, at most once a day: the Worker answers the day's list
- * after that, unless the day's run failed). One request per Worker at a time, since the Worker's once-a-day check has
+ * Runs the Worker's scan now (about 30–60 s). The first scan: at most once a day, as the Worker answers the day's list
+ * after that, unless the day's run failed. `force` (Scan again) runs it anyway, past the once-a-day guard and the 3
+ * tries a day, spending its credits again. One request per Worker at a time, since the Worker's once-a-day check has
  * no lock: a second tap, or a tap after leaving Discover and coming back, waits for the same answer. A list is kept
  * like a fetched one, so it is not lost when the row has gone; null when the request failed (the Worker's own failed
  * run answers `failed` with no list, and the button stays). Past its 3 tries a UTC day the Worker spends nothing and
@@ -145,12 +146,19 @@ const running = new Map<string, Promise<TrendingEffects | null>>();
  */
 export async function runTrendingEffectsNow(
   config: ScoutConfig,
-  opts: { fetchImpl?: typeof fetch } = {},
+  opts: { fetchImpl?: typeof fetch; force?: boolean } = {},
 ): Promise<TrendingEffects | null> {
   const pending = running.get(config.url);
   if (pending) return pending;
   const run = (async () => {
-    const r = await scoutCall(config, "/effects/run", { method: "POST" }, opts);
+    const init: RequestInit = opts.force
+      ? {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ force: true }),
+        }
+      : { method: "POST" };
+    const r = await scoutCall(config, "/effects/run", init, { fetchImpl: opts.fetchImpl });
     const data = r.ok ? parseTrendingEffects(r.data) : null;
     if (data?.items.length) writeCache(config.url, data, Date.now());
     return data;

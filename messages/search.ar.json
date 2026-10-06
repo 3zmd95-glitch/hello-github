@@ -78,6 +78,8 @@
   "search.picksTopic": "عن «{topic}»",
   "search.trendingTitle": "🔥 ترند المؤثرات هالأسبوع",
   "search.trendingUpdated": "تحدّثت قبل {n} س",
+  "search.trendingUpdatedNow": "تحدّثت الحين",
+  "search.trendingRescan": "🔄 دوّر من جديد",
   "search.trendingNew": "جديد",
   "search.trendingCreators": "{n} صنّاع",
   "search.trendingStale": "ما قدرت أحدّثها اليوم",

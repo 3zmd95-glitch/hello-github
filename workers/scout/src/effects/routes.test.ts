@@ -176,8 +176,8 @@ describe("/effects routes", () => {
     expect(body).toEqual(answer(storedDoc(kv)));
     expect(body).toMatchObject({ ranOn: "2026-10-06", updatedAt: NOW.toISOString() });
     expect(body.items.map((i) => i.key)).toEqual(["clone-effect"]);
-    // The day's six family searches, nothing else; the run counted itself against the day's cap, then saved.
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    // The day's 6 families × 3 searches, nothing else; the run counted itself against the day's cap, then saved.
+    expect(fetchMock).toHaveBeenCalledTimes(18);
     expect(fetchMock.mock.calls.every(([url]) => String(url) === TAVILY_URL)).toBe(true);
     expect(writes(kv)).toEqual([ATTEMPTS, EFFECTS_KEY]);
 
@@ -189,7 +189,7 @@ describe("/effects routes", () => {
     expect(unforced.status).toBe(200);
     expect(await unforced.json()).toEqual(body);
     expect(await (await handle(req("/effects/trending"), env)).json()).toEqual(body);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(18);
     expect(writes(kv)).toEqual([ATTEMPTS, EFFECTS_KEY]);
 
     // Forced: not counted against the cap.
@@ -197,7 +197,7 @@ describe("/effects routes", () => {
     expect(forced.status).toBe(200);
     expect(await forced.json()).toEqual(answer(storedDoc(kv)));
     expect(storedDoc(kv).updatedAt).toBe(LATER.toISOString());
-    expect(fetchMock).toHaveBeenCalledTimes(12);
+    expect(fetchMock).toHaveBeenCalledTimes(36);
     expect(writes(kv)).toEqual([ATTEMPTS, EFFECTS_KEY, EFFECTS_KEY]);
   });
 
@@ -270,7 +270,7 @@ describe("the daily slot", () => {
     expect(tick).toEqual({
       effects: { status: doc.status, items: doc.items.length, notes: doc.notes },
     });
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(18);
     // The daily run counts against the day's 3 tries like any other.
     expect(kv.store.get(ATTEMPTS)).toBe("1");
   });
