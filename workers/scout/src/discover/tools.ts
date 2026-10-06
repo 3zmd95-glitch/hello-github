@@ -40,6 +40,8 @@ const clipText = (x: { en: string; ar?: string }, max: number) => ({
 });
 /** The rule of `parseDiscoverBody`: symbols or emoji only ("🔥🔥", "!!!") leave no word to search or key by. */
 const BAD_TOPIC = "The topic needs at least one letter or digit.";
+/** The dashboard's rule (MAX_AGE_MS in lib/effects.ts): an effects list older than 3 days is not this week's. */
+const EFFECTS_MAX_AGE_MS = 3 * 86_400_000;
 
 /** Best-effort: KV takes one write per key a second, so a count that can't be kept never fails the tool call. */
 export async function addConnectorLookups(env: UsageEnv, n: number, now: Date): Promise<void> {
@@ -126,25 +128,32 @@ export async function searchVideos(
 export async function getTrends(
   env: UsageEnv,
   input: { region?: "SA" | "US"; genre?: string; limit?: number },
+  now: Date,
 ): Promise<Record<string, unknown>> {
   // This week's trending editing effects (effects/, planning/tools/18-trending-effects.md); names and lines come from
-  // web text, so they are clipped like the radar's. A bonus: a document or an item that can't be read gives none,
-  // never a failed call (readEffects checks only the document's top level).
+  // web text, so they are clipped like the radar's. Like the dashboard's row, a list over 3 days old is not this
+  // week's: none then, with its time. A bonus: a document or an item that can't be read gives none, never a failed
+  // call (readEffects checks only the document's top level).
   const [feed, effects] = await Promise.all([
     latestFeed(env),
     readEffects(env)
-      .then(
-        (doc) =>
-          doc?.items.map((i) => ({
-            name: clipText(i.name, 40),
-            what: i.what && clipText(i.what, 90),
-            creators: i.creators,
-            isNew: i.isNew,
-            growth: i.growth,
-            youtube: i.youtube,
-          })) ?? [],
-      )
-      .catch(() => []),
+      .then((doc) => {
+        const updatedAt = typeof doc?.updatedAt === "string" ? doc.updatedAt : null;
+        const fresh = !!updatedAt && now.getTime() - Date.parse(updatedAt) <= EFFECTS_MAX_AGE_MS;
+        const items =
+          doc && fresh
+            ? doc.items.map((i) => ({
+                name: clipText(i.name, 40),
+                what: i.what && clipText(i.what, 90),
+                creators: i.creators,
+                isNew: i.isNew,
+                growth: i.growth,
+                youtube: i.youtube,
+              }))
+            : [];
+        return { updatedAt, items };
+      })
+      .catch(() => ({ updatedAt: null, items: [] })),
   ]);
   const limit = Math.max(1, Math.min(input.limit ?? 20, 50));
   const items = feed.items
@@ -164,7 +173,12 @@ export async function getTrends(
       ...(r.volume !== undefined ? { volume: r.volume } : {}),
       ...(r.why ? { why: clip(r.why, 160) } : {}),
     }));
-  return { fetchedAt: feed.fetchedAt, items, effects };
+  return {
+    fetchedAt: feed.fetchedAt,
+    items,
+    effects: effects.items,
+    effectsUpdatedAt: effects.updatedAt,
+  };
 }
 
 export async function savePicksTool(

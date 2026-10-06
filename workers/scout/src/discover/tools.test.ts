@@ -212,7 +212,7 @@ describe("getTrends", () => {
         ],
       }),
     );
-    const out = await getTrends({ SOCIAL_KV: kv }, { region: "SA", genre: "cars" });
+    const out = await getTrends({ SOCIAL_KV: kv }, { region: "SA", genre: "cars" }, NOW);
     expect(out.items).toEqual([
       {
         title: "car edit",
@@ -233,7 +233,7 @@ describe("getTrends", () => {
     ]);
   });
 
-  it("adds this week's trending effects; none when their document or an item can't be read", async () => {
+  it("adds this week's trending effects and their time; none past 3 days, or when the list or an item can't be read", async () => {
     const kv = fakeKV();
     const what = { en: "You appear twice in one shot", ar: "تطلع مرتين في نفس اللقطة" };
     const youtube = { newVideos: 2, views7d: 2000, growth: 1.5 };
@@ -286,9 +286,11 @@ describe("getTrends", () => {
         history: {},
       }),
     );
-    expect(await getTrends({ SOCIAL_KV: kv }, {})).toEqual({
+    const effects = await getTrends({ SOCIAL_KV: kv }, {}, NOW);
+    expect(effects).toEqual({
       fetchedAt: null,
       items: [],
+      effectsUpdatedAt: "2026-10-03T05:35:00.000Z",
       effects: [
         {
           name: { en: "clone effect", ar: "تأثير الاستنساخ" },
@@ -308,6 +310,15 @@ describe("getTrends", () => {
           growth: 1,
         },
       ],
+    });
+    // The dashboard's rule: a list over 3 days old is not this week's any more. Its time still says how old it is.
+    const at = (iso: string) => getTrends({ SOCIAL_KV: kv }, {}, new Date(iso));
+    expect(await at("2026-10-06T05:35:00.000Z")).toEqual(effects);
+    expect(await at("2026-10-07T09:00:00.000Z")).toEqual({
+      fetchedAt: null,
+      items: [],
+      effectsUpdatedAt: "2026-10-03T05:35:00.000Z",
+      effects: [],
     });
 
     // A read error costs the effects only, never the radar's rows or the tool call.
@@ -337,9 +348,10 @@ describe("getTrends", () => {
     const radarOnly = {
       fetchedAt: "2026-10-03T06:00:00Z",
       items: [{ title: "car edit", platform: "youtube", region: "SA", source: "YouTube search" }],
+      effectsUpdatedAt: null,
       effects: [],
     };
-    expect(await getTrends({ SOCIAL_KV: down }, {})).toEqual(radarOnly);
+    expect(await getTrends({ SOCIAL_KV: down }, {}, NOW)).toEqual(radarOnly);
 
     // So does a stored item that is not an effect (say, from an older deploy): no name to read.
     const odd = fakeKV();
@@ -355,7 +367,7 @@ describe("getTrends", () => {
         history: {},
       }),
     );
-    expect(await getTrends({ SOCIAL_KV: odd }, {})).toEqual(radarOnly);
+    expect(await getTrends({ SOCIAL_KV: odd }, {}, NOW)).toEqual(radarOnly);
   });
 });
 

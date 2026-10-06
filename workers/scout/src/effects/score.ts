@@ -1,7 +1,8 @@
 /**
  * Trending effects, scoring (planning/tools/18-trending-effects.md §2): distinct creators over the last 7 days of scans,
- * growth between the last 3 days and the 3 before (each family is searched once per 3-day window), NEW for effects
- * outside the dictionary first seen within 7 days, a small YouTube boost. History holds ≤ 14 days and ≤ 400 keys.
+ * growth between the last 3 days and the 3 before (each family is searched once per 3-day window; a fading effect, with
+ * none in the last 3 days, is left out), NEW for effects outside the dictionary first seen within 7 days, a small
+ * YouTube boost. History holds ≤ 14 days and ≤ 400 keys.
  */
 
 import {
@@ -109,11 +110,12 @@ export function scoreEffects(
     const m = meta[key];
     if (!m) return [];
     const creators = creatorsBetween(entries, today, 0, 6).size;
-    if (creators < MIN_CREATORS) return [];
     const recent = creatorsBetween(entries, today, 0, 2).size;
+    // Under 3 creators this week, or fading: none in the last 3 days (growth 0, so score 0).
+    if (creators < MIN_CREATORS || !recent) return [];
     const before = creatorsBetween(entries, today, 3, 5).size;
-    // No creators in days 3–5: new (growth 3) when seen in days 0–2, else fading (growth 0).
-    const growth = before === 0 ? (recent > 0 ? 3 : 0) : Math.round((recent / before) * 100) / 100;
+    // No creators in days 3–5: new (growth 3).
+    const growth = before === 0 ? 3 : Math.round((recent / before) * 100) / 100;
     const firstSeen = entries.reduce((d, e) => (e.day < d ? e.day : d), today);
     const ytGrowth = youtubeGrowth(entries, today);
     const yt = youtube[key];

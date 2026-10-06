@@ -7,8 +7,10 @@
  *   POST /effects/run  { force? }     → runs the daily job now (it waits for the run, about 30–60 s) and answers
  *                                       like the GET. Once per UTC day: a second run that day answers the stored
  *                                       document unless `force: true`, or unless that day's run failed (then it
- *                                       runs again). The body is `{ force?: boolean }` or empty; anything else is
- *                                       a 400.
+ *                                       runs again). At most 3 spending runs a UTC day without `force` (the 05:35
+ *                                       run counts): past that it answers the stored document (or a failed one with
+ *                                       no items) noted "attempts", and spends nothing. The body is
+ *                                       `{ force?: boolean }` or empty; anything else is a 400.
  *
  * A KV read failure on GET answers 502 { error: "upstream" } with the CORS headers; the run never throws (it notes
  * "kv" instead). The router in `scout.ts` has already checked CORS and the bearer token.

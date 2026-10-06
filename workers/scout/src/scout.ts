@@ -16,7 +16,7 @@
  *   GET  /effects/trending → this week's trending editing effects (effects/routes.ts,
  *                           planning/tools/18-trending-effects.md)
  *   POST /effects/run     → run the daily effects job now (once per UTC day unless `force: true` or that
- *                           day's run failed)
+ *                           day's run failed; at most 3 spending runs a UTC day without `force`)
  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
  *   /mcp, /authorize, /token, /register → served by index.ts (OAuth + MCP): the Claude connector
  *                           (discover/mcp.ts, discover/auth.ts)

@@ -165,10 +165,15 @@ describe("scoring", () => {
     expect(items.slice(0, 2).map((i) => i.key)).toEqual(["newer", "older"]);
   });
 
-  it("gives an effect seen only 6 days ago growth 0, below a steady one", () => {
+  it("leaves out a fading effect: 3 creators or more, but none in the last 3 days (score 0)", () => {
     const abc = ["a", "b", "c"];
     const history: Record<string, HistoryEntry[]> = {
+      // Seen only 6 days ago, and only in days 3–5: growth 0 either way.
       faded: [{ day: "2026-09-30", ids: abc }],
+      cooling: [
+        { day: "2026-10-01", ids: abc },
+        { day: "2026-10-03", ids: ["d"] },
+      ],
       steady: [
         { day: "2026-10-02", ids: abc },
         { day: "2026-10-06", ids: abc },
@@ -176,14 +181,11 @@ describe("scoring", () => {
     };
     const items = scoreEffects(
       history,
-      { faded: meta("faded"), steady: meta("steady") },
+      { faded: meta("faded"), cooling: meta("cooling"), steady: meta("steady") },
       "2026-10-06",
       {},
     );
-    expect(items.map((i) => [i.key, i.growth])).toEqual([
-      ["steady", 1],
-      ["faded", 0],
-    ]);
+    expect(items.map((i) => [i.key, i.growth])).toEqual([["steady", 1]]);
   });
 
   it("stops marking an effect NEW 7 days after it was first seen", () => {

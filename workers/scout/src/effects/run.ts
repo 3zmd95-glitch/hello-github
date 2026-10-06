@@ -1,7 +1,8 @@
 /**
  * Trending effects, the daily run (planning/tools/18-trending-effects.md §1): 6 family searches → candidates → one AI
- * cleanup → the 7-day history → a YouTube check of the top 6 → one KV write. It runs at most once per UTC day unless
- * forced or that day's run failed, and never throws: a day that fails keeps the previous chips.
+ * cleanup → the 7-day history → a YouTube check of the top 6 → one KV write (plus the day's attempt count). It runs at
+ * most once per UTC day unless forced or that day's run failed, at most 3 spending runs a UTC day without force, and
+ * never throws: a day that fails keeps the previous chips.
  */
 
 import { TERMS } from "../discover/terms";
@@ -23,10 +24,23 @@ import {
 /** Candidates the AI sees, the most creators this week first. */
 const AI_CANDIDATES = 25;
 const ARABIC_LABEL = new Map(TERMS.map((t) => [t.id, t.label.ar]));
+/** Spending runs a UTC day without `force`, the 05:35 run included: a run lost before its write (the CPU limit, a
+ * dropped request past waitUntil's 30 s) leaves the day open, and each retry would spend its credits again. */
+const MAX_ATTEMPTS = 3;
+const ATTEMPTS_TTL_S = 172_800;
 
 type History = Record<string, HistoryEntry[]>;
+/** What the AI did today, as counts: verdicts it gave, how many were on dictionary effects, and the new names it
+ * approved, dropped or merged into another. */
+type AiCounts = {
+  judged: number;
+  dictionary: number;
+  approved: number;
+  dropped: number;
+  merged: number;
+};
 /** For the run's log line, to tune the cap at the live check: no names. */
-type Memory = { keys: number; protected: number; trimmed: number };
+type Memory = { keys: number; protected: number; trimmed: number; ai: AiCounts };
 type Meta = Record<string, EffectMeta>;
 
 /** A day that could not run: the previous chips, history and update time stay, with today's date and why. */
@@ -38,6 +52,25 @@ function failed(prev: EffectsDoc | null, today: string, now: Date, notes: string
     status: "failed",
     notes,
   };
+}
+
+const noted = (doc: EffectsDoc, note: string): EffectsDoc => ({
+  ...doc,
+  notes: [...new Set([...(doc.notes ?? []), note])],
+});
+
+/** Counts a spending run against the day's cap: false at the cap. undefined when the counter can't be read or
+ * written: a counter KV can't keep never stops a run (fail-open). */
+async function countAttempt(env: EffectsEnv, today: string): Promise<boolean | undefined> {
+  const key = `effects:attempts:${today}`;
+  try {
+    const used = Number(await env.SOCIAL_KV?.get(key)) || 0;
+    if (used >= MAX_ATTEMPTS) return false;
+    await env.SOCIAL_KV?.put(key, String(used + 1), { expirationTtl: ATTEMPTS_TTL_S });
+    return true;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Moves a merged spelling's days into its effect, day by day (new objects: the previous document stays as it was).
@@ -56,14 +89,16 @@ function fold(history: History, from: string, to: string): void {
 /**
  * The AI's verdicts. `sameAs` merges a spelling into the kept effect it names, following chains (a loop merges
  * nothing); otherwise `keep: false` drops the name. A dictionary effect is never merged away or dropped. A merged or
- * dropped name's earlier days follow it, so it never shows on its own again.
+ * dropped name's earlier days follow it, so it never shows on its own again. Returns how many names it merged and
+ * dropped.
  */
 function applyVerdicts(
   cands: Map<string, Candidate>,
   verdicts: Map<string, AiVerdict>,
   history: History,
   meta: Meta,
-): void {
+): { merged: number; dropped: number } {
+  const counts = { merged: 0, dropped: 0 };
   const next = (key: string) => {
     const to = verdicts.get(key)?.sameAs;
     return to && to !== key && !cands.get(key)?.termId && cands.has(to) ? to : undefined;
@@ -89,20 +124,25 @@ function applyVerdicts(
         if (into.samples.length < 2 && !into.samples.some((x) => x.url === s.url))
           into.samples.push(s);
       fold(history, key, root);
+      counts.merged++;
     } else if (kept(key)) continue;
-    else delete history[key];
+    else {
+      delete history[key];
+      counts.dropped++;
+    }
     cands.delete(key);
     delete meta[key];
   }
+  return counts;
 }
 
 /** Today's figures, with the AI's name and line when it judged the key today, else the ones it was given before. A
- * dictionary effect keeps its own English label (and, without the AI, its Arabic one). */
+ * dictionary effect always keeps the dictionary's own labels (curated Hijazi Arabic), never the AI's name. */
 function metaOf(c: Candidate, v: AiVerdict | undefined, old: EffectMeta | undefined): EffectMeta {
   const ar = c.termId ? ARABIC_LABEL.get(c.termId) : undefined;
-  const name = v
-    ? { en: c.termId ? c.name : v.name.en, ar: v.name.ar }
-    : (old?.name ?? { en: c.name, ...(ar ? { ar } : {}) });
+  const name = c.termId
+    ? { en: c.name, ...(ar ? { ar } : {}) }
+    : (v?.name ?? old?.name ?? { en: c.name });
   const what = v?.what ?? old?.what;
   return {
     name,
@@ -126,9 +166,11 @@ type RunOptions = {
 };
 
 /** The AI's slots go to the most creators this week (history plus today), so a name that builds slowly across the
- * 3-day rotation still gets judged; on a tie, names the AI never approved go first. */
+ * 3-day rotation still gets judged; on a tie, names the AI never approved go first. A dictionary effect takes a slot
+ * only until it has its line (usually its first day): its names are the dictionary's own. */
 function forAi(cands: Map<string, Candidate>, prev: EffectsDoc | null, today: string): Candidate[] {
   return [...cands.values()]
+    .filter((c) => !(c.termId && prev?.meta[c.key]?.what))
     .map((c) => {
       const week = creatorsBetween(prev?.history[c.key] ?? [], today, 1, 6);
       c.ids.forEach((id) => week.add(id));
@@ -171,7 +213,14 @@ async function scan(
   const byKey = new Map((reply ?? []).map((v) => [v.key, v]));
   const history: History = { ...prev?.history };
   const meta: Meta = { ...prev?.meta };
-  applyVerdicts(cands, byKey, history, meta);
+  const { merged: spellings, dropped } = applyVerdicts(cands, byKey, history, meta);
+  const ai: AiCounts = {
+    judged: byKey.size,
+    dictionary: [...byKey.keys()].filter((k) => cands.get(k)?.termId).length,
+    approved: [...cands.values()].filter((c) => !c.termId && byKey.get(c.key)?.keep).length,
+    dropped,
+    merged: spellings,
+  };
   for (const [key, c] of cands) meta[key] = metaOf(c, byKey.get(key), meta[key]);
   // At the memory's cap, dictionary names stay first, and approved names while seen this week: an older one has no
   // creators in the 7-day window, so it cannot show and competes like any other name.
@@ -184,16 +233,18 @@ async function scan(
   const merged = mergeHistory(history, today, cands, kept, cut);
   for (const key of Object.keys(meta)) if (!merged[key]) delete meta[key];
 
-  // Chips: dictionary effects, plus names the AI kept — none of those on a day the AI did not judge (junk waits).
-  const shown = Object.fromEntries(
-    Object.entries(meta).filter(([, m]) => m.termId || (judged && m.checked)),
-  );
-  const top6 = scoreEffects(merged, shown, today, {}).slice(0, YT_EFFECTS);
-  // The same query every day (never today's AI name), so views7d compares like with like.
+  // Chips: dictionary effects, plus names the AI approved, today or on an earlier day. A new name it has never
+  // judged waits for a day it does, so junk never shows unjudged.
+  const shown = Object.fromEntries(Object.entries(meta).filter(([, m]) => m.termId || m.checked));
+  // YouTube checks the top 6 of the names mentioned today: their views are kept on today's history entry.
+  const mentioned = Object.fromEntries(Object.entries(shown).filter(([k]) => cands.has(k)));
+  const top6 = scoreEffects(merged, mentioned, today, {}).slice(0, YT_EFFECTS);
+  // The name as the rules read it today (a dictionary effect's label): never the AI's renaming, nor the stemmed key,
+  // so views7d compares like with like.
   const youtube = await youtubeCheck(
     env,
     doFetch,
-    top6.map((i) => ({ key: i.key, en: i.termId ? i.name.en : i.key.replace(/-/g, " ") })),
+    top6.map((i) => ({ key: i.key, en: cands.get(i.key)?.name ?? i.name.en })),
     now,
     opts.timeoutMs,
   );
@@ -206,7 +257,7 @@ async function scan(
   const items = scoreEffects(merged, shown, today, youtube.results);
   return {
     credits,
-    memory: { keys: Object.keys(merged).length, protected: kept.size, trimmed: cut.length },
+    memory: { keys: Object.keys(merged).length, protected: kept.size, trimmed: cut.length, ai },
     doc: {
       ranOn: today,
       updatedAt: now.toISOString(),
@@ -222,15 +273,21 @@ async function scan(
 export async function runEffects(env: EffectsEnv, opts: RunOptions = {}): Promise<EffectsDoc> {
   const now = opts.now ?? new Date();
   const today = utcDay(now);
-  // undefined: KV could not be read, so nothing is written over a history this run never saw.
+  // undefined: KV could not be read, so nothing is spent or written over a history this run never saw.
   const prev = await readEffects(env).catch(() => undefined);
   // Once a day, unless forced; a day whose run failed may run again (the dashboard's retry), a good day may not.
   if (prev && !opts.force && prev.ranOn === today && prev.status !== "failed") return prev;
-  let doc = failed(null, today, now, ["kv"]);
+  // A run that would spend counts itself against the day's cap before its first search; force skips the cap.
+  const attempt = prev === undefined || opts.force ? true : await countAttempt(env, today);
+  let doc: EffectsDoc;
   let credits = 0;
   let memory: Memory | undefined;
   let error: string | undefined;
-  if (prev !== undefined) {
+  if (prev === undefined) doc = failed(null, today, now, ["kv"]);
+  // Over the cap: the stored list (or none yet) says why; nothing is spent or written.
+  else if (attempt === false)
+    doc = prev ? noted(prev, "attempts") : failed(null, today, now, ["attempts"]);
+  else {
     try {
       ({ doc, credits, memory } = await scan(env, opts.fetch ?? fetch, prev, now, today, opts));
     } catch (e) {
@@ -238,6 +295,7 @@ export async function runEffects(env: EffectsEnv, opts: RunOptions = {}): Promis
       error = (e instanceof Error ? e.message : String(e)).slice(0, 200);
       doc = failed(prev, today, now, ["error"]);
     }
+    if (attempt === undefined) doc = noted(doc, "attempts_kv");
   }
   console.log(
     JSON.stringify({
@@ -251,9 +309,13 @@ export async function runEffects(env: EffectsEnv, opts: RunOptions = {}): Promis
       },
     }),
   );
-  if (prev !== undefined)
-    await writeEffects(env, doc).catch(() =>
-      console.error(JSON.stringify({ effects: { write: "failed" } })),
-    );
+  if (prev !== undefined && attempt !== false) {
+    try {
+      await writeEffects(env, doc);
+    } catch {
+      console.error(JSON.stringify({ effects: { write: "failed" } }));
+      doc = noted(doc, "kv"); // the answer says this list was not saved
+    }
+  }
   return doc;
 }

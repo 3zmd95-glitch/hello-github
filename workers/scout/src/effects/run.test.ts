@@ -140,6 +140,10 @@ function setup(over: { stored?: EffectsDoc; judge?: (key: string) => Verdict } =
   return { env, KV, AI };
 }
 const stored = (KV: ReturnType<typeof kv>) => JSON.parse(KV.store.get(EFFECTS_KEY)!) as EffectsDoc;
+/** The keys the runs wrote, in order: a spending run counts itself first, then saves the document. */
+const writes = (KV: ReturnType<typeof kv>) => KV.put.mock.calls.map(([key]) => key);
+/** NOW's attempt counter. */
+const ATTEMPTS = "effects:attempts:2026-10-07";
 
 let log: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
@@ -158,7 +162,9 @@ describe("runEffects", () => {
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
     expect(doc.items[0]).toMatchObject({
       termId: "clone-effect",
-      name: { en: "clone effect", ar: "اسم التأثير" }, // the dictionary label, not the AI's "Clone Effect"
+      // The dictionary's own labels, never the AI's "Clone Effect" / "اسم التأثير"; its line is the AI's.
+      name: { en: "clone effect", ar: "تأثير الاستنساخ" },
+      what: { en: "What clone effect looks like", ar: "وصف قصير للتأثير" },
       creators: 8,
       isNew: false,
       growth: 3,
@@ -178,13 +184,22 @@ describe("runEffects", () => {
 
     expect(count).toEqual({ tavily: 6, search: 2, stats: 1 });
     expect(AI.run).toHaveBeenCalledTimes(1);
-    expect(KV.put).toHaveBeenCalledTimes(1);
+    expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY]);
     expect(stored(KV)).toEqual(doc);
 
     expect(log).toHaveBeenCalledTimes(1);
     const line = String(log.mock.calls[0][0]);
     expect(JSON.parse(line)).toEqual({
-      effects: { status: "ok", items: 2, credits: 6, keys: 3, protected: 3, trimmed: 0 },
+      effects: {
+        status: "ok",
+        items: 2,
+        credits: 6,
+        keys: 3,
+        protected: 3,
+        trimmed: 0,
+        // The AI's counts: 3 names judged, 1 of them the dictionary's, 2 new names approved.
+        ai: { judged: 3, dictionary: 1, approved: 2, dropped: 0, merged: 0 },
+      },
     });
     expect(line).not.toMatch(/c1|Clone/); // no handles, no titles
   });
@@ -198,11 +213,12 @@ describe("runEffects", () => {
     const later = new Date("2026-10-07T20:00:00Z");
     expect(await runEffects(env, { fetch, now: later })).toEqual(first);
     expect(fetch.mock.calls.length).toBe(calls);
-    expect(KV.put).toHaveBeenCalledTimes(1);
+    expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY]);
 
+    // A forced run is not counted against the day's cap.
     const forced = await runEffects(env, { fetch, now: later, force: true });
     expect(count).toEqual({ tavily: 12, search: 4, stats: 2 });
-    expect(KV.put).toHaveBeenCalledTimes(2);
+    expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY, EFFECTS_KEY]);
     expect(forced.items[0]).toMatchObject({ key: "clone-effect", creators: 8 });
     expect(forced.history["clone-effect"]).toHaveLength(1);
   });
@@ -240,7 +256,7 @@ describe("runEffects", () => {
     const down = web({ tavily: () => json({ error: "quota" }, 432) });
     const failedRun = await runEffects(env, { fetch: down.fetch, now: NOW });
     expect(failedRun).toMatchObject({ status: "failed", ranOn: "2026-10-07", items: [] });
-    expect(KV.put).toHaveBeenCalledTimes(1);
+    expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY]);
 
     // A retry the same UTC day runs the job again and replaces the failed document.
     const later = new Date("2026-10-07T09:00:00Z");
@@ -253,16 +269,116 @@ describe("runEffects", () => {
       updatedAt: later.toISOString(),
     });
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
-    expect(KV.put).toHaveBeenCalledTimes(2);
+    expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY, ATTEMPTS, EFFECTS_KEY]);
+    expect(KV.store.get(ATTEMPTS)).toBe("2");
     expect(stored(KV)).toEqual(doc);
 
-    // That good day is once a day again: another run answers the stored list and spends nothing.
+    // That good day is once a day again: another run answers the stored list, spends nothing and never reads or
+    // counts an attempt.
     const again = web();
+    KV.get.mockClear();
     expect(
       await runEffects(env, { fetch: again.fetch, now: new Date("2026-10-07T20:00:00Z") }),
     ).toEqual(doc);
     expect(again.fetch).not.toHaveBeenCalled();
-    expect(KV.put).toHaveBeenCalledTimes(2);
+    expect(KV.get.mock.calls.map(([key]) => key)).toEqual([EFFECTS_KEY]);
+    expect(writes(KV)).toHaveLength(4);
+  });
+
+  it("at most 3 spending runs a UTC day: a 4th spends nothing and says so; force skips the cap", async () => {
+    const { env, KV } = setup();
+    // Run 1 is lost before it saves (its write fails, as for a run the edge cuts off); runs 2 and 3 fail on Tavily's
+    // quota. Each left the day open to another run, and each counted itself before its first search.
+    let lose = true;
+    KV.put.mockImplementation(async (key: string, value: string) => {
+      if (key === EFFECTS_KEY && lose) {
+        lose = false;
+        throw new Error("KV PUT failed");
+      }
+      KV.store.set(key, value);
+    });
+    const lost = web();
+    const run1 = await runEffects(env, { fetch: lost.fetch, now: NOW });
+    expect(run1.notes).toEqual(["kv"]); // the answer says the list was not saved
+    expect(KV.store.has(EFFECTS_KEY)).toBe(false);
+    expect(KV.put.mock.invocationCallOrder[0]).toBeLessThan(lost.fetch.mock.invocationCallOrder[0]);
+    expect(KV.put.mock.calls[0]).toEqual([ATTEMPTS, "1", { expirationTtl: 172_800 }]);
+    for (const hour of [9, 10]) {
+      const down = web({ tavily: () => json({ error: "quota" }, 432) });
+      const failedRun = await runEffects(env, {
+        fetch: down.fetch,
+        now: new Date(Date.UTC(2026, 9, 7, hour)),
+      });
+      expect(failedRun).toMatchObject({ status: "failed", notes: ["quota"] });
+      expect(down.count.tavily).toBe(6);
+    }
+    expect(KV.store.get(ATTEMPTS)).toBe("3");
+
+    // The 4th: no search, nothing written; the stored (failed) list, noted.
+    const written = writes(KV).length;
+    const fourth = web();
+    const capped = await runEffects(env, {
+      fetch: fourth.fetch,
+      now: new Date("2026-10-07T11:00:00Z"),
+    });
+    expect(fourth.fetch).not.toHaveBeenCalled();
+    expect(capped).toEqual({ ...stored(KV), notes: ["quota", "attempts"] });
+    expect(writes(KV)).toHaveLength(written);
+
+    // Force skips the cap and never counts.
+    const forced = web();
+    KV.get.mockClear();
+    const doc = await runEffects(env, { fetch: forced.fetch, now: NOW, force: true });
+    expect(forced.count.tavily).toBe(6);
+    expect(doc.status).toBe("ok");
+    expect(KV.get.mock.calls.map(([key]) => key)).toEqual([EFFECTS_KEY]);
+    expect(KV.store.get(ATTEMPTS)).toBe("3");
+
+    // The next UTC day starts a new count.
+    const tomorrow = web();
+    await runEffects(env, { fetch: tomorrow.fetch, now: NEXT_DAY });
+    expect(tomorrow.count.tavily).toBe(6);
+    expect(KV.store.get("effects:attempts:2026-10-08")).toBe("1");
+  });
+
+  it("over the cap with no document yet: a failed answer with no list, never written", async () => {
+    const { env, KV } = setup();
+    KV.store.set(ATTEMPTS, "3");
+    const { fetch } = web();
+    const doc = await runEffects(env, { fetch, now: NOW });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(doc).toEqual({
+      status: "failed",
+      ranOn: "2026-10-07",
+      updatedAt: NOW.toISOString(),
+      notes: ["attempts"],
+      items: [],
+      meta: {},
+      history: {},
+    });
+    expect(KV.put).not.toHaveBeenCalled();
+  });
+
+  it("a counter KV can't read or write never stops a run (noted attempts_kv)", async () => {
+    const unreadable = setup();
+    unreadable.KV.get.mockImplementation(async (key: string) => {
+      if (key === ATTEMPTS) throw new Error("KV GET failed");
+      return unreadable.KV.store.get(key) ?? null;
+    });
+    const unwritable = setup();
+    unwritable.KV.put.mockImplementation(async (key: string, value: string) => {
+      if (key === ATTEMPTS) throw new Error("KV PUT failed");
+      unwritable.KV.store.set(key, value);
+    });
+    for (const { env, KV } of [unreadable, unwritable]) {
+      const { fetch, count } = web();
+      const doc = await runEffects(env, { fetch, now: NOW });
+      expect(count.tavily).toBe(6);
+      expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
+      // The run itself went well: still "ok", with the note.
+      expect(doc).toMatchObject({ status: "ok", notes: ["attempts_kv"] });
+      expect(stored(KV)).toEqual(doc);
+    }
   });
 
   it("a Tavily quota on every call fails the day but keeps the previous chips", async () => {
@@ -276,7 +392,7 @@ describe("runEffects", () => {
     expect(doc.items).toHaveLength(2);
     expect(count).toEqual({ tavily: 6, search: 0, stats: 0 });
     expect(AI.run).not.toHaveBeenCalled();
-    expect(KV.put).toHaveBeenCalledTimes(1);
+    expect(writes(KV)).toEqual(["effects:attempts:2026-10-08", EFFECTS_KEY]);
   });
 
   it("some Tavily calls failing still makes a list, noted as partial", async () => {
@@ -292,7 +408,7 @@ describe("runEffects", () => {
     expect(count).toEqual({ tavily: 6, search: 2, stats: 1 });
   });
 
-  it("without the AI the chips are dictionary effects only; new names wait for a day the AI works", async () => {
+  it("without the AI the chips are dictionary effects and names it approved before; new names wait for a day it works", async () => {
     const { env, KV } = setup();
     env.AI.run.mockResolvedValue({ response: "{not json" });
     const day1 = web();
@@ -311,13 +427,49 @@ describe("runEffects", () => {
       checked: false,
     });
     expect(day1.count.search).toBe(1);
-    expect(KV.put).toHaveBeenCalledTimes(1);
+    expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY]);
 
     const day2 = web();
     const next = await runEffects({ ...env, AI: ai() }, { fetch: day2.fetch, now: NEXT_DAY });
     expect(next.status).toBe("ok");
     expect(next.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
     expect(day2.count.search).toBe(2);
+
+    // The AI fails again: the swagger trend, approved yesterday, still shows; today's new Outfit Trend waits.
+    const outfit = [20, 21, 22].map((n) => tt(`o${n}`, "Fit check: Outfit Trend", n));
+    const day3 = web({ hits: [...PROBE, ...outfit] });
+    const third = await runEffects(env, {
+      fetch: day3.fetch,
+      now: new Date("2026-10-09T05:35:00Z"),
+    });
+    expect(third.notes).toEqual(["ai_fallback"]);
+    expect(third.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
+    expect(third.meta["outfit-trend"]).toMatchObject({ checked: false });
+  });
+
+  it("a dictionary effect goes to the AI until it has a line, then leaves its slot to new names", async () => {
+    const sent = (AI: ReturnType<typeof ai>) => userText(AI.run.mock.calls[0][1]);
+    const line = { en: "What clone effect looks like", ar: "وصف قصير للتأثير" };
+    // Day 1 without the AI: the clone effect gets no line.
+    const day1 = setup();
+    day1.AI.run.mockResolvedValue({ response: "{not json" });
+    const first = await runEffects(day1.env, { fetch: web().fetch, now: NOW });
+    expect(sent(day1.AI)).toContain("- key: clone-effect |");
+    expect(first.meta["clone-effect"].what).toBeUndefined();
+    // Day 2: sent again, and judged.
+    const day2 = setup({ stored: first });
+    const second = await runEffects(day2.env, { fetch: web().fetch, now: NEXT_DAY });
+    expect(sent(day2.AI)).toContain("- key: clone-effect |");
+    expect(second.meta["clone-effect"].what).toEqual(line);
+    // Day 3: it has its line, so only new names take the AI's slots; the line stays.
+    const day3 = setup({ stored: second });
+    const third = await runEffects(day3.env, {
+      fetch: web().fetch,
+      now: new Date("2026-10-09T05:35:00Z"),
+    });
+    expect(sent(day3.AI)).not.toContain("- key: clone-effect |");
+    expect(sent(day3.AI)).toContain("- key: swagger-trend |");
+    expect(third.items[0]).toMatchObject({ key: "clone-effect", what: line });
   });
 
   it("applies the AI's valid verdicts when one of them breaks the schema", async () => {
@@ -330,7 +482,10 @@ describe("runEffects", () => {
 
     expect(doc.status).toBe("ok");
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect"]); // swagger-trend was never approved
-    expect(doc.items[0]).toMatchObject({ checked: true, name: { ar: "اسم التأثير" } });
+    expect(doc.items[0]).toMatchObject({
+      checked: true,
+      what: { en: "What clone effect looks like", ar: "وصف قصير للتأثير" },
+    });
     expect(doc.meta["swagger-trend"]).toMatchObject({ checked: false });
     expect(count.search).toBe(1);
   });
@@ -372,13 +527,22 @@ describe("runEffects", () => {
       expect(doc.history[gone]).toBeUndefined();
     }
     expect(count.search).toBe(2);
+    // The log counts what the AI did (no names): 5 verdicts, 1 on the dictionary's clone effect; the swagger and
+    // reverse trends approved, the outfit trend dropped, the twin trend merged.
+    expect(JSON.parse(String(log.mock.calls[0][0])).effects.ai).toEqual({
+      judged: 5,
+      dictionary: 1,
+      approved: 2,
+      dropped: 1,
+      merged: 1,
+    });
   });
 
   it("a merged spelling's earlier days move into its effect; a dropped name's earlier days go", async () => {
     const day1 = setup();
     const hits = [
       ...PROBE,
-      tt("n1", "The Twin Trend everyone is doing", 23),
+      tt("n1", "The Swagger Edit everyone is doing", 23),
       tt("o1", "Fit check: Outfit Trend", 20),
       tt("o2", "Fit check: Outfit Trend", 21),
       tt("o3", "Fit check: Outfit Trend", 22),
@@ -386,6 +550,7 @@ describe("runEffects", () => {
     const first = web({ hits });
     const prev = await runEffects(day1.env, { fetch: first.fetch, now: NOW });
     expect(prev.items.map((i) => i.key)).toContain("outfit-trend");
+    expect(prev.meta["swagger-edit"]).toMatchObject({ checked: true });
     expect(first.count.search).toBe(3);
 
     const { env } = setup({
@@ -393,27 +558,56 @@ describe("runEffects", () => {
       judge: (key) =>
         key === "outfit-trend"
           ? { keep: false }
-          : key === "twin-trend"
-            ? { sameAs: "clone-effect" }
+          : key === "swagger-edit"
+            ? { sameAs: "swagger-trend" }
             : {},
     });
     const today = [
-      tt("c1", "clone effect tutorial | CapCut", 31),
-      tt("n2", "The Twin Trend everyone is doing", 30),
+      ig("c6", "Chanel Confidence: Clone Yourself with One Hair (Swagger Trend)", 31),
+      tt("n2", "The Swagger Edit everyone is doing", 30),
       ...hits.slice(-3),
     ];
     const second = web({ hits: today });
     const doc = await runEffects(env, { fetch: second.fetch, now: NEXT_DAY });
 
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
-    // c1–c8 and n1 yesterday (n1 moved over from "twin trend"), c1 and n2 today: 9 without the move.
-    expect(doc.items[0].creators).toBe(10);
+    // c6–c8 and n1 yesterday (n1 moved over from "swagger edit"), c6 and n2 today: 4 without the move.
+    expect(doc.items[1].creators).toBe(5);
     // Yesterday's YouTube views survive the move, so today's growth compares with them.
-    expect(doc.history["clone-effect"].find((e) => e.day === "2026-10-07")?.views7d).toBe(2000);
-    expect(doc.items[0].youtube).toEqual({ newVideos: 2, views7d: 2000, growth: 1 });
-    expect(doc.history["twin-trend"]).toBeUndefined();
+    expect(doc.history["swagger-trend"].find((e) => e.day === "2026-10-07")?.views7d).toBe(2000);
+    expect(doc.items[1].youtube).toEqual({ newVideos: 2, views7d: 2000, growth: 1 });
+    expect(doc.history["swagger-edit"]).toBeUndefined();
     expect(doc.history["outfit-trend"]).toBeUndefined();
     expect(second.count.search).toBe(2);
+  });
+
+  it("asks YouTube only about effects mentioned today, the top 6 of them", async () => {
+    const day1 = setup();
+    const first = web();
+    const prev = await runEffects(day1.env, { fetch: first.fetch, now: NOW });
+    expect(first.queries).toEqual(["clone effect edit", "swagger trend edit"]);
+
+    // Today only the clone effect is mentioned: the swagger trend still shows from yesterday, with no YouTube call
+    // (its views would have nowhere to go: they are kept on the day's own entry).
+    const { env } = setup({ stored: prev });
+    const second = web({ hits: [tt("c9", "clone effect tutorial | CapCut", 40)] });
+    const doc = await runEffects(env, { fetch: second.fetch, now: NEXT_DAY });
+    expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
+    expect(second.queries).toEqual(["clone effect edit"]);
+    expect(doc.items[1].youtube).toBeUndefined();
+  });
+
+  it("asks YouTube about a new name as the rules read it today: never its stemmed key, nor the AI's name", async () => {
+    const hits = ["g1", "g2", "g3"].map((h, i) => tt(h, "Ghost Frames Trend", 50 + i));
+    const { env } = setup({
+      judge: () => ({ name: { en: "Ghost Frame Effect", ar: "اسم التأثير" } }),
+    });
+    const { fetch, queries } = web({ hits });
+    const doc = await runEffects(env, { fetch, now: NOW });
+    expect(doc.items.map((i) => [i.key, i.name.en])).toEqual([
+      ["ghost-frame-trend", "Ghost Frame Effect"],
+    ]);
+    expect(queries).toEqual(["ghost frames trend edit"]);
   });
 
   it("gives the AI's slots by creators this week: a slowly building name is judged and shows", async () => {
@@ -639,7 +833,7 @@ describe("runEffects", () => {
     log.mockClear();
     const failed = await runEffects(broken.env, { fetch: web().fetch, now: NEXT_DAY });
     expect(failed).toMatchObject({ status: "failed", notes: ["error"], items: prev.items });
-    expect(broken.KV.put).toHaveBeenCalledTimes(1);
+    expect(writes(broken.KV)).toEqual(["effects:attempts:2026-10-08", EFFECTS_KEY]);
     // The log line says why (a code error, clipped), never post text.
     const { error } = JSON.parse(String(log.mock.calls[0][0])).effects as { error: string };
     expect(error).toMatch(/ is not /); // "… is not iterable" or "… is not a function"

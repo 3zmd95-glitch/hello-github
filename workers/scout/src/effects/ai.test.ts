@@ -26,6 +26,10 @@ describe("cleanWithAi", () => {
     expect(await cleanWithAi(e, candidates)).toEqual(reply.effects);
     const [model, input] = e.AI.run.mock.calls[0];
     expect(model).toBe(AI_MODEL);
+    // The owner's dialect: Hijazi, not a generic Gulf Arabic.
+    const system = (input.messages as { content: string }[])[0].content;
+    expect(system).toContain("Hijazi Arabic (the Saudi western-region dialect)");
+    expect(system).not.toContain("Gulf");
     const user = (input.messages as { content: string }[])[1].content;
     expect(user).toContain("- key: clone-effect | name: clone effect | posts: Clone Yourself x");
     expect(user).not.toContain("x".repeat(100)); // each title is clipped to 100 characters

@@ -52,6 +52,10 @@ function setup(stored?: EffectsDoc) {
 }
 const storedDoc = (kv: ReturnType<typeof setup>["kv"]) =>
   JSON.parse(kv.store.get(EFFECTS_KEY)!) as EffectsDoc;
+/** The keys written, in order. */
+const writes = (kv: ReturnType<typeof setup>["kv"]) => kv.put.mock.calls.map(([key]) => key);
+/** NOW's attempt counter: at most 3 spending runs a UTC day. */
+const ATTEMPTS = "effects:attempts:2026-10-06";
 
 const req = (path: string, init: RequestInit & { token?: string | null } = {}) => {
   const { token = TOKEN, ...rest } = init;
@@ -172,10 +176,10 @@ describe("/effects routes", () => {
     expect(body).toEqual(answer(storedDoc(kv)));
     expect(body).toMatchObject({ ranOn: "2026-10-06", updatedAt: NOW.toISOString() });
     expect(body.items.map((i) => i.key)).toEqual(["clone-effect"]);
-    // The day's six family searches, nothing else.
+    // The day's six family searches, nothing else; the run counted itself against the day's cap, then saved.
     expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(fetchMock.mock.calls.every(([url]) => String(url) === TAVILY_URL)).toBe(true);
-    expect(kv.put).toHaveBeenCalledTimes(1);
+    expect(writes(kv)).toEqual([ATTEMPTS, EFFECTS_KEY]);
 
     // Later the same UTC day: the stored list, nothing spent or written; the GET agrees. `force: false` is
     // accepted and is no force.
@@ -186,14 +190,32 @@ describe("/effects routes", () => {
     expect(await unforced.json()).toEqual(body);
     expect(await (await handle(req("/effects/trending"), env)).json()).toEqual(body);
     expect(fetchMock).toHaveBeenCalledTimes(6);
-    expect(kv.put).toHaveBeenCalledTimes(1);
+    expect(writes(kv)).toEqual([ATTEMPTS, EFFECTS_KEY]);
 
+    // Forced: not counted against the cap.
     const forced = await handle(run('{"force":true}'), env, undefined, deps);
     expect(forced.status).toBe(200);
     expect(await forced.json()).toEqual(answer(storedDoc(kv)));
     expect(storedDoc(kv).updatedAt).toBe(LATER.toISOString());
     expect(fetchMock).toHaveBeenCalledTimes(12);
-    expect(kv.put).toHaveBeenCalledTimes(2);
+    expect(writes(kv)).toEqual([ATTEMPTS, EFFECTS_KEY, EFFECTS_KEY]);
+  });
+
+  it("POST over the day's 3 tries answers the stored list with an 'attempts' note and spends nothing", async () => {
+    const { env, kv } = setup();
+    kv.store.set(ATTEMPTS, "3");
+    const fetchMock = tavily();
+    const res = await handle(run(), env, undefined, { fetch: fetchMock, now: () => NOW });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      status: "failed",
+      ranOn: "2026-10-06",
+      updatedAt: NOW.toISOString(),
+      notes: ["attempts"],
+      items: [],
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(kv.put).not.toHaveBeenCalled();
   });
 
   it("POST refuses any body but { force?: boolean }, spending nothing", async () => {
@@ -249,5 +271,7 @@ describe("the daily slot", () => {
       effects: { status: doc.status, items: doc.items.length, notes: doc.notes },
     });
     expect(fetchMock).toHaveBeenCalledTimes(6);
+    // The daily run counts against the day's 3 tries like any other.
+    expect(kv.store.get(ATTEMPTS)).toBe("1");
   });
 });
