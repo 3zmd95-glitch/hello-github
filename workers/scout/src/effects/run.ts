@@ -232,10 +232,12 @@ async function scan(
         top.map((c) => ({ key: c.key, name: c.name, samples: c.samples.map((s) => s.title) })),
         opts.aiTimeoutMs,
       )
-    : { verdicts: [], rejects: {} };
+    : { verdicts: [], rejects: {}, failed: 0 };
   // The AI judged (or had nothing to judge). Otherwise: no answer, or no usable verdict in it.
   const judged = !top.length || !!reply?.verdicts.length;
   if (!judged) notes.add(reply ? "ai_empty" : "ai_fallback");
+  // Some batches answered, some not (slow or down): their names wait for another day.
+  else if (reply?.failed) notes.add("ai_partial");
   const byKey = new Map((reply?.verdicts ?? []).map((v) => [v.key, v]));
   const history: History = { ...prev?.history };
   const meta: Meta = { ...prev?.meta };

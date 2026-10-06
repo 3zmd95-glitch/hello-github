@@ -64,8 +64,11 @@ function tidy(x: unknown): unknown {
 /** Built from the validator, as Discover's plan schema is, so the two never drift. */
 const SCHEMA = z.toJSONSchema(Reply);
 
-/** 25 bilingual verdicts run ~2,000–2,500 tokens (Arabic costs more): the budget and the wait leave room for that. */
-const MAX_TOKENS = 3000;
+/** Candidates per call. One call for all 25 took about a minute live and timed out twice in a row (the 70B model
+ * writing ~2,500 bilingual tokens), so they go in parallel batches, sorted by key so spellings to merge share one. */
+const BATCH = 9;
+/** 9 bilingual verdicts run ~800–1,000 tokens (Arabic costs more): the budget and the wait leave room for that. */
+const MAX_TOKENS = 1500;
 const TIMEOUT_MS = 60_000;
 
 const SYSTEM =
@@ -76,17 +79,47 @@ const SYSTEM =
   "Arabic (the Saudi western-region dialect), and a one-line description of what the effect looks like in both " +
   "languages. Answer JSON only.";
 
+type Candidate = { key: string; name: string; samples: string[] };
+type Cleaned = { verdicts: AiVerdict[]; rejects: Record<string, number> };
+
 /**
  * The verdicts that pass the schema one by one ([] when none does), with why the others did not, as counts by field
- * and zod's code ("what.en:too_small") or "unknown_key" / "unknown_sameAs": never their text. null when the AI is
- * unavailable, slow or answers without a list.
+ * and zod's code ("what.en:too_small") or "unknown_key" / "unknown_sameAs": never their text. The candidates are asked
+ * in parallel batches of 9; `failed` counts the batches with no answer. null when no batch answered (the AI
+ * unavailable, slow or answering without a list).
  */
 export async function cleanWithAi(
   env: EffectsEnv,
-  candidates: readonly { key: string; name: string; samples: string[] }[],
+  candidates: readonly Candidate[],
   timeoutMs = TIMEOUT_MS,
-): Promise<{ verdicts: AiVerdict[]; rejects: Record<string, number> } | null> {
+): Promise<(Cleaned & { failed: number }) | null> {
   if (!env.AI || !candidates.length) return null;
+  const known = new Set(candidates.map((c) => c.key));
+  const sorted = [...candidates].sort((a, b) => a.key.localeCompare(b.key));
+  const batches = Array.from({ length: Math.ceil(sorted.length / BATCH) }, (_, i) =>
+    sorted.slice(i * BATCH, (i + 1) * BATCH),
+  );
+  const replies = await Promise.all(batches.map((b) => cleanBatch(env, b, known, timeoutMs)));
+  const answered = replies.filter((r): r is Cleaned => r !== null);
+  if (!answered.length) return null;
+  const rejects: Record<string, number> = {};
+  for (const r of answered)
+    for (const [why, n] of Object.entries(r.rejects)) rejects[why] = (rejects[why] ?? 0) + n;
+  return {
+    verdicts: answered.flatMap((r) => r.verdicts),
+    rejects,
+    failed: replies.length - answered.length,
+  };
+}
+
+/** One call: a batch's checked verdicts (a `sameAs` may name any candidate key), or null with no answer. */
+async function cleanBatch(
+  env: EffectsEnv,
+  candidates: readonly Candidate[],
+  known: ReadonlySet<string>,
+  timeoutMs: number,
+): Promise<Cleaned | null> {
+  if (!env.AI) return null;
   const input = candidates
     .map(
       (c) =>
@@ -115,7 +148,6 @@ export async function cleanWithAi(
     } | null;
     const list = data?.effects;
     if (!Array.isArray(list)) return null;
-    const known = new Set(candidates.map((c) => c.key));
     const rejects: Record<string, number> = {};
     const count = (why: string) => void (rejects[why] = (rejects[why] ?? 0) + 1);
     // Each verdict on its own: one broken line must not cost the rest.

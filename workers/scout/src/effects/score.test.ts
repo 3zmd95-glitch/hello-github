@@ -149,21 +149,21 @@ describe("scoring", () => {
     expect(items.find((i) => i.key === "speed-ramp")!.growth).toBeCloseTo(0.5, 5); // 3 recent vs 6 before
   });
 
-  it("shows the top 8; an equal score goes to the effect first seen more recently", () => {
+  it("shows the top 12; an equal score goes to the effect first seen more recently", () => {
     const abc = ["a", "b", "c"];
     const history: Record<string, HistoryEntry[]> = {
       older: [{ day: "2026-10-04", ids: abc }],
       newer: [{ day: "2026-10-05", ids: abc }],
     };
     // Steady effects: the same 3 creators in both 3-day windows (growth 1, a lower score).
-    for (let i = 0; i < 9; i++)
+    for (let i = 0; i < 13; i++)
       history[`steady-${i}`] = [
         { day: "2026-10-02", ids: abc },
         { day: "2026-10-06", ids: abc },
       ];
     const metas = Object.fromEntries(Object.keys(history).map((k) => [k, meta(k)]));
     const items = scoreEffects(history, metas, "2026-10-06", {});
-    expect(items).toHaveLength(8);
+    expect(items).toHaveLength(12);
     expect(items.slice(0, 2).map((i) => i.key)).toEqual(["newer", "older"]);
   });
 

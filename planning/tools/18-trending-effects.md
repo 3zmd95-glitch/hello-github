@@ -128,7 +128,7 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
      - distinct creators (by handle, per platform)
      - platforms
      - up to 2 sample posts (url, title)
-3. **AI cleanup (built-in AI, 1 call).**
+3. **AI cleanup (built-in AI, up to 3 calls in parallel, live fix 4).** The 25 candidates go in batches of 9, sorted by key so spellings to merge share a batch: one call for all 25 took about a minute on the 70B model and timed out twice in a row live (`ai_fallback`). Each batch is checked on its own; a batch with no answer leaves its names for another day and notes `ai_partial`, and only no batch answering is `ai_fallback`. `max_tokens` 1,500 a batch.
    - **Input:** the 25 candidates with the most distinct creators over the last 7 days (history plus today), so a name that builds slowly across the rotation still gets judged. On a tie, names the AI has never approved go first. Each comes with up to 2 sample titles. Titles are clipped and passed as data, never as instructions.
      - A dictionary effect takes a slot only until it has its `what` line (usually its first day). After that, the 25 slots go to new names.
    - **Output:** JSON. Each verdict is checked on its own against a strict schema, and an invalid one is skipped without costing the rest. For each kept candidate:
@@ -190,7 +190,7 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
 - **NEW:** the effect is not in the dictionary and was first seen in the last 7 days.
 - **YouTube bonus:** `views7d` growth of at least 1.5×, against the effect's last recorded `views7d`. It adds a small boost and the "▶ ↑N×" note. No data means no penalty.
 - **Score:** `creators × min(growth, 4) × (youtubeBonus ? 1.25 : 1)`.
-- **Shown:** the top 8 by score. Ties go to whichever was first seen more recently.
+- **Shown:** the top 12 by score (live fix 4; 8 before). Ties go to whichever was first seen more recently. On a memory's first days every effect is new, so the big evergreen effects lead and a specific trend needs the room: the owner's GIF stickers (6 creators) ranked 10th in the third live run. From then on growth separates rising trends from steady ones.
 - **Honest labels.** TikTok and Instagram figures say "mentioned by N creators this week". They are web-index mentions, never views. Only YouTube shows real view numbers.
 
 ### 3. Storage and routes
@@ -339,7 +339,7 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
   - both reels: "The Clone Trend 👥 #clonetrend" is the clone effect; four sticker captions are GIF stickers; a dictionary phrase plus a suffix word ("Clone Yourself Edit", `#gifstickertrend`) makes no second name
   - plural and singular spellings of a new name share one key; a year names nothing
   - the block list, and creators counted per platform
-  - growth from history, NEW logic, the score and the top 8; a fading effect is left out
+  - growth from history, NEW logic, the score and the top 12; a fading effect is left out
   - AI schema validation and the fallback; on a day without the AI, names it approved before still show
   - a dictionary effect goes to the AI only until it has its line, and keeps its own labels
   - the per-run budgets, and once-a-day vs force (a day whose run failed runs again)
@@ -490,3 +490,14 @@ The first real scan, from the dashboard's "Run the first scan" after the deploy:
 - KV: 77 keys, `slot` 0. `gif-stickers` had 1 creator: the bare "gif stickers" search missed the posts that Discover's search found.
 
 **Live fix 3:** family 2 asks "gif stickers video edit", the dictionary entry's example query that found the owner's trend through Discover.
+
+**Fourth to sixth live runs** (after live fix 3, 🔄 Scan again three times: families 7–12, 13–18, 1–6):
+- After families 7–12 (status `ok`), the list was: glitch 26, smooth-slowmo 21, text-animation 18, beat-sync 15, freeze-frame 10, clone-effect 9, reverse-transition 8 (NEW, AI-approved), mask-transition 7.
+- Families 13–18 and 1–6 were both `partial` with `ai_fallback`: the AI call timed out. Workers AI usage was 1.84k of the 10k free neurons that day, so the cause was the time limit, not the allowance.
+- **The clone effect reached 21 creators.**
+- **GIF stickers reached 6 creators** with "gif stickers video edit" (up from 1). The samples are the owner's trend: "…Gif sticker by @theboogley", "We've been seeing this effect ALL over our FYP". It ranked 10th, so the top 8 hid it.
+- KV: 239 keys, about 88 KB. Tavily: 355 of 1,000 credits used.
+
+**Live fix 4:**
+- The AI asks in 3 parallel batches (§1 step 3).
+- The list shows the top 12 (§3).

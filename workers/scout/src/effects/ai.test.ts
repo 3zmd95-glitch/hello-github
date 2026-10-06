@@ -25,7 +25,11 @@ describe("cleanWithAi", () => {
       effects: [verdict("clone-effect"), verdict("clone-trend", { sameAs: "clone-effect" })],
     };
     const e = env(async () => ({ response: JSON.stringify(reply) }));
-    expect(await cleanWithAi(e, candidates)).toEqual({ verdicts: reply.effects, rejects: {} });
+    expect(await cleanWithAi(e, candidates)).toEqual({
+      verdicts: reply.effects,
+      rejects: {},
+      failed: 0,
+    });
     const [model, input] = e.AI.run.mock.calls[0];
     expect(model).toBe(AI_MODEL);
     // The owner's dialect: Hijazi, not a generic Gulf Arabic.
@@ -47,6 +51,7 @@ describe("cleanWithAi", () => {
     expect(out).toEqual({
       verdicts: [verdict("clone-effect"), verdict("clone-trend")],
       rejects: { unknown_key: 1, unknown_sameAs: 1 },
+      failed: 0,
     });
     expect(out!.verdicts[1]).not.toHaveProperty("sameAs");
   });
@@ -106,6 +111,7 @@ describe("cleanWithAi", () => {
         }),
       ],
       rejects: {},
+      failed: 0,
     });
     expect(line.length).toBeLessThanOrEqual(90);
   });
@@ -133,7 +139,38 @@ describe("cleanWithAi", () => {
         "keep:invalid_type": 1,
         invalid_type: 1,
       },
+      failed: 0,
     });
+  });
+
+  it("asks in parallel batches of 9, keys sorted so spellings share one; a batch with no answer is counted", async () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      key: `k${String(20 - i).padStart(2, "0")}`,
+      name: `effect ${i}`,
+      samples: [],
+    }));
+    const keysIn = (input: Record<string, unknown>) =>
+      [...(input.messages as { content: string }[])[1].content.matchAll(/^- key: (\S+)/gm)].map(
+        ([, k]) => k,
+      );
+    // A model that keeps every key it is shown, but is down for the batch holding k01.
+    const e = env(async (_model, input) => {
+      const keys = keysIn(input);
+      if (keys.includes("k01")) throw new Error("timeout");
+      return { response: { effects: keys.map((k) => verdict(k)) } };
+    });
+    const out = await cleanWithAi(e, many);
+    const asked = e.AI.run.mock.calls.map(([, input]) => keysIn(input));
+    expect(asked.map((keys) => keys.length)).toEqual([9, 9, 2]);
+    expect(asked[0]).toEqual(["k01", "k02", "k03", "k04", "k05", "k06", "k07", "k08", "k09"]);
+    expect(out).toMatchObject({ rejects: {}, failed: 1 });
+    expect(out!.verdicts.map((v) => v.key)).toEqual(asked.slice(1).flat());
+    // No batch answering is no answer at all.
+    const down = env(async () => {
+      throw new Error("down");
+    });
+    expect(await cleanWithAi(down, many)).toBeNull();
+    expect(down.AI.run).toHaveBeenCalledTimes(3);
   });
 
   it("gives null on invalid JSON, no list, no binding, an error or a timeout", async () => {
