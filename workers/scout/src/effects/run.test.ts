@@ -740,64 +740,73 @@ describe("runEffects", () => {
     expect(docBytes(prev!)).toBeLessThan(250_000);
   });
 
-  it("in steady daily runs, a name rising on its family's day survives the cap and shows", async () => {
-    // 14 daily runs of 120 one-creator names; the AI approves 12 of the 25 it judges (odd ones) and drops the rest.
-    // The slow name gains a creator on days 7, 10 and 13 (its family's days). With approved names protected for all
-    // 14 days (fix round 2) it was cut twice and ended with 1 creator.
-    const judge = (key: string) =>
-      Number(/^q\d+x(\d+)-trend$/.exec(key)?.[1] ?? 1) % 2 ? {} : { keep: false };
-    let prev: EffectsDoc | undefined;
-    for (let d = 0; d < 14; d++) {
-      const junk = Array.from({ length: 120 }, (_, i) =>
-        tt(`u${d}x${i}`, `Q${d}x${i} Trend`, d * 1000 + i),
-      );
-      const hits = [7, 10, 13].includes(d)
-        ? [...junk, tt(`s${d}`, "Ghost Walk Trend", 90_000 + d)]
-        : junk;
-      const { env } = setup({ stored: prev, judge });
-      log.mockClear();
-      prev = await runEffects(env, {
-        fetch: web({ hits, tavily: firstSearchOnly() }).fetch,
-        now: new Date(Date.UTC(2026, 9, 1 + d, 5, 35)),
-      });
-    }
-    expect(prev!.items.map((i) => [i.key, i.creators, i.checked])).toEqual([
-      ["ghost-walk-trend", 3, true],
-    ]);
-    const { keys, protected: kept, trimmed } = JSON.parse(String(log.mock.calls[0][0])).effects;
-    expect(keys).toBe(HISTORY_KEYS);
-    expect(kept).toBeLessThan(100); // the last 7 days' approved names; all 14 days' would be ~170
-    expect(trimmed).toBeGreaterThan(0);
-    expect(docBytes(prev!)).toBeLessThan(250_000); // ~104 KB: 400 keys after 14 days
-  });
+  // These two simulate many daily runs: about 1 s alone, but over 5 s on a busy machine, so they get their own limit.
+  it(
+    "in steady daily runs, a name rising on its family's day survives the cap and shows",
+    { timeout: 60_000 },
+    async () => {
+      // 14 daily runs of 120 one-creator names; the AI approves 12 of the 25 it judges (odd ones) and drops the rest.
+      // The slow name gains a creator on days 7, 10 and 13 (its family's days). With approved names protected for all
+      // 14 days (fix round 2) it was cut twice and ended with 1 creator.
+      const judge = (key: string) =>
+        Number(/^q\d+x(\d+)-trend$/.exec(key)?.[1] ?? 1) % 2 ? {} : { keep: false };
+      let prev: EffectsDoc | undefined;
+      for (let d = 0; d < 14; d++) {
+        const junk = Array.from({ length: 120 }, (_, i) =>
+          tt(`u${d}x${i}`, `Q${d}x${i} Trend`, d * 1000 + i),
+        );
+        const hits = [7, 10, 13].includes(d)
+          ? [...junk, tt(`s${d}`, "Ghost Walk Trend", 90_000 + d)]
+          : junk;
+        const { env } = setup({ stored: prev, judge });
+        log.mockClear();
+        prev = await runEffects(env, {
+          fetch: web({ hits, tavily: firstSearchOnly() }).fetch,
+          now: new Date(Date.UTC(2026, 9, 1 + d, 5, 35)),
+        });
+      }
+      expect(prev!.items.map((i) => [i.key, i.creators, i.checked])).toEqual([
+        ["ghost-walk-trend", 3, true],
+      ]);
+      const { keys, protected: kept, trimmed } = JSON.parse(String(log.mock.calls[0][0])).effects;
+      expect(keys).toBe(HISTORY_KEYS);
+      expect(kept).toBeLessThan(100); // the last 7 days' approved names; all 14 days' would be ~170
+      expect(trimmed).toBeGreaterThan(0);
+      expect(docBytes(prev!)).toBeLessThan(250_000); // ~104 KB: 400 keys after 14 days
+    },
+  );
 
-  it("at the cap, approved names stay first while seen this week; older ones compete like any other", async () => {
-    const approved =
-      "alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike november " +
-      "oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee";
-    const day1 = approved.split(" ").map((w, i) => tt(`a${i}`, `${titleCase(w)} Trend`, i));
-    const first = setup();
-    const prev = await runEffects(first.env, { fetch: web({ hits: day1 }).fetch, now: NOW });
-    const keys = Object.keys(prev.meta);
-    expect(keys).toHaveLength(25);
-    expect(keys.every((k) => prev.meta[k].checked)).toBe(true);
+  it(
+    "at the cap, approved names stay first while seen this week; older ones compete like any other",
+    { timeout: 60_000 },
+    async () => {
+      const approved =
+        "alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike november " +
+        "oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee";
+      const day1 = approved.split(" ").map((w, i) => tt(`a${i}`, `${titleCase(w)} Trend`, i));
+      const first = setup();
+      const prev = await runEffects(first.env, { fetch: web({ hits: day1 }).fetch, now: NOW });
+      const keys = Object.keys(prev.meta);
+      expect(keys).toHaveLength(25);
+      expect(keys.every((k) => prev.meta[k].checked)).toBe(true);
 
-    // 400 new one-creator names, newer than the approved 25: 425 keys must lose 25.
-    const crowd = Array.from({ length: 400 }, (_, i) => tt(`z${i}`, `Zork${i} Trend`, 1000 + i));
-    const after = async (now: Date) =>
-      runEffects(setup({ stored: prev }).env, {
-        fetch: web({ hits: crowd, tavily: firstSearchOnly() }).fetch,
-        now,
-      });
-    // The boundary: last seen 6 days ago is this week, kept first (unprotected, a tie on 1 creator would cut the
-    // older names); 7 days ago is not, no creators this week, cut first.
-    const sixDays = await after(new Date("2026-10-13T05:35:00Z"));
-    expect(Object.keys(sixDays.history)).toHaveLength(HISTORY_KEYS);
-    expect(keys.filter((k) => !sixDays.history[k] || !sixDays.meta[k])).toEqual([]);
-    const sevenDays = await after(new Date("2026-10-14T05:35:00Z"));
-    expect(Object.keys(sevenDays.history)).toHaveLength(HISTORY_KEYS);
-    expect(keys.filter((k) => sevenDays.history[k] || sevenDays.meta[k])).toEqual([]);
-  });
+      // 400 new one-creator names, newer than the approved 25: 425 keys must lose 25.
+      const crowd = Array.from({ length: 400 }, (_, i) => tt(`z${i}`, `Zork${i} Trend`, 1000 + i));
+      const after = async (now: Date) =>
+        runEffects(setup({ stored: prev }).env, {
+          fetch: web({ hits: crowd, tavily: firstSearchOnly() }).fetch,
+          now,
+        });
+      // The boundary: last seen 6 days ago is this week, kept first (unprotected, a tie on 1 creator would cut the
+      // older names); 7 days ago is not, no creators this week, cut first.
+      const sixDays = await after(new Date("2026-10-13T05:35:00Z"));
+      expect(Object.keys(sixDays.history)).toHaveLength(HISTORY_KEYS);
+      expect(keys.filter((k) => !sixDays.history[k] || !sixDays.meta[k])).toEqual([]);
+      const sevenDays = await after(new Date("2026-10-14T05:35:00Z"));
+      expect(Object.keys(sevenDays.history)).toHaveLength(HISTORY_KEYS);
+      expect(keys.filter((k) => sevenDays.history[k] || sevenDays.meta[k])).toEqual([]);
+    },
+  );
 
   it("history across days: 3 creators on day D, 6 new ones on D+3 → growth 2 over 9 creators", async () => {
     const clone = (handles: string[], from: number) =>

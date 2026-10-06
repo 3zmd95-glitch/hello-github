@@ -236,13 +236,14 @@ describe("extractCandidates", () => {
     }));
     const runs: number[] = [];
     for (let i = 0; i < 3; i++) {
-      const start = performance.now();
+      const start = process.cpuUsage();
       await extractCandidates(posts);
-      runs.push(performance.now() - start);
+      const { user, system } = process.cpuUsage(start);
+      runs.push((user + system) / 1000);
     }
-    // Wall time while the whole suite runs (~8 ms alone, best of 3 up to ~350 ms on a busy machine): the bar catches a
-    // runaway lookup, not noise. The 10 ms CPU budget itself is read live (Workers cpuTime).
-    expect(Math.min(...runs)).toBeLessThan(500);
+    // CPU time, not wall time, so other programs on a busy machine don't count (~8 ms alone): the bar catches a
+    // runaway lookup. The 10 ms CPU budget itself is read live (Workers cpuTime).
+    expect(Math.min(...runs)).toBeLessThan(150);
   });
 
   it("hashes creators so no handle is stored", async () => {
