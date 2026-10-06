@@ -89,16 +89,13 @@ export default function TrendingEffects({
     if (r) setData(r);
     const next = afterScan(r);
     setScan(next);
-    // Focus moves to the heading when the chips replace the button, and back to the button when it is enabled again
-    // for a retry (Chrome drops it to the page while the button is disabled); not when the owner is busy elsewhere.
-    const target = r?.items.length
-      ? heading.current
-      : next === "failed" || next === "idle"
-        ? runButton.current
-        : null;
+    // Focus goes back to the button when it is enabled again for a retry (Chrome drops it to the page while the button
+    // is disabled), else to the heading: the chips replaced the button, or it rests disabled. Not when the owner is
+    // busy elsewhere.
+    const retry = !r?.items.length && (next === "failed" || next === "idle");
     const at = document.activeElement;
     const free = !at || at === document.body || heading.current?.closest("section")?.contains(at);
-    focusNext.current = free ? target : null;
+    focusNext.current = free ? (retry ? runButton.current : heading.current) : null;
   }, []);
 
   useEffect(() => {

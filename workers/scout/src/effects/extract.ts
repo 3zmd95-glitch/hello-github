@@ -38,11 +38,17 @@ const BLOCK = new Set([
 
 const ARABIC = /[؀-ۿ]/;
 
-/** Dictionary entries about editing (audio and photo entries are left out), phrases and labels in matching form. */
-const EDIT_TERMS = TERMS.filter((t) => t.kind !== "audio" && t.kind !== "photo").map((term) => ({
-  term,
-  forms: [...term.match.en, ...term.match.ar, term.label.en, term.label.ar].map(normalizeTerm),
-}));
+/** Dictionary entries about editing (audio and photo entries are left out), phrases and labels in matching form, and
+ * each multi-word English one written as one hashtag word ("gif sticker" → "gifsticker"). */
+const EDIT_TERMS = TERMS.filter((t) => t.kind !== "audio" && t.kind !== "photo").map((term) => {
+  const forms = [...term.match.en, ...term.match.ar, term.label.en, term.label.ar].map(
+    normalizeTerm,
+  );
+  const joined = forms
+    .filter((f) => f.includes(" ") && !ARABIC.test(f))
+    .map((f) => f.replace(/ /g, ""));
+  return { term, forms, joined };
+});
 
 /**
  * Lookup 1's index, built once at load: what a post's text has to mention.
@@ -53,10 +59,9 @@ const EDIT_TERMS = TERMS.filter((t) => t.kind !== "audio" && t.kind !== "photo")
  */
 const LATIN = new Map<string, EditTerm[]>();
 const ARABIC_FORMS: { form: string; term: EditTerm }[] = [];
-for (const { term, forms } of EDIT_TERMS) {
+for (const { term, forms, joined } of EDIT_TERMS) {
   if (term.generic) continue;
   const longer = forms.filter((f) => f.includes(" "));
-  const joined = longer.filter((f) => !ARABIC.test(f)).map((f) => f.replace(/ /g, ""));
   for (const form of new Set([...(term.specific ? forms : longer), ...joined])) {
     if (ARABIC.test(form)) ARABIC_FORMS.push({ form, term });
     else if (form) LATIN.set(form, [...(LATIN.get(form) ?? []), term]);
@@ -91,11 +96,11 @@ function dictionaryHits(text: string): EditTerm[] {
   return EDIT_TERMS.map((e) => e.term).filter((t) => hits.has(t));
 }
 
-/** Lookup 2, a candidate name: a dictionary entry only when the whole name equals one of its phrases ("flash" alone
- * must not swallow "flash clone edit"). */
+/** Lookup 2, a candidate name: a dictionary entry only when the whole name equals one of its phrases, or the phrase
+ * written as one hashtag word ("flash" alone must not swallow "flash clone edit"). */
 function dictionaryName(name: string): EditTerm | undefined {
   const form = normalizeTerm(name);
-  return EDIT_TERMS.find((e) => e.forms.includes(form))?.term;
+  return EDIT_TERMS.find((e) => e.forms.includes(form) || e.joined.includes(form))?.term;
 }
 
 /** A name from the words right before the suffix, back to the first generic word ("glitch and zoom transition" →
@@ -127,10 +132,9 @@ export function candidatesOf(text: string): { key: string; name: string; termId?
   const addTerm = (t: EditTerm) => out.set(t.id, { key: t.id, name: t.label.en, termId: t.id });
   const add = (name: string | undefined) => {
     if (!name) return;
-    // "speed ramp trend" is the speed ramp: a dictionary phrase before "trend" names that entry.
-    const term =
-      dictionaryName(name) ??
-      (name.endsWith(" trend") ? dictionaryName(name.slice(0, -" trend".length)) : undefined);
+    // A dictionary phrase before the suffix word names that entry, with no new name beside it: "speed ramp trend" is
+    // the speed ramp, "Clone Yourself Edit" and #cloneyourselftrend the clone effect.
+    const term = dictionaryName(name) ?? dictionaryName(name.split(" ").slice(0, -1).join(" "));
     if (term) {
       if (!term.generic) addTerm(term); // a catch-all phrase ("seamless transition") names no trend
       return;

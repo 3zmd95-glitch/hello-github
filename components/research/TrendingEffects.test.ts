@@ -385,6 +385,41 @@ describe("before the Worker's first run", () => {
     expect(host.innerHTML).toBe("");
   });
 
+  it("a scan that rests (the day's tries spent, or nothing found) moves focus to the heading, unless the owner is elsewhere", async () => {
+    for (const body of [{ ...FAILED_RUN, notes: ["quota", "attempts"] }, docOf({ items: [] })]) {
+      trending = NEVER;
+      runAnswer = { body, status: 200 };
+      remount();
+      await settle();
+      runButton().focus();
+      act(() => runButton().click());
+      await settle();
+      const focus = vi.spyOn(HTMLElement.prototype, "focus");
+      await act(async () => releaseRun!());
+      await settle();
+      // The button stays off, so focus goes to the row's heading rather than the page, without scrolling.
+      expect(runButton().disabled).toBe(true);
+      expect(document.activeElement).toBe($("trending-effects")!.querySelector("h2"));
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+      expect(focus).not.toHaveBeenCalledWith();
+      focus.mockRestore();
+    }
+    // While the owner types elsewhere: their focus stays.
+    trending = NEVER;
+    remount();
+    await settle();
+    act(() => runButton().click());
+    await settle();
+    const elsewhere = document.createElement("input");
+    document.body.append(elsewhere);
+    elsewhere.focus();
+    await act(async () => releaseRun!());
+    await settle();
+    expect(status()).toBe(NONE);
+    expect(document.activeElement).toBe(elsewhere);
+    elsewhere.remove();
+  });
+
   it("a scan that lands without a list hands focus back to the re-enabled button, unless the owner is elsewhere", async () => {
     trending = NEVER;
     runAnswer = { body: { error: "upstream" }, status: 502 };

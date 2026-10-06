@@ -142,6 +142,26 @@ describe("candidatesOf", () => {
     expect(keys("speed ramp trend")).toEqual(["speed-ramp"]);
   });
 
+  it("files a dictionary phrase before any suffix word under that entry, with no new name beside it", () => {
+    // The owner's reels: a second key could become a NEW chip next to the dictionary's own, and the AI no longer
+    // sees a dictionary effect after its first day to merge it.
+    for (const [text, key] of [
+      ["gif sticker effect", "gif-stickers"],
+      ["Animated Stickers Edit", "gif-stickers"],
+      ["GIF Stickers Edit", "gif-stickers"],
+      ["Clone Yourself Edit", "clone-effect"],
+      ["gif stickers edit trend", "gif-stickers"],
+      // The phrase written as one hashtag, as the post-text lookup reads it.
+      ["#gifstickertrend", "gif-stickers"],
+      ["#cloneyourselftrend", "clone-effect"],
+    ])
+      expect(keys(text), text).toEqual([key]);
+    // Names that are more than a dictionary phrase stay their own.
+    expect(keys("Flash Clone Edit")).toEqual(["flash-clone-edit"]);
+    expect(keys("Shadow Clone Trend")).toEqual(["clone-effect", "shadow-clone-trend"]);
+    expect(keys("Swagger Trend")).toEqual(["swagger-trend"]);
+  });
+
   it("reads straight and curly apostrophes the same", () => {
     expect(keys("Don't Rush effect")).toEqual(["dont-rush-effect"]);
     expect(keys("Don’t Rush effect")).toEqual(["dont-rush-effect"]);

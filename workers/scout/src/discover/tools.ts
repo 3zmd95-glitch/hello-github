@@ -138,7 +138,9 @@ export async function getTrends(
     latestFeed(env),
     readEffects(env)
       .then((doc) => {
-        const updatedAt = typeof doc?.updatedAt === "string" ? doc.updatedAt : null;
+        // No items, no list: a document whose every run failed holds the failure's time, not a list's.
+        const updatedAt =
+          typeof doc?.updatedAt === "string" && doc.items.length ? doc.updatedAt : null;
         const fresh = !!updatedAt && now.getTime() - Date.parse(updatedAt) <= EFFECTS_MAX_AGE_MS;
         const items =
           doc && fresh

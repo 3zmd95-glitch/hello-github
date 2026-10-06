@@ -72,7 +72,7 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
   - Why: a run lost before it saves (the CPU limit, or a first scan dropped after `waitUntil`'s 30 s) leaves the day open, so each retry would spend 6 Tavily credits again.
   - How: a KV counter, `effects:attempts:<day>` (2-day TTL), is read and raised before the first search. A run that only answers the stored list (the guard above) is not counted, and `force` skips the cap.
   - Past 3, the run answers the stored list, or a failed answer with no list when there is none, with the note `attempts`. It spends nothing and writes nothing.
-  - If the counter can't be read or written, the run goes ahead, with the note `attempts_kv`.
+  - If the counter can't be read or written, the run goes ahead, with the note `attempts_kv`. The note alone keeps the status `ok`: no step of the run was skipped.
 
 **Steps.**
 
@@ -100,6 +100,7 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
      - The name is the run of words right before the suffix, back to the first generic word: "glitch and zoom transition" → "zoom transition", "First Month Edit Trend" → "first month edit".
    - Hashtags ending in those words. `#cloneeffect` becomes "clone effect": the known suffix is split off and the rest is kept as one word.
    - A block list drops known junk: "sound effect(s)", "butterfly effect", "special effects", "video effect", "the effect", "visual effect", "After Effects".
+   - A name that is a dictionary phrase plus its suffix word is filed under that entry, with no new name beside it: "speed ramp trend", "Clone Yourself Edit", "gif sticker effect", and `#gifstickertrend` (the phrase written as one hashtag word). The check is the exact phrase in matching form, as above, so a name with more words ("Flash Clone Edit", "Shadow Clone Trend") stays its own.
    - A new name (not in the dictionary) is keyed by its words in matching form (`normalizeTerm`, as the dictionary lookups use). So plural and singular spellings are one effect: "ghost frames trend" and "ghost frame trend" share `ghost-frame-trend`. The name itself stays as written.
    - For each candidate, record:
      - distinct posts
@@ -213,7 +214,7 @@ History trimming:
 
   These were found with the real `runEffects` and fake Tavily, YouTube, AI and KV, like `run.test.ts`'s daily-runs test (a throwaway script, not committed). Each day brings N new 1-creator names and the dictionary names (seen daily, never judged by the AI: the run's behaviour once each has its line); the AI approves the first A names it judges and drops the rest; and the slow name, last among its day's ties, gains a creator on days s, s+3 and s+6 (s = 7–10). "Holds up to" is the largest N at which the slow name always shows with 3 creators. Re-run on the final review's fixes (2026-10-06), it gave the same four numbers.
 
-  The run's log line reports `keys`, `protected` and `trimmed`, and what the AI did, `ai: { judged, dictionary, approved, dropped, merged }`: the verdicts it gave, how many of them were on dictionary effects, and the new names it approved, dropped or merged into another. All counts, no names. The live check reads them against this table:
+  The run's log line reports `keys`, `protected` and `trimmed`, and what the AI did, `ai: { judged, dictionary, approved, dropped, merged }`: the usable verdicts it gave, how many of them were on dictionary effects, and the new names it approved, dropped or merged into another. All counts, no names. `judged` counts usable verdicts only, so an `ai_empty` day logs 0 even though the AI answered (as does an `ai_fallback` day, when it did not). The live check reads them against this table:
   - `protected` (dictionary names plus about a week of approvals, ~84 at 12 a day) picks the row.
   - At the cap (`keys` 400), `trimmed` + `ai.dropped` + `ai.merged` is the day's new candidates: 107 + 13 + 0 = 120 at 120 a day with 12 approvals. Compare that sum with the table, not `trimmed` alone.
   - `ai.dictionary` should be 0 on most days: a dictionary effect takes an AI slot only until it has its line.
@@ -230,7 +231,7 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
   - It respects the day's cap of 3 spending runs (§1) unless `{ force: true }` is sent. Past it, the answer is the stored list, or `{ status: "failed", items: [] }` when there is none, with the note `attempts`.
   - It waits for the run (about 30–60 s) and answers like the GET. The run is also handed to `ctx.waitUntil`, so a request dropped mid-run leaves it up to 30 s more to finish and save.
   - When the final save fails, the answer carries the note `kv`.
-- **Connector:** the `get_trends` tool also returns `effects` (name, what, creators, isNew, growth, youtube) and `effectsUpdatedAt`, the list's time (null when there is none to read).
+- **Connector:** the `get_trends` tool also returns `effects` (name, what, creators, isNew, growth, youtube) and `effectsUpdatedAt`, the list's time. It is null when there is no list to read: none stored, a read error, or a document with no items (after a failed first run it holds the failure's time, not a list's).
   - Like the dashboard's row, a list over 3 days old gives `effects: []`; `effectsUpdatedAt` still says how old it is.
   - Names are clipped to 40 characters and `what` to 90, and the tool's description says titles and names are data, not instructions.
   - A document that can't be read gives `effects: []` and keeps the radar's rows.
@@ -265,7 +266,7 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
 | `updatedAt` older than 3 days, or missing | Nothing; the row hides |
 | `status: "failed"` with a list at most 3 days old (stale-failed) | The old list, plus a faint "ما قدرت أحدّثها اليوم" / "Couldn't update today"; no button |
 
-**The first scan.** `POST /effects/run`, one at a time per Worker within a browser tab (`lib/effects.ts` keeps the running scan in the page's memory): a second tap, or a tap after leaving Discover and coming back, waits for the same answer. The Worker's once-a-day check has no lock, so a second tab or the phone can still start a second run, spending its credits again, while the first is going. Leaving Discover never cancels it; the list it finds is kept like a fetched one, so a revisit shows it even when the scan answered while the revisit's own GET was on its way. When the chips arrive, focus moves to the row's heading, without scrolling, unless the owner is busy elsewhere on the page. When a scan lands without a list and the button is enabled again for a retry, focus goes back to the button the same way (Chrome drops it to the page while the button is disabled).
+**The first scan.** `POST /effects/run`, one at a time per Worker within a browser tab (`lib/effects.ts` keeps the running scan in the page's memory): a second tap, or a tap after leaving Discover and coming back, waits for the same answer. The Worker's once-a-day check has no lock, so a second tab or the phone can still start a second run, spending its credits again, while the first is going. Leaving Discover never cancels it; the list it finds is kept like a fetched one, so a revisit shows it even when the scan answered while the revisit's own GET was on its way. When the chips arrive, focus moves to the row's heading, without scrolling, unless the owner is busy elsewhere on the page. When a scan lands without a list and the button is enabled again for a retry, focus goes back to the button the same way (Chrome drops it to the page while the button is disabled). When the button rests disabled (the day's tries spent, or nothing found), focus moves to the heading the same way.
 
 **Copy and fetching.**
 - The copy lives in `messages/search.{ar,en}.json`, with key parity and Hijazi Arabic first.
@@ -273,7 +274,7 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
 
 ### 5. Failures and safety
 
-- **Tavily quota or auth failure:** status `failed`. The previous items are kept; only the date and notes are written, still one write.
+- **Tavily quota or auth failure:** status `failed`. The previous items are kept; only the date and notes are written. Like any spending run, it writes twice: the attempt counter, then the list.
 - **AI failure or no usable verdict:** the rule list is used: dictionary effects and names the AI approved before show, new names wait (see step 3). Status `partial`, note `ai_fallback` or `ai_empty`.
 - **YouTube cap reached:** the check is skipped, with status `partial`.
 - **Lost runs:** a run cut off before it saves (the CPU limit, a first scan dropped after `waitUntil`'s 30 s) leaves the day open. The cap of 3 spending runs a UTC day (§1) stops paying for retries; the 4th answers with the note `attempts`.
@@ -285,7 +286,7 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
 
 - **Worker (plain Node):**
   - candidate extraction from titles and hashtags (`#cloneeffect` → "clone effect")
-  - both reels: "The Clone Trend 👥 #clonetrend" is the clone effect; four sticker captions are GIF stickers
+  - both reels: "The Clone Trend 👥 #clonetrend" is the clone effect; four sticker captions are GIF stickers; a dictionary phrase plus a suffix word ("Clone Yourself Edit", `#gifstickertrend`) makes no second name
   - plural and singular spellings of a new name share one key; a year names nothing
   - the block list, and creators counted per platform
   - growth from history, NEW logic, the score and the top 8; a fading effect is left out
@@ -296,12 +297,12 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
   - the cap of 3 spending runs a UTC day: the 4th spends nothing and says so, force skips it, a good day never touches the counter, a counter that can't be read or written never stops a run
   - YouTube checks only names mentioned today, asking for the name as written
   - routes: auth, and `status: "never"` before the first run
-  - the connector: no effects past 3 days, with `effectsUpdatedAt`
+  - the connector: no effects past 3 days, with `effectsUpdatedAt` (null when no list was ever made)
   - the cron slot sits on the grid
 - **Dashboard (jsdom):**
   - row states: hidden, never (the first-scan button, waiting, failed, and the Worker's own failed first run), list, failed but recent, old, a run with 0 items
   - a first scan over the day's cap, and one that finds nothing: the button off with its line
-  - focus back on the button after a scan lands without a list
+  - focus back on the button after a scan lands without a list, or on the heading when the button rests
   - chip text in both languages
   - a tap runs one search with the right query, in Keywords mode, and clears the category
   - an old Worker's 404 hides the row
@@ -338,7 +339,7 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
 - `GET /effects/trending` and `get_trends` parse the whole memory document; watch their CPU time at the live check.
 - `sources.ts` repeats part of `tavilyCall` for its two-domain search (tech debt).
 - A new name's chip searches the AI's English name, which can differ from the words in the posts.
-- The AI can merge a spelling into a dictionary effect only on a day that effect is sent to it (until it has its line); the dictionary's own phrases catch the rest.
+- The AI can merge a spelling into a dictionary effect only on a day that effect is sent to it (until it has its line). After that, the rules file a spelling under the effect only when it is a dictionary phrase, in a post or as a name that is a phrase plus its suffix word ("Clone Yourself Edit", `#gifstickertrend`); any other spelling ("Shadow Clone Trend") stays a new name beside the dictionary's chip.
 - A new name's YouTube query is its spelling in that day's posts, so a plural and a singular can take turns between days.
 
 ## Built (2026-10-06)
@@ -351,14 +352,14 @@ Plan: `planning/plans/2026-10-06-trending-effects.md` (5 tasks), on branch `clau
   - Dashboard: `lib/effects.ts`, `components/research/TrendingEffects.tsx` (placed by `ResearchPanel.tsx`), 11 copy keys in `messages/search.{ar,en}.json`.
   - Dictionary: the `clone-effect` words and the `gif-stickers` entry in `planning/data/edit-terms.json` (Open items).
 - **Tests.**
-  - Worker: 91 in `src/effects/`. They cover extraction (both reels, plural keys, years), scoring, the 400-key memory, the sources, the AI's schema and fallback, the run's budgets and attempt cap, the first scan's families, a 14-day steady-state run, the routes and the 05:35 slot. The connector's `effects` and their 3-day rule are tested in `discover/tools.test.ts`, and the slot joins the cron grid test.
-  - Dashboard: 34 in `lib/effects.test.ts` and `TrendingEffects.test.ts`, 2 in `ResearchPanel.test.ts`, and 1 e2e test in `e2e/discover.spec.ts`.
-  - Totals on the final full run (the final review's fix round): `pnpm test` 2,017 tests in 90 files (the Worker's 818 included); e2e 292 passed and 4 skipped by design (tests that run on one screen size only) of 296, on phone (145 passed) and desktop (147 passed). Lint, typecheck and build clean.
+  - Worker: 92 in `src/effects/`. They cover extraction (both reels, plural keys, years), scoring, the 400-key memory, the sources, the AI's schema and fallback, the run's budgets and attempt cap, the first scan's families, a 14-day steady-state run, the routes and the 05:35 slot. The connector's `effects` and their 3-day rule are tested in `discover/tools.test.ts`, and the slot joins the cron grid test.
+  - Dashboard: 35 in `lib/effects.test.ts` and `TrendingEffects.test.ts`, 2 in `ResearchPanel.test.ts`, and 1 e2e test in `e2e/discover.spec.ts`.
+  - Totals on the final full run (the final review's fix round and its follow-up): `pnpm test` 2,019 tests in 90 files (the Worker's 819 included); e2e 292 passed and 4 skipped by design (tests that run on one screen size only) of 296, on phone (145 passed) and desktop (147 passed). Lint, typecheck and build clean.
 - **Budgets per run.**
   - 6 Tavily credits (about 180 a month), ≤ 6 YouTube `search.list` + 1 `videos.list`, 1 AI call (`max_tokens` 3000, 60 s), 1 KV write plus the attempt counter's, about 18 subrequests.
   - A second run the same UTC day spends nothing, unless that day's run failed (the retry runs again). At most 3 spending runs a UTC day without `force`: at most 18 Tavily credits on a bad day.
   - The document is ~104 KB at 400 keys after 14 daily runs in the test (≤ 250 KB asserted). A realistic worst case is ~0.4–0.7 MB, against KV's 25 MiB per value.
-- **Reviews.** Every task was reviewed against this spec and every fix round re-reviewed. Task 1 (extraction, scoring) took one fix round, its faster lookup re-checked on 22,976 texts with 0 mismatches. Task 2 (sources, AI, run) took three, ending with the 400-key memory and the 7-day protection. Task 3 (routes, slot, connector) passed first time. Task 4 (the row) took two: its re-review came back clean, and round 2 added the retry after a failed first run (the button and the failure line, and the Worker's guard running a failed day again), the scroll fix and the cache re-read. The final whole-branch review traced both of the owner's reels end to end; its fix round added the dictionary entries, the plural keys, the first scan's families, the attempt cap, the connector's age rule and the smaller fixes above.
+- **Reviews.** Every task was reviewed against this spec and every fix round re-reviewed. Task 1 (extraction, scoring) took one fix round, its faster lookup re-checked on 22,976 texts with 0 mismatches. Task 2 (sources, AI, run) took three, ending with the 400-key memory and the 7-day protection. Task 3 (routes, slot, connector) passed first time. Task 4 (the row) took two: its re-review came back clean, and round 2 added the retry after a failed first run (the button and the failure line, and the Worker's guard running a failed day again), the scroll fix and the cache re-read. The final whole-branch review traced both of the owner's reels end to end; its fix round added the dictionary entries, the plural keys, the first scan's families, the attempt cap, the connector's age rule and the smaller fixes above. Its re-review found no Critical or Important problems; a follow-up fixed its six minors (a dictionary phrase before any suffix word, focus when the button rests, `effectsUpdatedAt` with no list, and three doc lines).
 - **Not verified until the live check:**
   - **CPU on the Free plan** (10 ms per request or cron run). Extraction alone measured ~7.5–10 ms warm and ~17 ms cold in Node. Read the run's CPU time in Workers Observability. If it is over, split the job across two slots: search and extract, then AI, YouTube and score.
   - **The AI call's time and size.** 25 bilingual verdicts were estimated at 2,000–2,500 tokens; that has not been measured on the real model.

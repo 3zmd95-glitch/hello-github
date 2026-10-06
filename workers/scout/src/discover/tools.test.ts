@@ -368,6 +368,23 @@ describe("getTrends", () => {
       }),
     );
     expect(await getTrends({ SOCIAL_KV: odd }, {}, NOW)).toEqual(radarOnly);
+
+    // A list never made: every run so far failed (the document holds the failure's time, not a list's).
+    const neverMade = fakeKV();
+    await neverMade.put(trendKeys.latest, JSON.stringify(feed));
+    await neverMade.put(
+      EFFECTS_KEY,
+      JSON.stringify({
+        ranOn: "2026-10-03",
+        updatedAt: "2026-10-03T05:35:00.000Z",
+        status: "failed",
+        notes: ["quota"],
+        items: [],
+        meta: {},
+        history: {},
+      }),
+    );
+    expect(await getTrends({ SOCIAL_KV: neverMade }, {}, NOW)).toEqual(radarOnly);
   });
 });
 
