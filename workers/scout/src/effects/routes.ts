@@ -22,6 +22,8 @@ export interface EffectsDeps {
   fetch?: typeof fetch;
   /** Test seam for "now". */
   now?: () => Date;
+  /** `ctx.waitUntil`: keeps a run going for up to 30 s after its request is dropped. */
+  waitUntil?: (task: Promise<unknown>) => void;
 }
 
 function json(body: unknown, status: number, cors: Headers): Response {
@@ -72,8 +74,11 @@ export async function handleEffects(
   if (pathname === "/effects/run" && req.method === "POST") {
     const force = await parseForce(req);
     if (force === null) return json({ error: "bad_request" }, 400, cors);
-    const doc = await runEffects(env, { fetch: deps.fetch, now: deps.now?.(), force });
-    return json(answer(doc), 200, cors);
+    // The run never throws. Handed to waitUntil too: a dropped request (the page closed mid-run) leaves it up to 30 s
+    // more to finish and save.
+    const run = runEffects(env, { fetch: deps.fetch, now: deps.now?.(), force });
+    deps.waitUntil?.(run);
+    return json(answer(await run), 200, cors);
   }
   return null;
 }

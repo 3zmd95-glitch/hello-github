@@ -34,6 +34,10 @@ export interface SearchInput {
 }
 
 const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+const clipText = (x: { en: string; ar?: string }, max: number) => ({
+  en: clip(x.en, max),
+  ar: x.ar && clip(x.ar, max),
+});
 /** The rule of `parseDiscoverBody`: symbols or emoji only ("🔥🔥", "!!!") leave no word to search or key by. */
 const BAD_TOPIC = "The topic needs at least one letter or digit.";
 
@@ -146,11 +150,12 @@ export async function getTrends(
   return {
     fetchedAt: feed.fetchedAt,
     items,
-    // This week's trending editing effects (effects/, planning/tools/18-trending-effects.md).
+    // This week's trending editing effects (effects/, planning/tools/18-trending-effects.md); names and lines come
+    // from web text, so they are clipped like the radar's.
     effects:
       effects?.items.map((i) => ({
-        name: i.name,
-        what: i.what,
+        name: clipText(i.name, 40),
+        what: i.what && clipText(i.what, 90),
         creators: i.creators,
         isNew: i.isNew,
         growth: i.growth,

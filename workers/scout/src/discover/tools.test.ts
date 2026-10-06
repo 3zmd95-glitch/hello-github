@@ -269,6 +269,18 @@ describe("getTrends", () => {
             growth: 3,
             samples: [],
           },
+          {
+            key: "long-trend",
+            name: { en: "n".repeat(60), ar: "ن".repeat(60) },
+            what: { en: "w".repeat(120), ar: "و".repeat(120) },
+            isNew: true,
+            checked: true,
+            creators: 3,
+            posts: 3,
+            platforms: ["tt"],
+            growth: 1,
+            samples: [],
+          },
         ],
         meta: {},
         history: {},
@@ -287,19 +299,44 @@ describe("getTrends", () => {
           youtube,
         },
         { name: { en: "Swagger Trend" }, creators: 3, isNew: true, growth: 3 },
+        // Names come from web text: clipped to 40 characters, lines to 90.
+        {
+          name: { en: `${"n".repeat(39)}…`, ar: `${"ن".repeat(39)}…` },
+          what: { en: `${"w".repeat(89)}…`, ar: `${"و".repeat(89)}…` },
+          creators: 3,
+          isNew: true,
+          growth: 1,
+        },
       ],
     });
 
     // A read error costs the effects only, never the radar's rows or the tool call.
+    const feed = {
+      fetchedAt: "2026-10-03T06:00:00Z",
+      degraded: false,
+      sources: [],
+      items: [
+        {
+          id: "a",
+          platform: "youtube",
+          region: "SA",
+          lang: "ar",
+          title: "car edit",
+          source: "YouTube search",
+          seenAt: "x",
+          tags: [],
+        },
+      ],
+    };
     const down = {
       async get(key: string) {
         if (key === EFFECTS_KEY) throw new Error("KV GET failed");
-        return null;
+        return key === trendKeys.latest ? JSON.stringify(feed) : null;
       },
     } as unknown as KVNamespace;
     expect(await getTrends({ SOCIAL_KV: down }, {})).toEqual({
-      fetchedAt: null,
-      items: [],
+      fetchedAt: "2026-10-03T06:00:00Z",
+      items: [{ title: "car edit", platform: "youtube", region: "SA", source: "YouTube search" }],
       effects: [],
     });
   });

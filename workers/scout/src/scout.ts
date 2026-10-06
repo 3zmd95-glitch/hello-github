@@ -533,7 +533,11 @@ export async function handle(
   if (social) return social;
   const trends = await handleTrends(req, env, cors, { fetch: deps.fetch, now: deps.now });
   if (trends) return trends;
-  const effects = await handleEffects(req, env, cors, { fetch: deps.fetch, now: deps.now });
+  const effects = await handleEffects(req, env, cors, {
+    fetch: deps.fetch,
+    now: deps.now,
+    waitUntil: ctx ? (task) => ctx.waitUntil(task) : undefined,
+  });
   if (effects) return effects;
   return fail("not_found", 404, cors);
 }

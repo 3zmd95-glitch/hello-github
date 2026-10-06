@@ -160,9 +160,14 @@ describe("/effects routes", () => {
   it("POST runs the job once a UTC day and answers like the GET; force runs it again", async () => {
     const { env, kv } = setup();
     const fetchMock = tavily();
-    const first = await handle(run(), env, undefined, { fetch: fetchMock, now: () => NOW });
+    const waitUntil = vi.fn();
+    const ctx = { waitUntil, passThroughOnException() {} } as unknown as ExecutionContext;
+    const first = await handle(run(), env, ctx, { fetch: fetchMock, now: () => NOW });
     expect(first.status).toBe(200);
     expect(first.headers.get("Access-Control-Allow-Origin")).toBe(APP);
+    // The run is handed to waitUntil too, so a request dropped mid-run still finishes it.
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+    expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise));
     const body = (await first.json()) as ReturnType<typeof answer>;
     expect(body).toEqual(answer(storedDoc(kv)));
     expect(body).toMatchObject({ ranOn: "2026-10-06", updatedAt: NOW.toISOString() });
@@ -172,9 +177,13 @@ describe("/effects routes", () => {
     expect(fetchMock.mock.calls.every(([url]) => String(url) === TAVILY_URL)).toBe(true);
     expect(kv.put).toHaveBeenCalledTimes(1);
 
-    // Later the same UTC day: the stored list, nothing spent or written; the GET agrees.
+    // Later the same UTC day: the stored list, nothing spent or written; the GET agrees. `force: false` is
+    // accepted and is no force.
     const deps = { fetch: fetchMock, now: () => LATER };
     expect(await (await handle(run("{}"), env, undefined, deps)).json()).toEqual(body);
+    const unforced = await handle(run('{"force":false}'), env, undefined, deps);
+    expect(unforced.status).toBe(200);
+    expect(await unforced.json()).toEqual(body);
     expect(await (await handle(req("/effects/trending"), env)).json()).toEqual(body);
     expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(kv.put).toHaveBeenCalledTimes(1);
@@ -221,11 +230,14 @@ describe("/effects routes", () => {
 });
 
 describe("the daily slot", () => {
-  it("the 05:35 UTC tick (08:35 Riyadh) runs the job instead of publishing; 05:36 does not", async () => {
+  it("the 05:35 UTC tick (08:35 Riyadh) runs the job instead of publishing; 05:36 and 05:40 do not", async () => {
     const { env, kv } = setup();
     const fetchMock = tavily();
     const offGrid = await runTick(env, Date.parse("2026-10-06T05:36:00Z"), { fetch: fetchMock });
     expect(Object.keys(offGrid)).toEqual(["replies"]);
+    // The next grid tick publishes as usual.
+    const nextOnGrid = await runTick(env, Date.parse("2026-10-06T05:40:00Z"), { fetch: fetchMock });
+    expect(Object.keys(nextOnGrid)).toEqual(["publish", "replies"]);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(kv.store.has(EFFECTS_KEY)).toBe(false);
 

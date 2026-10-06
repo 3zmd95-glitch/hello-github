@@ -488,7 +488,7 @@ describe("runEffects", () => {
   it("in steady daily runs, a name rising on its family's day survives the cap and shows", async () => {
     // 14 daily runs of 120 one-creator names; the AI approves 12 of the 25 it judges (odd ones) and drops the rest.
     // The slow name gains a creator on days 7, 10 and 13 (its family's days). With approved names protected for all
-    // 14 days (fix round 2) it was cut twice and ended with 1 creator (trim-sim.mjs gives the same).
+    // 14 days (fix round 2) it was cut twice and ended with 1 creator.
     const judge = (key: string) =>
       Number(/^q\d+x(\d+)-trend$/.exec(key)?.[1] ?? 1) % 2 ? {} : { keep: false };
     let prev: EffectsDoc | undefined;
@@ -534,12 +534,14 @@ describe("runEffects", () => {
         fetch: web({ hits: crowd, tavily: firstSearchOnly() }).fetch,
         now,
       });
-    const nextDay = await after(NEXT_DAY); // seen yesterday: kept first
-    expect(Object.keys(nextDay.history)).toHaveLength(HISTORY_KEYS);
-    expect(keys.filter((k) => !nextDay.history[k] || !nextDay.meta[k])).toEqual([]);
-    const weekLater = await after(new Date("2026-10-15T05:35:00Z")); // last seen 8 days ago: no creators this week
-    expect(Object.keys(weekLater.history)).toHaveLength(HISTORY_KEYS);
-    expect(keys.filter((k) => weekLater.history[k] || weekLater.meta[k])).toEqual([]);
+    // The boundary: last seen 6 days ago is this week, kept first (unprotected, a tie on 1 creator would cut the
+    // older names); 7 days ago is not, no creators this week, cut first.
+    const sixDays = await after(new Date("2026-10-13T05:35:00Z"));
+    expect(Object.keys(sixDays.history)).toHaveLength(HISTORY_KEYS);
+    expect(keys.filter((k) => !sixDays.history[k] || !sixDays.meta[k])).toEqual([]);
+    const sevenDays = await after(new Date("2026-10-14T05:35:00Z"));
+    expect(Object.keys(sevenDays.history)).toHaveLength(HISTORY_KEYS);
+    expect(keys.filter((k) => sevenDays.history[k] || sevenDays.meta[k])).toEqual([]);
   });
 
   it("history across days: 3 creators on day D, 6 new ones on D+3 → growth 2 over 9 creators", async () => {
