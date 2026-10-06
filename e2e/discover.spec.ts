@@ -70,6 +70,60 @@ const ANSWER = {
   complete: false,
 };
 
+/** The Worker's trending effects (`GET /effects/trending`), 8 (its cap): a dictionary effect, a new one with YouTube up 3×, … */
+const EFFECTS = {
+  status: "ok",
+  ranOn: "2026-10-06",
+  updatedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+  items: [
+    {
+      key: "clone-effect",
+      name: { en: "clone effect", ar: "تأثير الاستنساخ" },
+      what: { en: "You show up twice in one shot", ar: "تطلع مرتين في نفس اللقطة" },
+      termId: "clone-effect",
+      isNew: false,
+      checked: true,
+      creators: 9,
+      posts: 14,
+      platforms: ["ig", "tt"],
+      growth: 1.5,
+      samples: [],
+    },
+    {
+      key: "swagger-trend",
+      name: { en: "swagger trend", ar: "ترند السواقر" },
+      what: { en: "Clone yourself with one hair flip", ar: "تستنسخ نفسك بحركة شعر" },
+      isNew: true,
+      checked: true,
+      creators: 4,
+      posts: 5,
+      platforms: ["tt"],
+      growth: 3,
+      youtube: { newVideos: 12, views7d: 52000, growth: 3 },
+      samples: [],
+    },
+    // Up to the Worker's cap of 8.
+    ...[
+      ["speed-ramp", "speed ramp", "سبيد رامب"],
+      ["first-month-edit", "first month edit", "ايديت أول شهر"],
+      ["mention-trend", "mention trend", "ترند المنشن"],
+      ["reverse-trend", "reverse trend", "ترند العكس"],
+      ["zoom-transition", "zoom transition", "انتقال زوم"],
+      ["gif-sticker-overlay", "gif sticker overlay", "ستيكرات GIF فوق الفيديو"],
+    ].map(([key, en, ar]) => ({
+      key,
+      name: { en, ar },
+      isNew: true,
+      checked: true,
+      creators: 3,
+      posts: 3,
+      platforms: ["tt"],
+      growth: 3,
+      samples: [],
+    })),
+  ],
+};
+
 async function stubWorker(page: Page, discover: (body: Record<string, unknown>) => unknown) {
   const asked: Record<string, unknown>[] = [];
   await page.route(`${WORKER}/**`, async (route) => {
@@ -91,6 +145,7 @@ async function stubWorker(page: Page, discover: (body: Record<string, unknown>) 
           : { ok: true },
       );
     if (!authed) return reply({ error: "unauthorized" }, 401);
+    if (url.pathname === "/effects/trending") return reply(EFFECTS);
     if (url.pathname === "/discover" && req.method() === "POST") {
       const body = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
       asked.push(body);
@@ -660,4 +715,36 @@ test("Discover v2: Claude's picks show on the topic and on an empty Discover", a
   await page.getByTestId("discover-alt-camera-flash").click();
   await expect(page.getByTestId("discover-sections")).toHaveAttribute("data-topic", "camera-flash");
   await expect(page.getByTestId("discover-picks")).toHaveCount(0);
+});
+
+test("Discover v2: trending effects chips; a tap searches the effect with the category cleared", async ({
+  page,
+}) => {
+  const asked = await stubWorker(page, () => ANSWER);
+  await connectWorker(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/discover/");
+
+  const row = page.getByTestId("trending-effects");
+  await expect(row).toHaveAttribute("data-state", "list");
+  await expect(row.getByTestId("trending-effect")).toHaveCount(8);
+  const fresh = row.locator('[data-testid="trending-effect"][data-key="swagger-trend"]');
+  await expect(fresh.getByText("جديد", { exact: true })).toBeVisible();
+  await expect(fresh).toContainText("4 صنّاع · ▶ ↑3×");
+  // The 8 chips overflow their strip, which scrolls sideways; the 375 px page never does.
+  const strip = row.getByTestId("trending-effect").first().locator("xpath=..");
+  expect(await strip.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // With a category on, a chip searches the effect alone: the dictionary effect by its English label.
+  await page.getByTestId("genre-coffee").click();
+  await expect.poll(() => asked.length).toBe(1);
+  await row.locator('[data-testid="trending-effect"][data-key="clone-effect"]').click();
+  await expect.poll(() => asked.length).toBe(2);
+  expect(asked[1]).toEqual({ q: "clone effect" });
+  await expect(page.getByTestId("genre-coffee")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("discover-topic")).toHaveValue("clone effect");
+  await expect(page.getByTestId("discover-recent-topic").first()).toHaveText("clone effect");
+  await expect(page.getByTestId("discover-sections")).toBeVisible();
+  expect(await fitsViewport(page)).toBe(true);
 });

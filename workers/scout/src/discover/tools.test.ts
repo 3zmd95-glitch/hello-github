@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { EFFECTS_KEY } from "../effects/kv";
 import { trendKeys } from "../trends/kv";
 import { TAVILY_URL } from "../trends/tavily";
 import { readPicks } from "./picks";
@@ -211,7 +212,7 @@ describe("getTrends", () => {
         ],
       }),
     );
-    const out = await getTrends({ SOCIAL_KV: kv }, { region: "SA", genre: "cars" });
+    const out = await getTrends({ SOCIAL_KV: kv }, { region: "SA", genre: "cars" }, NOW);
     expect(out.items).toEqual([
       {
         title: "car edit",
@@ -230,6 +231,160 @@ describe("getTrends", () => {
         why: `${"w".repeat(159)}…`,
       },
     ]);
+  });
+
+  it("adds this week's trending effects and their time; none past 3 days, or when the list or an item can't be read", async () => {
+    const kv = fakeKV();
+    const what = { en: "You appear twice in one shot", ar: "تطلع مرتين في نفس اللقطة" };
+    const youtube = { newVideos: 2, views7d: 2000, growth: 1.5 };
+    await kv.put(
+      EFFECTS_KEY,
+      JSON.stringify({
+        ranOn: "2026-10-03",
+        updatedAt: "2026-10-03T05:35:00.000Z",
+        status: "ok",
+        items: [
+          {
+            key: "clone-effect",
+            name: { en: "clone effect", ar: "تأثير الاستنساخ" },
+            what,
+            termId: "clone-effect",
+            isNew: false,
+            checked: true,
+            creators: 9,
+            posts: 12,
+            platforms: ["ig", "tt"],
+            growth: 2,
+            youtube,
+            samples: [{ url: "https://www.tiktok.com/@c1/video/1", title: "Clone Yourself" }],
+          },
+          {
+            key: "swagger-trend",
+            name: { en: "Swagger Trend" },
+            isNew: true,
+            checked: true,
+            creators: 3,
+            posts: 3,
+            platforms: ["ig"],
+            growth: 3,
+            samples: [],
+          },
+          {
+            key: "long-trend",
+            name: { en: "n".repeat(60), ar: "ن".repeat(60) },
+            what: { en: "w".repeat(120), ar: "و".repeat(120) },
+            isNew: true,
+            checked: true,
+            creators: 3,
+            posts: 3,
+            platforms: ["tt"],
+            growth: 1,
+            samples: [],
+          },
+        ],
+        meta: {},
+        history: {},
+      }),
+    );
+    const effects = await getTrends({ SOCIAL_KV: kv }, {}, NOW);
+    expect(effects).toEqual({
+      fetchedAt: null,
+      items: [],
+      effectsUpdatedAt: "2026-10-03T05:35:00.000Z",
+      effects: [
+        {
+          name: { en: "clone effect", ar: "تأثير الاستنساخ" },
+          what,
+          creators: 9,
+          isNew: false,
+          growth: 2,
+          youtube,
+        },
+        { name: { en: "Swagger Trend" }, creators: 3, isNew: true, growth: 3 },
+        // Names come from web text: clipped to 40 characters, lines to 90.
+        {
+          name: { en: `${"n".repeat(39)}…`, ar: `${"ن".repeat(39)}…` },
+          what: { en: `${"w".repeat(89)}…`, ar: `${"و".repeat(89)}…` },
+          creators: 3,
+          isNew: true,
+          growth: 1,
+        },
+      ],
+    });
+    // The dashboard's rule: a list over 3 days old is not this week's any more. Its time still says how old it is.
+    const at = (iso: string) => getTrends({ SOCIAL_KV: kv }, {}, new Date(iso));
+    expect(await at("2026-10-06T05:35:00.000Z")).toEqual(effects);
+    expect(await at("2026-10-07T09:00:00.000Z")).toEqual({
+      fetchedAt: null,
+      items: [],
+      effectsUpdatedAt: "2026-10-03T05:35:00.000Z",
+      effects: [],
+    });
+
+    // A read error costs the effects only, never the radar's rows or the tool call.
+    const feed = {
+      fetchedAt: "2026-10-03T06:00:00Z",
+      degraded: false,
+      sources: [],
+      items: [
+        {
+          id: "a",
+          platform: "youtube",
+          region: "SA",
+          lang: "ar",
+          title: "car edit",
+          source: "YouTube search",
+          seenAt: "x",
+          tags: [],
+        },
+      ],
+    };
+    const down = {
+      async get(key: string) {
+        if (key === EFFECTS_KEY) throw new Error("KV GET failed");
+        return key === trendKeys.latest ? JSON.stringify(feed) : null;
+      },
+    } as unknown as KVNamespace;
+    const radarOnly = {
+      fetchedAt: "2026-10-03T06:00:00Z",
+      items: [{ title: "car edit", platform: "youtube", region: "SA", source: "YouTube search" }],
+      effectsUpdatedAt: null,
+      effects: [],
+    };
+    expect(await getTrends({ SOCIAL_KV: down }, {}, NOW)).toEqual(radarOnly);
+
+    // So does a stored item that is not an effect (say, from an older deploy): no name to read.
+    const odd = fakeKV();
+    await odd.put(trendKeys.latest, JSON.stringify(feed));
+    await odd.put(
+      EFFECTS_KEY,
+      JSON.stringify({
+        ranOn: "2026-10-03",
+        updatedAt: "2026-10-03T05:35:00.000Z",
+        status: "ok",
+        items: [{ key: "clone-effect", creators: 9, isNew: false, growth: 2 }],
+        meta: {},
+        history: {},
+      }),
+    );
+    expect(await getTrends({ SOCIAL_KV: odd }, {}, NOW)).toEqual(radarOnly);
+
+    // A list never made: every run so far failed (the document holds the failure's time, not a list's).
+    const neverMade = fakeKV();
+    await neverMade.put(trendKeys.latest, JSON.stringify(feed));
+    await neverMade.put(
+      EFFECTS_KEY,
+      JSON.stringify({
+        ranOn: "2026-10-03",
+        updatedAt: "2026-10-03T05:35:00.000Z",
+        status: "failed",
+        notes: ["quota"],
+        items: [],
+        meta: {},
+        history: {},
+      }),
+    );
+    expect(await getTrends({ SOCIAL_KV: neverMade }, {}, NOW)).toEqual(radarOnly);
   });
 });
 

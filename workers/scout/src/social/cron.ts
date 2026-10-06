@@ -1,15 +1,18 @@
 /**
  * The one cron trigger (`* * * * *`) polls the auto replies (comments and DMs, replies.ts) every minute;
  * on the five-minute grid it keeps today's schedule — the auto-post queue, the daily sync slots, the Trend
- * Radar slots, and the replies when publishing moved nothing. Each invocation runs one job, so it keeps
- * the free plan's full subrequest budget: the four grid ticks from 03:00 to 03:30 UTC (06:00–06:30
- * Riyadh) run the daily sync of one platform each, the Trend Radar ticks (round 30,
- * planning/tools/08-trends.md) refresh the trend feed, and the other grid ticks publish what is due. One
+ * Radar slots, the daily trending effects slot, and the replies when publishing moved nothing. Each invocation
+ * runs one job, so it keeps the free plan's full subrequest budget: the four grid ticks from 03:00 to 03:30 UTC
+ * (06:00–06:30 Riyadh) run the daily sync of one platform each, the Trend Radar ticks (round 30,
+ * planning/tools/08-trends.md) refresh the trend feed, the 05:35 UTC tick runs the trending effects job
+ * (planning/tools/18-trending-effects.md), and the other grid ticks publish what is due. One
  * trigger rather than many also stays inside the free plan's cron limit (five per account). A publish tick
  * that moved nothing also polls the auto replies: the two never share one tick, so each keeps its full
  * budget.
  */
 
+import { runEffects } from "../effects/run";
+import type { EffectsEnv } from "../effects/sources";
 import { runTrends, summarize, type TrendsRunSummary } from "../trends/run";
 import type { TrendKind, TrendsEnv } from "../trends/types";
 import { runDue, type RunResult } from "./publish";
@@ -45,11 +48,14 @@ export const TREND_SLOTS: Record<string, TrendKind> = {
 export const WEEKLY_SLOT = "21:15";
 /** `Date.getUTCDay()` of the weekly scan: Saturday. */
 export const WEEKLY_DAY = 6;
+/** UTC "HH:MM" of the daily trending effects run: 08:35 Riyadh, on the five-minute grid (a test guards it). */
+export const EFFECTS_SLOT = "05:35";
 
 export type TickResult =
   | { sync: SyncAllResult }
   | { publish: RunResult; replies?: PollResult }
   | { trends: TrendsRunSummary }
+  | { effects: { status: string; items: number; notes?: string[] } }
   | { replies: PollResult };
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -68,17 +74,21 @@ export function trendKindAt(ms: number): TrendKind | undefined {
 }
 
 export async function runTick(
-  env: SocialEnv & TrendsEnv,
+  env: SocialEnv & TrendsEnv & EffectsEnv,
   scheduledTime: number,
   deps: SyncDeps = {},
 ): Promise<TickResult> {
   const now = deps.now ?? new Date(scheduledTime);
-  // Off the five-minute grid only the replies run (every sync and trend slot sits on the grid).
+  // Off the five-minute grid only the replies run (every sync, effects and trend slot sits on the grid).
   if (new Date(scheduledTime).getUTCMinutes() % 5 !== 0) {
     return { replies: await pollReplies(env, { fetch: deps.fetch, now, fiveMinuteTick: false }) };
   }
   const platform = SYNC_SLOTS[utcSlot(scheduledTime)];
   if (platform) return { sync: await syncIfConnected(env, platform, deps) };
+  if (utcSlot(scheduledTime) === EFFECTS_SLOT) {
+    const { status, items, notes } = await runEffects(env, { fetch: deps.fetch, now });
+    return { effects: { status, items: items.length, notes } };
+  }
   const kind = trendKindAt(scheduledTime);
   if (kind) {
     const feed = await runTrends(env, { kinds: [kind], fetch: deps.fetch, now });
