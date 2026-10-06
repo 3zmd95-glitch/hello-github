@@ -17,6 +17,10 @@
  *                           planning/tools/18-trending-effects.md)
  *   POST /effects/run     → run the daily effects job now (once per UTC day unless `force: true` or that
  *                           day's run failed; at most 3 spending runs a UTC day without `force`)
+ *   GET  /categories/:id  → a Discover category's page: this week's trends and the week's lessons
+ *                           (categories/routes.ts, planning/tools/19-category-trends.md)
+ *   POST /categories/:id/run → scan that category now (once per UTC day unless `force: true` or that day's run
+ *                           failed; at most 3 spending runs a category a UTC day, forced ones included)
  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
  *   /mcp, /authorize, /token, /register → served by index.ts (OAuth + MCP): the Claude connector
  *                           (discover/mcp.ts, discover/auth.ts)
@@ -28,6 +32,7 @@
  * handlers (workerd treats every named export as an entrypoint), and the tests need `handle` and helpers.
  */
 
+import { handleCategories } from "./categories/routes";
 import { handleDiscover } from "./discover/routes";
 import { handleCreator } from "./creator/routes";
 import { handleEffects } from "./effects/routes";
@@ -540,5 +545,11 @@ export async function handle(
     waitUntil: ctx ? (task) => ctx.waitUntil(task) : undefined,
   });
   if (effects) return effects;
+  const categories = await handleCategories(req, env, cors, {
+    fetch: deps.fetch,
+    now: deps.now,
+    waitUntil: ctx ? (task) => ctx.waitUntil(task) : undefined,
+  });
+  if (categories) return categories;
   return fail("not_found", 404, cors);
 }

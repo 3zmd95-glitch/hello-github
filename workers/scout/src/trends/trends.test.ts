@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import { CATEGORY_SLOTS } from "../categories/defs";
 import {
   EFFECTS_SLOT,
   runTick,
@@ -2117,6 +2118,7 @@ describe("cron slots", () => {
       ...Object.keys(TREND_SLOTS),
       WEEKLY_SLOT,
       EFFECTS_SLOT,
+      ...CATEGORY_SLOTS,
       ...Object.keys(SYNC_SLOTS),
     ];
     for (const slot of slots) {

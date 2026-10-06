@@ -36,7 +36,9 @@ const SEARCHES = [
 ] as const;
 /** Tavily's month nearly spent (Discover's cached usage figure): the Instagram month search alone. */
 const TIGHT_SEARCHES = [SEARCHES[1]];
-const TIGHT_SHARE = 0.9;
+/** "Nearly spent": this share of the month's credits. Trending effects cuts back at it; category scans pause
+ * (planning/tools/19-category-trends.md §4, their own month: categories/run.ts `monthTight`). */
+export const TIGHT_SHARE = 0.9;
 
 /** A family's post pages found by each search, and its posts once each (the log line's figures). */
 export type FamilyStats = {

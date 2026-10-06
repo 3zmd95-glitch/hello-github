@@ -252,13 +252,13 @@ describe("/effects routes", () => {
 });
 
 describe("the daily slot", () => {
-  it("the 05:35 UTC tick (08:35 Riyadh) runs the job instead of publishing; 05:36 and 05:40 do not", async () => {
+  it("the 05:35 UTC tick (08:35 Riyadh) runs the job instead of publishing; 05:36 and 06:00 do not", async () => {
     const { env, kv } = setup();
     const fetchMock = tavily();
     const offGrid = await runTick(env, Date.parse("2026-10-06T05:36:00Z"), { fetch: fetchMock });
     expect(Object.keys(offGrid)).toEqual(["replies"]);
-    // The next grid tick publishes as usual.
-    const nextOnGrid = await runTick(env, Date.parse("2026-10-06T05:40:00Z"), { fetch: fetchMock });
+    // A plain grid tick (06:00) publishes as usual; 05:40–05:55 scan categories.
+    const nextOnGrid = await runTick(env, Date.parse("2026-10-06T06:00:00Z"), { fetch: fetchMock });
     expect(Object.keys(nextOnGrid)).toEqual(["publish", "replies"]);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(kv.store.has(EFFECTS_KEY)).toBe(false);
