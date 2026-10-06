@@ -1572,7 +1572,7 @@
     letter-spacing: -0.02em;
     font-variant-numeric: tabular-nums;
     direction: ltr;
-    text-align: start;
+    text-align: match-parent;
     unicode-bidi: isolate;
   }
   .ios-delta {

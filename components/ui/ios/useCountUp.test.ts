@@ -44,4 +44,18 @@ describe("useCountUp", () => {
     vi.stubGlobal("cancelAnimationFrame", () => {});
     expect(render(184.2, 1).textContent).toBe("0.0");
   });
+
+  it("lands on the exact target once the duration has passed", () => {
+    vi.stubGlobal("matchMedia", () => ({
+      matches: false,
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+    let tick: FrameRequestCallback = () => {};
+    vi.stubGlobal("requestAnimationFrame", (f: FrameRequestCallback) => ((tick = f), 1));
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    const host = render(184.2, 1);
+    act(() => tick(performance.now() + 1000));
+    expect(host.textContent).toBe("184.2");
+  });
 });
