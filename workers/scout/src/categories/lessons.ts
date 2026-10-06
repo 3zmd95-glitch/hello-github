@@ -177,14 +177,18 @@ export function pickVideos(
   ];
 }
 
-/** A how-to as the model writes it, made checkable: texts trimmed and clipped, an empty skill or number left out. */
+/** A how-to as the model writes it, made checkable: texts trimmed and clipped, and a skill or number it leaves empty
+ * (null, "", or -1 for no Arabic tutorial: Workers AI does not hold it to the schema's minimum) left out. */
 function tidyHowTo(x: unknown): unknown {
   if (!isRecord(x)) return x;
   const v: Record<string, unknown> = { ...x };
   if (isRecord(x.howTo))
     v.howTo = { ...x.howTo, en: clip(x.howTo.en, HOWTO_MAX), ar: clip(x.howTo.ar, HOWTO_MAX) };
   if (typeof v.skillId === "string") v.skillId = v.skillId.trim();
-  for (const k of ["skillId", "arTutorial"]) if (v[k] == null || v[k] === "") delete v[k];
+  for (const k of ["skillId", "arTutorial"]) {
+    const none = v[k];
+    if (none == null || none === "" || (typeof none === "number" && none < 0)) delete v[k];
+  }
   return v;
 }
 

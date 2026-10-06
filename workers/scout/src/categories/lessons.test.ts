@@ -185,6 +185,27 @@ describe("writeHowTos", () => {
       await writeHowTos(answering({ techniques: "x" }), CARS, [draft("photo", "a")], [], 1000),
     ).toBeNull();
   });
+
+  it("the model's 'none' (null, '' or -1) leaves the skill or Arabic tutorial out, never the how-to", async () => {
+    const rejects: Record<string, number> = {};
+    const e = answering({
+      techniques: [
+        { i: 0, howTo: HOW, skillId: "", arTutorial: -1 },
+        { i: 1, howTo: HOW, skillId: null, arTutorial: null },
+      ],
+    });
+    const out = await writeHowTos(
+      e,
+      CARS,
+      [draft("photo", "a"), draft("video", "b")],
+      [ar(0)],
+      1000,
+      rejects,
+    );
+    expect(out!.get(0)).toEqual({ howTo: HOW });
+    expect(out!.get(1)).toEqual({ howTo: HOW });
+    expect(rejects).toEqual({});
+  });
 });
 
 describe("refreshLessons", () => {
