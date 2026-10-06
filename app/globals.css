@@ -1761,23 +1761,20 @@
   .ios-ptr[data-spin="true"] svg {
     animation: ios-spin 0.8s linear infinite;
   }
+  /* A long text (an error reason the owner must read, a post title) wraps inside the screen, never truncated. */
   [data-world="social"] .ios-toast {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    height: 44px;
+    min-height: 44px;
     max-width: 100%;
+    padding-block: 10px;
     padding-inline: 14px 18px;
-    border-radius: 999px;
+    border-radius: 22px;
     font-weight: 600;
     font-size: 14px;
     color: var(--ink);
-    white-space: nowrap;
-  }
-  /* One line, like the mockup: a long text (a post title) ends in an ellipsis inside the screen. */
-  [data-world="social"] .ios-toast > span {
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
   }
   [data-world="social"] .ios-toast svg {
     flex: none;
@@ -1804,6 +1801,12 @@
     background: var(--panel);
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     animation: ios-alert-in var(--t-spring) var(--spring);
+  }
+  /* Dark: an elevated gray, so the alert stands out from the dimmed sheet under it (both would be --panel). */
+  @media (prefers-color-scheme: dark) {
+    [data-world="social"] .ios-alert {
+      background: var(--panel-3);
+    }
   }
   [data-world="social"] .ios-alert-body {
     padding: 18px 16px 14px;
