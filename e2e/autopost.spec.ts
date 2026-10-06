@@ -225,6 +225,13 @@ test("schedule API networks from the popup and keep the manual network unfinishe
   ).toHaveAttribute("data-state", "queued");
   await expect(page.getByTestId("post-sheet")).toHaveAttribute("data-stage", "scheduled");
   await page.getByTestId("post-close").click();
+  // The calendar card marks each sent network: ⏳ while it waits, a green ✓ once it went out.
+  const mark = page.locator(
+    `[data-testid="post-card"][data-post="${id}"] [data-testid="post-card-net"]`,
+  );
+  await expect(mark).toHaveCount(1);
+  await expect(mark).toHaveAttribute("data-platform", "instagram");
+  await expect(mark).toHaveAttribute("data-state", "queued");
 
   // The Worker publishes Instagram; X still needs the owner to finish it.
   const job = fake.jobs.get(id)!;
@@ -254,6 +261,8 @@ test("schedule API networks from the popup and keep the manual network unfinishe
   await expect(page.getByTestId("post-sheet")).toHaveAttribute("data-stage", "scheduled");
   await expect(page.getByTestId("post-posted-link")).toHaveCount(0);
   await page.getByTestId("post-close").click();
+  await expect(mark).toHaveAttribute("data-state", "published");
+  await expect(mark).toHaveText(/✓/);
 
   // "Allow posting" from the hub reconnects TikTok with the publishing scopes.
   await page.goto("/social/automations/");
@@ -570,6 +579,11 @@ test("TikTok inbox completion stays manual until a real post link is confirmed, 
   await expect(page.getByTestId("autopost-done")).toHaveCount(0);
   await page.goto(`/social/calendar/#post=${id}`);
   await expect(page.getByTestId("post-sheet")).toHaveAttribute("data-stage", "scheduled");
+  const mark = page.locator(
+    `[data-testid="post-card"][data-post="${id}"] [data-testid="post-card-net"]`,
+  );
+  await expect(mark).toHaveAttribute("data-platform", "tiktok");
+  await expect(mark).toHaveAttribute("data-state", "inbox");
   await page.getByTestId("post-tab-autopost").click();
   await expect(page.getByTestId("post-autopost")).toHaveAttribute("data-summary", "needsFinish");
   await expect(page.getByTestId("tiktok-finish-save")).toBeDisabled();
@@ -580,6 +594,7 @@ test("TikTok inbox completion stays manual until a real post link is confirmed, 
   await page.getByTestId("tiktok-finish-save").click();
   await expect(page.getByTestId("post-sheet")).toHaveAttribute("data-stage", "posted");
   await page.getByTestId("post-close").click();
+  await expect(mark).toHaveAttribute("data-state", "published");
   await page.goto("/social/automations/");
   await page.getByTestId("autopost-refresh").click();
   await expect(page.getByTestId("tiktok-finish-card")).toHaveCount(0);
