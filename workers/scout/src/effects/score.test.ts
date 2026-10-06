@@ -81,7 +81,7 @@ describe("scoring", () => {
     expect(merged.approved).toBeDefined();
   });
 
-  it("keeps 13-day-old entries, drops 14-day-old ones, and replaces today's entry on a re-run", () => {
+  it("keeps 13-day-old entries, drops 14-day-old ones, and adds a re-run's creators to today's entry", () => {
     const merged = mergeHistory(
       {
         k: [
@@ -94,11 +94,13 @@ describe("scoring", () => {
       "2026-10-06",
       new Map([["k", cand("k", ["re-run"])]]),
     );
+    // Scan again the same day adds to the day (the same creator counts once); a name it did not find keeps its own.
     expect(merged).toEqual({
       k: [
         { day: "2026-09-23", ids: ["kept"] },
-        { day: "2026-10-06", ids: ["re-run"] },
+        { day: "2026-10-06", ids: ["first-run", "re-run"] },
       ],
+      gone: [{ day: "2026-10-06", ids: ["x"] }],
     });
   });
 

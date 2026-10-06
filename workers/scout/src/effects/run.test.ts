@@ -240,7 +240,7 @@ describe("runEffects", () => {
     );
   });
 
-  it("runs once a day; force runs again and replaces the day's creators", async () => {
+  it("runs once a day; force runs again and adds to the day's creators (the same ones count once)", async () => {
     const { env, KV } = setup();
     const { fetch, count } = web();
     const first = await runEffects(env, { fetch, now: NOW });
@@ -257,6 +257,64 @@ describe("runEffects", () => {
     expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY, EFFECTS_KEY]);
     expect(forced.items[0]).toMatchObject({ key: "clone-effect", creators: 8 });
     expect(forced.history["clone-effect"]).toHaveLength(1);
+  });
+
+  it("Scan again the same day searches the next 6 families and adds to what the day already found", async () => {
+    // The first scan (no memory): families 1–6 find the clone effect (8 creators).
+    const first = web();
+    const doc1 = await runEffects(setup().env, { fetch: first.fetch, now: NOW });
+    expect(familiesOf(first.searched)).toEqual(FAMILY_QUERIES.slice(0, 6));
+    expect(doc1.slot).toBe(0);
+    expect(doc1.items.find((i) => i.key === "clone-effect")?.creators).toBe(8);
+
+    // Scan again: families 7–12 find 3 speed-ramp creators, 1 more clone creator and 1 already counted.
+    const second = web({
+      hits: [
+        tt("s1", "Speed Ramp tutorial", 101),
+        tt("s2", "speed ramp edit", 102),
+        tt("s3", "smooth speed ramp", 103),
+        tt("c9", "clone effect tutorial | CapCut", 109),
+        tt("c1", "Clone Yourself in CapCut 🔥 #cloneyourself", 1),
+      ],
+    });
+    const doc2 = await runEffects(setup({ stored: doc1 }).env, {
+      fetch: second.fetch,
+      now: new Date("2026-10-07T09:00:00Z"),
+      force: true,
+    });
+    expect(familiesOf(second.searched)).toEqual(FAMILY_QUERIES.slice(6, 12));
+    const creators = Object.fromEntries(doc2.items.map((i) => [i.key, i.creators]));
+    expect(creators).toMatchObject({ "clone-effect": 9, "speed-ramp": 3 });
+    // A name this run did not find keeps the day's earlier creators.
+    expect(creators["swagger-trend"]).toBe(3);
+    expect(doc2.history["clone-effect"]).toHaveLength(1);
+
+    // A third tap: families 13–18; a fourth starts over at 1–6.
+    const third = web({ hits: [] });
+    const doc3 = await runEffects(setup({ stored: doc2 }).env, {
+      fetch: third.fetch,
+      now: new Date("2026-10-07T10:00:00Z"),
+      force: true,
+    });
+    expect(familiesOf(third.searched)).toEqual(FAMILY_QUERIES.slice(12, 18));
+    const fourth = web({ hits: [] });
+    await runEffects(setup({ stored: doc3 }).env, {
+      fetch: fourth.fetch,
+      now: new Date("2026-10-07T11:00:00Z"),
+      force: true,
+    });
+    expect(familiesOf(fourth.searched)).toEqual(FAMILY_QUERIES.slice(0, 6));
+
+    // A document saved before turns were kept (no `slot`), already run today: the turn after the day's (2026-10-07's
+    // is families 1–6, so 7–12).
+    const legacy = web({ hits: [] });
+    await runEffects(setup({ stored: { ...doc1, slot: undefined } }).env, {
+      fetch: legacy.fetch,
+      now: new Date("2026-10-07T12:00:00Z"),
+      force: true,
+    });
+    expect(familiesForDay("2026-10-07")).toEqual(FAMILY_QUERIES.slice(0, 6));
+    expect(familiesOf(legacy.searched)).toEqual(FAMILY_QUERIES.slice(6, 12));
   });
 
   it("the first scan (no memory yet) searches families 1–6, the owner's two reels; later scans the day's rotation", async () => {
