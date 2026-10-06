@@ -25,7 +25,11 @@ it("applies a whole job read in one save and still marks a finished post posted"
   S().updatePost(running.id, { autoPost: sent(running.id) });
   const link = "https://www.instagram.com/reel/A/";
   const jobs: WorkerJob[] = [
-    { id: done.id, scheduledAt: "", results: { instagram: { state: "published", permalink: link } } },
+    {
+      id: done.id,
+      scheduledAt: "",
+      results: { instagram: { state: "published", permalink: link } },
+    },
     { id: running.id, scheduledAt: "", results: { instagram: { state: "processing" } } },
     { id: draft.id, scheduledAt: "", results: { instagram: { state: "published" } } },
   ];
