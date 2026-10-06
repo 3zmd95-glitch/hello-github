@@ -1,8 +1,6 @@
 # 18 · Social world, iOS 26 look (glass navigation, solid cards, light + dark, real icons, spring motion)
 
-**Status:** designed and approved by the owner on October 6, 2026 (round 35). **Build deferred**: the same day the owner asked for the public website first, in the same iOS theme (round 36). The implementation plan (`../plans/2026-10-06-social-ios-design.md`) is written when this round resumes; the build order in §10 stands.
-Mockup (approved, v2): `../social-ios-mockup.html` · live copy https://claude.ai/artifact/H7TN2Yh1gA3ZkabVpGj28f
-
+**Status:** designed and approved by the owner on October 6, 2026 (round 35). Not built yet. Plan: `../plans/2026-10-06-social-ios-design.md` (Opus 5.5 executes, one PR per phase). The owner briefly asked for the public website first the same afternoon, then said "Dont do the website now only the social panel", so this round proceeds.
 Owner, round 35 (Oct 6, 2026): "you are like the head designer at apple ios system. premium and sleek" · "change only
 cinematic" (= the 📱 Social world; the 🎮 Training pixel world stays as it is) · "I want real icons" · "dont forget the
 smooth animation thats the most important thing" · "plan with fable first then we gonna execute with opus 5.5" ·
