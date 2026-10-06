@@ -83,5 +83,7 @@
   "search.trendingRun": "شغّل أول فحص",
   "search.trendingRunning": "أدوّر على الترندات… ممكن تاخذ دقيقة",
   "search.trendingRunFailed": "ما قدرت أشغّل الفحص، جرّب بعد شوي",
+  "search.trendingRunLimit": "جرّبت كذا مرة اليوم، أرجع أجرّب بكرة",
+  "search.trendingNone": "لسه ما فيه مؤثر منتشر كفاية، أرجع أشيّك بكرة",
   "search.trendingCreative": "TikTok Creative Center ↗"
 }

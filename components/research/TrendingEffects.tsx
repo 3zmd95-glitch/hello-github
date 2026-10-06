@@ -20,6 +20,24 @@ const HOUR = 3_600_000;
 /** YouTube's views of the week up at least this much: the "▶ ↑N×" note. */
 const YT_NOTE_FROM = 1.5;
 
+/** The line under the first-scan button, by the scan's state. */
+const SCAN_LINE = {
+  running: "search.trendingRunning",
+  failed: "search.trendingRunFailed",
+  limit: "search.trendingRunLimit",
+  none: "search.trendingNone",
+} as const;
+
+/** Where the row rests after a first scan's answer `r` (null: the request failed). */
+function afterScan(r: Trending | null): "idle" | "failed" | "limit" | "none" {
+  if (!r) return "failed";
+  if (r.items.length) return "idle";
+  // The Worker's tries for the day are spent: the button rests until the next visit.
+  if (r.notes?.includes("attempts")) return "limit";
+  // A run that found nothing rests too; the Worker's own failed run keeps the button (its answer says it failed).
+  return r.status === "ok" || r.status === "partial" ? "none" : "idle";
+}
+
 /**
  * 🔥 Discover's row of this week's trending editing effects (planning/tools/18-trending-effects.md §4): the Worker's
  * daily list as chips that each run a search, a first-scan button before the Worker's first run, and nothing at all
@@ -42,10 +60,15 @@ export default function TrendingEffects({
   // nothing pops in under a tap. Read in render safely: AppShell shows its Splash until the store hydrates on the
   // client (`skipHydration`), so the server never renders this row and no hydration can mismatch.
   const [data, setData] = useState<Trending | null>(() => cachedTrendingEffects(config));
-  // The first scan from this row: running, or failed to answer (its line shows until the next tap).
-  const [scan, setScan] = useState<"idle" | "running" | "failed">("idle");
+  // The first scan from this row: running; failed to answer (its line shows until the next tap); or answered without
+  // a list and resting until the next visit, the button off: the Worker's tries for the day are spent ("limit"), or
+  // nothing trends widely enough yet ("none").
+  const [scan, setScan] = useState<"idle" | "running" | "failed" | "limit" | "none">("idle");
   const mounted = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  const runButton = useRef<HTMLButtonElement>(null);
+  /** Where focus goes once a scan's answer is on screen. */
+  const focusNext = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -54,19 +77,28 @@ export default function TrendingEffects({
     };
   }, []);
 
-  /** A first scan's answer: its list; the Worker's own failed run (the button and the failure line stay); or the
-   * failure line (null: the request failed). */
+  // After the render that shows a scan's answer: the button is enabled again by then. Without scrolling to it, as the
+  // owner may have scrolled down during the minute.
+  useEffect(() => {
+    focusNext.current?.focus({ preventScroll: true });
+    focusNext.current = null;
+  });
+
+  /** A first scan's answer (null: the request failed). */
   const landed = useCallback((r: Trending | null) => {
-    setScan(r ? "idle" : "failed");
-    if (!r) return;
-    setData(r);
-    if (!r.items.length) return;
-    // The button goes: focus moves to the row's heading rather than drop to the page, unless the owner is busy
-    // elsewhere meanwhile; without scrolling to it, as the owner may have scrolled down during the minute.
-    const h = heading.current;
+    if (r) setData(r);
+    const next = afterScan(r);
+    setScan(next);
+    // Focus moves to the heading when the chips replace the button, and back to the button when it is enabled again
+    // for a retry (Chrome drops it to the page while the button is disabled); not when the owner is busy elsewhere.
+    const target = r?.items.length
+      ? heading.current
+      : next === "failed" || next === "idle"
+        ? runButton.current
+        : null;
     const at = document.activeElement;
-    if (h && (!at || at === document.body || h.closest("section")?.contains(at)))
-      h.focus({ preventScroll: true });
+    const free = !at || at === document.body || heading.current?.closest("section")?.contains(at);
+    focusNext.current = free ? target : null;
   }, []);
 
   useEffect(() => {
@@ -89,7 +121,8 @@ export default function TrendingEffects({
     };
   }, [config, landed]);
 
-  const state = rowVisible(data, now);
+  // A first scan that rests keeps the row as it was (not hidden after a minute of "Scanning…").
+  const state = scan === "limit" || scan === "none" ? "never" : rowVisible(data, now);
   if (!data || state === "hidden") return null;
 
   // About a minute. Leaving Discover never cancels it (lib/effects keeps the list it finds for the next visit, and a
@@ -179,21 +212,23 @@ export default function TrendingEffects({
       {state === "never" ? (
         <div className="flex flex-wrap items-center gap-2">
           <button
+            ref={runButton}
             type="button"
             className="px-btn px-btn-sm"
-            disabled={scan === "running"}
+            disabled={scan === "running" || scan === "limit" || scan === "none"}
             onClick={runNow}
             data-testid="trending-run"
           >
             {t("search.trendingRun")}
           </button>
           {/* Always there (empty while idle), so its next words are announced. A scan that could not answer, or
-              the Worker's own failed run (no list yet), says so; the button stays for a retry. */}
+              the Worker's own failed run (no list yet), says so; the button stays for a retry. The day's tries
+              spent, or nothing trending yet, rest the button with their own line. */}
           <p role="status" className="text-muted text-xs">
-            {scan === "running"
-              ? t("search.trendingRunning")
-              : scan === "failed" || data.status === "failed"
-                ? t("search.trendingRunFailed")
+            {scan !== "idle"
+              ? t(SCAN_LINE[scan])
+              : data.status === "failed"
+                ? t(SCAN_LINE.failed)
                 : ""}
           </p>
         </div>

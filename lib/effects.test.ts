@@ -92,6 +92,19 @@ describe("parseTrendingEffects", () => {
     });
   });
 
+  it("keeps the run's notes (the row reads 'attempts'), their strings only", () => {
+    const over = { status: "failed", ranOn: "2026-10-06", items: [] };
+    expect(parseTrendingEffects({ ...over, notes: ["quota", "attempts", 7, null] })).toEqual({
+      status: "failed",
+      notes: ["quota", "attempts"],
+      items: [],
+    });
+    expect(parseTrendingEffects({ ...over, notes: "attempts" })).toEqual({
+      status: "failed",
+      items: [],
+    });
+  });
+
   it("a partial run (the AI or YouTube step skipped): effects without their line or YouTube figures", () => {
     expect(
       parseTrendingEffects({
@@ -103,6 +116,7 @@ describe("parseTrendingEffects", () => {
     ).toEqual({
       status: "partial",
       updatedAt: "2026-10-06T05:35:12Z",
+      notes: ["ai_fallback", "youtube_cap"],
       items: [
         {
           key: "clone-effect",
@@ -337,6 +351,7 @@ describe("runTrendingEffectsNow", () => {
     expect(await runTrendingEffectsNow(config, { fetchImpl })).toEqual({
       status: "failed",
       updatedAt: DOC.updatedAt,
+      notes: ["quota"],
       items: [],
     });
     expect(cachedTrendingEffects(config)).toBeNull();

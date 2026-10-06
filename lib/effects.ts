@@ -21,6 +21,8 @@ export interface TrendingEffect {
 export interface TrendingEffects {
   status: "ok" | "partial" | "failed" | "never";
   updatedAt?: string;
+  /** Why a run went as it did; "attempts": the Worker's tries for the day are spent (the scan button rests). */
+  notes?: string[];
   items: TrendingEffect[];
 }
 
@@ -78,6 +80,7 @@ export function parseTrendingEffects(raw: unknown): TrendingEffects | null {
   return {
     status: raw.status as TrendingEffects["status"],
     ...(isStr(raw.updatedAt) ? { updatedAt: raw.updatedAt } : {}),
+    ...(Array.isArray(raw.notes) ? { notes: raw.notes.filter(isStr) } : {}),
     items: raw.items
       .map(parseEffect)
       .filter((e): e is TrendingEffect => !!e)
@@ -137,7 +140,8 @@ const running = new Map<string, Promise<TrendingEffects | null>>();
  * after that, unless the day's run failed). One request per Worker at a time, since the Worker's once-a-day check has
  * no lock: a second tap, or a tap after leaving Discover and coming back, waits for the same answer. A list is kept
  * like a fetched one, so it is not lost when the row has gone; null when the request failed (the Worker's own failed
- * run answers `failed` with no list, and the button stays).
+ * run answers `failed` with no list, and the button stays). Past its 3 tries a UTC day the Worker spends nothing and
+ * answers its stored list noted "attempts".
  */
 export async function runTrendingEffectsNow(
   config: ScoutConfig,

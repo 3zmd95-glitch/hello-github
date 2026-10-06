@@ -76,8 +76,12 @@ const docOf = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 const NEVER = { status: "never", items: [] };
+/** The Worker's own failed run, with no list yet. */
+const FAILED_RUN = { status: "failed", ranOn: "2026-10-06", notes: ["quota"], items: [] };
 const WAITING = "أدوّر على الترندات… ممكن تاخذ دقيقة";
 const RUN_FAILED = "ما قدرت أشغّل الفحص، جرّب بعد شوي";
+const RUN_LIMIT = "جرّبت كذا مرة اليوم، أرجع أجرّب بكرة";
+const NONE = "لسه ما فيه مؤثر منتشر كفاية، أرجع أشيّك بكرة";
 
 /** What `GET /effects/trending` answers; null = an older Worker without the route (404). */
 let trending: unknown;
@@ -311,8 +315,116 @@ describe("before the Worker's first run", () => {
     focus.mockRestore();
   });
 
+  it("a scan the Worker ran but failed (no list yet): the failure line under the button, enabled for a retry", async () => {
+    trending = NEVER;
+    runAnswer = { body: FAILED_RUN, status: 200 };
+    await mount();
+    act(() => runButton().click());
+    await settle();
+    await act(async () => releaseRun!());
+    await settle();
+    expect($("trending-effects")!.getAttribute("data-state")).toBe("never");
+    expect(runButton().disabled).toBe(false);
+    expect(status()).toBe(RUN_FAILED);
+  });
+
+  it("over the day's tries: the button stays off, with the run-limit line; a fresh visit offers it again", async () => {
+    // The Worker answers its stored list over its cap: a failed day with no list, or no document yet, or an older
+    // run that found nothing.
+    for (const body of [
+      { ...FAILED_RUN, notes: ["quota", "attempts"] },
+      { status: "failed", ranOn: "2026-10-06", notes: ["attempts"], items: [] },
+      docOf({ items: [], notes: ["attempts"] }),
+    ]) {
+      trending = NEVER;
+      runAnswer = { body, status: 200 };
+      remount();
+      await settle();
+      act(() => runButton().click());
+      await settle();
+      await act(async () => releaseRun!());
+      await settle();
+      expect($("trending-effects")!.getAttribute("data-state"), body.status).toBe("never");
+      expect(runButton().disabled).toBe(true);
+      expect(status()).toBe(RUN_LIMIT);
+    }
+    // A fresh visit asks the Worker again ("never"): the button is back (a tap over the cap spends nothing).
+    remount();
+    await settle();
+    expect(runButton().disabled).toBe(false);
+    expect(status()).toBe("");
+  });
+
+  it("a first scan that finds nothing: the row stays, the button off, with the nothing-yet line", async () => {
+    for (const kind of ["ok", "partial"]) {
+      trending = NEVER;
+      runAnswer = { body: docOf({ status: kind, items: [] }), status: 200 };
+      remount("en");
+      await settle();
+      act(() => runButton().click());
+      await settle();
+      await act(async () => releaseRun!());
+      await settle();
+      expect($("trending-effects")!.getAttribute("data-state"), kind).toBe("never");
+      expect(runButton().disabled).toBe(true);
+      expect(status()).toBe("Nothing is trending widely enough yet — I'll check again tomorrow");
+    }
+    // In Arabic too.
+    trending = NEVER;
+    remount();
+    await settle();
+    act(() => runButton().click());
+    await settle();
+    await act(async () => releaseRun!());
+    await settle();
+    expect(status()).toBe(NONE);
+    // A later visit whose GET says the same (a run with nothing to show) hides the row.
+    trending = docOf({ items: [] });
+    remount();
+    await settle();
+    expect(host.innerHTML).toBe("");
+  });
+
+  it("a scan that lands without a list hands focus back to the re-enabled button, unless the owner is elsewhere", async () => {
+    trending = NEVER;
+    runAnswer = { body: { error: "upstream" }, status: 502 };
+    await mount();
+    runButton().focus();
+    act(() => runButton().click());
+    await settle();
+    // Chrome drops focus from the disabled button to the page meanwhile (jsdom keeps it there, so it is done here:
+    // a disabled button cannot be blurred).
+    const away = document.createElement("input");
+    document.body.append(away);
+    away.focus();
+    away.blur();
+    away.remove();
+    expect(document.activeElement).toBe(document.body);
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    await act(async () => releaseRun!());
+    await settle();
+    expect(runButton().disabled).toBe(false);
+    expect(document.activeElement).toBe(runButton());
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(focus).not.toHaveBeenCalledWith();
+    focus.mockRestore();
+
+    // The Worker's own failed run, while the owner types elsewhere: their focus stays.
+    runAnswer = { body: FAILED_RUN, status: 200 };
+    act(() => runButton().click());
+    await settle();
+    const elsewhere = document.createElement("input");
+    document.body.append(elsewhere);
+    elsewhere.focus();
+    await act(async () => releaseRun!());
+    await settle();
+    expect(status()).toBe(RUN_FAILED);
+    expect(document.activeElement).toBe(elsewhere);
+    elsewhere.remove();
+  });
+
   it("the Worker's own failed first run (failed, no list yet): the button and the failure line, not an empty row", async () => {
-    trending = { status: "failed", ranOn: "2026-10-06", notes: ["quota"], items: [] };
+    trending = FAILED_RUN;
     await mount();
     const row = $("trending-effects")!;
     expect(row.getAttribute("data-state")).toBe("never");
