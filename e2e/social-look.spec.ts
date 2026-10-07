@@ -194,15 +194,81 @@ test("theme-color follows the world and survives client navigation", async ({ pa
   await expect.poll(colors).toEqual(social);
 });
 
-test("Social navigation has no emoji", async ({ page }) => {
-  await freshState(page, "/social/more/");
-  await expect(page.locator("main h1").first()).toBeVisible(); // the splash has no content yet
-  const text = await page.evaluate(
-    () =>
-      (document.querySelector('[data-testid="tabbar"], [data-testid="sidenav"]')?.textContent ??
-        "") + (document.querySelector("main")?.querySelector("h1")?.textContent ?? ""),
+// Spec §11: Social's navigation, headings, tabs, buttons and chips carry no emoji. Allowed: the countdown's
+// "now! 🚀", the Demographics country flags and the owner's own text (the run's only own text is its post title).
+const CHROME = [
+  "h1, h2, h3",
+  "nav a, a.ios-row, a.px-btn, .px-link",
+  'button, [role="tab"], [role="radio"]',
+  ".px-chip, .ios-chip, .px-fchip, .studio-pbtn",
+].join(", ");
+
+async function chromeEmoji(page: Page, where: string): Promise<string[]> {
+  return page.evaluate(
+    ({ where, selector }) => {
+      const out: string[] = [];
+      for (const el of document.querySelectorAll<HTMLElement>(selector)) {
+        if (el.closest('[data-testid="demo-geo-row"]')) continue;
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) continue;
+        const text = `${el.textContent ?? ""} ${el.getAttribute("aria-label") ?? ""}`
+          .replace(/(?:الحين|now)! 🚀/gu, "")
+          .trim();
+        if (/\p{Extended_Pictographic}/u.test(text))
+          out.push(
+            `${where}: ${el.dataset.testid ?? el.tagName.toLowerCase()} «${text.slice(0, 60)}»`,
+          );
+      }
+      return out;
+    },
+    { where, selector: CHROME },
   );
-  expect(text).not.toMatch(/\p{Extended_Pictographic}/u);
+}
+
+test("Social chrome has no emoji: every screen, Growth per platform, the post popup and the new-post sheet", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh" }).format(new Date());
+  const found: string[] = [];
+  await freshState(page, "/social/calendar/");
+  await page.locator('[data-testid="calendar-new"]:visible').click();
+  await page.getByTestId("post-platform-tiktok").click();
+  await page.getByTestId("post-title").fill("Match cut reel");
+  await page.getByTestId("post-day").fill(day);
+  await page.getByTestId("post-save").click();
+  await expect(page.getByTestId("post-form")).toBeHidden();
+  for (const lang of ["ar", "en"] as const) {
+    if (lang === "en") await switchLang(page, "en");
+    for (const path of SOCIAL_PATHS) {
+      await page.goto(path);
+      await expect(page.locator("main h1").first()).toBeVisible();
+      found.push(...(await chromeEmoji(page, `${lang} ${path}`)));
+    }
+    await page.goto("/social/growth/");
+    for (const p of ["tiktok", "instagram", "youtube"]) {
+      await page.getByTestId(`analytics-platform-${p}`).click();
+      await expect(page.getByTestId(`analytics-platform-${p}`)).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      found.push(...(await chromeEmoji(page, `${lang} growth:${p}`)));
+    }
+    await page.goto("/social/calendar/");
+    await page.getByTestId("post-card").first().locator("button").first().click();
+    for (const tab of ["overview", "script", "shots", "autopost"]) {
+      await page.getByTestId(`post-tab-${tab}`).click();
+      await expect(page.getByTestId(`post-tab-${tab}`)).toHaveAttribute("aria-selected", "true");
+      found.push(...(await chromeEmoji(page, `${lang} post:${tab}`)));
+    }
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("post-sheet")).toHaveCount(0);
+    await page.locator('[data-testid="calendar-new"]:visible').click();
+    await expect(page.getByTestId("post-form")).toBeVisible();
+    found.push(...(await chromeEmoji(page, `${lang} new-post`)));
+    await page.keyboard.press("Escape");
+  }
+  expect(found).toEqual([]);
 });
 
 test("small controls keep their look and take taps on a 44px band; Training's stay as they are", async ({

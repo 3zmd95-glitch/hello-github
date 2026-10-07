@@ -8,6 +8,7 @@ import {
   Settings,
   Smartphone,
   Trash2,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -343,6 +344,12 @@ function ManualRow({ post }: { post: Post }) {
               </Chip>
               {text.length > CAPTION_MAX[p] && (
                 <span className="text-danger text-xs">
+                  <TriangleAlert
+                    size={13}
+                    strokeWidth={1.75}
+                    className="me-1 inline align-[-2px]"
+                    aria-hidden
+                  />
                   {t("publish.hub.manualOver", { platform: name })}
                 </span>
               )}

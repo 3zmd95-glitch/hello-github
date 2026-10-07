@@ -1,5 +1,5 @@
 {
-  "publish.intro": "Write it once and it goes out on all your accounts at the time you planned 🚀",
+  "publish.intro": "Write it once and it goes out on all your accounts at the time you planned",
   "publish.needWorker": "Auto-posting needs the Scout Worker and your connected accounts in Settings.",
   "publish.needWorkerLink": "Open Settings",
   "publish.networks": "Where it goes",
@@ -85,8 +85,8 @@
   "publish.problem.notConnected": "{platform} is not connected; connect it in Settings.",
   "publish.problem.noPermission": "{platform} has no posting permission; press “Allow posting”.",
   "publish.todo": "{n} things left before it can go out.",
-  "publish.scheduled": "Done! It goes out on time ⏰",
-  "publish.sentNow": "Publishing started 🚀 videos take a few minutes.",
+  "publish.scheduled": "Done! It goes out on time",
+  "publish.sentNow": "Publishing started. Videos take a few minutes.",
   "publish.canceled": "Schedule canceled.",
   "publish.schedule": "Schedule auto-post",
   "publish.update": "Update schedule",

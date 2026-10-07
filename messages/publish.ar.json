@@ -1,5 +1,5 @@
 {
-  "publish.intro": "اكتبه مرة وحدة، ونحن ننزّله على كل حساباتك في الوقت اللي حددته 🚀",
+  "publish.intro": "اكتبه مرة وحدة، ونحن ننزّله على كل حساباتك في الوقت اللي حددته",
   "publish.needWorker": "عشان النشر التلقائي يشتغل لازم تربط الـ Worker وحساباتك من الإعدادات.",
   "publish.needWorkerLink": "افتح الإعدادات",
   "publish.networks": "وين ينزل؟",
@@ -85,8 +85,8 @@
   "publish.problem.notConnected": "{platform} مو مربوط؛ اربطه من الإعدادات.",
   "publish.problem.noPermission": "{platform} بدون إذن النشر؛ اضغط «اسمح بالنشر».",
   "publish.todo": "باقي {n} أشياء قبل ما يقدر ينزل.",
-  "publish.scheduled": "تمام! بينزل في وقته ⏰",
-  "publish.sentNow": "بدأ النشر 🚀 الفيديو ياخذ كم دقيقة.",
+  "publish.scheduled": "تمام! بينزل في وقته",
+  "publish.sentNow": "بدأ النشر. الفيديو ياخذ كم دقيقة.",
   "publish.canceled": "ألغينا الجدولة.",
   "publish.schedule": "جدوِل النشر",
   "publish.update": "حدّث الجدولة",

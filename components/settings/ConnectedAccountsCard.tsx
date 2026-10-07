@@ -320,7 +320,7 @@ function AccountRow({
         )}
         {days !== null && (
           <span className="text-danger text-xs font-bold" data-testid="account-token-warning">
-            {t(reconnectMessageKey(days), { n: days })}
+            🔑 {t(reconnectMessageKey(days), { n: days })}
           </span>
         )}
       </div>
