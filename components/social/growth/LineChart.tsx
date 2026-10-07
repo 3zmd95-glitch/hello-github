@@ -368,6 +368,10 @@ export default function LineChart({
     ? {
         onPointerDown: (e: PointerEvent<SVGSVGElement>) => {
           if (e.pointerType !== "mouse") {
+            // First finger only; capture so a pen released off the chart still ends the gesture (a browser pan
+            // cancels the pointer and drops the capture).
+            if (!e.isPrimary) return;
+            e.currentTarget.setPointerCapture?.(e.pointerId);
             touch.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, axis: null };
             return;
           }

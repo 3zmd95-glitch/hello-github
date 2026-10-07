@@ -272,6 +272,7 @@ test("Growth basics still work: add a snapshot, import a stats CSV with the th a
   await expect(page.getByTestId("chart-followers").locator("svg")).toBeVisible();
   // The follower chart scrubs: a pointer at its end shows the glass tooltip with the nearest day (today's 50).
   const chartSvg = page.getByTestId("chart-followers").locator("svg");
+  await expect(chartSvg).toHaveCSS("touch-action", "pan-y"); // a swipe that starts on the chart still scrolls the page
   const chartBox = (await chartSvg.boundingBox())!;
   await chartSvg.hover({ position: { x: chartBox.width - 2, y: chartBox.height / 2 } });
   const tip = page.getByTestId("chart-followers").locator(".an-tip");

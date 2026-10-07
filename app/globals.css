@@ -2476,10 +2476,9 @@
 .an-chart svg {
   touch-action: pan-y;
 }
-/* A scrub chart still lets the page scroll (controller ruling, overrides the spec's `none`): vertical pans stay the
-   browser's, a sideways finger scrubs (LineChart decides past a few pixels). */
+/* A scrub chart keeps the page scrollable (pan-y above): vertical pans stay the browser's, a sideways finger scrubs
+   (LineChart decides past a few pixels). */
 .an-chart svg[data-scrub] {
-  touch-action: pan-y;
   cursor: crosshair;
 }
 .an-chart-grid {

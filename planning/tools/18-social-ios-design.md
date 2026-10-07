@@ -179,7 +179,7 @@ Signature behaviors (each one exists in the mockup; numbers are the mockup's):
 | Sheet | opens at **medium** (60% visible), drag up to **large** (92%); backdrop dims .38 + blur 6px; content behind scales .965 and rounds 36px; drag from the grabber + header; velocity ±0.6 px/ms decides, else nearest height; rubber band `-log1p(-y/30)·30` above the top; close 280ms ease-in |
 | Pull to refresh | Studio only; resistance .55, trigger at 70px, holds 56px while refreshing (≥ 1.1s), spinner glass circle rotates, then toast |
 | Numbers | count up 1000ms cubic ease-out on first view; charts draw their line 1.3s, area fades in after .5s, end dot pops after 1.1s |
-| Chart scrub | finger or mouse over the big chart shows a dashed marker, a ring dot and a glass tooltip (value + date); hides 900ms after release; `touch-action: none` on the chart only |
+| Chart scrub | finger or mouse over the big chart shows a dashed marker, a ring dot and a glass tooltip (value + date); hides 900ms after release; `touch-action: pan-y`: a finger scrubs once it moves sideways (~6px), a vertical swipe scrolls the page (ruling at build time — `none` trapped the scroll on phones) |
 | Week strip | `scroll-snap-type: x mandatory`, previous / current / next week; opens on the current week |
 | Swipe to favorite | ideas rows: drag toward the end (left in RTL) up to 96px then log resistance; arm at 64px; release toggles the star and springs back; `touch-action: pan-y` keeps vertical scroll |
 | Toast | glass capsule drops from the top with the spring, 1.9s, `role="status"` |
