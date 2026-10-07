@@ -270,7 +270,7 @@ function AccountRow({
           {L(meta.name)}
           {state === "connected" && status?.canPublish && platform !== "tiktok" && (
             <span className="px-chip px-chip-green text-xs" data-testid="account-can-post">
-              {t("publish.hub.canPost")}
+              ✍️ {t("publish.hub.canPost")}
             </span>
           )}
           {state === "connected" && platform === "tiktok" && (
@@ -279,16 +279,16 @@ function AccountRow({
               data-testid="account-tiktok-capabilities"
             >
               {(status?.canUpload ?? status?.canPublish) && (
-                <span className="px-chip px-chip-green">{t("publish.tt.canUpload")}</span>
+                <span className="px-chip px-chip-green">📥 {t("publish.tt.canUpload")}</span>
               )}
               {status?.canDirectPost && (
-                <span className="px-chip px-chip-green">{t("publish.tt.canDirectPost")}</span>
+                <span className="px-chip px-chip-green">✍️ {t("publish.tt.canDirectPost")}</span>
               )}
             </span>
           )}
           {replies && state === "connected" && status?.canReply && (
             <span className="px-chip px-chip-green text-xs" data-testid="account-can-reply">
-              {t("replies.canReply")}
+              💬 {t("replies.canReply")}
             </span>
           )}
         </span>
@@ -356,7 +356,7 @@ function AccountRow({
             disabled={busy}
             data-testid="account-allow-posting"
           >
-            {replies && !status?.canReply ? t("replies.allowBoth") : t("publish.allow")}
+            ✍️ {replies && !status?.canReply ? t("replies.allowBoth") : t("publish.allow")}
           </button>
         )}
         {replies && state === "connected" && status?.canPublish && !status.canReply && (
@@ -367,7 +367,7 @@ function AccountRow({
             disabled={busy}
             data-testid="account-allow-replies"
           >
-            {t("replies.allow")}
+            💬 {t("replies.allow")}
           </button>
         )}
         {(state === "connected" || state === "error") && (

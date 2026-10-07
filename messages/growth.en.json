@@ -120,7 +120,7 @@
   "growth.account.handle": "Handle (without @)",
   "growth.account.url": "Profile link (optional)",
   "growth.account.save": "Save account",
-  "growth.account.saved": "✓ Saved",
+  "growth.account.saved": "Saved",
   "growth.planned.title": "Planned this week",
   "growth.planned.empty": "No posts planned on this platform this week.",
   "growth.planned.open": "Open the calendar",
@@ -180,9 +180,9 @@
   "growth.source.live": "Live · last sync {ago}",
   "growth.source.beacons": "Beacons numbers · {day}",
   "growth.source.manual": "Manual · {day}",
-  "growth.sync.button": "🔄 Sync",
+  "growth.sync.button": "Sync",
   "growth.sync.busy": "Syncing…",
   "growth.sync.cta.title": "Connect your accounts and let the numbers come in by themselves",
   "growth.sync.cta.body": "TikTok, Instagram, YouTube and Threads: connect once in Settings, then followers, engagement and your posts update every day with no copy-paste.",
-  "growth.sync.cta.button": "🔗 Connect accounts"
+  "growth.sync.cta.button": "Connect accounts"
 }
