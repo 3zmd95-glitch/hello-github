@@ -23,10 +23,11 @@ const ATTEMPTS = "category:attempts:cars:2026-10-07";
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-/** Tavily answering every search with 4 creators' speed-ramp posts: a dictionary technique, shown without the AI. */
+/** Tavily answering every search with 4 creators' speed-ramp reels (a category searches Instagram alone): a
+ * dictionary technique, shown without the AI. */
 function tavily() {
   const results = ["c1", "c2", "c3", "c4"].map((handle, i) => ({
-    url: `https://www.tiktok.com/@${handle}/video/${i + 1}`,
+    url: `https://www.instagram.com/${handle}/reel/R${i + 1}/`,
     title: "speed ramp car edit 🔥",
     content: "#caredit",
   }));

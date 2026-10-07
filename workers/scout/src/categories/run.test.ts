@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
 import { TAVILY_URL } from "../trends/tavily";
 import { aiContext, categoryById } from "./defs";
-import { runCategory } from "./run";
+import { readCategory, runCategory } from "./run";
 import type { CategoryDoc, Technique } from "./types";
 
 const NOW = new Date("2026-10-07T05:40:00Z"); // 2026-10-07 is UTC day % 3 = 0: cars' turn, slot 05:40
@@ -16,36 +16,43 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 type Hit = { url: string; title: string; content: string };
-const tt = (handle: string, title: string, n: number): Hit => ({
-  url: `https://www.tiktok.com/@${handle}/video/${n}`,
-  title,
-  content: "#carsoftiktok",
-});
 const ig = (handle: string, title: string, n: number): Hit => ({
   url: `https://www.instagram.com/${handle}/reel/R${n}/`,
   title,
   content: "#caredit",
 });
 
-/** Car posts: rolling shots by 4 creators, low angles by 3, a speed ramp (a dictionary technique) by 4, generic captions. */
+/** Car reels (a category searches Instagram alone): rolling shots by 4 creators, low angles by 3, a speed ramp (a
+ * dictionary technique) by 4, generic captions. */
 const PROBE: Hit[] = [
-  tt("r1", "Rolling shot of my M4 at sunset 🔥 #rollingshot", 1),
-  tt("r2", "rolling shots on the highway", 2),
+  ig("r1", "Rolling shot of my M4 at sunset 🔥 #rollingshot", 1),
+  ig("r2", "rolling shots on the highway", 2),
   ig("r3", "Cinematic Rolling Shot | BMW M3", 3),
   ig("r4", "rolling shot tutorial with a gimbal", 4),
-  tt("l1", "Low Angle hero shot of the GT3", 5),
-  tt("l2", "low angle car shot", 6),
-  tt("l3", "low angle reveal", 7),
-  tt("s1", "speed ramp car edit 🔥", 8),
-  tt("s2", "speed ramp on the drift", 9),
-  tt("s3", "speed ramp transition car edit", 10),
-  tt("s4", "my speed ramp edit", 11),
-  tt("g1", "car edit trend #caredit", 12),
-  tt("g2", "cinematic car edit", 13),
+  ig("l1", "Low Angle hero shot of the GT3", 5),
+  ig("l2", "low angle car shot", 6),
+  ig("l3", "low angle reveal", 7),
+  ig("s1", "speed ramp car edit 🔥", 8),
+  ig("s2", "speed ramp on the drift", 9),
+  ig("s3", "speed ramp transition car edit", 10),
+  ig("s4", "my speed ramp edit", 11),
+  ig("g1", "car edit trend #caredit", 12),
+  ig("g2", "cinematic car edit", 13),
+];
+/** A lesson's search (YouTube, Instagram and TikTok in one call) finds a YouTube how-to, a TikTok and a reel, each
+ * titled with its search words: on topic. */
+const lessonHits = (q: string, n: number): Hit[] => [
+  {
+    url: `https://www.youtube.com/watch?v=lesson${String(n).padStart(5, "0")}`,
+    title: `How to shoot: ${q}`,
+    content: "1/30 s, ND filter",
+  },
+  { url: `https://www.tiktok.com/@t${n}/video/${n}1`, title: `${q} clip`, content: "" },
+  { url: `https://www.instagram.com/i${n}/reel/L${n}/`, title: `${q} reel`, content: "" },
 ];
 
-/** A fake internet: every Tavily search answers `PROBE` unless `tavily` says otherwise; Tavily's /usage answers `usage`
- * (by default no figure: a 404, nothing kept); anything else is counted. */
+/** A fake internet: a category's searches answer `PROBE` and a lesson's search its `lessonHits`, unless `tavily` says
+ * otherwise; Tavily's /usage answers `usage` (by default no figure: a 404, nothing kept); anything else is counted. */
 function web(
   over: { tavily?: (query: string) => Response | undefined; usage?: () => Response } = {},
 ) {
@@ -61,12 +68,24 @@ function web(
       return json({ error: "not_found" }, 404);
     }
     count.tavily++;
-    const { query } = JSON.parse(String(init?.body)) as { query: string };
+    const { query, include_domains } = JSON.parse(String(init?.body)) as {
+      query: string;
+      include_domains: string[];
+    };
     searched.push(query);
-    return over.tavily?.(query) ?? json({ results: PROBE, usage: { credits: 1 } });
+    const results = include_domains.length > 1 ? lessonHits(query, count.tavily) : PROBE;
+    return over.tavily?.(query) ?? json({ results, usage: { credits: 1 } });
   });
   return { fetch, count, searched };
 }
+/** The Tavily searches as sent: query, sites and window. */
+const sent = (fetch: ReturnType<typeof web>["fetch"]) =>
+  fetch.mock.calls
+    .filter(([url]) => String(url) === TAVILY_URL)
+    .map(([, init]) => {
+      const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return [b.query, b.include_domains, b.time_range];
+    });
 
 /** A fake built-in AI: the cleanup keeps every name it is shown, as it was written. Any other call (Task 3's
  * lessons) gets no usable answer here. */
@@ -148,7 +167,7 @@ const OLD: CategoryDoc = {
       samples: [],
     },
   ],
-  lessons: { updatedAt: "2026-10-04T05:40:00.000Z", photo: [], video: [TECHNIQUE], edit: [] },
+  lessons: { v: 2, updatedAt: "2026-10-04T05:40:00.000Z", photo: [], video: [TECHNIQUE], edit: [] },
   meta: {},
   history: {},
 };
@@ -161,9 +180,9 @@ afterEach(() => {
 });
 
 describe("runCategory", () => {
-  it("a first scan: 2 queries × 3 searches, camera words named, the category's own words never, trends first", async () => {
+  it("a first scan: 6 queries over Instagram's month, camera words named, the category's own words never, trends first", async () => {
     const { env, KV, AI } = setup();
-    const { fetch, count, searched } = web();
+    const { fetch, count } = web();
     const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
 
     expect(doc.items.map((i) => i.key)).toEqual(["rolling-shot", "low-angle", "speed-ramp"]);
@@ -179,10 +198,20 @@ describe("runCategory", () => {
       [],
     );
     expect(doc).toMatchObject({ ranOn: "2026-10-07", updatedAt: NOW.toISOString(), status: "ok" });
-    // 6 credits, and nothing but Tavily: no YouTube for categories.
+    // 6 credits, and nothing but Tavily: no YouTube for categories. Live fix 1: Instagram over a month alone, 6 queries
+    // (Instagram's week and TikTok found about 1 post a call in the first live scan).
     expect(count.tavily).toBe(6);
     expect(count.other).toBe(0);
-    expect([...new Set(searched)]).toEqual(["car edit trend", "cinematic car edit"]);
+    expect(sent(fetch)).toEqual(
+      [
+        "car edit trend",
+        "cinematic car edit",
+        "viral car edit",
+        "car edit transition",
+        "car edit capcut template",
+        "car video trend",
+      ].map((q) => [q, ["instagram.com"], "month"]),
+    );
     const system = (AI.run.mock.calls[0][1].messages as { content: string }[])[0].content;
     expect(system.endsWith(aiContext(categoryById("cars")!))).toBe(true);
     // A spending run counts itself, then saves. A lessons refresh (Task 3) may save once more after that.
@@ -191,7 +220,13 @@ describe("runCategory", () => {
     expect(stored(KV).diagnostics).toMatchObject({
       id: "cars",
       credits: 6,
-      families: [{ family: 1 }, { family: 2 }],
+      families: [1, 2, 3, 4, 5, 6].map((family) => ({
+        family,
+        tt: 0,
+        igWeek: 0,
+        igMonth: 13,
+        posts: 13,
+      })),
     });
   });
 
@@ -409,7 +444,9 @@ describe("runCategory's lessons (§3)", () => {
     expect(count.tavily).toBe(16);
     // Lessons find their YouTube videos through Tavily: no YouTube call (the env has YouTube's key).
     expect(count.other).toBe(0);
-    expect(searched).toContain("car panning tutorial");
+    // Live fix 1: examples for the subject, no " tutorial" added.
+    expect(searched).toContain("car panning");
+    expect(searched).not.toContain("car panning tutorial");
     expect(searched).toContain("شرح تصوير ومونتاج سيارات");
     expect(writes(KV)).toEqual([ATTEMPTS, KEY, KEY]);
     // The trends were saved first, without lessons: a refresh that never ends still leaves them saved.
@@ -428,10 +465,24 @@ describe("runCategory's lessons (§3)", () => {
       "tutorial",
     ]);
     expect(stored(KV).lessons).toEqual(doc.lessons);
+    expect(stored(KV).lessons!.v).toBe(2);
     expect(stored(KV).diagnostics).toMatchObject({
       lessons: { picked: 9, written: 9, credits: 10 },
     });
     expect(doc.notes ?? []).not.toContain("lessons");
+  });
+
+  it("lessons from before live fix 1 (no version) are due at the next scan, however new; the stored page still reads", async () => {
+    const before = { ...OLD.lessons!, v: undefined }; // 3 days old; KV's JSON leaves `v` out
+    const { env, KV } = setup({ stored: { ...OLD, lessons: before } });
+    env.AI = lessonsAi();
+    const { fetch, count } = web();
+    // The page as it was stored is still read as it is (the GET's answer included).
+    expect((await readCategory(env, "cars"))!.lessons).toEqual(before);
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+    expect(count.tavily).toBe(16);
+    expect(doc.lessons).toMatchObject({ v: 2, updatedAt: NOW.toISOString() });
+    expect(stored(KV).lessons).toEqual(doc.lessons);
   });
 
   it("lessons under 6 days old stay as they are", async () => {

@@ -18,13 +18,16 @@ export interface LessonVideo {
   kind: "example" | "tutorial";
   lang: "en" | "ar";
 }
+/** English first (live fix 1): the Arabic name and how-to only when the model wrote them in Arabic script. */
 export interface Technique {
-  name: { en: string; ar: string };
-  howTo: { en: string; ar: string };
+  name: { en: string; ar?: string };
+  howTo: { en: string; ar?: string };
   skillId?: string;
   videos: LessonVideo[];
 }
 export interface Lessons {
+  /** `LESSONS_VERSION` (lessons.ts) when written; none before live fix 1. Older lessons are due at the next scan. */
+  v?: number;
   updatedAt: string;
   photo: Technique[];
   video: Technique[];
