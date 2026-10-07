@@ -1,10 +1,14 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { Download, FileUp } from "lucide-react";
+import { useMemo, useState } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import Card from "@/components/ui/ios/Card";
+import { ListGroup } from "@/components/ui/ios/List";
 import { postStatsToCsv, topPostsThisWeek } from "@/lib/analytics";
 import { PLATFORMS, type SocialPostStat } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { PlatformGlyph } from "@/lib/platformIcons";
 import { PLATFORM_META } from "@/lib/social";
 import { useStore } from "@/store";
 import type { AnalyticsFilter } from "./PlatformFilter";
@@ -13,8 +17,9 @@ import PostCard from "./PostCard";
 const SEARCH_LIMIT = 24;
 
 /**
- * Beacons' Home → My Content, at the bottom of both views: top posts this week (views, then likes, comments,
- * shares; stories excluded), a search over the imported posts with platform chips, Download CSV and Import.
+ * The Beacons Home → My Content block, at the bottom of both views: top posts this week (views, then likes,
+ * comments, shares; stories excluded) as a grouped list, a search over the imported posts with platform chips and
+ * its own list of rows, Download CSV and Import.
  */
 export default function MyContent({
   stats,
@@ -67,17 +72,13 @@ export default function MyContent({
   };
 
   return (
-    <section
-      className="px-card flex flex-col gap-4"
-      data-testid="my-content"
-      data-count={stats.length}
-    >
-      <header className="flex flex-wrap items-start gap-2">
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <h2 className="text-lg">{t("growth.content.title")}</h2>
-          <p className="text-muted text-xs">{t("growth.content.sub")}</p>
+    <section className="flex flex-col gap-3" data-testid="my-content" data-count={stats.length}>
+      <header className="flex flex-col gap-2 px-1 sm:flex-row sm:items-end sm:gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <h2 className="text-base">{t("growth.content.title")}</h2>
+          <p className="text-ink-2 text-[13px]">{t("growth.content.sub")}</p>
         </div>
-        <div className="ms-auto flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             className="px-btn px-btn-ghost px-btn-sm"
@@ -85,7 +86,8 @@ export default function MyContent({
             disabled={stats.length === 0}
             data-testid="content-export"
           >
-            ⬇️ {t("growth.content.export")}
+            <Download size={16} strokeWidth={1.75} aria-hidden />
+            {t("growth.content.export")}
           </button>
           <button
             type="button"
@@ -93,61 +95,66 @@ export default function MyContent({
             onClick={onImport}
             data-testid="content-import"
           >
-            📄 {t("growth.content.import")}
+            <FileUp size={16} strokeWidth={1.75} aria-hidden />
+            {t("growth.content.import")}
           </button>
         </div>
       </header>
 
       {stats.length === 0 ? (
-        <div className="px-inset flex flex-col gap-2" data-testid="content-empty">
-          <h3 className="text-base">{t("growth.content.empty.title")}</h3>
+        <Card className="flex flex-col gap-2" testId="content-empty">
+          <h3 className="text-[17px] font-semibold">{t("growth.content.empty.title")}</h3>
           <p className="text-ink-2 text-sm">{t("growth.content.empty.body")}</p>
           <p className="text-muted text-xs">{t("growth.content.empty.where")}</p>
           <button
             type="button"
-            className="px-btn self-start"
+            className="px-btn mt-1 self-start"
             onClick={onImport}
             data-testid="content-empty-import"
           >
-            📄 {t("growth.content.import")}
+            <FileUp size={18} strokeWidth={1.75} aria-hidden />
+            {t("growth.content.import")}
           </button>
-        </div>
+        </Card>
       ) : (
         <>
           {/* Top posts this week */}
-          <div className="flex flex-col gap-2" data-testid="content-top" data-count={top.length}>
-            <h3 className="text-base">{t("growth.content.top")}</h3>
+          <ListGroup
+            header={t("growth.content.top")}
+            listAs="ul"
+            testId="content-top"
+            data-count={top.length}
+          >
             {top.length === 0 ? (
-              <p className="text-ink-2 text-sm">{t("growth.content.topEmpty")}</p>
+              <li className="ios-row text-ink-2 text-sm" data-sep="16">
+                {t("growth.content.topEmpty")}
+              </li>
             ) : (
-              <div className="an-posts">
-                {top.map((p) => (
-                  <PostCard key={`${p.platform}:${p.postId}`} post={p} testId="top-post" />
-                ))}
-              </div>
+              top.map((p) => (
+                <PostCard key={`${p.platform}:${p.postId}`} post={p} testId="top-post" />
+              ))
             )}
-          </div>
+          </ListGroup>
 
-          {/* Search */}
-          <div className="flex flex-col gap-2" data-testid="content-search-block">
-            <h3 className="text-base">{t("growth.content.search")}</h3>
+          {/* Search: a field and chips on the page ground, the results as their own list. */}
+          <section className="flex flex-col gap-2" data-testid="content-search-block">
+            <h3 className="ios-gh text-[13px]">{t("growth.content.search")}</h3>
             <input
               type="search"
-              className="px-input"
+              className="px-input bg-panel"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("growth.content.searchPlaceholder")}
               aria-label={t("growth.content.search")}
               data-testid="content-search"
             />
-            <div className="gr-tabs" role="group" aria-label={t("growth.filter.aria")}>
+            <div className="flex flex-wrap gap-2" role="group" aria-label={t("growth.filter.aria")}>
               <button
                 type="button"
-                className="gr-tab"
+                className="px-fchip"
                 aria-pressed={active === "all"}
                 onClick={() => setChip("all")}
                 data-testid="content-platform-all"
-                style={{ "--c": "var(--accent)" } as CSSProperties}
               >
                 {t("growth.filter.all")}
               </button>
@@ -155,18 +162,18 @@ export default function MyContent({
                 <button
                   key={p}
                   type="button"
-                  className="gr-tab"
+                  className="px-fchip"
                   aria-pressed={active === p}
                   onClick={() => setChip(p)}
                   data-testid={`content-platform-${p}`}
-                  style={{ "--c": PLATFORM_META[p].color } as CSSProperties}
                 >
-                  <span aria-hidden>{PLATFORM_META[p].icon}</span> {L(PLATFORM_META[p].name)}
+                  <PlatformGlyph platform={p} size={14} className="shrink-0" />
+                  {L(PLATFORM_META[p].name)}
                 </button>
               ))}
             </div>
             <p
-              className="num text-muted text-xs"
+              className="num text-muted px-4 text-xs"
               data-testid="content-results"
               data-count={results.length}
             >
@@ -175,7 +182,7 @@ export default function MyContent({
                 : t("growth.content.results", { n: results.length })}
             </p>
             {results.length > 0 && (
-              <div className="an-posts">
+              <ul className="ios-list">
                 {results.map((p) => (
                   <PostCard
                     key={`${p.platform}:${p.postId}`}
@@ -184,9 +191,9 @@ export default function MyContent({
                     onRemove={() => setRemoving(p)}
                   />
                 ))}
-              </div>
+              </ul>
             )}
-          </div>
+          </section>
         </>
       )}
 

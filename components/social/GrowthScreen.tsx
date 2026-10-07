@@ -1,6 +1,6 @@
 "use client";
 
-import { FileUp, Plus } from "lucide-react";
+import { FileUp, Link2, LoaderCircle, Plus, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -86,7 +86,7 @@ export default function GrowthScreen() {
     : t("growth.ai.topEngagement.none");
 
   return (
-    <div className="flex flex-col gap-4" data-testid="growth-screen" data-tab={filter}>
+    <div className="flex flex-col gap-3" data-testid="growth-screen" data-tab={filter}>
       <PageHeader title={t("social.growth.title")} sub={t("social.growth.sub")} />
       <div className="flex flex-wrap gap-2">
         {sync.configured && (
@@ -100,9 +100,7 @@ export default function GrowthScreen() {
           >
             {sync.busy ? (
               <>
-                <span aria-hidden className="acc-spin">
-                  ⟳
-                </span>{" "}
+                <LoaderCircle size={16} strokeWidth={1.75} className="acc-spin" aria-hidden />
                 {t("growth.sync.busy")}
               </>
             ) : (
@@ -134,10 +132,13 @@ export default function GrowthScreen() {
 
       {filter === "all" && !anyConnected && (
         <section
-          className="px-card gr-cta flex flex-wrap items-center gap-3"
+          className="ios-card flex flex-wrap items-center gap-3"
           data-testid="growth-connect-cta"
         >
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="ios-ic self-start">
+            <Link2 size={20} strokeWidth={1.75} aria-hidden />
+          </span>
+          <div className="flex min-w-0 flex-1 basis-48 flex-col gap-1">
             <h2 className="text-base">{t("growth.sync.cta.title")}</h2>
             <p className="text-ink-2 text-sm">{t("growth.sync.cta.body")}</p>
             {sync.error && (
@@ -177,11 +178,17 @@ export default function GrowthScreen() {
       {changed && <WhatChanged snapshots={state.snapshots} now={now} />}
       {topEngagement && filter === "all" && (
         <p
-          className="px-card an-ai-card text-sm"
+          className="ios-card flex items-start gap-2 text-sm"
           data-testid="analytics-engagement-text"
           data-platform={best?.platform ?? ""}
         >
-          <span aria-hidden>✨</span> {bestText}
+          <Sparkles
+            size={16}
+            strokeWidth={1.75}
+            className="text-tint mt-0.5 shrink-0"
+            aria-hidden
+          />
+          <span>{bestText}</span>
         </p>
       )}
 

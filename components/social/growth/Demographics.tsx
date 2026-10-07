@@ -1,5 +1,6 @@
 "use client";
 
+import { PenLine, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { formatDayShort } from "@/components/planner/weekLabel";
@@ -99,7 +100,8 @@ export default function Demographics({
             onClick={onAdd}
             data-testid="demo-add"
           >
-            ✍️ {t("growth.demo.add")}
+            <PenLine size={16} strokeWidth={1.75} aria-hidden />
+            {t("growth.demo.add")}
           </button>
           <button
             type="button"
@@ -109,7 +111,7 @@ export default function Demographics({
             title={t("growth.demo.clear")}
             data-testid="demo-clear"
           >
-            ✕
+            <X size={16} strokeWidth={1.75} aria-hidden />
           </button>
         </div>
       </header>
