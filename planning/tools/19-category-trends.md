@@ -52,10 +52,10 @@ Choices, one question at a time:
 - **🔥 Trending in Cars this week.** A row of chips: the Cars edit styles being posted now, with creator counts and NEW,
   trends first, at most 12. Each chip shows its English name; its tooltip holds the English line of what it is and,
   under it, the Arabic name (the 🔥 Trending effects row does the same). A tap searches that style within Cars in
-  Keywords mode, for example "rolling shot car edit". A page over 7 days old says "🔥 Trending in Cars", without "this
-  week".
-- **🏆 Top in Cars** (§6, 2026-10-07): YouTube · TikTok · Instagram tabs, each up to 50 videos: the stored lists best
-  first, then Brave's group as Brave gave it.
+  Keywords mode, for example "rolling shot car edit", with Posted on Week like a 🔥 chip (2026-10-07). A page over 7
+  days old says "🔥 Trending in Cars", without "this week".
+- **🏆 Top in Cars** (§6, 2026-10-07): Instagram · TikTok · YouTube tabs (Instagram chosen when the page opens), each up
+  to 50 videos: the stored lists best first, then Brave's group as Brave gave it.
 - **Three shelves:** 📷 Photography, 🎥 Videography and ✂️ Editing. Each is a sideways row of about 3 technique cards
   for the category. A card shows:
   - the technique's English name; in the Arabic UI the Arabic name follows as a muted line, right to left;
@@ -354,8 +354,10 @@ them.
 - YouTube's and Tavily's results are stored with the page, like the trend samples.
 
 **What the owner sees** (English first):
-- **The row.** After the 🔥 row: "🏆 Top in Cars", with tabs ▶ YouTube · ♪ TikTok · 📷 Instagram, each with its count
-  (TikTok's once its list came).
+- **The row.** After the 🔥 row: "🏆 Top in Cars", with tabs 📷 Instagram · ♪ TikTok · ▶ YouTube, each with its count
+  (TikTok's once its list came). The order since 2026-10-07 (the owner: "English First. Instagram and tiktok first";
+  it was YouTube · TikTok · Instagram): Instagram is chosen when the page opens and its stored reels show at once; its
+  Brave top-up still waits for a tap on its tab, so opening a page never asks Brave.
   - It is a `tablist`. The arrow keys move focus between the tabs, mirrored in Arabic. YouTube's list is already
     there, so it follows focus; TikTok and Instagram ask Brave, so they wait for Enter, Space or a tap, and arrowing
     past them asks nothing (fix round, C7).
@@ -376,8 +378,8 @@ them.
   - Brave failing (401, 429 or other): the scan's posts, and "Couldn't reach Brave search right now".
   - Past the day's Brave requests: the scan's posts, and "Today's Brave searches are used up — more tomorrow".
   - An answer whose stored list came back empty (the Worker could not read its copy) keeps the page's own.
-- **Instagram**, while its stored list has fewer than 50, tops up from Brave when first chosen, the same way. Without
-  the key it says nothing: its stored reels stand on their own.
+- **Instagram**, while its stored list has fewer than 50, tops up from Brave when its tab is first tapped, the same way.
+  Without the key it says nothing: its stored reels stand on their own.
 - **A page from before §6** says "Top videos come with the next scan".
 - **At 375 px** the tabs fit in their strip, and the page never scrolls sideways.
 

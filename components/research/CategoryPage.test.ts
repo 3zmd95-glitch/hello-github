@@ -685,7 +685,8 @@ describe("the 🏆 top videos per platform (§6)", () => {
   };
   const selected = () => tabs().find((b) => b.getAttribute("aria-selected") === "true")!;
 
-  it("after the 🔥 row: YouTube · TikTok · Instagram with their counts; 12 show, Show more adds 12", async () => {
+  // The owner (2026-10-07): "English First. Instagram and tiktok first".
+  it("after the 🔥 row: Instagram · TikTok · YouTube with their counts, Instagram chosen; 12 show, Show more adds 12", async () => {
     page = docOf({ top: TOP });
     await mount("en");
     const headings = [...$("category-page")!.querySelectorAll("h3")].map((h) => h.textContent);
@@ -694,17 +695,25 @@ describe("the 🏆 top videos per platform (§6)", () => {
     expect(list.getAttribute("aria-label")).toBe("Top videos by platform");
     // TikTok's count comes with its list (Brave's, asked when the tab opens).
     expect(tabs().map((b) => [b.dataset.platform, b.textContent, b.dataset.count])).toEqual([
-      ["yt", "▶30YouTube", "30"],
-      ["tt", "♪TikTok", ""],
       ["ig", "📷14Instagram", "14"],
+      ["tt", "♪TikTok", ""],
+      ["yt", "▶30YouTube", "30"],
     ]);
-    expect(tab("yt").getAttribute("aria-selected")).toBe("true");
-    expect(tab("yt").tabIndex).toBe(0);
+    expect(tab("ig").getAttribute("aria-selected")).toBe("true");
+    expect(tab("ig").tabIndex).toBe(0);
     expect(tab("tt").tabIndex).toBe(-1);
+    expect(tab("yt").tabIndex).toBe(-1);
     const panel = $("category-top-panel")!;
     expect(panel.getAttribute("role")).toBe("tabpanel");
-    expect(panel.getAttribute("aria-labelledby")).toBe(tab("yt").id);
+    expect(panel.getAttribute("aria-labelledby")).toBe(tab("ig").id);
+    // Instagram's stored reels show at once, 12 at a time. Chosen by default, it asks nothing: its Brave top-up waits
+    // for a tap, as TikTok's does.
+    expect(titles()).toEqual(TOP.ig.slice(0, 12).map((v) => v.title));
+    expect(items().every((i) => i.dataset.platform === "ig")).toBe(true);
+    expect(more()!.textContent).toBe("Show more (2)");
+    expect(topAsked).toEqual([]);
     // YouTube's most viewed first, 12 at a time, as Discover's result cards: views and the creator when known.
+    await open("yt");
     expect(titles()).toEqual(TOP.yt.slice(0, 12).map((v) => v.title));
     const first = items()[0];
     expect(first.querySelector('[data-testid="result-stats"]')!.getAttribute("data-views")).toBe(
@@ -849,6 +858,9 @@ describe("the 🏆 top videos per platform (§6)", () => {
     const brave = Array.from({ length: 20 }, (_, i) => topVideo("ig", 100 + i));
     topAnswers = { ig: fromBrave("ig", brave, TOP.ig) };
     await mount("en");
+    // Chosen when the page opens, but not asked: a tap on its tab asks.
+    expect(tab("ig").getAttribute("aria-selected")).toBe("true");
+    expect(topAsked).toEqual([]);
     await open("ig");
     expect(topAsked).toEqual(["ig"]);
     // The 14 stored reels, then Brave's 20.
@@ -878,7 +890,7 @@ describe("the 🏆 top videos per platform (§6)", () => {
     page = docOf({ top: TOP });
     await mount("ar");
     expect($("category-top")!.querySelector("h3")!.textContent).toBe("🏆 الأقوى في سيارات");
-    expect(tabs().map((b) => b.textContent)).toEqual(["▶30YouTube", "♪TikTok", "📷14Instagram"]);
+    expect(tabs().map((b) => b.textContent)).toEqual(["📷14Instagram", "♪TikTok", "▶30YouTube"]);
     const title = items()[0].querySelector('[data-testid="result-title"]')!;
     expect(title.textContent).toBe("Top car edit 1");
     expect(title.getAttribute("dir")).toBe("auto");
@@ -891,11 +903,16 @@ describe("the 🏆 top videos per platform (§6)", () => {
     page = docOf({ top: TOP });
     topAnswers = { ig: fromBrave("ig", [topVideo("ig", 100)], TOP.ig) };
     await mount("en");
-    tab("yt").focus();
-    // Past TikTok to Instagram: focus moves, nothing is selected or asked.
+    tab("ig").focus();
+    // Onto TikTok: focus moves, nothing is selected or asked.
     await press("ArrowRight");
     expect(document.activeElement).toBe(tab("tt"));
+    expect(selected().dataset.platform).toBe("ig");
+    // YouTube's list is already here: it follows focus.
+    await press("ArrowRight");
+    expect(document.activeElement).toBe(tab("yt"));
     expect(selected().dataset.platform).toBe("yt");
+    // Round to Instagram: focus moves, YouTube stays chosen, nothing is asked.
     await press("ArrowRight");
     expect(document.activeElement).toBe(tab("ig"));
     expect(selected().dataset.platform).toBe("yt");
@@ -904,18 +921,13 @@ describe("the 🏆 top videos per platform (§6)", () => {
     await open("ig");
     expect(selected().dataset.platform).toBe("ig");
     expect(topAsked).toEqual(["ig"]);
-    // YouTube's list is already here: it follows focus.
-    tab("ig").focus();
-    await press("ArrowRight");
-    expect(document.activeElement).toBe(tab("yt"));
-    expect(selected().dataset.platform).toBe("yt");
     act(() => root.unmount());
     root = createRoot(host);
     await mount("ar");
-    tab("yt").focus();
+    tab("ig").focus();
     await press("ArrowLeft");
     expect(document.activeElement).toBe(tab("tt"));
-    expect(selected().dataset.platform).toBe("yt");
+    expect(selected().dataset.platform).toBe("ig");
     expect(topAsked).toEqual(["ig"]);
   });
 

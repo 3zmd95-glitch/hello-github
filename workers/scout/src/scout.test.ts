@@ -11,6 +11,7 @@ import {
   type Env,
 } from "./scout";
 import type { ScoutResult } from "./normalize";
+import { instagramShortcodeAt, tiktokIdAt } from "./postDate";
 
 const TOKEN = "s3cret-token";
 const ENV: Env = {
@@ -614,16 +615,52 @@ describe("POST /search: timeRange and thumbnails", () => {
     });
   }
 
-  it("passes timeRange through to Tavily as time_range", async () => {
-    const fetchMock = fakeFetch(() => jsonResponse({ results: [] }));
-    await handle(searchReq({ q: "x", platforms: ["tt"], timeRange: "week" }), ENV, undefined, {
-      fetch: fetchMock,
-    });
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).time_range).toBe("week");
+  // The Posted filter by real dates, as Discover's (2026-10-07: Tavily's Instagram "week" held posts from 2023).
+  it("asks Tavily a wider window for TikTok and Instagram (week → month); with YouTube, the asked one", async () => {
+    const sent = async (platforms: string[], timeRange?: string) => {
+      const fetchMock = fakeFetch(() => jsonResponse({ results: [] }));
+      await handle(searchReq({ q: "x", platforms, timeRange }), ENV, undefined, {
+        fetch: fetchMock,
+      });
+      return JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as Record<string, unknown>;
+    };
+    expect((await sent(["ig"], "week")).time_range).toBe("month");
+    expect((await sent(["tt"], "week")).time_range).toBe("month");
+    expect((await sent(["tt", "ig"], "month")).time_range).toBe("month");
+    expect((await sent(["ig"], "year")).time_range).toBe("year");
+    // A YouTube card here has no date to check: Tavily's own window stays.
+    expect((await sent(["yt"], "week")).time_range).toBe("week");
+    expect((await sent(["tt", "ig", "yt"], "week")).time_range).toBe("week");
+    expect(await sent(["tt"])).not.toHaveProperty("time_range");
+  });
 
-    const noRange = fakeFetch(() => jsonResponse({ results: [] }));
-    await handle(searchReq({ q: "x", platforms: ["tt"] }), ENV, undefined, { fetch: noRange });
-    expect(JSON.parse(String(noRange.mock.calls[0][1]?.body))).not.toHaveProperty("time_range");
+  it("a week search keeps the TikTok / Instagram posts their own ids date within 7 days; an undated one stays", async () => {
+    const ago = (days: number) => new Date(Date.now() - days * 86_400_000);
+    const igOld = `https://www.instagram.com/p/${instagramShortcodeAt(ago(10))}`;
+    const igFresh = `https://www.instagram.com/p/${instagramShortcodeAt(ago(3))}`;
+    // Its shortcode decodes past tomorrow: no date, so nothing says it is old.
+    const igUndated = "https://www.instagram.com/p/zzzzzzzzzzz";
+    const ttOld = `https://www.tiktok.com/@cuts/video/${tiktokIdAt(ago(10))}`;
+    const ttFresh = `https://www.tiktok.com/@cuts/video/${tiktokIdAt(ago(3))}`;
+    const fetchMock = fakeFetch(() =>
+      jsonResponse({
+        results: [igOld, igFresh, igUndated, ttOld, ttFresh].map((url, i) => ({
+          title: `post ${i}`,
+          url,
+          content: "",
+        })),
+      }),
+    );
+    const res = await handle(
+      searchReq({ q: "x", platforms: ["tt", "ig"], timeRange: "week", thumbs: false }),
+      ENV,
+      undefined,
+      { fetch: fetchMock },
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).time_range).toBe("month");
+    const body = (await res.json()) as { results: ScoutResult[] };
+    expect(body.results.map((r) => r.url)).toEqual([igFresh, igUndated, ttFresh]);
+    expect(body.results.find((r) => r.url === igUndated)).not.toHaveProperty("published");
   });
 
   it("enriches TikTok results with oEmbed thumbnails; YouTube from the id; Instagram stays bare", async () => {

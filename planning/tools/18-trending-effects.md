@@ -301,7 +301,7 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
 - a reason line, for example "9 صنّاع · ▶ ↑3×" / "9 creators · ▶ ↑3×";
 - the `what` line as the chip's `title` tooltip on mouse hover. Touch screens show no tooltip: there `what` reaches screen readers only, as part of the chip's label.
 
-**Tap.** Runs a Discover search for the effect: the query is the English name, which for a dictionary effect is its dictionary label. Any selected category is cleared, and the search always runs in Keywords mode, so a tap never spends an AI plan or the owner's ChatGPT / Claude usage. It is a normal search: about 6 credits the first time, and free from the cache within 6 hours.
+**Tap.** Runs a Discover search for the effect: the query is the English name, which for a dictionary effect is its dictionary label. Any selected category is cleared, and the search always runs in Keywords mode, so a tap never spends an AI plan or the owner's ChatGPT / Claude usage. Since 2026-10-07 a tap also sets the Posted filter to Week: the chip says "this week", so its tap shows this week's posts (TikTok / Instagram by each post's own date). The owner can widen it, and Posted stays as he leaves it for his next searches. A category page's style chip does the same. It is a normal search: about 6 credits the first time, and free from the cache within 6 hours.
 
 **States.**
 
@@ -574,7 +574,7 @@ date. YouTube keeps its API's `publishedAt`; a category's YouTube posts (`catego
   family.
 
 **Discover** (spec 13, "Live fix (2026-10-07)"): searches are English first (the Arabic tutorials query only for
-`lang: "ar"`: Arabic typing or "Arabic first"); a chip tap searches in English with "Arabic first" off and `editing: true`, so a post naming no editing
+`lang: "ar"`: Arabic typing or "Arabic first"); a chip tap searches in English with "Arabic first" off, Posted on Week and `editing: true`, so a post naming no editing
 besides the effect's own name is hidden as off-topic; a week search asks Tavily for a month and keeps the TikTok /
 Instagram posts dated within 7 days; cards show their date; the tabs read All, Instagram, TikTok, YouTube.
 
