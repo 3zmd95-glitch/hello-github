@@ -104,16 +104,22 @@ test("ideas bank: a new idea from the sheet, favorites by the star and by a swip
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText("Idea two");
 
+  // A new idea is never hidden by a filter: saving one shows the whole bank again.
+  await page.getByTestId("ideas-filter-favorites").click();
+  await addIdea(page, "Idea three");
+  await expect(page.getByTestId("ideas-filter-all")).toHaveAttribute("aria-pressed", "true");
+  await expect(rows).toHaveCount(3);
+
   // Favorites are stored with the idea.
   await page.reload();
-  await expect(rows).toHaveCount(2);
+  await expect(rows).toHaveCount(3);
   await expect(rows.filter({ hasText: "Idea one" })).toHaveAttribute("data-favorite", "true");
   await expect(rows.filter({ hasText: "Idea two" })).toHaveAttribute("data-favorite", "false");
 
   // Remove takes the idea out of the bank.
   await rows.filter({ hasText: "Idea two" }).getByTestId("idea-remove").click();
-  await expect(rows).toHaveCount(1);
-  await expect(page.getByTestId("ideas-list")).toHaveAttribute("data-count", "1");
+  await expect(rows).toHaveCount(2);
+  await expect(page.getByTestId("ideas-list")).toHaveAttribute("data-count", "2");
 });
 
 test("the new-idea sheet closes with ✕ and with Back, and keeps nothing it was not told to save", async ({
@@ -131,6 +137,14 @@ test("the new-idea sheet closes with ✕ and with Back, and keeps nothing it was
 
   await page.getByTestId("idea-new").click();
   await expect(sheet).toBeVisible();
+  // Back is armed once the sheet has opened: it pushes its own history entry (components/player/useBackToClose).
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Boolean((history.state as Record<string, unknown> | null)?.["3z-player"]),
+      ),
+    )
+    .toBe(true);
   await page.goBack();
   await expect(sheet).toHaveCount(0);
   await expect(page).toHaveURL(/\/social\/ideas\/$/);

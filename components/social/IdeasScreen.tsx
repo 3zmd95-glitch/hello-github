@@ -158,7 +158,8 @@ export default function IdeasScreen() {
           testId="idea-sheet"
           detents={[0.92]}
         >
-          <AddIdeaForm />
+          {/* A new idea is never hidden by a filter: saving one shows the whole bank. */}
+          <AddIdeaForm onSaved={() => setFilter("all")} />
         </Sheet>
       )}
     </div>

@@ -12,8 +12,11 @@ import { useStore } from "@/store";
 /** Sources the owner types in by hand; "skill" ideas come from the suggestions below the list. */
 const MANUAL_SOURCES = ["me", "audience", "trend"] as const satisfies readonly IdeaSource[];
 
-/** The "new idea" form, inside its sheet: Save adds the idea and closes the sheet with its exit animation. */
-export default function AddIdeaForm() {
+/**
+ * The "new idea" form, inside its sheet: Save adds the idea, tells the list (`onSaved`), and closes the sheet with
+ * its exit animation.
+ */
+export default function AddIdeaForm({ onSaved }: { onSaved: () => void }) {
   const { t, L } = useT();
   const addIdea = useStore((s) => s.addIdea);
   const close = useSheetClose();
@@ -26,6 +29,7 @@ export default function AddIdeaForm() {
     const trimmed = text.trim();
     if (!trimmed) return;
     addIdea({ text: trimmed, source, ...(platform ? { platform } : {}) });
+    onSaved();
     close();
   };
 
