@@ -1170,7 +1170,17 @@
   }
   @supports (corner-shape: squircle) {
     [data-world="social"]
-      :is(.px-card, .px-inset, .ios-card, .ios-list, .ios-ic, .ios-stat, .ios-seg, .ios-sheet) {
+      :is(
+        .px-card,
+        .px-inset,
+        .ios-card,
+        .ios-list,
+        .ios-ic,
+        .ios-stat,
+        .ios-seg,
+        .ios-sheet,
+        .studio-wday b
+      ) {
       corner-shape: squircle;
     }
   }
@@ -1695,6 +1705,23 @@
   :is(button, a).ios-row:active {
     background: var(--panel-2);
   }
+  /* The one row inside a card (Studio reminder): no row padding, and its title may wrap (it is the card's message).
+     In a narrow card (the desktop grid) the trailing control drops under the text, at the end, instead of
+     squeezing it below 8.5rem. */
+  .ios-row.bare {
+    flex-wrap: wrap;
+    padding: 0;
+    min-height: 0;
+  }
+  .ios-row.bare .ios-tx {
+    min-width: 8.5rem;
+  }
+  .ios-row.bare .ios-tx b {
+    white-space: normal;
+  }
+  .ios-row.bare > :last-child:not(.ios-tx) {
+    margin-inline-start: auto;
+  }
   /* Ring drawn inside: the list's overflow: hidden would clip an outside one. */
   [data-world="social"] :is(.ios-row, .ios-list a, .ios-list button):focus-visible {
     outline: 2px solid var(--tint);
@@ -1764,6 +1791,10 @@
     background: var(--warn-bg);
     color: var(--warn);
   }
+  /* A control that just turned into this element (a button morphing into a chip) pops in. */
+  .ios-pop {
+    animation: ios-pop 0.45s var(--spring);
+  }
   .ios-stat {
     background: var(--panel-2);
     border-radius: 16px;
@@ -1789,8 +1820,15 @@
     letter-spacing: -0.02em;
     font-variant-numeric: tabular-nums;
     direction: ltr;
-    text-align: match-parent;
     unicode-bidi: isolate;
+  }
+  /* The number is an LTR isolate, so `start` would mean left in Arabic too: put it on the label's side by the page
+     direction (match-parent would do it, but Chromium only knows the prefixed value). */
+  :root[data-world="social"][dir="rtl"] .ios-stat b {
+    text-align: right;
+  }
+  :root[data-world="social"][dir="ltr"] .ios-stat b {
+    text-align: left;
   }
   .ios-delta {
     display: inline-flex;
@@ -2915,30 +2953,45 @@
 /* 📱 Studio home, ideas bank and the Training ↔ Social bridge (round 16). Everything here is built on the
  * world tokens, so the same classes read as chunky pixel chips in the Training world (skill sheet, map)
  * and as soft pills under /social. */
-.studio-hero {
-  position: relative;
-  overflow: hidden;
+.studio-hero h3 {
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
 }
-.studio-hero::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    circle at 100% 0%,
-    color-mix(in srgb, var(--c, var(--accent)) 22%, transparent),
-    transparent 55%
-  );
+/* Next-post ring (60px): the stroke empties as the post time comes (the offset is set inline); once the time has
+ * passed it shows full in warn. On the first visit (the card stack's stagger) it draws in from empty once the card
+ * has risen. */
+.studio-ring {
+  width: 60px;
+  height: 60px;
+  flex: none;
+  transform: rotate(-90deg);
 }
-[dir="rtl"] .studio-hero::before {
-  background: radial-gradient(
-    circle at 0% 0%,
-    color-mix(in srgb, var(--c, var(--accent)) 22%, transparent),
-    transparent 55%
-  );
+.studio-ring-bg,
+.studio-ring-fg {
+  fill: none;
+  stroke-width: 5;
 }
-.studio-hero > * {
-  position: relative;
+.studio-ring-bg {
+  stroke: var(--fill);
+}
+.studio-ring-fg {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-dasharray: 150.8;
+  transition: stroke-dashoffset 1.4s var(--out);
+}
+.studio-hero[data-overdue="true"] .studio-ring-fg {
+  stroke: var(--warn);
+}
+.ios-stagger .studio-ring-fg {
+  animation: studio-ring-in 1.4s var(--out) 0.45s backwards;
+}
+@keyframes studio-ring-in {
+  from {
+    stroke-dashoffset: 150.8;
+  }
 }
 
 /* Platform chip / dot / button: `--c` is the platform's brand color. */
@@ -2962,22 +3015,12 @@
   padding: 0 10px;
   border-color: color-mix(in srgb, var(--c, var(--accent)) 45%, transparent);
 }
+/* A post on the week strip: `--pc` is the platform's color token. */
 .studio-pdot {
-  display: inline-grid;
-  place-items: center;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 4px;
-  font-size: 0.62rem;
-  font-weight: 800;
-  border: 2px solid var(--edge);
-  border-radius: var(--radius-sm);
-  background: var(--c, var(--accent));
-  color: #0b0d10;
-}
-[data-world="social"] .studio-pdot {
-  border: 0;
-  border-radius: 999px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pc, var(--muted));
 }
 .studio-pbtn {
   display: inline-flex;
@@ -3050,7 +3093,7 @@
   border-radius: 999px;
 }
 
-/* This week's plan: 7 day cells, Saturday first. */
+/* This week's plan: 7 day cells, Saturday first (mockup `.week` / `.day`); a cell with posts is a link. */
 .studio-week {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -3063,18 +3106,73 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  min-height: 74px;
-  padding: 6px 2px;
-  border: 2px solid var(--edge);
-  border-radius: var(--radius-sm);
-  background: var(--panel-2);
+  gap: 6px;
+  padding: 8px 0 6px;
+  border-radius: 14px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  text-decoration: none;
 }
-.studio-wday[data-today="true"] {
-  border-color: var(--accent);
+.studio-wday small {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
 }
-[data-world="social"] .studio-wday {
-  border-width: 1px;
+.studio-wday b {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition:
+    background-color var(--t-med) var(--out),
+    color var(--t-med) var(--out),
+    transform var(--t-spring) var(--spring);
+}
+.studio-wday[data-today="true"] b {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+a.studio-wday:active b {
+  transform: scale(0.9);
+}
+
+/* Growth snapshot sparkline (mockup `.chart`). Without `data-drawn` it shows drawn; the card sets "false" then "true"
+ * on the first visit, so the area fades in and the end dot pops after the line has drawn itself. */
+.studio-spark {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 12px;
+  overflow: visible;
+}
+.studio-spark-ln {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.studio-spark-ar {
+  transition: opacity var(--t-spring) var(--out) 0.5s;
+}
+.studio-spark-dot {
+  fill: var(--accent);
+  stroke: var(--panel);
+  stroke-width: 3;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform var(--t-spring) var(--spring) 1.1s;
+}
+.studio-spark[data-drawn="false"] .studio-spark-ar {
+  opacity: 0;
+}
+.studio-spark[data-drawn="false"] .studio-spark-dot {
+  transform: scale(0);
 }
 
 /* 📱 badge on a map node whose video is planned in the calendar (mirrors .map-lock on the other corner).

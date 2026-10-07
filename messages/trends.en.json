@@ -66,5 +66,5 @@
   "trends.err.network": "Could not reach the Worker. Check your connection",
   "trends.err.rateLimited": "The Worker is busy, try again in a moment",
   "trends.err.upstream": "The Worker answered with something we did not understand. Try again",
-  "trends.inboxNew": "📈 {n} new trend(s) this week"
+  "trends.inboxNew": "{n} new trend(s) this week"
 }

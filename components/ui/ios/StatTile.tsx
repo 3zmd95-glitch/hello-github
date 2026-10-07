@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { useCountUp } from "./useCountUp";
 
 export default function StatTile({
@@ -11,8 +11,10 @@ export default function StatTile({
   prefix = "",
   delta,
   countUp = true,
+  start = true,
   className = "",
   testId,
+  ...rest
 }: {
   label: string;
   value: number;
@@ -21,12 +23,14 @@ export default function StatTile({
   prefix?: string;
   delta?: ReactNode;
   countUp?: boolean;
+  /** Hold the count-up until true (the card is on screen). */
+  start?: boolean;
   className?: string;
   testId?: string;
-}) {
-  const shown = useCountUp(value, { decimals, enabled: countUp });
+} & HTMLAttributes<HTMLDivElement>) {
+  const shown = useCountUp(value, { decimals, enabled: countUp, start });
   return (
-    <div className={`ios-stat ${className}`} data-testid={testId}>
+    <div className={`ios-stat ${className}`} data-testid={testId} {...rest}>
       <small>{label}</small>
       <b className="num">
         {prefix}

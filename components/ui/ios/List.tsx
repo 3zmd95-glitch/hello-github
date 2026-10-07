@@ -1,21 +1,34 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
+/**
+ * A grouped list: a small header (with optional trailing content: a count chip, a `HeadLink`) over the rows. With
+ * trailing content the header gets 8px more air above, room for a `HeadLink`'s 44px hit area, which then never
+ * reaches the first row.
+ */
 export function ListGroup({
   header,
+  trailing,
   className = "",
   testId,
   children,
+  ...rest
 }: {
   header?: string;
+  trailing?: ReactNode;
   className?: string;
   testId?: string;
   children: ReactNode;
-}) {
+} & HTMLAttributes<HTMLElement>) {
   return (
-    <section className={`flex flex-col gap-1.5 ${className}`} data-testid={testId}>
-      {header && <h2 className="ios-gh text-[13px]">{header}</h2>}
+    <section className={`flex flex-col gap-1.5 ${className}`} data-testid={testId} {...rest}>
+      {header && (
+        <div className={`flex items-center justify-between gap-2 pe-4 ${trailing ? "pt-2" : ""}`}>
+          <h2 className="ios-gh text-[13px]">{header}</h2>
+          {trailing}
+        </div>
+      )}
       <div className="ios-list">{children}</div>
     </section>
   );
@@ -33,6 +46,7 @@ export function ListRow({
   onClick,
   testId,
   className = "",
+  ...rest
 }: {
   icon?: ReactNode;
   iconTone?: "tint" | "warn" | "fill";
@@ -44,7 +58,7 @@ export function ListRow({
   onClick?: () => void;
   testId?: string;
   className?: string;
-}) {
+} & Omit<HTMLAttributes<HTMLElement>, "title" | "onClick">) {
   const body = (
     <>
       {icon && <span className={`ios-ic ${iconTone === "tint" ? "" : iconTone}`}>{icon}</span>}
@@ -67,18 +81,25 @@ export function ListRow({
   const sep = icon ? undefined : "16";
   if (href)
     return (
-      <Link href={href} className={cls} data-testid={testId} data-sep={sep}>
+      <Link href={href} className={cls} data-testid={testId} data-sep={sep} {...rest}>
         {body}
       </Link>
     );
   if (onClick)
     return (
-      <button type="button" onClick={onClick} className={cls} data-testid={testId} data-sep={sep}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={cls}
+        data-testid={testId}
+        data-sep={sep}
+        {...rest}
+      >
         {body}
       </button>
     );
   return (
-    <div className={cls} data-testid={testId} data-sep={sep}>
+    <div className={cls} data-testid={testId} data-sep={sep} {...rest}>
       {body}
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { PLATFORMS, type Platform } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { PLATFORM_META } from "@/lib/social";
@@ -31,21 +31,6 @@ export function PlatformChip({
     >
       <span aria-hidden>{meta.icon}</span>
       <span>{L(meta.name)}</span>
-    </span>
-  );
-}
-
-/** A coloured dot with the platform's short label (TT, IG …), for day cells. */
-export function PlatformDot({ platform, title }: { platform: Platform; title?: string }) {
-  return (
-    <span
-      className="studio-pdot num"
-      style={platformStyle(platform)}
-      title={title}
-      aria-label={title}
-      data-platform={platform}
-    >
-      {PLATFORM_META[platform].short}
     </span>
   );
 }
@@ -104,17 +89,55 @@ export function PlatformPicker({
   );
 }
 
-/** "1.2K" / "108.7K" / "1.2M" with Latin digits; below 1000 as is. */
-export function fmtCount(n: number): string {
+/**
+ * A count split for display (and for a count-up that keeps its suffix): 1_478 → 1.5 "K", 184_230 → 184 "K",
+ * 2_100_000 → 2.1 "M"; one decimal under 100 unless it is .0, whole numbers from 100 up and below 1,000.
+ */
+export function compactCount(n: number): { value: number; decimals: number; suffix: string } {
   const abs = Math.abs(n);
-  const sign = n < 0 ? "-" : "";
-  if (abs >= 1_000_000) return `${sign}${trim(abs / 1_000_000)}M`;
-  if (abs >= 1_000) return `${sign}${trim(abs / 1_000)}K`;
-  return `${sign}${abs}`;
+  const [unit, suffix] =
+    abs >= 1_000_000 ? [1_000_000, "M"] : abs >= 1_000 ? [1_000, "K"] : [1, ""];
+  const x = abs / unit;
+  const value = unit === 1 || x >= 100 ? Math.round(x) : Number(x.toFixed(1));
+  return { value: n < 0 ? -value : value, decimals: Number.isInteger(value) ? 0 : 1, suffix };
 }
 
-const trim = (x: number): string =>
-  x >= 100 ? Math.round(x).toString() : x.toFixed(1).replace(/\.0$/, "");
+/** "1.2K" / "108.7K" / "1.2M" with Latin digits; below 1000 as is. */
+export function fmtCount(n: number): string {
+  const { value, decimals, suffix } = compactCount(n);
+  return `${value.toFixed(decimals)}${suffix}`;
+}
+
+/**
+ * A translated line that keeps its `{n}` placeholder (`t(key)` called without `n`), with `n` rendered as an
+ * LTR-isolated `.num`, so a sign or a "K" stays beside its digits inside Arabic text.
+ */
+export function withNum(text: string, n: ReactNode): ReactNode {
+  const [pre, post = ""] = text.split("{n}");
+  return (
+    <>
+      {pre}
+      <span className="num">{n}</span>
+      {post}
+    </>
+  );
+}
+
+/**
+ * A translated line with the post title in a `<bdi>` (`t` keeps a `{name}` placeholder it was not given): the
+ * owner's own text keeps its direction, so a mixed Arabic/English title cannot reorder the sentence around it.
+ */
+export function withName(text: string, name: string | undefined): ReactNode {
+  if (name === undefined) return text;
+  const [pre, post = ""] = text.split("{name}");
+  return (
+    <>
+      {pre}
+      <bdi>{name}</bdi>
+      {post}
+    </>
+  );
+}
 
 /** Link into the calendar agent's screen, opening one post. */
 export function calendarPostHref(postId: string): string {
