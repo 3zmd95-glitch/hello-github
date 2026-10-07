@@ -668,12 +668,18 @@ describe("runCategory's top lists (§6)", () => {
     const { env, KV } = setup();
     const { fetch, count, tiktokAsked } = web({ tiktok: tiktokReply });
     const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
-    // 2 calls: the category's industry's popular hashtags, then their videos.
+    // 4 calls: the popular hashtags of the category's industry and of the 2 edit industries, then their videos.
     expect(tiktokAsked.map((u) => `${u.origin}${u.pathname}`)).toEqual([
+      TT_TRENDING_URL,
+      TT_TRENDING_URL,
       TT_TRENDING_URL,
       TT_VIDEOS_URL,
     ]);
-    expect(tiktokAsked[0].searchParams.get("category_name")).toBe("AUTOMOTIVE");
+    expect(tiktokAsked.slice(0, 3).map((u) => u.searchParams.get("category_name"))).toEqual([
+      "AUTOMOTIVE",
+      "SPECIAL_EFFECTS",
+      "PHOTOGRAPHY",
+    ]);
     expect(count.other).toBe(0);
     expect(doc.top).toEqual({
       updatedAt: NOW.toISOString(),
@@ -685,7 +691,15 @@ describe("runCategory's top lists (§6)", () => {
     for (const note of ["tiktok", "tiktok_auth"]) expect(doc.notes ?? []).not.toContain(note);
     expect(stored(KV).top).toEqual(doc.top);
     expect(stored(KV).diagnostics).toMatchObject({
-      tiktok: { hashtags: 3, videos: 6, raw: 6, country: "US", industry: "AUTOMOTIVE" },
+      tiktok: {
+        // The same 3 hashtags in all 3 lists: each once, tier 3 (a subject word, no edit cue).
+        hashtags: [1, 2, 3].map((n) => ({ name: `cars${n}`, tier: 3 })),
+        lists: { industry: 3, effects: 3, photo: 3 },
+        videos: 6,
+        raw: 6,
+        country: "US",
+        industry: "AUTOMOTIVE",
+      },
     });
     // Scan again: YouTube's list and date kept (C1); TikTok asked again (it costs nothing), dated by this scan.
     const again = await runCategory(env, "cars", {
@@ -695,7 +709,7 @@ describe("runCategory's top lists (§6)", () => {
       sleep: NO_WAIT,
     });
     expect(count.youtube).toBe(2);
-    expect(tiktokAsked).toHaveLength(4);
+    expect(tiktokAsked).toHaveLength(8);
     expect(again.top).toEqual({
       updatedAt: NOW.toISOString(),
       yt: YT_TOP,
