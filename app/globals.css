@@ -1170,7 +1170,17 @@
   }
   @supports (corner-shape: squircle) {
     [data-world="social"]
-      :is(.px-card, .px-inset, .ios-card, .ios-list, .ios-ic, .ios-stat, .ios-seg, .ios-sheet) {
+      :is(
+        .px-card,
+        .px-inset,
+        .ios-card,
+        .ios-list,
+        .ios-ic,
+        .ios-stat,
+        .ios-seg,
+        .ios-sheet,
+        .studio-wday b
+      ) {
       corner-shape: squircle;
     }
   }
@@ -1695,13 +1705,22 @@
   :is(button, a).ios-row:active {
     background: var(--panel-2);
   }
-  /* The one row inside a card (Studio reminder): no row padding, and its title may wrap (it is the card's message). */
+  /* The one row inside a card (Studio reminder): no row padding, and its title may wrap (it is the card's message).
+     In a narrow card (the desktop grid) the trailing control drops under the text, at the end, instead of
+     squeezing it below 8.5rem. */
   .ios-row.bare {
+    flex-wrap: wrap;
     padding: 0;
     min-height: 0;
   }
+  .ios-row.bare .ios-tx {
+    min-width: 8.5rem;
+  }
   .ios-row.bare .ios-tx b {
     white-space: normal;
+  }
+  .ios-row.bare > :last-child:not(.ios-tx) {
+    margin-inline-start: auto;
   }
   /* Ring drawn inside: the list's overflow: hidden would clip an outside one. */
   [data-world="social"] :is(.ios-row, .ios-list a, .ios-list button):focus-visible {

@@ -160,7 +160,7 @@ export default function GrowthSnapshotCard({ today, first }: { today: string; fi
   const views = compactCount(sums.views30d);
 
   return (
-    <Card testId="studio-growth" data-empty={empty}>
+    <Card className="@container" testId="studio-growth" data-empty={empty}>
       <CardHead title={t("social.studio.growth")}>
         {!empty && (
           <HeadLink href="/social/growth/" testId="studio-growth-open">
@@ -186,7 +186,8 @@ export default function GrowthSnapshotCard({ today, first }: { today: string; fi
         />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2">
+          {/* Side by side from 18rem; a narrower card (the desktop column) stacks them so each delta fits its line. */}
+          <div className="grid grid-cols-1 gap-2 @[18rem]:grid-cols-2">
             <StatTile
               label={t("social.studio.growthFollowers")}
               value={followers.value}
