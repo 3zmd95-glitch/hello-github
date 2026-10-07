@@ -85,16 +85,16 @@ const topItem = (platform: TopPlatform, v: TopVideo): ResearchItem => ({
 const BRAVE_PAGE = "https://brave.com/search/api/";
 
 /**
- * 🏆 Top in <category> (planning/tools/19-category-trends.md §6): YouTube · TikTok · Instagram tabs, each up to 50
- * videos, 12 at a time, as Discover's result cards (thumbnail, title as given, creator, views when known, the app's
- * player). YouTube's and Instagram's stored lists come with the page, best first. TikTok's, and Instagram's while under
- * 50, ask the Worker for Brave's results the first time the tab is chosen, once a visit: they follow the stored list as
- * "More from Brave Search", in Brave's order and as Brave gave them, with Brave credited under them, and live in this
- * component's state alone, since Brave's terms forbid keeping its results. The arrow keys move focus between the tabs
- * (mirrored in Arabic); YouTube follows focus, TikTok and Instagram wait for Enter, Space or a tap, so arrowing past
- * them never asks Brave. TikTok's stored list is TikTok's own trending videos (its Discovery API, Brave off since
- * 2026-10-07): an empty TikTok tab offers "Connect TikTok trends", TikTok for Business's authorization page, which
- * sends the owner back to this address (Discover says so).
+ * 🏆 Top in <category> (planning/tools/19-category-trends.md §6): Instagram · TikTok · YouTube tabs (Instagram chosen
+ * when the page opens), each up to 50 videos, 12 at a time, as Discover's result cards (thumbnail, title as given,
+ * creator, views when known, the app's player). YouTube's and Instagram's stored lists come with the page, best first.
+ * TikTok's, and Instagram's while under 50, ask the Worker for Brave's results the first time the tab is tapped (never
+ * on opening the page), once a visit: they follow the stored list as "More from Brave Search", in Brave's order and as
+ * Brave gave them, with Brave credited under them, and live in this component's state alone, since Brave's terms forbid
+ * keeping its results. The arrow keys move focus between the tabs (mirrored in Arabic); YouTube follows focus, TikTok
+ * and Instagram wait for Enter, Space or a tap, so arrowing past them never asks Brave. TikTok's stored list is TikTok's
+ * own trending videos (its Discovery API, Brave off since 2026-10-07): an empty TikTok tab offers "Connect TikTok
+ * trends", TikTok for Business's authorization page, which sends the owner back to this address (Discover says so).
  */
 function TopVideos({
   config,
@@ -109,7 +109,8 @@ function TopVideos({
 }) {
   const { t, dir } = useT();
   const id = useId();
-  const [tab, setTab] = useState<TopPlatform>("yt");
+  // The first tab, Instagram: its stored list shows at once; its Brave top-up waits for a tap, as TikTok's does.
+  const [tab, setTab] = useState<TopPlatform>(TOP_PLATFORMS[0]);
   const [shown, setShown] = useState(TOP_SHOW);
   // A Brave tab's answer: none before its first open, null while on its way.
   const [brave, setBrave] = useState<Partial<Record<TopPlatform, TopAnswer | null>>>({});

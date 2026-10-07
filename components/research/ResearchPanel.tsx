@@ -269,10 +269,12 @@ export default function ResearchPanel({
     setEditing(false);
   };
 
-  /** A trend chip's search (spec 18, 2026-10-07): Arabic first off and editing context; its English name makes it an
-   * English search ({@link discoverLang}), and nothing of that sticks to the next search but Arabic first being off. */
+  /** A trend chip's search (spec 18, 2026-10-07): Arabic first off, Posted on Week (the chip says "this week": its tap
+   * shows this week's posts, and the owner can widen it) and editing context; its English name makes it an English
+   * search ({@link discoverLang}). Of that, only the two filters stick to the next search, as the owner left them. */
   const chipSearch = () => {
     setArFirst(false);
+    setRecency("week");
     setEditing(true);
   };
 
