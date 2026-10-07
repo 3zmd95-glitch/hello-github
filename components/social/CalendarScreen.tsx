@@ -1,6 +1,8 @@
 "use client";
 
+import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useToday } from "@/components/today/useToday";
 import PageHeader from "@/components/ui/ios/PageHeader";
 import Segmented from "@/components/ui/ios/Segmented";
@@ -30,10 +32,10 @@ function clearHash(): void {
 
 /**
  * Content calendar (rounds 16–17, iOS look round 35): Week · Month · Stages views (a segmented tablist, each view in
- * its tabpanel) per platform (filter chips with the brand glyphs), the "+ New post" sheet and the post popup. Deep
- * links: `#post=<id>` opens that post's popup (the Studio home, the Ideas bank and the skill sheet link here),
- * `#day=YYYY-MM-DD` focuses a day in the week view, as a tap on a day of the week strip or the month grid does; both
- * are read on mount and on `hashchange`.
+ * its tabpanel) per platform (filter chips with the brand glyphs), the new-post sheet (the glass "+" on phones, a
+ * header button from md up) and the post popup. Deep links: `#post=<id>` opens that post's popup (the Studio home,
+ * the Ideas bank and the skill sheet link here), `#day=YYYY-MM-DD` focuses a day in the week view, as a tap on a day of
+ * the week strip or the month grid does; both are read on mount and on `hashchange`.
  * A tap on a post pushes its `#post=` entry: Back closes the popup (with the sheet's exit), any other close goes back
  * off the entry. A popup opened from the URL pushed nothing, so closing it clears the hash with
  * `history.replaceState` and never leaves the calendar.
@@ -107,11 +109,16 @@ export default function CalendarScreen() {
   }, []);
 
   return (
-    <div className="flex flex-col gap-4" data-testid="calendar-screen" data-view={view}>
+    // Phones: room under the last row, so the floating "+" never covers its chip.
+    <div
+      className="flex flex-col gap-4 max-md:pb-14"
+      data-testid="calendar-screen"
+      data-view={view}
+    >
       <PageHeader title={t("social.calendar.title")} sub={t("social.calendar.sub")} />
 
       <div className="flex flex-wrap items-center gap-2">
-        {/* Grows beside the button; on a phone under ~330px wide it takes its own row instead of squeezing. */}
+        {/* Grows beside the md+ button (phones have the floating "+" instead). */}
         <Segmented
           options={VIEWS.map((v) => ({
             value: v,
@@ -126,13 +133,28 @@ export default function CalendarScreen() {
         />
         <button
           type="button"
-          className="px-btn px-btn-sm ms-auto"
+          className="px-btn px-btn-sm ms-auto max-md:hidden"
           onClick={() => newOn(null)}
           data-testid="calendar-new"
         >
           {t("calendar.new")}
         </button>
       </div>
+      {/* The phone's "+" lives in <body>: #main scales back under an open sheet, and a transformed ancestor would
+          carry a fixed child along. Same test id as the header button: one of the two is shown. */}
+      {createPortal(
+        <button
+          type="button"
+          className="ios-fab glass md:hidden"
+          data-show="true"
+          aria-label={t("calendar.form.title")}
+          onClick={() => newOn(focusDay)}
+          data-testid="calendar-new"
+        >
+          <Plus size={26} strokeWidth={1.75} aria-hidden />
+        </button>,
+        document.body,
+      )}
 
       <div className="flex flex-wrap gap-2" role="group" aria-label={t("calendar.filter.aria")}>
         <button

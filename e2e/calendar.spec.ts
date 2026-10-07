@@ -40,7 +40,7 @@ test("plan a post from idea to posted: week, popup, script, shots, month and sta
   await noHorizontalScroll(page);
 
   // + New post → TikTok "Test reel" today with the template.
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await expect(page.getByTestId("post-form")).toBeVisible();
   await page.getByTestId("post-platform-tiktok").click();
   await page.getByTestId("post-title").fill("Test reel");
@@ -157,7 +157,7 @@ test("a post created from a skill completes its Produce quest when marked posted
   const today = todayKey();
   await freshState(page, "/social/calendar/");
 
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-youtube").click();
   await page.getByTestId("post-skill").fill("smart bins");
   await page.locator('[data-testid="post-skill-option"][data-skill="smart-bins-keywords"]').click();
@@ -167,7 +167,7 @@ test("a post created from a skill completes its Produce quest when marked posted
 
   const card = page.locator('[data-testid="post-card"][data-platform="youtube"]');
   await expect(card).toHaveCount(1);
-  await expect(card).toContainText("📎🎮");
+  await expect(card.getByTestId("post-linked-skill")).toBeVisible();
   await card.locator("button").first().click();
   const sheet = page.getByTestId("post-sheet");
   await expect(sheet).toBeVisible();
@@ -197,7 +197,7 @@ test("a post created from a skill completes its Produce quest when marked posted
 
 test("the stages board moves posts with ◀ ▶ but never into posted", async ({ page }) => {
   await freshState(page, "/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-x").click();
   await page.getByTestId("post-title").fill("Thread: color mistakes");
   await page.getByTestId("post-save").click();
@@ -232,7 +232,7 @@ test("the week strip rests on this week, a swipe to next week moves the view, a 
 }) => {
   const today = todayKey();
   await freshState(page, "/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-x").click();
   await page.getByTestId("post-title").fill("Strip post");
   await page.getByTestId("post-day").fill(today);

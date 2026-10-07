@@ -1,7 +1,9 @@
 "use client";
 
+import { Gamepad2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { usePublishAutoResync } from "@/components/social/usePublish";
+import Chip from "@/components/ui/ios/Chip";
 import Segmented from "@/components/ui/ios/Segmented";
 import { useSheetClose } from "@/components/ui/ios/Sheet";
 import { getSkill } from "@/data";
@@ -94,9 +96,9 @@ function SheetBody({ post, onClose }: { post: Post; onClose: () => void }) {
         <PlatformChip platform={post.platform} />
         <StageChip stage={post.stage} />
         {skill && (
-          <span className="px-chip" title={t("calendar.linked")}>
-            📎🎮 <span className="max-w-[10rem] truncate">{L(skill.name)}</span>
-          </span>
+          <Chip icon={<Gamepad2 size={12} aria-hidden />} title={t("calendar.linked")}>
+            <span className="max-w-[10rem] truncate">{L(skill.name)}</span>
+          </Chip>
         )}
       </div>
 

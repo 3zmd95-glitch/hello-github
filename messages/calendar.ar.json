@@ -38,6 +38,7 @@
   "calendar.summary.platform": "{platform}: {planned} مخطط · {posted} انتشر",
   "calendar.overdue": "فات وقته",
   "calendar.linked": "مربوط بمهارة 🎮",
+  "calendar.linkedSkill": "مرتبط بمهارة",
   "calendar.card.noTime": "بدون وقت",
   "calendar.card.open": "افتح {title}",
   "calendar.stage.idea": "فكرة",

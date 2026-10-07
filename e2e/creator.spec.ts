@@ -46,7 +46,7 @@ test("creator previews, protects edits, applies selected fields and exports prod
   await page.getByTestId("apikey-scoutToken-test").click();
   await expect(page.getByTestId("apikey-scoutToken-status")).toHaveText("اتأكد ✓");
   await page.goto("/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-tiktok").click();
   await page.getByTestId("post-title").fill("Coffee film");
   await page.getByTestId("post-template").uncheck();

@@ -1,5 +1,6 @@
 "use client";
 
+import { Gamepad2 } from "lucide-react";
 import type { ReactNode } from "react";
 import Chip from "@/components/ui/ios/Chip";
 import PlatformBadge from "@/components/ui/ios/PlatformBadge";
@@ -11,7 +12,7 @@ import { STAGE_KEY } from "./PlatformChip";
 /**
  * One post as an iOS list row, in the week's day groups, the unplanned group and a stages column: the platform badge,
  * the title (the owner's own text, isolated in a `<bdi>` so it keeps its direction and its cut lands at its end), time ·
- * platform (📎🎮 when it links a skill), and a trailing chip: "overdue" or "no day" in warn, else the stage (tinted
+ * platform (and a "linked skill" chip), and a trailing chip: "overdue" or "no day" in warn, else the stage (tinted
  * once scheduled). The open button is the row and stays the card's first `<button>` (the e2e open posts with it);
  * `children` render under it (the board's move buttons).
  */
@@ -49,21 +50,20 @@ export default function PostCard({
           <b>
             <bdi>{post.title}</bdi>
           </b>
-          <small>
-            {(post.plannedDay || post.plannedTime) && (
-              <>
-                <span className="num">{post.plannedTime ?? t("calendar.card.noTime")}</span>
-                {" · "}
-              </>
-            )}
-            {L(PLATFORM_META[post.platform].name)}
+          <small className="flex flex-wrap items-center gap-x-1.5">
+            <span>
+              {(post.plannedDay || post.plannedTime) && (
+                <>
+                  <span className="num">{post.plannedTime ?? t("calendar.card.noTime")}</span>
+                  {" · "}
+                </>
+              )}
+              {L(PLATFORM_META[post.platform].name)}
+            </span>
             {post.skillId && (
-              <>
-                {" · "}
-                <span title={t("calendar.linked")} aria-label={t("calendar.linked")}>
-                  📎🎮
-                </span>
-              </>
+              <Chip icon={<Gamepad2 size={12} aria-hidden />} data-testid="post-linked-skill">
+                {t("calendar.linkedSkill")}
+              </Chip>
             )}
           </small>
         </span>
