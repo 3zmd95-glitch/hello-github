@@ -2640,41 +2640,108 @@
   gap: 2px 8px;
 }
 
-/* Charts */
-.gr-chart svg {
+/* Charts (mockup `.chart`). LineChart sets data-drawn "false" then "true" on the svg: the line draws itself, the area
+   fades in after it and the end dot pops. While scrubbing (data-scrubbing) the dashed marker, the ring dot and the
+   glass tooltip follow the finger. Chart chrome stays recessive: hairline grid, muted ticks. */
+.an-chart svg {
   touch-action: pan-y;
 }
-.gr-grid {
-  stroke: color-mix(in srgb, var(--ink) 12%, transparent);
+.an-chart svg[data-scrub] {
+  touch-action: none;
+  cursor: crosshair;
+}
+.an-chart-grid {
+  stroke: var(--hair);
   stroke-width: 1;
   shape-rendering: crispEdges;
 }
-.gr-cross {
-  stroke: color-mix(in srgb, var(--ink) 35%, transparent);
-  stroke-width: 1;
-}
-.gr-tick {
+.an-chart-tick {
   fill: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-family: var(--font-body);
 }
-.gr-endlabel {
+.an-chart-end {
   fill: var(--ink-2);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   font-family: var(--font-body);
 }
-.gr-marker {
+.an-chart-ln {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.an-chart-ar {
+  transition: opacity 0.9s var(--out) 0.5s;
+}
+.an-chart-dot {
+  fill: var(--accent);
   stroke: var(--panel);
-  stroke-width: 2px;
+  stroke-width: 3;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.5s var(--spring) 1.1s;
 }
-.gr-tooltip {
-  min-width: 140px;
+/* Waiting to draw: hidden at once (no transition back), then revealed with the delays above. */
+.an-chart [data-drawn="false"] .an-chart-ar {
+  opacity: 0;
+  transition: none;
+}
+.an-chart [data-drawn="false"] .an-chart-dot {
+  transform: scale(0);
+  transition: none;
+}
+.an-mk {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--out);
+}
+.an-mkd {
+  fill: var(--panel);
+  stroke: var(--accent);
+  stroke-width: 3;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--out);
+}
+.an-chart [data-scrubbing] :is(.an-mk, .an-mkd) {
+  opacity: 1;
+}
+.an-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
   z-index: 2;
-  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 6px);
+  transition:
+    opacity var(--t-fast) var(--out),
+    transform var(--t-fast) var(--out);
 }
-.gr-table-view table td,
-.gr-table-view table th {
+.an-tip[data-on] {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+.an-tip b {
+  font-size: 15px;
+  font-weight: 700;
+}
+.an-tip small {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.an-chart-table table td,
+.an-chart-table table th {
   padding: 2px 6px;
   border-bottom: 1px solid var(--edge);
 }
@@ -3215,40 +3282,6 @@
 }
 :is(a, button).studio-wday:active b {
   transform: scale(0.9);
-}
-
-/* Growth snapshot sparkline (mockup `.chart`). Without `data-drawn` it shows drawn; the card sets "false" then "true"
- * on the first visit, so the area fades in and the end dot pops after the line has drawn itself. */
-.studio-spark {
-  display: block;
-  width: 100%;
-  height: auto;
-  margin-top: 12px;
-  overflow: visible;
-}
-.studio-spark-ln {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.studio-spark-ar {
-  transition: opacity var(--t-spring) var(--out) 0.5s;
-}
-.studio-spark-dot {
-  fill: var(--accent);
-  stroke: var(--panel);
-  stroke-width: 3;
-  transform-box: fill-box;
-  transform-origin: center;
-  transition: transform var(--t-spring) var(--spring) 1.1s;
-}
-.studio-spark[data-drawn="false"] .studio-spark-ar {
-  opacity: 0;
-}
-.studio-spark[data-drawn="false"] .studio-spark-dot {
-  transform: scale(0);
 }
 
 /* 📱 badge on a map node whose video is planned in the calendar (mirrors .map-lock on the other corner).

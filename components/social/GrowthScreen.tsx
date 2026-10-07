@@ -46,7 +46,7 @@ export default function GrowthScreen() {
   const today = useToday();
   /** End of the Riyadh day: the windows (7 / 30 / 90 days) then cover whole days and stay stable all day. */
   const now = useMemo(() => Date.parse(`${today}T23:59:59+03:00`), [today]);
-  /** The KPI numbers count up on the first visit of this page load only. */
+  /** The numbers count up and the charts draw themselves on the first visit of this page load only. */
   const first = useFirstVisit("growth");
   const state = useStore(useShallow(analyticsState));
   const demographics = useStore((s) => s.demographics);
@@ -193,6 +193,7 @@ export default function GrowthScreen() {
           overview={overview}
           demographics={demographics}
           onAddDemographics={() => setDialog("demo")}
+          animate={first}
         />
       ) : all.platforms.length === 0 ? (
         <section className="px-card flex flex-col gap-3" data-testid="growth-empty">

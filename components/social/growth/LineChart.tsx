@@ -1,9 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { formatDayShort } from "@/components/planner/weekLabel";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+} from "react";
+import { dayKeyToDate, formatDayShort } from "@/components/planner/weekLabel";
+import { useInView } from "@/components/ui/ios/useInView";
 import { useT } from "@/lib/i18n";
-import { addDays, daysBetween } from "@/lib/streak";
+import { prefersReducedMotion } from "@/lib/motion";
+import { addDays, daysBetween, TIME_ZONE } from "@/lib/streak";
 import { fmtCount, fmtTick } from "./format";
 
 export interface ChartPoint {
@@ -15,8 +25,9 @@ export interface ChartSeries {
   id: string;
   /** Legend / tooltip name. */
   label: string;
-  /** 1–2 letter end label that rides the line, so identity never rests on color alone. */
+  /** 1–2 letter end label that rides the line when several series share the chart. */
   short: string;
+  /** Any CSS color, a token too (`var(--pc-tiktok)`): it is applied through `style`. */
   color: string;
   points: readonly ChartPoint[];
 }
@@ -24,7 +35,15 @@ export interface ChartSeries {
 const PAD_TOP = 10;
 const PAD_BOTTOM = 22;
 const PAD_LEFT = 6;
+/** Room for the end labels (several series) or just the end dot (one). */
 const PAD_RIGHT = 34;
+const PAD_RIGHT_ONE = 12;
+const MINI_HEIGHT = 70;
+const MINI_PAD = 8;
+/** The scrub tooltip stays this far from the chart's sides: 60px from the card's edges (16px padding). */
+const TIP_MARGIN = 44;
+/** The scrub marker and tooltip linger this long after the finger lifts (mockup). */
+const HIDE_MS = 900;
 
 /** Container width via ResizeObserver; a sensible phone width until the first measurement. */
 function useWidth<T extends HTMLElement>() {
@@ -64,10 +83,76 @@ function niceTicks(min: number, max: number): { ticks: number[]; lo: number; hi:
   return { ticks, lo, hi };
 }
 
+const f1 = (n: number) => n.toFixed(1);
+const sign = (n: number) => (n > 0 ? 1 : n < 0 ? -1 : 0);
+
 /**
- * A 90-day line chart in pure SVG: one 2px line per series in its brand color, ≥ 8px end markers with a
- * surface ring, hairline solid gridlines, an end label per line, a crosshair + tooltip on hover, and a table
- * view under the plot. Survives zero or one data point without NaN (a single point draws as a marker).
+ * A smooth line through every point (monotone cubic, Steffen's method, as d3's curveMonotoneX): it never overshoots
+ * a peak or dips below a flat stretch, and it passes through the data, so the scrub dot always sits on the line.
+ * Points are ordered by x; one point gives a bare `M`, two a straight segment.
+ */
+export function smoothPath(xy: readonly (readonly [number, number])[]): string {
+  const n = xy.length;
+  if (n === 0) return "";
+  const d = `M${f1(xy[0][0])} ${f1(xy[0][1])}`;
+  if (n === 1) return d;
+  if (n === 2) return `${d} L${f1(xy[1][0])} ${f1(xy[1][1])}`;
+  const h = xy.slice(1).map(([x], i) => x - xy[i][0]);
+  const s = xy.slice(1).map(([, y], i) => (y - xy[i][1]) / (h[i] || 1));
+  const m = xy.map((_, i) => {
+    if (i === 0 || i === n - 1) return 0;
+    const p = (s[i - 1] * h[i] + s[i] * h[i - 1]) / (h[i - 1] + h[i] || 1);
+    return (
+      (sign(s[i - 1]) + sign(s[i])) *
+      Math.min(Math.abs(s[i - 1]), Math.abs(s[i]), 0.5 * Math.abs(p))
+    );
+  });
+  m[0] = (3 * s[0] - m[1]) / 2;
+  m[n - 1] = (3 * s[n - 2] - m[n - 2]) / 2;
+  let out = d;
+  for (let i = 0; i < n - 1; i++) {
+    const [x0, y0] = xy[i];
+    const [x1, y1] = xy[i + 1];
+    const t = h[i] / 3;
+    out += ` C${f1(x0 + t)} ${f1(y0 + m[i] * t)} ${f1(x1 - t)} ${f1(y1 - m[i + 1] * t)} ${f1(x1)} ${f1(y1)}`;
+  }
+  return out;
+}
+
+/** Index of the x closest to `x` (the first one on a tie); -1 for no points. */
+export function nearestIndex(xs: readonly number[], x: number): number {
+  let best = -1;
+  let bestD = Infinity;
+  xs.forEach((px, i) => {
+    const d = Math.abs(px - x);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  });
+  return best;
+}
+
+/** The tooltip's center, kept `margin` from both sides of a `width` wide box. */
+export function clampTip(x: number, width: number, margin = TIP_MARGIN): number {
+  return Math.max(margin, Math.min(width - margin, x));
+}
+
+/** Back to a plain, fully drawn line. */
+function settleLine(ln: SVGPathElement) {
+  ln.style.strokeDasharray = "";
+  ln.style.strokeDashoffset = "";
+  ln.style.transition = "";
+}
+
+/**
+ * The growth line chart in pure SVG, drawn at the box's pixel width (text never scales). Each series is a smooth
+ * line in its color; one series also gets a gradient area. On mount (and when the series change) the line draws
+ * itself once the chart is on screen: 1.3s, then the area fades in (+0.5s) and the end dot pops (+1.1s); reduced
+ * motion or `animate={false}` shows it drawn. `scrub`: a finger (or the mouse) over the chart moves a dashed marker
+ * and a ring dot along the first series, with a glass tooltip (value + date) that lingers 900ms after release.
+ * `mini`: the 70px sparkline (no grid, ticks, labels or table). A table view under the full chart keeps the numbers
+ * readable without a pointer. Zero or one data point never draws NaN (a single point is the end dot alone).
  */
 export default function LineChart({
   series,
@@ -77,189 +162,307 @@ export default function LineChart({
   title,
   testId,
   className = "",
+  scrub = false,
+  mini = false,
+  animate = true,
+  start = true,
 }: {
   series: readonly ChartSeries[];
   today: string;
   days?: number;
   height?: number;
-  /** Accessible name of the figure. */
-  title: string;
+  /** Accessible name of the figure; without one (the mini sparkline) the chart is decorative. */
+  title?: string;
   testId?: string;
   className?: string;
+  scrub?: boolean;
+  mini?: boolean;
+  /** Draw the line in (else it shows drawn). */
+  animate?: boolean;
+  /** Hold the draw until true (the calling card has finished its entrance); the chart also waits to be seen. */
+  start?: boolean;
 }) {
   const { t, lang } = useT();
   const { ref, width } = useWidth<HTMLDivElement>();
-  const [hover, setHover] = useState<string | null>(null);
+  const seen = useInView(ref);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const markRef = useRef<SVGLineElement>(null);
+  const ringRef = useRef<SVGCircleElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const hideTimer = useRef(0);
+  const gradient = `an-g${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
 
-  const from = addDays(today, -days);
-  const plotW = Math.max(40, width - PAD_LEFT - PAD_RIGHT);
-  const plotH = Math.max(40, height - PAD_TOP - PAD_BOTTOM);
+  const withData = useMemo(
+    () =>
+      series
+        .filter((s) => s.points.length > 0)
+        .map((s) => ({ ...s, points: [...s.points].sort((a, b) => a.day.localeCompare(b.day)) })),
+    [series],
+  );
+  const h = mini ? MINI_HEIGHT : height;
+  const padL = mini ? MINI_PAD : PAD_LEFT;
+  const padR = mini ? MINI_PAD : withData.length > 1 ? PAD_RIGHT : PAD_RIGHT_ONE;
+  const padT = mini ? MINI_PAD : PAD_TOP;
+  const padB = mini ? MINI_PAD : PAD_BOTTOM;
+  const plotW = Math.max(40, width - padL - padR);
+  const plotH = Math.max(40, h - padT - padB);
+  const base = padT + plotH;
 
-  const withData = series.filter((s) => s.points.length > 0);
-  const allValues = withData.flatMap((s) => s.points.map((p) => p.value));
-  const { ticks, lo, hi } = niceTicks(Math.min(...allValues), Math.max(...allValues));
-
-  const x = (day: string) =>
-    PAD_LEFT + (Math.min(days, Math.max(0, daysBetween(from, day))) / days) * plotW;
-  const y = (v: number) => PAD_TOP + plotH - ((v - lo) / (hi - lo || 1)) * plotH;
-
+  // Time runs left to right over the last `days` days; the sparkline spans its own first…last day and value range.
   const allDays = [...new Set(withData.flatMap((s) => s.points.map((p) => p.day)))].sort();
+  const allValues = withData.flatMap((s) => s.points.map((p) => p.value));
+  const from = mini ? (allDays[0] ?? today) : addDays(today, -days);
+  const span = mini ? Math.max(1, daysBetween(from, allDays.at(-1) ?? from)) : days;
+  const { ticks, lo, hi } = mini
+    ? { ticks: [], lo: Math.min(...allValues), hi: Math.max(...allValues) }
+    : niceTicks(Math.min(...allValues), Math.max(...allValues));
+  const x = (day: string) =>
+    padL + (Math.min(span, Math.max(0, daysBetween(from, day))) / span) * plotW;
+  const y = (v: number) => base - ((v - lo) / (hi - lo || 1)) * plotH;
 
-  const onMove = (e: PointerEvent<SVGSVGElement>) => {
-    if (allDays.length === 0) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const px = e.clientX - rect.left;
-    let best = allDays[0];
-    let bestD = Infinity;
-    for (const d of allDays) {
-      const dist = Math.abs(x(d) - px);
-      if (dist < bestD) {
-        bestD = dist;
-        best = d;
-      }
-    }
-    setHover(best);
-  };
+  const lines = withData.map((s) => {
+    const xy = s.points.map((p): [number, number] => [x(p.day), y(p.value)]);
+    const d = smoothPath(xy);
+    const end = xy[xy.length - 1];
+    const area =
+      withData.length === 1 && xy.length > 1
+        ? `${d} L${f1(end[0])} ${f1(base)} L${f1(xy[0][0])} ${f1(base)} Z`
+        : null;
+    return { s, xy, d, end, area };
+  });
 
-  const hoverRows = hover
-    ? withData
-        .map((s) => ({ s, p: s.points.find((p) => p.day === hover) }))
-        .filter((r): r is { s: ChartSeries; p: ChartPoint } => r.p !== undefined)
-    : [];
-  const tipLeft = hover ? Math.min(Math.max(0, x(hover) - 70), Math.max(0, width - 150)) : 0;
-
-  const xLabels = [from, addDays(from, Math.round(days / 2)), today];
-
-  // End labels: nudge colliding ones apart (min 11px) so converging lines still read.
+  // End labels (several series only): nudge colliding ones apart (min 11px) so converging lines still read.
   const labelY = new Map<string, number>();
-  const ends = withData
-    .map((s) => {
-      const last = [...s.points].sort((a, b) => a.day.localeCompare(b.day)).at(-1);
-      return { id: s.id, y: last ? y(last.value) : 0 };
-    })
-    .sort((a, b) => a.y - b.y);
-  for (let i = 0; i < ends.length; i++) {
-    if (i > 0 && ends[i].y - ends[i - 1].y < 11) ends[i].y = ends[i - 1].y + 11;
+  if (lines.length > 1) {
+    const ends = lines.map((l) => ({ id: l.s.id, y: l.end[1] })).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < ends.length; i++)
+      if (ends[i].y - ends[i - 1].y < 11) ends[i].y = ends[i - 1].y + 11;
+    for (const e of ends) labelY.set(e.id, e.y);
   }
-  for (const e of ends) labelY.set(e.id, e.y);
+
+  /* ---- Draw-on ---- */
+  const draw = animate && !prefersReducedMotion();
+  // New numbers draw again; a resize (same numbers, new geometry) does not.
+  const drawKey = withData
+    .map((s) => `${s.id}:${s.points.length}:${s.points.at(-1)?.day}:${s.points.at(-1)?.value}`)
+    .join("|");
+  const geometry = lines.map((l) => l.d).join("|");
+  /** The drawKey whose draw has begun: it plays to the end on its own. */
+  const drawing = useRef<string | null>(null);
+
+  // Hidden before the first paint, so the drawn line never flashes; measured again while it still waits (the width
+  // arrives after mount). The cleanup shows a waiting line again: if `draw` turns false meanwhile (reduced motion
+  // switched on), nothing else would.
+  useLayoutEffect(() => {
+    const svg = svgRef.current;
+    if (!draw || !svg || drawing.current === drawKey) return;
+    const paths = [...svg.querySelectorAll<SVGPathElement>(".an-chart-ln")];
+    for (const ln of paths) {
+      const length = ln.getTotalLength();
+      ln.style.transition = "none";
+      ln.style.strokeDasharray = `${length}`;
+      ln.style.strokeDashoffset = `${length}`;
+    }
+    svg.dataset.drawn = "false";
+    return () => {
+      if (drawing.current === drawKey) return;
+      paths.forEach(settleLine);
+      delete svg.dataset.drawn;
+    };
+  }, [draw, drawKey, geometry]);
+
+  const go = draw && start && seen;
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!go || !svg || drawing.current === drawKey) return;
+    drawing.current = drawKey;
+    const paths = [...svg.querySelectorAll<SVGPathElement>(".an-chart-ln")];
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        for (const ln of paths) {
+          ln.style.transition = "stroke-dashoffset 1.3s var(--out)";
+          ln.style.strokeDashoffset = "0";
+        }
+        svg.dataset.drawn = "true";
+      });
+    });
+    // Drawn: drop the dash, so a longer line later (a resize) never ends in the dash gap.
+    const settle = (e: TransitionEvent) => {
+      if (e.propertyName === "stroke-dashoffset") settleLine(e.target as SVGPathElement);
+    };
+    for (const ln of paths) ln.addEventListener("transitionend", settle);
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+      for (const ln of paths) ln.removeEventListener("transitionend", settle);
+    };
+  }, [go, drawKey]);
+
+  /* ---- Scrub ---- */
+  const dateFmt = useMemo(
+    () =>
+      new Intl.DateTimeFormat(lang === "ar" ? "ar-u-ca-gregory-nu-latn" : "en-GB", {
+        day: "numeric",
+        month: "long",
+        timeZone: TIME_ZONE,
+      }),
+    [lang],
+  );
+  useEffect(() => () => window.clearTimeout(hideTimer.current), []);
+  const track = lines[0];
+  const scrubAt = (clientX: number) => {
+    const svg = svgRef.current;
+    const tip = tipRef.current;
+    const mark = markRef.current;
+    const ring = ringRef.current;
+    if (!track || !svg || !tip || !mark || !ring) return;
+    const i = nearestIndex(
+      track.xy.map(([px]) => px),
+      clientX - svg.getBoundingClientRect().left,
+    );
+    const [px, py] = track.xy[i];
+    const point = track.s.points[i];
+    mark.setAttribute("x1", f1(px));
+    mark.setAttribute("x2", f1(px));
+    ring.setAttribute("cx", f1(px));
+    ring.setAttribute("cy", f1(py));
+    tip.firstElementChild!.textContent = point.value.toLocaleString("en-US");
+    tip.lastElementChild!.textContent =
+      point.day === today ? t("growth.chart.today") : dateFmt.format(dayKeyToDate(point.day));
+    tip.style.left = `${clampTip(px, width)}px`;
+    tip.dataset.on = "true";
+    svg.dataset.scrubbing = "true";
+    window.clearTimeout(hideTimer.current);
+  };
+  const release = () => {
+    window.clearTimeout(hideTimer.current);
+    hideTimer.current = window.setTimeout(() => {
+      delete tipRef.current?.dataset.on;
+      delete svgRef.current?.dataset.scrubbing;
+    }, HIDE_MS);
+  };
+  const scrubHandlers = scrub
+    ? {
+        onPointerDown: (e: PointerEvent<SVGSVGElement>) => {
+          // Keep following a finger that slides off the chart.
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+          scrubAt(e.clientX);
+        },
+        // The mouse scrubs on hover; a finger or pen only while pressed.
+        onPointerMove: (e: PointerEvent<SVGSVGElement>) => {
+          if (e.pointerType === "mouse" || e.buttons !== 0) scrubAt(e.clientX);
+        },
+        onPointerUp: release,
+        onPointerCancel: release,
+        onPointerLeave: release,
+      }
+    : {};
+
+  const xLabels = [addDays(today, -days), addDays(today, -Math.round(days / 2)), today];
 
   return (
-    <div className={`gr-chart flex flex-col gap-2 ${className}`} data-testid={testId} dir="ltr">
-      <div ref={ref} className="relative w-full" style={{ height }}>
+    <div className={`an-chart flex flex-col gap-2 ${className}`} data-testid={testId}>
+      <div ref={ref} className="relative w-full" style={{ height: h }} dir="ltr">
         {withData.length === 0 ? (
           <p className="text-muted absolute inset-0 grid place-items-center text-sm">
             {t("growth.chart.empty")}
           </p>
         ) : (
           <svg
-            role="img"
-            aria-label={title}
+            ref={svgRef}
+            {...(title ? { role: "img", "aria-label": title } : { "aria-hidden": true })}
             width={width}
-            height={height}
-            viewBox={`0 0 ${width} ${height}`}
+            height={h}
+            viewBox={`0 0 ${width} ${h}`}
             className="block overflow-visible"
-            onPointerMove={onMove}
-            onPointerLeave={() => setHover(null)}
+            data-scrub={scrub || undefined}
+            {...scrubHandlers}
           >
-            {/* Gridlines with tick labels: hairline, solid, recessive. */}
-            {ticks.map((v) => (
-              <g key={v}>
-                <line x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} className="gr-grid" />
-                <text x={PAD_LEFT} y={y(v) - 3} className="gr-tick num">
-                  {fmtTick(v)}
-                </text>
-              </g>
-            ))}
-            {/* X labels: start, middle, today. */}
-            {xLabels.map((d, i) => (
-              <text
-                key={d}
-                x={x(d)}
-                y={height - 6}
-                textAnchor={i === 0 ? "start" : i === 2 ? "end" : "middle"}
-                className="gr-tick"
-              >
-                {formatDayShort(d, lang)}
-              </text>
-            ))}
-            {/* Crosshair. */}
-            {hover && (
-              <line
-                x1={x(hover)}
-                x2={x(hover)}
-                y1={PAD_TOP}
-                y2={PAD_TOP + plotH}
-                className="gr-cross"
-              />
-            )}
-            {withData.map((s) => {
-              const pts = [...s.points].sort((a, b) => a.day.localeCompare(b.day));
-              const d = pts
-                .map((p, i) => `${i === 0 ? "M" : "L"}${x(p.day)},${y(p.value)}`)
-                .join(" ");
-              const last = pts[pts.length - 1];
-              const area =
-                withData.length === 1 && pts.length > 1
-                  ? `${d} L${x(last.day)},${PAD_TOP + plotH} L${x(pts[0].day)},${PAD_TOP + plotH} Z`
-                  : null;
-              const showAll = pts.length <= 14;
-              return (
-                <g key={s.id} data-series={s.id}>
-                  {area && <path d={area} fill={s.color} opacity={0.1} />}
-                  {pts.length > 1 && (
-                    <path
-                      d={d}
-                      fill="none"
-                      stroke={s.color}
-                      strokeWidth={2}
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
+            {!mini && (
+              <>
+                {/* Gridlines with tick labels: hairline, solid, recessive. */}
+                {ticks.map((v) => (
+                  <g key={v}>
+                    <line
+                      x1={padL}
+                      x2={padL + plotW}
+                      y1={y(v)}
+                      y2={y(v)}
+                      className="an-chart-grid"
                     />
-                  )}
-                  {pts.map((p) =>
-                    showAll || p === last || p.day === hover ? (
-                      <circle
-                        key={p.day}
-                        cx={x(p.day)}
-                        cy={y(p.value)}
-                        r={p.day === hover ? 5 : 4}
-                        fill={s.color}
-                        className="gr-marker"
-                      />
-                    ) : null,
-                  )}
+                    <text x={padL} y={y(v) - 3} className="an-chart-tick num">
+                      {fmtTick(v)}
+                    </text>
+                  </g>
+                ))}
+                {/* X labels: start, middle, today. */}
+                {xLabels.map((d, i) => (
                   <text
-                    x={x(last.day) + 8}
-                    y={(labelY.get(s.id) ?? y(last.value)) + 4}
-                    className="gr-endlabel"
+                    key={d}
+                    x={x(d)}
+                    y={h - 6}
+                    textAnchor={i === 0 ? "start" : i === 2 ? "end" : "middle"}
+                    className="an-chart-tick"
+                  >
+                    {formatDayShort(d, lang)}
+                  </text>
+                ))}
+              </>
+            )}
+            {lines.map(({ s, xy, d, end, area }) => (
+              <g key={s.id} data-series={s.id}>
+                {area && (
+                  <>
+                    <defs>
+                      <linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" style={{ stopColor: s.color, stopOpacity: 0.3 }} />
+                        <stop offset="1" style={{ stopColor: s.color, stopOpacity: 0 }} />
+                      </linearGradient>
+                    </defs>
+                    <path className="an-chart-ar" d={area} fill={`url(#${gradient})`} />
+                  </>
+                )}
+                {xy.length > 1 && (
+                  <path className="an-chart-ln" d={d} style={{ stroke: s.color }} />
+                )}
+                <circle
+                  className="an-chart-dot"
+                  cx={end[0]}
+                  cy={end[1]}
+                  r={mini ? 4 : 4.5}
+                  style={{ fill: s.color }}
+                />
+                {lines.length > 1 && (
+                  <text
+                    x={end[0] + 8}
+                    y={(labelY.get(s.id) ?? end[1]) + 4}
+                    className="an-chart-end"
                   >
                     {s.short}
                   </text>
-                </g>
-              );
-            })}
+                )}
+              </g>
+            ))}
+            {scrub && (
+              <>
+                <line ref={markRef} className="an-mk" y1={padT - 4} y2={base} />
+                {/* The ring wears the tracked line's color (the mockup's line and ring are both accent). */}
+                <circle ref={ringRef} className="an-mkd" r={5} style={{ stroke: track?.s.color }} />
+              </>
+            )}
           </svg>
         )}
-        {hover && hoverRows.length > 0 && (
-          <div
-            className="gr-tooltip px-inset pointer-events-none absolute top-0 flex flex-col gap-0.5 text-xs"
-            style={{ left: tipLeft }}
-            role="status"
-          >
-            <b className="text-ink-2">{formatDayShort(hover, lang)}</b>
-            {hoverRows.map(({ s, p }) => (
-              <span key={s.id} className="flex items-center gap-1.5">
-                <i className="px-pip" style={{ background: s.color }} aria-hidden />
-                <span className="text-ink-2">{s.label}</span>
-                <b className="num ms-auto">{fmtCount(p.value)}</b>
-              </span>
-            ))}
+        {scrub && withData.length > 0 && (
+          <div ref={tipRef} className="an-tip glass" aria-hidden>
+            <b className="num" />
+            <small />
           </div>
         )}
       </div>
 
-      {allDays.length > 0 && (
-        <details className="gr-table-view text-xs">
+      {!mini && allDays.length > 0 && (
+        <details className="an-chart-table text-xs">
           <summary className="text-muted cursor-pointer">{t("growth.chart.table")}</summary>
           <div className="overflow-x-auto">
             <table className="num mt-1 w-full">
@@ -293,21 +496,5 @@ export default function LineChart({
         </details>
       )}
     </div>
-  );
-}
-
-/** A legend row for ≥ 2 series (a single series is named by the chart's heading). */
-export function ChartLegend({ series }: { series: readonly ChartSeries[] }) {
-  if (series.length < 2) return null;
-  return (
-    <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs" aria-hidden>
-      {series.map((s) => (
-        <li key={s.id} className="text-ink-2 flex items-center gap-1.5">
-          <i className="gr-key" style={{ background: s.color }} />
-          {s.label}
-          <span className="text-muted">({s.short})</span>
-        </li>
-      ))}
-    </ul>
   );
 }

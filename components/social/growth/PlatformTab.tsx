@@ -43,12 +43,15 @@ export default function PlatformTab({
   overview,
   demographics,
   onAddDemographics,
+  animate,
 }: {
   platform: Platform;
   today: string;
   overview: PlatformOverview;
   demographics: readonly Demographic[];
   onAddDemographics: () => void;
+  /** The follower chart draws itself (the screen's first visit). */
+  animate: boolean;
 }) {
   const { t, L, lang } = useT();
   const meta = PLATFORM_META[platform];
@@ -71,7 +74,7 @@ export default function PlatformTab({
       id: "followers",
       label: platform === "youtube" ? t("growth.subscribers") : t("growth.followers"),
       short: "F",
-      color: meta.color,
+      color: `var(--pc-${platform})`,
       points: pts.map((p) => ({ day: p.day, value: p.followers })),
     },
   ];
@@ -340,6 +343,8 @@ export default function PlatformTab({
           height={150}
           title={t("growth.chart.seriesAria", { what: t("growth.followers"), platform: name })}
           testId="chart-followers"
+          scrub
+          animate={animate}
         />
         {history.length === 0 ? (
           <p className="text-ink-2 text-sm">{t("growth.history.empty")}</p>
