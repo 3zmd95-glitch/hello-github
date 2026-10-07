@@ -9,7 +9,9 @@ import { usageKeys } from "../discover/usage";
 import { handle, type Env } from "../scout";
 import { runTick } from "../social/cron";
 import { TAVILY_URL } from "../trends/tavily";
+import { YT_SEARCH_URL } from "../trends/youtubeSearch";
 import { handleCategories } from "./routes";
+import { BRAVE_VIDEOS_URL } from "./top";
 import type { CategoryDoc } from "./types";
 
 const TOKEN = "s3cret-token";
@@ -24,7 +26,7 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 /** Tavily answering every search with 4 creators' speed-ramp reels (a category searches Instagram alone): a
- * dictionary technique, shown without the AI. */
+ * dictionary technique, shown without the AI. YouTube's top-list search (§6) finds nothing, so no views call follows. */
 function tavily() {
   const results = ["c1", "c2", "c3", "c4"].map((handle, i) => ({
     url: `https://www.instagram.com/${handle}/reel/R${i + 1}/`,
@@ -32,7 +34,11 @@ function tavily() {
     content: "#caredit",
   }));
   return vi.fn<typeof fetch>(async (input) =>
-    String(input) === TAVILY_URL ? json({ results, usage: { credits: 1 } }) : json({}, 404),
+    String(input) === TAVILY_URL
+      ? json({ results, usage: { credits: 1 } })
+      : String(input).startsWith(YT_SEARCH_URL)
+        ? json({ items: [] })
+        : json({}, 404),
   );
 }
 
@@ -53,7 +59,7 @@ function setup(stored?: CategoryDoc) {
     SCOUT_TOKEN: TOKEN,
     ALLOWED_ORIGINS: APP,
     TAVILY_API_KEY: "t",
-    // So a YouTube call would really go out and show in the fetch counts: categories make none.
+    // So YouTube's top-list search (§6) really goes out and shows in the fetch counts: one a scan.
     YOUTUBE_API_KEY: "y",
     SOCIAL_KV: kv as unknown as KVNamespace,
   };
@@ -80,6 +86,7 @@ const answer = (d: CategoryDoc) => ({
   notes: d.notes,
   items: d.items,
   lessons: d.lessons,
+  top: d.top,
 });
 
 const DOC: CategoryDoc = {
@@ -170,6 +177,31 @@ describe("/categories routes", () => {
     }
   });
 
+  it("GET answers the stored top lists (§6): a malformed entry is dropped alone; a page from before §6 has none", async () => {
+    const yt = {
+      url: "https://www.youtube.com/watch?v=carVid00001",
+      title: "Car edit",
+      creator: "Car Channel",
+      views: 1200,
+    };
+    const ig = { url: "https://www.instagram.com/p/R1", title: "rolling shot", creator: "@c1" };
+    const top = {
+      updatedAt: "2026-10-04T05:40:09.000Z",
+      yt: [yt, { ...yt, url: "http://www.youtube.com/watch?v=carVid00002" }, { title: "no link" }],
+      ig: [ig],
+      tt: "soon",
+    };
+    const { env } = setup({ ...DOC, top } as unknown as CategoryDoc);
+    const got = (await (await handle(req("/categories/cars"), env)).json()) as ReturnType<
+      typeof answer
+    >;
+    expect(got.top).toEqual({ updatedAt: top.updatedAt, yt: [yt], ig: [ig], tt: [] });
+    const before = setup(DOC);
+    expect(await (await handle(req("/categories/cars"), before.env)).json()).not.toHaveProperty(
+      "top",
+    );
+  });
+
   it("POST scans once a UTC day and answers like the GET; force scans again and counts", async () => {
     const { env, kv } = setup();
     const fetchMock = tavily();
@@ -186,15 +218,17 @@ describe("/categories routes", () => {
       updatedAt: NOW.toISOString(),
     });
     expect(body.items.map((i) => i.key)).toEqual(["speed-ramp"]);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    // 6 Tavily searches and YouTube's top-list search (§6), which found nothing: no views call.
+    expect(fetchMock).toHaveBeenCalledTimes(7);
     expect(writes(kv)).toEqual([ATTEMPTS, KEY]);
 
     const deps = { fetch: fetchMock, now: () => LATER };
     expect(await (await handle(run("cars", "{}"), env, undefined, deps)).json()).toEqual(body);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
     const forced = await handle(run("cars", '{"force":true}'), env, undefined, deps);
     expect(await forced.json()).toEqual(answer(storedDoc(kv)));
-    expect(fetchMock).toHaveBeenCalledTimes(12);
+    // The day's YouTube list was empty, so the forced scan asks again.
+    expect(fetchMock).toHaveBeenCalledTimes(14);
     expect(writes(kv)).toEqual([ATTEMPTS, KEY, ATTEMPTS, KEY]);
     expect(kv.store.get(ATTEMPTS)).toBe("2");
   });
@@ -230,6 +264,91 @@ describe("/categories routes", () => {
   });
 });
 
+describe("GET /categories/:id/top/:platform (§6: Brave on demand, never stored)", () => {
+  const SCAN = { url: "https://www.tiktok.com/@scan/video/9000001", title: "scan post" };
+  const HIT = {
+    url: "https://www.tiktok.com/@car1/video/7000001",
+    title: "Car edit 1 | TikTok",
+    meta_url: { hostname: "www.tiktok.com" },
+    thumbnail: { src: "https://imgs.search.brave.com/t1.jpg" },
+    video: { views: 4200, creator: "car1" },
+  };
+  const top = { updatedAt: DOC.updatedAt, yt: [], ig: [], tt: [SCAN] };
+  const braveFetch = () =>
+    vi.fn<typeof fetch>(async (input) =>
+      String(input).startsWith(BRAVE_VIDEOS_URL) ? json({ results: [HIT] }) : json({}, 404),
+    );
+
+  it("Bearer like the others; TikTok and Instagram only; Brave's list merged with the stored one, kept nowhere", async () => {
+    const { env, kv } = setup({ ...DOC, top });
+    env.BRAVE_API_KEY = "brave-test-key";
+    const fetchMock = braveFetch();
+    const deps = { fetch: fetchMock, now: () => NOW };
+    expect(
+      (await handle(req("/categories/cars/top/tt", { token: null }), env, undefined, deps)).status,
+    ).toBe(401);
+    for (const path of [
+      "/categories/cars/top/yt",
+      "/categories/cars/top",
+      "/categories/drift/top/tt",
+    ])
+      expect((await handle(req(path), env, undefined, deps)).status, path).toBe(404);
+    expect(
+      (await handle(req("/categories/cars/top/tt", { method: "POST" }), env, undefined, deps))
+        .status,
+    ).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const res = await handle(req("/categories/cars/top/tt"), env, undefined, deps);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(APP);
+    // No copy kept anywhere, the browser's cache included (Brave's terms).
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.json()).toEqual({
+      platform: "tt",
+      items: [
+        {
+          url: HIT.url,
+          title: "Car edit 1",
+          creator: "car1",
+          views: 4200,
+          thumbnail: HIT.thumbnail.src,
+        },
+        SCAN,
+      ],
+      source: "brave",
+      endpoint: "videos",
+    });
+    // 1 match: 2 pages. The only KV write is the day's counter.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(writes(kv)).toEqual(["brave:count:2026-10-07"]);
+    expect(kv.store.get("brave:count:2026-10-07")).toBe("2");
+    expect(JSON.stringify([...kv.store.values()])).not.toContain("car1");
+  });
+
+  it("without the key: the stored list noted 'no_key', nothing asked; a page never scanned has none to give", async () => {
+    const { env, kv } = setup({ ...DOC, top });
+    const fetchMock = braveFetch();
+    const deps = { fetch: fetchMock, now: () => NOW };
+    const res = await handle(req("/categories/cars/top/ig"), env, undefined, deps);
+    expect(await res.json()).toEqual({ platform: "ig", items: [], source: "scan", note: "no_key" });
+    expect(
+      await (await handle(req("/categories/cars/top/tt"), env, undefined, deps)).json(),
+    ).toEqual({
+      platform: "tt",
+      items: [SCAN],
+      source: "scan",
+      note: "no_key",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(kv.put).not.toHaveBeenCalled();
+    const never = setup();
+    never.env.BRAVE_API_KEY = "brave-test-key";
+    const fresh = await handle(req("/categories/cars/top/tt"), never.env, undefined, deps);
+    expect(await fresh.json()).toMatchObject({ source: "brave", items: [{ url: HIT.url }] });
+  });
+});
+
 describe("the category slots", () => {
   it("05:40–05:55 UTC scan the day's 4 categories in turn; 05:41 only polls the replies", async () => {
     const { env, kv } = setup();
@@ -247,6 +366,7 @@ describe("the category slots", () => {
     });
     expect(kv.store.has("category:cars")).toBe(true);
     expect(kv.store.has("category:travel")).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(12);
+    // Each scan: 6 Tavily searches and YouTube's top-list search (§6).
+    expect(fetchMock).toHaveBeenCalledTimes(14);
   });
 });

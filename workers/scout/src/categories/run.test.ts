@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
 import { TAVILY_URL } from "../trends/tavily";
+import { YT_SEARCH_URL } from "../trends/youtubeSearch";
 import { aiContext, categoryById } from "./defs";
 import { readCategory, runCategory } from "./run";
 import type { CategoryDoc, Technique } from "./types";
@@ -51,17 +52,55 @@ const lessonHits = (q: string, n: number): Hit[] => [
   { url: `https://www.instagram.com/i${n}/reel/L${n}/`, title: `${q} reel`, content: "" },
 ];
 
+/** YouTube's top list (§6): the search finds 3 car videos, the views call counts them. */
+const YT_VIEWS: Record<string, number> = {
+  carTop00001: 1_000,
+  carTop00002: 50_000,
+  carTop00003: 7_000,
+};
+function youtubeReply(input: string): Response {
+  const u = new URL(input);
+  if (`${u.origin}${u.pathname}` === YT_SEARCH_URL)
+    return json({ items: Object.keys(YT_VIEWS).map((videoId) => ({ id: { videoId } })) });
+  return json({
+    items: u.searchParams
+      .get("id")!
+      .split(",")
+      .map((id) => ({
+        id,
+        snippet: { title: `Top ${id}`, channelTitle: "Car Channel" },
+        statistics: { viewCount: String(YT_VIEWS[id]) },
+      })),
+  });
+}
+/** The top list's YouTube videos, the most viewed first. */
+const YT_TOP = ["carTop00002", "carTop00003", "carTop00001"].map((id) => ({
+  url: `https://www.youtube.com/watch?v=${id}`,
+  title: `Top ${id}`,
+  creator: "Car Channel",
+  views: YT_VIEWS[id],
+}));
+
 /** A fake internet: a category's searches answer `PROBE` and a lesson's search its `lessonHits`, unless `tavily` says
- * otherwise; Tavily's /usage answers `usage` (by default no figure: a 404, nothing kept); anything else is counted. */
+ * otherwise; Tavily's /usage answers `usage` (by default no figure: a 404, nothing kept); YouTube's Data API answers
+ * the top list's calls (§6) unless `youtube` says otherwise; anything else is counted. */
 function web(
-  over: { tavily?: (query: string) => Response | undefined; usage?: () => Response } = {},
+  over: {
+    tavily?: (query: string) => Response | undefined;
+    usage?: () => Response;
+    youtube?: (url: string) => Response;
+  } = {},
 ) {
-  const count = { tavily: 0, usage: 0, other: 0 };
+  const count = { tavily: 0, usage: 0, youtube: 0, other: 0 };
   const searched: string[] = [];
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     if (String(input) === TAVILY_USAGE_URL) {
       count.usage++;
       return over.usage?.() ?? json({ error: "not_found" }, 404);
+    }
+    if (String(input).startsWith("https://www.googleapis.com/youtube/v3/")) {
+      count.youtube++;
+      return over.youtube?.(String(input)) ?? youtubeReply(String(input));
     }
     if (String(input) !== TAVILY_URL) {
       count.other++;
@@ -198,9 +237,10 @@ describe("runCategory", () => {
       [],
     );
     expect(doc).toMatchObject({ ranOn: "2026-10-07", updatedAt: NOW.toISOString(), status: "ok" });
-    // 6 credits, and nothing but Tavily: no YouTube for categories. Live fix 1: Instagram over a month alone, 6 queries
-    // (Instagram's week and TikTok found about 1 post a call in the first live scan).
+    // 6 credits, and besides Tavily only YouTube's top list (§6: 1 search.list, 1 videos.list). Live fix 1: Instagram
+    // over a month alone, 6 queries (Instagram's week and TikTok found about 1 post a call in the first live scan).
     expect(count.tavily).toBe(6);
+    expect(count.youtube).toBe(2);
     expect(count.other).toBe(0);
     expect(sent(fetch)).toEqual(
       [
@@ -286,7 +326,7 @@ describe("runCategory", () => {
     });
     const doc = await runCategory(env, "cars", { fetch, now: NOW });
     expect(doc).toMatchObject({ status: "failed", notes: ["tavily_budget"], items: OLD.items });
-    expect(count).toEqual({ tavily: 0, usage: 1, other: 0 });
+    expect(count).toEqual({ tavily: 0, usage: 1, youtube: 0, other: 0 });
     // Kept 10 minutes, as Discover keeps it (the next slots read it), then the paused page.
     expect(KV.put.mock.calls[0]).toEqual([
       usageKeys.tavily,
@@ -300,7 +340,7 @@ describe("runCategory", () => {
     const { env, KV } = setup({ stored: OLD });
     const { fetch, count } = web({ usage: () => json({ error: "upstream" }, 500) });
     expect(await runCategory(env, "cars", { fetch, now: NOW })).toMatchObject({ status: "ok" });
-    expect(count).toEqual({ tavily: 6, usage: 1, other: 0 });
+    expect(count).toEqual({ tavily: 6, usage: 1, youtube: 2, other: 0 });
     expect(writes(KV)).toEqual([ATTEMPTS, KEY]);
   });
 
@@ -310,7 +350,7 @@ describe("runCategory", () => {
     KV.store.set(usageKeys.tavily, JSON.stringify({ used: 950, limit: 1000 }));
     const { fetch, count } = web();
     expect(await runCategory(env, "cars", { fetch, now: LATER })).toEqual(today);
-    expect(count).toEqual({ tavily: 0, usage: 0, other: 0 });
+    expect(count).toEqual({ tavily: 0, usage: 0, youtube: 0, other: 0 });
     expect(KV.put).not.toHaveBeenCalled();
   });
 
@@ -350,6 +390,14 @@ describe("runCategory", () => {
     );
   });
 
+  it("T6: a style 2 creators posted shows once the AI approved it (Trending effects needs 3)", async () => {
+    const { env } = setup();
+    const two = [ig("d1", "drift shot at night", 21), ig("d2", "Drift Shot from the roof", 22)];
+    const { fetch } = web({ tavily: () => json({ results: two, usage: { credits: 1 } }) });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+    expect(doc.items.map((i) => [i.key, i.creators, i.checked])).toEqual([["drift-shot", 2, true]]);
+  });
+
   it("keeps at most 200 names in a category's memory, today's names first", async () => {
     const history = Object.fromEntries(
       Array.from({ length: 260 }, (_, i) => [`old-${i}`, [{ day: "2026-10-04", ids: ["a"] }]]),
@@ -375,6 +423,112 @@ describe("runCategory", () => {
     });
     expect(KV.get).not.toHaveBeenCalled();
     expect(KV.put).not.toHaveBeenCalled();
+  });
+});
+
+describe("runCategory's top lists (§6)", () => {
+  /** PROBE's reels as the stored Instagram list: every search found all 13, so they keep the order first seen. */
+  const IG_TOP = PROBE.map((h) => {
+    const [, handle, id] = h.url.match(/instagram\.com\/([\w.]+)\/reel\/(\w+)\//)!;
+    return { url: `https://www.instagram.com/p/${id}`, title: h.title, creator: `@${handle}` };
+  });
+  const youtubeSearches = (fetch: ReturnType<typeof web>["fetch"]) =>
+    fetch.mock.calls
+      .map(([u]) => new URL(String(u)))
+      .filter((u) => `${u.origin}${u.pathname}` === YT_SEARCH_URL);
+
+  it("T1–T3: YouTube's most viewed of the main query (2 calls) and the scan's Instagram posts, saved with the page", async () => {
+    const { env, KV } = setup();
+    const { fetch, count } = web();
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+    expect(count.youtube).toBe(2);
+    expect(youtubeSearches(fetch).map((u) => u.searchParams.get("q"))).toEqual(["car edit"]);
+    expect(doc.top).toEqual({ updatedAt: NOW.toISOString(), yt: YT_TOP, ig: IG_TOP, tt: [] });
+    expect(doc.notes ?? []).not.toContain("youtube");
+    expect(stored(KV).top).toEqual(doc.top);
+  });
+
+  it("YouTube failing, or without its key: noted 'youtube', the page still saved with the last YouTube list", async () => {
+    const last = { updatedAt: OLD.updatedAt, yt: YT_TOP.slice(0, 1), ig: [], tt: [] };
+    const { env, KV } = setup({ stored: { ...OLD, top: last } });
+    const quota = () => json({ error: { errors: [{ reason: "quotaExceeded" }] } }, 403);
+    const { fetch, count } = web({ youtube: quota });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW });
+    expect(doc).toMatchObject({ status: "partial", notes: ["youtube"] });
+    expect(count.youtube).toBe(1);
+    expect(doc.top).toEqual({ updatedAt: NOW.toISOString(), yt: last.yt, ig: IG_TOP, tt: [] });
+    expect(writes(KV)).toEqual([ATTEMPTS, KEY]);
+    expect(stored(KV).top).toEqual(doc.top);
+
+    const keyless = setup();
+    const noKey = {
+      TAVILY_API_KEY: "t",
+      AI: keyless.AI,
+      SOCIAL_KV: keyless.KV as unknown as KVNamespace,
+    };
+    const none = web();
+    const first = await runCategory(noKey, "cars", { fetch: none.fetch, now: NOW, sleep: NO_WAIT });
+    expect(first.notes).toContain("youtube");
+    expect(first.top).toMatchObject({ yt: [], ig: IG_TOP });
+    expect(none.count.youtube).toBe(0);
+  });
+
+  it("T5: YouTube's videos feed the trends too: title and description as text, the channel as the creator", async () => {
+    const { env } = setup();
+    // Tavily finds one low-angle reel; YouTube three low-angle videos from two channels, one saying it in its description.
+    const videos = [
+      { id: "lowAng00001", title: "Low angle car shots", channelTitle: "Chan A", description: "" },
+      {
+        id: "lowAng00002",
+        title: "GT3 night reveal",
+        channelTitle: "Chan A",
+        description: "How I film a low angle reveal",
+      },
+      {
+        id: "lowAng00003",
+        title: "Low Angle Shot of the M5",
+        channelTitle: "Chan B",
+        description: "",
+      },
+    ];
+    const { fetch, count } = web({
+      tavily: () =>
+        json({ results: [ig("l1", "Low Angle hero shot of the GT3", 5)], usage: { credits: 1 } }),
+      youtube: (url) =>
+        url.startsWith(YT_SEARCH_URL)
+          ? json({ items: videos.map((v) => ({ id: { videoId: v.id } })) })
+          : json({
+              items: videos.map(({ id, ...snippet }) => ({
+                id,
+                snippet,
+                statistics: { viewCount: "100" },
+              })),
+            }),
+    });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+    // The reel's creator and the 2 channels: 3 creators, not 4 (a channel's two videos are one creator's).
+    expect(doc.items.find((i) => i.key === "low-angle")).toMatchObject({
+      creators: 3,
+      platforms: ["ig", "yt"],
+    });
+    // The same 2 YouTube calls as the top list.
+    expect(count.youtube).toBe(2);
+    expect(doc.top!.yt.map((v) => v.creator)).toEqual(["Chan A", "Chan A", "Chan B"]);
+  });
+
+  it("a forced scan later the same UTC day keeps the day's YouTube list: no second search.list", async () => {
+    const { env } = setup();
+    const { fetch, count } = web();
+    await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+    const again = await runCategory(env, "cars", {
+      fetch,
+      now: LATER,
+      force: true,
+      sleep: NO_WAIT,
+    });
+    expect(count.youtube).toBe(2);
+    expect(count.tavily).toBeGreaterThan(6);
+    expect(again.top).toEqual({ updatedAt: LATER.toISOString(), yt: YT_TOP, ig: IG_TOP, tt: [] });
   });
 });
 
@@ -449,7 +603,8 @@ describe("runCategory's lessons (§3)", () => {
     const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
     // PROBE answers every search: its TikTok / Instagram posts are the examples, its "tutorial" title the tutorial.
     expect(count.tavily).toBe(16);
-    // Lessons find their YouTube videos through Tavily: no YouTube call (the env has YouTube's key).
+    // Lessons find their YouTube videos through Tavily: the only YouTube calls are the top list's 2 (§6).
+    expect(count.youtube).toBe(2);
     expect(count.other).toBe(0);
     // Live fix 1: examples for the subject, no " tutorial" added.
     expect(searched).toContain("car panning");
@@ -640,7 +795,7 @@ describe("runCategory's lessons (§3)", () => {
     KV.store.set(usageKeys.tavily, JSON.stringify({ used: 950, limit: 1000 }));
     const { fetch, count } = web();
     const doc = await runCategory(env, "cars", { fetch, now: NOW });
-    expect(count).toEqual({ tavily: 0, usage: 0, other: 0 });
+    expect(count).toEqual({ tavily: 0, usage: 0, youtube: 0, other: 0 });
     expect(env.AI.run).not.toHaveBeenCalled();
     expect(doc).toMatchObject({
       status: "failed",

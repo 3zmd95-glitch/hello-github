@@ -6,7 +6,9 @@
  * keeps its name while it is still in the 7-day memory.
  */
 
-export type EffectPlatform = "tt" | "ig";
+/** Trending effects reads TikTok and Instagram posts; a category scan adds its YouTube top videos (`yt`,
+ * planning/tools/19-category-trends.md §2 and §6). */
+export type EffectPlatform = "tt" | "ig" | "yt";
 export interface EffectPost {
   platform: EffectPlatform;
   handle: string;
