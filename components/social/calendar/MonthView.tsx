@@ -22,7 +22,8 @@ const SHORT_DAY_KEYS: readonly MessageKey[] = [
 /**
  * Month grid in Sat-first weeks: each day a small card with its number (today in accent) and a 6px dot per post in
  * its platform color (at most four). A day with posts opens it in the week view (its posts as rows); an empty day
- * starts a new post on it.
+ * starts a new post on it. Plain buttons, not an ARIA grid (no rows, no arrow keys): each is named by its full date,
+ * so the weekday header is hidden from screen readers.
  */
 export default function MonthView({
   posts,
@@ -81,9 +82,9 @@ export default function MonthView({
         </button>
       </div>
 
-      <div className="cal-month" role="grid" aria-label={title}>
+      <div className="cal-month">
         {SHORT_DAY_KEYS.map((key) => (
-          <div key={key} className="cal-mhead" role="columnheader">
+          <div key={key} className="cal-mhead" aria-hidden>
             {t(key)}
           </div>
         ))}
@@ -93,7 +94,6 @@ export default function MonthView({
           return (
             <div
               key={day}
-              role="gridcell"
               className="month-day"
               data-testid="month-day"
               data-day={day}

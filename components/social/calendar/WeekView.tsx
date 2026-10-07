@@ -8,6 +8,7 @@ import Chip from "@/components/ui/ios/Chip";
 import { ListGroup } from "@/components/ui/ios/List";
 import { PLATFORMS, type Post } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
+import { prefersReducedMotion } from "@/lib/motion";
 import { PlatformGlyph } from "@/lib/platformIcons";
 import {
   overduePosts,
@@ -33,6 +34,9 @@ const DAY_KEYS: readonly MessageKey[] = [
 
 /** The strip's weeks, as day offsets from `weekStart`: last week, this week (in view at rest), next week. */
 const STRIP = [-7, 0, 7] as const;
+
+/** One week's scroll distance on the strip (a week plus the gap): it overflows by two of them. */
+const stride = (el: HTMLElement) => (el.scrollWidth - el.clientWidth) / 2;
 
 /**
  * One week (Sat → Fri, Riyadh): a strip card on top (the range with ‹ › and "today", then three weeks side by side
@@ -73,14 +77,13 @@ export default function WeekView({
 
   // The strip rests on its middle week: set before the first paint, after every week change (the old next week is
   // the new middle one, so nothing moves on screen) and on a resize. scrollLeft, not scrollIntoView: that one would
-  // also scroll the page to show the whole strip. Each week is one strip width apart (100% + the 32px gap = the 2 ×
-  // 16px padding), and an RTL strip counts scrollLeft down from 0.
+  // also scroll the page to show the whole strip. An RTL strip counts scrollLeft down from 0.
   const strip = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = strip.current;
     if (!el) return;
     const center = () => {
-      el.scrollLeft = (getComputedStyle(el).direction === "rtl" ? -1 : 1) * el.clientWidth;
+      el.scrollLeft = (getComputedStyle(el).direction === "rtl" ? -1 : 1) * stride(el);
     };
     center();
     const ro = new ResizeObserver(center);
@@ -97,7 +100,7 @@ export default function WeekView({
     settle.current = window.setTimeout(() => {
       const el = strip.current;
       if (!el) return;
-      const page = Math.abs(el.scrollLeft) / el.clientWidth;
+      const page = Math.abs(el.scrollLeft) / stride(el);
       if (Math.abs(page - Math.round(page)) > 0.01 || Math.round(page) === 1) return;
       onWeek(addDays(weekStart, page < 1 ? -7 : 7));
     }, 120);
@@ -107,8 +110,8 @@ export default function WeekView({
   useEffect(() => {
     if (!focusDay) return;
     root.current
-      ?.querySelector(`[data-testid="calendar-day"][data-day="${focusDay}"]`)
-      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      ?.querySelector(`.cal-dgroup[data-day="${focusDay}"]`)
+      ?.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
   }, [focusDay, weekStart]);
 
   return (

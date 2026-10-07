@@ -1182,7 +1182,8 @@
         .studio-wday b,
         .month-day,
         .month-day b,
-        .cal-col
+        .cal-col,
+        .cal-col .post-card
       ) {
       corner-shape: squircle;
     }
@@ -1725,8 +1726,9 @@
   .ios-row.bare > :last-child:not(.ios-tx) {
     margin-inline-start: auto;
   }
-  /* Ring drawn inside: the list's overflow: hidden would clip an outside one. */
-  [data-world="social"] :is(.ios-row, .ios-list a, .ios-list button):focus-visible {
+  /* Ring drawn inside: the list's (or a stage tile's) overflow: hidden would clip an outside one. */
+  [data-world="social"]
+    :is(.ios-row, .ios-list a, .ios-list button, .cal-col .post-open):focus-visible {
     outline: 2px solid var(--tint);
     outline-offset: -2px;
   }
@@ -2876,7 +2878,8 @@
   background: none;
   box-shadow: none;
 }
-.month-day[data-outside="true"] b {
+/* Today keeps its accent pair (≥ 4.5:1) when it is a day of the month before or after. */
+.month-day[data-outside="true"]:not([data-today="true"]) b {
   color: var(--muted);
 }
 

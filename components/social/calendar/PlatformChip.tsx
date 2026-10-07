@@ -5,9 +5,13 @@ import type { Platform, PostStage } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { PLATFORM_META } from "@/lib/social";
 
-/** Platform brand color (the `--pc-*` token of the scheme) as `--pc` for the `.cal-*` classes and the strip dots. */
-export function platformStyle(platform: Platform): CSSProperties {
-  return { "--pc": `var(--pc-${platform})` } as CSSProperties;
+/**
+ * A platform's color as a CSS variable: `--pc` for the `.cal-*` classes and the dots, `--c` for the Studio chips and
+ * buttons. It is the scheme's `--pc-*` token; Training has no such tokens, so there (the skill sheet's platform picker)
+ * the brand hex it always had stands in.
+ */
+export function platformStyle(platform: Platform, name: "--pc" | "--c" = "--pc"): CSSProperties {
+  return { [name]: `var(--pc-${platform}, ${PLATFORM_META[platform].color})` } as CSSProperties;
 }
 
 /** Icon + name chip in the platform's color. */

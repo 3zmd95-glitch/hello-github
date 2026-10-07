@@ -2,8 +2,9 @@
 
 import { Check } from "lucide-react";
 import Link from "next/link";
-import { useMemo, type CSSProperties } from "react";
+import { useMemo } from "react";
 import { dayKeyToDate, formatDayNumber } from "@/components/planner/weekLabel";
+import { platformStyle } from "@/components/social/calendar/PlatformChip";
 import Card, { CardHead, HeadLink } from "@/components/ui/ios/Card";
 import Chip from "@/components/ui/ios/Chip";
 import { useT } from "@/lib/i18n";
@@ -63,7 +64,7 @@ export default function WeekPlanCard({ today }: { today: string }) {
                   <i
                     key={p.id}
                     className="studio-pdot"
-                    style={{ "--pc": `var(--pc-${p.platform})` } as CSSProperties}
+                    style={platformStyle(p.platform)}
                     title={p.title}
                     data-platform={p.platform}
                     data-testid="studio-week-post"

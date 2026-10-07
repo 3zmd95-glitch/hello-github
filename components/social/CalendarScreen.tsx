@@ -10,7 +10,7 @@ import { PLATFORMS, type Platform, type Post } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { PlatformGlyph } from "@/lib/platformIcons";
 import { PLATFORM_META } from "@/lib/social";
-import { weekKey } from "@/lib/streak";
+import { dayKey, weekKey } from "@/lib/streak";
 import { useStore } from "@/store";
 import { monthKeyOf, parseCalendarHash, postHash } from "./calendar/dates";
 import MonthView from "./calendar/MonthView";
@@ -35,7 +35,7 @@ function clearHash(): void {
  * its tabpanel) per platform (filter chips with the brand glyphs), the new-post sheet (the glass "+" on phones, a
  * header button from md up) and the post popup. Deep links: `#post=<id>` opens that post's popup (the Studio home,
  * the Ideas bank and the skill sheet link here), `#day=YYYY-MM-DD` focuses a day in the week view, as a tap on a day of
- * the week strip or the month grid does; both are read on mount and on `hashchange`.
+ * the week strip or the month grid does, `#new` opens the new-post sheet; all are read on mount and on `hashchange`.
  * A tap on a post pushes its `#post=` entry: Back closes the popup (with the sheet's exit), any other close goes back
  * off the entry. A popup opened from the URL pushed nothing, so closing it clears the hash with
  * `history.replaceState` and never leaves the calendar.
@@ -66,6 +66,11 @@ export default function CalendarScreen() {
     const apply = () => {
       const h = parseCalendarHash(window.location.hash);
       if (h.day) showDay(h.day);
+      if (h.newPost) {
+        // Once: a reload does not reopen it.
+        setDraft({ day: dayKey() });
+        clearHash();
+      }
       pushed.current = false;
       if (h.post) {
         if (useStore.getState().posts.some((p) => p.id === h.post)) {
@@ -197,7 +202,13 @@ export default function CalendarScreen() {
         </section>
       )}
 
-      <div role="tabpanel" id={`cal-view-panel-${view}`} aria-labelledby={`cal-view-tab-${view}`}>
+      {/* Focusable (APG tabs): no view opens on a control. */}
+      <div
+        role="tabpanel"
+        id={`cal-view-panel-${view}`}
+        aria-labelledby={`cal-view-tab-${view}`}
+        tabIndex={0}
+      >
         {view === "week" && (
           <WeekView
             posts={filtered}

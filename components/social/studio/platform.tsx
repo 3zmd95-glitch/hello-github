@@ -1,14 +1,10 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
+import { platformStyle } from "@/components/social/calendar/PlatformChip";
 import { PLATFORMS, type Platform } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { PLATFORM_META } from "@/lib/social";
-
-/** `--c` set to the platform's brand color, for chips, dots and hero accents. */
-export function platformStyle(platform: Platform): CSSProperties {
-  return { "--c": PLATFORM_META[platform].color } as CSSProperties;
-}
 
 /** Icon + localized platform name as a small chip tinted with the brand color. */
 export function PlatformChip({
@@ -25,7 +21,7 @@ export function PlatformChip({
   return (
     <span
       className={`studio-pchip ${className}`}
-      style={platformStyle(platform)}
+      style={platformStyle(platform, "--c")}
       data-platform={platform}
       data-testid={testId}
     >
@@ -64,7 +60,7 @@ export function PlatformPicker({
               key={p}
               type="button"
               className="studio-pbtn"
-              style={platformStyle(p)}
+              style={platformStyle(p, "--c")}
               onClick={() => onPick(p)}
               data-testid={`${idPrefix}-${p}`}
               data-platform={p}

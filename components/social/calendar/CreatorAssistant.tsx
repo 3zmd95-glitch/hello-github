@@ -201,7 +201,7 @@ export default function CreatorAssistant({ post }: { post: Post }) {
       )}
       {preview && (
         <div
-          className="border-line flex flex-col gap-3 border-t pt-3"
+          className="border-hair flex flex-col gap-3 border-t pt-3"
           data-testid="creator-preview"
         >
           <h4 className="text-sm font-bold">{t("creator.preview")}</h4>
@@ -293,7 +293,7 @@ export default function CreatorAssistant({ post }: { post: Post }) {
           </div>
         </div>
       )}
-      <div className="border-line flex flex-col gap-2 border-t pt-3">
+      <div className="border-hair flex flex-col gap-2 border-t pt-3">
         <h4 className="text-sm font-bold">{t("creator.exportTitle")}</h4>
         <p className="text-muted text-xs">{t("creator.subtitleHint")}</p>
         <div className="flex flex-wrap gap-2">

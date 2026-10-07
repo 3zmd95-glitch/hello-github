@@ -334,3 +334,30 @@ test("the post popup and history: a tap pushes #post=, Back closes it with the e
   await expect(page).toHaveURL(/\/social\/calendar\/$/);
   await expect(page.getByTestId("calendar-screen")).toBeVisible();
 });
+
+test("#new opens the new-post sheet once: the Studio's Plan a post lands on it", async ({
+  page,
+}) => {
+  const today = todayKey();
+  await freshState(page, "/social/calendar/");
+  // A planned post turns the Studio hero to its "next post" state, with "Plan a post".
+  await page.locator('[data-testid="calendar-new"]:visible').click();
+  await page.getByTestId("post-title").fill("Hero post");
+  await page.getByTestId("post-day").fill(today);
+  await page.getByTestId("post-save").click();
+  await expect(page.getByTestId("post-form")).toBeHidden();
+
+  await page.goto("/social/");
+  await expect(page.getByTestId("studio-next")).toHaveAttribute("data-empty", "false");
+  const plan = page.getByTestId("studio-next-cta");
+  await expect(plan).toHaveAttribute("href", "/social/calendar/#new");
+  await plan.click();
+  await expect(page.getByTestId("post-form")).toBeVisible();
+  await expect(page.getByTestId("post-day")).toHaveValue(today);
+  await expect(page).toHaveURL(/\/social\/calendar\/$/);
+
+  // The hash is gone, so a reload does not reopen it.
+  await page.reload();
+  await expect(page.getByTestId("calendar-screen")).toBeVisible();
+  await expect(page.getByTestId("post-form")).toHaveCount(0);
+});
