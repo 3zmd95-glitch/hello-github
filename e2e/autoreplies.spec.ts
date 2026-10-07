@@ -266,8 +266,9 @@ test("allow auto-replies in Settings, build the LUT automation, test it, read se
   );
   expect(await fitsViewport(page)).toBe(true);
 
+  // The sheet closes on a save the Worker took; a toast confirms it (the page behind the sheet never moves).
   await page.getByTestId("autoreply-save").click();
-  await expect(page.getByTestId("autoreplies-notice")).toBeVisible();
+  await expect(page.locator('[data-testid="toast"][data-kind="notice"]')).toHaveText("انحفظ");
   expect(fake.saved).toHaveLength(1);
   expect(fake.saved[0]).toMatchObject({
     enabled: true,
@@ -356,7 +357,9 @@ test("a DM rule has no post or public replies, and the counter stops a DM that i
   expect(await fitsViewport(page)).toBe(true);
 });
 
-test("Edit far down a long list opens the editor at its top", async ({ page }) => {
+test("Edit far down a long list opens the editor sheet at its own top and leaves the page where it was", async ({
+  page,
+}) => {
   const fake = await stubWorker(page);
   fake.status.instagram = { ...fake.status.instagram, canReply: true };
   for (let i = 0; i < 12; i++) {
@@ -379,11 +382,66 @@ test("Edit far down a long list opens the editor at its top", async ({ page }) =
   await connectWorker(page);
   await page.goto("/social/replies/");
   const last = page.locator('[data-testid="autoreply-row"][data-id="dm-11"]:visible');
+  const scrollY = () => page.evaluate(() => window.scrollY);
   await last.getByTestId("autoreply-menu").click();
-  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  // Edit in the middle of the screen, so the click itself never has to scroll the page.
+  await last.getByTestId("autoreply-edit").evaluate((el) => el.scrollIntoView({ block: "center" }));
+  const y = await scrollY();
+  expect(y).toBeGreaterThan(0);
   await last.getByTestId("autoreply-edit").click();
+  // The sheet opens at its own top; the page behind it stays where it was.
   await expect(page.getByRole("heading", { name: "تعديل الرد التلقائي" })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  expect(await page.locator(".ios-sheet-body").evaluate((el) => el.scrollTop)).toBe(0);
+  expect(await scrollY()).toBe(y);
+  // Closed: still there, and focus is back on the row's ⋯ button (the menu item that opened it is hidden).
+  await page.getByTestId("editor-back").click();
+  await expect(page.getByTestId("autoreply-sheet")).toHaveCount(0);
+  expect(await scrollY()).toBe(y);
+  await expect(last.getByTestId("autoreply-menu")).toBeFocused();
+});
+
+test("a keyword chip's ✕ is 40px wide and never reaches a neighbouring chip, beside it or in the row below", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  fake.status.instagram = { ...fake.status.instagram, canReply: true };
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  await page.goto("/social/replies/");
+  await page.getByTestId("autoreplies-new").click();
+  await page
+    .getByTestId("autoreply-keyword-input")
+    .fill("لت, LUT, بريست, preset, كاميرا, عدسة, ضوء, ألوان, مونتاج, رابط,");
+  await expect(page.getByTestId("autoreply-keyword-chip")).toHaveCount(10);
+  const hits = await page.evaluate(() => {
+    const chips = [
+      ...document.querySelectorAll<HTMLElement>('[data-testid="autoreply-keyword-chip"]'),
+    ];
+    const at = (x: number, y: number) => document.elementFromPoint(x, y);
+    // The ✕'s hit area along its middle line, in px.
+    const widths = chips.map((chip) => {
+      const x = chip.querySelector("button")!;
+      const b = x.getBoundingClientRect();
+      let w = 0;
+      for (let px = Math.floor(b.left) - 30; px <= b.right + 30; px++)
+        if (at(px, b.top + b.height / 2) === x) w++;
+      return w;
+    });
+    // Points on each chip (its middle line end to end, its flat top and bottom edges) that land outside it.
+    const strays = chips.reduce((n, chip) => {
+      const r = chip.getBoundingClientRect();
+      const points: [number, number][] = [];
+      for (let px = r.left + 1; px < r.right - 1; px += 2) points.push([px, r.top + r.height / 2]);
+      for (let px = r.left + 12; px < r.right - 12; px += 2)
+        points.push([px, r.top + 1], [px, r.bottom - 1]);
+      return n + points.filter(([px, py]) => !chip.contains(at(px, py))).length;
+    }, 0);
+    const rows = new Set(chips.map((c) => Math.round(c.getBoundingClientRect().top))).size;
+    return { widths, strays, rows };
+  });
+  expect(hits.rows).toBeGreaterThan(1);
+  for (const w of hits.widths) expect(w).toBeGreaterThanOrEqual(40);
+  expect(hits.strays).toBe(0);
 });
 
 test("a rule on a post this browser has not synced keeps it: checked first in the grid, saved with it", async ({

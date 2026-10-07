@@ -1,6 +1,8 @@
 "use client";
 
+import { Megaphone, Pin } from "lucide-react";
 import { useState } from "react";
+import Segmented from "@/components/ui/ios/Segmented";
 import type { AutoReply } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { messageButtons } from "@/lib/replies";
@@ -30,12 +32,12 @@ export default function PhonePreview({
   const buttons = messageButtons(rule, origin, handle);
 
   return (
-    <div className="flex flex-col items-center gap-2" data-testid="autoreply-preview">
-      <div className="border-edge flex min-h-80 w-full max-w-72 flex-col gap-2 rounded-[28px] border-2 p-3">
-        <div className="border-edge flex items-center gap-2 border-b pb-2 text-xs">
+    <div className="flex flex-col items-center gap-2.5" data-testid="autoreply-preview">
+      <div className="border-hair bg-panel-2 flex min-h-80 w-full max-w-72 flex-col gap-2 rounded-[28px] border p-3">
+        <div className="border-hair flex items-center gap-2 border-b pb-2 text-xs">
           <span
             aria-hidden
-            className="grid h-7 w-7 place-items-center rounded-full border font-bold"
+            className="bg-fill grid h-7 w-7 place-items-center rounded-full font-bold"
           >
             {handle.slice(0, 1).toUpperCase()}
           </span>
@@ -44,10 +46,18 @@ export default function PhonePreview({
         {shown === "post" &&
           (rule.thumbUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- Instagram CDN thumbnail, expires; no loader
-            <img src={rule.thumbUrl} alt="" className="aspect-square w-full rounded object-cover" />
+            <img
+              src={rule.thumbUrl}
+              alt=""
+              className="aspect-square w-full rounded-[14px] object-cover"
+            />
           ) : (
-            <div className="bg-panel-2 grid aspect-square place-items-center rounded text-3xl">
-              <span aria-hidden>{rule.postId ? "📌" : "📣"}</span>
+            <div className="bg-panel text-muted grid aspect-square place-items-center rounded-[14px]">
+              {rule.postId ? (
+                <Pin size={32} strokeWidth={1.5} aria-hidden />
+              ) : (
+                <Megaphone size={32} strokeWidth={1.5} aria-hidden />
+              )}
             </div>
           ))}
         {shown === "post" && (
@@ -71,7 +81,7 @@ export default function PhonePreview({
         )}
         {shown === "dm" && (
           <div
-            className="bg-panel-2 max-w-[85%] self-start rounded-2xl border p-2 text-xs"
+            className="bg-panel max-w-[85%] self-start rounded-[18px] p-2.5 text-xs shadow-[var(--shadow-sm)]"
             data-testid="autoreply-preview-dm"
           >
             <p className="break-words whitespace-pre-wrap" dir="auto">
@@ -80,7 +90,7 @@ export default function PhonePreview({
             {buttons.map((b, i) => (
               <span
                 key={i}
-                className="mt-1.5 block rounded-lg border p-1.5 text-center"
+                className="border-hair mt-1.5 block rounded-[10px] border p-1.5 text-center font-semibold"
                 data-testid="autoreply-preview-button"
               >
                 {b.title}
@@ -90,21 +100,17 @@ export default function PhonePreview({
         )}
       </div>
       {tabs.length > 1 && (
-        <div className="cal-tabs" role="tablist" aria-label={t("replies.form.preview")}>
-          {tabs.map((k) => (
-            <button
-              key={k}
-              type="button"
-              role="tab"
-              className="cal-tab"
-              aria-selected={shown === k}
-              onClick={() => setTab(k)}
-              data-testid={`autoreply-preview-tab-${k}`}
-            >
-              {t(`replies.preview.${k}`)}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          className="w-full max-w-72"
+          label={t("replies.form.preview")}
+          value={shown}
+          onChange={setTab}
+          options={tabs.map((k) => ({
+            value: k,
+            label: t(`replies.preview.${k}`),
+            testId: `autoreply-preview-tab-${k}`,
+          }))}
+        />
       )}
     </div>
   );
