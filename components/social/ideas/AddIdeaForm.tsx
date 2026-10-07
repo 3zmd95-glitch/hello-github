@@ -1,17 +1,22 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { PlatformChip } from "@/components/social/studio/platform";
+import Segmented from "@/components/ui/ios/Segmented";
+import { useSheetClose } from "@/components/ui/ios/Sheet";
 import { PLATFORMS, type IdeaSource, type Platform } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { PlatformGlyph } from "@/lib/platformIcons";
+import { PLATFORM_META } from "@/lib/social";
 import { useStore } from "@/store";
 
 /** Sources the owner types in by hand; "skill" ideas come from the suggestions below the list. */
 const MANUAL_SOURCES = ["me", "audience", "trend"] as const satisfies readonly IdeaSource[];
 
+/** The "new idea" form, inside its sheet: Save adds the idea and closes the sheet with its exit animation. */
 export default function AddIdeaForm() {
-  const { t } = useT();
+  const { t, L } = useT();
   const addIdea = useStore((s) => s.addIdea);
+  const close = useSheetClose();
   const [text, setText] = useState("");
   const [source, setSource] = useState<IdeaSource>("me");
   const [platform, setPlatform] = useState<Platform | null>(null);
@@ -21,12 +26,11 @@ export default function AddIdeaForm() {
     const trimmed = text.trim();
     if (!trimmed) return;
     addIdea({ text: trimmed, source, ...(platform ? { platform } : {}) });
-    setText("");
+    close();
   };
 
   return (
-    <form onSubmit={submit} className="px-card flex flex-col gap-3" data-testid="idea-form">
-      <h2 className="text-base">{t("ideas.addTitle")}</h2>
+    <form onSubmit={submit} className="flex flex-col gap-4" data-testid="idea-form">
       <input
         type="text"
         className="px-input"
@@ -39,28 +43,22 @@ export default function AddIdeaForm() {
         data-testid="idea-text"
       />
       <div className="flex flex-col gap-1.5">
-        <span className="text-muted text-xs">{t("ideas.sourceLabel")}</span>
-        <div
-          className="studio-seg"
-          role="group"
-          aria-label={t("ideas.sourceLabel")}
-          data-testid="idea-source"
-        >
-          {MANUAL_SOURCES.map((s) => (
-            <button
-              key={s}
-              type="button"
-              aria-pressed={source === s}
-              onClick={() => setSource(s)}
-              data-testid={`idea-source-${s}`}
-            >
-              {t(`ideas.source.${s}`)}
-            </button>
-          ))}
-        </div>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("ideas.sourceLabel")}</span>
+        <Segmented
+          role="radiogroup"
+          label={t("ideas.sourceLabel")}
+          value={source}
+          onChange={setSource}
+          testId="idea-source"
+          options={MANUAL_SOURCES.map((s) => ({
+            value: s,
+            label: t(`ideas.source.${s}`),
+            testId: `idea-source-${s}`,
+          }))}
+        />
       </div>
       <div className="flex flex-col gap-1.5">
-        <span className="text-muted text-xs">{t("ideas.platformLabel")}</span>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("ideas.platformLabel")}</span>
         <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("ideas.platformLabel")}>
           <button
             type="button"
@@ -75,19 +73,22 @@ export default function AddIdeaForm() {
             <button
               key={p}
               type="button"
-              className="studio-pfilter"
+              // The calendar's platform chip: pressed, it fills with the platform's color.
+              className="px-fchip cal-fchip"
               aria-pressed={platform === p}
               onClick={() => setPlatform(platform === p ? null : p)}
               data-testid={`idea-platform-${p}`}
+              data-platform={p}
             >
-              <PlatformChip platform={p} />
+              <PlatformGlyph platform={p} size={14} className="shrink-0" />
+              {L(PLATFORM_META[p].name)}
             </button>
           ))}
         </div>
       </div>
       <button
         type="submit"
-        className="px-btn self-start"
+        className="px-btn w-full"
         disabled={!text.trim()}
         data-testid="idea-add"
       >

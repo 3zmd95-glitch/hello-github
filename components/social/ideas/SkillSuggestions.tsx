@@ -1,9 +1,11 @@
 "use client";
 
+import { CalendarPlus, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { PlatformPicker, calendarPostHref } from "@/components/social/studio/platform";
-import { getProgram, skills } from "@/data";
+import { PlatformPicker, calendarPostHref, withName } from "@/components/social/studio/platform";
+import Chip from "@/components/ui/ios/Chip";
+import { skills } from "@/data";
 import { useT } from "@/lib/i18n";
 import { ideasFromSkills, type SkillIdeaCandidate } from "@/lib/social";
 import { useStore } from "@/store";
@@ -13,8 +15,8 @@ const CAP = 8;
 
 /**
  * "Skills without a video": Training skills whose Produce quest is open and that have neither a post nor a
- * stored idea. Skills the owner already started (more quests done) come first, so the suggestions follow the
- * training momentum.
+ * stored idea, as a grouped list. Skills the owner already started (more quests done) come first, so the
+ * suggestions follow the training momentum.
  */
 export default function SkillSuggestions() {
   const { t, L } = useT();
@@ -43,102 +45,99 @@ export default function SkillSuggestions() {
 
   return (
     <section
-      className="px-card flex flex-col gap-3"
+      className="flex flex-col gap-1.5"
       data-testid="ideas-from-skills"
       data-count={list.length}
     >
-      <header className="flex flex-col gap-0.5">
-        <h2 className="text-base">{t("ideas.fromSkills")}</h2>
-        <p className="text-muted text-xs">{t("ideas.fromSkillsSub")}</p>
-      </header>
-
-      {planned && (
-        <p
-          className="px-inset flex flex-wrap items-center gap-2 text-sm"
-          data-testid="ideas-planned-notice"
-        >
-          <span className="text-accent min-w-0 flex-1">
-            {t("ideas.planned", { name: planned.title })}
-          </span>
-          <Link
-            href={calendarPostHref(planned.id)}
-            className="px-link text-xs"
-            data-testid="ideas-planned-open"
-          >
-            {t("ideas.plannedOpen")}
-          </Link>
-        </p>
-      )}
-
-      {list.length === 0 ? (
-        <p className="text-ink-2 text-sm" data-testid="ideas-from-skills-empty">
-          {t("ideas.fromSkillsEmpty")}
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {list.map((c) => {
-            const skill = skills.find((s) => s.id === c.skillId);
-            const program = skill ? getProgram(skill.programId) : undefined;
+      <h2 className="ios-gh text-[13px]">{t("ideas.fromSkills")}</h2>
+      <ul className="ios-list">
+        {planned && (
+          <li className="ios-row" data-testid="ideas-planned-notice">
+            <span className="ios-ic">
+              <CalendarPlus size={22} strokeWidth={1.75} aria-hidden />
+            </span>
+            <span className="ios-tx">
+              <b className="whitespace-normal">{withName(t("ideas.planned"), planned.title)}</b>
+            </span>
+            <Link
+              href={calendarPostHref(planned.id)}
+              className="px-link shrink-0 text-[13px]"
+              data-testid="ideas-planned-open"
+            >
+              {t("ideas.plannedOpen")}
+            </Link>
+          </li>
+        )}
+        {list.length === 0 ? (
+          <li className="ios-row" data-sep="16" data-testid="ideas-from-skills-empty">
+            <span className="ios-tx">
+              <b className="whitespace-normal">{t("ideas.fromSkillsEmpty")}</b>
+            </span>
+          </li>
+        ) : (
+          list.map((c) => {
             const picking = pickingFor === c.skillId;
             return (
               <li
                 key={c.skillId}
-                className="px-inset flex flex-col gap-2"
+                className="ios-row items-start"
                 data-testid="skill-idea-row"
                 data-skill={c.skillId}
                 data-done={c.done}
               >
-                <div className="flex items-start gap-2">
-                  <span aria-hidden className="text-lg leading-none">
-                    {program?.icon ?? "🎮"}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold">{L(c.text)}</p>
-                    <p className="text-ink-2 text-xs">{L(c.brief)}</p>
+                <span className="ios-ic">
+                  <Sparkles size={22} strokeWidth={1.75} aria-hidden />
+                </span>
+                <div className="ios-tx">
+                  {/* The progress chip shares the title's line, so the brief and the buttons get the row's width. */}
+                  <div className="flex items-start gap-2">
+                    <b className="min-w-0 flex-1 whitespace-normal">{L(c.text)}</b>
+                    <Chip className="num shrink-0">{t("ideas.skillProgress", { n: c.done })}</Chip>
                   </div>
-                  <span className="px-chip num shrink-0">
-                    {t("ideas.skillProgress", { n: c.done })}
-                  </span>
+                  <small>{L(c.brief)}</small>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {picking ? (
+                      <PlatformPicker
+                        idPrefix="skill-idea-post"
+                        label={t("ideas.pickPlatform")}
+                        cancelLabel={t("ideas.cancel")}
+                        onCancel={() => setPickingFor(null)}
+                        onPick={(p) => {
+                          const post = createPostFromSkill(c.skillId, p);
+                          if (post) setPlanned({ id: post.id, title: post.title });
+                          setPickingFor(null);
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="px-btn px-btn-ghost px-btn-sm"
+                          onClick={() =>
+                            addIdea({ text: L(c.text), source: "skill", skillId: c.skillId })
+                          }
+                          data-testid="skill-idea-save"
+                        >
+                          {t("ideas.skillSave")}
+                        </button>
+                        <button
+                          type="button"
+                          className="px-btn px-btn-ghost px-btn-sm"
+                          onClick={() => setPickingFor(c.skillId)}
+                          data-testid="skill-idea-plan"
+                        >
+                          {t("ideas.skillPlan")}
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                {picking ? (
-                  <PlatformPicker
-                    idPrefix="skill-idea-post"
-                    label={t("ideas.pickPlatform")}
-                    cancelLabel={t("ideas.cancel")}
-                    onCancel={() => setPickingFor(null)}
-                    onPick={(p) => {
-                      const post = createPostFromSkill(c.skillId, p);
-                      if (post) setPlanned({ id: post.id, title: post.title });
-                      setPickingFor(null);
-                    }}
-                  />
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className="px-btn px-btn-ghost px-btn-sm"
-                      onClick={() =>
-                        addIdea({ text: L(c.text), source: "skill", skillId: c.skillId })
-                      }
-                      data-testid="skill-idea-save"
-                    >
-                      {t("ideas.skillSave")}
-                    </button>
-                    <button
-                      type="button"
-                      className="px-btn px-btn-sm"
-                      onClick={() => setPickingFor(c.skillId)}
-                      data-testid="skill-idea-plan"
-                    >
-                      {t("ideas.skillPlan")}
-                    </button>
-                  </div>
-                )}
               </li>
             );
-          })}
-        </ul>
-      )}
+          })
+        )}
+      </ul>
+      <p className="text-muted px-4 text-xs">{t("ideas.fromSkillsSub")}</p>
     </section>
   );
 }

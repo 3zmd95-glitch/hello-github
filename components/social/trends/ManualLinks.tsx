@@ -1,11 +1,13 @@
 "use client";
 
+import { ExternalLink } from "lucide-react";
+import { ListGroup, ListRow } from "@/components/ui/ios/List";
 import { useT, type MessageKey } from "@/lib/i18n";
 
 /**
- * 🔗 Sources with no free API (round 30, planning/tools/08-trends.md): TikTok Creative Center (the only
- * official list with a Saudi filter), getdaytrends (its terms forbid automated reading, so a link), Google
- * Trends' own page, and the Instagram trending-audio ritual, which lives in the app and has no link at all.
+ * Sources with no free API (round 30, planning/tools/08-trends.md): TikTok Creative Center (the only official list
+ * with a Saudi filter), getdaytrends (its terms forbid automated reading, so a link), Google Trends' own page, and
+ * the Instagram trending-audio ritual, which lives in the app and has no link at all.
  */
 const LINKS: readonly { id: string; key: MessageKey; href: string }[] = [
   {
@@ -24,42 +26,39 @@ const LINKS: readonly { id: string; key: MessageKey; href: string }[] = [
 export default function ManualLinks() {
   const { t } = useT();
   return (
-    <section
-      className="flex flex-col gap-2"
-      data-testid="trends-manual"
-      aria-label={t("trends.manual")}
-    >
-      <header className="flex flex-col gap-0.5">
-        <h3 className="text-sm font-bold">{t("trends.manual")}</h3>
-        <p className="text-muted text-xs">{t("trends.manualSub")}</p>
-      </header>
-      <ul className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5">
+      <ListGroup header={t("trends.manual")} testId="trends-manual" aria-label={t("trends.manual")}>
+        {/* ListRow's markup on a plain anchor: these leave the app, in a new tab. */}
         {LINKS.map((l) => (
-          <li key={l.id}>
-            <a
-              href={l.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-inset text-ink flex items-center gap-2 text-sm no-underline"
-              data-testid="trends-manual-link"
-              data-link={l.id}
-            >
-              <span className="min-w-0 flex-1 break-words">{t(l.key)}</span>
-              <span aria-hidden className="text-muted">
-                ↗
-              </span>
-            </a>
-          </li>
+          <a
+            key={l.id}
+            href={l.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ios-row"
+            data-sep="16"
+            data-testid="trends-manual-link"
+            data-link={l.id}
+          >
+            <span className="ios-tx">
+              <b>{t(l.key)}</b>
+            </span>
+            <ExternalLink
+              size={16}
+              strokeWidth={1.75}
+              className="text-muted shrink-0"
+              aria-hidden
+            />
+          </a>
         ))}
-        <li
-          className="px-inset flex items-center gap-2 text-sm"
-          data-testid="trends-manual-link"
+        <ListRow
+          title={t("trends.manual.instagram")}
+          sub={t("trends.manual.instagramNote")}
+          testId="trends-manual-link"
           data-link="instagram"
-        >
-          <span className="min-w-0 flex-1 break-words">{t("trends.manual.instagram")}</span>
-          <span className="text-muted shrink-0 text-xs">{t("trends.manual.instagramNote")}</span>
-        </li>
-      </ul>
-    </section>
+        />
+      </ListGroup>
+      <p className="text-muted px-4 text-xs">{t("trends.manualSub")}</p>
+    </div>
   );
 }

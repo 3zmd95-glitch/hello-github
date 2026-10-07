@@ -1390,6 +1390,11 @@ describe("social: ideas, snapshots, asks, accounts", () => {
     expect(ideasCount(S())).toBe(1);
     expect(S().useIdea("nope", "x")).toBeUndefined();
     expect(() => S().addIdea({ text: "", source: "me" })).toThrow();
+    S().toggleIdeaFavorite(i.id);
+    expect(S().ideas[0].favorite).toBe(true);
+    expect(S().ideas[1].favorite).toBeUndefined();
+    S().toggleIdeaFavorite(i.id);
+    expect(S().ideas[0].favorite).toBe(false);
     S().removeIdea(i.id);
     expect(S().ideas).toHaveLength(1);
   });

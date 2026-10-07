@@ -102,6 +102,7 @@ test("ideas bank → calendar → skill sheet → map → Studio hero: the bridg
   ).toHaveCount(0);
 
   // ③ Add an idea of my own and turn it into a TikTok post.
+  await page.getByTestId("idea-new").click();
   await page.getByTestId("idea-text").fill("Grade Log in 60s");
   await page.getByTestId("idea-source-me").click();
   await page.getByTestId("idea-add").click();

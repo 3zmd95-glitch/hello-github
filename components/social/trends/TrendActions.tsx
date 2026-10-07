@@ -10,11 +10,9 @@ import { useStore } from "@/store";
 /** What the radar shows after "📱 خطّط بوست": the new post, for the planned notice and its calendar link. */
 export type PlannedPost = Pick<Post, "id" | "title">;
 
-/** The calendar platform a trend row maps to, when its platform is one the owner posts on. */
-export function calendarPlatformOf(item: TrendItem): Platform | undefined {
-  return (PLATFORMS as readonly string[]).includes(item.platform)
-    ? (item.platform as Platform)
-    : undefined;
+/** The calendar platform behind a trend platform, when it is one the owner posts on (not Google, not a moment). */
+export function calendarPlatformOf(platform: TrendItem["platform"]): Platform | undefined {
+  return (PLATFORMS as readonly string[]).includes(platform) ? (platform as Platform) : undefined;
 }
 
 /**
@@ -44,7 +42,7 @@ export default function TrendActions({
   const saved = savedTrendIdea(ideas, item);
 
   const ensureIdea = () =>
-    saved ?? addIdea({ text, source: "trend", platform: calendarPlatformOf(item) });
+    saved ?? addIdea({ text, source: "trend", platform: calendarPlatformOf(item.platform) });
 
   if (picking) {
     return (
@@ -80,7 +78,7 @@ export default function TrendActions({
       )}
       <button
         type="button"
-        className="px-btn px-btn-sm"
+        className="px-btn px-btn-ghost px-btn-sm"
         onClick={() => setPicking(true)}
         data-testid={`${idPrefix}-plan`}
       >

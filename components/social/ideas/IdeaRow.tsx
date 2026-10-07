@@ -1,85 +1,163 @@
 "use client";
 
+import {
+  MessageCircle,
+  PenLine,
+  RefreshCw,
+  Sparkles,
+  Star,
+  Trash2,
+  TrendingUp,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import {
-  PlatformChip,
-  PlatformPicker,
-  calendarPostHref,
-} from "@/components/social/studio/platform";
+import { PlatformPicker, calendarPostHref } from "@/components/social/studio/platform";
+import { useSwipeAction } from "@/components/ui/ios/useSwipeAction";
 import { getSkill } from "@/data";
-import type { Idea, Post } from "@/lib/domain";
+import type { Idea, IdeaSource, Post } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { PlatformGlyph } from "@/lib/platformIcons";
+import { PLATFORM_META } from "@/lib/social";
 import { useStore } from "@/store";
 
-/** One stored idea: text, source and platform chips, "plan a post" (platform chooser) or its calendar link, remove. */
+/** Where an idea came from, as an icon (tools/18 §3.6): comments, trends, skills, the owner's own head. */
+export const SOURCE_ICON: Record<IdeaSource, LucideIcon> = {
+  audience: MessageCircle,
+  trend: TrendingUp,
+  skill: Sparkles,
+  me: PenLine,
+};
+
+/**
+ * One stored idea (tools/18 §6, mockup Ideas): its text, where it came from (or "used"), "plan a post" (platform
+ * chooser) or its calendar link, and remove. A swipe toward the end edge (left in RTL) stars it like the star
+ * button; the star pops each time it turns on.
+ */
 export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post | undefined }) {
   const { t, L } = useT();
   const turnIntoPost = useStore((s) => s.useIdea);
   const removeIdea = useStore((s) => s.removeIdea);
+  const toggleFavorite = useStore((s) => s.toggleIdeaFavorite);
   const [picking, setPicking] = useState(false);
+  // Bumped on every star-on: the new key remounts the icon, so the pop plays again.
+  const [pops, setPops] = useState(0);
   const skill = idea.skillId ? getSkill(idea.skillId) : undefined;
   const used = livePost !== undefined;
+  const fav = idea.favorite === true;
+  const toggle = () => {
+    if (!fav) setPops((n) => n + 1);
+    toggleFavorite(idea.id);
+  };
+  const { handlers, x, armed, dragging } = useSwipeAction(toggle);
+  const SourceIcon = used ? RefreshCw : SOURCE_ICON[idea.source];
 
   return (
     <li
-      className="px-inset flex flex-col gap-2"
+      className="ios-swipe"
+      data-armed={armed}
+      data-dragging={dragging}
       data-testid="idea-row"
       data-idea={idea.id}
       data-source={idea.source}
       data-used={used}
+      data-favorite={fav}
     >
-      <div className="flex items-start gap-2">
-        <p className="min-w-0 flex-1 text-sm font-semibold">{idea.text}</p>
-        <button
-          type="button"
-          className="px-btn px-btn-ghost px-btn-sm shrink-0"
-          onClick={() => removeIdea(idea.id)}
-          aria-label={t("ideas.removeLabel", { name: idea.text })}
-          data-testid="idea-remove"
-        >
-          ✕
-        </button>
+      <div className="ios-act" aria-hidden>
+        <Star size={22} strokeWidth={1.75} />
       </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="px-chip" data-testid="idea-source-chip">
-          {t(`ideas.source.${idea.source}`)}
-          {skill ? ` · ${L(skill.name)}` : ""}
-        </span>
-        {idea.platform && <PlatformChip platform={idea.platform} />}
-        {used ? (
-          <Link
-            href={calendarPostHref(livePost.id)}
-            className="px-chip px-chip-green no-underline"
-            data-testid="idea-used-link"
+      <div
+        className="ios-row"
+        style={{ transform: `translateX(${x}px)`, userSelect: dragging ? "none" : undefined }}
+        {...handlers}
+      >
+        <div className="ios-tx">
+          <b>
+            <span
+              dir="auto"
+              // The owner's own words: their direction, two lines at most, aligned with the row.
+              className="line-clamp-2 [text-align:-webkit-match-parent] [text-align:match-parent] whitespace-normal"
+            >
+              {idea.text}
+            </span>
+          </b>
+          <small className="flex flex-wrap items-center gap-x-1">
+            <SourceIcon size={13} strokeWidth={1.75} className="shrink-0" aria-hidden />
+            {used ? t("ideas.filter.used") : t(`ideas.source.${idea.source}`)}
+            {skill && <span>· {L(skill.name)}</span>}
+            {idea.platform && (
+              <span className="inline-flex items-center gap-1">
+                · <PlatformGlyph platform={idea.platform} size={12} />
+                {L(PLATFORM_META[idea.platform].name)}
+              </span>
+            )}
+          </small>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {used ? (
+              <Link
+                href={calendarPostHref(livePost.id)}
+                draggable={false}
+                // A 44px tall hit area around the 24px chip, inside the row.
+                className="ios-chip tint relative no-underline after:absolute after:inset-x-0 after:-inset-y-2.5"
+                data-testid="idea-used-link"
+              >
+                {t("ideas.used")}
+              </Link>
+            ) : picking ? (
+              <PlatformPicker
+                idPrefix="idea-use"
+                label={t("ideas.pickPlatform")}
+                cancelLabel={t("ideas.cancel")}
+                onCancel={() => setPicking(false)}
+                onPick={(p) => {
+                  turnIntoPost(idea.id, p);
+                  setPicking(false);
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                className="px-btn px-btn-ghost px-btn-sm"
+                onClick={() => setPicking(true)}
+                data-testid="idea-use"
+              >
+                {t("ideas.use")}
+              </button>
+            )}
+          </div>
+        </div>
+        {/* The row's end: the star on the title's line, remove at the bottom. */}
+        <div className="-my-1.5 -me-1.5 flex flex-col items-center justify-between self-stretch">
+          <button
+            type="button"
+            className="ios-starb"
+            aria-pressed={fav}
+            aria-label={t("ideas.favorite")}
+            onClick={toggle}
+            data-testid="idea-star"
           >
-            {t("ideas.used")}
-          </Link>
-        ) : (
-          !picking && (
+            <Star
+              key={pops}
+              size={20}
+              strokeWidth={1.75}
+              className={pops ? "ios-pop" : undefined}
+              aria-hidden
+            />
+          </button>
+          {!picking && (
             <button
               type="button"
-              className="px-btn px-btn-sm ms-auto"
-              onClick={() => setPicking(true)}
-              data-testid="idea-use"
+              className="ios-icbtn text-muted"
+              onClick={() => removeIdea(idea.id)}
+              aria-label={t("ideas.removeLabel", { name: idea.text })}
+              title={t("ideas.remove")}
+              data-testid="idea-remove"
             >
-              {t("ideas.use")}
+              <Trash2 size={18} strokeWidth={1.75} aria-hidden />
             </button>
-          )
-        )}
+          )}
+        </div>
       </div>
-      {picking && !used && (
-        <PlatformPicker
-          idPrefix="idea-use"
-          label={t("ideas.pickPlatform")}
-          cancelLabel={t("ideas.cancel")}
-          onCancel={() => setPicking(false)}
-          onPick={(p) => {
-            turnIntoPost(idea.id, p);
-            setPicking(false);
-          }}
-        />
-      )}
     </li>
   );
 }

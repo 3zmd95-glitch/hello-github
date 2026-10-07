@@ -1,12 +1,16 @@
 "use client";
 
+import { RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { calendarPostHref } from "@/components/social/studio/platform";
+import { calendarPostHref, withName } from "@/components/social/studio/platform";
 import { useToday } from "@/components/today/useToday";
+import Chip from "@/components/ui/ios/Chip";
+import Segmented from "@/components/ui/ios/Segmented";
 import { TREND_PLATFORMS, type Lang, type TrendPlatform } from "@/lib/domain";
 import { allGenres } from "@/lib/genres";
 import { useT } from "@/lib/i18n";
+import { PlatformGlyph } from "@/lib/platformIcons";
 import { timeAgo } from "@/lib/socialSync";
 import {
   DEFAULT_TREND_KEYWORDS,
@@ -19,7 +23,7 @@ import {
 import { useStore } from "@/store";
 import ManualLinks from "./ManualLinks";
 import MomentsRail from "./MomentsRail";
-import { type PlannedPost } from "./TrendActions";
+import { calendarPlatformOf, type PlannedPost } from "./TrendActions";
 import TrendRow from "./TrendRow";
 import { useTrends } from "./useTrends";
 
@@ -31,16 +35,16 @@ type PlatformFilter = TrendPlatform | "all";
 const ALL_KEYWORDS = [...DEFAULT_TREND_KEYWORDS.ar, ...DEFAULT_TREND_KEYWORDS.en];
 
 /**
- * 📈 Trend Radar (round 30, planning/tools/08-trends.md, planning/handovers/mastermind-2026-09-28.md): one
+ * Trend Radar (round 30, planning/tools/08-trends.md, planning/handovers/mastermind-2026-09-28.md): one
  * glance → one tap. The Worker's feed, split into an Arabic (Saudi) tab and an English one, filtered by
- * platform chip, niche-keyword rows first, each with 💡 save / 📱 plan / ✕ dismiss; beside it the upcoming
- * Saudi moments and the links the owner opens by hand. Without a Worker the rail and the links still work
- * and a one-line hint points at Settings.
+ * platform chip, niche-keyword rows first, each with save / plan / dismiss, as an iOS grouped list (tools/18 §6);
+ * beside it the upcoming Saudi moments rail and the links the owner opens by hand. Without a Worker the rail and
+ * the links still work and a one-line hint points at Settings.
  *
  * Round 31: the feed also carries the rows the Worker found by edit genre (cars, food, anime…). The radar
  * stays about general trends and has no genre filter: Discover is the one place for genres. A row of a genre
  * names it in a chip, and for a genre the app knows (built in, or the owner's own from Settings) the chip is
- * a link that opens Discover on that genre. The ⭐ is `matchesNiche`: the search words of a row's own genre
+ * a link that opens Discover on that genre. The star is `matchesNiche`: the search words of a row's own genre
  * do not count (the Worker tags a row with the query that found it, and "مونتاج أكل" is not the niche).
  */
 export default function TrendRadar() {
@@ -75,7 +79,7 @@ export default function TrendRadar() {
 
   return (
     <section
-      className="px-card flex flex-col gap-3"
+      className="flex flex-col gap-3"
       data-testid="ideas-trends"
       data-configured={configured}
       data-tab={tab}
@@ -83,11 +87,11 @@ export default function TrendRadar() {
       data-loading={loading}
     >
       <header className="flex flex-col gap-1">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-base">{t("trends.title")}</h2>
+        <div className="flex items-center justify-between gap-2 pe-1.5 md:justify-start">
+          <h2 className="ios-gh text-[13px]">{t("trends.title")}</h2>
           <button
             type="button"
-            className="px-btn px-btn-ghost px-btn-sm shrink-0"
+            className="ios-icbtn text-tint -my-2 disabled:opacity-40"
             onClick={() => void refresh()}
             disabled={loading || !configured}
             aria-label={t("trends.refresh")}
@@ -95,22 +99,27 @@ export default function TrendRadar() {
             aria-busy={loading}
             data-testid="trends-refresh"
           >
-            {loading ? "⏳" : "🔄"}
+            <RefreshCw
+              size={20}
+              strokeWidth={1.75}
+              className={loading ? "animate-spin" : undefined}
+              aria-hidden
+            />
           </button>
         </div>
-        <p className="text-ink-2 text-sm">{t("trends.sub")}</p>
-        <p className="text-muted flex flex-wrap items-center gap-2 text-xs">
+        <p className="text-ink-2 px-4 text-[13px]">{t("trends.sub")}</p>
+        <p className="text-muted flex flex-wrap items-center gap-2 px-4 text-xs">
           <span data-testid="trends-updated">{loading ? t("trends.loading") : updated}</span>
           {feed.degraded && (
-            <span className="px-chip px-chip-gold" data-testid="trends-degraded">
+            <Chip tone="warn" data-testid="trends-degraded">
               {t("trends.degraded")}
-            </span>
+            </Chip>
           )}
         </p>
       </header>
 
       {error && (
-        <p className="text-danger text-xs" data-testid="trends-error">
+        <p className="text-danger px-4 text-xs" data-testid="trends-error">
           {t(error)}
         </p>
       )}
@@ -132,8 +141,8 @@ export default function TrendRadar() {
           className="px-inset flex flex-wrap items-center gap-2 text-sm"
           data-testid="trends-planned-notice"
         >
-          <span className="text-accent min-w-0 flex-1">
-            {t("trends.planned", { name: planned.title })}
+          <span className="text-tint min-w-0 flex-1">
+            {withName(t("trends.planned"), planned.title)}
           </span>
           <Link
             href={calendarPostHref(planned.id)}
@@ -145,46 +154,44 @@ export default function TrendRadar() {
         </p>
       )}
 
-      <div className="grid gap-4 md:grid-cols-[1.4fr_1fr] md:items-start">
+      <div className="grid gap-5 md:grid-cols-[1.4fr_1fr] md:items-start">
         {(configured || hasFeed) && (
-          <div className="flex flex-col gap-3">
-            <div className="studio-seg" role="group" aria-label={t("trends.tabLabel")}>
-              {(["ar", "en"] as const).map((l) => (
-                <button
-                  key={l}
-                  type="button"
-                  aria-pressed={tab === l}
-                  onClick={() => setTab(l)}
-                  data-testid={`trends-tab-${l}`}
-                >
-                  {t(`trends.tab.${l}`)}
-                </button>
-              ))}
-            </div>
-            <div
-              className="flex flex-wrap gap-1.5"
-              role="group"
-              aria-label={t("trends.platformLabel")}
-            >
-              {(["all", ...CHIP_PLATFORMS] as PlatformFilter[]).map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  className="px-fchip"
-                  aria-pressed={platform === p}
-                  onClick={() => setPlatform(p)}
-                  data-testid={`trends-platform-${p}`}
-                >
-                  {t(`trends.platform.${p}`)}
-                </button>
-              ))}
+          <div className="flex min-w-0 flex-col gap-3">
+            <Segmented
+              role="radiogroup"
+              label={t("trends.tabLabel")}
+              value={tab}
+              onChange={setTab}
+              options={(["ar", "en"] as const).map((l) => ({
+                value: l,
+                label: t(`trends.tab.${l}`),
+                testId: `trends-tab-${l}`,
+              }))}
+            />
+            <div className="ios-chips" role="group" aria-label={t("trends.platformLabel")}>
+              {(["all", ...CHIP_PLATFORMS] as PlatformFilter[]).map((p) => {
+                const glyph = p === "all" ? undefined : calendarPlatformOf(p);
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    className="px-fchip"
+                    aria-pressed={platform === p}
+                    onClick={() => setPlatform(p)}
+                    data-testid={`trends-platform-${p}`}
+                  >
+                    {glyph && <PlatformGlyph platform={glyph} size={14} className="shrink-0" />}
+                    {t(`trends.platform.${p}`)}
+                  </button>
+                );
+              })}
             </div>
             {rows.length === 0 ? (
-              <p className="text-ink-2 text-sm" data-testid="trends-empty">
+              <p className="text-ink-2 px-4 text-[13px]" data-testid="trends-empty">
                 {hasFeed ? t("trends.emptyFilter") : t("trends.empty")}
               </p>
             ) : (
-              <ul className="flex flex-col gap-2" data-testid="trends-list">
+              <ul className="ios-list" data-testid="trends-list">
                 {rows.map(({ item, star }) => (
                   <TrendRow
                     key={item.id}
@@ -201,7 +208,7 @@ export default function TrendRadar() {
           </div>
         )}
 
-        <aside className="flex flex-col gap-4">
+        <aside className="flex min-w-0 flex-col gap-5">
           <MomentsRail today={today} onPlanned={setPlanned} />
           <ManualLinks />
         </aside>
