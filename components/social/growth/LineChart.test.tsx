@@ -223,6 +223,7 @@ describe("LineChart", () => {
             clientY: y,
             pointerType,
             pointerId: pointerType === "mouse" ? 1 : 7,
+            isPrimary: true, // a first finger, as browsers send it
             buttons: 1,
           }),
         );

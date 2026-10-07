@@ -370,7 +370,7 @@ export default function LineChart({
           if (e.pointerType !== "mouse") {
             // First finger only; capture so a pen released off the chart still ends the gesture (a browser pan
             // cancels the pointer and drops the capture).
-            if (!e.isPrimary) return;
+            if (e.isPrimary === false) return;
             e.currentTarget.setPointerCapture?.(e.pointerId);
             touch.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, axis: null };
             return;
