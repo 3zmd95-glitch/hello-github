@@ -11,7 +11,8 @@ import { scoutCall, type ScoutConfig } from "./scoutClient";
  * Category pages in Discover (planning/tools/19-category-trends.md §1): a category's trends and lessons from the Worker
  * (`GET /categories/:id`, a KV read, no credits), kept 1 h per Worker and category in this tab's sessionStorage, and its
  * scan (`POST /categories/:id/run`). The trend chips are Trending effects' items (lib/effects parses them). A lesson
- * MIRRORS `Lessons` in workers/scout/src/categories/types.ts (hand-copied): change both together.
+ * MIRRORS `Lessons` in workers/scout/src/categories/types.ts (hand-copied): change both together. So does a top video
+ * (§6), the fields the page shows of `TopVideo`; Brave's lists (`fetchCategoryTop`) are never kept in storage.
  */
 
 export type Area = "photo" | "video" | "edit";
@@ -39,8 +40,33 @@ export interface Lessons {
   video: Technique[];
   edit: Technique[];
 }
+/** The 🏆 row's tabs (§6), in their order. */
+export type TopPlatform = "yt" | "tt" | "ig";
+export const TOP_PLATFORMS: readonly TopPlatform[] = ["yt", "tt", "ig"];
+/** A list holds at most this many, best first. */
+export const TOP_MAX = 50;
+export interface TopVideo {
+  url: string;
+  title: string;
+  creator?: string;
+  views?: number;
+  thumbnail?: string;
+}
+/** The lists stored with the page: YouTube's most viewed of the month, the scan's Instagram and TikTok posts. */
+export interface TopLists {
+  updatedAt: string;
+  yt: TopVideo[];
+  tt: TopVideo[];
+  ig: TopVideo[];
+}
+/** A TikTok or Instagram tab's list from Brave (`GET /categories/:id/top/:platform`), with why when Brave gave none. */
+export interface TopAnswer {
+  items: TopVideo[];
+  note?: "no_key" | "brave_failed" | "daily_cap";
+}
 export interface CategoryPageData extends TrendingEffects {
   lessons?: Lessons;
+  top?: TopLists;
 }
 
 const CACHE_PREFIX = "3z-category|";
@@ -48,9 +74,37 @@ const PER_AREA = 3;
 /** The Worker's most a technique: 3 English videos (examples, and a tutorial when one teaches) and 1 Arabic tutorial. */
 const VIDEOS = 4;
 const PLATFORMS = new Set(["yt", "tt", "ig"]);
+const NOTES = new Set(["no_key", "brave_failed", "daily_cap"]);
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object";
 const isStr = (x: unknown): x is string => typeof x === "string";
+const isHttps = (x: unknown): x is string => isStr(x) && x.startsWith("https://");
+
+function parseTopVideo(x: unknown): TopVideo | null {
+  if (!isObj(x) || !isHttps(x.url) || !isStr(x.title) || !x.title.trim()) return null;
+  const views = x.views;
+  return {
+    url: x.url,
+    title: x.title,
+    ...(isStr(x.creator) && x.creator ? { creator: x.creator } : {}),
+    ...(typeof views === "number" && Number.isSafeInteger(views) && views >= 0 ? { views } : {}),
+    ...(isHttps(x.thumbnail) ? { thumbnail: x.thumbnail } : {}),
+  };
+}
+
+/** A list checked entry by entry: a broken video dropped alone, ≤ 50. */
+const topList = (x: unknown): TopVideo[] =>
+  Array.isArray(x)
+    ? x
+        .map(parseTopVideo)
+        .filter((v): v is TopVideo => !!v)
+        .slice(0, TOP_MAX)
+    : [];
+
+function parseTop(x: unknown): TopLists | undefined {
+  if (!isObj(x) || !isStr(x.updatedAt)) return undefined;
+  return { updatedAt: x.updatedAt, yt: topList(x.yt), tt: topList(x.tt), ig: topList(x.ig) };
+}
 
 function parseVideo(x: unknown): LessonVideo | null {
   if (!isObj(x) || !isStr(x.url) || !x.url.startsWith("https://") || !isStr(x.title)) return null;
@@ -107,7 +161,33 @@ export function parseCategory(raw: unknown): CategoryPageData | null {
   const base = parseTrendingEffects(raw);
   if (!base) return null;
   const lessons = isObj(raw) ? parseLessons(raw.lessons) : undefined;
-  return { ...base, ...(lessons ? { lessons } : {}) };
+  const top = isObj(raw) ? parseTop(raw.top) : undefined;
+  return { ...base, ...(lessons ? { lessons } : {}), ...(top ? { top } : {}) };
+}
+
+/**
+ * A TikTok or Instagram tab's list (`GET /categories/:id/top/:platform`): Brave's results merged with the stored list,
+ * or the stored list alone with why. Asked when the tab first opens and kept in the page's state for that visit only,
+ * never in this tab's storage: Brave's terms forbid keeping its results. null when the request fails.
+ */
+export async function fetchCategoryTop(
+  config: ScoutConfig,
+  id: string,
+  platform: "tt" | "ig",
+  opts: { fetchImpl?: typeof fetch } = {},
+): Promise<TopAnswer | null> {
+  const r = await scoutCall(
+    config,
+    `/categories/${encodeURIComponent(id)}/top/${platform}`,
+    {},
+    { fetchImpl: opts.fetchImpl },
+  );
+  if (!r.ok || !isObj(r.data) || !Array.isArray(r.data.items)) return null;
+  const note = r.data.note;
+  return {
+    items: topList(r.data.items),
+    ...(NOTES.has(note as string) ? { note: note as TopAnswer["note"] } : {}),
+  };
 }
 
 /** Something to show: trends or lessons. */

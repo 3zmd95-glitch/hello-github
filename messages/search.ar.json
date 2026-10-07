@@ -106,5 +106,13 @@
   "search.categoryTutorial": "شرح",
   "search.categoryTutorialAr": "شرح بالعربي",
   "search.categorySearchAll": "شوف كل فيديوهات {genre} ←",
-  "search.categoryBudget": "وقّفت الفحص عشان عمليات البحث حق هالشهر قرّبت تخلص"
+  "search.categoryBudget": "وقّفت الفحص عشان عمليات البحث حق هالشهر قرّبت تخلص",
+  "search.topTitle": "🏆 الأقوى في {genre}",
+  "search.topTabs": "أقوى الفيديوهات حسب المنصة",
+  "search.topLoading": "لحظة، أجيبها…",
+  "search.topNoKey": "نتائج تيك توك أكثر توصل لما نربط بحث Brave",
+  "search.topFailed": "ما قدرت أوصل لبحث Brave الحين",
+  "search.topCap": "خلصت بحوث Brave حق اليوم، نكمّل بكرة",
+  "search.topEmpty": "لسه ما فيه شي هنا",
+  "search.topNone": "أقوى الفيديوهات توصل مع الفحص الجاي"
 }

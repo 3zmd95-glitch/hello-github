@@ -196,9 +196,37 @@ const CATEGORY_CARS = {
   },
 };
 
-/** A full Cars page for the 375 px check: 12 styles, and 3 techniques with long names on each shelf. */
+/** A top video (§6) of a platform; long titles and handles, to test the phone's width. */
+const topVideo = (platform: "yt" | "tt" | "ig", n: number) => ({
+  url:
+    platform === "yt"
+      ? `https://www.youtube.com/watch?v=carTop${String(n).padStart(5, "0")}`
+      : platform === "tt"
+        ? `https://www.tiktok.com/@carcreator${n}/video/${7_000_000 + n}`
+        : `https://www.instagram.com/p/CarTop${n}`,
+  title: `The most cinematic car edit of the month, number ${n}, rolling shots and speed ramps`,
+  creator: `a_very_long_creator_handle_${n}`,
+  views: (60 - n) * 12_345,
+  ...(platform === "ig" ? {} : { thumbnail: "https://example.com/t.jpg" }),
+});
+/** Brave's TikTok answer (`GET /categories/cars/top/tt`): 30 posts, asked when the tab opens. */
+const TOP_TIKTOK = {
+  platform: "tt",
+  items: Array.from({ length: 30 }, (_, i) => topVideo("tt", i + 1)),
+  source: "brave",
+  endpoint: "videos",
+};
+
+/** A full Cars page for the 375 px check: 12 styles, 3 techniques with long names on each shelf, and top videos (50
+ * on YouTube, 14 reels). */
 const CATEGORY_CARS_FULL = {
   ...CATEGORY_CARS,
+  top: {
+    updatedAt: CATEGORY_CARS.updatedAt,
+    yt: Array.from({ length: 50 }, (_, i) => topVideo("yt", i + 1)),
+    tt: [],
+    ig: Array.from({ length: 14 }, (_, i) => topVideo("ig", i + 1)),
+  },
   items: Array.from({ length: 12 }, (_, n) => ({
     ...CATEGORY_CARS.items[0],
     key: `style-${n}`,
@@ -255,6 +283,12 @@ async function stubWorker(
     // Scan again: the scan's fresh page.
     if (url.pathname === "/categories/cars/run" && req.method() === "POST")
       return reply({ ...CATEGORY_CARS, updatedAt: new Date().toISOString() });
+    // A top videos tab (§6): Brave's TikTok list; for Instagram, the stored reels alone, as without Brave's key.
+    if (url.pathname === "/categories/cars/top/tt") return reply(TOP_TIKTOK);
+    if (url.pathname === "/categories/cars/top/ig") {
+      const ig = (category as { top?: { ig?: unknown[] } }).top?.ig ?? [];
+      return reply({ platform: "ig", items: ig, source: "scan", note: "no_key" });
+    }
     if (url.pathname === "/discover" && req.method() === "POST") {
       const body = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
       asked.push(body);
@@ -984,5 +1018,54 @@ test("Discover v2: a full category page at 375 px never scrolls sideways; its ch
   await expect(
     cat.getByRole("heading", { level: 3, name: "🔥 Trending in Cars this week" }),
   ).toBeVisible();
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikTok loads on open, the page never scrolls sideways", async ({
+  page,
+}) => {
+  await stubWorker(page, () => ANSWER, CATEGORY_CARS_FULL);
+  await connectWorker(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/discover/");
+  await page.getByTestId("genre-cars").click();
+
+  const top = page.getByTestId("category-top");
+  await expect(top.getByRole("heading", { level: 3 })).toHaveText("🏆 الأقوى في سيارات");
+  const tabs = top.getByRole("tab");
+  await expect(tabs).toHaveCount(3);
+  // English names first in Arabic too; YouTube's 50 come with the page, 12 at a time.
+  await expect(tabs.nth(0)).toContainText("YouTube");
+  await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true");
+  await expect(tabs.nth(0)).toHaveAttribute("data-count", "50");
+  await expect(top.getByTestId("category-top-item")).toHaveCount(12);
+  // The three tabs sit inside the strip, and the strip inside the page.
+  const strip = top.getByRole("tablist");
+  expect(await strip.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  for (const tab of await tabs.all()) {
+    const box = (await tab.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(375);
+  }
+  expect(await fitsViewport(page)).toBe(true);
+
+  // TikTok: asked once, when its tab opens.
+  const asked = page.waitForRequest((r) => r.url() === `${WORKER}/categories/cars/top/tt`);
+  await top.locator('[data-testid="category-top-tab"][data-platform="tt"]').click();
+  await asked;
+  await expect(top.locator('[data-testid="category-top-tab"][data-platform="tt"]')).toHaveAttribute(
+    "data-count",
+    "30",
+  );
+  await expect(top.locator('[data-testid="category-top-item"][data-platform="tt"]')).toHaveCount(
+    12,
+  );
+  await top.getByTestId("category-top-more").click();
+  await expect(top.getByTestId("category-top-item")).toHaveCount(24);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // English: the same row, and the page still never scrolls sideways.
+  await page.getByTestId("lang-en").click();
+  await expect(top.getByRole("heading", { level: 3 })).toHaveText("🏆 Top in Cars");
   expect(await fitsViewport(page)).toBe(true);
 });

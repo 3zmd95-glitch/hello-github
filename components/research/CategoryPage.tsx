@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useVideoPlayer } from "@/components/player/VideoPlayerContext";
 import { getSkill } from "@/data";
 import {
@@ -8,19 +8,27 @@ import {
   cachedCategory,
   categoryScanInFlight,
   fetchCategory,
+  fetchCategoryTop,
   pageState,
   runCategoryNow,
+  TOP_MAX,
+  TOP_PLATFORMS,
   type Area,
   type CategoryPageData,
   type LessonVideo,
   type Technique,
+  type TopAnswer,
+  type TopLists,
+  type TopPlatform,
+  type TopVideo,
 } from "@/lib/categories";
 import type { Genre } from "@/lib/domain";
 import { effectQuery, type TrendingEffect } from "@/lib/effects";
 import { canEmbed } from "@/lib/embed";
 import { useT, type MessageKey } from "@/lib/i18n";
+import type { ResearchItem } from "@/lib/research";
 import type { ScoutConfig } from "@/lib/scoutClient";
-import { PLATFORM_META } from "./ResultCard";
+import ResultCard, { PLATFORM_META } from "./ResultCard";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -53,6 +61,171 @@ const SCAN_LINE: Record<Exclude<Scan, "idle">, MessageKey> = {
   // Its own line: nothing retries a category tomorrow (its next turn can be 3 days away).
   limit: "search.categoryRunLimit",
 };
+
+/** The 🏆 row shows this many of a list at a time. */
+const TOP_SHOW = 12;
+/** Why a Brave tab shows the scan's list alone. Not connected is said on TikTok only: Instagram's stored reels stand on
+ * their own. */
+const TOP_LINE: Record<NonNullable<TopAnswer["note"]>, MessageKey> = {
+  no_key: "search.topNoKey",
+  brave_failed: "search.topFailed",
+  daily_cap: "search.topCap",
+};
+const topItem = (platform: TopPlatform, v: TopVideo): ResearchItem => ({
+  platform,
+  handle: v.creator ?? "",
+  title: v.title,
+  snippet: "",
+  url: v.url,
+  ...(v.thumbnail ? { thumb: v.thumbnail } : {}),
+  ...(v.views !== undefined ? { stats: { views: v.views } } : {}),
+});
+
+/**
+ * 🏆 Top in <category> (planning/tools/19-category-trends.md §6): YouTube · TikTok · Instagram tabs (arrow keys move
+ * between them, mirrored in Arabic), each up to 50 videos best first, 12 at a time, as Discover's result cards
+ * (thumbnail, title as given, creator, views when known, the app's player). YouTube's and Instagram's lists come with
+ * the page. TikTok's, and Instagram's while under 50, ask the Worker for Brave's results the first time the tab opens,
+ * once a visit: the answer lives in this component's state alone, since Brave's terms forbid keeping its results.
+ */
+function TopVideos({
+  config,
+  genreId,
+  name,
+  top,
+}: {
+  config: ScoutConfig;
+  genreId: string;
+  name: string;
+  top: TopLists;
+}) {
+  const { t, dir } = useT();
+  const id = useId();
+  const [tab, setTab] = useState<TopPlatform>("yt");
+  const [shown, setShown] = useState(TOP_SHOW);
+  // A Brave tab's answer: none before its first open, null while on its way.
+  const [brave, setBrave] = useState<Partial<Record<TopPlatform, TopAnswer | null>>>({});
+  const asked = useRef(new Set<TopPlatform>());
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const open = (p: TopPlatform) => {
+    setTab(p);
+    setShown(TOP_SHOW);
+    if (p === "yt" || (p === "ig" && top.ig.length >= TOP_MAX) || asked.current.has(p)) return;
+    asked.current.add(p);
+    setBrave((b) => ({ ...b, [p]: null }));
+    void fetchCategoryTop(config, genreId, p).then((r) =>
+      setBrave((b) => ({ ...b, [p]: r ?? { items: top[p], note: "brave_failed" } })),
+    );
+  };
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const fwd = dir === "rtl" ? "ArrowLeft" : "ArrowRight";
+    const back = dir === "rtl" ? "ArrowRight" : "ArrowLeft";
+    if (e.key !== fwd && e.key !== back) return;
+    e.preventDefault();
+    const i = TOP_PLATFORMS.indexOf(tab);
+    const next = (i + (e.key === fwd ? 1 : TOP_PLATFORMS.length - 1)) % TOP_PLATFORMS.length;
+    open(TOP_PLATFORMS[next]);
+    tabRefs.current[next]?.focus();
+  };
+
+  const answer = brave[tab];
+  const list = answer?.items ?? top[tab];
+  const note = answer?.note;
+  const line =
+    answer === null
+      ? t("search.topLoading")
+      : note && (note !== "no_key" || tab === "tt")
+        ? t(TOP_LINE[note])
+        : list.length
+          ? ""
+          : t("search.topEmpty");
+  // A tab's count once its list is known: TikTok's comes with Brave's answer.
+  const countOf = (p: TopPlatform) =>
+    brave[p]?.items.length ?? (p === "tt" ? undefined : top[p].length);
+
+  return (
+    <section
+      aria-labelledby={`${id}-title`}
+      className="flex min-w-0 flex-col gap-2"
+      data-testid="category-top"
+    >
+      <h3 id={`${id}-title`} className="text-sm font-bold">
+        {t("search.topTitle", { genre: name })}
+      </h3>
+      <div
+        role="tablist"
+        aria-label={t("search.topTabs")}
+        className="grid grid-cols-3 gap-1.5"
+        onKeyDown={onKey}
+      >
+        {TOP_PLATFORMS.map((p, i) => {
+          const active = p === tab;
+          const count = countOf(p);
+          return (
+            <button
+              key={p}
+              ref={(el) => {
+                tabRefs.current[i] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`${id}-tab-${p}`}
+              aria-selected={active}
+              aria-controls={`${id}-panel`}
+              tabIndex={active ? 0 : -1}
+              onClick={() => open(p)}
+              className={`border-edge flex min-w-0 flex-col items-center gap-0.5 rounded-[2px] border-2 px-1 py-1.5 font-bold ${active ? "bg-gold text-gold-ink shadow-[3px_3px_0_var(--edge)]" : "bg-panel-2 text-ink-2 shadow-[2px_2px_0_var(--edge)]"}`}
+              data-testid="category-top-tab"
+              data-platform={p}
+              data-count={count ?? ""}
+            >
+              <span className="flex items-center gap-1 text-sm leading-none">
+                <span aria-hidden>{PLATFORM_META[p].glyph}</span>
+                {count !== undefined && (
+                  <span className="num border-edge bg-edge text-ink min-w-[18px] rounded-[2px] border px-1 text-[10px] leading-[16px]">
+                    {count}
+                  </span>
+                )}
+              </span>
+              <span className="w-full truncate text-center text-[11px]">
+                {PLATFORM_META[p].label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div
+        role="tabpanel"
+        id={`${id}-panel`}
+        aria-labelledby={`${id}-tab-${tab}`}
+        className="flex min-w-0 flex-col gap-2"
+        data-testid="category-top-panel"
+        data-platform={tab}
+      >
+        {/* Always there (empty when there is nothing to say), so "Loading…" and its next words are announced. */}
+        <p role="status" className="text-muted text-xs" data-testid="category-top-line">
+          {line}
+        </p>
+        <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
+          {list.slice(0, shown).map((v) => (
+            <ResultCard key={v.url} item={topItem(tab, v)} testId="category-top-item" />
+          ))}
+        </ul>
+        {list.length > shown && (
+          <button
+            type="button"
+            className="px-btn px-btn-ghost px-btn-sm w-fit"
+            onClick={() => setShown((s) => s + TOP_SHOW)}
+            data-testid="category-top-more"
+          >
+            {t("search.showMore", { n: Math.min(TOP_SHOW, list.length - shown) })}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
 
 /**
  * 🚗 A Discover category's page (planning/tools/19-category-trends.md §1, layout B):
@@ -398,6 +571,18 @@ export default function CategoryPage({
               <p className="text-muted text-xs">{t("search.categoryNoTrends")}</p>
             )}
           </section>
+          {/* A new category opens a new visit: its Brave answers start over. */}
+          {data.top ? (
+            <TopVideos
+              key={genre.id}
+              config={config}
+              genreId={genre.id}
+              name={name}
+              top={data.top}
+            />
+          ) : (
+            <p className="text-muted text-xs">{t("search.topNone")}</p>
+          )}
           {data.lessons ? (
             AREAS.map(shelf)
           ) : (
