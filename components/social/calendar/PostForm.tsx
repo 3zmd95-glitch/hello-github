@@ -133,7 +133,7 @@ function PostFormBody({
   return (
     <form onSubmit={submit} className="flex flex-col gap-4" data-testid="post-form">
       <fieldset className="flex flex-col gap-1.5">
-        <legend className="text-ink-2 mb-1.5 text-sm font-bold">
+        <legend className="text-ink-2 mb-1.5 text-[13px] font-semibold">
           {t("calendar.form.platform")}
         </legend>
         <div className="flex flex-wrap gap-1.5">
@@ -156,7 +156,7 @@ function PostFormBody({
 
       {showNetworks && (
         <fieldset className="flex flex-col gap-1.5" data-testid="post-networks">
-          <legend className="text-ink-2 mb-1.5 text-sm font-bold">
+          <legend className="text-ink-2 mb-1.5 text-[13px] font-semibold">
             {t("calendar.form.networks")}
           </legend>
           <div className="flex flex-wrap gap-1.5">
@@ -191,7 +191,7 @@ function PostFormBody({
       )}
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-ink-2 font-bold">{t("calendar.form.postTitle")}</span>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.form.postTitle")}</span>
         <input
           type="text"
           className="px-input"
@@ -206,7 +206,7 @@ function PostFormBody({
 
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-ink-2 font-bold">{t("calendar.form.day")}</span>
+          <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.form.day")}</span>
           <input
             type="date"
             dir="ltr"
@@ -217,7 +217,7 @@ function PostFormBody({
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-ink-2 font-bold">{t("calendar.form.time")}</span>
+          <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.form.time")}</span>
           <input
             type="time"
             dir="ltr"
@@ -262,7 +262,7 @@ function PostFormBody({
       </label>
 
       <section className="flex flex-col gap-2">
-        <span className="text-ink-2 text-sm font-bold">{t("calendar.form.skill")}</span>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.form.skill")}</span>
         {skill ? (
           <div className="px-inset flex items-center gap-2 text-sm" data-testid="post-skill-picked">
             <Gamepad2 size={18} strokeWidth={1.75} className="text-ink-2 shrink-0" aria-hidden />

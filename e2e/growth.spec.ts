@@ -147,7 +147,7 @@ test("Social Analytics: the seeded All view, the TikTok view with demographics, 
   // Search filters the past posts.
   await expect(page.getByTestId("tiktok-brief-post")).toHaveCount(3);
   await expect(page.getByTestId("tiktok-brief")).toContainText("current lifetime totals");
-  await page.getByTestId("tiktok-brief-days").selectOption("7");
+  await page.getByTestId("tiktok-brief-days-7").click();
   await expect(page.getByTestId("tiktok-brief-post")).toHaveCount(2);
   await page.getByTestId("tiktok-brief-followup").first().click();
   await expect(page.getByTestId("tiktok-brief-draft")).toHaveAttribute(

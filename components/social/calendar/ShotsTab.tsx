@@ -39,7 +39,7 @@ export default function ShotsTab({ post }: { post: Post }) {
   return (
     <div className="flex flex-col gap-3" data-testid="post-shots">
       <div className="flex items-center gap-3">
-        <span className="text-ink-2 text-sm font-bold">{t("calendar.shots.title")}</span>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.shots.title")}</span>
         <PxBar
           value={total ? done / total : 0}
           className="flex-1"

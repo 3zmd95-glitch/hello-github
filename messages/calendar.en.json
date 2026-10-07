@@ -105,7 +105,6 @@
   "calendar.sheet.undo": "Undo",
   "calendar.sheet.questDone": "Produce quest completed",
   "calendar.sheet.copy": "Copy caption + hashtags",
-  "calendar.sheet.copied": "Copied",
   "calendar.sheet.copyFailed": "Couldn't copy; select the text and copy it yourself",
   "calendar.sheet.delete": "Delete post",
   "calendar.sheet.deleteTitle": "Delete this post?",

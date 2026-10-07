@@ -38,7 +38,7 @@ export default function TikTokOptions({
 
   return (
     <section className="px-inset flex flex-col gap-3" data-testid="autopost-tiktok">
-      <h3 className="flex items-center gap-1.5 text-sm font-bold">
+      <h3 className="text-ink-2 flex items-center gap-1.5 text-[13px] font-semibold">
         <PlatformGlyph platform="tiktok" size={14} className="shrink-0" />
         {t("publish.tt.title")}
       </h3>

@@ -2,14 +2,19 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import Segmented from "@/components/ui/ios/Segmented";
 import { useT } from "@/lib/i18n";
 import { safeTikTokPostUrl, tiktokBrief, tiktokBriefCsv, type TikTokRank } from "@/lib/tiktokBrief";
 import { useStore } from "@/store";
 import { postHash } from "../calendar/dates";
 import { useSocialSync, syncSocialNow } from "../useSocialSync";
+import { fmtCount } from "./format";
+
+/** Shares per 1,000 views: one decimal, Latin digits. */
+const rate = new Intl.NumberFormat("en", { maximumFractionDigits: 1 });
 
 export default function TikTokBrief({ now }: { now: number }) {
-  const { t, lang } = useT();
+  const { t } = useT();
   const stats = useStore((s) => s.socialPostStats);
   const posts = useStore((s) => s.posts);
   const addPost = useStore((s) => s.addPost);
@@ -18,8 +23,7 @@ export default function TikTokBrief({ now }: { now: number }) {
   const [rank, setRank] = useState<TikTokRank>("views");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const brief = useMemo(() => tiktokBrief(stats, now, days, rank), [stats, now, days, rank]);
-  const fmt = (n: number | null) =>
-    n === null ? "—" : new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(n);
+  const fmt = (n: number | null) => (n === null ? "—" : fmtCount(n));
   const download = () => {
     const url = URL.createObjectURL(
       new Blob([tiktokBriefCsv(brief.posts)], { type: "text/csv;charset=utf-8" }),
@@ -38,8 +42,8 @@ export default function TikTokBrief({ now }: { now: number }) {
     >
       <header className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-lg">{t("tiktok.brief.title")}</h2>
-          <p className="text-ink-2 text-sm">{t("tiktok.brief.subtitle")}</p>
+          <h2 className="text-ink-2 text-[13px] font-semibold">{t("tiktok.brief.title")}</h2>
+          <p className="text-ink-2 text-[13px]">{t("tiktok.brief.subtitle")}</p>
         </div>
         {status?.tiktok?.connected ? (
           <button
@@ -56,32 +60,35 @@ export default function TikTokBrief({ now }: { now: number }) {
           </Link>
         )}
       </header>
-      <div className="flex flex-wrap gap-2">
-        <select
-          className="px-input max-w-full"
-          aria-label={t("tiktok.brief.days", { days })}
-          value={days}
-          onChange={(e) => setDays(Number(e.target.value) as 7 | 30)}
-          data-testid="tiktok-brief-days"
-        >
-          {[7, 30].map((n) => (
-            <option value={n} key={n}>
-              {t("tiktok.brief.days", { days: n })}
-            </option>
-          ))}
-        </select>
-        <select
-          className="px-input max-w-full"
-          aria-label={t("tiktok.brief.rank")}
+      <div className="flex flex-col gap-2">
+        <Segmented
+          role="radiogroup"
+          label={t("tiktok.brief.title")}
+          value={String(days) as "7" | "30"}
+          onChange={(v) => setDays(Number(v) as 7 | 30)}
+          testId="tiktok-brief-days"
+          // "Posts from the last 30 days" is long in English: the label may take two lines.
+          className="[&>button]:py-1.5 [&>button]:leading-tight [&>button]:whitespace-normal"
+          options={(["7", "30"] as const).map((n) => ({
+            value: n,
+            label: t("tiktok.brief.days", { days: n }),
+            testId: `tiktok-brief-days-${n}`,
+          }))}
+        />
+        <Segmented
+          role="radiogroup"
+          label={t("tiktok.brief.rank")}
           value={rank}
-          onChange={(e) => setRank(e.target.value as TikTokRank)}
-        >
-          {(["views", "shares", "comments"] as const).map((key) => (
-            <option value={key} key={key}>
-              {t(`tiktok.brief.${key}`)}
-            </option>
-          ))}
-        </select>
+          onChange={setRank}
+          testId="tiktok-brief-rank"
+          // Three long labels: a little tighter, so the row fits a 375px phone.
+          className="[&>button]:px-1.5 [&>button]:text-[12px]"
+          options={(["views", "shares", "comments"] as const).map((key) => ({
+            value: key,
+            label: t(`tiktok.brief.${key}`),
+            testId: `tiktok-brief-rank-${key}`,
+          }))}
+        />
       </div>
       {error && (
         <p className="text-danger text-sm" role="alert">
@@ -93,16 +100,19 @@ export default function TikTokBrief({ now }: { now: number }) {
       ) : (
         <>
           <div className="grid grid-cols-3 gap-2">
-            {[
-              ["count", brief.posts.length],
-              ["median", brief.medianViews],
-              ["shareRate", brief.sharesPerThousand],
-            ].map(([key, value]) => (
-              <div className="px-inset min-w-0" key={key as string}>
-                <p className="text-muted text-xs">
-                  {t(`tiktok.brief.${key as "count" | "median" | "shareRate"}`)}
-                </p>
-                <b className="num text-lg">{fmt(value as number | null)}</b>
+            {(
+              [
+                ["count", fmt(brief.posts.length)],
+                ["median", fmt(brief.medianViews)],
+                [
+                  "shareRate",
+                  brief.sharesPerThousand === null ? "—" : rate.format(brief.sharesPerThousand),
+                ],
+              ] as const
+            ).map(([key, value]) => (
+              <div className="ios-stat min-w-0" key={key} data-testid={`tiktok-brief-${key}`}>
+                <small>{t(`tiktok.brief.${key}`)}</small>
+                <b className="num">{value}</b>
               </div>
             ))}
           </div>

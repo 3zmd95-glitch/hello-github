@@ -2,6 +2,7 @@
 
 import { Check, Clock, Gamepad2, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useGameActions } from "@/components/celebrate/useGameActions";
 import { useSkillSheet } from "@/components/skills/SkillSheetProvider";
 import { resyncKey } from "@/components/social/usePublish";
@@ -48,19 +49,13 @@ export default function OverviewTab({
   const [tag, setTag] = useState("");
   const [url, setUrl] = useState("");
   const [linking, setLinking] = useState(false);
-  const [copied, setCopied] = useState<"ok" | "fail" | null>(null);
+  const { toast } = useCelebrate();
   const [confirm, setConfirm] = useState(false);
   const urlRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (urlFocus > 0) urlRef.current?.focus();
   }, [urlFocus]);
-
-  useEffect(() => {
-    if (!copied) return;
-    const id = setTimeout(() => setCopied(null), 2000);
-    return () => clearTimeout(id);
-  }, [copied]);
 
   const addTag = (e?: FormEvent) => {
     e?.preventDefault();
@@ -85,9 +80,9 @@ export default function OverviewTab({
     const text = [post.caption.trim(), post.hashtags.join(" ")].filter(Boolean).join("\n\n");
     try {
       await navigator.clipboard.writeText(text);
-      setCopied("ok");
+      toast("notice", { name: t("publish.hub.copied"), sound: null });
     } catch {
-      setCopied("fail");
+      toast("notice", { name: t("calendar.sheet.copyFailed"), tone: "warn", sound: null });
     }
   };
 
@@ -100,7 +95,7 @@ export default function OverviewTab({
     <div className="flex flex-col gap-4" data-testid="post-overview">
       {/* Title (it also heads the sheet) */}
       <section className="flex flex-col gap-1.5">
-        <label htmlFor="post-title-edit" className="text-ink-2 text-sm font-bold">
+        <label htmlFor="post-title-edit" className="text-ink-2 text-[13px] font-semibold">
           {t("calendar.form.postTitle")}
         </label>
         <TitleInput
@@ -113,7 +108,7 @@ export default function OverviewTab({
       {/* Hook */}
       <section className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <label htmlFor="post-hook" className="text-ink-2 text-sm font-bold">
+          <label htmlFor="post-hook" className="text-ink-2 text-[13px] font-semibold">
             {t("calendar.sheet.hook")}
           </label>
           <button
@@ -160,7 +155,7 @@ export default function OverviewTab({
       {/* Caption */}
       <section className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-baseline gap-2">
-          <label htmlFor="post-caption" className="text-ink-2 text-sm font-bold">
+          <label htmlFor="post-caption" className="text-ink-2 text-[13px] font-semibold">
             {t("calendar.sheet.caption")}
           </label>
           <span
@@ -189,7 +184,9 @@ export default function OverviewTab({
       {/* Hashtags */}
       <section className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-ink-2 text-sm font-bold">{t("calendar.sheet.hashtags")}</span>
+          <span className="text-ink-2 text-[13px] font-semibold">
+            {t("calendar.sheet.hashtags")}
+          </span>
           <span className="num text-muted text-xs">
             {post.hashtags.length}/{meta.hashtagMax}
           </span>
@@ -249,7 +246,7 @@ export default function OverviewTab({
 
       {/* Schedule + reminder */}
       <section className="flex flex-col gap-1.5">
-        <span className="text-ink-2 text-sm font-bold">{t("calendar.sheet.plan")}</span>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.sheet.plan")}</span>
         <div className="grid grid-cols-2 gap-2">
           <input
             type="date"
@@ -309,7 +306,7 @@ export default function OverviewTab({
 
       {/* Linked skill */}
       <section className="flex flex-col gap-1.5">
-        <span className="text-ink-2 text-sm font-bold">{t("calendar.sheet.skill")}</span>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.sheet.skill")}</span>
         {skill ? (
           <div
             className="px-inset flex flex-wrap items-center gap-2 text-sm"
@@ -441,15 +438,6 @@ export default function OverviewTab({
         >
           {t("calendar.sheet.copy")}
         </button>
-        {copied && (
-          <span
-            className={`text-xs ${copied === "ok" ? "text-tint" : "text-danger"}`}
-            role="status"
-            data-testid="post-copied"
-          >
-            {copied === "ok" ? t("calendar.sheet.copied") : t("calendar.sheet.copyFailed")}
-          </span>
-        )}
         <button
           type="button"
           className="px-btn px-btn-ghost px-btn-sm text-danger ms-auto"

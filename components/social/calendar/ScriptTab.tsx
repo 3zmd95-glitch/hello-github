@@ -94,7 +94,7 @@ function Field({
 }) {
   return (
     <label className="flex flex-col gap-1 text-sm" htmlFor={id}>
-      <span className="text-ink-2 font-bold">{label}</span>
+      <span className="text-ink-2 text-[13px] font-semibold">{label}</span>
       <textarea
         id={id}
         rows={2}

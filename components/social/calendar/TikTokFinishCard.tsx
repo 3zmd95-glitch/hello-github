@@ -34,7 +34,7 @@ export default function TikTokFinishCard({ post }: { post: Post }) {
   };
   return (
     <section
-      className="px-inset bg-warn-bg border-warn flex flex-col gap-2 border-2"
+      className="px-inset bg-warn-bg border-warn flex flex-col gap-2 border"
       data-testid="tiktok-finish-card"
     >
       <h3 className="text-sm font-bold">{t("publish.tt.finishTitle")}</h3>
