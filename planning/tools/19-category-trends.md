@@ -179,7 +179,9 @@ category a day (`category:attempts:<id>:<day>`).
 
   `v` is `LESSONS_VERSION`, 2 since live fix 1. Lessons with no `v`, or an older one, are due at the next scan (Scan
   again included), like missing lessons, and an area never keeps their techniques. The GET still answers them as
-  stored until then.
+  stored until then. A refresh that leaves a shelf empty saves no `v`, so the lessons stay due and the next scan, 3
+  days on, fills it instead of the page hiding that shelf for 6 days. An Arabic line in Arabic script but too short to
+  teach is left out (`short_ar`), never the English how-to with it.
 
 - **On failure.**
   - A refresh with nothing new keeps last week's lessons whole, with the note `lessons`.

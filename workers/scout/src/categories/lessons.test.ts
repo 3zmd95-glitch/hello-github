@@ -364,14 +364,17 @@ describe("writeHowTos", () => {
         { i: 0, howTo: { en: HOW.en, ar: "Sawwir min taht, ba'dain sawwi slow mo fi CapCut." } },
         { i: 1, howTo: { en: HOW.en } },
         { i: 2, howTo: { en: "Too short.", ar: HOW.ar } },
+        // Arabic, but too short to teach: the English how-to still stands (review of live fix 1).
+        { i: 3, howTo: { en: HOW.en, ar: "صور من تحت" } },
       ],
     });
-    const drafts = ["a", "b", "c"].map((en) => draft("photo", en));
+    const drafts = ["a", "b", "c", "d"].map((en) => draft("photo", en));
     const out = await writeHowTos(e, CARS, drafts, [], 1000, rejects);
     expect(out!.get(0)).toEqual({ howTo: { en: HOW.en } });
     expect(out!.get(1)).toEqual({ howTo: { en: HOW.en } });
     expect(out!.has(2)).toBe(false);
-    expect(rejects).toEqual({ latin_ar: 1, "howTo.en:too_small": 1 });
+    expect(out!.get(3)).toEqual({ howTo: { en: HOW.en } });
+    expect(rejects).toEqual({ latin_ar: 1, short_ar: 1, "howTo.en:too_small": 1 });
   });
 
   it("a bad skill id or Arabic tutorial (none, -1, '1', 0.5, 2^53, a number, 100 characters) costs only itself, counted", async () => {
@@ -640,9 +643,12 @@ describe("refreshLessons", () => {
       NOW,
       before,
     );
-    expect(lessons).toMatchObject({ v: 2, edit: [] });
+    expect(lessons).toMatchObject({ edit: [] });
     expect(lessons!.photo).toHaveLength(3);
     expect(counts.kept).toEqual(["edit"]);
+    // The empty shelf leaves them unversioned: due again at the next scan, not hidden for 6 days.
+    expect(lessons!.v).toBeUndefined();
+    expect(lessonsDue(lessons!, "2026-10-08")).toBe(true);
   });
 
   it("gives each Arabic tutorial to one technique: the first asking for it, photo → video → edit", async () => {

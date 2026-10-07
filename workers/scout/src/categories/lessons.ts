@@ -52,10 +52,14 @@ const SHORT = new Set<Platform>(["ig", "tt"]);
 /** Words never core to a technique (relevantCards). */
 const FILLER = new Set(["the", "and", "for", "with", "how", "video", "videos", "tutorial"]);
 
+const NAME_MIN = 2;
+/** Shorter than this teaches nothing. */
+const HOWTO_MIN = 20;
+
 const PickEntry = z.object({
   name: z.object({
-    en: z.string().min(2).max(NAME_MAX),
-    ar: z.string().min(2).max(NAME_MAX).optional(),
+    en: z.string().min(NAME_MIN).max(NAME_MAX),
+    ar: z.string().min(NAME_MIN).max(NAME_MAX).optional(),
   }),
   query: z.string().min(3).max(QUERY_MAX),
 });
@@ -68,8 +72,8 @@ const PICK_SCHEMA = z.toJSONSchema(
 const HowToEntry = z.object({
   i: z.number().int().min(0),
   howTo: z.object({
-    en: z.string().min(20).max(HOWTO_MAX),
-    ar: z.string().min(20).max(HOWTO_MAX).optional(),
+    en: z.string().min(HOWTO_MIN).max(HOWTO_MAX),
+    ar: z.string().min(HOWTO_MIN).max(HOWTO_MAX).optional(),
   }),
   // Any text: SKILL_IDS decides which ids are kept.
   skillId: z.string().min(1).optional(),
@@ -134,18 +138,21 @@ export function lessonsDue(lessons: Lessons | undefined, today: string): boolean
 }
 
 /** `{ en, ar }` as the model writes it, made checkable: trimmed and clipped; an `ar` without an Arabic letter (a
- * transliteration, "taswir mash' al") left out and counted `latin_ar`, the English kept (English first). */
-function tidyText(x: unknown, max: number, rejects: Record<string, number>): unknown {
+ * transliteration, "taswir mash' al") left out and counted `latin_ar`, one shorter than `min` counted `short_ar`:
+ * the English kept either way (English first), never the whole entry lost to a bad Arabic line. */
+function tidyText(x: unknown, max: number, min: number, rejects: Record<string, number>): unknown {
   if (!isRecord(x)) return x;
   const { ar, ...text } = { ...x, en: clip(x.en, max), ar: clip(x.ar, max) };
-  if (typeof ar === "string" && ARABIC.test(ar)) return { ...text, ar };
-  if (typeof ar === "string") tally(rejects, "latin_ar");
+  if (typeof ar !== "string") return text;
+  if (!ARABIC.test(ar)) tally(rejects, "latin_ar");
+  else if (ar.length < min) tally(rejects, "short_ar");
+  else return { ...text, ar };
   return text;
 }
 
 const tidyPick = (x: unknown, rejects: Record<string, number>): unknown =>
   isRecord(x)
-    ? { ...x, name: tidyText(x.name, NAME_MAX, rejects), query: clip(x.query, QUERY_MAX) }
+    ? { ...x, name: tidyText(x.name, NAME_MAX, NAME_MIN, rejects), query: clip(x.query, QUERY_MAX) }
     : x;
 
 /** One area's checked entries, at most 3: a broken entry costs only itself. */
@@ -263,7 +270,10 @@ export function pickVideos(
  * it out), never costing the how-to. Workers AI does not hold answers to the schema. */
 function tidyHowTo(x: unknown, rejects: Record<string, number>): unknown {
   if (!isRecord(x)) return x;
-  const v: Record<string, unknown> = { ...x, howTo: tidyText(x.howTo, HOWTO_MAX, rejects) };
+  const v: Record<string, unknown> = {
+    ...x,
+    howTo: tidyText(x.howTo, HOWTO_MAX, HOWTO_MIN, rejects),
+  };
   const skill = typeof v.skillId === "string" ? v.skillId.trim() : "";
   if (skill) v.skillId = skill;
   else {
@@ -484,15 +494,12 @@ export async function refreshLessons(
   );
   counts.written = fresh.flat().length;
   if (!counts.written) return { lessons: null, counts };
-  const lessons: Lessons = {
-    v: LESSONS_VERSION,
-    updatedAt: now.toISOString(),
-    photo: [],
-    video: [],
-    edit: [],
-  };
+  const lessons: Lessons = { updatedAt: now.toISOString(), photo: [], video: [], edit: [] };
   AREAS.forEach(
     (area, a) => (lessons[area] = counts.kept.includes(area) ? (prior?.[area] ?? []) : fresh[a]),
   );
+  // An empty shelf (its how-to call failed with nothing of this version to keep) leaves the lessons unversioned, so
+  // they stay due: the next scan, 3 days on, fills it instead of the page hiding it for 6 days.
+  if (AREAS.every((area) => lessons[area].length)) lessons.v = LESSONS_VERSION;
   return { lessons, counts };
 }
