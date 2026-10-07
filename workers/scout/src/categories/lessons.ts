@@ -69,13 +69,14 @@ const holds = (phrases: readonly string[]) => {
   const forms = phrases.map(plain);
   return (line: string) => forms.some((p) => plain(line).includes(p));
 };
-/** A line with the worked example's own words copied it (live fix 3: Food's and Anime's Speed Ramp). */
+/** A line with the worked example's own words copied it (live fix 3: Food's and Anime's Speed Ramp). The example is
+ * about skateboarding, no category's subject, so a category's own words never match (it was coffee, a category). */
 const copiedExample = holds([
-  "tripod arm",
-  "into the cup",
-  "half-speed slow-down",
-  "steam overlay",
-  "top-down pour",
+  "the skater",
+  "second board",
+  "kickflip",
+  "on the landing",
+  "deck in the lower third",
 ]);
 /** A line of advice that teaches nothing (live fix 3: "Shoot with a high-quality camera and good lighting"). */
 const genericLine = holds([
@@ -148,12 +149,13 @@ const HOWTO_SYSTEM =
   "Mask, Premiere Time Remapping, Lightroom masking, Snapseed; for a photography technique, the photo editor. " +
   "Each English line is one sentence of 15 to 140 characters. " +
   "ar: the same three lines in natural Hijazi Arabic in Arabic script, at most 400 characters. " +
-  "Never generic advice such as 'use a high-quality camera', 'use editing software' or 'edit the video'. " +
-  "This example only shows the format; its words are about coffee, never this subject: shoot: 'Mount the phone " +
-  "overhead on a tripod arm and pour slowly from the edge of the frame into the cup'; settings: '4K at 60 fps for a " +
-  "smooth half-speed slow-down, exposure locked, soft window light from the side'; edit: 'In CapCut slow the pour to " +
-  "0.5x with a speed curve and add a light steam overlay'. Write every line yourself for this subject and never " +
-  "reuse the example's words. " +
+  "Never generic advice such as 'use a high-quality camera', 'good lighting', 'use editing software', 'a video " +
+  "editing app' or 'edit the video'. " +
+  "This example only shows the format; its words are about skateboarding, never this subject: shoot: 'Ride beside " +
+  "the skater on a second board, camera low, keeping the deck in the lower third'; settings: '4K at 120 fps for slow " +
+  "motion, shutter 1/250 s, gimbal in follow mode'; edit: 'In CapCut ramp the kickflip to 0.3x with a speed curve, " +
+  "then back to full speed on the landing'. Write every line yourself for this subject and never reuse the " +
+  "example's words. " +
   "Base the lines on the videos' titles and snippets when they help, else on standard practice. " +
   "i is the technique's number. skillId: the id of the one skill from the skill list that the technique practices, " +
   "only when one really matches, else leave it out. arTutorial: the number of the Arabic tutorial that teaches the " +
@@ -568,8 +570,9 @@ export async function refreshLessons(
     .slice(0, AR_TUTORIALS)
     .map((c) => lessonVideo(c, "tutorial", "ar"));
   // Live fix 3: an example must be about the subject, naming the category in its title or snippet (Food's Backlight
-  // example was a backpack's review); a tutorial may teach the technique in general, and the trend's samples come from
-  // the category's own searches.
+  // example was a backpack's review). Only the one video taken as the tutorial (pickVideos' choice) may teach the
+  // technique in general: any other teaching title off the subject would become an example. The trend's samples come
+  // from the category's own searches.
   const subject = new Set([...own].map(normalizeTerm));
   const aboutSubject = (c: ScoutResult) =>
     normalizeTerm(`${c.title} ${c.snippet}`)
@@ -578,7 +581,9 @@ export async function refreshLessons(
   const drafts: Draft[] = chosen.flatMap(({ area, pick }, n) => {
     const relevant = relevantCards(found[n], pick, g);
     counts.offTopic += found[n].length - relevant.length;
-    const cards = relevant.filter((c) => isTutorial(c) || aboutSubject(c));
+    const tutorial =
+      relevant.find((c) => c.platform === "yt" && isTutorial(c)) ?? relevant.find(isTutorial);
+    const cards = relevant.filter((c) => c === tutorial || aboutSubject(c));
     counts.offSubject += relevant.length - cards.length;
     const samples =
       items.find((i) => normalizeTerm(i.name.en) === normalizeTerm(pick.name.en))?.samples ?? [];

@@ -4,7 +4,8 @@
  *   GET  /categories/:id        → { status, updatedAt, notes?, items, lessons?, top? }: the stored page without the
  *                                 job's memory (history, meta) or diagnostics; { status: "never", items: [] } before
  *                                 the first scan; 502 { error: "upstream" } when KV can't be read
- *   POST /categories/:id/run    → scans that category now (about 30–90 s with lessons; handed to waitUntil too) and
+ *   POST /categories/:id/run    → scans that category now (about 30–90 s; up to about 5 minutes when the
+ *                                 lessons refresh with llama retries; handed to waitUntil too) and
  *                                 answers like the GET. Once per UTC day unless `force: true` or that day's run failed;
  *                                 at most 3 spending runs a category a UTC day, forced ones included (note `attempts`).
  *                                 Body `{ force?: boolean }` or empty; anything else is a 400.

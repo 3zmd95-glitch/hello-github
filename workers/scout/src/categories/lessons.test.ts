@@ -371,16 +371,17 @@ describe("writeHowTos", () => {
       "ar: the same three lines in natural Hijazi Arabic in Arabic script, at most 400 characters.",
     );
     expect(system).toContain(
-      "Never generic advice such as 'use a high-quality camera', 'use editing software' or 'edit the video'.",
+      "Never generic advice such as 'use a high-quality camera', 'good lighting', 'use editing software', 'a video " +
+        "editing app' or 'edit the video'.",
     );
     // One worked example from another subject, plainly the format only (live fix 3: Food's and Anime's Speed Ramp
     // copied it).
     expect(system).toContain(
-      "This example only shows the format; its words are about coffee, never this subject: shoot: 'Mount the phone " +
-        "overhead on a tripod arm and pour slowly from the edge of the frame into the cup'; settings: '4K at 60 fps for " +
-        "a smooth half-speed slow-down, exposure locked, soft window light from the side'; edit: 'In CapCut slow the " +
-        "pour to 0.5x with a speed curve and add a light steam overlay'. Write every line yourself for this subject " +
-        "and never reuse the example's words.",
+      "This example only shows the format; its words are about skateboarding, never this subject: shoot: 'Ride " +
+        "beside the skater on a second board, camera low, keeping the deck in the lower third'; settings: '4K at 120 " +
+        "fps for slow motion, shutter 1/250 s, gimbal in follow mode'; edit: 'In CapCut ramp the kickflip to 0.3x with " +
+        "a speed curve, then back to full speed on the landing'. Write every line yourself for this subject and never " +
+        "reuse the example's words.",
     );
     expect(system).toContain(
       "Base the lines on the videos' titles and snippets when they help, else on standard practice.",
@@ -419,25 +420,36 @@ describe("writeHowTos", () => {
     expect(e.AI.run.mock.calls[0][0]).toBe("@cf/openai/gpt-oss-120b");
   });
 
-  it("B1: drops a how-to that copies the prompt's coffee example (Food's and Anime's live Speed Ramp), counted", async () => {
+  it("B1: drops a how-to that copies the prompt's example (Food's and Anime's live Speed Ramp), counted; a coffee line is no copy", async () => {
     const rejects: Record<string, number> = {};
     const e = answering({
       techniques: [
         {
           i: 0,
           shoot:
-            "Mount the phone overhead on a tripod arm and pour slowly from the edge of the frame into the cup.",
-          settings: "4K at 60 fps for a smooth half-speed slow-down, exposure locked.",
-          edit: "In CapCut slow the pour to 0.5x with a speed curve and add a light steam overlay.",
+            "Ride beside the skater on a second board, camera low, keeping the deck in the lower third.",
+          settings: "4K at 120 fps for slow motion, shutter 1/250 s, gimbal in follow mode.",
+          edit: "In CapCut ramp the kickflip to 0.3x with a speed curve, then back to full speed on the landing.",
         },
         // One phrase of it is enough, in any case and with any hyphen.
-        { i: 1, ...LINES, edit: "In CapCut add a Steam-Overlay after the speed ramp hits." },
+        {
+          i: 1,
+          ...LINES,
+          edit: "In CapCut slow the Second-Board pass to 0.5x with a speed curve.",
+        },
         { i: 2, ...LINES },
+        // The example used to be coffee, a category: Coffee's own pour lines are no copy now (review of live fix 3).
+        {
+          i: 3,
+          ...LINES,
+          shoot: "Film a top-down pour into the cup with a tripod arm over the table.",
+          edit: "In CapCut add a light steam overlay as the pour lands in the cup.",
+        },
       ],
     });
-    const drafts = ["speed ramp", "b", "c"].map((en) => draft("edit", en));
-    const out = await writeHowTos(e, categoryById("food")!, drafts, [], 1000, rejects);
-    expect([...out!.keys()]).toEqual([2]);
+    const drafts = ["speed ramp", "b", "c", "pour"].map((en) => draft("edit", en));
+    const out = await writeHowTos(e, categoryById("coffee")!, drafts, [], 1000, rejects);
+    expect([...out!.keys()]).toEqual([2, 3]);
     expect(rejects).toEqual({ copied_example: 2 });
   });
 
@@ -1052,6 +1064,12 @@ describe("refreshLessons", () => {
                 title: "Backlit burgers: food backlight at sunset",
                 content: "",
               },
+              // A teaching title off the subject that is not the tutorial: never an example (review of live fix 3).
+              {
+                url: "https://www.instagram.com/p/TIPS1/",
+                title: "Backlight tips for portraits",
+                content: "",
+              },
               {
                 url: "https://www.youtube.com/watch?v=backlightTut",
                 title: "How to backlight anything",
@@ -1071,7 +1089,7 @@ describe("refreshLessons", () => {
       ["example", "Backlit burgers: food backlight at sunset"],
       ["tutorial", "How to backlight anything"],
     ]);
-    expect(counts).toMatchObject({ offTopic: 0, offSubject: 1 });
+    expect(counts).toMatchObject({ offTopic: 0, offSubject: 2 });
   });
 
   it("asks the 3 areas' how-tos at once", async () => {

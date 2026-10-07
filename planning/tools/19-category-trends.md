@@ -202,14 +202,15 @@ category a day (`category:attempts:<id>:<day>`).
   - each English line is one sentence of 15–140 characters; `ar` is the same three lines in natural Hijazi Arabic in
     Arabic script, at most 400 characters.
 
-  The prompt forbids generic advice ("use a high-quality camera", "use editing software", "edit the video") and
-  carries one worked example from another subject (a coffee top-down pour). Since live fix 3 it says plainly that the
-  example only shows the format, its words never to be reused. It bases the lines on the videos' titles and snippets
+  The prompt forbids generic advice ("use a high-quality camera", "good lighting", "use editing software", "a video
+  editing app", "edit the video") and carries one worked example from a subject that is no category (a skateboarding
+  kickflip; it was a coffee pour until the review of live fix 3 found Coffee's own pour lines would count as copies).
+  Since live fix 3 it says plainly that the example only shows the format, its words never to be reused. It bases the lines on the videos' titles and snippets
   (tutorials first) when they help, else on standard practice. The lines are stored as `howTo.en` =
   `Shoot: …\nSettings: …\nEdit: …` (445 characters at most), English first. Checks:
   - a line missing or under 15 characters drops the technique (counted by zod's codes, e.g. `shoot:too_small`);
   - **a copied example** (live fix 3: Food's and Anime's Speed Ramp was the coffee pour word for word) drops it: a line
-    holding one of its phrases "tripod arm", "into the cup", "half-speed slow-down", "steam overlay", "top-down pour",
+    holding one of its phrases "the skater", "second board", "kickflip", "on the landing", "deck in the lower third",
     in any case and with any hyphen (`copied_example`);
   - **a generic line** (live fix 3: Flash Transition's and Color Grading's "Shoot with a high-quality camera and good
     lighting") drops it: "high-quality camera", "good lighting", "editing software", "edit the video", "video editing
@@ -587,7 +588,8 @@ how-to field one short sentence.
   format only;
 - a generic line is dropped (`generic_line`);
 - the pick prompt has no car example, and says what photo means for a subject led by editing (anime, gaming);
-- an example must name the category (`offSubject`); tutorials and the trend's samples are exempt;
+- an example must name the category (`offSubject`); only the one video taken as the tutorial and the trend's samples
+  are exempt, so an off-subject teaching reel never becomes an example;
 - gpt-oss-120b writes the pick and the how-tos (3,000 tokens), with llama answering a call it leaves unusable, and the
   diagnostics name the model of each call (`models`);
 - `LESSONS_VERSION` is 4, so the lessons written so far refresh at each category's next scan;
