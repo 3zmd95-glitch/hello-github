@@ -98,7 +98,9 @@ export default function Segmented<T extends string>({
       onKeyDown={onKey}
       data-testid={testId}
     >
-      <span ref={thumb} className="ios-seg-thumb" aria-hidden />
+      <span className="ios-seg-rail" aria-hidden>
+        <span ref={thumb} className="ios-seg-thumb" />
+      </span>
       {options.map((o) => {
         const on = o.value === value;
         return (

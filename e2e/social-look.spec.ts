@@ -182,3 +182,30 @@ test("Social navigation has no emoji", async ({ page }) => {
   );
   expect(text).not.toMatch(/\p{Extended_Pictographic}/u);
 });
+
+test("small controls keep their look and take taps on a 44px band; Training's stay as they are", async ({
+  page,
+}) => {
+  await freshState(page, "/social/calendar/");
+  await expect(page.locator("main h1").first()).toBeVisible();
+  // The control's height, and whether a point `past` px above its visible edge (a segment's edge is its track's)
+  // still lands on it.
+  const probe = (testId: string, past: number) =>
+    page.getByTestId(testId).evaluate((el, past) => {
+      const r = el.getBoundingClientRect();
+      const edge = el.closest(".ios-seg")?.getBoundingClientRect() ?? r;
+      const hit = document.elementFromPoint(r.left + r.width / 2, edge.top - past);
+      return { height: Math.round(r.height), above: el.contains(hit) };
+    }, past);
+  // A filter chip looks 34px tall and takes a tap 4px above its top (its band is 44px).
+  expect(await probe("calendar-filter-tiktok", 4)).toEqual({ height: 34, above: true });
+  // A segment looks 32px tall in its 38px track and takes a tap 2px above the track.
+  expect(await probe("calendar-view-month", 2)).toEqual({ height: 32, above: true });
+  // Training's pixel small buttons get no band.
+  await freshState(page, "/");
+  await expect(page.locator("html")).toHaveAttribute("data-world", "training");
+  const band = await page
+    .getByTestId("sound-toggle")
+    .evaluate((el) => getComputedStyle(el, "::after").content);
+  expect(band).toBe("none");
+});

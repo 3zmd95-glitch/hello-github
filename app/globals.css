@@ -1862,7 +1862,8 @@
   }
 
   /* Segmented control: equal segments, thumb moves on transform only (width is set once by the component). The
-     track clips, so the spring's overshoot never pushes the thumb past it. */
+     rail clips the thumb, so the spring's overshoot never pushes it past the track; the track itself does not clip,
+     so the segments' tap areas reach past it. */
   .ios-seg {
     position: relative;
     display: flex;
@@ -1870,7 +1871,14 @@
     border-radius: 12px;
     padding: 3px;
     min-width: 0;
+  }
+  .ios-seg-rail {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    corner-shape: inherit;
     overflow: hidden;
+    pointer-events: none;
   }
   .ios-seg > button {
     position: relative;
@@ -2101,6 +2109,7 @@
   [data-world="social"] .ios-alert-body h2 {
     font-size: 17px;
     font-weight: 600;
+    overflow-wrap: anywhere;
   }
   [data-world="social"] .ios-alert-body p {
     font-size: 13px;
@@ -2305,6 +2314,44 @@
   }
   [data-world="social"] #main.ios-behind {
     transform: scale(0.965);
+  }
+
+  /* 44px tap areas: small controls keep their look and take taps on an invisible band 44px tall centered on them
+     (the sheet ✕'s trick). Vertical only, so neighbours side by side never overlap; the position sits at zero
+     weight, so a control that is already positioned stays as it is. */
+  :where([data-world="social"])
+    :where(.px-fchip, .px-btn-sm, .ios-icbtn, .ios-top-brand, .ios-starb) {
+    position: relative;
+  }
+  [data-world="social"]
+    :is(
+      .px-fchip,
+      .px-btn-sm,
+      .ios-icbtn,
+      .ios-top-brand,
+      .ios-starb,
+      .ios-world-btn,
+      .ios-seg > button
+    )::after,
+  [data-world="social"] .ios-switch::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: calc(50% - 22px);
+    bottom: calc(50% - 22px);
+  }
+  /* A row that scrolls sideways clips what reaches past it: room for the band inside, taken back outside. */
+  [data-world="social"] div:has(> .ios-seg.gr-seg) {
+    padding-block: 3px;
+    margin-block: -3px;
+  }
+}
+
+/* The phone filter rows (`.ios-chips`, unlayered) scroll sideways: room above the chips for their tap band. */
+@media (max-width: 767px) {
+  [data-world="social"] .ios-chips {
+    padding-top: 5px;
+    margin-top: -5px;
   }
 }
 
