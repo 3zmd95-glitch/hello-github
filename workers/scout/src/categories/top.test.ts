@@ -600,6 +600,51 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
     ]);
   });
 
+  it("probe: Brave sent results and none was a single post (live: 60 TikTok links, 0 posts): their kinds and 5 of them, never stored", async () => {
+    const links = [
+      "https://www.tiktok.com/discover/car-edit",
+      "https://www.tiktok.com/discover/car-edit-trend",
+      "https://www.tiktok.com/tag/caredit",
+      "https://www.tiktok.com/@cars.edits",
+      "https://www.tiktok.com/@cars.edits/",
+      "https://www.tiktok.com/music/phonk-123",
+    ];
+    const kv = fakeKV();
+    const fetch = brave({
+      web: () => json({ web: { results: links.map((url) => ({ url, title: "x" })) } }),
+    });
+    const r = await braveTop(env(kv), fetch, CARS, "tt", [], NOW);
+    expect(r.brave).toEqual([]);
+    expect(r.probe).toEqual({
+      kinds: { discover: 2, tag: 1, profile: 2, music: 1 },
+      rejected: links.slice(0, 5),
+    });
+    // Nothing from Brave is written: the counter alone.
+    expect(puts(kv).every(([k]) => k === DAY_KEY)).toBe(true);
+  });
+
+  it("probe: none when a result matched, and none when Brave sent nothing", async () => {
+    const some = await braveTop(
+      env(fakeKV()),
+      brave({ web: () => json({ web: { results: [ttHit(1)] } }) }),
+      CARS,
+      "tt",
+      [],
+      NOW,
+    );
+    expect(some.brave).toHaveLength(1);
+    expect(some.probe).toBeUndefined();
+    const none = await braveTop(
+      env(fakeKV()),
+      brave({ web: () => json({ web: { results: [] } }) }),
+      CARS,
+      "tt",
+      [],
+      NOW,
+    );
+    expect(none.probe).toBeUndefined();
+  });
+
   it("C8: without BRAVE_API_KEY, or with BRAVE_DAILY \"0\" (off): the stored list noted 'no_key'; nothing asked, read or written", async () => {
     for (const e of [{}, { BRAVE_API_KEY: BRAVE_KEY, BRAVE_DAILY: "0" }]) {
       const kv = fakeKV();

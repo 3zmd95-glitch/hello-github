@@ -68,6 +68,10 @@ export interface TopAnswer {
   note?: "no_key" | "brave_failed" | "daily_cap";
   endpoint?: "videos" | "web";
   stats?: { raw: number; hosts: Record<string, number> };
+  /** Only when Brave sent results and none matched (live check, 2026-10-07: 60 TikTok results, 0 single posts): the
+   * kinds of links it sent (a post, a profile, or the first path segment: "discover", "tag"…) and up to 5 of them.
+   * In the answer only, never stored. */
+  probe?: { kinds: Record<string, number>; rejected: string[] };
 }
 
 type Reply = { status: number; body: unknown };
@@ -345,6 +349,34 @@ function hostCounts(raw: unknown[]): Record<string, number> {
   return Object.fromEntries([...n].sort((a, b) => b[1] - a[1]).slice(0, HOSTS_MAX));
 }
 
+const PROBE_SAMPLES = 5;
+
+/** What kind of link a raw result is: a single post, a profile, or its first path segment ("discover", "tag"…). */
+function linkKind(url: string): string {
+  try {
+    const path = new URL(url).pathname;
+    if (/^\/@[^/]+\/(video|photo)\/\d+/.test(path)) return "post";
+    if (/^\/(p|reel|reels|tv)\/[^/]+/.test(path)) return "post";
+    if (/^\/@[^/]+\/?$/.test(path)) return "profile";
+    return path.split("/").filter(Boolean)[0] ?? "root";
+  } catch {
+    return "invalid";
+  }
+}
+
+/** The kinds of links Brave sent and up to 5 of them, for the answer when none matched (never stored). */
+function probeOf(raw: unknown[]): NonNullable<TopAnswer["probe"]> {
+  const kinds: Record<string, number> = {};
+  const rejected: string[] = [];
+  for (const x of raw) {
+    if (!isRecord(x) || typeof x.url !== "string") continue;
+    const kind = linkKind(x.url);
+    kinds[kind] = (kinds[kind] ?? 0) + 1;
+    if (rejected.length < PROBE_SAMPLES) rejected.push(x.url.slice(0, 200));
+  }
+  return { kinds, rejected };
+}
+
 /**
  * A TikTok or Instagram tab's list, asked when the page opens the tab: the stored list (`scan`) and, apart, Brave's
  * matches (`brave`) in Brave's own order, as Brave gave them (Brave's terms bar modifying results): never sorted,
@@ -449,12 +481,14 @@ export async function braveTop(
   if (made !== planned) await count(made);
   if (typeof found === "number") return alone(found === -1 ? "daily_cap" : "brave_failed");
   const raw = found.flatMap(served.sections).flat();
+  const brave = matches(served, found).slice(0, Math.max(0, need));
   return {
     platform,
     scan,
-    brave: matches(served, found).slice(0, Math.max(0, need)),
+    brave,
     source: "brave",
     endpoint: served.name,
     stats: { raw: raw.length, hosts: hostCounts(raw) },
+    ...(raw.length && !brave.length ? { probe: probeOf(raw) } : {}),
   };
 }
