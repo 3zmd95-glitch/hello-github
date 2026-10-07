@@ -87,8 +87,8 @@ export function formatInstant(iso: string, lang: Lang): string {
 /**
  * The calendar's hash contract: `/social/calendar/#post=<postId>` opens that post's popup, `#day=YYYY-MM-DD`
  * focuses a day in the week view (both may be combined with `&`), `#new` opens the new-post sheet. The Studio home,
- * the Ideas bank and the skill sheet link here. Static export: read on mount and on `hashchange`; `#new` and a
- * deep-linked popup are cleared with `history.replaceState` (no router push).
+ * the Ideas bank and the skill sheet link here. Static export: read on mount and on `hashchange`; `#new`, `#day=`
+ * and a deep-linked popup are one-shot, cleared with `history.replaceState` (no router push).
  */
 export interface CalendarHash {
   post: string | null;
