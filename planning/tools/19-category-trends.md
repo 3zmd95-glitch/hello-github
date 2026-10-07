@@ -15,7 +15,7 @@ Choices, one question at a time:
 | Question | Choice |
 | --- | --- |
 | What a category shows first | **Trends + lessons**: what is trending in that category now, then lessons in Photography / Videography / Editing |
-| How often | **Every 3 days** per category (4 a day); lessons weekly |
+| How often | **Every 3 days** per category (4 a day); lessons weekly (built: lessons every 6 days, every second scan) |
 | How a lesson teaches | **Videos + a short how-to**: the best example and tutorial videos, plus 2–3 lines written by the AI from those tutorials, marked AI |
 | Skills | **Linked**: each technique shows the skill from the owner's map it practices |
 | Layout | **B · Shelves**: trends on top, then three stacked shelves of technique cards |
@@ -55,12 +55,20 @@ Choices, one question at a time:
   - 🎯 the skill it practices, which opens that skill. It shows only when there is a real match;
   - 2 example videos and 1 tutorial (plus an Arabic tutorial when one matched). They play in the app's player.
 - **"Search all Cars videos →"** runs today's category-only search, which stays one tap away.
-- **States** (the same patterns as the 🔥 row):
+- **States** (the same patterns as the 🔥 row), from the page's `status`, `notes` and `updatedAt`:
   - never scanned: "Scan Cars now";
   - scanning: disabled, with "Scanning Cars… can take a minute";
   - failed with nothing yet: the button again, with a failure line;
-  - stale: the old page with "Couldn't update today";
-  - over the day's tries: a limit line.
+  - stale: an update that failed (`status: "failed"`) over trends or lessons keeps the old page. Until a scan from the
+    page, a line under the header says why: "Couldn't update today" when the page was made on an earlier day, and
+    "Couldn't run the scan — try again in a bit" when it was made earlier the same day (the browser's date of
+    `updatedAt`), since that day had its update;
+  - paused on the budget (`tavily_budget`, §4): "Scans paused — this month's lookups are nearly used up", in place of
+    those lines. The scan buttons stay on: a paused scan spends nothing and counts no try, so one can go through once
+    pay-as-you-go is on. Before the first page, the first-scan button shows with that line;
+  - over the day's tries: a limit line, and the scan buttons rest.
+- **Saved only.** With it on, a category tap leaves the saved posts in view, as it does for a search, and searches
+  nothing; the page opens once Saved only is off.
 - **Copy.** New keys in `messages/search.{ar,en}.json`, in key parity. Arabic copy in friendly Hijazi.
 
 ### 2. Category scans (trends)
@@ -103,7 +111,7 @@ dictionary trend entries), then techniques, top 12. The memory is per category: 
 **Limits.** Once per UTC day per category unless forced, or unless that day's run failed. At most 3 spending runs per
 category a day (`category:attempts:<id>:<day>`).
 
-### 3. Lessons (weekly)
+### 3. Lessons (every 6 days)
 
 - **When.** On a category's scan when its lessons are 6 or more days old, or missing. Scans come every 3 days, so that is
   every second scan.
@@ -198,3 +206,53 @@ invocation allows:
 - Whether lessons' combined-domain search finds enough Instagram and TikTok examples, or examples should come mostly from
   the trend samples.
 - Later, not now: owner-added categories, and the connector's `get_trends` exposing category trends.
+
+## Built (planning/plans/2026-10-06-category-trends.md)
+
+- **Worker:** `workers/scout/src/categories/` (defs, types, run, lessons, skills, routes), built on Trending effects'
+  parts with optional arguments (extraction extras, the AI's context line, the memory's key cap, any KV key, the
+  searches' numbering and budget decision, `rememberPosts`) and shared helpers (`monthUsage`, `countAttempt`,
+  `askAi`). Trending effects' existing tests kept their assertions except in two places, both from Task 2:
+  - the slot test's plain grid tick moved from 05:40 to 06:00, because 05:40 is a category slot now;
+  - the budget guard's case in `sources.test.ts` was rewritten for the shared `monthUsage` (Discover's figure, else
+    Tavily's own `/usage`), and `sources.test.ts` and `routes.test.ts` now keep a Tavily figure in KV, so their fetch
+    counts stay the searches alone.
+
+  Each new argument has its own new test beside them. Discover's existing tests passed unchanged; new ones cover
+  `tavilyCall`'s several platforms, and the refused answers that it and Tavily's `/usage` let go of.
+- **Dashboard:** `lib/categories.ts`, `components/research/CategoryPage.tsx`; ResearchPanel shows the page when a
+  built-in category is tapped with nothing typed. Leaving the page into a search (Search all, a style) moves focus to
+  the search box, and while an AI search can't run (no model chosen) Search all rests, as the category chips do.
+- **Decisions where this spec was silent, or two of its rules met:**
+  - Every spending run counts against a category's 3 a day, forced ones included. Effects lets `force` skip its cap;
+    this spec gives no such exception, and the page's limit line needs it.
+  - "The month's credits" is the plan plus a positive pay-as-you-go limit: the cost table counts on pay-as-you-go.
+    Trending effects still counts the plan alone, on the same figure. A paused run writes the page as `failed` with
+    the day's date and `tavily_budget`, and counts no attempt.
+  - Lessons refresh every 6 days, every second scan: "weekly" with 3-day scans would have been every 9 days. The
+    how-to is one AI call an area, the 3 at once, because one call for all 9 risked the time limit that effects' single
+    AI call hit live.
+  - Lessons need the AI binding: without it, no refresh is tried. A refresh runs after the trends are saved and saves
+    again at least 1.1 s later (KV takes one write a key a second), so a slow refresh never costs the trends; none
+    runs when the trends' save failed.
+  - A technique without a usable how-to is dropped (`howTo` is required). An invalid optional `skillId` or Arabic
+    tutorial number drops only that field, counted `bad_skill` / `bad_ar`.
+  - An area with nothing new keeps last cycle's techniques, with their Arabic tutorials, which no new technique gets;
+    the lessons' log names those areas (`kept`). A refresh that keeps nothing keeps the last lessons, noted `lessons`.
+  - A trending style's tap sends `{ q: "<style>", genreQuery: <the category> }`: Discover's own "style within the
+    category".
+  - A Worker without the route (404) gets today's category search. Owner-added categories and the `?genre=` deep link
+    keep the search.
+  - `tavilyCall` takes several platforms: one credit covers YouTube, Instagram and TikTok together.
+  - The skills index is `workers/scout/src/categories/skills.json`, generated from the app's skills.
+    `data/skills/skills-index.test.ts` keeps it in step and holds the command that regenerates it. It compares parsed
+    JSON, because Windows checkouts turn the file's line endings into CRLF.
+- **Tests:** `pnpm test` 2,184 in 107 files (the Worker's 903 in 34 included); e2e 336 passed (phone 167, desktop 169)
+  and 4 skipped by design (tests that run on one project only) of 340. Lint, typecheck (app and Worker) and build
+  clean.
+- **Budgets:**
+  - 6 Tavily credits a scan, 4 scans a day (about 720 a month);
+  - lessons 10 credits a category every 6 days (about 600 a month);
+  - no YouTube Data API;
+  - ≤ 31 subrequests a run (≤ 7 AI calls);
+  - about 10 KV writes a day.
