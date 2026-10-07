@@ -22,9 +22,28 @@ async function noHorizontalScroll(page: Page): Promise<void> {
 const cardFor = (page: Page, id: string) =>
   page.locator(`[data-testid="post-card"][data-post="${id}"]`);
 
+/**
+ * Records the open sheet's `data-phase` changes ("exit" only plays with motion on), each marked ":empty" if the sheet
+ * body had nothing in it at that moment.
+ */
+async function recordPhases(page: Page): Promise<void> {
+  await page.locator(".ios-sheet-root").evaluate((root) => {
+    const phases: string[] = [];
+    (window as unknown as { phases: string[] }).phases = phases;
+    new MutationObserver(() => {
+      const empty = !root.querySelector(".ios-sheet-body")?.childElementCount;
+      phases.push(`${root.getAttribute("data-phase")}${empty ? ":empty" : ""}`);
+    }).observe(root, { attributes: true, attributeFilter: ["data-phase"] });
+  });
+}
+const recordedPhases = (page: Page) =>
+  page.evaluate(() => (window as unknown as { phases: string[] }).phases);
+
 test("plan a post from idea to posted: week, popup, script, shots, month and stages", async ({
   page,
 }) => {
+  // The longest flow here (10–12s alone): room for a busy machine.
+  test.slow();
   const today = todayKey();
   await freshState(page, "/social/calendar/");
 
@@ -239,8 +258,10 @@ test("the week strip rests on this week, a swipe to next week moves the view, a 
   await page.getByTestId("post-save").click();
 
   // This week is the one in view (last and next week sit beside it, inert); today's cell carries the post's dot.
+  // A week's stride is measured as WeekView does: the strip overflows by two of them.
   const strip = page.getByTestId("calendar-strip");
-  const page1 = () => strip.evaluate((el) => Math.abs(el.scrollLeft) / el.clientWidth);
+  const page1 = () =>
+    strip.evaluate((el) => Math.abs(el.scrollLeft) / ((el.scrollWidth - el.clientWidth) / 2));
   await expect.poll(page1).toBe(1);
   const todayCell = strip.locator(`[data-testid="calendar-strip-day"][data-day="${today}"]`);
   await expect(todayCell).toHaveAttribute("aria-current", "date");
@@ -250,7 +271,11 @@ test("the week strip rests on this week, a swipe to next week moves the view, a 
 
   // A swipe that comes to rest on next week moves the view there, and the strip is back on its middle week.
   await strip.evaluate((el) =>
-    el.scrollBy({ left: (getComputedStyle(el).direction === "rtl" ? -1 : 1) * el.clientWidth }),
+    el.scrollBy({
+      left:
+        (getComputedStyle(el).direction === "rtl" ? -1 : 1) *
+        ((el.scrollWidth - el.clientWidth) / 2),
+    }),
   );
   await expect(page.getByTestId("calendar-week")).not.toHaveText(thisWeek);
   await expect.poll(page1).toBe(1);
@@ -293,20 +318,11 @@ test("the post popup and history: a tap pushes #post=, Back closes it with the e
   await card.locator("button").first().click();
   await expect(sheet).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/social/calendar/#post=${id}$`));
-  await page.locator(".ios-sheet-root").evaluate((root) => {
-    const phases: string[] = [];
-    (window as unknown as { phases: string[] }).phases = phases;
-    new MutationObserver(() => phases.push(root.getAttribute("data-phase") ?? "")).observe(root, {
-      attributes: true,
-      attributeFilter: ["data-phase"],
-    });
-  });
+  await recordPhases(page);
   await page.goBack();
   await expect(sheet).toHaveCount(0);
   await expect(page).toHaveURL(/\/social\/calendar\/$/);
-  expect(await page.evaluate(() => (window as unknown as { phases: string[] }).phases)).toContain(
-    "exit",
-  );
+  expect(await recordedPhases(page)).toContain("exit");
   await page.emulateMedia({ reducedMotion: "reduce" });
 
   // Escape: the first one reverts a title edit in progress (the sheet stays), the next one closes the sheet and goes
@@ -315,6 +331,15 @@ test("the post popup and history: a tap pushes #post=, Back closes it with the e
   await expect(page).toHaveURL(/#post=/);
   // The sheet's body scrolls; the segmented tabs keep their height instead of shrinking with it.
   expect((await sheet.getByRole("tablist").boundingBox())?.height).toBeGreaterThanOrEqual(32);
+  // The ✕ looks 32px and takes taps on 44px: a point 5px beside it is still the ✕.
+  expect(
+    await page.getByTestId("post-close").evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return (
+        document.elementFromPoint(r.left - 5, r.top + r.height / 2)?.closest(".ios-close") === el
+      );
+    }),
+  ).toBe(true);
   const title = page.getByTestId("post-title-edit");
   await title.fill("Edited");
   await title.press("Escape");
@@ -324,6 +349,15 @@ test("the post popup and history: a tap pushes #post=, Back closes it with the e
   await expect(sheet).toHaveCount(0);
   await expect(page).toHaveURL(/\/social\/calendar\/$/);
   await expect(card).toContainText("Back test");
+
+  // A Next <Link> can push another hash under the open popup without a hashchange (the skill sheet's calendar chip).
+  // ✕ then clears it in place: going back would land on the popup's own entry and reopen it.
+  await card.locator("button").first().click();
+  await expect(page).toHaveURL(/#post=/);
+  await page.evaluate(() => history.pushState(null, "", "#post=elsewhere"));
+  await page.getByTestId("post-close").click();
+  await expect(page).toHaveURL(/\/social\/calendar\/$/);
+  await expect(sheet).toHaveCount(0);
 
   // A deep link pushed nothing: ✕ clears the hash in place and never navigates away from the calendar.
   await page.goto("/social/");
@@ -335,29 +369,113 @@ test("the post popup and history: a tap pushes #post=, Back closes it with the e
   await expect(page.getByTestId("calendar-screen")).toBeVisible();
 });
 
-test("#new opens the new-post sheet once: the Studio's Plan a post lands on it", async ({
+test("#new opens the new-post sheet once: both Studio plan buttons land on it", async ({
   page,
 }) => {
   const today = todayKey();
-  await freshState(page, "/social/calendar/");
-  // A planned post turns the Studio hero to its "next post" state, with "Plan a post".
-  await page.locator('[data-testid="calendar-new"]:visible').click();
-  await page.getByTestId("post-title").fill("Hero post");
-  await page.getByTestId("post-day").fill(today);
-  await page.getByTestId("post-save").click();
-  await expect(page.getByTestId("post-form")).toBeHidden();
-
-  await page.goto("/social/");
-  await expect(page.getByTestId("studio-next")).toHaveAttribute("data-empty", "false");
+  // The empty Studio hero: "Plan your first post".
+  await freshState(page, "/social/");
+  await expect(page.getByTestId("studio-next")).toHaveAttribute("data-empty", "true");
   const plan = page.getByTestId("studio-next-cta");
   await expect(plan).toHaveAttribute("href", "/social/calendar/#new");
   await plan.click();
-  await expect(page.getByTestId("post-form")).toBeVisible();
+  const form = page.getByTestId("post-form");
+  await expect(form).toBeVisible();
   await expect(page.getByTestId("post-day")).toHaveValue(today);
   await expect(page).toHaveURL(/\/social\/calendar\/$/);
+  await page.getByTestId("post-title").fill("Hero post");
+  await page.getByTestId("post-save").click();
+  await expect(form).toHaveCount(0);
 
   // The hash is gone, so a reload does not reopen it.
   await page.reload();
   await expect(page.getByTestId("calendar-screen")).toBeVisible();
+  await expect(form).toHaveCount(0);
+
+  // With a post planned, the hero's "Plan a post" goes there too.
+  await page.goto("/social/");
+  await expect(page.getByTestId("studio-next")).toHaveAttribute("data-empty", "false");
+  await expect(plan).toHaveAttribute("href", "/social/calendar/#new");
+});
+
+test("#day= applies once: closing a popup keeps the day and the view picked since", async ({
+  page,
+}) => {
+  const today = todayKey();
+  await freshState(page, "/social/calendar/");
+  await page.locator('[data-testid="calendar-new"]:visible').click();
+  await page.getByTestId("post-title").fill("Day post");
+  await page.getByTestId("post-day").fill(today);
+  await page.getByTestId("post-save").click();
   await expect(page.getByTestId("post-form")).toHaveCount(0);
+
+  // Arriving on #day= (the Studio's week card links a busy day this way) focuses the day, then the hash goes.
+  await page.goto("/social/");
+  await page.goto(`/social/calendar/#day=${today}`);
+  const group = (day: string) => page.locator(`[data-testid="calendar-day"][data-day="${day}"]`);
+  await expect(group(today)).toHaveAttribute("data-focus", "true");
+  await expect(page).toHaveURL(/\/social\/calendar\/$/);
+
+  // Another day picked on the strip, a post opened and closed: the picked day stays.
+  const other = page
+    .locator(
+      '[data-testid="calendar-strip"] ol:not([inert]) [data-testid="calendar-strip-day"]:not([data-today="true"])',
+    )
+    .first();
+  const otherDay = (await other.getAttribute("data-day")) ?? "";
+  await other.click();
+  await expect(group(otherDay)).toHaveAttribute("data-focus", "true");
+  const sheet = page.getByTestId("post-sheet");
+  await page.getByTestId("post-card").first().locator("button").first().click();
+  await expect(sheet).toBeVisible();
+  await page.getByTestId("post-close").click();
+  await expect(sheet).toHaveCount(0);
+  await expect(page).toHaveURL(/\/social\/calendar\/$/);
+  await expect(group(otherDay)).toHaveAttribute("data-focus", "true");
+  await expect(group(today)).toHaveAttribute("data-focus", "false");
+
+  // Stages, a post opened and closed there: still on Stages.
+  await page.getByTestId("calendar-view-stages").click();
+  await page.getByTestId("post-card").first().locator("button").first().click();
+  await expect(sheet).toBeVisible();
+  await page.getByTestId("post-close").click();
+  await expect(sheet).toHaveCount(0);
+  await expect(page.getByTestId("calendar-view-stages")).toHaveAttribute("aria-selected", "true");
+});
+
+test("Cancel, Save and Delete close their sheet with its exit; Delete removes the post after it", async ({
+  page,
+}) => {
+  await freshState(page, "/social/calendar/");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  const newPost = page.locator('[data-testid="calendar-new"]:visible');
+  const form = page.getByTestId("post-form");
+
+  await newPost.click();
+  await expect(form).toBeVisible();
+  await recordPhases(page);
+  await page.getByTestId("post-form-cancel").click();
+  await expect(form).toHaveCount(0);
+  expect(await recordedPhases(page)).toContain("exit");
+
+  // A double tap on Save makes one post: the leaving sheet takes no more taps.
+  await newPost.click();
+  await page.getByTestId("post-title").fill("Exit test");
+  await recordPhases(page);
+  await page.getByTestId("post-save").dblclick();
+  await expect(form).toHaveCount(0);
+  expect(await recordedPhases(page)).toContain("exit");
+  await expect(page.getByTestId("post-card")).toHaveCount(1);
+
+  // Delete: the popup leaves with the post still in it (never empty), then the post is gone.
+  await page.getByTestId("post-card").locator("button").first().click();
+  const sheet = page.getByTestId("post-sheet");
+  await expect(sheet).toBeVisible();
+  await page.getByTestId("post-delete").click();
+  await recordPhases(page);
+  await page.getByTestId("confirm-ok").click();
+  await expect(sheet).toHaveCount(0);
+  expect(await recordedPhases(page)).toContain("exit");
+  await expect(page.getByTestId("post-card")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/social\/calendar\/$/);
 });

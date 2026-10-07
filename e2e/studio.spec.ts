@@ -39,7 +39,10 @@ test("fresh Studio: empty hero with a calendar CTA, empty week, all-clear inbox"
 
   const hero = page.getByTestId("studio-next");
   await expect(hero).toHaveAttribute("data-empty", "true");
-  await expect(page.getByTestId("studio-next-cta")).toHaveAttribute("href", "/social/calendar/");
+  await expect(page.getByTestId("studio-next-cta")).toHaveAttribute(
+    "href",
+    "/social/calendar/#new",
+  );
   await expect(page.getByTestId("studio-countdown")).toHaveCount(0);
 
   const week = page.getByTestId("studio-week");

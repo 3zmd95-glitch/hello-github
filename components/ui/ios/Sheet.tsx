@@ -35,8 +35,10 @@ let behind = 0;
  * iOS sheet (tools/18 §3.5). Portaled to <body> on the z-39 layer, so the skill popup (z-40), ConfirmDialog (z-50),
  * the player (z-60) and celebrations (z-80) open above it. Phones: a bottom sheet with detents (visible fractions of
  * the viewport), dragged by its grabber/header. md+: a centered dialog (`wide`: 680px instead of 560px). Mounted =
- * open; ✕, the backdrop, Esc, a drag past the last detent and Back play the exit, then `onClose` runs (the caller
- * unmounts it). An Escape a child already handled (`preventDefault`: an inline edit reverting) leaves it open.
+ * open; ✕, the backdrop, Esc, a drag past the last detent, Back and `useSheetClose()` (in-sheet buttons) play the
+ * exit, then `onClose` runs (the caller unmounts it); the panel is inert while it leaves. An Escape a child already
+ * handled (`preventDefault`: an inline edit reverting) or one pressed in another dialog on top (the skill sheet over
+ * the post popup) leaves it open.
  */
 export default function Sheet({
   onClose,
@@ -144,7 +146,10 @@ export default function Sheet({
     body.style.overflow = "hidden";
     panelRef.current?.focus({ preventScroll: true });
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !e.defaultPrevented) requestClose();
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const dialog = (document.activeElement as HTMLElement | null)?.closest('[role="dialog"]');
+      if (dialog && dialog !== panelRef.current) return;
+      requestClose();
     };
     document.addEventListener("keydown", onKey);
     return () => {
@@ -231,6 +236,7 @@ export default function Sheet({
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
+          inert={phase === "exit"}
           className="ios-sheet"
           data-mode={desktop ? "dialog" : "sheet"}
           data-wide={wide || undefined}

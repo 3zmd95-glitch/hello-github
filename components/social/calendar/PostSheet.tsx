@@ -1,7 +1,7 @@
 "use client";
 
 import { Gamepad2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePublishAutoResync } from "@/components/social/usePublish";
 import Chip from "@/components/ui/ios/Chip";
 import Segmented from "@/components/ui/ios/Segmented";
@@ -25,7 +25,8 @@ const TABS: readonly Tab[] = ["overview", "script", "shots", "autopost"];
  * Post popup (round 17; an iOS sheet since round 35): the post title heads the sheet (the Overview tab edits it), then
  * the platform / stage / linked-skill chips, the 6-step stage stepper with the "suggested" hint, and the Overview ·
  * Script · Shots · Auto-post tabs. Edits go straight to the store, so the popup updates in place (no remount, scroll
- * kept). Closes itself when the post is deleted. Since round 30 the body also keeps a sent auto-post job fresh
+ * kept). Delete plays the sheet's exit first and removes the post after it (the popup never shows empty); a post
+ * deleted elsewhere closes it at once. Since round 30 the body also keeps a sent auto-post job fresh
  * (`usePublishAutoResync`), whichever tab edits the post. The calendar owns the popup's `#post=` history entry, so Back
  * is not the sheet's own; `leaving` (Back already took that entry) plays the sheet's exit.
  */
@@ -39,23 +40,29 @@ export default function PostSheet({
   onClose: () => void;
 }) {
   const post = useStore((s) => s.posts.find((p) => p.id === postId));
+  /** Delete was confirmed in the popup: the post goes once the exit has played. */
+  const deleting = useRef(false);
   useEffect(() => {
-    if (!post) onClose();
+    if (!post && !deleting.current) onClose();
   }, [post, onClose]);
+  const closed = useCallback(() => {
+    onClose();
+    if (deleting.current) useStore.getState().removePost(postId);
+  }, [onClose, postId]);
   if (!post) return null;
   return (
     <SheetFrame
       testId="post-sheet"
       titleId={`post-sheet-title-${post.id}`}
       title={post.title}
-      onClose={onClose}
+      onClose={closed}
       wide
       backCloses={false}
       closeTestId="post-close"
       attrs={{ "data-post": post.id, "data-stage": post.stage, "data-platform": post.platform }}
     >
       {leaving && <CloseNow />}
-      <SheetBody post={post} onClose={onClose} />
+      <SheetBody post={post} onDelete={() => (deleting.current = true)} />
     </SheetFrame>
   );
 }
@@ -67,8 +74,10 @@ function CloseNow() {
   return null;
 }
 
-function SheetBody({ post, onClose }: { post: Post; onClose: () => void }) {
+/** `onDelete` marks the post for removal; the body then closes the sheet, which removes it after the exit. */
+function SheetBody({ post, onDelete }: { post: Post; onDelete: () => void }) {
   const { t, L } = useT();
+  const close = useSheetClose();
   const setPostStage = useStore((s) => s.setPostStage);
   const unmarkPosted = useStore((s) => s.unmarkPosted);
   usePublishAutoResync(post);
@@ -96,7 +105,7 @@ function SheetBody({ post, onClose }: { post: Post; onClose: () => void }) {
         <PlatformChip platform={post.platform} />
         <StageChip stage={post.stage} />
         {skill && (
-          <Chip icon={<Gamepad2 size={12} aria-hidden />} title={t("calendar.linked")}>
+          <Chip icon={<Gamepad2 size={12} aria-hidden />} title={t("calendar.linkedSkill")}>
             <span className="max-w-[10rem] truncate">{L(skill.name)}</span>
           </Chip>
         )}
@@ -157,7 +166,15 @@ function SheetBody({ post, onClose }: { post: Post; onClose: () => void }) {
         tabIndex={0}
       >
         {tab === "overview" && (
-          <OverviewTab post={post} skill={skill} urlFocus={urlFocus} onDeleted={onClose} />
+          <OverviewTab
+            post={post}
+            skill={skill}
+            urlFocus={urlFocus}
+            onDelete={() => {
+              onDelete();
+              close();
+            }}
+          />
         )}
         {tab === "script" && <ScriptTab post={post} />}
         {tab === "shots" && <ShotsTab post={post} />}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { TIKTOK_PRIVACY, type AutoPost } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { PlatformGlyph } from "@/lib/platformIcons";
 import { tiktokCreatorInfo, type TikTokCapabilities } from "@/lib/publish";
 import { scoutConfig } from "@/lib/scoutClient";
 import { useStore } from "@/store";
@@ -37,7 +38,10 @@ export default function TikTokOptions({
 
   return (
     <section className="px-inset flex flex-col gap-3" data-testid="autopost-tiktok">
-      <h3 className="text-sm font-bold">🎵 {t("publish.tt.title")}</h3>
+      <h3 className="flex items-center gap-1.5 text-sm font-bold">
+        <PlatformGlyph platform="tiktok" size={14} className="shrink-0" />
+        {t("publish.tt.title")}
+      </h3>
       <p className="text-ink-2 text-sm">{t("publish.tt.personal")}</p>
       <select
         className="px-input"

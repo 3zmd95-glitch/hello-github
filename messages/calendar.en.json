@@ -37,7 +37,6 @@
   "calendar.summary.posted": "{n} posted",
   "calendar.summary.platform": "{platform}: {planned} planned · {posted} posted",
   "calendar.overdue": "Overdue",
-  "calendar.linked": "Linked to a skill 🎮",
   "calendar.linkedSkill": "Linked skill",
   "calendar.card.noTime": "No time",
   "calendar.card.open": "Open {title}",

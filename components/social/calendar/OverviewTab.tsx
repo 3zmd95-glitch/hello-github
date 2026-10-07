@@ -17,23 +17,22 @@ import SkillPicker from "./SkillPicker";
  * the best-time hint and the honest reminder note (round 30: the time shows on the calendar and the Studio's
  * Today reminder; phone reminders come with notifications later), a line saying a sent auto-post follows
  * these edits by itself, the linked skill, "Mark as posted" (+ link → the Produce quest bridge with its
- * celebration), copy and delete.
+ * celebration), copy and delete (`onDelete`: the popup removes the post once its exit has played).
  */
 export default function OverviewTab({
   post,
   skill,
   urlFocus,
-  onDeleted,
+  onDelete,
 }: {
   post: Post;
   skill: Skill | undefined;
   /** Bumped by the stage stepper's "posted" step: focus the link input. */
   urlFocus: number;
-  onDeleted: () => void;
+  onDelete: () => void;
 }) {
   const { t, L, lang } = useT();
   const updatePost = useStore((s) => s.updatePost);
-  const removePost = useStore((s) => s.removePost);
   const unmarkPosted = useStore((s) => s.unmarkPosted);
   const produceDone = useStore(
     (s) =>
@@ -455,8 +454,7 @@ export default function OverviewTab({
           onCancel={() => setConfirm(false)}
           onConfirm={() => {
             setConfirm(false);
-            removePost(post.id);
-            onDeleted();
+            onDelete();
           }}
         />
       )}

@@ -22,8 +22,8 @@ const RING_SPAN_MS = 48 * 3_600_000;
 /**
  * The Studio's hero: the next planned post with a live countdown and a ring that empties as its time comes. When
  * nothing is due later but a planned post's time already passed, that one shows in its overdue state instead: the
- * countdown line and a full ring in warn. "Plan a post" opens the calendar's new-post sheet (`#new`).
- * Empty → plan the first post (the calendar, with its own empty-state guide).
+ * countdown line and a full ring in warn. Empty → plan the first post. Both plan buttons open the calendar's new-post
+ * sheet (`#new`).
  */
 export default function NextPostHero({ today }: { today: string }) {
   const { t, L, lang } = useT();
@@ -41,8 +41,12 @@ export default function NextPostHero({ today }: { today: string }) {
   const label = (
     <h2 className="text-ink-2 text-[13px] font-semibold">{t("social.studio.heroLabel")}</h2>
   );
-  const plan = (text: string, href: string) => (
-    <Link href={href} className="px-btn no-underline" data-testid="studio-next-cta">
+  const plan = (text: string) => (
+    <Link
+      href="/social/calendar/#new"
+      className="px-btn no-underline"
+      data-testid="studio-next-cta"
+    >
       <CalendarPlus size={18} strokeWidth={1.75} aria-hidden />
       {text}
     </Link>
@@ -59,9 +63,7 @@ export default function NextPostHero({ today }: { today: string }) {
             {t("social.studio.unplanned", { n: unplanned })}
           </p>
         )}
-        <div className="mt-3.5 flex flex-wrap gap-2">
-          {plan(t("social.studio.heroCta"), "/social/calendar/")}
-        </div>
+        <div className="mt-3.5 flex flex-wrap gap-2">{plan(t("social.studio.heroCta"))}</div>
       </Card>
     );
   }
@@ -136,7 +138,7 @@ export default function NextPostHero({ today }: { today: string }) {
         </svg>
       </div>
       <div className="mt-3.5 flex flex-wrap gap-2">
-        {plan(t("social.studio.heroPlan"), "/social/calendar/#new")}
+        {plan(t("social.studio.heroPlan"))}
         <Link
           href={calendarPostHref(post.id)}
           className="px-btn px-btn-ghost no-underline"

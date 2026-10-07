@@ -8,6 +8,7 @@ import PageHeader from "@/components/ui/ios/PageHeader";
 import Segmented from "@/components/ui/ios/Segmented";
 import { PLATFORMS, type Platform, type Post } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { prefersReducedMotion } from "@/lib/motion";
 import { PlatformGlyph } from "@/lib/platformIcons";
 import { PLATFORM_META } from "@/lib/social";
 import { dayKey, weekKey } from "@/lib/streak";
@@ -35,10 +36,11 @@ function clearHash(): void {
  * its tabpanel) per platform (filter chips with the brand glyphs), the new-post sheet (the glass "+" on phones, a
  * header button from md up) and the post popup. Deep links: `#post=<id>` opens that post's popup (the Studio home,
  * the Ideas bank and the skill sheet link here), `#day=YYYY-MM-DD` focuses a day in the week view, as a tap on a day of
- * the week strip or the month grid does, `#new` opens the new-post sheet; all are read on mount and on `hashchange`.
- * A tap on a post pushes its `#post=` entry: Back closes the popup (with the sheet's exit), any other close goes back
- * off the entry. A popup opened from the URL pushed nothing, so closing it clears the hash with
- * `history.replaceState` and never leaves the calendar.
+ * the week strip or the month grid does, `#new` opens the new-post sheet; all are read on mount and on `hashchange`,
+ * and `#day=` / `#new` apply once (cleared with `history.replaceState`). A tap on a post pushes its `#post=` entry:
+ * Back closes the popup (with the sheet's exit), any other close goes back off the entry while it is still the
+ * current one. A popup opened from the URL pushed nothing, so closing it clears the hash in place and never leaves
+ * the calendar.
  */
 export default function CalendarScreen() {
   const { t, L } = useT();
@@ -51,9 +53,15 @@ export default function CalendarScreen() {
   const [focusDay, setFocusDay] = useState<string | null>(null);
   /** The post popup; `leaving` once Back took its entry away (it plays the exit, then closes). */
   const [open, setOpen] = useState<{ id: string; leaving: boolean } | null>(null);
-  /** The open popup's `#post=` entry was pushed by a tap here, so closing goes back off it. */
-  const pushed = useRef(false);
+  /** The `#post=` hash a tap here pushed for the open popup: closing goes back off that entry. */
+  const pushed = useRef<string | null>(null);
   const [draft, setDraft] = useState<{ day: string | null } | null>(null);
+  /** The "+" pops in one frame after it mounts (at once with reduced motion). */
+  const [fabIn, setFabIn] = useState(prefersReducedMotion);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setFabIn(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   /** The week view on that day's week, with the day picked (strip and list). */
   const showDay = useCallback((day: string) => {
@@ -65,13 +73,17 @@ export default function CalendarScreen() {
   useEffect(() => {
     const apply = () => {
       const h = parseCalendarHash(window.location.hash);
-      if (h.day) showDay(h.day);
+      if (h.day) {
+        showDay(h.day);
+        // Once: closing a popup later lands back on this entry and must not reset the view the owner chose since.
+        if (!h.post) clearHash();
+      }
       if (h.newPost) {
         // Once: a reload does not reopen it.
         setDraft({ day: dayKey() });
         clearHash();
       }
-      pushed.current = false;
+      pushed.current = null;
       if (h.post) {
         if (useStore.getState().posts.some((p) => p.id === h.post)) {
           setOpen({ id: h.post, leaving: false });
@@ -94,19 +106,21 @@ export default function CalendarScreen() {
 
   const openPost = useCallback((id: string) => {
     setOpen({ id, leaving: false });
-    history.pushState(null, "", postHash(id));
-    pushed.current = true;
+    pushed.current = postHash(id);
+    history.pushState(null, "", pushed.current);
   }, []);
   const close = useCallback(() => {
     setOpen(null);
-    if (pushed.current) {
-      pushed.current = false;
-      history.back();
-    } else clearHash();
+    // A Next <Link> may have pushed another hash under the popup (no hashchange): going back would land on this
+    // popup's entry and reopen it.
+    const ours = pushed.current !== null && window.location.hash === pushed.current;
+    pushed.current = null;
+    if (ours) history.back();
+    else clearHash();
   }, []);
   const newOn = useCallback((day: string | null) => setDraft({ day }), []);
+  /** The new post's week and month come into view behind the closing sheet. */
   const created = useCallback((post: Post) => {
-    setDraft(null);
     if (post.plannedDay) {
       setWeekStart(weekKey(post.plannedDay));
       setMonthKey(monthKeyOf(post.plannedDay));
@@ -151,7 +165,7 @@ export default function CalendarScreen() {
         <button
           type="button"
           className="ios-fab glass md:hidden"
-          data-show="true"
+          data-show={fabIn}
           aria-label={t("calendar.form.title")}
           onClick={() => newOn(focusDay)}
           data-testid="calendar-new"

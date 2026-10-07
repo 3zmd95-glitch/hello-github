@@ -87,6 +87,29 @@ describe("Sheet", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  // The skill sheet (its own dialog, z-40) can open over the post popup: an Escape pressed in it is that dialog's.
+  it("leaves an Escape pressed in another dialog on top; with focus back in the sheet it closes", () => {
+    const onClose = vi.fn();
+    mount(onClose);
+    const top = document.createElement("div");
+    top.setAttribute("role", "dialog");
+    top.tabIndex = -1;
+    document.body.appendChild(top);
+    top.focus();
+    const escape = () =>
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => {
+      top.dispatchEvent(escape());
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    document.querySelector<HTMLElement>('[data-testid="sheet"]')!.focus();
+    top.remove();
+    act(() => {
+      document.dispatchEvent(escape());
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("closes on a backdrop tap", () => {
     const onClose = vi.fn();
     mount(onClose);

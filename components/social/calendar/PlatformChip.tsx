@@ -3,6 +3,7 @@
 import type { CSSProperties } from "react";
 import type { Platform, PostStage } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
+import { PlatformGlyph } from "@/lib/platformIcons";
 import { PLATFORM_META } from "@/lib/social";
 
 /**
@@ -14,13 +15,13 @@ export function platformStyle(platform: Platform, name: "--pc" | "--c" = "--pc")
   return { [name]: `var(--pc-${platform}, ${PLATFORM_META[platform].color})` } as CSSProperties;
 }
 
-/** Icon + name chip in the platform's color. */
+/** Brand glyph + name chip in the platform's color. */
 export function PlatformChip({ platform, short }: { platform: Platform; short?: boolean }) {
   const { L } = useT();
   const meta = PLATFORM_META[platform];
   return (
     <span className="px-chip cal-pchip" style={platformStyle(platform)} data-platform={platform}>
-      <span aria-hidden>{meta.icon}</span>
+      <PlatformGlyph platform={platform} size={13} className="shrink-0" />
       {short ? <span className="num">{meta.short}</span> : L(meta.name)}
     </span>
   );

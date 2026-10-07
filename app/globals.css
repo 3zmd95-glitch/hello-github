@@ -2265,6 +2265,7 @@
     color: var(--muted);
   }
   .ios-close {
+    position: relative;
     width: 32px;
     height: 32px;
     border-radius: 50%;
@@ -2274,6 +2275,12 @@
     place-items: center;
     flex: none;
     transition: transform var(--t-fast) var(--out);
+  }
+  /* A 44px hit area around the 32px look. */
+  .ios-close::before {
+    content: "";
+    position: absolute;
+    inset: -6px;
   }
   .ios-close:active {
     transform: scale(0.9);
