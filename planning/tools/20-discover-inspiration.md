@@ -27,4 +27,10 @@ On localhost:3000, Food's “Timelapse Kitchen Prep” lesson recommended food p
 
 ## Validation
 
-To be completed after integration: app/Worker tests, lint, typecheck, build, phone/desktop browser flows, old-backup migration, save/note/status/reload, and live source coverage after Worker rollout. Mocked tests establish behavior, not the current relevance or visual quality of external results. Record those separately.
+- `pnpm lint`, `pnpm typecheck`, and `pnpm build` passed.
+- App tests: **2,443 passed**, 124 files.
+- Worker tests: **1,044 passed**, 39 files (`--maxWorkers=2`; an initial unconstrained run hit an existing 5-second performance-test timeout under concurrent browser/build load; no test timeout or assertion was weakened).
+- Full browser suite on port 3100: **380 passed**, eight existing viewport-specific skips, zero failures. New cases cover category save, Saved only inclusion, notes/status across reload, English/Arabic layouts, and legacy lesson suppression. Existing offline coverage also passed.
+- Root visually reviewed desktop and phone screenshots of the new lesson and practice screens. These screenshots use synthetic fixtures and unavailable preview images; they establish layout, not live provider quality.
+- The compiled build was copied to the existing port-3000 server's `out/` and its new Discover header/navigation/starter topics were verified in the user's Chrome. The primary tracked source stays unchanged until the branch is integrated.
+- Live provider filtering, refreshed category lessons and external source coverage still require Worker rollout. Mocked tests do not establish visual quality; no claim that every recommended video has been watched.

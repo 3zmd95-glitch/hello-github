@@ -21,13 +21,15 @@ The user-facing app must remain at **http://localhost:3000/discover/**. Automate
 
 Live baseline: Food's Timelapse Kitchen Prep lesson showed food processors and prep tables; generic trial-reel/food posts occupied recommendations. Exact examples are covered by relevance regressions. Source research and design decisions: `planning/tools/20-discover-inspiration.md`.
 
-At the time of this note, app tests (2,439), Worker tests (1,042), lint, typecheck and production build passed; a further Saved-only regression passed. Phone/desktop focused category and save/note/status/reload tests passed. Final cache-migration/browser verification and final totals are recorded below when completed.
+Final checks: **2,443 app tests**, **1,044 Worker tests**, lint, typecheck and production build passed. Full phone/desktop browser suite: **380 passed, eight existing viewport-specific skips**, zero failures. Save → Saved only → My practice → note/status → reload passes in both projects. Root reviewed synthetic phone/desktop screenshots. An initial Worker performance test timed out under concurrent load; the complete suite passed with two workers without changing test limits.
+
+The compiled worktree `out/` was copied into the primary checkout's ignored `out/`, updating the existing server on port 3000 without restarting it or changing provider connections. The new Discover header, navigation and starter topics were verified in the user's Chrome. **Primary tracked source remains at 898483f until integration**: rebuilding that old primary checkout would replace this preview. Continue from the managed worktree above or integrate the branch first.
 
 ## Rollout and remaining verification
 
-- Final full browser gate and screenshots still pending in this draft note.
+- All local quality gates and synthetic layout/persistence checks are complete.
 - Worker deployment and live Food/TikTok relevance verification still pending. Local/mock tests cannot establish current external source coverage or visual quality.
-- After Worker rollout, a read should filter old top lists immediately. A deliberate category Scan again regenerates lessons/current trend evidence within existing daily and monthly limits. Do not silently raise caps or buy credits. Handover baseline was 828/1000 Tavily credits; check actual usage before further live runs.
+- After Worker rollout, a read should filter old top lists immediately and hide legacy category trend claims until evidence is refreshed. A deliberate category Scan again regenerates lessons/current trend evidence within existing daily and monthly limits. Do not silently raise caps or buy credits. Live app showed **832/1000** Tavily lookups and **25/66** YouTube searches today during this check; recheck before further live runs.
 - CLI `gh` is not logged in. The connected GitHub connector works. Git remote is `https://github.com/3zmd95-glitch/hello-github.git`; use the existing Git credential manager if pushing, or the connector. Never extract credentials.
 - The local AI server stores provider connections under the existing user runtime directory. Do not read/copy its auth files or the browser's Scout token. Use ordinary app requests to test connected services.
 
