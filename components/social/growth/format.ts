@@ -21,6 +21,18 @@ export function fmtCount(n: number): string {
   return `${sign}${plain.format(Math.round(abs))}`;
 }
 
+/**
+ * `fmtCount`'s number split for a count-up that keeps its suffix: 1_478 → 1.5 "k", 30_000 → 30 "k", 999 → 999 "".
+ * Printed as `value` with `decimals` digits, then the suffix, it reads like fmtCount.
+ */
+export function countParts(n: number): { value: number; decimals: number; suffix: string } {
+  const abs = Math.abs(n);
+  const [unit, suffix] =
+    abs >= 1_000_000 ? [1_000_000, "m"] : abs >= 1_000 ? [1_000, "k"] : [1, ""];
+  const value = unit === 1 ? Math.round(abs) : Math.round((abs / unit) * 10) / 10;
+  return { value: n < 0 ? -value : value, decimals: Number.isInteger(value) ? 0 : 1, suffix };
+}
+
 /** Signed compact count: "+300", "−1.2k", "0". */
 export function fmtSigned(n: number): string {
   if (!Number.isFinite(n)) return "–";

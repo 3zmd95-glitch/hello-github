@@ -77,9 +77,10 @@ test("Social Analytics: the seeded All view, the TikTok view with demographics, 
   );
 
   // TikTok view: 5 overview rows, demographics with Saudi Arabia first and 25-34 the widest bar.
+  // The filter is an iOS segmented control: tabs carry aria-selected (a tab cannot be aria-pressed).
   await page.getByTestId("analytics-platform-tiktok").click();
   await expect(page.getByTestId("analytics-platform-tiktok")).toHaveAttribute(
-    "aria-pressed",
+    "aria-selected",
     "true",
   );
   await expect(page.getByTestId("growth-screen")).toHaveAttribute("data-tab", "tiktok");
@@ -336,11 +337,11 @@ test("every platform view, including the manual-only ones, fits the viewport", a
   for (const p of ["instagram", "youtube", "threads", "x", "snapchat"]) {
     await page.getByTestId(`analytics-platform-${p}`).click();
     await expect(page.getByTestId(`analytics-platform-${p}`)).toHaveAttribute(
-      "aria-pressed",
+      "aria-selected",
       "true",
     );
     await expect(page.getByTestId("analytics-platform-all")).toHaveAttribute(
-      "aria-pressed",
+      "aria-selected",
       "false",
     );
     expect(await page.getByTestId("overview-row").count()).toBeGreaterThan(0);
@@ -348,7 +349,13 @@ test("every platform view, including the manual-only ones, fits the viewport", a
     await expect(page.getByTestId("account-card")).toBeVisible();
     expect(await fitsViewport(page)).toBe(true);
   }
-  await expect(page.getByTestId("analytics-platform-x")).toHaveAttribute("data-manual", "true");
+  // X and Snapchat say "manual only" (a tooltip, and read out after the name).
+  const manualX = page.getByTestId("analytics-platform-x").locator("[data-manual]");
+  await expect(manualX).toHaveAttribute("data-manual", "true");
+  await expect(manualX).toHaveAttribute("title", "يدوي بس");
+  await expect(page.getByTestId("analytics-platform-tiktok").locator("[data-manual]")).toHaveCount(
+    0,
+  );
   // Snapchat has no breakdown and offers the manual entry; Instagram's comes from the seed.
   await expect(page.getByTestId("demographics-empty")).toBeVisible();
   await page.getByTestId("analytics-platform-instagram").click();

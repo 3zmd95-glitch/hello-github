@@ -1,11 +1,13 @@
 "use client";
 
+import { FileUp, Plus } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useToday } from "@/components/today/useToday";
 import PageHeader from "@/components/ui/ios/PageHeader";
+import { useFirstVisit } from "@/components/ui/ios/useFirstVisit";
 import { useSocialSync } from "@/components/social/useSocialSync";
 import { allOverview, platformOverview } from "@/lib/analytics";
 import type { Platform } from "@/lib/domain";
@@ -44,6 +46,8 @@ export default function GrowthScreen() {
   const today = useToday();
   /** End of the Riyadh day: the windows (7 / 30 / 90 days) then cover whole days and stay stable all day. */
   const now = useMemo(() => Date.parse(`${today}T23:59:59+03:00`), [today]);
+  /** The KPI numbers count up on the first visit of this page load only. */
+  const first = useFirstVisit("growth");
   const state = useStore(useShallow(analyticsState));
   const demographics = useStore((s) => s.demographics);
   const [filter, setFilter] = useState<AnalyticsFilter>("all");
@@ -112,7 +116,8 @@ export default function GrowthScreen() {
           onClick={() => setDialog("add")}
           data-testid="growth-add"
         >
-          ➕ {t("growth.add")}
+          <Plus size={16} strokeWidth={1.75} aria-hidden />
+          {t("growth.add")}
         </button>
         <button
           type="button"
@@ -120,7 +125,8 @@ export default function GrowthScreen() {
           onClick={() => setDialog("import")}
           data-testid="growth-import"
         >
-          📄 {t("growth.import")}
+          <FileUp size={16} strokeWidth={1.75} aria-hidden />
+          {t("growth.import")}
         </button>
       </div>
 
@@ -200,7 +206,8 @@ export default function GrowthScreen() {
               onClick={() => setDialog("add")}
               data-testid="empty-add"
             >
-              ➕ {t("growth.add")}
+              <Plus size={18} strokeWidth={1.75} aria-hidden />
+              {t("growth.add")}
             </button>
             <button
               type="button"
@@ -208,13 +215,14 @@ export default function GrowthScreen() {
               onClick={() => setDialog("import")}
               data-testid="empty-import"
             >
-              📄 {t("growth.import")}
+              <FileUp size={18} strokeWidth={1.75} aria-hidden />
+              {t("growth.import")}
             </button>
           </div>
         </section>
       ) : (
         <>
-          <KpiRow all={all} />
+          <KpiRow all={all} countUp={first} />
           <PlatformCards platforms={all.platforms} onOpen={setFilter} />
           <PostActivity
             title={t("growth.activity.title")}
