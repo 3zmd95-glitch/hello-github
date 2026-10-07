@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { instagramPostedAt, postedAt, tiktokPostedAt } from "./postDate";
+import {
+  instagramPostedAt,
+  instagramShortcodeAt,
+  postedAt,
+  tiktokIdAt,
+  tiktokPostedAt,
+} from "./postDate";
 
 const NOW = new Date("2026-10-07T12:00:00Z");
 const minute = (d: Date | null) => d?.toISOString().slice(0, 16);
@@ -39,6 +45,18 @@ describe("tiktokPostedAt", () => {
     expect(tiktokPostedAt(tomorrowPlus, NOW)).toBeNull();
     const inAnHour = String(BigInt(Math.floor(NOW.getTime() / 1000) + 3_600) << 32n);
     expect(tiktokPostedAt(inAnHour, NOW)).not.toBeNull();
+  });
+});
+
+describe("tiktokIdAt and instagramShortcodeAt (fixtures)", () => {
+  it("make ids that decode back to their time", () => {
+    const at = new Date("2026-10-05T08:30:15.250Z");
+    expect(tiktokPostedAt(tiktokIdAt(at, 7), NOW)?.toISOString()).toBe("2026-10-05T08:30:15.000Z");
+    expect(instagramPostedAt(instagramShortcodeAt(at, 9), NOW)?.toISOString()).toBe(
+      at.toISOString(),
+    );
+    expect(tiktokIdAt(at, 1)).not.toBe(tiktokIdAt(at, 2));
+    expect(instagramShortcodeAt(at, 1)).not.toBe(instagramShortcodeAt(at, 2));
   });
 });
 

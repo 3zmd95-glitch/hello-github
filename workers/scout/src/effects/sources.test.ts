@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
+import { instagramShortcodeAt, tiktokIdAt } from "../postDate";
 import { TAVILY_URL } from "../trends/tavily";
 import { familiesForSlot } from "./families";
 import { monthTight, searchFamilies, youtubeCheck } from "./sources";
@@ -59,6 +60,10 @@ describe("searchFamilies", () => {
   });
 
   it("asks Tavily 3 times a family (Instagram over a week and a month, TikTok over a month), keeps each family's post pages once and sums the credits", async () => {
+    // Each post's date comes from its own id (the job counts creators on the day they posted).
+    const oct5 = new Date("2026-10-05T10:00:00.000Z");
+    const [c1, c2] = [instagramShortcodeAt(oct5, 1), instagramShortcodeAt(oct5, 2)];
+    const video = tiktokIdAt(oct5, 1);
     const reel = (id: string, handle: string, title: string) => ({
       url: `https://www.instagram.com/${handle}/reel/${id}/`,
       title,
@@ -66,10 +71,14 @@ describe("searchFamilies", () => {
     });
     const replies: Record<string, unknown[]> = {
       // Each window finds its own posts, and both find C1: one post.
-      "ig week": [reel("C1", "mia", "Swagger Trend"), { url: "https://www.instagram.com/mia/" }],
-      "ig month": [reel("C1", "mia", "Swagger Trend"), reel("C2", "zoe", "moving stickers")],
+      "ig week": [reel(c1, "mia", "Swagger Trend"), { url: "https://www.instagram.com/mia/" }],
+      "ig month": [reel(c1, "mia", "Swagger Trend"), reel(c2, "zoe", "moving stickers")],
       "tt month": [
-        { url: "https://www.tiktok.com/@ed/video/1", title: "Clone yourself", content: "#clone" },
+        {
+          url: `https://www.tiktok.com/@ed/video/${video}`,
+          title: "Clone yourself",
+          content: "#clone",
+        },
         { url: "https://www.tiktok.com/@ed", title: "ed on TikTok" },
       ],
     };
@@ -78,10 +87,13 @@ describe("searchFamilies", () => {
       if (body.query !== "gif stickers video edit") return json({ results: [] }); // no usage: 1 credit
       return json({ results: replies[kindOf(body)], usage: { credits: 2 } });
     });
-    const out = await searchFamilies(ENV, doFetch, [
-      "gif stickers video edit",
-      "speed ramp trend edit",
-    ]);
+    const out = await searchFamilies(
+      ENV,
+      doFetch,
+      ["gif stickers video edit", "speed ramp trend edit"],
+      undefined,
+      { now: new Date("2026-10-07T05:35:00Z") },
+    );
 
     expect(doFetch).toHaveBeenCalledTimes(6);
     expect(String(doFetch.mock.calls[0][0])).toBe(TAVILY_URL);
@@ -106,21 +118,24 @@ describe("searchFamilies", () => {
           handle: "@mia",
           title: "Swagger Trend",
           snippet: "gif stickers by @theboogley",
-          url: "https://www.instagram.com/p/C1",
+          url: `https://www.instagram.com/p/${c1}`,
+          published: "2026-10-05T10:00:00.000Z",
         },
         {
           platform: "ig",
           handle: "@zoe",
           title: "moving stickers",
           snippet: "gif stickers by @theboogley",
-          url: "https://www.instagram.com/p/C2",
+          url: `https://www.instagram.com/p/${c2}`,
+          published: "2026-10-05T10:00:00.000Z",
         },
         {
           platform: "tt",
           handle: "@ed",
           title: "Clone yourself",
           snippet: "#clone",
-          url: "https://www.tiktok.com/@ed/video/1",
+          url: `https://www.tiktok.com/@ed/video/${video}`,
+          published: "2026-10-05T10:00:00.000Z",
         },
       ],
       credits: 9,

@@ -150,6 +150,8 @@ describe("youtubeTop (T1, stored with the page)", () => {
       title: "Car edit carVid00002",
       snippet: expect.stringMatching(/^How carVid00002 was shot and edited/),
       url: "https://www.youtube.com/watch?v=carVid00002",
+      // The API's date: the trends count the channel on the day it posted.
+      published: "2026-10-01T10:00:00.000Z",
     });
     expect(posts[0].snippet.length).toBeLessThanOrEqual(220);
   });

@@ -84,6 +84,7 @@
   "search.trendingRescan": "🔄 دوّر من جديد",
   "search.trendingNew": "جديد",
   "search.trendingCreators": "{n} صنّاع",
+  "search.trendingCreatorsTip": "{n} صنّاع نزّلوه آخر 7 أيام",
   "search.trendingStale": "ما قدرت أحدّثها اليوم",
   "search.trendingRun": "شغّل أول فحص",
   "search.trendingRunning": "أدوّر على الترندات… ممكن تاخذ دقيقة",

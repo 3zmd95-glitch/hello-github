@@ -208,6 +208,7 @@ export async function runDiscover(
         platform: query.platform as "tt" | "ig",
         lang: query.lang,
         timeRange: range && TAVILY_RANGE[range],
+        now: deps.now,
       };
       let out = inRange(await tavilyCall(env, deps.fetch, call, deps.timeoutMs), range, deps.now);
       if (out.ok) credits += out.credits;

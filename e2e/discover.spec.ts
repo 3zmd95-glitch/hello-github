@@ -903,7 +903,11 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   await expect(fresh).toContainText("4 صنّاع · ▶ ↑3×");
   // English first in Arabic too (live fix 1): the English name, the Arabic one in the tooltip.
   await expect(fresh).toContainText("swagger trend");
-  await expect(fresh).toHaveAttribute("title", "Clone yourself with one hair flip\nترند السواقر");
+  // The tooltip ends with what "4 creators" means: posted it in the last 7 days (by each post's own date).
+  await expect(fresh).toHaveAttribute(
+    "title",
+    "Clone yourself with one hair flip\nترند السواقر\n4 صنّاع نزّلوه آخر 7 أيام",
+  );
   // The 8 chips overflow their strip, which scrolls sideways; the 375 px page never does.
   const strip = row.getByTestId("trending-effect").first().locator("xpath=..");
   expect(await strip.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);

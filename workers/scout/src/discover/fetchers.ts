@@ -77,6 +77,8 @@ export async function tavilyCall(
     platform: Platform | readonly Platform[];
     lang: Lang;
     timeRange?: DiscoverTimeRange;
+    /** The run's time, for the posts' dates (normalize.ts); the clock's by default. */
+    now?: Date;
   },
   timeoutMs = CALL_TIMEOUT_MS,
 ): Promise<TavilyOutcome> {
@@ -116,8 +118,8 @@ export async function tavilyCall(
         typeof normalizeDiscoverHits
       >[0];
       const { cards, profiles } = one
-        ? normalizeDiscoverHits(hits, one)
-        : { cards: normalizeHits(hits, platforms), profiles: [] };
+        ? normalizeDiscoverHits(hits, one, call.now)
+        : { cards: normalizeHits(hits, platforms, call.now), profiles: [] };
       return { ok: true, cards, profiles, credits: data.usage?.credits ?? 1 };
     });
     return out ?? { ok: false, error: "upstream" };

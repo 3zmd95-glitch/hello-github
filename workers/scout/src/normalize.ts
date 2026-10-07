@@ -379,6 +379,8 @@ export function parseEngagement(text: string): Stats | undefined {
 export function normalizeHits(
   hits: readonly TavilyHit[],
   platforms: readonly Platform[],
+  /** The run's time: a post id decoding after it (+ 1 day) is a bad decode, no date. */
+  now = new Date(),
 ): ScoutResult[] {
   const wanted = new Set(platforms);
   const seen = new Set<string>();
@@ -422,7 +424,7 @@ export function normalizeHits(
     if (thumb) result.thumb = thumb;
     if (platform !== "yt") {
       // The post's own id is its date (postDate.ts): Tavily sends none for Instagram, and its windows are unreliable.
-      const posted = postedAt(url);
+      const posted = postedAt(url, now);
       if (posted) result.published = posted;
     } else if (typeof hit.published_date === "string") {
       // Tavily sends RFC 2822 ("Tue, 30 Sep 2026 17:00:00 GMT"); kept as ISO so dates sort as text.
@@ -498,8 +500,9 @@ export function profileFromUrl(platform: Platform, u: URL): Profile | undefined 
 export function normalizeDiscoverHits(
   hits: readonly TavilyHit[],
   platform: Platform,
+  now = new Date(),
 ): { cards: ScoutResult[]; profiles: Profile[] } {
-  const cards = normalizeHits(hits, [platform]);
+  const cards = normalizeHits(hits, [platform], now);
   const seen = new Set<string>();
   const profiles: Profile[] = [];
   for (const hit of hits) {

@@ -84,6 +84,7 @@
   "search.trendingRescan": "🔄 Scan again",
   "search.trendingNew": "NEW",
   "search.trendingCreators": "{n} creators",
+  "search.trendingCreatorsTip": "{n} creators posted it in the last 7 days",
   "search.trendingStale": "Couldn't update today",
   "search.trendingRun": "Run the first scan",
   "search.trendingRunning": "Scanning for trends… can take a minute",

@@ -105,6 +105,7 @@ async function scan(
       numbering: queries,
       tight: false,
       searches: IG_MONTH,
+      now,
     },
   );
   const notes = new Set(errors);

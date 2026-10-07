@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AI_MODEL } from "../discover/ai";
 import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
+import { instagramShortcodeAt } from "../postDate";
 import { encryptJson } from "../social/crypto";
 import { TAVILY_URL } from "../trends/tavily";
 import { YT_SEARCH_URL } from "../trends/youtubeSearch";
@@ -28,9 +29,11 @@ const NO_WAIT = async () => {};
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
+/** When the reels went up: the day before NOW (the trends count each creator on the day they posted, from the post id). */
+const POSTED = new Date("2026-10-06T04:00:00Z");
 type Hit = { url: string; title: string; content: string };
 const ig = (handle: string, title: string, n: number): Hit => ({
-  url: `https://www.instagram.com/${handle}/reel/R${n}/`,
+  url: `https://www.instagram.com/${handle}/reel/${instagramShortcodeAt(POSTED, n)}/`,
   title,
   content: "#caredit",
 });
@@ -485,7 +488,14 @@ describe("runCategory", () => {
     const meta = Object.fromEntries(
       Object.keys(history).map((k) => [
         k,
-        { name: { en: k }, checked: false, platforms: ["tt" as const], posts: 1, samples: [] },
+        {
+          name: { en: k },
+          checked: false,
+          platforms: ["tt" as const],
+          posts: 1,
+          samples: [],
+          firstSeen: "2026-10-04",
+        },
       ]),
     );
     const { env } = setup({ stored: { ...OLD, history, meta } });
@@ -509,7 +519,7 @@ describe("runCategory", () => {
 describe("runCategory's top lists (§6)", () => {
   /** PROBE's reels as the stored Instagram list: every search found all 13, so they keep the order first seen. */
   const IG_TOP = PROBE.map((h) => {
-    const [, handle, id] = h.url.match(/instagram\.com\/([\w.]+)\/reel\/(\w+)\//)!;
+    const [, handle, id] = h.url.match(/instagram\.com\/([\w.]+)\/reel\/([\w-]+)\//)!;
     return { url: `https://www.instagram.com/p/${id}`, title: h.title, creator: `@${handle}` };
   });
   const youtubeSearches = (fetch: ReturnType<typeof web>["fetch"]) =>
@@ -564,6 +574,7 @@ describe("runCategory's top lists (§6)", () => {
         title: "Low angle car shots",
         channelTitle: "Chan A",
         channelId: "UC_a1",
+        publishedAt: "2026-10-06T04:00:00Z",
         description: "",
       },
       {
@@ -571,6 +582,7 @@ describe("runCategory's top lists (§6)", () => {
         title: "GT3 night reveal",
         channelTitle: "Chan A",
         channelId: "UC_a1",
+        publishedAt: "2026-10-06T04:00:00Z",
         description: "How I film a low angle reveal",
       },
       {
@@ -578,6 +590,7 @@ describe("runCategory's top lists (§6)", () => {
         title: "Low Angle Shot of the M5",
         channelTitle: "Chan A",
         channelId: "UC_a2",
+        publishedAt: "2026-10-06T04:00:00Z",
         description: "",
       },
     ];

@@ -15,12 +15,15 @@ export interface EffectPost {
   title: string;
   snippet: string;
   url: string;
+  /** When it went up (ISO 8601): TikTok / Instagram from the post's own id (postDate.ts), YouTube from its API. */
+  published?: string;
 }
 export interface Candidate {
   key: string;
   name: string;
   termId?: string;
-  ids: Set<string>;
+  /** Each distinct creator (a short hash, no handle) and the UTC day of their latest post here, never after today. */
+  days: Map<string, string>;
   posts: number;
   platforms: Set<EffectPlatform>;
   samples: { url: string; title: string }[];
@@ -38,6 +41,8 @@ export interface EffectMeta {
   platforms: EffectPlatform[];
   posts: number;
   samples: { url: string; title: string }[];
+  /** The scan day the name was first seen: NEW is by it (history days are post days). */
+  firstSeen?: string;
 }
 export interface EffectItem {
   key: string;

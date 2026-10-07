@@ -54,3 +54,16 @@ export function postedAt(url: string, now = new Date()): string | undefined {
   const date = ig ? instagramPostedAt(ig, now) : tt ? tiktokPostedAt(tt, now) : null;
   return date?.toISOString();
 }
+
+/** The inverse, for test fixtures: a TikTok video id posted at `at` (`n` < 2^32 keeps ids apart). */
+export function tiktokIdAt(at: Date, n = 0): string {
+  return String((BigInt(Math.floor(at.getTime() / 1000)) << N32) + BigInt(n));
+}
+
+/** The inverse, for test fixtures: an Instagram shortcode posted at `at` (`n` < 2^23 keeps codes apart). */
+export function instagramShortcodeAt(at: Date, n = 0): string {
+  let id = ((BigInt(at.getTime()) - IG_EPOCH_MS) << N23) + BigInt(n);
+  let code = "";
+  for (; id > BigInt(0); id /= N64) code = ALPHABET[Number(id % N64)] + code;
+  return code;
+}

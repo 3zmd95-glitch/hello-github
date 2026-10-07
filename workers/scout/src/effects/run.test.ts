@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AI_MODEL } from "../discover/ai";
 import { usageKeys } from "../discover/usage";
+import { instagramShortcodeAt, tiktokIdAt } from "../postDate";
 import { TAVILY_URL } from "../trends/tavily";
 import { FAMILY_QUERIES, familiesForDay } from "./families";
 import { EFFECTS_KEY } from "./kv";
@@ -14,14 +15,19 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const youtubeCap = () => json({ error: { errors: [{ reason: "quotaExceeded" }] } }, 403);
 
+/** When the posts went up unless a test says: the day before NOW, so they count this week (posts are counted on the
+ * day they went up, read from their id), and never after a test's earliest run (2026-10-06 05:35) plus a day. */
+const POSTED = new Date("2026-10-06T04:00:00Z");
+/** A test's own day: its posts went up at 04:00 that day (its runs are at 05:35). */
+const on = (day: string) => new Date(`${day}T04:00:00Z`);
 type Hit = { url: string; title: string; content: string };
-const tt = (handle: string, title: string, n: number): Hit => ({
-  url: `https://www.tiktok.com/@${handle}/video/${n}`,
+const tt = (handle: string, title: string, n: number, at = POSTED): Hit => ({
+  url: `https://www.tiktok.com/@${handle}/video/${tiktokIdAt(at, n)}`,
   title,
   content: "#capcut #edit",
 });
-const ig = (handle: string, title: string, n: number): Hit => ({
-  url: `https://www.instagram.com/${handle}/reel/R${n}/`,
+const ig = (handle: string, title: string, n: number, at = POSTED): Hit => ({
+  url: `https://www.instagram.com/${handle}/reel/${instagramShortcodeAt(at, n)}/`,
   title,
   content: "#capcut #edit",
 });
@@ -94,6 +100,11 @@ function firstSearchOnly() {
   return (query: string) => ((first ??= query) === query ? undefined : json({ results: [] }));
 }
 const docBytes = (doc: EffectsDoc) => new TextEncoder().encode(JSON.stringify(doc)).length;
+/** A name's history as [day, creators], oldest first. */
+const entries = (doc: EffectsDoc, key: string) =>
+  doc.history[key]
+    .map((e) => [e.day, e.ids.length] as const)
+    .sort(([a], [b]) => a.localeCompare(b));
 /** The family queries a run searched, in order (each is asked 3 times). */
 const familiesOf = (searched: string[]) => [...new Set(searched)];
 
@@ -217,6 +228,8 @@ describe("runEffects", () => {
         ai: { judged: 3, dictionary: 1, approved: 2, dropped: 0, merged: 0, rejects: {} },
         // The dictionary effects seen today, by our own ids, with today's creators.
         dictionary: { "clone-effect": 8 },
+        // Today's posts once each: all dated (from their ids) within 14 days.
+        posts: { kept: 12, old: 0, undated: 0 },
       },
     });
     // No handles, titles or links.
@@ -224,6 +237,71 @@ describe("runEffects", () => {
     for (const hit of PROBE) expect(line).not.toContain(hit.title);
     // The same counts are kept with the list (Workers Logs dropped the line on live runs).
     expect(stored(KV).diagnostics).toEqual(JSON.parse(line).effects);
+  });
+
+  // Live, 2026-10-07: every creator went under the scan's day, so "NEW · 6 creators this week" could rest on posts from
+  // September 9–15, and the clone effect's real posts (Oct 1 and 3) looked no different.
+  it("counts creators by the day they posted: Oct 1–3 count this week, 10 days ago does not, 20 days ago is skipped", async () => {
+    const { env } = setup();
+    const at = (day: string) => new Date(`${day}T10:00:00Z`);
+    const hits = [
+      tt("c1", "clone effect tutorial | CapCut", 1, at("2026-10-01")),
+      tt("c2", "clone effect tutorial | CapCut", 2, at("2026-10-02")),
+      ig("c3", "Clone Yourself in CapCut 🔥 #cloneyourself", 3, at("2026-10-03")),
+      ...["o1", "o2", "o3"].map((h, i) => tt(h, "my glow effect edit", 10 + i, at("2026-09-27"))),
+      ...["x1", "x2", "x3"].map((h, i) => tt(h, "Moon Jump Trend", 20 + i, at("2026-09-17"))),
+    ];
+    const doc = await runEffects(env, { fetch: web({ hits }).fetch, now: NOW });
+
+    // This week's 3 clone creators, filed on their own days; none in the last 3 days, so growth 0.
+    expect(doc.items.map((i) => [i.key, i.creators, i.growth])).toEqual([["clone-effect", 3, 0]]);
+    expect(entries(doc, "clone-effect").filter(([, n]) => n)).toEqual([
+      ["2026-10-01", 1],
+      ["2026-10-02", 1],
+      ["2026-10-03", 1],
+    ]);
+    // Posted 10 days ago: kept on that day, never this week.
+    expect(entries(doc, "glow-effect")).toEqual([["2026-09-27", 3]]);
+    // Posted 20 days ago: never read.
+    expect(doc.history["moon-jump-trend"]).toBeUndefined();
+    expect(doc.diagnostics?.posts).toEqual({ kept: 6, old: 3, undated: 0 });
+  });
+
+  it("a memory from before real post dates is dropped once; a name keeps the day it was first seen", async () => {
+    const old: EffectsDoc = {
+      ranOn: "2026-10-06",
+      updatedAt: "2026-10-06T05:40:00.000Z",
+      status: "ok",
+      items: [],
+      // Filed under scan days, with no `firstSeen`: "6 creators this week" from scans of September posts.
+      meta: {
+        "glow-effect": {
+          name: { en: "Glow Effect" },
+          checked: true,
+          platforms: ["ig"],
+          posts: 6,
+          samples: [],
+        },
+      },
+      history: {
+        "glow-effect": [
+          { day: "2026-09-28", ids: ["z"] },
+          { day: "2026-10-05", ids: ["a", "b", "c", "d", "e", "f"] },
+        ],
+      },
+    };
+    const hits = ["g1", "g2", "g3"].map((h, i) => tt(h, "my glow effect edit", 61 + i));
+    const doc = await runEffects(setup({ stored: old }).env, {
+      fetch: web({ hits }).fetch,
+      now: NOW,
+    });
+    // Only the 3 creators who posted this week; first seen 2026-09-28, so not NEW.
+    expect(doc.items.map((i) => [i.key, i.creators, i.isNew])).toEqual([["glow-effect", 3, false]]);
+    expect(doc.meta["glow-effect"].firstSeen).toBe("2026-09-28");
+    expect(entries(doc, "glow-effect")).toEqual([
+      ["2026-10-06", 3],
+      ["2026-10-07", 0],
+    ]);
   });
 
   it("never asks TikTok's Discovery API or reads its token: TikTok trends are the category pages' alone", async () => {
@@ -275,7 +353,11 @@ describe("runEffects", () => {
     expect(count).toEqual({ tavily: 36, search: 4, stats: 2 });
     expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY, EFFECTS_KEY]);
     expect(forced.items[0]).toMatchObject({ key: "clone-effect", creators: 8 });
-    expect(forced.history["clone-effect"]).toHaveLength(1);
+    // The creators on the day they posted; today's entry holds the day's YouTube views.
+    expect(entries(forced, "clone-effect")).toEqual([
+      ["2026-10-06", 8],
+      ["2026-10-07", 0],
+    ]);
   });
 
   it("Scan again the same day searches the next 6 families and adds to what the day already found", async () => {
@@ -306,7 +388,10 @@ describe("runEffects", () => {
     expect(creators).toMatchObject({ "clone-effect": 9, "speed-ramp": 3 });
     // A name this run did not find keeps the day's earlier creators.
     expect(creators["swagger-trend"]).toBe(3);
-    expect(doc2.history["clone-effect"]).toHaveLength(1);
+    expect(entries(doc2, "clone-effect")).toEqual([
+      ["2026-10-06", 9],
+      ["2026-10-07", 0],
+    ]);
 
     // A third tap: families 13–18; a fourth starts over at 1–6.
     const third = web({ hits: [] });
@@ -779,16 +864,18 @@ describe("runEffects", () => {
     const nato =
       "alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike november oscar papa quebec " +
       "romeo sierra tango uniform victor whiskey xray yankee zulu";
-    const fillers = nato
-      .split(" ")
-      .flatMap((w, i) =>
-        ["fa", "fb"].map((h, j) => tt(h, `${titleCase(w)} Trend`, 100 + 2 * i + j)),
-      );
+    const fillers = (at: Date) =>
+      nato
+        .split(" ")
+        .flatMap((w, i) =>
+          ["fa", "fb"].map((h, j) => tt(h, `${titleCase(w)} Trend`, 100 + 2 * i + j, at)),
+        );
     let prev: EffectsDoc | undefined;
     const judged: boolean[] = [];
     for (const day of [5, 6, 7]) {
       const { env, AI } = setup({ stored: prev });
-      const hits = [...fillers, tt(`s${day}`, "Ghost Walk Trend", 200 + day)];
+      const at = on(`2026-10-0${day}`);
+      const hits = [...fillers(at), tt(`s${day}`, "Ghost Walk Trend", 200 + day, at)];
       prev = await runEffects(env, {
         fetch: web({ hits }).fetch,
         now: new Date(`2026-10-0${day}T05:35:00Z`),
@@ -892,9 +979,9 @@ describe("runEffects", () => {
         [3, "2026-10-07"],
       ] as const) {
         const junk = Array.from({ length: 150 }, (_, i) =>
-          tt(`j${scan}x${i}`, `Zork${scan}x${i} Trend`, scan * 1000 + i),
+          tt(`j${scan}x${i}`, `Zork${scan}x${i} Trend`, scan * 1000 + i, on(day)),
         );
-        const hits = [...junk, tt(`s${scan}`, "Ghost Walk Trend", scan)];
+        const hits = [...junk, tt(`s${scan}`, "Ghost Walk Trend", scan, on(day))];
         const { env } = setup({ stored: prev });
         prev = await runEffects(env, {
           fetch: web({ hits, tavily: firstSearchOnly() }).fetch,
@@ -921,11 +1008,12 @@ describe("runEffects", () => {
         Number(/^q\d+x(\d+)-trend$/.exec(key)?.[1] ?? 1) % 2 ? {} : { keep: false };
       let prev: EffectsDoc | undefined;
       for (let d = 0; d < 14; d++) {
+        const at = new Date(Date.UTC(2026, 9, 1 + d, 4));
         const junk = Array.from({ length: 120 }, (_, i) =>
-          tt(`u${d}x${i}`, `Q${d}x${i} Trend`, d * 1000 + i),
+          tt(`u${d}x${i}`, `Q${d}x${i} Trend`, d * 1000 + i, at),
         );
         const hits = [7, 10, 13].includes(d)
-          ? [...junk, tt(`s${d}`, "Ghost Walk Trend", 90_000 + d)]
+          ? [...junk, tt(`s${d}`, "Ghost Walk Trend", 90_000 + d, at)]
           : junk;
         const { env } = setup({ stored: prev, judge });
         log.mockClear();
@@ -952,7 +1040,9 @@ describe("runEffects", () => {
       const approved =
         "alpha bravo charlie delta echo foxtrot golf hotel india juliett kilo lima mike november " +
         "oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee";
-      const day1 = approved.split(" ").map((w, i) => tt(`a${i}`, `${titleCase(w)} Trend`, i));
+      const day1 = approved
+        .split(" ")
+        .map((w, i) => tt(`a${i}`, `${titleCase(w)} Trend`, i, on("2026-10-07")));
       const first = setup();
       const prev = await runEffects(first.env, { fetch: web({ hits: day1 }).fetch, now: NOW });
       const keys = Object.keys(prev.meta);
@@ -960,10 +1050,11 @@ describe("runEffects", () => {
       expect(keys.every((k) => prev.meta[k].checked)).toBe(true);
 
       // 400 new one-creator names, newer than the approved 25: 425 keys must lose 25.
-      const crowd = Array.from({ length: 400 }, (_, i) => tt(`z${i}`, `Zork${i} Trend`, 1000 + i));
+      const crowd = (at: Date) =>
+        Array.from({ length: 400 }, (_, i) => tt(`z${i}`, `Zork${i} Trend`, 1000 + i, at));
       const after = async (now: Date) =>
         runEffects(setup({ stored: prev }).env, {
-          fetch: web({ hits: crowd, tavily: firstSearchOnly() }).fetch,
+          fetch: web({ hits: crowd(now), tavily: firstSearchOnly() }).fetch,
           now,
         });
       // The boundary: last seen 6 days ago is this week, kept first (unprotected, a tie on 1 creator would cut the
@@ -978,10 +1069,10 @@ describe("runEffects", () => {
   );
 
   it("history across days: 3 creators on day D, 6 new ones on D+3 → growth 2 over 9 creators", async () => {
-    const clone = (handles: string[], from: number) =>
-      handles.map((h, i) => tt(h, "clone effect tutorial | CapCut", from + i));
+    const clone = (handles: string[], from: number, at: Date) =>
+      handles.map((h, i) => tt(h, "clone effect tutorial | CapCut", from + i, at));
     const day = setup();
-    const dayD = web({ hits: clone(["a", "b", "c"], 1) });
+    const dayD = web({ hits: clone(["a", "b", "c"], 1, on("2026-10-04")) });
     const d = await runEffects(day.env, {
       fetch: dayD.fetch,
       now: new Date("2026-10-04T05:35:00Z"),
@@ -991,7 +1082,7 @@ describe("runEffects", () => {
 
     const { env } = setup({ stored: d });
     const doc = await runEffects(env, {
-      fetch: web({ hits: clone(["d", "e", "f", "g", "h", "i"], 10) }).fetch,
+      fetch: web({ hits: clone(["d", "e", "f", "g", "h", "i"], 10, on("2026-10-07")) }).fetch,
       now: NOW, // 2026-10-07, D+3
     });
     expect(doc.items[0]).toMatchObject({ key: "clone-effect", creators: 9, growth: 2 });
