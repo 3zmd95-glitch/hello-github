@@ -95,7 +95,10 @@ export default function NextPostHero({ today }: { today: string }) {
       </div>
       <div className="flex items-center gap-3.5">
         <div className="min-w-0 flex-1">
-          <h3 data-testid="studio-next-title">{post.title}</h3>
+          {/* The owner's own text keeps its direction (isolated like withName's post names). */}
+          <h3 data-testid="studio-next-title">
+            <bdi>{post.title}</bdi>
+          </h3>
           <p
             className={`mt-1 flex items-center gap-1 text-[14px] font-semibold ${isOverdue ? "text-warn" : "text-tint"}`}
             data-testid="studio-countdown"

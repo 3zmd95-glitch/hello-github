@@ -234,6 +234,8 @@ test("week cells: one post opens the post, two open the day, an empty day is not
 }) => {
   await freshState(page, "/social/");
   const week = page.getByTestId("studio-week");
+  // evaluateAll does not wait: let the week render its 7 days first.
+  await expect(week.locator(".studio-wday")).toHaveCount(7);
   const [one, two, none] = await week
     .locator(".studio-wday")
     .evaluateAll((els) => els.map((e) => e.getAttribute("data-day") ?? ""));
@@ -280,6 +282,10 @@ test("pull to refresh: the page follows the finger, holds while the spinner turn
   test.skip(testInfo.project.name !== "phone", "a touch gesture");
   await freshState(page, "/social/");
   await expect(page.getByTestId("studio-screen")).toBeVisible();
+  // The pull is armed once the page's own overscroll bounce is off (usePullToRefresh's effect).
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.style.overscrollBehaviorY))
+    .toBe("none");
   const main = () =>
     page.evaluate(() => {
       const m = document.getElementById("main")!;

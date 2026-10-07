@@ -70,7 +70,7 @@ export function sparkPath(points: readonly { day: string; followers: number }[])
  * card is on screen), then draws itself once (dash offset after a double rAF, 1.3s), the area fades in and the end
  * dot pops; later visits and reduced motion show it drawn. Hand-drawn until Phase 5 brings LineChart's `mini` mode.
  */
-function Sparkline({
+export function Sparkline({
   points,
   animate,
   start,
@@ -85,7 +85,8 @@ function Sparkline({
   const started = useRef(false);
 
   // Hidden before the first paint, so the drawn line never flashes; measured again when new numbers change the line
-  // while it still waits.
+  // while it still waits. The cleanup shows it again while the draw has not started: if `draw` turns false meanwhile
+  // (reduced motion switched on mid-visit), nothing else would.
   useLayoutEffect(() => {
     const svg = ref.current;
     const ln = svg?.querySelector<SVGPathElement>(".studio-spark-ln");
@@ -94,6 +95,12 @@ function Sparkline({
     ln.style.strokeDasharray = `${length}`;
     ln.style.strokeDashoffset = `${length}`;
     svg.dataset.drawn = "false";
+    return () => {
+      if (started.current) return;
+      ln.style.strokeDasharray = "";
+      ln.style.strokeDashoffset = "";
+      delete svg.dataset.drawn;
+    };
   }, [draw, line]);
 
   useEffect(() => {

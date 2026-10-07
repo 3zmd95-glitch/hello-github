@@ -17,7 +17,7 @@ class FakeIO {
   observe = vi.fn();
   disconnect = vi.fn();
   constructor(
-    public cb: (entries: { isIntersecting: boolean }[]) => void,
+    public cb: (entries: { isIntersecting: boolean; intersectionRatio: number }[]) => void,
     public opts?: IntersectionObserverInit,
   ) {
     FakeIO.last = this;
@@ -43,9 +43,9 @@ function mount() {
 }
 const seen = () => host.querySelector("div")!.dataset.seen;
 /** Fire the observer and let the promise chain after it settle. */
-async function intersect(isIntersecting = true) {
+async function intersect(isIntersecting = true, intersectionRatio = isIntersecting ? 0.5 : 0) {
   await act(async () => {
-    FakeIO.last!.cb([{ isIntersecting }]);
+    FakeIO.last!.cb([{ isIntersecting, intersectionRatio }]);
     await new Promise((r) => setTimeout(r, 0));
   });
 }
@@ -63,7 +63,7 @@ describe("useInView", () => {
     expect(FakeIO.last).toBeNull();
   });
 
-  it("turns true on the first hit past 35% and disconnects; a miss changes nothing", async () => {
+  it("turns true on the first hit past 35% and disconnects; a miss or a smaller overlap changes nothing", async () => {
     vi.stubGlobal("IntersectionObserver", FakeIO);
     mount();
     const io = FakeIO.last!;
@@ -72,6 +72,9 @@ describe("useInView", () => {
     expect(seen()).toBe("false");
 
     await intersect(false);
+    expect(seen()).toBe("false");
+    // Firefox: isIntersecting for any overlap, here 10%.
+    await intersect(true, 0.1);
     expect(seen()).toBe("false");
     expect(io.disconnect).not.toHaveBeenCalled();
 
