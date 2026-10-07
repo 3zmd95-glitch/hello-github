@@ -73,7 +73,7 @@ function PlatformCard({
               href={link}
               target="_blank"
               rel="noreferrer noopener"
-              className="num text-ink-2 inline-flex items-center gap-0.5 self-start text-[13px] no-underline hover:underline"
+              className="num ios-hit text-ink-2 inline-flex items-center gap-0.5 self-start text-[13px] no-underline hover:underline"
               dir="ltr"
               aria-label={t("growth.cards.link", { platform: L(meta.name) })}
               data-testid="platform-card-link"

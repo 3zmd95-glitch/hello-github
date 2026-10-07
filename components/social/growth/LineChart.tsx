@@ -508,8 +508,8 @@ export default function LineChart({
       </div>
 
       {!mini && allDays.length > 0 && (
-        <details className="an-chart-table text-xs">
-          <summary className="text-muted cursor-pointer">{t("growth.chart.table")}</summary>
+        <details className="an-chart-table mt-2 text-xs">
+          <summary className="ios-hit text-muted cursor-pointer">{t("growth.chart.table")}</summary>
           <div className="overflow-x-auto">
             <table className="num mt-1 w-full">
               <thead>

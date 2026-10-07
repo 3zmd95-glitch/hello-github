@@ -231,3 +231,39 @@ test("small controls keep their look and take taps on a 44px band; Training's st
     .evaluate((el) => getComputedStyle(el, "::after").content);
   expect(band).toBe("none");
 });
+
+test("the post popup's small controls take taps on a 44px band without covering their neighbours", async ({
+  page,
+}) => {
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh" }).format(new Date());
+  await freshState(page, "/social/calendar/");
+  await page.locator('[data-testid="calendar-new"]:visible').click();
+  await page.getByTestId("post-platform-tiktok").click();
+  await page.getByTestId("post-title").fill("Match cut reel");
+  await page.getByTestId("post-day").fill(day);
+  await page.getByTestId("post-save").click();
+  await expect(page.getByTestId("post-form")).toBeHidden();
+  await page.getByTestId("post-card").first().locator("button").first().click();
+  // The new post carries the template hashtags; a time that is not the best one shows the best-time link.
+  await page.getByTestId("post-plan-time").fill("04:00");
+  // Height, and whether a point `past` px above the top lands on the control (its band reaches (44 - h) / 2).
+  const probe = (testId: string, past: number) =>
+    page
+      .getByTestId(testId)
+      .first()
+      .evaluate((el, past) => {
+        el.scrollIntoView({ block: "center" });
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top - past);
+        return { height: Math.round(r.height), above: el.contains(hit) };
+      }, past);
+  expect(await probe("post-stage-script", 4)).toEqual({ height: 34, above: true });
+  expect(await probe("post-hashtag-remove", 8)).toEqual({ height: 24, above: true });
+  expect(await probe("post-plan-best", 12)).toEqual({ height: 16, above: true });
+  // The time field above the best-time link still takes a tap on its bottom edge.
+  const timeKeepsItsEdge = await page.getByTestId("post-plan-time").evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(r.left + r.width / 2, r.bottom - 2));
+  });
+  expect(timeKeepsItsEdge).toBe(true);
+});

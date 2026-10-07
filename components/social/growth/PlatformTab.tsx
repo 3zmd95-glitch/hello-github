@@ -230,7 +230,7 @@ export default function PlatformTab({
                 href={link}
                 target="_blank"
                 rel="noreferrer noopener"
-                className="num text-ink-2 inline-flex items-center gap-1 text-sm underline-offset-2 hover:underline"
+                className="num ios-hit text-ink-2 inline-flex items-center gap-1 text-sm underline-offset-2 hover:underline"
                 dir="ltr"
                 data-testid="account-link"
               >

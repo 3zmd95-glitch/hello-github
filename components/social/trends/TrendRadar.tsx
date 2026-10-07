@@ -125,7 +125,11 @@ export default function TrendRadar() {
           data-testid="trends-need-worker"
         >
           <span className="min-w-0 flex-1">{t("trends.needWorker")}</span>
-          <Link href="/settings/" className="px-link text-xs" data-testid="trends-need-worker-link">
+          <Link
+            href="/settings/"
+            className="px-link ios-hit text-xs"
+            data-testid="trends-need-worker-link"
+          >
             {t("trends.needWorkerLink")}
           </Link>
         </p>
@@ -141,7 +145,7 @@ export default function TrendRadar() {
           </span>
           <Link
             href={calendarPostHref(planned.id)}
-            className="px-link text-xs"
+            className="px-link ios-hit text-xs"
             data-testid="trends-planned-open"
           >
             {t("trends.plannedOpen")}

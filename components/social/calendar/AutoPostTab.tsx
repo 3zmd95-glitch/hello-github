@@ -326,7 +326,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
                       {own && (
                         <button
                           type="button"
-                          className="px-link self-start text-xs"
+                          className="px-link ios-hit mt-2.5 self-start text-xs"
                           onClick={() => {
                             const { [p]: _dropped, ...rest } = auto.captions;
                             void _dropped;
@@ -557,7 +557,7 @@ function ResultRow({
           href={result.permalink}
           target="_blank"
           rel="noopener noreferrer"
-          className="px-link text-xs"
+          className="px-link ios-hit text-xs"
           data-testid="autopost-result-link"
         >
           {t("publish.openPost")}

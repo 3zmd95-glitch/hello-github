@@ -40,7 +40,7 @@ export default function TikTokFinishCard({ post }: { post: Post }) {
       <h3 className="text-sm font-bold">{t("publish.tt.finishTitle")}</h3>
       <p className="text-sm">{t("publish.tt.finishSteps")}</p>
       <a
-        className="px-link self-start text-sm"
+        className="px-link ios-hit mb-1.5 self-start text-sm"
         href="https://www.tiktok.com/"
         target="_blank"
         rel="noopener noreferrer"

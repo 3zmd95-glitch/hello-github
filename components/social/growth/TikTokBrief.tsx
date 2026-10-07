@@ -55,7 +55,7 @@ export default function TikTokBrief({ now }: { now: number }) {
             {t(busy ? "tiktok.brief.refreshing" : "tiktok.brief.sync")}
           </button>
         ) : (
-          <Link href="/settings/#accounts" className="px-link text-sm">
+          <Link href="/settings/#accounts" className="px-link ios-hit text-sm">
             {t("tiktok.brief.connect")}
           </Link>
         )}
@@ -141,7 +141,7 @@ export default function TikTokBrief({ now }: { now: number }) {
                   <div className="flex flex-wrap items-center gap-3">
                     {exists ? (
                       <Link
-                        className="px-link text-sm"
+                        className="px-link ios-hit text-sm"
                         href={`/social/calendar/${postHash(draft)}`}
                         data-testid="tiktok-brief-draft"
                       >
@@ -168,7 +168,7 @@ export default function TikTokBrief({ now }: { now: number }) {
                     )}
                     {url && (
                       <a
-                        className="px-link text-xs"
+                        className="px-link ios-hit text-xs"
                         href={url}
                         target="_blank"
                         rel="noopener noreferrer"

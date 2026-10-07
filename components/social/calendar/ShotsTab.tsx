@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Film } from "lucide-react";
+import { Check, Film, X } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import PxBar from "@/components/ui/PxBar";
 import { SHOT_TYPES, type Post, type ShotType } from "@/lib/domain";
@@ -74,7 +74,7 @@ export default function ShotsTab({ post }: { post: Post }) {
             >
               <button
                 type="button"
-                className="flex min-w-0 flex-1 items-center gap-2 text-start"
+                className="ios-hit flex min-w-0 flex-1 items-center gap-2 text-start"
                 aria-pressed={shot.done}
                 aria-label={t("calendar.shots.toggle", { text: shot.text })}
                 onClick={() => toggleShot(post.id, shot.id)}
@@ -90,13 +90,13 @@ export default function ShotsTab({ post }: { post: Post }) {
               </button>
               <button
                 type="button"
-                className="text-muted hover:text-danger num shrink-0 px-1 text-lg leading-none"
+                className="ios-icbtn text-muted hover:text-danger -my-1.5 -me-2 shrink-0"
                 onClick={() => removeShot(post.id, shot.id)}
                 aria-label={t("calendar.shots.remove")}
                 title={t("calendar.shots.remove")}
                 data-testid="shot-remove"
               >
-                ×
+                <X size={18} strokeWidth={1.75} aria-hidden />
               </button>
             </li>
           ))}

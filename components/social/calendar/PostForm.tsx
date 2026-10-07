@@ -231,7 +231,7 @@ function PostFormBody({
           />
         </label>
       </div>
-      <p className="text-muted -mt-2 flex flex-wrap items-center gap-2 text-xs">
+      <p className="text-muted flex flex-wrap items-center gap-2 text-xs">
         <span className="inline-flex items-center gap-1" data-testid="post-best-time">
           <Clock size={13} strokeWidth={1.75} className="shrink-0" aria-hidden />
           {t("calendar.form.bestTime", { platform: L(PLATFORM_META[platform].name), time: best })}
@@ -239,7 +239,7 @@ function PostFormBody({
         {time !== best && (
           <button
             type="button"
-            className="px-link"
+            className="px-link ios-hit"
             onClick={() => {
               setTime(best);
               setTimeTouched(false);
@@ -250,10 +250,11 @@ function PostFormBody({
         )}
       </p>
 
-      <label className="flex items-center gap-3 text-sm">
+      {/* The label takes taps on a 44px band; the box sits above the band, so a tap on it still lands on it. */}
+      <label className="ios-hit flex items-center gap-3 text-sm">
         <input
           type="checkbox"
-          className="h-5 w-5 accent-[var(--accent)]"
+          className="relative z-[1] h-5 w-5 accent-[var(--accent)]"
           checked={template}
           onChange={(e) => setTemplate(e.target.checked)}
           data-testid="post-template"

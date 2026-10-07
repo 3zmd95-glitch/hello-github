@@ -102,7 +102,7 @@ export default function TrendRow({
             {item.why}
           </small>
         )}
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <span className="px-chip" data-testid="trend-source">
             {sourceLabel(item.source, t)}
           </span>
@@ -118,7 +118,7 @@ export default function TrendRow({
             (genreHref ? (
               <Link
                 href={genreHref}
-                className="px-chip relative no-underline after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-['']"
+                className="px-chip ios-hit no-underline"
                 aria-label={t("trends.genreOpen", { genre: genreLabel })}
                 title={t("trends.genreOpen", { genre: genreLabel })}
                 data-testid="trend-genre"

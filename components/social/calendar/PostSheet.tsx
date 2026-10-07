@@ -124,7 +124,9 @@ function SheetBody({ post, onDelete }: { post: Post; onDelete: () => void }) {
               onClick={() => pick(stage)}
               data-testid={`post-stage-${stage}`}
             >
-              <span className="num">{i + 1}</span> {t(STAGE_KEY[stage])}
+              <span className="cal-step-tx">
+                <span className="num">{i + 1}</span> {t(STAGE_KEY[stage])}
+              </span>
             </button>
           ))}
         </div>

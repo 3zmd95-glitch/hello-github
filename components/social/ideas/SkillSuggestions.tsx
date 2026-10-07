@@ -61,7 +61,7 @@ export default function SkillSuggestions() {
             </span>
             <Link
               href={calendarPostHref(planned.id)}
-              className="px-link shrink-0 text-[13px]"
+              className="px-link ios-hit shrink-0 text-[13px]"
               data-testid="ideas-planned-open"
             >
               {t("ideas.plannedOpen")}

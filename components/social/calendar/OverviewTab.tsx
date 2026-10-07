@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clock, Gamepad2, Sparkles, Trash2, Undo2 } from "lucide-react";
+import { Check, Clock, Gamepad2, Sparkles, Trash2, Undo2, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useGameActions } from "@/components/celebrate/useGameActions";
@@ -201,20 +201,20 @@ export default function OverviewTab({
           </button>
         </div>
         {post.hashtags.length > 0 && (
-          <ul className="flex flex-wrap gap-1.5" dir="ltr">
+          <ul className="flex flex-wrap gap-x-1.5 gap-y-3 py-1.5" dir="ltr">
             {post.hashtags.map((h) => (
               <li key={h} className="px-chip" data-testid="post-hashtag">
                 <span>{h}</span>
                 <button
                   type="button"
-                  className="text-muted hover:text-danger leading-none"
+                  className="ios-hit text-muted hover:text-danger -me-2 inline-grid h-6 w-7 place-items-center"
                   onClick={() =>
                     updatePost(post.id, { hashtags: post.hashtags.filter((x) => x !== h) })
                   }
                   aria-label={t("calendar.sheet.removeHashtag", { tag: h })}
                   data-testid="post-hashtag-remove"
                 >
-                  ×
+                  <X size={13} strokeWidth={2} aria-hidden />
                 </button>
               </li>
             ))}
@@ -267,7 +267,7 @@ export default function OverviewTab({
             data-testid="post-plan-time"
           />
         </div>
-        <p className="text-muted flex flex-wrap items-center gap-2 text-xs">
+        <p className="text-muted mt-2.5 flex flex-wrap items-center gap-2 text-xs">
           <span className="inline-flex items-center gap-1">
             <Clock size={13} strokeWidth={1.75} className="shrink-0" aria-hidden />
             {t("calendar.form.bestTime", { platform: L(meta.name), time: best })}
@@ -275,7 +275,7 @@ export default function OverviewTab({
           {post.plannedTime !== best && (
             <button
               type="button"
-              className="px-link"
+              className="px-link ios-hit"
               onClick={() => updatePost(post.id, { plannedTime: best })}
               data-testid="post-plan-best"
             >
@@ -369,7 +369,7 @@ export default function OverviewTab({
                 href={post.postedUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-link text-sm"
+                className="px-link ios-hit text-sm"
                 dir="ltr"
                 data-testid="post-posted-link"
               >

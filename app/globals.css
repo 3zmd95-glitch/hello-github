@@ -2344,9 +2344,10 @@
 
   /* 44px tap areas: small controls keep their look and take taps on an invisible band 44px tall centered on them
      (the sheet ✕'s trick). Vertical only, so neighbours side by side never overlap; the position sits at zero
-     weight, so a control that is already positioned stays as it is. */
+     weight, so a control that is already positioned stays as it is. `.ios-hit` gives the band to a link or a small
+     button that stands on its own line (inline links inside a sentence stay as they are). */
   :where([data-world="social"])
-    :where(.px-fchip, .px-btn-sm, .ios-icbtn, .ios-top-brand, .ios-starb) {
+    :where(.px-fchip, .px-btn-sm, .ios-icbtn, .ios-top-brand, .ios-starb, .ios-hit, .cal-step) {
     position: relative;
   }
   [data-world="social"]
@@ -2357,7 +2358,9 @@
       .ios-top-brand,
       .ios-starb,
       .ios-world-btn,
-      .ios-seg > button
+      .ios-seg > button,
+      .ios-hit,
+      .cal-step
     )::after,
   [data-world="social"] .ios-switch::before {
     content: "";
@@ -2944,10 +2947,11 @@
   color: var(--ink);
   box-shadow: var(--shadow-sm);
 }
+/* The rows sit 10px apart, so the steps' 44px tap bands meet without covering the next row. */
 .cal-stepper {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
+  gap: 10px 4px;
 }
 @media (min-width: 640px) {
   .cal-stepper {
@@ -2957,13 +2961,17 @@
 .cal-step {
   min-height: 34px;
   padding: 4px 6px;
-  overflow: hidden;
   border: 1px solid var(--edge);
   border-radius: var(--radius-sm);
   background: var(--panel-2);
   color: var(--ink-2);
   font-size: 0.78rem;
   font-weight: 700;
+}
+/* The label cuts with an ellipsis inside the step: the step itself does not clip (its tap band reaches past it). */
+.cal-step-tx {
+  display: block;
+  overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
