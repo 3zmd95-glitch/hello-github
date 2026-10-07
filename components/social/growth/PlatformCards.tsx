@@ -1,6 +1,7 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { ArrowUpRight, ChevronLeft } from "lucide-react";
+import PlatformBadge from "@/components/ui/ios/PlatformBadge";
 import {
   AVERAGE_MIN_POSTS,
   METRIC_LABELS,
@@ -14,7 +15,11 @@ import SourceBadge from "./SourceBadge";
 import SourceHint from "./SourceHint";
 import { fmtMetric, profileUrl } from "./format";
 
-/** The "All" view's platform cards: icon, handle ↗, Followers / Engagement / Avg. Likes / Avg. Views. */
+/**
+ * The "All" view's platform cards: badge, name, handle (opens the profile), where the numbers came from, then
+ * Followers / Engagement / Avg. Likes / Avg. Views as stat tiles. The tiles do not count up: a page of cards would
+ * start a dozen count-ups at once.
+ */
 export default function PlatformCards({
   platforms,
   onOpen,
@@ -55,67 +60,56 @@ function PlatformCard({
 
   return (
     <article
-      className="px-card an-pcard flex flex-col gap-3"
+      className="ios-card flex flex-col gap-3"
       data-testid="platform-card"
       data-platform={o.platform}
-      style={{ "--c": meta.color } as CSSProperties}
     >
       <header className="flex items-center gap-3">
-        <span aria-hidden className="gr-platform-icon">
-          {meta.icon}
-        </span>
-        <div className="flex min-w-0 flex-col">
-          <h3 className="text-base leading-tight">{L(meta.name)}</h3>
+        <PlatformBadge platform={o.platform} />
+        <div className="flex min-w-0 flex-col gap-1">
+          <h3 className="text-[17px] leading-tight font-semibold">{L(meta.name)}</h3>
           {link && o.account ? (
             <a
               href={link}
               target="_blank"
               rel="noreferrer noopener"
-              className="num text-ink-2 inline-flex items-center gap-1 text-xs underline-offset-2 hover:underline"
+              className="num text-ink-2 inline-flex items-center gap-0.5 self-start text-[13px] no-underline hover:underline"
               dir="ltr"
               aria-label={t("growth.cards.link", { platform: L(meta.name) })}
               data-testid="platform-card-link"
             >
               @{o.account.handle}
-              <span aria-hidden className="an-ext">
-                ↗
-              </span>
+              <ArrowUpRight size={13} strokeWidth={1.75} aria-hidden />
             </a>
           ) : (
-            <span className="text-muted text-xs">{t("growth.account.none")}</span>
+            <span className="text-muted text-[13px]">{t("growth.account.none")}</span>
           )}
-          <SourceBadge
-            platform={o.platform}
-            latestDay={o.snapshot?.day}
-            className="mt-1 self-start"
-          />
         </div>
         <button
           type="button"
-          className="px-btn px-btn-ghost px-btn-sm ms-auto"
+          className="px-btn px-btn-ghost px-btn-sm ms-auto shrink-0"
           onClick={() => onOpen(o.platform)}
           data-testid="platform-card-open"
         >
           {t("growth.cards.open")}
-          <span aria-hidden className="rtl:rotate-180">
-            ›
-          </span>
+          <ChevronLeft size={16} strokeWidth={1.75} className="ltr:rotate-180" aria-hidden />
         </button>
       </header>
-      <dl className="an-rows">
+      <SourceBadge platform={o.platform} latestDay={o.snapshot?.day} className="self-start" />
+      <div className="grid grid-cols-2 gap-2">
         {o.cardRows.map((r) => (
           <div
             key={r.metric}
-            className="an-row"
+            className="ios-stat"
             data-testid="card-row"
             data-metric={r.metric}
             data-source={r.source}
           >
-            <dt className="text-muted text-xs">{cardLabel(r.metric)}</dt>
-            <dd className="num text-sm font-bold">{fmtMetric(r.value, r.format)}</dd>
+            <small>{cardLabel(r.metric)}</small>
+            <b className="num">{fmtMetric(r.value, r.format)}</b>
           </div>
         ))}
-      </dl>
+      </div>
       <SourceHint
         source={source}
         sample={o.sample}

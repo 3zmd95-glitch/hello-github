@@ -1,8 +1,9 @@
 "use client";
 
+import { Sparkles } from "lucide-react";
 import type { ReactNode } from "react";
 
-/** Beacons' "Ask Beam" style prompt: an outlined accent pill with a sparkle. Toggles a rule-based answer. */
+/** Beacons' "Ask Beam" style prompt: a small tinted button with a sparkle. Toggles a rule-based answer. */
 export default function AiButton({
   onClick,
   pressed,
@@ -17,12 +18,12 @@ export default function AiButton({
   return (
     <button
       type="button"
-      className="an-ai"
+      className="px-btn px-btn-ghost px-btn-sm gr-ai"
       aria-pressed={pressed}
       onClick={onClick}
       data-testid={testId}
     >
-      <span aria-hidden>✨</span>
+      <Sparkles size={14} strokeWidth={1.75} aria-hidden />
       <span>{children}</span>
     </button>
   );

@@ -141,6 +141,7 @@
   "growth.chart.empty": "No points in the last 90 days",
   "growth.chart.table": "Show the numbers as a table",
   "growth.chart.seriesAria": "{what} on {platform} over 90 days",
+  "growth.chart.today": "Today",
   "growth.history.title": "Snapshot history",
   "growth.history.empty": "No numbers for this platform yet. Tap \"Add numbers\" above.",
   "growth.history.remove": "Remove",

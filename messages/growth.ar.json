@@ -141,6 +141,7 @@
   "growth.chart.empty": "ما فيه نقاط في آخر ٩٠ يوم",
   "growth.chart.table": "عرض الأرقام كجدول",
   "growth.chart.seriesAria": "{what} على {platform} خلال ٩٠ يوم",
+  "growth.chart.today": "اليوم",
   "growth.history.title": "سجل اللقطات",
   "growth.history.empty": "ما فيه أرقام لهذي المنصة بعد. اضغط «أضف أرقام» فوق.",
   "growth.history.remove": "احذف",
