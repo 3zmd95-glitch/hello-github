@@ -596,7 +596,12 @@ describe("Discover's trending effects row", () => {
     )!;
     act(() => chip.click());
     await settle();
-    expect(discoverAsked.at(-1)).toEqual({ q: "clone effect", lang: "en", editing: true });
+    expect(discoverAsked.at(-1)).toEqual({
+      q: "clone effect",
+      lang: "en",
+      editing: true,
+      timeRange: "week",
+    });
     expect(localPlans).toHaveLength(1);
     expect(pressed("discover-mode-keyword")).toBe("true");
     expect(pressed("discover-mode-ai")).toBe("false");
@@ -619,18 +624,53 @@ describe("Discover's trending effects row", () => {
         .click(),
     );
     await settle();
-    expect(discoverAsked.at(-1)).toEqual({ q: "clone effect", lang: "en", editing: true });
+    expect(discoverAsked.at(-1)).toEqual({
+      q: "clone effect",
+      lang: "en",
+      editing: true,
+      timeRange: "week",
+    });
     expect(pressed("filter-arfirst")).toBe("false");
     expect($("discover-langs")!.textContent).toBe("English بس");
 
     // The language is each search's own (the chip's English does not stick): Arabic typing asks Arabic too, English
-    // typing English only; neither has the editing check.
+    // typing English only; neither has the editing check. Posted stays on the chip's Week until the owner widens it.
     await submit("شرح فلاش");
-    expect(discoverAsked.at(-1)).toEqual({ q: "شرح فلاش", lang: "ar" });
+    expect(discoverAsked.at(-1)).toEqual({ q: "شرح فلاش", lang: "ar", timeRange: "week" });
     expect($("discover-langs")!.textContent).toBe("عربي + English");
     await submit("speed ramp");
-    expect(discoverAsked.at(-1)).toEqual({ q: "speed ramp", lang: "en" });
+    expect(discoverAsked.at(-1)).toEqual({ q: "speed ramp", lang: "en", timeRange: "week" });
     expect($("discover-langs")!.textContent).toBe("English بس");
+  });
+
+  // The row says "this week" (spec 18): a chip's tap shows this week's posts, by each post's own date.
+  it("a chip's tap sets Posted to Week; the owner can widen it", async () => {
+    effectsDoc = EFFECTS;
+    await mount({ v2: true, lang: "en" });
+    expect(pressed("filter-time-any")).toBe("true");
+    act(() =>
+      host
+        .querySelector<HTMLElement>('[data-testid="trending-effect"][data-key="clone-effect"]')!
+        .click(),
+    );
+    await settle();
+    expect(pressed("filter-time-week")).toBe("true");
+    expect(pressed("filter-time-any")).toBe("false");
+    expect(discoverAsked.at(-1)).toEqual({
+      q: "clone effect",
+      lang: "en",
+      editing: true,
+      timeRange: "week",
+    });
+    await click("filter-time-month");
+    expect(discoverAsked.at(-1)).toEqual({
+      q: "clone effect",
+      lang: "en",
+      editing: true,
+      timeRange: "month",
+    });
+    await click("filter-time-any");
+    expect(discoverAsked.at(-1)).toEqual({ q: "clone effect", lang: "en", editing: true });
   });
 
   it("is not in a skill's panel, even on a Discover v2 Worker", async () => {
@@ -1064,6 +1104,7 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
         genreQuery: { ar: "ايديت سيارات", en: "car edit" },
         lang: "en",
         editing: true,
+        timeRange: "week",
       },
     ]);
     expect(pressed("discover-mode-keyword")).toBe("true");
@@ -1122,15 +1163,17 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
         .click(),
     );
     await settle();
-    // In English with editing context, like a 🔥 chip (the Arabic dashboard asks Arabic otherwise).
+    // In English with editing context and Posted on Week, like a 🔥 chip (the Arabic dashboard asks Arabic otherwise).
     expect(discoverAsked).toEqual([
       {
         q: "rolling shot",
         genreQuery: { ar: "ايديت سيارات", en: "car edit" },
         lang: "en",
         editing: true,
+        timeRange: "week",
       },
     ]);
+    expect(pressed("filter-time-week")).toBe("true");
     expect(pressed("discover-mode-keyword")).toBe("true");
     expect($("category-page")).toBeNull();
     expect($<HTMLInputElement>("discover-topic")!.value).toBe("rolling shot");

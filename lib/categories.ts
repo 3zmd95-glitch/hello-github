@@ -40,9 +40,9 @@ export interface Lessons {
   video: Technique[];
   edit: Technique[];
 }
-/** The 🏆 row's tabs (§6), in their order. */
+/** The 🏆 row's tabs (§6), in their order: Instagram and TikTok first (the owner, 2026-10-07), the first one chosen. */
 export type TopPlatform = "yt" | "tt" | "ig";
-export const TOP_PLATFORMS: readonly TopPlatform[] = ["yt", "tt", "ig"];
+export const TOP_PLATFORMS: readonly TopPlatform[] = ["ig", "tt", "yt"];
 /** A list holds at most this many, best first. */
 export const TOP_MAX = 50;
 export interface TopVideo {

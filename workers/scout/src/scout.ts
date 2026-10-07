@@ -3,7 +3,9 @@
  *
  *   GET  /health          → { ok: true } ; with a valid token also { tavily: boolean, auth: true }
  *   POST /search          → Tavily search limited to tiktok.com / instagram.com / youtube.com, normalized cards
- *                           (optional `timeRange`; TikTok thumbnails enriched via oEmbed unless `thumbs: false`;
+ *                           (optional `timeRange`, by the posts' real dates as Discover's: TikTok / Instagram ask
+ *                           Tavily a wider window and keep the cards dated inside the asked one, undated ones too;
+ *                           TikTok thumbnails enriched via oEmbed unless `thumbs: false`;
  *                           `stats` on a card when its counts are known: TikTok / Instagram from the page
  *                           text, YouTube from one `videos.list` when YOUTUBE_API_KEY is set)
  *   GET  /oembed?url=     → TikTok / YouTube oEmbed passthrough { title, author, thumb, url }, cached 1 day
@@ -39,6 +41,7 @@
 
 import { handleCategories } from "./categories/routes";
 import { handleDiscover } from "./discover/routes";
+import { inRange, TAVILY_RANGE } from "./discover/run";
 import { handleCreator } from "./creator/routes";
 import { handleEffects } from "./effects/routes";
 import {
@@ -166,7 +169,7 @@ interface SearchBody {
   platforms: Platform[];
   lang?: "ar" | "en";
   max?: number;
-  /** Tavily `time_range`: only pages published in the last week / month / year. */
+  /** The Posted window: only posts of the last week / month / year (see `handleSearch`). */
   timeRange?: TimeRange;
   /** Enrich results with thumbnails (TikTok via oEmbed). Default true. */
   thumbs: boolean;
@@ -236,7 +239,16 @@ async function handleSearch(
         max_results: Math.min(Math.floor(body.max ?? 10), MAX_RESULTS_CAP),
         search_depth: "basic",
         include_images: true,
-        ...(body.timeRange ? { time_range: body.timeRange } : {}),
+        // The Posted filter by real dates, as Discover's (2026-10-07: Tavily's Instagram "week" held posts from 2023):
+        // TikTok / Instagram ask a wider window, then keep the cards their own ids date inside the asked one (below). A
+        // YouTube card here has no date, so a request with YouTube keeps the asked window.
+        ...(body.timeRange
+          ? {
+              time_range: body.platforms.includes("yt")
+                ? body.timeRange
+                : TAVILY_RANGE[body.timeRange],
+            }
+          : {}),
         // Tavily's `language` steers the results' language (round 30: Arabic searches were English-only).
         ...(body.lang ? { language: body.lang } : {}),
       }),
@@ -258,7 +270,9 @@ async function handleSearch(
   } catch {
     return fail("upstream", 502, cors);
   }
-  const results = normalizeHits(data.results ?? [], body.platforms);
+  const now = new Date();
+  const found = normalizeHits(data.results ?? [], body.platforms, now);
+  const results = inRange(found, body.timeRange, now);
   if (body.thumbs) await enrichThumbs(results, doFetch, cache, ctx, timeoutMs);
   // Not a thumbnail: the counts are asked for with `thumbs: false` too (one call, YouTube cards only).
   await enrichYoutubeStats(results, env, doFetch, timeoutMs);

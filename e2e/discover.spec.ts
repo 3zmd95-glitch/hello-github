@@ -930,8 +930,10 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   await expect.poll(() => asked.length).toBe(1);
   await row.locator('[data-testid="trending-effect"][data-key="clone-effect"]').click();
   await expect.poll(() => asked.length).toBe(2);
-  // English, with editing context (live: an Arabic query found beauty serums for "Glow Effect").
-  expect(asked[1]).toEqual({ q: "clone effect", lang: "en", editing: true });
+  // English, with editing context (live: an Arabic query found beauty serums for "Glow Effect"), and Posted on Week:
+  // the row says "this week".
+  expect(asked[1]).toEqual({ q: "clone effect", lang: "en", editing: true, timeRange: "week" });
+  await expect(page.getByTestId("filter-time-week")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("genre-coffee")).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByTestId("discover-topic")).toHaveValue("clone effect");
   await expect(page.getByTestId("discover-recent-topic").first()).toHaveText("clone effect");
@@ -1002,6 +1004,7 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
     genreQuery: { ar: "ايديت سيارات", en: "car edit" },
     lang: "en",
     editing: true,
+    timeRange: "week",
   });
   await expect(page.getByTestId("category-page")).toHaveCount(0);
   await expect(page.getByTestId("discover-sections")).toBeVisible();
@@ -1020,9 +1023,10 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
   await expect(cat.getByTestId("category-howto-ar")).toHaveCount(0);
   await expect(cat.getByTestId("category-name-ar")).toHaveCount(0);
   await cat.getByTestId("category-search-all").click();
+  // Posted is still on the style's Week: the owner widens it.
   await expect
     .poll(() => asked.at(-1))
-    .toEqual({ q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" });
+    .toEqual({ q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en", timeRange: "week" });
   await expect(page.getByTestId("category-page")).toHaveCount(0);
   expect(await fitsViewport(page)).toBe(true);
 });
@@ -1068,11 +1072,17 @@ test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikT
   await expect(top.getByRole("heading", { level: 3 })).toHaveText("🏆 الأقوى في سيارات");
   const tabs = top.getByRole("tab");
   await expect(tabs).toHaveCount(3);
-  // English names first in Arabic too; YouTube's 50 come with the page, 12 at a time.
-  await expect(tabs.nth(0)).toContainText("YouTube");
+  // Instagram, TikTok, then YouTube (the owner: "Instagram and tiktok first"), English names in Arabic too. Instagram
+  // is chosen: its 14 stored reels come with the page, 12 at a time; YouTube's 50 wait on their tab.
+  await expect(tabs.nth(0)).toContainText("Instagram");
+  await expect(tabs.nth(1)).toContainText("TikTok");
+  await expect(tabs.nth(2)).toContainText("YouTube");
   await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true");
-  await expect(tabs.nth(0)).toHaveAttribute("data-count", "50");
-  await expect(top.getByTestId("category-top-item")).toHaveCount(12);
+  await expect(tabs.nth(0)).toHaveAttribute("data-count", "14");
+  await expect(tabs.nth(2)).toHaveAttribute("data-count", "50");
+  await expect(top.locator('[data-testid="category-top-item"][data-platform="ig"]')).toHaveCount(
+    12,
+  );
   // The three tabs sit inside the strip, and the strip inside the page.
   const strip = top.getByRole("tablist");
   expect(await strip.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);

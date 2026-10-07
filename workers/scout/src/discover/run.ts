@@ -34,22 +34,24 @@ const DAY_MS = 86_400_000;
 /**
  * The Posted filter on TikTok / Instagram (live, 2026-10-07: Tavily's Instagram "week" held posts from 2023 and May).
  * Tavily is asked a wider window, then a card stays only when its real date (normalize.ts, from the post id) is inside
- * the asked one at the request's time; a card with no date stays (nothing says it is old).
+ * the asked one at the request's time; a card with no date stays (nothing says it is old). `/search` (scout.ts) uses
+ * the same two.
  */
-const TAVILY_RANGE: Record<DiscoverTimeRange, DiscoverTimeRange> = {
+export const TAVILY_RANGE: Record<DiscoverTimeRange, DiscoverTimeRange> = {
   week: "month",
   month: "month",
   year: "year",
 };
 const RANGE_DAYS: Record<DiscoverTimeRange, number> = { week: 7, month: 31, year: 366 };
 
-function inRange(out: TavilyOutcome, range: DiscoverTimeRange | undefined, now: Date) {
-  if (!out.ok || !range) return out;
+export function inRange<T extends { published?: string }>(
+  cards: T[],
+  range: DiscoverTimeRange | undefined,
+  now: Date,
+): T[] {
+  if (!range) return cards;
   const from = now.getTime() - RANGE_DAYS[range] * DAY_MS;
-  return {
-    ...out,
-    cards: out.cards.filter((c) => !c.published || Date.parse(c.published) >= from),
-  };
+  return cards.filter((c) => !c.published || Date.parse(c.published) >= from);
 }
 export const MAX_RETRIES = 2;
 export const discoverAnswerKey = (hash: string) => `discover:answer:${hash}`;
@@ -210,7 +212,9 @@ export async function runDiscover(
         timeRange: range && TAVILY_RANGE[range],
         now: deps.now,
       };
-      let out = inRange(await tavilyCall(env, deps.fetch, call, deps.timeoutMs), range, deps.now);
+      const dated = (o: TavilyOutcome): TavilyOutcome =>
+        o.ok ? { ...o, cards: inRange(o.cards, range, deps.now) } : o;
+      let out = dated(await tavilyCall(env, deps.fetch, call, deps.timeoutMs));
       if (out.ok) credits += out.credits;
       let retried = false;
       if (
@@ -221,10 +225,8 @@ export async function runDiscover(
       ) {
         retriesLeft -= 1;
         retried = true;
-        const again = inRange(
+        const again = dated(
           await tavilyCall(env, deps.fetch, { ...call, q: query.retryQ }, deps.timeoutMs),
-          range,
-          deps.now,
         );
         if (again.ok) {
           credits += again.credits;
