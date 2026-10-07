@@ -121,7 +121,6 @@
   "publish.tokenTomorrow": "Reconnect by tomorrow",
   "publish.tokenTwoDays": "Reconnect within 2 days",
   "publish.tokenToday": "Reconnect today, the connection is about to expire",
-  "publish.hub.open": "Open",
   "publish.hub.canPost": "Posts by itself",
   "publish.hub.settings": "Connect accounts in Settings",
   "publish.kind.photo": "TikTok photo carousel",
