@@ -281,7 +281,7 @@ interface DiscoverResponse {
 | Same search again | 0 (browser 24 h, Worker 6 h) | |
 | Connector research | ~10–20 credits a chat | 60 a day (`MCP_DAILY_LOOKUPS`) |
 | Trend Radar (already running) | ~40 credits a month, ≤ 18 `search.list` a day | unchanged |
-| YouTube `search.list` for Discover + connector | 100 units a call | 70 a day (`discover:yt:<day>`, about 23 new searches), leaving the radar its 18 inside Google's 10,000 units |
+| YouTube `search.list` for Discover + connector | 100 units a call | 70 a day (`discover:yt:<day>`, about 23 new searches), leaving the radar its 18 inside Google's 10,000 units. 66 since 2026-10-07: Trending effects takes 6 and the category top lists 4 (`tools/19-category-trends.md` §6) |
 | Claude | $0 (owner's subscription, through the connector) | |
 | Worker | ≤ ~16 outbound calls a search; KV ≤ 3 writes a new search (answer cache, YouTube counter, connector counter) | 50 a call, 1,000 writes a day |
 

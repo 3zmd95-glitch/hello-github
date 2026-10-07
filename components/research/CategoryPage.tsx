@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useVideoPlayer } from "@/components/player/VideoPlayerContext";
 import { getSkill } from "@/data";
 import {
@@ -8,19 +8,27 @@ import {
   cachedCategory,
   categoryScanInFlight,
   fetchCategory,
+  fetchCategoryTop,
   pageState,
   runCategoryNow,
+  TOP_MAX,
+  TOP_PLATFORMS,
   type Area,
   type CategoryPageData,
   type LessonVideo,
   type Technique,
+  type TopAnswer,
+  type TopLists,
+  type TopPlatform,
+  type TopVideo,
 } from "@/lib/categories";
 import type { Genre } from "@/lib/domain";
 import { effectQuery, type TrendingEffect } from "@/lib/effects";
 import { canEmbed } from "@/lib/embed";
 import { useT, type MessageKey } from "@/lib/i18n";
+import type { ResearchItem } from "@/lib/research";
 import type { ScoutConfig } from "@/lib/scoutClient";
-import { PLATFORM_META } from "./ResultCard";
+import ResultCard, { PLATFORM_META } from "./ResultCard";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -54,12 +62,225 @@ const SCAN_LINE: Record<Exclude<Scan, "idle">, MessageKey> = {
   limit: "search.categoryRunLimit",
 };
 
+/** The 🏆 row shows this many of a list at a time. */
+const TOP_SHOW = 12;
+/** Why a Brave tab shows the scan's list alone. Not connected is said on TikTok only: Instagram's stored reels stand on
+ * their own. */
+const TOP_LINE: Record<NonNullable<TopAnswer["note"]>, MessageKey> = {
+  no_key: "search.topNoKey",
+  brave_failed: "search.topFailed",
+  daily_cap: "search.topCap",
+};
+const topItem = (platform: TopPlatform, v: TopVideo): ResearchItem => ({
+  platform,
+  handle: v.creator ?? "",
+  title: v.title,
+  snippet: "",
+  url: v.url,
+  ...(v.thumbnail ? { thumb: v.thumbnail } : {}),
+  ...(v.views !== undefined ? { stats: { views: v.views } } : {}),
+});
+
+/** Where the credit under Brave's group points (Brave's monthly credit asks for the attribution). */
+const BRAVE_PAGE = "https://brave.com/search/api/";
+
+/**
+ * 🏆 Top in <category> (planning/tools/19-category-trends.md §6): YouTube · TikTok · Instagram tabs, each up to 50
+ * videos, 12 at a time, as Discover's result cards (thumbnail, title as given, creator, views when known, the app's
+ * player). YouTube's and Instagram's stored lists come with the page, best first. TikTok's, and Instagram's while under
+ * 50, ask the Worker for Brave's results the first time the tab is chosen, once a visit: they follow the stored list as
+ * "More from Brave Search", in Brave's order and as Brave gave them, with Brave credited under them, and live in this
+ * component's state alone, since Brave's terms forbid keeping its results. The arrow keys move focus between the tabs
+ * (mirrored in Arabic); YouTube follows focus, TikTok and Instagram wait for Enter, Space or a tap, so arrowing past
+ * them never asks Brave.
+ */
+function TopVideos({
+  config,
+  genreId,
+  name,
+  top,
+}: {
+  config: ScoutConfig;
+  genreId: string;
+  name: string;
+  top: TopLists;
+}) {
+  const { t, dir } = useT();
+  const id = useId();
+  const [tab, setTab] = useState<TopPlatform>("yt");
+  const [shown, setShown] = useState(TOP_SHOW);
+  // A Brave tab's answer: none before its first open, null while on its way.
+  const [brave, setBrave] = useState<Partial<Record<TopPlatform, TopAnswer | null>>>({});
+  const asked = useRef(new Set<TopPlatform>());
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const open = (p: TopPlatform) => {
+    setTab(p);
+    setShown(TOP_SHOW);
+    if (p === "yt" || (p === "ig" && top.ig.length >= TOP_MAX) || asked.current.has(p)) return;
+    asked.current.add(p);
+    setBrave((b) => ({ ...b, [p]: null }));
+    void fetchCategoryTop(config, genreId, p).then((r) =>
+      setBrave((b) => ({
+        ...b,
+        [p]: r ?? { scan: [], brave: [], source: "scan", note: "brave_failed" },
+      })),
+    );
+  };
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const fwd = dir === "rtl" ? "ArrowLeft" : "ArrowRight";
+    const back = dir === "rtl" ? "ArrowRight" : "ArrowLeft";
+    if (e.key !== fwd && e.key !== back) return;
+    e.preventDefault();
+    const at = tabRefs.current.findIndex((el) => el === document.activeElement);
+    const i = at >= 0 ? at : TOP_PLATFORMS.indexOf(tab);
+    const next = (i + (e.key === fwd ? 1 : TOP_PLATFORMS.length - 1)) % TOP_PLATFORMS.length;
+    tabRefs.current[next]?.focus();
+    // YouTube's list is already here, so it follows focus; TikTok and Instagram ask Brave, so they wait to be chosen.
+    if (TOP_PLATFORMS[next] === "yt") open("yt");
+  };
+
+  /** A tab's stored list (the page's own when the answer brought none: the Worker could not read its copy), then
+   * Brave's group without the posts the stored list holds, 50 in all. */
+  const listsOf = (p: TopPlatform) => {
+    const answer = brave[p];
+    const scan = answer?.scan.length ? answer.scan : top[p];
+    const urls = new Set(scan.map((v) => v.url));
+    const fromBrave = (answer?.brave ?? []).filter((v) => !urls.has(v.url));
+    return { scan, brave: fromBrave.slice(0, Math.max(0, TOP_MAX - scan.length)) };
+  };
+  const answer = brave[tab];
+  const lists = listsOf(tab);
+  const all = lists.scan.length + lists.brave.length;
+  const note = answer?.note;
+  const line =
+    answer === null
+      ? t("search.topLoading")
+      : note && (note !== "no_key" || tab === "tt")
+        ? t(TOP_LINE[note])
+        : all
+          ? ""
+          : t("search.topEmpty");
+  // What shows of each group: the stored list first, 12 at a time across both.
+  const scanShown = lists.scan.slice(0, shown);
+  const braveShown = lists.brave.slice(0, Math.max(0, shown - scanShown.length));
+  // A tab's count once its list is known: TikTok's comes with Brave's answer.
+  const countOf = (p: TopPlatform) => {
+    if (p === "tt" && !brave.tt) return undefined;
+    const l = listsOf(p);
+    return l.scan.length + l.brave.length;
+  };
+
+  return (
+    <section
+      aria-labelledby={`${id}-title`}
+      className="flex min-w-0 flex-col gap-2"
+      data-testid="category-top"
+    >
+      <h3 id={`${id}-title`} className="text-sm font-bold">
+        {t("search.topTitle", { genre: name })}
+      </h3>
+      <div
+        role="tablist"
+        aria-label={t("search.topTabs")}
+        className="grid grid-cols-3 gap-1.5"
+        onKeyDown={onKey}
+      >
+        {TOP_PLATFORMS.map((p, i) => {
+          const active = p === tab;
+          const count = countOf(p);
+          return (
+            <button
+              key={p}
+              ref={(el) => {
+                tabRefs.current[i] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`${id}-tab-${p}`}
+              aria-selected={active}
+              aria-controls={`${id}-panel`}
+              tabIndex={active ? 0 : -1}
+              onClick={() => open(p)}
+              className={`border-edge flex min-w-0 flex-col items-center gap-0.5 rounded-[2px] border-2 px-1 py-1.5 font-bold ${active ? "bg-gold text-gold-ink shadow-[3px_3px_0_var(--edge)]" : "bg-panel-2 text-ink-2 shadow-[2px_2px_0_var(--edge)]"}`}
+              data-testid="category-top-tab"
+              data-platform={p}
+              data-count={count ?? ""}
+            >
+              <span className="flex items-center gap-1 text-sm leading-none">
+                <span aria-hidden>{PLATFORM_META[p].glyph}</span>
+                {count !== undefined && (
+                  <span className="num border-edge bg-edge text-ink min-w-[18px] rounded-[2px] border px-1 text-[10px] leading-[16px]">
+                    {count}
+                  </span>
+                )}
+              </span>
+              <span className="w-full truncate text-center text-[11px]">
+                {PLATFORM_META[p].label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div
+        role="tabpanel"
+        id={`${id}-panel`}
+        aria-labelledby={`${id}-tab-${tab}`}
+        className="flex min-w-0 flex-col gap-2"
+        data-testid="category-top-panel"
+        data-platform={tab}
+      >
+        {/* Always there (empty when there is nothing to say), so "Loading…" and its next words are announced. */}
+        <p role="status" className="text-muted text-xs" data-testid="category-top-line">
+          {line}
+        </p>
+        {scanShown.length > 0 && (
+          <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
+            {scanShown.map((v) => (
+              <ResultCard key={v.url} item={topItem(tab, v)} testId="category-top-item" />
+            ))}
+          </ul>
+        )}
+        {braveShown.length > 0 && (
+          <>
+            <h4 className="text-xs font-bold" dir="auto" data-testid="category-top-brave">
+              {t("search.topBraveGroup")}
+            </h4>
+            <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
+              {braveShown.map((v) => (
+                <ResultCard key={v.url} item={topItem(tab, v)} testId="category-top-item" />
+              ))}
+            </ul>
+            {/* Brave's attribution, under its results and outside the status line. */}
+            <p className="text-muted text-[11px]" data-testid="category-top-credit">
+              <a href={BRAVE_PAGE} target="_blank" rel="noopener" dir="auto" className="px-link">
+                {t("search.topBraveCredit")}
+              </a>
+            </p>
+          </>
+        )}
+        {all > shown && (
+          <button
+            type="button"
+            className="px-btn px-btn-ghost px-btn-sm w-fit"
+            onClick={() => setShown((s) => s + TOP_SHOW)}
+            data-testid="category-top-more"
+          >
+            {t("search.showMore", { n: Math.min(TOP_SHOW, all - shown) })}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /**
  * 🚗 A Discover category's page (planning/tools/19-category-trends.md §1, layout B):
  * - the header, with 🔄 Scan again;
  * - this week's trending styles of the category as chips (a tap searches the style within the category, in Keywords);
- * - the Photography / Videography / Editing shelves of technique cards: a ✦ AI how-to, the skill it practices, and
- *   example and tutorial videos that play in the app's player;
+ * - the Photography / Videography / Editing shelves of technique cards, English first (live fix 1; in Arabic the
+ *   Arabic name and how-to follow as muted lines): a ✦ AI how-to (its Shoot, Settings and Edit lines since live fix
+ *   2), the skill it practices, and example videos (a tutorial when one teaches) that play in the app's player;
  * - "Search all <category> videos →".
  * Before there is anything to show: the first scan. A Worker without the route (or no answer) hands back to the
  * category search.
@@ -85,7 +306,7 @@ export default function CategoryPage({
    * still searches, in Keywords, like a 🔥 chip. */
   searchBlocked?: boolean;
 }) {
-  const { t, L } = useT();
+  const { t, L, lang } = useT();
   const id = useId();
   const player = useVideoPlayer();
   // Captured once, like the 🔥 row's: the age line needs no ticking clock.
@@ -171,21 +392,18 @@ export default function CategoryPage({
     : new Date(now).toDateString() === new Date(Date.parse(data.updatedAt ?? "")).toDateString()
       ? t("search.trendingRunFailed")
       : t("search.trendingStale");
-  // The UI language, English when a style has no Arabic name.
-  const text = (x: { en: string; ar?: string }) => L({ en: x.en, ar: x.ar || x.en });
-
-  // Labelled as the 🔥 row's chips are, without their YouTube note (a category has no YouTube check).
+  // Labelled as the 🔥 row's chips are, without their YouTube note (a category has no YouTube check). English first in
+  // both languages (live fix 1): the English name and line, the Arabic name in the tooltip under the line.
   const styleChip = (s: TrendingEffect) => {
-    const styleName = text(s.name);
-    const what = s.what && text(s.what);
+    const what = s.what?.en;
     const creators = t("search.trendingCreators", { n: s.creators });
     return (
       <button
         key={s.key}
         type="button"
         className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
-        title={what}
-        aria-label={[styleName, s.isNew && t("search.trendingNew"), creators, what]
+        title={[what, s.name.ar].filter(Boolean).join("\n") || undefined}
+        aria-label={[s.name.en, s.isNew && t("search.trendingNew"), creators, what]
           .filter(Boolean)
           .join(" · ")}
         onClick={() => onPickStyle(effectQuery(s))}
@@ -193,7 +411,7 @@ export default function CategoryPage({
         data-key={s.key}
       >
         <span className="flex items-center gap-1.5">
-          <span dir="auto">{styleName}</span>
+          <span dir="auto">{s.name.en}</span>
           {s.isNew && (
             <span className="bg-gold text-gold-ink rounded-[2px] px-1 text-[10px] leading-4 font-bold">
               {t("search.trendingNew")}
@@ -264,22 +482,37 @@ export default function CategoryPage({
         className="border-edge bg-panel-2 relative flex w-64 shrink-0 snap-start flex-col gap-1.5 rounded-[2px] border-2 p-2.5 shadow-[3px_3px_0_var(--edge)]"
         data-testid="category-technique"
       >
+        {/* English first in both languages (live fix 1); in Arabic, the Arabic name and how-to (when the Worker has
+            them in Arabic script) follow as muted lines, right to left. */}
         <h4 className="text-sm font-bold" dir="auto">
-          {L(tech.name)}
+          {tech.name.en}
         </h4>
-        <p className="text-ink-2 text-xs leading-snug" dir="auto">
+        {lang === "ar" && tech.name.ar && (
+          <p className="text-muted -mt-1 text-xs" dir="rtl" data-testid="category-name-ar">
+            {tech.name.ar}
+          </p>
+        )}
+        {/* Its "Shoot: …", "Settings: …" and "Edit: …" lines (live fix 2), one under another; older lessons' how-to is
+            one paragraph. */}
+        <p
+          className="text-ink-2 text-xs leading-snug whitespace-pre-line"
+          dir="ltr"
+          data-testid="category-howto"
+        >
           <span
             className="bg-panel-3 text-ink me-1 rounded-[2px] px-1 text-[10px] font-bold"
             title={t("search.categoryAiNote")}
-            // Its own direction: the paragraph's dir=auto then reads the how-to's words, not this Latin "AI", so an
-            // Arabic how-to runs right to left.
-            dir="ltr"
             data-testid="category-ai"
           >
             ✦ AI
           </span>
-          {L(tech.howTo)}
+          {tech.howTo.en}
         </p>
+        {lang === "ar" && tech.howTo.ar && (
+          <p className="text-muted text-xs leading-snug" dir="rtl" data-testid="category-howto-ar">
+            {tech.howTo.ar}
+          </p>
+        )}
         {/* 🎯 Only for a skill this app knows (the Worker checks its copy of the list; the app checks its own). */}
         {skill && (
           <button
@@ -385,6 +618,18 @@ export default function CategoryPage({
               <p className="text-muted text-xs">{t("search.categoryNoTrends")}</p>
             )}
           </section>
+          {/* A new category opens a new visit: its Brave answers start over. */}
+          {data.top ? (
+            <TopVideos
+              key={genre.id}
+              config={config}
+              genreId={genre.id}
+              name={name}
+              top={data.top}
+            />
+          ) : (
+            <p className="text-muted text-xs">{t("search.topNone")}</p>
+          )}
           {data.lessons ? (
             AREAS.map(shelf)
           ) : (

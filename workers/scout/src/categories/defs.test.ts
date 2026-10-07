@@ -10,6 +10,8 @@ import {
   categoryGeneric,
   categoryKey,
   categoryQueries,
+  categorySubject,
+  categoryWords,
 } from "./defs";
 
 describe("category turns (planning/tools/19-category-trends.md §2)", () => {
@@ -30,9 +32,29 @@ describe("a category's searches and words", () => {
   const cars = categoryById("cars")!;
   const food = categoryById("food")!;
 
-  it("2 English queries: the main one with ' trend', then the second as it is", () => {
-    expect(categoryQueries(cars)).toEqual(["car edit trend", "cinematic car edit"]);
-    expect(categoryQueries(food)).toEqual(["food edit trend", "restaurant cinematic video"]);
+  it("6 English queries (live fix 1): the main one with ' trend', the second, viral, transition, CapCut template, the subject's video trend", () => {
+    expect(categoryQueries(cars)).toEqual([
+      "car edit trend",
+      "cinematic car edit",
+      "viral car edit",
+      "car edit transition",
+      "car edit capcut template",
+      "car video trend",
+    ]);
+    expect(categoryQueries(food)).toEqual([
+      "food edit trend",
+      "restaurant cinematic video",
+      "viral food edit",
+      "food edit transition",
+      "food edit capcut template",
+      "food video trend",
+    ]);
+  });
+
+  it("the words that name it: its English name's (a plural one's singular too) and its subject's, not 'edit'", () => {
+    expect(categorySubject(cars)).toBe("car");
+    expect([...categoryWords(cars)].sort()).toEqual(["car", "cars"]);
+    expect([...categoryWords(food)].sort()).toEqual(["food", "restaurant", "restaurants"]);
   });
 
   it("the words of its English name (a plural one's singular too) and its main query are generic for it", () => {
@@ -59,8 +81,11 @@ describe("a category's searches and words", () => {
     expect(styles("food", "Restaurant Edit | restaurant edit trend #restauranttrend")).toEqual([]);
   });
 
-  it("tells the AI the subject, and keys its KV documents", () => {
+  it("tells the AI the subject and to answer every key (live fix 1: the first scan's answer was an empty list), and keys its KV documents", () => {
     expect(aiContext(cars)).toContain("for car videos");
+    expect(
+      aiContext(cars).endsWith(" Return one entry for every candidate key, keep true or false."),
+    ).toBe(true);
     expect(categoryKey("cars")).toBe("category:cars");
     expect(attemptsKey("cars", "2026-10-07")).toBe("category:attempts:cars:2026-10-07");
     expect(categoryById("custom-drift")).toBeUndefined();

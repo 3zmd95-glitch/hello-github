@@ -100,11 +100,21 @@
   "search.categoryPhoto": "📷 Photography",
   "search.categoryVideo": "🎥 Videography",
   "search.categoryEdit": "✂️ Editing",
-  "search.categoryAiNote": "Written by AI from the tutorials",
+  "search.categoryAiNote": "Written by AI from the videos and common practice",
   "search.categorySkill": "Open the skill {skill}",
   "search.categoryExample": "Example",
   "search.categoryTutorial": "Tutorial",
   "search.categoryTutorialAr": "Arabic tutorial",
   "search.categorySearchAll": "Search all {genre} videos →",
-  "search.categoryBudget": "Scans paused — this month's lookups are nearly used up"
+  "search.categoryBudget": "Scans paused — this month's lookups are nearly used up",
+  "search.topTitle": "🏆 Top in {genre}",
+  "search.topTabs": "Top videos by platform",
+  "search.topLoading": "Loading…",
+  "search.topNoKey": "More TikTok results once Brave search is connected",
+  "search.topFailed": "Couldn't reach Brave search right now",
+  "search.topCap": "Today's Brave searches are used up — more tomorrow",
+  "search.topEmpty": "Nothing here yet",
+  "search.topNone": "Top videos come with the next scan",
+  "search.topBraveGroup": "More from Brave Search",
+  "search.topBraveCredit": "Powered by Brave Search"
 }

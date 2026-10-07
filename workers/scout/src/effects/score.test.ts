@@ -218,6 +218,15 @@ describe("scoring", () => {
     expect(items.map((i) => [i.key, i.growth])).toEqual([["steady", 1]]);
   });
 
+  it("takes the caller's minimum of creators: a category shows an approved 2-creator style, Trending effects keeps 3", () => {
+    const history = { "drift-shot": [{ day: "2026-10-06", ids: ["a", "b"] }] };
+    const metas = { "drift-shot": meta("drift-shot") }; // approved by the AI: checked
+    expect(scoreEffects(history, metas, "2026-10-06", {})).toEqual([]);
+    expect(
+      scoreEffects(history, metas, "2026-10-06", {}, 2).map((i) => [i.key, i.creators]),
+    ).toEqual([["drift-shot", 2]]);
+  });
+
   it("stops marking an effect NEW 7 days after it was first seen", () => {
     const history = {
       old: [

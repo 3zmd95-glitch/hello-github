@@ -171,6 +171,25 @@ describe("parseTrendingEffects", () => {
     ]);
   });
 
+  it("keeps an Arabic name or line only in Arabic script (live fix 1: English first, Arabic only when it is Arabic)", () => {
+    const parsed = parseTrendingEffects({
+      ...DOC,
+      items: [
+        {
+          ...CLONE,
+          name: { en: "clone effect", ar: "ta'thir al-istinsakh" },
+          what: { en: "You show up twice in one shot", ar: "tatla' marratain" },
+        },
+      ],
+    });
+    expect(parsed!.items[0]).toMatchObject({
+      name: { en: "clone effect" },
+      what: { en: "You show up twice in one shot" },
+    });
+    expect(parsed!.items[0].name).not.toHaveProperty("ar");
+    expect(parsed!.items[0].what).not.toHaveProperty("ar");
+  });
+
   it("is null for a broken answer", () => {
     for (const raw of [
       null,

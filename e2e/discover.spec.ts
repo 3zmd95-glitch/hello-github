@@ -125,11 +125,14 @@ const EFFECTS = {
 };
 
 /** The Worker's Cars page (`GET /categories/cars`, workers/scout/src/categories/routes.ts): 2 styles and one technique
- * on each shelf, made 30 hours ago. */
+ * on each shelf, made 30 hours ago. A how-to is three labelled English lines (live fix 2). */
 const technique = (en: string, ar: string, n: number, skillId?: string) => ({
   name: { en, ar },
   howTo: {
-    en: `Shoot the ${en} at 1/30 s from a moving car, then smooth it in the edit.`,
+    en:
+      `Shoot: Ride beside the car and keep the ${en} centred in the frame.\n` +
+      "Settings: Shutter 1/30 s, 24 mm, gimbal in follow mode.\n" +
+      "Edit: In CapCut smooth the ride with a speed curve.",
     ar: `صوّر ${ar} على 1/30 من سيارة ماشية، وبعدين نعّمها في المونتاج.`,
   },
   ...(skillId ? { skillId } : {}),
@@ -193,9 +196,39 @@ const CATEGORY_CARS = {
   },
 };
 
-/** A full Cars page for the 375 px check: 12 styles, and 3 techniques with long names on each shelf. */
+/** A top video (§6) of a platform; long titles and handles, to test the phone's width. */
+const topVideo = (platform: "yt" | "tt" | "ig", n: number) => ({
+  url:
+    platform === "yt"
+      ? `https://www.youtube.com/watch?v=carTop${String(n).padStart(5, "0")}`
+      : platform === "tt"
+        ? `https://www.tiktok.com/@carcreator${n}/video/${7_000_000 + n}`
+        : `https://www.instagram.com/p/CarTop${n}`,
+  title: `The most cinematic car edit of the month, number ${n}, rolling shots and speed ramps`,
+  creator: `a_very_long_creator_handle_${n}`,
+  views: (60 - n) * 12_345,
+  ...(platform === "ig" ? {} : { thumbnail: "https://example.com/t.jpg" }),
+});
+/** Brave's TikTok answer (`GET /categories/cars/top/tt`): no stored post, Brave's group of 30, asked when the tab is
+ * chosen. */
+const TOP_TIKTOK = {
+  platform: "tt",
+  scan: [],
+  brave: Array.from({ length: 30 }, (_, i) => topVideo("tt", i + 1)),
+  source: "brave",
+  endpoint: "videos",
+};
+
+/** A full Cars page for the 375 px check: 12 styles, 3 techniques with long names on each shelf, and top videos (50
+ * on YouTube, 14 reels). */
 const CATEGORY_CARS_FULL = {
   ...CATEGORY_CARS,
+  top: {
+    updatedAt: CATEGORY_CARS.updatedAt,
+    yt: Array.from({ length: 50 }, (_, i) => topVideo("yt", i + 1)),
+    tt: [],
+    ig: Array.from({ length: 14 }, (_, i) => topVideo("ig", i + 1)),
+  },
   items: Array.from({ length: 12 }, (_, n) => ({
     ...CATEGORY_CARS.items[0],
     key: `style-${n}`,
@@ -252,6 +285,12 @@ async function stubWorker(
     // Scan again: the scan's fresh page.
     if (url.pathname === "/categories/cars/run" && req.method() === "POST")
       return reply({ ...CATEGORY_CARS, updatedAt: new Date().toISOString() });
+    // A top videos tab (§6): Brave's TikTok list; for Instagram, the stored reels alone, as without Brave's key.
+    if (url.pathname === "/categories/cars/top/tt") return reply(TOP_TIKTOK);
+    if (url.pathname === "/categories/cars/top/ig") {
+      const ig = (category as { top?: { ig?: unknown[] } }).top?.ig ?? [];
+      return reply({ platform: "ig", scan: ig, brave: [], source: "scan", note: "no_key" });
+    }
     if (url.pathname === "/discover" && req.method() === "POST") {
       const body = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
       asked.push(body);
@@ -837,6 +876,9 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   const fresh = row.locator('[data-testid="trending-effect"][data-key="swagger-trend"]');
   await expect(fresh.getByText("جديد", { exact: true })).toBeVisible();
   await expect(fresh).toContainText("4 صنّاع · ▶ ↑3×");
+  // English first in Arabic too (live fix 1): the English name, the Arabic one in the tooltip.
+  await expect(fresh).toContainText("swagger trend");
+  await expect(fresh).toHaveAttribute("title", "Clone yourself with one hair flip\nترند السواقر");
   // The 8 chips overflow their strip, which scrolls sideways; the 375 px page never does.
   const strip = row.getByTestId("trending-effect").first().locator("xpath=..");
   expect(await strip.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
@@ -890,10 +932,23 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
   // A technique's skill opens that skill; its videos play in the app's player.
   const panning = cat.getByTestId("category-technique").first();
   await expect(panning.getByTestId("category-ai")).toHaveText("✦ AI");
-  // The Arabic how-to reads right to left: the "✦ AI" badge carries its own direction, so the paragraph's dir=auto
-  // goes by the how-to's words.
+  // English first in Arabic too (live fix 1): the English name and how-to (left to right, with the ✦ AI badge),
+  // then the Arabic name and how-to as muted lines, right to left.
+  await expect(panning.getByRole("heading", { level: 4 })).toHaveText("panning");
+  await expect(panning.getByTestId("category-name-ar")).toHaveText("بانينق");
   const howTo = panning.getByTestId("category-ai").locator("..");
-  expect(await howTo.evaluate((p) => p.matches(":dir(rtl)"))).toBe(true);
+  expect(await howTo.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
+  // Live fix 2: its Shoot, Settings and Edit lines show one under another (the line breaks render).
+  expect((await howTo.innerText()).split("\n")).toEqual([
+    "✦ AIShoot: Ride beside the car and keep the panning centred in the frame.",
+    "Settings: Shutter 1/30 s, 24 mm, gimbal in follow mode.",
+    "Edit: In CapCut smooth the ride with a speed curve.",
+  ]);
+  const howToAr = panning.getByTestId("category-howto-ar");
+  expect(await howToAr.evaluate((p) => p.matches(":dir(rtl)"))).toBe(true);
+  await expect(
+    cat.locator('[data-testid="category-style"][data-key="rolling-shot"]'),
+  ).toContainText("rolling shot");
   await panning.getByTestId("category-skill").click();
   await expect(page.getByTestId("skill-sheet")).toBeVisible();
   await page.getByTestId("sheet-close").click();
@@ -928,8 +983,10 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
     cat.getByRole("heading", { level: 3, name: "🔥 Trending in Cars this week" }),
   ).toBeVisible();
   await expect(cat.getByTestId("category-search-all")).toHaveText("Search all Cars videos →");
-  // In English the how-to reads left to right.
+  // In English the how-to reads left to right, with no Arabic lines.
   expect(await howTo.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
+  await expect(cat.getByTestId("category-howto-ar")).toHaveCount(0);
+  await expect(cat.getByTestId("category-name-ar")).toHaveCount(0);
   await cat.getByTestId("category-search-all").click();
   await expect
     .poll(() => asked.at(-1))
@@ -963,5 +1020,70 @@ test("Discover v2: a full category page at 375 px never scrolls sideways; its ch
   await expect(
     cat.getByRole("heading", { level: 3, name: "🔥 Trending in Cars this week" }),
   ).toBeVisible();
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikTok loads when chosen, Brave credited, the page never scrolls sideways", async ({
+  page,
+}) => {
+  await stubWorker(page, () => ANSWER, CATEGORY_CARS_FULL);
+  await connectWorker(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/discover/");
+  await page.getByTestId("genre-cars").click();
+
+  const top = page.getByTestId("category-top");
+  await expect(top.getByRole("heading", { level: 3 })).toHaveText("🏆 الأقوى في سيارات");
+  const tabs = top.getByRole("tab");
+  await expect(tabs).toHaveCount(3);
+  // English names first in Arabic too; YouTube's 50 come with the page, 12 at a time.
+  await expect(tabs.nth(0)).toContainText("YouTube");
+  await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true");
+  await expect(tabs.nth(0)).toHaveAttribute("data-count", "50");
+  await expect(top.getByTestId("category-top-item")).toHaveCount(12);
+  // The three tabs sit inside the strip, and the strip inside the page.
+  const strip = top.getByRole("tablist");
+  expect(await strip.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  for (const tab of await tabs.all()) {
+    const box = (await tab.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(375);
+  }
+  expect(await fitsViewport(page)).toBe(true);
+
+  // TikTok (C7): arrowing onto it asks nothing; Enter chooses it and asks Brave once.
+  const ttTab = top.locator('[data-testid="category-top-tab"][data-platform="tt"]');
+  let topAsks = 0;
+  page.on("request", (r) => {
+    if (r.url() === `${WORKER}/categories/cars/top/tt`) topAsks++;
+  });
+  await tabs.nth(0).focus();
+  await page.keyboard.press("ArrowLeft"); // forward, right to left
+  await expect(ttTab).toBeFocused();
+  await expect(ttTab).toHaveAttribute("aria-selected", "false");
+  expect(topAsks).toBe(0);
+  const asked = page.waitForRequest(
+    (r) => r.url() === `${WORKER}/categories/cars/top/tt` && r.method() === "GET",
+  );
+  await page.keyboard.press("Enter");
+  await asked;
+  await expect(ttTab).toHaveAttribute("aria-selected", "true");
+  await expect(ttTab).toHaveAttribute("data-count", "30");
+  // Brave's group, credited under it (C2, C3).
+  await expect(top.getByTestId("category-top-brave")).toHaveText("أكثر من Brave Search");
+  const credit = top.getByTestId("category-top-credit").locator("a");
+  await expect(credit).toHaveText("النتائج من Brave Search");
+  await expect(credit).toHaveAttribute("href", "https://brave.com/search/api/");
+  await expect(credit).toHaveAttribute("target", "_blank");
+  await expect(top.locator('[data-testid="category-top-item"][data-platform="tt"]')).toHaveCount(
+    12,
+  );
+  await top.getByTestId("category-top-more").click();
+  await expect(top.getByTestId("category-top-item")).toHaveCount(24);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // English: the same row, and the page still never scrolls sideways.
+  await page.getByTestId("lang-en").click();
+  await expect(top.getByRole("heading", { level: 3 })).toHaveText("🏆 Top in Cars");
   expect(await fitsViewport(page)).toBe(true);
 });

@@ -275,12 +275,14 @@ describe("youtubeCall", () => {
 });
 
 describe("youtubeCap", () => {
-  it("reads DISCOVER_YT_CAP: blank is unset (70), only a number ≥ 0 overrides, 0 turns YouTube off", () => {
-    expect(youtubeCap({})).toBe(70);
-    expect(youtubeCap({ DISCOVER_YT_CAP: "" })).toBe(70);
-    expect(youtubeCap({ DISCOVER_YT_CAP: "   " })).toBe(70);
-    expect(youtubeCap({ DISCOVER_YT_CAP: "abc" })).toBe(70);
-    expect(youtubeCap({ DISCOVER_YT_CAP: "-1" })).toBe(70);
+  // 66 since category top lists (planning/tools/19-category-trends.md §6): radar 18 + effects 6 + Discover 66 +
+  // categories 4 = 94 of YouTube's 100 `search.list` calls a day.
+  it("reads DISCOVER_YT_CAP: blank is unset (66), only a number ≥ 0 overrides, 0 turns YouTube off", () => {
+    expect(youtubeCap({})).toBe(66);
+    expect(youtubeCap({ DISCOVER_YT_CAP: "" })).toBe(66);
+    expect(youtubeCap({ DISCOVER_YT_CAP: "   " })).toBe(66);
+    expect(youtubeCap({ DISCOVER_YT_CAP: "abc" })).toBe(66);
+    expect(youtubeCap({ DISCOVER_YT_CAP: "-1" })).toBe(66);
     expect(youtubeCap({ DISCOVER_YT_CAP: "0" })).toBe(0);
     expect(youtubeCap({ DISCOVER_YT_CAP: "40" })).toBe(40);
   });
@@ -301,16 +303,16 @@ describe("reserveYoutube", () => {
     });
   });
 
-  it("grants everything without KV (local dev) and uses 70 by default", async () => {
+  it("grants everything without KV (local dev) and uses 66 by default", async () => {
     expect(await reserveYoutube({}, 3, NOW)).toBe(3);
     const kv = fakeKV();
-    await kv.put(discoverKeys.yt("2026-10-03"), "69");
+    await kv.put(discoverKeys.yt("2026-10-03"), "65");
     expect(await reserveYoutube({ SOCIAL_KV: kv }, 3, NOW)).toBe(1);
   });
 
   it("keeps the computed grant when the counter write fails (KV takes one write per key a second)", async () => {
     const kv = fakeKV();
-    await kv.put(discoverKeys.yt("2026-10-03"), "69");
+    await kv.put(discoverKeys.yt("2026-10-03"), "65");
     Object.assign(kv, {
       put: async () => {
         throw new Error("KV PUT failed: 429 Too Many Requests");

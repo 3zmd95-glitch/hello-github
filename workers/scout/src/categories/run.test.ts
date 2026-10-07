@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AI_MODEL } from "../discover/ai";
 import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
 import { TAVILY_URL } from "../trends/tavily";
+import { YT_SEARCH_URL } from "../trends/youtubeSearch";
 import { aiContext, categoryById } from "./defs";
-import { runCategory } from "./run";
+import { LESSON_MODEL } from "./lessons";
+import { readCategory, runCategory } from "./run";
 import type { CategoryDoc, Technique } from "./types";
 
 const NOW = new Date("2026-10-07T05:40:00Z"); // 2026-10-07 is UTC day % 3 = 0: cars' turn, slot 05:40
@@ -16,57 +19,114 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 type Hit = { url: string; title: string; content: string };
-const tt = (handle: string, title: string, n: number): Hit => ({
-  url: `https://www.tiktok.com/@${handle}/video/${n}`,
-  title,
-  content: "#carsoftiktok",
-});
 const ig = (handle: string, title: string, n: number): Hit => ({
   url: `https://www.instagram.com/${handle}/reel/R${n}/`,
   title,
   content: "#caredit",
 });
 
-/** Car posts: rolling shots by 4 creators, low angles by 3, a speed ramp (a dictionary technique) by 4, generic captions. */
+/** Car reels (a category searches Instagram alone): rolling shots by 4 creators, low angles by 3, a speed ramp (a
+ * dictionary technique) by 4, generic captions. */
 const PROBE: Hit[] = [
-  tt("r1", "Rolling shot of my M4 at sunset 🔥 #rollingshot", 1),
-  tt("r2", "rolling shots on the highway", 2),
+  ig("r1", "Rolling shot of my M4 at sunset 🔥 #rollingshot", 1),
+  ig("r2", "rolling shots on the highway", 2),
   ig("r3", "Cinematic Rolling Shot | BMW M3", 3),
   ig("r4", "rolling shot tutorial with a gimbal", 4),
-  tt("l1", "Low Angle hero shot of the GT3", 5),
-  tt("l2", "low angle car shot", 6),
-  tt("l3", "low angle reveal", 7),
-  tt("s1", "speed ramp car edit 🔥", 8),
-  tt("s2", "speed ramp on the drift", 9),
-  tt("s3", "speed ramp transition car edit", 10),
-  tt("s4", "my speed ramp edit", 11),
-  tt("g1", "car edit trend #caredit", 12),
-  tt("g2", "cinematic car edit", 13),
+  ig("l1", "Low Angle hero shot of the GT3", 5),
+  ig("l2", "low angle car shot", 6),
+  ig("l3", "low angle reveal", 7),
+  ig("s1", "speed ramp car edit 🔥", 8),
+  ig("s2", "speed ramp on the drift", 9),
+  ig("s3", "speed ramp transition car edit", 10),
+  ig("s4", "my speed ramp edit", 11),
+  ig("g1", "car edit trend #caredit", 12),
+  ig("g2", "cinematic car edit", 13),
+];
+/** A lesson's search (YouTube, Instagram and TikTok in one call) finds a YouTube how-to, a TikTok and a reel, each
+ * titled with its search words: on topic. */
+const lessonHits = (q: string, n: number): Hit[] => [
+  {
+    url: `https://www.youtube.com/watch?v=lesson${String(n).padStart(5, "0")}`,
+    title: `How to shoot: ${q}`,
+    content: "1/30 s, ND filter",
+  },
+  { url: `https://www.tiktok.com/@t${n}/video/${n}1`, title: `${q} clip`, content: "" },
+  { url: `https://www.instagram.com/i${n}/reel/L${n}/`, title: `${q} reel`, content: "" },
 ];
 
-/** A fake internet: every Tavily search answers `PROBE` unless `tavily` says otherwise; Tavily's /usage answers `usage`
- * (by default no figure: a 404, nothing kept); anything else is counted. */
+/** YouTube's top list (§6): the search finds 3 car videos, the views call counts them. */
+const YT_VIEWS: Record<string, number> = {
+  carTop00001: 1_000,
+  carTop00002: 50_000,
+  carTop00003: 7_000,
+};
+function youtubeReply(input: string): Response {
+  const u = new URL(input);
+  if (`${u.origin}${u.pathname}` === YT_SEARCH_URL)
+    return json({ items: Object.keys(YT_VIEWS).map((videoId) => ({ id: { videoId } })) });
+  return json({
+    items: u.searchParams
+      .get("id")!
+      .split(",")
+      .map((id) => ({
+        id,
+        snippet: { title: `Top ${id}`, channelTitle: "Car Channel" },
+        statistics: { viewCount: String(YT_VIEWS[id]) },
+      })),
+  });
+}
+/** The top list's YouTube videos, the most viewed first. */
+const YT_TOP = ["carTop00002", "carTop00003", "carTop00001"].map((id) => ({
+  url: `https://www.youtube.com/watch?v=${id}`,
+  title: `Top ${id}`,
+  creator: "Car Channel",
+  views: YT_VIEWS[id],
+}));
+
+/** A fake internet: a category's searches answer `PROBE` and a lesson's search its `lessonHits`, unless `tavily` says
+ * otherwise; Tavily's /usage answers `usage` (by default no figure: a 404, nothing kept); YouTube's Data API answers
+ * the top list's calls (§6) unless `youtube` says otherwise; anything else is counted. */
 function web(
-  over: { tavily?: (query: string) => Response | undefined; usage?: () => Response } = {},
+  over: {
+    tavily?: (query: string) => Response | undefined;
+    usage?: () => Response;
+    youtube?: (url: string) => Response;
+  } = {},
 ) {
-  const count = { tavily: 0, usage: 0, other: 0 };
+  const count = { tavily: 0, usage: 0, youtube: 0, other: 0 };
   const searched: string[] = [];
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     if (String(input) === TAVILY_USAGE_URL) {
       count.usage++;
       return over.usage?.() ?? json({ error: "not_found" }, 404);
     }
+    if (String(input).startsWith("https://www.googleapis.com/youtube/v3/")) {
+      count.youtube++;
+      return over.youtube?.(String(input)) ?? youtubeReply(String(input));
+    }
     if (String(input) !== TAVILY_URL) {
       count.other++;
       return json({ error: "not_found" }, 404);
     }
     count.tavily++;
-    const { query } = JSON.parse(String(init?.body)) as { query: string };
+    const { query, include_domains } = JSON.parse(String(init?.body)) as {
+      query: string;
+      include_domains: string[];
+    };
     searched.push(query);
-    return over.tavily?.(query) ?? json({ results: PROBE, usage: { credits: 1 } });
+    const results = include_domains.length > 1 ? lessonHits(query, count.tavily) : PROBE;
+    return over.tavily?.(query) ?? json({ results, usage: { credits: 1 } });
   });
   return { fetch, count, searched };
 }
+/** The Tavily searches as sent: query, sites and window. */
+const sent = (fetch: ReturnType<typeof web>["fetch"]) =>
+  fetch.mock.calls
+    .filter(([url]) => String(url) === TAVILY_URL)
+    .map(([, init]) => {
+      const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return [b.query, b.include_domains, b.time_range];
+    });
 
 /** A fake built-in AI: the cleanup keeps every name it is shown, as it was written. Any other call (Task 3's
  * lessons) gets no usable answer here. */
@@ -148,7 +208,7 @@ const OLD: CategoryDoc = {
       samples: [],
     },
   ],
-  lessons: { updatedAt: "2026-10-04T05:40:00.000Z", photo: [], video: [TECHNIQUE], edit: [] },
+  lessons: { v: 4, updatedAt: "2026-10-04T05:40:00.000Z", photo: [], video: [TECHNIQUE], edit: [] },
   meta: {},
   history: {},
 };
@@ -161,9 +221,9 @@ afterEach(() => {
 });
 
 describe("runCategory", () => {
-  it("a first scan: 2 queries × 3 searches, camera words named, the category's own words never, trends first", async () => {
+  it("a first scan: 6 queries over Instagram's month, camera words named, the category's own words never, trends first", async () => {
     const { env, KV, AI } = setup();
-    const { fetch, count, searched } = web();
+    const { fetch, count } = web();
     const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
 
     expect(doc.items.map((i) => i.key)).toEqual(["rolling-shot", "low-angle", "speed-ramp"]);
@@ -179,19 +239,41 @@ describe("runCategory", () => {
       [],
     );
     expect(doc).toMatchObject({ ranOn: "2026-10-07", updatedAt: NOW.toISOString(), status: "ok" });
-    // 6 credits, and nothing but Tavily: no YouTube for categories.
+    // 6 credits, and besides Tavily only YouTube's top list (§6: 1 search.list, 1 videos.list). Live fix 1: Instagram
+    // over a month alone, 6 queries (Instagram's week and TikTok found about 1 post a call in the first live scan).
     expect(count.tavily).toBe(6);
+    expect(count.youtube).toBe(2);
     expect(count.other).toBe(0);
-    expect([...new Set(searched)]).toEqual(["car edit trend", "cinematic car edit"]);
+    expect(sent(fetch)).toEqual(
+      [
+        "car edit trend",
+        "cinematic car edit",
+        "viral car edit",
+        "car edit transition",
+        "car edit capcut template",
+        "car video trend",
+      ].map((q) => [q, ["instagram.com"], "month"]),
+    );
     const system = (AI.run.mock.calls[0][1].messages as { content: string }[])[0].content;
     expect(system.endsWith(aiContext(categoryById("cars")!))).toBe(true);
+    // The cleanup asks the lessons' model, gpt-oss-120b, with room to reason (Trending effects stays on llama).
+    expect(AI.run.mock.calls[0][0]).toBe(LESSON_MODEL);
+    expect(AI.run.mock.calls[0][1]).toMatchObject({ max_tokens: 3000 });
     // A spending run counts itself, then saves. A lessons refresh (Task 3) may save once more after that.
     expect(writes(KV).slice(0, 2)).toEqual([ATTEMPTS, KEY]);
     expect(stored(KV).items).toEqual(doc.items);
     expect(stored(KV).diagnostics).toMatchObject({
       id: "cars",
       credits: 6,
-      families: [{ family: 1 }, { family: 2 }],
+      // The model that answered each cleanup batch.
+      ai: { models: ["gpt-oss-120b"] },
+      families: [1, 2, 3, 4, 5, 6].map((family) => ({
+        family,
+        tt: 0,
+        igWeek: 0,
+        igMonth: 13,
+        posts: 13,
+      })),
     });
   });
 
@@ -251,7 +333,7 @@ describe("runCategory", () => {
     });
     const doc = await runCategory(env, "cars", { fetch, now: NOW });
     expect(doc).toMatchObject({ status: "failed", notes: ["tavily_budget"], items: OLD.items });
-    expect(count).toEqual({ tavily: 0, usage: 1, other: 0 });
+    expect(count).toEqual({ tavily: 0, usage: 1, youtube: 0, other: 0 });
     // Kept 10 minutes, as Discover keeps it (the next slots read it), then the paused page.
     expect(KV.put.mock.calls[0]).toEqual([
       usageKeys.tavily,
@@ -265,7 +347,7 @@ describe("runCategory", () => {
     const { env, KV } = setup({ stored: OLD });
     const { fetch, count } = web({ usage: () => json({ error: "upstream" }, 500) });
     expect(await runCategory(env, "cars", { fetch, now: NOW })).toMatchObject({ status: "ok" });
-    expect(count).toEqual({ tavily: 6, usage: 1, other: 0 });
+    expect(count).toEqual({ tavily: 6, usage: 1, youtube: 2, other: 0 });
     expect(writes(KV)).toEqual([ATTEMPTS, KEY]);
   });
 
@@ -275,7 +357,7 @@ describe("runCategory", () => {
     KV.store.set(usageKeys.tavily, JSON.stringify({ used: 950, limit: 1000 }));
     const { fetch, count } = web();
     expect(await runCategory(env, "cars", { fetch, now: LATER })).toEqual(today);
-    expect(count).toEqual({ tavily: 0, usage: 0, other: 0 });
+    expect(count).toEqual({ tavily: 0, usage: 0, youtube: 0, other: 0 });
     expect(KV.put).not.toHaveBeenCalled();
   });
 
@@ -315,6 +397,35 @@ describe("runCategory", () => {
     );
   });
 
+  it("a cleanup batch gpt-oss-120b leaves without a list is asked once more of llama: the same trends, llama in the diagnostics", async () => {
+    const { env, KV } = setup();
+    const cleanup = ai();
+    // gpt-oss answers nothing usable (an object without `effects`); llama answers as the fake above.
+    env.AI = {
+      run: vi.fn(async (model: string, input: Record<string, unknown>): Promise<unknown> =>
+        model === LESSON_MODEL ? { response: {} } : cleanup.run(model, input),
+      ),
+    };
+    const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW, sleep: NO_WAIT });
+    expect(doc.items.map((i) => i.key)).toEqual(["rolling-shot", "low-angle", "speed-ramp"]);
+    const cleanups = env.AI.run.mock.calls.filter(([, input]) =>
+      (input.messages as { content: string }[])[0].content.startsWith("You clean"),
+    );
+    expect(cleanups.map(([model]) => model)).toEqual([LESSON_MODEL, AI_MODEL]);
+    expect(stored(KV).diagnostics).toMatchObject({
+      ai: { models: ["llama-3.3-70b-instruct-fp8-fast"] },
+    });
+    expect(doc.notes ?? []).not.toContain("ai_fallback");
+  });
+
+  it("T6: a style 2 creators posted shows once the AI approved it (Trending effects needs 3)", async () => {
+    const { env } = setup();
+    const two = [ig("d1", "drift shot at night", 21), ig("d2", "Drift Shot from the roof", 22)];
+    const { fetch } = web({ tavily: () => json({ results: two, usage: { credits: 1 } }) });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+    expect(doc.items.map((i) => [i.key, i.creators, i.checked])).toEqual([["drift-shot", 2, true]]);
+  });
+
   it("keeps at most 200 names in a category's memory, today's names first", async () => {
     const history = Object.fromEntries(
       Array.from({ length: 260 }, (_, i) => [`old-${i}`, [{ day: "2026-10-04", ids: ["a"] }]]),
@@ -343,10 +454,163 @@ describe("runCategory", () => {
   });
 });
 
+describe("runCategory's top lists (§6)", () => {
+  /** PROBE's reels as the stored Instagram list: every search found all 13, so they keep the order first seen. */
+  const IG_TOP = PROBE.map((h) => {
+    const [, handle, id] = h.url.match(/instagram\.com\/([\w.]+)\/reel\/(\w+)\//)!;
+    return { url: `https://www.instagram.com/p/${id}`, title: h.title, creator: `@${handle}` };
+  });
+  const youtubeSearches = (fetch: ReturnType<typeof web>["fetch"]) =>
+    fetch.mock.calls
+      .map(([u]) => new URL(String(u)))
+      .filter((u) => `${u.origin}${u.pathname}` === YT_SEARCH_URL);
+
+  it("T1–T3: YouTube's most viewed of the main query (2 calls) and the scan's Instagram posts, saved with the page", async () => {
+    const { env, KV } = setup();
+    const { fetch, count } = web();
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+    expect(count.youtube).toBe(2);
+    expect(youtubeSearches(fetch).map((u) => u.searchParams.get("q"))).toEqual(["car edit"]);
+    expect(doc.top).toEqual({ updatedAt: NOW.toISOString(), yt: YT_TOP, ig: IG_TOP, tt: [] });
+    expect(doc.notes ?? []).not.toContain("youtube");
+    expect(stored(KV).top).toEqual(doc.top);
+  });
+
+  it("YouTube failing, or without its key: noted 'youtube', the page still saved with the last YouTube list", async () => {
+    const last = { updatedAt: OLD.updatedAt, yt: YT_TOP.slice(0, 1), ig: [], tt: [] };
+    const { env, KV } = setup({ stored: { ...OLD, top: last } });
+    const quota = () => json({ error: { errors: [{ reason: "quotaExceeded" }] } }, 403);
+    const { fetch, count } = web({ youtube: quota });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW });
+    expect(doc).toMatchObject({ status: "partial", notes: ["youtube"] });
+    expect(count.youtube).toBe(1);
+    // The last list is kept with its own date: it never looks fresh (C1).
+    expect(doc.top).toEqual({ updatedAt: OLD.updatedAt, yt: last.yt, ig: IG_TOP, tt: [] });
+    expect(writes(KV)).toEqual([ATTEMPTS, KEY]);
+    expect(stored(KV).top).toEqual(doc.top);
+
+    const keyless = setup();
+    const noKey = {
+      TAVILY_API_KEY: "t",
+      AI: keyless.AI,
+      SOCIAL_KV: keyless.KV as unknown as KVNamespace,
+    };
+    const none = web();
+    const first = await runCategory(noKey, "cars", { fetch: none.fetch, now: NOW, sleep: NO_WAIT });
+    expect(first.notes).toContain("youtube");
+    expect(first.top).toMatchObject({ yt: [], ig: IG_TOP });
+    expect(none.count.youtube).toBe(0);
+  });
+
+  it("T5: YouTube's videos feed the trends too: title and description as text, the channel's id as the creator", async () => {
+    const { env } = setup();
+    // Tavily finds one low-angle reel; YouTube three low-angle videos, one saying it in its description: two from one
+    // channel (UC_a1), one from another channel that has the same name (UC_a2, C4).
+    const videos = [
+      {
+        id: "lowAng00001",
+        title: "Low angle car shots",
+        channelTitle: "Chan A",
+        channelId: "UC_a1",
+        description: "",
+      },
+      {
+        id: "lowAng00002",
+        title: "GT3 night reveal",
+        channelTitle: "Chan A",
+        channelId: "UC_a1",
+        description: "How I film a low angle reveal",
+      },
+      {
+        id: "lowAng00003",
+        title: "Low Angle Shot of the M5",
+        channelTitle: "Chan A",
+        channelId: "UC_a2",
+        description: "",
+      },
+    ];
+    const { fetch, count } = web({
+      tavily: () =>
+        json({ results: [ig("l1", "Low Angle hero shot of the GT3", 5)], usage: { credits: 1 } }),
+      youtube: (url) =>
+        url.startsWith(YT_SEARCH_URL)
+          ? json({ items: videos.map((v) => ({ id: { videoId: v.id } })) })
+          : json({
+              items: videos.map(({ id, ...snippet }) => ({
+                id,
+                snippet,
+                statistics: { viewCount: "100" },
+              })),
+            }),
+    });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+    // The reel's creator and the 2 channels: 3 creators. A channel's two videos are one creator's; two channels of one
+    // name are two.
+    expect(doc.items.find((i) => i.key === "low-angle")).toMatchObject({
+      creators: 3,
+      platforms: ["ig", "yt"],
+    });
+    // The same 2 YouTube calls as the top list, which shows the channels' names.
+    expect(count.youtube).toBe(2);
+    expect(doc.top!.yt.map((v) => v.creator)).toEqual(["Chan A", "Chan A", "Chan A"]);
+  });
+
+  it("C1: Scan again never asks YouTube: it keeps the stored list and its date, whatever its length or the page's status", async () => {
+    const { env } = setup();
+    const { fetch, count } = web();
+    await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+    const again = await runCategory(env, "cars", {
+      fetch,
+      now: LATER,
+      force: true,
+      sleep: NO_WAIT,
+    });
+    expect(count.youtube).toBe(2);
+    expect(count.tavily).toBeGreaterThan(6);
+    // The reused list keeps its own date: it never looks fresh.
+    expect(again.top).toEqual({ updatedAt: NOW.toISOString(), yt: YT_TOP, ig: IG_TOP, tt: [] });
+
+    // Days later, an empty stored list on a failed page: still no YouTube call when forced.
+    const empty = { updatedAt: OLD.updatedAt, yt: [], ig: [], tt: [] };
+    const failedPage = setup({ stored: { ...OLD, status: "failed", top: empty } });
+    const later = web();
+    const forced = await runCategory(failedPage.env, "cars", {
+      fetch: later.fetch,
+      now: NOW,
+      force: true,
+    });
+    expect(later.count.youtube).toBe(0);
+    expect(forced.top).toMatchObject({ updatedAt: OLD.updatedAt, yt: [] });
+    expect(forced.notes ?? []).not.toContain("youtube");
+  });
+
+  it("C1: the cron run and a category's first top scan ask YouTube, a forced one on a page from before §6 too", async () => {
+    // The cron's run (never forced), days after the last scan.
+    const stored = { updatedAt: OLD.updatedAt, yt: YT_TOP.slice(0, 1), ig: [], tt: [] };
+    const cron = setup({ stored: { ...OLD, top: stored } });
+    const daily = web();
+    const doc = await runCategory(cron.env, "cars", { fetch: daily.fetch, now: NOW });
+    expect(daily.count.youtube).toBe(2);
+    expect(doc.top).toMatchObject({ updatedAt: NOW.toISOString(), yt: YT_TOP });
+    // Scan again on a page stored before §6 (no top yet): its first top scan.
+    const before = setup({ stored: OLD });
+    const first = web();
+    await runCategory(before.env, "cars", { fetch: first.fetch, now: NOW, force: true });
+    expect(first.count.youtube).toBe(2);
+  });
+});
+
 describe("runCategory's lessons (§3)", () => {
+  /** A how-to as the model writes it (live fix 2: three English lines, then the Arabic), and as it is stored. */
+  const LINES = {
+    shoot: "Pan with the car from the roadside, framing it side-on with room ahead.",
+    settings: "Shutter 1/30 s, ISO 100, 35 mm, continuous autofocus locked on the car.",
+    edit: "In Lightroom mask the car and add a little motion blur to the background.",
+    ar: "تابع السيارة من جنب الطريق على شتر 1/30، وبعدين زيد البلر للخلفية في لايتروم.",
+  };
   const HOW = {
-    en: "Pan with the car at 1/30 s and keep it sharp, then add motion blur in the edit.",
-    ar: "تابع السيارة بالكاميرا على 1/30 وخلّها حادة، وبعدين زيد البلر في المونتاج.",
+    en: `Shoot: ${LINES.shoot}\nSettings: ${LINES.settings}\nEdit: ${LINES.edit}`,
+    ar: LINES.ar,
   };
   const pick = (en: string, query: string) => ({ name: { en, ar: `اسم ${en}` }, query });
   const PICKS = {
@@ -385,7 +649,7 @@ describe("runCategory's lessons (§3)", () => {
         if (system.startsWith("You write")) {
           const techniques = [...user.matchAll(/^- (\d+) \|/gm)].map(([, i]) => ({
             i: Number(i),
-            howTo: HOW,
+            ...LINES,
             ...(i === "0" ? { skillId: "phone-180-shutter" } : {}),
           }));
           return { response: howTos ?? { techniques } };
@@ -407,9 +671,12 @@ describe("runCategory's lessons (§3)", () => {
     const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
     // PROBE answers every search: its TikTok / Instagram posts are the examples, its "tutorial" title the tutorial.
     expect(count.tavily).toBe(16);
-    // Lessons find their YouTube videos through Tavily: no YouTube call (the env has YouTube's key).
+    // Lessons find their YouTube videos through Tavily: the only YouTube calls are the top list's 2 (§6).
+    expect(count.youtube).toBe(2);
     expect(count.other).toBe(0);
-    expect(searched).toContain("car panning tutorial");
+    // Live fix 1: examples for the subject, no " tutorial" added.
+    expect(searched).toContain("car panning");
+    expect(searched).not.toContain("car panning tutorial");
     expect(searched).toContain("شرح تصوير ومونتاج سيارات");
     expect(writes(KV)).toEqual([ATTEMPTS, KEY, KEY]);
     // The trends were saved first, without lessons: a refresh that never ends still leaves them saved.
@@ -428,10 +695,38 @@ describe("runCategory's lessons (§3)", () => {
       "tutorial",
     ]);
     expect(stored(KV).lessons).toEqual(doc.lessons);
+    expect(stored(KV).lessons!.v).toBe(4);
     expect(stored(KV).diagnostics).toMatchObject({
-      lessons: { picked: 9, written: 9, credits: 10 },
+      lessons: {
+        picked: 9,
+        written: 9,
+        credits: 10,
+        // B5: the model that answered each lessons call, for the live check.
+        models: {
+          pick: "gpt-oss-120b",
+          photo: "gpt-oss-120b",
+          video: "gpt-oss-120b",
+          edit: "gpt-oss-120b",
+        },
+      },
     });
     expect(doc.notes ?? []).not.toContain("lessons");
+  });
+
+  it("older lessons (no version before live fix 1, 2 before live fix 2, 3 before live fix 3) are due at the next scan, however new; the stored page still reads", async () => {
+    for (const v of [undefined, 2, 3]) {
+      const before = { ...OLD.lessons!, v }; // 3 days old; KV's JSON leaves an undefined `v` out
+      const { env, KV } = setup({ stored: { ...OLD, lessons: before } });
+      env.AI = lessonsAi();
+      const { fetch, count } = web();
+      // The page as it was stored is still read as it is (the GET's answer included).
+      expect((await readCategory(env, "cars"))!.lessons).toEqual(before);
+      const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+      expect(count.tavily).toBe(16);
+      expect(doc.lessons).toMatchObject({ v: 4, updatedAt: NOW.toISOString() });
+      expect(doc.lessons!.photo[0].howTo).toEqual(HOW);
+      expect(stored(KV).lessons).toEqual(doc.lessons);
+    }
   });
 
   it("lessons under 6 days old stay as they are", async () => {
@@ -579,7 +874,7 @@ describe("runCategory's lessons (§3)", () => {
     KV.store.set(usageKeys.tavily, JSON.stringify({ used: 950, limit: 1000 }));
     const { fetch, count } = web();
     const doc = await runCategory(env, "cars", { fetch, now: NOW });
-    expect(count).toEqual({ tavily: 0, usage: 0, other: 0 });
+    expect(count).toEqual({ tavily: 0, usage: 0, youtube: 0, other: 0 });
     expect(env.AI.run).not.toHaveBeenCalled();
     expect(doc).toMatchObject({
       status: "failed",

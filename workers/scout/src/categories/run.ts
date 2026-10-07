@@ -1,11 +1,13 @@
 /**
- * A Discover category's scan (planning/tools/19-category-trends.md §2): its 2 queries × 3 searches (6 credits) →
- * Trending effects' candidates, AI cleanup and 7-day memory, with the camera words, the category's own generic words,
- * its context line and a 200-name memory → its top 12, trends first, with no YouTube check → one KV document
- * `category:<id>`. Once per UTC day unless forced or that day's run failed; at most 3 spending runs a category a UTC
- * day, forced ones included (`category:attempts:<id>:<day>`); paused at 90 % of the month's Tavily credits (§4).
- * When its lessons are 6 or more days old (or missing) the scan also refreshes them (lessons.ts), saved after the
- * trends. Never throws: a day that fails keeps the last page and its lessons.
+ * A Discover category's scan (planning/tools/19-category-trends.md §2): its 6 queries over Instagram's month (6
+ * credits) → Trending effects' candidates, AI cleanup (on gpt-oss-120b, llama its fallback) and 7-day memory, with the
+ * camera words, the category's own generic words, its context line and a 200-name memory → its top 12, trends first,
+ * with no YouTube check → plus the top videos per platform (§6: YouTube's 50 most viewed of the month, 2 calls; the
+ * scan's Instagram and TikTok posts) → one KV document `category:<id>`. Once per UTC day unless forced or that day's
+ * run failed; at most 3 spending runs a category a UTC day, forced ones included (`category:attempts:<id>:<day>`);
+ * paused at 90 % of the month's Tavily credits (§4). When its lessons are 6 or more days old, missing or from an older
+ * version (`LESSONS_VERSION`) the scan also refreshes them (lessons.ts), saved after the trends. Never throws: a day
+ * that fails keeps the last page and its lessons.
  */
 
 import { isRecord } from "../effects/ai";
@@ -13,6 +15,7 @@ import { readEffects, writeEffects } from "../effects/kv";
 import { countAttempt, failed, noted, rememberPosts, type Memory } from "../effects/run";
 import { scoreEffects } from "../effects/score";
 import {
+  IG_MONTH,
   monthTight,
   monthUsage,
   searchFamilies,
@@ -25,14 +28,16 @@ import {
   aiContext,
   attemptsKey,
   CATEGORY_KEYS,
+  CATEGORY_MIN_CREATORS,
   CATEGORY_SUFFIXES,
   categoryById,
   categoryGeneric,
   categoryKey,
   categoryQueries,
 } from "./defs";
-import { lessonsDue, refreshLessons } from "./lessons";
-import { AREAS, type CategoryDoc } from "./types";
+import { LESSON_MODEL, lessonsDue, refreshLessons } from "./lessons";
+import { readTop, scanTop, youtubeTop } from "./top";
+import { AREAS, type CategoryDoc, type TopLists } from "./types";
 
 export type CategoryRunOptions = {
   fetch?: typeof fetch;
@@ -54,15 +59,19 @@ const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(reso
 /**
  * A category's stored page: null before its first scan; throws when KV can't be read. KV's document is checked at its
  * top level only (readEffects), so its lessons are untrusted too: a malformed `lessons` is dropped, never handed on
- * (the next scan refreshes it). Each technique is the page's to check (lib/categories.ts drops a bad one alone).
+ * (the next scan refreshes it). Each technique is the page's to check (lib/categories.ts drops a bad one alone). Its
+ * top lists (§6) are read entry by entry (`readTop`): a page from before §6 has none.
  */
 export async function readCategory(env: EffectsEnv, id: string): Promise<CategoryDoc | null> {
   const doc = await readEffects<CategoryDoc>(env, categoryKey(id));
-  const l: unknown = doc?.lessons;
-  if (!doc || l === undefined) return doc;
-  return isRecord(l) && typeof l.updatedAt === "string" && AREAS.every((a) => Array.isArray(l[a]))
-    ? doc
-    : { ...doc, lessons: undefined };
+  if (!doc) return doc;
+  const l: unknown = doc.lessons;
+  const lessons =
+    l === undefined ||
+    (isRecord(l) && typeof l.updatedAt === "string" && AREAS.every((a) => Array.isArray(l[a])))
+      ? doc.lessons
+      : undefined;
+  return { ...doc, lessons, top: readTop(doc.top) };
 }
 
 async function scan(
@@ -84,15 +93,35 @@ async function scan(
     {
       numbering: queries,
       tight: false,
+      searches: IG_MONTH,
     },
   );
   const notes = new Set(errors);
   if (!posts.length && errors.length)
     return { doc: failed(prev, today, now, [...notes]), credits, families };
-  const { history, meta, shown, memory } = await rememberPosts(env, prev, today, posts, notes, {
+  // §6: YouTube's top list comes from the cron's runs and a category's first top scan alone. A forced run (Scan
+  // again) keeps the stored list, whatever its length or the page's status, and its date with it, so a kept list never
+  // looks fresh and a tap never spends one of the shared 100 `search.list` a day. A failed call keeps the last list
+  // too. Instagram's and TikTok's come from this scan's posts. YouTube's videos feed the trends as well (§2).
+  const kept = opts.force ? prev?.top : undefined;
+  const youtube = kept
+    ? null
+    : await youtubeTop(env, doFetch, g.queries.en[0], now, opts.timeoutMs);
+  if (!kept && !youtube) notes.add("youtube");
+  const top: TopLists = {
+    updatedAt: youtube ? now.toISOString() : (prev?.top?.updatedAt ?? now.toISOString()),
+    yt: youtube?.videos ?? prev?.top?.yt ?? [],
+    ig: scanTop(posts, "ig"),
+    tt: scanTop(posts, "tt"),
+  };
+  const all = [...posts, ...(youtube?.posts ?? [])];
+  const { history, meta, shown, memory } = await rememberPosts(env, prev, today, all, notes, {
     aiTimeoutMs: opts.aiTimeoutMs,
     extract: { suffixes: CATEGORY_SUFFIXES, generic: categoryGeneric(g) },
     aiContext: aiContext(g),
+    // gpt-oss-120b, llama once for a batch it leaves without a list: llama alone approved junk names for Cars
+    // ("Creative Effect"), while gpt-oss answered every lessons call (§2).
+    aiModel: LESSON_MODEL,
     maxKeys: CATEGORY_KEYS,
   });
   return {
@@ -104,9 +133,11 @@ async function scan(
       updatedAt: now.toISOString(),
       status: notes.size ? "partial" : "ok",
       ...(notes.size ? { notes: [...notes] } : {}),
-      // No YouTube check (§4): the shared 100 `search.list` a day stay untouched.
-      items: scoreEffects(history, shown, today, {}),
+      // No YouTube views check of the styles, as Trending effects makes (§4): the scan's one `search.list` is the top
+      // list's (§6), whose videos joined the posts. 2 creators a style (Trending effects needs 3).
+      items: scoreEffects(history, shown, today, {}, CATEGORY_MIN_CREATORS),
       ...(prev?.lessons ? { lessons: prev.lessons } : {}),
+      top,
       meta,
       history,
     },

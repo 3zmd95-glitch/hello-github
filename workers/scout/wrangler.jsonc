@@ -3,7 +3,8 @@
 // and the Trend Radar feed (round 30, planning/tools/08-trends.md).
 // Secrets (set by the deploy workflow with `wrangler secret put`, never committed): TAVILY_API_KEY,
 // SCOUT_TOKEN, META_APP_ID, META_APP_SECRET, THREADS_APP_ID, THREADS_APP_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, TIKTOK_CLIENT_KEY,
-// TIKTOK_CLIENT_SECRET, YOUTUBE_API_KEY.
+// TIKTOK_CLIENT_SECRET, YOUTUBE_API_KEY. BRAVE_API_KEY (optional, the category pages' TikTok and Instagram tabs) is
+// added by the owner in Cloudflare (Workers & Pages → 3z-scout → Settings → Variables and Secrets → Add → Secret).
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "3z-scout",
@@ -24,10 +25,13 @@
     "TREND_KEYWORDS_AR": "تصوير,مونتاج,دافنشي,تصحيح الألوان,كاميرا,صانع محتوى",
     "TREND_KEYWORDS_EN": "davinci resolve,color grading,b-roll,iphone videography,video editing,content creator",
     // Discover v2 (planning/tools/13-discover-search-v2.md): YouTube search.list calls Discover and the Claude
-    // connector may spend a UTC day (the radar keeps its 18 of Google's 100), and the connector's Tavily
-    // lookups a Riyadh day.
-    "DISCOVER_YT_CAP": "70",
+    // connector may spend a UTC day (of Google's 100, the radar keeps its 18, Trending effects 6 and the category
+    // top lists 4: 94 in all), and the connector's Tavily lookups a Riyadh day.
+    "DISCOVER_YT_CAP": "66",
     "MCP_DAILY_LOOKUPS": "60",
+    // Brave Search requests a UTC day for the category pages' TikTok and Instagram tabs (planning/tools/19-category-
+    // trends.md §6). Brave's $5 monthly credit covers about 1,000 requests, then $5 per 1,000.
+    "BRAVE_DAILY": "40",
     // "off" sends dashboards back to the old per-platform search.
     "DISCOVER_V2": "on",
     // The connector's address as Claude sees it (OAuth protected-resource metadata must equal it).

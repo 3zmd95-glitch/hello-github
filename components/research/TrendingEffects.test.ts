@@ -187,7 +187,7 @@ describe("the trending-effects row", () => {
     expect(host.innerHTML).toBe("");
   });
 
-  it("in Arabic: the names (English without an Arabic one), the NEW badge, the reason with and without YouTube", async () => {
+  it("in Arabic: the English names (live fix 1), the NEW badge, the reason with and without YouTube", async () => {
     await mount("ar");
     const row = $("trending-effects")!;
     expect(row.getAttribute("data-state")).toBe("list");
@@ -204,19 +204,20 @@ describe("the trending-effects row", () => {
 
     // YouTube's note from 1.5× (inclusive): 1.5 shows it, 1.49 does not.
     expect(chips().map((c) => [c.getAttribute("data-key"), c.textContent])).toEqual([
-      ["clone-effect", "تأثير الاستنساخ9 صنّاع · ▶ ↑1.5×"],
-      ["swagger-trend", "ترند السواقرجديد4 صنّاع · ▶ ↑3×"],
+      ["clone-effect", "clone effect9 صنّاع · ▶ ↑1.5×"],
+      ["swagger-trend", "swagger trendجديد4 صنّاع · ▶ ↑3×"],
       ["flash-clone-edit", "flash clone editجديد3 صنّاع"],
-      ["speed-ramp", "سبيد رامب7 صنّاع"],
+      ["speed-ramp", "speed ramp7 صنّاع"],
     ]);
-    // The what line: the tooltip, and in what a screen reader reads.
-    expect(chip("swagger-trend").title).toBe("تستنسخ نفسك بحركة شعر");
+    // The what line in English: the tooltip, with the Arabic name under it, and in what a screen reader reads.
+    expect(chip("swagger-trend").title).toBe("Clone yourself with one hair flip\nترند السواقر");
     expect(chip("swagger-trend").getAttribute("aria-label")).toBe(
-      "ترند السواقر · جديد · 4 صنّاع · ▶ ↑3× · تستنسخ نفسك بحركة شعر",
+      "swagger trend · جديد · 4 صنّاع · ▶ ↑3× · Clone yourself with one hair flip",
     );
     expect(chip("clone-effect").getAttribute("aria-label")).toBe(
-      "تأثير الاستنساخ · 9 صنّاع · ▶ ↑1.5× · تطلع مرتين في نفس اللقطة",
+      "clone effect · 9 صنّاع · ▶ ↑1.5× · You show up twice in one shot",
     );
+    expect(chip("speed-ramp").title).toBe("سبيد رامب");
     expect(chip("flash-clone-edit").hasAttribute("title")).toBe(false);
     expect($("trending-run")).toBeNull();
   });
@@ -233,6 +234,7 @@ describe("the trending-effects row", () => {
     expect(chip("clone-effect").getAttribute("aria-label")).toBe(
       "clone effect · 9 creators · ▶ ↑1.5× · You show up twice in one shot",
     );
+    expect(chip("clone-effect").title).toBe("You show up twice in one shot\nتأثير الاستنساخ");
   });
 
   it("failed today but recent: the last list, with a faint line", async () => {
