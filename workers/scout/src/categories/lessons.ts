@@ -38,8 +38,9 @@ export const LESSON_DAYS = 6;
  * how-tos, 3 before live fix 3's subject checks and stronger model, 2026-10-07) are due at the next scan, and an area
  * never keeps their techniques. */
 export const LESSONS_VERSION = 4;
-/** The lessons' model (live fix 3: llama copied the prompt's example and wrote generic lines for Food and Anime). It
- * reasons before it answers, so it gets room for that; llama answers a call it leaves without a usable answer. */
+/** The lessons' model (live fix 3: llama copied the prompt's example and wrote generic lines for Food and Anime), and
+ * the category trend cleanup's since 2026-10-07 (run.ts). It reasons before it answers, so it gets room for that; llama
+ * answers a call it leaves without a usable answer. */
 export const LESSON_MODEL = "@cf/openai/gpt-oss-120b";
 const LESSON_TOKENS = 3000;
 const PER_AREA = 3;

@@ -46,6 +46,8 @@ type AiCounts = {
   dropped: number;
   merged: number;
   rejects: Record<string, number>;
+  /** A category's cleanup (gpt-oss-120b first): the model that answered each batch, "none" when neither did. */
+  models?: string[];
 };
 /** For the run's log line, to tune the job at the live check: counts and our own dictionary ids, no names. */
 export type Memory = {
@@ -204,7 +206,7 @@ function forAi(cands: Map<string, Candidate>, prev: EffectsDoc | null, today: st
  * Today's posts into the memory (planning/tools/18-trending-effects.md §1 steps 2–4; shared with category scans,
  * planning/tools/19-category-trends.md §2): the rule candidates, the AI's cleanup in batches of 9, each key's meta and
  * the 7-day history. Notes "ai_fallback" / "ai_empty" / "ai_partial" go into `notes`. A category passes its camera
- * words and own generic words, its context line for the AI and its smaller memory.
+ * words and own generic words, its context line for the AI, the model its cleanup asks first and its smaller memory.
  */
 export async function rememberPosts(
   env: EffectsEnv,
@@ -212,7 +214,13 @@ export async function rememberPosts(
   today: string,
   posts: readonly EffectPost[],
   notes: Set<string>,
-  opts: { aiTimeoutMs?: number; extract?: ExtractExtra; aiContext?: string; maxKeys?: number } = {},
+  opts: {
+    aiTimeoutMs?: number;
+    extract?: ExtractExtra;
+    aiContext?: string;
+    aiModel?: string;
+    maxKeys?: number;
+  } = {},
 ): Promise<{
   cands: Map<string, Candidate>;
   history: History;
@@ -222,12 +230,13 @@ export async function rememberPosts(
 }> {
   const cands = await extractCandidates(posts, opts.extract);
   const top = forAi(cands, prev, today);
-  const reply = top.length
+  const reply: Awaited<ReturnType<typeof cleanWithAi>> = top.length
     ? await cleanWithAi(
         env,
         top.map((c) => ({ key: c.key, name: c.name, samples: c.samples.map((s) => s.title) })),
         opts.aiTimeoutMs,
         opts.aiContext,
+        opts.aiModel,
       )
     : { verdicts: [], rejects: {}, failed: 0 };
   // The AI judged (or had nothing to judge). Otherwise: no answer, or no usable verdict in it.
@@ -246,6 +255,7 @@ export async function rememberPosts(
     dropped,
     merged: spellings,
     rejects: reply?.rejects ?? {},
+    ...(reply?.models ? { models: reply.models } : {}),
   };
   const dictionary = Object.fromEntries(
     [...cands.values()].flatMap((c) => (c.termId ? [[c.termId, c.ids.size]] : [])),

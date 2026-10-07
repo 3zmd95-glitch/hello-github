@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AI_MODEL } from "../discover/ai";
 import { usageKeys } from "../discover/usage";
 import { TAVILY_URL } from "../trends/tavily";
 import { FAMILY_QUERIES, familiesForDay } from "./families";
@@ -188,6 +189,9 @@ describe("runEffects", () => {
     // 3 Tavily searches a family (Instagram over a week and a month, TikTok over a month).
     expect(count).toEqual({ tavily: 18, search: 2, stats: 1 });
     expect(AI.run).toHaveBeenCalledTimes(1);
+    // Trending effects' cleanup stays on llama, as before (a category's asks gpt-oss-120b first).
+    expect(AI.run.mock.calls[0][0]).toBe(AI_MODEL);
+    expect(AI.run.mock.calls[0][1]).toMatchObject({ max_tokens: 1500 });
     expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY]);
     expect(stored(KV)).toEqual(doc);
 

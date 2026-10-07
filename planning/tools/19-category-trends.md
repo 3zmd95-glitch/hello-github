@@ -131,6 +131,14 @@ creators. Hence the YouTube posts above, and 2 creators a style (Scoring, below)
 true or false." An answer with an empty list is counted in the diagnostics as the reject `empty_list` (Trending
 effects' too: a count only).
 
+**The cleanup's model** (2026-10-07). A category's cleanup asks the lessons' model, `@cf/openai/gpt-oss-120b`
+(`LESSON_MODEL`; `max_tokens` 3,000, as it reasons first). A batch it leaves without a usable answer (none, or no
+`effects` list) is asked once more of llama-3.3-70b (`max_tokens` 1,500, as before), as the lessons' calls are. The
+diagnostics name the model that answered each batch, `ai.models` ("none" when neither did). Why: Cars' scan at 07:24 UTC
+(after PR #58) showed gpt-oss answering all 4 lesson calls (`diagnostics.lessons.models`), so its answers parse live,
+while the cleanup, still on llama, approved junk names: "From Stunning Slow-Motion Shot" and "Creative Effect" (both
+NEW, 2 creators). Trending effects' cleanup stays on llama, unchanged.
+
 **Scoring.** Distinct creators over 7 days, at least 2 since 2026-10-07 (Trending effects keeps 3: `scoreEffects` takes
 the minimum, `CATEGORY_MIN_CREATORS`). A name outside the dictionary still shows only once the AI has approved it. Then
 growth, NEW, trends first (names outside the dictionary and dictionary trend entries), then techniques, top 12. The
@@ -165,7 +173,7 @@ category a day (`category:attempts:<id>:<day>`).
   reads every shape an answer comes in (`response` as text or an object, `choices[0].message.content`, the
   Responses API's `output[]` messages and their `content[].text`) and strips a code fence. The lessons' diagnostics
   name the model that answered each call: `models: { pick, photo, video, edit }` ("none" when neither did). The trend
-  cleanup stays on llama, as Trending effects does.
+  cleanup moved to gpt-oss too on 2026-10-07 (§2); Trending effects' stays on llama.
 - **Videos** (live fix 1: the best examples of the technique for the subject; a tutorial is optional).
   - One English Tavily search per technique over youtube.com, instagram.com and tiktok.com. The search is the
     technique's query, with the subject in front when none of the category's own words is in it ("hyperlapse" → "car
@@ -279,8 +287,9 @@ Discover's counter on each cron scan (4 a day) and on a category's first top sca
 keeps the stored list and its date. Discover's `DISCOVER_YT_CAP` went from 70 to 66 to make room: the day stays at 94
 of the 100.
 
-**Workers AI.** The estimate is about 6,000 of the free 10,000 neurons a day for categories:
-- 4 scans × 3 batches;
+**Workers AI.** The estimate is about 6,000 of the free 10,000 neurons a day for categories (from before the cleanup
+moved to gpt-oss; the live check measures it again):
+- 4 scans × 3 batches, on gpt-oss-120b since 2026-10-07, and up to 3 more on llama when it answers nothing usable;
 - about 2 lesson refreshes × 4 calls (1 pick, then 3 how-to calls, one per area), on gpt-oss-120b since live fix 3,
   and up to 4 more on llama when it answers nothing usable;
 - plus Trending effects and Discover.
@@ -289,14 +298,16 @@ On a day the AI is unavailable, new names wait (`ai_fallback`) and lessons keep 
 Workers Paid ($5 a month) lifts the limit; the live check measures it first.
 
 **Each invocation.** One category per invocation, either a cron slot or a POST. CPU is about 70–90 ms, as for effects;
-Cloudflare has reported no CPU-limit errors so far. Subrequests per run are at most about 37, under the 50 a free
+Cloudflare has reported no CPU-limit errors so far. Subrequests per run are at most about 40, under the 50 a free
 invocation allows:
 - 16 Tavily searches and 1 Tavily `/usage`;
 - 2 YouTube calls (§6: `search.list` and `videos.list`);
-- 11 AI calls: 3 cleanup batches, 1 pick and 3 how-to calls, and up to 4 of those asked again on llama (live fix 3);
+- 14 AI calls: 3 cleanup batches, 1 pick and 3 how-to calls, and up to 7 of those asked again on llama (the lessons'
+  since live fix 3, the cleanup's since 2026-10-07: +3);
 - 7 KV operations.
 
-The lessons' calls can take longer since live fix 3: each has 60 s, and one llama retry another 60 s.
+The lessons' calls can take longer since live fix 3, and the cleanup's batches since 2026-10-07: each has 60 s, and one
+llama retry another 60 s.
 
 A chosen Brave tab (§6) is an invocation of its own: 2 KV reads (the page, the day's counter), 1–3 Brave requests and
 1–2 KV writes (the counter, reserved before the first request and corrected after when fewer or more were made).

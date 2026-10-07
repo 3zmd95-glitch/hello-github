@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AI_MODEL } from "../discover/ai";
 import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
 import { TAVILY_URL } from "../trends/tavily";
 import { YT_SEARCH_URL } from "../trends/youtubeSearch";
 import { aiContext, categoryById } from "./defs";
+import { LESSON_MODEL } from "./lessons";
 import { readCategory, runCategory } from "./run";
 import type { CategoryDoc, Technique } from "./types";
 
@@ -254,12 +256,17 @@ describe("runCategory", () => {
     );
     const system = (AI.run.mock.calls[0][1].messages as { content: string }[])[0].content;
     expect(system.endsWith(aiContext(categoryById("cars")!))).toBe(true);
+    // The cleanup asks the lessons' model, gpt-oss-120b, with room to reason (Trending effects stays on llama).
+    expect(AI.run.mock.calls[0][0]).toBe(LESSON_MODEL);
+    expect(AI.run.mock.calls[0][1]).toMatchObject({ max_tokens: 3000 });
     // A spending run counts itself, then saves. A lessons refresh (Task 3) may save once more after that.
     expect(writes(KV).slice(0, 2)).toEqual([ATTEMPTS, KEY]);
     expect(stored(KV).items).toEqual(doc.items);
     expect(stored(KV).diagnostics).toMatchObject({
       id: "cars",
       credits: 6,
+      // The model that answered each cleanup batch.
+      ai: { models: ["gpt-oss-120b"] },
       families: [1, 2, 3, 4, 5, 6].map((family) => ({
         family,
         tt: 0,
@@ -388,6 +395,27 @@ describe("runCategory", () => {
     expect(error).toHaveBeenCalledExactlyOnceWith(
       JSON.stringify({ category: { write: "failed" } }),
     );
+  });
+
+  it("a cleanup batch gpt-oss-120b leaves without a list is asked once more of llama: the same trends, llama in the diagnostics", async () => {
+    const { env, KV } = setup();
+    const cleanup = ai();
+    // gpt-oss answers nothing usable (an object without `effects`); llama answers as the fake above.
+    env.AI = {
+      run: vi.fn(async (model: string, input: Record<string, unknown>): Promise<unknown> =>
+        model === LESSON_MODEL ? { response: {} } : cleanup.run(model, input),
+      ),
+    };
+    const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW, sleep: NO_WAIT });
+    expect(doc.items.map((i) => i.key)).toEqual(["rolling-shot", "low-angle", "speed-ramp"]);
+    const cleanups = env.AI.run.mock.calls.filter(([, input]) =>
+      (input.messages as { content: string }[])[0].content.startsWith("You clean"),
+    );
+    expect(cleanups.map(([model]) => model)).toEqual([LESSON_MODEL, AI_MODEL]);
+    expect(stored(KV).diagnostics).toMatchObject({
+      ai: { models: ["llama-3.3-70b-instruct-fp8-fast"] },
+    });
+    expect(doc.notes ?? []).not.toContain("ai_fallback");
   });
 
   it("T6: a style 2 creators posted shows once the AI approved it (Trending effects needs 3)", async () => {

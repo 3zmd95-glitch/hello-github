@@ -190,15 +190,17 @@ refreshed before every sync. A refresh the provider refuses → `lastError: "tok
   Discover category instead (planning/tools/19-category-trends.md): the 12 categories of genres.json in 3 groups of 4
   by UTC day % 3, so each one every 3 days. A scan spends 6 Tavily credits (6 queries over Instagram's month: the
   first live Cars scan found about 1 post a call over Instagram's week and on TikTok; about 720 a month), up to 3
-  built-in AI calls (the cleanup in batches of 9) and YouTube's top list (§6): 1 `search.list` + 1 `videos.list`
+  built-in AI calls (the cleanup in batches of 9, on `@cf/openai/gpt-oss-120b` since 2026-10-07, a batch it leaves
+  without a usable answer asked once more of llama-3.3-70b: up to 6; the diagnostics' `ai.models` name the model that
+  answered each batch) and YouTube's top list (§6): 1 `search.list` + 1 `videos.list`
   outside `DISCOVER_YT_CAP`, on these 4 cron scans and a category's first top scan only (Scan again keeps the stored
   list and its date), whose videos also feed the trends (title and description, each channel counted by its id). When
   a category's lessons are 6 or more days old (or missing: its first scan; or older than `LESSONS_VERSION`, 4 since
   live fix 3), its scan also spends up to 10 credits (about 600 a month: one search a technique for examples of it for
   the subject, and the Arabic one) and 4 AI calls on them (a pick, then one how-to call per area) on
   `@cf/openai/gpt-oss-120b`, each asked once more of llama-3.3-70b when it gives no usable answer (the lessons'
-  diagnostics name the model of each call: `models`), and saves a second time at least 1.1 s later. At most 37
-  subrequests (16 Tavily searches, 1 Tavily `/usage`, 2 YouTube, 11 AI, 7 KV operations). A post due after 05:30 UTC
+  diagnostics name the model of each call: `models`), and saves a second time at least 1.1 s later. At most 40
+  subrequests (16 Tavily searches, 1 Tavily `/usage`, 2 YouTube, 14 AI, 7 KV operations). A post due after 05:30 UTC
   (that tick still publishes) goes out at the 06:00 tick.
   Every slot sits on the five-minute grid and no two jobs share one (a test guards it).
   One trigger instead of many also stays inside the free plan's five cron triggers per account.

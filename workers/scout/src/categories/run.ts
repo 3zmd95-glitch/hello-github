@@ -1,13 +1,13 @@
 /**
  * A Discover category's scan (planning/tools/19-category-trends.md §2): its 6 queries over Instagram's month (6
- * credits) → Trending effects' candidates, AI cleanup and 7-day memory, with the camera words, the category's own
- * generic words, its context line and a 200-name memory → its top 12, trends first, with no YouTube check → plus the
- * top videos per platform (§6: YouTube's 50 most viewed of the month, 2 calls; the scan's Instagram and TikTok posts)
- * → one KV document `category:<id>`. Once per UTC day unless forced or that day's run failed; at most 3 spending runs a
- * category a UTC day, forced ones included (`category:attempts:<id>:<day>`); paused at 90 % of the month's Tavily
- * credits (§4). When its lessons are 6 or more days old, missing or from an older version (`LESSONS_VERSION`) the scan
- * also refreshes them (lessons.ts), saved after the trends. Never throws: a day that fails keeps the last page and
- * its lessons.
+ * credits) → Trending effects' candidates, AI cleanup (on gpt-oss-120b, llama its fallback) and 7-day memory, with the
+ * camera words, the category's own generic words, its context line and a 200-name memory → its top 12, trends first,
+ * with no YouTube check → plus the top videos per platform (§6: YouTube's 50 most viewed of the month, 2 calls; the
+ * scan's Instagram and TikTok posts) → one KV document `category:<id>`. Once per UTC day unless forced or that day's
+ * run failed; at most 3 spending runs a category a UTC day, forced ones included (`category:attempts:<id>:<day>`);
+ * paused at 90 % of the month's Tavily credits (§4). When its lessons are 6 or more days old, missing or from an older
+ * version (`LESSONS_VERSION`) the scan also refreshes them (lessons.ts), saved after the trends. Never throws: a day
+ * that fails keeps the last page and its lessons.
  */
 
 import { isRecord } from "../effects/ai";
@@ -35,7 +35,7 @@ import {
   categoryKey,
   categoryQueries,
 } from "./defs";
-import { lessonsDue, refreshLessons } from "./lessons";
+import { LESSON_MODEL, lessonsDue, refreshLessons } from "./lessons";
 import { readTop, scanTop, youtubeTop } from "./top";
 import { AREAS, type CategoryDoc, type TopLists } from "./types";
 
@@ -119,6 +119,9 @@ async function scan(
     aiTimeoutMs: opts.aiTimeoutMs,
     extract: { suffixes: CATEGORY_SUFFIXES, generic: categoryGeneric(g) },
     aiContext: aiContext(g),
+    // gpt-oss-120b, llama once for a batch it leaves without a list: llama alone approved junk names for Cars
+    // ("Creative Effect"), while gpt-oss answered every lessons call (§2).
+    aiModel: LESSON_MODEL,
     maxKeys: CATEGORY_KEYS,
   });
   return {
