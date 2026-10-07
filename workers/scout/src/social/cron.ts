@@ -5,14 +5,18 @@
  * runs one job, so it keeps the free plan's full subrequest budget: the four grid ticks from 03:00 to 03:30 UTC
  * (06:00–06:30 Riyadh) run the daily sync of one platform each, the Trend Radar ticks (round 30,
  * planning/tools/08-trends.md) refresh the trend feed, the 05:35 UTC tick runs the trending effects job
- * (planning/tools/18-trending-effects.md), and the other grid ticks publish what is due. One
+ * (planning/tools/18-trending-effects.md), the four 05:40–05:55 UTC ticks each scan one Discover category
+ * (planning/tools/19-category-trends.md), and the other grid ticks publish what is due. One
  * trigger rather than many also stays inside the free plan's cron limit (five per account). A publish tick
  * that moved nothing also polls the auto replies: the two never share one tick, so each keeps its full
  * budget.
  */
 
+import { CATEGORY_SLOTS, categoriesForDay } from "../categories/defs";
+import { runCategory } from "../categories/run";
 import { runEffects } from "../effects/run";
 import type { EffectsEnv } from "../effects/sources";
+import { utcDay } from "../trends/kv";
 import { runTrends, summarize, type TrendsRunSummary } from "../trends/run";
 import type { TrendKind, TrendsEnv } from "../trends/types";
 import { runDue, type RunResult } from "./publish";
@@ -56,6 +60,7 @@ export type TickResult =
   | { publish: RunResult; replies?: PollResult }
   | { trends: TrendsRunSummary }
   | { effects: { status: string; items: number; notes?: string[] } }
+  | { category: { id: string; status: string; items: number; notes?: string[] } }
   | { replies: PollResult };
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -79,7 +84,7 @@ export async function runTick(
   deps: SyncDeps = {},
 ): Promise<TickResult> {
   const now = deps.now ?? new Date(scheduledTime);
-  // Off the five-minute grid only the replies run (every sync, effects and trend slot sits on the grid).
+  // Off the five-minute grid only the replies run (every sync, effects, category and trend slot sits on the grid).
   if (new Date(scheduledTime).getUTCMinutes() % 5 !== 0) {
     return { replies: await pollReplies(env, { fetch: deps.fetch, now, fiveMinuteTick: false }) };
   }
@@ -88,6 +93,12 @@ export async function runTick(
   if (utcSlot(scheduledTime) === EFFECTS_SLOT) {
     const { status, items, notes } = await runEffects(env, { fetch: deps.fetch, now });
     return { effects: { status, items: items.length, notes } };
+  }
+  // The 4 category slots (05:40–05:55 UTC): slot i scans the day's i-th category (planning/tools/19-category-trends.md).
+  const category = categoriesForDay(utcDay(now))[CATEGORY_SLOTS.indexOf(utcSlot(scheduledTime))];
+  if (category) {
+    const { status, items, notes } = await runCategory(env, category, { fetch: deps.fetch, now });
+    return { category: { id: category, status, items: items.length, notes } };
   }
   const kind = trendKindAt(scheduledTime);
   if (kind) {

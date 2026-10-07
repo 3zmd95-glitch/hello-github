@@ -6,7 +6,7 @@
 
 import type { SearchAiBinding } from "../discover/ai";
 import { CALL_TIMEOUT_MS, tavilyCall, youtubeCall } from "../discover/fetchers";
-import { usageKeys, type TavilyUsage } from "../discover/usage";
+import { tavilyUsage, type TavilyUsage } from "../discover/usage";
 import type { ScoutResult } from "../normalize";
 import { enrichYoutubeStats, YT_STATS_MAX } from "../youtubeStats";
 import { FAMILY_QUERIES } from "./families";
@@ -34,8 +34,10 @@ const SEARCHES = [
   { platform: "ig", timeRange: "month", stat: "igMonth" },
   { platform: "tt", timeRange: "month", stat: "tt" },
 ] as const;
-/** Tavily's month nearly spent (Discover's cached usage figure): the Instagram month search alone. */
+/** Tavily's month nearly spent (`monthTight`): the Instagram month search alone. */
 const TIGHT_SEARCHES = [SEARCHES[1]];
+/** "Nearly spent": this share of the month's credits (`monthTight`). Trending effects cuts back at it; category scans
+ * pause (planning/tools/19-category-trends.md §4). */
 const TIGHT_SHARE = 0.9;
 
 /** A family's post pages found by each search, and its posts once each (the log line's figures). */
@@ -47,17 +49,40 @@ export type FamilyStats = {
   posts: number;
 };
 
-/** True when Discover's cached Tavily figure (10 minutes in KV) says ≥ 90 % of the month is used; a missing or
- * unreadable figure, or no known limit, is not tight. */
-async function budgetTight(env: EffectsEnv): Promise<boolean> {
-  try {
-    const usage = JSON.parse(
-      (await env.SOCIAL_KV?.get(usageKeys.tavily, "text")) ?? "null",
-    ) as TavilyUsage | null;
-    return usage?.limit ? usage.used / usage.limit >= TIGHT_SHARE : false;
-  } catch {
-    return false;
-  }
+/**
+ * Tavily's month for the budget guards: Discover's figure (kept 10 minutes in KV), else Tavily's own `/usage`, asked once
+ * and kept 10 minutes. Only opening Discover keeps a figure, so the 05:35–05:55 UTC runs rarely find one: without the
+ * call they spent past 90 % until Tavily refused every search, Discover's too. null when still unknown (no key, the
+ * call failing, no figure in it). Shared with category scans, which pause on it (planning/tools/19-category-trends.md
+ * §4). At most 1 more subrequest and 1 KV write a run, only when no figure is kept.
+ */
+export async function monthUsage(
+  env: EffectsEnv,
+  doFetch: typeof fetch,
+  timeoutMs = CALL_TIMEOUT_MS,
+): Promise<TavilyUsage | null> {
+  const u: unknown = await tavilyUsage(env, doFetch, timeoutMs).catch(() => null);
+  return typeof (u as TavilyUsage | null)?.used === "number" ? (u as TavilyUsage) : null;
+}
+
+/**
+ * The month's credits nearly spent: ≥ 90 % of the plan plus a positive pay-as-you-go limit (the cost counts on
+ * pay-as-you-go, planning/tools/19-category-trends.md §4), for both jobs. No figure, or no known plan limit, is not
+ * tight; a pay-as-you-go limit that is not a positive number adds nothing.
+ */
+export function monthTight(u: TavilyUsage | null): boolean {
+  if (!u?.limit) return false;
+  const paygo = typeof u.paygoLimit === "number" && u.paygoLimit > 0 ? u.paygoLimit : 0;
+  return (u.used + (paygo ? (u.paygoUsed ?? 0) : 0)) / (u.limit + paygo) >= TIGHT_SHARE;
+}
+
+/** Trending effects' decision: the month's figure (`monthUsage`) nearly spent (`monthTight`). */
+async function budgetTight(
+  env: EffectsEnv,
+  doFetch: typeof fetch,
+  timeoutMs: number,
+): Promise<boolean> {
+  return monthTight(await monthUsage(env, doFetch, timeoutMs));
 }
 
 export async function searchFamilies(
@@ -65,6 +90,9 @@ export async function searchFamilies(
   doFetch: typeof fetch,
   queries: readonly string[],
   timeoutMs = CALL_TIMEOUT_MS,
+  /** Category scans (planning/tools/19-category-trends.md §2): `numbering`, the list whose 1-based places number the
+   * stats (default the 18 families); `tight`, the budget decision already made (they pause before searching). */
+  opts: { numbering?: readonly string[]; tight?: boolean } = {},
 ): Promise<{
   posts: EffectPost[];
   credits: number;
@@ -74,10 +102,16 @@ export async function searchFamilies(
 }> {
   if (!env.TAVILY_API_KEY)
     return { posts: [], credits: 0, errors: ["not_configured"], families: [], tight: false };
-  const tight = await budgetTight(env);
+  const tight = opts.tight ?? (await budgetTight(env, doFetch, timeoutMs));
   const out = { posts: [] as EffectPost[], credits: 0, errors: [] as string[] };
   const families = queries.map((q) => ({
-    stats: { family: FAMILY_QUERIES.indexOf(q) + 1, tt: 0, igWeek: 0, igMonth: 0, posts: 0 },
+    stats: {
+      family: (opts.numbering ?? FAMILY_QUERIES).indexOf(q) + 1,
+      tt: 0,
+      igWeek: 0,
+      igMonth: 0,
+      posts: 0,
+    },
     urls: new Set<string>(),
   }));
   // One search of each family at a time (6 calls): a Worker keeps 6 connections open and queues the rest, whose time

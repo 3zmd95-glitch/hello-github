@@ -29,7 +29,7 @@ export interface EffectsDeps {
   waitUntil?: (task: Promise<unknown>) => void;
 }
 
-function json(body: unknown, status: number, cors: Headers): Response {
+export function json(body: unknown, status: number, cors: Headers): Response {
   const headers = new Headers(cors);
   headers.set("Content-Type", "application/json; charset=utf-8");
   return new Response(JSON.stringify(body), { status, headers });
@@ -45,7 +45,7 @@ const answer = ({ status, ranOn, updatedAt, notes, items }: EffectsDoc) => ({
 });
 
 /** `force` of the run body (false when the body is empty); null when the body is not `{ force?: boolean }`. */
-async function parseForce(req: Request): Promise<boolean | null> {
+export async function parseForce(req: Request): Promise<boolean | null> {
   const text = await req.text();
   if (!text.trim()) return false;
   let raw: unknown;

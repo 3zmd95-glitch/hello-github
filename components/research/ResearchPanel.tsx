@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -11,6 +12,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { useSkillSheet } from "@/components/skills/SkillSheetProvider";
 import { pullTrends } from "@/components/social/trends/useTrends";
 import { getProgram, getSkill, programs } from "@/data";
 import {
@@ -22,7 +24,7 @@ import {
 } from "@/lib/discover";
 import type { Lang, Skill } from "@/lib/domain";
 import { discoverPrompts } from "@/lib/discoverPrompts";
-import { allGenres } from "@/lib/genres";
+import { allGenres, GENRES } from "@/lib/genres";
 import { useT, type MessageKey } from "@/lib/i18n";
 import type { AiChoice, AiSelection } from "@/lib/localAi";
 import {
@@ -64,6 +66,7 @@ import { trendsStale } from "@/lib/trends";
 import { getApiKey, useStore } from "@/store";
 import DiscoverSections from "./DiscoverSections";
 import AiConnectionControls from "./AiConnectionControls";
+import CategoryPage from "./CategoryPage";
 import PasteLinkForm from "./PasteLinkForm";
 import PicksSection from "./PicksSection";
 import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
@@ -157,7 +160,8 @@ const SORTS: { v: SortMode; label: MessageKey }[] = [
  * first), a card grid with thumbnails and view / like counts, and attach actions. Sources: the YouTube Data
  * API when the owner has a key, the Scout Worker for TikTok / Instagram (and YouTube without a key). With a
  * genre on, a "Most viewed this week" strip above the results shows the Trend Radar's rows of that genre
- * (the feed the store keeps; Discover is the one place for genres).
+ * (the feed the store keeps; Discover is the one place for genres). A built-in category tapped with nothing typed
+ * shows its page (CategoryPage, round 37) in place of the category search.
  */
 export default function ResearchPanel({
   skill,
@@ -193,6 +197,10 @@ export default function ResearchPanel({
   const [arFirst, setArFirst] = useState(false);
   const [sort, setSort] = useState<SortMode>("relevance");
   const [genreId, setGenreId] = useState<string | null>(null);
+  // 🚗 The built-in category whose page shows (planning/tools/19-category-trends.md §1): set by a category tap with
+  // nothing typed, cleared by any search (`commit`).
+  const [page, setPage] = useState<string | null>(null);
+  const sheet = useSkillSheet();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [pickFor, setPickFor] = useState<ResearchItem | null>(null);
   // Captured once: `publishedAfter` is rounded to the day, so it (and the cache key) stays put.
@@ -225,6 +233,10 @@ export default function ResearchPanel({
   // The edit genres: the built-in ones, then the ones the owner added in Settings.
   const genres = useMemo(() => allGenres(customGenres), [customGenres]);
   const genre = genreId ? genres.find((g) => g.id === genreId) : undefined;
+  // The page stands in for the category search until a search runs; Discover v2 with a Worker only. Saved only shows
+  // the saved posts instead, as it does for a search.
+  const showPage =
+    !skill && v2 && !!scoutCfg && !!genre && page === genre.id && !base && !savedOnly;
   // Topic (or skill name), then the genre's main query in the search language, then the program hint.
   const q = researchQuery(base, queryLang, genre, hintOn ? hint : undefined);
   // Instagram hashtags are Latin slugs: the skill's EN name, or the Discover topic when it's Latin; the
@@ -249,6 +261,7 @@ export default function ResearchPanel({
     }
     setDraft(null);
     setPicked(null);
+    setPage(null);
   };
 
   const submit = (e: FormEvent) => {
@@ -268,16 +281,43 @@ export default function ResearchPanel({
     setSubmittedAi(
       aiChoice.provider === "builtin" ? undefined : { ...aiChoice, provider: aiChoice.provider },
     );
+    // A built-in category tapped with nothing typed opens its page instead of searching (spec 19 §1). Typed text still
+    // narrows the search, and an owner-added category still searches.
+    if (
+      id &&
+      id !== genreId &&
+      !skill &&
+      v2 &&
+      scoutCfg &&
+      !(draft ?? base).trim() &&
+      GENRES.some((g) => g.id === id)
+    ) {
+      commit(""); // the box may hold nothing over an old topic
+      setGenreId(id);
+      setPage(id); // after commit, which closes any page
+      return;
+    }
     if (draft !== null) commit(draft.trim());
     setGenreId(id === genreId ? null : id);
     setAttempt((a) => a + 1);
   };
 
+  // A search that closes the category page (Search all, a style) or clears the box (the category-only button) takes
+  // the focused button with it; the element that had focus is kept here for the effect below.
+  const leaving = useRef<Element | null>(null);
+
   const searchGenreOnly = () => {
     if (!genre || aiSearchBlocked) return;
+    leaving.current = document.activeElement;
     commit("");
     setAttempt((a) => a + 1);
   };
+
+  // An older Worker without category pages (or no answer): the category search, as before.
+  const pageUnavailable = useCallback(() => {
+    setPage(null);
+    setAttempt((a) => a + 1);
+  }, []);
 
   // Discover's deep link: the genre handed in goes on once, like a tap on its chip (a search of its own),
   // and its chip is brought into view in the row. The owner's next taps decide from there.
@@ -285,6 +325,7 @@ export default function ResearchPanel({
   if (openGenre && openGenre !== opened) {
     setOpened(openGenre);
     setGenreId(openGenre);
+    setPage(null); // the link searches, even over that category's page
     setAttempt((a) => a + 1);
   }
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -292,6 +333,17 @@ export default function ResearchPanel({
     if (!opened) return;
     chipRefs.current.get(opened)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [opened]);
+
+  // Once the search that took the focused button away is on screen: focus goes to the chip of the category it keeps
+  // on (the one that opened the page), a button, so no phone keyboard pops up over the results; the search box if
+  // that chip is missing. Only when that button had focus: a tap on iOS focuses nothing, so nothing moves there.
+  useEffect(() => {
+    const was = leaving.current;
+    leaving.current = null;
+    if (!was || was.isConnected) return;
+    const chip = genre ? chipRefs.current.get(genre.id) : undefined;
+    (chip ?? document.getElementById(`${ids}-topic`))?.focus();
+  });
 
   const pickTab = (next: ResearchTab) => {
     setTab(next);
@@ -341,7 +393,7 @@ export default function ResearchPanel({
   const pickOn = `${genre?.id ?? ""}|${base}`;
   const discoverReq = useMemo(
     () =>
-      v2 && !savedOnly
+      v2 && !savedOnly && !showPage
         ? discoverRequestFrom({
             mode: submittedMode === "ai" ? "ai" : undefined,
             subscription: submittedAi,
@@ -356,6 +408,7 @@ export default function ResearchPanel({
     [
       v2,
       savedOnly,
+      showPage,
       base,
       genre,
       hintOn,
@@ -703,6 +756,7 @@ export default function ResearchPanel({
         <div className={`flex gap-2 ${searchMode === "ai" ? "flex-col sm:flex-row" : ""}`}>
           {searchMode === "ai" && !skill ? (
             <textarea
+              id={`${ids}-topic`}
               rows={3}
               maxLength={600}
               dir="auto"
@@ -721,6 +775,7 @@ export default function ResearchPanel({
             />
           ) : (
             <input
+              id={`${ids}-topic`}
               type="search"
               enterKeyHint="search"
               autoComplete="off"
@@ -998,12 +1053,37 @@ export default function ResearchPanel({
         </div>
       )}
 
+      {showPage && genre && scoutCfg && (
+        <CategoryPage
+          key={genre.id}
+          config={scoutCfg}
+          genre={genre}
+          onPickStyle={(style) => {
+            // That style within the category, in Keywords (never an AI plan or the owner's subscription),
+            // like a 🔥 chip.
+            leaving.current = document.activeElement;
+            setSearchMode("keyword");
+            setSubmittedMode("keyword");
+            setTopic(style);
+            setDraft(null);
+            setPage(null);
+            setAttempt((a) => a + 1);
+            addRecentTopic(style);
+          }}
+          onSearchAll={searchGenreOnly}
+          onOpenSkill={sheet.open}
+          onUnavailable={pageUnavailable}
+          searchBlocked={aiSearchBlocked}
+        />
+      )}
+
       {/* ---------- platform tabs ---------- */}
       <div
         role="tablist"
         aria-label={t("research.tabs")}
         className="grid grid-cols-4 gap-1.5"
         onKeyDown={onTabKey}
+        hidden={showPage}
       >
         {RESEARCH_TABS.map((tb, i) => {
           const active = tb === tab;
@@ -1043,7 +1123,7 @@ export default function ResearchPanel({
       </div>
 
       {/* ---------- filters ---------- */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2" hidden={showPage}>
         <button
           type="button"
           className="px-btn px-btn-ghost px-btn-sm md:hidden"
@@ -1082,6 +1162,7 @@ export default function ResearchPanel({
       <div
         id={`${ids}-filters`}
         className={`${filtersOpen ? "flex" : "hidden"} flex-col gap-2.5 md:flex md:flex-row md:flex-wrap md:items-end md:gap-x-5`}
+        hidden={showPage}
         data-testid="filters"
       >
         <ChipGroup label={t("research.recency")}>
@@ -1195,6 +1276,7 @@ export default function ResearchPanel({
         aria-labelledby={`${ids}-tab-${tab}`}
         aria-busy={loading}
         className="flex flex-col gap-3"
+        hidden={showPage}
         data-testid="research-results"
         data-tab={tab}
       >

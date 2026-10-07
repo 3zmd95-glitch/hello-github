@@ -124,6 +124,17 @@ describe("tavilyCall", () => {
     expect(await tavilyCall(env, failing(), call)).toEqual({ ok: false, error: "upstream" });
   });
 
+  it("lets go of a refused answer's unread body (a Worker keeps only 6 connections open)", async () => {
+    const call = { q: "x", platform: "ig" as const, lang: "en" as const };
+    for (const status of [401, 432, 500]) {
+      let cancelled = false;
+      const body = new ReadableStream({ cancel: () => void (cancelled = true) });
+      const refused = vi.fn<typeof fetch>(async () => new Response(body, { status }));
+      expect(await tavilyCall({ TAVILY_API_KEY: "k" }, refused, call)).toMatchObject({ ok: false });
+      expect(cancelled).toBe(true);
+    }
+  });
+
   it("gives up after the time limit: the call is aborted, the answer is upstream", async () => {
     const fetchMock = hangingFetch();
     const call = { q: "x", platform: "tt" as const, lang: "en" as const };
@@ -132,6 +143,30 @@ describe("tavilyCall", () => {
       error: "upstream",
     });
     expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+  });
+
+  it("searches several platforms in one call (category lessons, 1 credit): their post cards, no profiles", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      json({
+        results: [
+          { url: "https://www.youtube.com/watch?v=rollTut0001", title: "Rolling shot tutorial" },
+          { url: "https://www.tiktok.com/@ed/video/1", title: "rolling shot" },
+          { url: "https://www.tiktok.com/@ed", title: "ed on TikTok" },
+        ],
+        usage: { credits: 1 },
+      }),
+    );
+    const out = await tavilyCall({ TAVILY_API_KEY: "k" }, fetchMock, {
+      q: "car rolling shot tutorial",
+      platform: ["yt", "ig", "tt"],
+      lang: "en",
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as {
+      include_domains: string[];
+    };
+    expect(body.include_domains).toEqual(["youtube.com", "instagram.com", "tiktok.com"]);
+    expect(out).toMatchObject({ ok: true, credits: 1, profiles: [] });
+    expect(out.ok && out.cards.map((c) => c.platform)).toEqual(["yt", "tt"]);
   });
 });
 

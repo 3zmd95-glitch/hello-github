@@ -106,9 +106,13 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
      18; a fourth starts over. A day whose run failed retries the day's own turn. A document saved before `slot`
      existed counts as the day's turn. Its creators add to the day's, not replace them (step 4).
    - **Budget guard.** Before searching, the run reads Discover's cached Tavily figure (`discover:usage:tavily`, kept
-     10 minutes by `discover/usage.ts`). At 90 % of the month or more it makes only the Instagram month search per
-     family (6 calls) and notes `tavily_budget` (status `partial`). A missing or unreadable figure, or one with no
-     limit, means the full 18: the usual case at 05:35, when nobody has opened Discover in the last 10 minutes.
+     10 minutes by `discover/usage.ts`). When none is kept (the usual case at 05:35, when nobody has opened Discover in
+     the last 10 minutes), it asks Tavily's own `GET /usage` once and keeps the answer 10 minutes, as Discover does
+     (2026-10-07: reading the cache alone, the cron ran blind past 90 %). One helper does this for both jobs:
+     `monthUsage` in `effects/sources.ts`. When 90 % of the month is used or more (`monthTight` there, shared with
+     category scans: the plan plus a positive pay-as-you-go limit, planning/tools/19-category-trends.md §4) it makes
+     only the Instagram month search per family (6 calls) and notes `tavily_budget` (status `partial`). A figure still
+     unknown (no key, that call failed, no usage in its answer), or one with no limit, is not tight: the full 18.
    - At most 360 post pages a day (18 × 20), fewer after the dedupe.
    - Why families and not generic wording: see the live probe below.
 2. **Pull out candidates (rules, free).**
@@ -151,7 +155,7 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
    - **Dictionary effects** always keep the dictionary's own labels, English and the curated Arabic. Only their `what` line comes from the AI.
    - **On failure or invalid output:** fall back to the rule list. New candidates keep their English text and are marked `checked: false`.
    - **Chips** are dictionary effects and names the AI has approved, that day or an earlier one. On a day with no answer (`ai_fallback`) or no usable verdict (`ai_empty`), those still show. New names the AI has never judged stay in memory until a day it does, so junk never shows unjudged.
-   - **Time limits:** the AI call has its own 60 s. Each Tavily call and YouTube search has 12 s; the views call (`videos.list`) keeps its own 2.5 s (`STATS_TIMEOUT_MS`).
+   - **Time limits:** each AI call (one a batch) has its own 60 s. Each Tavily call and YouTube search has 12 s; the views call (`videos.list`) keeps its own 2.5 s (`STATS_TIMEOUT_MS`).
    - This call is separate from Discover's 20 AI plans a day.
 4. **YouTube check (6 `search.list` + 1 `videos.list`).**
    - For each of the top 6 effects **mentioned today**: `search.list q="<query> edit" publishedAfter=now-7d` (20 results).
@@ -163,12 +167,14 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
 5. **Score and save (1 KV write)** to `effects:trending`; see below.
 
 **Per-run budget.**
-- At most 31 subrequests (the limit is 50): 18 Tavily, ≤ 6 YouTube `search.list` + 1 `videos.list`, 1 AI call, and 5 KV
-  operations (the list's read and write, the Tavily figure's read, the attempt counter's read and write).
+- At most 35 subrequests (the limit is 50): 18 Tavily searches, ≤ 6 YouTube `search.list` + 1 `videos.list`, ≤ 3 AI
+  calls (the cleanup's batches of 9, live fix 4), and 5 KV operations (the list's read and write, the Tavily figure's
+  read, the attempt counter's read and write; a forced run skips the counter). When no Tavily figure is kept, 2 more:
+  Tavily's `GET /usage` and the figure's KV write.
 - 18 Tavily credits, about 540 a month: owner-approved ("I dont care about search credit… test until I can catch the
   trends", 2026-10-06). 6 when the budget guard is on.
 - 6 of YouTube's 100 daily searches. With the radar's 18 and Discover's 70, the total is 94.
-- 1 AI call, 1 KV write and the attempt counter's write.
+- ≤ 3 AI calls, 1 KV write and the attempt counter's write.
 - The 18 searches go out 6 at a time (one search of each family): a Worker keeps 6 connections open and queues the
   rest, whose 12 s limit would run while they wait.
 
@@ -218,7 +224,7 @@ KV `effects:trending` holds one document (`EffectsDoc` in `src/effects/types.ts`
     growth: number;
     youtube?: { newVideos: number; views7d: number; growth?: number };
     samples: { url: string; title: string }[]; // ≤ 2, canonical post URLs
-  }[];                            // ≤ 8
+  }[];                            // ≤ 12 (8 before live fix 4)
   meta: Record<string, {          // one per history key: an effect missing from today's scan keeps its name,
     name: { en: string; ar?: string };  // line and samples while it is still in the 7-day memory
     what?: { en: string; ar?: string };
@@ -325,7 +331,7 @@ Handles are hashed (SHA-256, first 8 hex) so the stored document holds no accoun
 ### 5. Failures and safety
 
 - **Tavily quota or auth failure:** status `failed`. The previous items are kept; only the date and notes are written. Like any spending run, it writes twice: the attempt counter, then the list.
-- **Tavily's month nearly spent** (≥ 90 % in Discover's cached figure): only the Instagram month search per family, status `partial`, note `tavily_budget` (§1 step 1).
+- **Tavily's month nearly spent** (≥ 90 % in Discover's cached figure, else Tavily's `GET /usage`): only the Instagram month search per family, status `partial`, note `tavily_budget` (§1 step 1).
 - **AI failure or no usable verdict:** the rule list is used: dictionary effects and names the AI approved before show, new names wait (see step 3). Status `partial`, note `ai_fallback` or `ai_empty`.
 - **YouTube cap reached:** the check is skipped, with status `partial`.
 - **Lost runs:** a run cut off before it saves (the CPU limit, a first scan dropped after `waitUntil`'s 30 s) leaves the day open. The cap of 3 spending runs a UTC day (§1) stops paying for retries; the 4th answers with the note `attempts`.

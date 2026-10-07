@@ -603,6 +603,19 @@ page needs working?"
 - **Spec:** `tools/18-trending-effects.md`.
 - **Built** on branch `claude/trending-effects-spec` (PR #41); the live check follows the merge and the Worker deploy.
 
+Round 37 (Oct 6, 2026). The owner asked for Discover's categories to teach: "every category should show me the best
+and the most trendy … I wanna learn from each category how it will benefit me in terms of photography and videography
+and editing".
+- **Owner's picks:** trends, then lessons; every 3 days, with lessons weekly; videos plus a short ✦ AI how-to; his
+  skills linked; layout B (shelves); category scans like Trending effects; English first.
+- **The job:** 4 category slots a day (05:40–05:55 UTC), 6 Tavily credits a scan, lessons 10 credits a category every
+  6 days. A category tapped with nothing typed shows its page instead of the automatic search.
+- **Cost:** about 2,000 Tavily credits a month in all, about $8 over the free plan with pay-as-you-go (the owner turns
+  it on).
+- **Rejected:** scraping-based trend tools (social-trend-agent, trendscope).
+- **Spec:** `tools/19-category-trends.md`. **Plan:** `plans/2026-10-06-category-trends.md`.
+- **Built** on branch `claude/category-trends-spec`; the live check follows the merge and the Worker deploy.
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|

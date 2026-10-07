@@ -572,6 +572,18 @@ describe("discoverUsage", () => {
     }
   });
 
+  it("lets go of a refused answer's unread body, so it never holds the connection", async () => {
+    for (const status of [401, 432, 500]) {
+      let cancelled = false;
+      const body = new ReadableStream({ cancel: () => void (cancelled = true) });
+      const refused = vi.fn<typeof fetch>(async () => new Response(body, { status }));
+      expect((await discoverUsage({ TAVILY_API_KEY: "k" }, refused, NOW)).tavily).toHaveProperty(
+        "error",
+      );
+      expect(cancelled).toBe(true);
+    }
+  });
+
   it("does not keep a /usage answer without its numbers", async () => {
     const kv = fakeKV();
     const env = { TAVILY_API_KEY: "k", SOCIAL_KV: kv };
