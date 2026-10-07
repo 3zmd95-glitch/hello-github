@@ -5,9 +5,9 @@ import type { Platform, PostStage } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { PLATFORM_META } from "@/lib/social";
 
-/** Platform brand color as a CSS variable for the `.cal-*` classes. */
+/** Platform brand color (the `--pc-*` token of the scheme) as `--pc` for the `.cal-*` classes and the strip dots. */
 export function platformStyle(platform: Platform): CSSProperties {
-  return { "--pc": PLATFORM_META[platform].color } as CSSProperties;
+  return { "--pc": `var(--pc-${platform})` } as CSSProperties;
 }
 
 /** Icon + name chip in the platform's color. */

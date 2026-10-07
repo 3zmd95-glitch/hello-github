@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useToday } from "@/components/today/useToday";
 import PageHeader from "@/components/ui/ios/PageHeader";
 import Segmented from "@/components/ui/ios/Segmented";
@@ -29,11 +29,11 @@ function clearHash(): void {
 }
 
 /**
- * Content calendar (rounds 16–17, iOS look round 35): Week · Month · Stages views (a segmented control) per platform
- * (filter chips with the brand glyphs), the "+ New post" sheet and the post popup. Deep links: `#post=<id>` opens
- * that post's popup (the Studio home, the Ideas bank and the skill sheet link here), `#day=YYYY-MM-DD` focuses a day
- * in the week view; both are read on mount and on `hashchange`, and closing the popup clears the hash with
- * `history.replaceState`.
+ * Content calendar (rounds 16–17, iOS look round 35): Week · Month · Stages views (a segmented tablist, each view in
+ * its tabpanel) per platform (filter chips with the brand glyphs), the "+ New post" sheet and the post popup. Deep
+ * links: `#post=<id>` opens that post's popup (the Studio home, the Ideas bank and the skill sheet link here),
+ * `#day=YYYY-MM-DD` focuses a day in the week view, as a tap on a day of the week strip or the month grid does; both
+ * are read on mount and on `hashchange`, and closing the popup clears the hash with `history.replaceState`.
  */
 export default function CalendarScreen() {
   const { t, L } = useT();
@@ -47,14 +47,17 @@ export default function CalendarScreen() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ day: string | null } | null>(null);
 
+  /** The week view on that day's week, with the day picked (strip and list). */
+  const showDay = useCallback((day: string) => {
+    setView("week");
+    setWeekStart(weekKey(day));
+    setFocusDay(day);
+  }, []);
+
   useEffect(() => {
     const apply = () => {
       const h = parseCalendarHash(window.location.hash);
-      if (h.day) {
-        setView("week");
-        setWeekStart(weekKey(h.day));
-        setFocusDay(h.day);
-      }
+      if (h.day) showDay(h.day);
       if (h.post) {
         if (useStore.getState().posts.some((p) => p.id === h.post)) setOpenId(h.post);
         else {
@@ -67,7 +70,7 @@ export default function CalendarScreen() {
     apply();
     window.addEventListener("hashchange", apply);
     return () => window.removeEventListener("hashchange", apply);
-  }, []);
+  }, [showDay]);
 
   const filtered = useMemo(
     () => (filter === "all" ? posts : posts.filter((p) => p.platform === filter)),
@@ -107,6 +110,7 @@ export default function CalendarScreen() {
           onChange={setView}
           label={t("social.calendar.title")}
           className="grow basis-48 md:max-w-sm"
+          idPrefix="cal-view"
         />
         <button
           type="button"
@@ -133,7 +137,6 @@ export default function CalendarScreen() {
             key={p}
             type="button"
             className="px-fchip cal-fchip"
-            style={{ "--pc": `var(--pc-${p})` } as CSSProperties}
             aria-pressed={filter === p}
             onClick={() => setFilter(p)}
             data-testid={`calendar-filter-${p}`}
@@ -160,31 +163,34 @@ export default function CalendarScreen() {
         </section>
       )}
 
-      {view === "week" && (
-        <WeekView
-          posts={filtered}
-          weekStart={weekStart}
-          today={today}
-          focusDay={focusDay}
-          onWeek={(w) => {
-            setWeekStart(weekKey(w));
-            setFocusDay(null);
-          }}
-          onOpen={open}
-          onNewOn={newOn}
-        />
-      )}
-      {view === "month" && (
-        <MonthView
-          posts={filtered}
-          monthKey={monthKey}
-          today={today}
-          onMonth={setMonthKey}
-          onOpen={open}
-          onNewOn={newOn}
-        />
-      )}
-      {view === "stages" && <StagesBoard posts={filtered} onOpen={open} />}
+      <div role="tabpanel" id={`cal-view-panel-${view}`} aria-labelledby={`cal-view-tab-${view}`}>
+        {view === "week" && (
+          <WeekView
+            posts={filtered}
+            weekStart={weekStart}
+            today={today}
+            focusDay={focusDay}
+            onWeek={(w) => {
+              setWeekStart(weekKey(w));
+              setFocusDay(null);
+            }}
+            onDay={showDay}
+            onOpen={open}
+            onNewOn={newOn}
+          />
+        )}
+        {view === "month" && (
+          <MonthView
+            posts={filtered}
+            monthKey={monthKey}
+            today={today}
+            onMonth={setMonthKey}
+            onDay={showDay}
+            onNewOn={newOn}
+          />
+        )}
+        {view === "stages" && <StagesBoard posts={filtered} onOpen={open} />}
+      </div>
 
       {draft && (
         <PostForm initialDay={draft.day} onClose={() => setDraft(null)} onCreated={created} />

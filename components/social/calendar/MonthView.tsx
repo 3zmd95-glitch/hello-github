@@ -1,10 +1,11 @@
 "use client";
 
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo } from "react";
 import { formatDayNumber } from "@/components/planner/weekLabel";
 import type { Post } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
-import { PLATFORM_META, postsByDay } from "@/lib/social";
+import { postsByDay } from "@/lib/social";
 import { addMonths, formatDayLong, formatMonth, monthGrid } from "./dates";
 import { platformStyle } from "./PlatformChip";
 
@@ -19,55 +20,37 @@ const SHORT_DAY_KEYS: readonly MessageKey[] = [
 ];
 
 /**
- * Month grid in Sat-first weeks; posts are small platform chips (icon, and the title from md up). Tap a chip
- * to open the post, tap the day itself to start a new post on that day.
+ * Month grid in Sat-first weeks: each day a small card with its number (today in accent) and a 6px dot per post in
+ * its platform color (at most four). A day with posts opens it in the week view (its posts as rows); an empty day
+ * starts a new post on it.
  */
 export default function MonthView({
   posts,
   monthKey,
   today,
   onMonth,
-  onOpen,
+  onDay,
   onNewOn,
 }: {
   posts: readonly Post[];
   monthKey: string;
   today: string;
   onMonth: (monthKey: string) => void;
-  onOpen: (id: string) => void;
+  onDay: (day: string) => void;
   onNewOn: (day: string) => void;
 }) {
-  const { t, lang, dir } = useT();
+  const { t, lang } = useT();
   const days = useMemo(() => monthGrid(monthKey), [monthKey]);
   const byDay = useMemo(() => postsByDay(posts), [posts]);
-  const prevGlyph = dir === "rtl" ? "›" : "‹";
-  const nextGlyph = dir === "rtl" ? "‹" : "›";
   const isCurrentMonth = today.startsWith(`${monthKey}-`);
+  const title = formatMonth(monthKey, lang);
 
   return (
     <section className="flex flex-col gap-3" data-testid="calendar-month-view">
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className="px-btn px-btn-ghost px-btn-sm num"
-          onClick={() => onMonth(addMonths(monthKey, -1))}
-          aria-label={t("calendar.prevMonth")}
-          data-testid="calendar-prev"
-        >
-          {prevGlyph}
-        </button>
-        <b className="text-sm" data-testid="calendar-month">
-          {formatMonth(monthKey, lang)}
-        </b>
-        <button
-          type="button"
-          className="px-btn px-btn-ghost px-btn-sm num"
-          onClick={() => onMonth(addMonths(monthKey, 1))}
-          aria-label={t("calendar.nextMonth")}
-          data-testid="calendar-next"
-        >
-          {nextGlyph}
-        </button>
+      <div className="flex items-center gap-1 ps-1">
+        <h2 className="min-w-0 flex-1 text-[17px] font-semibold" data-testid="calendar-month">
+          {title}
+        </h2>
         {!isCurrentMonth && (
           <button
             type="button"
@@ -78,72 +61,74 @@ export default function MonthView({
             {t("calendar.jumpToday")}
           </button>
         )}
+        <button
+          type="button"
+          className="ios-icbtn text-tint"
+          onClick={() => onMonth(addMonths(monthKey, -1))}
+          aria-label={t("calendar.prevMonth")}
+          data-testid="calendar-prev"
+        >
+          <ChevronRight size={22} strokeWidth={1.75} className="ltr:rotate-180" aria-hidden />
+        </button>
+        <button
+          type="button"
+          className="ios-icbtn text-tint"
+          onClick={() => onMonth(addMonths(monthKey, 1))}
+          aria-label={t("calendar.nextMonth")}
+          data-testid="calendar-next"
+        >
+          <ChevronLeft size={22} strokeWidth={1.75} className="ltr:rotate-180" aria-hidden />
+        </button>
       </div>
 
-      <div className="px-card cal-month-wrap p-2 sm:p-3">
-        <div className="cal-month" role="grid" aria-label={formatMonth(monthKey, lang)}>
-          {SHORT_DAY_KEYS.map((key) => (
+      <div className="cal-month" role="grid" aria-label={title}>
+        {SHORT_DAY_KEYS.map((key) => (
+          <div key={key} className="cal-mhead" role="columnheader">
+            {t(key)}
+          </div>
+        ))}
+        {days.map((day) => {
+          const items = byDay[day] ?? [];
+          const label = formatDayLong(day, lang);
+          return (
             <div
-              key={key}
-              className="text-muted pb-1 text-center text-[0.68rem] font-bold"
-              role="columnheader"
+              key={day}
+              role="gridcell"
+              className="month-day"
+              data-testid="month-day"
+              data-day={day}
+              data-today={day === today}
+              data-outside={!day.startsWith(`${monthKey}-`)}
             >
-              {t(key)}
-            </div>
-          ))}
-          {days.map((day) => {
-            const items = byDay[day] ?? [];
-            const outside = !day.startsWith(`${monthKey}-`);
-            const isToday = day === today;
-            const label = formatDayLong(day, lang);
-            return (
-              <div
-                key={day}
-                role="gridcell"
-                className="month-day"
-                data-testid="month-day"
-                data-day={day}
-                data-today={isToday}
-                data-outside={outside}
-                onClick={() => onNewOn(day)}
+              <button
+                type="button"
+                onClick={() => (items.length ? onDay(day) : onNewOn(day))}
+                aria-label={
+                  items.length
+                    ? `${label} · ${t("calendar.summary.planned", { n: items.length })}`
+                    : t("calendar.dayAdd", { day: label })
+                }
+                aria-current={day === today ? "date" : undefined}
+                data-testid="month-day-add"
               >
-                <button
-                  type="button"
-                  className="num month-num"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onNewOn(day);
-                  }}
-                  aria-label={t("calendar.dayAdd", { day: label })}
-                  data-testid="month-day-add"
-                >
-                  {formatDayNumber(day)}
-                </button>
-                {items.map((post) => (
-                  <button
-                    key={post.id}
-                    type="button"
-                    className="month-chip"
-                    style={platformStyle(post.platform)}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpen(post.id);
-                    }}
-                    title={post.title}
-                    aria-label={t("calendar.card.open", { title: post.title })}
-                    data-testid="month-chip"
-                    data-post={post.id}
-                    data-platform={post.platform}
-                    data-stage={post.stage}
-                  >
-                    <span aria-hidden>{PLATFORM_META[post.platform].icon}</span>
-                    <span className="hidden truncate md:inline">{post.title}</span>
-                  </button>
-                ))}
-              </div>
-            );
-          })}
-        </div>
+                <b className="num">{formatDayNumber(day)}</b>
+                <span className="flex h-1.5 gap-[3px]">
+                  {items.slice(0, 4).map((post) => (
+                    <i
+                      key={post.id}
+                      className="studio-pdot"
+                      style={platformStyle(post.platform)}
+                      data-testid="month-chip"
+                      data-post={post.id}
+                      data-platform={post.platform}
+                      data-stage={post.stage}
+                    />
+                  ))}
+                </span>
+              </button>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

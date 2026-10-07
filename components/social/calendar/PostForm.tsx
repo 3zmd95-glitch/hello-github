@@ -4,11 +4,11 @@ import { useState, type FormEvent } from "react";
 import { useSocialSync } from "@/components/social/useSocialSync";
 import { PLATFORMS, type Platform, type Post, type Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { PlatformGlyph } from "@/lib/platformIcons";
 import { autoPostOf, isManual } from "@/lib/publish";
 import { bestTime, PLATFORM_META } from "@/lib/social";
 import { isSocialPlatform } from "@/lib/socialSync";
 import { useStore } from "@/store";
-import { platformStyle } from "./PlatformChip";
 import SheetFrame from "./SheetFrame";
 import SkillPicker from "./SkillPicker";
 
@@ -128,12 +128,13 @@ export default function PostForm({
                 key={p}
                 type="button"
                 className="px-fchip cal-fchip"
-                style={platformStyle(p)}
                 aria-pressed={platform === p}
                 onClick={() => pickPlatform(p)}
                 data-testid={`post-platform-${p}`}
+                data-platform={p}
               >
-                <span aria-hidden>{PLATFORM_META[p].icon}</span> {L(PLATFORM_META[p].name)}
+                <PlatformGlyph platform={p} size={14} className="shrink-0" />
+                {L(PLATFORM_META[p].name)}
               </button>
             ))}
           </div>
@@ -152,7 +153,6 @@ export default function PostForm({
                     key={p}
                     type="button"
                     className="px-fchip cal-fchip"
-                    style={platformStyle(p)}
                     aria-pressed={ticked(p)}
                     aria-disabled={own}
                     title={isManual(p) ? t("publish.net.manual") : undefined}
@@ -161,8 +161,10 @@ export default function PostForm({
                     }}
                     data-testid={`post-net-${p}`}
                     data-own={own}
+                    data-platform={p}
                   >
-                    <span aria-hidden>{PLATFORM_META[p].icon}</span> {L(PLATFORM_META[p].name)}
+                    <PlatformGlyph platform={p} size={14} className="shrink-0" />
+                    {L(PLATFORM_META[p].name)}
                     {isManual(p) && <span aria-hidden>✋</span>}
                   </button>
                 );

@@ -224,3 +224,52 @@ test("the stages board moves posts with ◀ ▶ but never into posted", async ({
   await page.getByTestId("calendar-filter-x").click();
   await expect(page.getByTestId("post-card")).toHaveCount(1);
 });
+
+test("the week strip rests on this week, a swipe to next week moves the view, a day can be picked", async ({
+  page,
+}) => {
+  const today = todayKey();
+  await freshState(page, "/social/calendar/");
+  await page.getByTestId("calendar-new").click();
+  await page.getByTestId("post-platform-x").click();
+  await page.getByTestId("post-title").fill("Strip post");
+  await page.getByTestId("post-day").fill(today);
+  await page.getByTestId("post-save").click();
+
+  // This week is the one in view (last and next week sit beside it, inert); today's cell carries the post's dot.
+  const strip = page.getByTestId("calendar-strip");
+  const page1 = () => strip.evaluate((el) => Math.abs(el.scrollLeft) / el.clientWidth);
+  await expect.poll(page1).toBe(1);
+  const todayCell = strip.locator(`[data-testid="calendar-strip-day"][data-day="${today}"]`);
+  await expect(todayCell).toHaveAttribute("aria-current", "date");
+  await expect(todayCell).toHaveAttribute("data-count", "1");
+  await expect(todayCell.locator("xpath=ancestor::ol")).not.toHaveAttribute("inert");
+  const thisWeek = (await page.getByTestId("calendar-week").textContent()) ?? "";
+
+  // A swipe that comes to rest on next week moves the view there, and the strip is back on its middle week.
+  await strip.evaluate((el) =>
+    el.scrollBy({ left: (getComputedStyle(el).direction === "rtl" ? -1 : 1) * el.clientWidth }),
+  );
+  await expect(page.getByTestId("calendar-week")).not.toHaveText(thisWeek);
+  await expect.poll(page1).toBe(1);
+  await expect(page.getByTestId("post-card")).toHaveCount(0);
+  await page.getByTestId("calendar-today").click();
+  await expect(page.getByTestId("calendar-week")).toHaveText(thisWeek);
+
+  // Picking a day fills its cell and marks its group; the month grid opens a day with posts in the week view.
+  await todayCell.click();
+  await expect(todayCell).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(`[data-testid="calendar-day"][data-day="${today}"]`)).toHaveAttribute(
+    "data-focus",
+    "true",
+  );
+  await page.getByTestId("calendar-view-month").click();
+  await page
+    .locator(`[data-testid="month-day"][data-day="${today}"]`)
+    .getByTestId("month-day-add")
+    .click();
+  await expect(page.getByTestId("calendar-view-week")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "cal-view-tab-week");
+  await expect(page.getByTestId("post-card")).toHaveCount(1);
+  await noHorizontalScroll(page);
+});
