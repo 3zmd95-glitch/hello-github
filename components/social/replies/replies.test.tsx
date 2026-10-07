@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, type ReactNode } from "react";
+import { act, useRef, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Sheet from "@/components/ui/ios/Sheet";
@@ -7,6 +7,9 @@ import type { AutoReply } from "@/lib/domain";
 import { newAutoReply } from "@/lib/replies";
 import DefaultReplyEditor from "./DefaultReplyEditor";
 import RulesTable from "./RulesTable";
+
+// The editors live on a Social route: the discard alert is the iOS one.
+vi.mock("next/navigation", () => ({ usePathname: () => "/social/replies/" }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -127,24 +130,43 @@ describe("RulesTable", () => {
   });
 });
 
+/** The default-reply editor in its sheet, wired as AutoRepliesScreen does (the sheet asks the editor's guard). */
+function DefaultInSheet({
+  onClose,
+  onSave,
+}: {
+  onClose: () => void;
+  onSave: (d: { enabled: boolean; text: string }) => Promise<boolean>;
+}) {
+  const guardRef = useRef<() => boolean>(() => true);
+  return (
+    <Sheet
+      onClose={onClose}
+      title="الرد الافتراضي"
+      titleId="t"
+      testId="sheet"
+      beforeClose={() => guardRef.current()}
+    >
+      <DefaultReplyEditor
+        value={{
+          enabled: true,
+          text: "وصلت رسالتك",
+          stats: { sends: 0, publicReplies: 0, failures: 0, clicks: 0 },
+        }}
+        busy={false}
+        onSave={onSave}
+        guardRef={guardRef}
+      />
+    </Sheet>
+  );
+}
+
 describe("DefaultReplyEditor", () => {
   it("closes its sheet only once the save went through", async () => {
     const onClose = vi.fn();
     let took = false;
     const onSave = vi.fn(async () => took);
-    mount(
-      <Sheet onClose={onClose} title="الرد الافتراضي" titleId="t" testId="sheet">
-        <DefaultReplyEditor
-          value={{
-            enabled: true,
-            text: "وصلت رسالتك",
-            stats: { sends: 0, publicReplies: 0, failures: 0, clicks: 0 },
-          }}
-          busy={false}
-          onSave={onSave}
-        />
-      </Sheet>,
-    );
+    mount(<DefaultInSheet onClose={onClose} onSave={onSave} />);
     const save = document.querySelector<HTMLButtonElement>('[data-testid="default-reply-save"]')!;
 
     await act(async () => save.click());
@@ -153,6 +175,46 @@ describe("DefaultReplyEditor", () => {
 
     took = true;
     await act(async () => save.click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks before ✕, the backdrop or Esc throw an edit away: Cancel keeps it, Discard closes", () => {
+    const onClose = vi.fn();
+    mount(<DefaultInSheet onClose={onClose} onSave={vi.fn(async () => true)} />);
+    const q = <T extends Element>(id: string) => document.querySelector<T>(`[data-testid="${id}"]`);
+    const alert = () => q("confirm-dialog");
+
+    // Untouched: nothing to lose, no question.
+    act(() => q<HTMLElement>("sheet-backdrop")!.click());
+    expect(alert()).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    act(() => root!.unmount());
+    root = null;
+    onClose.mockClear();
+
+    mount(<DefaultInSheet onClose={onClose} onSave={vi.fn(async () => true)} />);
+    const text = q<HTMLTextAreaElement>("default-reply-text")!;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(text, "وصلت رسالتك، برد عليك بكرة");
+      text.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    act(() => q<HTMLElement>("sheet-backdrop")!.click());
+    expect(alert()).not.toBeNull();
+    expect(alert()!.parentElement?.className).toBe("ios-alert-root");
+    expect(alert()!.querySelector("#confirm-title")?.textContent).toBe("تسكّر بدون ما تحفظ؟");
+    expect(alert()!.querySelector("#confirm-body")).toBeNull();
+    act(() => q<HTMLButtonElement>("confirm-cancel")!.click());
+    expect(alert()).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(q<HTMLTextAreaElement>("default-reply-text")!.value).toBe("وصلت رسالتك، برد عليك بكرة");
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(alert()).not.toBeNull();
+    act(() => q<HTMLButtonElement>("confirm-ok")!.click());
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

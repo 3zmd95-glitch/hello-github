@@ -13,7 +13,9 @@ const HOLD_MAX_MS = 8000;
  * (≥ 1.1s, at most 8s), then springs back. While enabled the page's own overscroll bounce is off, so the two never
  * stack. `onRefresh` gets `held`, which resolves when the spinner's minimum time is over (a toast that awaits it
  * lands as the content springs back). A failed `onRefresh` still springs back: the caller reports its own errors.
- * A new pull waits until the running refresh settles, also after the 8s spring back.
+ * A new pull waits until the running refresh settles, also after the 8s spring back. Every listener is passive (spec
+ * §3.5: touch scrolling never waits for the main thread); `overscroll-behavior-y: none` is what keeps the browser's
+ * own bounce and pull-to-reload out of the way, so nothing needs `preventDefault`.
  */
 export function usePullToRefresh(
   onRefresh: (held: Promise<void>) => Promise<unknown> | void,
@@ -66,9 +68,8 @@ export function usePullToRefresh(
     };
     const move = (e: TouchEvent) => {
       if (!pulling) return;
+      // Above the starting point the offset is 0 and the finger scrolls the page as usual.
       const next = pullOffset(e.touches[0].clientY - y0);
-      // Above the starting point the finger scrolls the page as usual.
-      if (next > 0 && e.cancelable) e.preventDefault();
       if (next === dy) return;
       dy = next;
       moved = true;
@@ -101,7 +102,7 @@ export function usePullToRefresh(
       });
     };
     window.addEventListener("touchstart", start, { passive: true });
-    window.addEventListener("touchmove", move, { passive: false });
+    window.addEventListener("touchmove", move, { passive: true });
     window.addEventListener("touchend", end);
     window.addEventListener("touchcancel", end);
     return () => {

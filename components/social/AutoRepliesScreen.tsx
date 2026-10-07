@@ -2,7 +2,7 @@
 
 import { Check, FlaskConical, History, MessageCircle } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Chip from "@/components/ui/ios/Chip";
@@ -76,6 +76,8 @@ export default function AutoRepliesScreen() {
     [postStats],
   );
   const [editing, setEditing] = useState<Editing>(null);
+  /** The open editor's draft guard (`useDraftGuard`): a draft keeps the sheet open on ✕, backdrop, drag and Esc. */
+  const guardRef = useRef<() => boolean>(() => true);
   const [pendingDelete, setPendingDelete] = useState<AutoReply | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const { toast } = useCelebrate();
@@ -366,9 +368,15 @@ export default function AutoRepliesScreen() {
           testId="autoreply-sheet"
           detents={[0.92]}
           wide={editing.kind === "rule"}
+          beforeClose={() => guardRef.current()}
         >
           {editing.kind === "default" ? (
-            <DefaultReplyEditor value={doc?.defaultReply} busy={busy} onSave={saveDefault} />
+            <DefaultReplyEditor
+              value={doc?.defaultReply}
+              busy={busy}
+              onSave={saveDefault}
+              guardRef={guardRef}
+            />
           ) : (
             <RuleEditor
               key={editing.rule.id}
@@ -379,6 +387,7 @@ export default function AutoRepliesScreen() {
               username={username}
               busy={busy}
               onSave={saveRule}
+              guardRef={guardRef}
             />
           )}
           {/* Under Save: why the Worker refused it. */}

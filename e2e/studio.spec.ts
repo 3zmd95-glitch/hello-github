@@ -304,7 +304,8 @@ test("pull to refresh: the page follows the finger, holds while the spinner turn
     });
   await touch("touchStart", 260);
   for (let d = 20; d <= 200; d += 20) await touch("touchMove", 260 + d);
-  expect((await main()).transform).toBe("translateY(110px)");
+  // The listeners are passive: the browser does not wait for them, so the last move lands a moment later.
+  await expect.poll(async () => (await main()).transform).toBe("translateY(110px)");
   // The spinner is portaled to <body>: inside the moving #main it would ride along.
   expect(
     await page.getByTestId("studio-ptr").evaluate((e) => e.parentElement === document.body),

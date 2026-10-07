@@ -1964,6 +1964,22 @@
   [dir="ltr"] .ios-switch:checked::after {
     transform: translateX(20px);
   }
+  /* Pressed: the thumb stretches 1.15× toward the middle, from the side it rests on (RTL first, then LTR). */
+  .ios-switch:active:not(:disabled)::after {
+    transform: scaleX(1.15);
+    transform-origin: 100% 50%;
+  }
+  .ios-switch:checked:active:not(:disabled)::after {
+    transform: translateX(-20px) scaleX(1.15);
+    transform-origin: 0 50%;
+  }
+  [dir="ltr"] .ios-switch:active:not(:disabled)::after {
+    transform-origin: 0 50%;
+  }
+  [dir="ltr"] .ios-switch:checked:active:not(:disabled)::after {
+    transform: translateX(20px) scaleX(1.15);
+    transform-origin: 100% 50%;
+  }
   .ios-switch:disabled {
     opacity: 0.45;
     cursor: default;
@@ -2172,6 +2188,12 @@
   }
   .ios-stagger > :nth-child(n + 8) {
     animation-delay: 0.35s;
+  }
+  /* Tab change (§3.5): a route's screen and a Segmented panel's content fade in with a 12px rise as they mount, so
+     nothing swaps in one frame. Zero weight: a first-visit stagger or another entrance on the same element wins.
+     Screens hold no fixed children (the "+" and the pull spinner are portaled), so the transform moves nothing. */
+  :where([data-world="social"]) :where(#main, [role="tabpanel"]) > * {
+    animation: ios-pin var(--t-med) var(--out) backwards;
   }
 
   /* Sheet (Task 1.9): portaled to <body> on z-39; phones = bottom sheet with detents, md+ = centered dialog. */
@@ -2961,7 +2983,7 @@
 }
 .cal-step[data-done="true"] {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--edge));
-  color: var(--accent);
+  color: var(--tint);
 }
 .cal-step[aria-pressed="true"] {
   border-color: var(--accent);

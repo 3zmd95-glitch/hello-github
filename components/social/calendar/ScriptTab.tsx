@@ -35,7 +35,7 @@ export default function ScriptTab({ post }: { post: Post }) {
   return (
     <div className="flex flex-col gap-3" data-testid="post-script">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        <b className="num text-accent" data-testid="script-length" data-seconds={seconds}>
+        <b className="num text-tint" data-testid="script-length" data-seconds={seconds}>
           {t("calendar.script.length", { s: seconds, w: words })}
         </b>
         <span className="text-muted">

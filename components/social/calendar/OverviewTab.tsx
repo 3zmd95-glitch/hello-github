@@ -443,7 +443,7 @@ export default function OverviewTab({
         </button>
         {copied && (
           <span
-            className={`text-xs ${copied === "ok" ? "text-accent" : "text-danger"}`}
+            className={`text-xs ${copied === "ok" ? "text-tint" : "text-danger"}`}
             role="status"
             data-testid="post-copied"
           >

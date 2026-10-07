@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import EmptyState from "@/components/ui/ios/EmptyState";
 import PageHeader from "@/components/ui/ios/PageHeader";
 import Sheet from "@/components/ui/ios/Sheet";
+import { useFirstVisit } from "@/components/ui/ios/useFirstVisit";
 import { IDEA_SOURCES, type Idea, type IdeaSource, type Post } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { useStore } from "@/store";
@@ -44,6 +45,7 @@ function matches(f: Filter, idea: Idea, used: boolean): boolean {
  */
 export default function IdeasScreen() {
   const { t } = useT();
+  const first = useFirstVisit("ideas");
   const ideas = useStore((s) => s.ideas);
   const posts = useStore((s) => s.posts);
   const [filter, setFilter] = useState<Filter>("all");
@@ -78,7 +80,7 @@ export default function IdeasScreen() {
     <div className="flex flex-col" data-testid="ideas-screen">
       <PageHeader title={t("ideas.title")} sub={t("ideas.sub")} />
 
-      <div className="flex flex-col gap-7">
+      <div className={`${first ? "ios-stagger" : ""} flex flex-col gap-7`}>
         <TrendsCard />
 
         {/* From md: the bank next to the skill suggestions. */}

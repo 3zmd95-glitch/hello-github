@@ -136,7 +136,7 @@ export default function GrowthScreen() {
         id={`gr-panel-${filter}`}
         aria-labelledby={`gr-tab-${filter}`}
         tabIndex={0}
-        className="flex flex-col gap-3"
+        className={`${first ? "ios-stagger" : ""} flex flex-col gap-3`}
       >
         {filter === "all" && !anyConnected && (
           <section

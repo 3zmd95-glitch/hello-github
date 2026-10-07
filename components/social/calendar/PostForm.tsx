@@ -1,9 +1,9 @@
 "use client";
 
 import { Clock, Gamepad2, Hand } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent, type RefObject } from "react";
 import { useSocialSync } from "@/components/social/useSocialSync";
-import { useSheetClose } from "@/components/ui/ios/Sheet";
+import { useDraftGuard, useSheetClose } from "@/components/ui/ios/Sheet";
 import { PLATFORMS, type Platform, type Post, type Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { PlatformGlyph } from "@/lib/platformIcons";
@@ -34,14 +34,16 @@ export default function PostForm({
   onCreated: (post: Post) => void;
 }) {
   const { t } = useT();
+  const guardRef = useRef<() => boolean>(() => true);
   return (
     <SheetFrame
       testId="post-form-sheet"
       titleId="post-form-title"
       title={t("calendar.form.title")}
       onClose={onClose}
+      beforeClose={() => guardRef.current()}
     >
-      <PostFormBody initialDay={initialDay} onCreated={onCreated} />
+      <PostFormBody initialDay={initialDay} onCreated={onCreated} guardRef={guardRef} />
     </SheetFrame>
   );
 }
@@ -49,9 +51,11 @@ export default function PostForm({
 function PostFormBody({
   initialDay,
   onCreated,
+  guardRef,
 }: {
   initialDay: string | null;
   onCreated: (post: Post) => void;
+  guardRef: RefObject<() => boolean>;
 }) {
   const { t, L } = useT();
   const close = useSheetClose();
@@ -84,6 +88,7 @@ function PostFormBody({
   };
 
   const canSave = title.trim() !== "" || skill !== null;
+  const discard = useDraftGuard(guardRef, canSave);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -290,6 +295,7 @@ function PostFormBody({
           {t("calendar.form.save")}
         </button>
       </div>
+      {discard}
     </form>
   );
 }

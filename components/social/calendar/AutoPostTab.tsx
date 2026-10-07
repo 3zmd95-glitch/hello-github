@@ -485,11 +485,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
         </p>
       )}
       {notice && (
-        <p
-          role="status"
-          className="text-accent text-xs font-semibold"
-          data-testid="autopost-notice"
-        >
+        <p role="status" className="text-tint text-xs font-semibold" data-testid="autopost-notice">
           {t(notice)}
         </p>
       )}

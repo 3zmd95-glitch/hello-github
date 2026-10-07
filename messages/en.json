@@ -30,6 +30,7 @@
   "common.cancel": "Cancel",
   "common.confirm": "Yes, go ahead",
   "common.close": "Close",
+  "common.discardTitle": "Close without saving?",
   "hdr.hello": "Hey 3z! What are we learning today?",
   "hdr.rank": "Your rank",
   "hdr.level": "Level",

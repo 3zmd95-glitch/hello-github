@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useSheetClose } from "@/components/ui/ios/Sheet";
+import { useState, type RefObject } from "react";
+import { useDraftGuard, useSheetClose } from "@/components/ui/ios/Sheet";
 import type { DefaultReply } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import {
@@ -26,15 +26,24 @@ export default function DefaultReplyEditor({
   value,
   busy,
   onSave,
+  guardRef,
 }: {
   value: DefaultReply | undefined;
   busy: boolean;
   onSave: (d: { enabled: boolean; text: string }) => Promise<boolean>;
+  /** The sheet's `beforeClose` ref: an edit asks before a casual dismiss throws it away. */
+  guardRef: RefObject<() => boolean>;
 }) {
   const { t } = useT();
   const close = useSheetClose();
-  const [enabled, setEnabled] = useState(value?.enabled ?? true);
-  const [text, setText] = useState(value?.text || t("replies.default.suggested"));
+  // What the sheet opened with (the suggested text when there is none yet): anything else is a draft.
+  const [initial] = useState(() => ({
+    enabled: value?.enabled ?? true,
+    text: value?.text || t("replies.default.suggested"),
+  }));
+  const [enabled, setEnabled] = useState(initial.enabled);
+  const [text, setText] = useState(initial.text);
+  const discard = useDraftGuard(guardRef, enabled !== initial.enabled || text !== initial.text);
   const [tried, setTried] = useState(false);
   const problems = defaultReplyProblems({ enabled, text });
   const left = DM_TEXT_BYTES - utf8Bytes(text.trim());
@@ -103,6 +112,7 @@ export default function DefaultReplyEditor({
           {t("replies.saveChanges")}
         </button>
       </div>
+      {discard}
     </form>
   );
 }

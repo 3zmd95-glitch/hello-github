@@ -1,9 +1,9 @@
 "use client";
 
 import { Check, Megaphone, MessageCircle, Pin, X } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useState, type ReactNode, type RefObject } from "react";
 import Chip from "@/components/ui/ios/Chip";
-import { useSheetClose } from "@/components/ui/ios/Sheet";
+import { useDraftGuard, useSheetClose } from "@/components/ui/ios/Sheet";
 import type { AutoReply, SocialPostStat, SocialStatusMap } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import {
@@ -62,6 +62,7 @@ export default function RuleEditor({
   username,
   busy,
   onSave,
+  guardRef,
 }: {
   value: AutoReply;
   posts: readonly SocialPostStat[];
@@ -70,6 +71,8 @@ export default function RuleEditor({
   username?: string;
   busy: boolean;
   onSave: (a: AutoReply) => Promise<boolean>;
+  /** The sheet's `beforeClose` ref: an edit asks before a casual dismiss throws it away. */
+  guardRef: RefObject<() => boolean>;
 }) {
   const { t } = useT();
   const close = useSheetClose();
@@ -80,6 +83,11 @@ export default function RuleEditor({
   const [word, setWord] = useState("");
   const [tried, setTried] = useState(false);
   const patch = (p: Partial<AutoReply>) => setDraft((d) => ({ ...d, ...p }));
+  // A draft: anything changed from the rule as it opened, or a keyword typed but not added yet.
+  const discard = useDraftGuard(
+    guardRef,
+    word.trim() !== "" || JSON.stringify(draft) !== JSON.stringify(value),
+  );
 
   const igPosts = posts.filter((p) =>
     REPLY_PLATFORMS.includes(p.platform as (typeof REPLY_PLATFORMS)[number]),
@@ -423,6 +431,7 @@ export default function RuleEditor({
           {t("replies.saveChanges")}
         </button>
       </div>
+      {discard}
     </form>
   );
 }
