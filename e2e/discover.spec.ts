@@ -931,7 +931,7 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   await row.locator('[data-testid="trending-effect"][data-key="clone-effect"]').click();
   await expect.poll(() => asked.length).toBe(2);
   // English, with editing context (live: an Arabic query found beauty serums for "Glow Effect").
-  expect(asked[1]).toEqual({ q: "clone effect", editing: true });
+  expect(asked[1]).toEqual({ q: "clone effect", lang: "en", editing: true });
   await expect(page.getByTestId("genre-coffee")).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByTestId("discover-topic")).toHaveValue("clone effect");
   await expect(page.getByTestId("discover-recent-topic").first()).toHaveText("clone effect");
@@ -1000,6 +1000,7 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
   expect(asked[0]).toEqual({
     q: "rolling shot",
     genreQuery: { ar: "ايديت سيارات", en: "car edit" },
+    lang: "en",
     editing: true,
   });
   await expect(page.getByTestId("category-page")).toHaveCount(0);
@@ -1021,7 +1022,7 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
   await cat.getByTestId("category-search-all").click();
   await expect
     .poll(() => asked.at(-1))
-    .toEqual({ q: "car edit", genreQuery: { ar: "ايديت سيارات" } });
+    .toEqual({ q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" });
   await expect(page.getByTestId("category-page")).toHaveCount(0);
   expect(await fitsViewport(page)).toBe(true);
 });

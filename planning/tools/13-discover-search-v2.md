@@ -24,8 +24,8 @@ The request is three projects, built in this order, each with its own spec and p
    knows, and "search exactly 'flash'").
 2. It searches **both languages every time**: TikTok and Instagram three searches each (examples, tutorials, Arabic), 20
    results per search; YouTube three searches through YouTube's own search (real views and dates). Since 2026-10-07
-   **English first**: English only for the English dashboard and every trend chip, Arabic tutorials added for the Arabic
-   dashboard's own searches (see "Live fix (2026-10-07)").
+   **English first**: English only, unless the search is typed in Arabic or "Arabic first" is on (then the Arabic
+   tutorials too); every trend chip is English (see "Live fix (2026-10-07)").
 3. Results come in sections:
    - **🔥 Popular now**: one swipeable row of the 6 results with the biggest numbers (YouTube views; TikTok / Instagram likes
      when the page showed them; ties newest first), saying which number it uses.
@@ -408,8 +408,10 @@ results, and its `time_range: "week"` on instagram.com is unreliable ("clone eff
 **English first** (`plan.ts`). A chip tap always added the Arabic tutorials query ("شرح Glow Effect"), and for "Glow
 Effect" it returned Arabic beauty-serum reels ("سيروم كولاجين جلو بوستر (Collagen Glow Effect)"): the beauty content in
 the owner's screenshot. Now the planned search asks English examples and English tutorials (2 Tavily credits a platform,
-2 `search.list`), and adds the Arabic tutorials query only for `lang: "ar"`. The Arabic dashboard sends it for its own
-typed searches (the panel's language, or "Arabic first" on); the English dashboard and every trend chip do not. The
+2 `search.list`), and adds the Arabic tutorials query only for `lang: "ar"`. The dashboard works the language out for
+each search and always sends it: `"ar"` when what was typed has Arabic letters or "Arabic first" is on, else `"en"`, in
+either dashboard language. A trend chip (an English name, "Arabic first" turned off) is English, and nothing of it sticks to
+the next search (review fix). The
 Claude connector keeps both languages (`lang: "ar"`, as its description says). AI plans are unchanged (their keyword
 baseline keeps the Arabic retry).
 

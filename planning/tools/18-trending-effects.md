@@ -184,7 +184,7 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
 - **Main signal:** distinct **creators** on TikTok and Instagram mentioning the effect over the **last 7 days of scans**. Creators are counted, not posts, so one account can't fake a trend. **Since 2026-10-07 the days are the days the posts went up**, read from each post's id, not the scans' days (see "Real post dates (2026-10-07)").
   - Each day's creators are kept per effect in the history as short hashes. The 7-day count is the union, so a trend builds up across the rotation.
   - Another run the same day adds its creators to the day's entry (the same creator counts once), and a name it does not find keeps the day's earlier creators. Before live fix 2 a second run replaced the day's entry: the second live run dropped the first scan's speed ramp (17 creators).
-- **Minimum to show:** 3 distinct creators over the 7 days, and at least one in the last 3 days (see growth). Since 2026-10-07: 3 creators who posted it in the last 7 days; none in the last 3 days gives growth 0 and the effect shows last (see "Real post dates").
+- **Minimum to show:** 3 distinct creators over the 7 days, and at least one in the last 3 days (see growth). Since 2026-10-07: 3 creators who posted it in the last 7 days; none in the last 3 days gives growth 0 and the effect shows after every effect with a score (see "Real post dates").
 - **Named trends:** besides "___ effect / transition / trick / filter" phrases and hashtags, the rules also keep names before "trend"
   (any case) and Title-Case names before "Edit". Tavily titles these posts like "How to Edit the New CapCut Reverse Trend" and "Clone
   Yourself with One Hair (Swagger Trend)". Generic words (viral, new, latest, capcut, tiktok, video, edit, trend, dance, challenge) are
@@ -193,7 +193,8 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
   - Each family is searched once in every 3-day window, so the two windows are like for like.
   - `growth = |creators, days 0–2| / |creators, days 3–5|`, rounded to 0.01, when days 3–5 have creators. Otherwise it is 3 or 0, as below.
   - An effect with creators in days 0–2 but none in days 3–5 counts as growth 3. That covers effects never seen before.
-  - An effect with no creators in days 0–2 has growth 0: it is fading. Its score is 0, so it is left out.
+  - An effect with no creators in days 0–2 has growth 0: it is fading. Its score is 0, so it was left out. Since 2026-10-07
+    (days are post days) it shows, after every effect with a score, trends and techniques alike (see "Real post dates").
 - **NEW:** the effect is not in the dictionary and was first seen in the last 7 days.
 - **YouTube bonus:** `views7d` growth of at least 1.5×, against the effect's last recorded `views7d`. It adds a small boost and the "▶ ↑N×" note. No data means no penalty.
 - **Score:** `creators × min(growth, 4) × (youtubeBonus ? 1.25 : 1)`.
@@ -559,17 +560,21 @@ date. YouTube keeps its API's `publishedAt`; a category's YouTube posts (`catego
 - Each creator is filed under the UTC day of their latest post (never after today): `Candidate.days` (creator → day). The
   same creator on the same day counts once, ≤ 30 a day, and another run's creators add to the day.
 - So `creators` (days 0–6), `recent` (0–2) and `before` (3–5) are real. **NEW** stays by the scan day a name was first
-  seen (`meta.firstSeen`). Samples are the newest posts. Today's YouTube views go on today's entry, made when nobody posted
+  seen (`meta.firstSeen`); a spelling the AI merges into a name hands it its earlier first-seen day, so a merge never makes
+  an effect NEW again. Samples are the newest posts. Today's YouTube views go on today's entry, made when nobody posted
   today.
 - **Shown:** 3 creators who posted it this week (a category: 2). The old rule hid an effect with none in the last 3 days
   ("fading"); with post days that would hide a real weekly trend, the live clone effect (Oct 1 and 3, seen Oct 7). Now
-  such an effect shows last, with growth 0. The AI's slots count only this week's creators.
-- **A memory from before** (no name has `firstSeen`) filed creators under scan days: its days are dropped once at the next
-  run, each name keeping the day it was first seen, so no chip rests on scans of old posts. The row may be thinner for a
-  few days while the rotation searches every family.
+  such an effect shows with growth 0, after every effect with a score (trends and techniques alike). The AI's slots count
+  only this week's creators.
+- **A memory from before** (no name has `firstSeen`) filed creators under scan days: at the next run its creators are
+  dropped once, so no chip rests on scans of old posts. Each day stays, empty, with its YouTube views, so every name keeps
+  its meta (approval, name, line) and gets its first-seen day (its oldest day), found in that run or not; a name not found
+  again ages out with its days after 14 days. The row may be thinner for a few days while the rotation searches every
+  family.
 
 **Discover** (spec 13, "Live fix (2026-10-07)"): searches are English first (the Arabic tutorials query only for
-`lang: "ar"`); a chip tap searches in English with "Arabic first" off and `editing: true`, so a post naming no editing
+`lang: "ar"`: Arabic typing or "Arabic first"); a chip tap searches in English with "Arabic first" off and `editing: true`, so a post naming no editing
 besides the effect's own name is hidden as off-topic; a week search asks Tavily for a month and keeps the TikTok /
 Instagram posts dated within 7 days; cards show their date; the tabs read All, Instagram, TikTok, YouTube.
 

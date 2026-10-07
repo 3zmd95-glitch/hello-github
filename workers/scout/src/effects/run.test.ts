@@ -298,10 +298,63 @@ describe("runEffects", () => {
     // Only the 3 creators who posted this week; first seen 2026-09-28, so not NEW.
     expect(doc.items.map((i) => [i.key, i.creators, i.isNew])).toEqual([["glow-effect", 3, false]]);
     expect(doc.meta["glow-effect"].firstSeen).toBe("2026-09-28");
+    // The old days stay, empty: only their creators went.
     expect(entries(doc, "glow-effect")).toEqual([
+      ["2026-09-28", 0],
+      ["2026-10-05", 0],
       ["2026-10-06", 3],
       ["2026-10-07", 0],
     ]);
+  });
+
+  // The reset run searches 6 of the 18 families: the names it does not find must keep what they had.
+  it("the reset keeps an approved name it does not find: its meta and first-seen day stay, and it is not NEW later", async () => {
+    const old: EffectsDoc = {
+      ranOn: "2026-10-06",
+      updatedAt: "2026-10-06T05:40:00.000Z",
+      status: "ok",
+      items: [],
+      meta: {
+        "spin-trend": {
+          name: { en: "Spin Trend", ar: "ترند اللفة" },
+          what: { en: "The camera spins around you", ar: "الكاميرا تلف حولك" },
+          checked: true,
+          platforms: ["tt"],
+          posts: 4,
+          samples: [],
+        },
+      },
+      history: {
+        "spin-trend": [
+          { day: "2026-09-28", ids: ["z"] },
+          { day: "2026-10-05", ids: ["a", "b", "c", "d"], views7d: 900 },
+        ],
+      },
+    };
+    // The reset run finds other names only.
+    const day1 = await runEffects(setup({ stored: old }).env, { fetch: web().fetch, now: NOW });
+    expect(day1.meta["spin-trend"]).toEqual({ ...old.meta["spin-trend"], firstSeen: "2026-09-28" });
+    expect(entries(day1, "spin-trend")).toEqual([
+      ["2026-09-28", 0],
+      ["2026-10-05", 0],
+    ]);
+    expect(day1.history["spin-trend"].find((e) => e.day === "2026-10-05")?.views7d).toBe(900);
+    expect(day1.items.map((i) => i.key)).not.toContain("spin-trend");
+
+    // Found again the next day, with the AI down: its stored approval and line show it, and it was first seen 10 days
+    // ago, so not NEW.
+    const hits = ["s1", "s2", "s3"].map((h, i) =>
+      tt(h, "The Spin Trend 🔄", 40 + i, on("2026-10-08")),
+    );
+    const next = setup({ stored: day1 });
+    next.env.AI.run.mockResolvedValue({ response: "{not json" });
+    const day2 = await runEffects(next.env, { fetch: web({ hits }).fetch, now: NEXT_DAY });
+    expect(day2.items.find((i) => i.key === "spin-trend")).toMatchObject({
+      creators: 3,
+      isNew: false,
+      checked: true,
+      what: { en: "The camera spins around you", ar: "الكاميرا تلف حولك" },
+    });
   });
 
   it("never asks TikTok's Discovery API or reads its token: TikTok trends are the category pages' alone", async () => {
@@ -827,6 +880,35 @@ describe("runEffects", () => {
     expect(doc.history["swagger-edit"]).toBeUndefined();
     expect(doc.history["outfit-trend"]).toBeUndefined();
     expect(second.count.search).toBe(2);
+  });
+
+  it("a spelling merged into a name first seen today hands it its older first-seen day: no false NEW", async () => {
+    // Sep 30: "twin edit" is found (and approved): first seen that day.
+    const sep30 = ["t1", "t2", "t3"].map((h, i) => tt(h, "My Twin Edit", 70 + i, on("2026-09-30")));
+    const first = await runEffects(setup().env, {
+      fetch: web({ hits: sep30 }).fetch,
+      now: new Date("2026-09-30T05:35:00Z"),
+    });
+    expect(first.meta["twin-edit"].firstSeen).toBe("2026-09-30");
+
+    // Oct 7: "twin trend" appears, and the AI files "twin edit" under it.
+    const hits = [
+      ...["t4", "t5", "t6"].map((h, i) =>
+        tt(h, "The Twin Trend everyone is doing", 80 + i, on("2026-10-07")),
+      ),
+      tt("t7", "My Twin Edit", 90, on("2026-10-07")),
+    ];
+    const { env } = setup({
+      stored: first,
+      judge: (key) => (key === "twin-edit" ? { sameAs: "twin-trend" } : {}),
+    });
+    const doc = await runEffects(env, { fetch: web({ hits }).fetch, now: NOW });
+    expect(doc.meta["twin-edit"]).toBeUndefined();
+    expect(doc.meta["twin-trend"].firstSeen).toBe("2026-09-30");
+    expect(doc.items.find((i) => i.key === "twin-trend")).toMatchObject({
+      creators: 4,
+      isNew: false,
+    });
   });
 
   it("asks YouTube only about effects mentioned today, the top 6 of them", async () => {

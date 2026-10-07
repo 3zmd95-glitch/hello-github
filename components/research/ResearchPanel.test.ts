@@ -596,7 +596,7 @@ describe("Discover's trending effects row", () => {
     )!;
     act(() => chip.click());
     await settle();
-    expect(discoverAsked.at(-1)).toEqual({ q: "clone effect", editing: true });
+    expect(discoverAsked.at(-1)).toEqual({ q: "clone effect", lang: "en", editing: true });
     expect(localPlans).toHaveLength(1);
     expect(pressed("discover-mode-keyword")).toBe("true");
     expect(pressed("discover-mode-ai")).toBe("false");
@@ -604,14 +604,14 @@ describe("Discover's trending effects row", () => {
   });
 
   // English first (the owner, 2026-10-07): a chip also asked Arabic, and "Glow Effect" found beauty serums.
-  it("a chip searches in English with editing context, Arabic first off; a typed search after it stays English", async () => {
+  it("a chip searches in English with editing context, Arabic first off; the next search's language is its own", async () => {
     effectsDoc = EFFECTS;
     await mount({ v2: true }); // the Arabic dashboard
+    // Arabic first on: an English topic asks Arabic too.
+    await click("filter-arfirst");
     await submit("flash");
     expect(discoverAsked.at(-1)).toEqual({ q: "flash", lang: "ar" });
     expect($("discover-langs")!.textContent).toBe("عربي + English");
-    await click("filter-arfirst");
-    expect(pressed("filter-arfirst")).toBe("true");
 
     act(() =>
       host
@@ -619,13 +619,18 @@ describe("Discover's trending effects row", () => {
         .click(),
     );
     await settle();
-    expect(discoverAsked.at(-1)).toEqual({ q: "clone effect", editing: true });
+    expect(discoverAsked.at(-1)).toEqual({ q: "clone effect", lang: "en", editing: true });
     expect(pressed("filter-arfirst")).toBe("false");
     expect($("discover-langs")!.textContent).toBe("English بس");
 
-    // The next typed search is no chip's: English (the panel's language now), without the editing context.
+    // The language is each search's own (the chip's English does not stick): Arabic typing asks Arabic too, English
+    // typing English only; neither has the editing check.
+    await submit("شرح فلاش");
+    expect(discoverAsked.at(-1)).toEqual({ q: "شرح فلاش", lang: "ar" });
+    expect($("discover-langs")!.textContent).toBe("عربي + English");
     await submit("speed ramp");
-    expect(discoverAsked.at(-1)).toEqual({ q: "speed ramp" });
+    expect(discoverAsked.at(-1)).toEqual({ q: "speed ramp", lang: "en" });
+    expect($("discover-langs")!.textContent).toBe("English بس");
   });
 
   it("is not in a skill's panel, even on a Discover v2 Worker", async () => {
@@ -1000,7 +1005,9 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
     await click("category-search-all");
     expect($("category-page")).toBeNull();
     expect(searchParts()).toEqual([false, false, false, false]);
-    expect(discoverAsked).toEqual([{ q: "car edit", genreQuery: { ar: "ايديت سيارات" } }]);
+    expect(discoverAsked).toEqual([
+      { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" },
+    ]);
   });
 
   it("closing the page into a search takes its focused button away: focus goes to the category's chip", async () => {
@@ -1052,7 +1059,12 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
     );
     await settle();
     expect(discoverAsked).toEqual([
-      { q: "rolling shot", genreQuery: { ar: "ايديت سيارات", en: "car edit" }, editing: true },
+      {
+        q: "rolling shot",
+        genreQuery: { ar: "ايديت سيارات", en: "car edit" },
+        lang: "en",
+        editing: true,
+      },
     ]);
     expect(pressed("discover-mode-keyword")).toBe("true");
     expect(localPlans).toHaveLength(0);
@@ -1071,7 +1083,7 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
       await settle();
       expect($("category-page")).toBeNull();
       expect(discoverAsked).toEqual([
-        { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "ar" },
+        { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" },
       ]);
     } finally {
       delete proto.scrollIntoView;
@@ -1092,7 +1104,7 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
       expect(pressed("genre-cars")).toBe("true");
       expect(scrolled).toEqual([$("genre-cars")]);
       expect(discoverAsked).toEqual([
-        { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "ar" },
+        { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" },
       ]);
     } finally {
       delete proto.scrollIntoView;
@@ -1112,7 +1124,12 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
     await settle();
     // In English with editing context, like a 🔥 chip (the Arabic dashboard asks Arabic otherwise).
     expect(discoverAsked).toEqual([
-      { q: "rolling shot", genreQuery: { ar: "ايديت سيارات", en: "car edit" }, editing: true },
+      {
+        q: "rolling shot",
+        genreQuery: { ar: "ايديت سيارات", en: "car edit" },
+        lang: "en",
+        editing: true,
+      },
     ]);
     expect(pressed("discover-mode-keyword")).toBe("true");
     expect($("category-page")).toBeNull();
@@ -1140,7 +1157,7 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
     await mount({ v2: true, lang: "en" });
     await click("genre-custom-drift");
     expect($("category-page")).toBeNull();
-    expect(discoverAsked).toEqual([{ q: "drift edit" }]);
+    expect(discoverAsked).toEqual([{ q: "drift edit", lang: "en" }]);
   });
 
   it("with Saved only on, a category leaves the saved list in view; its page opens once Saved only is off", async () => {

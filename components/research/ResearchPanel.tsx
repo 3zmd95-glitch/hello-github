@@ -16,6 +16,7 @@ import { useSkillSheet } from "@/components/skills/SkillSheetProvider";
 import { pullTrends } from "@/components/social/trends/useTrends";
 import { getProgram, getSkill, programs } from "@/data";
 import {
+  discoverLang,
   discoverRequestFrom,
   picksFor,
   tabCounts,
@@ -268,9 +269,9 @@ export default function ResearchPanel({
     setEditing(false);
   };
 
-  /** A trend chip's search (spec 18, 2026-10-07): English, Arabic first off, with editing context. */
+  /** A trend chip's search (spec 18, 2026-10-07): Arabic first off and editing context; its English name makes it an
+   * English search ({@link discoverLang}), and nothing of that sticks to the next search but Arabic first being off. */
   const chipSearch = () => {
-    setQueryLang("en");
     setArFirst(false);
     setEditing(true);
   };
@@ -416,7 +417,7 @@ export default function ResearchPanel({
             recency,
             length,
             pick: picked?.on === pickOn ? picked.pick : undefined,
-            lang: searchLang,
+            arFirst,
             editing,
           })
         : null,
@@ -434,7 +435,7 @@ export default function ResearchPanel({
       pickOn,
       submittedMode,
       submittedAi,
-      searchLang,
+      arFirst,
       editing,
     ],
   );
@@ -855,7 +856,11 @@ export default function ResearchPanel({
           )}
           {v2 && searchMode === "keyword" && (
             <span className="text-muted text-xs" data-testid="discover-langs">
-              {t(searchLang === "ar" ? "search.bothLangs" : "search.englishOnly")}
+              {t(
+                discoverLang(draft ?? base, arFirst) === "ar"
+                  ? "search.bothLangs"
+                  : "search.englishOnly",
+              )}
             </span>
           )}
           {!skill && (
@@ -1382,7 +1387,7 @@ export default function ResearchPanel({
           <div className="flex flex-col gap-2" data-testid="discover-loading">
             <p className="text-muted text-xs">
               {t(
-                submittedMode === "keyword" && searchLang !== "ar"
+                submittedMode === "keyword" && discoverLang(base, arFirst) !== "ar"
                   ? "search.searchingEn"
                   : "search.searching",
               )}
@@ -1404,7 +1409,7 @@ export default function ResearchPanel({
             tab={tab}
             sort={sort}
             arFirst={arFirst}
-            bothLangs={searchLang === "ar"}
+            bothLangs={discoverLang(base, arFirst) === "ar"}
             headingLevel={skill ? "h3" : "h2"}
             renderAction={renderAction}
             onAlternative={onAlternative}

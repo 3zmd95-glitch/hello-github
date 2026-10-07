@@ -7,6 +7,7 @@ import {
   DISCOVER_CACHE_MAX,
   DISCOVER_CACHE_TTL_MS,
   DISCOVER_CACHE_VERSION,
+  discoverLang,
   discoverRequestFrom,
   discoverRequestKey,
   discoverSearch,
@@ -94,6 +95,7 @@ describe("discoverRequestFrom", () => {
       q: "flash",
       genreQuery: { ar: "ايديت سيارات", en: "car edit" },
       program: "DaVinci Resolve",
+      lang: "en",
       timeRange: "week",
       ytLength: "short",
     });
@@ -112,6 +114,7 @@ describe("discoverRequestFrom", () => {
       q: "car edit",
       genreQuery: { ar: "ايديت سيارات" },
       term: "camera-flash",
+      lang: "en",
     });
     expect(discoverRequestFrom({ base: "  ", recency: "any", length: "any" })).toBeNull();
   });
@@ -145,20 +148,29 @@ describe("discoverRequestFrom", () => {
 describe("the search's language and a trend chip's editing flag", () => {
   const base = { base: "Glow Effect", recency: "any" as const, length: "any" as const };
 
-  // English first (the owner, 2026-10-07): the Worker plans English only unless the search is Arabic.
-  it("sends the language only when Arabic, and a trend chip's editing flag; neither with an AI brief", () => {
-    expect(discoverRequestFrom({ ...base, lang: "en", editing: true })).toEqual({
+  // English first (the owner, 2026-10-07): Arabic only when what was typed has Arabic letters or Arabic first is on,
+  // worked out for each search (a chip's English never sticks to the next one).
+  it("asks Arabic for Arabic typing or Arabic first, else English; a trend chip's editing flag; neither with an AI brief", () => {
+    expect(discoverRequestFrom({ ...base, editing: true })).toEqual({
       q: "Glow Effect",
+      lang: "en",
       editing: true,
     });
-    expect(discoverRequestFrom({ ...base, lang: "ar", editing: false })).toEqual({
+    expect(discoverRequestFrom({ ...base, base: "شرح فلاش", editing: false })).toEqual({
+      q: "شرح فلاش",
+      lang: "ar",
+    });
+    expect(discoverRequestFrom({ ...base, arFirst: true })).toEqual({
       q: "Glow Effect",
       lang: "ar",
     });
-    expect(discoverRequestFrom({ ...base, mode: "ai", lang: "ar", editing: true })).toEqual({
+    expect(discoverRequestFrom({ ...base, mode: "ai", arFirst: true, editing: true })).toEqual({
       q: "Glow Effect",
       mode: "ai",
     });
+    expect(discoverLang("speed ramp", false)).toBe("en");
+    expect(discoverLang("سبيد رامب", false)).toBe("ar");
+    expect(discoverLang("speed ramp", true)).toBe("ar");
   });
 
   it("keys them apart on this device (English is the default)", () => {

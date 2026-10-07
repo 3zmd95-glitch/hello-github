@@ -253,6 +253,28 @@ describe("scoring", () => {
     ]);
   });
 
+  it("ranks a quiet trend (growth 0) after a growing editing technique: growth 0 comes last of all", () => {
+    const history: Record<string, HistoryEntry[]> = {
+      // 3 creators 4 days ago, none since: a trend (a new name), but growth 0.
+      "quiet-trend": [{ day: "2026-10-02", ids: ["x", "y", "z"] }],
+      // 9 creators: 6 in the last 3 days, 3 in days 3–5: growth 2. A technique, not a trend.
+      glitch: [
+        { day: "2026-10-06", ids: ["a", "b", "c", "d", "e", "f"] },
+        { day: "2026-10-02", ids: ["g", "h", "i"] },
+      ],
+    };
+    const items = scoreEffects(
+      history,
+      { "quiet-trend": meta("quiet-trend"), glitch: meta("glitch", "glitch") },
+      "2026-10-06",
+      {},
+    );
+    expect(items.map((i) => [i.key, i.creators, i.growth])).toEqual([
+      ["glitch", 9, 2],
+      ["quiet-trend", 3, 0],
+    ]);
+  });
+
   it("marks NEW by the scan day a name was first seen, not by its oldest post", () => {
     const history = {
       fresh: [
