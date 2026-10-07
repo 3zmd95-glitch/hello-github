@@ -2725,10 +2725,20 @@
   background: color-mix(in srgb, var(--pc) 22%, var(--panel-3));
   border-color: color-mix(in srgb, var(--pc) 45%, transparent);
 }
+/* A pressed platform chip fills with its color; the label (and glyph) takes the one that reads ≥ 4.5:1 on it in both
+ * schemes. Black: TikTok 5.7, Instagram 4.8 (no token reaches 4.5 there: --ink 4.49, white 4.3), Snapchat 12.5+, and
+ * every PLATFORM_META color the untagged chips (the post form) still use. White: YouTube 4.8. X / Threads are --ink,
+ * so their label takes --bg (17.5+). The tagged chips (`data-platform`) fill with the --pc-* tokens. */
 .cal-fchip[aria-pressed="true"] {
   background: var(--pc);
   border-color: var(--pc);
-  color: #0b0d10;
+  color: #000;
+}
+.cal-fchip[aria-pressed="true"][data-platform="youtube"] {
+  color: #fff;
+}
+.cal-fchip[aria-pressed="true"]:is([data-platform="x"], [data-platform="threads"]) {
+  color: var(--bg);
 }
 
 /* Month grid: 7 columns, Sat first. */
@@ -2846,7 +2856,7 @@
   }
 }
 
-/* Segmented tabs (views, popup tabs) and the 6-step stage stepper. */
+/* Segmented tabs (post popup, notes, replies, publish media) and the 6-step stage stepper. */
 .cal-tabs {
   display: inline-flex;
   gap: 4px;

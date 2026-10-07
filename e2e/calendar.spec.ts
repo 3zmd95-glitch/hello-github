@@ -28,8 +28,9 @@ test("plan a post from idea to posted: week, popup, script, shots, month and sta
   const today = todayKey();
   await freshState(page, "/social/calendar/");
 
-  // Fresh: week view, today highlighted, empty state.
-  await expect(page.getByTestId("calendar-view-week")).toHaveAttribute("aria-pressed", "true");
+  // Fresh: week view (the segmented control's selected tab), today highlighted, empty state.
+  await expect(page.getByTestId("calendar-view-week")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "الأسبوع" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(`[data-testid="calendar-day"][data-day="${today}"]`)).toHaveAttribute(
     "data-today",
     "true",
@@ -122,7 +123,7 @@ test("plan a post from idea to posted: week, popup, script, shots, month and sta
 
   // Reload keeps everything.
   await page.reload();
-  await expect(page.getByTestId("calendar-view-week")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("calendar-view-week")).toHaveAttribute("aria-selected", "true");
   await expect(cardFor(page, id)).toHaveAttribute("data-stage", "posted");
   await cardFor(page, id).locator("button").first().click();
   await expect(page.getByTestId("post-sheet")).toBeVisible();
@@ -215,7 +216,9 @@ test("the stages board moves posts with ◀ ▶ but never into posted", async ({
   await expect(card).toHaveAttribute("data-stage", "edited");
   await noHorizontalScroll(page);
 
-  // The platform filter hides it.
+  // The platform filter hides it. Its chips show the brand glyph (an SVG) beside the name, no emoji.
+  await expect(page.getByTestId("calendar-filter-tiktok").locator("svg")).toHaveCount(1);
+  await expect(page.getByTestId("calendar-filter-tiktok")).toHaveText("تيك توك");
   await page.getByTestId("calendar-filter-tiktok").click();
   await expect(page.getByTestId("post-card")).toHaveCount(0);
   await page.getByTestId("calendar-filter-x").click();

@@ -1,16 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useToday } from "@/components/today/useToday";
 import PageHeader from "@/components/ui/ios/PageHeader";
+import Segmented from "@/components/ui/ios/Segmented";
 import { PLATFORMS, type Platform, type Post } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { PlatformGlyph } from "@/lib/platformIcons";
 import { PLATFORM_META } from "@/lib/social";
 import { weekKey } from "@/lib/streak";
 import { useStore } from "@/store";
 import { monthKeyOf, parseCalendarHash, postHash } from "./calendar/dates";
 import MonthView from "./calendar/MonthView";
-import { platformStyle } from "./calendar/PlatformChip";
 import PostForm from "./calendar/PostForm";
 import PostSheet from "./calendar/PostSheet";
 import StagesBoard from "./calendar/StagesBoard";
@@ -28,10 +29,11 @@ function clearHash(): void {
 }
 
 /**
- * 📅 Content calendar (rounds 16–17): Week · Month · Stages views per platform, the "+ New post" sheet and
- * the post popup. Deep links: `#post=<id>` opens that post's popup (the Studio home, the Ideas bank and the
- * skill sheet link here), `#day=YYYY-MM-DD` focuses a day in the week view; both are read on mount and on
- * `hashchange`, and closing the popup clears the hash with `history.replaceState`.
+ * Content calendar (rounds 16–17, iOS look round 35): Week · Month · Stages views (a segmented control) per platform
+ * (filter chips with the brand glyphs), the "+ New post" sheet and the post popup. Deep links: `#post=<id>` opens
+ * that post's popup (the Studio home, the Ideas bank and the skill sheet link here), `#day=YYYY-MM-DD` focuses a day
+ * in the week view; both are read on mount and on `hashchange`, and closing the popup clears the hash with
+ * `history.replaceState`.
  */
 export default function CalendarScreen() {
   const { t, L } = useT();
@@ -94,20 +96,18 @@ export default function CalendarScreen() {
       <PageHeader title={t("social.calendar.title")} sub={t("social.calendar.sub")} />
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="cal-tabs" role="group" aria-label={t("social.calendar.title")}>
-          {VIEWS.map((v) => (
-            <button
-              key={v}
-              type="button"
-              className="cal-tab"
-              aria-pressed={view === v}
-              onClick={() => setView(v)}
-              data-testid={`calendar-view-${v}`}
-            >
-              {t(`calendar.view.${v}`)}
-            </button>
-          ))}
-        </div>
+        {/* Grows beside the button; on a phone under ~330px wide it takes its own row instead of squeezing. */}
+        <Segmented
+          options={VIEWS.map((v) => ({
+            value: v,
+            label: t(`calendar.view.${v}`),
+            testId: `calendar-view-${v}`,
+          }))}
+          value={view}
+          onChange={setView}
+          label={t("social.calendar.title")}
+          className="grow basis-48 md:max-w-sm"
+        />
         <button
           type="button"
           className="px-btn px-btn-sm ms-auto"
@@ -118,7 +118,7 @@ export default function CalendarScreen() {
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("calendar.filter.aria")}>
+      <div className="flex flex-wrap gap-2" role="group" aria-label={t("calendar.filter.aria")}>
         <button
           type="button"
           className="px-fchip"
@@ -133,12 +133,14 @@ export default function CalendarScreen() {
             key={p}
             type="button"
             className="px-fchip cal-fchip"
-            style={platformStyle(p)}
+            style={{ "--pc": `var(--pc-${p})` } as CSSProperties}
             aria-pressed={filter === p}
             onClick={() => setFilter(p)}
             data-testid={`calendar-filter-${p}`}
+            data-platform={p}
           >
-            <span aria-hidden>{PLATFORM_META[p].icon}</span> {L(PLATFORM_META[p].name)}
+            <PlatformGlyph platform={p} size={14} className="shrink-0" />
+            {L(PLATFORM_META[p].name)}
           </button>
         ))}
       </div>
