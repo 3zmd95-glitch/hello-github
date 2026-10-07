@@ -117,6 +117,45 @@ describe("runDiscover", () => {
     expect(fetchMock.mock.calls.length).toBe(calls);
   });
 
+  // Live, 2026-10-07: Tavily's Instagram "week" held posts from 2023 and May. The post id is the date (postDate.ts).
+  it("asks Tavily a wider window, then keeps the posts inside the asked one by their real date", async () => {
+    const at = (daysAgo: number) =>
+      String(BigInt(Math.floor((NOW.getTime() - daysAgo * 86_400_000) / 1000)) << 32n);
+    const post = (handle: string, daysAgo: number) =>
+      `https://www.tiktok.com/@${handle}/video/${daysAgo < 0 ? "5" : at(daysAgo)}`;
+    for (const [asked, sent, kept, dropped] of [
+      ["week", "month", 3, 10],
+      ["month", "month", 20, 40],
+      ["year", "year", 300, 400],
+    ] as const) {
+      const ranges: unknown[] = [];
+      const fetchMock = web({
+        tavily: (body) => {
+          ranges.push(body.time_range);
+          return json({
+            results: [
+              { url: post("new", kept), title: "flash transition edit", content: "capcut" },
+              { url: post("old", dropped), title: "flash transition edit", content: "capcut" },
+              // No post time in its id: kept (nothing says it is old).
+              { url: post("undated", -1), title: "flash transition edit", content: "capcut" },
+            ],
+            usage: { credits: 1 },
+          });
+        },
+      });
+      const answer = await runDiscover(
+        ENV(),
+        { q: "flash", timeRange: asked, platforms: ["tt"] },
+        { fetch: fetchMock, now: NOW },
+      );
+      expect(new Set(ranges), asked).toEqual(new Set([sent]));
+      expect(answer.items.map((i) => i.url).sort(), asked).toEqual(
+        [post("new", kept), post("undated", -1)].sort(),
+      );
+      expect(answer.platforms.tt, asked).toEqual({ ok: true });
+    }
+  });
+
   it("asks an empty TikTok query once more with its other words", async () => {
     const fetchMock = web({
       tavily: (body) =>

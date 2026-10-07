@@ -246,6 +246,16 @@ describe("Discover v2 in the research panel", () => {
     expect(discovered).toHaveLength(1);
   });
 
+  it("a card shows its post's date: the answer's `published` reaches the card", async () => {
+    answer = () => ({
+      ...ANSWER,
+      items: [item(1, { published: "2025-05-30T10:00:00.000Z" }), ...ANSWER.items.slice(1)],
+    });
+    await mount();
+    await submit("flash");
+    expect(all("result-date").map((d) => d.textContent)).toEqual(["May 30, 2025"]);
+  });
+
   it("creators: two channels with one name both show (keyed by their page); one post reads as one", async () => {
     const errors = vi.spyOn(console, "error");
     answer = () => ({

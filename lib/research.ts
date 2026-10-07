@@ -719,6 +719,8 @@ export interface ResearchItem {
   thumb?: string;
   /** Known for search cards only, when the source gave counts; a saved {@link Ref} never keeps them. */
   stats?: Stats;
+  /** When the post went up (ISO 8601): Discover's cards, TikTok / Instagram from the post's own id. */
+  published?: string;
 }
 
 export function itemFromYoutube(v: YoutubeVideo): ResearchItem {

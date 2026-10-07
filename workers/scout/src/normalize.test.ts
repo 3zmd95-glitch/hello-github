@@ -147,6 +147,8 @@ describe("Instagram cards (real og:title / description / twitter:title shapes)",
       snippet: '3M likes, 153K comments - kendalljenner on June 11, 2015: "❥".',
       url: "https://www.instagram.com/p/3H0-Yqjo7u",
       stats: { likes: 3_000_000, comments: 153_000 },
+      // The shortcode's own time (postDate.ts).
+      published: "2015-05-25T22:51:17.422Z",
     });
   });
 
@@ -518,7 +520,7 @@ describe("profileFromUrl", () => {
 });
 
 describe("normalizeDiscoverHits", () => {
-  it("splits posts from profile pages and keeps the published date", () => {
+  it("splits posts from profile pages and dates a post by its id", () => {
     const { cards, profiles } = normalizeDiscoverHits(
       [
         {
@@ -536,7 +538,8 @@ describe("normalizeDiscoverHits", () => {
     expect(cards[0]).toMatchObject({
       platform: "tt",
       handle: "@zenko.edit",
-      published: "2026-09-30T00:00:00.000Z",
+      // The video id's time, not Tavily's "2026-09-30".
+      published: "2023-11-11T00:48:18.000Z",
     });
     expect(profiles).toEqual([
       { platform: "tt", handle: "@zenko.edit", url: "https://www.tiktok.com/@zenko.edit" },
@@ -559,17 +562,30 @@ describe("normalizeDiscoverHits", () => {
 });
 
 describe("normalizeHits: published", () => {
-  const card = (published_date: string) =>
-    normalizeHits(
-      [{ url: "https://www.tiktok.com/@a/video/7300000000000000001", title: "A", published_date }],
-      ["tt"],
-    )[0];
+  const card = (url: string, published_date?: string) =>
+    normalizeHits([{ url, title: "A", published_date }], ["tt", "ig", "yt"])[0];
+  const YT = "https://www.youtube.com/watch?v=abc123XYZ";
 
   it("stores Tavily's RFC 2822 date as ISO 8601", () => {
-    expect(card("Tue, 30 Sep 2026 17:00:00 GMT").published).toBe("2026-09-30T17:00:00.000Z");
+    expect(card(YT, "Tue, 30 Sep 2026 17:00:00 GMT").published).toBe("2026-09-30T17:00:00.000Z");
   });
 
   it("leaves out a date it cannot read, without throwing", () => {
-    expect(card("not a date")).not.toHaveProperty("published");
+    expect(card(YT, "not a date")).not.toHaveProperty("published");
+  });
+
+  // Live, 2026-10-07: Tavily sent no date for any Instagram result, and a "week" search returned posts from May.
+  it("dates Instagram and TikTok posts by their own id, whatever Tavily sent", () => {
+    expect(card("https://www.instagram.com/reel/DY-MjkYNiWG/").published).toBe(
+      "2026-05-30T17:50:47.305Z",
+    );
+    expect(
+      card("https://www.tiktok.com/@a/video/7692240280929520917", "Tue, 06 Oct 2026 10:00:00 GMT")
+        .published,
+    ).toBe("2026-10-03T01:00:55.000Z");
+    // No date at all rather than Tavily's for a post whose id cannot be a post time.
+    expect(
+      card("https://www.tiktok.com/@a/video/12345", "Tue, 06 Oct 2026 10:00:00 GMT"),
+    ).not.toHaveProperty("published");
   });
 });

@@ -146,6 +146,8 @@ flash (photography), and others the owner names.
      examples en "<name> video", tutorials en "how to <name>" (`<name>`: the entry's English label plus the other typed
      words, else the topic's words; no genre or program), tutorials ar the Arabic examples query. A retry that would
      repeat words already planned on that platform is dropped; YouTube has no retries; at most two retries a search.
+     With a time range, Tavily is asked a wider one (week → month) and the cards outside the asked range by their real
+     date are dropped (see "Live fix (2026-10-07)").
    - YouTube `search.list` (Worker's `YOUTUBE_API_KEY`; Arabic: `regionCode=SA`, `relevanceLanguage=ar`), then one
      `videos.list` for the numbers of every YouTube card (1 unit).
    - Profile pages (`tiktok.com/@user`, `instagram.com/<user>/`, `youtube.com/@channel`), dropped by `normalizeHits` today,
@@ -378,6 +380,24 @@ Connector deployment checks: both OAuth authorization-server metadata and protec
 200 with the expected Worker URLs. An unauthenticated GET /mcp returned 401 and advertised the correct protected
 resource metadata URL. No production OAuth registration, token replacement, or picks write was performed.
 The owner still needs to sign in from Claude and verify a research chat plus saved picks end to end.
+
+## Live fix (2026-10-07): real post dates
+
+The owner: "I'm seeing the clone effect posts in may when its says this week? … rework if needed. English First. Instagram
+and tiktok first". Checked live against the production Worker: Tavily sent `published_date` for none of the Instagram
+results, and its `time_range: "week"` on instagram.com is unreliable ("clone effect", Instagram, week: posts from
+2023-10-04, 2024-12-02, 2026-08-15, 09-13, 09-29 and 09-30; the two reels the owner opened went up May 5 and May 30).
+
+- **The post's own id is its date** (`src/postDate.ts`): an Instagram shortcode is base64 of a Snowflake-like media id
+  (`ms = (id >> 23) + 1314220021721`), a TikTok video id carries Unix seconds in its top 32 bits. Verified against the
+  owner's own reels (within ~2 minutes). `normalizeHits` sets every TikTok / Instagram card's `published` from it,
+  whatever Tavily sent (a decode before 2010 or after now + 1 day is none); YouTube keeps the Data API's date.
+- **The Posted filter is enforced by real dates on TikTok and Instagram** (`run.ts`): Tavily is asked a wider window (week →
+  month; month and year as they are), then a card stays only when its date is inside the asked window at the request's
+  time (week 7 days, month 31, year 366). A card with no date stays. YouTube keeps `publishedAfter`.
+- **Cards show the date** (`ResultCard`): "Oct 3" this year, "May 30, 2025" before, English with Latin digits in both
+  languages, in a `<time dateTime>`.
+- Kept answers from before have no dates: the Worker's answer key is version 6, the browser's cache version 6.
 
 ## Honest limits
 

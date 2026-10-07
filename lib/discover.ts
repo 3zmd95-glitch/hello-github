@@ -273,8 +273,8 @@ export function parseDiscoverAnswer(raw: unknown): DiscoverAnswer | null {
 /* ---------- cache ---------- */
 
 export const DISCOVER_CACHE_KEY = "3z-discover-cache";
-/** 5: focused category plans/retries; older generic answers must not bypass the new pipeline. */
-export const DISCOVER_CACHE_VERSION = 5;
+/** 6: real post dates (the Posted filter by them), English-first plans; older answers must not bypass them. */
+export const DISCOVER_CACHE_VERSION = 6;
 export const DISCOVER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Answers kept on the device, newest first (memory keeps this session's). */
 export const DISCOVER_CACHE_MAX = 8;

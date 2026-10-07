@@ -30,6 +30,7 @@ const toItem = (i: DiscoverItem): ResearchItem => ({
   url: i.url,
   ...(i.thumb ? { thumb: i.thumb } : {}),
   ...(i.stats ? { stats: i.stats } : {}),
+  ...(i.published ? { published: i.published } : {}),
 });
 
 /**

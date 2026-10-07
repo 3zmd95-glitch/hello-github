@@ -23,12 +23,34 @@ import { matchTerms } from "./terms";
 import type {
   DiscoverRequest,
   DiscoverResponse,
+  DiscoverTimeRange,
   PlannedQuery,
   PlatformError,
   PlatformStatus,
 } from "./types";
 
 export const ANSWER_TTL_S = 6 * 3600;
+const DAY_MS = 86_400_000;
+/**
+ * The Posted filter on TikTok / Instagram (live, 2026-10-07: Tavily's Instagram "week" held posts from 2023 and May).
+ * Tavily is asked a wider window, then a card stays only when its real date (normalize.ts, from the post id) is inside
+ * the asked one at the request's time; a card with no date stays (nothing says it is old).
+ */
+const TAVILY_RANGE: Record<DiscoverTimeRange, DiscoverTimeRange> = {
+  week: "month",
+  month: "month",
+  year: "year",
+};
+const RANGE_DAYS: Record<DiscoverTimeRange, number> = { week: 7, month: 31, year: 366 };
+
+function inRange(out: TavilyOutcome, range: DiscoverTimeRange | undefined, now: Date) {
+  if (!out.ok || !range) return out;
+  const from = now.getTime() - RANGE_DAYS[range] * DAY_MS;
+  return {
+    ...out,
+    cards: out.cards.filter((c) => !c.published || Date.parse(c.published) >= from),
+  };
+}
 export const MAX_RETRIES = 2;
 export const discoverAnswerKey = (hash: string) => `discover:answer:${hash}`;
 
@@ -46,7 +68,8 @@ export interface RunDeps {
 export async function requestHash(req: DiscoverRequest): Promise<string> {
   const term = req.term && req.term !== matchTerms(req.q).best?.id ? req.term : "";
   const canonical = JSON.stringify({
-    version: 5,
+    // 6: real post dates and the Posted filter by them (2026-10-07); a kept answer from before has neither.
+    version: 6,
     mode: req.mode ?? "keyword",
     ...(req.aiPlan ? { aiPlan: req.aiPlan } : {}),
     q: req.q.trim().toLowerCase().replace(/\s+/g, " "),
@@ -176,13 +199,14 @@ export async function runDiscover(
   const tavily = plan.queries
     .filter((q) => q.platform !== "yt")
     .map(async (query): Promise<QueryResult> => {
+      const range = plan.timeRange ?? req.timeRange;
       const call = {
         q: query.q,
         platform: query.platform as "tt" | "ig",
         lang: query.lang,
-        timeRange: plan.timeRange ?? req.timeRange,
+        timeRange: range && TAVILY_RANGE[range],
       };
-      let out: TavilyOutcome = await tavilyCall(env, deps.fetch, call, deps.timeoutMs);
+      let out = inRange(await tavilyCall(env, deps.fetch, call, deps.timeoutMs), range, deps.now);
       if (out.ok) credits += out.credits;
       let retried = false;
       if (
@@ -193,11 +217,10 @@ export async function runDiscover(
       ) {
         retriesLeft -= 1;
         retried = true;
-        const again = await tavilyCall(
-          env,
-          deps.fetch,
-          { ...call, q: query.retryQ },
-          deps.timeoutMs,
+        const again = inRange(
+          await tavilyCall(env, deps.fetch, { ...call, q: query.retryQ }, deps.timeoutMs),
+          range,
+          deps.now,
         );
         if (again.ok) {
           credits += again.credits;

@@ -53,7 +53,8 @@ function environment() {
         JSON.stringify({
           results: [
             {
-              url: "https://www.instagram.com/reel/coffee123/",
+              // Posted 2026-10-01 (its shortcode's time): inside the plan's month.
+              url: "https://www.instagram.com/reel/Dd8IYtBSjUr/",
               title: "Coffee match cut tutorial",
               content: "Coffee match cut filmmaking tutorial",
             },
