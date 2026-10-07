@@ -1,6 +1,6 @@
 "use client";
 
-import { PenLine, X } from "lucide-react";
+import { MapPin, PenLine, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { formatDayShort } from "@/components/planner/weekLabel";
@@ -232,8 +232,12 @@ export default function Demographics({
                   data-key={r.key}
                   data-pct={r.pct}
                 >
-                  <span aria-hidden className="w-5 shrink-0 text-center">
-                    {geo === "city" ? "📍" : flagEmoji(r.key)}
+                  <span aria-hidden className="grid w-5 shrink-0 place-items-center">
+                    {geo === "city" ? (
+                      <MapPin size={15} strokeWidth={1.75} className="text-ink-2" />
+                    ) : (
+                      flagEmoji(r.key)
+                    )}
                   </span>
                   <span className="w-24 shrink-0 truncate text-xs font-semibold">
                     {geo === "city" ? r.key : countryName(r.key, lang)}

@@ -121,20 +121,38 @@ describe("LineChart", () => {
     expect(state()).toEqual(["", "", undefined]);
   });
 
-  it("draws in two frames after the start, then drops the dash when the transition ends", () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal("requestAnimationFrame", (f: FrameRequestCallback) => frames.push(f));
-    vi.stubGlobal("cancelAnimationFrame", () => {});
-    const { svg, line } = render({ start: true });
-    expect(svg.dataset.drawn).toBe("false");
-    act(() => frames.shift()!(0));
-    act(() => frames.shift()!(0));
-    expect(svg.dataset.drawn).toBe("true");
-    expect(line.style.strokeDashoffset).toBe("0");
-    expect(line.style.transition).toContain("stroke-dashoffset 1.3s");
+  /** rAF that runs only when the test calls `frame()`; cancelled callbacks are dropped. */
+  function frames() {
+    const queue = new Map<number, FrameRequestCallback>();
+    let next = 1;
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      (f: FrameRequestCallback) => (queue.set(next, f), next++),
+    );
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => queue.delete(id));
+    return () =>
+      act(() => {
+        const [id, f] = [...queue][0];
+        queue.delete(id);
+        f(0);
+      });
+  }
+  const ended = (line: SVGPathElement) => {
     const end = new Event("transitionend") as Event & { propertyName: string };
     end.propertyName = "stroke-dashoffset";
     act(() => line.dispatchEvent(end));
+  };
+
+  it("draws in two frames after the start, then drops the dash when the transition ends", () => {
+    const frame = frames();
+    const { svg, line } = render({ start: true });
+    expect(svg.dataset.drawn).toBe("false");
+    frame();
+    frame();
+    expect(svg.dataset.drawn).toBe("true");
+    expect(line.style.strokeDashoffset).toBe("0");
+    expect(line.style.transition).toContain("stroke-dashoffset 1.3s");
+    ended(line);
     expect([line.style.strokeDasharray, line.style.strokeDashoffset]).toEqual(["", ""]);
     // Same numbers again (a re-render): no second draw.
     render({ start: true });
@@ -142,34 +160,129 @@ describe("LineChart", () => {
     expect(line.style.strokeDasharray).toBe("");
   });
 
-  it("scrub: the marker, ring and tooltip follow the pointer to the nearest day and hide 900ms after release", () => {
+  it("draws again when the series change (new numbers), not on a plain re-render", () => {
+    const frame = frames();
+    const { svg, line } = render({ start: true });
+    frame();
+    frame();
+    ended(line);
+    const more = [
+      { ...series[0], points: [...series[0].points, { day: addDays(today, 1), value: 1500 }] },
+    ];
+    render({ start: true, series: more, today: addDays(today, 1) });
+    expect([line.style.strokeDasharray, line.style.strokeDashoffset, svg.dataset.drawn]).toEqual([
+      "300",
+      "300",
+      "false",
+    ]);
+    frame();
+    frame();
+    expect(svg.dataset.drawn).toBe("true");
+    expect(line.style.strokeDashoffset).toBe("0");
+  });
+
+  it("never sticks hidden: reduced motion switched on between the two frames or mid-draw shows it drawn", () => {
+    const frame = frames();
+    let { svg, line } = render({ start: true });
+    frame(); // the first of the two frames: not begun yet
+    reduce = true;
+    render({ start: true });
+    expect([line.style.strokeDasharray, line.style.strokeDashoffset, svg.dataset.drawn]).toEqual([
+      "",
+      "",
+      undefined,
+    ]);
+
+    act(() => root!.unmount());
+    root = null;
+    reduce = false;
+    ({ svg, line } = render({ start: true }));
+    frame();
+    frame(); // drawing: the 1.3s transition runs
+    reduce = true;
+    render({ start: true });
+    expect([line.style.strokeDasharray, line.style.transition, svg.dataset.drawn]).toEqual([
+      "",
+      "",
+      undefined,
+    ]);
+  });
+
+  /** A scrub chart with its tooltip, and a pointer helper (jsdom puts the svg at 0,0: clientX is the x in the chart). */
+  function scrubChart() {
     vi.useFakeTimers();
     const { svg } = render({ scrub: true, animate: false });
+    const tip = host.querySelector<HTMLElement>(".an-tip")!;
+    const width = Number(svg.getAttribute("width"));
+    const pointer = (type: string, x: number, y: number, pointerType = "mouse") =>
+      act(() => {
+        svg.dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            clientX: x,
+            clientY: y,
+            pointerType,
+            pointerId: pointerType === "mouse" ? 1 : 7,
+            buttons: 1,
+          }),
+        );
+      });
+    return { svg, tip, width, pointer, value: () => tip.querySelector("b")!.textContent };
+  }
+
+  it("scrub: the marker, ring and tooltip follow the pointer to the nearest day and hide 900ms after release", () => {
+    const { svg, tip, width, pointer, value } = scrubChart();
     // The tooltip has its own 50px band above the plot (170 + 50).
     expect(svg.getAttribute("height")).toBe("220");
-    const tip = host.querySelector<HTMLElement>(".an-tip")!;
     const ring = svg.querySelector(".an-mkd")!;
-    const width = Number(svg.getAttribute("width"));
-    // jsdom puts the svg at left 0, so clientX is the x inside the chart; the middle point sits nearest its center.
-    const press = (type: string, clientX: number) =>
-      act(() => {
-        svg.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX, buttons: 1 }));
-      });
-    press("pointerdown", width / 2);
+    pointer("pointerdown", width / 2, 100); // the middle point sits nearest the center
     expect(tip.dataset.on).toBe("true");
     expect(svg.dataset.scrubbing).toBe("true");
-    expect(tip.querySelector("b")!.textContent).toBe("1,250");
+    expect(value()).toBe("1,250");
     expect(tip.querySelector("small")!.textContent).not.toBe("");
-    const cx = Number(ring.getAttribute("cx"));
-    expect(tip.style.left).toBe(`${clampTip(cx, width)}px`);
-    press("pointermove", width);
-    expect(tip.querySelector("b")!.textContent).toBe("1,478");
+    expect(tip.style.left).toBe(`${clampTip(Number(ring.getAttribute("cx")), width)}px`);
+    pointer("pointermove", width, 100);
+    expect(value()).toBe("1,478");
     expect(tip.querySelector("small")!.textContent).toBe("اليوم");
-    press("pointerup", width);
+    pointer("pointerup", width, 100);
     act(() => vi.advanceTimersByTime(899));
     expect(tip.dataset.on).toBe("true");
     act(() => vi.advanceTimersByTime(1));
     expect(tip.dataset.on).toBeUndefined();
     expect(svg.dataset.scrubbing).toBeUndefined();
+  });
+
+  it("touch: a finger scrubs only once it moves sideways past the slop", () => {
+    const { tip, width, pointer, value } = scrubChart();
+    pointer("pointerdown", width / 2, 100, "touch");
+    expect(tip.dataset.on).toBeUndefined(); // a finger going down does not scrub
+    pointer("pointermove", width / 2 + 4, 101, "touch");
+    expect(tip.dataset.on).toBeUndefined(); // no direction yet
+    pointer("pointermove", width / 2 + 10, 102, "touch");
+    expect(tip.dataset.on).toBe("true"); // sideways: scrubbing
+    expect(value()).toBe("1,250");
+    pointer("pointermove", width, 120, "touch"); // once sideways, it follows the finger
+    expect(value()).toBe("1,478");
+  });
+
+  it("touch: a vertical swipe never shows the tooltip (the page scrolls)", () => {
+    const { tip, width, pointer } = scrubChart();
+    pointer("pointerdown", width / 2, 100, "touch");
+    pointer("pointermove", width / 2 + 2, 112, "touch");
+    pointer("pointermove", width / 2 + 40, 150, "touch"); // still the same vertical gesture
+    expect(tip.dataset.on).toBeUndefined();
+    pointer("pointercancel", width / 2 + 40, 150, "touch"); // the browser took the pan
+    act(() => vi.advanceTimersByTime(1000));
+    expect(tip.dataset.on).toBeUndefined();
+  });
+
+  it("touch: a tap shows the day under the finger, then hides", () => {
+    const { tip, width, pointer, value } = scrubChart();
+    pointer("pointerdown", width, 100, "touch");
+    pointer("pointerup", width, 100, "touch");
+    expect(tip.dataset.on).toBe("true");
+    expect(value()).toBe("1,478");
+    act(() => vi.advanceTimersByTime(900));
+    expect(tip.dataset.on).toBeUndefined();
   });
 });

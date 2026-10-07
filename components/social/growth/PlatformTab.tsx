@@ -150,7 +150,8 @@ export default function PlatformTab({
                   className="text-muted mt-1 text-[11px] leading-tight"
                   data-testid="overview-by-followers"
                 >
-                  {L({ ar: "على المتابعين", en: "by followers" })} {fmtEngagement(byFollowers)}
+                  {L({ ar: "على المتابعين", en: "by followers" })}{" "}
+                  <span className="num">{fmtEngagement(byFollowers)}</span>
                 </span>
               ) : (
                 <SourceHint

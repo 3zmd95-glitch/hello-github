@@ -46,12 +46,17 @@ const TIP_MARGIN = 44;
 const TIP_BAND = 50;
 /** The scrub marker and tooltip linger this long after the finger lifts (mockup). */
 const HIDE_MS = 900;
+/** A finger has to travel this far (px) before it counts as a sideways scrub or a vertical scroll. */
+const SLOP = 6;
 
-/** Container width via ResizeObserver; a sensible phone width until the first measurement. */
+/**
+ * Container width via ResizeObserver. The first measure runs before paint (a layout effect), so a chart never shows
+ * one frame at the 320px fallback width.
+ */
 function useWidth<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   const [width, setWidth] = useState(320);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     const update = () => setWidth(Math.max(120, Math.round(el.getBoundingClientRect().width)));
@@ -151,8 +156,9 @@ function settleLine(ln: SVGPathElement) {
  * The growth line chart in pure SVG, drawn at the box's pixel width (text never scales). Each series is a smooth
  * line in its color; one series also gets a gradient area. On mount (and when the series change) the line draws
  * itself once the chart is on screen: 1.3s, then the area fades in (+0.5s) and the end dot pops (+1.1s); reduced
- * motion or `animate={false}` shows it drawn. `scrub`: a finger (or the mouse) over the chart moves a dashed marker
- * and a ring dot along the first series, with a glass tooltip (value + date) that lingers 900ms after release.
+ * motion or `animate={false}` shows it drawn. `scrub`: a sideways finger (or the mouse) over the chart moves a dashed
+ * marker and a ring dot along the first series, with a glass tooltip (value + date) that lingers 900ms after release;
+ * a vertical swipe still scrolls the page.
  * `mini`: the 70px sparkline (no grid, ticks, labels or table). A table view under the full chart keeps the numbers
  * readable without a pointer. Zero or one data point never draws NaN (a single point is the end dot alone).
  */
@@ -193,6 +199,8 @@ export default function LineChart({
   const ringRef = useRef<SVGCircleElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef(0);
+  /** The finger on a scrub chart: where it went down and, once it has moved far enough, which way it goes. */
+  const touch = useRef<{ id: number; x0: number; y0: number; axis: "x" | "y" | null } | null>(null);
   const gradient = `an-g${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
 
   const withData = useMemo(
@@ -279,11 +287,12 @@ export default function LineChart({
   useEffect(() => {
     const svg = svgRef.current;
     if (!go || !svg || drawing.current === drawKey) return;
-    drawing.current = drawKey;
     const paths = [...svg.querySelectorAll<SVGPathElement>(".an-chart-ln")];
     let inner = 0;
     const outer = requestAnimationFrame(() => {
       inner = requestAnimationFrame(() => {
+        // Begun only now: until this frame the waiting line is still the layout effect's to show again.
+        drawing.current = drawKey;
         for (const ln of paths) {
           ln.style.transition = "stroke-dashoffset 1.3s var(--out)";
           ln.style.strokeDashoffset = "0";
@@ -300,6 +309,12 @@ export default function LineChart({
       cancelAnimationFrame(outer);
       cancelAnimationFrame(inner);
       for (const ln of paths) ln.removeEventListener("transitionend", settle);
+      // Stopped mid-draw (reduced motion switched on, a teardown): show it drawn, never stuck dashed or hidden. New
+      // numbers have already hidden it again for their own draw (data-drawn "false"): that one stays.
+      if (drawing.current === drawKey && svg.dataset.drawn !== "false") {
+        paths.forEach(settleLine);
+        delete svg.dataset.drawn;
+      }
     };
   }, [go, drawKey]);
 
@@ -346,19 +361,42 @@ export default function LineChart({
       delete svgRef.current?.dataset.scrubbing;
     }, HIDE_MS);
   };
+  // The chart never traps the page scroll (touch-action: pan-y): a finger scrubs only once it has moved sideways
+  // (past SLOP, more across than down); a vertical swipe scrolls and the browser cancels the pointer; a tap shows the
+  // day under the finger. The mouse scrubs on hover.
   const scrubHandlers = scrub
     ? {
         onPointerDown: (e: PointerEvent<SVGSVGElement>) => {
-          // Keep following a finger that slides off the chart.
+          if (e.pointerType !== "mouse") {
+            touch.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, axis: null };
+            return;
+          }
+          // Keep following a pressed mouse that slides off the chart.
           e.currentTarget.setPointerCapture?.(e.pointerId);
           scrubAt(e.clientX);
         },
-        // The mouse scrubs on hover; a finger or pen only while pressed.
         onPointerMove: (e: PointerEvent<SVGSVGElement>) => {
-          if (e.pointerType === "mouse" || e.buttons !== 0) scrubAt(e.clientX);
+          if (e.pointerType === "mouse") return scrubAt(e.clientX);
+          const g = touch.current;
+          if (!g || g.id !== e.pointerId) return;
+          if (g.axis === null) {
+            const dx = Math.abs(e.clientX - g.x0);
+            const dy = Math.abs(e.clientY - g.y0);
+            if (Math.max(dx, dy) <= SLOP) return;
+            g.axis = dx > dy ? "x" : "y";
+          }
+          if (g.axis === "x") scrubAt(e.clientX);
         },
-        onPointerUp: release,
-        onPointerCancel: release,
+        onPointerUp: (e: PointerEvent<SVGSVGElement>) => {
+          const g = touch.current;
+          touch.current = null;
+          if (g?.id === e.pointerId && g.axis === null) scrubAt(e.clientX);
+          release();
+        },
+        onPointerCancel: () => {
+          touch.current = null;
+          release();
+        },
         onPointerLeave: release,
       }
     : {};

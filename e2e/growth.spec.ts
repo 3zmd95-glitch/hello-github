@@ -258,6 +258,12 @@ test("Growth basics still work: add a snapshot, import a stats CSV with the th a
   // The Threads view: the seeded handle, two snapshot rows, a new handle persists across reloads.
   await thCard.getByTestId("platform-card-open").click();
   await expect(page.getByTestId("growth-screen")).toHaveAttribute("data-tab", "threads");
+  // The tab panel is labelled by the selected tab, and on a phone the sideways scroller brings that tab into view.
+  const threadsTab = page.getByTestId("analytics-platform-threads");
+  await expect(page.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "gr-tab-threads");
+  await expect(threadsTab).toHaveAttribute("aria-controls", "gr-panel-threads");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(threadsTab).toBeInViewport({ ratio: 1 });
   // On the seed day itself today's row replaces the seeded one, later it sits next to it.
   const rowsBefore = await page.getByTestId("snapshot-row").count();
   expect(rowsBefore).toBeGreaterThanOrEqual(1);

@@ -69,7 +69,7 @@ function CsvFields() {
           type="file"
           accept=".csv,text/csv,text/plain"
           onChange={onFile}
-          className="text-ink-2 file:bg-tint-bg file:text-tint text-xs file:me-2 file:min-h-8 file:rounded-full file:border-0 file:px-3 file:font-semibold"
+          className="text-ink-2 file:bg-tint-bg file:text-tint text-xs file:me-2 file:min-h-11 file:rounded-full file:border-0 file:px-3 file:font-semibold"
           data-testid="csv-file"
         />
       </label>
