@@ -145,6 +145,8 @@ describe("LineChart", () => {
   it("scrub: the marker, ring and tooltip follow the pointer to the nearest day and hide 900ms after release", () => {
     vi.useFakeTimers();
     const { svg } = render({ scrub: true, animate: false });
+    // The tooltip has its own 50px band above the plot (170 + 50).
+    expect(svg.getAttribute("height")).toBe("220");
     const tip = host.querySelector<HTMLElement>(".an-tip")!;
     const ring = svg.querySelector(".an-mkd")!;
     const width = Number(svg.getAttribute("width"));

@@ -2562,12 +2562,15 @@
   opacity: 1;
   transform: translate(-50%, 0);
 }
+/* Line heights keep it inside the chart's 50px tooltip band. */
 .an-tip b {
   font-size: 15px;
   font-weight: 700;
+  line-height: 1.2;
 }
 .an-tip small {
   font-size: 11px;
+  line-height: 1.3;
   color: var(--ink-2);
 }
 .an-chart-table table td,

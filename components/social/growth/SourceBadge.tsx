@@ -41,7 +41,7 @@ export default function SourceBadge({
       data-source={source}
       data-platform={platform}
     >
-      <span className="truncate">{text}</span>
+      <span className="min-w-0 truncate">{text}</span>
     </Chip>
   );
 }

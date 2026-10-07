@@ -42,6 +42,8 @@ const MINI_HEIGHT = 70;
 const MINI_PAD = 8;
 /** The scrub tooltip stays this far from the chart's sides: 60px from the card's edges (16px padding). */
 const TIP_MARGIN = 44;
+/** A scrub chart keeps this band above the plot for its tooltip, so the tooltip never covers the line. */
+const TIP_BAND = 50;
 /** The scrub marker and tooltip linger this long after the finger lifts (mockup). */
 const HIDE_MS = 900;
 
@@ -170,6 +172,7 @@ export default function LineChart({
   series: readonly ChartSeries[];
   today: string;
   days?: number;
+  /** The plot with its axes; a scrub chart adds the tooltip band above it. */
   height?: number;
   /** Accessible name of the figure; without one (the mini sparkline) the chart is decorative. */
   title?: string;
@@ -199,10 +202,11 @@ export default function LineChart({
         .map((s) => ({ ...s, points: [...s.points].sort((a, b) => a.day.localeCompare(b.day)) })),
     [series],
   );
-  const h = mini ? MINI_HEIGHT : height;
+  const band = scrub && !mini ? TIP_BAND : 0;
+  const h = mini ? MINI_HEIGHT : height + band;
   const padL = mini ? MINI_PAD : PAD_LEFT;
   const padR = mini ? MINI_PAD : withData.length > 1 ? PAD_RIGHT : PAD_RIGHT_ONE;
-  const padT = mini ? MINI_PAD : PAD_TOP;
+  const padT = mini ? MINI_PAD : PAD_TOP + band;
   const padB = mini ? MINI_PAD : PAD_BOTTOM;
   const plotW = Math.max(40, width - padL - padR);
   const plotH = Math.max(40, h - padT - padB);
@@ -446,7 +450,7 @@ export default function LineChart({
             ))}
             {scrub && (
               <>
-                <line ref={markRef} className="an-mk" y1={padT - 4} y2={base} />
+                <line ref={markRef} className="an-mk" y1={band} y2={base} />
                 {/* The ring wears the tracked line's color (the mockup's line and ring are both accent). */}
                 <circle ref={ringRef} className="an-mkd" r={5} style={{ stroke: track?.s.color }} />
               </>
