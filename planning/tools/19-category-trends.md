@@ -299,11 +299,12 @@ On a day the AI is unavailable, new names wait (`ai_fallback`) and lessons keep 
 Workers Paid ($5 a month) lifts the limit; the live check measures it first.
 
 **Each invocation.** One category per invocation, either a cron slot or a POST. CPU is about 70–90 ms, as for effects;
-Cloudflare has reported no CPU-limit errors so far. Subrequests per run are at most about 43, under the 50 a free
+Cloudflare has reported no CPU-limit errors so far. Subrequests per run are at most about 45, under the 50 a free
 invocation allows:
 - 16 Tavily searches and 1 Tavily `/usage`;
 - 2 YouTube calls (§6: `search.list` and `videos.list`);
-- 2 TikTok Discovery calls (§6, since 2026-10-07: `trending_list` and `video_list`);
+- 4 TikTok Discovery calls (§6, since 2026-10-07: `trending_list` for the industry, `SPECIAL_EFFECTS` and
+  `PHOTOGRAPHY`, then `video_list`; the 2 edit lists since the edit hashtags, +2);
 - 14 AI calls: 3 cleanup batches, 1 pick and 3 how-to calls, and up to 7 of those asked again on llama (the lessons'
   since live fix 3, the cleanup's since 2026-10-07: +3);
 - 8 KV operations (the TikTok token's read since 2026-10-07: +1).
@@ -504,14 +505,31 @@ TikTok parts above: the stored TikTok list, and the TikTok tab's Brave group.
     the code are never logged or echoed.
 - **Each scan** (`categories/tiktok.ts`) reads TikTok on every run: cron, first and forced alike, since it is free. It
   uses the first advertiser id, and `top.tt` comes only from here (the scan's TikTok posts no longer feed it).
-  1. **Popular hashtags.** `trending_list` with `discovery_type=HASHTAG`, `country_code`, `category_name` (the category's
-     industry) and `date_range=7DAY`, the token in `Access-Token`: TikTok's top 200 hashtags.
-  2. **Ten hashtags.** By `rank_position`, the 10 best whose `top_country_list` holds the country. With fewer than 3
-     there, the others fill in by rank, up to 10.
+  1. **Popular hashtags.** `trending_list` with `discovery_type=HASHTAG`, `country_code`, `category_name` and
+     `date_range=7DAY`, the token in `Access-Token`: TikTok's top 200 hashtags. Asked 3 times (same advertiser, country
+     and 7 days): the category's industry, `SPECIAL_EFFECTS` and `PHOTOGRAPHY` (since the edit hashtags, below).
+  2. **Ten hashtags, edits first.** From the 3 lists, each hashtag once in its best tier, in 3 tiers:
+     1. an **edit cue** and a **subject word** in its name;
+     2. an edit cue, from the `SPECIAL_EFFECTS` or `PHOTOGRAPHY` list (any subject);
+     3. a subject word (the industry's general hashtags of the subject).
+     A hashtag with neither is left out. In each tier by `rank_position`, the ones whose `top_country_list` holds the
+     country; with fewer than 3 there, the tier's others fill in by rank. The first 10 in tier order.
   3. **Their videos.** One `video_list` call for them (`hashtag_ids` as a JSON array string). Each hashtag brings its top
      20 videos, ranked by TikTok on views, comments, likes and shares; there are no captions or counts.
-  4. **The list.** ≤ 50 videos taken in turns, hashtags in rank order: each one's 1st video, then its 2nd…, each video
-     once (by `video_id`).
+  4. **The list.** ≤ 50 videos taken in turns, hashtags in the picked order (tier 1's first): each one's 1st video, then
+     its 2nd…, each video once (by `video_id`).
+  - **Edit hashtags (2026-10-07, live).** The owner watched Food's TikTok tab (Trunk or Treat, Aldi prices, takis: the
+    FOOD industry's top hashtags by rank) and said: "its not cool edits trending videos". He wants the category's
+    trending edit videos: cinematic edits, transitions, b-roll, ASMR-style edits. TikTok's Discovery API has no keyword
+    video search, so the hashtags are chosen by their names (`pick` in `categories/tiktok.ts`):
+    - **Edit cues**, found anywhere in the name (hashtags have no spaces): edit, edits, editing, cinematic, videography,
+      broll, transition, transitions, aesthetic, montage, effect, effects, asmr, slowmo, slowmotion, timelapse,
+      hyperlapse, pov, filmmaking, shot, shots, reel, visuals.
+    - **Subject words**: the category's English name's words, their singulars, and its main query without " edit"
+      (`categoryWords`): food, restaurants, restaurant for Food; cars, car for Cars.
+    - A substring match can misfire ("shot" in "screenshot"); the diagnostics name each picked hashtag and its tier for
+      the live check.
+    - An edit list failing is left out (`null` in `lists`); the industry's failing is the `tiktok` note, as before.
   - **Links.** A video is kept only on an https tiktok.com link to one video with its creator's handle
     (`/@handle/video/<id>`): the share link, without its query. No `https://www.tiktok.com/@/video/<id>` is made for a
     link without the handle, because the app's player (`lib/embed.ts` `embedId`) refuses it.
@@ -525,9 +543,11 @@ TikTok parts above: the stored TikTok list, and the TikTok tab's Brave group.
   - **TikTok failing** (a non-zero `code`, an HTTP error, no answer): the last list stays, with the note `tiktok` and
     `diagnostics.tiktok = { code, message }` (≤ 120 characters, never the token).
   - **No video.** An answer with no video keeps the last list too, without a note.
-  - **Diagnostics.** On success, `diagnostics.tiktok = { hashtags, videos, raw, country, industry }`, where `raw` counts
-    the videos TikTok sent before the link check.
-  - **Subrequests.** +1 KV read and 2 calls a scan: the worst case is 43 subrequests, up from 40 (§4).
+  - **Diagnostics.** On success, `diagnostics.tiktok = { hashtags: [{ name, tier }], lists: { industry, effects, photo },
+    videos, raw, country, industry }`: the picked hashtags in order, how many hashtags each list held (`null`: that edit
+    list failed), and `raw`, the videos TikTok sent before the link check. The names are public hashtags.
+  - **Subrequests.** +1 KV read and 4 calls a scan (2 at first, +2 for the edit lists): the worst case is 45
+    subrequests, up from 40 (§4), under the 50.
   - **Trending effects** never asks TikTok.
 - **Industry per category** (`category_name`, level 2 where one fits):
 

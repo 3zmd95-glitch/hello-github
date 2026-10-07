@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { encryptJson } from "../social/crypto";
 import { GENRES } from "../trends/genres";
-import { TIKTOK_INDUSTRY, tiktokTop, TT_TRENDING_URL, TT_VIDEOS_URL } from "./tiktok";
+import {
+  TIKTOK_INDUSTRY,
+  tiktokTop,
+  TT_EFFECTS,
+  TT_PHOTO,
+  TT_TRENDING_URL,
+  TT_VIDEOS_URL,
+} from "./tiktok";
 
 // The TikTok tab's list from TikTok's Discovery API (planning/tools/19-category-trends.md §6), against a fake TikTok.
 // Every value here is fake.
@@ -28,10 +35,11 @@ const env = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-/** TikTok's popular hashtag n (id 100n), of rank `rank`, popular in `countries`. */
-const tag = (n: number, countries = ["US", "GB"], rank: unknown = String(n)) => ({
+/** TikTok's popular hashtag n (id 100n), of rank `rank`, popular in `countries`, named `car<n>` (a Cars subject word
+ * without an edit cue: tier 3) unless `name` says otherwise. */
+const tag = (n: number, countries = ["US", "GB"], rank: unknown = String(n), name = `car${n}`) => ({
   hashtag_id: String(1000 + n),
-  hashtag_name: `tag${n}`,
+  hashtag_name: name,
   rank_position: rank,
   rank_change: 0,
   posts: 1200,
@@ -53,7 +61,7 @@ const vid = (t: number, i: number) => {
 /** The top video hashtag t's i-th video becomes. */
 const top = (t: number, i: number) => ({
   url: `https://www.tiktok.com/@c${t}_${i}/video/${t}${String(i).padStart(2, "0")}`,
-  title: `#tag${t}`,
+  title: `#car${t}`,
   creator: `@c${t}_${i}`,
 });
 const TAGS = Array.from({ length: 12 }, (_, i) => tag(i + 1));
@@ -61,15 +69,22 @@ const ok = (list: unknown[]) => json({ code: 0, message: "OK", data: { list } })
 /** Hashtag ids as `video_list` takes them, from their numbers. */
 const ids = (...n: number[]) => JSON.stringify(n.map((x) => String(1000 + x)));
 
-/** A fake TikTok: `trending_list` answers `tags`, `video_list` 20 videos for each hashtag asked, unless told otherwise. */
+/** A fake TikTok: `trending_list` answers `tags` for the category's industry and `edits[category]` (else none) for
+ * SPECIAL_EFFECTS and PHOTOGRAPHY, `video_list` 20 videos for each hashtag asked, unless told otherwise. */
 function tiktok(
-  over: { trending?: () => Response; videos?: (asked: string[]) => Response } = {},
+  over: { trending?: (category: string) => Response; videos?: (asked: string[]) => Response } = {},
   tags: unknown[] = TAGS,
+  edits: Record<string, unknown[]> = {},
 ) {
   return vi.fn<typeof fetch>(async (input) => {
     const u = new URL(String(input));
     const base = `${u.origin}${u.pathname}`;
-    if (base === TT_TRENDING_URL) return over.trending?.() ?? ok(tags);
+    const category = u.searchParams.get("category_name") ?? "";
+    if (base === TT_TRENDING_URL)
+      return (
+        over.trending?.(category) ??
+        ok([TT_EFFECTS, TT_PHOTO].includes(category) ? (edits[category] ?? []) : tags)
+      );
     if (base === TT_VIDEOS_URL) {
       const asked = JSON.parse(u.searchParams.get("hashtag_ids")!) as string[];
       return (
@@ -88,12 +103,16 @@ function tiktok(
 }
 const asked = (fetch: ReturnType<typeof tiktok>, n: number) =>
   new URL(String(fetch.mock.calls[n][0]));
+/** The `video_list` call: the last, after the 3 `trending_list` calls. */
+const videoCall = (fetch: ReturnType<typeof tiktok>) => asked(fetch, 3);
+/** The diagnostics of tier-3 hashtags n…, named car<n>. */
+const tier3 = (...n: number[]) => n.map((x) => ({ name: `car${x}`, tier: 3 }));
 
 describe("tiktokTop", () => {
-  it("asks the category's industry's popular hashtags in the country over 7 days, then one video_list call for them, the token in Access-Token", async () => {
+  it("asks the popular hashtags of the category's industry, SPECIAL_EFFECTS and PHOTOGRAPHY in the country over 7 days, then one video_list call, the token in Access-Token", async () => {
     const fetch = tiktok();
     await tiktokTop(env(), fetch, "cars");
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(4);
     expect(TT_TRENDING_URL).toBe(
       "https://business-api.tiktok.com/open_api/v1.3/discovery/trending_list/",
     );
@@ -110,7 +129,23 @@ describe("tiktokTop", () => {
       category_name: "AUTOMOTIVE",
       date_range: "7DAY",
     });
-    const videos = asked(fetch, 1);
+    // The 2 edit lists: the same advertiser, country and 7 days.
+    expect([TT_EFFECTS, TT_PHOTO]).toEqual(["SPECIAL_EFFECTS", "PHOTOGRAPHY"]);
+    for (const [n, category_name] of [
+      [1, "SPECIAL_EFFECTS"],
+      [2, "PHOTOGRAPHY"],
+    ] as const) {
+      const u = asked(fetch, n);
+      expect(`${u.origin}${u.pathname}`).toBe(TT_TRENDING_URL);
+      expect(Object.fromEntries(u.searchParams)).toEqual({
+        advertiser_id: "adv1",
+        discovery_type: "HASHTAG",
+        country_code: "US",
+        category_name,
+        date_range: "7DAY",
+      });
+    }
+    const videos = videoCall(fetch);
     expect(`${videos.origin}${videos.pathname}`).toBe(TT_VIDEOS_URL);
     // At most 10 hashtags, as a JSON array of strings.
     expect(Object.fromEntries(videos.searchParams)).toEqual({
@@ -159,8 +194,8 @@ describe("tiktokTop", () => {
     for (const [value, country] of cases) {
       const fetch = tiktok();
       const r = await tiktokTop(env({ TIKTOK_DISCOVERY_COUNTRY: value }), fetch, "cars");
-      expect(fetch.mock.calls.length).toBe(2);
-      for (let n = 0; n < 2; n++)
+      expect(fetch.mock.calls.length).toBe(4);
+      for (let n = 0; n < 4; n++)
         expect(asked(fetch, n).searchParams.get("country_code"), value).toBe(country);
       expect(r.diagnostics).toMatchObject({ country });
     }
@@ -174,7 +209,7 @@ describe("tiktokTop", () => {
     const videoIds = async (tags: unknown[]) => {
       const fetch = tiktok({}, tags);
       await tiktokTop(env(), fetch, "cars");
-      return asked(fetch, 1).searchParams.get("hashtag_ids");
+      return videoCall(fetch).searchParams.get("hashtag_ids");
     };
     expect(await videoIds(inUs([2, 3, 5, 6, 7, 8, 10, 11, 12, 13, 14]))).toBe(
       ids(2, 3, 5, 6, 7, 8, 10, 11, 12, 13),
@@ -212,7 +247,8 @@ describe("tiktokTop", () => {
     expect(r.videos).toEqual([1, 2, 3, 4, 5].flatMap((i) => tags.map((t) => top(t, i))));
     expect(r.note).toBeUndefined();
     expect(r.diagnostics).toEqual({
-      hashtags: 10,
+      hashtags: tier3(...tags),
+      lists: { industry: 12, effects: 0, photo: 0 },
       videos: 50,
       raw: 200,
       country: "US",
@@ -237,12 +273,85 @@ describe("tiktokTop", () => {
     // Hashtag 2's first video is hashtag 1's second: it keeps hashtag 2's place (the first it reached) and title.
     expect(r.videos).toEqual([
       top(1, 1),
-      { ...top(1, 2), title: "#tag2" },
+      { ...top(1, 2), title: "#car2" },
       top(3, 1),
       top(2, 2),
       top(2, 3),
     ]);
-    expect(r.diagnostics).toMatchObject({ hashtags: 3, videos: 5, raw: 6 });
+    expect(r.diagnostics).toMatchObject({ hashtags: tier3(1, 2, 3), videos: 5, raw: 6 });
+  });
+
+  it("picks edit hashtags first: tier 1 an edit cue and a subject word, tier 2 an edit cue from SPECIAL_EFFECTS or PHOTOGRAPHY, tier 3 a subject word; each by rank, each hashtag once", async () => {
+    const food = [
+      tag(1, ["US"], "1", "trunkortreat"), // neither: left out
+      tag(2, ["US"], "2", "foodie"), // tier 3
+      tag(3, ["US"], "3", "cinematic"), // an edit cue in the industry's list alone: left out
+      tag(4, ["US"], "4", "FoodEdit"), // tier 1
+      tag(5, ["US"], "5", "restaurants"), // tier 3
+      tag(6, ["US"], "6", "asmrcooking"), // an edit cue, no subject word for Food: left out
+    ];
+    const edits = {
+      SPECIAL_EFFECTS: [
+        tag(7, ["US"], "3", "transition"), // tier 2
+        tag(8, ["US"], "1", "streetfoodbroll"), // tier 1 from the effects list
+        tag(3, ["US"], "9", "cinematic"), // #cinematic again: tier 2, once
+      ],
+      PHOTOGRAPHY: [
+        tag(9, ["US"], "1", "photography"), // neither
+        tag(10, ["US"], "2", "slowmo"), // tier 2
+        tag(2, ["US"], "7", "foodie"), // #foodie again: still tier 3, once
+      ],
+    };
+    const fetch = tiktok({}, food, edits);
+    const r = await tiktokTop(env(), fetch, "food");
+    expect(videoCall(fetch).searchParams.get("hashtag_ids")).toBe(ids(8, 4, 10, 7, 3, 2, 5));
+    expect(r.diagnostics).toMatchObject({
+      hashtags: [
+        { name: "streetfoodbroll", tier: 1 },
+        { name: "FoodEdit", tier: 1 },
+        { name: "slowmo", tier: 2 },
+        { name: "transition", tier: 2 },
+        { name: "cinematic", tier: 2 },
+        { name: "foodie", tier: 3 },
+        { name: "restaurants", tier: 3 },
+      ],
+      lists: { industry: 6, effects: 3, photo: 3 },
+      industry: "FOOD",
+    });
+    // Tier order, then turns: each hashtag's 1st video (tier 1 first), then its 2nd…
+    const order = [8, 4, 10, 7, 3, 2, 5];
+    const names = r.diagnostics!.hashtags as { name: string }[];
+    expect(r.videos!.slice(0, 7).map((v) => v.title)).toEqual(names.map((h) => `#${h.name}`));
+    expect(r.videos!.slice(0, 7).map((v) => v.url)).toEqual(order.map((t) => top(t, 1).url));
+    expect(r.videos![7].url).toBe(top(8, 2).url);
+  });
+
+  it("keeps the country rule in each tier: 3 or more popular in the country stand alone, fewer fill in by rank", async () => {
+    const edits = {
+      SPECIAL_EFFECTS: [
+        tag(1, ["GB"], "1", "caredit"), // tier 1, not in the US
+        tag(2, ["US"], "2", "cinematiccar"), // tier 1, in the US
+        tag(3, ["US"], "3", "transition"),
+        tag(4, ["US"], "4", "effects"),
+        tag(5, ["US"], "5", "edits"),
+        tag(6, ["GB"], "6", "montage"), // tier 2, not in the US: 3 there already
+      ],
+    };
+    const fetch = tiktok({}, [tag(7, ["GB"]), tag(8, ["US"])], edits);
+    await tiktokTop(env(), fetch, "cars");
+    // Tier 1: 1 in the US, so #caredit fills in; tier 2: 3 in the US alone; tier 3: 1 in the US, #car7 fills in.
+    expect(videoCall(fetch).searchParams.get("hashtag_ids")).toBe(ids(2, 1, 3, 4, 5, 8, 7));
+  });
+
+  it("an edit list failing leaves it out (null in lists); the industry's failing fails the scan", async () => {
+    const fetch = tiktok({
+      trending: (category) =>
+        category === TT_PHOTO ? json({ code: 50002, message: "System error", data: {} }) : ok(TAGS),
+    });
+    const r = await tiktokTop(env(), fetch, "cars");
+    expect(r.note).toBeUndefined();
+    expect(r.diagnostics).toMatchObject({ lists: { industry: 12, effects: 12, photo: null } });
+    expect(r.videos).toHaveLength(50);
   });
 
   it("keeps a video only on an https tiktok.com link to one video with its creator's handle, without the query", async () => {
@@ -272,18 +381,28 @@ describe("tiktokTop", () => {
     );
     const r = await tiktokTop(env(), fetch, "cars");
     expect(r.videos).toEqual([
-      { url: "https://www.tiktok.com/@ok.one/video/111", title: "#tag1", creator: "@ok.one" },
+      { url: "https://www.tiktok.com/@ok.one/video/111", title: "#car1", creator: "@ok.one" },
     ]);
     expect(r.diagnostics).toMatchObject({ videos: 1, raw: links.length });
   });
 
-  it("no popular hashtag: no video_list call, an empty list", async () => {
-    const fetch = tiktok({}, []);
-    expect(await tiktokTop(env(), fetch, "food")).toEqual({
-      videos: [],
-      diagnostics: { hashtags: 0, videos: 0, raw: 0, country: "US", industry: "FOOD" },
-    });
-    expect(fetch).toHaveBeenCalledTimes(1);
+  it("no popular hashtag, or none with a subject word or an edit cue: no video_list call, an empty list", async () => {
+    // The owner's Food tab: general food videos ("its not cool edits trending videos").
+    for (const tags of [[], [tag(1, ["US"], "1", "trunkortreat"), tag(2, ["US"], "2", "aldi")]]) {
+      const fetch = tiktok({}, tags);
+      expect(await tiktokTop(env(), fetch, "food")).toEqual({
+        videos: [],
+        diagnostics: {
+          hashtags: [],
+          lists: { industry: tags.length, effects: 0, photo: 0 },
+          videos: 0,
+          raw: 0,
+          country: "US",
+          industry: "FOOD",
+        },
+      });
+      expect(fetch).toHaveBeenCalledTimes(3);
+    }
   });
 
   it("not connected (no token, one sealed with another SCOUT_TOKEN, or no advertiser): nothing asked, noted tiktok_auth", async () => {
@@ -307,21 +426,21 @@ describe("tiktokTop", () => {
   it("TikTok's error code, an HTTP failure or no answer: noted tiktok with its code and message (≤ 120 characters, never the token)", async () => {
     const long = `Access token ${ACCESS} is invalid or has been revoked. ${"x".repeat(200)}`;
     const cases: [Parameters<typeof tiktok>[0], Record<string, unknown>, number][] = [
-      [{ trending: () => json({ code: 40105, message: long, data: {} }) }, { code: 40105 }, 1],
+      [{ trending: () => json({ code: 40105, message: long, data: {} }) }, { code: 40105 }, 3],
       [
         { videos: () => json({ code: 50002, message: "System error", data: {} }) },
         { code: 50002, message: "System error" },
-        2,
+        4,
       ],
       [
         { trending: () => json({ message: "bad gateway" }, 502) },
         { code: 502, message: "HTTP 502" },
-        1,
+        3,
       ],
       [
         { trending: () => new Response("<html>", { status: 200 }) },
         { code: 200, message: "HTTP 200" },
-        1,
+        3,
       ],
       [
         {
@@ -330,7 +449,7 @@ describe("tiktokTop", () => {
           },
         },
         { code: 0, message: "no answer" },
-        1,
+        3,
       ],
     ];
     for (const [over, diagnostics, calls] of cases) {
