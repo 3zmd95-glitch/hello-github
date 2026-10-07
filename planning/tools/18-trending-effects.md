@@ -109,11 +109,10 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
      10 minutes by `discover/usage.ts`). When none is kept (the usual case at 05:35, when nobody has opened Discover in
      the last 10 minutes), it asks Tavily's own `GET /usage` once and keeps the answer 10 minutes, as Discover does
      (2026-10-07: reading the cache alone, the cron ran blind past 90 %). One helper does this for both jobs:
-     `monthUsage` in `effects/sources.ts`. When the plan's credits are 90 % used or more (the figure's `used` over its
-     `limit`, `budgetTight` there; a pay-as-you-go limit adds nothing here, unlike the month of category scans,
-     planning/tools/19-category-trends.md §4) it makes only the Instagram month search per family (6 calls) and notes
-     `tavily_budget` (status `partial`). A figure still unknown (no key, that call failed, no usage in its answer), or
-     one with no limit, is not tight: the full 18.
+     `monthUsage` in `effects/sources.ts`. When 90 % of the month is used or more (`monthTight` there, shared with
+     category scans: the plan plus a positive pay-as-you-go limit, planning/tools/19-category-trends.md §4) it makes
+     only the Instagram month search per family (6 calls) and notes `tavily_budget` (status `partial`). A figure still
+     unknown (no key, that call failed, no usage in its answer), or one with no limit, is not tight: the full 18.
    - At most 360 post pages a day (18 × 20), fewer after the dedupe.
    - Why families and not generic wording: see the live probe below.
 2. **Pull out candidates (rules, free).**

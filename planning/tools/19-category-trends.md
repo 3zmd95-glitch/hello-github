@@ -47,7 +47,7 @@ Choices, one question at a time:
 - **Header.** "🚗 Cars · updated 1 day ago" and 🔄 Scan again.
 - **🔥 Trending in Cars this week.** A row of chips: the Cars edit styles being posted now, with creator counts and NEW,
   trends first, at most 12. A tap searches that style within Cars in Keywords mode, for example
-  "rolling shot car edit".
+  "rolling shot car edit". A page over 7 days old says "🔥 Trending in Cars", without "this week".
 - **Three shelves:** 📷 Photography, 🎥 Videography and ✂️ Editing. Each is a sideways row of about 3 technique cards
   for the category. A card shows:
   - the technique's name;
@@ -66,7 +66,8 @@ Choices, one question at a time:
   - paused on the budget (`tavily_budget`, §4): "Scans paused — this month's lookups are nearly used up", in place of
     those lines. The scan buttons stay on: a paused scan spends nothing and counts no try, so one can go through once
     pay-as-you-go is on. Before the first page, the first-scan button shows with that line;
-  - over the day's tries: a limit line, and the scan buttons rest.
+  - over the day's tries: "Today's 3 scans are used up — you can scan again tomorrow", and the scan buttons rest. It
+    promises no retry: the category's next turn can be 3 days away.
 - **Saved only.** With it on, a category tap leaves the saved posts in view, as it does for a search, and searches
   nothing; the page opens once Saved only is off.
 - **Copy.** New keys in `messages/search.{ar,en}.json`, in key parity. Arabic copy in friendly Hijazi.
@@ -92,8 +93,9 @@ week, Instagram over a month and TikTok over a month. That is **6 Tavily credits
 
 **Extraction.** Trending effects' rules, with two additions for categories:
 - Camera words join the suffixes: "shot(s)", "angle", "lighting", "look", so "rolling shot" and "low angle" are named.
-- The category's own words (from its names and queries: "car", "cars", "cinematic") are generic for that category, so
-  "car edit" is never a style.
+- The category's own words, from its names and its main query ("car", "cars", "edit"; a plural name word's singular
+  too, as Food & restaurants' "restaurant"), are generic for that category, so "car edit" is never a style. The second
+  query's words stay free: it is there to find the category's signature styles (Fashion's "outfit transition").
 
 **AI cleanup.** Effects' tolerant cleanup in parallel batches of 9 (keep, drop, merge, English and Arabic names, a one-line
 `what`), told the category ("for car videos").
@@ -124,8 +126,10 @@ category a day (`category:attempts:<id>:<day>`).
     1 tutorial (YouTube preferred; titles with "how to" or "tutorial") and 2 examples (Instagram or TikTok preferred).
     Examples can also come from the category's trend samples.
   - One Arabic search per category ("شرح تصوير ومونتاج <Arabic name>", YouTube). Each Arabic tutorial goes to at most one
-    technique: the first that the AI names it for, photo → video → edit.
-  - That is **10 credits a refresh**, every 6 days per category.
+    technique: an area that keeps last cycle's techniques keeps its own; among the new techniques, the first that the AI
+    names it for, photo → video → edit.
+  - That is **10 credits a refresh** at most, every 6 days per category: a technique picked twice (its name or its
+    search words again) is searched once.
   - A technique with no video found is not shown.
 - **How-to.** One AI call per area, the 3 at once, writes a how-to per technique in English and Arabic: 2–3 lines, at most
   220 characters each. It is written from the found tutorials' titles and snippets: shoot, settings or gear, edit. The
@@ -166,7 +170,7 @@ pay-as-you-go on in his Tavily account; Claude never handles payments.
 **Budget guard.** At 90% of the month's credits (Discover's cached figure; when none is kept, Tavily's own `GET /usage`,
 asked once and kept 10 minutes), category scans and lessons pause and keep their last results. The month is the plan
 plus a positive pay-as-you-go limit; an unknown figure is not tight. They add the note `tavily_budget`. Trending
-effects cuts back as it already does, on the same figure.
+effects cuts back as it already does, on the same figure and the same month (one rule, `monthTight`).
 
 **YouTube.** Lessons find YouTube videos through Tavily, so the shared `search.list` 100 a day is untouched.
 
@@ -222,13 +226,16 @@ invocation allows:
   `tavilyCall`'s several platforms, and the refused answers that it and Tavily's `/usage` let go of.
 - **Dashboard:** `lib/categories.ts`, `components/research/CategoryPage.tsx`; ResearchPanel shows the page when a
   built-in category is tapped with nothing typed. Leaving the page into a search (Search all, a style) moves focus to
-  the search box, and while an AI search can't run (no model chosen) Search all rests, as the category chips do.
+  the category's chip, the page's opener (the search box only if the chip is missing): focusing a text box can pop a
+  phone's keyboard over the results. While an AI search can't run (no model chosen) Search all rests, as the category
+  chips do.
 - **Decisions where this spec was silent, or two of its rules met:**
   - Every spending run counts against a category's 3 a day, forced ones included. Effects lets `force` skip its cap;
     this spec gives no such exception, and the page's limit line needs it.
   - "The month's credits" is the plan plus a positive pay-as-you-go limit: the cost table counts on pay-as-you-go.
-    Trending effects still counts the plan alone, on the same figure. A paused run writes the page as `failed` with
-    the day's date and `tavily_budget`, and counts no attempt.
+    Trending effects counts it the same way, on the same figure (one rule, `monthTight` in `effects/sources.ts`). A
+    paused run writes the page as `failed` with `ranOn` today and `tavily_budget`, keeping its `updatedAt` (the page's
+    age reads `updatedAt`), and counts no attempt.
   - Lessons refresh every 6 days, every second scan: "weekly" with 3-day scans would have been every 9 days. The
     how-to is one AI call an area, the 3 at once, because one call for all 9 risked the time limit that effects' single
     AI call hit live.
@@ -236,23 +243,28 @@ invocation allows:
     again at least 1.1 s later (KV takes one write a key a second), so a slow refresh never costs the trends; none
     runs when the trends' save failed.
   - A technique without a usable how-to is dropped (`howTo` is required). An invalid optional `skillId` or Arabic
-    tutorial number drops only that field, counted `bad_skill` / `bad_ar`.
+    tutorial number drops only that field, counted `bad_skill` / `bad_ar`. A technique picked twice is searched once
+    (`duplicate_pick`).
   - An area with nothing new keeps last cycle's techniques, with their Arabic tutorials, which no new technique gets;
-    the lessons' log names those areas (`kept`). A refresh that keeps nothing keeps the last lessons, noted `lessons`.
+    the lessons' log names those areas (`kept`; all three when a refresh stops early). A refresh that keeps nothing
+    keeps the last lessons, noted `lessons`.
   - A trending style's tap sends `{ q: "<style>", genreQuery: <the category> }`: Discover's own "style within the
     category".
-  - A Worker without the route (404) gets today's category search. Owner-added categories and the `?genre=` deep link
-    keep the search.
+  - No page from the Worker gives today's category search: an older Worker's 404, a refused token, a KV error (502)
+    or no network. Owner-added categories and the `?genre=` deep link keep the search; a deep link closes its
+    category's page.
+  - No lock across tabs, or between the cron and a tap in the same minute (accepted): two runs can both spend, and KV's
+    one write a key a second can drop one run's lessons save.
   - `tavilyCall` takes several platforms: one credit covers YouTube, Instagram and TikTok together.
   - The skills index is `workers/scout/src/categories/skills.json`, generated from the app's skills.
     `data/skills/skills-index.test.ts` keeps it in step and holds the command that regenerates it. It compares parsed
     JSON, because Windows checkouts turn the file's line endings into CRLF.
-- **Tests:** `pnpm test` 2,184 in 107 files (the Worker's 903 in 34 included); e2e 336 passed (phone 167, desktop 169)
-  and 4 skipped by design (tests that run on one project only) of 340. Lint, typecheck (app and Worker) and build
+- **Tests:** `pnpm test` 2,195 in 108 files (the Worker's 906 in 34 included); e2e 340 passed (phone 170, desktop 170)
+  and 6 skipped by design (tests that run on one project only) of 346. Lint, typecheck (app and Worker) and build
   clean.
 - **Budgets:**
   - 6 Tavily credits a scan, 4 scans a day (about 720 a month);
-  - lessons 10 credits a category every 6 days (about 600 a month);
+  - lessons at most 10 credits a category every 6 days (about 600 a month);
   - no YouTube Data API;
   - ≤ 31 subrequests a run (≤ 7 AI calls);
   - about 10 KV writes a day.
