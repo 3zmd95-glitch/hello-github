@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import EmptyState from "@/components/ui/ios/EmptyState";
 import PageHeader from "@/components/ui/ios/PageHeader";
 import Sheet from "@/components/ui/ios/Sheet";
-import { IDEA_SOURCES, type Idea, type IdeaSource } from "@/lib/domain";
+import { IDEA_SOURCES, type Idea, type IdeaSource, type Post } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { useStore } from "@/store";
 import AddIdeaForm from "./ideas/AddIdeaForm";
@@ -51,18 +51,21 @@ export default function IdeasScreen() {
   // An empty bank shows no chips, so no filter may stay on behind them: the next idea (saved from a trend or a
   // skill as well) must land in the visible list.
   if (ideas.length === 0 && filter !== "all") setFilter("all");
+  // Ideas planned on this visit keep their place among the waiting ones (their button turns into the calendar chip
+  // where it was, and the page does not move); the next visit sorts them with the used ones.
+  const [plannedHere, setPlannedHere] = useState<ReadonlySet<string>>(() => new Set());
 
   const rows = useMemo(() => {
     const live = new Map(posts.map((p) => [p.id, p]));
+    const usedLast = (r: { idea: Idea; post?: Post }) =>
+      Number(r.post !== undefined && !plannedHere.has(r.idea.id));
     return ideas
       .map((i) => ({ idea: i, post: i.usedInPostId ? live.get(i.usedInPostId) : undefined }))
       .filter(({ idea, post }) => matches(filter, idea, post !== undefined))
       .sort(
-        (a, b) =>
-          Number(a.post !== undefined) - Number(b.post !== undefined) ||
-          b.idea.createdAt.localeCompare(a.idea.createdAt),
+        (a, b) => usedLast(a) - usedLast(b) || b.idea.createdAt.localeCompare(a.idea.createdAt),
       );
-  }, [ideas, posts, filter]);
+  }, [ideas, posts, filter, plannedHere]);
 
   const empty =
     ideas.length === 0
@@ -138,7 +141,12 @@ export default function IdeasScreen() {
                 <>
                   <ul className="ios-list">
                     {rows.map(({ idea, post }) => (
-                      <IdeaRow key={idea.id} idea={idea} livePost={post} />
+                      <IdeaRow
+                        key={idea.id}
+                        idea={idea}
+                        livePost={post}
+                        onPlanned={(id) => setPlannedHere((s) => new Set(s).add(id))}
+                      />
                     ))}
                   </ul>
                   <p className="text-muted text-center text-xs pointer-fine:hidden">

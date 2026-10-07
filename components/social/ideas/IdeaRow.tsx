@@ -35,24 +35,46 @@ function justAdded(createdAt: string): boolean {
   return Date.now() - Date.parse(createdAt) < 2000;
 }
 
+/** Rows that have been on screen in this page load: a remount (a filter change) never plays the rise again. */
+const shown = new Set<string>();
+
+/** The idea's text cut to about 60 characters for the alert's title (the trash's own name keeps all of it). */
+function shortText(text: string): string {
+  const chars = Array.from(text);
+  return chars.length <= 60 ? text : `${chars.slice(0, 59).join("").trimEnd()}…`;
+}
+
 /**
  * One stored idea (tools/18 §6, mockup Ideas): its full text, where it came from (or "used"), "plan a post"
  * (platform chooser) or its calendar link, and remove (asks first). A swipe toward the end edge (left in RTL) stars
- * it like the star button; the star pops each time it turns on. A just-saved idea rises in; planned, the button
- * turns into the "in the calendar" chip with a pop and hands it its focus (as the Studio's asks do).
+ * it like the star button; the star pops each time it turns on. A just-saved idea rises in, once; planned, the
+ * button turns into the "in the calendar" chip in place (`onPlanned`: the list keeps the row where it is) with a pop,
+ * and hands it its focus without moving the page (as the Studio's asks do).
  */
-export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post | undefined }) {
+export default function IdeaRow({
+  idea,
+  livePost,
+  onPlanned,
+}: {
+  idea: Idea;
+  livePost: Post | undefined;
+  /** Called before the idea becomes a post, so the list can keep its row in place. */
+  onPlanned: (id: string) => void;
+}) {
   const { t, L } = useT();
   const turnIntoPost = useStore((s) => s.useIdea);
   const removeIdea = useStore((s) => s.removeIdea);
   const toggleFavorite = useStore((s) => s.toggleIdeaFavorite);
   const [picking, setPicking] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [fresh] = useState(() => justAdded(idea.createdAt));
+  const [fresh, setFresh] = useState(() => !shown.has(idea.id) && justAdded(idea.createdAt));
+  useEffect(() => {
+    shown.add(idea.id);
+  }, [idea.id]);
   const [planned, setPlanned] = useState(false);
   const chipRef = useRef<HTMLAnchorElement>(null);
   useEffect(() => {
-    if (planned) chipRef.current?.focus();
+    if (planned) chipRef.current?.focus({ preventScroll: true });
   }, [planned]);
   // Bumped on every star-on: the new key remounts the icon, so the pop plays again.
   const [pops, setPops] = useState(0);
@@ -69,6 +91,11 @@ export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post
   return (
     <li
       className={`ios-swipe ${fresh ? "idea-rise" : ""}`}
+      // The rise plays once: a later move of the row (a re-sort) must not restart it. The star's and the chip's
+      // pops bubble up here too; only the row's own animation ends it.
+      onAnimationEnd={(e) => {
+        if (e.target === e.currentTarget) setFresh(false);
+      }}
       data-armed={armed}
       data-dragging={dragging}
       data-testid="idea-row"
@@ -125,6 +152,7 @@ export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post
                 cancelLabel={t("ideas.cancel")}
                 onCancel={() => setPicking(false)}
                 onPick={(p) => {
+                  onPlanned(idea.id);
                   turnIntoPost(idea.id, p);
                   setPicking(false);
                   setPlanned(true);
@@ -176,7 +204,7 @@ export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post
       </div>
       {confirming && (
         <ConfirmDialog
-          title={t("ideas.removeLabel", { name: idea.text })}
+          title={t("ideas.removeLabel", { name: shortText(idea.text) })}
           body={t("ideas.removeBody")}
           confirmLabel={t("ideas.remove")}
           danger

@@ -7,6 +7,19 @@ import { freshState } from "./helpers";
 
 const STORAGE_KEY = "3z-prod-v1";
 
+/** Replace the saved state with these ideas only (as a reload after earlier visits would find them). */
+async function seedIdeas(page: Page, ideas: Record<string, unknown>[]): Promise<void> {
+  await page.goto("/social/ideas/");
+  await page.evaluate(
+    ([key, list]) => {
+      localStorage.clear();
+      localStorage.setItem(key as string, JSON.stringify({ state: { ideas: list }, version: 1 }));
+    },
+    [STORAGE_KEY, ideas] as const,
+  );
+  await page.reload();
+}
+
 async function addIdea(page: Page, text: string): Promise<void> {
   await page.getByTestId("idea-new").click();
   const sheet = page.getByTestId("idea-sheet");
@@ -149,27 +162,28 @@ test("ideas bank: a new idea from the sheet, favorites by the star and by a swip
 test("an emptied bank drops its filter, so an idea saved from a skill shows and rises in", async ({
   page,
 }) => {
-  // One old favorite in the bank: loaded, not new, so it does not rise.
-  await page.goto("/social/ideas/");
-  await page.evaluate((key) => {
-    localStorage.clear();
-    const idea = {
-      id: "old",
-      text: "An old favorite",
-      source: "me",
-      createdAt: "2026-01-01T09:00:00.000Z",
-      favorite: true,
-    };
-    localStorage.setItem(key, JSON.stringify({ state: { ideas: [idea] }, version: 1 }));
-  }, STORAGE_KEY);
-  await page.reload();
+  // One old favorite in the bank, a very long one: loaded, not new, so it does not rise.
+  const long = `An old favorite ${"that keeps going and going ".repeat(12)}until the end`;
+  await seedIdeas(page, [
+    { id: "old", text: long, source: "me", createdAt: "2026-01-01T09:00:00.000Z", favorite: true },
+  ]);
   const rows = page.getByTestId("idea-row");
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).not.toHaveClass(/idea-rise/);
 
-  // Favorites on, then the last idea goes: no chips are left to show the filter, so it is dropped.
+  // Favorites on, then the last idea goes: no chips are left to show the filter, so it is dropped. The trash is
+  // named with the whole idea; the alert's title cuts it (about 60 characters), so the alert stays on the screen.
   await page.getByTestId("ideas-filter-favorites").click();
-  await rows.first().getByTestId("idea-remove").click();
+  const remove = rows.first().getByTestId("idea-remove");
+  await expect(remove).toHaveAccessibleName(`احذف الفكرة «${long}»`);
+  await remove.click();
+  const alert = page.getByRole("alertdialog");
+  const title = alert.getByRole("heading");
+  await expect(title).toHaveText(/^احذف الفكرة «An old favorite that keeps going .*…»$/);
+  expect(((await title.textContent()) ?? "").length).toBeLessThanOrEqual(80);
+  const box = (await alert.boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height);
   await page.getByTestId("confirm-ok").click();
   await expect(page.getByTestId("ideas-empty")).toBeVisible();
   await expect(page.getByTestId("ideas-filter-all")).toHaveCount(0);
@@ -180,6 +194,51 @@ test("an emptied bank drops its filter, so an idea saved from a skill shows and 
   await expect(rows.first()).toHaveAttribute("data-source", "skill");
   await expect(rows.first()).toHaveClass(/idea-rise/);
   await expect(page.getByTestId("ideas-filter-all")).toHaveAttribute("aria-pressed", "true");
+});
+
+test("planning the first of many waiting ideas keeps its row in place: the page does not move", async ({
+  page,
+}) => {
+  // Seven waiting ideas, the newest first.
+  await seedIdeas(
+    page,
+    Array.from({ length: 7 }, (_, i) => ({
+      id: `w${i}`,
+      text: `Waiting idea ${i}`,
+      source: "me",
+      createdAt: new Date(Date.UTC(2026, 0, 1 + i)).toISOString(),
+    })),
+  );
+  const rows = page.getByTestId("idea-row");
+  await expect(rows).toHaveCount(7);
+  await expect(rows.first()).toHaveAttribute("data-idea", "w6");
+
+  // Plan the first one with its picker on screen; note where the page and the row are.
+  await rows.first().evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await rows.first().getByTestId("idea-use").click();
+  const tiktok = rows.first().getByTestId("idea-use-tiktok");
+  await tiktok.scrollIntoViewIfNeeded();
+  const scrollY = await page.evaluate(() => window.scrollY);
+  const top = await rows.first().evaluate((el) => el.getBoundingClientRect().top);
+  await tiktok.click();
+
+  // Used now, but still the first row, at the same place, the page unmoved; the chip popped where the button was
+  // and has the focus.
+  const first = rows.first();
+  await expect(first).toHaveAttribute("data-idea", "w6");
+  await expect(first).toHaveAttribute("data-used", "true");
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
+  expect(
+    Math.abs((await first.evaluate((el) => el.getBoundingClientRect().top)) - top),
+  ).toBeLessThanOrEqual(1);
+  const chip = first.getByTestId("idea-used-link");
+  await expect(chip).toBeInViewport();
+  await expect(chip).toBeFocused();
+  await expect(chip).toHaveClass(/ios-pop/);
+
+  // The next visit sorts it with the used ideas, after the waiting ones.
+  await page.reload();
+  await expect(rows.last()).toHaveAttribute("data-idea", "w6");
 });
 
 test("the new-idea sheet closes with ✕ and with Back, and keeps nothing it was not told to save", async ({
