@@ -437,7 +437,7 @@ test("a job sent from another device shows in the hub with its networks and can 
     "An older text post",
   );
   // Each row's button names its job, so a screen reader tells the rows apart.
-  await expect(row.getByTestId("autopost-remote-cancel")).toHaveText("❌ إلغاء الجدولة");
+  await expect(row.getByTestId("autopost-remote-cancel")).toHaveText("إلغاء الجدولة");
   await expect(row.getByTestId("autopost-remote-cancel")).toHaveAccessibleName(
     "إلغاء جدولة «Color grade on the phone»",
   );

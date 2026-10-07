@@ -108,6 +108,7 @@
   "replies.notice.scanRequested": "Check requested; replies go out within a minute.",
   "replies.notice.paused": "Replies are paused; switch them back on to check.",
   "replies.notice.guard": "Today's free storage limit is reached; checks resume after 03:00.",
+  "replies.toast.saved": "Saved",
   "replies.default.title": "Default reply",
   "replies.default.hint": "When someone DMs you without any of your keywords. Once a day per person; never for story replies, emoji-only messages, or chats you're answering yourself.",
   "replies.default.suggested": "Got your message 🙏 I'll reply as soon as I can.",
