@@ -259,6 +259,10 @@ export async function youtubeTop(
             title,
             snippet: text(description, SNIPPET_MAX),
             url,
+            // The day it counts on in the trends (Trending effects' memory files creators by post day).
+            ...(typeof publishedAt === "string" && !Number.isNaN(Date.parse(publishedAt))
+              ? { published: new Date(Date.parse(publishedAt)).toISOString() }
+              : {}),
           },
         },
       ];

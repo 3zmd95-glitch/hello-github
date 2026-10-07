@@ -145,7 +145,7 @@ export default function TrendingEffects({
   const age = now - Date.parse(data.updatedAt ?? "");
 
   // English first in both languages (live fix 1): the English name and line, the Arabic name in the tooltip under
-  // the line.
+  // the line, then what the count means: creators who posted it in the last 7 days (days are post days, 2026-10-07).
   const chip = (e: TrendingEffect) => {
     const name = e.name.en;
     const what = e.what?.en;
@@ -157,7 +157,9 @@ export default function TrendingEffects({
         key={e.key}
         type="button"
         className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
-        title={[what, e.name.ar].filter(Boolean).join("\n") || undefined}
+        title={[what, e.name.ar, t("search.trendingCreatorsTip", { n: e.creators })]
+          .filter(Boolean)
+          .join("\n")}
         aria-label={[name, e.isNew && t("search.trendingNew"), creators, yt, what]
           .filter(Boolean)
           .join(" · ")}

@@ -8,7 +8,7 @@
 import { TERMS } from "../discover/terms";
 import { utcDay } from "../trends/kv";
 import { cleanWithAi, type AiVerdict } from "./ai";
-import { extractCandidates, type ExtractExtra } from "./extract";
+import { extractCandidates, type ExtractExtra, type PostCounts } from "./extract";
 import { daySlot, familiesForSlot, SLOTS } from "./families";
 import { readEffects, writeEffects } from "./kv";
 import { creatorsBetween, daysBetween, mergeHistory, scoreEffects, setViews } from "./score";
@@ -57,6 +57,8 @@ export type Memory = {
   ai: AiCounts;
   /** Today's creators of each dictionary effect seen today. */
   dictionary: Record<string, number>;
+  /** Today's posts: dated within 14 days (kept), older, and with no date. */
+  posts: PostCounts;
 };
 export type Meta = Record<string, EffectMeta>;
 
@@ -111,15 +113,15 @@ function fold(history: History, from: string, to: string): void {
  * The AI's verdicts. `sameAs` merges a spelling into the kept effect it names, following chains (a loop merges
  * nothing); otherwise `keep: false` drops the name. A dictionary effect is never merged away or dropped. A merged or
  * dropped name's earlier days follow it, so it never shows on its own again. Returns how many names it merged and
- * dropped.
+ * dropped, and for each effect that took a spelling the spelling's first-seen day (the earliest of them).
  */
 function applyVerdicts(
   cands: Map<string, Candidate>,
   verdicts: Map<string, AiVerdict>,
   history: History,
   meta: Meta,
-): { merged: number; dropped: number } {
-  const counts = { merged: 0, dropped: 0 };
+): { merged: number; dropped: number; firstSeen: Map<string, string> } {
+  const counts = { merged: 0, dropped: 0, firstSeen: new Map<string, string>() };
   const next = (key: string) => {
     const to = verdicts.get(key)?.sameAs;
     return to && to !== key && !cands.get(key)?.termId && cands.has(to) ? to : undefined;
@@ -138,12 +140,20 @@ function applyVerdicts(
     const c = cands.get(key)!;
     if (root && root !== key && kept(root)) {
       const into = cands.get(root)!;
-      c.ids.forEach((id) => into.ids.add(id));
+      // A creator keeps their latest post day.
+      c.days.forEach((day, id) => {
+        const was = into.days.get(id);
+        if (!was || was < day) into.days.set(id, day);
+      });
       c.platforms.forEach((p) => into.platforms.add(p));
       into.posts += c.posts;
       for (const s of c.samples)
         if (into.samples.length < 2 && !into.samples.some((x) => x.url === s.url))
           into.samples.push(s);
+      // The effect was first seen when its earliest spelling was: a merge never makes it NEW again.
+      const since = meta[key]?.firstSeen;
+      const was = counts.firstSeen.get(root);
+      if (since && (!was || since < was)) counts.firstSeen.set(root, since);
       fold(history, key, root);
       counts.merged++;
     } else if (kept(key)) continue;
@@ -158,8 +168,16 @@ function applyVerdicts(
 }
 
 /** Today's figures, with the AI's name and line when it judged the key today, else the ones it was given before. A
- * dictionary effect always keeps the dictionary's own labels (curated Hijazi Arabic), never the AI's name. */
-function metaOf(c: Candidate, v: AiVerdict | undefined, old: EffectMeta | undefined): EffectMeta {
+ * dictionary effect always keeps the dictionary's own labels (curated Hijazi Arabic), never the AI's name. A new name is
+ * first seen today, unless a spelling merged into it today was seen earlier (`merged`: that day). */
+function metaOf(
+  c: Candidate,
+  v: AiVerdict | undefined,
+  old: EffectMeta | undefined,
+  today: string,
+  merged?: string,
+): EffectMeta {
+  const seen = old?.firstSeen ?? today;
   const ar = c.termId ? ARABIC_LABEL.get(c.termId) : undefined;
   const name = c.termId
     ? { en: c.name, ...(ar ? { ar } : {}) }
@@ -173,8 +191,13 @@ function metaOf(c: Candidate, v: AiVerdict | undefined, old: EffectMeta | undefi
     platforms: [...c.platforms].sort(),
     posts: c.posts,
     samples: c.samples,
+    firstSeen: merged && merged < seen ? merged : seen,
   };
 }
+
+/** The oldest day of a name's history, if it has one. */
+const firstDay = (entries: readonly HistoryEntry[] | undefined) =>
+  entries?.reduce<string | undefined>((d, e) => (!d || e.day < d ? e.day : d), undefined);
 
 type RunOptions = {
   fetch?: typeof fetch;
@@ -194,7 +217,10 @@ function forAi(cands: Map<string, Candidate>, prev: EffectsDoc | null, today: st
     .filter((c) => !(c.termId && prev?.meta[c.key]?.what))
     .map((c) => {
       const week = creatorsBetween(prev?.history[c.key] ?? [], today, 1, 6);
-      c.ids.forEach((id) => week.add(id));
+      // Today's creators who posted this week (a post 7–13 days old is remembered, not this week's).
+      c.days.forEach((day, id) => {
+        if (daysBetween(day, today) <= 6) week.add(id);
+      });
       return { c, week: week.size, checked: prev?.meta[c.key]?.checked ? 1 : 0 };
     })
     .sort((a, b) => b.week - a.week || a.checked - b.checked)
@@ -228,7 +254,7 @@ export async function rememberPosts(
   shown: Meta;
   memory: Memory;
 }> {
-  const cands = await extractCandidates(posts, opts.extract);
+  const { cands, posts: counts } = await extractCandidates(posts, today, opts.extract);
   const top = forAi(cands, prev, today);
   const reply: Awaited<ReturnType<typeof cleanWithAi>> = top.length
     ? await cleanWithAi(
@@ -247,7 +273,20 @@ export async function rememberPosts(
   const byKey = new Map((reply?.verdicts ?? []).map((v) => [v.key, v]));
   const history: History = { ...prev?.history };
   const meta: Meta = { ...prev?.meta };
-  const { merged: spellings, dropped } = applyVerdicts(cands, byKey, history, meta);
+  // A memory from before real post dates (2026-10-07: no name has `firstSeen`) filed creators under the scan's day: its
+  // creators go, once, so "this week" never counts a scan of old posts. Each day stays, empty, with its YouTube views, so
+  // a name this run does not find keeps its meta (approval, name, line) and the day it was first seen.
+  if (Object.values(meta).some((m) => !m.firstSeen)) {
+    for (const [key, m] of Object.entries(meta))
+      meta[key] = { ...m, firstSeen: m.firstSeen ?? firstDay(history[key]) ?? today };
+    for (const [key, entries] of Object.entries(history))
+      history[key] = entries.map(({ day, views7d }) => ({
+        day,
+        ids: [],
+        ...(views7d !== undefined ? { views7d } : {}),
+      }));
+  }
+  const { merged: spellings, dropped, firstSeen } = applyVerdicts(cands, byKey, history, meta);
   const ai: AiCounts = {
     judged: byKey.size,
     dictionary: [...byKey.keys()].filter((k) => cands.get(k)?.termId).length,
@@ -258,9 +297,10 @@ export async function rememberPosts(
     ...(reply?.models ? { models: reply.models } : {}),
   };
   const dictionary = Object.fromEntries(
-    [...cands.values()].flatMap((c) => (c.termId ? [[c.termId, c.ids.size]] : [])),
+    [...cands.values()].flatMap((c) => (c.termId ? [[c.termId, c.days.size]] : [])),
   );
-  for (const [key, c] of cands) meta[key] = metaOf(c, byKey.get(key), meta[key]);
+  for (const [key, c] of cands)
+    meta[key] = metaOf(c, byKey.get(key), meta[key], today, firstSeen.get(key));
   // At the memory's cap, dictionary names stay first, and approved names while seen this week: an older one has no
   // creators in the 7-day window, so it cannot show and competes like any other name.
   const seenThisWeek = (k: string) =>
@@ -286,6 +326,7 @@ export async function rememberPosts(
       trimmed: cut.length,
       ai,
       dictionary,
+      posts: counts,
     },
   };
 }
@@ -312,6 +353,7 @@ async function scan(
     doFetch,
     queries,
     opts.timeoutMs,
+    { now },
   );
   const notes = new Set(errors);
   // Tavily's month nearly spent: a smaller scan, and the list says so.

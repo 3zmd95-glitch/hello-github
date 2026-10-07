@@ -1,8 +1,8 @@
 /**
- * Trending effects, scoring (planning/tools/18-trending-effects.md §2): distinct creators over the last 7 days of scans,
- * growth between the last 3 days and the 3 before (each family is searched once per 3-day window; a fading effect, with
- * none in the last 3 days, is left out), NEW for effects outside the dictionary first seen within 7 days, a small
- * YouTube boost. History holds ≤ 14 days and ≤ 400 keys.
+ * Trending effects, scoring (planning/tools/18-trending-effects.md §2): distinct creators who posted in the last 7 days
+ * (history days are post days since 2026-10-07, "Real post dates"), growth between the last 3 days and the 3 before
+ * (none in the last 3 days: growth 0, shown after every effect with a score), NEW for effects outside the dictionary
+ * first seen by a scan within 7 days, a small YouTube boost. History holds ≤ 14 days and ≤ 400 keys.
  */
 
 import { TERMS } from "../discover/terms";
@@ -41,9 +41,10 @@ export function creatorsBetween(
   return ids;
 }
 
-/** Today's creators replace any earlier run of the same day; entries older than 14 days go. Over `maxKeys` (400; a
- * category keeps 200), the cut keeps `keepFirst` (protected names) first, then the most creators this week, then the
- * latest seen; `cut` collects the keys it dropped. */
+/** Each creator goes into the entry of the day they posted (live, 2026-10-07: filed under the scan's day, "this week"
+ * counted scans of September posts). The same creator on the same day counts once, ≤ 30 a day, and an earlier run's
+ * creators stay; entries older than 14 days go. Over `maxKeys` (400; a category keeps 200), the cut keeps `keepFirst`
+ * (protected names) first, then the most creators this week, then the latest seen; `cut` collects the keys it dropped. */
 export function mergeHistory(
   history: Record<string, HistoryEntry[]>,
   day: string,
@@ -57,11 +58,20 @@ export function mergeHistory(
     const kept = entries.filter((e) => daysBetween(e.day, day) < HISTORY_DAYS);
     if (kept.length) out[key] = kept;
   }
-  // Another run the same day (Scan again) adds to the day's creators: a name it does not find keeps its earlier ones.
+  // Another run (Scan again) adds to each day's creators: a name it does not find keeps its earlier ones.
   for (const [key, c] of today) {
-    const earlier = out[key]?.find((e) => e.day === day);
-    const ids = [...new Set([...(earlier?.ids ?? []), ...c.ids])].slice(0, IDS_PER_DAY);
-    out[key] = [...(out[key] ?? []).filter((e) => e.day !== day), { ...earlier, day, ids }];
+    const byDay = new Map<string, string[]>();
+    for (const [id, posted] of c.days) byDay.set(posted, [...(byDay.get(posted) ?? []), id]);
+    let entries = out[key] ?? [];
+    for (const [posted, ids] of byDay) {
+      const earlier = entries.find((e) => e.day === posted);
+      const merged = [...new Set([...(earlier?.ids ?? []), ...ids])].slice(0, IDS_PER_DAY);
+      entries = [
+        ...entries.filter((e) => e.day !== posted),
+        { ...earlier, day: posted, ids: merged },
+      ];
+    }
+    if (entries.length) out[key] = entries;
   }
   const keys = Object.keys(out);
   if (keys.length > maxKeys) {
@@ -87,8 +97,12 @@ export function setViews(
   views: Record<string, number>,
 ): void {
   for (const [key, v] of Object.entries(views)) {
-    const entry = history[key]?.find((e) => e.day === day);
-    if (entry) entry.views7d = v;
+    const entries = history[key];
+    if (!entries) continue;
+    const i = entries.findIndex((e) => e.day === day);
+    // Today's entry, made when no creator posted today (days are post days); a copy, the previous document's stays.
+    if (i < 0) entries.push({ day, ids: [], views7d: v });
+    else entries[i] = { ...entries[i], views7d: v };
   }
 }
 
@@ -121,12 +135,14 @@ export function scoreEffects(
     if (!m) return [];
     const creators = creatorsBetween(entries, today, 0, 6).size;
     const recent = creatorsBetween(entries, today, 0, 2).size;
-    // Under the minimum this week, or fading: none in the last 3 days (growth 0, so score 0).
-    if (creators < minCreators || !recent) return [];
+    // Under the minimum this week. Days are post days: creators who posted 3–6 days ago are still this week's (the live
+    // clone effect, Oct 1 and 3 on Oct 7), so a quiet effect shows, after every effect with a score (growth 0).
+    if (creators < minCreators) return [];
     const before = creatorsBetween(entries, today, 3, 5).size;
-    // No creators in days 3–5: new (growth 3).
-    const growth = before === 0 ? 3 : Math.round((recent / before) * 100) / 100;
-    const firstSeen = entries.reduce((d, e) => (e.day < d ? e.day : d), today);
+    // None in the last 3 days: 0; none in days 3–5: new (growth 3).
+    const growth = !recent ? 0 : before === 0 ? 3 : Math.round((recent / before) * 100) / 100;
+    // The scan day it was first seen (a name from before the field: its oldest day).
+    const firstSeen = m.firstSeen ?? entries.reduce((d, e) => (e.day < d ? e.day : d), today);
     const ytGrowth = youtubeGrowth(entries, today);
     const yt = youtube[key];
     const boost = (viewsRatio(entries, today) ?? 0) >= 1.5 ? 1.25 : 1; // the real ratio, not the rounded one
@@ -150,12 +166,14 @@ export function scoreEffects(
     const trend = !m.termId || TREND_TERMS.has(m.termId);
     return [{ item, score: creators * Math.min(growth, 4) * boost, firstSeen, trend }];
   });
-  // Trends first, then the editing techniques the dictionary knows (slow motion, glitch), which always have many
-  // creators: live, they filled the list and pushed the owner's GIF stickers (6 creators) out of it. Within each, by
-  // score; equal scores: the effect first seen more recently goes first.
+  // An effect with growth 0 (none in the last 3 days) comes after every effect with a score. Among those: trends first,
+  // then the editing techniques the dictionary knows (slow motion, glitch), which always have many creators: live, they
+  // filled the list and pushed the owner's GIF stickers (6 creators) out of it. Within each, by score; equal scores: the
+  // effect first seen more recently goes first.
   return scored
     .sort(
       (a, b) =>
+        Number(b.score > 0) - Number(a.score > 0) ||
         Number(b.trend) - Number(a.trend) ||
         b.score - a.score ||
         daysBetween(a.firstSeen, b.firstSeen),

@@ -53,7 +53,8 @@ function environment() {
         JSON.stringify({
           results: [
             {
-              url: "https://www.instagram.com/reel/coffee123/",
+              // Posted 2026-10-01 (its shortcode's time): inside the plan's month.
+              url: "https://www.instagram.com/reel/Dd8IYtBSjUr/",
               title: "Coffee match cut tutorial",
               content: "Coffee match cut filmmaking tutorial",
             },
@@ -238,6 +239,14 @@ describe("subscription AI plans", () => {
     expect(plan.queries[0].q).toBe("espresso cinematic lighting tutorial");
     expect(plan.queries[0].retryQ).toMatch(/coffee|cafe/);
     expect(plan.requiredGroups?.some((group) => group.includes("coffee"))).toBe(true);
+  });
+
+  it("keeps an Arabic tutorials query's category retry: English-first planning leaves AI plans as they were", () => {
+    const plan = searchPlanFromAi(
+      { q: "coffee edit", genreQuery: { ar: "تصوير قهوة" } },
+      { ...PLAN, queries: [{ q: "شرح تصوير القهوة سينمائي", lang: "ar", intent: "tutorials" }] },
+    );
+    expect(plan.queries[0].retryQ).toMatch(/[ء-ي]/);
   });
 
   it("uses bounded category retries without broadening a detailed AI-only brief", () => {

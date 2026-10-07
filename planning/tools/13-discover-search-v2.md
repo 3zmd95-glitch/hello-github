@@ -23,7 +23,9 @@ The request is three projects, built in this order, each with its own spec and p
    it: "flash = flash transition (editing effect) · English + عربي", with **Not this?** chips (other meanings the dictionary
    knows, and "search exactly 'flash'").
 2. It searches **both languages every time**: TikTok and Instagram three searches each (examples, tutorials, Arabic), 20
-   results per search; YouTube three searches through YouTube's own search (real views and dates).
+   results per search; YouTube three searches through YouTube's own search (real views and dates). Since 2026-10-07
+   **English first**: English only, unless the search is typed in Arabic or "Arabic first" is on (then the Arabic
+   tutorials too); every trend chip is English (see "Live fix (2026-10-07)").
 3. Results come in sections:
    - **🔥 Popular now**: one swipeable row of the 6 results with the biggest numbers (YouTube views; TikTok / Instagram likes
      when the page showed them; ties newest first), saying which number it uses.
@@ -138,7 +140,8 @@ flash (photography), and others the owner names.
 
 1. **Plan** (`plan.ts`): dictionary or unknown-word rules → up to 9 queries: TikTok and Instagram × (examples en, tutorials
    en, tutorials ar), YouTube × (examples en, tutorials en, tutorials ar). Arabic tutorials are where the test found Arabic
-   creators; the Arabic examples query is the retry. Time range and YouTube length pass through.
+   creators; the Arabic examples query is the retry. Time range and YouTube length pass through. **English first since
+   2026-10-07**: the Arabic tutorials query only when the request says `lang: "ar"` (6 queries otherwise; see "Live fix").
 2. **Fetch** (`run.ts`), all at once:
    - Tavily `search` per TikTok / Instagram query: `max_results: 20`, `search_depth: "basic"`, `include_images: true`,
      `include_published_date: true`, `include_usage: true`, `include_domains` the platform, `language` the query's,
@@ -146,6 +149,8 @@ flash (photography), and others the owner names.
      examples en "<name> video", tutorials en "how to <name>" (`<name>`: the entry's English label plus the other typed
      words, else the topic's words; no genre or program), tutorials ar the Arabic examples query. A retry that would
      repeat words already planned on that platform is dropped; YouTube has no retries; at most two retries a search.
+     With a time range, Tavily is asked a wider one (week → month) and the cards outside the asked range by their real
+     date are dropped (see "Live fix (2026-10-07)").
    - YouTube `search.list` (Worker's `YOUTUBE_API_KEY`; Arabic: `regionCode=SA`, `relevanceLanguage=ar`), then one
      `videos.list` for the numbers of every YouTube card (1 unit).
    - Profile pages (`tiktok.com/@user`, `instagram.com/<user>/`, `youtube.com/@channel`), dropped by `normalizeHits` today,
@@ -157,7 +162,8 @@ flash (photography), and others the owner names.
    or (entry `specific: false`) neither an editing word (`EDITING_WORDS`: edit(s), editing, editor, transition(s),
    effect(s), capcut, davinci, premiere, after effects, final cut, cut, vfx, مونتاج, ايديت, تأثير, انتقال, كاب كت,
    دافنشي, مونتير, فاينل كت) nor a tutorial word: a tutorial word counts as editing context too. Entry and editing words
-   compare whole, in the matching form above.
+   compare whole, in the matching form above. A trend chip's search (`editing: true`) is off-topic too unless its text
+   holds an editing cue besides the typed name (see "Live fix").
 4. **Creators**: on-topic cards grouped by platform + the YouTube channel page when the card has one (two channels with
    one name stay apart), else platform + handle (any case); cards without a handle, or with neither a channel page nor
    an "@handle" to link the account, are left out. Ranked by on-topic cards, then total views; profile-page candidates
@@ -177,7 +183,9 @@ interface DiscoverRequest {
   term?: string;                              // a dictionary id chosen from "Not this?"
   genreQuery?: { ar?: string; en?: string };  // the genre chip's main query (built-in or custom)
   program?: string;                           // "DaVinci Resolve"
-  timeRange?: "week" | "month" | "year";
+  lang?: "ar" | "en";                         // "ar" adds the Arabic tutorials query; English only without it
+  editing?: true;                             // a trend chip's search: cards need an editing cue (keyword mode only)
+  timeRange?: "week" | "month" | "year";     // TikTok / Instagram: by the posts' real dates (see "Live fix")
   ytLength?: "short" | "long";
   platforms?: ("tt" | "ig" | "yt")[];         // default all three
 }
@@ -277,7 +285,7 @@ interface DiscoverResponse {
 
 | What | Cost | Limit |
 | --- | --- | --- |
-| New in-app search | 6 Tavily credits (≤ 8 with retries) + 3 `search.list` + 1 `videos.list` | 1,000 free credits a month; $0.008 a credit after, if pay-as-you-go is on |
+| New in-app search | 4 Tavily credits in English, 6 with Arabic (≤ 2 more with retries) + 2 or 3 `search.list` + 1 `videos.list` | 1,000 free credits a month; $0.008 a credit after, if pay-as-you-go is on |
 | Same search again | 0 (browser 24 h, Worker 6 h) | |
 | Connector research | ~10–20 credits a chat | 60 a day (`MCP_DAILY_LOOKUPS`) |
 | Trend Radar (already running) | ~40 credits a month, ≤ 18 `search.list` a day | unchanged |
@@ -378,6 +386,45 @@ Connector deployment checks: both OAuth authorization-server metadata and protec
 200 with the expected Worker URLs. An unauthenticated GET /mcp returned 401 and advertised the correct protected
 resource metadata URL. No production OAuth registration, token replacement, or picks write was performed.
 The owner still needs to sign in from Claude and verify a research chat plus saved picks end to end.
+
+## Live fix (2026-10-07): real post dates
+
+The owner: "I'm seeing the clone effect posts in may when its says this week? … rework if needed. English First. Instagram
+and tiktok first". Checked live against the production Worker: Tavily sent `published_date` for none of the Instagram
+results, and its `time_range: "week"` on instagram.com is unreliable ("clone effect", Instagram, week: posts from
+2023-10-04, 2024-12-02, 2026-08-15, 09-13, 09-29 and 09-30; the two reels the owner opened went up May 5 and May 30).
+
+- **The post's own id is its date** (`src/postDate.ts`): an Instagram shortcode is base64 of a Snowflake-like media id
+  (`ms = (id >> 23) + 1314220021721`), a TikTok video id carries Unix seconds in its top 32 bits. Verified against the
+  owner's own reels (within ~2 minutes). `normalizeHits` sets every TikTok / Instagram card's `published` from it,
+  whatever Tavily sent (a decode before 2010 or after now + 1 day is none); YouTube keeps the Data API's date.
+- **The Posted filter is enforced by real dates on TikTok and Instagram** (`run.ts`): Tavily is asked a wider window (week →
+  month; month and year as they are), then a card stays only when its date is inside the asked window at the request's
+  time (week 7 days, month 31, year 366). A card with no date stays. YouTube keeps `publishedAfter`.
+- **Cards show the date** (`ResultCard`): "Oct 3" this year, "May 30, 2025" before, English with Latin digits in both
+  languages, in a `<time dateTime>`.
+- Kept answers from before have no dates: the Worker's answer key is version 6, the browser's cache version 6.
+
+**English first** (`plan.ts`). A chip tap always added the Arabic tutorials query ("شرح Glow Effect"), and for "Glow
+Effect" it returned Arabic beauty-serum reels ("سيروم كولاجين جلو بوستر (Collagen Glow Effect)"): the beauty content in
+the owner's screenshot. Now the planned search asks English examples and English tutorials (2 Tavily credits a platform,
+2 `search.list`), and adds the Arabic tutorials query only for `lang: "ar"`. The dashboard works the language out for
+each search and always sends it: `"ar"` when what was typed has Arabic letters or "Arabic first" is on, else `"en"`, in
+either dashboard language. A trend chip (an English name, "Arabic first" turned off) is English, and nothing of it sticks to
+the next search (review fix). The
+Claude connector keeps both languages (`lang: "ar"`, as its description says). AI plans are unchanged (their keyword
+baseline keeps the Arabic retry).
+
+**Editing context for trend-chip searches** (`label.ts`). A 🔥 chip or a category's style sends `editing: true` (with
+`lang` left English and "Arabic first" turned off). A card is then off-topic unless its title or snippet holds an editing
+cue besides the chip's own name: edit(s), editing, effect(s), transition(s), capcut, after effects, premiere, davinci, vn,
+alight, filmora, tutorial, trend; inside a category its filming words count too (a camera style such as "rolling shot"
+names no edit). "Collagen Glow Effect" is off-topic (its "effect" is the product's name); "Product Cutout … Insta Edit में
+Glow Effect" stays.
+
+**Instagram and TikTok first** (dashboard): the tabs read All, Instagram, TikTok, YouTube (the stored tab names are
+unchanged), and on All each section lists the Instagram and TikTok cards before YouTube's, each group in its order (or
+by the numbers with Most popular).
 
 ## Honest limits
 

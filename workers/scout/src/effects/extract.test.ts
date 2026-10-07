@@ -184,28 +184,33 @@ describe("candidatesOf", () => {
 });
 
 describe("extractCandidates", () => {
+  const TODAY = "2026-10-07";
   const post = (
     handle: string,
     title: string,
     platform: "tt" | "ig" = "tt",
     n = 0,
+    published = "2026-10-06T12:00:00.000Z",
   ): EffectPost => ({
     platform,
     handle,
     title,
     snippet: "",
     url: `https://www.tiktok.com/${handle}/video/${handle.length}${n}${title.length}`,
+    published,
   });
+  const found = async (posts: EffectPost[]) => (await extractCandidates(posts, TODAY)).cands;
 
   it("counts distinct creators, not posts, and keeps at most 2 samples", async () => {
-    const found = await extractCandidates([
-      post("@a", "clone effect tutorial", "tt", 1),
-      post("@a", "clone effect part 2", "tt", 2),
-      post("@b", "my clone effect edit", "ig", 3),
-      post("@c", "Clone effect in CapCut", "tt", 4),
-    ]);
-    const clone = found.get("clone-effect")!;
-    expect(clone.ids.size).toBe(3);
+    const clone = (
+      await found([
+        post("@a", "clone effect tutorial", "tt", 1),
+        post("@a", "clone effect part 2", "tt", 2),
+        post("@b", "my clone effect edit", "ig", 3),
+        post("@c", "Clone effect in CapCut", "tt", 4),
+      ])
+    ).get("clone-effect")!;
+    expect(clone.days.size).toBe(3);
     expect(clone.posts).toBe(4);
     expect([...clone.platforms].sort()).toEqual(["ig", "tt"]);
     expect(clone.samples).toHaveLength(2);
@@ -213,14 +218,52 @@ describe("extractCandidates", () => {
 
   it("counts a post that two searches both returned once", async () => {
     const p = post("@a", "clone effect tutorial");
-    expect((await extractCandidates([p, p])).get("clone-effect")!.posts).toBe(1);
+    expect((await found([p, p])).get("clone-effect")!.posts).toBe(1);
   });
 
   it("never runs a name across the title and the snippet", async () => {
-    const found = await extractCandidates([
-      { ...post("@a", "Insane Ghost"), snippet: "Effect pack download" },
+    const cands = await found([{ ...post("@a", "Insane Ghost"), snippet: "Effect pack download" }]);
+    expect([...cands.keys()]).toEqual([]);
+  });
+
+  // Live, 2026-10-07: "NEW · 6 creators this week" rested on posts from September 9–15.
+  it("skips a post older than 14 days or without a date, and counts what it kept and skipped", async () => {
+    const { cands, posts } = await extractCandidates(
+      [
+        post("@old", "clone effect tutorial", "tt", 1, "2026-09-17T10:00:00.000Z"), // 20 days
+        post("@undated", "clone effect tutorial", "tt", 2, ""),
+        post("@tenDays", "clone effect tutorial", "tt", 3, "2026-09-27T10:00:00.000Z"),
+        post("@new", "clone effect tutorial", "tt", 4),
+      ],
+      TODAY,
+    );
+    expect(posts).toEqual({ kept: 2, old: 1, undated: 1 });
+    expect([...cands.get("clone-effect")!.days.values()].sort()).toEqual([
+      "2026-09-27",
+      "2026-10-06",
     ]);
-    expect([...found.keys()]).toEqual([]);
+  });
+
+  it("files each creator under the UTC day of their latest post, never after today", async () => {
+    const days = (
+      await found([
+        post("@a", "clone effect tutorial", "tt", 1, "2026-10-03T23:30:00.000Z"),
+        post("@a", "clone effect part 2", "tt", 2, "2026-10-05T00:30:00.000Z"),
+        post("@b", "clone effect edit", "tt", 3, "2026-10-08T01:00:00.000Z"), // clock skew
+      ])
+    ).get("clone-effect")!.days;
+    expect([...days.values()].sort()).toEqual(["2026-10-05", TODAY]);
+  });
+
+  it("keeps the newest posts as samples, newest first", async () => {
+    const samples = (
+      await found([
+        post("@a", "clone effect one", "tt", 1, "2026-10-01T10:00:00.000Z"),
+        post("@b", "clone effect three", "tt", 3, "2026-10-05T10:00:00.000Z"),
+        post("@c", "clone effect two", "tt", 2, "2026-10-03T10:00:00.000Z"),
+      ])
+    ).get("clone-effect")!.samples;
+    expect(samples.map((s) => s.title)).toEqual(["clone effect three", "clone effect two"]);
   });
 
   it("reads a day's 120 posts quickly (the Free plan allows 10 ms of CPU per run)", async () => {
@@ -241,7 +284,7 @@ describe("extractCandidates", () => {
     const runs: number[] = [];
     for (let i = 0; i < 3; i++) {
       const start = process.cpuUsage();
-      await extractCandidates(posts);
+      await extractCandidates(posts, TODAY);
       const { user, system } = process.cpuUsage(start);
       runs.push((user + system) / 1000);
     }

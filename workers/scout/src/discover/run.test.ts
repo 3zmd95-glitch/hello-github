@@ -92,12 +92,14 @@ describe("runDiscover", () => {
 
     expect(answer.topicKey).toBe("flash-transition");
     expect(answer.platforms).toEqual({ tt: { ok: true }, ig: { ok: true }, yt: { ok: true } });
-    expect(answer.cost).toEqual({ tavily: 6, youtubeSearch: 3 });
+    // English first: examples and tutorials in English, 2 a platform (an Arabic search adds its tutorials query).
+    expect(answer.cost).toEqual({ tavily: 4, youtubeSearch: 2 });
+    expect(answer.items.every((i) => i.lang === "en")).toBe(true);
     expect(answer.cached).toBe(false);
     expect(answer.complete).toBe(true);
     const tiktok = answer.items.filter((i) => i.platform === "tt");
-    expect(tiktok).toHaveLength(6);
-    expect(tiktok.filter((i) => i.offTopic)).toHaveLength(3);
+    expect(tiktok).toHaveLength(4);
+    expect(tiktok.filter((i) => i.offTopic)).toHaveLength(2);
     expect(
       answer.items.filter((i) => i.platform === "yt").every((i) => i.stats?.views === 1000),
     ).toBe(true);
@@ -106,7 +108,7 @@ describe("runDiscover", () => {
 
     const key = discoverAnswerKey(await requestHash({ q: "flash" }));
     expect(env.SOCIAL_KV.store.get(key)?.expirationTtl).toBe(ANSWER_TTL_S);
-    expect(env.SOCIAL_KV.store.get(discoverKeys.yt("2026-10-03"))?.value).toBe("3");
+    expect(env.SOCIAL_KV.store.get(discoverKeys.yt("2026-10-03"))?.value).toBe("2");
 
     const calls = fetchMock.mock.calls.length;
     const again = await runDiscover(env, { q: "  FLASH " }, { fetch: fetchMock, now: NOW });
@@ -115,6 +117,82 @@ describe("runDiscover", () => {
     expect(again.cost).toEqual({ tavily: 0, youtubeSearch: 0 });
     expect(again.items).toEqual(answer.items);
     expect(fetchMock.mock.calls.length).toBe(calls);
+  });
+
+  // Live, 2026-10-07: Tavily's Instagram "week" held posts from 2023 and May. The post id is the date (postDate.ts).
+  it("asks Tavily a wider window, then keeps the posts inside the asked one by their real date", async () => {
+    const at = (daysAgo: number) =>
+      String(BigInt(Math.floor((NOW.getTime() - daysAgo * 86_400_000) / 1000)) << 32n);
+    const post = (handle: string, daysAgo: number) =>
+      `https://www.tiktok.com/@${handle}/video/${daysAgo < 0 ? "5" : at(daysAgo)}`;
+    for (const [asked, sent, kept, dropped] of [
+      ["week", "month", 3, 10],
+      ["month", "month", 20, 40],
+      ["year", "year", 300, 400],
+    ] as const) {
+      const ranges: unknown[] = [];
+      const fetchMock = web({
+        tavily: (body) => {
+          ranges.push(body.time_range);
+          return json({
+            results: [
+              { url: post("new", kept), title: "flash transition edit", content: "capcut" },
+              { url: post("old", dropped), title: "flash transition edit", content: "capcut" },
+              // No post time in its id: kept (nothing says it is old).
+              { url: post("undated", -1), title: "flash transition edit", content: "capcut" },
+            ],
+            usage: { credits: 1 },
+          });
+        },
+      });
+      const answer = await runDiscover(
+        ENV(),
+        { q: "flash", timeRange: asked, platforms: ["tt"] },
+        { fetch: fetchMock, now: NOW },
+      );
+      expect(new Set(ranges), asked).toEqual(new Set([sent]));
+      expect(answer.items.map((i) => i.url).sort(), asked).toEqual(
+        [post("new", kept), post("undated", -1)].sort(),
+      );
+      expect(answer.platforms.tt, asked).toEqual({ ok: true });
+    }
+  });
+
+  it("a trend chip's search asks English only and hides what names no editing (live: the Glow Effect chip)", async () => {
+    const asked: Body[] = [];
+    const fetchMock = web({
+      tavily: (body) => {
+        asked.push(body);
+        return json({
+          results: [
+            {
+              url: "https://www.instagram.com/p/Dd8IYtBSjUr/",
+              title: "سيروم كولاجين جلو بوستر (Collagen Glow Effect)",
+            },
+            {
+              url: "https://www.tiktok.com/@cutout/video/7692240280929520917",
+              title: "Product Cutout … Insta Edit में Glow Effect",
+            },
+          ],
+          usage: { credits: 1 },
+        });
+      },
+    });
+    const answer = await runDiscover(
+      ENV(),
+      { q: "Glow Effect", editing: true, platforms: ["tt", "ig"] },
+      { fetch: fetchMock, now: NOW },
+    );
+    expect(asked.map((b) => [(b.include_domains as string[])[0], b.language, b.query])).toEqual([
+      ["tiktok.com", "en", "glow effect edit"],
+      ["tiktok.com", "en", "glow effect tutorial"],
+      ["instagram.com", "en", "glow effect edit"],
+      ["instagram.com", "en", "glow effect tutorial"],
+    ]);
+    expect(answer.items.map((i) => [i.platform, !!i.offTopic])).toEqual([
+      ["tt", false],
+      ["ig", true],
+    ]);
   });
 
   it("asks an empty TikTok query once more with its other words", async () => {
@@ -130,13 +208,14 @@ describe("runDiscover", () => {
     });
     const answer = await runDiscover(ENV(), { q: "flash" }, { fetch: fetchMock, now: NOW });
     expect(answer.platforms.tt).toEqual({ ok: true, retried: true });
-    expect(answer.cost.tavily).toBe(7);
+    expect(answer.cost.tavily).toBe(5);
   });
 
   it("retries category misses within the shared budget, preserving originals and YouTube call counts", async () => {
     const req: DiscoverRequest = {
       q: "coffee edit",
       genreQuery: { en: "coffee edit", ar: "تصوير قهوة" },
+      lang: "ar",
     };
     const firstQueries = new Set(planSearch(req).queries.map((q) => q.q));
     let n = 0;
@@ -186,7 +265,7 @@ describe("runDiscover", () => {
     const fetchMock = web();
     const answer = await runDiscover(
       ENV(),
-      { q: "coffee edit", genreQuery: { en: "coffee edit", ar: "تصوير قهوة" } },
+      { q: "coffee edit", genreQuery: { en: "coffee edit", ar: "تصوير قهوة" }, lang: "ar" },
       { fetch: fetchMock, now: NOW },
     );
     expect(answer.cost).toEqual({ tavily: 6, youtubeSearch: 3 });
@@ -236,6 +315,7 @@ describe("runDiscover", () => {
         q: "coffee edit",
         genreQuery: { en: "coffee edit", ar: "تصوير قهوة" },
         platforms: ["tt"],
+        lang: "ar",
       };
       const firstQueries = new Set(planSearch(req).queries.map((query) => query.q));
       let n = 0;
@@ -301,6 +381,7 @@ describe("runDiscover", () => {
       q: "coffee edit",
       genreQuery: { en: "coffee edit", ar: "تصوير قهوة" },
       platforms: ["ig"],
+      lang: "ar",
     };
     const queries = planSearch(req).queries;
     const fetchMock = web({
@@ -462,7 +543,7 @@ describe("runDiscover", () => {
       const fetchMock = web({ tavily: (body) => json({}, codes[String(body.query)]) });
       const answer = await runDiscover(
         ENV(),
-        { q: "flash", platforms: ["tt"] },
+        { q: "flash", platforms: ["tt"], lang: "ar" },
         { fetch: fetchMock, now: NOW },
       );
       return answer.platforms.tt;
@@ -498,13 +579,21 @@ describe("runDiscover", () => {
     const env = { TAVILY_API_KEY: "k", YOUTUBE_API_KEY: "y", SOCIAL_KV: kv };
     const answer = await runDiscover(env, { q: "flash" }, { fetch: web(), now: NOW });
     expect(answer.platforms).toEqual({ tt: { ok: true }, ig: { ok: true }, yt: { ok: true } });
-    expect(answer.cost.youtubeSearch).toBe(3);
+    expect(answer.cost.youtubeSearch).toBe(2);
   });
 
   it("hashes the request, not its spelling", async () => {
     expect(await requestHash({ q: "Flash" })).toBe(await requestHash({ q: " flash  " }));
     expect(await requestHash({ q: "flash" })).not.toBe(
       await requestHash({ q: "flash", exact: true }),
+    );
+    // The language and a trend chip's editing flag plan and label differently; English is the default.
+    expect(await requestHash({ q: "flash", lang: "en" })).toBe(await requestHash({ q: "flash" }));
+    expect(await requestHash({ q: "flash", lang: "ar" })).not.toBe(
+      await requestHash({ q: "flash" }),
+    );
+    expect(await requestHash({ q: "flash", editing: true })).not.toBe(
+      await requestHash({ q: "flash" }),
     );
     expect(await requestHash({ q: "flash", platforms: ["yt", "tt"] })).toBe(
       await requestHash({ q: "flash", platforms: ["tt", "yt"] }),

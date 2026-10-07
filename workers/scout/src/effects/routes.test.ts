@@ -6,6 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usageKeys } from "../discover/usage";
+import { tiktokIdAt } from "../postDate";
 import { handle, type Env } from "../scout";
 import { runTick } from "../social/cron";
 import { TAVILY_URL } from "../trends/tavily";
@@ -21,10 +22,12 @@ const LATER = new Date("2026-10-06T20:00:00Z");
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-/** Tavily answering every family search with four creators' clone-effect posts (a chip needs 3). */
+/** Tavily answering every family search with four creators' clone-effect posts (a chip needs 3), posted that morning
+ * (the job reads each post's day from its id). */
 function tavily() {
+  const posted = new Date("2026-10-06T04:00:00Z");
   const results = ["c1", "c2", "c3", "c4"].map((handle, i) => ({
-    url: `https://www.tiktok.com/@${handle}/video/${i + 1}`,
+    url: `https://www.tiktok.com/@${handle}/video/${tiktokIdAt(posted, i + 1)}`,
     title: "Clone Yourself in CapCut 🔥 #cloneyourself",
     content: "#capcut #edit",
   }));

@@ -38,7 +38,8 @@ export function parseDiscoverBody(raw: unknown): DiscoverRequest | null {
   // Symbols or emoji only ("🔥🔥", "!!!"): no word left to plan or match.
   if (b.mode !== undefined && b.mode !== "ai") return null;
   if (!q || q.length > (b.mode === "ai" ? 600 : 200) || !normalizeTerm(q)) return null;
-  if (b.mode === "ai" && (b.exact || b.term)) return null;
+  // A trend chip's search (`editing`) is a keyword search, as exact and "Not this?" are.
+  if (b.mode === "ai" && (b.exact || b.term || b.editing)) return null;
   let aiPlan: DiscoverRequest["aiPlan"];
   if (b.aiPlan !== undefined) {
     if (b.mode !== "ai") return null;
@@ -53,6 +54,8 @@ export function parseDiscoverBody(raw: unknown): DiscoverRequest | null {
   if (b.timeRange !== undefined && !TIME_RANGES.includes(b.timeRange as DiscoverTimeRange))
     return null;
   if (b.ytLength !== undefined && b.ytLength !== "short" && b.ytLength !== "long") return null;
+  if (b.lang !== undefined && b.lang !== "ar" && b.lang !== "en") return null;
+  if (b.editing !== undefined && typeof b.editing !== "boolean") return null;
   let genreQuery: DiscoverRequest["genreQuery"];
   if (b.genreQuery !== undefined) {
     if (!b.genreQuery || typeof b.genreQuery !== "object") return null;
@@ -77,6 +80,8 @@ export function parseDiscoverBody(raw: unknown): DiscoverRequest | null {
     ...(typeof b.term === "string" ? { term: b.term } : {}),
     ...(genreQuery ? { genreQuery } : {}),
     ...(program ? { program } : {}),
+    ...(b.lang ? { lang: b.lang as "ar" | "en" } : {}),
+    ...(b.editing === true ? { editing: true as const } : {}),
     ...(b.timeRange ? { timeRange: b.timeRange as DiscoverTimeRange } : {}),
     ...(b.ytLength ? { ytLength: b.ytLength as "short" | "long" } : {}),
     ...(platforms ? { platforms } : {}),

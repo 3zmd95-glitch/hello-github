@@ -16,6 +16,7 @@ import {
   hashtagSlug,
   headlineStat,
   interleavePlatforms,
+  RESEARCH_TABS,
   itemFromRef,
   itemFromTrend,
   itemFromYoutube,
@@ -796,6 +797,12 @@ describe("research v2 helpers", () => {
       ).map((i) => i.n),
     ).toEqual([1, 2, 5]);
     expect(dedupeByUrl([saved])[0]).toBe(saved);
+  });
+});
+
+describe("RESEARCH_TABS", () => {
+  it("puts Instagram and TikTok first (the owner, 2026-10-07), keeping the stored tab names", () => {
+    expect(RESEARCH_TABS).toEqual(["all", "ig", "tt", "yt"]);
   });
 });
 

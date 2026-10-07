@@ -247,6 +247,7 @@ function FullCard({
           <span className="text-muted min-w-0 flex-1 truncate text-xs" dir="ltr">
             {item.handle}
           </span>
+          {item.published && <PostDate iso={item.published} />}
           {item.stats && <StatsChip stats={item.stats} />}
         </div>
         <a
@@ -293,6 +294,31 @@ function FullCard({
         </div>
       </div>
     </li>
+  );
+}
+
+/**
+ * When the post went up: "Oct 3" this year, "May 30, 2025" before, in this device's time zone. English with Latin
+ * digits in both languages (the owner: English first). Nothing for a date that cannot be read.
+ */
+function PostDate({ iso }: { iso: string }) {
+  const [year] = useState(() => new Date().getFullYear());
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return null;
+  const text = new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    ...(at.getFullYear() !== year ? { year: "numeric" as const } : {}),
+  }).format(at);
+  return (
+    <time
+      dateTime={iso}
+      className="text-muted shrink-0 text-xs"
+      dir="ltr"
+      data-testid="result-date"
+    >
+      {text}
+    </time>
   );
 }
 

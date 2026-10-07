@@ -112,6 +112,27 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("ResultCard: the post date", () => {
+  const year = new Date().getFullYear();
+
+  it("shows when the post went up, in English in both languages, the year only when it is another one", () => {
+    render({ item: { ...TT, published: `${year}-10-03T10:00:00.000Z` } });
+    const time = $("result-date")!;
+    expect(time.tagName).toBe("TIME");
+    expect(time.getAttribute("datetime")).toBe(`${year}-10-03T10:00:00.000Z`);
+    expect(time.textContent).toBe("Oct 3");
+    render({ item: { ...IG, published: "2025-05-30T10:00:00.000Z" } }, { lang: "en" });
+    expect($("result-date")!.textContent).toBe("May 30, 2025");
+  });
+
+  it("shows no date without one, or with one it cannot read", () => {
+    render({ item: TT });
+    expect($("result-date")).toBeNull();
+    render({ item: { ...TT, published: "soon" } });
+    expect($("result-date")).toBeNull();
+  });
+});
+
 describe("ResultCard ▶ (full card)", () => {
   it("a YouTube video: the media frame is a ▶ button that hands the video to the player", () => {
     render({ item: YT });
