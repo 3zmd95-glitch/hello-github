@@ -12,6 +12,7 @@ export function ListGroup({
   trailing,
   className = "",
   testId,
+  listAs: ListTag = "div",
   children,
   ...rest
 }: {
@@ -19,6 +20,8 @@ export function ListGroup({
   trailing?: ReactNode;
   className?: string;
   testId?: string;
+  /** "ul" when the rows are `<ListRow as="li">`. */
+  listAs?: "div" | "ul";
   children: ReactNode;
 } & HTMLAttributes<HTMLElement>) {
   return (
@@ -29,14 +32,18 @@ export function ListGroup({
           {trailing}
         </div>
       )}
-      <div className="ios-list">{children}</div>
+      <ListTag className="ios-list">{children}</ListTag>
     </section>
   );
 }
 
-/** One row: icon square, title + sub, trailing content or a forward chevron. Renders a link, a button or a div. */
+/**
+ * One row: icon square (or `iconRaw`, rendered as is — e.g. a PlatformBadge), title + sub, trailing content or a
+ * forward chevron. Renders a link, a button, or a div / li (`as`).
+ */
 export function ListRow({
   icon,
+  iconRaw,
   iconTone = "tint",
   title,
   sub,
@@ -46,9 +53,11 @@ export function ListRow({
   onClick,
   testId,
   className = "",
+  as: Plain = "div",
   ...rest
 }: {
   icon?: ReactNode;
+  iconRaw?: ReactNode;
   iconTone?: "tint" | "warn" | "fill";
   title: ReactNode;
   sub?: ReactNode;
@@ -58,9 +67,12 @@ export function ListRow({
   onClick?: () => void;
   testId?: string;
   className?: string;
+  /** Element of the plain row (no href, no onClick). */
+  as?: "div" | "li";
 } & Omit<HTMLAttributes<HTMLElement>, "title" | "onClick">) {
   const body = (
     <>
+      {iconRaw}
       {icon && <span className={`ios-ic ${iconTone === "tint" ? "" : iconTone}`}>{icon}</span>}
       <span className="ios-tx">
         <b>{title}</b>
@@ -78,7 +90,7 @@ export function ListRow({
     </>
   );
   const cls = `ios-row ${className}`;
-  const sep = icon ? undefined : "16";
+  const sep = icon || iconRaw ? undefined : "16";
   if (href)
     return (
       <Link href={href} className={cls} data-testid={testId} data-sep={sep} {...rest}>
@@ -99,8 +111,8 @@ export function ListRow({
       </button>
     );
   return (
-    <div className={cls} data-testid={testId} data-sep={sep} {...rest}>
+    <Plain className={cls} data-testid={testId} data-sep={sep} {...rest}>
       {body}
-    </div>
+    </Plain>
   );
 }
