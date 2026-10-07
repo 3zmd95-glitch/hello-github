@@ -268,11 +268,22 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
     title: `other ${n}`,
     meta_url: { hostname: "www.youtube.com" },
   });
-  /** A video search page of `size` raw results: `hits` first, other sites after; `more`: Brave's
+  /** `size` raw results: `hits` first, other sites after. */
+  const fill = (hits: unknown[], size: number) => [
+    ...hits,
+    ...Array.from({ length: size - hits.length }, (_, i) => other(i)),
+  ];
+  /** A web search page: `size` web results (`hits` first), then its own video results `videos`; `more`: Brave's
    * `query.more_results_available`. */
+  const webPage = (hits: unknown[], size: number, more = true, videos: unknown[] = []) => ({
+    query: { more_results_available: more },
+    web: { results: fill(hits, size) },
+    videos: { results: videos },
+  });
+  /** A video search page of `size` raw results: `hits` first, other sites after. */
   const page = (hits: unknown[], size: number, more = true) => ({
     query: { more_results_available: more },
-    results: [...hits, ...Array.from({ length: size - hits.length }, (_, i) => other(i))],
+    results: fill(hits, size),
   });
   const tts = (from: number, to: number) =>
     Array.from({ length: to - from + 1 }, (_, i) => ttHit(from + i));
@@ -317,18 +328,17 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
       return `${base(url) === BRAVE_WEB_URL ? "web" : "videos"}:${url.searchParams.get("offset")}`;
     });
 
-  it("asks Brave's video search for the main query on the platform's site over a month, in English, the key in a header", async () => {
-    const fifty = tts(1, 50);
-    const fetch = brave({ videos: () => json(page(fifty, 50)) });
+  it("W1: asks Brave's web search for the main query on the platform's site over a month, in English, the key in a header", async () => {
+    const fetch = brave({ web: () => json(webPage(tts(1, 5), 5)) });
     const r = await braveTop(env(), fetch, CARS, "tt", [], NOW);
-    // 50 matches: no second page.
+    // 5 web results, fewer than a page: no second page.
     expect(fetch).toHaveBeenCalledTimes(1);
     const [[input, init]] = fetch.mock.calls;
     const u = new URL(String(input));
-    expect(base(u)).toBe(BRAVE_VIDEOS_URL);
+    expect(base(u)).toBe(BRAVE_WEB_URL);
     expect(Object.fromEntries(u.searchParams)).toEqual({
       q: "car edit site:tiktok.com",
-      count: "50",
+      count: "20",
       offset: "0",
       freshness: "pm",
       search_lang: "en",
@@ -341,9 +351,10 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
     expect(r).toEqual({
       platform: "tt",
       scan: [],
-      brave: fifty.map((_, i) => ttTop(i + 1)),
+      brave: tts(1, 5).map((_, i) => ttTop(i + 1)),
       source: "brave",
-      endpoint: "videos",
+      endpoint: "web",
+      stats: { raw: 5, hosts: { "www.tiktok.com": 5 } },
     });
     const ig = brave();
     await braveTop(env(), ig, CARS, "ig", [], NOW);
@@ -382,7 +393,7 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
     ];
     const r = await braveTop(
       env(),
-      brave({ videos: () => json({ results }) }),
+      brave({ web: () => json({ web: { results } }) }),
       CARS,
       "tt",
       [],
@@ -412,7 +423,7 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
     const results = [ttHit(1), ttHit(2, 10), ttHit(3, 5000)];
     const r = await braveTop(
       env(),
-      brave({ videos: () => json({ results }) }),
+      brave({ web: () => json({ web: { results } }) }),
       CARS,
       "tt",
       stored,
@@ -423,93 +434,87 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
       scan: stored,
       brave: [ttTop(1), ttTop(3, 5000)],
       source: "brave",
-      endpoint: "videos",
+      endpoint: "web",
+      stats: { raw: 3, hosts: { "www.tiktok.com": 3 } },
     });
     const scan = Array.from({ length: 20 }, (_, i) => ({
       url: `https://www.tiktok.com/@scan/video/${9_000_100 + i}`,
       title: `scan ${i}`,
     }));
-    const capped = await braveTop(
-      env(),
-      brave({ videos: () => json(page(tts(1, 45), 50)) }),
-      CARS,
-      "tt",
-      scan,
-      NOW,
-    );
+    // 20 posts a page; 30 needed beside the stored 20: 2 pages.
+    const twenty = brave({ web: (o) => json(webPage(tts(o * 20 + 1, o * 20 + 20), 20)) });
+    const capped = await braveTop(env(), twenty, CARS, "tt", scan, NOW);
+    expect(asked(twenty)).toEqual(["web:0", "web:1"]);
     expect(capped.scan).toEqual(scan);
     expect(capped.brave).toEqual(tts(1, 30).map((_, i) => ttTop(i + 1)));
   });
 
-  it("C6: a second page only when the first was full, Brave has more, and fewer than 50 matched; a failed one keeps the first", async () => {
-    // Page 0: 50 results, 30 of them TikTok posts (1–30); page 1: posts 21–50. 50 once each, in Brave's order.
-    const two = brave({ videos: (o) => json(page(tts(o * 20 + 1, o * 20 + 30), 50)) });
-    const r = await braveTop(env(), two, CARS, "tt", [], NOW);
-    expect(asked(two)).toEqual(["videos:0", "videos:1"]);
-    expect(r.brave.map((v) => v.url)).toEqual(tts(1, 50).map((_, i) => ttTop(i + 1).url));
-    // Fewer results than asked for: Brave has nothing more.
-    const short = brave({ videos: () => json(page(tts(1, 30), 30)) });
-    expect((await braveTop(env(), short, CARS, "tt", [], NOW)).brave).toHaveLength(30);
-    expect(asked(short)).toEqual(["videos:0"]);
+  it("W1: up to 3 web pages, another only when the last had 20 web results, Brave has more and fewer than needed matched; a failed one keeps those before", async () => {
+    // 15 posts a full page: 45 after 3 pages, still fewer than 50, and never a fourth.
+    const three = brave({ web: (o) => json(webPage(tts(o * 15 + 1, o * 15 + 15), 20)) });
+    const r = await braveTop(env(), three, CARS, "tt", [], NOW);
+    expect(asked(three)).toEqual(["web:0", "web:1", "web:2"]);
+    expect(r.brave.map((v) => v.url)).toEqual(tts(1, 45).map((_, i) => ttTop(i + 1).url));
+    // Enough matched on the first page: 20 web posts and 30 video posts are 50.
+    const enough = brave({ web: () => json(webPage(tts(1, 20), 20, true, tts(21, 50))) });
+    expect((await braveTop(env(), enough, CARS, "tt", [], NOW)).brave).toHaveLength(50);
+    expect(asked(enough)).toEqual(["web:0"]);
+    // Fewer than 20 web results (its video results never make a page full): Brave has nothing more.
+    const short = brave({ web: () => json(webPage(tts(1, 19), 19, true, tts(20, 40))) });
+    expect((await braveTop(env(), short, CARS, "tt", [], NOW)).brave).toHaveLength(40);
+    expect(asked(short)).toEqual(["web:0"]);
     // A full page, but Brave says there are no more results.
-    const last = brave({ videos: () => json(page(tts(1, 30), 50, false)) });
+    const last = brave({ web: () => json(webPage(tts(1, 10), 20, false)) });
     await braveTop(env(), last, CARS, "tt", [], NOW);
-    expect(asked(last)).toEqual(["videos:0"]);
+    expect(asked(last)).toEqual(["web:0"]);
     const flaky = brave({
-      videos: (o) => (o ? json({}, 500) : json(page([ttHit(1)], 50))),
+      web: (o) => (o === 2 ? json({}, 500) : json(webPage([ttHit(o + 1)], 20))),
     });
     expect(await braveTop(env(), flaky, CARS, "tt", SCAN, NOW)).toEqual({
       platform: "tt",
       scan: SCAN,
-      brave: [ttTop(1)],
+      brave: [ttTop(1), ttTop(2)],
       source: "brave",
-      endpoint: "videos",
+      endpoint: "web",
+      stats: { raw: 40, hosts: { "www.youtube.com": 38, "www.tiktok.com": 2 } },
     });
-    expect(asked(flaky)).toEqual(["videos:0", "videos:1"]);
+    expect(asked(flaky)).toEqual(["web:0", "web:1", "web:2"]);
   });
 
-  it("C9: the video endpoint refused with 403, 404 or 422 (not in the plan): web search, its web results then its videos", async () => {
+  it("W2: the web search refused with 403, 404 or 422 (not in the plan): Brave's video search, up to 2 pages", async () => {
     for (const refused of [403, 404, 422]) {
       const kv = fakeKV();
-      // A full first page (20 web results, 1 a TikTok post) asks for a second.
-      const webPage = (hits: unknown[]) => [
-        ...hits,
-        ...Array.from({ length: 20 - hits.length }, (_, i) => other(i)),
-      ];
+      // Full video pages (50 results), 30 of them posts: 1–30, then 21–50. 50 once each, in Brave's order.
       const fetch = brave({
-        videos: () => json({ error: { code: "OPTION_NOT_IN_PLAN" } }, refused),
-        web: (o) =>
-          json(
-            o
-              ? { web: { results: [ttHit(3)] }, videos: { results: [ttHit(4)] } }
-              : { web: { results: webPage([ttHit(1)]) }, videos: { results: [ttHit(2, 99)] } },
-          ),
+        web: () => json({ error: { code: "OPTION_NOT_IN_PLAN" } }, refused),
+        videos: (o) => json(page(tts(o * 20 + 1, o * 20 + 30), 50)),
       });
       const r = await braveTop(env(kv), fetch, CARS, "tt", [], NOW);
-      expect(asked(fetch), String(refused)).toEqual(["videos:0", "web:0", "web:1"]);
+      expect(asked(fetch), String(refused)).toEqual(["web:0", "videos:0", "videos:1"]);
       expect(Object.fromEntries(new URL(String(fetch.mock.calls[1][0])).searchParams)).toEqual({
         q: "car edit site:tiktok.com",
-        count: "20",
+        count: "50",
         offset: "0",
         freshness: "pm",
         search_lang: "en",
         safesearch: "moderate",
       });
-      // Each section in Brave's order, never interleaved: the web results of both pages, then their videos.
       expect(r).toEqual({
         platform: "tt",
         scan: [],
-        brave: [ttTop(1), ttTop(3), ttTop(2, 99), ttTop(4)],
+        brave: tts(1, 50).map((_, i) => ttTop(i + 1)),
         source: "brave",
-        endpoint: "web",
+        endpoint: "videos",
+        stats: { raw: 100, hosts: { "www.tiktok.com": 60, "www.youtube.com": 40 } },
       });
-      // Every request counts against the day, the refused one too: 2 reserved, then 3.
-      expect(puts(kv)).toEqual([
-        [DAY_KEY, "2"],
-        [DAY_KEY, "3"],
-      ]);
+      // Every request counts against the day, the refused one too: 3 reserved, 3 made.
+      expect(puts(kv)).toEqual([[DAY_KEY, "3"]]);
     }
-    const down = brave({ videos: () => json({}, 422), web: () => json({}, 500) });
+    // Never a third video page, though each is full with one post.
+    const two = brave({ web: () => json({}, 403), videos: () => json(page([ttHit(1)], 50)) });
+    expect((await braveTop(env(), two, CARS, "tt", [], NOW)).brave).toEqual([ttTop(1)]);
+    expect(asked(two)).toEqual(["web:0", "videos:0", "videos:1"]);
+    const down = brave({ web: () => json({}, 422), videos: () => json({}, 500) });
     expect(await braveTop(env(), down, CARS, "tt", SCAN, NOW)).toEqual({
       platform: "tt",
       scan: SCAN,
@@ -519,7 +524,7 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
     });
   });
 
-  it("C9: 401, 429, or any other failure: the stored list noted 'brave_failed', and no web search", async () => {
+  it("W2: 401, 429, or any other failure of the web search: the stored list noted 'brave_failed', and no video search", async () => {
     const failures = [
       () => json({ error: "unauthorized" }, 401),
       () => json({ error: "rate limited" }, 429),
@@ -529,8 +534,8 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
         throw new TypeError("offline");
       },
     ];
-    for (const videos of failures) {
-      const fetch = brave({ videos });
+    for (const web of failures) {
+      const fetch = brave({ web });
       expect(await braveTop(env(), fetch, CARS, "tt", SCAN, NOW)).toEqual({
         platform: "tt",
         scan: SCAN,
@@ -538,8 +543,61 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
         source: "scan",
         note: "brave_failed",
       });
-      expect(asked(fetch)).toEqual(["videos:0"]);
+      expect(asked(fetch)).toEqual(["web:0"]);
     }
+  });
+
+  it("W4: stats in the answer, never stored: the raw results across pages and sections, and the 8 most seen hosts", async () => {
+    // Page 0: 20 web results (posts 1–3, then a ×4, b ×3, c ×2 and d–k once each) and 3 video results; page 1: 1.
+    const others = [..."aaaabbbccdefghijk"].map((h) => ({
+      url: `https://${h}.example/p`,
+      title: h,
+    }));
+    const kv = fakeKV();
+    const fetch = brave({
+      web: (o) =>
+        json(
+          o
+            ? { web: { results: [ttHit(5)] } }
+            : {
+                web: { results: [...tts(1, 3), ...others] },
+                videos: { results: [ttHit(4), null, { url: "not a link", title: "x" }] },
+              },
+        ),
+    });
+    const r = await braveTop(env(kv), fetch, CARS, "tt", [], NOW);
+    expect(asked(fetch)).toEqual(["web:0", "web:1"]);
+    // Each section in Brave's order, never interleaved: the web results of both pages, then their videos.
+    expect(r.brave).toEqual([1, 2, 3, 5, 4].map((n) => ttTop(n)));
+    // Every raw result counts, odd ones too; a host only when its link parses. Ties as first seen.
+    expect(r.stats).toEqual({
+      raw: 24,
+      hosts: {
+        "www.tiktok.com": 5,
+        "a.example": 4,
+        "b.example": 3,
+        "c.example": 2,
+        "d.example": 1,
+        "e.example": 1,
+        "f.example": 1,
+        "g.example": 1,
+      },
+    });
+    expect(Object.keys(r.stats!.hosts)).toEqual([
+      "www.tiktok.com",
+      "a.example",
+      "b.example",
+      "c.example",
+      "d.example",
+      "e.example",
+      "f.example",
+      "g.example",
+    ]);
+    // The only KV writes are the counter: 3 reserved, 2 made.
+    expect(puts(kv)).toEqual([
+      [DAY_KEY, "3"],
+      [DAY_KEY, "2"],
+    ]);
   });
 
   it("C8: without BRAVE_API_KEY, or with BRAVE_DAILY \"0\" (off): the stored list noted 'no_key'; nothing asked, read or written", async () => {
@@ -562,19 +620,20 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
     }
   });
 
-  it("C5: at most BRAVE_DAILY requests a UTC day (default 40), reserved before the first and corrected after; past it 'daily_cap'", async () => {
+  it("C5: at most BRAVE_DAILY requests a UTC day (default 40), 3 or what is left reserved before the first and corrected after; past it 'daily_cap'", async () => {
     const kv = fakeKV();
-    const capped = env(kv, { BRAVE_DAILY: "3" });
-    // A full page with 1 match: 2 requests an open.
-    const twoPages = () => brave({ videos: () => json(page([ttHit(1)], 50)) });
-    await braveTop(capped, twoPages(), CARS, "tt", [], NOW);
-    expect(kv.put).toHaveBeenLastCalledWith(DAY_KEY, "2", { expirationTtl: 172_800 });
+    const capped = env(kv, { BRAVE_DAILY: "4" });
+    // Full pages with 1 match each: 3 requests an open.
+    const threePages = () => brave({ web: () => json(webPage([ttHit(1)], 20)) });
+    await braveTop(capped, threePages(), CARS, "tt", [], NOW);
+    expect(puts(kv)).toEqual([[DAY_KEY, "3"]]);
+    expect(kv.put).toHaveBeenLastCalledWith(DAY_KEY, "3", { expirationTtl: 172_800 });
     // 1 left: the first page alone.
-    const lastOne = twoPages();
+    const lastOne = threePages();
     expect((await braveTop(capped, lastOne, CARS, "tt", [], NOW)).brave).toEqual([ttTop(1)]);
-    expect(asked(lastOne)).toEqual(["videos:0"]);
-    expect(kv.store.get(DAY_KEY)).toBe("3");
-    const over = twoPages();
+    expect(asked(lastOne)).toEqual(["web:0"]);
+    expect(kv.store.get(DAY_KEY)).toBe("4");
+    const over = threePages();
     expect(await braveTop(capped, over, CARS, "tt", SCAN, NOW)).toEqual({
       platform: "tt",
       scan: SCAN,
@@ -583,20 +642,26 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
       note: "daily_cap",
     });
     expect(over).not.toHaveBeenCalled();
-    // 2 reserved, 1 made: corrected down after.
+    // 3 reserved, 1 made: corrected down after.
     const once = fakeKV();
     await braveTop(
       env(once),
-      brave({ videos: () => json(page([ttHit(1)], 1)) }),
+      brave({ web: () => json(webPage([ttHit(1)], 1)) }),
       CARS,
       "tt",
       [],
       NOW,
     );
     expect(puts(once)).toEqual([
-      [DAY_KEY, "2"],
+      [DAY_KEY, "3"],
       [DAY_KEY, "1"],
     ]);
+    // A refused web search counts too: with 1 left, no video search follows it.
+    const lastKv = fakeKV("39");
+    const refused = brave({ web: () => json({}, 403), videos: () => json(page([ttHit(1)], 1)) });
+    expect((await braveTop(env(lastKv), refused, CARS, "tt", SCAN, NOW)).note).toBe("daily_cap");
+    expect(asked(refused)).toEqual(["web:0"]);
+    expect(puts(lastKv)).toEqual([[DAY_KEY, "40"]]);
     // The default is 40; a value that is no number ≥ 0 is the default.
     for (const [count, daily, note] of [
       ["40", undefined, "daily_cap"],
@@ -606,7 +671,7 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
     ] as const) {
       const r = await braveTop(
         env(fakeKV(count), daily === undefined ? {} : { BRAVE_DAILY: daily }),
-        twoPages(),
+        threePages(),
         CARS,
         "tt",
         [],
@@ -618,10 +683,10 @@ describe("braveTop (on demand: Brave's results are never stored, and shown as Br
 
   it("writes nothing from Brave to KV: only the day's counter, reserved before the first request", async () => {
     const kv = fakeKV();
-    const fetch = brave({ videos: (o) => json(page([ttHit(o + 1, 5)], 50)) });
+    const fetch = brave({ web: (o) => json(webPage([ttHit(o + 1, 5)], 20)) });
     const r = await braveTop(env(kv), fetch, CARS, "tt", [], NOW);
-    expect(r.brave).toHaveLength(2);
-    expect(puts(kv)).toEqual([[DAY_KEY, "2"]]);
+    expect(r.brave).toHaveLength(3);
+    expect(puts(kv)).toEqual([[DAY_KEY, "3"]]);
     expect(kv.put.mock.invocationCallOrder[0]).toBeLessThan(fetch.mock.invocationCallOrder[0]);
   });
 });

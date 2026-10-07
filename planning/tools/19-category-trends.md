@@ -386,21 +386,29 @@ them.
 - **Storage.** `top: { updatedAt, yt, ig, tt }` in `category:<id>`. `GET /categories/:id` answers it. `readCategory`
   reads it entry by entry: a malformed entry is dropped, and an older page has none.
 - **On demand:** `GET /categories/:id/top/tt` (or `/ig`), Bearer like the others.
-  - Brave's video search (`/res/v1/videos/search`, the key in `X-Subscription-Token`): `q` = the main query +
-    ` site:tiktok.com` (or ` site:instagram.com`), `count=50`, `freshness=pm`, `search_lang=en`, `safesearch=moderate`.
+  - Brave's web search first (`/res/v1/web/search`, the key in `X-Subscription-Token`): `q` = the main query +
+    ` site:tiktok.com` (or ` site:instagram.com`), `count=20`, `freshness=pm`, `search_lang=en`, `safesearch=moderate`.
+    Its `web.results` in order, then its `videos.results` in order, never interleaved.
+  - Up to 3 pages (`offset` 0, 1, 2): another only when the last had 20 web results, Brave says it has more
+    (`query.more_results_available`) and fewer than needed matched (C6).
+  - Brave's video search (`/res/v1/videos/search`, `count=50`, up to 2 pages, the same rules) is the fallback, when the
+    web search answers 403, 404 or 422 (not in the plan). A 401 (a bad key), a 429 or any other failure is
+    `brave_failed`, with no fallback (C9).
+  - **Why web first** (live check, 2026-10-07): on the deployed Worker with the owner's key, Cars' TikTok and Instagram
+    tabs asked the video search first and got `{ source: "brave", endpoint: "videos", brave: [] }`, no match after the
+    host filter. The video search seems to ignore `site:` (or holds few TikTok or Instagram videos); the web search
+    honours it.
   - Only https single posts of that platform: `{ url, title, creator, views, thumbnail, age }` as Brave sent them,
     the title only clipped to 160 characters. The link is made canonical only to leave out the posts the stored list
     holds and so the app's player can play it.
-  - A second page (`offset=1`) only when the first was full (as many results as asked for), Brave says it has more
-    (`query.more_results_available`) and fewer than needed matched (C6).
-  - The video endpoint answering 403, 404 or 422 (not in the plan): Brave's web search (`/res/v1/web/search`),
-    `count=20`, the same pages; its `web.results` in order, then its `videos.results` in order, never interleaved. A
-    401 (a bad key) is `brave_failed`, with no web search (C9).
   - The answer: `{ platform, scan, brave, source: "brave" | "scan", note?: "no_key" | "brave_failed" | "daily_cap",
-    endpoint?: "videos" | "web" }`. `scan` is the stored list; `brave` is Brave's matches in Brave's order, never
-    sorted or interleaved, without the stored list's posts, 50 in all (C2).
+    endpoint?: "web" | "videos", stats?: { raw, hosts } }`. `scan` is the stored list; `brave` is Brave's matches in
+    Brave's order, never sorted or interleaved, without the stored list's posts, 50 in all (C2).
+  - `stats`, with Brave's group only, is for live checks: `raw` counts the raw results across pages and sections,
+    `hosts` how many came from each of the 8 most seen hosts (`new URL(url).hostname`). Never stored; the page
+    ignores it.
   - At most `BRAVE_DAILY` (default 40) requests a UTC day, counted in KV `brave:count:<day>` (2-day TTL): reserved
-    before the first request (2, or what is left) and corrected after when fewer or more were made; over-counting is
+    before the first request (3, or what is left) and corrected after when fewer or more were made; over-counting is
     the safe side (C5). These are the only KV writes. `BRAVE_DAILY` "0" turns Brave off: `no_key` (C8).
 
 **Search before building.**
@@ -441,6 +449,9 @@ them.
 - **Owner's steps:** Cloudflare → Workers & Pages → 3z-scout → Settings → Variables and Secrets → Add → Secret,
   `BRAVE_API_KEY`. Brave's $5 monthly credit asks for Brave to be attributed: the page credits it in words under its
   results. Brave's logo is not added: downloading it needs the owner's OK (a follow-up).
+- **Brave web first** (branch `claude/category-brave-web`, 2026-10-07, after the live check above): the web search asks
+  first and the video search is the fallback, superseding the first build's order (video first, web on 403, 404 or
+  422) and its "1–2 requests an open": now 1–3, 3 reserved. The answer gains `stats`.
 
 ## Built (planning/plans/2026-10-06-category-trends.md)
 

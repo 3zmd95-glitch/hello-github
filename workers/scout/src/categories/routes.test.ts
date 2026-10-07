@@ -11,7 +11,7 @@ import { runTick } from "../social/cron";
 import { TAVILY_URL } from "../trends/tavily";
 import { YT_SEARCH_URL } from "../trends/youtubeSearch";
 import { handleCategories } from "./routes";
-import { BRAVE_VIDEOS_URL } from "./top";
+import { BRAVE_WEB_URL } from "./top";
 import type { CategoryDoc } from "./types";
 
 const TOKEN = "s3cret-token";
@@ -276,7 +276,7 @@ describe("GET /categories/:id/top/:platform (§6: Brave on demand, never stored)
   const top = { updatedAt: DOC.updatedAt, yt: [], ig: [], tt: [SCAN] };
   const braveFetch = () =>
     vi.fn<typeof fetch>(async (input) =>
-      String(input).startsWith(BRAVE_VIDEOS_URL) ? json({ results: [HIT] }) : json({}, 404),
+      String(input).startsWith(BRAVE_WEB_URL) ? json({ web: { results: [HIT] } }) : json({}, 404),
     );
 
   it("Bearer like the others; TikTok and Instagram only; the stored list and Brave's own group, kept nowhere", async () => {
@@ -318,9 +318,10 @@ describe("GET /categories/:id/top/:platform (§6: Brave on demand, never stored)
         },
       ],
       source: "brave",
-      endpoint: "videos",
+      endpoint: "web",
+      stats: { raw: 1, hosts: { "www.tiktok.com": 1 } },
     });
-    // 1 result, fewer than asked for: 1 page. The only KV writes are the day's counter: 2 reserved, then 1.
+    // 1 result, fewer than a page: 1 request. The only KV writes are the day's counter: 3 reserved, then 1.
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(writes(kv)).toEqual(["brave:count:2026-10-07", "brave:count:2026-10-07"]);
     expect(kv.store.get("brave:count:2026-10-07")).toBe("1");
