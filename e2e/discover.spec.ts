@@ -34,6 +34,7 @@ const item = (n: number, over: Record<string, unknown>) => ({
 });
 
 const ANSWER = {
+  qualityVersion: 7,
   topicKey: "flash-transition",
   understood: {
     termId: "flash-transition",
@@ -77,6 +78,7 @@ const ANSWER = {
 
 /** The Worker's trending effects (`GET /effects/trending`), 8 (its cap): a dictionary effect, a new one with YouTube up 3×, … */
 const EFFECTS = {
+  evidenceVersion: 1,
   status: "ok",
   ranOn: "2026-10-06",
   updatedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
@@ -177,6 +179,7 @@ const technique = (en: string, ar: string, n: number, skillId?: string) => ({
   ],
 });
 const CATEGORY_CARS = {
+  evidenceVersion: 1,
   status: "ok",
   updatedAt: new Date(Date.now() - 30 * 3_600_000).toISOString(),
   items: [
@@ -912,17 +915,17 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   await expect(row).toHaveAttribute("data-state", "list");
   await expect(row.getByTestId("trending-effect")).toHaveCount(8);
   const fresh = row.locator('[data-testid="trending-effect"][data-key="swagger-trend"]');
-  await expect(fresh.getByText("جديد", { exact: true })).toBeVisible();
-  await expect(fresh).toContainText("4 صنّاع · ▶ ↑3×");
+  await expect(fresh.getByText("جديد", { exact: true })).toHaveCount(0);
+  await expect(fresh).toContainText("4 حسابات محدّدة الهوية");
   // English first in Arabic too (live fix 1): the English name, the Arabic one in the tooltip.
   await expect(fresh).toContainText("swagger trend");
-  // The tooltip ends with what "4 creators" means: posted it in the last 7 days (by each post's own date).
+  // The tooltip ends with what "4 identified accounts" means: posted it in the last 7 days (by each post's own date).
   await expect(fresh).toHaveAttribute(
     "title",
-    "Clone yourself with one hair flip\nترند السواقر\n4 صنّاع نزّلوه آخر 7 أيام",
+    "Clone yourself with one hair flip\nترند السواقر\n4 حسابات عرفنا هويتها على المنصة ذكرتها في منشورات مفهرسة بتاريخ آخر 7 أيام قبل الفحص",
   );
   // The 8 chips overflow their strip, which scrolls sideways; the 375 px page never does.
-  const strip = row.getByTestId("trending-effect").first().locator("xpath=..");
+  const strip = row.getByTestId("trending-effect").first().locator("xpath=../..");
   expect(await strip.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
   expect(await fitsViewport(page)).toBe(true);
 
@@ -954,15 +957,42 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   expect(await fitsViewport(page)).toBe(true);
 });
 
-test("Discover v2: a category with nothing typed opens its page — trends, lessons, Scan again, Search all", async ({
+test("Discover v2: a genre searches first; Study guides opens lessons and explicit scan actions", async ({
   page,
 }, testInfo) => {
   const asked = await stubWorker(page, () => ANSWER);
   await connectWorker(page);
+  await page.setViewportSize(
+    testInfo.project.name === "desktop"
+      ? { width: 1440, height: 980 }
+      : { width: 375, height: 812 },
+  );
   await page.goto("/discover/");
 
-  // Arabic first: the page replaces the automatic category search.
+  const categoryRequests: string[] = [];
+  page.on("request", (request) => {
+    if (
+      request.method() !== "OPTIONS" &&
+      new URL(request.url()).pathname.startsWith("/categories/")
+    )
+      categoryRequests.push(`${request.method()} ${new URL(request.url()).pathname}`);
+  });
+  // Arabic first: genre selection uses the normal editing search. Guides require a separate action.
   await page.getByTestId("genre-cars").click();
+  await expect.poll(() => asked.length).toBe(1);
+  expect(asked[0]).toEqual({ q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" });
+  await expect(page.getByTestId("discover-sections")).toBeVisible();
+  await expect(page.getByTestId("category-page")).toHaveCount(0);
+  expect(categoryRequests).toEqual([]);
+  await expect(page.getByTestId("trending-effects")).toContainText("تقنيات مونتاج تستكشفها");
+  expect(await fitsViewport(page)).toBe(true);
+  // Synthetic search fixtures prove the default route and layout, not live video relevance.
+  await page.screenshot({
+    path: testInfo.outputPath("synthetic-default-category-search.png"),
+    fullPage: true,
+  });
+  await expect(page.getByTestId("discover-study-guides")).toHaveText("أدلة التعلّم");
+  await page.getByTestId("discover-study-guides").click();
   const cat = page.getByTestId("category-page");
   await expect(cat).toHaveAttribute("data-state", "page");
   await expect(cat.getByRole("heading", { level: 2 })).toHaveText("🚗 سيارات");
@@ -971,7 +1001,8 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
   await expect(cat.getByTestId("category-shelf")).toHaveCount(3);
   await expect(cat.getByTestId("category-technique")).toHaveCount(3);
   await expect(page.getByTestId("research-results")).toBeHidden();
-  expect(asked).toHaveLength(0);
+  expect(asked).toHaveLength(1);
+  expect(categoryRequests).toEqual(["GET /categories/cars"]);
   expect(await fitsViewport(page)).toBe(true);
 
   // A technique's skill opens that skill; its videos play in the app's player.
@@ -1020,8 +1051,8 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
 
   // A trending style: that style within Cars, in Keywords.
   await cat.locator('[data-testid="category-style"][data-key="rolling-shot"]').click();
-  await expect.poll(() => asked.length).toBe(1);
-  expect(asked[0]).toEqual({
+  await expect.poll(() => asked.length).toBe(2);
+  expect(asked[1]).toEqual({
     q: "rolling shot",
     genreQuery: { ar: "ايديت سيارات", en: "car edit" },
     lang: "en",
@@ -1031,13 +1062,15 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
   await expect(page.getByTestId("category-page")).toHaveCount(0);
   await expect(page.getByTestId("discover-sections")).toBeVisible();
 
-  // English: Cars off, the box cleared, Cars again opens the page; "Search all" runs today's category search.
+  // English: clear the topic and explicitly reopen guides; Search all returns to the category search.
   await page.getByTestId("lang-en").click();
   await page.getByTestId("genre-cars").click();
   await page.getByTestId("discover-topic").fill("");
   await page.getByTestId("genre-cars").click();
+  await expect(page.getByTestId("discover-study-guides")).toHaveText("Study guides");
+  await page.getByTestId("discover-study-guides").click();
   await expect(
-    cat.getByRole("heading", { level: 3, name: "🔥 Trending in Cars this week" }),
+    cat.getByRole("heading", { level: 3, name: "✂️ Techniques found in Cars" }),
   ).toBeVisible();
   await expect(cat.getByTestId("category-search-all")).toHaveText("Search all Cars videos →");
   // English remains the main text; Arabic study lines follow only in the Arabic UI.
@@ -1067,6 +1100,7 @@ test("Discover category: save an edit, record what to try, and keep its practice
   await page.goto("/discover/");
   await page.getByTestId("lang-en").click();
   await page.getByTestId("genre-cars").click();
+  await page.getByTestId("discover-study-guides").click();
   const topCard = page.getByTestId("category-top-item").first();
   const save = topCard.getByTestId("inspiration-save");
   await save.click();
@@ -1117,7 +1151,7 @@ test("Discover v2: a full category page at 375 px never scrolls sideways; only t
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/discover/");
   await page.getByTestId("genre-cars").click();
-
+  await page.getByTestId("discover-study-guides").click();
   const cat = page.getByTestId("category-page");
   await expect(cat.getByTestId("category-style")).toHaveCount(12);
   await expect(cat.getByTestId("category-technique")).toHaveCount(9);
@@ -1132,7 +1166,7 @@ test("Discover v2: a full category page at 375 px never scrolls sideways; only t
   // English's longer words never push the page wider either.
   await page.getByTestId("lang-en").click();
   await expect(
-    cat.getByRole("heading", { level: 3, name: "🔥 Trending in Cars this week" }),
+    cat.getByRole("heading", { level: 3, name: "✂️ Techniques found in Cars" }),
   ).toBeVisible();
   expect(await fitsViewport(page)).toBe(true);
 });
@@ -1145,7 +1179,7 @@ test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikT
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/discover/");
   await page.getByTestId("genre-cars").click();
-
+  await page.getByTestId("discover-study-guides").click();
   const top = page.getByTestId("category-top");
   await expect(top.getByRole("heading", { level: 3 })).toHaveText("مونتاج تتعلّم منه · سيارات");
   const tabs = top.getByRole("tab");
@@ -1245,7 +1279,7 @@ test("Discover v2: an empty TikTok tab connects TikTok trends — TikTok for Bus
   await connectWorker(page);
   await page.goto("/discover/");
   await page.getByTestId("genre-cars").click();
-
+  await page.getByTestId("discover-study-guides").click();
   const top = page.getByTestId("category-top");
   await top.locator('[data-testid="category-top-tab"][data-platform="tt"]').click();
   await expect(top.getByTestId("category-top-line")).toHaveText(

@@ -29,6 +29,7 @@ const item = (n: number, over: Record<string, unknown> = {}) => ({
 
 /** 8 TikTok examples, 2 tutorials (one YouTube with views), 1 off-topic Instagram post; Instagram failed. */
 const ANSWER = {
+  qualityVersion: 7,
   topicKey: "flash-transition",
   understood: {
     termId: "flash-transition",

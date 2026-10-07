@@ -1,7 +1,7 @@
 /**
  * Trending effects (planning/tools/18-trending-effects.md): a daily job reads TikTok / Instagram posts from rotating
  * effect-family searches, pulls out candidate effect names, keeps each effect's distinct creators per day as short
- * hashes (a 7-day memory inside ≤ 14 days of history), scores creators × growth with a small YouTube boost, and stores
+ * hashes (a 7-day memory inside ≤ 14 days of history), orders recent account observations, and stores
  * one KV document. `EffectsDoc.meta` keeps each key's name and samples, so an effect that drops out of today's scan
  * keeps its name while it is still in the 7-day memory.
  */
@@ -9,6 +9,13 @@
 /** Trending effects reads TikTok and Instagram posts; a category scan adds its YouTube top videos (`yt`,
  * planning/tools/19-category-trends.md §2 and §6). */
 export type EffectPlatform = "tt" | "ig" | "yt";
+/** Identified accounts only, dated source samples, and one observation per account per post day. */
+export const EFFECTS_EVIDENCE_VERSION = 1;
+export interface EffectSample {
+  url: string;
+  title: string;
+  published?: string;
+}
 export interface EffectPost {
   platform: EffectPlatform;
   handle: string;
@@ -24,9 +31,11 @@ export interface Candidate {
   termId?: string;
   /** Each distinct creator (a short hash, no handle) and the UTC day of their latest post here, never after today. */
   days: Map<string, string>;
+  /** All account/day observations; `days` keeps latest dates for diagnostics and candidate selection. */
+  observations?: { id: string; day: string }[];
   posts: number;
   platforms: Set<EffectPlatform>;
-  samples: { url: string; title: string }[];
+  samples: EffectSample[];
 }
 export interface HistoryEntry {
   day: string;
@@ -40,8 +49,8 @@ export interface EffectMeta {
   checked: boolean;
   platforms: EffectPlatform[];
   posts: number;
-  samples: { url: string; title: string }[];
-  /** The scan day the name was first seen: NEW is by it (history days are post days). */
+  samples: EffectSample[];
+  /** The scan day the name was first seen, not the origin date of an effect. */
   firstSeen?: string;
 }
 export interface EffectItem {
@@ -56,10 +65,11 @@ export interface EffectItem {
   platforms: EffectPlatform[];
   growth: number;
   youtube?: { newVideos: number; views7d: number; growth?: number };
-  samples: { url: string; title: string }[];
+  samples: EffectSample[];
 }
 export type EffectsStatus = "ok" | "partial" | "failed";
 export interface EffectsDoc {
+  evidenceVersion?: number;
   ranOn: string;
   updatedAt: string;
   status: EffectsStatus;

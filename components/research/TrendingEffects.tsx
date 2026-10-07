@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   cachedTrendingEffects,
+  EFFECTS_EVIDENCE_VERSION,
   effectQuery,
   fetchTrendingEffects,
   rowVisible,
@@ -13,12 +14,11 @@ import {
 } from "@/lib/effects";
 import { useT } from "@/lib/i18n";
 import type { ScoutConfig } from "@/lib/scoutClient";
+import EffectEvidence from "./EffectEvidence";
 
 const CREATIVE_CENTER =
   "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en";
 const HOUR = 3_600_000;
-/** YouTube's views of the week up at least this much: the "▶ ↑N×" note. */
-const YT_NOTE_FROM = 1.5;
 
 /** The line under the first-scan button, by the scan's state. */
 const SCAN_LINE = {
@@ -38,10 +38,10 @@ function afterScan(r: Trending | null): "idle" | "failed" | "limit" | "none" {
 }
 
 /**
- * 🔥 Discover's row of this week's trending editing effects (planning/tools/18-trending-effects.md §4): the Worker's
+ * Discover's observed editing techniques (planning/tools/18-trending-effects.md): the Worker's
  * daily list as chips that each run a search, with "Scan again" to run the job now; a first-scan button before the
  * Worker's first run, and nothing at all for an older Worker, a list older than 3 days or an answer that did not
- * come. TikTok / Instagram figures are creators mentioning the effect, never views; only the YouTube note counts views.
+ * come. Migrated counts describe identified platform accounts mentioning a technique; no popularity/NEW badges.
  */
 export default function TrendingEffects({
   config,
@@ -149,42 +149,28 @@ export default function TrendingEffects({
   const chip = (e: TrendingEffect) => {
     const name = e.name.en;
     const what = e.what?.en;
-    const g = e.youtube?.growth;
-    const yt = g !== undefined && g >= YT_NOTE_FROM ? `▶ ↑${Math.round(g * 10) / 10}×` : "";
-    const creators = t("search.trendingCreators", { n: e.creators });
+    const trusted = data.evidenceVersion === EFFECTS_EVIDENCE_VERSION;
+    const creators = trusted ? t("search.trendingCreators", { n: e.creators }) : "";
     return (
-      <button
-        key={e.key}
-        type="button"
-        className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
-        title={[what, e.name.ar, t("search.trendingCreatorsTip", { n: e.creators })]
-          .filter(Boolean)
-          .join("\n")}
-        aria-label={[name, e.isNew && t("search.trendingNew"), creators, yt, what]
-          .filter(Boolean)
-          .join(" · ")}
-        onClick={() => onPick(effectQuery(e))}
-        data-testid="trending-effect"
-        data-key={e.key}
-      >
-        <span className="flex items-center gap-1.5">
-          <span dir="auto">{name}</span>
-          {e.isNew && (
-            <span className="bg-gold text-gold-ink rounded-[2px] px-1 text-[10px] leading-4 font-bold">
-              {t("search.trendingNew")}
-            </span>
-          )}
-        </span>
-        <span className="text-ink-2 text-[11px] font-normal">
-          {creators}
-          {yt && (
-            <>
-              {" · "}
-              <span dir="ltr">{yt}</span>
-            </>
-          )}
-        </span>
-      </button>
+      <div key={e.key} className="flex shrink-0 flex-col items-start gap-1">
+        <button
+          type="button"
+          className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
+          title={[what, e.name.ar, trusted && t("search.trendingCreatorsTip", { n: e.creators })]
+            .filter(Boolean)
+            .join("\n")}
+          aria-label={[name, creators, what].filter(Boolean).join(" · ")}
+          onClick={() => onPick(effectQuery(e))}
+          data-testid="trending-effect"
+          data-key={e.key}
+        >
+          <span className="flex items-center gap-1.5">
+            <span dir="auto">{name}</span>
+          </span>
+          {creators && <span className="text-ink-2 text-[11px] font-normal">{creators}</span>}
+        </button>
+        {trusted && <EffectEvidence effect={e} />}
+      </div>
     );
   };
 
@@ -233,6 +219,7 @@ export default function TrendingEffects({
           </>
         )}
       </div>
+      <p className="text-muted text-xs">{t("search.effectsEvidenceNote")}</p>
       {state === "stale-failed" && (
         <p className="text-muted text-xs">{t("search.trendingStale")}</p>
       )}

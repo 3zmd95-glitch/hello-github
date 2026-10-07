@@ -76,6 +76,7 @@ const run = (body?: string, token?: string | null) =>
 
 /** What the routes answer for a stored document: everything but the job's memory (history, meta). */
 const answer = (d: EffectsDoc) => ({
+  evidenceVersion: d.evidenceVersion,
   status: d.status,
   ranOn: d.ranOn,
   updatedAt: d.updatedAt,

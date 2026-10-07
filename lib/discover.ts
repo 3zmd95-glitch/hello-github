@@ -61,7 +61,12 @@ export type DiscoverPlatformStatus =
   | { ok: true; retried?: boolean; partial?: DiscoverPlatformError }
   | { ok: false; error: DiscoverPlatformError };
 
+/** Producer's retrieval/labeling contract, mirrored from workers/scout/src/discover/types.ts. */
+export const DISCOVER_QUALITY_VERSION = 7;
+
 export interface DiscoverAnswer {
+  /** Missing on older Workers: can be displayed, but must never enter the current cache. */
+  qualityVersion?: number;
   topicKey: string;
   understood: {
     termId?: string;
@@ -265,6 +270,9 @@ export function parseDiscoverAnswer(raw: unknown): DiscoverAnswer | null {
   }
   const cost: Record<string, unknown> = isObj(raw.cost) ? raw.cost : {};
   return {
+    ...(Number.isSafeInteger(raw.qualityVersion) && (raw.qualityVersion as number) >= 0
+      ? { qualityVersion: raw.qualityVersion as number }
+      : {}),
     topicKey: raw.topicKey,
     understood: {
       ...(isStr(u.termId) ? { termId: u.termId } : {}),
@@ -294,8 +302,8 @@ export function parseDiscoverAnswer(raw: unknown): DiscoverAnswer | null {
 /* ---------- cache ---------- */
 
 export const DISCOVER_CACHE_KEY = "3z-discover-cache";
-/** 6: real post dates (the Posted filter by them), English-first plans; older answers must not bypass them. */
-export const DISCOVER_CACHE_VERSION = 6;
+/** 7: known-category searches share the craft gate; older answers must not bypass it. */
+export const DISCOVER_CACHE_VERSION = 7;
 export const DISCOVER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Answers kept on the device, newest first (memory keeps this session's). */
 export const DISCOVER_CACHE_MAX = 8;
@@ -363,7 +371,7 @@ function storedOf(storage: KeyValueStorage | null): Record<string, Entry> {
     for (const [k, e] of Object.entries(isObj(raw) ? raw : {})) {
       if (!k.startsWith(PREFIX) || !isObj(e) || typeof e.at !== "number") continue;
       const answer = parseDiscoverAnswer(e.answer);
-      if (answer) entries[k] = { at: e.at, answer };
+      if (answer && cacheable(answer)) entries[k] = { at: e.at, answer };
     }
   } catch {
     // Unreadable: nothing kept.
@@ -385,13 +393,17 @@ function forgetStored(storage: KeyValueStorage | null): void {
 const fresh = (e: Entry | undefined, now: number): e is Entry =>
   !!e && now - e.at < DISCOVER_CACHE_TTL_MS;
 
+/** A new frontend may still be talking to an old Worker during rollout. Its complete flag is insufficient. */
+const cacheable = (answer: DiscoverAnswer): boolean =>
+  answer.qualityVersion === DISCOVER_QUALITY_VERSION && answer.complete && answer.items.length > 0;
+
 function cacheGet(
   key: string,
   storage: KeyValueStorage | null,
   now: number,
 ): DiscoverAnswer | undefined {
   const mem = memory.get(key);
-  if (fresh(mem, now)) return mem.answer;
+  if (fresh(mem, now) && cacheable(mem.answer)) return mem.answer;
   const kept = storedOf(storage)[key];
   if (fresh(kept, now)) {
     memory.set(key, kept);
@@ -406,6 +418,7 @@ function cacheSet(
   storage: KeyValueStorage | null,
   now: number,
 ): void {
+  if (!cacheable(answer)) return;
   // Kept as a hit serves it: from the cache, and it costs nothing then.
   const entry: Entry = {
     at: now,
@@ -513,8 +526,8 @@ export async function discoverSearch(
         ok: false,
         error: { type: subscription ? "subscription_worker_upgrade" : "ai_unavailable" },
       };
-    // Kept only when the Worker calls it complete and it found something (an empty answer can be a fluke).
-    if (answer.complete && answer.items.length > 0) cacheSet(key, answer, storage, now());
+    // Require the producing Worker's quality version, not just this frontend's cache-key version.
+    if (cacheable(answer)) cacheSet(key, answer, storage, now());
     return { ok: true, answer };
   })();
   inflight.set(key, run);

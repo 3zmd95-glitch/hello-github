@@ -23,6 +23,10 @@ describe("category recommendations grounded in metadata", () => {
     "food prices and deals",
     "#foodedit #cinematic",
     "Food processor cinematic review with lighting tutorial",
+    "New project: #foodedit",
+    "sneaking food...🌚|| #shorts #viral #trending #bts #fyp #relatable #edit",
+    "Speed Only Allows Rudy To Eat His Food ❤️‍🩹 #ishowspeed #edit",
+    "Their first time trying spaghetti bolognese.#shorts #shortvideo #ytshorts #film #foryou #edit Food reaction",
   ])("rejects the observed Food filler: %s", (title) => {
     expect(evidence("food", title).eligible).toBe(false);
   });
@@ -34,7 +38,7 @@ describe("category recommendations grounded in metadata", () => {
     "Pizza stop motion ad",
     "إعلان مطعم سينمائي",
     "تصوير برجر تايم لابس",
-    "New project: #foodedit",
+    "New project: #foodedit #matchcut",
   ])("preserves useful examples: %s", (title) =>
     expect(evidence("food", title).eligible).toBe(true),
   );
@@ -49,6 +53,120 @@ describe("category recommendations grounded in metadata", () => {
       creative: true,
       eligible: false,
     });
+  });
+  it.each([
+    [
+      "cars",
+      "Car rotoscoping tutorial",
+      "Comment CAR to get the AI prompt for this cinematic car commercial",
+    ],
+    ["food", "Food cutout animation tutorial", "Food grocery deals today #foodedit"],
+    ["anime", "Anime split screen beat sync", "Anime full episode #animeedit"],
+    ["travel", "Travel whip pan tutorial", "Travel photography preset pack - discount code"],
+    ["football", "Football freeze frame tutorial", "Football coaching: how to shoot harder #edit"],
+    ["coffee", "Coffee macro closeup tutorial", "Coffee commercial espresso machine - buy now"],
+    ["perfume", "Perfume reflection shot tutorial", "Perfume commercial offer - shop now"],
+    ["camping", "Camping drone reveal tutorial", "Desert tent lighting shop now"],
+    [
+      "fashion",
+      "Fashion motion graphics breakdown",
+      "Fashion lookbook: shop now with discount code",
+    ],
+    ["gaming", "Valorant motion tracking tutorial", "Gaming montage full uncut gameplay"],
+    [
+      "weddings",
+      "Wedding film sound design breakdown",
+      "Wedding photography packages - discount code",
+    ],
+    ["gym", "Gym light sweep tutorial", "Gym workout routine to build muscle #gymedit"],
+  ])("%s keeps a named craft and drops category-specific filler", (genre, useful, noise) => {
+    expect(evidence(genre, useful).eligible, useful).toBe(true);
+    expect(evidence(genre, noise).eligible, noise).toBe(false);
+    const result = rankCategoryVideos(genre, [
+      { url: "https://www.instagram.com/p/useful", title: useful, views: 30 },
+      { url: "https://www.instagram.com/p/noise", title: noise, views: 9_000_000 },
+    ]);
+    expect(result.map((video) => video.title)).toEqual([useful]);
+  });
+  it.each([
+    ["cars", "سيارة روتوسكوب"],
+    ["food", "أكل تحريك القصاصات"],
+    ["anime", "أنمي تقسيم الشاشة"],
+    ["travel", "سفر ويب بان"],
+    ["football", "كورة فريز فريم"],
+    ["coffee", "قهوة تصوير ماكرو"],
+    ["perfume", "عطر تصوير انعكاسات"],
+    ["camping", "كشتة لقطة درون"],
+    ["fashion", "أزياء موشن جرافيك"],
+    ["gaming", "قيمنق تتبع الحركة"],
+    ["weddings", "زواج تصميم صوت"],
+    ["gym", "جيم لايت سويب"],
+  ])("%s recognizes a specific Arabic craft", (genre, title) => {
+    expect(evidence(genre, title).eligible).toBe(true);
+  });
+  it("keeps fan edits and explicit teaching but rejects a generic edit tag on filmed subjects", () => {
+    for (const [genre, title] of [
+      ["anime", "Anime edit"],
+      ["football", "Messi edit"],
+      ["gaming", "Valorant edit"],
+      ["cars", "Car editing tutorial"],
+      ["food", "شرح ايديت أكل"],
+    ])
+      expect(evidence(genre, title).eligible, title).toBe(true);
+    for (const [genre, title] of [
+      ["food", "Food #edit"],
+      ["cars", "My car #edit"],
+      ["gym", "Gym ايديت"],
+      ["food", "لقطات من طعام اليوم #ايديت"],
+    ])
+      expect(evidence(genre, title).eligible, title).toBe(false);
+  });
+  it("rejects prompt bait even with craft keywords, and allows a real breakdown with incidental shop links", () => {
+    expect(
+      evidence("cars", "Comment CAR to get the AI prompt - car speed ramp match cut commercial")
+        .eligible,
+    ).toBe(false);
+    expect(evidence("cars", "اكتب سيارة لتحصل على برومبت إعلان سيارات سينمائي").eligible).toBe(
+      false,
+    );
+    expect(
+      evidence("coffee", "Coffee macro closeup lighting tutorial. My camera affiliate links below.")
+        .eligible,
+    ).toBe(true);
+    expect(
+      evidence(
+        "cars",
+        "AI car commercial breakdown: match cut between generated shots. Comment CAR for the prompt.",
+      ).eligible,
+    ).toBe(true);
+    expect(evidence("food", "Commercial food prices are rising").eligible).toBe(false);
+  });
+  it.each([
+    ["travel", "Time Travel Effect Tutorial🔥🎥"],
+    [
+      "camping",
+      "A highly realistic cinematic selfie photograph during a desert film shoot in India. Foreground: I am holding the phone",
+    ],
+    ["perfume", "Creating a Luxurious Atmosphere for Your Perfume Store"],
+    [
+      "gaming",
+      "✅ GATOTKACA Build Tutorial ! #mobilelegend #indonesia #gaming #gamer #game #savage #mobilelegends #mlbb #montage",
+    ],
+    ["food", "How to cook food for a family #edit"],
+  ])("rejects observed category ambiguity for %s", (genre, title) => {
+    expect(evidence(genre, title).eligible).toBe(false);
+  });
+  it("retains real destination footage, filming instruction and AI craft demonstrations", () => {
+    expect(
+      evidence("travel", "Travel film: a time travel match cut across my vacation destinations")
+        .eligible,
+    ).toBe(true);
+    expect(
+      evidence("camping", "Desert AI filmmaking tutorial: match cut between generated shots")
+        .eligible,
+    ).toBe(true);
+    expect(evidence("perfume", "Perfume store b-roll filming breakdown").eligible).toBe(true);
+    expect(evidence("food", "How to film food").eligible).toBe(true);
   });
 });
 
@@ -65,7 +183,7 @@ describe("ranking and diversity", () => {
     views,
   });
   it("specific visual techniques beat raw popularity or repeated search hits", () => {
-    const repeated = video("repeated", "Food edit", "@one", 999999);
+    const repeated = video("repeated", "Food cinematic commercial", "@one", 999999);
     const specific = video("specific", "Food cinematic match cut commercial", "@two", 10);
     const result = rankCategoryVideos("food", [
       repeated,
@@ -83,7 +201,7 @@ describe("ranking and diversity", () => {
   });
   it("gives distinct creators the first places, caps one creator at three, never pads", () => {
     const same = [1, 2, 3, 4, 5].map((n) => video(`a${n}`, "Food cinematic speed ramp edit", "@A"));
-    const other = video("other", "Food edit", "@b");
+    const other = video("other", "Food cinematic commercial", "@b");
     expect(rankCategoryVideos("food", [...same, other]).map((v) => v.url)).toEqual([
       same[0].url,
       other.url,
@@ -91,6 +209,19 @@ describe("ranking and diversity", () => {
       same[2].url,
     ]);
     expect(rankCategoryVideos("food", [video("bad", "Food processors")])).toEqual([]);
+  });
+  it("a single named craft outranks a popular title stuffed with generic creative labels", () => {
+    const craft = video("craft", "Food rotoscoping", "@craft", 10);
+    const broad = video(
+      "broad",
+      "Food cinematic commercial photography montage edit",
+      "@broad",
+      1_000_000,
+    );
+    expect(rankCategoryVideos("food", [broad, craft]).map((v) => v.url)).toEqual([
+      craft.url,
+      broad.url,
+    ]);
   });
   it("preserves descriptions and dates, validates links and recomputes untrusted stored evidence", () => {
     const good = {

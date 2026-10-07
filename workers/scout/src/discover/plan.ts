@@ -243,7 +243,10 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
       : m.rest.length
         ? m.rest
         : [topic];
-  const groups = subject.length ? [subject, ...(!term ? [genreVisualWords(req)] : [])] : [];
+  // Known categories use the shared craft gate, including techniques absent from generic visual-word lists.
+  const groups = subject.length
+    ? [subject, ...(!term && !genre ? [genreVisualWords(req)] : [])]
+    : [];
   return {
     topic,
     topicKey,
@@ -257,6 +260,7 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
     alternatives: [...others.map(termAlternative), { exact: true }],
     topicWords: [...new Set(topicWords.map(normalizeTerm))].filter(Boolean),
     needsEditingWord: term ? !term.specific : false,
+    ...(genre ? { categoryId: genre.id } : {}),
     // A trend chip's search: inside a category its filming words count too (a camera style names no edit).
     ...(req.editing
       ? {

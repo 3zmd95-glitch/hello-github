@@ -150,7 +150,8 @@ describe("caption-grounded TikTok category discovery", () => {
     expect(
       fetch.mock.calls.filter(([u]) => String(u).startsWith("https://www.tiktok.com/oembed")),
     ).toHaveLength(TIKTOK_CAPTION_MAX);
-    expect(result.videos).toHaveLength(12);
+    // Reading twelve captions does not promise twelve recommendations: the other eleven only say "Food edit".
+    expect(result.videos).toHaveLength(1);
     expect(result.videos![0].url.endsWith("/2")).toBe(true);
   });
   it("considers multiple hashtags and caps repeated creators at3", async () => {

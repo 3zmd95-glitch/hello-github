@@ -24,7 +24,7 @@ import {
   type FamilyStats,
 } from "../effects/sources";
 import type { TikTokAdsEnv } from "../tiktokads";
-import type { EffectPost } from "../effects/types";
+import { EFFECTS_EVIDENCE_VERSION, type EffectPost } from "../effects/types";
 import type { Genre } from "../trends/genres";
 import { utcDay } from "../trends/kv";
 import {
@@ -191,6 +191,7 @@ async function scan(
     memory,
     tiktok: tiktok.diagnostics,
     doc: {
+      evidenceVersion: EFFECTS_EVIDENCE_VERSION,
       qualityVersion: CATEGORY_QUALITY_VERSION,
       ranOn: today,
       updatedAt: now.toISOString(),

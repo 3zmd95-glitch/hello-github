@@ -36,7 +36,8 @@ export function json(body: unknown, status: number, cors: Headers): Response {
 }
 
 /** The document without the job's memory (JSON leaves `notes` out when there are none). */
-const answer = ({ status, ranOn, updatedAt, notes, items }: EffectsDoc) => ({
+const answer = ({ status, ranOn, updatedAt, notes, items, evidenceVersion }: EffectsDoc) => ({
+  evidenceVersion,
   status,
   ranOn,
   updatedAt,

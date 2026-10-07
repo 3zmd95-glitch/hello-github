@@ -162,8 +162,8 @@ const SORTS: { v: SortMode; label: MessageKey }[] = [
  * first), a card grid with thumbnails and view / like counts, and attach actions. Sources: the YouTube Data
  * API when the owner has a key, the Scout Worker for TikTok / Instagram (and YouTube without a key). With a
  * genre on, a "Most viewed this week" strip above the results shows the Trend Radar's rows of that genre
- * (the feed the store keeps; Discover is the one place for genres). A built-in category tapped with nothing typed
- * shows its page (CategoryPage, round 37) in place of the category search.
+ * (the feed the store keeps; Discover is the one place for genres). Category taps search for editing references;
+ * a separate Study guides action opens the built-in category's cached lessons.
  */
 export default function ResearchPanel({
   skill,
@@ -204,8 +204,7 @@ export default function ResearchPanel({
   const [editing, setEditing] = useState(false);
   const [sort, setSort] = useState<SortMode>("relevance");
   const [genreId, setGenreId] = useState<string | null>(null);
-  // 🚗 The built-in category whose page shows (planning/tools/19-category-trends.md §1): set by a category tap with
-  // nothing typed, cleared by any search (`commit`).
+  // The built-in category's optional Study guides page; searches and genre changes close it.
   const [page, setPage] = useState<string | null>(null);
   const sheet = useSkillSheet();
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -296,27 +295,13 @@ export default function ResearchPanel({
   const pickGenre = (id: string | null) => {
     if (aiSearchBlocked) return;
     setEditing(false);
+    setPicked(null);
     setSubmittedMode(searchMode);
     setSubmittedAi(
       aiChoice.provider === "builtin" ? undefined : { ...aiChoice, provider: aiChoice.provider },
     );
-    // A built-in category tapped with nothing typed opens its page instead of searching (spec 19 §1). Typed text still
-    // narrows the search, and an owner-added category still searches.
-    if (
-      id &&
-      id !== genreId &&
-      !skill &&
-      v2 &&
-      scoutCfg &&
-      !(draft ?? base).trim() &&
-      GENRES.some((g) => g.id === id)
-    ) {
-      commit(""); // the box may hold nothing over an old topic
-      setGenreId(id);
-      setPage(id); // after commit, which closes any page
-      return;
-    }
     if (draft !== null) commit(draft.trim());
+    setPage(null);
     setGenreId(id === genreId ? null : id);
     setAttempt((a) => a + 1);
   };
@@ -1077,6 +1062,22 @@ export default function ResearchPanel({
                 {t("search.genreOnly", { genre: L(genre.name) })}
               </button>
             )}
+            {!base &&
+              !hasDraftTopic &&
+              !savedOnly &&
+              scoutCfg &&
+              GENRES.some((g) => g.id === genre.id) && (
+                <button
+                  type="button"
+                  className="px-fchip max-w-full text-start whitespace-normal"
+                  aria-pressed={showPage}
+                  onClick={() => setPage(showPage ? null : genre.id)}
+                  disabled={aiSearchBlocked}
+                  data-testid="discover-study-guides"
+                >
+                  {t("inspiration.studyGuides")}
+                </button>
+              )}
           </div>
           {discoverPrompts(genre.id).length > 0 && (
             <>

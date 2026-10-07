@@ -583,3 +583,28 @@ Instagram posts dated within 7 days; cards show their date; the tabs read All, I
 
 The families (`families.ts`, `sources.SEARCHES`) are unchanged; a follow-up may drop the Instagram week call, which
 returns about 1 post a search.
+
+
+## Evidence correction after the all-genre audit (2026-10-07)
+
+The current bounded, rotating indexed-post sample cannot establish platform-wide popularity. The global row now
+says **Editing techniques to explore**; category chips say **Techniques found in…**. Both explain that caption
+mentions do not verify visual quality or popularity. The regular search shelf says **Most viewed / liked** and
+explicitly describes cumulative metrics. NEW and YouTube growth arrows are removed in both languages.
+
+Evidence v1 counts only identified platform accounts: missing handles never fall back to post URLs. All observed
+account/post-day pairs survive extraction, so an account active in both comparison windows remains in both.
+A successful scan clears legacy identity history once before merging fresh observations; failed/cached reads
+retain the stored document and its old version. Legacy frontend payloads retain idea names but hide counts.
+Sources are bounded to two dated posts from the scan's seven-day window, exposed behind View supporting posts,
+with HTTPS platform-post URL validation. Counts refer to observed accounts, not views or proof of a good edit.
+
+Ordering now uses recent and weekly account observations. Static dictionary trend flags and fabricated 3x growth
+without a baseline no longer determine ordering. The global job no longer spends up to six YouTube search calls
+and one stats call on changing-sample comparisons. Existing utility fields/functions remain compatible for stored
+data, but the UI never exposes them as measured popularity.
+
+This corrects the existing pipeline rather than adding a new trend provider or library. See the current primary
+source research and all-genre evidence in [audit 21](21-discover-quality-audit.md). Focused regressions cover legacy
+migration, unidentified posts, repeated accounts across windows, quota conservation, safe dated source links,
+legacy cached presentation, and English/Arabic claims.

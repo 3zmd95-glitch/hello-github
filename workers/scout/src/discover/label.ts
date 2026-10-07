@@ -8,6 +8,7 @@
  */
 
 import type { Profile, ScoutResult } from "../normalize";
+import { categoryCreativeEvidence } from "../categories/quality";
 import { hasArabic } from "../trends/normalize";
 import { normalizeTerm } from "./terms";
 import { mentions } from "./relevance";
@@ -110,8 +111,11 @@ export function labelCards(
       (plan.topicWords.length === 0 ||
         (plan.topicWords.some((w) => mentions(text, w)) &&
           (!plan.needsEditingWord || tutorial || EDITING_FORMS.some((w) => mentions(text, w)))));
-    const onTopic = topicOk && groups.every(matches);
-    ideaOnly.push(!onTopic && topicOk && ideaGroups.every(matches));
+    const quality = plan.categoryId ? categoryCreativeEvidence(plan.categoryId, raw) : undefined;
+    const onTopic = topicOk && groups.every(matches) && (!quality || quality.eligible);
+    ideaOnly.push(
+      !onTopic && topicOk && ideaGroups.every(matches) && (!quality || quality.creative),
+    );
     out.push({
       ...card,
       lang: hasArabic(raw) ? "ar" : query.lang,

@@ -17,9 +17,12 @@ export interface TrendingEffect {
   creators: number;
   growth: number;
   youtube?: { newVideos: number; views7d: number; growth?: number };
+  samples?: { url: string; title: string; published: string }[];
 }
 
 export interface TrendingEffects {
+  /** v1 counts only identified platform accounts. Older cached numbers are not trustworthy. */
+  evidenceVersion?: number;
   status: "ok" | "partial" | "failed" | "never";
   updatedAt?: string;
   /** Why a run went as it did; "attempts": the Worker's tries for the day are spent (the scan button rests). */
@@ -33,7 +36,8 @@ const MAX_ITEMS = 12;
 const CACHE_TTL_MS = 60 * 60 * 1000;
 /** A list older than this is not "this week" any more: the row hides. */
 const MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
-const CACHE_PREFIX = "3z-effects|";
+const CACHE_PREFIX = "3z-effects-v2|";
+export const EFFECTS_EVIDENCE_VERSION = 1;
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object";
 const isStr = (x: unknown): x is string => typeof x === "string";
@@ -46,7 +50,39 @@ export function textOf(x: unknown): { en: string; ar?: string } | undefined {
   return { en: x.en.trim(), ...(isStr(x.ar) && hasArabic(x.ar) ? { ar: x.ar.trim() } : {}) };
 }
 
-function parseEffect(x: unknown): TrendingEffect | null {
+function sampleOf(x: unknown): NonNullable<TrendingEffect["samples"]>[number] | null {
+  if (
+    !isObj(x) ||
+    !isStr(x.url) ||
+    !isStr(x.title) ||
+    !isStr(x.published) ||
+    !Number.isFinite(Date.parse(x.published))
+  )
+    return null;
+  try {
+    const u = new URL(x.url);
+    const host = u.hostname.toLowerCase().replace(/^www\./, "");
+    const post =
+      (host === "instagram.com" &&
+        /^\/(?:[\w.]+\/)?(?:p|reels?|tv)\/[\w-]+\/?$/.test(u.pathname)) ||
+      (host === "tiktok.com" && /^\/@[\w.-]+\/(?:video|photo)\/\d+\/?$/.test(u.pathname)) ||
+      (host === "youtube.com" &&
+        ((u.pathname === "/watch" && !!u.searchParams.get("v")) ||
+          /^\/shorts\/[\w-]+\/?$/.test(u.pathname))) ||
+      (host === "youtu.be" && /^\/[\w-]+\/?$/.test(u.pathname));
+    return u.protocol === "https:" && !u.username && !u.password && post
+      ? {
+          url: u.href,
+          title: x.title.slice(0, 160),
+          published: new Date(x.published).toISOString(),
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseEffect(x: unknown, trusted: boolean): TrendingEffect | null {
   if (!isObj(x) || !isStr(x.key) || !isNum(x.creators) || !isNum(x.growth)) return null;
   // No English name, no chip: a tap searches it.
   const name = textOf(x.name);
@@ -70,21 +106,32 @@ function parseEffect(x: unknown): TrendingEffect | null {
     creators: x.creators,
     growth: x.growth,
     ...(youtube ? { youtube } : {}),
+    ...(trusted && Array.isArray(x.samples)
+      ? {
+          samples: x.samples
+            .map(sampleOf)
+            .filter((s): s is NonNullable<typeof s> => !!s)
+            .slice(0, 2),
+        }
+      : {}),
   };
 }
 
 /**
  * The Worker's answer checked field by field: a broken effect is dropped (and a broken `what` or `youtube` from an
- * effect), at most 8 are kept; null without a known status or an item list.
+ * effect), at most 12 are kept; null without a known status or an item list. Legacy ideas have no trusted evidence.
  */
 export function parseTrendingEffects(raw: unknown): TrendingEffects | null {
   if (!isObj(raw) || !STATUSES.has(raw.status as string) || !Array.isArray(raw.items)) return null;
   return {
+    ...(raw.evidenceVersion === EFFECTS_EVIDENCE_VERSION
+      ? { evidenceVersion: EFFECTS_EVIDENCE_VERSION }
+      : {}),
     status: raw.status as TrendingEffects["status"],
     ...(isStr(raw.updatedAt) ? { updatedAt: raw.updatedAt } : {}),
     ...(Array.isArray(raw.notes) ? { notes: raw.notes.filter(isStr) } : {}),
     items: raw.items
-      .map(parseEffect)
+      .map((x) => parseEffect(x, raw.evidenceVersion === EFFECTS_EVIDENCE_VERSION))
       .filter((e): e is TrendingEffect => !!e)
       .slice(0, MAX_ITEMS),
   };

@@ -163,7 +163,7 @@ describe("scanTop (T2 and T3, the scan's own posts, stored)", () => {
   const post = (platform: EffectPlatform, id: string, handle = ""): EffectPost => ({
     platform,
     handle,
-    title: `Car edit ${id}`,
+    title: `Car match cut ${id}`,
     snippet: "",
     url:
       platform === "ig"
@@ -182,14 +182,14 @@ describe("scanTop (T2 and T3, the scan's own posts, stored)", () => {
     const result = scanTop(posts, "ig", "cars");
     expect(result.map((v) => v.url)).toEqual([a.url, b.url, d.url, c.url, e.url]);
     expect(result[0]).toMatchObject({
-      title: "Car edit A",
+      title: "Car match cut A",
       creator: "@a",
       source: "tavily",
       evidence: { basis: "metadata", subjects: ["car"] },
     });
     // T3: the TikTok posts the scan saw (a category scan searches Instagram alone since live fix 1: usually none).
     expect(scanTop(posts, "tt", "cars")).toMatchObject([
-      { url: t.url, title: "Car edit 1", creator: "@t" },
+      { url: t.url, title: "Car match cut 1", creator: "@t" },
     ]);
     expect(scanTop([a, b], "tt", "cars")).toEqual([]);
   });

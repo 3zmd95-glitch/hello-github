@@ -61,6 +61,38 @@ beforeEach(() => sessionStorage.clear());
 afterEach(() => vi.restoreAllMocks());
 
 describe("parseTrendingEffects", () => {
+  it("trusts source evidence only after migration and accepts only dated platform post links", () => {
+    const sample = {
+      url: "https://www.instagram.com/p/VALID",
+      title: "Clone technique",
+      published: "2026-10-06T12:00:00Z",
+    };
+    const legacy = parseTrendingEffects({ ...DOC, items: [{ ...CLONE, samples: [sample] }] })!;
+    expect(legacy.evidenceVersion).toBeUndefined();
+    expect(legacy.items[0].samples).toBeUndefined();
+    const current = parseTrendingEffects({
+      ...DOC,
+      evidenceVersion: 1,
+      items: [
+        {
+          ...CLONE,
+          samples: [
+            { ...sample, url: "javascript:alert(1)" },
+            { ...sample, url: "https://www.instagram.com.evil.test/p/VALID" },
+            { ...sample, url: "https://user:password@www.instagram.com/p/VALID" },
+            { ...sample, url: "https://www.instagram.com/accounts/login/" },
+            { ...sample, published: "unknown" },
+            sample,
+          ],
+        },
+      ],
+    })!;
+    expect(current.evidenceVersion).toBe(1);
+    expect(current.items[0].samples).toEqual([
+      { ...sample, published: "2026-10-06T12:00:00.000Z" },
+    ]);
+  });
+
   it("keeps what the row uses from a valid answer", () => {
     expect(parseTrendingEffects(DOC)).toEqual({
       status: "ok",

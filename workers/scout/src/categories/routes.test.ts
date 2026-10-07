@@ -7,6 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usageKeys } from "../discover/usage";
+import { EFFECTS_EVIDENCE_VERSION } from "../effects/types";
 import { instagramShortcodeAt } from "../postDate";
 import { handle, type Env } from "../scout";
 import { runTick } from "../social/cron";
@@ -87,6 +88,7 @@ const run = (id: string, body?: string, token?: string | null) =>
 
 /** What the routes answer for a stored document: no `ranOn`, memory (history, meta) or diagnostics. */
 const answer = (d: CategoryDoc) => ({
+  evidenceVersion: d.evidenceVersion,
   status: d.status,
   updatedAt: d.updatedAt,
   notes: d.notes,
@@ -96,6 +98,7 @@ const answer = (d: CategoryDoc) => ({
 });
 
 const DOC: CategoryDoc = {
+  evidenceVersion: EFFECTS_EVIDENCE_VERSION,
   qualityVersion: CATEGORY_QUALITY_VERSION,
   ranOn: "2026-10-04",
   updatedAt: "2026-10-04T05:40:09.000Z",
@@ -214,7 +217,7 @@ describe("/categories routes", () => {
   it("GET answers the stored top lists (§6): a malformed entry is dropped alone; a page from before §6 has none", async () => {
     const yt = {
       url: "https://www.youtube.com/watch?v=carVid00001",
-      title: "Car edit",
+      title: "Car match cut",
       creator: "Car Channel",
       views: 1200,
     };
@@ -232,7 +235,9 @@ describe("/categories routes", () => {
     // A legacy title with no category evidence is removed; qualifying metadata gets explicit provenance.
     expect(got.top).toEqual({
       updatedAt: top.updatedAt,
-      yt: [{ ...yt, evidence: { basis: "metadata", subjects: ["car"], techniques: ["editing"] } }],
+      yt: [
+        { ...yt, evidence: { basis: "metadata", subjects: ["car"], techniques: ["match cut"] } },
+      ],
       ig: [],
       tt: [],
     });

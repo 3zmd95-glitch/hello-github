@@ -1,5 +1,6 @@
 /** Recommendations are grounded in titles/captions/descriptions, never a claim that we watched a video. */
 import { CATEGORY_PROFILES } from "../discover/category-profiles";
+import { mentions } from "../discover/relevance";
 import { normalizeTerm } from "../discover/terms";
 import { canonicalUrl, isVideoUrl, platformForHost } from "../normalize";
 import type { TopVideo } from "./types";
@@ -15,10 +16,12 @@ const CREATIVE: Record<string, readonly string[]> = {
     "camera transition",
     "orbit shot",
     "tracking shot",
+    "drift shot",
     "panning",
     "حركة الكاميرا",
+    "لقطات متحركة",
   ],
-  "shot composition": ["composition", "low angle", "زاوية منخفضة", "لقطات", "تكوين"],
+  "shot composition": ["composition", "low angle", "زاوية منخفضة", "تكوين"],
   "shot planning": ["shot"],
   lighting: [
     "lighting",
@@ -43,10 +46,39 @@ const CREATIVE: Record<string, readonly string[]> = {
   "rack focus": ["rack focus", "focus pull", "راك فوكس"],
   "slow motion": ["slow motion", "slowmo", "سلوموشن"],
   masking: ["masking", "mask transition", "ماسك"],
+  rotoscoping: ["rotoscope", "rotoscoping", "روتوسكوب"],
+  "cutout animation": ["cutout animation", "cut out animation", "paper cutout", "تحريك القصاصات"],
+  "whip pan": ["whip pan", "swish pan", "ويب بان"],
+  "freeze frame": ["freeze frame", "freeze effect", "فريز فريم", "تجميد اللقطة"],
+  "split screen": ["split screen", "splitscreen", "تقسيم الشاشة"],
+  "motion tracking": [
+    "motion tracking",
+    "text tracking",
+    "tracked text",
+    "تتبع الحركة",
+    "تتبع النص",
+  ],
+  "motion graphics": ["motion graphics", "motion graphic", "موشن جرافيك"],
+  "text animation": ["text animation", "animated text", "kinetic typography", "تحريك النص"],
+  "macro closeup": [
+    "macro shot",
+    "macro closeup",
+    "macro close up",
+    "macro photography",
+    "تصوير ماكرو",
+  ],
+  "reflection shot": ["reflection shot", "reflection photography", "تصوير انعكاسات"],
+  "drone reveal": ["drone reveal", "drone shot", "لقطة درون"],
+  "light sweep": ["light sweep", "لايت سويب"],
+  "velocity edit": ["velocity edit", "فيلوسيتي"],
+  "invisible cut": ["invisible cut", "hidden cut", "seamless cut", "قص مخفي"],
+  "dolly zoom": ["dolly zoom", "vertigo effect", "دولي زوم"],
   transitions: ["transition", "ترانزيشن", "انتقال"],
-  montage: ["montage", "amv", "مونتاج", "ايديت", "إيديت"],
+  montage: ["montage", "amv", "مونتاج"],
   filmmaking: [
     "filmmaking",
+    "filming",
+    "how to film",
     "videography",
     "cinematography",
     "photography",
@@ -57,7 +89,7 @@ const CREATIVE: Record<string, readonly string[]> = {
     "فيلم",
   ],
   cinematic: ["cinematic", "سينمائي"],
-  editing: ["edit", "editing", "edited"],
+  editing: ["edit", "editing", "edited", "ايديت", "إيديت"],
   "creative commercial": [
     "commercial",
     "advertisement",
@@ -72,10 +104,14 @@ const FORMS = Object.entries(CREATIVE).map(([name, aliases]) => ({
   name,
   aliases: aliases.map(normalizeTerm),
 }));
-const WEAK = new Set(["shot planning", "lighting", "editing"]);
+// A project/style word can describe a useful reference, but cannot outweigh shopping/prompt bait
+// or count as a named craft. A generic #edit alone is not a filming technique.
+const PROJECT = new Set(["filmmaking", "cinematic", "creative commercial", "montage"]);
+const CONTEXTUAL = new Set(["shot planning", "lighting", "editing"]);
+const FAN_EDIT_GENRES = new Set(["anime", "football", "gaming"]);
 
 /** Whole words/phrases; a few exact category+creative hashtag compounds are expanded below, never arbitrary substrings. */
-const has = (text: string, phrase: string) => ` ${text} `.includes(` ${phrase} `);
+const has = mentions;
 const TAG_ENDINGS = [
   "edit",
   "edits",
@@ -120,34 +156,63 @@ export interface CategoryCreativeEvidence {
 export function categoryCreativeEvidence(genreId: string, text: string): CategoryCreativeEvidence {
   const profile = CATEGORY_PROFILES[genreId];
   const normalized = normalizeTerm(expanded(genreId, text));
+  // "Time travel" names an effect, not a destination; other real travel words can still establish the category.
+  const subjectText =
+    genreId === "travel" ? normalized.replace(/\btime travel\b/g, " ") : normalized;
   const subjects = [
-    ...new Set((profile?.subjects ?? []).filter((s) => has(normalized, normalizeTerm(s)))),
+    ...new Set((profile?.subjects ?? []).filter((s) => has(subjectText, normalizeTerm(s)))),
   ];
   const techniques = FORMS.filter(({ aliases }) => aliases.some((a) => has(normalized, a))).map(
     (a) => a.name,
   );
-  const prose = text
-    .replace(/#[\p{L}\p{N}_]+/gu, "")
-    .replace(/https?:\/\/\S+/g, "")
-    .replace(/[^\p{L}]+/gu, "");
+  const prose = text.replace(/#[\p{L}\p{N}_]+/gu, "").replace(/https?:\/\/\S+/g, "");
   const equipment =
     /\b(food processors?|prep tables?|work tables?|stainless steel kitchen|air fryers?)\b/i.test(
       text,
     );
   const sales =
-    /\b(price list|for sale|buy now|shop now|discount code|coupon code|best deals|affiliate links?)\b/i.test(
+    /\b(price list|for sale|buy now|shop now|discount code|coupon code|best deals|grocery deals|affiliate links?|prompt pack|preset pack|photography packages?|commercial (?:food )?prices)\b/i.test(
       text,
-    );
-  const substantive = techniques.some((t) => !WEAK.has(t));
+    ) || /للبيع|اشتر الآن|اشتري الان|كود خصم|عروض البقالة|قائمة أسعار/.test(text);
+  const promptBait =
+    /\b(?:comment|dm|message|reply)\b[^.!?\n]{0,120}\b(?:prompt|preset|pack)\b/i.test(text) ||
+    /\b(?:get|grab|download|buy)\b[^.!?\n]{0,60}\b(?:ai prompts?|prompt packs?)\b/i.test(text) ||
+    /(?:اكتب|علق|أرسل|ارسل)[^.!?\n]{0,100}(?:برومبت|برومبتات)/.test(text);
+  const substantive = techniques.some((t) => !PROJECT.has(t) && !CONTEXTUAL.has(t));
+  const teaching =
+    /\b(tutorial|breakdown|how to|behind the scenes|step by step|before and after)\b/i.test(
+      prose,
+    ) || /شرح|كواليس|طريقة|كيف|قبل وبعد/.test(prose);
   const visualContext =
     /\b(video|film|camera|photography|photograph|lighting|composition|shoot|shooting)\b/i.test(
-      text,
-    ) || /تصوير|إضاء|اضاء|لقط/.test(text);
-  const excluded = !prose || equipment || (sales && !substantive);
+      prose,
+    ) || /تصوير|إضاء|اضاء|لقط/.test(prose);
+  const teachesEditing =
+    teaching && CREATIVE.editing.some((word) => has(normalizeTerm(prose), normalizeTerm(word)));
+  const contextual =
+    (techniques.includes("shot planning") && visualContext) ||
+    (techniques.includes("lighting") && visualContext) ||
+    (techniques.includes("editing") && (FAN_EDIT_GENRES.has(genreId) || teachesEditing));
+  // #edit on coaching, recipes, uncut gameplay or a whole episode is not evidence of an edit breakdown.
+  const ordinaryContent =
+    /\b(full episode|full match|uncut gameplay|full gameplay|football (?:training|coaching)|soccer (?:training|coaching)|workout routine|fitness advice|build muscle|fat loss|cooking recipe|espresso extraction|build tutorial|perfume store|fragrance store)\b/i.test(
+      prose,
+    );
+  const imagePrompt =
+    /\b(?:foreground|background)\s*:/i.test(prose) &&
+    /\b(?:realistic|photorealistic|selfie)\s+(?:\w+\s+){0,3}(?:photograph|image)\b/i.test(prose) &&
+    !teaching;
+  const excluded =
+    !/\p{L}/u.test(prose) ||
+    equipment ||
+    imagePrompt ||
+    (promptBait && !(teaching && substantive)) ||
+    (sales && !(teaching && substantive)) ||
+    (ordinaryContent && !substantive);
   const creative =
     !excluded &&
     techniques.length > 0 &&
-    (substantive || visualContext || techniques.includes("editing"));
+    (substantive || techniques.some((t) => PROJECT.has(t)) || contextual);
   const category = subjects.length > 0;
   return {
     category,
@@ -155,7 +220,8 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
     eligible: category && creative,
     subjects,
     techniques: excluded ? [] : techniques,
-    score: creative ? (substantive ? 10 : 4) + Math.min(techniques.length, 4) * 2 : 0,
+    // Even several generic project labels cannot outrank one named craft through popularity.
+    score: creative ? (substantive ? 20 : 4) + Math.min(techniques.length, 4) * 2 : 0,
   };
 }
 

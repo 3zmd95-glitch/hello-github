@@ -132,7 +132,13 @@ function parse(list: unknown[], country: string): Hashtag[] {
 
 function tierOf(name: string, id: string): Tier | undefined {
   const evidence = categoryCreativeEvidence(id, name.replace(/_/g, " ") + ` #${name}`);
-  return evidence.category ? (evidence.creative ? 1 : 3) : undefined;
+  // A broad #caredit tag is a useful lead, even though "car edit" alone is insufficient
+  // caption evidence for recommending a video. Every candidate still passes the final gate.
+  return evidence.category
+    ? evidence.creative || evidence.techniques.includes("editing")
+      ? 1
+      : 3
+    : undefined;
 }
 
 /** At most10 subject-specific hashtags, creative ones first, then plain category tags. No unrelated fill tier. */

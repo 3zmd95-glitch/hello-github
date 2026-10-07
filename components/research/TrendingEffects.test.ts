@@ -69,6 +69,7 @@ const SPEED = {
 };
 
 const docOf = (over: Record<string, unknown> = {}) => ({
+  evidenceVersion: 1,
   status: "ok",
   ranOn: "2026-10-06",
   updatedAt: new Date(Date.now() - 5 * HOUR).toISOString(),
@@ -78,10 +79,10 @@ const docOf = (over: Record<string, unknown> = {}) => ({
 const NEVER = { status: "never", items: [] };
 /** The Worker's own failed run, with no list yet. */
 const FAILED_RUN = { status: "failed", ranOn: "2026-10-06", notes: ["quota"], items: [] };
-const WAITING = "أدوّر على الترندات… ممكن تاخذ دقيقة";
+const WAITING = "أدوّر على تقنيات مونتاج… ممكن تاخذ دقيقة";
 const RUN_FAILED = "ما قدرت أشغّل الفحص، جرّب بعد شوي";
 const RUN_LIMIT = "جرّبت كذا مرة اليوم، أرجع أجرّب بكرة";
-const NONE = "لسه ما فيه مؤثر منتشر كفاية، أرجع أشيّك بكرة";
+const NONE = "لسه ما لقينا منشورات حديثة كفاية من حسابات محدّدة الهوية، شيّك بعدين";
 
 /** What `GET /effects/trending` answers; null = an older Worker without the route (404). */
 let trending: unknown;
@@ -180,6 +181,46 @@ afterEach(async () => {
 });
 
 describe("the trending-effects row", () => {
+  it("keeps legacy ideas without unverified counts, NEW badges, or YouTube growth claims", async () => {
+    trending = docOf({ evidenceVersion: undefined });
+    await mount("en");
+    expect(chips().map((c) => c.textContent)).toEqual([
+      "clone effect",
+      "swagger trend",
+      "flash clone edit",
+      "speed ramp",
+    ]);
+    expect(host.textContent).not.toContain("↑");
+    expect(host.textContent).not.toContain("NEW");
+    expect(host.textContent).toContain("Popularity and visual quality haven't been verified");
+    expect(chip("clone-effect").title).not.toContain("accounts");
+  });
+
+  it("offers dated supporting links without treating them as a popularity certificate", async () => {
+    trending = docOf({
+      items: [
+        {
+          ...CLONE,
+          samples: [
+            {
+              url: "https://www.instagram.com/p/VALID",
+              title: "Clone tutorial",
+              published: "2026-10-06T12:00:00Z",
+            },
+          ],
+        },
+      ],
+    });
+    await mount("en");
+    const evidence = $("effect-evidence")!;
+    expect(evidence.querySelector("summary")!.textContent).toBe("View supporting posts");
+    const source = evidence.querySelector("a")!;
+    expect(source.href).toBe("https://www.instagram.com/p/VALID");
+    expect(source.rel).toBe("noopener noreferrer");
+    expect(evidence.querySelector("time")!.textContent).toBe("2026-10-06");
+    expect(host.textContent).not.toContain("↑");
+  });
+
   it("shows nothing for an older Worker (404)", async () => {
     trending = null;
     await mount();
@@ -187,11 +228,11 @@ describe("the trending-effects row", () => {
     expect(host.innerHTML).toBe("");
   });
 
-  it("in Arabic: the English names (live fix 1), the NEW badge, the reason with and without YouTube", async () => {
+  it("in Arabic: English technique names with identified account evidence and no growth badges", async () => {
     await mount("ar");
     const row = $("trending-effects")!;
     expect(row.getAttribute("data-state")).toBe("list");
-    expect(row.querySelector("h2")!.textContent).toBe("🔥 ترند المؤثرات هالأسبوع");
+    expect(row.querySelector("h2")!.textContent).toBe("✂️ تقنيات مونتاج تستكشفها");
     expect(row.textContent).toContain("تحدّثت قبل 5 س");
     expect(row.textContent).not.toContain("ما قدرت أحدّثها اليوم");
     const link = row.querySelector("a")!;
@@ -202,26 +243,30 @@ describe("the trending-effects row", () => {
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
 
-    // YouTube's note from 1.5× (inclusive): 1.5 shows it, 1.49 does not.
+    // Old YouTube fields and first-seen flags never produce growth or NEW badges.
     expect(chips().map((c) => [c.getAttribute("data-key"), c.textContent])).toEqual([
-      ["clone-effect", "clone effect9 صنّاع · ▶ ↑1.5×"],
-      ["swagger-trend", "swagger trendجديد4 صنّاع · ▶ ↑3×"],
-      ["flash-clone-edit", "flash clone editجديد3 صنّاع"],
-      ["speed-ramp", "speed ramp7 صنّاع"],
+      ["clone-effect", "clone effect9 حسابات محدّدة الهوية"],
+      ["swagger-trend", "swagger trend4 حسابات محدّدة الهوية"],
+      ["flash-clone-edit", "flash clone edit3 حسابات محدّدة الهوية"],
+      ["speed-ramp", "speed ramp7 حسابات محدّدة الهوية"],
     ]);
     // The what line in English: the tooltip, with the Arabic name under it, and in what a screen reader reads. The
-    // tooltip ends with what the count means (2026-10-07: creators are counted by the day they posted).
+    // tooltip ends with what the count means (2026-10-07: identified accounts are counted by the day they posted).
     expect(chip("swagger-trend").title).toBe(
-      "Clone yourself with one hair flip\nترند السواقر\n4 صنّاع نزّلوه آخر 7 أيام",
+      "Clone yourself with one hair flip\nترند السواقر\n4 حسابات عرفنا هويتها على المنصة ذكرتها في منشورات مفهرسة بتاريخ آخر 7 أيام قبل الفحص",
     );
     expect(chip("swagger-trend").getAttribute("aria-label")).toBe(
-      "swagger trend · جديد · 4 صنّاع · ▶ ↑3× · Clone yourself with one hair flip",
+      "swagger trend · 4 حسابات محدّدة الهوية · Clone yourself with one hair flip",
     );
     expect(chip("clone-effect").getAttribute("aria-label")).toBe(
-      "clone effect · 9 صنّاع · ▶ ↑1.5× · You show up twice in one shot",
+      "clone effect · 9 حسابات محدّدة الهوية · You show up twice in one shot",
     );
-    expect(chip("speed-ramp").title).toBe("سبيد رامب\n7 صنّاع نزّلوه آخر 7 أيام");
-    expect(chip("flash-clone-edit").title).toBe("3 صنّاع نزّلوه آخر 7 أيام");
+    expect(chip("speed-ramp").title).toBe(
+      "سبيد رامب\n7 حسابات عرفنا هويتها على المنصة ذكرتها في منشورات مفهرسة بتاريخ آخر 7 أيام قبل الفحص",
+    );
+    expect(chip("flash-clone-edit").title).toBe(
+      "3 حسابات عرفنا هويتها على المنصة ذكرتها في منشورات مفهرسة بتاريخ آخر 7 أيام قبل الفحص",
+    );
     expect($("trending-run")).toBeNull();
   });
 
@@ -229,16 +274,16 @@ describe("the trending-effects row", () => {
     await mount("en");
     expect($("trending-effects")!.textContent).toContain("updated 5 h ago");
     expect(chips().map((c) => c.textContent)).toEqual([
-      "clone effect9 creators · ▶ ↑1.5×",
-      "swagger trendNEW4 creators · ▶ ↑3×",
-      "flash clone editNEW3 creators",
-      "speed ramp7 creators",
+      "clone effect9 identified accounts",
+      "swagger trend4 identified accounts",
+      "flash clone edit3 identified accounts",
+      "speed ramp7 identified accounts",
     ]);
     expect(chip("clone-effect").getAttribute("aria-label")).toBe(
-      "clone effect · 9 creators · ▶ ↑1.5× · You show up twice in one shot",
+      "clone effect · 9 identified accounts · You show up twice in one shot",
     );
     expect(chip("clone-effect").title).toBe(
-      "You show up twice in one shot\nتأثير الاستنساخ\n9 creators posted it in the last 7 days",
+      "You show up twice in one shot\nتأثير الاستنساخ\n9 identified platform accounts mentioned it in indexed posts dated within 7 days of the scan",
     );
   });
 
@@ -505,7 +550,9 @@ describe("before the Worker's first run", () => {
       await settle();
       expect($("trending-effects")!.getAttribute("data-state"), kind).toBe("never");
       expect(runButton().disabled).toBe(true);
-      expect(status()).toBe("Nothing is trending widely enough yet — I'll check again tomorrow");
+      expect(status()).toBe(
+        "Not enough recent posts from identified accounts yet — check again later",
+      );
     }
     // In Arabic too.
     trending = NEVER;

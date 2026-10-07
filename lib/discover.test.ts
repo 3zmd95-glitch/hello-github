@@ -7,6 +7,7 @@ import {
   DISCOVER_CACHE_MAX,
   DISCOVER_CACHE_TTL_MS,
   DISCOVER_CACHE_VERSION,
+  DISCOVER_QUALITY_VERSION,
   discoverLang,
   discoverRequestFrom,
   discoverRequestKey,
@@ -40,6 +41,7 @@ const item = (over: Partial<DiscoverItem>): DiscoverItem => ({
   ...over,
 });
 const answer = (items: DiscoverItem[], over: Partial<DiscoverAnswer> = {}): DiscoverAnswer => ({
+  qualityVersion: DISCOVER_QUALITY_VERSION,
   topicKey: "flash-transition",
   understood: {
     termId: "flash-transition",
@@ -182,6 +184,14 @@ describe("the search's language and a trend chip's editing flag", () => {
 });
 
 describe("parseDiscoverAnswer", () => {
+  it("reads the producer's quality marker without inventing it for legacy or malformed replies", () => {
+    expect(parseDiscoverAnswer(answer([]))?.qualityVersion).toBe(DISCOVER_QUALITY_VERSION);
+    for (const qualityVersion of [undefined, "7", -1, 7.5, null]) {
+      expect(
+        parseDiscoverAnswer({ ...answer([]), qualityVersion })?.qualityVersion,
+      ).toBeUndefined();
+    }
+  });
   it("keeps well-formed items and drops broken ones", () => {
     const raw = answer([item({}), { ...item({}), url: 7 } as unknown as DiscoverItem]);
     expect(parseDiscoverAnswer(raw)?.items).toHaveLength(1);
@@ -313,6 +323,31 @@ describe("discoverSearch", () => {
     await discoverSearch(config, { q: "flash" }, { fetchImpl, storage });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
+  it.each([undefined, 6, 8])(
+    "a Worker quality version %s stays visible without poisoning the new cache",
+    async (qualityVersion) => {
+      const storage = memoryStorage();
+      const req = { q: "car edit" };
+      const old = answer([item({ title: "Legacy category result" })], { qualityVersion });
+      const upgraded = answer([item({ title: "Car rotoscoping tutorial" })]);
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response(JSON.stringify(old)))
+        .mockResolvedValueOnce(new Response(JSON.stringify(upgraded)));
+      const first = await discoverSearch(config, req, { fetchImpl, storage });
+      expect(first.ok && first.answer.items[0].title).toBe("Legacy category result");
+      expect(keptKeys(storage)).toEqual([]);
+      expect(peekDiscover(config, req)).toBeUndefined();
+      const next = await discoverSearch(config, req, { fetchImpl, storage });
+      expect(next.ok && next.answer.items[0].title).toBe("Car rotoscoping tutorial");
+      expect(next.ok && next.answer.cached).toBe(false);
+      clearDiscoverCache(null);
+      const repeat = await discoverSearch(config, req, { fetchImpl, storage });
+      expect(repeat.ok && repeat.answer.cached).toBe(true);
+      expect(repeat.ok && repeat.answer.items[0].title).toBe("Car rotoscoping tutorial");
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("does not keep an empty answer", async () => {
     const storage = memoryStorage();
@@ -596,6 +631,34 @@ describe("the device's storage", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(keptKeys(storage)).toEqual([key]);
   });
+  it.each([undefined, 6, 8])(
+    "ignores a predeployment reply marked %s even under the current frontend key",
+    async (qualityVersion) => {
+      const storage = memoryStorage();
+      const req = { q: "coffee edit" };
+      const key = discoverRequestKey(config, req);
+      storage.setItem(
+        DISCOVER_CACHE_KEY,
+        JSON.stringify({
+          [key]: {
+            at: Date.now(),
+            answer: answer([item({ title: "Legacy coffee deal" })], {
+              qualityVersion,
+              cached: true,
+            }),
+          },
+        }),
+      );
+      const fetchImpl = replying(answer([item({ title: "Coffee macro closeup tutorial" })]));
+      const result = await discoverSearch(config, req, { fetchImpl, storage });
+      expect(result.ok && result.answer.items[0].title).toBe("Coffee macro closeup tutorial");
+      expect(result.ok && result.answer.cached).toBe(false);
+      expect(fetchImpl).toHaveBeenCalledOnce();
+      expect(JSON.parse(storage.getItem(DISCOVER_CACHE_KEY)!)[key].answer.qualityVersion).toBe(
+        DISCOVER_QUALITY_VERSION,
+      );
+    },
+  );
 
   it("is read once, not on every miss", async () => {
     const storage = memoryStorage();

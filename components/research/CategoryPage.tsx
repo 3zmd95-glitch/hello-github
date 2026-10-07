@@ -28,12 +28,13 @@ import {
   type TopVideo,
 } from "@/lib/categories";
 import type { Genre } from "@/lib/domain";
-import { effectQuery, type TrendingEffect } from "@/lib/effects";
+import { EFFECTS_EVIDENCE_VERSION, effectQuery, type TrendingEffect } from "@/lib/effects";
 import { useT, type MessageKey } from "@/lib/i18n";
 import type { ResearchItem } from "@/lib/research";
 import type { ScoutConfig } from "@/lib/scoutClient";
 import ResultCard, { PLATFORM_META } from "./ResultCard";
 import CategoryTechniqueCard from "./CategoryTechniqueCard";
+import EffectEvidence from "./EffectEvidence";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -459,30 +460,26 @@ export default function CategoryPage({
   // both languages (live fix 1): the English name and line, the Arabic name in the tooltip under the line.
   const styleChip = (s: TrendingEffect) => {
     const what = s.what?.en;
-    const creators = t("search.trendingCreators", { n: s.creators });
+    const trusted = data.evidenceVersion === EFFECTS_EVIDENCE_VERSION;
+    const creators = trusted ? t("search.trendingCreators", { n: s.creators }) : "";
     return (
-      <button
-        key={s.key}
-        type="button"
-        className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
-        title={[what, s.name.ar].filter(Boolean).join("\n") || undefined}
-        aria-label={[s.name.en, s.isNew && t("search.trendingNew"), creators, what]
-          .filter(Boolean)
-          .join(" · ")}
-        onClick={() => onPickStyle(effectQuery(s))}
-        data-testid="category-style"
-        data-key={s.key}
-      >
-        <span className="flex items-center gap-1.5">
-          <span dir="auto">{s.name.en}</span>
-          {s.isNew && (
-            <span className="bg-gold text-gold-ink rounded-[2px] px-1 text-[10px] leading-4 font-bold">
-              {t("search.trendingNew")}
-            </span>
-          )}
-        </span>
-        <span className="text-ink-2 text-[11px] font-normal">{creators}</span>
-      </button>
+      <div key={s.key} className="flex shrink-0 flex-col items-start gap-1">
+        <button
+          type="button"
+          className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
+          title={[what, s.name.ar].filter(Boolean).join("\n") || undefined}
+          aria-label={[s.name.en, creators, what].filter(Boolean).join(" · ")}
+          onClick={() => onPickStyle(effectQuery(s))}
+          data-testid="category-style"
+          data-key={s.key}
+        >
+          <span className="flex items-center gap-1.5">
+            <span dir="auto">{s.name.en}</span>
+          </span>
+          {creators && <span className="text-ink-2 text-[11px] font-normal">{creators}</span>}
+        </button>
+        {trusted && <EffectEvidence effect={s} />}
+      </div>
     );
   };
 
@@ -584,6 +581,7 @@ export default function CategoryPage({
                 genre: name,
               })}
             </h3>
+            <p className="text-muted text-xs">{t("search.effectsEvidenceNote")}</p>
             {data.items.length ? (
               <div
                 className="flex min-w-0 gap-1.5 overflow-x-auto px-0.5 pt-0.5 pb-1.5"

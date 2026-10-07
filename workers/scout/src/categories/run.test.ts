@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AI_MODEL } from "../discover/ai";
+import { EFFECTS_EVIDENCE_VERSION } from "../effects/types";
 import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
 import { instagramShortcodeAt } from "../postDate";
 import { encryptJson } from "../social/crypto";
@@ -313,15 +314,15 @@ describe("runCategory", () => {
     const { fetch, count } = web();
     const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
 
-    expect(doc.items.map((i) => i.key)).toEqual(["rolling-shot", "low-angle", "speed-ramp"]);
+    expect(doc.items.map((i) => i.key)).toEqual(["rolling-shot", "speed-ramp", "low-angle"]);
     expect(doc.items[0]).toMatchObject({
       name: { en: "rolling shot" },
       creators: 4,
       isNew: true,
-      growth: 3,
+      growth: 0,
     });
-    // The dictionary technique has as many creators as the top trend, and still comes after the trends.
-    expect(doc.items[2]).toMatchObject({ termId: "speed-ramp", creators: 4, isNew: false });
+    // Current account evidence determines order; a dictionary's static trend flag does not outrank it.
+    expect(doc.items[1]).toMatchObject({ termId: "speed-ramp", creators: 4, isNew: false });
     expect(Object.keys(doc.meta).filter((k) => /(^|-)(car|cars|cinematic)(-|$)/.test(k))).toEqual(
       [],
     );
@@ -494,7 +495,7 @@ describe("runCategory", () => {
       ),
     };
     const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW, sleep: NO_WAIT });
-    expect(doc.items.map((i) => i.key)).toEqual(["rolling-shot", "low-angle", "speed-ramp"]);
+    expect(doc.items.map((i) => i.key)).toEqual(["rolling-shot", "speed-ramp", "low-angle"]);
     const cleanups = env.AI.run.mock.calls.filter(([, input]) =>
       (input.messages as { content: string }[])[0].content.startsWith("You clean"),
     );
@@ -531,7 +532,13 @@ describe("runCategory", () => {
       ]),
     );
     const { env } = setup({
-      stored: { ...OLD, qualityVersion: CATEGORY_QUALITY_VERSION, history, meta },
+      stored: {
+        ...OLD,
+        qualityVersion: CATEGORY_QUALITY_VERSION,
+        evidenceVersion: EFFECTS_EVIDENCE_VERSION,
+        history,
+        meta,
+      },
     });
     const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW });
     expect(Object.keys(doc.history)).toHaveLength(200);
@@ -614,9 +621,9 @@ describe("runCategory", () => {
 });
 
 describe("runCategory's top lists (§6)", () => {
-  /** Every expected caption survives with evidence; quality.test.ts covers the ranking order. */
+  /** A generic #caredit caption is not a craft reference; quality.test.ts covers the ranking order. */
   const IG_TOP = expect.arrayContaining(
-    PROBE.map((h) => {
+    PROBE.filter((h) => h.title !== "car edit trend #caredit").map((h) => {
       const [, handle, id] = h.url.match(/instagram\.com\/([\w.]+)\/reel\/([\w-]+)\//)!;
       return expect.objectContaining({
         url: `https://www.instagram.com/p/${id}`,
@@ -643,7 +650,8 @@ describe("runCategory's top lists (§6)", () => {
       "cinematic car rolling shots",
     ]);
     expect(doc.top).toEqual({ updatedAt: NOW.toISOString(), yt: YT_TOP, ig: IG_TOP, tt: [] });
-    expect(doc.top!.ig).toHaveLength(PROBE.length);
+    expect(doc.top!.ig).toHaveLength(PROBE.length - 1);
+    expect(doc.top!.ig.some((v) => v.title === "car edit trend #caredit")).toBe(false);
     expect(doc.notes ?? []).not.toContain("youtube");
     expect(stored(KV).top).toEqual(doc.top);
   });

@@ -36,7 +36,9 @@ const answer = ({
   lessons,
   top,
   qualityVersion,
+  evidenceVersion,
 }: CategoryDoc) => ({
+  evidenceVersion,
   status,
   updatedAt,
   notes,

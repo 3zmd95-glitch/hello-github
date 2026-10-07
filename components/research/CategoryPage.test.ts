@@ -101,6 +101,7 @@ const LESSONS = {
 };
 /** A page made 30 hours ago: "updated 1 d ago". */
 const docOf = (over: Record<string, unknown> = {}) => ({
+  evidenceVersion: 1,
   status: "ok",
   updatedAt: new Date(Date.now() - 30 * HOUR).toISOString(),
   items: [ROLLING, SPEED],
@@ -281,6 +282,16 @@ afterEach(async () => {
 });
 
 describe("the category page", () => {
+  it("keeps legacy category ideas while withholding unverified account counts", async () => {
+    page = docOf({ evidenceVersion: undefined });
+    await mount("en");
+    expect(style("rolling-shot").textContent).toBe("rolling shot");
+    expect(style("speed-ramp").textContent).toBe("speed ramp");
+    expect(style("rolling-shot").getAttribute("aria-label")).not.toContain("accounts");
+    expect($("category-page")!.textContent).toContain(
+      "Popularity and visual quality haven't been verified",
+    );
+  });
   it("saves the selected example, shows its preview before study, and keeps one study panel open", async () => {
     const saved: string[] = [];
     await mount("en", {
@@ -332,18 +343,22 @@ describe("the category page", () => {
     expect(cat.getAttribute("data-state")).toBe("page");
     expect(cat.querySelector("h2")!.textContent).toBe("🚗 سيارات");
     expect(cat.textContent).toContain("تحدّثت قبل 1 يوم");
-    expect(cat.textContent).toContain("🔥 الترند في سيارات هالأسبوع");
+    expect(cat.textContent).toContain("✂️ تقنيات لقيناها في سيارات");
     expect(styleKeys()).toEqual(["rolling-shot", "speed-ramp"]);
     // English first (live fix 1): a style shows its English name, its Arabic one in the tooltip.
     expect(style("rolling-shot").textContent).toContain("rolling shot");
     expect(style("rolling-shot").textContent).not.toContain("لقطة متحركة");
     expect(style("rolling-shot").title).toBe("لقطة متحركة");
-    expect(style("rolling-shot").textContent).toContain("جديد");
-    expect(style("rolling-shot").textContent).toContain("6 صنّاع");
+    expect(style("rolling-shot").textContent).not.toContain("جديد");
+    expect(style("rolling-shot").textContent).toContain("6 حسابات محدّدة الهوية");
     expect(style("speed-ramp").textContent).not.toContain("جديد");
-    // The 🔥 row's label: the English name first, NEW, creators (and the line of what it is, when there is one).
-    expect(style("rolling-shot").getAttribute("aria-label")).toBe("rolling shot · جديد · 6 صنّاع");
-    expect(style("speed-ramp").getAttribute("aria-label")).toBe("speed ramp · 9 صنّاع");
+    // English names and observed identified accounts, with no NEW/popularity claim.
+    expect(style("rolling-shot").getAttribute("aria-label")).toBe(
+      "rolling shot · 6 حسابات محدّدة الهوية",
+    );
+    expect(style("speed-ramp").getAttribute("aria-label")).toBe(
+      "speed ramp · 9 حسابات محدّدة الهوية",
+    );
     expect(
       shelves().map((s) => [s.getAttribute("data-area"), s.querySelector("h3")!.textContent]),
     ).toEqual([
@@ -387,7 +402,7 @@ describe("the category page", () => {
     const cat = $("category-page")!;
     expect(cat.querySelector("h2")!.textContent).toBe("🚗 Cars");
     expect(cat.textContent).toContain("updated 1 d ago");
-    expect(cat.textContent).toContain("🔥 Trending in Cars this week");
+    expect(cat.textContent).toContain("✂️ Techniques found in Cars");
     expect(shelves().map((s) => s.querySelector("h3")!.textContent)).toEqual([
       "📷 Photography",
       "🎥 Videography",
@@ -503,10 +518,12 @@ describe("the category page", () => {
     expect(styleKeys()).toHaveLength(2);
   });
 
-  it("says so when nothing trends widely enough yet, and when the lessons come with the next scan", async () => {
+  it("says when identified source evidence or lessons are not available yet", async () => {
     page = docOf({ items: [], lessons: undefined });
     await mount();
-    expect($("category-page")!.textContent).toContain("لسه ما فيه ستايل منتشر كفاية هنا");
+    expect($("category-page")!.textContent).toContain(
+      "لسه ما لقينا منشورات حديثة كفاية من حسابات محدّدة الهوية عشان نقترح تقنية",
+    );
     expect($("category-page")!.textContent).toContain("أعد الفحص عشان تلاقي أمثلة وتمارين جديدة.");
     expect(shelves()).toHaveLength(0);
   });
@@ -681,13 +698,13 @@ describe("the category page", () => {
     page = docOf({ updatedAt: new Date(Date.now() - 8 * 24 * HOUR).toISOString() });
     await mount();
     const titles = () => [...$("category-page")!.querySelectorAll("h3")].map((h) => h.textContent);
-    expect(titles()[0]).toBe("🔥 الترند في سيارات");
+    expect(titles()[0]).toBe("✂️ تقنيات لقيناها في سيارات");
     act(() => root.unmount());
     root = createRoot(host);
     sessionStorage.clear();
     page = docOf({ updatedAt: new Date(Date.now() - 6 * 24 * HOUR).toISOString() });
     await mount();
-    expect(titles()[0]).toBe("🔥 الترند في سيارات هالأسبوع");
+    expect(titles()[0]).toBe("✂️ تقنيات لقيناها في سيارات");
   });
 
   it("renders techniques and videos that share a name or a link (React keys never collide)", async () => {
@@ -815,10 +832,7 @@ describe("the 🏆 top videos per platform (§6)", () => {
     page = docOf({ top: TOP });
     await mount("en");
     const headings = [...$("category-page")!.querySelectorAll("h3")].map((h) => h.textContent);
-    expect(headings.slice(0, 2)).toEqual([
-      "Edits to study · Cars",
-      "🔥 Trending in Cars this week",
-    ]);
+    expect(headings.slice(0, 2)).toEqual(["Edits to study · Cars", "✂️ Techniques found in Cars"]);
     const list = $("category-top")!.querySelector('[role="tablist"]')!;
     expect(list.getAttribute("aria-label")).toBe("Study examples by platform");
     // TikTok's count comes with its list (Brave's, asked when the tab opens).

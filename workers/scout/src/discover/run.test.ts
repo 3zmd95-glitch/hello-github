@@ -4,6 +4,7 @@ import { discoverKeys } from "./fetchers";
 import { planSearch } from "./plan";
 import { ANSWER_TTL_S, MAX_RETRIES, discoverAnswerKey, requestHash, runDiscover } from "./run";
 import type { DiscoverRequest } from "./types";
+import { DISCOVER_QUALITY_VERSION } from "./types";
 import { connectorCap, discoverUsage, usageKeys } from "./usage";
 
 const NOW = new Date("2026-10-03T09:00:00Z");
@@ -91,6 +92,7 @@ describe("runDiscover", () => {
     const answer = await runDiscover(env, { q: "flash" }, { fetch: fetchMock, now: NOW });
 
     expect(answer.topicKey).toBe("flash-transition");
+    expect(answer.qualityVersion).toBe(DISCOVER_QUALITY_VERSION);
     expect(answer.platforms).toEqual({ tt: { ok: true }, ig: { ok: true }, yt: { ok: true } });
     // English first: examples and tutorials in English, 2 a platform (an Arabic search adds its tutorials query).
     expect(answer.cost).toEqual({ tavily: 4, youtubeSearch: 2 });
@@ -114,10 +116,26 @@ describe("runDiscover", () => {
     const again = await runDiscover(env, { q: "  FLASH " }, { fetch: fetchMock, now: NOW });
     expect(again.cached).toBe(true);
     expect(again.complete).toBe(true);
+    expect(again.qualityVersion).toBe(DISCOVER_QUALITY_VERSION);
     expect(again.cost).toEqual({ tavily: 0, youtubeSearch: 0 });
     expect(again.items).toEqual(answer.items);
     expect(fetchMock.mock.calls.length).toBe(calls);
   });
+  it.each([undefined, 6, 8])(
+    "does not trust cached quality version %s just because its request key is current",
+    async (qualityVersion) => {
+      const env = ENV();
+      const req = { q: "flash" };
+      const first = await runDiscover(env, req, { fetch: web(), now: NOW });
+      const key = discoverAnswerKey(await requestHash(req));
+      await env.SOCIAL_KV.put(key, JSON.stringify({ ...first, qualityVersion }));
+      const fetchMock = web();
+      const refreshed = await runDiscover(env, req, { fetch: fetchMock, now: NOW });
+      expect(fetchMock).toHaveBeenCalled();
+      expect(refreshed.cached).toBe(false);
+      expect(refreshed.qualityVersion).toBe(DISCOVER_QUALITY_VERSION);
+    },
+  );
 
   // Live, 2026-10-07: Tavily's Instagram "week" held posts from 2023 and May. The post id is the date (postDate.ts).
   it("asks Tavily a wider window, then keeps the posts inside the asked one by their real date", async () => {

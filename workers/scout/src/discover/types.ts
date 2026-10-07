@@ -74,6 +74,8 @@ export interface SearchPlan {
   topicWords: string[];
   /** The card must also mention an editing word (dictionary entries with `specific: false`). */
   needsEditingWord: boolean;
+  /** Known built-in category: apply the same craft/caption gate as its category page. Exact/connector plans omit it. */
+  categoryId?: string;
   /**
    * A trend chip's search (`DiscoverRequest.editing`): a card must also mention one of these cues besides the topic's
    * own words (matching form): the editing cues, and inside a category its filming words too.
@@ -115,7 +117,11 @@ export type PlatformError = "quota" | "auth" | "upstream" | "daily_cap" | "not_c
 export type PlatformStatus =
   { ok: true; retried?: boolean; partial?: PlatformError } | { ok: false; error: PlatformError };
 
+/** Retrieval/labeling contract, mirrored in lib/discover.ts; cache keys alone cannot identify an older Worker. */
+export const DISCOVER_QUALITY_VERSION = 7;
+
 export interface DiscoverResponse {
+  qualityVersion: typeof DISCOVER_QUALITY_VERSION;
   topicKey: string;
   understood: SearchPlan["understood"];
   alternatives: Alternative[];
