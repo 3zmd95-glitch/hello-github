@@ -1,4 +1,10 @@
-import { parseTrendingEffects, readTabCache, writeTabCache, type TrendingEffects } from "./effects";
+import {
+  parseTrendingEffects,
+  readTabCache,
+  textOf,
+  writeTabCache,
+  type TrendingEffects,
+} from "./effects";
 import { scoutCall, type ScoutConfig } from "./scoutClient";
 
 /**
@@ -18,12 +24,14 @@ export interface LessonVideo {
   kind: "example" | "tutorial";
   lang: "en" | "ar";
 }
+/** English first (live fix 1): the Arabic name and how-to only when they are in Arabic script. */
 export interface Technique {
-  name: { en: string; ar: string };
-  howTo: { en: string; ar: string };
+  name: { en: string; ar?: string };
+  howTo: { en: string; ar?: string };
   skillId?: string;
   videos: LessonVideo[];
 }
+/** The Worker's `v` (its lessons version) is not read: the page shows lessons of any version. */
 export interface Lessons {
   updatedAt: string;
   photo: Technique[];
@@ -36,18 +44,12 @@ export interface CategoryPageData extends TrendingEffects {
 
 const CACHE_PREFIX = "3z-category|";
 const PER_AREA = 3;
-/** The Worker's most a technique: 2 examples, 1 tutorial and 1 Arabic tutorial. */
+/** The Worker's most a technique: 3 English videos (examples, and a tutorial when one teaches) and 1 Arabic tutorial. */
 const VIDEOS = 4;
 const PLATFORMS = new Set(["yt", "tt", "ig"]);
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object";
 const isStr = (x: unknown): x is string => typeof x === "string";
-
-/** `{ en, ar }` with text in both, trimmed; else undefined. */
-function both(x: unknown): { en: string; ar: string } | undefined {
-  if (!isObj(x) || !isStr(x.en) || !isStr(x.ar) || !x.en.trim() || !x.ar.trim()) return undefined;
-  return { en: x.en.trim(), ar: x.ar.trim() };
-}
 
 function parseVideo(x: unknown): LessonVideo | null {
   if (!isObj(x) || !isStr(x.url) || !x.url.startsWith("https://") || !isStr(x.title)) return null;
@@ -65,15 +67,15 @@ function parseVideo(x: unknown): LessonVideo | null {
 
 function parseTechnique(x: unknown): Technique | null {
   if (!isObj(x)) return null;
-  const name = both(x.name);
-  const howTo = both(x.howTo);
+  const name = textOf(x.name);
+  const howTo = textOf(x.howTo);
   const videos = Array.isArray(x.videos)
     ? x.videos
         .map(parseVideo)
         .filter((v): v is LessonVideo => !!v)
         .slice(0, VIDEOS)
     : [];
-  // A technique without a video is never shown (spec §3); a technique without both languages neither.
+  // A technique without a video is never shown (spec §3); one without an English name and how-to neither.
   if (!name || !howTo || !videos.length) return null;
   return { name, howTo, ...(isStr(x.skillId) && x.skillId ? { skillId: x.skillId } : {}), videos };
 }

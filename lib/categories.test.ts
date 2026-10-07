@@ -67,14 +67,17 @@ describe("parseCategory", () => {
     });
   });
 
-  it("drops a broken video, a technique left without a video or a language, and lessons left empty", () => {
+  it("drops a broken video, a technique left without a video or an English text, and lessons left empty", () => {
     const broken = {
       ...DOC,
       lessons: {
         ...LESSONS,
         photo: [{ ...TECH, videos: [{ ...TT, platform: "fb" }] }], // no video left
         video: [{ ...TECH, skillId: 7, videos: [TT, { ...YT, kind: "talk" }] }], // one video, no skill left
-        edit: [{ ...TECH, howTo: { en: HOW.en } }], // no Arabic how-to
+        edit: [
+          { ...TECH, howTo: { ar: HOW.ar } }, // no English how-to
+          { ...TECH, name: { en: " ", ar: "لقطة" } }, // no English name
+        ],
       },
     };
     expect(parseCategory(broken)!.lessons).toEqual({
@@ -87,6 +90,24 @@ describe("parseCategory", () => {
     expect(parseCategory(empty)).not.toHaveProperty("lessons");
     expect(parseCategory({ status: "never", items: [] })).toEqual({ status: "never", items: [] });
     expect(parseCategory({ items: [] })).toBeNull();
+  });
+
+  it("English first (live fix 1): the Arabic name and how-to are optional, and kept only in Arabic script", () => {
+    const doc = {
+      ...DOC,
+      lessons: {
+        ...LESSONS,
+        video: [
+          { ...TECH, name: { en: "rolling shot" }, howTo: { en: HOW.en } },
+          // The first live Cars lessons: Arabic names in Latin letters.
+          { ...TECH, name: { en: "hyperlapse", ar: "taswir mash' al" }, howTo: HOW },
+        ],
+      },
+    };
+    expect(parseCategory(doc)!.lessons!.video.map((t) => [t.name, t.howTo])).toEqual([
+      [{ en: "rolling shot" }, { en: HOW.en }],
+      [{ en: "hyperlapse" }, HOW],
+    ]);
   });
 
   it("keeps https videos only, 3 techniques a shelf and 4 videos a technique, as the Worker writes them", () => {
@@ -111,7 +132,7 @@ describe("parseCategory", () => {
             YT,
           ]),
         ],
-        // 2 examples, 1 tutorial and 1 Arabic tutorial at most.
+        // 3 English videos and 1 Arabic tutorial at most.
         edit: [tech(7, six)],
       },
     };

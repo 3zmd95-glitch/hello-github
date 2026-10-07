@@ -1,3 +1,4 @@
+import { hasArabic } from "./research";
 import { scoutCall, type ScoutConfig } from "./scoutClient";
 
 /**
@@ -38,10 +39,11 @@ const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 
 const isStr = (x: unknown): x is string => typeof x === "string";
 const isNum = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x);
 
-/** `{ en, ar? }` with English text, else undefined. */
-function textOf(x: unknown): { en: string; ar?: string } | undefined {
+/** `{ en, ar? }` with English text, else undefined; the Arabic only in Arabic script (English first, live fix 1: a
+ * transliteration such as "taswir mash' al" is no Arabic). Category lessons read their texts with it too. */
+export function textOf(x: unknown): { en: string; ar?: string } | undefined {
   if (!isObj(x) || !isStr(x.en) || !x.en.trim()) return undefined;
-  return { en: x.en.trim(), ...(isStr(x.ar) && x.ar.trim() ? { ar: x.ar.trim() } : {}) };
+  return { en: x.en.trim(), ...(isStr(x.ar) && hasArabic(x.ar) ? { ar: x.ar.trim() } : {}) };
 }
 
 function parseEffect(x: unknown): TrendingEffect | null {

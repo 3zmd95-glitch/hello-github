@@ -229,13 +229,16 @@ describe("the category page", () => {
     expect(cat.textContent).toContain("تحدّثت قبل 1 يوم");
     expect(cat.textContent).toContain("🔥 الترند في سيارات هالأسبوع");
     expect(styleKeys()).toEqual(["rolling-shot", "speed-ramp"]);
-    expect(style("rolling-shot").textContent).toContain("لقطة متحركة");
+    // English first (live fix 1): a style shows its English name, its Arabic one in the tooltip.
+    expect(style("rolling-shot").textContent).toContain("rolling shot");
+    expect(style("rolling-shot").textContent).not.toContain("لقطة متحركة");
+    expect(style("rolling-shot").title).toBe("لقطة متحركة");
     expect(style("rolling-shot").textContent).toContain("جديد");
     expect(style("rolling-shot").textContent).toContain("6 صنّاع");
     expect(style("speed-ramp").textContent).not.toContain("جديد");
-    // The 🔥 row's label: name, NEW, creators (and the line of what it is, when there is one).
-    expect(style("rolling-shot").getAttribute("aria-label")).toBe("لقطة متحركة · جديد · 6 صنّاع");
-    expect(style("speed-ramp").getAttribute("aria-label")).toBe("سبيد رامب · 9 صنّاع");
+    // The 🔥 row's label: the English name first, NEW, creators (and the line of what it is, when there is one).
+    expect(style("rolling-shot").getAttribute("aria-label")).toBe("rolling shot · جديد · 6 صنّاع");
+    expect(style("speed-ramp").getAttribute("aria-label")).toBe("speed ramp · 9 صنّاع");
     expect(
       shelves().map((s) => [s.getAttribute("data-area"), s.querySelector("h3")!.textContent]),
     ).toEqual([
@@ -244,12 +247,22 @@ describe("the category page", () => {
       ["edit", "✂️ مونتاج"],
     ]);
     const [panning, rolling, speed] = all("category-technique");
-    expect(panning.querySelector("h4")!.textContent).toBe("بانينق");
-    expect(panning.querySelector('[data-testid="category-ai"]')!.textContent).toBe("✦ AI");
-    // The badge sets its own direction, so the how-to's own words give the paragraph its direction (dir=auto skips
-    // a child with a `dir`): an Arabic how-to reads right to left. e2e/discover.spec.ts checks it in Chromium.
-    expect(panning.querySelector('[data-testid="category-ai"]')!.getAttribute("dir")).toBe("ltr");
-    expect(panning.textContent).toContain("طريقة بانينق");
+    // English first: the name, then the Arabic one as a muted line, right to left.
+    expect(panning.querySelector("h4")!.textContent).toBe("panning");
+    const nameAr = panning.querySelector('[data-testid="category-name-ar"]')!;
+    expect(nameAr.textContent).toBe("بانينق");
+    expect(nameAr.getAttribute("dir")).toBe("rtl");
+    // The English how-to, left to right with its ✦ AI badge, then the Arabic one, right to left. e2e/discover.spec.ts
+    // checks the directions in Chromium.
+    const howTo = panning.querySelector('[data-testid="category-howto"]')!;
+    expect(howTo.getAttribute("dir")).toBe("ltr");
+    expect(howTo.querySelector('[data-testid="category-ai"]')!.textContent).toBe("✦ AI");
+    expect(howTo.textContent).toBe(
+      "✦ AIHow to panning: settings, gear and the edit, in two lines.",
+    );
+    const howToAr = panning.querySelector('[data-testid="category-howto-ar"]')!;
+    expect(howToAr.getAttribute("dir")).toBe("rtl");
+    expect(howToAr.textContent).toBe("طريقة بانينق: الإعدادات والعدة والمونتاج.");
     // 🎯 only for a skill the app knows: the craft skill and the DaVinci one, never an unknown id.
     expect(panning.querySelector('[data-testid="category-skill"]')!.textContent).toContain(
       getSkill("phone-180-shutter")!.name.ar,
@@ -273,7 +286,28 @@ describe("the category page", () => {
       "✂️ Editing",
     ]);
     expect(all("category-technique")[1].querySelector("h4")!.textContent).toBe("rolling shot");
+    // In English no Arabic lines; a style's Arabic name stays in its tooltip.
+    expect($("category-name-ar")).toBeNull();
+    expect($("category-howto-ar")).toBeNull();
+    expect(style("rolling-shot").title).toBe("لقطة متحركة");
     expect($("category-search-all")!.textContent).toBe("Search all Cars videos →");
+  });
+
+  it("a technique in English only (live fix 1) shows no Arabic lines, in Arabic too", async () => {
+    const english = {
+      ...technique("panning", "بانينق", 1),
+      name: { en: "panning" },
+      howTo: { en: "Pan with the car at 1/30 s, then add blur in CapCut." },
+    };
+    page = docOf({ lessons: { ...LESSONS, photo: [english] } });
+    await mount("ar");
+    const panning = all("category-technique")[0];
+    expect(panning.querySelector("h4")!.textContent).toBe("panning");
+    expect(panning.querySelector('[data-testid="category-name-ar"]')).toBeNull();
+    expect(panning.querySelector('[data-testid="category-howto-ar"]')).toBeNull();
+    expect(panning.querySelector('[data-testid="category-howto"]')!.textContent).toBe(
+      "✦ AIPan with the car at 1/30 s, then add blur in CapCut.",
+    );
   });
 
   it("a style searches it, Search all searches the category, the skill opens, a video plays in the app", async () => {
