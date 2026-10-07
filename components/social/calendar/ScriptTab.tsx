@@ -1,5 +1,6 @@
 "use client";
 
+import { Check } from "lucide-react";
 import { useState } from "react";
 import type { Post, Script } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
@@ -68,8 +69,9 @@ export default function ScriptTab({ post }: { post: Post }) {
       />
 
       {bumped && (
-        <p className="text-accent text-xs" data-testid="script-bumped">
-          ✓ {t("calendar.script.autoBump")}
+        <p className="text-tint flex items-center gap-1 text-xs" data-testid="script-bumped">
+          <Check size={14} strokeWidth={2} className="shrink-0" aria-hidden />
+          {t("calendar.script.autoBump")}
         </p>
       )}
       <CreatorAssistant key={post.id} post={post} />

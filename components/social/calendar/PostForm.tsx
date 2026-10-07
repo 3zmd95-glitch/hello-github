@@ -1,5 +1,6 @@
 "use client";
 
+import { Clock, Gamepad2, Hand } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useSocialSync } from "@/components/social/useSocialSync";
 import { useSheetClose } from "@/components/ui/ios/Sheet";
@@ -173,7 +174,9 @@ function PostFormBody({
                 >
                   <PlatformGlyph platform={p} size={14} className="shrink-0" />
                   {L(PLATFORM_META[p].name)}
-                  {isManual(p) && <span aria-hidden>✋</span>}
+                  {isManual(p) && (
+                    <Hand size={13} strokeWidth={1.75} className="shrink-0" aria-hidden />
+                  )}
                 </button>
               );
             })}
@@ -224,8 +227,8 @@ function PostFormBody({
         </label>
       </div>
       <p className="text-muted -mt-2 flex flex-wrap items-center gap-2 text-xs">
-        <span data-testid="post-best-time">
-          ⏰{" "}
+        <span className="inline-flex items-center gap-1" data-testid="post-best-time">
+          <Clock size={13} strokeWidth={1.75} className="shrink-0" aria-hidden />
           {t("calendar.form.bestTime", { platform: L(PLATFORM_META[platform].name), time: best })}
         </span>
         {time !== best && (
@@ -257,7 +260,7 @@ function PostFormBody({
         <span className="text-ink-2 text-sm font-bold">{t("calendar.form.skill")}</span>
         {skill ? (
           <div className="px-inset flex items-center gap-2 text-sm" data-testid="post-skill-picked">
-            <span aria-hidden>🎮</span>
+            <Gamepad2 size={18} strokeWidth={1.75} className="text-ink-2 shrink-0" aria-hidden />
             <b className="min-w-0 flex-1 truncate">{L(skill.name)}</b>
             <button
               type="button"

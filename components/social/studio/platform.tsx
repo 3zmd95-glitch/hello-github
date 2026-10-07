@@ -1,39 +1,17 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useWorld } from "@/components/shell/useWorld";
 import { platformStyle } from "@/components/social/calendar/PlatformChip";
 import { PLATFORMS, type Platform } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { PlatformGlyph } from "@/lib/platformIcons";
 import { PLATFORM_META } from "@/lib/social";
-
-/** Icon + localized platform name as a small chip tinted with the brand color. */
-export function PlatformChip({
-  platform,
-  className = "",
-  testId,
-}: {
-  platform: Platform;
-  className?: string;
-  testId?: string;
-}) {
-  const { L } = useT();
-  const meta = PLATFORM_META[platform];
-  return (
-    <span
-      className={`studio-pchip ${className}`}
-      style={platformStyle(platform, "--c")}
-      data-platform={platform}
-      data-testid={testId}
-    >
-      <span aria-hidden>{meta.icon}</span>
-      <span>{L(meta.name)}</span>
-    </span>
-  );
-}
 
 /**
  * Five platform buttons in a row. `idPrefix` builds each button's test id (`${idPrefix}-${platform}`).
  * Used wherever the owner picks where a post goes: ideas → post, skill → video, the skill sheet's bridge.
+ * Social draws the brand glyph; the Training skill sheet keeps the platform emoji.
  */
 export function PlatformPicker({
   idPrefix,
@@ -49,6 +27,7 @@ export function PlatformPicker({
   cancelLabel?: string;
 }) {
   const { L } = useT();
+  const social = useWorld() === "social";
   return (
     <div className="flex flex-col gap-2" role="group" aria-label={label}>
       <span className="text-muted text-xs">{label}</span>
@@ -65,7 +44,11 @@ export function PlatformPicker({
               data-testid={`${idPrefix}-${p}`}
               data-platform={p}
             >
-              <span aria-hidden>{meta.icon}</span>
+              {social ? (
+                <PlatformGlyph platform={p} size={14} className="shrink-0" />
+              ) : (
+                <span aria-hidden>{meta.icon}</span>
+              )}
               <span>{L(meta.name)}</span>
             </button>
           );

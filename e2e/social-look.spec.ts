@@ -171,3 +171,14 @@ test("theme-color follows the world and survives client navigation", async ({ pa
   await expect(page.locator("html")).toHaveAttribute("data-world", "social");
   await expect.poll(colors).toEqual(social);
 });
+
+test("Social navigation has no emoji", async ({ page }) => {
+  await freshState(page, "/social/more/");
+  await expect(page.locator("main h1").first()).toBeVisible(); // the splash has no content yet
+  const text = await page.evaluate(
+    () =>
+      (document.querySelector('[data-testid="tabbar"], [data-testid="sidenav"]')?.textContent ??
+        "") + (document.querySelector("main")?.querySelector("h1")?.textContent ?? ""),
+  );
+  expect(text).not.toMatch(/\p{Extended_Pictographic}/u);
+});

@@ -2989,27 +2989,6 @@
   }
 }
 
-/* Platform chip / dot / button: `--c` is the platform's brand color. */
-.studio-pchip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.74rem;
-  font-weight: 600;
-  line-height: 1.5;
-  padding: 0 8px;
-  border: 2px solid var(--edge);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--c, var(--accent)) 22%, var(--panel-3));
-  color: var(--ink);
-  white-space: nowrap;
-}
-[data-world="social"] .studio-pchip {
-  border-width: 1px;
-  border-radius: 999px;
-  padding: 0 10px;
-  border-color: color-mix(in srgb, var(--c, var(--accent)) 45%, transparent);
-}
 /* A post on the week strip: `--pc` is the platform's color token. */
 .studio-pdot {
   width: 6px;
@@ -3017,6 +2996,7 @@
   border-radius: 50%;
   background: var(--pc, var(--muted));
 }
+/* Platform button (PlatformPicker): `--c` is the platform's brand color. */
 .studio-pbtn {
   display: inline-flex;
   align-items: center;

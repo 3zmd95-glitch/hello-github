@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarPlus, Sparkles } from "lucide-react";
+import { CalendarPlus, Check, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { PlatformPicker, calendarPostHref, withName } from "@/components/social/studio/platform";
@@ -69,7 +69,10 @@ export default function SkillSuggestions() {
           </li>
         )}
         {list.length === 0 ? (
-          <li className="ios-row" data-sep="16" data-testid="ideas-from-skills-empty">
+          <li className="ios-row" data-testid="ideas-from-skills-empty">
+            <span className="ios-ic">
+              <Check size={22} strokeWidth={1.75} aria-hidden />
+            </span>
             <span className="ios-tx">
               <b className="whitespace-normal">{t("ideas.fromSkillsEmpty")}</b>
             </span>

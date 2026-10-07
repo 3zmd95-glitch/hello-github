@@ -1,5 +1,6 @@
 "use client";
 
+import { Check, Clock, Gamepad2, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
 import { useSkillSheet } from "@/components/skills/SkillSheetProvider";
@@ -198,7 +199,8 @@ export default function OverviewTab({
             onClick={suggest}
             data-testid="post-hashtag-suggest"
           >
-            ✨ {t("calendar.sheet.suggestHashtags")}
+            <Sparkles size={15} strokeWidth={1.75} aria-hidden />
+            {t("calendar.sheet.suggestHashtags")}
           </button>
         </div>
         {post.hashtags.length > 0 && (
@@ -269,7 +271,10 @@ export default function OverviewTab({
           />
         </div>
         <p className="text-muted flex flex-wrap items-center gap-2 text-xs">
-          <span>⏰ {t("calendar.form.bestTime", { platform: L(meta.name), time: best })}</span>
+          <span className="inline-flex items-center gap-1">
+            <Clock size={13} strokeWidth={1.75} className="shrink-0" aria-hidden />
+            {t("calendar.form.bestTime", { platform: L(meta.name), time: best })}
+          </span>
           {post.plannedTime !== best && (
             <button
               type="button"
@@ -310,7 +315,7 @@ export default function OverviewTab({
             className="px-inset flex flex-wrap items-center gap-2 text-sm"
             data-testid="post-skill-linked"
           >
-            <span aria-hidden>🎮</span>
+            <Gamepad2 size={18} strokeWidth={1.75} className="text-ink-2 shrink-0" aria-hidden />
             <b className="min-w-0 flex-1 truncate">{L(skill.name)}</b>
             <button
               type="button"
@@ -335,6 +340,7 @@ export default function OverviewTab({
           <SkillPicker testId="post-skill-search" onPick={linkSkill} autoFocus />
         ) : (
           <div className="px-inset flex flex-wrap items-center gap-2 text-sm">
+            <Gamepad2 size={18} strokeWidth={1.75} className="text-ink-2 shrink-0" aria-hidden />
             <span className="text-ink-2 min-w-0 flex-1">{t("calendar.sheet.noSkill")}</span>
             <button
               type="button"
@@ -352,7 +358,10 @@ export default function OverviewTab({
       <section className="cal-posted flex flex-col gap-2" data-testid="post-posted-section">
         {post.stage === "posted" ? (
           <>
-            <h3 className="text-base">✓ {t("calendar.stage.posted")}</h3>
+            <h3 className="flex items-center gap-1.5 text-base">
+              <Check size={18} strokeWidth={2} className="text-tint shrink-0" aria-hidden />
+              {t("calendar.stage.posted")}
+            </h3>
             {post.postedAt && (
               <p className="text-ink-2 text-sm">
                 {t("calendar.sheet.postedAt", { date: formatInstant(post.postedAt, lang) })}
@@ -371,7 +380,11 @@ export default function OverviewTab({
               </a>
             )}
             {produceDone && (
-              <p className="text-accent text-sm font-bold" data-testid="post-quest-done">
+              <p
+                className="text-tint flex items-center gap-1.5 text-sm font-bold"
+                data-testid="post-quest-done"
+              >
+                <Gamepad2 size={16} strokeWidth={1.75} className="shrink-0" aria-hidden />
                 {t("calendar.sheet.questDone")}
               </p>
             )}
@@ -381,7 +394,8 @@ export default function OverviewTab({
               onClick={() => unmarkPosted(post.id)}
               data-testid="post-unmark"
             >
-              ↩ {t("calendar.sheet.undo")}
+              <Undo2 size={15} strokeWidth={1.75} aria-hidden />
+              {t("calendar.sheet.undo")}
             </button>
           </>
         ) : (
@@ -409,6 +423,7 @@ export default function OverviewTab({
                 data-testid="post-url"
               />
               <button type="submit" className="px-btn" data-testid="post-mark-posted">
+                <Check size={17} strokeWidth={2} aria-hidden />
                 {t("calendar.sheet.markPosted")}
               </button>
             </form>
@@ -441,7 +456,8 @@ export default function OverviewTab({
           onClick={() => setConfirm(true)}
           data-testid="post-delete"
         >
-          🗑 {t("calendar.sheet.delete")}
+          <Trash2 size={15} strokeWidth={1.75} aria-hidden />
+          {t("calendar.sheet.delete")}
         </button>
       </div>
 

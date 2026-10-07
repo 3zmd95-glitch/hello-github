@@ -1,6 +1,6 @@
 "use client";
 
-import { FlaskConical, History, MessageCircle } from "lucide-react";
+import { Check, FlaskConical, History, MessageCircle } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
@@ -432,9 +432,14 @@ function Tester({ automations }: { automations: readonly AutoReply[] }) {
           data-testid="autoreplies-tester-result"
           data-match={!!match}
         >
-          {match
-            ? t("replies.tester.match", { name: match.title ?? match.keywords.join(", ") })
-            : t("replies.tester.noMatch")}
+          {match ? (
+            <>
+              <Check size={14} strokeWidth={2} className="me-1 inline align-[-2px]" aria-hidden />
+              {t("replies.tester.match", { name: match.title ?? match.keywords.join(", ") })}
+            </>
+          ) : (
+            t("replies.tester.noMatch")
+          )}
         </p>
       )}
     </Fold>

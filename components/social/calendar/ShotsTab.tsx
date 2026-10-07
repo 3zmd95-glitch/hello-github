@@ -1,5 +1,6 @@
 "use client";
 
+import { Check, Film } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import PxBar from "@/components/ui/PxBar";
 import { SHOT_TYPES, type Post, type ShotType } from "@/lib/domain";
@@ -80,7 +81,7 @@ export default function ShotsTab({ post }: { post: Post }) {
                 data-testid="shot-toggle"
               >
                 <span className="px-check" data-on={shot.done}>
-                  ✓
+                  <Check size={16} strokeWidth={2.5} aria-hidden />
                 </span>
                 <span className="px-chip shrink-0">{t(`calendar.shotType.${shot.type}`)}</span>
                 <span className={`min-w-0 text-sm ${shot.done ? "text-muted line-through" : ""}`}>
@@ -107,7 +108,10 @@ export default function ShotsTab({ post }: { post: Post }) {
           className="px-inset flex flex-wrap items-center gap-2 text-sm"
           data-testid="shots-hint"
         >
-          <span>🎬 {t("calendar.shots.allDone")}</span>
+          <span className="inline-flex items-center gap-1">
+            <Film size={15} strokeWidth={1.75} className="shrink-0" aria-hidden />
+            {t("calendar.shots.allDone")}
+          </span>
           <button
             type="button"
             className="px-btn px-btn-sm ms-auto"
@@ -175,7 +179,7 @@ export default function ShotsTab({ post }: { post: Post }) {
                 }
                 data-testid="broll-item"
               >
-                {on ? "✓ " : ""}
+                {on && <Check size={13} strokeWidth={2} aria-hidden />}
                 {L(item)}
               </button>
             );

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, PenLine, Sparkles, X } from "lucide-react";
+import { ArrowUpRight, Check, PenLine, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useState, type CSSProperties, type FormEvent } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
@@ -281,7 +281,14 @@ export default function PlatformTab({
             disabled={!handle.trim()}
             data-testid="account-save"
           >
-            {saved ? t("growth.account.saved") : t("growth.account.save")}
+            {saved ? (
+              <>
+                <Check size={17} strokeWidth={2} aria-hidden />
+                {t("growth.account.saved")}
+              </>
+            ) : (
+              t("growth.account.save")
+            )}
           </button>
         </form>
       </section>

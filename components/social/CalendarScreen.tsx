@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { Calendar, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToday } from "@/components/today/useToday";
@@ -203,7 +203,10 @@ export default function CalendarScreen() {
 
       {posts.length === 0 && (
         <section className="px-card flex flex-col gap-2" data-testid="calendar-empty">
-          <h2 className="text-lg">{t("calendar.emptyTitle")}</h2>
+          <h2 className="flex items-center gap-2 text-lg">
+            <Calendar size={22} strokeWidth={1.75} className="text-ink-2 shrink-0" aria-hidden />
+            {t("calendar.emptyTitle")}
+          </h2>
           <p className="text-ink-2 text-sm">{t("calendar.emptyBody")}</p>
           <button
             type="button"

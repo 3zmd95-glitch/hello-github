@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowUpRight } from "lucide-react";
 import { useState } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
 import type { Post } from "@/lib/domain";
@@ -45,6 +46,12 @@ export default function TikTokFinishCard({ post }: { post: Post }) {
         rel="noopener noreferrer"
       >
         {t("publish.openApp", { platform: "TikTok" })}
+        <ArrowUpRight
+          size={14}
+          strokeWidth={1.75}
+          className="ms-0.5 inline align-[-2px]"
+          aria-hidden
+        />
       </a>
       <label className="flex flex-col gap-1 text-xs">
         {t("publish.tt.postLink")}

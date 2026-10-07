@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowUpRight, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useSocialSync } from "@/components/social/useSocialSync";
@@ -33,6 +34,7 @@ import {
   type Problem,
 } from "@/lib/publish";
 import { PLATFORM_META } from "@/lib/social";
+import { PlatformGlyph } from "@/lib/platformIcons";
 import { isSocialPlatform } from "@/lib/socialSync";
 import { useStore } from "@/store";
 import { formatInstant } from "./dates";
@@ -339,7 +341,12 @@ export default function AutoPostTab({ post }: { post: Post }) {
                   )}
                   {tooLong && (
                     <p className="text-danger text-xs" data-testid={`autopost-warn-${p}`}>
-                      ⚠️{" "}
+                      <TriangleAlert
+                        size={13}
+                        strokeWidth={1.75}
+                        className="me-1 inline align-[-2px]"
+                        aria-hidden
+                      />
                       {t("publish.warn.tooLong", {
                         platform: L(PLATFORM_META[p].name),
                         limit: CAPTION_MAX[p],
@@ -364,6 +371,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
                         data-testid={`autopost-open-${p}`}
                       >
                         {t("publish.openApp", { platform: L(PLATFORM_META[p].name) })}
+                        <ArrowUpRight size={15} strokeWidth={1.75} aria-hidden />
                       </a>
                     </div>
                   )}
@@ -377,7 +385,10 @@ export default function AutoPostTab({ post }: { post: Post }) {
       {/* YouTube + TikTok options */}
       {auto.platforms.includes("youtube") && (
         <section className="flex flex-col gap-1.5" data-testid="autopost-youtube">
-          <span className="text-ink-2 text-sm font-bold">▶️ {t("publish.yt.title")}</span>
+          <span className="text-ink-2 flex items-center gap-1.5 text-sm font-bold">
+            <PlatformGlyph platform="youtube" size={14} className="shrink-0" />
+            {t("publish.yt.title")}
+          </span>
           <input
             type="text"
             className="px-input"
@@ -450,7 +461,12 @@ export default function AutoPostTab({ post }: { post: Post }) {
         >
           {problems.map((pr, i) => (
             <li key={i}>
-              ⚠️{" "}
+              <TriangleAlert
+                size={13}
+                strokeWidth={1.75}
+                className="me-1 inline align-[-2px]"
+                aria-hidden
+              />
               {t(PROBLEM_KEY[pr.code], {
                 platform: pr.platform ? L(PLATFORM_META[pr.platform].name) : "",
               })}
@@ -545,6 +561,12 @@ function ResultRow({
           data-testid="autopost-result-link"
         >
           {t("publish.openPost")}
+          <ArrowUpRight
+            size={12}
+            strokeWidth={1.75}
+            className="ms-0.5 inline align-[-1px]"
+            aria-hidden
+          />
         </a>
       )}
       {result?.error && (
