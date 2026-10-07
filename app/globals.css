@@ -3043,51 +3043,6 @@
   border-color: color-mix(in srgb, var(--c, var(--accent)) 45%, transparent);
 }
 
-/* Optional-platform toggle around a platform chip. */
-.studio-pfilter {
-  padding: 0;
-  border: 0;
-  background: none;
-  border-radius: 999px;
-  opacity: 0.55;
-}
-.studio-pfilter[aria-pressed="true"] {
-  opacity: 1;
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-/* Segmented control (idea source). */
-.studio-seg {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  padding: 2px;
-  border: 2px solid var(--edge);
-  border-radius: var(--radius-sm);
-  background: var(--panel-2);
-}
-.studio-seg > button {
-  flex: 1 1 auto;
-  min-height: 32px;
-  padding: 2px 10px;
-  border-radius: calc(var(--radius-sm) - 2px);
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--ink-2);
-}
-.studio-seg > button[aria-pressed="true"] {
-  background: var(--accent);
-  color: var(--accent-ink);
-}
-[data-world="social"] .studio-seg {
-  border-width: 1px;
-  border-radius: 999px;
-}
-[data-world="social"] .studio-seg > button {
-  border-radius: 999px;
-}
-
 /* This week's plan: 7 day cells, Saturday first (mockup `.week` / `.day`); a cell with posts is a link. */
 .studio-week {
   display: grid;
@@ -3154,6 +3109,87 @@
   z-index: 2;
   font-size: 0.7rem;
   line-height: 1;
+}
+
+/* Ideas bank (tools/18 §6, mockup Ideas). Filter chips: one line that scrolls sideways on phones and reaches the
+ * screen edges (mockup `.chips`; the padding keeps the chips' shadow), wrapping from md. */
+.ios-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  margin: -2px -16px -4px;
+  padding: 2px 16px 6px;
+}
+.ios-chips::-webkit-scrollbar {
+  display: none;
+}
+@media (min-width: 768px) {
+  .ios-chips {
+    flex-wrap: wrap;
+    overflow: visible;
+    margin: 0;
+    padding: 0;
+  }
+}
+/* The favorite star at a row's end: grey, warn and filled once on; it pops (`ios-pop`) each time it turns on. */
+.ios-starb {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--muted);
+  transition:
+    transform var(--t-fast) var(--out),
+    color var(--t-fast) var(--out);
+}
+.ios-starb[aria-pressed="true"] {
+  color: var(--warn);
+}
+.ios-starb[aria-pressed="true"] svg {
+  fill: var(--warn);
+}
+.ios-starb:active {
+  transform: scale(0.85);
+}
+/* Snap rail (the radar's moments): cards side by side that swipe and snap one at a time, reaching the screen
+ * edges on phones; scroll-padding keeps a snapped card in the 16px gutter and the block padding keeps the cards'
+ * shadow. From md the cards stack in the radar's side column. */
+.ios-rail {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 16px;
+  scrollbar-width: none;
+  margin: -4px -16px -14px;
+  padding: 4px 16px 18px;
+}
+.ios-rail::-webkit-scrollbar {
+  display: none;
+}
+.ios-rail > * {
+  flex: 0 0 72%;
+  scroll-snap-align: start;
+}
+@media (min-width: 768px) {
+  .ios-rail {
+    flex-direction: column;
+    overflow: visible;
+    margin: 0;
+    padding: 0;
+  }
+  .ios-rail > * {
+    flex: none;
+  }
+}
+/* A just-saved idea rises into its list (tools/18 §3.5 "Lists"); reduced motion stops it like every animation. */
+.idea-rise {
+  animation: ios-up var(--t-spring) var(--out) backwards;
 }
 /* ---- /Studio ---- */
 
@@ -3732,11 +3768,10 @@
 }
 /* ---- /Notes vault ---- */
 
-/* 📈 Trend Radar (round 30) */
-/* A row that matches the owner's niche keywords: a gold edge on the reading side (logical, so RTL flips it). */
-.trend-row[data-star="true"] {
-  border-inline-start-width: 4px;
-  border-inline-start-color: var(--gold);
+/* 📈 Trend Radar (round 30): built on the shared iOS rows, chips and rail (tools/18 §6). While the feed loads, the
+ * refresh icon turns like the system spinner (`.ios-ptr`). */
+.trends-refresh[aria-busy="true"] svg {
+  animation: ios-spin 0.8s linear infinite;
 }
 /* ---- /Trend Radar ---- */
 

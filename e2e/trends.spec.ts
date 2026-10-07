@@ -254,7 +254,7 @@ test("the radar reads the Worker feed: tabs, chips, save, plan, dismiss, and the
   await expect.poll(() => fake.gets).toBeGreaterThanOrEqual(1);
 
   // Arabic tab by default: the two Google rows and the mixed TikTok hashtag, keyword row (⭐) first.
-  await expect(page.getByTestId("trends-tab-ar")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("trends-tab-ar")).toHaveAttribute("aria-checked", "true");
   const rows = page.getByTestId("trend-row");
   await expect(rows).toHaveCount(3);
   await expect(rows.first()).toHaveAttribute("data-star", "true");
@@ -387,7 +387,7 @@ test("a volume chip says what its number counts: views on a YouTube row, searche
   // English UI: the same units in English, on the same Arabic tab.
   await switchLang(page, "en");
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await expect(page.getByTestId("trends-tab-ar")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("trends-tab-ar")).toHaveAttribute("aria-checked", "true");
   await expect(views).toHaveAttribute("data-unit", "views");
   await expect(views).toHaveText("105M views");
   await expect(views).not.toContainText("searches");
@@ -424,8 +424,12 @@ test("genre rows name their genre in a chip that links to Discover, and the rada
   const carsAr = page.locator('[data-testid="trend-row"][data-id="youtube:SA:kw:cars-ar"]');
   await expect(food).toHaveCount(1);
   await expect(food).toHaveAttribute("data-star", "false");
-  await expect(food).not.toContainText("⭐");
+  await expect(food.getByTestId("trend-star")).toHaveCount(0);
   await expect(carsAr).toHaveAttribute("data-star", "true");
+  await expect(carsAr.getByRole("img", { name: "يناسب مجالك" })).toHaveAttribute(
+    "data-testid",
+    "trend-star",
+  );
   await expect(carsAr).toHaveAttribute("data-genre", "cars");
   await expect(page.locator('[data-testid="trend-row"][data-star="true"]')).toHaveCount(2);
   await expect(rows.nth(0)).toHaveAttribute("data-id", "google:SA:مونتاج-الايفون");
@@ -686,7 +690,7 @@ test("without a Worker the radar still shows the moments and the manual links, a
   ).toContainText("انستقرام");
 
   // The rest of the ideas bank is untouched, and nothing scrolls sideways.
-  await expect(page.getByTestId("idea-text")).toBeVisible();
+  await expect(page.getByTestId("idea-new")).toBeVisible();
   await expect(page.getByTestId("ideas-from-skills")).toBeVisible();
   expect(await fitsViewport(page)).toBe(true);
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrendItemInput } from "@/lib/domain";
 import { genreIdFromSearch } from "@/lib/genres";
 import { useStore } from "@/store";
@@ -58,7 +58,8 @@ const radar = () => host.querySelector('[data-testid="ideas-trends"]')!;
 const rowEl = (id: string) =>
   host.querySelector<HTMLElement>(`[data-testid="trend-row"][data-id="${id}"]`)!;
 const chipOf = (el: Element) => el.querySelector<HTMLElement>('[data-testid="trend-genre"]');
-/** The ids of the rows with the ⭐, in list order. */
+const starOf = (el: Element) => el.querySelector<HTMLElement>('[data-testid="trend-star"]');
+/** The ids of the rows with the niche star, in list order. */
 const starred = () =>
   [...host.querySelectorAll('[data-testid="trend-row"][data-star="true"]')].map((r) =>
     r.getAttribute("data-id"),
@@ -94,6 +95,14 @@ function click(testId: string, within: ParentNode = host): void {
 
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  // jsdom has no ResizeObserver (the language tabs are a Segmented, which uses one).
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   const s = useStore.getState();
   s.clearTrends();
   s.setSettings({ lang: "ar", apiKeys: { ...s.settings.apiKeys, scoutUrl: "", scoutToken: "" } });
@@ -107,6 +116,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  vi.unstubAllGlobals();
 });
 
 describe("TrendRadar has no genre filter (Discover is the one place for genres)", () => {
@@ -162,7 +172,7 @@ describe("TrendRadar niche star on genre rows", () => {
     feed([...PLAIN, ...GENRE_ROWS]);
     expect(starred()).toEqual([]);
     expect(rowEl("food-ar").getAttribute("data-star")).toBe("false");
-    expect(rowEl("food-ar").textContent).not.toContain("⭐");
+    expect(starOf(rowEl("food-ar"))).toBeNull();
     // Not starred, so the food row stays where its score puts it.
     expect(rowIds()).toEqual(["plain-ar", "cars-ar", "food-ar", "plain-tt"]);
   });
@@ -188,7 +198,8 @@ describe("TrendRadar niche star on genre rows", () => {
       row({ id: "niche", title: "درس دافنشي", score: 1, ...found("دافنشي") }),
     ]);
     expect(starred()).toEqual(["travel-title", "food-niche", "niche"]);
-    expect(rowEl("travel-title").textContent).toContain("⭐");
+    // The star is an icon with a name: "fits your niche".
+    expect(starOf(rowEl("travel-title"))?.getAttribute("aria-label")).toBe("يناسب مجالك");
     expect(rowIds()).toEqual([
       "travel-title",
       "food-niche",

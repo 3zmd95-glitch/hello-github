@@ -633,6 +633,8 @@ export const IdeaSchema = z.object({
   createdAt: z.iso.datetime({ offset: true }),
   /** Set once the idea became a post (useIdea). */
   usedInPostId: z.string().min(1).optional(),
+  /** Starred in the ideas bank (the star button, or a swipe on the row). */
+  favorite: z.boolean().optional(),
 });
 export type Idea = z.infer<typeof IdeaSchema>;
 
