@@ -18,7 +18,8 @@ export interface LessonVideo {
   kind: "example" | "tutorial";
   lang: "en" | "ar";
 }
-/** English first (live fix 1): the Arabic name and how-to only when the model wrote them in Arabic script. */
+/** English first (live fix 1): the Arabic name and how-to only when the model wrote them in Arabic script. The English
+ * how-to is "Shoot: …\nSettings: …\nEdit: …" since live fix 2 (`LESSONS_VERSION` 3). */
 export interface Technique {
   name: { en: string; ar?: string };
   howTo: { en: string; ar?: string };
