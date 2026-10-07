@@ -10,7 +10,7 @@
  *                                 at most 3 spending runs a category a UTC day, forced ones included (note `attempts`).
  *                                 Body `{ force?: boolean }` or empty; anything else is a 400.
  *   GET  /categories/:id/top/tt → a TikTok (or `/ig` Instagram) tab's lists: the stored one and Brave's own group, as
- *                                 Brave gave it, { platform, scan, brave, source, note?, endpoint? } (top.ts
+ *                                 Brave gave it, { platform, scan, brave, source, note?, endpoint?, stats? } (top.ts
  *                                 `braveTop`), never kept (`Cache-Control: no-store`; Brave's terms forbid storing
  *                                 its results)
  *

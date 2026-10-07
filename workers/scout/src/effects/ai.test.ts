@@ -225,6 +225,79 @@ it("without a context line, Trending effects' prompt is exactly as it was: it en
   );
 });
 
+describe("cleanWithAi with a model asked first (a category's cleanup on gpt-oss-120b)", () => {
+  const GPT = "@cf/openai/gpt-oss-120b";
+  const LLAMA = "llama-3.3-70b-instruct-fp8-fast";
+  /** 10 candidates: 2 batches, k0–k8 and k9. */
+  const ten = Array.from({ length: 10 }, (_, i) => ({
+    key: `k${i}`,
+    name: `k${i}`,
+    samples: [`k${i} edit`],
+  }));
+  const keysOf = (input: Record<string, unknown>) =>
+    [...(input.messages as { content: string }[])[1].content.matchAll(/^- key: (\S+) \|/gm)].map(
+      ([, k]) => k,
+    );
+  /** A usable answer: a verdict for each key the batch holds. */
+  const listFor = (input: Record<string, unknown>) => ({
+    response: { effects: keysOf(input).map((k) => verdict(k)) },
+  });
+  const asked = (e: ReturnType<typeof env>) =>
+    e.AI.run.mock.calls.map(([model, input]) => [model, input.max_tokens]);
+
+  it("asks it first with room to reason; a batch it leaves without a list asks llama once; `models` names who answered", async () => {
+    const e = env(async (model, input) =>
+      // gpt-oss answers the first batch, and the second with no `effects` list.
+      model === GPT && !keysOf(input).includes("k0") ? { response: {} } : listFor(input),
+    );
+    expect(await cleanWithAi(e, ten, 1000, undefined, GPT)).toEqual({
+      verdicts: ten.map((c) => verdict(c.key)),
+      rejects: {},
+      failed: 0,
+      models: ["gpt-oss-120b", LLAMA],
+    });
+    expect(asked(e)).toEqual([
+      [GPT, 3000],
+      [GPT, 3000],
+      [AI_MODEL, 1500],
+    ]);
+  });
+
+  it("a model that fails or answers no JSON: llama once; neither answering fails that batch ('none'), all of them null", async () => {
+    const down = env(async (model, input) => {
+      if (model === GPT) throw new Error("down");
+      return keysOf(input).includes("k0") ? listFor(input) : { response: "not json" };
+    });
+    expect(await cleanWithAi(down, ten, 1000, undefined, GPT)).toEqual({
+      verdicts: ten.slice(0, 9).map((c) => verdict(c.key)),
+      rejects: {},
+      failed: 1,
+      models: [LLAMA, "none"],
+    });
+    expect(down.AI.run).toHaveBeenCalledTimes(4);
+    const silent = env(async () => ({ response: {} }));
+    expect(await cleanWithAi(silent, ten, 1000, undefined, GPT)).toBeNull();
+    expect(asked(silent)).toEqual([
+      [GPT, 3000],
+      [GPT, 3000],
+      [AI_MODEL, 1500],
+      [AI_MODEL, 1500],
+    ]);
+  });
+
+  it("without one (Trending effects): llama alone, max_tokens 1500, never asked again, no `models`", async () => {
+    const silent = env(async () => ({ response: {} }));
+    expect(await cleanWithAi(silent, ten)).toBeNull();
+    expect(asked(silent)).toEqual([
+      [AI_MODEL, 1500],
+      [AI_MODEL, 1500],
+    ]);
+    expect(await cleanWithAi(answering([verdict("clone-effect")]), candidates)).not.toHaveProperty(
+      "models",
+    );
+  });
+});
+
 describe("askAi", () => {
   const call = { system: "s", user: "u", schema: {}, maxTokens: 10 };
   it("answers the parsed JSON, whether the model sends text or an object", async () => {

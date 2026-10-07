@@ -69,6 +69,8 @@ const SCHEMA = z.toJSONSchema(Reply);
 const BATCH = 9;
 /** 9 bilingual verdicts run ~800–1,000 tokens (Arabic costs more): the budget and the wait leave room for that. */
 const MAX_TOKENS = 1500;
+/** A model asked first (a category's cleanup: gpt-oss-120b) reasons before it answers: room for that too. */
+const FIRST_TOKENS = 3000;
 const TIMEOUT_MS = 60_000;
 
 const SYSTEM =
@@ -154,14 +156,17 @@ export async function askAi(
  * and zod's code ("what.en:too_small") or "unknown_key" / "unknown_sameAs": never their text. The candidates are asked
  * in parallel batches of 9; `failed` counts the batches with no answer. null when no batch answered (the AI
  * unavailable, slow or answering without a list). A category scan passes `context`, a line added after the
- * instructions ("These posts are about Cars…", planning/tools/19-category-trends.md §2).
+ * instructions ("These posts are about Cars…", planning/tools/19-category-trends.md §2), and `model`, asked first
+ * (gpt-oss-120b): a batch it leaves without a list asks llama once, as the lessons' calls do, and `models` names the
+ * model that answered each batch ("none" when neither did). Without `model` (Trending effects) llama alone, as ever.
  */
 export async function cleanWithAi(
   env: EffectsEnv,
   candidates: readonly Candidate[],
   timeoutMs = TIMEOUT_MS,
   context?: string,
-): Promise<(Cleaned & { failed: number }) | null> {
+  model?: string,
+): Promise<(Cleaned & { failed: number; models?: string[] }) | null> {
   if (!env.AI || !candidates.length) return null;
   const known = new Set(candidates.map((c) => c.key));
   const sorted = [...candidates].sort((a, b) => a.key.localeCompare(b.key));
@@ -169,9 +174,9 @@ export async function cleanWithAi(
     sorted.slice(i * BATCH, (i + 1) * BATCH),
   );
   const replies = await Promise.all(
-    batches.map((b) => cleanBatch(env, b, known, timeoutMs, context)),
+    batches.map((b) => cleanBatch(env, b, known, timeoutMs, context, model)),
   );
-  const answered = replies.filter((r): r is Cleaned => r !== null);
+  const answered = replies.filter((r) => r !== null);
   if (!answered.length) return null;
   const rejects: Record<string, number> = {};
   for (const r of answered)
@@ -180,34 +185,44 @@ export async function cleanWithAi(
     verdicts: answered.flatMap((r) => r.verdicts),
     rejects,
     failed: replies.length - answered.length,
+    ...(model ? { models: replies.map((r) => r?.model ?? "none") } : {}),
   };
 }
 
-/** One call: a batch's checked verdicts (a `sameAs` may name any candidate key), or null with no answer. */
+/** One batch: its checked verdicts (a `sameAs` may name any candidate key) and the model that answered, or null with no
+ * answer. `model` is asked first, then llama once when it gives no list; without one, llama alone. */
 async function cleanBatch(
   env: EffectsEnv,
   candidates: readonly Candidate[],
   known: ReadonlySet<string>,
   timeoutMs: number,
   context?: string,
-): Promise<Cleaned | null> {
+  model?: string,
+): Promise<(Cleaned & { model: string }) | null> {
   const input = candidates
     .map(
       (c) =>
         `- key: ${c.key} | name: ${c.name} | posts: ${c.samples.map((s) => s.slice(0, 100)).join(" / ")}`,
     )
     .join("\n");
-  const data = (await askAi(
-    env,
-    {
-      system: context ? `${SYSTEM} ${context}` : SYSTEM,
-      user: input,
-      schema: SCHEMA,
-      maxTokens: MAX_TOKENS,
-    },
-    timeoutMs,
-  )) as { effects?: unknown } | null;
-  const list = data?.effects;
+  let list: unknown;
+  let used = AI_MODEL;
+  for (const m of model ? [model, AI_MODEL] : [AI_MODEL]) {
+    used = m;
+    const data = (await askAi(
+      env,
+      {
+        system: context ? `${SYSTEM} ${context}` : SYSTEM,
+        user: input,
+        schema: SCHEMA,
+        maxTokens: used === model ? FIRST_TOKENS : MAX_TOKENS,
+      },
+      timeoutMs,
+      used,
+    )) as { effects?: unknown } | null;
+    list = data?.effects;
+    if (Array.isArray(list)) break;
+  }
   if (!Array.isArray(list)) return null;
   const rejects: Record<string, number> = {};
   const count = (why: string) => void (rejects[why] = (rejects[why] ?? 0) + 1);
@@ -230,5 +245,5 @@ async function cleanBatch(
     } else return [v.data];
     return [];
   });
-  return { verdicts, rejects };
+  return { verdicts, rejects, model: used.slice(used.lastIndexOf("/") + 1) };
 }

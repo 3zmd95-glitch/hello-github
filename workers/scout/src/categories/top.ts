@@ -57,7 +57,9 @@ export interface TopEnv extends EffectsEnv {
 }
 
 /** `GET /categories/:id/top/:platform`: the stored list (`scan`) and Brave's own group (`brave`, `source: "brave"`), or
- * the stored list alone and why (`source: "scan"`). */
+ * the stored list alone and why (`source: "scan"`). `stats`, with Brave's group only, says what Brave sent (its raw
+ * results across pages and sections, and how many came from each of the 8 most seen hosts), for the live checks; the
+ * dashboard ignores it. */
 export interface TopAnswer {
   platform: BravePlatform;
   scan: TopVideo[];
@@ -65,6 +67,7 @@ export interface TopAnswer {
   source: "brave" | "scan";
   note?: "no_key" | "brave_failed" | "daily_cap";
   endpoint?: "videos" | "web";
+  stats?: { raw: number; hosts: Record<string, number> };
 }
 
 type Reply = { status: number; body: unknown };
@@ -297,33 +300,63 @@ function braveVideo(x: unknown, platform: BravePlatform): TopVideo[] {
 const results = (x: unknown): unknown[] =>
   isRecord(x) && Array.isArray(x.results) ? x.results : [];
 
-/** One of Brave's endpoints: its page size and its answer's sections of results, in the order they are shown. */
+/** One of Brave's endpoints: its page size, the most pages a tab asks, and its answer's sections of results, in the
+ * order they are shown. */
 type Endpoint = {
+  name: NonNullable<TopAnswer["endpoint"]>;
   url: string;
   count: number;
+  pages: number;
   sections: (body: Record<string, unknown>) => unknown[][];
 };
-const VIDEOS: Endpoint = { url: BRAVE_VIDEOS_URL, count: TOP_MAX, sections: (b) => [results(b)] };
-/** The web search's own results, then its video results (sections never interleaved). */
+/** First: the web search honours `site:`. Its own results, then its video results (sections never interleaved). */
 const WEB: Endpoint = {
+  name: "web",
   url: BRAVE_WEB_URL,
   count: WEB_COUNT,
+  pages: 3,
   sections: (b) => [results(b.web), results(b.videos)],
 };
-/** The video endpoint's answers that mean "not in the plan": the web search instead (401 is a bad key: no fallback). */
+/** The fallback: live, it matched no TikTok or Instagram post (it seems to ignore `site:`). */
+const VIDEOS: Endpoint = {
+  name: "videos",
+  url: BRAVE_VIDEOS_URL,
+  count: TOP_MAX,
+  pages: 2,
+  sections: (b) => [results(b)],
+};
+/** The web search's answers that mean "not in the plan": the video search instead (401 is a bad key: no fallback). */
 const NOT_IN_PLAN = new Set([403, 404, 422]);
+const HOSTS_MAX = 8;
+
+/** How many of the raw results came from each host, the 8 most seen first (ties as first seen); a result whose link
+ * does not parse counts for none. */
+function hostCounts(raw: unknown[]): Record<string, number> {
+  const n = new Map<string, number>();
+  for (const x of raw) {
+    if (!isRecord(x) || typeof x.url !== "string") continue;
+    try {
+      const host = new URL(x.url).hostname;
+      n.set(host, (n.get(host) ?? 0) + 1);
+    } catch {
+      // No link: counted in `raw` alone.
+    }
+  }
+  return Object.fromEntries([...n].sort((a, b) => b[1] - a[1]).slice(0, HOSTS_MAX));
+}
 
 /**
  * A TikTok or Instagram tab's list, asked when the page opens the tab: the stored list (`scan`) and, apart, Brave's
  * matches (`brave`) in Brave's own order, as Brave gave them (Brave's terms bar modifying results): never sorted,
- * never interleaved, the posts the stored list already holds left out, 50 in all. Brave's video search for the
- * category's main query on the platform's site over the last month, in English; a second page only when the first was
- * full, Brave has more and fewer than needed matched. The video endpoint refused with 403, 404 or 422 (not in the
- * plan) gives way to Brave's web search, its web results then its video results (20 a page, the same pages). At most
- * `BRAVE_DAILY` requests a UTC day, counted in KV: reserved before the first request and corrected after
+ * never interleaved, the posts the stored list already holds left out, 50 in all. Brave's web search for the
+ * category's main query on the platform's site over the last month, in English: its web results, then its video
+ * results, up to 3 pages of 20; another page only when the last had 20 web results, Brave has more and fewer than
+ * needed matched. The web search refused with 403, 404 or 422 (not in the plan) gives way to Brave's video search (50
+ * a page, up to 2 pages, the same rules), which live matched no TikTok or Instagram post. At most `BRAVE_DAILY`
+ * requests a UTC day, counted in KV: 3 (or what is left) reserved before the first request and corrected after
  * (best-effort, as Discover's YouTube counter, over-counting when two opens overlap). Without the key or with
  * `BRAVE_DAILY` "0" (`no_key`), past the day's requests (`daily_cap`), or when Brave fails (`brave_failed`: 401 and
- * 429 included), the stored list alone. Nothing Brave answered is written anywhere.
+ * 429 included), the stored list alone. Nothing Brave answered is written anywhere: `stats` is in the answer only.
  */
 export async function braveTop(
   env: TopEnv,
@@ -361,7 +394,7 @@ export async function braveTop(
       // Best-effort, as reading it.
     }
   };
-  const planned = Math.min(2, left);
+  const planned = Math.min(3, left);
   await count(planned);
   const q = `${g.queries.en[0]} site:${PLATFORM_DOMAIN[platform]}`;
   const headers = { Accept: "application/json", "X-Subscription-Token": key };
@@ -380,11 +413,11 @@ export async function braveTop(
         return true;
       });
   };
-  /** An endpoint's matches, or the first page's failure, its status (-1: the day has no request left for it). */
-  const ask = async (e: Endpoint): Promise<TopVideo[] | number> => {
+  /** An endpoint's answered pages, or the first page's failure, its status (-1: the day has no request left for it). */
+  const ask = async (e: Endpoint): Promise<Record<string, unknown>[] | number> => {
     const bodies: Record<string, unknown>[] = [];
-    for (let offset = 0; offset < 2; offset++) {
-      if (made >= left) return offset ? matches(e, bodies) : -1;
+    for (let offset = 0; offset < e.pages; offset++) {
+      if (made >= left) return offset ? bodies : -1;
       made++;
       const params = {
         q,
@@ -396,7 +429,7 @@ export async function braveTop(
       };
       const r = await getJson(doFetch, withParams(e.url, params), headers, timeoutMs);
       if (!answered(r)) {
-        // A second page that fails keeps the first's.
+        // A later page that fails keeps the ones before.
         if (offset) break;
         return r.status;
       }
@@ -405,21 +438,23 @@ export async function braveTop(
       const more = !isRecord(r.body.query) || r.body.query.more_results_available !== false;
       if (!full || !more || matches(e, bodies).length >= need) break;
     }
-    return matches(e, bodies);
+    return bodies;
   };
-  let endpoint: NonNullable<TopAnswer["endpoint"]> = "videos";
-  let found = await ask(VIDEOS);
+  let served = WEB;
+  let found = await ask(WEB);
   if (typeof found === "number" && NOT_IN_PLAN.has(found)) {
-    endpoint = "web";
-    found = await ask(WEB);
+    served = VIDEOS;
+    found = await ask(VIDEOS);
   }
   if (made !== planned) await count(made);
   if (typeof found === "number") return alone(found === -1 ? "daily_cap" : "brave_failed");
+  const raw = found.flatMap(served.sections).flat();
   return {
     platform,
     scan,
-    brave: found.slice(0, Math.max(0, need)),
+    brave: matches(served, found).slice(0, Math.max(0, need)),
     source: "brave",
-    endpoint,
+    endpoint: served.name,
+    stats: { raw: raw.length, hosts: hostCounts(raw) },
   };
 }
