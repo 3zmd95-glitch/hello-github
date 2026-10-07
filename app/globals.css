@@ -3442,7 +3442,6 @@
   .ar-editor .ios-list {
     background: var(--panel-2);
     box-shadow: none;
-    border-radius: 14px;
   }
   .ar-editor .ios-row {
     min-height: 50px;
@@ -3454,8 +3453,9 @@
   .ar-editor :is(button.ios-row:active, .ar-fold > summary:active > .ios-row) {
     background: var(--fill);
   }
-  /* Remove buttons: a keyword chip's ✕ (a 32 × 44 hit area: it stops short of the field beside it), a reply's or a
-     link's ✕ (44px). */
+  /* Remove buttons: a reply's or a link's ✕ (44px), and a keyword chip's ✕. The chip's hit area is 40 × 36: 16px back
+     over its own label and 2px past the chip's end (the next chip is 6px away), 6px over and under the 24px chip (the
+     rows wrap 12px apart), so a tap on a neighbouring chip, beside or below, never removes this one. */
   .ar-chip-x {
     position: relative;
     display: grid;
@@ -3469,7 +3469,8 @@
   .ar-chip-x::after {
     content: "";
     position: absolute;
-    inset: -12px -6px;
+    inset-block: -8px;
+    inset-inline: -16px -4px;
   }
   .ar-chip-x:active {
     transform: scale(0.85);
@@ -3523,7 +3524,6 @@
     background: var(--accent);
     color: var(--accent-ink);
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-    animation: ios-pop 0.45s var(--spring);
   }
 
   /* Automations rows: the head line (badge, title over time, chip, chevron) is the link to the post; its networks

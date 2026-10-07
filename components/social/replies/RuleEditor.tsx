@@ -3,9 +3,7 @@
 import { Check, Megaphone, MessageCircle, Pin, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import Chip from "@/components/ui/ios/Chip";
-import { ListRow } from "@/components/ui/ios/List";
 import { useSheetClose } from "@/components/ui/ios/Sheet";
-import Switch from "@/components/ui/ios/Switch";
 import type { AutoReply, SocialPostStat, SocialStatusMap } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import {
@@ -22,6 +20,7 @@ import {
 import Fold from "./Fold";
 import PhonePreview from "./PhonePreview";
 import PostGrid, { type PostTile } from "./PostGrid";
+import SwitchRow from "./SwitchRow";
 
 const PROBLEM_KEY: Record<ReplyProblemCode, MessageKey> = {
   noKeywords: "replies.problem.noKeywords",
@@ -47,38 +46,6 @@ const TARGET_ICON: Record<Target, ReactNode> = {
   message: <MessageCircle size={20} strokeWidth={1.75} aria-hidden />,
 };
 const NO_POST = { postId: null, permalink: undefined, title: undefined, thumbUrl: undefined };
-
-/** A labelled on/off row inside an editor (an inset list of one). */
-export function SwitchRow({
-  label,
-  checked,
-  onChange,
-  disabled,
-  testId,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (on: boolean) => void;
-  disabled?: boolean;
-  testId: string;
-}) {
-  return (
-    <div className="ios-list">
-      <ListRow
-        title={label}
-        trailing={
-          <Switch
-            checked={checked}
-            onChange={onChange}
-            label={label}
-            disabled={disabled}
-            testId={testId}
-          />
-        }
-      />
-    </div>
-  );
-}
 
 /**
  * The rule editor (Beacons style, round 34; in an iOS sheet since round 35): trigger choices (a chosen post from a
@@ -218,7 +185,9 @@ export default function RuleEditor({
           {/* Keywords */}
           <section className="flex flex-col gap-2">
             <span className="text-ink-2 text-sm font-bold">{t("replies.form.keywords")}</span>
-            <div className="flex flex-wrap items-center gap-1.5">
+            {/* 12px between wrapped rows: each chip's ✕ hit area reaches 6px over and under its chip, never into the
+                row next to it (globals.css `.ar-chip-x`). */}
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-3">
               {draft.keywords.map((k) => (
                 <Chip key={k} className="pe-0.5" data-testid="autoreply-keyword-chip">
                   <span dir="auto">{k}</span>

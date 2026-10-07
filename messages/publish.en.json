@@ -105,6 +105,7 @@
   "publish.hub.manualTitle": "Post these yourself",
   "publish.hub.manualSub": "Posts with X or Snapchat: copy the caption and open the app when it is time, then mark the post posted.",
   "publish.hub.manualOver": "⚠️ Over the {platform} limit",
+  "publish.hub.copied": "Copied",
   "publish.hub.remoteTitle": "On the Worker from another device",
   "publish.hub.remoteSub": "Posts scheduled from your phone or another browser, or before this browser was cleared. Follow them and cancel them here.",
   "publish.hub.remoteNoLabel": "Post without a caption",

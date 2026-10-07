@@ -2,7 +2,8 @@
 
 import { FlaskConical, History, MessageCircle } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Chip from "@/components/ui/ios/Chip";
 import { ListGroup, ListRow } from "@/components/ui/ios/List";
@@ -77,11 +78,7 @@ export default function AutoRepliesScreen() {
   const [editing, setEditing] = useState<Editing>(null);
   const [pendingDelete, setPendingDelete] = useState<AutoReply | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // Opening an editor takes the page behind the sheet back to its top, where the saved note and the errors show once
-  // the sheet closes (Edit tapped far down a phone page included).
-  useEffect(() => {
-    if (editing) window.scrollTo(0, 0);
-  }, [editing]);
+  const { toast } = useCelebrate();
 
   const ig = status?.instagram;
   const automations = doc?.automations ?? [];
@@ -99,18 +96,21 @@ export default function AutoRepliesScreen() {
   const loading = configured && busy && !error;
 
   const saved = () => setNotice(t("replies.notice.saved"));
-  /** The editors close themselves (with the sheet's exit) once this says the Worker took it. */
+  /**
+   * The editors close themselves (with the sheet's exit) once this says the Worker took it. The page behind the sheet
+   * never moves, so a toast confirms the save wherever the owner is.
+   */
+  const savedToast = (ok: boolean) => {
+    if (ok) toast("notice", { name: t("replies.toast.saved") });
+    return ok;
+  };
   const saveRule = async (a: AutoReply) => {
     setNotice(null);
-    const ok = await saveReply(a);
-    if (ok) saved();
-    return ok;
+    return savedToast(await saveReply(a));
   };
   const saveDefault = async (d: { enabled: boolean; text: string }) => {
     setNotice(null);
-    const ok = await saveSettings({ defaultReply: d });
-    if (ok) saved();
-    return ok;
+    return savedToast(await saveSettings({ defaultReply: d }));
   };
   /** A row's On/Off: never touches an open editor. */
   const toggle = async (a: AutoReply) => {

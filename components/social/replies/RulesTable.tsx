@@ -223,7 +223,11 @@ function Row({
   );
 }
 
-/** The ⋯ menu, a `<details>` popover: picking an item closes it, and so does a tap elsewhere or Escape. */
+/**
+ * The ⋯ menu, a `<details>` popover: picking an item closes it, and so does a tap elsewhere or Escape. A pick or Escape
+ * first hands focus to the ⋯ button, so it does not drop to <body> with the hidden item (an editor sheet opened by the
+ * pick gives focus back to that button when it closes).
+ */
 function RowMenu({ label, children }: { label: string; children: ReactNode }) {
   const ref = useRef<HTMLDetailsElement>(null);
   const [open, setOpen] = useState(false);
@@ -236,18 +240,20 @@ function RowMenu({ label, children }: { label: string; children: ReactNode }) {
     document.addEventListener("pointerdown", away);
     return () => document.removeEventListener("pointerdown", away);
   }, [open]);
+  const shut = (el: HTMLDetailsElement) => {
+    el.querySelector("summary")?.focus();
+    el.open = false;
+  };
   return (
     <details
       ref={ref}
       className="ar-menu"
       onToggle={(e) => setOpen(e.currentTarget.open)}
       onClick={(e) => {
-        if ((e.target as Element).closest(".ar-pop button")) e.currentTarget.open = false;
+        if ((e.target as Element).closest(".ar-pop button")) shut(e.currentTarget);
       }}
       onKeyDown={(e) => {
-        if (e.key !== "Escape" || !e.currentTarget.open) return;
-        e.currentTarget.open = false;
-        e.currentTarget.querySelector("summary")?.focus();
+        if (e.key === "Escape" && e.currentTarget.open) shut(e.currentTarget);
       }}
     >
       <summary aria-label={label} data-testid="autoreply-menu">

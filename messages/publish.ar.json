@@ -105,6 +105,7 @@
   "publish.hub.manualTitle": "عليك تنشرها بنفسك",
   "publish.hub.manualSub": "منشورات فيها X أو سناب شات: انسخ الكابشن وافتح التطبيق في وقتها، وبعدين علّمها منشورة من البوست.",
   "publish.hub.manualOver": "⚠️ أطول من حد {platform}",
+  "publish.hub.copied": "انتسخ",
   "publish.hub.remoteTitle": "على الـ Worker من جهاز ثاني",
   "publish.hub.remoteSub": "منشورات انجدولت من جوالك أو من متصفح ثاني، أو قبل ما تنمسح بيانات هذا المتصفح. تقدر تتابعها وتلغيها من هنا.",
   "publish.hub.remoteNoLabel": "منشور بدون كابشن",

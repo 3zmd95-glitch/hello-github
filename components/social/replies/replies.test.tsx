@@ -91,9 +91,19 @@ describe("RulesTable", () => {
   });
 
   it("closes the ⋯ menu once an item is picked, on a tap elsewhere, and on Escape", () => {
+    const onEdit = vi.fn();
     const onDelete = vi.fn();
-    const { host, rules } = table(vi.fn(), onDelete);
+    const { host, rules } = table(onEdit, onDelete);
     const menu = host.querySelector<HTMLDetailsElement>('[data-id="a"] details')!;
+    const summary = menu.querySelector("summary")!;
+
+    // A pick hands focus to the ⋯ button before the item hides (an editor sheet restores focus there on close).
+    openMenu(menu);
+    act(() => menu.querySelector<HTMLButtonElement>('[data-testid="autoreply-edit"]')!.focus());
+    act(() => menu.querySelector<HTMLButtonElement>('[data-testid="autoreply-edit"]')!.click());
+    expect(onEdit).toHaveBeenCalledWith(rules[0]);
+    expect(menu.open).toBe(false);
+    expect(document.activeElement).toBe(summary);
 
     openMenu(menu);
     act(() => menu.querySelector<HTMLButtonElement>('[data-testid="autoreply-delete"]')!.click());
@@ -107,9 +117,10 @@ describe("RulesTable", () => {
     expect(menu.open).toBe(false);
 
     openMenu(menu);
-    const summary = menu.querySelector("summary")!;
+    const item = menu.querySelector<HTMLButtonElement>('[data-testid="autoreply-delete"]')!;
+    act(() => item.focus());
     act(() => {
-      summary.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      item.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
     expect(menu.open).toBe(false);
     expect(document.activeElement).toBe(summary);

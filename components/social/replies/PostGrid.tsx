@@ -55,7 +55,7 @@ export default function PostGrid({
             </span>
           )}
           {value === p.postId && (
-            <span className="ar-tile-check">
+            <span className="ar-tile-check ios-pop">
               <Check size={13} strokeWidth={3} aria-hidden />
             </span>
           )}

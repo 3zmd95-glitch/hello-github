@@ -11,7 +11,7 @@ import {
   utf8Bytes,
   type ReplyProblemCode,
 } from "@/lib/replies";
-import { SwitchRow } from "./RuleEditor";
+import SwitchRow from "./SwitchRow";
 
 const PROBLEM_KEY: Partial<Record<ReplyProblemCode, MessageKey>> = {
   noDm: "replies.problem.noDm",

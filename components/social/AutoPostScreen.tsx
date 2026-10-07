@@ -314,7 +314,8 @@ function ManualRow({ post }: { post: Post }) {
   const copy = async (p: Platform) => {
     try {
       await navigator.clipboard.writeText(captionFor(post, auto, p));
-      toast("notice", { name: t("calendar.sheet.copied") });
+      // The Social toast draws its own check, so the text carries none; silent, as the old inline label was.
+      toast("notice", { name: t("publish.hub.copied"), sound: null });
     } catch {
       // The browser refused the clipboard: nothing was copied, so nothing to say.
     }
