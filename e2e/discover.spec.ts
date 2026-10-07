@@ -209,10 +209,12 @@ const topVideo = (platform: "yt" | "tt" | "ig", n: number) => ({
   views: (60 - n) * 12_345,
   ...(platform === "ig" ? {} : { thumbnail: "https://example.com/t.jpg" }),
 });
-/** Brave's TikTok answer (`GET /categories/cars/top/tt`): 30 posts, asked when the tab opens. */
+/** Brave's TikTok answer (`GET /categories/cars/top/tt`): no stored post, Brave's group of 30, asked when the tab is
+ * chosen. */
 const TOP_TIKTOK = {
   platform: "tt",
-  items: Array.from({ length: 30 }, (_, i) => topVideo("tt", i + 1)),
+  scan: [],
+  brave: Array.from({ length: 30 }, (_, i) => topVideo("tt", i + 1)),
   source: "brave",
   endpoint: "videos",
 };
@@ -287,7 +289,7 @@ async function stubWorker(
     if (url.pathname === "/categories/cars/top/tt") return reply(TOP_TIKTOK);
     if (url.pathname === "/categories/cars/top/ig") {
       const ig = (category as { top?: { ig?: unknown[] } }).top?.ig ?? [];
-      return reply({ platform: "ig", items: ig, source: "scan", note: "no_key" });
+      return reply({ platform: "ig", scan: ig, brave: [], source: "scan", note: "no_key" });
     }
     if (url.pathname === "/discover" && req.method() === "POST") {
       const body = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
@@ -1021,7 +1023,7 @@ test("Discover v2: a full category page at 375 px never scrolls sideways; its ch
   expect(await fitsViewport(page)).toBe(true);
 });
 
-test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikTok loads on open, the page never scrolls sideways", async ({
+test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikTok loads when chosen, Brave credited, the page never scrolls sideways", async ({
   page,
 }) => {
   await stubWorker(page, () => ANSWER, CATEGORY_CARS_FULL);
@@ -1049,14 +1051,30 @@ test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikT
   }
   expect(await fitsViewport(page)).toBe(true);
 
-  // TikTok: asked once, when its tab opens.
-  const asked = page.waitForRequest((r) => r.url() === `${WORKER}/categories/cars/top/tt`);
-  await top.locator('[data-testid="category-top-tab"][data-platform="tt"]').click();
-  await asked;
-  await expect(top.locator('[data-testid="category-top-tab"][data-platform="tt"]')).toHaveAttribute(
-    "data-count",
-    "30",
+  // TikTok (C7): arrowing onto it asks nothing; Enter chooses it and asks Brave once.
+  const ttTab = top.locator('[data-testid="category-top-tab"][data-platform="tt"]');
+  let topAsks = 0;
+  page.on("request", (r) => {
+    if (r.url() === `${WORKER}/categories/cars/top/tt`) topAsks++;
+  });
+  await tabs.nth(0).focus();
+  await page.keyboard.press("ArrowLeft"); // forward, right to left
+  await expect(ttTab).toBeFocused();
+  await expect(ttTab).toHaveAttribute("aria-selected", "false");
+  expect(topAsks).toBe(0);
+  const asked = page.waitForRequest(
+    (r) => r.url() === `${WORKER}/categories/cars/top/tt` && r.method() === "GET",
   );
+  await page.keyboard.press("Enter");
+  await asked;
+  await expect(ttTab).toHaveAttribute("aria-selected", "true");
+  await expect(ttTab).toHaveAttribute("data-count", "30");
+  // Brave's group, credited under it (C2, C3).
+  await expect(top.getByTestId("category-top-brave")).toHaveText("أكثر من Brave Search");
+  const credit = top.getByTestId("category-top-credit").locator("a");
+  await expect(credit).toHaveText("النتائج من Brave Search");
+  await expect(credit).toHaveAttribute("href", "https://brave.com/search/api/");
+  await expect(credit).toHaveAttribute("target", "_blank");
   await expect(top.locator('[data-testid="category-top-item"][data-platform="tt"]')).toHaveCount(
     12,
   );

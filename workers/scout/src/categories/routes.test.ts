@@ -227,8 +227,8 @@ describe("/categories routes", () => {
     expect(fetchMock).toHaveBeenCalledTimes(7);
     const forced = await handle(run("cars", '{"force":true}'), env, undefined, deps);
     expect(await forced.json()).toEqual(answer(storedDoc(kv)));
-    // The day's YouTube list was empty, so the forced scan asks again.
-    expect(fetchMock).toHaveBeenCalledTimes(14);
+    // Scan again keeps the stored YouTube list, empty as it is (C1): its 6 Tavily searches alone.
+    expect(fetchMock).toHaveBeenCalledTimes(13);
     expect(writes(kv)).toEqual([ATTEMPTS, KEY, ATTEMPTS, KEY]);
     expect(kv.store.get(ATTEMPTS)).toBe("2");
   });
@@ -279,7 +279,7 @@ describe("GET /categories/:id/top/:platform (§6: Brave on demand, never stored)
       String(input).startsWith(BRAVE_VIDEOS_URL) ? json({ results: [HIT] }) : json({}, 404),
     );
 
-  it("Bearer like the others; TikTok and Instagram only; Brave's list merged with the stored one, kept nowhere", async () => {
+  it("Bearer like the others; TikTok and Instagram only; the stored list and Brave's own group, kept nowhere", async () => {
     const { env, kv } = setup({ ...DOC, top });
     env.BRAVE_API_KEY = "brave-test-key";
     const fetchMock = braveFetch();
@@ -304,25 +304,26 @@ describe("GET /categories/:id/top/:platform (§6: Brave on demand, never stored)
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe(APP);
     // No copy kept anywhere, the browser's cache included (Brave's terms).
     expect(res.headers.get("Cache-Control")).toBe("no-store");
+    // The stored list, then Brave's group as Brave gave it (its title as written).
     expect(await res.json()).toEqual({
       platform: "tt",
-      items: [
+      scan: [SCAN],
+      brave: [
         {
           url: HIT.url,
-          title: "Car edit 1",
+          title: "Car edit 1 | TikTok",
           creator: "car1",
           views: 4200,
           thumbnail: HIT.thumbnail.src,
         },
-        SCAN,
       ],
       source: "brave",
       endpoint: "videos",
     });
-    // 1 match: 2 pages. The only KV write is the day's counter.
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(writes(kv)).toEqual(["brave:count:2026-10-07"]);
-    expect(kv.store.get("brave:count:2026-10-07")).toBe("2");
+    // 1 result, fewer than asked for: 1 page. The only KV writes are the day's counter: 2 reserved, then 1.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(writes(kv)).toEqual(["brave:count:2026-10-07", "brave:count:2026-10-07"]);
+    expect(kv.store.get("brave:count:2026-10-07")).toBe("1");
     expect(JSON.stringify([...kv.store.values()])).not.toContain("car1");
   });
 
@@ -331,12 +332,19 @@ describe("GET /categories/:id/top/:platform (§6: Brave on demand, never stored)
     const fetchMock = braveFetch();
     const deps = { fetch: fetchMock, now: () => NOW };
     const res = await handle(req("/categories/cars/top/ig"), env, undefined, deps);
-    expect(await res.json()).toEqual({ platform: "ig", items: [], source: "scan", note: "no_key" });
+    expect(await res.json()).toEqual({
+      platform: "ig",
+      scan: [],
+      brave: [],
+      source: "scan",
+      note: "no_key",
+    });
     expect(
       await (await handle(req("/categories/cars/top/tt"), env, undefined, deps)).json(),
     ).toEqual({
       platform: "tt",
-      items: [SCAN],
+      scan: [SCAN],
+      brave: [],
       source: "scan",
       note: "no_key",
     });
@@ -345,7 +353,11 @@ describe("GET /categories/:id/top/:platform (§6: Brave on demand, never stored)
     const never = setup();
     never.env.BRAVE_API_KEY = "brave-test-key";
     const fresh = await handle(req("/categories/cars/top/tt"), never.env, undefined, deps);
-    expect(await fresh.json()).toMatchObject({ source: "brave", items: [{ url: HIT.url }] });
+    expect(await fresh.json()).toMatchObject({
+      source: "brave",
+      scan: [],
+      brave: [{ url: HIT.url }],
+    });
   });
 });
 

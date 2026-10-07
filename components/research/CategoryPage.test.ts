@@ -660,9 +660,21 @@ describe("the 🏆 top videos per platform (§6)", () => {
     act(() => tab(p).click());
     await settle();
   };
-  const brave = (p: "tt" | "ig", items: unknown[], note?: string) => ({
-    body: { platform: p, items, source: note ? "scan" : "brave", ...(note ? { note } : {}) },
+  /** The Worker's answer with Brave's group (`brave`, as Brave gave it) beside the stored list (`scan`). */
+  const fromBrave = (p: "tt" | "ig", brave: unknown[], scan: unknown[] = []) => ({
+    body: { platform: p, scan, brave, source: "brave", endpoint: "videos" },
   });
+  /** The Worker's answer without Brave: the stored list and why. */
+  const alone = (p: "tt" | "ig", scan: unknown[], note: string) => ({
+    body: { platform: p, scan, brave: [], source: "scan", note },
+  });
+  const press = async (key: string) => {
+    act(() => {
+      document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    });
+    await settle();
+  };
+  const selected = () => tabs().find((b) => b.getAttribute("aria-selected") === "true")!;
 
   it("after the 🔥 row: YouTube · TikTok · Instagram with their counts; 12 show, Show more adds 12", async () => {
     page = docOf({ top: TOP });
@@ -683,7 +695,7 @@ describe("the 🏆 top videos per platform (§6)", () => {
     const panel = $("category-top-panel")!;
     expect(panel.getAttribute("role")).toBe("tabpanel");
     expect(panel.getAttribute("aria-labelledby")).toBe(tab("yt").id);
-    // Best first, 12 at a time, as Discover's result cards: views and the creator when known.
+    // YouTube's most viewed first, 12 at a time, as Discover's result cards: views and the creator when known.
     expect(titles()).toEqual(TOP.yt.slice(0, 12).map((v) => v.title));
     const first = items()[0];
     expect(first.querySelector('[data-testid="result-stats"]')!.getAttribute("data-views")).toBe(
@@ -698,6 +710,9 @@ describe("the 🏆 top videos per platform (§6)", () => {
     act(() => more()!.click());
     expect(items()).toHaveLength(30);
     expect(more()).toBeNull();
+    // No Brave group, and no credit, on YouTube.
+    expect($("category-top-brave")).toBeNull();
+    expect($("category-top-credit")).toBeNull();
     // A video plays in the app's player.
     act(() => first.querySelector<HTMLElement>('[data-testid="result-play"]')!.click());
     expect(calls.played[0]).toMatchObject({
@@ -708,12 +723,11 @@ describe("the 🏆 top videos per platform (§6)", () => {
     expect(topAsked).toEqual([]);
   });
 
-  it("TikTok loads on its first open, once a visit: 'Loading…', then Brave's list", async () => {
+  it("TikTok loads on its first open, once a visit: 'Loading…', then Brave's group", async () => {
     page = docOf({ top: TOP });
     let release!: () => void;
     topGate = new Promise<void>((r) => (release = r));
-    const tt = [topVideo("tt", 1, 900), topVideo("tt", 2)];
-    topAnswers = { tt: brave("tt", tt) };
+    topAnswers = { tt: fromBrave("tt", [topVideo("tt", 1, 900), topVideo("tt", 2)]) };
     await mount("en");
     await open("tt");
     expect(tab("tt").getAttribute("aria-selected")).toBe("true");
@@ -730,7 +744,60 @@ describe("the 🏆 top videos per platform (§6)", () => {
     expect(topAsked).toEqual(["tt"]);
   });
 
-  it("says why a list is the scan's alone: Brave not connected (TikTok), out of reach, or today's searches used up", async () => {
+  it("C2, C3: the scan's list, then 'More from Brave Search' in Brave's order, 12 at a time across both, Brave credited under its group", async () => {
+    const scan = [1, 2, 3].map((n) => topVideo("tt", 100 + n));
+    // Brave's order, its least viewed first: never sorted by views.
+    const brave = Array.from({ length: 14 }, (_, i) => topVideo("tt", i + 1, (i + 1) * 1000));
+    page = docOf({ top: { ...TOP, tt: scan } });
+    topAnswers = { tt: fromBrave("tt", brave, scan) };
+    await mount("en");
+    await open("tt");
+    expect(tab("tt").dataset.count).toBe("17");
+    expect(titles()).toEqual([
+      ...scan.map((v) => v.title),
+      ...brave.slice(0, 9).map((v) => v.title),
+    ]);
+    const group = $("category-top-brave")!;
+    expect(group.textContent).toBe("More from Brave Search");
+    // The group's heading sits between the stored list and Brave's.
+    const order = all("category-top-item").concat(group);
+    expect(order.indexOf(group)).toBe(order.length - 1);
+    expect(
+      group.compareDocumentPosition(items()[2]) & Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+    expect(
+      group.compareDocumentPosition(items()[3]) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // The credit under Brave's group, outside the status line: Brave's page, in a new tab.
+    const credit = $("category-top-credit")!;
+    const link = credit.querySelector("a")!;
+    expect(link.textContent).toBe("Powered by Brave Search");
+    expect(link.getAttribute("href")).toBe("https://brave.com/search/api/");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    expect(credit.closest('[role="status"]')).toBeNull();
+    expect(
+      items()[11].compareDocumentPosition(credit) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(more()!.textContent).toBe("Show more (5)");
+    act(() => more()!.click());
+    expect(titles()).toEqual([...scan, ...brave].map((v) => v.title));
+    expect(more()).toBeNull();
+    // Brave's items play in the app's player too.
+    act(() => items()[3].querySelector<HTMLElement>('[data-testid="result-play"]')!.click());
+    expect(calls.played[0]).toMatchObject({ platform: "tt", url: brave[0].url });
+  });
+
+  it("in Arabic, Brave's credit reads 'النتائج من Brave Search', its group 'أكثر من Brave Search'", async () => {
+    page = docOf({ top: TOP });
+    topAnswers = { tt: fromBrave("tt", [topVideo("tt", 1)]) };
+    await mount("ar");
+    await open("tt");
+    expect($("category-top-brave")!.textContent).toBe("أكثر من Brave Search");
+    expect($("category-top-credit")!.textContent).toBe("النتائج من Brave Search");
+  });
+
+  it("says why a list is the scan's alone: Brave not connected (TikTok), out of reach, or today's searches used up; no credit", async () => {
     page = docOf({ top: { ...TOP, tt: [topVideo("tt", 9)] } });
     const lines = [
       ["no_key", "More TikTok results once Brave search is connected"],
@@ -738,13 +805,14 @@ describe("the 🏆 top videos per platform (§6)", () => {
       ["daily_cap", "Today's Brave searches are used up — more tomorrow"],
     ];
     for (const [note, text] of lines) {
-      topAnswers = { tt: brave("tt", [topVideo("tt", 9)], note) };
+      topAnswers = { tt: alone("tt", [topVideo("tt", 9)], note) };
       act(() => root.unmount());
       root = createRoot(host);
       await mount("en");
       await open("tt");
       expect(line(), note).toBe(text);
       expect(titles()).toEqual(["Top car edit 9"]);
+      expect($("category-top-credit")).toBeNull();
     }
     // No answer at all: the stored list, and Brave out of reach.
     topAnswers = { tt: { body: { error: "upstream" }, status: 502 } };
@@ -756,23 +824,30 @@ describe("the 🏆 top videos per platform (§6)", () => {
     expect(titles()).toEqual(["Top car edit 9"]);
   });
 
+  it("C10: an answer with an empty stored list (the Worker could not read its copy) keeps the page's own, each post once", async () => {
+    const [a, b, c] = [1, 2, 3].map((n) => topVideo("tt", n));
+    page = docOf({ top: { ...TOP, tt: [a, b] } });
+    topAnswers = { tt: fromBrave("tt", [{ ...b, title: "b as Brave writes it" }, c], []) };
+    await mount("en");
+    await open("tt");
+    expect(titles()).toEqual([a.title, b.title, c.title]);
+    expect(tab("tt").dataset.count).toBe("3");
+  });
+
   it("Instagram tops up from Brave on its first open while its list is under 50; a full list asks nothing", async () => {
     page = docOf({ top: TOP });
-    topAnswers = {
-      ig: brave(
-        "ig",
-        Array.from({ length: 20 }, (_, i) => topVideo("ig", i + 1)),
-      ),
-    };
+    const brave = Array.from({ length: 20 }, (_, i) => topVideo("ig", 100 + i));
+    topAnswers = { ig: fromBrave("ig", brave, TOP.ig) };
     await mount("en");
     await open("ig");
     expect(topAsked).toEqual(["ig"]);
-    expect(tab("ig").dataset.count).toBe("20");
-    expect(items()).toHaveLength(12);
+    // The 14 stored reels, then Brave's 20.
+    expect(tab("ig").dataset.count).toBe("34");
+    expect(titles()).toEqual(TOP.ig.slice(0, 12).map((v) => v.title));
     // Without Brave the stored reels stand on their own: no line on Instagram.
     act(() => root.unmount());
     root = createRoot(host);
-    topAnswers = { ig: brave("ig", TOP.ig, "no_key") };
+    topAnswers = { ig: alone("ig", TOP.ig, "no_key") };
     await mount("en");
     await open("ig");
     expect(line()).toBe("");
@@ -802,29 +877,36 @@ describe("the 🏆 top videos per platform (§6)", () => {
     );
   });
 
-  it("the arrow keys move between the tabs, mirrored in Arabic", async () => {
+  it("C7: the arrow keys move focus between the tabs, mirrored in Arabic; TikTok and Instagram wait for Enter, Space or a tap", async () => {
     page = docOf({ top: TOP });
-    const press = async (key: string) => {
-      act(() => {
-        document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
-      });
-      await settle();
-    };
-    const selected = () => tabs().find((b) => b.getAttribute("aria-selected") === "true")!;
+    topAnswers = { ig: fromBrave("ig", [topVideo("ig", 100)], TOP.ig) };
     await mount("en");
     tab("yt").focus();
+    // Past TikTok to Instagram: focus moves, nothing is selected or asked.
     await press("ArrowRight");
-    expect(selected().dataset.platform).toBe("tt");
     expect(document.activeElement).toBe(tab("tt"));
-    await press("ArrowLeft");
-    await press("ArrowLeft");
+    expect(selected().dataset.platform).toBe("yt");
+    await press("ArrowRight");
+    expect(document.activeElement).toBe(tab("ig"));
+    expect(selected().dataset.platform).toBe("yt");
+    expect(topAsked).toEqual([]);
+    // A tap (Enter or Space on a focused tab is one) selects and loads it.
+    await open("ig");
     expect(selected().dataset.platform).toBe("ig");
+    expect(topAsked).toEqual(["ig"]);
+    // YouTube's list is already here: it follows focus.
+    tab("ig").focus();
+    await press("ArrowRight");
+    expect(document.activeElement).toBe(tab("yt"));
+    expect(selected().dataset.platform).toBe("yt");
     act(() => root.unmount());
     root = createRoot(host);
     await mount("ar");
     tab("yt").focus();
     await press("ArrowLeft");
-    expect(selected().dataset.platform).toBe("tt");
+    expect(document.activeElement).toBe(tab("tt"));
+    expect(selected().dataset.platform).toBe("yt");
+    expect(topAsked).toEqual(["ig"]);
   });
 
   it("a page from before §6 says the top videos come with the next scan", async () => {

@@ -59,9 +59,12 @@ export interface TopLists {
   tt: TopVideo[];
   ig: TopVideo[];
 }
-/** A TikTok or Instagram tab's list from Brave (`GET /categories/:id/top/:platform`), with why when Brave gave none. */
+/** A TikTok or Instagram tab's lists (`GET /categories/:id/top/:platform`): the stored one (`scan`) and Brave's own
+ * group (`brave`, in Brave's order, as Brave gave it), with why when Brave gave none. */
 export interface TopAnswer {
-  items: TopVideo[];
+  scan: TopVideo[];
+  brave: TopVideo[];
+  source: "brave" | "scan";
   note?: "no_key" | "brave_failed" | "daily_cap";
 }
 export interface CategoryPageData extends TrendingEffects {
@@ -166,9 +169,10 @@ export function parseCategory(raw: unknown): CategoryPageData | null {
 }
 
 /**
- * A TikTok or Instagram tab's list (`GET /categories/:id/top/:platform`): Brave's results merged with the stored list,
- * or the stored list alone with why. Asked when the tab first opens and kept in the page's state for that visit only,
- * never in this tab's storage: Brave's terms forbid keeping its results. null when the request fails.
+ * A TikTok or Instagram tab's lists (`GET /categories/:id/top/:platform`): the stored list and Brave's own group, or the
+ * stored list alone with why, and where they came from (the page credits Brave under its group). Asked when the tab
+ * first opens and kept in the page's state for that visit only, never in this tab's storage: Brave's terms forbid
+ * keeping its results. null when the request fails.
  */
 export async function fetchCategoryTop(
   config: ScoutConfig,
@@ -182,16 +186,22 @@ export async function fetchCategoryTop(
     {},
     { fetchImpl: opts.fetchImpl },
   );
-  if (!r.ok || !isObj(r.data) || !Array.isArray(r.data.items)) return null;
+  if (!r.ok || !isObj(r.data) || !Array.isArray(r.data.scan) || !Array.isArray(r.data.brave))
+    return null;
   const note = r.data.note;
   return {
-    items: topList(r.data.items),
+    scan: topList(r.data.scan),
+    brave: topList(r.data.brave),
+    source: r.data.source === "brave" ? "brave" : "scan",
     ...(NOTES.has(note as string) ? { note: note as TopAnswer["note"] } : {}),
   };
 }
 
 /** Something to show: trends or lessons. */
 const hasPage = (d: CategoryPageData) => d.items.length > 0 || !!d.lessons;
+/** Kept in this tab's copy only with its lessons (a scan saves its trends, then its lessons a little later, and a
+ * GET between the two must not hide them for an hour). */
+const keep = (d: CategoryPageData | null): d is CategoryPageData => !!d?.lessons;
 
 /** Which state the page is in: the first scan before anything shows; the old page after a failed update; the page. */
 export function pageState(d: CategoryPageData): "never" | "stale" | "page" {
@@ -212,7 +222,7 @@ export function cachedCategory(
 
 /**
  * The page, from this tab's copy when under an hour old; null when this Worker has no page (an older Worker's 404, a
- * refused token, no network, a broken answer). Only a page with something to show is kept.
+ * refused token, no network, a broken answer). Only a page with its lessons is kept (`keep`).
  */
 export async function fetchCategory(
   config: ScoutConfig,
@@ -229,7 +239,7 @@ export async function fetchCategory(
     { fetchImpl: opts.fetchImpl },
   );
   const data = r.ok ? parseCategory(r.data) : null;
-  if (data && hasPage(data)) writeTabCache(cacheKey(config, id), data, now);
+  if (keep(data)) writeTabCache(cacheKey(config, id), data, now);
   return data;
 }
 
@@ -261,7 +271,7 @@ export async function runCategoryNow(
       fetchImpl: opts.fetchImpl,
     });
     const data = r.ok ? parseCategory(r.data) : null;
-    if (data && hasPage(data)) writeTabCache(key, data, Date.now());
+    if (keep(data)) writeTabCache(key, data, Date.now());
     return data;
   })();
   running.set(key, run);

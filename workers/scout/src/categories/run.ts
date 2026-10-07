@@ -99,16 +99,17 @@ async function scan(
   const notes = new Set(errors);
   if (!posts.length && errors.length)
     return { doc: failed(prev, today, now, [...notes]), credits, families };
-  // §6: YouTube's top list once a UTC day (a forced scan later that day keeps it: the 100 `search.list` a day are
-  // shared), a failed call keeping the last one; Instagram's and TikTok's from this scan's posts. Its videos feed the
-  // trends too (§2): a forced scan keeps the day's creators from them (mergeHistory adds a day's runs together).
-  const ytToday = prev?.ranOn === today && prev.status !== "failed" ? prev.top?.yt : undefined;
-  const youtube = ytToday?.length
-    ? { videos: ytToday, posts: [] }
+  // §6: YouTube's top list comes from the cron's runs and a category's first top scan alone. A forced run (Scan
+  // again) keeps the stored list, whatever its length or the page's status, and its date with it, so a kept list never
+  // looks fresh and a tap never spends one of the shared 100 `search.list` a day. A failed call keeps the last list
+  // too. Instagram's and TikTok's come from this scan's posts. YouTube's videos feed the trends as well (§2).
+  const kept = opts.force ? prev?.top : undefined;
+  const youtube = kept
+    ? null
     : await youtubeTop(env, doFetch, g.queries.en[0], now, opts.timeoutMs);
-  if (!youtube) notes.add("youtube");
+  if (!kept && !youtube) notes.add("youtube");
   const top: TopLists = {
-    updatedAt: now.toISOString(),
+    updatedAt: youtube ? now.toISOString() : (prev?.top?.updatedAt ?? now.toISOString()),
     yt: youtube?.videos ?? prev?.top?.yt ?? [],
     ig: scanTop(posts, "ig"),
     tt: scanTop(posts, "tt"),

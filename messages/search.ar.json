@@ -114,5 +114,7 @@
   "search.topFailed": "ما قدرت أوصل لبحث Brave الحين",
   "search.topCap": "خلصت بحوث Brave حق اليوم، نكمّل بكرة",
   "search.topEmpty": "لسه ما فيه شي هنا",
-  "search.topNone": "أقوى الفيديوهات توصل مع الفحص الجاي"
+  "search.topNone": "أقوى الفيديوهات توصل مع الفحص الجاي",
+  "search.topBraveGroup": "أكثر من Brave Search",
+  "search.topBraveCredit": "النتائج من Brave Search"
 }

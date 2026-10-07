@@ -82,18 +82,53 @@ const SYSTEM =
 type Candidate = { key: string; name: string; samples: string[] };
 type Cleaned = { verdicts: AiVerdict[]; rejects: Record<string, number> };
 
-/** One built-in AI call answering JSON (shared with category lessons, planning/tools/19-category-trends.md §3): the
- * parsed answer, or null when the AI is not bound, is slow, fails or answers no JSON. The caller checks its shape. */
+/** A text answer without the code fence a model may put around it. */
+const unfence = (s: string) =>
+  s
+    .trim()
+    .replace(/^```[a-z]*\s*([\s\S]*?)\s*```$/i, "$1")
+    .trim();
+
+/**
+ * The JSON a model answered, in whichever shape it comes (category lessons' gpt-oss, planning/tools/19-category-trends.md
+ * §3): Workers AI's `response` (an object in JSON mode, or text), Chat Completions' `choices[0].message.content`, or
+ * the Responses API's `output[]` messages and their `content[].text` (its reasoning left out). Text may come in a code
+ * fence. null when there is none.
+ */
+function answerJson(result: unknown): unknown {
+  if (!isRecord(result)) return null;
+  const answers: unknown[] = [result.response];
+  const choice = Array.isArray(result.choices) ? result.choices[0] : undefined;
+  if (isRecord(choice) && isRecord(choice.message)) answers.push(choice.message.content);
+  for (const item of Array.isArray(result.output) ? result.output : [])
+    if (isRecord(item) && item.type !== "reasoning" && Array.isArray(item.content))
+      for (const part of item.content) if (isRecord(part)) answers.push(part.text);
+  for (const a of answers) {
+    if (a !== null && typeof a === "object") return a;
+    if (typeof a !== "string" || !a.trim()) continue;
+    try {
+      return JSON.parse(unfence(a)) as unknown;
+    } catch {
+      // The next shape, if any.
+    }
+  }
+  return null;
+}
+
+/** One built-in AI call answering JSON (shared with category lessons, planning/tools/19-category-trends.md §3, which
+ * ask `model` gpt-oss-120b first): the parsed answer, or null when the AI is not bound, is slow, fails or answers no
+ * JSON. The caller checks its shape. */
 export async function askAi(
   env: EffectsEnv,
   call: { system: string; user: string; schema: unknown; maxTokens: number },
   timeoutMs: number,
+  model: string = AI_MODEL,
 ): Promise<unknown> {
   if (!env.AI) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const result = await Promise.race([
-      env.AI.run(AI_MODEL, {
+      env.AI.run(model, {
         messages: [
           { role: "system", content: call.system },
           { role: "user", content: call.user },
@@ -106,8 +141,7 @@ export async function askAi(
         timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
       }),
     ]);
-    const response = (result as { response?: unknown })?.response;
-    return typeof response === "string" ? JSON.parse(response) : (response ?? null);
+    return answerJson(result);
   } catch {
     return null;
   } finally {

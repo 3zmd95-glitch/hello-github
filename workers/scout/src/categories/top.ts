@@ -2,12 +2,13 @@
  * Top videos per platform on a category page (planning/tools/19-category-trends.md §6). The owner: "Every category
  * should show at least 50 results in every platform with top tier results".
  * - YouTube, stored with the page: the category's main query by views over the last 30 days, one `search.list` and
- *   one `videos.list` a scan, outside Discover's `DISCOVER_YT_CAP` (66 since §6: 18 + 6 + 66 + 4 = 94 of the 100 a day).
+ *   one `videos.list` on the cron's scans and a category's first top scan only (Scan again keeps the stored list),
+ *   outside Discover's `DISCOVER_YT_CAP` (66 since §6: 18 + 6 + 66 + 4 cron scans = 94 of the 100 a day).
  * - Instagram and TikTok, stored: the scan's own Tavily posts, the ones more searches found first.
- * - On demand for TikTok and Instagram (`GET /categories/:id/top/:platform`): Brave's Search API, merged with the
- *   stored list. Brave's terms: "shall not store, cache, or create a database of Search Results, in whole or in part,
- *   other than transient storage required for operation". Its results are never written: the only KV write is the
- *   day's request counter.
+ * - On demand for TikTok and Instagram (`GET /categories/:id/top/:platform`): Brave's Search API, its matches in their
+ *   own group as Brave gave them, beside the stored list. Brave's terms: "shall not store, cache, or create a database
+ *   of Search Results, in whole or in part, other than transient storage required for operation". Its results are
+ *   never written: the only KV write is the day's request counter.
  */
 
 import { CALL_TIMEOUT_MS, capVar, timed } from "../discover/fetchers";
@@ -17,10 +18,6 @@ import type { EffectPlatform, EffectPost } from "../effects/types";
 import {
   canonicalUrl,
   cleanText,
-  cleanTikTokTitle,
-  handleFromUrl,
-  instagramCard,
-  isGenericTikTokTitle,
   isVideoUrl,
   PLATFORM_DOMAIN,
   platformForHost,
@@ -59,11 +56,12 @@ export interface TopEnv extends EffectsEnv {
   BRAVE_DAILY?: string;
 }
 
-/** `GET /categories/:id/top/:platform`: Brave's results merged with the stored list (`source: "brave"`), or the stored
- * list alone and why (`source: "scan"`). */
+/** `GET /categories/:id/top/:platform`: the stored list (`scan`) and Brave's own group (`brave`, `source: "brave"`), or
+ * the stored list alone and why (`source: "scan"`). */
 export interface TopAnswer {
   platform: BravePlatform;
-  items: TopVideo[];
+  scan: TopVideo[];
+  brave: TopVideo[];
   source: "brave" | "scan";
   note?: "no_key" | "brave_failed" | "daily_cap";
   endpoint?: "videos" | "web";
@@ -224,7 +222,10 @@ export async function youtubeTop(
       if (typeof v?.id !== "string" || !VIDEO_ID.test(v.id) || !title) return [];
       const url = `https://www.youtube.com/watch?v=${v.id}`;
       const creator = text(v.snippet?.channelTitle, NAME_MAX);
-      const description = (v.snippet as { description?: unknown } | undefined)?.description;
+      const snippet = v.snippet as { description?: unknown; channelId?: unknown } | undefined;
+      const description = snippet?.description;
+      // The trends count a channel by its id: two channels may share a name. The list shows the name.
+      const channel = typeof snippet?.channelId === "string" ? snippet.channelId : "";
       const views = ytCount(v.statistics?.viewCount);
       const publishedAt = v.snippet?.publishedAt;
       const thumbnail = ytThumb(v);
@@ -240,7 +241,7 @@ export async function youtubeTop(
           },
           post: {
             platform: "yt",
-            handle: creator,
+            handle: channel,
             title,
             snippet: text(description, SNIPPET_MAX),
             url,
@@ -254,10 +255,10 @@ export async function youtubeTop(
 }
 
 /**
- * One Brave result as a top video of `platform`: [] unless its link is an https post of that platform (one post a
- * page, not a profile, tag or sound page; `meta_url.hostname` is the link's own host). The link is made canonical like
- * the Worker's other post links; the title loses the platform's wrapping (" | TikTok", "<name> on Instagram: …"), and
- * a TikTok title that says nothing gives way to its creator.
+ * One Brave result as a top video of `platform`, as Brave gave it (its title only clipped for display, its creator,
+ * views, thumbnail and age as sent): [] unless its link is an https post of that platform (one post a page, not a
+ * profile, tag or sound page; `meta_url.hostname` is the link's own host) with a title. The link is made canonical
+ * only to dedupe it against the stored list and so the app's player can play it.
  */
 function braveVideo(x: unknown, platform: BravePlatform): TopVideo[] {
   if (!isRecord(x) || typeof x.url !== "string") return [];
@@ -273,23 +274,11 @@ function braveVideo(x: unknown, platform: BravePlatform): TopVideo[] {
     !isVideoUrl(platform, u)
   )
     return [];
+  const title = typeof x.title === "string" ? (clip(x.title, TITLE_MAX) as string) : "";
+  if (!title) return [];
   const video = isRecord(x.video) ? x.video : {};
   const author = isRecord(video.author) ? video.author : {};
-  let creator = text(video.creator, NAME_MAX) || text(author.name, NAME_MAX);
-  const raw = cleanText(typeof x.title === "string" ? x.title : "");
-  let title: string;
-  if (platform === "tt") {
-    const t = cleanTikTokTitle(raw);
-    creator ||= handleFromUrl("tt", u);
-    title = isGenericTikTokTitle(t) ? creator : t;
-  } else {
-    const desc = cleanText(typeof x.description === "string" ? x.description : "");
-    const card = instagramCard(handleFromUrl("ig", u), raw, desc);
-    creator ||= card.handle;
-    title = card.title;
-  }
-  title = text(title, TITLE_MAX);
-  if (!title) return [];
+  const creator = text(video.creator, NAME_MAX) || text(author.name, NAME_MAX);
   const views = ytCount(video.views);
   const thumbnail = isRecord(x.thumbnail) ? x.thumbnail.src : undefined;
   const age = text(x.age, AGE_MAX);
@@ -308,14 +297,33 @@ function braveVideo(x: unknown, platform: BravePlatform): TopVideo[] {
 const results = (x: unknown): unknown[] =>
   isRecord(x) && Array.isArray(x.results) ? x.results : [];
 
+/** One of Brave's endpoints: its page size and its answer's sections of results, in the order they are shown. */
+type Endpoint = {
+  url: string;
+  count: number;
+  sections: (body: Record<string, unknown>) => unknown[][];
+};
+const VIDEOS: Endpoint = { url: BRAVE_VIDEOS_URL, count: TOP_MAX, sections: (b) => [results(b)] };
+/** The web search's own results, then its video results (sections never interleaved). */
+const WEB: Endpoint = {
+  url: BRAVE_WEB_URL,
+  count: WEB_COUNT,
+  sections: (b) => [results(b.web), results(b.videos)],
+};
+/** The video endpoint's answers that mean "not in the plan": the web search instead (401 is a bad key: no fallback). */
+const NOT_IN_PLAN = new Set([403, 404, 422]);
+
 /**
- * A TikTok or Instagram tab's list, asked when the page opens the tab: Brave's video search for the category's
- * main query on the platform's site over the last month, in English; a second page when the first left fewer than 50
- * matches. Its matches come first, the most viewed first, then the stored ones it lacks: ≤ 50. The video endpoint
- * refused (a 4xx other than 429: not in the plan) gives way to Brave's web search (its web and video results, 20 a
- * page, the same two pages). At most `BRAVE_DAILY` requests a UTC day, counted in KV (best-effort, as Discover's
- * YouTube counter); without the key, past the day's requests, or when Brave fails (429 included), the stored list with
- * why. Nothing Brave answered is written anywhere.
+ * A TikTok or Instagram tab's list, asked when the page opens the tab: the stored list (`scan`) and, apart, Brave's
+ * matches (`brave`) in Brave's own order, as Brave gave them (Brave's terms bar modifying results): never sorted,
+ * never interleaved, the posts the stored list already holds left out, 50 in all. Brave's video search for the
+ * category's main query on the platform's site over the last month, in English; a second page only when the first was
+ * full, Brave has more and fewer than needed matched. The video endpoint refused with 403, 404 or 422 (not in the
+ * plan) gives way to Brave's web search, its web results then its video results (20 a page, the same pages). At most
+ * `BRAVE_DAILY` requests a UTC day, counted in KV: reserved before the first request and corrected after
+ * (best-effort, as Discover's YouTube counter, over-counting when two opens overlap). Without the key or with
+ * `BRAVE_DAILY` "0" (`no_key`), past the day's requests (`daily_cap`), or when Brave fails (`brave_failed`: 401 and
+ * 429 included), the stored list alone. Nothing Brave answered is written anywhere.
  */
 export async function braveTop(
   env: TopEnv,
@@ -326,14 +334,17 @@ export async function braveTop(
   now: Date,
   timeoutMs = CALL_TIMEOUT_MS,
 ): Promise<TopAnswer> {
-  const scan = (note: NonNullable<TopAnswer["note"]>): TopAnswer => ({
+  const scan = stored.slice(0, TOP_MAX);
+  const alone = (note: NonNullable<TopAnswer["note"]>): TopAnswer => ({
     platform,
-    items: stored.slice(0, TOP_MAX),
+    scan,
+    brave: [],
     source: "scan",
     note,
   });
   const key = env.BRAVE_API_KEY;
-  if (!key) return scan("no_key");
+  const daily = capVar(env.BRAVE_DAILY, BRAVE_DAILY);
+  if (!key || !daily) return alone("no_key");
   const counter = braveCountKey(utcDay(now));
   let used = 0;
   try {
@@ -341,58 +352,73 @@ export async function braveTop(
   } catch {
     // A counter KV can't read never stops a search (the cap is best-effort).
   }
-  const left = capVar(env.BRAVE_DAILY, BRAVE_DAILY) - used;
-  if (left <= 0) return scan("daily_cap");
+  const left = daily - used;
+  if (left <= 0) return alone("daily_cap");
+  const count = async (n: number) => {
+    try {
+      await env.SOCIAL_KV?.put(counter, String(used + n), { expirationTtl: COUNTER_TTL_S });
+    } catch {
+      // Best-effort, as reading it.
+    }
+  };
+  const planned = Math.min(2, left);
+  await count(planned);
   const q = `${g.queries.en[0]} site:${PLATFORM_DOMAIN[platform]}`;
   const headers = { Accept: "application/json", "X-Subscription-Token": key };
+  const need = TOP_MAX - scan.length;
   let made = 0;
-  /** One endpoint's pages, its matches once each; or the first page's failure, its status (-1: the day's cap). A
-   * second page that fails, or that the day has no request left for, keeps the first's. */
-  const pages = async (
-    endpoint: string,
-    count: number,
-    read: (body: Record<string, unknown>) => unknown[],
-  ): Promise<TopVideo[] | number> => {
-    const found = new Map<string, TopVideo>();
-    for (let offset = 0; offset < 2 && found.size < TOP_MAX; offset++) {
-      if (made >= left) return offset ? [...found.values()] : -1;
+  /** An endpoint's matches, sections in order across its pages, each post once and none the stored list holds. */
+  const matches = (e: Endpoint, bodies: Record<string, unknown>[]): TopVideo[] => {
+    const seen = new Set(scan.map((v) => v.url));
+    const sections = bodies.map(e.sections);
+    return (sections[0] ?? [])
+      .flatMap((_, s) => sections.flatMap((page) => page[s]))
+      .flatMap((x) => braveVideo(x, platform))
+      .filter((v) => {
+        if (seen.has(v.url)) return false;
+        seen.add(v.url);
+        return true;
+      });
+  };
+  /** An endpoint's matches, or the first page's failure, its status (-1: the day has no request left for it). */
+  const ask = async (e: Endpoint): Promise<TopVideo[] | number> => {
+    const bodies: Record<string, unknown>[] = [];
+    for (let offset = 0; offset < 2; offset++) {
+      if (made >= left) return offset ? matches(e, bodies) : -1;
       made++;
       const params = {
         q,
-        count: String(count),
+        count: String(e.count),
         offset: String(offset),
         freshness: "pm",
         search_lang: "en",
         safesearch: "moderate",
       };
-      const r = await getJson(doFetch, withParams(endpoint, params), headers, timeoutMs);
+      const r = await getJson(doFetch, withParams(e.url, params), headers, timeoutMs);
       if (!answered(r)) {
+        // A second page that fails keeps the first's.
         if (offset) break;
         return r.status;
       }
-      for (const v of read(r.body).flatMap((x) => braveVideo(x, platform)))
-        if (!found.has(v.url)) found.set(v.url, v);
+      bodies.push(r.body);
+      const full = e.sections(r.body)[0].length >= e.count;
+      const more = !isRecord(r.body.query) || r.body.query.more_results_available !== false;
+      if (!full || !more || matches(e, bodies).length >= need) break;
     }
-    return [...found.values()];
+    return matches(e, bodies);
   };
   let endpoint: NonNullable<TopAnswer["endpoint"]> = "videos";
-  let found = await pages(BRAVE_VIDEOS_URL, TOP_MAX, results);
-  if (typeof found === "number" && found >= 400 && found < 500 && found !== 429) {
+  let found = await ask(VIDEOS);
+  if (typeof found === "number" && NOT_IN_PLAN.has(found)) {
     endpoint = "web";
-    found = await pages(BRAVE_WEB_URL, WEB_COUNT, (b) => [...results(b.web), ...results(b.videos)]);
+    found = await ask(WEB);
   }
-  try {
-    if (made)
-      await env.SOCIAL_KV?.put(counter, String(used + made), { expirationTtl: COUNTER_TTL_S });
-  } catch {
-    // Best-effort, as reading it.
-  }
-  if (typeof found === "number") return scan(found === -1 ? "daily_cap" : "brave_failed");
-  const brave = found.sort(byViews);
-  const shown = new Set(brave.map((v) => v.url));
+  if (made !== planned) await count(made);
+  if (typeof found === "number") return alone(found === -1 ? "daily_cap" : "brave_failed");
   return {
     platform,
-    items: [...brave, ...stored.filter((v) => !shown.has(v.url))].slice(0, TOP_MAX),
+    scan,
+    brave: found.slice(0, Math.max(0, need)),
     source: "brave",
     endpoint,
   };

@@ -206,7 +206,7 @@ const OLD: CategoryDoc = {
       samples: [],
     },
   ],
-  lessons: { v: 3, updatedAt: "2026-10-04T05:40:00.000Z", photo: [], video: [TECHNIQUE], edit: [] },
+  lessons: { v: 4, updatedAt: "2026-10-04T05:40:00.000Z", photo: [], video: [TECHNIQUE], edit: [] },
   meta: {},
   history: {},
 };
@@ -456,7 +456,8 @@ describe("runCategory's top lists (§6)", () => {
     const doc = await runCategory(env, "cars", { fetch, now: NOW });
     expect(doc).toMatchObject({ status: "partial", notes: ["youtube"] });
     expect(count.youtube).toBe(1);
-    expect(doc.top).toEqual({ updatedAt: NOW.toISOString(), yt: last.yt, ig: IG_TOP, tt: [] });
+    // The last list is kept with its own date: it never looks fresh (C1).
+    expect(doc.top).toEqual({ updatedAt: OLD.updatedAt, yt: last.yt, ig: IG_TOP, tt: [] });
     expect(writes(KV)).toEqual([ATTEMPTS, KEY]);
     expect(stored(KV).top).toEqual(doc.top);
 
@@ -473,21 +474,30 @@ describe("runCategory's top lists (§6)", () => {
     expect(none.count.youtube).toBe(0);
   });
 
-  it("T5: YouTube's videos feed the trends too: title and description as text, the channel as the creator", async () => {
+  it("T5: YouTube's videos feed the trends too: title and description as text, the channel's id as the creator", async () => {
     const { env } = setup();
-    // Tavily finds one low-angle reel; YouTube three low-angle videos from two channels, one saying it in its description.
+    // Tavily finds one low-angle reel; YouTube three low-angle videos, one saying it in its description: two from one
+    // channel (UC_a1), one from another channel that has the same name (UC_a2, C4).
     const videos = [
-      { id: "lowAng00001", title: "Low angle car shots", channelTitle: "Chan A", description: "" },
+      {
+        id: "lowAng00001",
+        title: "Low angle car shots",
+        channelTitle: "Chan A",
+        channelId: "UC_a1",
+        description: "",
+      },
       {
         id: "lowAng00002",
         title: "GT3 night reveal",
         channelTitle: "Chan A",
+        channelId: "UC_a1",
         description: "How I film a low angle reveal",
       },
       {
         id: "lowAng00003",
         title: "Low Angle Shot of the M5",
-        channelTitle: "Chan B",
+        channelTitle: "Chan A",
+        channelId: "UC_a2",
         description: "",
       },
     ];
@@ -506,17 +516,18 @@ describe("runCategory's top lists (§6)", () => {
             }),
     });
     const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
-    // The reel's creator and the 2 channels: 3 creators, not 4 (a channel's two videos are one creator's).
+    // The reel's creator and the 2 channels: 3 creators. A channel's two videos are one creator's; two channels of one
+    // name are two.
     expect(doc.items.find((i) => i.key === "low-angle")).toMatchObject({
       creators: 3,
       platforms: ["ig", "yt"],
     });
-    // The same 2 YouTube calls as the top list.
+    // The same 2 YouTube calls as the top list, which shows the channels' names.
     expect(count.youtube).toBe(2);
-    expect(doc.top!.yt.map((v) => v.creator)).toEqual(["Chan A", "Chan A", "Chan B"]);
+    expect(doc.top!.yt.map((v) => v.creator)).toEqual(["Chan A", "Chan A", "Chan A"]);
   });
 
-  it("a forced scan later the same UTC day keeps the day's YouTube list: no second search.list", async () => {
+  it("C1: Scan again never asks YouTube: it keeps the stored list and its date, whatever its length or the page's status", async () => {
     const { env } = setup();
     const { fetch, count } = web();
     await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
@@ -528,7 +539,36 @@ describe("runCategory's top lists (§6)", () => {
     });
     expect(count.youtube).toBe(2);
     expect(count.tavily).toBeGreaterThan(6);
-    expect(again.top).toEqual({ updatedAt: LATER.toISOString(), yt: YT_TOP, ig: IG_TOP, tt: [] });
+    // The reused list keeps its own date: it never looks fresh.
+    expect(again.top).toEqual({ updatedAt: NOW.toISOString(), yt: YT_TOP, ig: IG_TOP, tt: [] });
+
+    // Days later, an empty stored list on a failed page: still no YouTube call when forced.
+    const empty = { updatedAt: OLD.updatedAt, yt: [], ig: [], tt: [] };
+    const failedPage = setup({ stored: { ...OLD, status: "failed", top: empty } });
+    const later = web();
+    const forced = await runCategory(failedPage.env, "cars", {
+      fetch: later.fetch,
+      now: NOW,
+      force: true,
+    });
+    expect(later.count.youtube).toBe(0);
+    expect(forced.top).toMatchObject({ updatedAt: OLD.updatedAt, yt: [] });
+    expect(forced.notes ?? []).not.toContain("youtube");
+  });
+
+  it("C1: the cron run and a category's first top scan ask YouTube, a forced one on a page from before §6 too", async () => {
+    // The cron's run (never forced), days after the last scan.
+    const stored = { updatedAt: OLD.updatedAt, yt: YT_TOP.slice(0, 1), ig: [], tt: [] };
+    const cron = setup({ stored: { ...OLD, top: stored } });
+    const daily = web();
+    const doc = await runCategory(cron.env, "cars", { fetch: daily.fetch, now: NOW });
+    expect(daily.count.youtube).toBe(2);
+    expect(doc.top).toMatchObject({ updatedAt: NOW.toISOString(), yt: YT_TOP });
+    // Scan again on a page stored before §6 (no top yet): its first top scan.
+    const before = setup({ stored: OLD });
+    const first = web();
+    await runCategory(before.env, "cars", { fetch: first.fetch, now: NOW, force: true });
+    expect(first.count.youtube).toBe(2);
   });
 });
 
@@ -627,15 +667,26 @@ describe("runCategory's lessons (§3)", () => {
       "tutorial",
     ]);
     expect(stored(KV).lessons).toEqual(doc.lessons);
-    expect(stored(KV).lessons!.v).toBe(3);
+    expect(stored(KV).lessons!.v).toBe(4);
     expect(stored(KV).diagnostics).toMatchObject({
-      lessons: { picked: 9, written: 9, credits: 10 },
+      lessons: {
+        picked: 9,
+        written: 9,
+        credits: 10,
+        // B5: the model that answered each lessons call, for the live check.
+        models: {
+          pick: "gpt-oss-120b",
+          photo: "gpt-oss-120b",
+          video: "gpt-oss-120b",
+          edit: "gpt-oss-120b",
+        },
+      },
     });
     expect(doc.notes ?? []).not.toContain("lessons");
   });
 
-  it("older lessons (no version before live fix 1, 2 before live fix 2) are due at the next scan, however new; the stored page still reads", async () => {
-    for (const v of [undefined, 2]) {
+  it("older lessons (no version before live fix 1, 2 before live fix 2, 3 before live fix 3) are due at the next scan, however new; the stored page still reads", async () => {
+    for (const v of [undefined, 2, 3]) {
       const before = { ...OLD.lessons!, v }; // 3 days old; KV's JSON leaves an undefined `v` out
       const { env, KV } = setup({ stored: { ...OLD, lessons: before } });
       env.AI = lessonsAi();
@@ -644,7 +695,7 @@ describe("runCategory's lessons (§3)", () => {
       expect((await readCategory(env, "cars"))!.lessons).toEqual(before);
       const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
       expect(count.tavily).toBe(16);
-      expect(doc.lessons).toMatchObject({ v: 3, updatedAt: NOW.toISOString() });
+      expect(doc.lessons).toMatchObject({ v: 4, updatedAt: NOW.toISOString() });
       expect(doc.lessons!.photo[0].howTo).toEqual(HOW);
       expect(stored(KV).lessons).toEqual(doc.lessons);
     }

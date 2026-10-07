@@ -81,12 +81,18 @@ const topItem = (platform: TopPlatform, v: TopVideo): ResearchItem => ({
   ...(v.views !== undefined ? { stats: { views: v.views } } : {}),
 });
 
+/** Where the credit under Brave's group points (Brave's monthly credit asks for the attribution). */
+const BRAVE_PAGE = "https://brave.com/search/api/";
+
 /**
- * 🏆 Top in <category> (planning/tools/19-category-trends.md §6): YouTube · TikTok · Instagram tabs (arrow keys move
- * between them, mirrored in Arabic), each up to 50 videos best first, 12 at a time, as Discover's result cards
- * (thumbnail, title as given, creator, views when known, the app's player). YouTube's and Instagram's lists come with
- * the page. TikTok's, and Instagram's while under 50, ask the Worker for Brave's results the first time the tab opens,
- * once a visit: the answer lives in this component's state alone, since Brave's terms forbid keeping its results.
+ * 🏆 Top in <category> (planning/tools/19-category-trends.md §6): YouTube · TikTok · Instagram tabs, each up to 50
+ * videos, 12 at a time, as Discover's result cards (thumbnail, title as given, creator, views when known, the app's
+ * player). YouTube's and Instagram's stored lists come with the page, best first. TikTok's, and Instagram's while under
+ * 50, ask the Worker for Brave's results the first time the tab is chosen, once a visit: they follow the stored list as
+ * "More from Brave Search", in Brave's order and as Brave gave them, with Brave credited under them, and live in this
+ * component's state alone, since Brave's terms forbid keeping its results. The arrow keys move focus between the tabs
+ * (mirrored in Arabic); YouTube follows focus, TikTok and Instagram wait for Enter, Space or a tap, so arrowing past
+ * them never asks Brave.
  */
 function TopVideos({
   config,
@@ -115,7 +121,10 @@ function TopVideos({
     asked.current.add(p);
     setBrave((b) => ({ ...b, [p]: null }));
     void fetchCategoryTop(config, genreId, p).then((r) =>
-      setBrave((b) => ({ ...b, [p]: r ?? { items: top[p], note: "brave_failed" } })),
+      setBrave((b) => ({
+        ...b,
+        [p]: r ?? { scan: [], brave: [], source: "scan", note: "brave_failed" },
+      })),
     );
   };
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -123,26 +132,44 @@ function TopVideos({
     const back = dir === "rtl" ? "ArrowRight" : "ArrowLeft";
     if (e.key !== fwd && e.key !== back) return;
     e.preventDefault();
-    const i = TOP_PLATFORMS.indexOf(tab);
+    const at = tabRefs.current.findIndex((el) => el === document.activeElement);
+    const i = at >= 0 ? at : TOP_PLATFORMS.indexOf(tab);
     const next = (i + (e.key === fwd ? 1 : TOP_PLATFORMS.length - 1)) % TOP_PLATFORMS.length;
-    open(TOP_PLATFORMS[next]);
     tabRefs.current[next]?.focus();
+    // YouTube's list is already here, so it follows focus; TikTok and Instagram ask Brave, so they wait to be chosen.
+    if (TOP_PLATFORMS[next] === "yt") open("yt");
   };
 
+  /** A tab's stored list (the page's own when the answer brought none: the Worker could not read its copy), then
+   * Brave's group without the posts the stored list holds, 50 in all. */
+  const listsOf = (p: TopPlatform) => {
+    const answer = brave[p];
+    const scan = answer?.scan.length ? answer.scan : top[p];
+    const urls = new Set(scan.map((v) => v.url));
+    const fromBrave = (answer?.brave ?? []).filter((v) => !urls.has(v.url));
+    return { scan, brave: fromBrave.slice(0, Math.max(0, TOP_MAX - scan.length)) };
+  };
   const answer = brave[tab];
-  const list = answer?.items ?? top[tab];
+  const lists = listsOf(tab);
+  const all = lists.scan.length + lists.brave.length;
   const note = answer?.note;
   const line =
     answer === null
       ? t("search.topLoading")
       : note && (note !== "no_key" || tab === "tt")
         ? t(TOP_LINE[note])
-        : list.length
+        : all
           ? ""
           : t("search.topEmpty");
+  // What shows of each group: the stored list first, 12 at a time across both.
+  const scanShown = lists.scan.slice(0, shown);
+  const braveShown = lists.brave.slice(0, Math.max(0, shown - scanShown.length));
   // A tab's count once its list is known: TikTok's comes with Brave's answer.
-  const countOf = (p: TopPlatform) =>
-    brave[p]?.items.length ?? (p === "tt" ? undefined : top[p].length);
+  const countOf = (p: TopPlatform) => {
+    if (p === "tt" && !brave.tt) return undefined;
+    const l = listsOf(p);
+    return l.scan.length + l.brave.length;
+  };
 
   return (
     <section
@@ -207,19 +234,39 @@ function TopVideos({
         <p role="status" className="text-muted text-xs" data-testid="category-top-line">
           {line}
         </p>
-        <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
-          {list.slice(0, shown).map((v) => (
-            <ResultCard key={v.url} item={topItem(tab, v)} testId="category-top-item" />
-          ))}
-        </ul>
-        {list.length > shown && (
+        {scanShown.length > 0 && (
+          <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
+            {scanShown.map((v) => (
+              <ResultCard key={v.url} item={topItem(tab, v)} testId="category-top-item" />
+            ))}
+          </ul>
+        )}
+        {braveShown.length > 0 && (
+          <>
+            <h4 className="text-xs font-bold" dir="auto" data-testid="category-top-brave">
+              {t("search.topBraveGroup")}
+            </h4>
+            <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
+              {braveShown.map((v) => (
+                <ResultCard key={v.url} item={topItem(tab, v)} testId="category-top-item" />
+              ))}
+            </ul>
+            {/* Brave's attribution, under its results and outside the status line. */}
+            <p className="text-muted text-[11px]" data-testid="category-top-credit">
+              <a href={BRAVE_PAGE} target="_blank" rel="noopener" dir="auto" className="px-link">
+                {t("search.topBraveCredit")}
+              </a>
+            </p>
+          </>
+        )}
+        {all > shown && (
           <button
             type="button"
             className="px-btn px-btn-ghost px-btn-sm w-fit"
             onClick={() => setShown((s) => s + TOP_SHOW)}
             data-testid="category-top-more"
           >
-            {t("search.showMore", { n: Math.min(TOP_SHOW, list.length - shown) })}
+            {t("search.showMore", { n: Math.min(TOP_SHOW, all - shown) })}
           </button>
         )}
       </div>

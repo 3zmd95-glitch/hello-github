@@ -114,5 +114,7 @@
   "search.topFailed": "Couldn't reach Brave search right now",
   "search.topCap": "Today's Brave searches are used up — more tomorrow",
   "search.topEmpty": "Nothing here yet",
-  "search.topNone": "Top videos come with the next scan"
+  "search.topNone": "Top videos come with the next scan",
+  "search.topBraveGroup": "More from Brave Search",
+  "search.topBraveCredit": "Powered by Brave Search"
 }

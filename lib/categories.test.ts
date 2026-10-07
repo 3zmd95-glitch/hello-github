@@ -186,29 +186,61 @@ describe("parseCategory's top videos (§6)", () => {
 });
 
 describe("fetchCategoryTop", () => {
-  it("asks the Worker for a tab's list, checked like the stored ones, and keeps none of it (Brave's terms)", async () => {
-    const tt = { url: "https://www.tiktok.com/@c/video/1", title: "car edit", views: 5 };
+  it("C3: keeps the stored list and Brave's own group apart, and the source; checked like the stored ones; kept nowhere (Brave's terms)", async () => {
+    const scan = { url: "https://www.tiktok.com/@s/video/9", title: "scan post" };
+    const tt = { url: "https://www.tiktok.com/@c/video/1", title: "Car edit | TikTok", views: 5 };
     const f = replying({
       platform: "tt",
-      items: [tt, { url: "http://www.tiktok.com/@c/video/2", title: "plain http" }],
+      scan: [scan],
+      brave: [tt, { url: "http://www.tiktok.com/@c/video/2", title: "plain http" }],
       source: "brave",
       endpoint: "videos",
     });
-    expect(await fetchCategoryTop(config, "cars", "tt", { fetchImpl: f })).toEqual({ items: [tt] });
+    expect(await fetchCategoryTop(config, "cars", "tt", { fetchImpl: f })).toEqual({
+      scan: [scan],
+      brave: [tt],
+      source: "brave",
+    });
     expect(String(f.mock.calls[0][0])).toBe("https://w.example/categories/cars/top/tt");
     expect(sessionStorage.length).toBe(0);
-    const noKey = replying({ platform: "ig", items: [], source: "scan", note: "no_key" });
+    const noKey = replying({ platform: "ig", scan: [], brave: [], source: "scan", note: "no_key" });
     expect(await fetchCategoryTop(config, "cars", "ig", { fetchImpl: noKey })).toEqual({
-      items: [],
+      scan: [],
+      brave: [],
+      source: "scan",
       note: "no_key",
     });
-    const odd = replying({ platform: "tt", items: [], source: "scan", note: "who knows" });
-    expect(await fetchCategoryTop(config, "cars", "tt", { fetchImpl: odd })).toEqual({ items: [] });
+    const odd = replying({ scan: [], brave: [], source: "who", note: "who knows" });
+    expect(await fetchCategoryTop(config, "cars", "tt", { fetchImpl: odd })).toEqual({
+      scan: [],
+      brave: [],
+      source: "scan",
+    });
   });
 
-  it("is null when the request fails or answers no list", async () => {
-    for (const f of [replying({ error: "upstream" }, 502), replying({ items: "none" })])
+  it("is null when the request fails or answers no lists", async () => {
+    for (const f of [
+      replying({ error: "upstream" }, 502),
+      replying({ items: [] }),
+      replying({ scan: [], brave: "none" }),
+    ])
       expect(await fetchCategoryTop(config, "cars", "tt", { fetchImpl: f })).toBeNull();
+  });
+});
+
+describe("the tab's copy (B7)", () => {
+  it("keeps no page without lessons: a scan's lessons are saved after its trends, and the next open asks again", async () => {
+    const trendsOnly = { ...DOC, lessons: undefined };
+    const f = replying(trendsOnly);
+    await fetchCategory(config, "cars", { fetchImpl: f, now: NOW });
+    await fetchCategory(config, "cars", { fetchImpl: f, now: NOW });
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(cachedCategory(config, "cars", NOW)).toBeNull();
+    await runCategoryNow(config, "cars", { fetchImpl: replying(trendsOnly) });
+    expect(cachedCategory(config, "cars")).toBeNull();
+    // With its lessons it is kept, as before.
+    await fetchCategory(config, "cars", { fetchImpl: replying(DOC), now: NOW });
+    expect(cachedCategory(config, "cars", NOW)).toEqual(parseCategory(DOC));
   });
 });
 
