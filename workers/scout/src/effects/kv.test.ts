@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { EFFECTS_KEY, readEffects } from "./kv";
+import { EFFECTS_KEY, readEffects, writeEffects } from "./kv";
+import type { EffectsDoc } from "./types";
 
 const DOC = {
   ranOn: "2026-10-07",
@@ -33,5 +34,17 @@ describe("readEffects", () => {
       [DOC],
     ])
       expect(await readEffects(env(JSON.stringify(broken)).env)).toBeNull();
+  });
+});
+
+describe("any key (a category's document)", () => {
+  it("reads and writes the key it is given", async () => {
+    const { get, env: e } = env(JSON.stringify(DOC));
+    expect(await readEffects(e, "category:cars")).toEqual(DOC);
+    expect(get).toHaveBeenCalledWith("category:cars", "text");
+    const put = vi.fn(async () => {});
+    const doc = DOC as unknown as EffectsDoc;
+    await writeEffects({ SOCIAL_KV: { put } as unknown as KVNamespace }, doc, "category:cars");
+    expect(put).toHaveBeenCalledWith("category:cars", JSON.stringify(DOC));
   });
 });

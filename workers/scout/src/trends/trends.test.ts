@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import { CATEGORY_SLOTS } from "../categories/defs";
 import {
   EFFECTS_SLOT,
   runTick,
@@ -2117,13 +2118,14 @@ describe("cron slots", () => {
       ...Object.keys(TREND_SLOTS),
       WEEKLY_SLOT,
       EFFECTS_SLOT,
+      ...CATEGORY_SLOTS,
       ...Object.keys(SYNC_SLOTS),
     ];
     for (const slot of slots) {
       expect(slot).toMatch(/^([01]\d|2[0-3]):[0-5]\d$/);
       expect(Number(slot.slice(3)) % 5, slot).toBe(0);
     }
-    // The trend, weekly and daily effects slots never take a sync slot or one another's.
+    // The trend, weekly, daily effects and category slots never take a sync slot or one another's.
     expect(new Set(slots).size, slots.join(" ")).toBe(slots.length);
   });
 

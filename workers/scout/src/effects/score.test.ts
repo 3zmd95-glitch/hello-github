@@ -257,6 +257,22 @@ describe("scoring", () => {
     const items = scoreEffects(history, { x: meta("x"), y: meta("y") }, "2026-10-06", {});
     expect(items.map((i) => i.key)).toEqual(["y", "x"]);
   });
+
+  it("caps the memory at a given number of keys (a category keeps 200), the most creators first", () => {
+    const today = new Map(
+      [1, 2, 3, 4, 5].map((n) => [
+        `k${n}`,
+        cand(
+          `k${n}`,
+          Array.from({ length: n }, (_, j) => `i${j}`),
+        ),
+      ]),
+    );
+    const cut: string[] = [];
+    const merged = mergeHistory({}, "2026-10-06", today, new Set(), cut, 3);
+    expect(Object.keys(merged).sort()).toEqual(["k3", "k4", "k5"]);
+    expect(cut.sort()).toEqual(["k1", "k2"]);
+  });
 });
 
 /** 3 creators, growth 3, first seen 2026-10-04: ties with the "x" effects above, which were first seen on 10-03. */

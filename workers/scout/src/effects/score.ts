@@ -41,15 +41,16 @@ export function creatorsBetween(
   return ids;
 }
 
-/** Today's creators replace any earlier run of the same day; entries older than 14 days go. Over 400 keys, the cut
- * keeps `keepFirst` (protected names) first, then the most creators this week, then the latest seen; `cut` collects
- * the keys it dropped. */
+/** Today's creators replace any earlier run of the same day; entries older than 14 days go. Over `maxKeys` (400; a
+ * category keeps 200), the cut keeps `keepFirst` (protected names) first, then the most creators this week, then the
+ * latest seen; `cut` collects the keys it dropped. */
 export function mergeHistory(
   history: Record<string, HistoryEntry[]>,
   day: string,
   today: Map<string, Candidate>,
   keepFirst: ReadonlySet<string> = new Set(),
   cut: string[] = [],
+  maxKeys = HISTORY_KEYS,
 ): Record<string, HistoryEntry[]> {
   const out: Record<string, HistoryEntry[]> = {};
   for (const [key, entries] of Object.entries(history)) {
@@ -63,7 +64,7 @@ export function mergeHistory(
     out[key] = [...(out[key] ?? []).filter((e) => e.day !== day), { ...earlier, day, ids }];
   }
   const keys = Object.keys(out);
-  if (keys.length > HISTORY_KEYS) {
+  if (keys.length > maxKeys) {
     const week = new Map(keys.map((k) => [k, creatorsBetween(out[k], day, 0, 6).size]));
     const last = new Map(
       keys.map((k) => [k, out[k].reduce((d, e) => (e.day > d ? e.day : d), "")]),
@@ -72,7 +73,7 @@ export function mergeHistory(
       Number(keepFirst.has(b)) - Number(keepFirst.has(a)) ||
       week.get(b)! - week.get(a)! ||
       daysBetween(last.get(a)!, last.get(b)!);
-    for (const k of keys.sort(order).slice(HISTORY_KEYS)) {
+    for (const k of keys.sort(order).slice(maxKeys)) {
       delete out[k];
       cut.push(k);
     }

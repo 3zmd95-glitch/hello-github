@@ -81,6 +81,8 @@ let localPlans: Record<string, unknown>[];
 /** What the fake Worker's `GET /effects/trending` answers; null = no such route (a 404). */
 let effectsDoc: unknown;
 let effectsAsked: number;
+/** What the fake Worker's `GET /categories/:id` answers; null = no such route (a 404, an older Worker). */
+let categoryDoc: unknown;
 
 /** This week's trending effects: one dictionary effect. */
 const EFFECTS = {
@@ -181,6 +183,8 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     effectsAsked++;
     return effectsDoc ? json(effectsDoc) : json({ error: "not_found" }, 404);
   }
+  if (url.origin === WORKER && url.pathname.startsWith("/categories/"))
+    return categoryDoc ? json(categoryDoc) : json({ error: "not_found" }, 404);
   if (url.hostname === "www.googleapis.com" && url.pathname.endsWith("/videos")) {
     ytStats.push(url);
     if (statsDown) return json({ error: {} }, 500);
@@ -252,6 +256,8 @@ async function mount(
     worker?: boolean;
     v2?: boolean;
     lang?: "ar" | "en";
+    /** Discover's `?genre=` link. */
+    openGenre?: string;
   } = {},
 ) {
   discoverV2 = opts.v2 ?? false;
@@ -267,7 +273,7 @@ async function mount(
   });
   localStorage.setItem(RESEARCH_TAB_KEY, opts.tab ?? "tt");
   const skill = opts.skillId ? getSkill(opts.skillId) : undefined;
-  act(() => root.render(createElement(ResearchPanel, { skill })));
+  act(() => root.render(createElement(ResearchPanel, { skill, openGenre: opts.openGenre })));
   await settle();
 }
 
@@ -284,6 +290,7 @@ beforeEach(() => {
   localPlans = [];
   effectsDoc = null;
   effectsAsked = 0;
+  categoryDoc = null;
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   localStorage.clear();
   // The trending effects' 1 h copy lives in this tab's sessionStorage.
@@ -553,6 +560,16 @@ describe("Discover category ideas", () => {
     await settle();
     expect(localPlans).toHaveLength(0);
     expect(discoverAsked).toHaveLength(before);
+  });
+
+  it("the category-only button, gone once the box is cleared, hands focus to its category's chip", async () => {
+    await mount({ v2: true });
+    await click("genre-coffee");
+    type("latte art");
+    $("discover-category-only")!.focus();
+    await click("discover-category-only");
+    expect($("discover-category-only")).toBeNull();
+    expect(document.activeElement).toBe($("genre-coffee"));
   });
 
   it("does not add Discover ideas or category-only actions to skill or legacy panels", async () => {
@@ -918,5 +935,195 @@ describe("ResearchPanel Most viewed this week", () => {
     act(() => attach().click());
     await settle();
     expect(useStore.getState().savedRefs["smart-bins-keywords"] ?? []).toEqual([]);
+  });
+});
+
+describe("Discover category pages (planning/tools/19-category-trends.md §1)", () => {
+  const CATEGORY = {
+    status: "ok",
+    updatedAt: new Date().toISOString(),
+    items: [
+      {
+        key: "rolling-shot",
+        name: { en: "rolling shot", ar: "لقطة متحركة" },
+        isNew: true,
+        checked: true,
+        creators: 4,
+        posts: 4,
+        platforms: ["tt"],
+        growth: 3,
+        samples: [],
+      },
+    ],
+  };
+
+  it("a category tapped with nothing typed shows its page instead of searching; Search all runs the category search", async () => {
+    categoryDoc = CATEGORY;
+    await mount({ v2: true, lang: "en" });
+    await click("genre-cars");
+    expect($("category-page")).not.toBeNull();
+    expect(discoverAsked).toHaveLength(0);
+    expect(pressed("genre-cars")).toBe("true");
+    // Discover's tabs, filters bar and filters stand aside with the results while the page shows.
+    const searchParts = () => [
+      host.querySelector<HTMLElement>('[role="tablist"]')!.hidden,
+      $("filters-toggle")!.parentElement!.hidden,
+      $("filters")!.hidden,
+      $("research-results")!.hidden,
+    ];
+    expect(searchParts()).toEqual([true, true, true, true]);
+    await click("category-search-all");
+    expect($("category-page")).toBeNull();
+    expect(searchParts()).toEqual([false, false, false, false]);
+    expect(discoverAsked).toEqual([{ q: "car edit", genreQuery: { ar: "ايديت سيارات" } }]);
+  });
+
+  it("closing the page into a search takes its focused button away: focus goes to the category's chip", async () => {
+    categoryDoc = CATEGORY;
+    await mount({ v2: true, lang: "en" });
+    const reopen = async () => {
+      await click("genre-cars"); // Cars off
+      type(""); // the box cleared
+      await click("genre-cars"); // Cars again, nothing typed: the page
+      expect($("category-page")).not.toBeNull();
+    };
+    await click("genre-cars");
+    // Search all, focused as a click focuses a button in Chrome (jsdom's click does not). The chip that opened the
+    // page, not the search box: focusing a text box can pop a phone's keyboard over the results.
+    $("category-search-all")!.focus();
+    await click("category-search-all");
+    expect(document.activeElement).toBe($("genre-cars"));
+    // A style tapped from AI mode (its search keeps the category on): the chip too.
+    await reopen();
+    await click("discover-mode-ai");
+    const style = host.querySelector<HTMLElement>('[data-testid="category-style"]')!;
+    style.focus();
+    act(() => style.click());
+    await settle();
+    expect($("category-page")).toBeNull();
+    expect(document.activeElement).toBe($("genre-cars"));
+    // A tap that focuses nothing (Safari) moves nothing.
+    await reopen();
+    (document.activeElement as HTMLElement).blur();
+    await click("category-search-all");
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("while an AI search can't run (no model chosen), Search all rests as the category chips do; a style searches in Keywords", async () => {
+    categoryDoc = CATEGORY;
+    await mount({ v2: true });
+    await click("genre-cars");
+    await click("discover-mode-ai");
+    await select("ai-provider", "claude");
+    expect($<HTMLButtonElement>("genre-travel")!.disabled).toBe(true);
+    expect($<HTMLButtonElement>("category-search-all")!.disabled).toBe(true);
+    await click("category-search-all");
+    expect(discoverAsked).toHaveLength(0);
+    // Like a 🔥 chip: Keywords, never the subscription.
+    act(() =>
+      host
+        .querySelector<HTMLElement>('[data-testid="category-style"][data-key="rolling-shot"]')!
+        .click(),
+    );
+    await settle();
+    expect(discoverAsked).toEqual([
+      { q: "rolling shot", genreQuery: { ar: "ايديت سيارات", en: "car edit" } },
+    ]);
+    expect(pressed("discover-mode-keyword")).toBe("true");
+    expect(localPlans).toHaveLength(0);
+  });
+
+  it("a ?genre= link arriving while its category's page shows closes the page and runs the search", async () => {
+    categoryDoc = CATEGORY;
+    const proto = Element.prototype as { scrollIntoView?: () => void };
+    proto.scrollIntoView = () => {};
+    try {
+      await mount({ v2: true });
+      await click("genre-cars");
+      expect($("category-page")).not.toBeNull();
+      // Discover opened again from a /discover/?genre=cars link.
+      act(() => root.render(createElement(ResearchPanel, { openGenre: "cars" })));
+      await settle();
+      expect($("category-page")).toBeNull();
+      expect(discoverAsked).toEqual([{ q: "car edit", genreQuery: { ar: "ايديت سيارات" } }]);
+    } finally {
+      delete proto.scrollIntoView;
+    }
+  });
+
+  it("a ?genre= link keeps today's category search: no page", async () => {
+    categoryDoc = CATEGORY;
+    // The link brings its chip into view; jsdom has no scrollIntoView.
+    const proto = Element.prototype as { scrollIntoView?: () => void };
+    const scrolled: Element[] = [];
+    proto.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+    try {
+      await mount({ v2: true, openGenre: "cars" });
+      expect($("category-page")).toBeNull();
+      expect(pressed("genre-cars")).toBe("true");
+      expect(scrolled).toEqual([$("genre-cars")]);
+      expect(discoverAsked).toEqual([{ q: "car edit", genreQuery: { ar: "ايديت سيارات" } }]);
+    } finally {
+      delete proto.scrollIntoView;
+    }
+  });
+
+  it("a style is a Keywords search of it within the category, even from AI mode", async () => {
+    categoryDoc = CATEGORY;
+    await mount({ v2: true });
+    await click("discover-mode-ai");
+    await click("genre-cars");
+    act(() =>
+      host
+        .querySelector<HTMLElement>('[data-testid="category-style"][data-key="rolling-shot"]')!
+        .click(),
+    );
+    await settle();
+    expect(discoverAsked).toEqual([
+      { q: "rolling shot", genreQuery: { ar: "ايديت سيارات", en: "car edit" } },
+    ]);
+    expect(pressed("discover-mode-keyword")).toBe("true");
+    expect($("category-page")).toBeNull();
+    expect($<HTMLInputElement>("discover-topic")!.value).toBe("rolling shot");
+  });
+
+  it("typed text still narrows the search; an older Worker (404) gets the category search", async () => {
+    categoryDoc = CATEGORY;
+    await mount({ v2: true });
+    type("drift");
+    await click("genre-cars");
+    expect($("category-page")).toBeNull();
+    expect(discoverAsked.at(-1)).toMatchObject({ q: "drift", genreQuery: { en: "car edit" } });
+    categoryDoc = null;
+    await click("genres-clear");
+    type("");
+    await click("genre-food");
+    expect($("category-page")).toBeNull();
+    expect(discoverAsked.at(-1)).toMatchObject({ q: "food edit" });
+  });
+
+  it("an owner-added category keeps searching: only the built-in ones have a page", async () => {
+    categoryDoc = CATEGORY; // the fake Worker would answer a page for any id
+    useStore.getState().addCustomGenre("Drift", "drift edit");
+    await mount({ v2: true, lang: "en" });
+    await click("genre-custom-drift");
+    expect($("category-page")).toBeNull();
+    expect(discoverAsked).toEqual([{ q: "drift edit" }]);
+  });
+
+  it("with Saved only on, a category leaves the saved list in view; its page opens once Saved only is off", async () => {
+    categoryDoc = CATEGORY;
+    await mount({ v2: true, lang: "en" });
+    await click("filter-saved");
+    await click("genre-cars");
+    expect($("category-page")).toBeNull();
+    expect($("research-results")!.hidden).toBe(false);
+    expect($("filters")!.hidden).toBe(false);
+    await click("filter-saved");
+    expect($("category-page")).not.toBeNull();
+    expect($("research-results")!.hidden).toBe(true);
+    expect(discoverAsked).toHaveLength(0);
   });
 });

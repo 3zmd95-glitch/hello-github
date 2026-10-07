@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { candidatesOf, creatorId, extractCandidates } from "./extract";
+import { describe, expect, it, vi } from "vitest";
+import { candidatesOf, creatorId, extractCandidates, suffixPatterns } from "./extract";
 import type { EffectPost } from "./types";
 
 const keys = (text: string) =>
@@ -259,5 +259,55 @@ describe("extractCandidates", () => {
 
   it("hashes a handle the same with or without '@', case or spaces", async () => {
     expect(await creatorId("tt", " @SomeOne ")).toBe(await creatorId("tt", "someone"));
+  });
+});
+
+describe("a category's extras (planning/tools/19-category-trends.md §2)", () => {
+  const CARS = {
+    suffixes: ["shot", "angle", "lighting", "look"],
+    generic: new Set(["car", "cars", "edit", "cinematic"]),
+  };
+  const keysFor = (text: string) =>
+    candidatesOf(text, CARS)
+      .map((c) => c.key)
+      .sort();
+
+  it("names camera shots, angles, lighting and looks, in phrases and hashtags", () => {
+    expect(keysFor("insane rolling shot on the highway")).toEqual(["rolling-shot"]);
+    expect(keysFor("Cinematic Rolling Shot | BMW M3")).toEqual(["rolling-shot"]);
+    expect(keysFor("Low Angle hero shots of my M4")).toEqual(["hero-shot", "low-angle"]);
+    expect(keysFor("golden hour lighting #rollingshots")).toEqual([
+      "golden-hour-lighting",
+      "rolling-shot",
+    ]);
+  });
+
+  it("never makes a style of the category's own words", () => {
+    expect(keysFor("car edit trend #caredit")).toEqual([]);
+    expect(keysFor("cinematic car shot")).toEqual([]);
+  });
+
+  it("leaves Trending effects' rules as they were without extras", () => {
+    expect(keys("insane rolling shot on the highway")).toEqual([]);
+    expect(keys("clone effect tutorial | CapCut")).toEqual(["clone-effect"]);
+  });
+
+  it("builds its RegExps once per suffix list, not on every post (CPU on the free plan)", () => {
+    expect(suffixPatterns([...CARS.suffixes])).toBe(suffixPatterns(CARS.suffixes));
+    expect(suffixPatterns()).toBe(suffixPatterns([]));
+    expect(suffixPatterns()).not.toBe(suffixPatterns(CARS.suffixes));
+    // In use: a second post with the same extras compiles no pattern. Counted are RegExps made from a pattern's text;
+    // `matchAll` makes its working copy from the RegExp itself.
+    const made = vi.spyOn(globalThis, "RegExp");
+    try {
+      const compiled = () =>
+        made.mock.calls.filter(([source]) => typeof source === "string").length;
+      expect(keysFor("insane rolling shot on the highway")).toEqual(["rolling-shot"]);
+      const first = compiled();
+      expect(keysFor("Low Angle hero shots of my M4")).toEqual(["hero-shot", "low-angle"]);
+      expect(compiled()).toBe(first);
+    } finally {
+      made.mockRestore();
+    }
   });
 });

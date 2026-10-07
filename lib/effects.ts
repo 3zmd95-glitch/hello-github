@@ -88,20 +88,25 @@ export function parseTrendingEffects(raw: unknown): TrendingEffects | null {
   };
 }
 
-function readCache(url: string, now: number): TrendingEffects | null {
+/** This tab's copy kept under `key` while under an hour old, checked by `parse`; null otherwise or with storage
+ * blocked. Shared with lib/categories. */
+export function readTabCache<T>(
+  key: string,
+  now: number,
+  parse: (raw: unknown) => T | null,
+): T | null {
   try {
-    const kept = JSON.parse(sessionStorage.getItem(CACHE_PREFIX + url) ?? "null") as unknown;
-    return isObj(kept) && isNum(kept.at) && now - kept.at < CACHE_TTL_MS
-      ? parseTrendingEffects(kept.data)
-      : null;
+    const kept = JSON.parse(sessionStorage.getItem(key) ?? "null") as unknown;
+    return isObj(kept) && isNum(kept.at) && now - kept.at < CACHE_TTL_MS ? parse(kept.data) : null;
   } catch {
     return null;
   }
 }
 
-function writeCache(url: string, data: TrendingEffects, now: number): void {
+/** Keeps `data` under `key` in this tab (shared with lib/categories); blocked or full storage keeps nothing. */
+export function writeTabCache(key: string, data: unknown, now: number): void {
   try {
-    sessionStorage.setItem(CACHE_PREFIX + url, JSON.stringify({ at: now, data }));
+    sessionStorage.setItem(key, JSON.stringify({ at: now, data }));
   } catch {
     // Blocked or full: asked again on the next visit.
   }
@@ -112,7 +117,7 @@ export function cachedTrendingEffects(
   config: ScoutConfig,
   now = Date.now(),
 ): TrendingEffects | null {
-  return readCache(config.url, now);
+  return readTabCache(CACHE_PREFIX + config.url, now, parseTrendingEffects);
 }
 
 /**
@@ -129,7 +134,7 @@ export async function fetchTrendingEffects(
   if (kept) return kept;
   const r = await scoutCall(config, "/effects/trending", {}, { fetchImpl: opts.fetchImpl });
   const data = r.ok ? parseTrendingEffects(r.data) : null;
-  if (data?.items.length) writeCache(config.url, data, now);
+  if (data?.items.length) writeTabCache(CACHE_PREFIX + config.url, data, now);
   return data;
 }
 
@@ -160,7 +165,7 @@ export async function runTrendingEffectsNow(
       : { method: "POST" };
     const r = await scoutCall(config, "/effects/run", init, { fetchImpl: opts.fetchImpl });
     const data = r.ok ? parseTrendingEffects(r.data) : null;
-    if (data?.items.length) writeCache(config.url, data, Date.now());
+    if (data?.items.length) writeTabCache(CACHE_PREFIX + config.url, data, Date.now());
     return data;
   })();
   running.set(config.url, run);
