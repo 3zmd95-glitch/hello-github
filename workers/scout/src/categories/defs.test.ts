@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { candidatesOf } from "../effects/extract";
 import {
   aiContext,
   attemptsKey,
   CATEGORY_SLOTS,
+  CATEGORY_SUFFIXES,
   categoriesForDay,
   categoryById,
   categoryGeneric,
@@ -33,11 +35,28 @@ describe("a category's searches and words", () => {
     expect(categoryQueries(food)).toEqual(["food edit trend", "restaurant cinematic video"]);
   });
 
-  it("the words of its English name and queries are generic for it", () => {
-    expect([...categoryGeneric(cars)].sort()).toEqual(["car", "cars", "cinematic", "edit"]);
-    expect(categoryGeneric(food)).toEqual(
-      new Set(["food", "restaurants", "edit", "restaurant", "cinematic", "video"]),
-    );
+  it("the words of its English name (a plural one's singular too) and its main query are generic for it", () => {
+    expect([...categoryGeneric(cars)].sort()).toEqual(["car", "cars", "edit"]);
+    expect([...categoryGeneric(food)].sort()).toEqual([
+      "edit",
+      "food",
+      "restaurant",
+      "restaurants",
+    ]);
+  });
+
+  it("leaves the second query's words free: it is there to find the category's signature styles", () => {
+    const styles = (id: string, text: string) =>
+      candidatesOf(text, {
+        suffixes: CATEGORY_SUFFIXES,
+        generic: categoryGeneric(categoryById(id)!),
+      }).map((c) => c.key);
+    expect(styles("fashion", "outfit transition trend 🔥 | #outfittransition")).toEqual([
+      "outfit-transition",
+    ]);
+    // Its own words are still never a style: no "car edit", no "restaurant edit".
+    expect(styles("cars", "car edit trend #caredit | Car Edit")).toEqual([]);
+    expect(styles("food", "Restaurant Edit | restaurant edit trend #restauranttrend")).toEqual([]);
   });
 
   it("tells the AI the subject, and keys its KV documents", () => {

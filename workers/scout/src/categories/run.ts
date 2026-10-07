@@ -8,15 +8,14 @@
  * trends. Never throws: a day that fails keeps the last page and its lessons.
  */
 
-import type { TavilyUsage } from "../discover/usage";
 import { isRecord } from "../effects/ai";
 import { readEffects, writeEffects } from "../effects/kv";
 import { countAttempt, failed, noted, rememberPosts, type Memory } from "../effects/run";
 import { scoreEffects } from "../effects/score";
 import {
+  monthTight,
   monthUsage,
   searchFamilies,
-  TIGHT_SHARE,
   type EffectsEnv,
   type FamilyStats,
 } from "../effects/sources";
@@ -51,17 +50,6 @@ export type CategoryRunOptions = {
  * this long after the trends'. */
 const SAVE_GAP_MS = 1_100;
 const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-/**
- * The month's credits nearly spent: ≥ 90 % (Trending effects' `TIGHT_SHARE`) of the plan plus a positive pay-as-you-go
- * limit (the spec's cost counts on pay-as-you-go; effects counts the plan alone). No figure, or no known plan limit, is
- * not tight (as for Trending effects); a pay-as-you-go limit that is not a positive number adds nothing.
- */
-export function monthTight(u: TavilyUsage | null): boolean {
-  if (!u?.limit) return false;
-  const paygo = typeof u.paygoLimit === "number" && u.paygoLimit > 0 ? u.paygoLimit : 0;
-  return (u.used + (paygo ? (u.paygoUsed ?? 0) : 0)) / (u.limit + paygo) >= TIGHT_SHARE;
-}
 
 /**
  * A category's stored page: null before its first scan; throws when KV can't be read. KV's document is checked at its

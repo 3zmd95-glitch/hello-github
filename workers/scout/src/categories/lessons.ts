@@ -84,7 +84,8 @@ export type LessonCounts = {
   written: number;
   /** Areas whose how-to call gave no answer (as cleanWithAi's failed batches). */
   failed: number;
-  /** Areas with nothing new, which keep last cycle's techniques: the live check sees a fallback that recurs. */
+  /** Areas with nothing new, which keep last cycle's techniques (all three when the refresh stops early): the live
+   * check sees a fallback that recurs. */
   kept: Area[];
   credits: number;
   searchErrors: number;
@@ -294,7 +295,8 @@ export async function refreshLessons(
     withVideos: 0,
     written: 0,
     failed: 0,
-    kept: [],
+    // Until the how-to calls answer, every area keeps last cycle's techniques.
+    kept: [...AREAS],
     credits: 0,
     searchErrors: 0,
     rejects: {},
@@ -306,7 +308,23 @@ export async function refreshLessons(
     opts.aiTimeoutMs,
   );
   if (!picks) return { lessons: null, counts };
-  const chosen = AREAS.flatMap((area) => picks[area].map((pick) => ({ area, pick })));
+  // A technique picked again (its name, or its search words, in matching form) is searched once, as first picked:
+  // photo → video → edit. It saves a credit, and a shelf never shows one name twice.
+  const names = new Set<string>();
+  const queries = new Set<string>();
+  const chosen = AREAS.flatMap((area) => picks[area].map((pick) => ({ area, pick }))).filter(
+    ({ pick }) => {
+      const name = normalizeTerm(pick.name.en);
+      const query = normalizeTerm(pick.query);
+      if (names.has(name) || queries.has(query)) {
+        tally(counts.rejects, "duplicate_pick");
+        return false;
+      }
+      names.add(name);
+      queries.add(query);
+      return true;
+    },
+  );
   counts.picked = chosen.length;
   // 9 technique searches and the category's Arabic one: 10 credits, 5 at a time.
   const calls = [

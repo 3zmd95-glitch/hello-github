@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
 import { TAVILY_URL } from "../trends/tavily";
-import { searchFamilies, youtubeCheck } from "./sources";
+import { familiesForSlot } from "./families";
+import { monthTight, searchFamilies, youtubeCheck } from "./sources";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -27,7 +28,36 @@ const ENV = {
   SOCIAL_KV: usageKv(JSON.stringify({ used: 80, limit: 1000 })),
 };
 
+describe("monthTight (90 % of the month's credits, both jobs)", () => {
+  it("counts a positive pay-as-you-go limit in the month; no figure or no plan limit is not tight", () => {
+    expect(monthTight(null)).toBe(false);
+    expect(monthTight({ used: 950, limit: null })).toBe(false);
+    expect(monthTight({ used: 899, limit: 1000 })).toBe(false);
+    expect(monthTight({ used: 900, limit: 1000 })).toBe(true);
+    expect(monthTight({ used: 1000, limit: 1000, paygoUsed: 400, paygoLimit: 625 })).toBe(false); // 86 %
+    expect(monthTight({ used: 1000, limit: 1000, paygoUsed: 500, paygoLimit: 625 })).toBe(true); // 92 %
+    // No known pay-as-you-go allowance: the plan alone.
+    expect(monthTight({ used: 950, limit: 1000, paygoLimit: null })).toBe(true);
+  });
+});
+
 describe("searchFamilies", () => {
+  it("counts a positive pay-as-you-go limit in the month, as category scans do", async () => {
+    const searches = async (usage: object) => {
+      const doFetch = vi.fn<typeof fetch>(async () => json({ results: [] }));
+      const env = { ...ENV, SOCIAL_KV: usageKv(JSON.stringify(usage)) };
+      const out = await searchFamilies(env, doFetch, familiesForSlot(0));
+      return { searches: doFetch.mock.calls.length, tight: out.tight };
+    };
+    // 950 of the plan's 1,000 used, 500 more on pay-as-you-go: 950 of 1,500, all 18 searches.
+    expect(await searches({ used: 950, limit: 1000, paygoUsed: 0, paygoLimit: 500 })).toEqual({
+      searches: 18,
+      tight: false,
+    });
+    // The same without a pay-as-you-go limit: tight, the 6 Instagram month searches.
+    expect(await searches({ used: 950, limit: 1000 })).toEqual({ searches: 6, tight: true });
+  });
+
   it("asks Tavily 3 times a family (Instagram over a week and a month, TikTok over a month), keeps each family's post pages once and sums the credits", async () => {
     const reel = (id: string, handle: string, title: string) => ({
       url: `https://www.instagram.com/${handle}/reel/${id}/`,

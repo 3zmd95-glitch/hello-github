@@ -34,11 +34,11 @@ const SEARCHES = [
   { platform: "ig", timeRange: "month", stat: "igMonth" },
   { platform: "tt", timeRange: "month", stat: "tt" },
 ] as const;
-/** Tavily's month nearly spent (`monthUsage`): the Instagram month search alone. */
+/** Tavily's month nearly spent (`monthTight`): the Instagram month search alone. */
 const TIGHT_SEARCHES = [SEARCHES[1]];
-/** "Nearly spent": this share of the month's credits. Trending effects cuts back at it; category scans pause
- * (planning/tools/19-category-trends.md §4, their own month: categories/run.ts `monthTight`). */
-export const TIGHT_SHARE = 0.9;
+/** "Nearly spent": this share of the month's credits (`monthTight`). Trending effects cuts back at it; category scans
+ * pause (planning/tools/19-category-trends.md §4). */
+const TIGHT_SHARE = 0.9;
 
 /** A family's post pages found by each search, and its posts once each (the log line's figures). */
 export type FamilyStats = {
@@ -65,14 +65,24 @@ export async function monthUsage(
   return typeof (u as TavilyUsage | null)?.used === "number" ? (u as TavilyUsage) : null;
 }
 
-/** True when the month's figure says ≥ 90 % is used; an unknown figure, or no known limit, is not tight. */
+/**
+ * The month's credits nearly spent: ≥ 90 % of the plan plus a positive pay-as-you-go limit (the cost counts on
+ * pay-as-you-go, planning/tools/19-category-trends.md §4), for both jobs. No figure, or no known plan limit, is not
+ * tight; a pay-as-you-go limit that is not a positive number adds nothing.
+ */
+export function monthTight(u: TavilyUsage | null): boolean {
+  if (!u?.limit) return false;
+  const paygo = typeof u.paygoLimit === "number" && u.paygoLimit > 0 ? u.paygoLimit : 0;
+  return (u.used + (paygo ? (u.paygoUsed ?? 0) : 0)) / (u.limit + paygo) >= TIGHT_SHARE;
+}
+
+/** Trending effects' decision: the month's figure (`monthUsage`) nearly spent (`monthTight`). */
 async function budgetTight(
   env: EffectsEnv,
   doFetch: typeof fetch,
   timeoutMs: number,
 ): Promise<boolean> {
-  const usage = await monthUsage(env, doFetch, timeoutMs);
-  return usage?.limit ? usage.used / usage.limit >= TIGHT_SHARE : false;
+  return monthTight(await monthUsage(env, doFetch, timeoutMs));
 }
 
 export async function searchFamilies(

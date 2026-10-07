@@ -5,6 +5,7 @@
  * (generic for it), the line that tells the AI what the posts are, and its KV keys.
  */
 
+import { normalizeTerm } from "../discover/terms";
 import { GENRES, type Genre } from "../trends/genres";
 
 /** UTC "HH:MM" of the category slots, right after the effects slot (05:35): slot i scans the day's i-th category. */
@@ -34,15 +35,17 @@ export function categoryQueries(g: Genre): string[] {
   return [`${g.queries.en[0]} trend`, ...g.queries.en.slice(1, 2)];
 }
 
-/** The words of the category's English name and queries ("car", "cars", "cinematic"): never a style on their own. */
+/** The words of the category's English name, a plural one's singular too ("restaurants" → "restaurant", as keys are
+ * stemmed), and of its main query ("car", "cars", "edit"): never a style on their own. The second query's words stay
+ * free: it is there to find the category's signature styles (Fashion's "outfit transition", Gaming's "montage"). */
 export function categoryGeneric(g: Genre): Set<string> {
-  return new Set(
-    [g.name.en, ...g.queries.en]
-      .join(" ")
+  const words = (s: string) =>
+    s
       .toLowerCase()
       .split(/[^a-z0-9-]+/)
-      .filter(Boolean),
-  );
+      .filter(Boolean);
+  const name = words(g.name.en);
+  return new Set([...name, ...name.map(normalizeTerm), ...words(g.queries.en[0])]);
 }
 
 /** What the AI cleanup is told about the posts: "for car videos", from the main query without its " edit". */

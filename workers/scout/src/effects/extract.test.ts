@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { candidatesOf, creatorId, extractCandidates, suffixPatterns } from "./extract";
 import type { EffectPost } from "./types";
 
@@ -296,5 +296,18 @@ describe("a category's extras (planning/tools/19-category-trends.md §2)", () =>
     expect(suffixPatterns([...CARS.suffixes])).toBe(suffixPatterns(CARS.suffixes));
     expect(suffixPatterns()).toBe(suffixPatterns([]));
     expect(suffixPatterns()).not.toBe(suffixPatterns(CARS.suffixes));
+    // In use: a second post with the same extras compiles no pattern. Counted are RegExps made from a pattern's text;
+    // `matchAll` makes its working copy from the RegExp itself.
+    const made = vi.spyOn(globalThis, "RegExp");
+    try {
+      const compiled = () =>
+        made.mock.calls.filter(([source]) => typeof source === "string").length;
+      expect(keysFor("insane rolling shot on the highway")).toEqual(["rolling-shot"]);
+      const first = compiled();
+      expect(keysFor("Low Angle hero shots of my M4")).toEqual(["hero-shot", "low-angle"]);
+      expect(compiled()).toBe(first);
+    } finally {
+      made.mockRestore();
+    }
   });
 });

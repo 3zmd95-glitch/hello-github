@@ -2,13 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
 import { TAVILY_URL } from "../trends/tavily";
 import { aiContext, categoryById } from "./defs";
-import { monthTight, runCategory } from "./run";
+import { runCategory } from "./run";
 import type { CategoryDoc, Technique } from "./types";
 
 const NOW = new Date("2026-10-07T05:40:00Z"); // 2026-10-07 is UTC day % 3 = 0: cars' turn, slot 05:40
 const LATER = new Date("2026-10-07T18:00:00Z");
 const KEY = "category:cars";
 const ATTEMPTS = "category:attempts:cars:2026-10-07";
+/** The lessons' second save waits 1.1 s after the first: no real wait where the spacing is not what a test checks. */
+const NO_WAIT = async () => {};
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -158,24 +160,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("monthTight (§4: 90 % of the month's credits)", () => {
-  it("counts a positive pay-as-you-go limit in the month; no figure or no plan limit is not tight", () => {
-    expect(monthTight(null)).toBe(false);
-    expect(monthTight({ used: 950, limit: null })).toBe(false);
-    expect(monthTight({ used: 899, limit: 1000 })).toBe(false);
-    expect(monthTight({ used: 900, limit: 1000 })).toBe(true);
-    expect(monthTight({ used: 1000, limit: 1000, paygoUsed: 400, paygoLimit: 625 })).toBe(false); // 86 %
-    expect(monthTight({ used: 1000, limit: 1000, paygoUsed: 500, paygoLimit: 625 })).toBe(true); // 92 %
-    // No known pay-as-you-go allowance: the plan alone.
-    expect(monthTight({ used: 950, limit: 1000, paygoLimit: null })).toBe(true);
-  });
-});
-
 describe("runCategory", () => {
   it("a first scan: 2 queries × 3 searches, camera words named, the category's own words never, trends first", async () => {
     const { env, KV, AI } = setup();
     const { fetch, count, searched } = web();
-    const doc = await runCategory(env, "cars", { fetch, now: NOW });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
 
     expect(doc.items.map((i) => i.key)).toEqual(["rolling-shot", "low-angle", "speed-ramp"]);
     expect(doc.items[0]).toMatchObject({
@@ -415,7 +404,7 @@ describe("runCategory's lessons (§3)", () => {
     const { env, KV } = setup();
     env.AI = lessonsAi();
     const { fetch, count, searched } = web();
-    const doc = await runCategory(env, "cars", { fetch, now: NOW });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
     // PROBE answers every search: its TikTok / Instagram posts are the examples, its "tutorial" title the tutorial.
     expect(count.tavily).toBe(16);
     // Lessons find their YouTube videos through Tavily: no YouTube call (the env has YouTube's key).
@@ -458,7 +447,7 @@ describe("runCategory's lessons (§3)", () => {
   it("a refresh that keeps nothing keeps last week's lessons, noted 'lessons'", async () => {
     const { env, KV } = setup({ stored: LAST_WEEK });
     env.AI = lessonsAi({ techniques: "nope" });
-    const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW });
+    const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW, sleep: NO_WAIT });
     expect(doc.lessons).toEqual(LAST_WEEK.lessons);
     expect(doc.notes).toContain("lessons");
     expect(writes(KV)).toEqual([ATTEMPTS, KEY, KEY]);
@@ -478,7 +467,7 @@ describe("runCategory's lessons (§3)", () => {
         return answering.run(model, input);
       }),
     };
-    const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW });
+    const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW, sleep: NO_WAIT });
     expect(doc.lessons!.updatedAt).toBe(NOW.toISOString());
     expect(doc.lessons!.video).toEqual(LAST_WEEK.lessons!.video);
     expect(doc.lessons!.photo.map((t) => t.name.en)).toEqual([
@@ -510,7 +499,7 @@ describe("runCategory's lessons (§3)", () => {
       }),
     };
     const { fetch, count } = web();
-    const doc = await runCategory(env, "cars", { fetch, now: NOW });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
     expect(doc.lessons).toEqual(LAST_WEEK.lessons);
     expect(doc.notes).toContain("lessons");
     expect(count.tavily).toBe(6);

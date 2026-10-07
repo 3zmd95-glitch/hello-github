@@ -420,6 +420,39 @@ describe("refreshLessons", () => {
     expect(counts.rejects).toEqual({ duplicate_ar: 7 });
   });
 
+  it("searches a technique picked twice (its name, or its search words, again) once: the first pick", async () => {
+    const TWICE = {
+      photo: [
+        pick("panning", "بانينق", "car panning"),
+        pick("light painting", "رسم بالضوء", "car light painting"),
+      ],
+      video: [
+        pick("Panning", "بانينق", "panning car video"), // the same name
+        pick("rolling shot", "لقطة متحركة", "Car Light Painting"), // the same search words
+        pick("drone chase", "مطاردة بالدرون", "drone car chase"),
+      ],
+      edit: [],
+    };
+    const AI = {
+      run: vi.fn(async (_model: string, input: Record<string, unknown>): Promise<unknown> => {
+        const { system, user } = messages(input);
+        if (system.startsWith("You plan")) return { response: TWICE };
+        return { response: { techniques: shown(user).map(({ i }) => ({ i, howTo: HOW })) } };
+      }),
+    };
+    const { fetch, searched } = web();
+    const { lessons, counts } = await refreshLessons({ ...KEYS, AI }, fetch, CARS, [], NOW);
+    expect(searched.map((s) => s.query)).toEqual([
+      "car panning tutorial",
+      "car light painting tutorial",
+      "drone car chase tutorial",
+      "شرح تصوير ومونتاج سيارات",
+    ]);
+    expect(lessons!.photo.map((t) => t.name.en)).toEqual(["panning", "light painting"]);
+    expect(lessons!.video.map((t) => t.name.en)).toEqual(["drone chase"]);
+    expect(counts).toMatchObject({ picked: 3, credits: 4, rejects: { duplicate_pick: 2 } });
+  });
+
   it("never hands out again an Arabic tutorial that an area keeping last cycle's techniques holds", async () => {
     // The Arabic search's only find, as Arabic tutorial 0.
     const X: LessonVideo = {
@@ -590,14 +623,24 @@ describe("refreshLessons", () => {
 
   it("is null when the AI picks nothing, every search fails, or every how-to call answers nothing", async () => {
     // Nothing picked: nothing searched.
+    // Each way, every area keeps last cycle's techniques, and the counts say so.
+    const ALL = ["photo", "video", "edit"];
     const none = { ...KEYS, AI: { run: vi.fn(async () => ({ response: {} })) } };
     const unsearched = web().fetch;
-    expect((await refreshLessons(none, unsearched, CARS, [], NOW, LAST)).lessons).toBeNull();
+    const unpicked = await refreshLessons(none, unsearched, CARS, [], NOW, LAST);
+    expect(unpicked.lessons).toBeNull();
+    expect(unpicked.counts.kept).toEqual(ALL);
     expect(unsearched).not.toHaveBeenCalled();
     const down = vi.fn<typeof fetch>(async () => json({ error: "quota" }, 432));
     const failed = await refreshLessons({ ...KEYS, AI: ai() }, down, CARS, [], NOW, LAST);
     expect(failed.lessons).toBeNull();
-    expect(failed.counts).toMatchObject({ picked: 9, withVideos: 0, credits: 0, searchErrors: 10 });
+    expect(failed.counts).toMatchObject({
+      picked: 9,
+      withVideos: 0,
+      credits: 0,
+      searchErrors: 10,
+      kept: ALL,
+    });
     expect(tavilyOnly(down)).toBe(true);
     // Every area's call failing keeps last week's lessons whole (null: the category keeps them, noted).
     const searched = web().fetch;
@@ -610,7 +653,7 @@ describe("refreshLessons", () => {
       LAST,
     );
     expect(mute.lessons).toBeNull();
-    expect(mute.counts).toMatchObject({ withVideos: 8, written: 0, failed: 3 });
+    expect(mute.counts).toMatchObject({ withVideos: 8, written: 0, failed: 3, kept: ALL });
     expect(tavilyOnly(searched)).toBe(true);
   });
 });
