@@ -10,7 +10,9 @@ export interface SegmentedOption<T extends string> {
 
 /**
  * iOS segmented control. Equal-width segments; the thumb is positioned once per layout (width + translateX) and
- * then only `transform` animates. Arrow keys move the selection (ArrowLeft = forward in RTL, back in LTR).
+ * then only `transform` animates. Arrow keys move the selection (ArrowLeft = forward in RTL, back in LTR). With
+ * `idPrefix` each tab gets the id `${idPrefix}-tab-${value}` and `aria-controls` = `${idPrefix}-panel-${value}`: the
+ * caller gives its `role="tabpanel"` that id and `aria-labelledby` the tab.
  */
 export default function Segmented<T extends string>({
   options,
@@ -20,6 +22,7 @@ export default function Segmented<T extends string>({
   role = "tablist",
   className = "",
   testId,
+  idPrefix,
 }: {
   options: readonly SegmentedOption<T>[];
   value: T;
@@ -28,6 +31,7 @@ export default function Segmented<T extends string>({
   role?: "tablist" | "radiogroup";
   className?: string;
   testId?: string;
+  idPrefix?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const thumb = useRef<HTMLSpanElement>(null);
@@ -106,6 +110,8 @@ export default function Segmented<T extends string>({
             tabIndex={on ? 0 : -1}
             data-v={o.value}
             data-testid={o.testId}
+            id={idPrefix && `${idPrefix}-tab-${o.value}`}
+            aria-controls={idPrefix && `${idPrefix}-panel-${o.value}`}
             onClick={() => onChange(o.value)}
           >
             {o.label}

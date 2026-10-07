@@ -66,6 +66,15 @@ describe("Segmented", () => {
     expect(seen).toEqual(["month", "month", "stages"]);
   });
 
+  it("ties each tab to its panel with idPrefix", () => {
+    const host = mount(
+      <Segmented options={opts} value="week" onChange={() => {}} label="العرض" idPrefix="cal" />,
+    );
+    const tabs = [...host.querySelectorAll('[role="tab"]')];
+    expect(tabs.map((t) => t.id)).toEqual(["cal-tab-week", "cal-tab-month", "cal-tab-stages"]);
+    expect(tabs[1].getAttribute("aria-controls")).toBe("cal-panel-month");
+  });
+
   it("is a radiogroup with test ids and flips the arrows in LTR", () => {
     const seen: string[] = [];
     const host = mount(
