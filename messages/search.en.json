@@ -110,11 +110,13 @@
   "search.topTitle": "🏆 Top in {genre}",
   "search.topTabs": "Top videos by platform",
   "search.topLoading": "Loading…",
-  "search.topNoKey": "More TikTok results once Brave search is connected",
   "search.topFailed": "Couldn't reach Brave search right now",
   "search.topCap": "Today's Brave searches are used up — more tomorrow",
   "search.topEmpty": "Nothing here yet",
   "search.topNone": "Top videos come with the next scan",
   "search.topBraveGroup": "More from Brave Search",
-  "search.topBraveCredit": "Powered by Brave Search"
+  "search.topBraveCredit": "Powered by Brave Search",
+  "search.tiktokConnect": "Connect TikTok trends",
+  "search.tiktokConnected": "TikTok connected — the TikTok tab fills on this category's next scan",
+  "search.tiktokConnectFailed": "Couldn't connect TikTok — try again in a bit"
 }

@@ -52,7 +52,8 @@ export interface TopVideo {
   views?: number;
   thumbnail?: string;
 }
-/** The lists stored with the page: YouTube's most viewed of the month, the scan's Instagram and TikTok posts. */
+/** The lists stored with the page: YouTube's most viewed of the month, the scan's Instagram posts, and TikTok's trending
+ * videos from its Discovery API (titled with their hashtag; the card's oEmbed lookup brings the caption). */
 export interface TopLists {
   updatedAt: string;
   yt: TopVideo[];
@@ -195,6 +196,31 @@ export async function fetchCategoryTop(
     source: r.data.source === "brave" ? "brave" : "scan",
     ...(NOTES.has(note as string) ? { note: note as TopAnswer["note"] } : {}),
   };
+}
+
+/**
+ * "Connect TikTok trends" (§6): `POST /tiktokads/connect` with the page's address, answered with TikTok for Business's
+ * authorization page. The Worker sends the owner back to that address with `?tiktokads=connected` (or
+ * `?tiktokads_error=<reason>`). null when the Worker can't (not configured, refused, no network) or answers no http(s)
+ * address.
+ */
+export async function tiktokConnectUrl(
+  config: ScoutConfig,
+  returnTo: string,
+  opts: { fetchImpl?: typeof fetch } = {},
+): Promise<string | null> {
+  const r = await scoutCall(
+    config,
+    "/tiktokads/connect",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ returnTo }),
+    },
+    { fetchImpl: opts.fetchImpl },
+  );
+  const url = r.ok && isObj(r.data) ? r.data.url : undefined;
+  return isStr(url) && /^https?:\/\//.test(url) ? url : null;
 }
 
 /** Something to show: trends or lessons. */

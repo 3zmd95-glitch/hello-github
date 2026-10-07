@@ -110,11 +110,13 @@
   "search.topTitle": "🏆 الأقوى في {genre}",
   "search.topTabs": "أقوى الفيديوهات حسب المنصة",
   "search.topLoading": "لحظة، أجيبها…",
-  "search.topNoKey": "نتائج تيك توك أكثر توصل لما نربط بحث Brave",
   "search.topFailed": "ما قدرت أوصل لبحث Brave الحين",
   "search.topCap": "خلصت بحوث Brave حق اليوم، نكمّل بكرة",
   "search.topEmpty": "لسه ما فيه شي هنا",
   "search.topNone": "أقوى الفيديوهات توصل مع الفحص الجاي",
   "search.topBraveGroup": "أكثر من Brave Search",
-  "search.topBraveCredit": "النتائج من Brave Search"
+  "search.topBraveCredit": "النتائج من Brave Search",
+  "search.tiktokConnect": "اربط ترندات تيك توك",
+  "search.tiktokConnected": "انربط تيك توك — تبويب تيك توك يتعبّى مع الفحص الجاي حق هالفئة",
+  "search.tiktokConnectFailed": "ما قدرت أربط تيك توك، جرّب بعد شوي"
 }
