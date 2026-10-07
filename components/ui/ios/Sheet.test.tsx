@@ -3,7 +3,7 @@ import { act, StrictMode, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PLAYER_HISTORY_KEY } from "@/components/player/useBackToClose";
-import Sheet from "./Sheet";
+import Sheet, { useSheetClose } from "./Sheet";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -26,16 +26,36 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mount(onClose: () => void, child: ReactNode = <button type="button">داخل</button>) {
+function mount(
+  onClose: () => void,
+  child: ReactNode = <button type="button">داخل</button>,
+  beforeClose?: () => boolean,
+) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
   act(() =>
     root!.render(
-      <Sheet onClose={onClose} title="بوست جديد" titleId="t1" testId="sheet">
+      <Sheet
+        onClose={onClose}
+        title="بوست جديد"
+        titleId="t1"
+        testId="sheet"
+        beforeClose={beforeClose}
+      >
         {child}
       </Sheet>,
     ),
+  );
+}
+
+/** An in-sheet Save: closes through useSheetClose(). */
+function SaveButton() {
+  const close = useSheetClose();
+  return (
+    <button type="button" data-testid="save" onClick={close}>
+      حفظ
+    </button>
   );
 }
 
@@ -117,6 +137,31 @@ describe("Sheet", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  // A form holding a draft (useDraftGuard) says no to the casual dismissals; its own Save / Cancel still close.
+  it("asks beforeClose on ✕, the backdrop and Esc; a refusal keeps it open, useSheetClose() never asks", () => {
+    const onClose = vi.fn();
+    const beforeClose = vi.fn(() => false);
+    mount(onClose, <SaveButton />, beforeClose);
+    act(() => (document.querySelector('[data-testid="sheet-backdrop"]') as HTMLElement).click());
+    act(() => (document.querySelector(".ios-close") as HTMLButtonElement).click());
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(beforeClose).toHaveBeenCalledTimes(3);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-testid="sheet"]')).not.toBeNull();
+    act(() => (document.querySelector('[data-testid="save"]') as HTMLButtonElement).click());
+    expect(beforeClose).toHaveBeenCalledTimes(3);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes on a backdrop tap once beforeClose agrees", () => {
+    const onClose = vi.fn();
+    mount(onClose, undefined, () => true);
+    act(() => (document.querySelector('[data-testid="sheet-backdrop"]') as HTMLElement).click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("closes from its close button, once", () => {
     const onClose = vi.fn();
     mount(onClose);
@@ -174,8 +219,8 @@ describe("Sheet with motion (phone)", () => {
   });
 
   /** Mount, run the enter frames (phase "open"), and hand back the panel and a pointer driver for its grabber. */
-  function open(onClose: () => void) {
-    mount(onClose);
+  function open(onClose: () => void, beforeClose?: () => boolean) {
+    mount(onClose, undefined, beforeClose);
     act(() => {
       while (frames.length) frames.shift()!(0);
     });
@@ -212,6 +257,36 @@ describe("Sheet with motion (phone)", () => {
     expect(onClose).not.toHaveBeenCalled(); // the exit plays first
     act(() => vi.advanceTimersByTime(300));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a second finger while a drag is in progress", () => {
+    const onClose = vi.fn();
+    const { sheet, fire } = open(onClose);
+    const grab = sheet.querySelector(".ios-grab")!;
+    fire("pointerdown", 300, 1000);
+    fire("pointermove", 340, 1100); // 40px down
+    act(() => {
+      const e = new PointerEvent("pointerdown", { bubbles: true, clientY: 600, pointerId: 2 });
+      Object.defineProperty(e, "timeStamp", { value: 1150 });
+      grab.dispatchEvent(e);
+    });
+    fire("pointermove", 360, 1200); // the first finger goes on: 60px from where it started
+    expect(sheet.style.transform).toBe(`translate3d(0, ${mediumY() + 60}px, 0)`);
+    fire("pointerup", 360, 1400);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("springs back to its detent when beforeClose refuses a flick past the last one", () => {
+    const onClose = vi.fn();
+    const beforeClose = vi.fn(() => false);
+    const { sheet, fire } = open(onClose, beforeClose);
+    fire("pointerdown", 300, 1000);
+    fire("pointermove", 400, 1050);
+    fire("pointerup", 400, 1060); // a fling: past the last detent
+    act(() => vi.advanceTimersByTime(1000));
+    expect(beforeClose).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(sheet.style.transform).toBe(`translate3d(0, ${mediumY()}px, 0)`);
   });
 
   // The body's end padding (--sheet-hidden) is what lets its last item scroll into view at the medium detent. If it

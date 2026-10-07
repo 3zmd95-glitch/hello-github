@@ -71,12 +71,27 @@ describe("usePullToRefresh", () => {
     html.style.overscrollBehaviorY = "";
   });
 
+  it("listens passively, so a touch scroll never waits for it", () => {
+    const add = vi.spyOn(window, "addEventListener");
+    mount();
+    const touchListeners = add.mock.calls.filter(([type]) => String(type).startsWith("touch"));
+    expect(touchListeners.map(([type]) => type).sort()).toEqual([
+      "touchcancel",
+      "touchend",
+      "touchmove",
+      "touchstart",
+    ]);
+    for (const [type, , options] of touchListeners)
+      if (type === "touchstart" || type === "touchmove") expect(options).toEqual({ passive: true });
+    add.mockRestore();
+  });
+
   it("follows the finger with resistance and springs back without refreshing below 70px", () => {
     const onRefresh = vi.fn();
     mount(onRefresh);
     touch("touchstart", 100);
     const move = touch("touchmove", 200); // 100px raw → 55px
-    expect(move.defaultPrevented).toBe(true);
+    expect(move.defaultPrevented).toBe(false); // passive: overscroll-behavior keeps the page still
     expect(ty()).toBeCloseTo(55);
     expect(state().pull).toBeCloseTo(55);
     expect(state().refreshing).toBe(false);
@@ -91,8 +106,7 @@ describe("usePullToRefresh", () => {
     touch("touchstart", 100);
     touch("touchmove", 160);
     expect(ty()).toBeCloseTo(33);
-    const up = touch("touchmove", 80);
-    expect(up.defaultPrevented).toBe(false);
+    touch("touchmove", 80);
     expect(main.style.transform).toBe("");
     expect(state().pull).toBe(0);
   });
@@ -175,14 +189,16 @@ describe("usePullToRefresh", () => {
     expect(toasted).toBe(false);
     // The sync still runs: a new pull waits.
     touch("touchstart", 0);
-    expect(touch("touchmove", 200).defaultPrevented).toBe(false);
+    touch("touchmove", 200);
+    expect(state().pull).toBe(0);
     touch("touchend", 0);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
     expect(toasted).toBe(true);
     touch("touchstart", 0);
-    expect(touch("touchmove", 200).defaultPrevented).toBe(true);
+    touch("touchmove", 200);
+    expect(state().pull).toBeGreaterThan(0);
   });
 
   it("springs back after a rejected refresh without an unhandled rejection", async () => {
@@ -235,13 +251,15 @@ describe("usePullToRefresh", () => {
     mount();
     y = 10;
     touch("touchstart", 0);
-    expect(touch("touchmove", 200).defaultPrevented).toBe(false);
+    touch("touchmove", 200);
+    expect(state().pull).toBe(0);
     touch("touchend", 0);
     y = 0;
     const bar = document.createElement("nav");
     document.body.appendChild(bar);
     touch("touchstart", 0, bar);
-    expect(touch("touchmove", 200, bar).defaultPrevented).toBe(false);
+    touch("touchmove", 200, bar);
+    expect(state().pull).toBe(0);
     touch("touchend", 0, bar);
     bar.remove();
     expect(main.style.transform).toBe("");

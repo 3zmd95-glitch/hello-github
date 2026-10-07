@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Segmented from "@/components/ui/ios/Segmented";
 import { useSheetClose } from "@/components/ui/ios/Sheet";
 import { AGE_BUCKETS, parseDemographicsJson } from "@/lib/analytics";
 import { PLATFORMS, type Platform } from "@/lib/domain";
@@ -95,22 +96,21 @@ function DemographicsFields({ platform: preset, today }: { platform?: Platform; 
   return (
     <form className="flex flex-col gap-3" onSubmit={submit} data-testid="demo-form">
       <p className="text-ink-2 text-sm">{t("growth.demo.form.hint")}</p>
-      <div className="an-toggle self-start" role="group">
-        {(["form", "json"] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            aria-pressed={mode === m}
-            onClick={() => {
-              setMode(m);
-              setErrors([]);
-            }}
-            data-testid={`demo-mode-${m}`}
-          >
-            {m === "form" ? t("growth.demo.form.mode.form") : t("growth.demo.form.mode.json")}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        role="radiogroup"
+        label={t("growth.demo.form.title")}
+        className="self-start"
+        value={mode}
+        onChange={(m) => {
+          setMode(m);
+          setErrors([]);
+        }}
+        options={(["form", "json"] as const).map((m) => ({
+          value: m,
+          label: m === "form" ? t("growth.demo.form.mode.form") : t("growth.demo.form.mode.json"),
+          testId: `demo-mode-${m}`,
+        }))}
+      />
 
       {mode === "form" ? (
         <>

@@ -1806,6 +1806,10 @@
     background: var(--warn-bg);
     color: var(--warn);
   }
+  /* The one spinner (pull to refresh, the radar's refresh, Growth's sync): a full turn every 0.8s. */
+  .ios-spin {
+    animation: ios-spin 0.8s linear infinite;
+  }
   /* A control that just turned into this element (a button morphing into a chip) pops in. */
   .ios-pop {
     animation: ios-pop 0.45s var(--spring);
@@ -1862,7 +1866,8 @@
   }
 
   /* Segmented control: equal segments, thumb moves on transform only (width is set once by the component). The
-     track clips, so the spring's overshoot never pushes the thumb past it. */
+     rail clips the thumb, so the spring's overshoot never pushes it past the track; the track itself does not clip,
+     so the segments' tap areas reach past it. */
   .ios-seg {
     position: relative;
     display: flex;
@@ -1870,7 +1875,14 @@
     border-radius: 12px;
     padding: 3px;
     min-width: 0;
+  }
+  .ios-seg-rail {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    corner-shape: inherit;
     overflow: hidden;
+    pointer-events: none;
   }
   .ios-seg > button {
     position: relative;
@@ -1893,7 +1905,8 @@
   .ios-seg > button:active {
     transform: scale(0.96);
   }
-  /* The clipped track would cut the outer focus ring: draw it inside the segment. */
+  /* The ring sits inside the segment: outside it would run into the next segment, and a row that scrolls sideways
+     (the Growth platforms) would cut it. */
   [data-world="social"] .ios-seg > button:focus-visible {
     outline: 2px solid var(--tint);
     outline-offset: -2px;
@@ -1955,6 +1968,22 @@
   }
   [dir="ltr"] .ios-switch:checked::after {
     transform: translateX(20px);
+  }
+  /* Pressed: the thumb stretches 1.15× toward the middle, from the side it rests on (RTL first, then LTR). */
+  .ios-switch:active:not(:disabled)::after {
+    transform: scaleX(1.15);
+    transform-origin: 100% 50%;
+  }
+  .ios-switch:checked:active:not(:disabled)::after {
+    transform: translateX(-20px) scaleX(1.15);
+    transform-origin: 0 50%;
+  }
+  [dir="ltr"] .ios-switch:active:not(:disabled)::after {
+    transform-origin: 0 50%;
+  }
+  [dir="ltr"] .ios-switch:checked:active:not(:disabled)::after {
+    transform: translateX(20px) scaleX(1.15);
+    transform-origin: 100% 50%;
   }
   .ios-switch:disabled {
     opacity: 0.45;
@@ -2101,6 +2130,7 @@
   [data-world="social"] .ios-alert-body h2 {
     font-size: 17px;
     font-weight: 600;
+    overflow-wrap: anywhere;
   }
   [data-world="social"] .ios-alert-body p {
     font-size: 13px;
@@ -2163,6 +2193,16 @@
   }
   .ios-stagger > :nth-child(n + 8) {
     animation-delay: 0.35s;
+  }
+  /* Tab change (§3.5): nothing swaps in one frame. A route's screen fades in (opacity only: its large title and any
+     first-visit stagger bring their own rise, so the screen itself must not rise too); a Segmented panel's content
+     fades in with a 12px rise. Zero weight: another entrance on the same element wins. Screens hold no fixed children
+     (the "+" and the pull spinner are portaled). */
+  :where([data-world="social"]) :where(#main) > * {
+    animation: ios-fade var(--t-med) var(--out) backwards;
+  }
+  :where([data-world="social"]) :where([role="tabpanel"]) > * {
+    animation: ios-pin var(--t-med) var(--out) backwards;
   }
 
   /* Sheet (Task 1.9): portaled to <body> on z-39; phones = bottom sheet with detents, md+ = centered dialog. */
@@ -2295,8 +2335,8 @@
     flex-direction: column;
     gap: 14px;
   }
-  /* The body scrolls, its children keep their height: a flex item with overflow: hidden (the segmented control)
-     would otherwise shrink to nothing. */
+  /* The body scrolls, its children keep their height: a flex item that clips or scrolls (a row that scrolls
+     sideways) would otherwise shrink to nothing. */
   .ios-sheet-body > * {
     flex-shrink: 0;
   }
@@ -2305,6 +2345,57 @@
   }
   [data-world="social"] #main.ios-behind {
     transform: scale(0.965);
+  }
+
+  /* 44px tap areas: small controls keep their look and take taps on an invisible band 44px tall centered on them
+     (the sheet ✕'s trick). Vertical only, so neighbours side by side never overlap; the position sits at zero
+     weight, so a control that is already positioned stays as it is. `.ios-hit` gives the band to a link or a small
+     button that stands on its own line (inline links inside a sentence stay as they are). */
+  :where([data-world="social"])
+    :where(
+      .px-fchip,
+      .px-btn-sm,
+      .ios-icbtn,
+      .ios-top-brand,
+      .ios-starb,
+      .studio-pbtn,
+      .ios-hit,
+      .cal-step
+    ) {
+    position: relative;
+  }
+  [data-world="social"]
+    :is(
+      .px-fchip,
+      .px-btn-sm,
+      .ios-icbtn,
+      .ios-top-brand,
+      .ios-starb,
+      .studio-pbtn,
+      .ios-world-btn,
+      .ios-seg > button,
+      .ios-hit,
+      .cal-step
+    )::after,
+  [data-world="social"] .ios-switch::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: calc(50% - 22px);
+    bottom: calc(50% - 22px);
+  }
+  /* A row that scrolls sideways clips what reaches past it: room for the band inside, taken back outside. */
+  [data-world="social"] div:has(> .ios-seg.gr-seg) {
+    padding-block: 3px;
+    margin-block: -3px;
+  }
+}
+
+/* The phone filter rows (`.ios-chips`, unlayered) scroll sideways: room above the chips for their tap band. */
+@media (max-width: 767px) {
+  [data-world="social"] .ios-chips {
+    padding-top: 5px;
+    margin-top: -5px;
   }
 }
 
@@ -2332,16 +2423,15 @@
     transform: translateY(16px);
   }
 }
+@keyframes ios-fade {
+  from {
+    opacity: 0;
+  }
+}
 @keyframes ios-pin {
   from {
     opacity: 0;
     transform: translateY(12px) scale(0.992);
-  }
-}
-@keyframes ios-pout {
-  to {
-    opacity: 0;
-    transform: translateY(-6px);
   }
 }
 @keyframes ios-pop {
@@ -2425,12 +2515,17 @@
   overflow: hidden;
   min-width: 40px;
 }
+/* The fill is full width and scaled from the inline start (transform only, never width). */
 .an-bar > i {
   display: block;
   height: 100%;
   border-radius: 999px;
   background: var(--c, var(--ink));
-  transition: width 0.4s ease;
+  transform-origin: right center;
+  transition: transform var(--t-med) var(--out);
+}
+[dir="ltr"] .an-bar > i {
+  transform-origin: left center;
 }
 .an-swatch {
   display: inline-block;
@@ -2448,26 +2543,6 @@
   font-size: 15px;
   font-weight: 700;
   font-family: var(--font-body);
-}
-.an-toggle {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 999px;
-  border: 1px solid var(--edge);
-  background: var(--panel);
-}
-.an-toggle > button {
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-.an-toggle > button[aria-pressed="true"] {
-  background: var(--panel-3);
-  color: var(--ink);
 }
 
 /* Charts (mockup `.chart`). LineChart sets data-drawn "false" then "true" on the svg: the line draws itself, the area
@@ -2541,10 +2616,13 @@
 .an-chart [data-scrubbing] :is(.an-mk, .an-mkd) {
   opacity: 1;
 }
+/* x rides on `translate` (set per move, never transitioned, so it keeps up with the finger); the show / hide drop is
+   the transitioned `transform`. */
 .an-tip {
   position: absolute;
   top: 0;
   left: 0;
+  translate: var(--tip-x, 0px) 0;
   z-index: 2;
   display: flex;
   flex-direction: column;
@@ -2889,10 +2967,11 @@
   color: var(--ink);
   box-shadow: var(--shadow-sm);
 }
+/* The rows sit 10px apart, so the steps' 44px tap bands meet without covering the next row. */
 .cal-stepper {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
+  gap: 10px 4px;
 }
 @media (min-width: 640px) {
   .cal-stepper {
@@ -2902,19 +2981,23 @@
 .cal-step {
   min-height: 34px;
   padding: 4px 6px;
-  overflow: hidden;
   border: 1px solid var(--edge);
   border-radius: var(--radius-sm);
   background: var(--panel-2);
   color: var(--ink-2);
   font-size: 0.78rem;
   font-weight: 700;
+}
+/* The label cuts with an ellipsis inside the step: the step itself does not clip (its tap band reaches past it). */
+.cal-step-tx {
+  display: block;
+  overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 .cal-step[data-done="true"] {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--edge));
-  color: var(--accent);
+  color: var(--tint);
 }
 .cal-step[aria-pressed="true"] {
   border-color: var(--accent);
@@ -2989,27 +3072,6 @@
   }
 }
 
-/* Platform chip / dot / button: `--c` is the platform's brand color. */
-.studio-pchip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.74rem;
-  font-weight: 600;
-  line-height: 1.5;
-  padding: 0 8px;
-  border: 2px solid var(--edge);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--c, var(--accent)) 22%, var(--panel-3));
-  color: var(--ink);
-  white-space: nowrap;
-}
-[data-world="social"] .studio-pchip {
-  border-width: 1px;
-  border-radius: 999px;
-  padding: 0 10px;
-  border-color: color-mix(in srgb, var(--c, var(--accent)) 45%, transparent);
-}
 /* A post on the week strip: `--pc` is the platform's color token. */
 .studio-pdot {
   width: 6px;
@@ -3017,6 +3079,7 @@
   border-radius: 50%;
   background: var(--pc, var(--muted));
 }
+/* Platform button (PlatformPicker): `--c` is the platform's brand color. */
 .studio-pbtn {
   display: inline-flex;
   align-items: center;
@@ -3124,6 +3187,10 @@
 }
 .ios-chips::-webkit-scrollbar {
   display: none;
+}
+/* The row scrolls sideways (and clips what reaches past it): the chips' focus ring is drawn inside. */
+.ios-chips > :focus-visible {
+  outline-offset: -2px;
 }
 @media (min-width: 768px) {
   .ios-chips {

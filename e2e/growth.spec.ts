@@ -16,7 +16,9 @@ function riyadhDay(offset = 0): string {
 }
 
 async function fitsViewport(page: Page): Promise<boolean> {
-  return page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  return page.evaluate(
+    () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+  );
 }
 
 /** A TikTok Studio → Analytics → Content export: 6 videos, 2 of them in the last 7 days, 4 in the last month. */
@@ -41,9 +43,9 @@ test("Social Analytics: the seeded All view, the TikTok view with demographics, 
 
   // The Sep 27, 2026 Beacons numbers are seeded on first load: 1.5k followers over four platforms.
   await expect(page.getByTestId("kpi-followers")).toHaveAttribute("data-value", "1478");
-  await expect(page.getByTestId("kpi-followers")).toContainText("1.5k");
+  await expect(page.getByTestId("kpi-followers")).toContainText("1.5K");
   await expect(page.getByTestId("kpi-engagement")).toContainText("7.2%");
-  await expect(page.getByTestId("kpi-views")).toContainText("7.8k");
+  await expect(page.getByTestId("kpi-views")).toContainText("7.8K");
   await expect(page.getByTestId("platform-card")).toHaveCount(4);
   expect(await fitsViewport(page)).toBe(true);
 
@@ -145,7 +147,7 @@ test("Social Analytics: the seeded All view, the TikTok view with demographics, 
   // Search filters the past posts.
   await expect(page.getByTestId("tiktok-brief-post")).toHaveCount(3);
   await expect(page.getByTestId("tiktok-brief")).toContainText("current lifetime totals");
-  await page.getByTestId("tiktok-brief-days").selectOption("7");
+  await page.getByTestId("tiktok-brief-days-7").click();
   await expect(page.getByTestId("tiktok-brief-post")).toHaveCount(2);
   await page.getByTestId("tiktok-brief-followup").first().click();
   await expect(page.getByTestId("tiktok-brief-draft")).toHaveAttribute(
@@ -236,7 +238,7 @@ test("Growth basics still work: add a snapshot, import a stats CSV with the th a
   await page.getByTestId("snapshot-save").click();
   await expect(page.getByTestId("snapshot-form")).toHaveCount(0);
   await expect(page.locator('[data-testid="platform-card"][data-platform="tiktok"]')).toContainText(
-    "1.3k",
+    "1.3K",
   );
   await expect(page.getByTestId("kpi-followers")).toHaveAttribute("data-value", "1578");
 

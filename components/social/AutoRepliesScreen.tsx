@@ -1,8 +1,8 @@
 "use client";
 
-import { FlaskConical, History, MessageCircle } from "lucide-react";
+import { Check, FlaskConical, History, MessageCircle } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Chip from "@/components/ui/ios/Chip";
@@ -76,8 +76,9 @@ export default function AutoRepliesScreen() {
     [postStats],
   );
   const [editing, setEditing] = useState<Editing>(null);
+  /** The open editor's draft guard (`useDraftGuard`): a draft keeps the sheet open on ✕, backdrop, drag and Esc. */
+  const guardRef = useRef<() => boolean>(() => true);
   const [pendingDelete, setPendingDelete] = useState<AutoReply | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const { toast } = useCelebrate();
 
   const ig = status?.instagram;
@@ -95,59 +96,43 @@ export default function AutoRepliesScreen() {
   // Not read yet: say so while the Worker answers; say nothing when there is no Worker or the read failed.
   const loading = configured && busy && !error;
 
-  const saved = () => setNotice(t("replies.notice.saved"));
-  /**
-   * The editors close themselves (with the sheet's exit) once this says the Worker took it. The page behind the sheet
-   * never moves, so a toast confirms the save wherever the owner is.
-   */
+  /** Every result here is a toast (the page behind an open sheet never moves); a warning when nothing goes out. */
+  const note = (key: MessageKey, warn = false) =>
+    toast("notice", { name: t(key), ...(warn ? { tone: "warn" as const } : {}) });
+  /** The editors close themselves (with the sheet's exit) once this says the Worker took it. */
   const savedToast = (ok: boolean) => {
-    if (ok) toast("notice", { name: t("replies.toast.saved") });
+    if (ok) note("replies.toast.saved");
     return ok;
   };
-  const saveRule = async (a: AutoReply) => {
-    setNotice(null);
-    return savedToast(await saveReply(a));
-  };
-  const saveDefault = async (d: { enabled: boolean; text: string }) => {
-    setNotice(null);
-    return savedToast(await saveSettings({ defaultReply: d }));
-  };
+  const saveRule = async (a: AutoReply) => savedToast(await saveReply(a));
+  const saveDefault = async (d: { enabled: boolean; text: string }) =>
+    savedToast(await saveSettings({ defaultReply: d }));
   /** A row's On/Off: never touches an open editor. */
   const toggle = async (a: AutoReply) => {
-    setNotice(null);
-    if (await saveReply({ ...a, enabled: !a.enabled })) saved();
+    savedToast(await saveReply({ ...a, enabled: !a.enabled }));
   };
   /** The default reply's On/Off; without a text yet it opens the editor instead. */
   const toggleDefault = async () => {
     const d = doc?.defaultReply;
     if (!d?.text) return setEditing({ kind: "default" });
-    setNotice(null);
-    if (await saveSettings({ defaultReply: { enabled: !d.enabled, text: d.text } })) saved();
+    savedToast(await saveSettings({ defaultReply: { enabled: !d.enabled, text: d.text } }));
   };
   const togglePause = async () => {
-    setNotice(null);
     await saveSettings({ paused: !doc?.paused });
   };
   const remove = async () => {
     const a = pendingDelete;
     setPendingDelete(null);
     if (!a) return;
-    if (await deleteReply(a.id)) setNotice(t("replies.notice.deleted"));
+    if (await deleteReply(a.id)) note("replies.notice.deleted");
   };
   /** "Check now" asks the Worker for a full read on its next tick; paused or stopped, nothing goes out yet. */
   const check = async () => {
-    setNotice(null);
     const fresh = await checkReplies();
     if (!fresh) return;
-    setNotice(
-      t(
-        fresh.paused
-          ? "replies.notice.paused"
-          : fresh.guard === "stop"
-            ? "replies.notice.guard"
-            : "replies.notice.scanRequested",
-      ),
-    );
+    if (fresh.paused) note("replies.notice.paused", true);
+    else if (fresh.guard === "stop") note("replies.notice.guard", true);
+    else note("replies.notice.scanRequested");
   };
 
   const settingsLink = (
@@ -261,11 +246,6 @@ export default function AutoRepliesScreen() {
             {t(error)}
           </p>
         )}
-        {notice && (
-          <p className="text-ink-2 px-4 text-[13px]" data-testid="autoreplies-notice">
-            {notice}
-          </p>
-        )}
       </section>
 
       {(doc || loading) && (
@@ -366,9 +346,15 @@ export default function AutoRepliesScreen() {
           testId="autoreply-sheet"
           detents={[0.92]}
           wide={editing.kind === "rule"}
+          beforeClose={() => guardRef.current()}
         >
           {editing.kind === "default" ? (
-            <DefaultReplyEditor value={doc?.defaultReply} busy={busy} onSave={saveDefault} />
+            <DefaultReplyEditor
+              value={doc?.defaultReply}
+              busy={busy}
+              onSave={saveDefault}
+              guardRef={guardRef}
+            />
           ) : (
             <RuleEditor
               key={editing.rule.id}
@@ -379,6 +365,7 @@ export default function AutoRepliesScreen() {
               username={username}
               busy={busy}
               onSave={saveRule}
+              guardRef={guardRef}
             />
           )}
           {/* Under Save: why the Worker refused it. */}
@@ -432,9 +419,14 @@ function Tester({ automations }: { automations: readonly AutoReply[] }) {
           data-testid="autoreplies-tester-result"
           data-match={!!match}
         >
-          {match
-            ? t("replies.tester.match", { name: match.title ?? match.keywords.join(", ") })
-            : t("replies.tester.noMatch")}
+          {match ? (
+            <>
+              <Check size={14} strokeWidth={2} className="me-1 inline align-[-2px]" aria-hidden />
+              {t("replies.tester.match", { name: match.title ?? match.keywords.join(", ") })}
+            </>
+          ) : (
+            t("replies.tester.noMatch")
+          )}
         </p>
       )}
     </Fold>

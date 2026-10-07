@@ -127,6 +127,7 @@ function SocialSyncAgent() {
       const key = socialSyncErrorMessageKey({ type: socialErrorType(reason) });
       toast("notice", {
         icon: "⚠️",
+        tone: "warn",
         sound: null,
         name: t("social.toast.connectError", { name: name(failed), reason: t(key) }),
       });
@@ -375,7 +376,7 @@ function SideNav() {
       className={
         world === "training"
           ? "sticky top-[calc(56px+3px+24px)] hidden h-fit w-[210px] shrink-0 flex-col gap-1 pt-6 md:flex"
-          : "ios-side sticky top-[80px] hidden h-fit w-[210px] shrink-0 flex-col gap-1 pt-6 md:flex"
+          : "sticky top-[80px] hidden h-fit w-[210px] shrink-0 flex-col gap-1 pt-6 md:flex"
       }
       data-testid="sidenav"
     >

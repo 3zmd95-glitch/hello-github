@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowUpRight } from "lucide-react";
 import { useState } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
 import type { Post } from "@/lib/domain";
@@ -33,18 +34,24 @@ export default function TikTokFinishCard({ post }: { post: Post }) {
   };
   return (
     <section
-      className="px-inset bg-warn-bg border-warn flex flex-col gap-2 border-2"
+      className="px-inset bg-warn-bg border-warn flex flex-col gap-2 border"
       data-testid="tiktok-finish-card"
     >
       <h3 className="text-sm font-bold">{t("publish.tt.finishTitle")}</h3>
       <p className="text-sm">{t("publish.tt.finishSteps")}</p>
       <a
-        className="px-link self-start text-sm"
+        className="px-link ios-hit mb-1.5 self-start text-sm"
         href="https://www.tiktok.com/"
         target="_blank"
         rel="noopener noreferrer"
       >
         {t("publish.openApp", { platform: "TikTok" })}
+        <ArrowUpRight
+          size={14}
+          strokeWidth={1.75}
+          className="ms-0.5 inline align-[-2px]"
+          aria-hidden
+        />
       </a>
       <label className="flex flex-col gap-1 text-xs">
         {t("publish.tt.postLink")}

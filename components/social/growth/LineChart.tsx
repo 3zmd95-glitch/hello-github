@@ -349,7 +349,7 @@ export default function LineChart({
     tip.firstElementChild!.textContent = point.value.toLocaleString("en-US");
     tip.lastElementChild!.textContent =
       point.day === today ? t("growth.chart.today") : dateFmt.format(dayKeyToDate(point.day));
-    tip.style.left = `${clampTip(px, width)}px`;
+    tip.style.setProperty("--tip-x", `${clampTip(px, width)}px`);
     tip.dataset.on = "true";
     svg.dataset.scrubbing = "true";
     window.clearTimeout(hideTimer.current);
@@ -508,8 +508,8 @@ export default function LineChart({
       </div>
 
       {!mini && allDays.length > 0 && (
-        <details className="an-chart-table text-xs">
-          <summary className="text-muted cursor-pointer">{t("growth.chart.table")}</summary>
+        <details className="an-chart-table mt-2 text-xs">
+          <summary className="ios-hit text-muted cursor-pointer">{t("growth.chart.table")}</summary>
           <div className="overflow-x-auto">
             <table className="num mt-1 w-full">
               <thead>

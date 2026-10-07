@@ -30,7 +30,7 @@ export default function PlatformCards({
   const { t } = useT();
   return (
     <section className="flex flex-col gap-2" data-testid="platform-cards">
-      <h2 className="text-base">{t("growth.cards.title")}</h2>
+      <h2 className="ios-gh text-[13px]">{t("growth.cards.title")}</h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {platforms.map((o) => (
           <PlatformCard key={o.platform} overview={o} onOpen={onOpen} />
@@ -73,7 +73,7 @@ function PlatformCard({
               href={link}
               target="_blank"
               rel="noreferrer noopener"
-              className="num text-ink-2 inline-flex items-center gap-0.5 self-start text-[13px] no-underline hover:underline"
+              className="num ios-hit text-ink-2 inline-flex items-center gap-0.5 self-start text-[13px] no-underline hover:underline"
               dir="ltr"
               aria-label={t("growth.cards.link", { platform: L(meta.name) })}
               data-testid="platform-card-link"

@@ -16,16 +16,14 @@ import { PLATFORM_META } from "@/lib/social";
 import { timeAgo } from "@/lib/socialSync";
 import { analyticsState, useStore } from "@/store";
 import { useShallow } from "zustand/react/shallow";
-import { compactCount, fmtCount, withNum } from "./platform";
+import { compactCount, fmtSigned } from "../growth/format";
+import { withNum } from "./platform";
 
 /** Sum of the platforms' 30-day deltas; null when no platform has a baseline yet. */
 function sumDelta(values: (number | null)[]): number | null {
   const known = values.filter((v): v is number => v !== null);
   return known.length ? known.reduce((a, b) => a + b, 0) : null;
 }
-
-/** "+1.2K" / "−300" / "0" (growth/format.ts `fmtSigned`'s rule): the sign rides inside the number. */
-const signed = (n: number) => (n === 0 ? "0" : `${n < 0 ? "−" : "+"}${fmtCount(Math.abs(n))}`);
 
 /**
  * Followers + 30-day views across every platform with numbers (count up on the first visit), their 30-day deltas,
@@ -57,7 +55,7 @@ export default function GrowthSnapshotCard({ today, first }: { today: string; fi
     return (
       <span className={`inline-flex items-center gap-1 ${tone}`}>
         {Icon && <Icon size={13} strokeWidth={1.75} aria-hidden />}
-        {withNum(t("social.studio.growthDelta"), signed(n))}
+        {withNum(t("social.studio.growthDelta"), fmtSigned(n))}
       </span>
     );
   };
@@ -143,7 +141,7 @@ export default function GrowthSnapshotCard({ today, first }: { today: string; fi
                     t("social.studio.growthBest", {
                       platform: L(PLATFORM_META[best.platform].name),
                     }),
-                    signed(best.followers),
+                    fmtSigned(best.followers),
                   )}
                 </span>
               </>

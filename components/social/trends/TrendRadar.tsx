@@ -125,7 +125,11 @@ export default function TrendRadar() {
           data-testid="trends-need-worker"
         >
           <span className="min-w-0 flex-1">{t("trends.needWorker")}</span>
-          <Link href="/settings/" className="px-link text-xs" data-testid="trends-need-worker-link">
+          <Link
+            href="/settings/"
+            className="px-link ios-hit text-xs"
+            data-testid="trends-need-worker-link"
+          >
             {t("trends.needWorkerLink")}
           </Link>
         </p>
@@ -141,7 +145,7 @@ export default function TrendRadar() {
           </span>
           <Link
             href={calendarPostHref(planned.id)}
-            className="px-link text-xs"
+            className="px-link ios-hit text-xs"
             data-testid="trends-planned-open"
           >
             {t("trends.plannedOpen")}
@@ -183,7 +187,11 @@ export default function TrendRadar() {
             </div>
             {rows.length === 0 ? (
               <p className="text-ink-2 px-4 text-[13px]" data-testid="trends-empty">
-                {hasFeed ? t("trends.emptyFilter") : t("trends.empty")}
+                {hasFeed ? (
+                  t("trends.emptyFilter")
+                ) : (
+                  <RefreshHint text={t("trends.empty")} label={t("trends.refresh")} />
+                )}
               </p>
             ) : (
               <ul className="ios-list" data-testid="trends-list">
@@ -209,5 +217,24 @@ export default function TrendRadar() {
         </aside>
       </div>
     </section>
+  );
+}
+
+/** `trends.empty` points at the refresh button by its icon: the `{icon}` placeholder becomes that icon, named. */
+function RefreshHint({ text, label }: { text: string; label: string }) {
+  const [pre, post = ""] = text.split("{icon}");
+  return (
+    <>
+      {pre}
+      <span
+        role="img"
+        aria-label={label}
+        title={label}
+        className="text-tint inline-flex align-[-3px]"
+      >
+        <RefreshCw size={15} strokeWidth={1.75} aria-hidden />
+      </span>
+      {post}
+    </>
   );
 }

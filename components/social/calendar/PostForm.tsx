@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { Clock, Gamepad2, Hand } from "lucide-react";
+import { useRef, useState, type FormEvent, type RefObject } from "react";
 import { useSocialSync } from "@/components/social/useSocialSync";
-import { useSheetClose } from "@/components/ui/ios/Sheet";
+import { useDraftGuard, useSheetClose } from "@/components/ui/ios/Sheet";
 import { PLATFORMS, type Platform, type Post, type Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { PlatformGlyph } from "@/lib/platformIcons";
@@ -33,14 +34,16 @@ export default function PostForm({
   onCreated: (post: Post) => void;
 }) {
   const { t } = useT();
+  const guardRef = useRef<() => boolean>(() => true);
   return (
     <SheetFrame
       testId="post-form-sheet"
       titleId="post-form-title"
       title={t("calendar.form.title")}
       onClose={onClose}
+      beforeClose={() => guardRef.current()}
     >
-      <PostFormBody initialDay={initialDay} onCreated={onCreated} />
+      <PostFormBody initialDay={initialDay} onCreated={onCreated} guardRef={guardRef} />
     </SheetFrame>
   );
 }
@@ -48,9 +51,11 @@ export default function PostForm({
 function PostFormBody({
   initialDay,
   onCreated,
+  guardRef,
 }: {
   initialDay: string | null;
   onCreated: (post: Post) => void;
+  guardRef: RefObject<() => boolean>;
 }) {
   const { t, L } = useT();
   const close = useSheetClose();
@@ -83,6 +88,7 @@ function PostFormBody({
   };
 
   const canSave = title.trim() !== "" || skill !== null;
+  const discard = useDraftGuard(guardRef, canSave);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -127,7 +133,7 @@ function PostFormBody({
   return (
     <form onSubmit={submit} className="flex flex-col gap-4" data-testid="post-form">
       <fieldset className="flex flex-col gap-1.5">
-        <legend className="text-ink-2 mb-1.5 text-sm font-bold">
+        <legend className="text-ink-2 mb-1.5 text-[13px] font-semibold">
           {t("calendar.form.platform")}
         </legend>
         <div className="flex flex-wrap gap-1.5">
@@ -150,7 +156,7 @@ function PostFormBody({
 
       {showNetworks && (
         <fieldset className="flex flex-col gap-1.5" data-testid="post-networks">
-          <legend className="text-ink-2 mb-1.5 text-sm font-bold">
+          <legend className="text-ink-2 mb-1.5 text-[13px] font-semibold">
             {t("calendar.form.networks")}
           </legend>
           <div className="flex flex-wrap gap-1.5">
@@ -173,7 +179,9 @@ function PostFormBody({
                 >
                   <PlatformGlyph platform={p} size={14} className="shrink-0" />
                   {L(PLATFORM_META[p].name)}
-                  {isManual(p) && <span aria-hidden>✋</span>}
+                  {isManual(p) && (
+                    <Hand size={13} strokeWidth={1.75} className="shrink-0" aria-hidden />
+                  )}
                 </button>
               );
             })}
@@ -183,7 +191,7 @@ function PostFormBody({
       )}
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-ink-2 font-bold">{t("calendar.form.postTitle")}</span>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.form.postTitle")}</span>
         <input
           type="text"
           className="px-input"
@@ -198,7 +206,7 @@ function PostFormBody({
 
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-ink-2 font-bold">{t("calendar.form.day")}</span>
+          <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.form.day")}</span>
           <input
             type="date"
             dir="ltr"
@@ -209,7 +217,7 @@ function PostFormBody({
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-ink-2 font-bold">{t("calendar.form.time")}</span>
+          <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.form.time")}</span>
           <input
             type="time"
             dir="ltr"
@@ -223,15 +231,15 @@ function PostFormBody({
           />
         </label>
       </div>
-      <p className="text-muted -mt-2 flex flex-wrap items-center gap-2 text-xs">
-        <span data-testid="post-best-time">
-          ⏰{" "}
+      <p className="text-muted flex flex-wrap items-center gap-2 text-xs">
+        <span className="inline-flex items-center gap-1" data-testid="post-best-time">
+          <Clock size={13} strokeWidth={1.75} className="shrink-0" aria-hidden />
           {t("calendar.form.bestTime", { platform: L(PLATFORM_META[platform].name), time: best })}
         </span>
         {time !== best && (
           <button
             type="button"
-            className="px-link"
+            className="px-link ios-hit"
             onClick={() => {
               setTime(best);
               setTimeTouched(false);
@@ -242,10 +250,11 @@ function PostFormBody({
         )}
       </p>
 
-      <label className="flex items-center gap-3 text-sm">
+      {/* The label takes taps on a 44px band; the box sits above the band, so a tap on it still lands on it. */}
+      <label className="ios-hit flex items-center gap-3 text-sm">
         <input
           type="checkbox"
-          className="h-5 w-5 accent-[var(--accent)]"
+          className="relative z-[1] h-5 w-5 accent-[var(--accent)]"
           checked={template}
           onChange={(e) => setTemplate(e.target.checked)}
           data-testid="post-template"
@@ -254,10 +263,10 @@ function PostFormBody({
       </label>
 
       <section className="flex flex-col gap-2">
-        <span className="text-ink-2 text-sm font-bold">{t("calendar.form.skill")}</span>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.form.skill")}</span>
         {skill ? (
           <div className="px-inset flex items-center gap-2 text-sm" data-testid="post-skill-picked">
-            <span aria-hidden>🎮</span>
+            <Gamepad2 size={18} strokeWidth={1.75} className="text-ink-2 shrink-0" aria-hidden />
             <b className="min-w-0 flex-1 truncate">{L(skill.name)}</b>
             <button
               type="button"
@@ -287,6 +296,7 @@ function PostFormBody({
           {t("calendar.form.save")}
         </button>
       </div>
+      {discard}
     </form>
   );
 }

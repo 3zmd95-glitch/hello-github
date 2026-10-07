@@ -2,12 +2,17 @@
 
 import { Search, Star, X } from "lucide-react";
 import Link from "next/link";
-import { fmtCount } from "@/components/social/studio/platform";
+import { fmtCount } from "@/components/social/growth/format";
 import PlatformBadge from "@/components/ui/ios/PlatformBadge";
 import type { TrendItem } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { sourceLabel, volumeLabelKey, volumeUnit } from "@/lib/trends";
 import TrendActions, { calendarPlatformOf, type PlannedPost } from "./TrendActions";
+
+/** A label's leading emoji ("🚗 سيارات" → "سيارات"), for the Social chips; a label of emoji only stays as it is. */
+const LEADING_EMOJI =
+  /^(?:(?:\p{Extended_Pictographic}|\p{Emoji_Presentation})(?:\uFE0F|\u200D(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}))*\s*)+/u;
+const withoutEmoji = (label: string): string => label.replace(LEADING_EMOJI, "") || label;
 
 /**
  * One radar row (round 30, planning/tools/08-trends.md), an iOS list row (tools/18 §6): the platform badge (a
@@ -18,7 +23,8 @@ import TrendActions, { calendarPlatformOf, type PlannedPost } from "./TrendActio
  * and ✕ to dismiss. The volume chip names what its number counts, by source (lib/trends `volumeLabelKey`:
  * searches on Google Trends, views on YouTube, pages for the Tavily scan, posts on trends24.in; `data-unit`
  * carries the unit), and a source without a known unit shows no volume. `data-genre` carries the row's edit-genre
- * id (round 31) when the Worker's keyword scan set one, and the row names it in a chip (`genreLabel`: "🚗 سيارات").
+ * id (round 31) when the Worker's keyword scan set one, and the row names it in a chip (`genreLabel`: "🚗 سيارات",
+ * shown without its emoji: Social chips carry none, the genre's emoji stays Discover's).
  * Discover is the one place for genres, so for a genre the app knows the chip is a link that opens Discover on it
  * (`genreHref`), looking like the row's other chips; its accessible name says where it goes (`trends.genreOpen`)
  * and its tap area reaches a little above and below the chip, which is small for a thumb. An id the app does not
@@ -45,6 +51,7 @@ export default function TrendRow({
   const { t } = useT();
   const volumeKey = volumeLabelKey(item);
   const platform = calendarPlatformOf(item.platform);
+  const genre = genreLabel && withoutEmoji(genreLabel);
   return (
     <li
       className="ios-row items-start"
@@ -102,7 +109,7 @@ export default function TrendRow({
             {item.why}
           </small>
         )}
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <span className="px-chip" data-testid="trend-source">
             {sourceLabel(item.source, t)}
           </span>
@@ -114,26 +121,26 @@ export default function TrendRow({
           <span className="px-chip" data-testid="trend-platform">
             {t(`trends.platform.${item.platform}`)}
           </span>
-          {genreLabel &&
+          {genre &&
             (genreHref ? (
               <Link
                 href={genreHref}
-                className="px-chip relative no-underline after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-['']"
-                aria-label={t("trends.genreOpen", { genre: genreLabel })}
-                title={t("trends.genreOpen", { genre: genreLabel })}
+                className="px-chip ios-hit no-underline"
+                aria-label={t("trends.genreOpen", { genre })}
+                title={t("trends.genreOpen", { genre })}
                 data-testid="trend-genre"
                 data-genre={item.genre}
               >
-                {genreLabel}
+                {genre}
               </Link>
             ) : (
               <span
                 className="px-chip"
-                title={t("genres.label")}
+                title={withoutEmoji(t("genres.label"))}
                 data-testid="trend-genre"
                 data-genre={item.genre}
               >
-                {genreLabel}
+                {genre}
               </span>
             ))}
           {item.growthPct !== undefined && item.growthPct > 0 && (

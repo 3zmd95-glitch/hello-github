@@ -11,9 +11,11 @@ import {
   type CSSProperties,
   type PointerEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
 import { useBackToClose } from "@/components/player/useBackToClose";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { useT } from "@/lib/i18n";
 import { overdrag, prefersReducedMotion, settleStop } from "@/lib/motion";
 
@@ -22,6 +24,38 @@ const CloseContext = createContext<() => void>(() => {});
 /** Close the surrounding sheet with its exit animation (for example after Save). */
 export function useSheetClose(): () => void {
   return useContext(CloseContext);
+}
+
+/**
+ * A form's unsaved-changes guard, used inside a sheet: the caller hands `guardRef` to its Sheet as
+ * `beforeClose={() => guardRef.current()}`. While `dirty`, ✕, the backdrop, a drag down and Esc open "close without
+ * saving?" instead of closing; its confirm closes the sheet with the exit. Save and Cancel close through
+ * `useSheetClose()` and never ask. Render what it returns (the alert, or nothing).
+ */
+export function useDraftGuard(guardRef: RefObject<() => boolean>, dirty: boolean): ReactNode {
+  const { t } = useT();
+  const close = useSheetClose();
+  const [asking, setAsking] = useState(false);
+  useEffect(() => {
+    guardRef.current = () => {
+      if (!dirty) return true;
+      setAsking(true);
+      return false;
+    };
+  }, [guardRef, dirty]);
+  if (!asking) return null;
+  return (
+    <ConfirmDialog
+      title={t("common.discardTitle")}
+      confirmLabel={t("creator.discard")}
+      danger
+      onCancel={() => setAsking(false)}
+      onConfirm={() => {
+        setAsking(false);
+        close();
+      }}
+    />
+  );
 }
 
 type Phase = "enter" | "open" | "exit";
@@ -38,7 +72,8 @@ let behind = 0;
  * open; ✕, the backdrop, Esc, a drag past the last detent, Back and `useSheetClose()` (in-sheet buttons) play the
  * exit, then `onClose` runs (the caller unmounts it); the panel is inert while it leaves. An Escape a child already
  * handled (`preventDefault`: an inline edit reverting) or one pressed in another dialog on top (the skill sheet over
- * the post popup) leaves it open.
+ * the post popup) leaves it open. `beforeClose` (a form holding a draft, see `useDraftGuard`) can refuse ✕, the
+ * backdrop, Esc and a drag past the last detent by returning false; Back and `useSheetClose()` always close.
  */
 export default function Sheet({
   onClose,
@@ -52,6 +87,7 @@ export default function Sheet({
   backCloses = true,
   wide,
   closeTestId,
+  beforeClose,
   children,
 }: {
   onClose: () => void;
@@ -65,6 +101,7 @@ export default function Sheet({
   backCloses?: boolean;
   wide?: boolean;
   closeTestId?: string;
+  beforeClose?: () => boolean;
   children: ReactNode;
 }) {
   const { t } = useT();
@@ -89,9 +126,11 @@ export default function Sheet({
     v: number;
   } | null>(null);
   const onCloseRef = useRef(onClose);
+  const beforeCloseRef = useRef(beforeClose);
   useEffect(() => {
     onCloseRef.current = onClose;
-  }, [onClose]);
+    beforeCloseRef.current = beforeClose;
+  }, [onClose, beforeClose]);
 
   // Viewport size and phone / desktop mode.
   useEffect(() => {
@@ -130,6 +169,11 @@ export default function Sheet({
     setPhase("exit");
     exitTimer.current = window.setTimeout(() => onCloseRef.current(), EXIT_MS);
   }, []);
+  /** ✕, the backdrop, Esc and a drag down: the ones a draft may refuse. */
+  const dismiss = useCallback(() => {
+    if (closing.current || beforeCloseRef.current?.() === false) return;
+    requestClose();
+  }, [requestClose]);
   // Unmounted mid-exit (the caller dropped it early): a late onClose could close the sheet opened next.
   useEffect(() => () => window.clearTimeout(exitTimer.current), []);
 
@@ -149,7 +193,7 @@ export default function Sheet({
       if (e.key !== "Escape" || e.defaultPrevented) return;
       const dialog = (document.activeElement as HTMLElement | null)?.closest('[role="dialog"]');
       if (dialog && dialog !== panelRef.current) return;
-      requestClose();
+      dismiss();
     };
     document.addEventListener("keydown", onKey);
     return () => {
@@ -157,7 +201,7 @@ export default function Sheet({
       body.style.overflow = prevOverflow;
       prevFocus?.focus?.({ preventScroll: true });
     };
-  }, [requestClose]);
+  }, [dismiss]);
 
   // Phones: the page behind scales back while a sheet is open (#main only; the sheet lives outside it).
   useEffect(() => {
@@ -183,7 +227,8 @@ export default function Sheet({
   const stops = [...order.map(restY), closedY];
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (desktop || phase !== "open" || e.button !== 0) return;
+    // One drag at a time: a second finger on the grabber would restart it from the wrong base.
+    if (drag.current || desktop || phase !== "open" || e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button, a, input, textarea, select")) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const base = restY(detent);
@@ -209,7 +254,8 @@ export default function Sheet({
     const v = e.timeStamp - d.lastT > 80 ? 0 : d.v;
     const i = settleStop(d.y, v, stops);
     setDragY(null);
-    if (i === stops.length - 1) requestClose();
+    // A refused close leaves dragY cleared: the sheet springs back to its detent.
+    if (i === stops.length - 1) dismiss();
     else setDetent(order[i]);
   };
 
@@ -229,7 +275,7 @@ export default function Sheet({
   return createPortal(
     <CloseContext.Provider value={requestClose}>
       <div className="ios-sheet-root" data-phase={phase}>
-        <div className="ios-backdrop" data-testid="sheet-backdrop" onClick={requestClose} />
+        <div className="ios-backdrop" data-testid="sheet-backdrop" onClick={dismiss} />
         <div
           ref={panelRef}
           role="dialog"
@@ -263,7 +309,7 @@ export default function Sheet({
                 type="button"
                 className="ios-close"
                 aria-label={t("common.close")}
-                onClick={requestClose}
+                onClick={dismiss}
                 data-testid={closeTestId}
               >
                 <X size={16} strokeWidth={1.75} aria-hidden />

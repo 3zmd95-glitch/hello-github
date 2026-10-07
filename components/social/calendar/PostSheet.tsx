@@ -1,6 +1,6 @@
 "use client";
 
-import { Gamepad2 } from "lucide-react";
+import { Gamepad2, Lightbulb } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePublishAutoResync } from "@/components/social/usePublish";
 import Chip from "@/components/ui/ios/Chip";
@@ -124,7 +124,9 @@ function SheetBody({ post, onDelete }: { post: Post; onDelete: () => void }) {
               onClick={() => pick(stage)}
               data-testid={`post-stage-${stage}`}
             >
-              <span className="num">{i + 1}</span> {t(STAGE_KEY[stage])}
+              <span className="cal-step-tx">
+                <span className="num">{i + 1}</span> {t(STAGE_KEY[stage])}
+              </span>
             </button>
           ))}
         </div>
@@ -133,7 +135,10 @@ function SheetBody({ post, onDelete }: { post: Post; onDelete: () => void }) {
             className="px-inset flex flex-wrap items-center gap-2 text-xs"
             data-testid="post-stage-hint"
           >
-            <span>💡 {t("calendar.sheet.suggested", { stage: t(STAGE_KEY[suggested]) })}</span>
+            <span className="inline-flex items-center gap-1">
+              <Lightbulb size={14} strokeWidth={1.75} className="shrink-0" aria-hidden />
+              {t("calendar.sheet.suggested", { stage: t(STAGE_KEY[suggested]) })}
+            </span>
             <button
               type="button"
               className="px-btn px-btn-sm ms-auto"

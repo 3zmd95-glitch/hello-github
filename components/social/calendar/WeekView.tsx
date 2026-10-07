@@ -6,6 +6,7 @@ import { formatDayNumber, formatDayShort, weekRange } from "@/components/planner
 import Card from "@/components/ui/ios/Card";
 import Chip from "@/components/ui/ios/Chip";
 import { ListGroup } from "@/components/ui/ios/List";
+import { useFirstVisit } from "@/components/ui/ios/useFirstVisit";
 import { PLATFORMS, type Post } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -66,6 +67,8 @@ export default function WeekView({
   onNewOn: (day: string | null) => void;
 }) {
   const { t, L, lang } = useT();
+  // The day groups stagger in on the first visit of the page load (as the Studio's cards do).
+  const first = useFirstVisit("calendar");
   const byDay = useMemo(() => postsByDay(posts), [posts]);
   const overdue = useMemo(() => new Set(overduePosts(posts).map((p) => p.id)), [posts]);
   const unplanned = useMemo(() => unplannedPosts(posts), [posts]);
@@ -245,7 +248,10 @@ export default function WeekView({
         )}
       </Card>
 
-      <div className="flex flex-col gap-3" data-testid="calendar-week-grid">
+      <div
+        className={`${first ? "ios-stagger" : ""} flex flex-col gap-3`}
+        data-testid="calendar-week-grid"
+      >
         {DAY_KEYS.map((_, i) => {
           const day = addDays(weekStart, i);
           const items = byDay[day] ?? [];

@@ -39,12 +39,7 @@ export default function PostCard({
       data-stage={post.stage}
       data-overdue={!!overdue}
     >
-      <button
-        type="button"
-        className="post-open"
-        onClick={() => onOpen(post.id)}
-        aria-label={t("calendar.card.open", { title: post.title })}
-      >
+      <button type="button" className="post-open" onClick={() => onOpen(post.id)}>
         <PlatformBadge platform={post.platform} />
         <span className="ios-tx">
           <b>

@@ -1,9 +1,10 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { Calendar, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToday } from "@/components/today/useToday";
+import EmptyState from "@/components/ui/ios/EmptyState";
 import PageHeader from "@/components/ui/ios/PageHeader";
 import Segmented from "@/components/ui/ios/Segmented";
 import { PLATFORMS, type Platform, type Post } from "@/lib/domain";
@@ -202,18 +203,24 @@ export default function CalendarScreen() {
       </div>
 
       {posts.length === 0 && (
-        <section className="px-card flex flex-col gap-2" data-testid="calendar-empty">
-          <h2 className="text-lg">{t("calendar.emptyTitle")}</h2>
-          <p className="text-ink-2 text-sm">{t("calendar.emptyBody")}</p>
-          <button
-            type="button"
-            className="px-btn self-start"
-            onClick={() => newOn(today)}
-            data-testid="calendar-empty-new"
-          >
-            {t("calendar.new")}
-          </button>
-        </section>
+        <div className="ios-list">
+          <EmptyState
+            icon={<Calendar size={24} strokeWidth={1.75} aria-hidden />}
+            title={t("calendar.emptyTitle")}
+            hint={t("calendar.emptyBody")}
+            action={
+              <button
+                type="button"
+                className="px-btn"
+                onClick={() => newOn(today)}
+                data-testid="calendar-empty-new"
+              >
+                {t("calendar.new")}
+              </button>
+            }
+            testId="calendar-empty"
+          />
+        </div>
       )}
 
       {/* Focusable (APG tabs): no view opens on a control. */}

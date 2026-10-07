@@ -7,7 +7,8 @@ import { useT } from "@/lib/i18n";
 
 type ConfirmProps = {
   title: string;
-  body: string;
+  /** Optional in Social: an iOS alert may be a title alone. */
+  body?: string;
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
@@ -139,13 +140,13 @@ function IosAlert({
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-title"
-        aria-describedby="confirm-body"
+        aria-describedby={body ? "confirm-body" : undefined}
         className="ios-alert"
         data-testid="confirm-dialog"
       >
         <div className="ios-alert-body">
           <h2 id="confirm-title">{title}</h2>
-          <p id="confirm-body">{body}</p>
+          {body && <p id="confirm-body">{body}</p>}
         </div>
         <div className="ios-alert-actions">
           <button ref={cancelRef} type="button" onClick={onCancel} data-testid="confirm-cancel">

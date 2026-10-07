@@ -1,6 +1,8 @@
 "use client";
 
+import { Check, Clock, Gamepad2, Sparkles, Trash2, Undo2, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useGameActions } from "@/components/celebrate/useGameActions";
 import { useSkillSheet } from "@/components/skills/SkillSheetProvider";
 import { resyncKey } from "@/components/social/usePublish";
@@ -47,19 +49,13 @@ export default function OverviewTab({
   const [tag, setTag] = useState("");
   const [url, setUrl] = useState("");
   const [linking, setLinking] = useState(false);
-  const [copied, setCopied] = useState<"ok" | "fail" | null>(null);
+  const { toast } = useCelebrate();
   const [confirm, setConfirm] = useState(false);
   const urlRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (urlFocus > 0) urlRef.current?.focus();
   }, [urlFocus]);
-
-  useEffect(() => {
-    if (!copied) return;
-    const id = setTimeout(() => setCopied(null), 2000);
-    return () => clearTimeout(id);
-  }, [copied]);
 
   const addTag = (e?: FormEvent) => {
     e?.preventDefault();
@@ -84,9 +80,9 @@ export default function OverviewTab({
     const text = [post.caption.trim(), post.hashtags.join(" ")].filter(Boolean).join("\n\n");
     try {
       await navigator.clipboard.writeText(text);
-      setCopied("ok");
+      toast("notice", { name: t("publish.hub.copied"), sound: null });
     } catch {
-      setCopied("fail");
+      toast("notice", { name: t("calendar.sheet.copyFailed"), tone: "warn", sound: null });
     }
   };
 
@@ -99,7 +95,7 @@ export default function OverviewTab({
     <div className="flex flex-col gap-4" data-testid="post-overview">
       {/* Title (it also heads the sheet) */}
       <section className="flex flex-col gap-1.5">
-        <label htmlFor="post-title-edit" className="text-ink-2 text-sm font-bold">
+        <label htmlFor="post-title-edit" className="text-ink-2 text-[13px] font-semibold">
           {t("calendar.form.postTitle")}
         </label>
         <TitleInput
@@ -112,7 +108,7 @@ export default function OverviewTab({
       {/* Hook */}
       <section className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <label htmlFor="post-hook" className="text-ink-2 text-sm font-bold">
+          <label htmlFor="post-hook" className="text-ink-2 text-[13px] font-semibold">
             {t("calendar.sheet.hook")}
           </label>
           <button
@@ -159,7 +155,7 @@ export default function OverviewTab({
       {/* Caption */}
       <section className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-baseline gap-2">
-          <label htmlFor="post-caption" className="text-ink-2 text-sm font-bold">
+          <label htmlFor="post-caption" className="text-ink-2 text-[13px] font-semibold">
             {t("calendar.sheet.caption")}
           </label>
           <span
@@ -188,7 +184,9 @@ export default function OverviewTab({
       {/* Hashtags */}
       <section className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-ink-2 text-sm font-bold">{t("calendar.sheet.hashtags")}</span>
+          <span className="text-ink-2 text-[13px] font-semibold">
+            {t("calendar.sheet.hashtags")}
+          </span>
           <span className="num text-muted text-xs">
             {post.hashtags.length}/{meta.hashtagMax}
           </span>
@@ -198,24 +196,25 @@ export default function OverviewTab({
             onClick={suggest}
             data-testid="post-hashtag-suggest"
           >
-            ✨ {t("calendar.sheet.suggestHashtags")}
+            <Sparkles size={15} strokeWidth={1.75} aria-hidden />
+            {t("calendar.sheet.suggestHashtags")}
           </button>
         </div>
         {post.hashtags.length > 0 && (
-          <ul className="flex flex-wrap gap-1.5" dir="ltr">
+          <ul className="flex flex-wrap gap-x-1.5 gap-y-3 py-1.5" dir="ltr">
             {post.hashtags.map((h) => (
               <li key={h} className="px-chip" data-testid="post-hashtag">
                 <span>{h}</span>
                 <button
                   type="button"
-                  className="text-muted hover:text-danger leading-none"
+                  className="ios-hit text-muted hover:text-danger -me-2 inline-grid h-6 w-7 place-items-center"
                   onClick={() =>
                     updatePost(post.id, { hashtags: post.hashtags.filter((x) => x !== h) })
                   }
                   aria-label={t("calendar.sheet.removeHashtag", { tag: h })}
                   data-testid="post-hashtag-remove"
                 >
-                  ×
+                  <X size={13} strokeWidth={2} aria-hidden />
                 </button>
               </li>
             ))}
@@ -247,7 +246,7 @@ export default function OverviewTab({
 
       {/* Schedule + reminder */}
       <section className="flex flex-col gap-1.5">
-        <span className="text-ink-2 text-sm font-bold">{t("calendar.sheet.plan")}</span>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.sheet.plan")}</span>
         <div className="grid grid-cols-2 gap-2">
           <input
             type="date"
@@ -268,12 +267,15 @@ export default function OverviewTab({
             data-testid="post-plan-time"
           />
         </div>
-        <p className="text-muted flex flex-wrap items-center gap-2 text-xs">
-          <span>⏰ {t("calendar.form.bestTime", { platform: L(meta.name), time: best })}</span>
+        <p className="text-muted mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+          <span className="inline-flex items-center gap-1">
+            <Clock size={13} strokeWidth={1.75} className="shrink-0" aria-hidden />
+            {t("calendar.form.bestTime", { platform: L(meta.name), time: best })}
+          </span>
           {post.plannedTime !== best && (
             <button
               type="button"
-              className="px-link"
+              className="px-link ios-hit"
               onClick={() => updatePost(post.id, { plannedTime: best })}
               data-testid="post-plan-best"
             >
@@ -304,13 +306,13 @@ export default function OverviewTab({
 
       {/* Linked skill */}
       <section className="flex flex-col gap-1.5">
-        <span className="text-ink-2 text-sm font-bold">{t("calendar.sheet.skill")}</span>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.sheet.skill")}</span>
         {skill ? (
           <div
             className="px-inset flex flex-wrap items-center gap-2 text-sm"
             data-testid="post-skill-linked"
           >
-            <span aria-hidden>🎮</span>
+            <Gamepad2 size={18} strokeWidth={1.75} className="text-ink-2 shrink-0" aria-hidden />
             <b className="min-w-0 flex-1 truncate">{L(skill.name)}</b>
             <button
               type="button"
@@ -335,6 +337,7 @@ export default function OverviewTab({
           <SkillPicker testId="post-skill-search" onPick={linkSkill} autoFocus />
         ) : (
           <div className="px-inset flex flex-wrap items-center gap-2 text-sm">
+            <Gamepad2 size={18} strokeWidth={1.75} className="text-ink-2 shrink-0" aria-hidden />
             <span className="text-ink-2 min-w-0 flex-1">{t("calendar.sheet.noSkill")}</span>
             <button
               type="button"
@@ -352,7 +355,10 @@ export default function OverviewTab({
       <section className="cal-posted flex flex-col gap-2" data-testid="post-posted-section">
         {post.stage === "posted" ? (
           <>
-            <h3 className="text-base">✓ {t("calendar.stage.posted")}</h3>
+            <h3 className="flex items-center gap-1.5 text-base">
+              <Check size={18} strokeWidth={2} className="text-tint shrink-0" aria-hidden />
+              {t("calendar.stage.posted")}
+            </h3>
             {post.postedAt && (
               <p className="text-ink-2 text-sm">
                 {t("calendar.sheet.postedAt", { date: formatInstant(post.postedAt, lang) })}
@@ -363,7 +369,7 @@ export default function OverviewTab({
                 href={post.postedUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="px-link text-sm"
+                className="px-link ios-hit text-sm"
                 dir="ltr"
                 data-testid="post-posted-link"
               >
@@ -371,7 +377,11 @@ export default function OverviewTab({
               </a>
             )}
             {produceDone && (
-              <p className="text-accent text-sm font-bold" data-testid="post-quest-done">
+              <p
+                className="text-tint flex items-center gap-1.5 text-sm font-bold"
+                data-testid="post-quest-done"
+              >
+                <Gamepad2 size={16} strokeWidth={1.75} className="shrink-0" aria-hidden />
                 {t("calendar.sheet.questDone")}
               </p>
             )}
@@ -381,7 +391,8 @@ export default function OverviewTab({
               onClick={() => unmarkPosted(post.id)}
               data-testid="post-unmark"
             >
-              ↩ {t("calendar.sheet.undo")}
+              <Undo2 size={15} strokeWidth={1.75} aria-hidden />
+              {t("calendar.sheet.undo")}
             </button>
           </>
         ) : (
@@ -409,6 +420,7 @@ export default function OverviewTab({
                 data-testid="post-url"
               />
               <button type="submit" className="px-btn" data-testid="post-mark-posted">
+                <Check size={17} strokeWidth={2} aria-hidden />
                 {t("calendar.sheet.markPosted")}
               </button>
             </form>
@@ -426,22 +438,14 @@ export default function OverviewTab({
         >
           {t("calendar.sheet.copy")}
         </button>
-        {copied && (
-          <span
-            className={`text-xs ${copied === "ok" ? "text-accent" : "text-danger"}`}
-            role="status"
-            data-testid="post-copied"
-          >
-            {copied === "ok" ? t("calendar.sheet.copied") : t("calendar.sheet.copyFailed")}
-          </span>
-        )}
         <button
           type="button"
           className="px-btn px-btn-ghost px-btn-sm text-danger ms-auto"
           onClick={() => setConfirm(true)}
           data-testid="post-delete"
         >
-          🗑 {t("calendar.sheet.delete")}
+          <Trash2 size={15} strokeWidth={1.75} aria-hidden />
+          {t("calendar.sheet.delete")}
         </button>
       </div>
 

@@ -14,7 +14,9 @@ const CORS = {
 };
 
 async function fitsViewport(page: Page): Promise<boolean> {
-  return page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  return page.evaluate(
+    () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+  );
 }
 
 interface Automation {
@@ -303,9 +305,7 @@ test("allow auto-replies in Settings, build the LUT automation, test it, read se
   fake.automations.get(id)!.stats = { sends: 3, publicReplies: 3, failures: 0, clicks: 1 };
   await page.getByTestId("autoreplies-check").click();
   await expect.poll(() => fake.polls).toBe(1);
-  await expect(page.getByTestId("autoreplies-notice")).toHaveText(
-    "طلبنا فحص؛ الردود تطلع خلال دقيقة.",
-  );
+  await expect(page.getByTestId("toast")).toHaveText("طلبنا فحص؛ الردود تطلع خلال دقيقة.");
   await expect(row.getByTestId("autoreply-sends")).toHaveText("3");
   await expect(row.getByTestId("autoreply-clicks")).toHaveText("1");
   await expect(row.getByTestId("autoreply-ctr")).toHaveText("33%");
@@ -539,9 +539,7 @@ test("pause all, and the default reply with its size check", async ({ page }) =>
   await expect(status).toHaveAttribute("data-status", "paused");
   // "Check now" while paused says nothing goes out until the replies are switched back on.
   await page.getByTestId("autoreplies-check").click();
-  await expect(page.getByTestId("autoreplies-notice")).toHaveText(
-    "الردود موقّفة؛ شغّلها عشان نفحص.",
-  );
+  await expect(page.getByTestId("toast")).toHaveText("الردود موقّفة؛ شغّلها عشان نفحص.");
 
   // The default reply is off until it has a text; switching it on opens its editor with a suggestion.
   const row = page.locator('[data-testid="autoreply-default-row"]:visible');

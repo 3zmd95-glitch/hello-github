@@ -1,6 +1,16 @@
 "use client";
 
-import { CalendarClock, ChevronLeft, Hand, Settings, Smartphone, Trash2, X } from "lucide-react";
+import {
+  ArrowUpRight,
+  CalendarClock,
+  ChevronLeft,
+  Hand,
+  Settings,
+  Smartphone,
+  Trash2,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
@@ -334,6 +344,12 @@ function ManualRow({ post }: { post: Post }) {
               </Chip>
               {text.length > CAPTION_MAX[p] && (
                 <span className="text-danger text-xs">
+                  <TriangleAlert
+                    size={13}
+                    strokeWidth={1.75}
+                    className="me-1 inline align-[-2px]"
+                    aria-hidden
+                  />
                   {t("publish.hub.manualOver", { platform: name })}
                 </span>
               )}
@@ -354,6 +370,7 @@ function ManualRow({ post }: { post: Post }) {
                   data-testid={`autopost-manual-open-${p}`}
                 >
                   {t("publish.openApp", { platform: name })}
+                  <ArrowUpRight size={15} strokeWidth={1.75} aria-hidden />
                 </a>
               </span>
             </li>
@@ -467,6 +484,12 @@ function RemoteJobRow({ job }: { job: WorkerJob }) {
             rel="noopener noreferrer"
           >
             {t("publish.openApp", { platform: "TikTok" })}
+            <ArrowUpRight
+              size={13}
+              strokeWidth={1.75}
+              className="ms-0.5 inline align-[-2px]"
+              aria-hidden
+            />
           </a>
         </p>
       )}

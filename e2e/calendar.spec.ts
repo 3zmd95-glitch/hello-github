@@ -14,7 +14,9 @@ function todayKey(): string {
 }
 
 async function noHorizontalScroll(page: Page): Promise<void> {
-  const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const fits = await page.evaluate(
+    () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+  );
   expect(fits).toBe(true);
 }
 

@@ -252,16 +252,16 @@ export const SHOT_TEMPLATES: Record<Platform, ShotTemplate[]> = {
 
 /** Shots to reuse between posts; tick them off when filming a batch. */
 export const BROLL_CHECKLIST: LText[] = [
-  { ar: "☕ صب قهوة", en: "☕ Coffee pour" },
-  { ar: "🌆 تايم لابس للمدينة", en: "🌆 City timelapse" },
-  { ar: "⌨ يدين على الكيبورد", en: "⌨ Hands on the keyboard" },
-  { ar: "🖥 إضاءة الشاشة على وجهي", en: "🖥 Monitor glow on my face" },
-  { ar: "🎚 تحريك عجلة التلوين", en: "🎚 Turning the color wheel" },
-  { ar: "📷 تركيب الكاميرا على القيمبل", en: "📷 Mounting the camera on the gimbal" },
-  { ar: "🚶 مشي في الشارع (سلو موشن)", en: "🚶 Walking down the street (slow motion)" },
-  { ar: "🌇 غروب الرياض", en: "🌇 Riyadh sunset" },
-  { ar: "📝 كتابة في الدفتر", en: "📝 Writing in the notebook" },
-  { ar: "🔌 توصيل الكيبلات", en: "🔌 Plugging in cables" },
+  { ar: "صب قهوة", en: "Coffee pour" },
+  { ar: "تايم لابس للمدينة", en: "City timelapse" },
+  { ar: "يدين على الكيبورد", en: "Hands on the keyboard" },
+  { ar: "إضاءة الشاشة على وجهي", en: "Monitor glow on my face" },
+  { ar: "تحريك عجلة التلوين", en: "Turning the color wheel" },
+  { ar: "تركيب الكاميرا على القيمبل", en: "Mounting the camera on the gimbal" },
+  { ar: "مشي في الشارع (سلو موشن)", en: "Walking down the street (slow motion)" },
+  { ar: "غروب الرياض", en: "Riyadh sunset" },
+  { ar: "كتابة في الدفتر", en: "Writing in the notebook" },
+  { ar: "توصيل الكيبلات", en: "Plugging in cables" },
 ];
 
 const localId = (): string =>

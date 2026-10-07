@@ -37,6 +37,7 @@ interface StatusEntry {
   lastSyncAt?: string;
   lastError?: string;
   lastErrorDetail?: string;
+  tokenExpiresAt?: string;
 }
 type StatusMap = Record<string, StatusEntry>;
 
@@ -177,6 +178,28 @@ test("a failed sync shows the platform's own error message under the row", async
     "upstream: profile: (#100) Tried accessing nonexisting field",
   );
   await expect(row(page, "instagram").getByTestId("account-error-detail")).toHaveCount(0);
+});
+
+test("a token about to expire keeps its key emoji in Settings, the Training look", async ({
+  page,
+}) => {
+  const stub: Stub = {
+    status: {
+      instagram: {
+        configured: true,
+        connected: true,
+        handle: "3z.prod",
+        tokenExpiresAt: new Date(Date.now() + 3.5 * 86_400_000).toISOString(),
+      },
+    },
+    data: EMPTY_DATA,
+    connectUrl: comeBack,
+  };
+  await stubWorker(page, stub);
+  await connectWorker(page);
+  await expect(row(page, "instagram").getByTestId("account-token-warning")).toHaveText(
+    /^🔑 جدّد الربط/,
+  );
 });
 
 test("Settings rows follow the Worker status; Connect goes through OAuth and comes back to a toast and a sync; Disconnect asks first", async ({
@@ -326,7 +349,7 @@ test("Social Analytics: live TikTok card from a pull, the seeded Instagram card 
 
   const tt = platformCard(page, "tiktok");
   await expect(tt.getByTestId("source-badge")).toHaveAttribute("data-source", "live");
-  await expect(tt.locator('[data-metric="totalFollowers"]')).toContainText("1.3k");
+  await expect(tt.locator('[data-metric="totalFollowers"]')).toContainText("1.3K");
   await expect(tt.getByTestId("platform-card-link")).toHaveAttribute(
     "href",
     "https://www.tiktok.com/@3z.prod",

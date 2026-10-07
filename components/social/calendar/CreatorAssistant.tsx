@@ -195,7 +195,7 @@ export default function CreatorAssistant({ post }: { post: Post }) {
         </p>
       )}
       {applied && (
-        <p role="status" className="text-accent text-xs">
+        <p role="status" className="text-tint text-xs">
           {t("creator.applied")}
         </p>
       )}

@@ -587,6 +587,12 @@ asked for the public website first ("i want to build the website first not the a
 platform-embedded videos, then stopped it: "Dont do the website now only the social panel". Those website answers are kept in
 `tools/02-website.md` for the day it comes back.
 
+Round 35 shipped (Oct 7, 2026): the Social iOS look went out in eight PRs — 1/8 foundations #52, 2/8 shell #53, 3/8 Studio #55,
+4/8 Calendar and sheets #61, 5/8 Growth #64, 6/8 Ideas and More #65, 7/8 Replies, Automations, Soon #63, 8/8 icons everywhere
+and final polish #68. Owner: "can you make it faster? sub agents" — Phases 5–7 were built in parallel worktrees, one review per
+phase, then a review of the whole restyle fed one last polish round. Open owner checks on the iPhone: the light-mode status bar
+in the installed app, sheets, pull to refresh, chart scrub, Reduce Motion / Transparency.
+
 Round 36 (Oct 6, 2026). The owner shared a clone-effect reel and asked: "does it show in discover page as trendy or our discover
 page needs working?"
 - **Answer: no.** Nothing tracks editing-effect trends. The Trend Radar follows general topics, and "Popular now" only ranks one
