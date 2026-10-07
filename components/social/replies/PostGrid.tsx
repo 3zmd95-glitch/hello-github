@@ -1,5 +1,6 @@
 "use client";
 
+import { Check } from "lucide-react";
 import type { SocialPostStat } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 
@@ -8,7 +9,7 @@ export type PostTile = Pick<SocialPostStat, "postId" | "title" | "thumbUrl" | "p
   publishedAt?: string;
 };
 
-/** The synced Instagram posts as a thumbnail grid (newest first); the chosen one is outlined. */
+/** The synced Instagram posts as a thumbnail grid (newest first); the chosen one gets a ring and a check. */
 export default function PostGrid({
   posts,
   value,
@@ -41,9 +42,7 @@ export default function PostGrid({
           aria-checked={value === p.postId}
           aria-label={label(p)}
           onClick={() => onPick(p)}
-          className={`relative aspect-square overflow-hidden rounded border-2 ${
-            value === p.postId ? "border-accent" : "border-transparent"
-          }`}
+          className="ar-tile border-hair relative aspect-square overflow-hidden rounded-[10px] border"
           data-testid="autoreply-post-tile"
           data-post-id={p.postId}
         >
@@ -51,8 +50,13 @@ export default function PostGrid({
             // eslint-disable-next-line @next/next/no-img-element -- Instagram CDN thumbnail, expires; no loader
             <img src={p.thumbUrl} alt="" className="h-full w-full object-cover" />
           ) : (
-            <span className="bg-panel-2 grid h-full w-full place-items-center p-1 text-[0.65rem] leading-tight wrap-anywhere">
+            <span className="bg-panel-2 grid h-full w-full place-items-center p-1 text-[11px] leading-tight wrap-anywhere">
               {label(p)}
+            </span>
+          )}
+          {value === p.postId && (
+            <span className="ar-tile-check">
+              <Check size={13} strokeWidth={3} aria-hidden />
             </span>
           )}
         </button>

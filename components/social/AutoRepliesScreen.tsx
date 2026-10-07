@@ -1,9 +1,16 @@
 "use client";
 
+import { FlaskConical, History, MessageCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import Chip from "@/components/ui/ios/Chip";
+import { ListGroup, ListRow } from "@/components/ui/ios/List";
 import PageHeader from "@/components/ui/ios/PageHeader";
+import PlatformBadge from "@/components/ui/ios/PlatformBadge";
+import Segmented from "@/components/ui/ios/Segmented";
+import Sheet from "@/components/ui/ios/Sheet";
+import Switch from "@/components/ui/ios/Switch";
 import type { AutoReply, AutoReplyLog, ReplyTrigger } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { firstMatch, newAutoReply } from "@/lib/replies";
@@ -11,6 +18,7 @@ import { timeAgo } from "@/lib/socialSync";
 import { postStatsFor, useStore } from "@/store";
 import { formatInstant } from "./calendar/dates";
 import DefaultReplyEditor from "./replies/DefaultReplyEditor";
+import Fold from "./replies/Fold";
 import RuleEditor from "./replies/RuleEditor";
 import RulesTable from "./replies/RulesTable";
 import { checkReplies, deleteReply, saveReply, saveSettings, useReplies } from "./useReplies";
@@ -40,12 +48,21 @@ function originOf(url: string | undefined): string | undefined {
 }
 
 type Editing = { kind: "rule"; rule: AutoReply } | { kind: "default" } | null;
+type State = "paused" | "stop" | "slow" | "live";
+
+/** The account row's status line: green while it answers, warn while the free-storage guard slows or stops it. */
+const STATE_TONE: Record<State, string> = {
+  live: "text-tint",
+  paused: "text-ink-2",
+  slow: "text-warn",
+  stop: "text-warn",
+};
 
 /**
- * 💬 Auto replies, Beacons style (round 34, planning/tools/14-auto-replies-v2.md): the account with its permission,
- * status and pause switch; the rules table (comment rules, DM and story rules, the default reply) with sends and
- * clicks; a tester and the log folded underneath; a full-page editor. Everything is read from and written to the
- * Scout Worker (`useReplies`), which answers every minute.
+ * Auto replies, Beacons style (round 34, planning/tools/14-auto-replies-v2.md) in the iOS look (round 35): the
+ * account with its permission, status and pause switch; the rules as a grouped list (comment rules, DM and story
+ * rules, the default reply) with sends and clicks; a tester and the log folded underneath; the editors in a sheet.
+ * Everything is read from and written to the Scout Worker (`useReplies`), which answers every minute.
  */
 export default function AutoRepliesScreen() {
   const { t, lang } = useT();
@@ -60,7 +77,8 @@ export default function AutoRepliesScreen() {
   const [editing, setEditing] = useState<Editing>(null);
   const [pendingDelete, setPendingDelete] = useState<AutoReply | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // The editors are full pages: open them at their top, even when Edit was tapped far down a phone page.
+  // Opening an editor takes the page behind the sheet back to its top, where the saved note and the errors show once
+  // the sheet closes (Edit tapped far down a phone page included).
   useEffect(() => {
     if (editing) window.scrollTo(0, 0);
   }, [editing]);
@@ -70,28 +88,29 @@ export default function AutoRepliesScreen() {
   const username = doc?.ownerUsername ?? ig?.handle;
   // The Worker sizes links with its own origin; the document only records it after a save.
   const origin = doc?.origin ?? originOf(scoutUrl);
-  const state: "paused" | "stop" | "slow" | "live" = doc?.paused
+  const state: State = doc?.paused
     ? "paused"
     : doc?.guard === "stop"
       ? "stop"
       : doc?.guard === "slow"
         ? "slow"
         : "live";
+  // Not read yet: say so while the Worker answers; say nothing when there is no Worker or the read failed.
+  const loading = configured && busy && !error;
 
   const saved = () => setNotice(t("replies.notice.saved"));
+  /** The editors close themselves (with the sheet's exit) once this says the Worker took it. */
   const saveRule = async (a: AutoReply) => {
     setNotice(null);
-    if (await saveReply(a)) {
-      setEditing(null);
-      saved();
-    }
+    const ok = await saveReply(a);
+    if (ok) saved();
+    return ok;
   };
   const saveDefault = async (d: { enabled: boolean; text: string }) => {
     setNotice(null);
-    if (await saveSettings({ defaultReply: d })) {
-      setEditing(null);
-      saved();
-    }
+    const ok = await saveSettings({ defaultReply: d });
+    if (ok) saved();
+    return ok;
   };
   /** A row's On/Off: never touches an open editor. */
   const toggle = async (a: AutoReply) => {
@@ -131,205 +150,195 @@ export default function AutoRepliesScreen() {
     );
   };
 
-  if (editing) {
-    return (
-      <div className="flex flex-col gap-4" data-testid="autoreplies-screen">
-        {/* Above the editor: the rule editor is long, and Save is at its top. */}
-        {error && (
-          <p role="alert" className="text-danger text-xs" data-testid="autoreplies-error">
-            {t(error)}
-          </p>
-        )}
-        {editing.kind === "default" ? (
-          <DefaultReplyEditor
-            value={doc?.defaultReply}
-            busy={busy}
-            onSave={(d) => void saveDefault(d)}
-            onCancel={() => setEditing(null)}
-          />
-        ) : (
-          <RuleEditor
-            key={editing.rule.id}
-            value={editing.rule}
-            posts={posts}
-            status={status}
-            origin={origin}
-            username={username}
-            busy={busy}
-            onSave={(a) => void saveRule(a)}
-            onCancel={() => setEditing(null)}
-          />
-        )}
-      </div>
-    );
-  }
+  const settingsLink = (
+    <Link href="/settings#accounts" className="px-link">
+      {t("replies.needWorkerLink")}
+    </Link>
+  );
 
   return (
     <div className="flex flex-col gap-4" data-testid="autoreplies-screen">
       <PageHeader title={t("replies.hub.title")} sub={t("replies.hub.sub")} />
 
-      <section className="px-card flex flex-col gap-2" data-testid="autoreplies-account">
-        {!configured ? (
-          <p className="text-ink-2 text-sm" data-testid="autoreplies-need-worker">
-            {t("replies.needWorker")}{" "}
-            <Link href="/settings#accounts" className="px-link">
-              {t("replies.needWorkerLink")}
-            </Link>
-          </p>
-        ) : !ig?.connected ? (
-          <p className="text-ink-2 text-sm" data-testid="autoreplies-need-ig">
-            {t("replies.needIg")}{" "}
-            <Link href="/settings#accounts" className="px-link">
-              {t("replies.needWorkerLink")}
-            </Link>
-          </p>
-        ) : !ig.canReply ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <p
-              className="text-ink-2 min-w-0 flex-1 text-sm"
-              data-testid="autoreplies-need-permission"
-            >
-              {t("replies.needPermission")}
-            </p>
-            <button
-              type="button"
-              className="px-btn px-btn-sm"
-              disabled={accountBusy}
-              onClick={() => void connect("instagram", true, true)}
-              data-testid="autoreplies-allow"
-            >
-              {t("replies.allow")}
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              aria-hidden
-              className="grid h-9 w-9 flex-none place-items-center rounded-full border text-sm font-bold"
-            >
-              {(username ?? "?").slice(0, 1).toUpperCase()}
-            </span>
-            <b className="text-sm" dir="ltr">
-              @{username ?? "instagram"}
-            </b>
-            <span
-              className={`px-chip text-xs ${state === "live" ? "px-chip-green" : ""}`}
-              data-testid="autoreplies-can-reply"
-              data-status={state}
-            >
-              {t(`replies.status.${state}`)}
-            </span>
-            {doc?.lastPollAt && (
-              <span className="text-muted text-xs">
-                {t("replies.lastCheck", { ago: timeAgo(doc.lastPollAt, lang) })}
-              </span>
-            )}
-            <button
-              type="button"
-              className="px-btn px-btn-ghost px-btn-sm"
-              disabled={busy}
-              aria-busy={busy}
-              onClick={() => void check()}
-              data-testid="autoreplies-check"
-            >
-              {t("replies.checkNow")}
-            </button>
-            <label className="ms-auto flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                role="switch"
-                checked={!!doc?.paused}
-                disabled={busy || !doc}
-                onChange={() => void togglePause()}
-                data-testid="autoreplies-pause"
+      <section className="flex flex-col gap-1.5" data-testid="autoreplies-account">
+        <div className="ios-list">
+          {!configured ? (
+            <div className="ios-row">
+              <PlatformBadge platform="instagram" />
+              <p className="min-w-0 flex-1 text-[15px]" data-testid="autoreplies-need-worker">
+                {t("replies.needWorker")} {settingsLink}
+              </p>
+            </div>
+          ) : !ig?.connected ? (
+            <div className="ios-row">
+              <PlatformBadge platform="instagram" />
+              <p className="min-w-0 flex-1 text-[15px]" data-testid="autoreplies-need-ig">
+                {t("replies.needIg")} {settingsLink}
+              </p>
+            </div>
+          ) : !ig.canReply ? (
+            <div className="ios-row flex-wrap">
+              <PlatformBadge platform="instagram" />
+              <p
+                className="min-w-[10rem] flex-1 text-[15px]"
+                data-testid="autoreplies-need-permission"
+              >
+                {t("replies.needPermission")}
+              </p>
+              <button
+                type="button"
+                className="px-btn px-btn-sm ms-auto"
+                disabled={accountBusy}
+                onClick={() => void connect("instagram", true, true)}
+                data-testid="autoreplies-allow"
+              >
+                {t("replies.allow")}
+              </button>
+            </div>
+          ) : (
+            <>
+              <ListRow
+                iconRaw={<PlatformBadge platform="instagram" />}
+                title={<bdi dir="ltr">@{username ?? "instagram"}</bdi>}
+                sub={
+                  <>
+                    <span
+                      className={STATE_TONE[state]}
+                      data-testid="autoreplies-can-reply"
+                      data-status={state}
+                    >
+                      {t(`replies.status.${state}`)}
+                    </span>
+                    {doc?.lastPollAt &&
+                      ` · ${t("replies.lastCheck", { ago: timeAgo(doc.lastPollAt, lang) })}`}
+                  </>
+                }
+                trailing={
+                  <button
+                    type="button"
+                    className="px-btn px-btn-ghost px-btn-sm shrink-0"
+                    disabled={busy}
+                    aria-busy={busy}
+                    onClick={() => void check()}
+                    data-testid="autoreplies-check"
+                  >
+                    {t("replies.checkNow")}
+                  </button>
+                }
               />
-              {t("replies.pauseAll")}
-            </label>
-          </div>
-        )}
+              <ListRow
+                title={t("replies.pauseAll")}
+                trailing={
+                  <Switch
+                    checked={!!doc?.paused}
+                    onChange={() => void togglePause()}
+                    label={t("replies.pauseAll")}
+                    disabled={busy || !doc}
+                    testId="autoreplies-pause"
+                  />
+                }
+              />
+            </>
+          )}
+        </div>
         {doc?.lastError && (
-          <p className="text-danger text-xs" data-testid="autoreplies-last-error">
+          <p className="text-danger px-4 text-[13px]" data-testid="autoreplies-last-error">
             {errorText(t, doc.lastError)}
           </p>
         )}
         {doc?.lastError && doc.lastErrorDetail && (
           <p
-            className="text-muted text-xs break-words"
+            className="text-muted px-4 text-[13px] break-words"
             dir="auto"
             data-testid="autoreplies-last-error-detail"
           >
             {doc.lastErrorDetail}
           </p>
         )}
-        {error && (
-          <p role="alert" className="text-danger text-xs" data-testid="autoreplies-error">
+        {/* While an editor is open, its sheet shows the error instead. */}
+        {error && !editing && (
+          <p role="alert" className="text-danger px-4 text-[13px]" data-testid="autoreplies-error">
             {t(error)}
           </p>
         )}
         {notice && (
-          <p className="text-ink-2 text-xs" data-testid="autoreplies-notice">
+          <p className="text-ink-2 px-4 text-[13px]" data-testid="autoreplies-notice">
             {notice}
           </p>
         )}
       </section>
 
-      <section className="px-card flex flex-col gap-3" data-testid="autoreplies-list">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-base">{t("replies.rules.title")}</h2>
-          {configured && (
-            <button
-              type="button"
-              className="px-btn px-btn-sm ms-auto"
-              disabled={busy}
-              onClick={() => setEditing({ kind: "rule", rule: newAutoReply() })}
-              data-testid="autoreplies-new"
-            >
-              {t("replies.new")}
-            </button>
-          )}
-        </div>
-        {doc === null ? (
-          // Not read yet: say so while the Worker answers; say nothing when there is no Worker or the read failed.
-          configured &&
-          busy &&
-          !error && (
-            <p className="text-muted text-sm" aria-busy data-testid="autoreplies-loading">
-              {t("replies.loading")}
-            </p>
-          )
-        ) : (
-          <>
-            {automations.length === 0 && (
-              <p className="text-ink-2 text-sm" data-testid="autoreplies-empty">
-                {t("replies.empty")}
+      {(doc || loading) && (
+        <ListGroup
+          header={t("replies.rules.title")}
+          trailing={
+            configured && (
+              <button
+                type="button"
+                className="px-btn px-btn-sm"
+                disabled={busy}
+                onClick={() => setEditing({ kind: "rule", rule: newAutoReply() })}
+                data-testid="autoreplies-new"
+              >
+                {t("replies.new")}
+              </button>
+            )
+          }
+          testId="autoreplies-list"
+          listAs="ul"
+          className="ar-rules"
+        >
+          {doc ? (
+            <>
+              {automations.length === 0 && (
+                <li className="ios-row">
+                  <span className="ios-ic fill">
+                    <MessageCircle size={20} strokeWidth={1.75} aria-hidden />
+                  </span>
+                  <p
+                    className="text-ink-2 min-w-0 flex-1 text-[15px]"
+                    data-testid="autoreplies-empty"
+                  >
+                    {t("replies.empty")}
+                  </p>
+                </li>
+              )}
+              <RulesTable
+                automations={automations}
+                defaultReply={doc.defaultReply}
+                busy={busy}
+                errorText={(code) => errorText(t, code)}
+                onToggle={(a) => void toggle(a)}
+                onEdit={(a) => setEditing({ kind: "rule", rule: a })}
+                onDelete={setPendingDelete}
+                onToggleDefault={() => void toggleDefault()}
+                onEditDefault={() => setEditing({ kind: "default" })}
+              />
+            </>
+          ) : (
+            <li className="ios-row" data-sep="16">
+              <p className="text-muted text-[15px]" aria-busy data-testid="autoreplies-loading">
+                {t("replies.loading")}
               </p>
-            )}
-            <RulesTable
-              automations={automations}
-              defaultReply={doc.defaultReply}
-              busy={busy}
-              errorText={(code) => errorText(t, code)}
-              onToggle={(a) => void toggle(a)}
-              onEdit={(a) => setEditing({ kind: "rule", rule: a })}
-              onDelete={setPendingDelete}
-              onToggleDefault={() => void toggleDefault()}
-              onEditDefault={() => setEditing({ kind: "default" })}
-            />
-          </>
-        )}
-      </section>
+            </li>
+          )}
+        </ListGroup>
+      )}
 
       {automations.length > 0 && <Tester automations={automations} />}
 
       {doc && doc.log.length > 0 && (
-        <details className="px-card" data-testid="autoreplies-log">
-          <summary className="cursor-pointer text-base">{t("replies.log.title")}</summary>
-          <ul className="mt-2 flex flex-col gap-1.5">
+        <Fold
+          icon={<History size={20} strokeWidth={1.75} aria-hidden />}
+          title={t("replies.log.title")}
+          testId="autoreplies-log"
+        >
+          <ul className="flex flex-col gap-1.5">
             {doc.log.map((e) => (
               <LogRow key={`${e.messageId ?? e.commentId}-${e.at}`} e={e} />
             ))}
           </ul>
-        </details>
+        </Fold>
       )}
 
       {pendingDelete && (
@@ -342,6 +351,44 @@ export default function AutoRepliesScreen() {
           onCancel={() => setPendingDelete(null)}
         />
       )}
+
+      {editing && (
+        <Sheet
+          onClose={() => setEditing(null)}
+          title={t(
+            editing.kind === "default"
+              ? "replies.default.title"
+              : editing.rule.createdAt
+                ? "replies.form.editTitle"
+                : "replies.form.newTitle",
+          )}
+          titleId="autoreply-sheet-title"
+          testId="autoreply-sheet"
+          detents={[0.92]}
+          wide={editing.kind === "rule"}
+        >
+          {editing.kind === "default" ? (
+            <DefaultReplyEditor value={doc?.defaultReply} busy={busy} onSave={saveDefault} />
+          ) : (
+            <RuleEditor
+              key={editing.rule.id}
+              value={editing.rule}
+              posts={posts}
+              status={status}
+              origin={origin}
+              username={username}
+              busy={busy}
+              onSave={saveRule}
+            />
+          )}
+          {/* Under Save: why the Worker refused it. */}
+          {error && (
+            <p role="alert" className="text-danger text-[13px]" data-testid="autoreplies-error">
+              {t(error)}
+            </p>
+          )}
+        </Sheet>
+      )}
     </div>
   );
 }
@@ -353,52 +400,44 @@ function Tester({ automations }: { automations: readonly AutoReply[] }) {
   const [trigger, setTrigger] = useState<ReplyTrigger>("comment");
   const match = sample.trim() ? firstMatch(sample, automations, trigger) : undefined;
   return (
-    <details className="px-card" data-testid="autoreplies-tester">
-      <summary className="cursor-pointer text-base" data-testid="autoreplies-tester-open">
-        {t("replies.tester.title")}
-      </summary>
-      <div className="mt-2 flex flex-col gap-2">
-        <div
-          className="cal-tabs self-start"
-          role="radiogroup"
-          aria-label={t("replies.tester.title")}
+    <Fold
+      icon={<FlaskConical size={20} strokeWidth={1.75} aria-hidden />}
+      title={t("replies.tester.title")}
+      testId="autoreplies-tester"
+      summaryTestId="autoreplies-tester-open"
+    >
+      <Segmented
+        role="radiogroup"
+        label={t("replies.tester.title")}
+        value={trigger}
+        onChange={setTrigger}
+        options={(["comment", "message"] as const).map((k) => ({
+          value: k,
+          label: t(`replies.tester.${k}`),
+          testId: `autoreplies-tester-${k}`,
+        }))}
+      />
+      <input
+        type="text"
+        className="px-input"
+        autoComplete="off"
+        placeholder={t("replies.tester.placeholder")}
+        value={sample}
+        onChange={(e) => setSample(e.target.value)}
+        data-testid="autoreplies-tester-input"
+      />
+      {sample.trim() && (
+        <p
+          className={`text-[13px] ${match ? "text-tint font-semibold" : "text-muted"}`}
+          data-testid="autoreplies-tester-result"
+          data-match={!!match}
         >
-          {(["comment", "message"] as const).map((k) => (
-            <button
-              key={k}
-              type="button"
-              role="radio"
-              className="cal-tab"
-              aria-checked={trigger === k}
-              onClick={() => setTrigger(k)}
-              data-testid={`autoreplies-tester-${k}`}
-            >
-              {t(`replies.tester.${k}`)}
-            </button>
-          ))}
-        </div>
-        <input
-          type="text"
-          className="px-input"
-          autoComplete="off"
-          placeholder={t("replies.tester.placeholder")}
-          value={sample}
-          onChange={(e) => setSample(e.target.value)}
-          data-testid="autoreplies-tester-input"
-        />
-        {sample.trim() && (
-          <p
-            className={`text-xs ${match ? "text-ink-2" : "text-muted"}`}
-            data-testid="autoreplies-tester-result"
-            data-match={!!match}
-          >
-            {match
-              ? t("replies.tester.match", { name: match.title ?? match.keywords.join(", ") })
-              : t("replies.tester.noMatch")}
-          </p>
-        )}
-      </div>
-    </details>
+          {match
+            ? t("replies.tester.match", { name: match.title ?? match.keywords.join(", ") })
+            : t("replies.tester.noMatch")}
+        </p>
+      )}
+    </Fold>
   );
 }
 
@@ -413,19 +452,17 @@ function LogRow({ e }: { e: AutoReplyLog }) {
         : null;
   return (
     <li
-      className="px-inset flex flex-col gap-0.5 text-xs"
+      className="px-inset flex flex-col gap-1 text-xs"
       data-testid="autoreplies-log-row"
       data-dm={e.dm}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span className="px-chip text-[0.65rem]" data-testid="autoreplies-log-kind">
-          {t(`replies.log.kind.${e.kind}`)}
-        </span>
+        <Chip data-testid="autoreplies-log-kind">{t(`replies.log.kind.${e.kind}`)}</Chip>
         <b dir="ltr">{e.username ? `@${e.username}` : "—"}</b>
         <span className="text-ink-2 min-w-0 flex-1 truncate" dir="auto">
           {e.text}
         </span>
-        <span className="text-muted num">{formatInstant(e.at, lang)}</span>
+        <span className="text-muted tabular-nums">{formatInstant(e.at, lang)}</span>
       </div>
       <div className={`flex flex-wrap gap-2 ${e.dm === "failed" ? "text-danger" : "text-muted"}`}>
         <span>{dm}</span>

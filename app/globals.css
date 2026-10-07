@@ -3275,6 +3275,274 @@
 }
 /* ---- /Studio ---- */
 
+/* ---- Replies + Automations ---- */
+/* 💬 Auto replies (`ar-*`) and 🚀 Automations (`ap-*`) in the iOS look (round 35, tools/18 §6). Social-only routes;
+ * the rules sit in the component layer, so a Tailwind utility on the same element still wins. */
+@layer components {
+  /* Rule rows: the text is the button that opens the editor; the switch and the ⋯ menu sit over its end, beside the
+     title and preview (which keep clear of them), and the footnote runs on under them at full width. The list lets
+     the menu's popover out, so its first and last rows round their own corners for the press highlight. */
+  .ar-rules > .ios-list {
+    overflow: visible;
+  }
+  .ar-rules > .ios-list > li:first-child {
+    border-start-start-radius: var(--radius);
+    border-start-end-radius: var(--radius);
+  }
+  .ar-rules > .ios-list > li:last-child {
+    border-end-start-radius: var(--radius);
+    border-end-end-radius: var(--radius);
+  }
+  .ar-rule {
+    align-items: flex-start;
+    transition: background-color var(--t-fast) var(--out);
+  }
+  .ar-rule:has(> .ar-open:active) {
+    background: var(--panel-2);
+  }
+  /* The icon centers on the title + preview pair (20 + 18px). */
+  .ar-rule > :first-child {
+    margin-top: 2px;
+  }
+  .ar-open {
+    align-self: stretch;
+  }
+  .ar-open > :not(:last-child) {
+    padding-inline-end: 100px;
+  }
+  .ar-ctl {
+    position: absolute;
+    top: 14px;
+    inset-inline-end: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* ⋯ menu: a 32px fill circle (44px hit area) opening an iOS context menu under it. Safari does not lay out a
+     grid <summary>, so the circle is the span inside it. */
+  .ar-menu {
+    position: relative;
+    flex: none;
+  }
+  .ar-menu > summary {
+    position: relative;
+    display: block;
+    list-style: none;
+    border-radius: 50%;
+  }
+  .ar-menu > summary::-webkit-details-marker {
+    display: none;
+  }
+  .ar-menu > summary::after {
+    content: "";
+    position: absolute;
+    inset: -6px;
+  }
+  .ar-menu > summary > svg {
+    box-sizing: content-box;
+    display: block;
+    padding: 7px;
+    border-radius: 50%;
+    background: var(--fill);
+    color: var(--ink-2);
+    transition:
+      transform var(--t-fast) var(--out),
+      background-color var(--t-fast) var(--out),
+      color var(--t-fast) var(--out);
+  }
+  .ar-menu > summary:active > svg {
+    transform: scale(0.88);
+  }
+  .ar-menu[open] > summary > svg {
+    background: var(--tint-bg);
+    color: var(--tint);
+  }
+  .ar-pop {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 8px);
+    inset-inline-end: -4px;
+    min-width: 11rem;
+    padding-block: 4px;
+    border-radius: 14px;
+    background: var(--panel);
+    box-shadow:
+      0 12px 40px rgba(16, 24, 32, 0.18),
+      0 0 0 0.5px var(--hair);
+    transform-origin: top left;
+    animation: ar-menu-in var(--t-med) var(--spring);
+  }
+  [dir="ltr"] .ar-pop {
+    transform-origin: top right;
+  }
+  .ar-pop > button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 15px;
+    text-align: start;
+    transition: background-color var(--t-fast) var(--out);
+  }
+  .ar-pop > button + button {
+    border-top: 0.5px solid var(--hair);
+  }
+  .ar-pop > button:active:not(:disabled) {
+    background: var(--panel-2);
+  }
+  .ar-pop > button:disabled {
+    opacity: 0.45;
+  }
+
+  /* Folded groups (tester, log, the editor's phone preview): the summary is an iOS row whose forward chevron turns
+     down while open. */
+  .ar-fold > summary {
+    display: block;
+    list-style: none;
+  }
+  .ar-fold > summary::-webkit-details-marker {
+    display: none;
+  }
+  .ar-fold > summary > .ios-row {
+    transition: background-color var(--t-fast) var(--out);
+  }
+  .ar-fold > summary:active > .ios-row {
+    background: var(--panel-2);
+  }
+  /* The list clips: the focus ring goes inside. */
+  .ar-fold > summary:focus-visible {
+    outline-offset: -2px;
+  }
+  .ar-chev {
+    flex: none;
+    transition: transform var(--t-med) var(--out);
+  }
+  [dir="ltr"] .ar-chev {
+    transform: rotate(180deg);
+  }
+  .ar-fold[open] > summary .ar-chev {
+    transform: rotate(-90deg);
+  }
+  [dir="ltr"] .ar-fold[open] > summary .ar-chev {
+    transform: rotate(270deg);
+  }
+  .ar-fold-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 2px 16px 16px;
+  }
+
+  /* The editors in their sheet: inset lists on --panel-2 without a shadow (the mockup's sheet lists), shorter rows,
+     labels that wrap, and a press highlight that shows on that fill. */
+  .ar-editor .ios-list {
+    background: var(--panel-2);
+    box-shadow: none;
+    border-radius: 14px;
+  }
+  .ar-editor .ios-row {
+    min-height: 50px;
+    padding-block: 8px;
+  }
+  .ar-editor .ios-tx b {
+    white-space: normal;
+  }
+  .ar-editor :is(button.ios-row:active, .ar-fold > summary:active > .ios-row) {
+    background: var(--fill);
+  }
+  /* Remove buttons: a keyword chip's ✕ (a 32 × 44 hit area: it stops short of the field beside it), a reply's or a
+     link's ✕ (44px). */
+  .ar-chip-x {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    color: var(--ink-2);
+    transition: transform var(--t-fast) var(--out);
+  }
+  .ar-chip-x::after {
+    content: "";
+    position: absolute;
+    inset: -12px -6px;
+  }
+  .ar-chip-x:active {
+    transform: scale(0.85);
+  }
+  .ar-x {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    margin-inline-end: -8px;
+    border-radius: 50%;
+    color: var(--muted);
+    transition:
+      transform var(--t-fast) var(--out),
+      color var(--t-fast) var(--out);
+  }
+  .ar-x:active {
+    transform: scale(0.88);
+    color: var(--danger);
+  }
+  /* Post tiles: the chosen one gets an accent ring and a check badge that pops in. */
+  .ar-tile {
+    transition: transform var(--t-fast) var(--out);
+  }
+  .ar-tile:active {
+    transform: scale(0.96);
+  }
+  .ar-tile::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 2.5px var(--accent);
+    opacity: 0;
+    transition: opacity var(--t-fast) var(--out);
+  }
+  .ar-tile[aria-checked="true"]::after {
+    opacity: 1;
+  }
+  .ar-tile-check {
+    position: absolute;
+    top: 6px;
+    inset-inline-end: 6px;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-ink);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    animation: ios-pop 0.45s var(--spring);
+  }
+}
+/* Dark: the menu is an elevated gray over the list (both would be --panel). */
+@media (prefers-color-scheme: dark) {
+  [data-world="social"] .ar-pop {
+    background: var(--panel-3);
+    box-shadow:
+      0 12px 40px rgba(0, 0, 0, 0.5),
+      0 0 0 0.5px var(--hair);
+  }
+}
+@keyframes ar-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+/* ---- /Replies + Automations ---- */
+
 /* ---- Accounts ---- */
 /* 🔗 Connected accounts (Settings rows, spinner) and the source badges on the Social Analytics platform cards
  * (live / Beacons / manual / none). `--c` is the platform brand color. */
