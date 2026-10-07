@@ -3,11 +3,11 @@
  * credits) → Trending effects' candidates, AI cleanup (on gpt-oss-120b, llama its fallback) and 7-day memory, with the
  * camera words, the category's own generic words, its context line and a 200-name memory → its top 12, trends first,
  * with no YouTube check → plus the top videos per platform (§6: YouTube's 50 most viewed of the month, 2 calls; the
- * scan's Instagram and TikTok posts) → one KV document `category:<id>`. Once per UTC day unless forced or that day's
- * run failed; at most 3 spending runs a category a UTC day, forced ones included (`category:attempts:<id>:<day>`);
- * paused at 90 % of the month's Tavily credits (§4). When its lessons are 6 or more days old, missing or from an older
- * version (`LESSONS_VERSION`) the scan also refreshes them (lessons.ts), saved after the trends. Never throws: a day
- * that fails keeps the last page and its lessons.
+ * scan's Instagram posts; TikTok's Discovery API, 2 calls and its token's KV read, tiktok.ts) → one KV document
+ * `category:<id>`. Once per UTC day unless forced or that day's run failed; at most 3 spending runs a category a UTC
+ * day, forced ones included (`category:attempts:<id>:<day>`); paused at 90 % of the month's Tavily credits (§4). When
+ * its lessons are 6 or more days old, missing or from an older version (`LESSONS_VERSION`) the scan also refreshes
+ * them (lessons.ts), saved after the trends. Never throws: a day that fails keeps the last page and its lessons.
  */
 
 import { isRecord } from "../effects/ai";
@@ -22,6 +22,7 @@ import {
   type EffectsEnv,
   type FamilyStats,
 } from "../effects/sources";
+import type { TikTokAdsEnv } from "../tiktokads";
 import type { Genre } from "../trends/genres";
 import { utcDay } from "../trends/kv";
 import {
@@ -36,8 +37,12 @@ import {
   categoryQueries,
 } from "./defs";
 import { LESSON_MODEL, lessonsDue, refreshLessons } from "./lessons";
+import { tiktokTop } from "./tiktok";
 import { readTop, scanTop, youtubeTop } from "./top";
 import { AREAS, type CategoryDoc, type TopLists } from "./types";
+
+/** A scan reads TikTok's Discovery API with the TikTok for Business token (tiktokads.ts). */
+export type CategoryEnv = EffectsEnv & TikTokAdsEnv;
 
 export type CategoryRunOptions = {
   fetch?: typeof fetch;
@@ -75,14 +80,20 @@ export async function readCategory(env: EffectsEnv, id: string): Promise<Categor
 }
 
 async function scan(
-  env: EffectsEnv,
+  env: CategoryEnv,
   doFetch: typeof fetch,
   g: Genre,
   prev: CategoryDoc | null,
   now: Date,
   today: string,
   opts: CategoryRunOptions,
-): Promise<{ doc: CategoryDoc; credits: number; families: FamilyStats[]; memory?: Memory }> {
+): Promise<{
+  doc: CategoryDoc;
+  credits: number;
+  families: FamilyStats[];
+  memory?: Memory;
+  tiktok?: Record<string, unknown>;
+}> {
   const queries = categoryQueries(g);
   // `tight: false`: a category never cuts back; it pauses before searching instead (runCategory).
   const { posts, credits, errors, families } = await searchFamilies(
@@ -102,17 +113,24 @@ async function scan(
   // §6: YouTube's top list comes from the cron's runs and a category's first top scan alone. A forced run (Scan
   // again) keeps the stored list, whatever its length or the page's status, and its date with it, so a kept list never
   // looks fresh and a tap never spends one of the shared 100 `search.list` a day. A failed call keeps the last list
-  // too. Instagram's and TikTok's come from this scan's posts. YouTube's videos feed the trends as well (§2).
+  // too. Instagram's come from this scan's posts. YouTube's videos feed the trends as well (§2).
   const kept = opts.force ? prev?.top : undefined;
   const youtube = kept
     ? null
     : await youtubeTop(env, doFetch, g.queries.en[0], now, opts.timeoutMs);
   if (!kept && !youtube) notes.add("youtube");
+  // TikTok's from its Discovery API on every scan, forced ones too (free). Not connected (`tiktok_auth`), TikTok failing
+  // (`tiktok`) or an empty answer: the last list stays, with its own date.
+  const tiktok = await tiktokTop(env, doFetch, g.id, opts.timeoutMs);
+  if (tiktok.note) notes.add(tiktok.note);
+  const fresh = tiktok.videos?.length ? tiktok.videos : undefined;
+  const ttUpdatedAt = fresh ? now.toISOString() : prev?.top?.ttUpdatedAt;
   const top: TopLists = {
     updatedAt: youtube ? now.toISOString() : (prev?.top?.updatedAt ?? now.toISOString()),
     yt: youtube?.videos ?? prev?.top?.yt ?? [],
     ig: scanTop(posts, "ig"),
-    tt: scanTop(posts, "tt"),
+    tt: fresh ?? prev?.top?.tt ?? [],
+    ...(ttUpdatedAt ? { ttUpdatedAt } : {}),
   };
   const all = [...posts, ...(youtube?.posts ?? [])];
   const { history, meta, shown, memory } = await rememberPosts(env, prev, today, all, notes, {
@@ -128,6 +146,7 @@ async function scan(
     credits,
     families,
     memory,
+    tiktok: tiktok.diagnostics,
     doc: {
       ranOn: today,
       updatedAt: now.toISOString(),
@@ -156,7 +175,7 @@ async function save(env: EffectsEnv, key: string, doc: CategoryDoc): Promise<Cat
 }
 
 export async function runCategory(
-  env: EffectsEnv,
+  env: CategoryEnv,
   id: string,
   opts: CategoryRunOptions = {},
 ): Promise<CategoryDoc> {
@@ -173,6 +192,7 @@ export async function runCategory(
   let credits = 0;
   let families: FamilyStats[] | undefined;
   let memory: Memory | undefined;
+  let tiktok: Record<string, unknown> | undefined;
   let error: string | undefined;
   // The day's cap. true: the page may be saved (the attempt counted, or none needed: a pause spends nothing); false:
   // over the cap, nothing spent or written; undefined: the counter could not be kept (saved, noted "attempts_kv").
@@ -189,7 +209,7 @@ export async function runCategory(
       doc = prev ? noted(prev, "attempts") : failed(null, today, now, ["attempts"]);
     else {
       try {
-        ({ doc, credits, families, memory } = await scan(
+        ({ doc, credits, families, memory, tiktok } = await scan(
           env,
           opts.fetch ?? fetch,
           g,
@@ -206,7 +226,8 @@ export async function runCategory(
       if (attempt === undefined) doc = noted(doc, "attempts_kv");
     }
   }
-  // Counts and our own ids only, never names or post text; kept with the page for the live check.
+  // Counts and our own ids only, never names or post text (TikTok's: its counts, or its error code and message); kept
+  // with the page for the live check.
   const diagnostics = {
     id,
     status: doc.status,
@@ -215,6 +236,7 @@ export async function runCategory(
     notes: doc.notes,
     error,
     families,
+    tiktok,
     ...memory,
   };
   console.log(JSON.stringify({ category: diagnostics }));

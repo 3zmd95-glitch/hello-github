@@ -34,8 +34,9 @@ export interface Lessons {
   video: Technique[];
   edit: Technique[];
 }
-/** A top video of a category page (§6). YouTube's come from the Data API (views, date), Instagram's and TikTok's from
- * the scan's posts (no views), Brave's (never stored) with views and age when Brave gives them. */
+/** A top video of a category page (§6). YouTube's come from the Data API (views, date), Instagram's from the scan's
+ * posts (no views), TikTok's from TikTok's Discovery API (titled with its hashtag, no views), Brave's (never stored) with
+ * views and age when Brave gives them. */
 export interface TopVideo {
   url: string;
   title: string;
@@ -45,12 +46,14 @@ export interface TopVideo {
   thumbnail?: string;
   age?: string;
 }
-/** The stored lists, ≤ 50 each, best first. */
+/** The stored lists, ≤ 50 each, best first. `updatedAt` is YouTube's list's date (kept with a kept list, C1); TikTok's
+ * list has its own (`ttUpdatedAt`, when TikTok's Discovery API last filled it; none before that). */
 export interface TopLists {
   updatedAt: string;
   yt: TopVideo[];
   ig: TopVideo[];
   tt: TopVideo[];
+  ttUpdatedAt?: string;
 }
 export interface CategoryDoc extends EffectsDoc {
   lessons?: Lessons;

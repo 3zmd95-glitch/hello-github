@@ -23,7 +23,9 @@
  *                           failed; at most 3 spending runs a category a UTC day, forced ones included)
  *   GET  /categories/:id/top/:platform → a TikTok (`tt`) or Instagram (`ig`) tab's top videos: the stored list and
  *                           Brave's Search API results beside it, never stored (BRAVE_API_KEY, at most BRAVE_DAILY a
- *                           UTC day)
+ *                           UTC day; "0" since the TikTok tab reads TikTok's Discovery API, 2026-10-07)
+ *   POST /tiktokads/connect → TikTok for Business's authorization page for the category pages' TikTok trends;
+ *   GET  /oauth/tiktokads/callback (no bearer), GET /tiktokads/status (tiktokads.ts)
  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
  *   /mcp, /authorize, /token, /register → served by index.ts (OAuth + MCP): the Claude connector
  *                           (discover/mcp.ts, discover/auth.ts)
@@ -52,6 +54,7 @@ import { allowedOrigins, DEFAULT_ALLOWED_ORIGINS } from "./origins";
 import { handleGo } from "./social/replies";
 import { handleOAuthCallback, handleSocial, healthSocial } from "./social/routes";
 import type { SocialEnv } from "./social/store";
+import { handleTikTokAds, handleTikTokAdsCallback, type TikTokAdsEnv } from "./tiktokads";
 import { handleTrends, healthTrends } from "./trends/routes";
 import { TAVILY_URL } from "./trends/tavily";
 import type { TrendsEnv } from "./trends/types";
@@ -60,7 +63,7 @@ import { enrichYoutubeStats } from "./youtubeStats";
 export { DEFAULT_ALLOWED_ORIGINS, TAVILY_URL };
 export { enrichYoutubeStats, YT_STATS_MAX, youtubeStatsUrl } from "./youtubeStats";
 
-export interface Env extends SocialEnv, TrendsEnv {
+export interface Env extends SocialEnv, TrendsEnv, TikTokAdsEnv {
   AI?: import("./discover/ai").SearchAiBinding;
   /** Secret: Tavily API key (https://app.tavily.com). */
   TAVILY_API_KEY?: string;
@@ -488,7 +491,10 @@ export async function handle(
   if (!originAllowed) return fail("origin", 403, cors);
 
   // The OAuth providers send the owner's browser here (top-level navigation, no bearer): the one-time
-  // `state` nonce is the credential.
+  // `state` nonce is the credential. TikTok for Business first: it is not one of the social platforms.
+  if (pathname === "/oauth/tiktokads/callback" && req.method === "GET") {
+    return handleTikTokAdsCallback(req, env, { fetch: deps.fetch, now: deps.now });
+  }
   const callback = pathname.match(/^\/oauth\/([a-z]+)\/callback$/);
   if (callback && req.method === "GET") {
     return handleOAuthCallback(req, env, callback[1], { fetch: deps.fetch, now: deps.now });
@@ -545,6 +551,8 @@ export async function handle(
   if (creator) return creator;
   const social = await handleSocial(req, env, cors, { fetch: deps.fetch, now: deps.now });
   if (social) return social;
+  const tiktokAds = await handleTikTokAds(req, env, cors, { now: deps.now });
+  if (tiktokAds) return tiktokAds;
   const trends = await handleTrends(req, env, cors, { fetch: deps.fetch, now: deps.now });
   if (trends) return trends;
   const effects = await handleEffects(req, env, cors, {

@@ -644,6 +644,17 @@ and editing".
     and generic how-tos dropped, no car example in the pick prompt, examples must name the category, gpt-oss-120b for
     the lessons with llama as the fallback, lessons version 4.
   - Details: `tools/19-category-trends.md` §3, §6 and its live check.
+- **TikTok from TikTok's Discovery API** (Oct 7, branch `claude/category-tiktok-discovery`). Live, Brave's index held
+  TikTok topic pages, not videos (Cars: 60 TikTok links, 0 posts). The owner: "brave is not the answer then we need
+  another solution", then chose "Build it (Recommended)": his approved TikTok for Business app "ONUS Content Planner"
+  (scope Discovery), official and free, with no ban risk.
+  - **Connect once:** the owner adds the secret `TIKTOK_ADS_SECRET` in Cloudflare, then taps "Connect TikTok trends"
+    on an empty TikTok tab, approves in TikTok for Business and lands back on Discover ("TikTok connected").
+  - **Every scan** (free): the category's industry's popular hashtags in the US over 7 days, then their top videos, ≤ 50
+    taken in turns, titled with the hashtag (the card shows the caption).
+  - **Brave off** (`BRAVE_DAILY` "0"); its "once Brave search is connected" line is gone.
+  - **Rejected:** TikTok's official Business API SDK (no new dependencies).
+  - Details: `tools/19-category-trends.md` §6 "TikTok from TikTok's Discovery API".
 
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |

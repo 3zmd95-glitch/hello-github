@@ -11,6 +11,7 @@ import {
   fetchCategoryTop,
   pageState,
   runCategoryNow,
+  tiktokConnectUrl,
   TOP_MAX,
   TOP_PLATFORMS,
   type Area,
@@ -64,10 +65,9 @@ const SCAN_LINE: Record<Exclude<Scan, "idle">, MessageKey> = {
 
 /** The 🏆 row shows this many of a list at a time. */
 const TOP_SHOW = 12;
-/** Why a Brave tab shows the scan's list alone. Not connected is said on TikTok only: Instagram's stored reels stand on
- * their own. */
-const TOP_LINE: Record<NonNullable<TopAnswer["note"]>, MessageKey> = {
-  no_key: "search.topNoKey",
+/** Why a Brave tab shows the stored list alone. Brave off (`no_key`) says nothing: off by choice since the TikTok tab
+ * reads TikTok's Discovery API (§6). */
+const TOP_LINE: Record<Exclude<NonNullable<TopAnswer["note"]>, "no_key">, MessageKey> = {
   brave_failed: "search.topFailed",
   daily_cap: "search.topCap",
 };
@@ -92,7 +92,9 @@ const BRAVE_PAGE = "https://brave.com/search/api/";
  * "More from Brave Search", in Brave's order and as Brave gave them, with Brave credited under them, and live in this
  * component's state alone, since Brave's terms forbid keeping its results. The arrow keys move focus between the tabs
  * (mirrored in Arabic); YouTube follows focus, TikTok and Instagram wait for Enter, Space or a tap, so arrowing past
- * them never asks Brave.
+ * them never asks Brave. TikTok's stored list is TikTok's own trending videos (its Discovery API, Brave off since
+ * 2026-10-07): an empty TikTok tab offers "Connect TikTok trends", TikTok for Business's authorization page, which
+ * sends the owner back to this address (Discover says so).
  */
 function TopVideos({
   config,
@@ -113,6 +115,15 @@ function TopVideos({
   const [brave, setBrave] = useState<Partial<Record<TopPlatform, TopAnswer | null>>>({});
   const asked = useRef(new Set<TopPlatform>());
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  // "Connect TikTok trends": on its way to TikTok (busy, the page is leaving), or refused.
+  const [connect, setConnect] = useState<"idle" | "busy" | "failed">("idle");
+  const connectTikTok = () => {
+    setConnect("busy");
+    void tiktokConnectUrl(config, window.location.href).then((url) => {
+      if (url) window.location.assign(url);
+      else setConnect("failed");
+    });
+  };
 
   const open = (p: TopPlatform) => {
     setTab(p);
@@ -153,14 +164,18 @@ function TopVideos({
   const lists = listsOf(tab);
   const all = lists.scan.length + lists.brave.length;
   const note = answer?.note;
+  // TikTok's list came and is empty: TikTok for Business may not be connected yet.
+  const offerConnect = tab === "tt" && !!answer && all === 0;
   const line =
     answer === null
       ? t("search.topLoading")
-      : note && (note !== "no_key" || tab === "tt")
-        ? t(TOP_LINE[note])
-        : all
-          ? ""
-          : t("search.topEmpty");
+      : offerConnect && connect === "failed"
+        ? t("search.tiktokConnectFailed")
+        : note && note !== "no_key"
+          ? t(TOP_LINE[note])
+          : all
+            ? ""
+            : t("search.topEmpty");
   // What shows of each group: the stored list first, 12 at a time across both.
   const scanShown = lists.scan.slice(0, shown);
   const braveShown = lists.brave.slice(0, Math.max(0, shown - scanShown.length));
@@ -234,6 +249,17 @@ function TopVideos({
         <p role="status" className="text-muted text-xs" data-testid="category-top-line">
           {line}
         </p>
+        {offerConnect && (
+          <button
+            type="button"
+            className="px-btn px-btn-sm w-fit"
+            disabled={connect === "busy"}
+            onClick={connectTikTok}
+            data-testid="category-top-connect"
+          >
+            {t("search.tiktokConnect")}
+          </button>
+        )}
         {scanShown.length > 0 && (
           <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
             {scanShown.map((v) => (

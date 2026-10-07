@@ -275,7 +275,8 @@ pay-as-you-go on in his Tavily account; Claude never handles payments.
 | API | Use | Budget |
 | --- | --- | --- |
 | YouTube Data API `search.list` | The top list, 1 a cron scan and 1 a category's first top scan (plus 1 `videos.list`); Scan again asks none | 4 a day of the shared 100: radar 18 + effects 6 + Discover 66 (was 70) + the 4 cron scans = 94 |
-| Brave Search API | The TikTok and Instagram tabs, when the owner chooses one | ≤ 40 requests a day (`BRAVE_DAILY`); about 1,000 a month are free with Brave's $5 monthly credit, which asks for Brave to be credited (the page does, under Brave's group), then $5 per 1,000. **Brave's results are never stored** |
+| Brave Search API | The TikTok and Instagram tabs, when the owner chooses one. **Off since 2026-10-07** (`BRAVE_DAILY` "0") | ≤ 40 requests a day (`BRAVE_DAILY`) when on; about 1,000 a month are free with Brave's $5 monthly credit, which asks for Brave to be credited (the page does, under Brave's group), then $5 per 1,000. **Brave's results are never stored** |
+| TikTok Discovery API (TikTok API for Business) | The TikTok tab's stored list (§6): `trending_list` and `video_list`, on every scan | 2 calls a scan (8 a day on the cron), free with the owner's TikTok for Business app |
 
 **Budget guard.** At 90% of the month's credits (Discover's cached figure; when none is kept, Tavily's own `GET /usage`,
 asked once and kept 10 minutes), category scans and lessons pause and keep their last results. The month is the plan
@@ -298,13 +299,14 @@ On a day the AI is unavailable, new names wait (`ai_fallback`) and lessons keep 
 Workers Paid ($5 a month) lifts the limit; the live check measures it first.
 
 **Each invocation.** One category per invocation, either a cron slot or a POST. CPU is about 70–90 ms, as for effects;
-Cloudflare has reported no CPU-limit errors so far. Subrequests per run are at most about 40, under the 50 a free
+Cloudflare has reported no CPU-limit errors so far. Subrequests per run are at most about 43, under the 50 a free
 invocation allows:
 - 16 Tavily searches and 1 Tavily `/usage`;
 - 2 YouTube calls (§6: `search.list` and `videos.list`);
+- 2 TikTok Discovery calls (§6, since 2026-10-07: `trending_list` and `video_list`);
 - 14 AI calls: 3 cleanup batches, 1 pick and 3 how-to calls, and up to 7 of those asked again on llama (the lessons'
   since live fix 3, the cleanup's since 2026-10-07: +3);
-- 7 KV operations.
+- 8 KV operations (the TikTok token's read since 2026-10-07: +1).
 
 The lessons' calls can take longer since live fix 3, and the cleanup's batches since 2026-10-07: each has 60 s, and one
 llama retry another 60 s.
@@ -369,7 +371,8 @@ them.
   - Under Brave's group, outside the status line, a muted link "Powered by Brave Search" (Arabic: "النتائج من Brave
     Search") to https://brave.com/search/api/, in a new tab.
   - Without the Brave key, or with `BRAVE_DAILY` "0": the scan's posts, and "More TikTok results once Brave search is
-    connected".
+    connected". *Superseded 2026-10-07:* Brave is off, the line is gone, and the tab shows TikTok's own trending videos
+    (see "TikTok from TikTok's Discovery API" below).
   - Brave failing (401, 429 or other): the scan's posts, and "Couldn't reach Brave search right now".
   - Past the day's Brave requests: the scan's posts, and "Today's Brave searches are used up — more tomorrow".
   - An answer whose stored list came back empty (the Worker could not read its copy) keeps the page's own.
@@ -393,7 +396,8 @@ them.
 - **Instagram (stored).** Every Instagram post of the scan's 6 searches, once each: the ones more of them found first,
   then as first seen. ≤ 50, `{ url, title, creator? }`; the creator comes from the URL or the page text; no views.
 - **TikTok (stored).** The TikTok posts the scan saw. Since live fix 1 the scan searches Instagram alone, so this is
-  usually empty: the field is there for the tab's stored group.
+  usually empty: the field is there for the tab's stored group. *Superseded 2026-10-07:* TikTok's Discovery API fills
+  it on every scan, with its own date `ttUpdatedAt` (see "TikTok from TikTok's Discovery API" below).
 - **Storage.** `top: { updatedAt, yt, ig, tt }` in `category:<id>`. `GET /categories/:id` answers it. `readCategory`
   reads it entry by entry: a malformed entry is dropped, and an older page has none.
 - **On demand:** `GET /categories/:id/top/tt` (or `/ig`), Bearer like the others.
@@ -463,6 +467,108 @@ them.
 - **Brave web first** (branch `claude/category-brave-web`, 2026-10-07, after the live check above): the web search asks
   first and the video search is the fallback, superseding the first build's order (video first, web on 403, 404 or
   422) and its "1–2 requests an open": now 1–3, 3 reserved. The answer gains `stats`.
+
+**TikTok from TikTok's Discovery API** (branch `claude/category-tiktok-discovery`, 2026-10-07). This supersedes the
+TikTok parts above: the stored TikTok list, and the TikTok tab's Brave group.
+
+- **Why.** Live, Brave's web search answered Cars' TikTok tab with 60 TikTok links and 0 single videos: its index holds
+  TikTok topic pages, not posts. The owner said "brave is not the answer then we need another solution", then chose
+  **"Build it (Recommended)"**: TikTok's official Discovery API (TikTok API for Business v1.3), through his approved
+  TikTok for Business app "ONUS Content Planner" (App ID `7693488727766597653`, scope Discovery). It is official and
+  free, with no ban risk.
+- **Brave is off** (`BRAVE_DAILY` "0"): its route answers the stored list noted `no_key`. The page no longer says "More
+  TikTok results once Brave search is connected"; it says nothing about Brave (the key `search.topNoKey` is gone).
+  "Powered by Brave Search" shows only with Brave's group, so it does not appear.
+- **Connecting** (`workers/scout/src/tiktokads.ts`), once, by the owner:
+  - **The button.** On an empty TikTok tab, **"Connect TikTok trends"** ("اربط ترندات تيك توك") calls
+    `POST /tiktokads/connect { returnTo }` (Bearer; `returnTo` is the page's address, on `ALLOWED_ORIGINS`). It then
+    goes to the answered `url`: `https://business-api.tiktok.com/portal/auth?app_id=…&state=…&redirect_uri=…`.
+  - **The state.** One-time and random, kept 10 minutes in KV `tiktokads:state:<nonce>`.
+  - **No secret.** Without the app's secret the Worker answers 409 `not_configured`, and the tab says "Couldn't connect
+    TikTok — try again in a bit".
+  - **The callback.** TikTok sends the owner to `GET /oauth/tiktokads/callback?auth_code&state`: no Bearer, routed
+    before the social callbacks, kept apart from the `SocialPlatform` union.
+    - The state is taken once.
+    - The code (valid 1 hour, once) is exchanged at `POST …/open_api/v1.3/oauth2/access_token/` with the JSON body
+      `{ app_id, secret, auth_code, return_advertiser_ids: true }`. Any `code` but 0 is a failure.
+    - The long-term token never expires. It is kept as `{ access_token, advertiser_ids, scope, connectedAt }` in KV
+      `tiktokads:token`, sealed like the social tokens.
+  - **The way back.** A 302 to `returnTo`:
+    - `?tiktokads=connected`: Discover says "TikTok connected — the TikTok tab fills on this category's next scan".
+    - `?tiktokads_error=<reason>`: the failure line.
+    - Discover takes the parameter off the address. The category page has no address of its own, so the owner lands on
+      Discover, and the line shows there.
+  - **Status.** `GET /tiktokads/status` answers `{ connected, advertisers }`, never the token. The token, the secret and
+    the code are never logged or echoed.
+- **Each scan** (`categories/tiktok.ts`) reads TikTok on every run: cron, first and forced alike, since it is free. It
+  uses the first advertiser id, and `top.tt` comes only from here (the scan's TikTok posts no longer feed it).
+  1. **Popular hashtags.** `trending_list` with `discovery_type=HASHTAG`, `country_code`, `category_name` (the category's
+     industry) and `date_range=7DAY`, the token in `Access-Token`: TikTok's top 200 hashtags.
+  2. **Ten hashtags.** By `rank_position`, the 10 best whose `top_country_list` holds the country. With fewer than 3
+     there, the others fill in by rank, up to 10.
+  3. **Their videos.** One `video_list` call for them (`hashtag_ids` as a JSON array string). Each hashtag brings its top
+     20 videos, ranked by TikTok on views, comments, likes and shares; there are no captions or counts.
+  4. **The list.** ≤ 50 videos taken in turns, hashtags in rank order: each one's 1st video, then its 2nd…, each video
+     once (by `video_id`).
+  - **Links.** A video is kept only on an https tiktok.com link to one video with its creator's handle
+    (`/@handle/video/<id>`): the share link, without its query. No `https://www.tiktok.com/@/video/<id>` is made for a
+    link without the handle, because the app's player (`lib/embed.ts` `embedId`) refuses it.
+  - **Titles.** Each video is titled `#<hashtag>`, with the link's `@handle` as its creator and no views. The card's
+    TikTok oEmbed lookup brings the caption and thumbnail: `ResultCard` now treats a TikTok title that is a hashtag alone
+    like one that is the handle.
+  - **Storage.** The list is stored as `top.tt` with its own date, `top.ttUpdatedAt`. `top.updatedAt` stays YouTube's
+    list's date (C1).
+  - **Not connected** (no token, a token sealed with another `SCOUT_TOKEN`, or no advertiser): the last list stays, with
+    the note `tiktok_auth`.
+  - **TikTok failing** (a non-zero `code`, an HTTP error, no answer): the last list stays, with the note `tiktok` and
+    `diagnostics.tiktok = { code, message }` (≤ 120 characters, never the token).
+  - **No video.** An answer with no video keeps the last list too, without a note.
+  - **Diagnostics.** On success, `diagnostics.tiktok = { hashtags, videos, raw, country, industry }`, where `raw` counts
+    the videos TikTok sent before the link check.
+  - **Subrequests.** +1 KV read and 2 calls a scan: the worst case is 43 subrequests, up from 40 (§4).
+  - **Trending effects** never asks TikTok.
+- **Industry per category** (`category_name`, level 2 where one fits):
+
+  | Category | Industry name |
+  | --- | --- |
+  | cars | `AUTOMOTIVE` |
+  | food | `FOOD` |
+  | anime | `ANIMATION_AND_COMICS` |
+  | travel | `GENERAL_TRAVEL` |
+  | football | `CONVENTIONAL_AND_MAINSTREAM_SPORTS` |
+  | coffee | `DRINKS` |
+  | perfume | `BEAUTY` |
+  | camping | `OUTDOOR_RECREATION` |
+  | fashion | `OUTFITS` |
+  | gaming | `VIDEO_GAMES` |
+  | weddings | `ROMANCE` |
+  | gym | `EXERCISE_AND_FITNESS` |
+
+- **Country.** `TIKTOK_DISCOVERY_COUNTRY` is "US": English first and global, as the trends and lessons are. A blank
+  value, or anything but a 2-letter code, means US. It is the `country_code` of both calls and the country the hashtags
+  must be popular in.
+- **Search before building.** Two packages were **rejected**: the rule is no new dependencies, and two GET calls and one
+  POST need none.
+  - TikTok's official `tiktok/tiktok-business-api-sdk`.
+  - The Go package `bububa/tiktok-business`, whose `discovery` models confirmed the brief's field names.
+- **Decisions where the brief met itself or the code:**
+  - **The fill.** "Fill from the rest" fills the 10, not just the 3: a fill already takes the chance that `video_list`
+    refuses an out-of-country hashtag.
+  - **The TikTok date.** TikTok's list carries its own `ttUpdatedAt`. Moving `top.updatedAt` would make YouTube's kept
+    list look fresh (C1).
+  - **No advertiser.** A grant without an advertiser is refused at the callback (`no_advertiser`), since the Discovery
+    calls need one.
+  - **Empty answers.** An empty answer never empties a list, as C10 has it for the page.
+  - **The token.** It is sealed in KV as the social tokens are, because it never expires.
+  - **The way back.** The owner lands on Discover, the page's address (above).
+  - **Diagnostics.** `raw` is added for the live check: it tells links TikTok sent from links kept.
+- **Tests:** `pnpm test` 2,320 in 115 files (the Worker's 984 in 37 included); e2e 349 passed and 7 skipped by design,
+  of 356. Lint, typecheck (app and Worker) and build clean.
+- **Owner's steps:**
+  1. Cloudflare → Workers & Pages → 3z-scout → Settings → Variables and Secrets → Add → Secret: `TIKTOK_ADS_SECRET`, the
+     app's secret.
+  2. After the deploy, on any category page: TikTok tab → **Connect TikTok trends**, then approve in TikTok for Business.
+  3. Each category's next scan fills its TikTok tab (Scan again does it at once).
 
 ## Built (planning/plans/2026-10-06-category-trends.md)
 

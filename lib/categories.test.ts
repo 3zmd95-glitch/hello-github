@@ -8,6 +8,7 @@ import {
   pageState,
   parseCategory,
   runCategoryNow,
+  tiktokConnectUrl,
 } from "./categories";
 
 // 🚗 Category pages in Discover (planning/tools/19-category-trends.md §1): the Worker's answer checked field by field,
@@ -225,6 +226,35 @@ describe("fetchCategoryTop", () => {
       replying({ scan: [], brave: "none" }),
     ])
       expect(await fetchCategoryTop(config, "cars", "tt", { fetchImpl: f })).toBeNull();
+  });
+});
+
+describe("tiktokConnectUrl", () => {
+  it("asks the Worker for TikTok for Business's authorization page, handing it the page's address", async () => {
+    const page = "https://3zmd95-glitch.github.io/hello-github/discover/";
+    const auth = "https://business-api.tiktok.com/portal/auth?app_id=1&state=s&redirect_uri=x";
+    const f = replying({ url: auth });
+    expect(await tiktokConnectUrl(config, page, { fetchImpl: f })).toBe(auth);
+    const [url, init] = f.mock.calls[0];
+    expect(String(url)).toBe("https://w.example/tiktokads/connect");
+    expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer t");
+    expect(new Headers(init?.headers).get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(init?.body))).toEqual({ returnTo: page });
+  });
+
+  it("is null when the Worker can't (not configured, refused, no network) or answers no web address", async () => {
+    const offline = vi.fn<typeof fetch>(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    for (const f of [
+      replying({ error: "not_configured" }, 409),
+      replying({ error: "unauthorized" }, 401),
+      offline,
+      replying({ url: "javascript:alert(1)" }),
+      replying({}),
+    ])
+      expect(await tiktokConnectUrl(config, "https://a.example/", { fetchImpl: f })).toBeNull();
   });
 });
 

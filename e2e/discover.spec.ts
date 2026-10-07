@@ -256,6 +256,9 @@ async function stubWorker(
   discover: (body: Record<string, unknown>) => unknown,
   /** What `GET /categories/cars` answers. */
   category: unknown = CATEGORY_CARS,
+  /** What the TikTok tab's `GET /categories/cars/top/tt` answers (Brave's group of 30 by default), and what
+   * `POST /tiktokads/connect` answers ({ url }; without it, 409 not_configured). */
+  extra: { topTikTok?: unknown; connect?: (body: Record<string, unknown>) => unknown } = {},
 ) {
   const asked: Record<string, unknown>[] = [];
   await page.route(`${WORKER}/**`, async (route) => {
@@ -286,7 +289,12 @@ async function stubWorker(
     if (url.pathname === "/categories/cars/run" && req.method() === "POST")
       return reply({ ...CATEGORY_CARS, updatedAt: new Date().toISOString() });
     // A top videos tab (§6): Brave's TikTok list; for Instagram, the stored reels alone, as without Brave's key.
-    if (url.pathname === "/categories/cars/top/tt") return reply(TOP_TIKTOK);
+    if (url.pathname === "/categories/cars/top/tt") return reply(extra.topTikTok ?? TOP_TIKTOK);
+    // "Connect TikTok trends": TikTok for Business's authorization page.
+    if (url.pathname === "/tiktokads/connect" && req.method() === "POST")
+      return extra.connect
+        ? reply(extra.connect(JSON.parse(req.postData() ?? "{}") as Record<string, unknown>))
+        : reply({ error: "not_configured" }, 409);
     if (url.pathname === "/categories/cars/top/ig") {
       const ig = (category as { top?: { ig?: unknown[] } }).top?.ig ?? [];
       return reply({ platform: "ig", scan: ig, brave: [], source: "scan", note: "no_key" });
@@ -1086,4 +1094,46 @@ test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikT
   await page.getByTestId("lang-en").click();
   await expect(top.getByRole("heading", { level: 3 })).toHaveText("🏆 Top in Cars");
   expect(await fitsViewport(page)).toBe(true);
+});
+
+test("Discover v2: an empty TikTok tab connects TikTok trends — TikTok for Business's page, then Discover says TikTok is connected", async ({
+  page,
+  baseURL,
+}) => {
+  const connects: Record<string, unknown>[] = [];
+  const portal = "https://business-api.tiktok.com/portal/auth?app_id=7693488727766597653&state=e2e";
+  await stubWorker(page, () => ANSWER, CATEGORY_CARS_FULL, {
+    // Brave off (§6): the stored TikTok list alone, none yet.
+    topTikTok: { platform: "tt", scan: [], brave: [], source: "scan", note: "no_key" },
+    connect: (body) => {
+      connects.push(body);
+      return { url: portal };
+    },
+  });
+  // TikTok's page and the Worker's /oauth/tiktokads/callback in one step: back to Discover, connected.
+  await page.route("https://business-api.tiktok.com/portal/auth**", (route) =>
+    route.fulfill({
+      status: 302,
+      headers: { location: `${baseURL}/discover/?tiktokads=connected` },
+    }),
+  );
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await page.getByTestId("genre-cars").click();
+
+  const top = page.getByTestId("category-top");
+  await top.locator('[data-testid="category-top-tab"][data-platform="tt"]').click();
+  await expect(top.getByTestId("category-top-line")).toHaveText("لسه ما فيه شي هنا");
+  // Brave is off by choice: nothing about it.
+  await expect(top.getByText("Brave")).toHaveCount(0);
+  const connect = top.getByTestId("category-top-connect");
+  await expect(connect).toHaveText("اربط ترندات تيك توك");
+  await connect.click();
+
+  await expect(page.getByTestId("tiktokads-line")).toHaveText(
+    "انربط تيك توك — تبويب تيك توك يتعبّى مع الفحص الجاي حق هالفئة",
+  );
+  expect(connects).toEqual([{ returnTo: `${baseURL}/discover/` }]);
+  // The address no longer says so, so a reload says nothing.
+  await expect(page).toHaveURL(`${baseURL}/discover/`);
 });

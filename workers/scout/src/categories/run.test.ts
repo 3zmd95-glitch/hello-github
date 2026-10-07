@@ -1,17 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AI_MODEL } from "../discover/ai";
 import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
+import { encryptJson } from "../social/crypto";
 import { TAVILY_URL } from "../trends/tavily";
 import { YT_SEARCH_URL } from "../trends/youtubeSearch";
 import { aiContext, categoryById } from "./defs";
 import { LESSON_MODEL } from "./lessons";
 import { readCategory, runCategory } from "./run";
+import { TT_TRENDING_URL, TT_VIDEOS_URL } from "./tiktok";
 import type { CategoryDoc, Technique } from "./types";
 
 const NOW = new Date("2026-10-07T05:40:00Z"); // 2026-10-07 is UTC day % 3 = 0: cars' turn, slot 05:40
 const LATER = new Date("2026-10-07T18:00:00Z");
 const KEY = "category:cars";
 const ATTEMPTS = "category:attempts:cars:2026-10-07";
+const SCOUT = "scout-token";
+/** The owner's TikTok for Business token (fake), sealed as /oauth/tiktokads/callback keeps it: `setup` connects TikTok
+ * unless told otherwise. */
+const TIKTOK_TOKEN = await encryptJson(SCOUT, {
+  access_token: "fake-tiktok-token",
+  advertiser_ids: ["adv1"],
+  connectedAt: "2026-10-06T09:00:00.000Z",
+});
 /** The lessons' second save waits 1.1 s after the first: no real wait where the spacing is not what a test checks. */
 const NO_WAIT = async () => {};
 
@@ -83,18 +93,52 @@ const YT_TOP = ["carTop00002", "carTop00003", "carTop00001"].map((id) => ({
   views: YT_VIEWS[id],
 }));
 
+/** TikTok's Discovery API (§6): 3 popular car hashtags in the US, 2 videos each, their share links with a query. */
+function tiktokReply(u: URL): Response {
+  const ok = (list: unknown[]) => json({ code: 0, message: "OK", data: { list } });
+  if (`${u.origin}${u.pathname}` === TT_TRENDING_URL)
+    return ok(
+      [1, 2, 3].map((n) => ({
+        hashtag_id: `${n}000`,
+        hashtag_name: `cars${n}`,
+        rank_position: String(n),
+        top_country_list: ["US"],
+      })),
+    );
+  return ok(
+    [1, 2, 3].map((n) => ({
+      hashtag_id: `${n}000`,
+      top_video_list: [1, 2].map((i) => ({
+        video_id: `${n}${i}`,
+        share_url: `https://www.tiktok.com/@car${n}${i}/video/${n}${i}?lang=en`,
+      })),
+    })),
+  );
+}
+/** The TikTok list `tiktokReply` makes: each hashtag's 1st video in rank order, then its 2nd. */
+const TT_TOP = [1, 2].flatMap((i) =>
+  [1, 2, 3].map((n) => ({
+    url: `https://www.tiktok.com/@car${n}${i}/video/${n}${i}`,
+    title: `#cars${n}`,
+    creator: `@car${n}${i}`,
+  })),
+);
+
 /** A fake internet: a category's searches answer `PROBE` and a lesson's search its `lessonHits`, unless `tavily` says
  * otherwise; Tavily's /usage answers `usage` (by default no figure: a 404, nothing kept); YouTube's Data API answers
- * the top list's calls (§6) unless `youtube` says otherwise; anything else is counted. */
+ * the top list's calls (§6) unless `youtube` says otherwise; TikTok's Discovery API answers no popular hashtag unless
+ * `tiktok` says otherwise (its calls kept in `tiktokAsked`, apart from `count`); anything else is counted. */
 function web(
   over: {
     tavily?: (query: string) => Response | undefined;
     usage?: () => Response;
     youtube?: (url: string) => Response;
+    tiktok?: (url: URL) => Response;
   } = {},
 ) {
   const count = { tavily: 0, usage: 0, youtube: 0, other: 0 };
   const searched: string[] = [];
+  const tiktokAsked: URL[] = [];
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     if (String(input) === TAVILY_USAGE_URL) {
       count.usage++;
@@ -103,6 +147,11 @@ function web(
     if (String(input).startsWith("https://www.googleapis.com/youtube/v3/")) {
       count.youtube++;
       return over.youtube?.(String(input)) ?? youtubeReply(String(input));
+    }
+    if ([TT_TRENDING_URL, TT_VIDEOS_URL].some((u) => String(input).startsWith(u))) {
+      const u = new URL(String(input));
+      tiktokAsked.push(u);
+      return over.tiktok?.(u) ?? json({ code: 0, message: "OK", data: { list: [] } });
     }
     if (String(input) !== TAVILY_URL) {
       count.other++;
@@ -117,7 +166,7 @@ function web(
     const results = include_domains.length > 1 ? lessonHits(query, count.tavily) : PROBE;
     return over.tavily?.(query) ?? json({ results, usage: { credits: 1 } });
   });
-  return { fetch, count, searched };
+  return { fetch, count, searched, tiktokAsked };
 }
 /** The Tavily searches as sent: query, sites and window. */
 const sent = (fetch: ReturnType<typeof web>["fetch"]) =>
@@ -148,9 +197,11 @@ function ai() {
   };
 }
 
-function setup(over: { stored?: CategoryDoc } = {}) {
+/** `tiktok: false`: TikTok for Business not connected (no token). */
+function setup(over: { stored?: CategoryDoc; tiktok?: boolean } = {}) {
   const store = new Map<string, string>();
   if (over.stored) store.set(KEY, JSON.stringify(over.stored));
+  if (over.tiktok !== false) store.set("tiktokads:token", TIKTOK_TOKEN);
   const KV = {
     store,
     get: vi.fn(async (key: string) => store.get(key) ?? null),
@@ -164,6 +215,7 @@ function setup(over: { stored?: CategoryDoc } = {}) {
   const env = {
     TAVILY_API_KEY: "t",
     YOUTUBE_API_KEY: "y",
+    SCOUT_TOKEN: SCOUT,
     AI,
     SOCIAL_KV: KV as unknown as KVNamespace,
   };
@@ -597,6 +649,95 @@ describe("runCategory's top lists (§6)", () => {
     const first = web();
     await runCategory(before.env, "cars", { fetch: first.fetch, now: NOW, force: true });
     expect(first.count.youtube).toBe(2);
+  });
+
+  it("TikTok's list comes from its Discovery API on every scan, forced ones too, with its own date; YouTube's date stays its own", async () => {
+    const { env, KV } = setup();
+    const { fetch, count, tiktokAsked } = web({ tiktok: tiktokReply });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+    // 2 calls: the category's industry's popular hashtags, then their videos.
+    expect(tiktokAsked.map((u) => `${u.origin}${u.pathname}`)).toEqual([
+      TT_TRENDING_URL,
+      TT_VIDEOS_URL,
+    ]);
+    expect(tiktokAsked[0].searchParams.get("category_name")).toBe("AUTOMOTIVE");
+    expect(count.other).toBe(0);
+    expect(doc.top).toEqual({
+      updatedAt: NOW.toISOString(),
+      yt: YT_TOP,
+      ig: IG_TOP,
+      tt: TT_TOP,
+      ttUpdatedAt: NOW.toISOString(),
+    });
+    for (const note of ["tiktok", "tiktok_auth"]) expect(doc.notes ?? []).not.toContain(note);
+    expect(stored(KV).top).toEqual(doc.top);
+    expect(stored(KV).diagnostics).toMatchObject({
+      tiktok: { hashtags: 3, videos: 6, raw: 6, country: "US", industry: "AUTOMOTIVE" },
+    });
+    // Scan again: YouTube's list and date kept (C1); TikTok asked again (it costs nothing), dated by this scan.
+    const again = await runCategory(env, "cars", {
+      fetch,
+      now: LATER,
+      force: true,
+      sleep: NO_WAIT,
+    });
+    expect(count.youtube).toBe(2);
+    expect(tiktokAsked).toHaveLength(4);
+    expect(again.top).toEqual({
+      updatedAt: NOW.toISOString(),
+      yt: YT_TOP,
+      ig: IG_TOP,
+      tt: TT_TOP,
+      ttUpdatedAt: LATER.toISOString(),
+    });
+  });
+
+  it("TikTok not connected: nothing asked of it, the last TikTok list kept with its date, noted 'tiktok_auth'", async () => {
+    const last = {
+      updatedAt: OLD.updatedAt,
+      yt: YT_TOP.slice(0, 1),
+      ig: [],
+      tt: TT_TOP.slice(0, 2),
+      ttUpdatedAt: OLD.updatedAt,
+    };
+    const { env, KV } = setup({ stored: { ...OLD, top: last }, tiktok: false });
+    const { fetch, tiktokAsked } = web({ tiktok: tiktokReply });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW });
+    expect(tiktokAsked).toEqual([]);
+    expect(doc).toMatchObject({ status: "partial", notes: ["tiktok_auth"] });
+    expect(doc.top).toEqual({
+      updatedAt: NOW.toISOString(),
+      yt: YT_TOP,
+      ig: IG_TOP,
+      tt: last.tt,
+      ttUpdatedAt: OLD.updatedAt,
+    });
+    expect(stored(KV).top).toEqual(doc.top);
+    expect(stored(KV).diagnostics).not.toHaveProperty("tiktok");
+  });
+
+  it("TikTok failing: the last list kept with its date, noted 'tiktok', its code and message in the diagnostics; an empty answer keeps it quietly", async () => {
+    const last = {
+      updatedAt: OLD.updatedAt,
+      yt: [],
+      ig: [],
+      tt: TT_TOP.slice(0, 2),
+      ttUpdatedAt: OLD.updatedAt,
+    };
+    const { env, KV } = setup({ stored: { ...OLD, top: last } });
+    const revoked = () =>
+      json({ code: 40105, message: "Access token is invalid or has been revoked.", data: {} });
+    const doc = await runCategory(env, "cars", { fetch: web({ tiktok: revoked }).fetch, now: NOW });
+    expect(doc).toMatchObject({ status: "partial", notes: ["tiktok"] });
+    expect(doc.top).toMatchObject({ tt: last.tt, ttUpdatedAt: OLD.updatedAt });
+    expect(stored(KV).diagnostics).toMatchObject({
+      tiktok: { code: 40105, message: "Access token is invalid or has been revoked." },
+    });
+    // No popular hashtag in TikTok's answer: the last list stays, with no note.
+    const empty = setup({ stored: { ...OLD, top: last } });
+    const quiet = await runCategory(empty.env, "cars", { fetch: web().fetch, now: NOW });
+    expect(quiet.status).toBe("ok");
+    expect(quiet.top).toMatchObject({ tt: last.tt, ttUpdatedAt: OLD.updatedAt });
   });
 });
 
