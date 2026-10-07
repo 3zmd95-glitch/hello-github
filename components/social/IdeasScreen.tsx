@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import PageHeader from "@/components/ui/ios/PageHeader";
 import { IDEA_SOURCES, type IdeaSource } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { useStore } from "@/store";
@@ -37,10 +38,7 @@ export default function IdeasScreen() {
 
   return (
     <div className="flex flex-col gap-4" data-testid="ideas-screen">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl">{t("ideas.title")}</h1>
-        <p className="text-ink-2 text-sm">{t("ideas.sub")}</p>
-      </header>
+      <PageHeader title={t("ideas.title")} sub={t("ideas.sub")} />
 
       <TrendsCard />
 

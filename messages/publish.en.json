@@ -93,7 +93,7 @@
   "publish.now": "🚀 Post now",
   "publish.cancel": "Cancel schedule",
   "publish.updateHint": "Changed the caption or the time? The change reaches the schedule by itself a moment later; press “Update schedule” to send it right away.",
-  "publish.hub.title": "🚀 Auto-posting",
+  "publish.hub.title": "Auto-posting",
   "publish.hub.sub": "Every scheduled post, how far it got, and which accounts can post by themselves.",
   "publish.hub.accounts": "Accounts",
   "publish.hub.upcoming": "Coming up",

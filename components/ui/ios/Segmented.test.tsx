@@ -6,11 +6,16 @@ import Segmented from "./Segmented";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-// jsdom has no ResizeObserver (it does have CSS.escape).
+// jsdom has no ResizeObserver (it does have CSS.escape): a stub that keeps each callback so a test can call it.
+let resized: (() => void)[] = [];
 beforeEach(() => {
+  resized = [];
   vi.stubGlobal(
     "ResizeObserver",
     class {
+      constructor(cb: () => void) {
+        resized.push(cb);
+      }
       observe() {}
       disconnect() {}
     },
@@ -83,7 +88,7 @@ describe("Segmented", () => {
     expect(document.activeElement).toBe(radios[1]);
   });
 
-  it("re-places the thumb when the page direction flips", async () => {
+  it("jumps the thumb into place when the page direction flips, and glides to a new value", async () => {
     // Fake layout: 100px segments, mirrored in RTL.
     vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockImplementation(function (
       this: HTMLElement,
@@ -93,13 +98,28 @@ describe("Segmented", () => {
       return 100 * (document.documentElement.dir === "ltr" ? i : btns.length - 1 - i);
     });
     document.documentElement.dir = "rtl";
-    const host = mount(<Segmented options={opts} value="week" onChange={() => {}} label="العرض" />);
+    const ui = (value: "week" | "month") => (
+      <Segmented options={opts} value={value} onChange={() => {}} label="العرض" />
+    );
+    const host = mount(ui("week"));
     const thumb = host.querySelector<HTMLElement>(".ios-seg-thumb")!;
     expect(thumb.style.getPropertyValue("--x")).toBe("200px"); // RTL: the first option is rightmost
-    // The language picker flips <html dir> in a passive effect, after the thumb was placed.
+    // Every write of --x from here on, with the transition in force at that moment.
+    const writes: string[] = [];
+    const setProperty = thumb.style.setProperty.bind(thumb.style);
+    vi.spyOn(thumb.style, "setProperty").mockImplementation((name, value, priority) => {
+      if (name === "--x") writes.push(`${value} ${thumb.style.transition || "glide"}`);
+      setProperty(name, value, priority);
+    });
+    // The language picker flips <html dir> in a passive effect, after the thumb was placed: no glide across the row.
     await act(async () => {
       document.documentElement.dir = "ltr";
     });
-    expect(thumb.style.getPropertyValue("--x")).toBe("0px");
+    expect(writes).toEqual(["0px none"]);
+    expect(thumb.style.transition).toBe("");
+    // A new value still glides, and the ResizeObserver's first call (nothing moved) leaves that glide alone.
+    act(() => root!.render(ui("month")));
+    resized.at(-1)!();
+    expect(writes).toEqual(["0px none", "100px glide"]);
   });
 });

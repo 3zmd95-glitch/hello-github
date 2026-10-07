@@ -1,3 +1,4 @@
+import { MessageCircle, Search } from "lucide-react";
 import { describe, expect, it } from "vitest";
 import { activeHref, NAV_BY_WORLD, NAV_ITEMS, normalizePath, SOCIAL_NAV_ITEMS } from "./nav";
 import { worldOf } from "./useWorld";
@@ -45,7 +46,7 @@ describe("Social navigation", () => {
   it("has one Discover shortcut in the desktop sidebar, between Auto-posting and Settings", () => {
     const discover = SOCIAL_NAV_ITEMS.filter((i) => i.href === "/discover");
     expect(discover).toEqual([
-      { href: "/discover", icon: "🔎", label: "nav.discover", desktopOnly: true },
+      { href: "/discover", icon: "🔎", lucide: Search, label: "nav.discover", desktopOnly: true },
     ]);
     const hrefs = SOCIAL_NAV_ITEMS.map((i) => i.href);
     expect(hrefs.slice(-3)).toEqual(["/social/automations", "/discover", "/settings"]);
@@ -58,6 +59,7 @@ describe("Social navigation", () => {
     expect(SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/replies")).toEqual({
       href: "/social/replies",
       icon: "💬",
+      lucide: MessageCircle,
       label: "nav.replies",
       desktopOnly: true,
     });
@@ -104,5 +106,11 @@ describe("both navigation lists", () => {
   it("keep the Training phone tab bar: Today, Skills, Map, Discover, More", () => {
     const tabs = NAV_ITEMS.filter((i) => !i.desktopOnly).map((i) => i.href);
     expect(tabs).toEqual(["/", "/skills", "/map", "/discover", "/more"]);
+  });
+
+  it("every Social nav item has a Lucide icon, Training items keep emoji only", () => {
+    // lucide-react icons are forwardRef objects, not functions: the LucideIcon type pins the kind.
+    for (const item of SOCIAL_NAV_ITEMS) expect(item.lucide, item.href).toBeDefined();
+    for (const item of NAV_ITEMS) expect(item.lucide, item.href).toBeUndefined();
   });
 });

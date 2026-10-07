@@ -33,7 +33,10 @@ export const MINI_DELTA = 6;
 /** px/ms: a release faster than this steps one stop in its direction. */
 export const FLING = 0.6;
 
-/** Tab bar minimize state: down by ≥ 6px past 140px minimizes; up by ≥ 6px or above 80px restores. */
+/**
+ * Tab bar minimize state: down by ≥ 6px past 140px minimizes; up by ≥ 6px or above 80px restores. `lastY` is the
+ * anchor: the scroll position where the last ≥ 6px move was registered (not the previous frame's position).
+ */
 export function nextMini(prev: boolean, y: number, lastY: number): boolean {
   if (!prev) return y - lastY >= MINI_DELTA && y > MINI_DOWN;
   if (lastY - y >= MINI_DELTA || y < MINI_UP) return false;

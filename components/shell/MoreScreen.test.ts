@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "@/store";
 import MoreScreen from "./MoreScreen";
 import type { World } from "./useWorld";
 
 // ☰ The "More" page of each world, rendered for real in jsdom. Round 31b: Social's list gets the 🔎 Discover
 // shortcut (Discover is the one place for edit genres); e2e/world.spec.ts follows the link in a browser.
+// Round 35 (iOS look): Social's language and sound controls live in More's quick settings, not the top bar.
 
 let host: HTMLDivElement;
 let root: Root;
@@ -27,6 +28,14 @@ function mount(world: World, lang: "ar" | "en" = "ar"): void {
 
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  // jsdom has no ResizeObserver (the language Segmented uses one).
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -35,7 +44,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
-  useStore.getState().setSettings({ lang: "ar" });
+  useStore.getState().setSettings({ lang: "ar", sound: true });
+  vi.unstubAllGlobals();
 });
 
 describe("Social More", () => {
@@ -64,6 +74,34 @@ describe("Social More", () => {
     mount("social", "en");
     expect(entry("more-discover")!.textContent).toContain("🔎 Discover");
   });
+
+  it("ends with quick settings: language and sound change the app's settings", () => {
+    mount("social");
+    const quick = host.querySelector("section")!;
+    expect(quick.querySelector("h2")!.textContent).toBe("الإعدادات السريعة");
+    // After the links (their order is checked above).
+    const links = host.querySelector("ul")!;
+    expect(links.compareDocumentPosition(quick) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const en = entry("lang-en")!;
+    expect(en.getAttribute("role")).toBe("radio");
+    expect(entry("lang-ar")!.getAttribute("aria-checked")).toBe("true");
+    // The switch is named by its row title (WCAG 2.5.3); its state is the checkbox's own.
+    expect(entry("sound-toggle")!.getAttribute("aria-label")).toBe("الأصوات");
+    act(() => en.click());
+    expect(useStore.getState().settings.lang).toBe("en");
+    expect(entry("lang-en")!.getAttribute("aria-checked")).toBe("true");
+    expect(quick.querySelector("h2")!.textContent).toBe("Quick settings");
+
+    const sound = entry("sound-toggle") as HTMLInputElement;
+    expect(sound.getAttribute("role")).toBe("switch");
+    expect(sound.checked).toBe(true);
+    expect(sound.getAttribute("aria-label")).toBe("Sounds");
+    act(() => sound.click());
+    expect(useStore.getState().settings.sound).toBe(false);
+    expect(sound.checked).toBe(false);
+    expect(sound.getAttribute("aria-label")).toBe("Sounds");
+  });
 });
 
 describe("Training More", () => {
@@ -79,5 +117,9 @@ describe("Training More", () => {
       "more-settings",
     ]);
     expect(entry("more-discover")!.getAttribute("href")).toMatch(/^\/discover\/?$/);
+    // Training keeps language and sound in its top bar.
+    expect(host.querySelector("section")).toBeNull();
+    expect(entry("lang-en")).toBeNull();
+    expect(entry("sound-toggle")).toBeNull();
   });
 });
