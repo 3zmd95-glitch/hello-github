@@ -83,6 +83,13 @@ describe("useInView", () => {
     expect(io.disconnect).toHaveBeenCalled();
   });
 
+  it("counts a hit right at the threshold as Chromium reports it (a 32-bit float, a hair under 0.35)", async () => {
+    vi.stubGlobal("IntersectionObserver", FakeIO);
+    mount();
+    await intersect(true, Math.fround(0.35));
+    expect(seen()).toBe("true");
+  });
+
   it("waits for the element's own entrance animation to end; a cancelled one counts as ended", async () => {
     vi.stubGlobal("IntersectionObserver", FakeIO);
     let end = () => {};

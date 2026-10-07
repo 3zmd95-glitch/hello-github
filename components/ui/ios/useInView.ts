@@ -29,7 +29,9 @@ export function useInView(ref: RefObject<Element | null>, threshold = 0.35): boo
     const io = new IntersectionObserver(
       (entries) => {
         // The ratio too: Firefox reports isIntersecting for any overlap, below the threshold as well.
-        if (!entries.some((e) => e.isIntersecting && e.intersectionRatio >= threshold)) return;
+        // The epsilon: Chromium stores thresholds as 32-bit floats (0.35 crosses at 0.3499999940395355).
+        if (!entries.some((e) => e.isIntersecting && e.intersectionRatio >= threshold - 1e-6))
+          return;
         io.disconnect();
         void entered.then(() => {
           if (alive) setSeen(true);
