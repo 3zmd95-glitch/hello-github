@@ -241,7 +241,7 @@ function RowMenu({ label, children }: { label: string; children: ReactNode }) {
     return () => document.removeEventListener("pointerdown", away);
   }, [open]);
   const shut = (el: HTMLDetailsElement) => {
-    el.querySelector("summary")?.focus();
+    el.querySelector("summary")?.focus({ preventScroll: true });
     el.open = false;
   };
   return (
