@@ -57,9 +57,9 @@ Choices, one question at a time:
 - **Three shelves:** 📷 Photography, 🎥 Videography and ✂️ Editing. Each is a sideways row of about 3 technique cards
   for the category. A card shows:
   - the technique's English name; in the Arabic UI the Arabic name follows as a muted line, right to left;
-  - a ✦ AI how-to of 2–3 short sentences: how to shoot it for the subject, the settings or gear with real values, and
-    how to edit it. It is in English, left to right; in the Arabic UI the Arabic how-to follows as a muted paragraph,
-    right to left;
+  - a ✦ AI how-to in three English lines (live fix 2), one under another: "Shoot:" where to stand or move and how to
+    frame it for the subject, "Settings:" the real values, and "Edit:" the app and its tool. It reads left to right;
+    in the Arabic UI the Arabic how-to follows as a muted paragraph, right to left;
   - 🎯 the skill it practices, which opens that skill. It shows only when there is a real match;
   - up to 3 videos of the technique for the subject: the best examples, and a tutorial only when one teaches (the
     owner: "Plus it doesn't have to be tutorial"), plus an Arabic tutorial when one matched. They play in the app's
@@ -160,13 +160,32 @@ category a day (`category:attempts:<id>:<day>`).
   - That is **10 credits a refresh** at most, every 6 days per category: a technique picked twice (its name or its
     search words again) is searched once.
   - A technique with no video found is not shown.
-- **How-to.** One AI call per area, the 3 at once, writes a how-to per technique: 2–3 short sentences, at most 220
-  characters in each language. It says how to shoot it for this subject (position, movement, framing), the settings or
-  gear with real values (shutter 1/30 s, 60/120 fps, ND filter, gimbal, tripod) and how to edit it (the app and the
-  tool: CapCut speed curve, DaVinci Resolve Retime). The prompt forbids generic advice ("use a high-quality camera",
-  "use editing software"). It bases the how-to on the videos' titles and snippets (tutorials first) when they help,
-  else on standard practice. English comes first, then natural Hijazi Arabic in Arabic script. An Arabic how-to without
-  Arabic letters is dropped (counted `latin_ar`); the English one is required. The page marks it ✦ AI.
+- **Areas** (live fix 2: Cars' second scan picked Hyperlapse under editing). The pick's prompt defines them: `photo`,
+  still photography techniques; `video`, filming and camera techniques (movement, speed, timelapse/hyperlapse
+  capture); `edit`, techniques done in the editing app (speed ramps, masking transitions, color grading, text
+  tracking).
+- **How-to** (structured since live fix 2). One AI call per area, the 3 at once (`max_tokens` 1,800), returns per
+  technique `{ i, shoot, settings, edit, ar?, skillId?, arTutorial? }`:
+  - `shoot`: where to stand or move and how to frame it, for this subject;
+  - `settings`: real values, with numbers: shutter speed, fps, ISO, focal length, ND filter, stabilizer or gimbal
+    mode, phone camera mode;
+  - `edit`: the app by name and its tool (CapCut speed curve or keyframes, DaVinci Resolve Retime or Magic Mask,
+    Premiere Time Remapping, Lightroom masking, Snapseed); for a photography technique, the photo editor;
+  - each English line is one sentence of 15–140 characters; `ar` is the same three lines in natural Hijazi Arabic in
+    Arabic script, at most 400 characters.
+
+  The prompt forbids generic advice ("use a high-quality camera", "use editing software", "edit the video") and
+  carries one worked example from another subject (a coffee top-down pour), so it is not copied for cars. It bases the
+  lines on the videos' titles and snippets (tutorials first) when they help, else on standard practice. The lines are
+  stored as `howTo.en` = `Shoot: …\nSettings: …\nEdit: …` (445 characters at most), English first. Checks:
+  - a line missing or under 15 characters drops the technique (counted by zod's codes, e.g. `shoot:too_small`);
+  - **generic lines** drop it too: `settings` with no digit (`generic_settings`), or an `edit` naming no app from
+    the list capcut, davinci, resolve, premiere, final cut, lightroom, snapseed, vn, inshot, after effects, photoshop,
+    canva, blackmagic, as a whole word in any case (`generic_edit`); each reason is counted;
+  - an Arabic how-to without Arabic letters is dropped (counted `latin_ar`), and so is one too short to teach
+    (`short_ar`); the English lines stand either way.
+
+  The page shows the lines one under another (`whitespace-pre-line`), marked ✦ AI.
 - **Skill link.** Each call also picks at most one skill id per technique from the real skill list, or none. The list
   holds id plus English and Arabic names, from the DaVinci packs and the craft skills. A test keeps the Worker's copy in
   sync with the app's. An id outside the list is dropped; a bad skill id or Arabic tutorial number costs only itself,
@@ -177,11 +196,12 @@ category a day (`category:attempts:<id>:<day>`).
   Technique = { name: { en, ar? }, howTo: { en, ar? }, skillId?, videos: { url, title, platform, kind: "example" | "tutorial", lang }[] }
   ```
 
-  `v` is `LESSONS_VERSION`, 2 since live fix 1. Lessons with no `v`, or an older one, are due at the next scan (Scan
-  again included), like missing lessons, and an area never keeps their techniques. The GET still answers them as
-  stored until then. A refresh that leaves a shelf empty saves no `v`, so the lessons stay due and the next scan, 3
-  days on, fills it instead of the page hiding that shelf for 6 days. An Arabic line in Arabic script but too short to
-  teach is left out (`short_ar`), never the English how-to with it.
+  `v` is `LESSONS_VERSION`: 2 since live fix 1, 3 since live fix 2's structured how-tos. Lessons with no `v`, or an
+  older one, are due at the next scan (Scan again included), like missing lessons, and an area never keeps their
+  techniques. The GET still answers them as stored until then (an older how-to shows as one paragraph). A refresh
+  that leaves a shelf empty saves no `v`, so the lessons stay due and the next scan, 3 days on, fills it instead of
+  the page hiding that shelf for 6 days. An Arabic line in Arabic script but too short to teach is left out
+  (`short_ar`), never the English how-to with it.
 
 - **On failure.**
   - A refresh with nothing new keeps last week's lessons whole, with the note `lessons`.
@@ -350,4 +370,29 @@ invocation allows:
 - **The ✦ AI note** now reads "Written by AI from the videos and common practice" ("كتبها الذكاء الاصطناعي من الفيديوهات
   وخبرة المصورين"), since the how-to no longer comes from tutorials alone.
 
-**Second scan:** (filled after deploy)
+**Second scan** (Cars, after live fix 1). The videos are now right: "Car light painting", "Panning Shot Tips for Car
+Photography", "Insta360 X4: How to film a car hyperlapse". The how-tos were still generic one-liners, several wrong:
+
+| Technique | How-to as written |
+| --- | --- |
+| Light Painting | "Use a wide-angle camera to capture car photos from different angles." |
+| Hyperlapse | "Use a high zoom camera to shoot cars" |
+| Dolly Zoom | "Use Davinci Resolve to edit video clips." |
+| Speed Ramp | "Use Premiere Pro to edit the video" |
+| Text Animation | "Use CapCut to edit the video" |
+| Whip Pan | "Use a fluid head and 50mm lens to shoot cars with a wide angle." |
+
+Hyperlapse was also picked under `edit`. The model (llama-3.3-70b, a JSON schema, temperature 0) gives a free-text
+how-to field one short sentence.
+
+**Live fix 2** (branch `claude/category-trends-live-2`) makes the how-to structured (§3):
+- three English lines a technique, `shoot`, `settings` and `edit`, each taught by a rule in the prompt, with a worked
+  example from another subject, then the same in Arabic; stored as `Shoot: …\nSettings: …\nEdit: …`;
+- generic lines are dropped and counted: settings with no number (`generic_settings`), an edit naming no app
+  (`generic_edit`). If live runs show this empties shelves, it is loosened;
+- the pick's prompt defines the three areas;
+- the how-to call's `max_tokens` is 1,800 (from 1,000), and `LESSONS_VERSION` is 3, so Cars' lessons refresh at its
+  next scan, Scan again included;
+- the page shows the three lines one under another.
+
+**Third scan:** (filled after deploy)

@@ -24,7 +24,8 @@ export interface LessonVideo {
   kind: "example" | "tutorial";
   lang: "en" | "ar";
 }
-/** English first (live fix 1): the Arabic name and how-to only when they are in Arabic script. */
+/** English first (live fix 1): the Arabic name and how-to only when they are in Arabic script. The English how-to is
+ * "Shoot: …\nSettings: …\nEdit: …" since live fix 2 (older lessons: one paragraph); the page shows its lines. */
 export interface Technique {
   name: { en: string; ar?: string };
   howTo: { en: string; ar?: string };

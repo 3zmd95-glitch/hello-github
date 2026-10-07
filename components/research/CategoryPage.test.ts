@@ -40,10 +40,13 @@ const SPEED = {
   growth: 1.2,
   samples: [],
 };
+/** The Worker's how-to since live fix 2: three labelled English lines. */
+const lines = (en: string) =>
+  `Shoot: Follow the car for the ${en}.\nSettings: Shutter 1/30 s at ISO 100.\nEdit: In CapCut add a speed curve.`;
 const technique = (en: string, ar: string, n: number, skillId?: string) => ({
   name: { en, ar },
   howTo: {
-    en: `How to ${en}: settings, gear and the edit, in two lines.`,
+    en: lines(en),
     ar: `طريقة ${ar}: الإعدادات والعدة والمونتاج.`,
   },
   ...(skillId ? { skillId } : {}),
@@ -253,13 +256,13 @@ describe("the category page", () => {
     expect(nameAr.textContent).toBe("بانينق");
     expect(nameAr.getAttribute("dir")).toBe("rtl");
     // The English how-to, left to right with its ✦ AI badge, then the Arabic one, right to left. e2e/discover.spec.ts
-    // checks the directions in Chromium.
+    // checks the directions and the lines in Chromium.
     const howTo = panning.querySelector('[data-testid="category-howto"]')!;
     expect(howTo.getAttribute("dir")).toBe("ltr");
     expect(howTo.querySelector('[data-testid="category-ai"]')!.textContent).toBe("✦ AI");
-    expect(howTo.textContent).toBe(
-      "✦ AIHow to panning: settings, gear and the edit, in two lines.",
-    );
+    // Live fix 2: its Shoot, Settings and Edit lines, each on its own line.
+    expect(howTo.textContent).toBe(`✦ AI${lines("panning")}`);
+    expect(howTo.classList.contains("whitespace-pre-line")).toBe(true);
     const howToAr = panning.querySelector('[data-testid="category-howto-ar"]')!;
     expect(howToAr.getAttribute("dir")).toBe("rtl");
     expect(howToAr.textContent).toBe("طريقة بانينق: الإعدادات والعدة والمونتاج.");

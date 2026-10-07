@@ -125,11 +125,14 @@ const EFFECTS = {
 };
 
 /** The Worker's Cars page (`GET /categories/cars`, workers/scout/src/categories/routes.ts): 2 styles and one technique
- * on each shelf, made 30 hours ago. */
+ * on each shelf, made 30 hours ago. A how-to is three labelled English lines (live fix 2). */
 const technique = (en: string, ar: string, n: number, skillId?: string) => ({
   name: { en, ar },
   howTo: {
-    en: `Shoot the ${en} at 1/30 s from a moving car, then smooth it in the edit.`,
+    en:
+      `Shoot: Ride beside the car and keep the ${en} centred in the frame.\n` +
+      "Settings: Shutter 1/30 s, 24 mm, gimbal in follow mode.\n" +
+      "Edit: In CapCut smooth the ride with a speed curve.",
     ar: `صوّر ${ar} على 1/30 من سيارة ماشية، وبعدين نعّمها في المونتاج.`,
   },
   ...(skillId ? { skillId } : {}),
@@ -899,6 +902,12 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
   await expect(panning.getByTestId("category-name-ar")).toHaveText("بانينق");
   const howTo = panning.getByTestId("category-ai").locator("..");
   expect(await howTo.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
+  // Live fix 2: its Shoot, Settings and Edit lines show one under another (the line breaks render).
+  expect((await howTo.innerText()).split("\n")).toEqual([
+    "✦ AIShoot: Ride beside the car and keep the panning centred in the frame.",
+    "Settings: Shutter 1/30 s, 24 mm, gimbal in follow mode.",
+    "Edit: In CapCut smooth the ride with a speed curve.",
+  ]);
   const howToAr = panning.getByTestId("category-howto-ar");
   expect(await howToAr.evaluate((p) => p.matches(":dir(rtl)"))).toBe(true);
   await expect(

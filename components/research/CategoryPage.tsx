@@ -59,8 +59,8 @@ const SCAN_LINE: Record<Exclude<Scan, "idle">, MessageKey> = {
  * - the header, with 🔄 Scan again;
  * - this week's trending styles of the category as chips (a tap searches the style within the category, in Keywords);
  * - the Photography / Videography / Editing shelves of technique cards, English first (live fix 1; in Arabic the
- *   Arabic name and how-to follow as muted lines): a ✦ AI how-to, the skill it practices, and example videos (a
- *   tutorial when one teaches) that play in the app's player;
+ *   Arabic name and how-to follow as muted lines): a ✦ AI how-to (its Shoot, Settings and Edit lines since live fix
+ *   2), the skill it practices, and example videos (a tutorial when one teaches) that play in the app's player;
  * - "Search all <category> videos →".
  * Before there is anything to show: the first scan. A Worker without the route (or no answer) hands back to the
  * category search.
@@ -272,7 +272,13 @@ export default function CategoryPage({
             {tech.name.ar}
           </p>
         )}
-        <p className="text-ink-2 text-xs leading-snug" dir="ltr" data-testid="category-howto">
+        {/* Its "Shoot: …", "Settings: …" and "Edit: …" lines (live fix 2), one under another; older lessons' how-to is
+            one paragraph. */}
+        <p
+          className="text-ink-2 text-xs leading-snug whitespace-pre-line"
+          dir="ltr"
+          data-testid="category-howto"
+        >
           <span
             className="bg-panel-3 text-ink me-1 rounded-[2px] px-1 text-[10px] font-bold"
             title={t("search.categoryAiNote")}

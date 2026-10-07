@@ -167,7 +167,7 @@ const OLD: CategoryDoc = {
       samples: [],
     },
   ],
-  lessons: { v: 2, updatedAt: "2026-10-04T05:40:00.000Z", photo: [], video: [TECHNIQUE], edit: [] },
+  lessons: { v: 3, updatedAt: "2026-10-04T05:40:00.000Z", photo: [], video: [TECHNIQUE], edit: [] },
   meta: {},
   history: {},
 };
@@ -379,9 +379,16 @@ describe("runCategory", () => {
 });
 
 describe("runCategory's lessons (§3)", () => {
+  /** A how-to as the model writes it (live fix 2: three English lines, then the Arabic), and as it is stored. */
+  const LINES = {
+    shoot: "Pan with the car from the roadside, framing it side-on with room ahead.",
+    settings: "Shutter 1/30 s, ISO 100, 35 mm, continuous autofocus locked on the car.",
+    edit: "In Lightroom mask the car and add a little motion blur to the background.",
+    ar: "تابع السيارة من جنب الطريق على شتر 1/30، وبعدين زيد البلر للخلفية في لايتروم.",
+  };
   const HOW = {
-    en: "Pan with the car at 1/30 s and keep it sharp, then add motion blur in the edit.",
-    ar: "تابع السيارة بالكاميرا على 1/30 وخلّها حادة، وبعدين زيد البلر في المونتاج.",
+    en: `Shoot: ${LINES.shoot}\nSettings: ${LINES.settings}\nEdit: ${LINES.edit}`,
+    ar: LINES.ar,
   };
   const pick = (en: string, query: string) => ({ name: { en, ar: `اسم ${en}` }, query });
   const PICKS = {
@@ -420,7 +427,7 @@ describe("runCategory's lessons (§3)", () => {
         if (system.startsWith("You write")) {
           const techniques = [...user.matchAll(/^- (\d+) \|/gm)].map(([, i]) => ({
             i: Number(i),
-            howTo: HOW,
+            ...LINES,
             ...(i === "0" ? { skillId: "phone-180-shutter" } : {}),
           }));
           return { response: howTos ?? { techniques } };
@@ -465,24 +472,27 @@ describe("runCategory's lessons (§3)", () => {
       "tutorial",
     ]);
     expect(stored(KV).lessons).toEqual(doc.lessons);
-    expect(stored(KV).lessons!.v).toBe(2);
+    expect(stored(KV).lessons!.v).toBe(3);
     expect(stored(KV).diagnostics).toMatchObject({
       lessons: { picked: 9, written: 9, credits: 10 },
     });
     expect(doc.notes ?? []).not.toContain("lessons");
   });
 
-  it("lessons from before live fix 1 (no version) are due at the next scan, however new; the stored page still reads", async () => {
-    const before = { ...OLD.lessons!, v: undefined }; // 3 days old; KV's JSON leaves `v` out
-    const { env, KV } = setup({ stored: { ...OLD, lessons: before } });
-    env.AI = lessonsAi();
-    const { fetch, count } = web();
-    // The page as it was stored is still read as it is (the GET's answer included).
-    expect((await readCategory(env, "cars"))!.lessons).toEqual(before);
-    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
-    expect(count.tavily).toBe(16);
-    expect(doc.lessons).toMatchObject({ v: 2, updatedAt: NOW.toISOString() });
-    expect(stored(KV).lessons).toEqual(doc.lessons);
+  it("older lessons (no version before live fix 1, 2 before live fix 2) are due at the next scan, however new; the stored page still reads", async () => {
+    for (const v of [undefined, 2]) {
+      const before = { ...OLD.lessons!, v }; // 3 days old; KV's JSON leaves an undefined `v` out
+      const { env, KV } = setup({ stored: { ...OLD, lessons: before } });
+      env.AI = lessonsAi();
+      const { fetch, count } = web();
+      // The page as it was stored is still read as it is (the GET's answer included).
+      expect((await readCategory(env, "cars"))!.lessons).toEqual(before);
+      const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+      expect(count.tavily).toBe(16);
+      expect(doc.lessons).toMatchObject({ v: 3, updatedAt: NOW.toISOString() });
+      expect(doc.lessons!.photo[0].howTo).toEqual(HOW);
+      expect(stored(KV).lessons).toEqual(doc.lessons);
+    }
   });
 
   it("lessons under 6 days old stay as they are", async () => {
