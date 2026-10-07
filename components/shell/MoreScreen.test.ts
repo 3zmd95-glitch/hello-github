@@ -8,7 +8,8 @@ import type { World } from "./useWorld";
 
 // ☰ The "More" page of each world, rendered for real in jsdom. Round 31b: Social's list gets the 🔎 Discover
 // shortcut (Discover is the one place for edit genres); e2e/world.spec.ts follows the link in a browser.
-// Round 35 (iOS look): Social's language and sound controls live in More's quick settings, not the top bar.
+// Round 35 (iOS look): Social's language and sound controls live in More's quick settings, not the top bar, and
+// Social's More is grouped lists whose rows use the tab bar's words (tools/18 §6).
 
 let host: HTMLDivElement;
 let root: Root;
@@ -66,22 +67,42 @@ describe("Social More", () => {
     mount("social");
     const discover = entry("more-discover")!;
     expect(discover.getAttribute("href")).toMatch(/^\/discover\/?$/);
-    expect(discover.textContent).toContain("🔎 اكتشف");
+    expect(discover.textContent).toBe("اكتشف");
     // Discover is built: no "soon" chip on it (Website and Business keep theirs).
-    expect(discover.querySelector(".px-chip")).toBeNull();
-    expect(entry("more-website")!.querySelector(".px-chip")).not.toBeNull();
+    expect(discover.querySelector(".ios-chip")).toBeNull();
+    expect(entry("more-website")!.querySelector(".ios-chip")!.textContent).toBe("قريب");
 
     mount("social", "en");
-    expect(entry("more-discover")!.textContent).toContain("🔎 Discover");
+    expect(entry("more-discover")!.textContent).toBe("Discover");
   });
 
-  it("ends with quick settings: language and sound change the app's settings", () => {
+  it("names its rows with the tab bar's words, without emoji, and says what Training is", () => {
     mount("social");
-    const quick = host.querySelector("section")!;
+    expect(entry("more-replies")!.textContent).toBe("الردود التلقائية");
+    expect(entry("more-automations")!.textContent).toBe("النشر التلقائي");
+    expect(entry("more-settings")!.textContent).toBe("الإعدادات");
+    const training = entry("more-training")!;
+    expect(training.getAttribute("href")).toBe("/");
+    expect(training.querySelector("b")!.textContent).toBe("ارجع للتدريب");
+    expect(training.querySelector("small")!.textContent).toBe("عالمك البكسلي كما هو");
+    expect(host.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
+
+    mount("social", "en");
+    expect(entry("more-training")!.querySelector("small")!.textContent).toBe(
+      "Your pixel world, as it is",
+    );
+  });
+
+  it("has quick settings after the sections, before the way back: language, sound, all settings", () => {
+    mount("social");
+    const quick = [...host.querySelectorAll("section")].find((s) => s.querySelector("h2"))!;
     expect(quick.querySelector("h2")!.textContent).toBe("الإعدادات السريعة");
-    // After the links (their order is checked above).
-    const links = host.querySelector("ul")!;
-    expect(links.compareDocumentPosition(quick) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // After the section links (their order is checked above), before the way back to Training.
+    const follows = (a: Node, b: Node) =>
+      a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
+    expect(follows(entry("more-discover")!, quick)).toBeTruthy();
+    expect(follows(quick, entry("more-training")!)).toBeTruthy();
+    expect(quick.contains(entry("more-settings"))).toBe(true);
 
     const en = entry("lang-en")!;
     expect(en.getAttribute("role")).toBe("radio");
