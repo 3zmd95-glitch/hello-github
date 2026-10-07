@@ -93,8 +93,9 @@ export interface TikTokTop {
 }
 
 type Hashtag = { id: string; name: string; rank: number; here: boolean };
-/** 1: an edit cue and a subject word; 2: an edit cue, from an edit list; 3: a subject word. */
-type Tier = 1 | 2 | 3;
+/** 1: an edit cue and a subject word; 2: an edit cue, from an edit list; 3: a subject word; 4: any other of the
+ * industry's list (the old rule: the tab is never thin). */
+type Tier = 1 | 2 | 3 | 4;
 type Picked = Hashtag & { tier: Tier };
 
 /** TIKTOK_DISCOVERY_COUNTRY when it is a 2-letter code, else US (English first, global). */
@@ -157,12 +158,12 @@ function tierOf(name: string, subject: string[], editList: boolean): Tier | unde
   const n = name.toLowerCase();
   const cue = EDIT_CUES.some((c) => n.includes(c));
   const about = subject.some((w) => n.includes(w));
-  return cue && about ? 1 : cue && editList ? 2 : about ? 3 : undefined;
+  return cue && about ? 1 : cue && editList ? 2 : about ? 3 : editList ? undefined : 4;
 }
 
-/** The hashtags to ask videos of, ≤ 10: tier 1, then 2, then 3 (`Tier`), each hashtag once in its best tier. In each
- * tier by rank, the ones popular in the country; with fewer than 3 there, the tier's others fill in by rank. A hashtag
- * with neither an edit cue nor a subject word is left out ("Trunk or Treat" on Food's tab). */
+/** The hashtags to ask videos of, ≤ 10: tier 1, then 2, 3 and 4 (`Tier`), each hashtag once in its best tier. In
+ * each tier by rank, the ones popular in the country; with fewer than 3 there, the tier's others fill in by rank. An
+ * edit list's hashtag with neither an edit cue nor a subject word is left out; the industry's others fill in last. */
 function pick(
   lists: { tags: unknown[]; editList: boolean }[],
   country: string,
@@ -176,7 +177,7 @@ function pick(
       if (tier && (!had || tier < had.tier)) best.set(t.id, { ...t, tier });
     }
   const out: Picked[] = [];
-  for (const tier of [1, 2, 3]) {
+  for (const tier of [1, 2, 3, 4]) {
     const tags = [...best.values()]
       .filter((t) => t.tier === tier)
       .sort((a, b) => (a.rank === b.rank ? 0 : a.rank - b.rank));

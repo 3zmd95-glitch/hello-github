@@ -511,8 +511,9 @@ TikTok parts above: the stored TikTok list, and the TikTok tab's Brave group.
   2. **Ten hashtags, edits first.** From the 3 lists, each hashtag once in its best tier, in 3 tiers:
      1. an **edit cue** and a **subject word** in its name;
      2. an edit cue, from the `SPECIAL_EFFECTS` or `PHOTOGRAPHY` list (any subject);
-     3. a subject word (the industry's general hashtags of the subject).
-     A hashtag with neither is left out. In each tier by `rank_position`, the ones whose `top_country_list` holds the
+     3. a subject word (the industry's general hashtags of the subject);
+     4. any other hashtag of the industry's list (the old rule, so no category ends with a thin list).
+     An edit list's hashtag with neither is left out. In each tier by `rank_position`, the ones whose `top_country_list` holds the
      country; with fewer than 3 there, the tier's others fill in by rank. The first 10 in tier order.
   3. **Their videos.** One `video_list` call for them (`hashtag_ids` as a JSON array string). Each hashtag brings its top
      20 videos, ranked by TikTok on views, comments, likes and shares; there are no captions or counts.

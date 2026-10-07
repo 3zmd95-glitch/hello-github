@@ -281,14 +281,14 @@ describe("tiktokTop", () => {
     expect(r.diagnostics).toMatchObject({ hashtags: tier3(1, 2, 3), videos: 5, raw: 6 });
   });
 
-  it("picks edit hashtags first: tier 1 an edit cue and a subject word, tier 2 an edit cue from SPECIAL_EFFECTS or PHOTOGRAPHY, tier 3 a subject word; each by rank, each hashtag once", async () => {
+  it("picks edit hashtags first: tier 1 an edit cue and a subject word, tier 2 an edit cue from SPECIAL_EFFECTS or PHOTOGRAPHY, tier 3 a subject word, tier 4 the industry's others; each by rank, each hashtag once", async () => {
     const food = [
-      tag(1, ["US"], "1", "trunkortreat"), // neither: left out
+      tag(1, ["US"], "1", "trunkortreat"), // neither: tier 4
       tag(2, ["US"], "2", "foodie"), // tier 3
-      tag(3, ["US"], "3", "cinematic"), // an edit cue in the industry's list alone: left out
+      tag(3, ["US"], "3", "cinematic"), // an edit cue in the industry's list: tier 4 here, tier 2 below
       tag(4, ["US"], "4", "FoodEdit"), // tier 1
       tag(5, ["US"], "5", "restaurants"), // tier 3
-      tag(6, ["US"], "6", "asmrcooking"), // an edit cue, no subject word for Food: left out
+      tag(6, ["US"], "6", "asmrcooking"), // an edit cue, no subject word for Food: tier 4
     ];
     const edits = {
       SPECIAL_EFFECTS: [
@@ -297,14 +297,14 @@ describe("tiktokTop", () => {
         tag(3, ["US"], "9", "cinematic"), // #cinematic again: tier 2, once
       ],
       PHOTOGRAPHY: [
-        tag(9, ["US"], "1", "photography"), // neither
+        tag(9, ["US"], "1", "photography"), // neither, in an edit list: left out
         tag(10, ["US"], "2", "slowmo"), // tier 2
         tag(2, ["US"], "7", "foodie"), // #foodie again: still tier 3, once
       ],
     };
     const fetch = tiktok({}, food, edits);
     const r = await tiktokTop(env(), fetch, "food");
-    expect(videoCall(fetch).searchParams.get("hashtag_ids")).toBe(ids(8, 4, 10, 7, 3, 2, 5));
+    expect(videoCall(fetch).searchParams.get("hashtag_ids")).toBe(ids(8, 4, 10, 7, 3, 2, 5, 1, 6));
     expect(r.diagnostics).toMatchObject({
       hashtags: [
         { name: "streetfoodbroll", tier: 1 },
@@ -314,16 +314,18 @@ describe("tiktokTop", () => {
         { name: "cinematic", tier: 2 },
         { name: "foodie", tier: 3 },
         { name: "restaurants", tier: 3 },
+        { name: "trunkortreat", tier: 4 },
+        { name: "asmrcooking", tier: 4 },
       ],
       lists: { industry: 6, effects: 3, photo: 3 },
       industry: "FOOD",
     });
-    // Tier order, then turns: each hashtag's 1st video (tier 1 first), then its 2nd…
-    const order = [8, 4, 10, 7, 3, 2, 5];
+    // Tier order, then turns: each hashtag's 1st video (tier 1 first, tier 4 last), then its 2nd…
+    const order = [8, 4, 10, 7, 3, 2, 5, 1, 6];
     const names = r.diagnostics!.hashtags as { name: string }[];
-    expect(r.videos!.slice(0, 7).map((v) => v.title)).toEqual(names.map((h) => `#${h.name}`));
-    expect(r.videos!.slice(0, 7).map((v) => v.url)).toEqual(order.map((t) => top(t, 1).url));
-    expect(r.videos![7].url).toBe(top(8, 2).url);
+    expect(r.videos!.slice(0, 9).map((v) => v.title)).toEqual(names.map((h) => `#${h.name}`));
+    expect(r.videos!.slice(0, 9).map((v) => v.url)).toEqual(order.map((t) => top(t, 1).url));
+    expect(r.videos![9].url).toBe(top(8, 2).url);
   });
 
   it("keeps the country rule in each tier: 3 or more popular in the country stand alone, fewer fill in by rank", async () => {
@@ -386,23 +388,37 @@ describe("tiktokTop", () => {
     expect(r.diagnostics).toMatchObject({ videos: 1, raw: links.length });
   });
 
-  it("no popular hashtag, or none with a subject word or an edit cue: no video_list call, an empty list", async () => {
-    // The owner's Food tab: general food videos ("its not cool edits trending videos").
-    for (const tags of [[], [tag(1, ["US"], "1", "trunkortreat"), tag(2, ["US"], "2", "aldi")]]) {
-      const fetch = tiktok({}, tags);
-      expect(await tiktokTop(env(), fetch, "food")).toEqual({
-        videos: [],
-        diagnostics: {
-          hashtags: [],
-          lists: { industry: tags.length, effects: 0, photo: 0 },
-          videos: 0,
-          raw: 0,
-          country: "US",
-          industry: "FOOD",
-        },
-      });
-      expect(fetch).toHaveBeenCalledTimes(3);
-    }
+  it("no popular hashtag: no video_list call, an empty list", async () => {
+    const fetch = tiktok({}, []);
+    expect(await tiktokTop(env(), fetch, "food")).toEqual({
+      videos: [],
+      diagnostics: {
+        hashtags: [],
+        lists: { industry: 0, effects: 0, photo: 0 },
+        videos: 0,
+        raw: 0,
+        country: "US",
+        industry: "FOOD",
+      },
+    });
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("no subject or edit word in any list: the industry's 10 best by rank (the old rule), all tier 4, so the tab is never thin", async () => {
+    // Food's tags are car1…car12 (no Food word, no edit cue); the edit lists hold none with an edit cue either.
+    const edits = {
+      SPECIAL_EFFECTS: [tag(20, ["US"], "1", "halloween")],
+      PHOTOGRAPHY: [tag(21, ["US"], "1", "sunset")],
+    };
+    const fetch = tiktok({}, TAGS, edits);
+    const r = await tiktokTop(env(), fetch, "food");
+    expect(videoCall(fetch).searchParams.get("hashtag_ids")).toBe(
+      ids(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+    );
+    expect(r.diagnostics).toMatchObject({
+      hashtags: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({ name: `car${n}`, tier: 4 })),
+    });
+    expect(r.videos).toHaveLength(50);
   });
 
   it("not connected (no token, one sealed with another SCOUT_TOKEN, or no advertiser): nothing asked, noted tiktok_auth", async () => {
