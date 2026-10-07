@@ -1,8 +1,8 @@
 /**
  * Discover v2 step 1: what to search (planning/tools/13-discover-search-v2.md, "The pipeline"). A dictionary
  * entry gives the queries; an unknown topic gets "<topic> edit" / "<topic> tutorial" / "شرح <topic>". TikTok and
- * Instagram ask examples en, tutorials en and tutorials ar (the Arabic examples query is the Arabic retry);
- * YouTube asks the same three without retries (a retry there costs a `search.list` call). AI-mode briefs use
+ * Instagram ask examples en and tutorials en, and tutorials ar for an Arabic search (`lang: "ar"`; the Arabic examples
+ * query is its retry); YouTube asks the same without retries (a retry there costs a `search.list` call). AI-mode briefs use
  * ai.ts instead. Queries keep the typed words; `topicKey` and `topicWords` are
  * in the Discover matching form (`normalizeTerm`). The connector may send Claude's own queries instead (at most 9):
  * asked as they are, without retries, hiding nothing.
@@ -18,6 +18,7 @@ import {
   isCategoryOnly,
   selectedGenre,
 } from "./relevance";
+import { EDITING_CUES } from "./label";
 import { matchTerms, normalizeTerm, TERMS, type EditTerm, type Lang } from "./terms";
 import type { Alternative, DiscoverRequest, Intent, PlannedQuery, SearchPlan } from "./types";
 
@@ -107,13 +108,16 @@ function plannedQueries(
       tut("en"),
       withProgramHint(withGenre(w.retryTutorials?.en ?? join("how to", w.name), "en"), req.program),
     ],
-    [
+  ];
+  // English first (the owner, 2026-10-07): the Arabic tutorials query only for an Arabic search. Live, it was what
+  // brought Arabic beauty-serum reels to a "Glow Effect" chip.
+  if (req.lang === "ar")
+    all.push([
       "tutorials",
       "ar",
       tut("ar"),
       withProgramHint(withGenre(w.retryTutorials?.ar ?? w.examples.ar, "ar"), req.program),
-    ],
-  ];
+    ]);
   // Each query once.
   const list = all.filter(([, , q], i) => q && all.findIndex((a) => key(a[2]) === key(q)) === i);
   const out: PlannedQuery[] = [];
@@ -253,6 +257,14 @@ export function planSearch(req: DiscoverRequest, terms: readonly EditTerm[] = TE
     alternatives: [...others.map(termAlternative), { exact: true }],
     topicWords: [...new Set(topicWords.map(normalizeTerm))].filter(Boolean),
     needsEditingWord: term ? !term.specific : false,
+    // A trend chip's search: inside a category its filming words count too (a camera style names no edit).
+    ...(req.editing
+      ? {
+          editing: subject.length
+            ? [...new Set([...EDITING_CUES, ...genreVisualWords(req)])]
+            : EDITING_CUES,
+        }
+      : {}),
     requiredGroups: groups,
     // A typed idea inside a category: the category gives way only when nothing has both (label.ts).
     ...(!genreOnly && groups.length ? { categoryGroups: groups } : {}),

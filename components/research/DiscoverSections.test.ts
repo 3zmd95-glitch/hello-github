@@ -206,7 +206,8 @@ describe("Discover v2 in the research panel", () => {
   it("one POST /discover for every platform: the sections, the tab counts and the usage", async () => {
     await mount();
     await submit("flash");
-    expect(discovered).toEqual([{ q: "flash" }]);
+    // The Arabic dashboard's search: Arabic too (an English one asks English only).
+    expect(discovered).toEqual([{ q: "flash", lang: "ar" }]);
     expect(searched).toEqual([]);
 
     expect($("discover-understood")!.textContent).toContain("فهمتها: انتقال فلاش · عربي + English");
@@ -286,15 +287,15 @@ describe("Discover v2 in the research panel", () => {
     await submit("speed ramp");
     await submit("flash");
     await click($("discover-alt-camera-flash"));
-    expect(discovered.at(-1)).toEqual({ q: "flash", term: "camera-flash" });
+    expect(discovered.at(-1)).toEqual({ q: "flash", term: "camera-flash", lang: "ar" });
     await click($("discover-alt-exact"));
-    expect(discovered.at(-1)).toEqual({ q: "flash", exact: true });
+    expect(discovered.at(-1)).toEqual({ q: "flash", exact: true, lang: "ar" });
     expect($("discover-understood")!.textContent).toContain("أدوّر بالضبط على «flash»");
 
     // A recent topic is another topic: the choice made for "flash" stays with it.
     const recent = all("discover-recent-topic").find((b) => b.textContent === "speed ramp")!;
     await click(recent);
-    expect(discovered.at(-1)).toEqual({ q: "speed ramp" });
+    expect(discovered.at(-1)).toEqual({ q: "speed ramp", lang: "ar" });
   });
 
   it("a failed platform keeps its line and Retry on an empty tab; Retry asks again", async () => {

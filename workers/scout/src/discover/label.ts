@@ -50,6 +50,30 @@ const EDITING_WORDS = [
 /** The editing words in matching form, once: "edits" and "edit" meet, "تأثير" matches "تاثير". */
 const EDITING_FORMS = [...new Set(EDITING_WORDS.map(normalizeTerm))];
 
+/** A trend chip's editing cues (`SearchPlan.editing`), in matching form. */
+export const EDITING_CUES = [
+  ...new Set(
+    [
+      "edit",
+      "edits",
+      "editing",
+      "effect",
+      "effects",
+      "transition",
+      "transitions",
+      "capcut",
+      "after effects",
+      "premiere",
+      "davinci",
+      "vn",
+      "alight",
+      "filmora",
+      "tutorial",
+      "trend",
+    ].map(normalizeTerm),
+  ),
+];
+
 export function labelCards(
   found: { card: ScoutResult & { profile?: string }; query: PlannedQuery }[],
   plan: SearchPlan,
@@ -66,6 +90,7 @@ export function labelCards(
     category.size > 0 &&
     (ideaGroups.length > 0 || plan.topicWords.length > 0);
   const ideaOnly: boolean[] = [];
+  const name = ` ${normalizeTerm(plan.topic)} `;
   for (const { card, query } of found) {
     if (seen.has(card.url)) continue;
     seen.add(card.url);
@@ -74,11 +99,17 @@ export function labelCards(
     const tutorial = TUTORIAL_RE.test(raw);
     const section = tutorial ? "tutorial" : "example";
     const matches = (group: string[]) => group.some((w) => mentions(text, w));
+    // A trend chip's search: an editing cue besides the effect's own name (live, 2026-10-07: "Collagen Glow Effect"
+    // is a serum).
+    let rest = ` ${text} `;
+    while (plan.editing && name.trim() && rest.includes(name)) rest = rest.replace(name, " ");
+    const cue = !plan.editing || plan.editing.some((w) => mentions(rest.trim(), w));
     // A vague word ("flash") needs editing context: an editing word, or a tutorial word.
     const topicOk =
-      plan.topicWords.length === 0 ||
-      (plan.topicWords.some((w) => mentions(text, w)) &&
-        (!plan.needsEditingWord || tutorial || EDITING_FORMS.some((w) => mentions(text, w))));
+      cue &&
+      (plan.topicWords.length === 0 ||
+        (plan.topicWords.some((w) => mentions(text, w)) &&
+          (!plan.needsEditingWord || tutorial || EDITING_FORMS.some((w) => mentions(text, w)))));
     const onTopic = topicOk && groups.every(matches);
     ideaOnly.push(!onTopic && topicOk && ideaGroups.every(matches));
     out.push({

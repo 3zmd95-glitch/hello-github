@@ -142,6 +142,33 @@ describe("discoverRequestFrom", () => {
   });
 });
 
+describe("the search's language and a trend chip's editing flag", () => {
+  const base = { base: "Glow Effect", recency: "any" as const, length: "any" as const };
+
+  // English first (the owner, 2026-10-07): the Worker plans English only unless the search is Arabic.
+  it("sends the language only when Arabic, and a trend chip's editing flag; neither with an AI brief", () => {
+    expect(discoverRequestFrom({ ...base, lang: "en", editing: true })).toEqual({
+      q: "Glow Effect",
+      editing: true,
+    });
+    expect(discoverRequestFrom({ ...base, lang: "ar", editing: false })).toEqual({
+      q: "Glow Effect",
+      lang: "ar",
+    });
+    expect(discoverRequestFrom({ ...base, mode: "ai", lang: "ar", editing: true })).toEqual({
+      q: "Glow Effect",
+      mode: "ai",
+    });
+  });
+
+  it("keys them apart on this device (English is the default)", () => {
+    const key = (req: DiscoverRequest) => discoverRequestKey(config, req);
+    expect(key({ q: "x", lang: "en" })).toBe(key({ q: "x" }));
+    expect(key({ q: "x", lang: "ar" })).not.toBe(key({ q: "x" }));
+    expect(key({ q: "x", editing: true })).not.toBe(key({ q: "x" }));
+  });
+});
+
 describe("parseDiscoverAnswer", () => {
   it("keeps well-formed items and drops broken ones", () => {
     const raw = answer([item({}), { ...item({}), url: 7 } as unknown as DiscoverItem]);
@@ -653,7 +680,7 @@ describe("views over an answer", () => {
       sort: "relevance" as const,
       arFirst: false,
     };
-    expect(sectionItems(a, "tutorial", opts).map((i) => i.platform)).toEqual(["yt", "tt"]);
+    expect(sectionItems(a, "tutorial", opts).map((i) => i.platform)).toEqual(["tt", "yt"]);
     expect(sectionItems(a, "tutorial", { ...opts, arFirst: true })[0].lang).toBe("ar");
     expect(sectionItems(a, "example", { ...opts, tab: "ig", showHidden: true })).toHaveLength(1);
   });
@@ -661,11 +688,24 @@ describe("views over an answer", () => {
   it("sorts a section by the numbers when asked (posts without numbers last, in the sources' order)", () => {
     const low = item({ stats: { likes: 1 } });
     const none = item({});
-    const high = item({ platform: "yt", stats: { views: 50 } });
+    const high = item({ platform: "ig", stats: { likes: 50 } });
     const s = answer([low, none, high]);
     const opts = { tab: "all" as const, showHidden: false, arFirst: false };
     expect(sectionItems(s, "example", { ...opts, sort: "relevance" })).toEqual([low, none, high]);
     expect(sectionItems(s, "example", { ...opts, sort: "popular" })).toEqual([high, low, none]);
+  });
+
+  // The owner (2026-10-07): "Instagram and tiktok first".
+  it("in All, lists Instagram and TikTok before YouTube, each kept in its order (by the numbers too)", () => {
+    const yt = item({ platform: "yt", stats: { views: 9000 } });
+    const tt = item({ stats: { likes: 5 } });
+    const ig = item({ platform: "ig", stats: { likes: 50 } });
+    const tt2 = item({});
+    const s = answer([yt, tt, ig, tt2]);
+    const opts = { tab: "all" as const, showHidden: false, arFirst: false };
+    expect(sectionItems(s, "example", { ...opts, sort: "relevance" })).toEqual([tt, ig, tt2, yt]);
+    expect(sectionItems(s, "example", { ...opts, sort: "popular" })).toEqual([ig, tt, tt2, yt]);
+    expect(sectionItems(s, "example", { ...opts, tab: "yt", sort: "relevance" })).toEqual([yt]);
   });
 
   it("ranks Popular now by views, else likes x 10", () => {

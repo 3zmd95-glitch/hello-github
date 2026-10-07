@@ -90,6 +90,10 @@ export interface DiscoverRequest {
   term?: string;
   genreQuery?: { ar?: string; en?: string };
   program?: string;
+  /** "ar" adds the Arabic tutorials query; without it the Worker plans English only (English first). */
+  lang?: Lang;
+  /** A trend chip's search (the 🔥 row, a category's style): cards need an editing cue. Keyword searches only. */
+  editing?: true;
   timeRange?: "week" | "month" | "year";
   ytLength?: "short" | "long";
   platforms?: DiscoverPlatform[];
@@ -128,6 +132,10 @@ export function discoverRequestFrom(input: {
   recency: Recency;
   length: LengthFilter;
   pick?: DiscoverPick;
+  /** The search's language (keyword searches; an AI brief plans its own). */
+  lang?: Lang;
+  /** A trend chip's search (keyword searches). */
+  editing?: boolean;
 }): DiscoverRequest | null {
   const typed = clip(input.base, input.mode === "ai" ? 600 : MAX_Q);
   const ar = clip(input.genre?.queries.ar[0] ?? "", MAX_GENRE_QUERY);
@@ -146,6 +154,8 @@ export function discoverRequestFrom(input: {
     ...(input.pick?.term ? { term: input.pick.term } : {}),
     ...(genreQuery.ar || genreQuery.en ? { genreQuery } : {}),
     ...(program ? { program } : {}),
+    ...(input.mode !== "ai" && input.lang === "ar" ? { lang: "ar" as const } : {}),
+    ...(input.mode !== "ai" && input.editing ? { editing: true as const } : {}),
     ...(input.recency !== "any" ? { timeRange: input.recency } : {}),
     ...(input.length !== "any" ? { ytLength: input.length } : {}),
   };
@@ -325,6 +335,8 @@ export function discoverRequestKey(config: ScoutConfig, req: DiscoverRequest): s
     term: req.term ?? "",
     genre: [req.genreQuery?.ar ?? "", req.genreQuery?.en ?? ""],
     program: req.program ?? "",
+    lang: req.lang ?? "en",
+    editing: !!req.editing,
     timeRange: req.timeRange ?? "",
     ytLength: req.ytLength ?? "",
     platforms: [...(req.platforms ?? [])].sort(),
@@ -537,6 +549,9 @@ export function sectionItems(
     (i) => i.section === section && onTab(i, opts.tab) && (opts.showHidden || !i.offTopic),
   );
   if (opts.sort === "popular") list = byPopularity(list);
+  // All: Instagram and TikTok first (the owner, 2026-10-07), each group keeping its order.
+  if (opts.tab === "all")
+    list = [...list.filter((i) => i.platform !== "yt"), ...list.filter((i) => i.platform === "yt")];
   if (opts.arFirst) list = arabicFirstOf(list);
   return list;
 }

@@ -195,6 +195,9 @@ export default function ResearchPanel({
   const [length, setLength] = useState<LengthFilter>("any");
   const [savedOnly, setSavedOnly] = useState(false);
   const [arFirst, setArFirst] = useState(false);
+  // A trend chip's search (the 🔥 row, a category's style): English, with editing context (the Worker hides posts that
+  // name no editing besides the effect: live, "Glow Effect" found beauty serums). Any other search turns it off.
+  const [editing, setEditing] = useState(false);
   const [sort, setSort] = useState<SortMode>("relevance");
   const [genreId, setGenreId] = useState<string | null>(null);
   // 🚗 The built-in category whose page shows (planning/tools/19-category-trends.md §1): set by a category tap with
@@ -262,6 +265,14 @@ export default function ResearchPanel({
     setDraft(null);
     setPicked(null);
     setPage(null);
+    setEditing(false);
+  };
+
+  /** A trend chip's search (spec 18, 2026-10-07): English, Arabic first off, with editing context. */
+  const chipSearch = () => {
+    setQueryLang("en");
+    setArFirst(false);
+    setEditing(true);
   };
 
   const submit = (e: FormEvent) => {
@@ -277,6 +288,7 @@ export default function ResearchPanel({
    */
   const pickGenre = (id: string | null) => {
     if (aiSearchBlocked) return;
+    setEditing(false);
     setSubmittedMode(searchMode);
     setSubmittedAi(
       aiChoice.provider === "builtin" ? undefined : { ...aiChoice, provider: aiChoice.provider },
@@ -324,6 +336,7 @@ export default function ResearchPanel({
   const [opened, setOpened] = useState<string | null>(null);
   if (openGenre && openGenre !== opened) {
     setOpened(openGenre);
+    setEditing(false);
     setGenreId(openGenre);
     setPage(null); // the link searches, even over that category's page
     setAttempt((a) => a + 1);
@@ -403,6 +416,8 @@ export default function ResearchPanel({
             recency,
             length,
             pick: picked?.on === pickOn ? picked.pick : undefined,
+            lang: searchLang,
+            editing,
           })
         : null,
     [
@@ -419,6 +434,8 @@ export default function ResearchPanel({
       pickOn,
       submittedMode,
       submittedAi,
+      searchLang,
+      editing,
     ],
   );
   const disc = useDiscoverQuery(discoverReq, attempt, forceAt === attempt);
@@ -837,7 +854,9 @@ export default function ResearchPanel({
             </div>
           )}
           {v2 && searchMode === "keyword" && (
-            <span className="text-muted text-xs">{t("search.bothLangs")}</span>
+            <span className="text-muted text-xs" data-testid="discover-langs">
+              {t(searchLang === "ar" ? "search.bothLangs" : "search.englishOnly")}
+            </span>
           )}
           {!skill && (
             <select
@@ -930,6 +949,7 @@ export default function ResearchPanel({
             setGenreId(null);
             setTopic(query);
             setDraft(null);
+            chipSearch();
             setAttempt((a) => a + 1);
             addRecentTopic(query);
           }}
@@ -947,6 +967,7 @@ export default function ResearchPanel({
               onClick={() => {
                 setTopic(rt);
                 setDraft(null);
+                setEditing(false);
                 setAttempt((a) => a + 1);
                 addRecentTopic(rt);
               }}
@@ -1067,6 +1088,7 @@ export default function ResearchPanel({
             setTopic(style);
             setDraft(null);
             setPage(null);
+            chipSearch();
             setAttempt((a) => a + 1);
             addRecentTopic(style);
           }}
@@ -1358,7 +1380,13 @@ export default function ResearchPanel({
         {v2 && !savedOnly && disc.status === "error" && <ScoutErrorLine error={disc.error} />}
         {v2 && !savedOnly && loading && (
           <div className="flex flex-col gap-2" data-testid="discover-loading">
-            <p className="text-muted text-xs">{t("search.searching")}</p>
+            <p className="text-muted text-xs">
+              {t(
+                submittedMode === "keyword" && searchLang !== "ar"
+                  ? "search.searchingEn"
+                  : "search.searching",
+              )}
+            </p>
             <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
               {Array.from({ length: 3 }, (_, i) => (
                 <SkeletonCard key={i} vertical={i % 3 !== 1} />
@@ -1376,6 +1404,7 @@ export default function ResearchPanel({
             tab={tab}
             sort={sort}
             arFirst={arFirst}
+            bothLangs={searchLang === "ar"}
             headingLevel={skill ? "h3" : "h2"}
             renderAction={renderAction}
             onAlternative={onAlternative}

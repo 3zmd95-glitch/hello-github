@@ -21,7 +21,8 @@ export function searchPlanFromAi(
 ): SearchPlan {
   const data = AiPlanSchema.parse(rawPlan);
   const platforms = req.platforms ?? PLATFORMS.filter((p) => data.platforms.includes(p));
-  const baseline = planSearch(req);
+  // Both languages' keyword queries, as before English-first planning: an Arabic AI query keeps its category retry.
+  const baseline = planSearch({ ...req, lang: "ar" });
   const category = selectedGenre(req);
   const typedCategory = selectedGenre({ q: req.q });
   const categorySubjects = genreWords(req);

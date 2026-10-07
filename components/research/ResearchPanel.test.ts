@@ -596,11 +596,36 @@ describe("Discover's trending effects row", () => {
     )!;
     act(() => chip.click());
     await settle();
-    expect(discoverAsked.at(-1)).toEqual({ q: "clone effect" });
+    expect(discoverAsked.at(-1)).toEqual({ q: "clone effect", editing: true });
     expect(localPlans).toHaveLength(1);
     expect(pressed("discover-mode-keyword")).toBe("true");
     expect(pressed("discover-mode-ai")).toBe("false");
     expect($<HTMLInputElement>("discover-topic")!.value).toBe("clone effect");
+  });
+
+  // English first (the owner, 2026-10-07): a chip also asked Arabic, and "Glow Effect" found beauty serums.
+  it("a chip searches in English with editing context, Arabic first off; a typed search after it stays English", async () => {
+    effectsDoc = EFFECTS;
+    await mount({ v2: true }); // the Arabic dashboard
+    await submit("flash");
+    expect(discoverAsked.at(-1)).toEqual({ q: "flash", lang: "ar" });
+    expect($("discover-langs")!.textContent).toBe("عربي + English");
+    await click("filter-arfirst");
+    expect(pressed("filter-arfirst")).toBe("true");
+
+    act(() =>
+      host
+        .querySelector<HTMLElement>('[data-testid="trending-effect"][data-key="clone-effect"]')!
+        .click(),
+    );
+    await settle();
+    expect(discoverAsked.at(-1)).toEqual({ q: "clone effect", editing: true });
+    expect(pressed("filter-arfirst")).toBe("false");
+    expect($("discover-langs")!.textContent).toBe("English بس");
+
+    // The next typed search is no chip's: English (the panel's language now), without the editing context.
+    await submit("speed ramp");
+    expect(discoverAsked.at(-1)).toEqual({ q: "speed ramp" });
   });
 
   it("is not in a skill's panel, even on a Discover v2 Worker", async () => {
@@ -1027,7 +1052,7 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
     );
     await settle();
     expect(discoverAsked).toEqual([
-      { q: "rolling shot", genreQuery: { ar: "ايديت سيارات", en: "car edit" } },
+      { q: "rolling shot", genreQuery: { ar: "ايديت سيارات", en: "car edit" }, editing: true },
     ]);
     expect(pressed("discover-mode-keyword")).toBe("true");
     expect(localPlans).toHaveLength(0);
@@ -1045,7 +1070,9 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
       act(() => root.render(createElement(ResearchPanel, { openGenre: "cars" })));
       await settle();
       expect($("category-page")).toBeNull();
-      expect(discoverAsked).toEqual([{ q: "car edit", genreQuery: { ar: "ايديت سيارات" } }]);
+      expect(discoverAsked).toEqual([
+        { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "ar" },
+      ]);
     } finally {
       delete proto.scrollIntoView;
     }
@@ -1064,7 +1091,9 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
       expect($("category-page")).toBeNull();
       expect(pressed("genre-cars")).toBe("true");
       expect(scrolled).toEqual([$("genre-cars")]);
-      expect(discoverAsked).toEqual([{ q: "car edit", genreQuery: { ar: "ايديت سيارات" } }]);
+      expect(discoverAsked).toEqual([
+        { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "ar" },
+      ]);
     } finally {
       delete proto.scrollIntoView;
     }
@@ -1081,8 +1110,9 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
         .click(),
     );
     await settle();
+    // In English with editing context, like a 🔥 chip (the Arabic dashboard asks Arabic otherwise).
     expect(discoverAsked).toEqual([
-      { q: "rolling shot", genreQuery: { ar: "ايديت سيارات", en: "car edit" } },
+      { q: "rolling shot", genreQuery: { ar: "ايديت سيارات", en: "car edit" }, editing: true },
     ]);
     expect(pressed("discover-mode-keyword")).toBe("true");
     expect($("category-page")).toBeNull();

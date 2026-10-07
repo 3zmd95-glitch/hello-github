@@ -68,7 +68,8 @@ export interface RunDeps {
 export async function requestHash(req: DiscoverRequest): Promise<string> {
   const term = req.term && req.term !== matchTerms(req.q).best?.id ? req.term : "";
   const canonical = JSON.stringify({
-    // 6: real post dates and the Posted filter by them (2026-10-07); a kept answer from before has neither.
+    // 6: real post dates and the Posted filter by them, English-first plans (2026-10-07); a kept answer from before
+    // has neither.
     version: 6,
     mode: req.mode ?? "keyword",
     ...(req.aiPlan ? { aiPlan: req.aiPlan } : {}),
@@ -77,6 +78,8 @@ export async function requestHash(req: DiscoverRequest): Promise<string> {
     term,
     genre: [req.genreQuery?.ar ?? "", req.genreQuery?.en ?? ""],
     program: req.program ?? "",
+    lang: req.lang === "ar" ? "ar" : "en",
+    editing: !!req.editing,
     timeRange: req.timeRange ?? "",
     ytLength: req.ytLength ?? "",
     platforms: [...(req.platforms ?? ["tt", "ig", "yt"])].sort(),

@@ -601,7 +601,8 @@ export function clearYoutubeCache(): void {
 /* ---------- Research UI v2 (build plan 1.15): tabs, filters, unified result items ---------- */
 
 export type ResearchTab = "all" | "yt" | "tt" | "ig";
-export const RESEARCH_TABS: readonly ResearchTab[] = ["all", "yt", "tt", "ig"];
+/** Instagram and TikTok first (the owner, 2026-10-07); the stored tab names stay as they were. */
+export const RESEARCH_TABS: readonly ResearchTab[] = ["all", "ig", "tt", "yt"];
 export type Recency = "any" | "week" | "month" | "year";
 export type LengthFilter = "any" | "short" | "long";
 /** The Sort filter: the order the sources gave, or the most viewed / liked first. */

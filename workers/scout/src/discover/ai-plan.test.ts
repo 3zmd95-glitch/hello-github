@@ -241,6 +241,14 @@ describe("subscription AI plans", () => {
     expect(plan.requiredGroups?.some((group) => group.includes("coffee"))).toBe(true);
   });
 
+  it("keeps an Arabic tutorials query's category retry: English-first planning leaves AI plans as they were", () => {
+    const plan = searchPlanFromAi(
+      { q: "coffee edit", genreQuery: { ar: "تصوير قهوة" } },
+      { ...PLAN, queries: [{ q: "شرح تصوير القهوة سينمائي", lang: "ar", intent: "tutorials" }] },
+    );
+    expect(plan.queries[0].retryQ).toMatch(/[ء-ي]/);
+  });
+
   it("uses bounded category retries without broadening a detailed AI-only brief", () => {
     const category = searchPlanFromAi({ q: "coffee edit", platforms: ["ig", "yt"] }, PLAN);
     expect(category.queries.find((q) => q.platform === "ig")?.retryQ).toBeTruthy();

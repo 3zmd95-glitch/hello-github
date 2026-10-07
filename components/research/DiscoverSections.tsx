@@ -45,6 +45,7 @@ export default function DiscoverSections({
   tab,
   sort,
   arFirst,
+  bothLangs,
   headingLevel,
   renderAction,
   onAlternative,
@@ -56,6 +57,8 @@ export default function DiscoverSections({
   tab: ResearchTab;
   sort: SortMode;
   arFirst: boolean;
+  /** The keyword search asked Arabic too (else English only, English first). */
+  bothLangs: boolean;
   headingLevel: "h2" | "h3";
   renderAction: (item: ResearchItem) => ReactNode;
   onAlternative: (alt: DiscoverAlternative) => void;
@@ -155,7 +158,7 @@ export default function DiscoverSections({
         <span className="text-ink-2">
           {answer.understood.exact
             ? t("search.exactNow", { q })
-            : `${t("search.understood", { label: L(answer.understood.label) })}${answer.understood.ai ? "" : ` · ${t("search.bothLangs")}`}`}
+            : `${t("search.understood", { label: L(answer.understood.label) })}${answer.understood.ai ? "" : ` · ${t(bothLangs ? "search.bothLangs" : "search.englishOnly")}`}`}
         </span>
         {answer.alternatives.length > 0 && (
           <span className="text-muted">{t("search.notThis")}</span>
