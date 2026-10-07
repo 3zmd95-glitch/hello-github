@@ -299,7 +299,7 @@ beforeEach(() => {
   clearScoutCaps();
   clearDiscoverCache();
   clearYoutubeCache();
-  useStore.setState({ recentTopics: [], customGenres: [], savedRefs: {} });
+  useStore.setState({ recentTopics: [], customGenres: [], savedRefs: {}, inspirations: [] });
   useStore.getState().clearTrends();
   host = document.createElement("div");
   document.body.append(host);
@@ -313,6 +313,22 @@ afterEach(() => {
 });
 
 describe("ResearchPanel genre row", () => {
+  it("keeps a newly saved inspiration in Saved only without attaching it to a skill", async () => {
+    await mount({ tab: "tt" });
+    await click("genre-cars");
+    const item =
+      host.querySelector<HTMLElement>(
+        '[data-testid="result-card"] [data-testid="inspiration-save"]',
+      ) ?? $("inspiration-save")!;
+    act(() => item.click());
+    await settle();
+    expect(useStore.getState().inspirations).toHaveLength(1);
+    expect(useStore.getState().savedRefs).toEqual({});
+    await click("filter-saved");
+    expect(titles()).toEqual(["tt-a"]);
+    expect($("inspiration-save")?.getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("lists the built-in genres, then the owner's own with ✨, under their label", async () => {
     useStore.getState().addCustomGenre("هجولة", "هجولة درفت");
     await mount();

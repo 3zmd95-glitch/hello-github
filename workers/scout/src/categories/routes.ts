@@ -20,18 +20,27 @@
 
 import { json, parseForce, type EffectsDeps } from "../effects/routes";
 import { categoryById } from "./defs";
-import { readCategory, runCategory } from "./run";
+import { CATEGORY_QUALITY_VERSION, readCategory, runCategory } from "./run";
 import { braveTop, type BravePlatform, type TopEnv } from "./top";
 import type { CategoryDoc } from "./types";
+import { readAdsToken } from "../tiktokads";
 
 const ROUTE = /^\/categories\/([a-z][a-z0-9-]*)(?:(\/run)|\/top\/(tt|ig))?$/;
 
-/** JSON leaves `notes`, `lessons` and `top` out when there are none. */
-const answer = ({ status, updatedAt, notes, items, lessons, top }: CategoryDoc) => ({
+/** Legacy trend counts stay in storage for migration but are not presented as quality-gated recommendations. */
+const answer = ({
   status,
   updatedAt,
   notes,
   items,
+  lessons,
+  top,
+  qualityVersion,
+}: CategoryDoc) => ({
+  status,
+  updatedAt,
+  notes,
+  items: qualityVersion === CATEGORY_QUALITY_VERSION ? items : [],
   lessons,
   top,
 });
@@ -58,6 +67,19 @@ export async function handleCategories(
       doc?.top?.[p] ?? [],
       deps.now?.() ?? new Date(),
     );
+    if (p === "tt") {
+      const token = await readAdsToken(env).catch(() => undefined);
+      top.discoveryStatus =
+        token === undefined
+          ? "unavailable"
+          : !token?.advertiser_ids.length
+            ? "not_connected"
+            : !doc?.top
+              ? "not_scanned"
+              : doc.notes?.includes("tiktok")
+                ? "unavailable"
+                : "ready";
+    }
     const headers = new Headers(cors);
     headers.set("Cache-Control", "no-store");
     return json(top, 200, headers);

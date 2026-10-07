@@ -6,6 +6,7 @@ import {
   type TrendingEffects,
 } from "./effects";
 import { scoutCall, type ScoutConfig } from "./scoutClient";
+import { canEmbed } from "./embed";
 
 /**
  * Category pages in Discover (planning/tools/19-category-trends.md §1): a category's trends and lessons from the Worker
@@ -30,6 +31,12 @@ export interface LessonVideo {
 export interface Technique {
   name: { en: string; ar?: string };
   howTo: { en: string; ar?: string };
+  /** Prompts for the viewer and a suggested exercise, never analysis of the video's actual frames or settings. */
+  study?: {
+    watchFor: { en: string; ar?: string };
+    tryIt: { en: string; ar?: string };
+    sourceBasis: "title-and-description";
+  };
   skillId?: string;
   videos: LessonVideo[];
 }
@@ -51,6 +58,10 @@ export interface TopVideo {
   creator?: string;
   views?: number;
   thumbnail?: string;
+  publishedAt?: string;
+  snippet?: string;
+  source?: "tavily" | "youtube" | "tiktok-discovery";
+  evidence?: { basis: "metadata"; subjects: string[]; techniques: string[] };
 }
 /** The lists stored with the page: YouTube's most viewed of the month, the scan's Instagram posts, and TikTok's trending
  * videos from its Discovery API (titled with their hashtag; the card's oEmbed lookup brings the caption). */
@@ -67,13 +78,15 @@ export interface TopAnswer {
   brave: TopVideo[];
   source: "brave" | "scan";
   note?: "no_key" | "brave_failed" | "daily_cap";
+  discoveryStatus?: "not_connected" | "unavailable" | "ready" | "not_scanned";
 }
 export interface CategoryPageData extends TrendingEffects {
   lessons?: Lessons;
   top?: TopLists;
 }
 
-const CACHE_PREFIX = "3z-category|";
+// Read stored candidates through the new metadata relevance gate once after upgrading the experience.
+const CACHE_PREFIX = "3z-category-v2|";
 const PER_AREA = 3;
 /** The Worker's most a technique: 3 English videos (examples, and a tutorial when one teaches) and 1 Arabic tutorial. */
 const VIDEOS = 4;
@@ -87,12 +100,32 @@ const isHttps = (x: unknown): x is string => isStr(x) && x.startsWith("https://"
 function parseTopVideo(x: unknown): TopVideo | null {
   if (!isObj(x) || !isHttps(x.url) || !isStr(x.title) || !x.title.trim()) return null;
   const views = x.views;
+  const labels = (v: unknown) =>
+    Array.isArray(v)
+      ? v.filter((s): s is string => isStr(s) && !!s.trim() && s.length <= 100).slice(0, 8)
+      : [];
+  const evidence =
+    isObj(x.evidence) && x.evidence.basis === "metadata"
+      ? {
+          basis: "metadata" as const,
+          subjects: labels(x.evidence.subjects),
+          techniques: labels(x.evidence.techniques),
+        }
+      : undefined;
   return {
     url: x.url,
     title: x.title,
     ...(isStr(x.creator) && x.creator ? { creator: x.creator } : {}),
     ...(typeof views === "number" && Number.isSafeInteger(views) && views >= 0 ? { views } : {}),
     ...(isHttps(x.thumbnail) ? { thumbnail: x.thumbnail } : {}),
+    ...(isStr(x.publishedAt) && Number.isFinite(Date.parse(x.publishedAt))
+      ? { publishedAt: x.publishedAt }
+      : {}),
+    ...(isStr(x.snippet) && x.snippet ? { snippet: x.snippet.slice(0, 1000) } : {}),
+    ...(["tavily", "youtube", "tiktok-discovery"].includes(x.source as string)
+      ? { source: x.source as TopVideo["source"] }
+      : {}),
+    ...(evidence && evidence.techniques.length ? { evidence } : {}),
   };
 }
 
@@ -115,6 +148,24 @@ function parseVideo(x: unknown): LessonVideo | null {
   if (!PLATFORMS.has(x.platform as string)) return null;
   if (x.kind !== "example" && x.kind !== "tutorial") return null;
   if (x.lang !== "en" && x.lang !== "ar") return null;
+  // A page or product URL labelled "example" is not a post. Check its actual host before canonicalizing its path.
+  try {
+    const host = new URL(x.url).hostname.toLowerCase();
+    const domains =
+      x.platform === "yt"
+        ? ["youtube.com", "youtu.be"]
+        : x.platform === "tt"
+          ? ["tiktok.com"]
+          : ["instagram.com"];
+    if (
+      !domains.some((d) => host === d || host.endsWith(`.${d}`)) ||
+      !canEmbed(x.platform as LessonVideo["platform"], x.url) ||
+      !x.title.trim()
+    )
+      return null;
+  } catch {
+    return null;
+  }
   return {
     url: x.url,
     title: x.title,
@@ -136,7 +187,27 @@ function parseTechnique(x: unknown): Technique | null {
     : [];
   // A technique without a video is never shown (spec §3); one without an English name and how-to neither.
   if (!name || !howTo || !videos.length) return null;
-  return { name, howTo, ...(isStr(x.skillId) && x.skillId ? { skillId: x.skillId } : {}), videos };
+  const studyText = (raw: unknown) => {
+    const text = textOf(raw);
+    if (!text || text.en.length > 600) return undefined;
+    return { en: text.en, ...(text.ar && text.ar.length <= 600 ? { ar: text.ar } : {}) };
+  };
+  const watchFor = isObj(x.study) ? studyText(x.study.watchFor) : undefined;
+  const tryIt = isObj(x.study) ? studyText(x.study.tryIt) : undefined;
+  const study =
+    isObj(x.study) && x.study.sourceBasis === "title-and-description" && watchFor && tryIt
+      ? { watchFor, tryIt, sourceBasis: "title-and-description" as const }
+      : undefined;
+  // Older generated lessons included unrelated references. Only individually refreshed, example-backed study cards
+  // are shown, even when a partial refresh has not advanced the document's lessons version yet.
+  if (!study || !videos.some((v) => v.kind === "example")) return null;
+  return {
+    name,
+    howTo,
+    ...(study ? { study } : {}),
+    ...(isStr(x.skillId) && x.skillId ? { skillId: x.skillId } : {}),
+    videos,
+  };
 }
 
 function parseLessons(x: unknown): Lessons | undefined {
@@ -195,6 +266,11 @@ export async function fetchCategoryTop(
     brave: topList(r.data.brave),
     source: r.data.source === "brave" ? "brave" : "scan",
     ...(NOTES.has(note as string) ? { note: note as TopAnswer["note"] } : {}),
+    ...(["not_connected", "unavailable", "ready", "not_scanned"].includes(
+      r.data.discoveryStatus as string,
+    )
+      ? { discoveryStatus: r.data.discoveryStatus as TopAnswer["discoveryStatus"] }
+      : {}),
   };
 }
 
@@ -224,7 +300,8 @@ export async function tiktokConnectUrl(
 }
 
 /** Something to show: trends or lessons. */
-const hasPage = (d: CategoryPageData) => d.items.length > 0 || !!d.lessons;
+const hasPage = (d: CategoryPageData) =>
+  d.items.length > 0 || !!d.lessons || TOP_PLATFORMS.some((p) => !!d.top?.[p].length);
 /** Kept in this tab's copy only with its lessons (a scan saves its trends, then its lessons a little later, and a
  * GET between the two must not hide them for an hour). */
 const keep = (d: CategoryPageData | null): d is CategoryPageData => !!d?.lessons;

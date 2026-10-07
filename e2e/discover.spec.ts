@@ -140,6 +140,17 @@ const technique = (en: string, ar: string, n: number, skillId?: string) => ({
       "Edit: In CapCut smooth the ride with a speed curve.",
     ar: `صوّر ${ar} على 1/30 من سيارة ماشية، وبعدين نعّمها في المونتاج.`,
   },
+  study: {
+    watchFor: {
+      en: "Watch how the subject stays framed as the background moves.",
+      ar: "لاحظ مكان العنصر في الكادر مع حركة الخلفية.",
+    },
+    tryIt: {
+      en: "Make a short movement study and compare two crops.",
+      ar: "صوّر حركة قصيرة وقارن كادرين مختلفين.",
+    },
+    sourceBasis: "title-and-description",
+  },
   ...(skillId ? { skillId } : {}),
   videos: [
     {
@@ -212,6 +223,8 @@ const topVideo = (platform: "yt" | "tt" | "ig", n: number) => ({
   title: `The most cinematic car edit of the month, number ${n}, rolling shots and speed ramps`,
   creator: `a_very_long_creator_handle_${n}`,
   views: (60 - n) * 12_345,
+  source: platform === "yt" ? "youtube" : platform === "tt" ? "tiktok-discovery" : "tavily",
+  evidence: { basis: "metadata", subjects: ["car"], techniques: ["rolling shot", "speed ramp"] },
   ...(platform === "ig" ? {} : { thumbnail: "https://example.com/t.jpg" }),
 });
 /** Brave's TikTok answer (`GET /categories/cars/top/tt`): no stored post, Brave's group of 30, asked when the tab is
@@ -943,7 +956,7 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
 
 test("Discover v2: a category with nothing typed opens its page — trends, lessons, Scan again, Search all", async ({
   page,
-}) => {
+}, testInfo) => {
   const asked = await stubWorker(page, () => ANSWER);
   await connectWorker(page);
   await page.goto("/discover/");
@@ -963,21 +976,28 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
 
   // A technique's skill opens that skill; its videos play in the app's player.
   const panning = cat.getByTestId("category-technique").first();
-  await expect(panning.getByTestId("category-ai")).toHaveText("✦ AI");
-  // English first in Arabic too (live fix 1): the English name and how-to (left to right, with the ✦ AI badge),
-  // then the Arabic name and how-to as muted lines, right to left.
+  await expect(panning.getByTestId("category-lesson-preview")).toBeVisible();
+  await expect(panning.getByTestId("category-study")).toHaveCount(0);
   await expect(panning.getByRole("heading", { level: 4 })).toHaveText("panning");
   await expect(panning.getByTestId("category-name-ar")).toHaveText("بانينق");
-  const howTo = panning.getByTestId("category-ai").locator("..");
-  expect(await howTo.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
-  // Live fix 2: its Shoot, Settings and Edit lines show one under another (the line breaks render).
-  expect((await howTo.innerText()).split("\n")).toEqual([
-    "✦ AIShoot: Ride beside the car and keep the panning centred in the frame.",
-    "Settings: Shutter 1/30 s, 24 mm, gimbal in follow mode.",
-    "Edit: In CapCut smooth the ride with a speed curve.",
-  ]);
-  const howToAr = panning.getByTestId("category-howto-ar");
-  expect(await howToAr.evaluate((p) => p.matches(":dir(rtl)"))).toBe(true);
+  const lessonSave = panning.getByTestId("inspiration-save");
+  await expect(lessonSave).toHaveAttribute("aria-pressed", "false");
+  await lessonSave.click();
+  await expect(lessonSave).toHaveAttribute("aria-pressed", "true");
+  await panning.getByTestId("category-study-toggle").click();
+  const watchFor = panning.getByTestId("category-watch-for");
+  expect(await watchFor.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
+  await expect(watchFor).toContainText("Watch how the subject stays framed");
+  expect(
+    await panning.getByTestId("category-watch-for-ar").evaluate((p) => p.matches(":dir(rtl)")),
+  ).toBe(true);
+  await expect(panning.getByTestId("category-study-basis")).toContainText("مو من تحليل الفيديو");
+  await expect(panning).not.toContainText("1/30");
+  await panning.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: testInfo.outputPath("synthetic-category-study.png"),
+    fullPage: false,
+  });
   await expect(
     cat.locator('[data-testid="category-style"][data-key="rolling-shot"]'),
   ).toContainText("rolling shot");
@@ -985,6 +1005,8 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
   await expect(page.getByTestId("skill-sheet")).toBeVisible();
   await page.getByTestId("sheet-close").click();
   await panning.locator('[data-testid="category-video"][data-kind="example"]').first().click();
+  await expect(page.getByTestId("player-sheet")).toHaveCount(0);
+  await panning.getByTestId("result-play").click();
   await expect(page.getByTestId("player-sheet")).toBeVisible();
   await page.getByTestId("player-close").click();
 
@@ -1018,9 +1040,10 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
     cat.getByRole("heading", { level: 3, name: "🔥 Trending in Cars this week" }),
   ).toBeVisible();
   await expect(cat.getByTestId("category-search-all")).toHaveText("Search all Cars videos →");
-  // In English the how-to reads left to right, with no Arabic lines.
-  expect(await howTo.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
-  await expect(cat.getByTestId("category-howto-ar")).toHaveCount(0);
+  // English remains the main text; Arabic study lines follow only in the Arabic UI.
+  await panning.getByTestId("category-study-toggle").click();
+  expect(await watchFor.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
+  await expect(cat.getByTestId("category-watch-for-ar")).toHaveCount(0);
   await expect(cat.getByTestId("category-name-ar")).toHaveCount(0);
   await cat.getByTestId("category-search-all").click();
   // Posted is still on the style's Week: the owner widens it.
@@ -1031,7 +1054,62 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
   expect(await fitsViewport(page)).toBe(true);
 });
 
-test("Discover v2: a full category page at 375 px never scrolls sideways; its chips and shelves do", async ({
+test("Discover category: save an edit, record what to try, and keep its practice state after reload", async ({
+  page,
+}, testInfo) => {
+  await stubWorker(page, () => ANSWER, CATEGORY_CARS_FULL);
+  await connectWorker(page);
+  await page.setViewportSize(
+    testInfo.project.name === "desktop"
+      ? { width: 1440, height: 980 }
+      : { width: 375, height: 812 },
+  );
+  await page.goto("/discover/");
+  await page.getByTestId("lang-en").click();
+  await page.getByTestId("genre-cars").click();
+  const topCard = page.getByTestId("category-top-item").first();
+  const save = topCard.getByTestId("inspiration-save");
+  await save.click();
+  await expect(save).toHaveAttribute("aria-pressed", "true");
+  // The existing Saved only filter includes one-click inspiration saves too.
+  await page.getByTestId("category-search-all").click();
+  if (await page.getByTestId("filters-toggle").isVisible())
+    await page.getByTestId("filters-toggle").click();
+  await page.getByTestId("filter-saved").click();
+  const savedResult = page.getByTestId("research-results").getByTestId("result-card");
+  await expect(savedResult).toHaveCount(1);
+  await expect(savedResult.getByTestId("result-title")).toHaveText(topVideo("ig", 1).title);
+  await page.getByTestId("inspiration-library-open").click();
+  const card = page.getByTestId("inspiration-card");
+  await expect(card).toHaveCount(1);
+  await expect(card.getByTestId("result-title")).toHaveText(topVideo("ig", 1).title);
+  const note =
+    "Try matching the car wheel to a coffee cup, keeping the circle in the same part of the frame.";
+  await card.getByTestId("inspiration-note").fill(note);
+  await card.getByTestId("inspiration-stage").selectOption("trying");
+  expect(await fitsViewport(page)).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("synthetic-practice-library.png"),
+    fullPage: true,
+  });
+  // Saving an already-saved card opens its notes; it never deletes the work.
+  await page.getByTestId("inspiration-explore").click();
+  await savedResult.getByTestId("inspiration-save").click();
+  await expect(card.getByTestId("inspiration-note")).toHaveValue(note);
+  await expect(card.getByTestId("inspiration-stage")).toHaveValue("trying");
+  await page.reload();
+  await page.getByTestId("inspiration-library-open").click();
+  await expect(card).toHaveCount(1);
+  await expect(card.getByTestId("inspiration-note")).toHaveValue(note);
+  await expect(card.getByTestId("inspiration-stage")).toHaveValue("trying");
+  await card.getByTestId("inspiration-stage").selectOption("tried");
+  await page.reload();
+  await page.getByTestId("inspiration-library-open").click();
+  await expect(card.getByTestId("inspiration-stage")).toHaveValue("tried");
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("Discover v2: a full category page at 375 px never scrolls sideways; only the style chips scroll sideways", async ({
   page,
 }) => {
   await stubWorker(page, () => ANSWER, CATEGORY_CARS_FULL);
@@ -1048,7 +1126,7 @@ test("Discover v2: a full category page at 375 px never scrolls sideways; its ch
   const shelves = await cat.getByTestId("category-shelf").all();
   expect(shelves).toHaveLength(3);
   for (const shelf of shelves)
-    expect(await shelf.locator("ul").first().evaluate(scrollsSideways)).toBe(true);
+    expect(await shelf.locator("ul").first().evaluate(scrollsSideways)).toBe(false);
   expect(await fitsViewport(page)).toBe(true);
 
   // English's longer words never push the page wider either.
@@ -1069,7 +1147,7 @@ test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikT
   await page.getByTestId("genre-cars").click();
 
   const top = page.getByTestId("category-top");
-  await expect(top.getByRole("heading", { level: 3 })).toHaveText("🏆 الأقوى في سيارات");
+  await expect(top.getByRole("heading", { level: 3 })).toHaveText("مونتاج تتعلّم منه · سيارات");
   const tabs = top.getByRole("tab");
   await expect(tabs).toHaveCount(3);
   // Instagram, TikTok, then YouTube (the owner: "Instagram and tiktok first"), English names in Arabic too. Instagram
@@ -1083,6 +1161,12 @@ test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikT
   await expect(top.locator('[data-testid="category-top-item"][data-platform="ig"]')).toHaveCount(
     12,
   );
+  const firstTop = top.getByTestId("category-top-item").first();
+  await expect(firstTop.getByTestId("category-match-evidence")).toContainText("rolling shot");
+  const topSave = firstTop.getByTestId("inspiration-save");
+  await expect(topSave).toHaveAttribute("aria-pressed", "false");
+  await topSave.click();
+  await expect(topSave).toHaveAttribute("aria-pressed", "true");
   // The three tabs sit inside the strip, and the strip inside the page.
   const strip = top.getByRole("tablist");
   expect(await strip.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -1126,7 +1210,7 @@ test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikT
 
   // English: the same row, and the page still never scrolls sideways.
   await page.getByTestId("lang-en").click();
-  await expect(top.getByRole("heading", { level: 3 })).toHaveText("🏆 Top in Cars");
+  await expect(top.getByRole("heading", { level: 3 })).toHaveText("Edits to study · Cars");
   expect(await fitsViewport(page)).toBe(true);
 });
 
@@ -1138,7 +1222,14 @@ test("Discover v2: an empty TikTok tab connects TikTok trends — TikTok for Bus
   const portal = "https://business-api.tiktok.com/portal/auth?app_id=7693488727766597653&state=e2e";
   await stubWorker(page, () => ANSWER, CATEGORY_CARS_FULL, {
     // Brave off (§6): the stored TikTok list alone, none yet.
-    topTikTok: { platform: "tt", scan: [], brave: [], source: "scan", note: "no_key" },
+    topTikTok: {
+      platform: "tt",
+      scan: [],
+      brave: [],
+      source: "scan",
+      note: "no_key",
+      discoveryStatus: "not_connected",
+    },
     connect: (body) => {
       connects.push(body);
       return { url: portal };
@@ -1157,7 +1248,9 @@ test("Discover v2: an empty TikTok tab connects TikTok trends — TikTok for Bus
 
   const top = page.getByTestId("category-top");
   await top.locator('[data-testid="category-top-tab"][data-platform="tt"]').click();
-  await expect(top.getByTestId("category-top-line")).toHaveText("لسه ما فيه شي هنا");
+  await expect(top.getByTestId("category-top-line")).toHaveText(
+    "اربط تيك توك عشان تضيف نتائج الاستكشاف منه.",
+  );
   // Brave is off by choice: nothing about it.
   await expect(top.getByText("Brave")).toHaveCount(0);
   const connect = top.getByTestId("category-top-connect");

@@ -114,6 +114,15 @@ import {
 } from "@/lib/gems";
 import { levelFromXp } from "@/lib/level";
 import { canonicalRefUrl } from "@/lib/research";
+import type { ResearchItem } from "@/lib/research";
+import {
+  InspirationsSchema,
+  InspirationSchema,
+  inspirationKey,
+  saveInspiration,
+  INSPIRATION_NOTE_MAX,
+  type InspirationStage,
+} from "@/lib/inspiration";
 import { rankFromXp } from "@/lib/rank";
 import { seasonState, type SeasonState } from "@/lib/season";
 import {
@@ -173,6 +182,7 @@ export const PersistedStateSchema = z.object({
   reviews: ReviewsSchema,
   /** Scout v0 (1.13): references the owner attached to a skill, by skill id. */
   savedRefs: z.record(z.string(), z.array(RefSchema)).default({}),
+  inspirations: InspirationsSchema,
   /** Scout v0 (1.13): last topics typed on /discover, most recent first, capped at 8. */
   recentTopics: z.array(z.string()).default([]),
   /** 📝 One Markdown note per skill, by skill id (the Research quest's home). */
@@ -328,6 +338,9 @@ export interface PostedResult {
 }
 
 export interface StoreActions {
+  saveInspiration(item: ResearchItem, now?: Date): void;
+  updateInspiration(url: string, patch: { note?: string; stage?: InspirationStage }): void;
+  removeInspiration(url: string): void;
   /* 📱 Social world (rounds 16–17). */
   /** Create a post; see NewPostInput for the defaults. Throws (Zod) on an invalid input. */
   addPost(input: NewPostInput, now?: Date): Post;
@@ -491,6 +504,7 @@ const initialData = (): PersistedState => ({
   freezesUsedOn: [],
   reviews: [],
   savedRefs: {},
+  inspirations: [],
   recentTopics: [],
   notes: {},
   gemEvents: [],
@@ -541,6 +555,7 @@ const pick = (s: PersistedState): PersistedState => ({
   freezesUsedOn: s.freezesUsedOn,
   reviews: s.reviews,
   savedRefs: s.savedRefs,
+  inspirations: s.inspirations,
   recentTopics: s.recentTopics,
   notes: s.notes,
   gemEvents: s.gemEvents,
@@ -909,6 +924,32 @@ export const useStore = create<StoreState>()(
 
       setSettings(partial) {
         set((s) => ({ settings: SettingsSchema.parse({ ...s.settings, ...partial }) }));
+      },
+
+      saveInspiration(item, now = new Date()) {
+        set((s) => ({ inspirations: saveInspiration(s.inspirations, item, now) }));
+      },
+
+      updateInspiration(url, patch) {
+        set((s) => ({
+          inspirations: s.inspirations.map((entry) =>
+            inspirationKey(entry.ref) !== canonicalRefUrl(entry.ref.platform, url)
+              ? entry
+              : InspirationSchema.parse({
+                  ...entry,
+                  ...patch,
+                  note: (patch.note ?? entry.note).slice(0, INSPIRATION_NOTE_MAX),
+                }),
+          ),
+        }));
+      },
+
+      removeInspiration(url) {
+        set((s) => ({
+          inspirations: s.inspirations.filter(
+            (entry) => inspirationKey(entry.ref) !== canonicalRefUrl(entry.ref.platform, url),
+          ),
+        }));
       },
 
       // Refs compare by their canonical URL (lib/research canonicalRefUrl), so a post saved as a /reel/ link,

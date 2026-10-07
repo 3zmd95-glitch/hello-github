@@ -1,9 +1,9 @@
 /**
- * A Discover category's scan (planning/tools/19-category-trends.md §2): its 6 queries over Instagram's month (6
+ * A Discover category's scan (planning/tools/19-category-trends.md §2): four Instagram and two TikTok searches (6
  * credits) → Trending effects' candidates, AI cleanup (on gpt-oss-120b, llama its fallback) and 7-day memory, with the
  * camera words, the category's own generic words, its context line and a 200-name memory → its top 12, trends first,
- * with no YouTube check → plus the top videos per platform (§6: YouTube's 50 most viewed of the month, 2 calls; the
- * scan's Instagram posts; TikTok's Discovery API, 4 calls and its token's KV read, tiktok.ts) → one KV document
+ * with no YouTube check → plus quality-gated videos per platform (YouTube relevant candidates, 2 calls; indexed
+ * Instagram/TikTok posts; TikTok Discovery and bounded public captions, tiktok.ts) → one KV document
  * `category:<id>`. Once per UTC day unless forced or that day's run failed; at most 3 spending runs a category a UTC
  * day, forced ones included (`category:attempts:<id>:<day>`); paused at 90 % of the month's Tavily credits (§4). When
  * its lessons are 6 or more days old, missing or from an older version (`LESSONS_VERSION`) the scan also refreshes
@@ -11,6 +11,7 @@
  */
 
 import { isRecord } from "../effects/ai";
+import { CATEGORY_PROFILES } from "../discover/category-profiles";
 import { readEffects, writeEffects } from "../effects/kv";
 import { countAttempt, failed, noted, rememberPosts, type Memory } from "../effects/run";
 import { scoreEffects } from "../effects/score";
@@ -23,6 +24,7 @@ import {
   type FamilyStats,
 } from "../effects/sources";
 import type { TikTokAdsEnv } from "../tiktokads";
+import type { EffectPost } from "../effects/types";
 import type { Genre } from "../trends/genres";
 import { utcDay } from "../trends/kv";
 import {
@@ -39,10 +41,13 @@ import {
 import { LESSON_MODEL, lessonsDue, refreshLessons } from "./lessons";
 import { tiktokTop } from "./tiktok";
 import { readTop, scanTop, youtubeTop } from "./top";
+import { categoryCreativeEvidence, rankCategoryVideos } from "./quality";
 import { AREAS, type CategoryDoc, type TopLists } from "./types";
 
 /** A scan reads TikTok's Discovery API with the TikTok for Business token (tiktokads.ts). */
 export type CategoryEnv = EffectsEnv & TikTokAdsEnv;
+/** Category counts from before metadata quality gating must not qualify as new creative evidence. */
+export const CATEGORY_QUALITY_VERSION = 1;
 
 export type CategoryRunOptions = {
   fetch?: typeof fetch;
@@ -76,7 +81,11 @@ export async function readCategory(env: EffectsEnv, id: string): Promise<Categor
     (isRecord(l) && typeof l.updatedAt === "string" && AREAS.every((a) => Array.isArray(l[a])))
       ? doc.lessons
       : undefined;
-  return { ...doc, lessons, top: readTop(doc.top) };
+  const top = readTop(doc.top);
+  if (top)
+    for (const platform of ["ig", "tt", "yt"] as const)
+      top[platform] = rankCategoryVideos(id, top[platform]);
+  return { ...doc, lessons, top };
 }
 
 async function scan(
@@ -96,18 +105,24 @@ async function scan(
 }> {
   const queries = categoryQueries(g);
   // `tight: false`: a category never cuts back; it pauses before searching instead (runCategory).
-  const { posts, credits, errors, families } = await searchFamilies(
-    env,
-    doFetch,
-    queries,
-    opts.timeoutMs,
-    {
+  const scans = await Promise.all([
+    searchFamilies(env, doFetch, queries.slice(0, 4), opts.timeoutMs, {
       numbering: queries,
       tight: false,
       searches: IG_MONTH,
       now,
-    },
-  );
+    }),
+    searchFamilies(env, doFetch, queries.slice(4), opts.timeoutMs, {
+      numbering: queries,
+      tight: false,
+      searches: [{ platform: "tt", timeRange: "month", stat: "tt" }],
+      now,
+    }),
+  ]);
+  const posts = scans.flatMap((s) => s.posts);
+  const credits = scans.reduce((n, s) => n + s.credits, 0);
+  const errors = scans.flatMap((s) => s.errors);
+  const families = scans.flatMap((s) => s.families);
   const notes = new Set(errors);
   if (!posts.length && errors.length)
     return { doc: failed(prev, today, now, [...notes]), credits, families };
@@ -118,37 +133,65 @@ async function scan(
   const kept = opts.force ? prev?.top : undefined;
   const youtube = kept
     ? null
-    : await youtubeTop(env, doFetch, g.queries.en[0], now, opts.timeoutMs);
+    : await youtubeTop(
+        env,
+        doFetch,
+        CATEGORY_PROFILES[g.id]?.examples.en ?? g.queries.en[0],
+        now,
+        opts.timeoutMs,
+      );
   if (!kept && !youtube) notes.add("youtube");
   // TikTok's from its Discovery API on every scan, forced ones too (free). Not connected (`tiktok_auth`), TikTok failing
   // (`tiktok`) or an empty answer: the last list stays, with its own date.
   const tiktok = await tiktokTop(env, doFetch, g.id, opts.timeoutMs);
   if (tiktok.note) notes.add(tiktok.note);
-  const fresh = tiktok.videos?.length ? tiktok.videos : undefined;
+  const freshCandidates = [...scanTop(posts, "tt", g.id), ...(tiktok.videos ?? [])];
+  const fresh = freshCandidates.length ? rankCategoryVideos(g.id, freshCandidates) : undefined;
   const ttUpdatedAt = fresh ? now.toISOString() : prev?.top?.ttUpdatedAt;
   const top: TopLists = {
     updatedAt: youtube ? now.toISOString() : (prev?.top?.updatedAt ?? now.toISOString()),
-    yt: youtube?.videos ?? prev?.top?.yt ?? [],
-    ig: scanTop(posts, "ig"),
+    yt: rankCategoryVideos(g.id, youtube?.videos ?? prev?.top?.yt ?? []),
+    ig: scanTop(posts, "ig", g.id),
     tt: fresh ?? prev?.top?.tt ?? [],
     ...(ttUpdatedAt ? { ttUpdatedAt } : {}),
   };
-  const all = [...posts, ...(youtube?.posts ?? [])];
-  const { history, meta, shown, memory } = await rememberPosts(env, prev, today, all, notes, {
-    aiTimeoutMs: opts.aiTimeoutMs,
-    extract: { suffixes: CATEGORY_SUFFIXES, generic: categoryGeneric(g) },
-    aiContext: aiContext(g),
-    // gpt-oss-120b, llama once for a batch it leaves without a list: llama alone approved junk names for Cars
-    // ("Creative Effect"), while gpt-oss answered every lessons call (§2).
-    aiModel: LESSON_MODEL,
-    maxKeys: CATEGORY_KEYS,
-  });
+  const tiktokPosts: EffectPost[] = (tiktok.videos ?? []).map((v) => ({
+    platform: "tt",
+    handle: v.creator ?? "",
+    title: v.title,
+    snippet: v.snippet ?? "",
+    url: v.url,
+    ...(v.publishedAt ? { published: v.publishedAt } : {}),
+  }));
+  const all = [...posts, ...(youtube?.posts ?? []), ...tiktokPosts].filter(
+    (p) => categoryCreativeEvidence(g.id, `${p.title} ${p.snippet}`).eligible,
+  );
+  // Reset generated trend evidence once on a successful spending scan. This does not schedule extra scans,
+  // touch lessons/top lists, or alter user data. Cached no-ops and failed/budget-blocked runs retain their document.
+  const previousEvidence = prev?.qualityVersion === CATEGORY_QUALITY_VERSION ? prev : null;
+  const { history, meta, shown, memory } = await rememberPosts(
+    env,
+    previousEvidence,
+    today,
+    all,
+    notes,
+    {
+      aiTimeoutMs: opts.aiTimeoutMs,
+      extract: { suffixes: CATEGORY_SUFFIXES, generic: categoryGeneric(g) },
+      aiContext: aiContext(g),
+      // gpt-oss-120b, llama once for a batch it leaves without a list: llama alone approved junk names for Cars
+      // ("Creative Effect"), while gpt-oss answered every lessons call (§2).
+      aiModel: LESSON_MODEL,
+      maxKeys: CATEGORY_KEYS,
+    },
+  );
   return {
     credits,
     families,
     memory,
     tiktok: tiktok.diagnostics,
     doc: {
+      qualityVersion: CATEGORY_QUALITY_VERSION,
       ranOn: today,
       updatedAt: now.toISOString(),
       status: notes.size ? "partial" : "ok",

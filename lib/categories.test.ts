@@ -48,6 +48,11 @@ const YT = {
 const TECH = {
   name: { en: "rolling shot", ar: "لقطة متحركة" },
   howTo: HOW,
+  study: {
+    watchFor: { en: "Watch the subject position." },
+    tryIt: { en: "Try one short framing study." },
+    sourceBasis: "title-and-description",
+  },
   skillId: "phone-180-shutter",
   videos: [TT, YT],
 };
@@ -60,6 +65,60 @@ const replying = (body: unknown, status = 200) =>
 beforeEach(() => sessionStorage.clear());
 
 describe("parseCategory", () => {
+  it("withholds legacy v4 links but accepts individually refreshed study cards in a partial document", () => {
+    const legacy = {
+      ...TECH,
+      study: undefined,
+      videos: [{ ...YT, title: "Kitchen food processor", kind: "example" }],
+    };
+    const old = { ...DOC, lessons: { ...LESSONS, v: 4, video: [legacy] } };
+    expect(parseCategory(old)?.lessons).toBeUndefined();
+    const partial = {
+      ...DOC,
+      lessons: {
+        ...LESSONS,
+        v: 4,
+        photo: [legacy],
+        video: [TECH],
+        edit: [{ ...TECH, videos: [YT] }],
+      },
+    };
+    expect(parseCategory(partial)?.lessons).toEqual({
+      updatedAt: LESSONS.updatedAt,
+      photo: [],
+      video: [TECH],
+      edit: [],
+    });
+    const fresh = { ...partial, lessons: { ...partial.lessons, v: undefined } };
+    expect(parseCategory(fresh)?.lessons?.video).toEqual([TECH]);
+    for (const url of [
+      "https://www.youtube.com/@creator",
+      "https://evil.example/watch?v=abc12345",
+      "https://www.instagram.com/explore/tags/food",
+    ]) {
+      expect(
+        parseCategory({
+          ...DOC,
+          lessons: { ...LESSONS, video: [{ ...TECH, videos: [{ ...YT, url, kind: "example" }] }] },
+        })?.lessons,
+      ).toBeUndefined();
+    }
+  });
+  it("requires bounded study prompts and their metadata basis", () => {
+    const study = {
+      watchFor: { en: "Watch where the cut lands.", ar: "لاحظ مكان القطع." },
+      tryIt: { en: "Try a two-shot sequence.", ar: "جرّب تسلسل من لقطتين." },
+      sourceBasis: "title-and-description",
+    };
+    const parseStudy = (s: unknown) =>
+      parseCategory({ ...DOC, lessons: { ...LESSONS, video: [{ ...TECH, study: s }] } })!.lessons
+        ?.video[0];
+    expect(parseStudy(study)?.study).toEqual(study);
+    expect(parseStudy({ ...study, sourceBasis: "watched-video" })).toBeUndefined();
+    expect(parseStudy({ ...study, tryIt: { ar: "جرّب" } })).toBeUndefined();
+    expect(parseStudy({ ...study, watchFor: { en: "x".repeat(601) } })).toBeUndefined();
+    expect(parseStudy(undefined)).toBeUndefined();
+  });
   it("keeps the trends and lessons the page uses", () => {
     expect(parseCategory(DOC)).toEqual({
       status: "ok",
@@ -85,7 +144,7 @@ describe("parseCategory", () => {
     expect(parseCategory(broken)!.lessons).toEqual({
       updatedAt: LESSONS.updatedAt,
       photo: [],
-      video: [{ name: TECH.name, howTo: HOW, videos: [TT] }],
+      video: [{ name: TECH.name, howTo: HOW, study: TECH.study, videos: [TT] }],
       edit: [],
     });
     const empty = { ...DOC, lessons: { updatedAt: "x", photo: [], video: [], edit: [] } };
@@ -131,6 +190,7 @@ describe("parseCategory", () => {
           tech(6, [
             { ...TT, url: "http://www.tiktok.com/@c/video/1" },
             { ...YT, url: "javascript:alert(1)" },
+            TT,
             YT,
           ]),
         ],
@@ -140,12 +200,32 @@ describe("parseCategory", () => {
     };
     const lessons = parseCategory(doc)!.lessons!;
     expect(lessons.photo.map((t) => t.name.en)).toEqual(["t1", "t2", "t3"]);
-    expect(lessons.video[0].videos).toEqual([YT]);
+    expect(lessons.video[0].videos).toEqual([TT, YT]);
     expect(lessons.edit[0].videos).toEqual(six.slice(0, 4));
   });
 });
 
 describe("parseCategory's top videos (§6)", () => {
+  it("preserves source and metadata matches but never accepts a fabricated visual verification basis", () => {
+    const video = {
+      url: "https://www.instagram.com/p/Cars",
+      title: "Car edit",
+      source: "tavily",
+      snippet: "Rolling shot",
+      evidence: { basis: "metadata", subjects: ["car", 9], techniques: ["rolling shot", ""] },
+    };
+    const parse = (v: unknown) =>
+      parseCategory({ ...DOC, top: { updatedAt: DOC.updatedAt, ig: [v] } })!.top!.ig[0];
+    expect(parse(video)).toMatchObject({
+      source: "tavily",
+      snippet: "Rolling shot",
+      evidence: { basis: "metadata", subjects: ["car"], techniques: ["rolling shot"] },
+    });
+    expect(
+      parse({ ...video, evidence: { ...video.evidence, basis: "visual" } }).evidence,
+    ).toBeUndefined();
+    expect(parse({ ...video, source: "unknown" }).source).toBeUndefined();
+  });
   const V = {
     url: "https://www.youtube.com/watch?v=carVid00001",
     title: "Car edit",
@@ -281,6 +361,19 @@ describe("pageState", () => {
     expect(pageState(data({ status: "failed", items: [], lessons: undefined }))).toBe("never");
     expect(pageState(data({ status: "failed" }))).toBe("stale");
     expect(pageState(data({ status: "failed", items: [] }))).toBe("stale"); // lessons only
+    expect(
+      pageState(
+        data({
+          status: "failed",
+          items: [],
+          lessons: undefined,
+          top: {
+            updatedAt: DOC.updatedAt,
+            ig: [{ url: "https://www.instagram.com/p/Car", title: "Car edit" }],
+          },
+        }),
+      ),
+    ).toBe("stale"); // useful videos survive a failed lesson update
     expect(pageState(data({ status: "partial" }))).toBe("page");
     expect(pageState(data({ items: [], lessons: undefined }))).toBe("page"); // a scan that found nothing
   });

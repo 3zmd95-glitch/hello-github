@@ -52,7 +52,7 @@ function youtube(
 }
 
 describe("youtubeTop (T1, stored with the page)", () => {
-  it("asks search.list for the main query's most viewed videos of the last 30 days, then videos.list for their views", async () => {
+  it("retrieves relevant recent videos before reading views as a secondary ranking signal", async () => {
     const fetch = youtube(["carVid00001", "carVid00002"], { carVid00001: 5, carVid00002: 9 });
     await youtubeTop({ YOUTUBE_API_KEY: YT_KEY }, fetch, "car edit", NOW);
     expect(fetch).toHaveBeenCalledTimes(2);
@@ -61,7 +61,7 @@ describe("youtubeTop (T1, stored with the page)", () => {
     expect(Object.fromEntries(search.searchParams)).toEqual({
       part: "snippet",
       type: "video",
-      order: "viewCount",
+      order: "relevance",
       q: "car edit",
       publishedAfter: "2026-09-07T05:40:00.000Z",
       maxResults: "50",
@@ -99,6 +99,8 @@ describe("youtubeTop (T1, stored with the page)", () => {
     expect(top[0]).toEqual({
       url: `https://www.youtube.com/watch?v=${ids[49]}`,
       title: `Car edit ${ids[49]}`,
+      source: "youtube",
+      snippet: expect.stringMatching(/^How carVid00049 was shot/),
       creator: `Channel ${ids[49]}`,
       views: 500,
       publishedAt: "2026-10-01T10:00:00Z",
@@ -161,7 +163,7 @@ describe("scanTop (T2 and T3, the scan's own posts, stored)", () => {
   const post = (platform: EffectPlatform, id: string, handle = ""): EffectPost => ({
     platform,
     handle,
-    title: `post ${id}`,
+    title: `Car edit ${id}`,
     snippet: "",
     url:
       platform === "ig"
@@ -176,22 +178,25 @@ describe("scanTop (T2 and T3, the scan's own posts, stored)", () => {
    * and D; search 2 finds C, B and E; search 3 finds B, C and the TikTok post. */
   const posts = [a, b, d, c, b, e, b, c, t];
 
-  it("each Instagram post once: the ones more of the searches found first, then as first seen; a creator when known", () => {
-    expect(scanTop(posts, "ig")).toEqual([
-      { url: b.url, title: "post B" }, // 3 searches
-      { url: c.url, title: "post C", creator: "@c" }, // 2
-      { url: a.url, title: "post A", creator: "@a" }, // 1, seen first
-      { url: d.url, title: "post D" },
-      { url: e.url, title: "post E" },
-    ]);
+  it("dedupes without rewarding repeated search hits, preserving title, creator and evidence", () => {
+    const result = scanTop(posts, "ig", "cars");
+    expect(result.map((v) => v.url)).toEqual([a.url, b.url, d.url, c.url, e.url]);
+    expect(result[0]).toMatchObject({
+      title: "Car edit A",
+      creator: "@a",
+      source: "tavily",
+      evidence: { basis: "metadata", subjects: ["car"] },
+    });
     // T3: the TikTok posts the scan saw (a category scan searches Instagram alone since live fix 1: usually none).
-    expect(scanTop(posts, "tt")).toEqual([{ url: t.url, title: "post 1", creator: "@t" }]);
-    expect(scanTop([a, b], "tt")).toEqual([]);
+    expect(scanTop(posts, "tt", "cars")).toMatchObject([
+      { url: t.url, title: "Car edit 1", creator: "@t" },
+    ]);
+    expect(scanTop([a, b], "tt", "cars")).toEqual([]);
   });
 
   it("keeps at most 50, in the order first seen when every post was found once", () => {
     const many = Array.from({ length: 60 }, (_, i) => post("ig", `P${i}`));
-    const top = scanTop(many, "ig");
+    const top = scanTop(many, "ig", "cars");
     expect(top).toHaveLength(50);
     expect(top.map((v) => v.url)).toEqual(many.slice(0, 50).map((p) => p.url));
   });

@@ -1,37 +1,68 @@
 "use client";
 
 import ResearchPanel from "@/components/research/ResearchPanel";
+import { useState } from "react";
 import { useT } from "@/lib/i18n";
+import { useStore } from "@/store";
+import InspirationLibrary from "./InspirationLibrary";
 import { useGenreLink, useTikTokReturn } from "./useGenreLink";
 
-/**
- * Discover (build plan 1.13 → 1.15): a free topic searched on YouTube, TikTok and Instagram through the
- * shared research panel (tabs, filters, thumbnails), with "attach to skill" on every card. Round 31: the
- * panel's edit-genre row (cars, food, anime…) searches a genre on its own or together with the topic, its
- * "Most popular" sort puts the most viewed / liked first, and a picked genre shows the Trend Radar's "most
- * viewed this week" above the results. Discover is the one place for genres: `/discover/?genre=<id>` (the
- * radar's genre chips) opens it with that genre on. Back from TikTok for Business (a category page's "Connect TikTok
- * trends"), a line says whether TikTok connected.
- */
+/** Explore real references, then keep personal observations and practice progress. The search remains mounted
+ * while the library is open so returning to a category preserves its selected video and results. */
 export default function DiscoverScreen() {
   const { t } = useT();
   const openGenre = useGenreLink();
   const tiktok = useTikTokReturn();
+  const count = useStore((s) => s.inspirations.length);
+  const [view, setView] = useState<"explore" | "practice">("explore");
+  const [focusUrl, setFocusUrl] = useState<string>();
   return (
     <>
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl">{t("discover.title")}</h1>
-        <p className="text-ink-2 text-sm">{t("discover.sub")}</p>
+        <p className="text-ink-2 text-sm">{t("inspiration.sub")}</p>
         {/* Always there (empty when there is nothing to say), so its words are announced. */}
         <p role="status" className="text-sm font-bold" data-testid="tiktokads-line">
           {tiktok &&
             t(tiktok === "connected" ? "search.tiktokConnected" : "search.tiktokConnectFailed")}
         </p>
       </header>
-      <ResearchPanel
-        stickyTop="max-md:top-[calc(59px+env(safe-area-inset-top,0px))]"
-        openGenre={openGenre}
-      />
+      <div role="group" aria-label={t("discover.title")} className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={`px-btn ${view === "explore" ? "px-btn-gold" : "px-btn-ghost"}`}
+          aria-pressed={view === "explore"}
+          onClick={() => setView("explore")}
+          data-testid="inspiration-explore"
+        >
+          {t("inspiration.explore")}
+        </button>
+        <button
+          type="button"
+          className={`px-btn ${view === "practice" ? "px-btn-gold" : "px-btn-ghost"}`}
+          aria-pressed={view === "practice"}
+          onClick={() => {
+            setFocusUrl(undefined);
+            setView("practice");
+          }}
+          data-testid="inspiration-library-open"
+        >
+          {t("inspiration.library", { n: count })}
+        </button>
+      </div>
+      <div hidden={view !== "explore"}>
+        <ResearchPanel
+          stickyTop="max-md:top-[calc(59px+env(safe-area-inset-top,0px))]"
+          openGenre={openGenre}
+          onOpenInspiration={(url) => {
+            setFocusUrl(url);
+            setView("practice");
+          }}
+        />
+      </div>
+      {view === "practice" && (
+        <InspirationLibrary focusUrl={focusUrl} onExplore={() => setView("explore")} />
+      )}
     </>
   );
 }

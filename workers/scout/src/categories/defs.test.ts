@@ -32,22 +32,22 @@ describe("a category's searches and words", () => {
   const cars = categoryById("cars")!;
   const food = categoryById("food")!;
 
-  it("6 English queries (live fix 1): the main one with ' trend', the second, viral, transition, CapCut template, the subject's video trend", () => {
+  it("keeps six focused subject-and-technique searches without popularity boilerplate", () => {
     expect(categoryQueries(cars)).toEqual([
-      "car edit trend",
-      "cinematic car edit",
-      "viral car edit",
-      "car edit transition",
-      "car edit capcut template",
-      "car video trend",
+      "cinematic car rolling shots",
+      "automotive commercial car edit",
+      "car match cut transition",
+      "car videography editing tutorial",
+      "car speed ramp cinematic edit",
+      "how to film cinematic car rollers",
     ]);
     expect(categoryQueries(food)).toEqual([
-      "food edit trend",
-      "restaurant cinematic video",
-      "viral food edit",
-      "food edit transition",
-      "food edit capcut template",
-      "food video trend",
+      "food commercial cinematic b roll",
+      "restaurant food video ad",
+      "food match cut transition",
+      "food videography lighting tutorial",
+      "food speed ramp cinematic edit",
+      "food commercial editing breakdown",
     ]);
   });
 

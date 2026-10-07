@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, createElement } from "react";
+import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoPlayerContext, type PlayableItem } from "@/components/player/VideoPlayerContext";
@@ -48,6 +48,17 @@ const technique = (en: string, ar: string, n: number, skillId?: string) => ({
   howTo: {
     en: lines(en),
     ar: `طريقة ${ar}: الإعدادات والعدة والمونتاج.`,
+  },
+  study: {
+    watchFor: {
+      en: "Watch where the car stays in the frame while the background moves.",
+      ar: "لاحظ مكان السيارة في الكادر مع حركة الخلفية.",
+    },
+    tryIt: {
+      en: "Film one short movement and compare two different crops.",
+      ar: "صوّر حركة قصيرة وقارن كادرين مختلفين.",
+    },
+    sourceBasis: "title-and-description",
   },
   ...(skillId ? { skillId } : {}),
   videos: [
@@ -203,7 +214,10 @@ const settle = () =>
     for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
   });
 
-async function mount(lang: Lang = "ar", props: { searchBlocked?: boolean } = {}) {
+async function mount(
+  lang: Lang = "ar",
+  props: Partial<Pick<ComponentProps<typeof CategoryPage>, "searchBlocked" | "renderAction">> = {},
+) {
   useStore.getState().setSettings({ lang });
   const player = {
     current: null,
@@ -267,6 +281,44 @@ afterEach(async () => {
 });
 
 describe("the category page", () => {
+  it("saves the selected example, shows its preview before study, and keeps one study panel open", async () => {
+    const saved: string[] = [];
+    await mount("en", {
+      renderAction: (item) =>
+        createElement(
+          "button",
+          {
+            "data-testid": "save-example",
+            onClick: () => saved.push(item.url),
+          },
+          "Save",
+        ),
+    });
+    const cards = all("category-technique");
+    const first = cards[0];
+    const preview = first.querySelector('[data-testid="category-lesson-preview"]')!;
+    const choices = first.querySelectorAll<HTMLElement>('[data-testid="category-video"]');
+    act(() => choices[1].click());
+    act(() => first.querySelector<HTMLElement>('[data-testid="save-example"]')!.click());
+    expect(saved).toEqual([LESSONS.photo[0].videos[1].url]);
+    expect(calls.played).toHaveLength(0); // selecting a preview never autoplays
+    act(() => first.querySelector<HTMLElement>('[data-testid="category-study-toggle"]')!.click());
+    const panel = first.querySelector('[data-testid="category-study"]')!;
+    expect(
+      first
+        .querySelector('[data-testid="category-lesson-preview"]')!
+        .compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(preview).not.toBeNull();
+    expect(panel.textContent).toContain("not analysis of the video");
+    expect(panel.textContent).not.toContain("1/30");
+    act(() =>
+      cards[1].querySelector<HTMLElement>('[data-testid="category-study-toggle"]')!.click(),
+    );
+    expect(all("category-study")).toHaveLength(1);
+    expect(first.querySelector('[data-testid="category-study"]')).toBeNull();
+  });
+
   it("hands back to the category search when the Worker has no page (an older Worker's 404)", async () => {
     page = null;
     await mount();
@@ -305,23 +357,26 @@ describe("the category page", () => {
     const nameAr = panning.querySelector('[data-testid="category-name-ar"]')!;
     expect(nameAr.textContent).toBe("بانينق");
     expect(nameAr.getAttribute("dir")).toBe("rtl");
-    // The English how-to, left to right with its ✦ AI badge, then the Arabic one, right to left. e2e/discover.spec.ts
-    // checks the directions and the lines in Chromium.
-    const howTo = panning.querySelector('[data-testid="category-howto"]')!;
-    expect(howTo.getAttribute("dir")).toBe("ltr");
-    expect(howTo.querySelector('[data-testid="category-ai"]')!.textContent).toBe("✦ AI");
-    // Live fix 2: its Shoot, Settings and Edit lines, each on its own line.
-    expect(howTo.textContent).toBe(`✦ AI${lines("panning")}`);
-    expect(howTo.classList.contains("whitespace-pre-line")).toBe(true);
-    const howToAr = panning.querySelector('[data-testid="category-howto-ar"]')!;
-    expect(howToAr.getAttribute("dir")).toBe("rtl");
-    expect(howToAr.textContent).toBe("طريقة بانينق: الإعدادات والعدة والمونتاج.");
-    // 🎯 only for a skill the app knows: the craft skill and the DaVinci one, never an unknown id.
+    expect(panning.querySelector('[data-testid="category-lesson-preview"]')).not.toBeNull();
+    expect(panning.querySelector('[data-testid="category-study"]')).toBeNull();
+    act(() => panning.querySelector<HTMLElement>('[data-testid="category-study-toggle"]')!.click());
+    const watch = panning.querySelector('[data-testid="category-watch-for"]')!;
+    expect(watch.getAttribute("dir")).toBe("ltr");
+    expect(watch.textContent).toContain("Watch where the car stays");
+    expect(
+      panning.querySelector('[data-testid="category-watch-for-ar"]')!.getAttribute("dir"),
+    ).toBe("rtl");
+    expect(panning.querySelector('[data-testid="category-study-basis"]')!.textContent).toContain(
+      "مو من تحليل الفيديو",
+    );
+    expect(panning.textContent).not.toContain("1/30");
     expect(panning.querySelector('[data-testid="category-skill"]')!.textContent).toContain(
       getSkill("phone-180-shutter")!.name.ar,
     );
-    expect(rolling.querySelector('[data-testid="category-skill"]')).toBeNull();
+    act(() => speed.querySelector<HTMLElement>('[data-testid="category-study-toggle"]')!.click());
+    expect(panning.querySelector('[data-testid="category-study"]')).toBeNull();
     expect(speed.querySelector('[data-testid="category-skill"]')).not.toBeNull();
+    expect(rolling.querySelector('[data-testid="category-skill"]')).toBeNull();
     expect(videos(rolling)).toEqual(["example:en", "example:en", "tutorial:en", "tutorial:ar"]);
     expect(rolling.textContent).toContain("شرح بالعربي");
     expect($("category-search-all")!.textContent).toBe("شوف كل فيديوهات سيارات ←");
@@ -346,21 +401,25 @@ describe("the category page", () => {
     expect($("category-search-all")!.textContent).toBe("Search all Cars videos →");
   });
 
-  it("a technique in English only (live fix 1) shows no Arabic lines, in Arabic too", async () => {
-    const english = {
-      ...technique("panning", "بانينق", 1),
-      name: { en: "panning" },
-      howTo: { en: "Pan with the car at 1/30 s, then add blur in CapCut." },
+  it("withholds old lesson links until refreshed study prompts and a real example are available", async () => {
+    const legacy = {
+      ...technique("legacy panning", "قديم", 1),
+      study: undefined,
+      videos: [
+        {
+          url: "https://www.youtube.com/watch?v=foodProc001",
+          title: "Kitchen food processor",
+          platform: "yt",
+          kind: "example",
+          lang: "en",
+        },
+      ],
     };
-    page = docOf({ lessons: { ...LESSONS, photo: [english] } });
-    await mount("ar");
-    const panning = all("category-technique")[0];
-    expect(panning.querySelector("h4")!.textContent).toBe("panning");
-    expect(panning.querySelector('[data-testid="category-name-ar"]')).toBeNull();
-    expect(panning.querySelector('[data-testid="category-howto-ar"]')).toBeNull();
-    expect(panning.querySelector('[data-testid="category-howto"]')!.textContent).toBe(
-      "✦ AIPan with the car at 1/30 s, then add blur in CapCut.",
-    );
+    page = docOf({ lessons: { ...LESSONS, photo: [legacy] } });
+    await mount("en");
+    expect(all("category-technique")).toHaveLength(2);
+    expect($("category-page")!.textContent).not.toContain("Kitchen food processor");
+    expect($("category-page")!.textContent).not.toContain("legacy panning");
   });
 
   it("a style searches it, Search all searches the category, the skill opens, a video plays in the app", async () => {
@@ -368,18 +427,23 @@ describe("the category page", () => {
     act(() => style("rolling-shot").click());
     act(() => $("category-search-all")!.click());
     const panning = all("category-technique")[0];
+    act(() => panning.querySelector<HTMLElement>('[data-testid="category-study-toggle"]')!.click());
     act(() => panning.querySelector<HTMLElement>('[data-testid="category-skill"]')!.click());
     act(() =>
       panning
         .querySelector<HTMLElement>('[data-testid="category-video"][data-kind="tutorial"]')!
         .click(),
     );
+    act(() => panning.querySelector<HTMLElement>('[data-testid="result-play"]')!.click());
     expect(calls.style).toEqual(["rolling shot"]);
     expect(calls.all).toBe(1);
     expect(calls.skill).toEqual(["phone-180-shutter"]);
-    expect(calls.played).toEqual([
-      { platform: "yt", url: "https://www.youtube.com/watch?v=carTutor001", title: "tutorial 1" },
-    ]);
+    expect(calls.played).toHaveLength(1);
+    expect(calls.played[0]).toMatchObject({
+      platform: "yt",
+      url: "https://www.youtube.com/watch?v=carTutor001",
+      title: "tutorial 1",
+    });
   });
 
   it("before the first scan: 'Scan Cars now' runs it once, waits, then shows the page", async () => {
@@ -443,7 +507,7 @@ describe("the category page", () => {
     page = docOf({ items: [], lessons: undefined });
     await mount();
     expect($("category-page")!.textContent).toContain("لسه ما فيه ستايل منتشر كفاية هنا");
-    expect($("category-page")!.textContent).toContain("الدروس توصل مع الفحص الجاي");
+    expect($("category-page")!.textContent).toContain("أعد الفحص عشان تلاقي أمثلة وتمارين جديدة.");
     expect(shelves()).toHaveLength(0);
   });
 
@@ -572,26 +636,29 @@ describe("the category page", () => {
     }
   });
 
-  it("a video the player can't embed (a TikTok photo post) links out in a new tab", async () => {
-    const photoPost = {
-      url: "https://www.tiktok.com/@cars/photo/7001",
-      title: "carousel",
-      platform: "tt",
-      kind: "example",
-      lang: "en",
-    };
+  it("does not present an unplayable profile or photo-page link as a lesson video", async () => {
     page = docOf({
       lessons: {
         ...LESSONS,
-        photo: [{ ...technique("panning", "بانينق", 1), videos: [photoPost] }],
+        photo: [
+          {
+            ...technique("bad link", "قديم", 1),
+            videos: [
+              {
+                url: "https://www.tiktok.com/@cars/photo/7001",
+                title: "carousel",
+                platform: "tt",
+                kind: "example",
+                lang: "en",
+              },
+            ],
+          },
+        ],
       },
     });
-    await mount();
-    const video = all("category-technique")[0].querySelector('[data-testid="category-video"]')!;
-    expect(video.tagName).toBe("A");
-    expect(video.getAttribute("href")).toBe(photoPost.url);
-    expect(video.getAttribute("target")).toBe("_blank");
-    expect(video.getAttribute("rel")).toBe("noopener noreferrer");
+    await mount("en");
+    expect(all("category-technique")).toHaveLength(2);
+    expect($("category-page")!.textContent).not.toContain("carousel");
   });
 
   it("a GET answering 'never' after this tab's scan landed shows that scan's page, not the first scan", async () => {
@@ -628,7 +695,10 @@ describe("the category page", () => {
     const twin = {
       ...technique("panning", "بانينق", 1),
       // The Arabic tutorial at the English one's link.
-      videos: [tutorial, { ...tutorial, title: "شرح", lang: "ar" }],
+      videos: [
+        { ...tutorial, kind: "example" },
+        { ...tutorial, title: "شرح", lang: "ar" },
+      ],
     };
     page = docOf({ lessons: { ...LESSONS, photo: [twin, twin] } });
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -655,6 +725,61 @@ describe("the category page", () => {
 });
 
 describe("the 🏆 top videos per platform (§6)", () => {
+  it("an empty filtered TikTok list is not a sign-in failure; connection and source errors stay distinct", async () => {
+    page = docOf({ top: { ...TOP, tt: [topVideo("tt", 1)] } });
+    for (const [discoveryStatus, expected] of [
+      ["ready", "No matching edits found here yet."],
+      ["unavailable", "TikTok discovery is unavailable right now."],
+      ["not_scanned", "TikTok is connected. Scan this category"],
+    ]) {
+      topAnswers = {
+        tt: {
+          body: {
+            platform: "tt",
+            scan: [],
+            brave: [],
+            source: "scan",
+            note: "no_key",
+            discoveryStatus,
+          },
+        },
+      };
+      await mount("en");
+      await open("tt");
+      expect(items()).toHaveLength(0); // an empty answer never restores old unqualified candidates
+      expect(line()).toContain(expected);
+      expect($("category-top-connect")).toBeNull();
+      act(() => root.unmount());
+      root = createRoot(host);
+    }
+  });
+  it("shows metadata evidence without claiming visual verification and offers save for each match", async () => {
+    const matched = {
+      ...topVideo("ig", 1),
+      snippet: "Car rolling shot with a match cut",
+      source: "tavily",
+      evidence: { basis: "metadata", subjects: ["car"], techniques: ["rolling shot", "match cut"] },
+    };
+    page = docOf({ top: { ...TOP, ig: [matched] } });
+    const saved: string[] = [];
+    await mount("en", {
+      renderAction: (item) =>
+        createElement(
+          "button",
+          {
+            "data-testid": "save-example",
+            onClick: () => saved.push(item.url),
+          },
+          "Save",
+        ),
+    });
+    const card = all("category-top-item")[0];
+    expect(card.textContent).toContain("Mentions: rolling shot · match cut");
+    expect(card.textContent).toContain(matched.snippet);
+    expect(all("category-top-item")).toHaveLength(1);
+    act(() => card.querySelector<HTMLElement>('[data-testid="save-example"]')!.click());
+    expect(saved).toEqual([matched.url]);
+  });
   const tabs = () => all("category-top-tab");
   const tab = (p: string) =>
     host.querySelector<HTMLButtonElement>(
@@ -690,9 +815,12 @@ describe("the 🏆 top videos per platform (§6)", () => {
     page = docOf({ top: TOP });
     await mount("en");
     const headings = [...$("category-page")!.querySelectorAll("h3")].map((h) => h.textContent);
-    expect(headings.slice(0, 2)).toEqual(["🔥 Trending in Cars this week", "🏆 Top in Cars"]);
+    expect(headings.slice(0, 2)).toEqual([
+      "Edits to study · Cars",
+      "🔥 Trending in Cars this week",
+    ]);
     const list = $("category-top")!.querySelector('[role="tablist"]')!;
-    expect(list.getAttribute("aria-label")).toBe("Top videos by platform");
+    expect(list.getAttribute("aria-label")).toBe("Study examples by platform");
     // TikTok's count comes with its list (Brave's, asked when the tab opens).
     expect(tabs().map((b) => [b.dataset.platform, b.textContent, b.dataset.count])).toEqual([
       ["ig", "📷14Instagram", "14"],
@@ -833,24 +961,24 @@ describe("the 🏆 top videos per platform (§6)", () => {
       expect(titles()).toEqual(["Top car edit 9"]);
       expect($("category-top-credit")).toBeNull();
     }
-    // No answer at all: the stored list, and Brave out of reach.
+    // No answer at all: retain the stored list and name the platform request, not Brave.
     topAnswers = { tt: { body: { error: "upstream" }, status: 502 } };
     act(() => root.unmount());
     root = createRoot(host);
     await mount("en");
     await open("tt");
-    expect(line()).toBe("Couldn't reach Brave search right now");
+    expect(line()).toBe("Couldn't refresh this platform right now.");
     expect(titles()).toEqual(["Top car edit 9"]);
   });
 
-  it("C10: an answer with an empty stored list (the Worker could not read its copy) keeps the page's own, each post once", async () => {
+  it("an explicitly empty stored list replaces old candidates rather than resurrecting filtered matches", async () => {
     const [a, b, c] = [1, 2, 3].map((n) => topVideo("tt", n));
     page = docOf({ top: { ...TOP, tt: [a, b] } });
     topAnswers = { tt: fromBrave("tt", [{ ...b, title: "b as Brave writes it" }, c], []) };
     await mount("en");
     await open("tt");
-    expect(titles()).toEqual([a.title, b.title, c.title]);
-    expect(tab("tt").dataset.count).toBe("3");
+    expect(titles()).toEqual(["b as Brave writes it", c.title]);
+    expect(tab("tt").dataset.count).toBe("2");
   });
 
   it("Instagram tops up from Brave on its first open while its list is under 50; a full list asks nothing", async () => {
@@ -889,13 +1017,13 @@ describe("the 🏆 top videos per platform (§6)", () => {
   it("English first in Arabic too: the platforms' own names, the titles as given, read in their own direction", async () => {
     page = docOf({ top: TOP });
     await mount("ar");
-    expect($("category-top")!.querySelector("h3")!.textContent).toBe("🏆 الأقوى في سيارات");
+    expect($("category-top")!.querySelector("h3")!.textContent).toBe("مونتاج تتعلّم منه · سيارات");
     expect(tabs().map((b) => b.textContent)).toEqual(["📷14Instagram", "♪TikTok", "▶30YouTube"]);
     const title = items()[0].querySelector('[data-testid="result-title"]')!;
     expect(title.textContent).toBe("Top car edit 1");
     expect(title.getAttribute("dir")).toBe("auto");
     expect($("category-top")!.querySelector('[role="tablist"]')!.getAttribute("aria-label")).toBe(
-      "أقوى الفيديوهات حسب المنصة",
+      "أمثلة للتعلّم حسب المنصة",
     );
   });
 
@@ -935,7 +1063,9 @@ describe("the 🏆 top videos per platform (§6)", () => {
     page = docOf({ top: TOP });
     let release!: () => void;
     topGate = new Promise<void>((r) => (release = r));
-    topAnswers = { tt: alone("tt", [], "no_key") };
+    topAnswers = {
+      tt: { body: { ...alone("tt", [], "no_key").body, discoveryStatus: "not_connected" } },
+    };
     window.history.replaceState(null, "", "/discover/?x=1");
     const here = window.location.href;
     // TikTok's page, as a same-page address jsdom can follow.
@@ -947,7 +1077,7 @@ describe("the 🏆 top videos per platform (§6)", () => {
     expect($("category-top-connect")).toBeNull();
     release();
     await settle();
-    expect(line()).toBe("Nothing here yet");
+    expect(line()).toBe("Connect TikTok to include its discovery matches.");
     const button = $("category-top-connect") as HTMLButtonElement;
     expect(button.textContent).toBe("Connect TikTok trends");
     act(() => button.click());
@@ -961,7 +1091,9 @@ describe("the 🏆 top videos per platform (§6)", () => {
 
   it("D1: a refused connect (no secret on the Worker, no answer) says so, and the button stays; in Arabic too", async () => {
     page = docOf({ top: TOP });
-    topAnswers = { tt: alone("tt", [], "no_key") };
+    topAnswers = {
+      tt: { body: { ...alone("tt", [], "no_key").body, discoveryStatus: "not_connected" } },
+    };
     await mount("en");
     await open("tt");
     act(() => $("category-top-connect")!.click());
@@ -989,7 +1121,7 @@ describe("the 🏆 top videos per platform (§6)", () => {
     expect(line()).toBe("");
     expect($("category-top-connect")).toBeNull();
     await open("ig");
-    expect(line()).toBe("Nothing here yet");
+    expect(line()).toBe("No matching edits found here yet. Try another platform or scan again.");
     expect($("category-top-connect")).toBeNull();
     await open("yt");
     expect($("category-top-connect")).toBeNull();
@@ -998,6 +1130,6 @@ describe("the 🏆 top videos per platform (§6)", () => {
   it("a page from before §6 says the top videos come with the next scan", async () => {
     await mount("en");
     expect($("category-top")).toBeNull();
-    expect($("category-page")!.textContent).toContain("Top videos come with the next scan");
+    expect($("category-page")!.textContent).toContain("Scan this category to find edits to study.");
   });
 });

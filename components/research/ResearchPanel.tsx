@@ -72,6 +72,7 @@ import PasteLinkForm from "./PasteLinkForm";
 import PicksSection from "./PicksSection";
 import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
 import SkillPicker from "./SkillPicker";
+import SaveInspirationButton from "./SaveInspirationButton";
 import TrendingEffects from "./TrendingEffects";
 import { useDiscoverPicks, useDiscoverQuery, useDiscoverUsage, useScoutCaps } from "./useDiscover";
 import {
@@ -168,6 +169,7 @@ export default function ResearchPanel({
   skill,
   stickyTop = "max-md:-top-4",
   openGenre,
+  onOpenInspiration,
 }: {
   /** Skill sheet mode; omitted = Discover mode. */
   skill?: Skill;
@@ -178,6 +180,7 @@ export default function ResearchPanel({
    * address bar was read. It goes on the way a tap on its chip would.
    */
   openGenre?: string | null;
+  onOpenInspiration?: (url: string) => void;
 }) {
   const { t, L, lang, dir } = useT();
   const ids = useId();
@@ -215,6 +218,7 @@ export default function ResearchPanel({
   const addRef = useStore((s) => s.addRef);
   const removeRef = useStore((s) => s.removeRef);
   const savedRefs = useStore((s) => s.savedRefs);
+  const inspirations = useStore((s) => s.inspirations);
   const customGenres = useStore((s) => s.customGenres);
   const trends = useStore((s) => s.trends);
   const ytKey = useStore((s) => getApiKey(s, "youtube"));
@@ -480,8 +484,11 @@ export default function ResearchPanel({
     () =>
       skill
         ? (savedRefs[skill.id] ?? []).map(itemFromRef)
-        : dedupeByUrl(...Object.values(savedRefs)).map(itemFromRef),
-    [savedRefs, skill],
+        : dedupeByUrl(
+            inspirations.map((entry) => entry.ref),
+            ...Object.values(savedRefs),
+          ).map(itemFromRef),
+    [savedRefs, inspirations, skill],
   );
 
   /* ---------- "most viewed this week": the Trend Radar's rows of the genre ---------- */
@@ -591,7 +598,7 @@ export default function ResearchPanel({
 
   /* ---------- per-card actions ---------- */
 
-  const renderAction = (item: ResearchItem): ReactNode => {
+  const renderAttachAction = (item: ResearchItem): ReactNode => {
     const on = attachedTo.get(canonicalRefUrl(item.platform, item.url)) ?? [];
     if (skill) {
       const here = on.includes(skill.id);
@@ -634,7 +641,7 @@ export default function ResearchPanel({
     return (
       <button
         type="button"
-        className="px-btn px-btn-sm"
+        className="px-btn px-btn-ghost px-btn-sm"
         onClick={() => setPickFor(item)}
         data-testid="result-attach"
       >
@@ -642,6 +649,16 @@ export default function ResearchPanel({
       </button>
     );
   };
+
+  const renderAction = (item: ResearchItem): ReactNode =>
+    skill ? (
+      renderAttachAction(item)
+    ) : (
+      <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <SaveInspirationButton item={item} onOpen={onOpenInspiration} />
+        {renderAttachAction(item)}
+      </span>
+    );
 
   /* ---------- notes, hints, errors ---------- */
 
@@ -1101,6 +1118,7 @@ export default function ResearchPanel({
           }}
           onSearchAll={searchGenreOnly}
           onOpenSkill={sheet.open}
+          renderAction={renderAction}
           onUnavailable={pageUnavailable}
           searchBlocked={aiSearchBlocked}
         />
@@ -1310,9 +1328,39 @@ export default function ResearchPanel({
         data-tab={tab}
       >
         {!skill && !q && !savedOnly && (
-          <p className="text-muted text-sm" data-testid="research-start">
-            {t("research.startTyping")}
-          </p>
+          <div className="flex flex-col gap-2 py-3" data-testid="research-start">
+            <h2 className="text-base">{t("inspiration.starters")}</h2>
+            <p className="text-ink-2 text-sm">{t("inspiration.startersHelp")}</p>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  ["inspiration.matchCuts", "match cut filmmaking"],
+                  ["inspiration.phoneFilms", "iPhone cinematic filmmaking"],
+                  ["inspiration.color", "cinematic color grading"],
+                  ["inspiration.product", "product commercial b roll"],
+                ] as const
+              ).map(([label, topic]) => (
+                <button
+                  key={label}
+                  type="button"
+                  className="px-fchip"
+                  onClick={() => {
+                    setSearchMode("keyword");
+                    setSubmittedMode("keyword");
+                    setSubmittedAi(undefined);
+                    setTopic(topic);
+                    setDraft(null);
+                    setPage(null);
+                    setEditing(true);
+                    setPicked(null);
+                    addRecentTopic(topic);
+                  }}
+                >
+                  {t(label)}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
         {v2 && !skill && !q && !savedOnly && picks.length > 0 && (
           <div className="flex flex-col gap-3" data-testid="discover-picks-latest">

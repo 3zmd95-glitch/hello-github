@@ -23,6 +23,11 @@ export interface LessonVideo {
 export interface Technique {
   name: { en: string; ar?: string };
   howTo: { en: string; ar?: string };
+  study?: {
+    watchFor: { en: string; ar?: string };
+    tryIt: { en: string; ar?: string };
+    sourceBasis: "title-and-description";
+  };
   skillId?: string;
   videos: LessonVideo[];
 }
@@ -34,9 +39,9 @@ export interface Lessons {
   video: Technique[];
   edit: Technique[];
 }
-/** A top video of a category page (§6). YouTube's come from the Data API (views, date), Instagram's from the scan's
- * posts (no views), TikTok's from TikTok's Discovery API (titled with its hashtag, no views), Brave's (never stored) with
- * views and age when Brave gives them. */
+/** A category candidate: YouTube metadata, indexed post metadata, or Discovery with a public TikTok caption.
+ * `evidence` explains matching title/caption/description text, never visual verification or a quality guarantee.
+ * Brave's separate, unstored group retains its provider order and attribution. */
 export interface TopVideo {
   url: string;
   title: string;
@@ -45,6 +50,9 @@ export interface TopVideo {
   publishedAt?: string;
   thumbnail?: string;
   age?: string;
+  snippet?: string;
+  source?: "tavily" | "youtube" | "tiktok-discovery";
+  evidence?: { basis: "metadata"; subjects: string[]; techniques: string[] };
 }
 /** The stored lists, ≤ 50 each, best first. `updatedAt` is YouTube's list's date (kept with a kept list, C1); TikTok's
  * list has its own (`ttUpdatedAt`, when TikTok's Discovery API last filled it; none before that). */
@@ -56,6 +64,8 @@ export interface TopLists {
   ttUpdatedAt?: string;
 }
 export interface CategoryDoc extends EffectsDoc {
+  /** Internal version of the generated trend evidence; excludes legacy broad-category counts after a new scan. */
+  qualityVersion?: number;
   lessons?: Lessons;
   top?: TopLists;
 }
