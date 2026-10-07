@@ -58,8 +58,9 @@ const SCAN_LINE: Record<Exclude<Scan, "idle">, MessageKey> = {
  * 🚗 A Discover category's page (planning/tools/19-category-trends.md §1, layout B):
  * - the header, with 🔄 Scan again;
  * - this week's trending styles of the category as chips (a tap searches the style within the category, in Keywords);
- * - the Photography / Videography / Editing shelves of technique cards: a ✦ AI how-to, the skill it practices, and
- *   example and tutorial videos that play in the app's player;
+ * - the Photography / Videography / Editing shelves of technique cards, English first (live fix 1; in Arabic the
+ *   Arabic name and how-to follow as muted lines): a ✦ AI how-to, the skill it practices, and example videos (a
+ *   tutorial when one teaches) that play in the app's player;
  * - "Search all <category> videos →".
  * Before there is anything to show: the first scan. A Worker without the route (or no answer) hands back to the
  * category search.
@@ -85,7 +86,7 @@ export default function CategoryPage({
    * still searches, in Keywords, like a 🔥 chip. */
   searchBlocked?: boolean;
 }) {
-  const { t, L } = useT();
+  const { t, L, lang } = useT();
   const id = useId();
   const player = useVideoPlayer();
   // Captured once, like the 🔥 row's: the age line needs no ticking clock.
@@ -171,21 +172,18 @@ export default function CategoryPage({
     : new Date(now).toDateString() === new Date(Date.parse(data.updatedAt ?? "")).toDateString()
       ? t("search.trendingRunFailed")
       : t("search.trendingStale");
-  // The UI language, English when a style has no Arabic name.
-  const text = (x: { en: string; ar?: string }) => L({ en: x.en, ar: x.ar || x.en });
-
-  // Labelled as the 🔥 row's chips are, without their YouTube note (a category has no YouTube check).
+  // Labelled as the 🔥 row's chips are, without their YouTube note (a category has no YouTube check). English first in
+  // both languages (live fix 1): the English name and line, the Arabic name in the tooltip under the line.
   const styleChip = (s: TrendingEffect) => {
-    const styleName = text(s.name);
-    const what = s.what && text(s.what);
+    const what = s.what?.en;
     const creators = t("search.trendingCreators", { n: s.creators });
     return (
       <button
         key={s.key}
         type="button"
         className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
-        title={what}
-        aria-label={[styleName, s.isNew && t("search.trendingNew"), creators, what]
+        title={[what, s.name.ar].filter(Boolean).join("\n") || undefined}
+        aria-label={[s.name.en, s.isNew && t("search.trendingNew"), creators, what]
           .filter(Boolean)
           .join(" · ")}
         onClick={() => onPickStyle(effectQuery(s))}
@@ -193,7 +191,7 @@ export default function CategoryPage({
         data-key={s.key}
       >
         <span className="flex items-center gap-1.5">
-          <span dir="auto">{styleName}</span>
+          <span dir="auto">{s.name.en}</span>
           {s.isNew && (
             <span className="bg-gold text-gold-ink rounded-[2px] px-1 text-[10px] leading-4 font-bold">
               {t("search.trendingNew")}
@@ -264,22 +262,31 @@ export default function CategoryPage({
         className="border-edge bg-panel-2 relative flex w-64 shrink-0 snap-start flex-col gap-1.5 rounded-[2px] border-2 p-2.5 shadow-[3px_3px_0_var(--edge)]"
         data-testid="category-technique"
       >
+        {/* English first in both languages (live fix 1); in Arabic, the Arabic name and how-to (when the Worker has
+            them in Arabic script) follow as muted lines, right to left. */}
         <h4 className="text-sm font-bold" dir="auto">
-          {L(tech.name)}
+          {tech.name.en}
         </h4>
-        <p className="text-ink-2 text-xs leading-snug" dir="auto">
+        {lang === "ar" && tech.name.ar && (
+          <p className="text-muted -mt-1 text-xs" dir="rtl" data-testid="category-name-ar">
+            {tech.name.ar}
+          </p>
+        )}
+        <p className="text-ink-2 text-xs leading-snug" dir="ltr" data-testid="category-howto">
           <span
             className="bg-panel-3 text-ink me-1 rounded-[2px] px-1 text-[10px] font-bold"
             title={t("search.categoryAiNote")}
-            // Its own direction: the paragraph's dir=auto then reads the how-to's words, not this Latin "AI", so an
-            // Arabic how-to runs right to left.
-            dir="ltr"
             data-testid="category-ai"
           >
             ✦ AI
           </span>
-          {L(tech.howTo)}
+          {tech.howTo.en}
         </p>
+        {lang === "ar" && tech.howTo.ar && (
+          <p className="text-muted text-xs leading-snug" dir="rtl" data-testid="category-howto-ar">
+            {tech.howTo.ar}
+          </p>
+        )}
         {/* 🎯 Only for a skill this app knows (the Worker checks its copy of the list; the app checks its own). */}
         {skill && (
           <button

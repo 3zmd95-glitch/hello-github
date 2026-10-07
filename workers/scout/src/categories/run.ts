@@ -1,11 +1,12 @@
 /**
- * A Discover category's scan (planning/tools/19-category-trends.md §2): its 2 queries × 3 searches (6 credits) →
- * Trending effects' candidates, AI cleanup and 7-day memory, with the camera words, the category's own generic words,
- * its context line and a 200-name memory → its top 12, trends first, with no YouTube check → one KV document
- * `category:<id>`. Once per UTC day unless forced or that day's run failed; at most 3 spending runs a category a UTC
- * day, forced ones included (`category:attempts:<id>:<day>`); paused at 90 % of the month's Tavily credits (§4).
- * When its lessons are 6 or more days old (or missing) the scan also refreshes them (lessons.ts), saved after the
- * trends. Never throws: a day that fails keeps the last page and its lessons.
+ * A Discover category's scan (planning/tools/19-category-trends.md §2): its 6 queries over Instagram's month (6
+ * credits) → Trending effects' candidates, AI cleanup and 7-day memory, with the camera words, the category's own
+ * generic words, its context line and a 200-name memory → its top 12, trends first, with no YouTube check → one KV
+ * document `category:<id>`. Once per UTC day unless forced or that day's run failed; at most 3 spending runs a
+ * category a UTC day, forced ones included (`category:attempts:<id>:<day>`); paused at 90 % of the month's Tavily
+ * credits (§4). When its lessons are 6 or more days old, missing or from an older version (`LESSONS_VERSION`) the scan
+ * also refreshes them (lessons.ts), saved after the trends. Never throws: a day that fails keeps the last page and
+ * its lessons.
  */
 
 import { isRecord } from "../effects/ai";
@@ -13,6 +14,7 @@ import { readEffects, writeEffects } from "../effects/kv";
 import { countAttempt, failed, noted, rememberPosts, type Memory } from "../effects/run";
 import { scoreEffects } from "../effects/score";
 import {
+  IG_MONTH,
   monthTight,
   monthUsage,
   searchFamilies,
@@ -84,6 +86,7 @@ async function scan(
     {
       numbering: queries,
       tight: false,
+      searches: IG_MONTH,
     },
   );
   const notes = new Set(errors);

@@ -37,7 +37,8 @@ const BLOCK = new Set([
   "halo effect",
 ]);
 
-const ARABIC = /[؀-ۿ]/;
+/** Any Arabic-script letter (U+0600–U+06FF); category lessons keep an Arabic text only with one. */
+export const ARABIC = /[؀-ۿ]/;
 
 /** Dictionary entries about editing (audio and photo entries are left out), phrases and labels in matching form, and
  * each multi-word English one written as one hashtag word ("gif sticker" → "gifsticker"). */

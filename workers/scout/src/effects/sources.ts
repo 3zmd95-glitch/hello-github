@@ -34,8 +34,10 @@ const SEARCHES = [
   { platform: "ig", timeRange: "month", stat: "igMonth" },
   { platform: "tt", timeRange: "month", stat: "tt" },
 ] as const;
-/** Tavily's month nearly spent (`monthTight`): the Instagram month search alone. */
-const TIGHT_SEARCHES = [SEARCHES[1]];
+/** The Instagram month search alone: Trending effects' plan when Tavily's month is nearly spent (`monthTight`), and
+ * every category scan's (planning/tools/19-category-trends.md §2: Cars' first live scan found about 1 post a call over
+ * Instagram's week and on TikTok, up to 20 over Instagram's month). */
+export const IG_MONTH = [SEARCHES[1]];
 /** "Nearly spent": this share of the month's credits (`monthTight`). Trending effects cuts back at it; category scans
  * pause (planning/tools/19-category-trends.md §4). */
 const TIGHT_SHARE = 0.9;
@@ -91,8 +93,14 @@ export async function searchFamilies(
   queries: readonly string[],
   timeoutMs = CALL_TIMEOUT_MS,
   /** Category scans (planning/tools/19-category-trends.md §2): `numbering`, the list whose 1-based places number the
-   * stats (default the 18 families); `tight`, the budget decision already made (they pause before searching). */
-  opts: { numbering?: readonly string[]; tight?: boolean } = {},
+   * stats (default the 18 families); `tight`, the budget decision already made (they pause before searching);
+   * `searches`, the calls a query gets (default Trending effects' 3: Instagram over a week and a month, TikTok over a
+   * month). */
+  opts: {
+    numbering?: readonly string[];
+    tight?: boolean;
+    searches?: readonly (typeof SEARCHES)[number][];
+  } = {},
 ): Promise<{
   posts: EffectPost[];
   credits: number;
@@ -116,7 +124,7 @@ export async function searchFamilies(
   }));
   // One search of each family at a time (6 calls): a Worker keeps 6 connections open and queues the rest, whose time
   // limit would run while they wait.
-  for (const { platform, timeRange, stat } of tight ? TIGHT_SEARCHES : SEARCHES) {
+  for (const { platform, timeRange, stat } of tight ? IG_MONTH : (opts.searches ?? SEARCHES)) {
     const replies = await Promise.all(
       queries.map((q) =>
         tavilyCall(env, doFetch, { q, platform, lang: "en", timeRange }, timeoutMs),

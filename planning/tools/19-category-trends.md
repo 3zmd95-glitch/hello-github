@@ -45,15 +45,25 @@ Choices, one question at a time:
 - **Opening a page.** Tapping a category in Discover (🚗 Cars) with no typed text opens its page. It replaces the
   automatic category search. With typed text, the category still narrows that search, as today.
 - **Header.** "🚗 Cars · updated 1 day ago" and 🔄 Scan again.
+- **English first** (live fix 1, the owner on 2026-10-07: "I want everything to be english first"). Trend and
+  technique names and how-tos show in English first in both UI languages. Arabic is only a secondary line, and only
+  when it is real Arabic script: the page drops an Arabic text without Arabic letters, as the Worker does. The app's own
+  labels (menus, buttons, shelf titles) keep both languages.
 - **🔥 Trending in Cars this week.** A row of chips: the Cars edit styles being posted now, with creator counts and NEW,
-  trends first, at most 12. A tap searches that style within Cars in Keywords mode, for example
-  "rolling shot car edit". A page over 7 days old says "🔥 Trending in Cars", without "this week".
+  trends first, at most 12. Each chip shows its English name; its tooltip holds the English line of what it is and,
+  under it, the Arabic name (the 🔥 Trending effects row does the same). A tap searches that style within Cars in
+  Keywords mode, for example "rolling shot car edit". A page over 7 days old says "🔥 Trending in Cars", without "this
+  week".
 - **Three shelves:** 📷 Photography, 🎥 Videography and ✂️ Editing. Each is a sideways row of about 3 technique cards
   for the category. A card shows:
-  - the technique's name;
-  - a ✦ AI how-to of 2–3 lines (how to shoot it, settings or gear, how to edit it), in English and Arabic;
+  - the technique's English name; in the Arabic UI the Arabic name follows as a muted line, right to left;
+  - a ✦ AI how-to of 2–3 short sentences: how to shoot it for the subject, the settings or gear with real values, and
+    how to edit it. It is in English, left to right; in the Arabic UI the Arabic how-to follows as a muted paragraph,
+    right to left;
   - 🎯 the skill it practices, which opens that skill. It shows only when there is a real match;
-  - 2 example videos and 1 tutorial (plus an Arabic tutorial when one matched). They play in the app's player.
+  - up to 3 videos of the technique for the subject: the best examples, and a tutorial only when one teaches (the
+    owner: "Plus it doesn't have to be tutorial"), plus an Arabic tutorial when one matched. They play in the app's
+    player.
 - **"Search all Cars videos →"** runs today's category-only search, which stays one tap away.
 - **States** (the same patterns as the 🔥 row), from the page's `status`, `notes` and `updatedAt`:
   - never scanned: "Scan Cars now";
@@ -87,9 +97,16 @@ test guards the grid. The 12 categories in `genres.json` order make 3 groups of 
 Each category is searched every 3 days. 🔄 Scan again (`force`) scans one category now. "Scan Cars now" is a category's
 first scan.
 
-**Searches.** 2 English queries a category, from `genres.json` `queries.en`: the first with " trend" added ("car edit
-trend"), and the second as it is ("cinematic car edit"). Each query is asked 3 times, as for effects: Instagram over a
-week, Instagram over a month and TikTok over a month. That is **6 Tavily credits a scan**. Posts are deduped by URL.
+**Searches** (live fix 1). 6 English queries a category, each asked once, on Instagram over a month. They are built
+from `genres.json` `queries.en`: q1 is the first ("car edit"), q2 the second, and the subject is q1 without its
+" edit" ("car"). The queries are "q1 trend", q2, "viral q1", "q1 transition", "q1 capcut template" and "subject video
+trend". For Cars: "car edit trend", "cinematic car edit", "viral car edit", "car edit transition", "car edit capcut
+template" and "car video trend". That is still **6 Tavily credits a scan**. Posts are deduped by URL.
+
+Why: in the first live Cars scan, Instagram over a week and TikTok found about 1 post a call, and Instagram over a month
+up to 20 (the live check below). Trending effects' history agrees. More queries over Instagram's month find more
+creators for the same credits. Trending effects keeps its own 3 searches a family (Instagram over a week and a month,
+TikTok over a month); `searchFamilies` takes the category's plan as an option.
 
 **Extraction.** Trending effects' rules, with two additions for categories:
 - Camera words join the suffixes: "shot(s)", "angle", "lighting", "look", so "rolling shot" and "low angle" are named.
@@ -98,7 +115,9 @@ week, Instagram over a month and TikTok over a month. That is **6 Tavily credits
   query's words stay free: it is there to find the category's signature styles (Fashion's "outfit transition").
 
 **AI cleanup.** Effects' tolerant cleanup in parallel batches of 9 (keep, drop, merge, English and Arabic names, a one-line
-`what`), told the category ("for car videos").
+`what`), told the category ("for car videos") and, since live fix 1, "Return one entry for every candidate key, keep
+true or false." An answer with an empty list is counted in the diagnostics as the reject `empty_list` (Trending
+effects' too: a count only).
 
 **Scoring.** Distinct creators over 7 days (at least 3), growth, NEW, trends first (names outside the dictionary and
 dictionary trend entries), then techniques, top 12. The memory is per category: 14 days, at most 200 keys.
@@ -115,34 +134,54 @@ category a day (`category:attempts:<id>:<day>`).
 
 ### 3. Lessons (every 6 days)
 
-- **When.** On a category's scan when its lessons are 6 or more days old, or missing. Scans come every 3 days, so that is
-  every second scan.
+- **When.** On a category's scan when its lessons are 6 or more days old, missing, or of an older version (`v`, below).
+  Scans come every 3 days, so that is every second scan.
 - **Picking techniques.** One AI call picks 3 techniques for each area (`photo`, `video`, `edit`). It chooses from the
   category's top trending styles, the editing dictionary, and standard techniques for the subject (for Cars
   photography: panning at a slow shutter, light painting, low-angle hero shots). For each technique it returns
-  `{ name: { en, ar }, query }`, where the query is the English search words. The answer is checked with zod, tolerantly.
-- **Videos.**
-  - One English Tavily search per technique ("`query` tutorial") over youtube.com, instagram.com and tiktok.com. It keeps
-    1 tutorial (YouTube preferred; titles with "how to" or "tutorial") and 2 examples (Instagram or TikTok preferred).
-    Examples can also come from the category's trend samples.
+  `{ name: { en, ar? }, query }`. The Arabic name must be in Arabic script (English loanwords in Arabic letters are
+  fine, e.g. هايبرلابس); an Arabic name without Arabic letters is dropped, the technique kept (counted `latin_ar`). The
+  query is "2 to 6 English words that find videos showing it for this subject". The answer is checked with zod,
+  tolerantly.
+- **Videos** (live fix 1: the best examples of the technique for the subject; a tutorial is optional).
+  - One English Tavily search per technique over youtube.com, instagram.com and tiktok.com. The search is the
+    technique's query, with the subject in front when none of the category's own words is in it ("hyperlapse" → "car
+    hyperlapse"), and no " tutorial" added.
+  - **Relevance.** A technique's core words are those of its English name and query, lowercased, 3 letters or more,
+    without filler (the, and, for, with, how, video, videos, tutorial) and without the category's generic words. A card
+    is about the technique when its title and snippet hold at least half of them (rounded up, at least 1). The others
+    are left out and counted `offTopic`.
+  - Up to 3 English videos: examples first (Instagram or TikTok, then the trend's samples, then YouTube), then a
+    tutorial only when a card's title teaches (how to, tutorial, step by step, guide, tips, explained; YouTube first).
+    Without one, the third video is another example.
   - One Arabic search per category ("شرح تصوير ومونتاج <Arabic name>", YouTube). Each Arabic tutorial goes to at most one
     technique: an area that keeps last cycle's techniques keeps its own; among the new techniques, the first that the AI
     names it for, photo → video → edit.
   - That is **10 credits a refresh** at most, every 6 days per category: a technique picked twice (its name or its
     search words again) is searched once.
   - A technique with no video found is not shown.
-- **How-to.** One AI call per area, the 3 at once, writes a how-to per technique in English and Arabic: 2–3 lines, at most
-  220 characters each. It is written from the found tutorials' titles and snippets: shoot, settings or gear, edit. The
-  page marks it ✦ AI.
+- **How-to.** One AI call per area, the 3 at once, writes a how-to per technique: 2–3 short sentences, at most 220
+  characters in each language. It says how to shoot it for this subject (position, movement, framing), the settings or
+  gear with real values (shutter 1/30 s, 60/120 fps, ND filter, gimbal, tripod) and how to edit it (the app and the
+  tool: CapCut speed curve, DaVinci Resolve Retime). The prompt forbids generic advice ("use a high-quality camera",
+  "use editing software"). It bases the how-to on the videos' titles and snippets (tutorials first) when they help,
+  else on standard practice. English comes first, then natural Hijazi Arabic in Arabic script. An Arabic how-to without
+  Arabic letters is dropped (counted `latin_ar`); the English one is required. The page marks it ✦ AI.
 - **Skill link.** Each call also picks at most one skill id per technique from the real skill list, or none. The list
   holds id plus English and Arabic names, from the DaVinci packs and the craft skills. A test keeps the Worker's copy in
   sync with the app's. An id outside the list is dropped; a bad skill id or Arabic tutorial number costs only itself,
   never the how-to.
-- **Storage.** `lessons: { updatedAt, photo: Technique[], video: Technique[], edit: Technique[] }`, where:
+- **Storage.** `lessons: { v, updatedAt, photo: Technique[], video: Technique[], edit: Technique[] }`, where:
 
   ```
-  Technique = { name: { en, ar }, howTo: { en, ar }, skillId?, videos: { url, title, platform, kind: "example" | "tutorial", lang }[] }
+  Technique = { name: { en, ar? }, howTo: { en, ar? }, skillId?, videos: { url, title, platform, kind: "example" | "tutorial", lang }[] }
   ```
+
+  `v` is `LESSONS_VERSION`, 2 since live fix 1. Lessons with no `v`, or an older one, are due at the next scan (Scan
+  again included), like missing lessons, and an area never keeps their techniques. The GET still answers them as
+  stored until then. A refresh that leaves a shelf empty saves no `v`, so the lessons stay due and the next scan, 3
+  days on, fills it instead of the page hiding that shelf for 6 days. An Arabic line in Arabic script but too short to
+  teach is left out (`short_ar`), never the English how-to with it.
 
 - **On failure.**
   - A refresh with nothing new keeps last week's lessons whole, with the note `lessons`.
@@ -268,3 +307,47 @@ invocation allows:
   - no YouTube Data API;
   - ≤ 31 subrequests a run (≤ 7 AI calls);
   - about 10 KV writes a day.
+
+## Live check (2026-10-07)
+
+**First Cars scan** (KV `category:cars`, its `diagnostics`):
+
+- **Trends: empty.** Only 24 posts came back.
+  - "car edit trend": Instagram month 20, Instagram week 1, TikTok 2.
+  - "cinematic car edit": Instagram month 0, Instagram week 1, TikTok 0.
+  - That gave 6 candidate keys, none with 3 creators (2 at most). The AI answered `{"effects": []}`: `ai_empty`, judged
+    0, rejects `{}`, so the diagnostics could not say why.
+- **Lessons ran** (picked 9, all with videos, all written, 10 credits), but their quality was poor:
+  - Arabic names in Latin letters, and mistranslated: "taswir mash' al" for Hyperlapse.
+  - Generic one-line how-tos ("Use color grading software like Davinci Resolve"); Speed Ramp's was wrong ("Use
+    high-quality camera and adjust lighting").
+  - The tutorial fallback took any YouTube video: "Santana - Smooth (Official Video)" for Smooth Slow Motion.
+  - Videos not about the subject (a plant timelapse; portrait tips for Low Angle Shot): the search was
+    "`query` tutorial", with no "car" in it.
+- **The owner:** "I want everything to be english first" and "Plus it doesn't have to be tutorial".
+
+**Live fix 1** (branch `claude/category-trends-live-1`) changes:
+
+- **Searches:** 6 queries over Instagram's month (§2), still 6 credits.
+- **AI cleanup:** asked to answer every key; an empty list is counted `empty_list`.
+- **Lessons:** searches for examples of each technique for the subject; only videos about the technique; a tutorial
+  only when one teaches; Arabic only in Arabic script (`latin_ar`); concrete how-tos for the subject, English first;
+  `LESSONS_VERSION` 2, so Cars' first lessons refresh at its next scan, Scan again included (§3).
+- **The page and the 🔥 Trending effects row:** English first in both UI languages (§1).
+
+**Decisions where the brief met the code:**
+
+- **The subject check.** A lesson's search gets the subject when none of the category's own words (its name's and its
+  subject's: `categoryWords`) is in it. "edit" is left out of that check: it is in every category's generic words, and
+  counting it would have left editing searches ("speed ramp edit") without "car". Relevance still drops "edit" from a
+  technique's core words.
+- **Older lessons are refreshed whole.** An area whose how-to call fails starts empty rather than keep last cycle's
+  techniques. A refresh that keeps nothing still keeps them, noted `lessons`, and they stay due.
+- **What the model is asked for.** It is still asked for both languages: the JSON schema it is sent requires `ar`, and
+  the check alone treats it as optional.
+- **The dashboard reads Arabic only in Arabic script.** `textOf` in `lib/effects.ts` reads the trend names and the
+  lessons' texts, so the first Cars lessons' Latin names hide before their refresh.
+- **The ✦ AI note** now reads "Written by AI from the videos and common practice" ("كتبها الذكاء الاصطناعي من الفيديوهات
+  وخبرة المصورين"), since the how-to no longer comes from tutorials alone.
+
+**Second scan:** (filled after deploy)

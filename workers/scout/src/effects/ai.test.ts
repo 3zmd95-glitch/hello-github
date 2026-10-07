@@ -173,6 +173,14 @@ describe("cleanWithAi", () => {
     expect(down.AI.run).toHaveBeenCalledTimes(3);
   });
 
+  it("counts an empty list as 'empty_list', so the diagnostics show it (live fix 1: Cars' first scan); still no verdict", async () => {
+    expect(await cleanWithAi(answering([]), candidates)).toEqual({
+      verdicts: [],
+      rejects: { empty_list: 1 },
+      failed: 0,
+    });
+  });
+
   it("gives null on invalid JSON, no list, no binding, an error or a timeout", async () => {
     expect(
       await cleanWithAi(

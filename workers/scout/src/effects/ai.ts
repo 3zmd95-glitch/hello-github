@@ -177,6 +177,9 @@ async function cleanBatch(
   if (!Array.isArray(list)) return null;
   const rejects: Record<string, number> = {};
   const count = (why: string) => void (rejects[why] = (rejects[why] ?? 0) + 1);
+  // A list with no verdict at all is counted, so the diagnostics show it (Cars' first live scan: `ai_empty`, rejects
+  // {}). A count only: the batch still answered.
+  if (!list.length) count("empty_list");
   // Each verdict on its own: one broken line must not cost the rest.
   const verdicts = list.flatMap((x: unknown) => {
     const v = Verdict.safeParse(tidy(x));

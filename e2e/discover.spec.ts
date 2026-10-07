@@ -837,6 +837,9 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   const fresh = row.locator('[data-testid="trending-effect"][data-key="swagger-trend"]');
   await expect(fresh.getByText("جديد", { exact: true })).toBeVisible();
   await expect(fresh).toContainText("4 صنّاع · ▶ ↑3×");
+  // English first in Arabic too (live fix 1): the English name, the Arabic one in the tooltip.
+  await expect(fresh).toContainText("swagger trend");
+  await expect(fresh).toHaveAttribute("title", "Clone yourself with one hair flip\nترند السواقر");
   // The 8 chips overflow their strip, which scrolls sideways; the 375 px page never does.
   const strip = row.getByTestId("trending-effect").first().locator("xpath=..");
   expect(await strip.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
@@ -890,10 +893,17 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
   // A technique's skill opens that skill; its videos play in the app's player.
   const panning = cat.getByTestId("category-technique").first();
   await expect(panning.getByTestId("category-ai")).toHaveText("✦ AI");
-  // The Arabic how-to reads right to left: the "✦ AI" badge carries its own direction, so the paragraph's dir=auto
-  // goes by the how-to's words.
+  // English first in Arabic too (live fix 1): the English name and how-to (left to right, with the ✦ AI badge),
+  // then the Arabic name and how-to as muted lines, right to left.
+  await expect(panning.getByRole("heading", { level: 4 })).toHaveText("panning");
+  await expect(panning.getByTestId("category-name-ar")).toHaveText("بانينق");
   const howTo = panning.getByTestId("category-ai").locator("..");
-  expect(await howTo.evaluate((p) => p.matches(":dir(rtl)"))).toBe(true);
+  expect(await howTo.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
+  const howToAr = panning.getByTestId("category-howto-ar");
+  expect(await howToAr.evaluate((p) => p.matches(":dir(rtl)"))).toBe(true);
+  await expect(
+    cat.locator('[data-testid="category-style"][data-key="rolling-shot"]'),
+  ).toContainText("rolling shot");
   await panning.getByTestId("category-skill").click();
   await expect(page.getByTestId("skill-sheet")).toBeVisible();
   await page.getByTestId("sheet-close").click();
@@ -928,8 +938,10 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
     cat.getByRole("heading", { level: 3, name: "🔥 Trending in Cars this week" }),
   ).toBeVisible();
   await expect(cat.getByTestId("category-search-all")).toHaveText("Search all Cars videos →");
-  // In English the how-to reads left to right.
+  // In English the how-to reads left to right, with no Arabic lines.
   expect(await howTo.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
+  await expect(cat.getByTestId("category-howto-ar")).toHaveCount(0);
+  await expect(cat.getByTestId("category-name-ar")).toHaveCount(0);
   await cat.getByTestId("category-search-all").click();
   await expect
     .poll(() => asked.at(-1))

@@ -615,6 +615,17 @@ and editing".
 - **Rejected:** scraping-based trend tools (social-trend-agent, trendscope).
 - **Spec:** `tools/19-category-trends.md`. **Plan:** `plans/2026-10-06-category-trends.md`.
 - **Built** on branch `claude/category-trends-spec`; the live check follows the merge and the Worker deploy.
+- **Live fix 1** (Oct 7, branch `claude/category-trends-live-1`). The first real Cars scan had no trends (24 posts:
+  Instagram's week and TikTok gave about 1 a call) and poor lessons: Arabic names in Latin letters, generic how-tos,
+  an unrelated song as a "tutorial", videos not about cars. The owner: "I want everything to be english first",
+  "Plus it doesn't have to be tutorial". Now:
+  - 6 queries over Instagram's month (still 6 credits), and the AI is asked to answer every key;
+  - lesson searches find examples for the subject, keep only videos about the technique, and show a tutorial only
+    when one teaches;
+  - how-tos are concrete for the subject;
+  - English first on the page and the 🔥 row, with Arabic only in Arabic script;
+  - lessons carry a version, so Cars' first lessons refresh at its next scan.
+  Details: `tools/19-category-trends.md` "Live check (2026-10-07)".
 
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |

@@ -51,7 +51,7 @@ export default function TrendingEffects({
   /** A tapped chip's search ({@link effectQuery}). */
   onPick: (q: string) => void;
 }) {
-  const { t, L } = useT();
+  const { t } = useT();
   const id = useId();
   // Captured once, like the panel's: the age line needs no ticking clock.
   const [now] = useState(() => Date.now());
@@ -144,12 +144,11 @@ export default function TrendingEffects({
         : "";
   const age = now - Date.parse(data.updatedAt ?? "");
 
-  // The UI language, English when the effect has no Arabic name or line.
-  const text = (x: { en: string; ar?: string }) => L({ en: x.en, ar: x.ar || x.en });
-
+  // English first in both languages (live fix 1): the English name and line, the Arabic name in the tooltip under
+  // the line.
   const chip = (e: TrendingEffect) => {
-    const name = text(e.name);
-    const what = e.what && text(e.what);
+    const name = e.name.en;
+    const what = e.what?.en;
     const g = e.youtube?.growth;
     const yt = g !== undefined && g >= YT_NOTE_FROM ? `▶ ↑${Math.round(g * 10) / 10}×` : "";
     const creators = t("search.trendingCreators", { n: e.creators });
@@ -158,7 +157,7 @@ export default function TrendingEffects({
         key={e.key}
         type="button"
         className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
-        title={what}
+        title={[what, e.name.ar].filter(Boolean).join("\n") || undefined}
         aria-label={[name, e.isNew && t("search.trendingNew"), creators, yt, what]
           .filter(Boolean)
           .join(" · ")}
