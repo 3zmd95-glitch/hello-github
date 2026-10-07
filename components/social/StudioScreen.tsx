@@ -51,12 +51,12 @@ export default function StudioScreen() {
       <PullToRefresh />
       <PageHeader eyebrow={eyebrow} title={t("social.studio.title")} sub={t("social.studio.sub")} />
 
-      {/* Every card is a direct child, so the first-visit entrance staggers them one by one. From md: three
-          tracks, the hero takes two next to the reminder, the week plan and the toolkit span the row, then
-          growth · asks · inbox side by side. The spans go by position, so the first four cards always render
-          (each has its own empty state and never returns null). */}
+      {/* Every card is a direct child, so the first-visit entrance staggers them one by one. From md: six tracks;
+          every card spans the row except the hero (4) next to the reminder (2) and growth (3) next to the asks (3),
+          so the week plan, the toolkit and the inbox are full width. The spans go by position, so every card always
+          renders (each has its own empty state and never returns null). */}
       <div
-        className={`${first ? "ios-stagger" : ""} flex flex-col gap-3 md:grid md:grid-cols-3 md:[&>:first-child]:col-span-2 md:[&>:nth-child(3)]:col-span-3 md:[&>:nth-child(4)]:col-span-3`}
+        className={`${first ? "ios-stagger" : ""} flex flex-col gap-3 md:grid md:grid-cols-6 md:[&>*]:col-span-6 md:[&>:nth-child(1)]:col-span-4 md:[&>:nth-child(2)]:col-span-2 md:[&>:nth-child(5)]:col-span-3 md:[&>:nth-child(6)]:col-span-3`}
       >
         <NextPostHero today={today} />
         <ReminderCard today={today} now={nowMinute} />
