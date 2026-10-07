@@ -91,7 +91,7 @@ export default function TrendRadar() {
           <h2 className="ios-gh text-[13px]">{t("trends.title")}</h2>
           <button
             type="button"
-            className="ios-icbtn text-tint -my-2 disabled:opacity-40"
+            className="ios-icbtn trends-refresh text-tint -my-2 disabled:opacity-40"
             onClick={() => void refresh()}
             disabled={loading || !configured}
             aria-label={t("trends.refresh")}
@@ -99,12 +99,7 @@ export default function TrendRadar() {
             aria-busy={loading}
             data-testid="trends-refresh"
           >
-            <RefreshCw
-              size={20}
-              strokeWidth={1.75}
-              className={loading ? "animate-spin" : undefined}
-              aria-hidden
-            />
+            <RefreshCw size={20} strokeWidth={1.75} aria-hidden />
           </button>
         </div>
         <p className="text-ink-2 px-4 text-[13px]">{t("trends.sub")}</p>

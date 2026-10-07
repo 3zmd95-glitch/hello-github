@@ -3,7 +3,9 @@ import { freshState } from "./helpers";
 
 // Ideas bank, iOS look (tools/18 §6): "new idea" opens a sheet; the star button, or a swipe toward the row's end
 // edge (left in Arabic), keeps an idea in favorites; the status chips (favorites, waiting, used) filter the bank
-// next to the source chips; favorites survive a reload.
+// next to the source chips; favorites survive a reload; remove asks first; a saved idea rises into the list.
+
+const STORAGE_KEY = "3z-prod-v1";
 
 async function addIdea(page: Page, text: string): Promise<void> {
   await page.getByTestId("idea-new").click();
@@ -15,13 +17,12 @@ async function addIdea(page: Page, text: string): Promise<void> {
 }
 
 /**
- * Drag a row by (dx, dy): a finger on the phone (CDP touch events, so the row's `touch-action: pan-y` is what lets
- * a sideways drag through), the mouse on desktop.
+ * Press on `start` and drag by (dx, dy): a finger on the phone (CDP touch events, so the row's `touch-action:
+ * pan-y` is what lets a sideways drag through), the mouse on desktop.
  */
-async function drag(page: Page, row: Locator, dx: number, dy = 0, touch = false): Promise<void> {
-  const target = row.locator(".ios-row");
-  await target.evaluate((el) => el.scrollIntoView({ block: "center" }));
-  const box = (await target.boundingBox())!;
+async function drag(page: Page, start: Locator, dx: number, dy = 0, touch = false): Promise<void> {
+  await start.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  const box = (await start.boundingBox())!;
   const x0 = box.x + box.width / 2;
   const y0 = box.y + box.height / 2;
   const at = (i: number) => ({ x: x0 + (dx * i) / 8, y: y0 + (dy * i) / 8 });
@@ -59,28 +60,40 @@ test("ideas bank: a new idea from the sheet, favorites by the star and by a swip
   const one = rows.filter({ hasText: "Idea one" });
   const two = rows.filter({ hasText: "Idea two" });
   await expect(one).toHaveAttribute("data-favorite", "false");
+  // A just-saved idea rises into the list.
+  await expect(two).toHaveClass(/idea-rise/);
 
-  // The star button stars and unstars.
+  // The star button stars and unstars; its name says which idea.
   const star = one.getByTestId("idea-star");
   await star.click();
   await expect(one).toHaveAttribute("data-favorite", "true");
   await expect(star).toHaveAttribute("aria-pressed", "true");
-  await expect(star).toHaveAccessibleName("مفضلة");
+  await expect(star).toHaveAccessibleName("مفضلة: «Idea one»");
 
   // A short drag springs back; past the arm point toward the end edge (left in RTL) it stars the idea; toward the
   // start edge nothing happens; the next full swipe unstars it.
-  await drag(page, two, -40, 0, isMobile);
+  const twoRow = two.locator(".ios-row");
+  await drag(page, twoRow, -40, 0, isMobile);
   await expect(two).toHaveAttribute("data-favorite", "false");
-  await drag(page, two, -110, 0, isMobile);
+  await drag(page, twoRow, -110, 0, isMobile);
   await expect(two).toHaveAttribute("data-favorite", "true");
-  await drag(page, two, 110, 0, isMobile);
+  await drag(page, twoRow, 110, 0, isMobile);
   await expect(two).toHaveAttribute("data-favorite", "true");
-  await drag(page, two, -110, 0, isMobile);
+  await drag(page, twoRow, -110, 0, isMobile);
   await expect(two).toHaveAttribute("data-favorite", "false");
   // A drag that starts vertically belongs to the page: no favorite, and the row is back in place.
-  await drag(page, two, -20, -160, isMobile);
+  await drag(page, twoRow, -20, -160, isMobile);
   await expect(two).toHaveAttribute("data-favorite", "false");
-  await expect(two.locator(".ios-row")).toHaveCSS("transform", /none|matrix\(1, 0, 0, 1, 0, 0\)/);
+  await expect(twoRow).toHaveCSS("transform", /none|matrix\(1, 0, 0, 1, 0, 0\)/);
+  // A swipe that starts on a control swipes the row: the button never gets a click, so its picker stays shut.
+  const use = two.getByTestId("idea-use");
+  await drag(page, use, -110, 0, isMobile);
+  await expect(two).toHaveAttribute("data-favorite", "true");
+  await expect(two.getByTestId("idea-use-tiktok")).toHaveCount(0);
+  await drag(page, use, -110, 0, isMobile);
+  await expect(two).toHaveAttribute("data-favorite", "false");
+  await expect(two.getByTestId("idea-use-tiktok")).toHaveCount(0);
+  await expect(use).toBeVisible();
 
   // Status chips: favorites, waiting (no post yet), used (planned as a post).
   await page.getByTestId("ideas-filter-favorites").click();
@@ -93,10 +106,11 @@ test("ideas bank: a new idea from the sheet, favorites by the star and by a swip
   await one.getByTestId("idea-use").click();
   await one.getByTestId("idea-use-tiktok").click();
   await expect(one).toHaveAttribute("data-used", "true");
-  await expect(one.getByTestId("idea-used-link")).toHaveAttribute(
-    "href",
-    /\/social\/calendar\/#post=.+/,
-  );
+  // The button turns into the calendar chip with a pop, and the chip takes the focus.
+  const chip = one.getByTestId("idea-used-link");
+  await expect(chip).toHaveAttribute("href", /\/social\/calendar\/#post=.+/);
+  await expect(chip).toHaveClass(/ios-pop/);
+  await expect(chip).toBeFocused();
   await page.getByTestId("ideas-filter-used").click();
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText("Idea one");
@@ -116,10 +130,56 @@ test("ideas bank: a new idea from the sheet, favorites by the star and by a swip
   await expect(rows.filter({ hasText: "Idea one" })).toHaveAttribute("data-favorite", "true");
   await expect(rows.filter({ hasText: "Idea two" })).toHaveAttribute("data-favorite", "false");
 
-  // Remove takes the idea out of the bank.
-  await rows.filter({ hasText: "Idea two" }).getByTestId("idea-remove").click();
+  // Remove is a danger-red button that asks first (an iOS alert naming the idea): Cancel keeps it, the red
+  // button removes it.
+  const remove = rows.filter({ hasText: "Idea two" }).getByTestId("idea-remove");
+  await expect(remove).toHaveCSS("color", "rgb(208, 51, 43)");
+  await remove.click();
+  const alert = page.getByRole("alertdialog");
+  await expect(alert).toContainText("Idea two");
+  await page.getByTestId("confirm-cancel").click();
+  await expect(alert).toHaveCount(0);
+  await expect(rows).toHaveCount(3);
+  await remove.click();
+  await page.getByTestId("confirm-ok").click();
   await expect(rows).toHaveCount(2);
   await expect(page.getByTestId("ideas-list")).toHaveAttribute("data-count", "2");
+});
+
+test("an emptied bank drops its filter, so an idea saved from a skill shows and rises in", async ({
+  page,
+}) => {
+  // One old favorite in the bank: loaded, not new, so it does not rise.
+  await page.goto("/social/ideas/");
+  await page.evaluate((key) => {
+    localStorage.clear();
+    const idea = {
+      id: "old",
+      text: "An old favorite",
+      source: "me",
+      createdAt: "2026-01-01T09:00:00.000Z",
+      favorite: true,
+    };
+    localStorage.setItem(key, JSON.stringify({ state: { ideas: [idea] }, version: 1 }));
+  }, STORAGE_KEY);
+  await page.reload();
+  const rows = page.getByTestId("idea-row");
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).not.toHaveClass(/idea-rise/);
+
+  // Favorites on, then the last idea goes: no chips are left to show the filter, so it is dropped.
+  await page.getByTestId("ideas-filter-favorites").click();
+  await rows.first().getByTestId("idea-remove").click();
+  await page.getByTestId("confirm-ok").click();
+  await expect(page.getByTestId("ideas-empty")).toBeVisible();
+  await expect(page.getByTestId("ideas-filter-all")).toHaveCount(0);
+
+  // A skill saved from the suggestions (not a favorite) lands in the visible list and rises in.
+  await page.getByTestId("ideas-from-skills").getByTestId("skill-idea-save").first().click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toHaveAttribute("data-source", "skill");
+  await expect(rows.first()).toHaveClass(/idea-rise/);
+  await expect(page.getByTestId("ideas-filter-all")).toHaveAttribute("aria-pressed", "true");
 });
 
 test("the new-idea sheet closes with ✕ and with Back, and keeps nothing it was not told to save", async ({

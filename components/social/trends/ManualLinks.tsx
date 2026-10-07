@@ -41,7 +41,7 @@ export default function ManualLinks() {
             data-link={l.id}
           >
             <span className="ios-tx">
-              <b>{t(l.key)}</b>
+              <b className="whitespace-normal">{t(l.key)}</b>
             </span>
             <ExternalLink
               size={16}
@@ -52,7 +52,7 @@ export default function ManualLinks() {
           </a>
         ))}
         <ListRow
-          title={t("trends.manual.instagram")}
+          title={<span className="block whitespace-normal">{t("trends.manual.instagram")}</span>}
           sub={t("trends.manual.instagramNote")}
           testId="trends-manual-link"
           data-link="instagram"

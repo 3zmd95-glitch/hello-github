@@ -102,6 +102,39 @@ describe("useSwipeAction", () => {
     expect(state().x).toBeGreaterThan(-140);
   });
 
+  it("ends a mouse gesture whose button came up outside the row, and still follows a held mouse", () => {
+    const onTrigger = mount("rtl");
+    const mouse = (type: string, clientX: number, buttons: number, clientY = 100) =>
+      act(() => {
+        row().dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            clientX,
+            clientY,
+            pointerId: 1,
+            pointerType: "mouse",
+            buttons,
+          }),
+        );
+      });
+    // Pressed, then the pointer left and let go elsewhere (no pointerup here); back over the row, no button down.
+    mouse("pointerdown", 200, 1);
+    mouse("pointermove", 190, 0);
+    mouse("pointermove", 110, 0);
+    expect(state()).toEqual({ x: 0, armed: false, dragging: false });
+    mouse("pointermove", 100, 1); // the gesture is over: a later move needs a new press
+    expect(state()).toEqual({ x: 0, armed: false, dragging: false });
+    expect(onTrigger).not.toHaveBeenCalled();
+
+    // A real mouse drag (button held) still swipes and fires.
+    mouse("pointerdown", 200, 1);
+    mouse("pointermove", 190, 1);
+    mouse("pointermove", 130, 1);
+    expect(state()).toEqual({ x: -70, armed: true, dragging: true });
+    mouse("pointerup", 130, 0);
+    expect(onTrigger).toHaveBeenCalledTimes(1);
+  });
+
   it("only springs back when the browser cancels the gesture", () => {
     const onTrigger = mount("rtl");
     drag(-90);

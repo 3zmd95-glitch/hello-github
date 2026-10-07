@@ -11,8 +11,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PlatformPicker, calendarPostHref } from "@/components/social/studio/platform";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { useSwipeAction } from "@/components/ui/ios/useSwipeAction";
 import { getSkill } from "@/data";
 import type { Idea, IdeaSource, Post } from "@/lib/domain";
@@ -29,10 +30,16 @@ export const SOURCE_ICON: Record<IdeaSource, LucideIcon> = {
   me: PenLine,
 };
 
+/** Saved a moment ago (the sheet, a trend, a skill): its row rises into the list (tools/18 §3.5 "Lists"). */
+function justAdded(createdAt: string): boolean {
+  return Date.now() - Date.parse(createdAt) < 2000;
+}
+
 /**
- * One stored idea (tools/18 §6, mockup Ideas): its text, where it came from (or "used"), "plan a post" (platform
- * chooser) or its calendar link, and remove. A swipe toward the end edge (left in RTL) stars it like the star
- * button; the star pops each time it turns on.
+ * One stored idea (tools/18 §6, mockup Ideas): its full text, where it came from (or "used"), "plan a post"
+ * (platform chooser) or its calendar link, and remove (asks first). A swipe toward the end edge (left in RTL) stars
+ * it like the star button; the star pops each time it turns on. A just-saved idea rises in; planned, the button
+ * turns into the "in the calendar" chip with a pop and hands it its focus (as the Studio's asks do).
  */
 export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post | undefined }) {
   const { t, L } = useT();
@@ -40,6 +47,13 @@ export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post
   const removeIdea = useStore((s) => s.removeIdea);
   const toggleFavorite = useStore((s) => s.toggleIdeaFavorite);
   const [picking, setPicking] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [fresh] = useState(() => justAdded(idea.createdAt));
+  const [planned, setPlanned] = useState(false);
+  const chipRef = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    if (planned) chipRef.current?.focus();
+  }, [planned]);
   // Bumped on every star-on: the new key remounts the icon, so the pop plays again.
   const [pops, setPops] = useState(0);
   const skill = idea.skillId ? getSkill(idea.skillId) : undefined;
@@ -54,7 +68,7 @@ export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post
 
   return (
     <li
-      className="ios-swipe"
+      className={`ios-swipe ${fresh ? "idea-rise" : ""}`}
       data-armed={armed}
       data-dragging={dragging}
       data-testid="idea-row"
@@ -75,8 +89,8 @@ export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post
           <b>
             <span
               dir="auto"
-              // The owner's own words: their direction, two lines at most, aligned with the row.
-              className="line-clamp-2 [text-align:-webkit-match-parent] [text-align:match-parent] whitespace-normal"
+              // The owner's own words, all of them (a long word or a link wraps): their direction, aligned with the row.
+              className="block [text-align:-webkit-match-parent] [text-align:match-parent] break-words whitespace-normal"
             >
               {idea.text}
             </span>
@@ -95,10 +109,11 @@ export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {used ? (
               <Link
+                ref={chipRef}
                 href={calendarPostHref(livePost.id)}
                 draggable={false}
                 // A 44px tall hit area around the 24px chip, inside the row.
-                className="ios-chip tint relative no-underline after:absolute after:inset-x-0 after:-inset-y-2.5"
+                className={`ios-chip tint relative no-underline after:absolute after:inset-x-0 after:-inset-y-2.5 ${planned ? "ios-pop" : ""}`}
                 data-testid="idea-used-link"
               >
                 {t("ideas.used")}
@@ -112,6 +127,7 @@ export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post
                 onPick={(p) => {
                   turnIntoPost(idea.id, p);
                   setPicking(false);
+                  setPlanned(true);
                 }}
               />
             ) : (
@@ -126,13 +142,13 @@ export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post
             )}
           </div>
         </div>
-        {/* The row's end: the star on the title's line, remove at the bottom. */}
+        {/* The row's end: the star on the title's line, remove (destructive, asks first) at the bottom. */}
         <div className="-my-1.5 -me-1.5 flex flex-col items-center justify-between self-stretch">
           <button
             type="button"
             className="ios-starb"
             aria-pressed={fav}
-            aria-label={t("ideas.favorite")}
+            aria-label={t("ideas.favorite", { name: idea.text })}
             onClick={toggle}
             data-testid="idea-star"
           >
@@ -147,8 +163,8 @@ export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post
           {!picking && (
             <button
               type="button"
-              className="ios-icbtn text-muted"
-              onClick={() => removeIdea(idea.id)}
+              className="ios-icbtn text-danger"
+              onClick={() => setConfirming(true)}
               aria-label={t("ideas.removeLabel", { name: idea.text })}
               title={t("ideas.remove")}
               data-testid="idea-remove"
@@ -158,6 +174,16 @@ export default function IdeaRow({ idea, livePost }: { idea: Idea; livePost: Post
           )}
         </div>
       </div>
+      {confirming && (
+        <ConfirmDialog
+          title={t("ideas.removeLabel", { name: idea.text })}
+          body={t("ideas.removeBody")}
+          confirmLabel={t("ideas.remove")}
+          danger
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => removeIdea(idea.id)}
+        />
+      )}
     </li>
   );
 }

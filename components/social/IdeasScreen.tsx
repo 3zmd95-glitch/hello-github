@@ -48,6 +48,9 @@ export default function IdeasScreen() {
   const posts = useStore((s) => s.posts);
   const [filter, setFilter] = useState<Filter>("all");
   const [adding, setAdding] = useState(false);
+  // An empty bank shows no chips, so no filter may stay on behind them: the next idea (saved from a trend or a
+  // skill as well) must land in the visible list.
+  if (ideas.length === 0 && filter !== "all") setFilter("all");
 
   const rows = useMemo(() => {
     const live = new Map(posts.map((p) => [p.id, p]));

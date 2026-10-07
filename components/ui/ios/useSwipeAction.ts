@@ -36,6 +36,9 @@ export function useSwipeAction(
   const onPointerMove = (e: PointerEvent<HTMLElement>) => {
     const st = s.current;
     if (!st.active) return;
+    // A mouse let go outside the row before the drag was decided (nothing had captured it yet) never sent its
+    // pointerup here: with no button down the gesture is over, whatever the move says.
+    if (e.pointerType === "mouse" && e.buttons === 0) return finish(false);
     const mx = e.clientX - st.x0;
     const my = e.clientY - st.y0;
     if (!st.decided) {
