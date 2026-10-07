@@ -2194,10 +2194,14 @@
   .ios-stagger > :nth-child(n + 8) {
     animation-delay: 0.35s;
   }
-  /* Tab change (§3.5): a route's screen and a Segmented panel's content fade in with a 12px rise as they mount, so
-     nothing swaps in one frame. Zero weight: a first-visit stagger or another entrance on the same element wins.
-     Screens hold no fixed children (the "+" and the pull spinner are portaled), so the transform moves nothing. */
-  :where([data-world="social"]) :where(#main, [role="tabpanel"]) > * {
+  /* Tab change (§3.5): nothing swaps in one frame. A route's screen fades in (opacity only: its large title and any
+     first-visit stagger bring their own rise, so the screen itself must not rise too); a Segmented panel's content
+     fades in with a 12px rise. Zero weight: another entrance on the same element wins. Screens hold no fixed children
+     (the "+" and the pull spinner are portaled). */
+  :where([data-world="social"]) :where(#main) > * {
+    animation: ios-fade var(--t-med) var(--out) backwards;
+  }
+  :where([data-world="social"]) :where([role="tabpanel"]) > * {
     animation: ios-pin var(--t-med) var(--out) backwards;
   }
 
@@ -2417,6 +2421,11 @@
   from {
     opacity: 0;
     transform: translateY(16px);
+  }
+}
+@keyframes ios-fade {
+  from {
+    opacity: 0;
   }
 }
 @keyframes ios-pin {
