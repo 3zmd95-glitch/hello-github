@@ -17,6 +17,7 @@
  */
 
 import { readEffects } from "./kv";
+import { FORMAT_VERSION } from "./formats";
 import { runEffects } from "./run";
 import type { EffectsEnv } from "./sources";
 import type { EffectsDoc } from "./types";
@@ -36,13 +37,24 @@ export function json(body: unknown, status: number, cors: Headers): Response {
 }
 
 /** The document without the job's memory (JSON leaves `notes` out when there are none). */
-const answer = ({ status, ranOn, updatedAt, notes, items, evidenceVersion }: EffectsDoc) => ({
+const answer = ({
+  status,
+  ranOn,
+  updatedAt,
+  notes,
+  items,
+  evidenceVersion,
+  formats,
+  formatVersion,
+}: EffectsDoc) => ({
   evidenceVersion,
   status,
   ranOn,
   updatedAt,
   notes,
   items,
+  formatVersion: FORMAT_VERSION,
+  formats: formatVersion === FORMAT_VERSION ? (formats ?? []) : [],
 });
 
 /** `force` of the run body (false when the body is empty); null when the body is not `{ force?: boolean }`. */
@@ -73,14 +85,25 @@ export async function handleEffects(
     // undefined: KV could not be read; null: no document yet.
     const doc = await readEffects(env).catch(() => undefined);
     if (doc === undefined) return json({ error: "upstream" }, 502, cors);
-    return json(doc ? answer(doc) : { status: "never", items: [] }, 200, cors);
+    return json(
+      doc
+        ? answer(doc)
+        : { status: "never", items: [], formatVersion: FORMAT_VERSION, formats: [] },
+      200,
+      cors,
+    );
   }
   if (pathname === "/effects/run" && req.method === "POST") {
     const force = await parseForce(req);
     if (force === null) return json({ error: "bad_request" }, 400, cors);
     // The run never throws. Handed to waitUntil too: a dropped request (the page closed mid-run) leaves it up to 30 s
     // more to finish and save.
-    const run = runEffects(env, { fetch: deps.fetch, now: deps.now?.(), force });
+    const run = runEffects(env, {
+      fetch: deps.fetch,
+      now: deps.now?.(),
+      force,
+      upgradeFormats: true,
+    });
     deps.waitUntil?.(run);
     return json(answer(await run), 200, cors);
   }

@@ -181,6 +181,69 @@ afterEach(async () => {
 });
 
 describe("the trending-effects row", () => {
+  it("reports a failed formats-only scan while retaining its cards and followed snapshot", async () => {
+    const at = new Date(Date.now() - 60_000).toISOString();
+    const format = {
+      key: "formats-only-test",
+      name: { en: "Cutout rhythm" },
+      visualPattern: { en: "Repeated cutout figures" },
+      audio: { title: "Test track" },
+      firstSeen: at,
+      lastChecked: at,
+      evidence: {
+        state: "candidate",
+        creators7d: 1,
+        posts7d: 1,
+        latestPostAt: at,
+        scope: "indexed-public-posts",
+      },
+      samples: [
+        {
+          url: "https://www.instagram.com/reel/FORMAT/",
+          title: "Cutout rhythm",
+          platform: "ig",
+          handle: "editor",
+          published: at,
+          observedAt: at,
+          patternQuote: "Repeated cutout figures",
+          audioQuote: "Test track",
+        },
+      ],
+    };
+    trending = docOf({ items: [], formatVersion: 1, formats: [format] });
+    runAnswer = { body: { error: "unavailable" }, status: 503 };
+    await mount("en");
+    const formatCard = () =>
+      host.querySelector<HTMLElement>('[data-testid="edit-format"][data-key="formats-only-test"]')!;
+    expect($("trending-effects")).toBeNull();
+    act(() =>
+      formatCard().querySelector<HTMLButtonElement>('[data-testid="format-follow"]')!.click(),
+    );
+    act(() => $("formats-scan")!.click());
+    expect($("formats-scan-status")!.textContent).toContain("Checking public posts");
+    await settle();
+    await act(async () => releaseRun!());
+    await settle();
+    expect($("formats-scan-status")!.textContent).toContain("scan couldn't finish");
+    expect(formatCard()).not.toBeNull();
+    expect(
+      useStore.getState().followedFormats.some((entry) => entry.format.key === format.key),
+    ).toBe(true);
+    act(() => useStore.getState().unfollowFormat(format.key));
+  });
+
+  it("explains format detection failure even when generic techniques succeeded", async () => {
+    trending = docOf({
+      status: "partial",
+      formatVersion: 1,
+      formats: [],
+      notes: ["formats_ai_unavailable"],
+    });
+    await mount("en");
+    expect($("formats-scan-status")!.textContent).toContain("Format detection was unavailable");
+    expect(chips()).toHaveLength(4);
+  });
+
   it("keeps legacy ideas without unverified counts, NEW badges, or YouTube growth claims", async () => {
     trending = docOf({ evidenceVersion: undefined });
     await mount("en");
@@ -221,11 +284,13 @@ describe("the trending-effects row", () => {
     expect(host.textContent).not.toContain("↑");
   });
 
-  it("shows nothing for an older Worker (404)", async () => {
+  it("hides automatic techniques for an older Worker while keeping the reviewed format lead", async () => {
     trending = null;
     await mount();
     expect(gets).toBe(1);
-    expect(host.innerHTML).toBe("");
+    expect($("trending-effects")).toBeNull();
+    expect($("edit-formats")).not.toBeNull();
+    expect($("formats-awaiting-scan")).not.toBeNull();
   });
 
   it("in Arabic: English technique names with identified account evidence and no growth badges", async () => {
@@ -304,13 +369,15 @@ describe("the trending-effects row", () => {
   it("shows nothing for a list older than 3 days, or a run that found nothing", async () => {
     trending = docOf({ updatedAt: new Date(Date.now() - 73 * HOUR).toISOString() });
     await mount();
-    expect(host.innerHTML).toBe("");
+    expect($("trending-effects")).toBeNull();
+    expect($("edit-formats")).not.toBeNull();
     trending = docOf({ items: [] });
     sessionStorage.clear();
     remount();
     await settle();
     expect(gets).toBe(2);
-    expect(host.innerHTML).toBe("");
+    expect($("trending-effects")).toBeNull();
+    expect($("edit-formats")).not.toBeNull();
   });
 
   it("a tap searches the effect: a dictionary one its English label, a new one its English name", async () => {
@@ -567,7 +634,8 @@ describe("before the Worker's first run", () => {
     trending = docOf({ items: [] });
     remount();
     await settle();
-    expect(host.innerHTML).toBe("");
+    expect($("trending-effects")).toBeNull();
+    expect($("edit-formats")).not.toBeNull();
   });
 
   it("a scan that rests (the day's tries spent, or nothing found) moves focus to the heading, unless the owner is elsewhere", async () => {

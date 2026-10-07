@@ -279,7 +279,11 @@ async function stubWorker(
   category: unknown = CATEGORY_CARS,
   /** What the TikTok tab's `GET /categories/cars/top/tt` answers (Brave's group of 30 by default), and what
    * `POST /tiktokads/connect` answers ({ url }; without it, 409 not_configured). */
-  extra: { topTikTok?: unknown; connect?: (body: Record<string, unknown>) => unknown } = {},
+  extra: {
+    topTikTok?: unknown;
+    effects?: unknown;
+    connect?: (body: Record<string, unknown>) => unknown;
+  } = {},
 ) {
   const asked: Record<string, unknown>[] = [];
   await page.route(`${WORKER}/**`, async (route) => {
@@ -301,7 +305,7 @@ async function stubWorker(
           : { ok: true },
       );
     if (!authed) return reply({ error: "unauthorized" }, 401);
-    if (url.pathname === "/effects/trending") return reply(EFFECTS);
+    if (url.pathname === "/effects/trending") return reply(extra.effects ?? EFFECTS);
     // Scan again: the run's fresh list.
     if (url.pathname === "/effects/run" && req.method() === "POST")
       return reply({ ...EFFECTS, updatedAt: new Date().toISOString() });
@@ -698,7 +702,10 @@ test("Instagram cards load missing previews and keep a playable fallback when un
     "المعاينة مو متوفّرة",
   );
   await expect(missing.getByTestId("result-play")).toBeVisible();
-  expect(lookups.sort()).toEqual(posts.map((p) => p.url).sort());
+  // Reviewed format cards can request their own previews independently of these search results.
+  expect(lookups.filter((url) => posts.some((post) => post.url === url)).sort()).toEqual(
+    posts.map((p) => p.url).sort(),
+  );
   expect(await fitsViewport(page)).toBe(true);
 });
 
@@ -955,6 +962,112 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   await expect(page.getByTestId("discover-recent-topic").first()).toHaveText("clone effect");
   await expect(page.getByTestId("discover-sections")).toBeVisible();
   expect(await fitsViewport(page)).toBe(true);
+});
+
+test("Edit formats: audio and visual identity, saved following, exact tutorial search and bilingual layout", async ({
+  page,
+}, testInfo) => {
+  const checked = new Date().toISOString();
+  const makeFormat = (key: string, visual: string) => ({
+    key,
+    name: { en: `Night Walk — ${visual}`, ar: `مشية الليل — ${visual}` },
+    visualPattern: { en: visual, ar: visual },
+    audio: { title: "Night Walk", artist: "Fixture Artist" },
+    firstSeen: checked,
+    lastChecked: checked,
+    evidence: {
+      state: "candidate",
+      creators7d: 1,
+      posts7d: 1,
+      latestPostAt: checked,
+      scope: "indexed-public-posts",
+    },
+    samples: [
+      {
+        url: `https://www.instagram.com/reel/${key}/`,
+        title: `${visual} to Night Walk`,
+        platform: "ig",
+        handle: "fixture_editor",
+        published: checked,
+        observedAt: checked,
+        patternQuote: visual,
+        audioQuote: "Night Walk",
+      },
+    ],
+  });
+  const payload = {
+    ...EFFECTS,
+    formatVersion: 1,
+    formats: [
+      makeFormat("format-fixture-repeat", "clone figures on each beat"),
+      makeFormat("format-fixture-type", "kinetic lyric typography"),
+    ],
+  };
+  const formatLesson = item(71, {
+    title: "Night Walk clone figures on each beat editing tutorial",
+    snippet: "Learn the Night Walk edit: clone figures on each beat.",
+    section: "tutorial",
+  });
+  const albumNews = item(72, {
+    title: "Night Walk album review and tour news",
+    snippet: "The artist discusses the music, album cover and upcoming tour.",
+  });
+  const asked = await stubWorker(
+    page,
+    (request) => ({
+      ...ANSWER,
+      items: String(request.q).includes("tutorial") ? [formatLesson, albumNews] : [albumNews],
+    }),
+    CATEGORY_CARS,
+    { effects: payload },
+  );
+  await connectWorker(page);
+  await page.goto("/discover/");
+  const panel = page.getByTestId("edit-formats");
+  const repeats = panel.locator('[data-key="format-fixture-repeat"]');
+  await expect(repeats).toBeVisible();
+  await expect(panel.locator('[data-key="format-fixture-type"]')).toBeVisible();
+  expect(await fitsViewport(page)).toBe(true);
+  await page.getByTestId("lang-en").click();
+  await expect(repeats).toContainText("Night Walk");
+  await expect(repeats).toContainText("clone figures on each beat");
+  await expect(repeats.getByTestId("format-evidence-state")).not.toContainText(/trending|popular/i);
+  await repeats.getByTestId("format-follow").click();
+  await expect(repeats.getByTestId("format-follow")).toHaveAttribute("aria-pressed", "true");
+
+  // A saved snapshot remains when the next scan no longer includes it.
+  payload.formats = [];
+  await page.evaluate(() => sessionStorage.clear());
+  await page.reload();
+  await panel.getByTestId("formats-following").click();
+  await expect(panel.getByTestId("edit-format")).toHaveCount(1);
+  await expect(repeats).toContainText("Fixture Artist");
+  await repeats.getByTestId("format-sources").locator("summary").click();
+  await expect(repeats.getByTestId("format-sources")).toContainText("fixture_editor");
+  await repeats.getByTestId("format-find-tutorials").click();
+  await expect.poll(() => asked.length).toBe(1);
+  expect(asked[0].q).toContain("Night Walk");
+  expect(asked[0].q).toContain("clone figures beat");
+  expect(asked[0].q).toContain("tutorial");
+  expect(asked[0].exact).toBe(true);
+  expect(asked[0].timeRange ?? "any").toBe("any");
+  await expect(page.getByTestId("format-search-status")).toBeVisible();
+  await expect(page.getByTestId("discover-section-tutorial")).toContainText(formatLesson.title);
+  await expect(page.getByTestId("discover-sections")).not.toContainText(albumNews.title);
+  expect(await fitsViewport(page)).toBe(true);
+  await panel.screenshot({ path: testInfo.outputPath("synthetic-edit-formats.png") });
+
+  await repeats.getByTestId("format-find-examples").click();
+  await expect.poll(() => asked.length).toBe(2);
+  await expect(page.getByTestId("format-search-empty")).toBeVisible();
+  await expect(page.getByTestId("discover-sections").getByTestId("result-card")).toHaveCount(0);
+  // The stricter format gate must not silently filter an ordinary typed search.
+  await search(page, "album news");
+  await expect(page.getByTestId("format-search-status")).not.toBeVisible();
+  await expect(page.getByTestId("discover-section-example")).toContainText(albumNews.title);
+  await repeats.getByTestId("format-follow").click();
+  await panel.getByTestId("formats-following").click();
+  await expect(panel.getByTestId("edit-format")).toHaveCount(0);
 });
 
 test("Discover v2: a genre searches first; Study guides opens lessons and explicit scan actions", async ({

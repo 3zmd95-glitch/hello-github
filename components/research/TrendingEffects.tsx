@@ -14,7 +14,9 @@ import {
 } from "@/lib/effects";
 import { useT } from "@/lib/i18n";
 import type { ScoutConfig } from "@/lib/scoutClient";
+import type { EditFormat } from "@/lib/editFormats";
 import EffectEvidence from "./EffectEvidence";
+import EditFormats from "./EditFormats";
 
 const CREATIVE_CENTER =
   "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en";
@@ -30,7 +32,7 @@ const SCAN_LINE = {
 
 /** Where the row rests after a scan's answer `r` (null: the request failed). */
 function afterScan(r: Trending | null): "idle" | "failed" | "limit" | "none" {
-  if (r?.items.length) return "idle";
+  if (r?.items.length || r?.formats?.length) return "idle";
   // The Worker's tries for the day are spent: the button rests until the next visit.
   if (r?.notes?.includes("attempts")) return "limit";
   // A run that found nothing rests too. No answer, or the Worker's own failed run with no list: a retry.
@@ -46,10 +48,12 @@ function afterScan(r: Trending | null): "idle" | "failed" | "limit" | "none" {
 export default function TrendingEffects({
   config,
   onPick,
+  onPickFormat,
 }: {
   config: ScoutConfig;
   /** A tapped chip's search ({@link effectQuery}). */
   onPick: (q: string) => void;
+  onPickFormat?: (q: string, intent: "examples" | "tutorials", format: EditFormat) => void;
 }) {
   const { t } = useT();
   const id = useId();
@@ -124,7 +128,6 @@ export default function TrendingEffects({
 
   // A first scan that rests keeps the row as it was (not hidden after a minute of "Scanning…").
   const state = scan === "limit" || scan === "none" ? "never" : rowVisible(data, now);
-  if (!data || state === "hidden") return null;
 
   // About a minute. Leaving Discover never cancels it (lib/effects keeps the list it finds for the next visit, and a
   // revisit meanwhile waits for it); this row then ignores its answer. `force`: Scan again, past the Worker's
@@ -135,6 +138,30 @@ export default function TrendingEffects({
       if (mounted.current) landed(r, force);
     });
   };
+  const formatPanel = (
+    <EditFormats
+      data={data}
+      onPick={onPickFormat ?? onPick}
+      onScan={data?.formatVersion === 1 ? () => runNow(true) : undefined}
+      scanning={scan === "running"}
+      scanStatus={
+        scan === "running"
+          ? t("formats.scanning")
+          : scan === "failed" || data?.status === "failed"
+            ? t("formats.scanFailed")
+            : data?.notes?.includes("formats_ai_unavailable")
+              ? t("formats.scanUnavailable")
+              : scan === "limit" || data?.notes?.includes("attempts")
+                ? t(SCAN_LINE.limit)
+                : data?.formatVersion === 1 &&
+                    !data.formats?.length &&
+                    (data.status === "ok" || data.status === "partial")
+                  ? t("formats.noAutomatic")
+                  : ""
+      }
+    />
+  );
+  if (!data || state === "hidden") return formatPanel;
   // The scan's line: waiting, or why it rests; before the first run, also the Worker's own failed run.
   const line =
     scan !== "idle"
@@ -175,79 +202,82 @@ export default function TrendingEffects({
   };
 
   return (
-    <section
-      aria-labelledby={`${id}-title`}
-      className="flex min-w-0 flex-col gap-1.5"
-      data-testid="trending-effects"
-      data-state={state}
-    >
-      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <h2 ref={heading} id={`${id}-title`} tabIndex={-1} className="text-sm font-bold">
-          {t("search.trendingTitle")}
-        </h2>
-        {state !== "never" && (
-          <>
-            <span className="text-muted text-xs">
-              {/* A list made under an hour ago (or after this page opened: a scan just now) is "just now". */}
-              {age < HOUR
-                ? t("search.trendingUpdatedNow")
-                : t("search.trendingUpdated", { n: Math.round(age / HOUR) })}
-            </span>
-            <a
-              href={CREATIVE_CENTER}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-link text-xs"
-            >
-              {t("search.trendingCreative")}
-            </a>
-            <button
-              ref={rescanButton}
-              type="button"
-              className="px-link text-xs disabled:opacity-50"
-              disabled={scan === "running"}
-              onClick={() => runNow(true)}
-              data-testid="trending-rescan"
-            >
-              {t("search.trendingRescan")}
-            </button>
-            {/* Always there (empty while idle), so its next words are announced: waiting, or a scan that failed
+    <>
+      {formatPanel}
+      <section
+        aria-labelledby={`${id}-title`}
+        className="flex min-w-0 flex-col gap-1.5"
+        data-testid="trending-effects"
+        data-state={state}
+      >
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <h2 ref={heading} id={`${id}-title`} tabIndex={-1} className="text-sm font-bold">
+            {t("search.trendingTitle")}
+          </h2>
+          {state !== "never" && (
+            <>
+              <span className="text-muted text-xs">
+                {/* A list made under an hour ago (or after this page opened: a scan just now) is "just now". */}
+                {age < HOUR
+                  ? t("search.trendingUpdatedNow")
+                  : t("search.trendingUpdated", { n: Math.round(age / HOUR) })}
+              </span>
+              <a
+                href={CREATIVE_CENTER}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-link text-xs"
+              >
+                {t("search.trendingCreative")}
+              </a>
+              <button
+                ref={rescanButton}
+                type="button"
+                className="px-link text-xs disabled:opacity-50"
+                disabled={scan === "running"}
+                onClick={() => runNow(true)}
+                data-testid="trending-rescan"
+              >
+                {t("search.trendingRescan")}
+              </button>
+              {/* Always there (empty while idle), so its next words are announced: waiting, or a scan that failed
                 (the list stays). */}
-            <span role="status" className="text-muted text-xs">
-              {line}
-            </span>
-          </>
+              <span role="status" className="text-muted text-xs">
+                {line}
+              </span>
+            </>
+          )}
+        </div>
+        <p className="text-muted text-xs">{t("search.effectsEvidenceNote")}</p>
+        {state === "stale-failed" && (
+          <p className="text-muted text-xs">{t("search.trendingStale")}</p>
         )}
-      </div>
-      <p className="text-muted text-xs">{t("search.effectsEvidenceNote")}</p>
-      {state === "stale-failed" && (
-        <p className="text-muted text-xs">{t("search.trendingStale")}</p>
-      )}
-      {state === "never" ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            ref={runButton}
-            type="button"
-            className="px-btn px-btn-sm"
-            disabled={scan === "running" || scan === "limit" || scan === "none"}
-            onClick={() => runNow(false)}
-            data-testid="trending-run"
-          >
-            {t("search.trendingRun")}
-          </button>
-          {/* Always there (empty while idle), so its next words are announced. A scan that could not answer, or
+        {state === "never" ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              ref={runButton}
+              type="button"
+              className="px-btn px-btn-sm"
+              disabled={scan === "running" || scan === "limit" || scan === "none"}
+              onClick={() => runNow(false)}
+              data-testid="trending-run"
+            >
+              {t("search.trendingRun")}
+            </button>
+            {/* Always there (empty while idle), so its next words are announced. A scan that could not answer, or
               the Worker's own failed run (no list yet), says so; the button stays for a retry. The day's tries
               spent, or nothing trending yet, rest the button with their own line. */}
-          <p role="status" className="text-muted text-xs">
-            {line}
-          </p>
-        </div>
-      ) : (
-        // One row that scrolls sideways (the page never does), like the genre chips.
-        <div className="flex min-w-0 gap-1.5 overflow-x-auto px-0.5 pt-0.5 pb-1.5">
-          {data.items.map(chip)}
-        </div>
-      )}
-    </section>
+            <p role="status" className="text-muted text-xs">
+              {line}
+            </p>
+          </div>
+        ) : (
+          // One row that scrolls sideways (the page never does), like the genre chips.
+          <div className="flex min-w-0 gap-1.5 overflow-x-auto px-0.5 pt-0.5 pb-1.5">
+            {data.items.map(chip)}
+          </div>
+        )}
+      </section>
+    </>
   );
 }

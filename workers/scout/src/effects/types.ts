@@ -5,6 +5,7 @@
  * one KV document. `EffectsDoc.meta` keeps each key's name and samples, so an effect that drops out of today's scan
  * keeps its name while it is still in the 7-day memory.
  */
+import type { FormatFields } from "./formats";
 
 /** Trending effects reads TikTok and Instagram posts; a category scan adds its YouTube top videos (`yt`,
  * planning/tools/19-category-trends.md §2 and §6). */
@@ -68,7 +69,7 @@ export interface EffectItem {
   samples: EffectSample[];
 }
 export type EffectsStatus = "ok" | "partial" | "failed";
-export interface EffectsDoc {
+export interface EffectsDoc extends FormatFields {
   evidenceVersion?: number;
   ranOn: string;
   updatedAt: string;

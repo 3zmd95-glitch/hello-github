@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
 import { instagramShortcodeAt, tiktokIdAt } from "../postDate";
 import { TAVILY_URL } from "../trends/tavily";
-import { familiesForSlot } from "./families";
+import { FAMILY_QUERIES, familiesForSlot } from "./families";
 import { monthTight, searchFamilies, youtubeCheck } from "./sources";
 
 const json = (body: unknown, status = 200) =>
@@ -90,7 +90,7 @@ describe("searchFamilies", () => {
     const out = await searchFamilies(
       ENV,
       doFetch,
-      ["gif stickers video edit", "speed ramp trend edit"],
+      ["gif stickers video edit", FAMILY_QUERIES[4]],
       undefined,
       { now: new Date("2026-10-07T05:35:00Z") },
     );

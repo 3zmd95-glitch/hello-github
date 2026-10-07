@@ -20,6 +20,24 @@ import {
 const LRM = "‎";
 const RLM = "‏";
 
+describe("bounded rich captions for edit-format discovery", () => {
+  it("retains the ordinary preview by default and permits a bounded richer internal caption", () => {
+    const hits = [
+      {
+        url: "https://www.tiktok.com/@editor/video/7654321000000000000",
+        title: "An edit",
+        content: `${"Context. ".repeat(35)}multiple clones on every beat to Night Drive ${"end ".repeat(300)}`,
+      },
+    ];
+    expect(normalizeHits(hits, ["tt"])[0].snippet.length).toBeLessThanOrEqual(220);
+    const rich = normalizeDiscoverHits(hits, "tt", new Date(), 1000).cards[0].snippet;
+    expect(rich).toContain("multiple clones on every beat to Night Drive");
+    expect(rich.length).toBeLessThanOrEqual(1000);
+    expect(normalizeHits(hits, ["tt"], new Date(), 999999)[0].snippet).toBe(rich);
+    expect(normalizeHits(hits, ["tt"], new Date(), NaN)[0].snippet.length).toBeLessThanOrEqual(220);
+  });
+});
+
 /** The one card normalizeHits makes from a single Instagram hit. */
 function igCard(hit: TavilyHit) {
   const [card] = normalizeHits([hit], ["ig"]);

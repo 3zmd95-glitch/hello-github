@@ -115,6 +115,9 @@ const titleCase = (s: string) => s.replace(/\b[a-z]/g, (c) => c.toUpperCase());
 function ai(judge: (key: string) => Verdict = () => ({})) {
   return {
     run: vi.fn(async (_model: string, input: Record<string, unknown>): Promise<unknown> => {
+      // The independent format extractor receives raw captions, not the technique cleanup's candidate lines.
+      if ((input.messages as { content: string }[])[0].content.startsWith("Discover specific"))
+        return { response: { formats: [] } };
       const effects = [...userText(input).matchAll(/^- key: (\S+) \| name: (.+?) \| posts:/gm)].map(
         ([, key, name]) => ({
           key,
@@ -169,6 +172,67 @@ afterEach(() => {
 });
 
 describe("runEffects", () => {
+  it("persists specific formats and revisits their song+visual identity within the unchanged daily search budget", async () => {
+    const pattern = "multiple frozen clones appear on each beat";
+    const song = "Night Drive";
+    const hits = [1, 2, 3].map((n) => ({
+      ...tt(`format${n}`, "Frozen clone montage", n),
+      content: `${"A filmmaking practice clip. ".repeat(10)}${pattern}; audio: ${song}`,
+    }));
+    const { env, KV, AI } = setup();
+    const techniqueAnswer = AI.run.getMockImplementation()!;
+    AI.run.mockImplementation(async (model, input) => {
+      if (!(input.messages as { content: string }[])[0].content.startsWith("Discover specific"))
+        return techniqueAnswer(model, input);
+      const raw = JSON.parse(userText(input)) as { posts: { postId: string; caption: string }[] };
+      expect(raw.posts.every((p) => p.caption.includes(song))).toBe(true); // beyond the ordinary 220-character preview
+      return {
+        response: {
+          formats: [
+            {
+              name: { en: "Night Drive frozen clone montage" },
+              visualPattern: { en: pattern },
+              audio: { title: song },
+              observations: raw.posts.map((p) => ({
+                postId: p.postId,
+                patternQuote: pattern,
+                audioQuote: song,
+              })),
+            },
+          ],
+        },
+      };
+    });
+    const firstWeb = web({ hits });
+    const first = await runEffects(env, { fetch: firstWeb.fetch, now: NOW });
+    expect(first.formats).toHaveLength(1);
+    expect(first.formatVersion).toBe(1);
+    expect(first.formats![0].evidence).toMatchObject({
+      state: "repeated",
+      creators7d: 3,
+      posts7d: 3,
+    });
+    expect(firstWeb.count.tavily).toBe(18);
+    expect(familiesOf(firstWeb.searched)).toHaveLength(6);
+    expect(stored(KV).formatMemory![0].samples).toHaveLength(3);
+
+    // A following day's automatic discovery uses one of those same six slots for the actual known identity.
+    const secondWeb = web({ hits });
+    const second = await runEffects(env, { fetch: secondWeb.fetch, now: NEXT_DAY });
+    expect(secondWeb.count.tavily).toBe(18);
+    expect(familiesOf(secondWeb.searched)).toHaveLength(6);
+    expect(secondWeb.searched.filter((q) => q.includes(`${song} ${pattern}`))).toHaveLength(3);
+    expect(second.formats![0].firstSeen).toBe(first.formats![0].firstSeen);
+    expect(second.formats![0].lastChecked).toBe(NEXT_DAY.toISOString());
+
+    KV.store.set(usageKeys.tavily, JSON.stringify({ used: 950, limit: 1000 }));
+    const tightWeb = web({ hits });
+    const tight = await runEffects(env, { fetch: tightWeb.fetch, now: NEXT_DAY, force: true });
+    expect(tightWeb.count.tavily).toBe(6);
+    expect(tight.formats![0].key).toBe(first.formats![0].key);
+    expect(tight.notes).toEqual(["tavily_budget"]);
+  });
+
   it("keeps the newest dated supporting posts when a spelling merges into an older candidate", async () => {
     const old = [
       ig("older_a", "Swagger Trend", 201, new Date("2026-09-28T12:00:00Z")),
@@ -249,7 +313,7 @@ describe("runEffects", () => {
 
     // 3 Tavily searches a family (Instagram over a week and a month, TikTok over a month).
     expect(count).toEqual({ tavily: 18, search: 0, stats: 0 });
-    expect(AI.run).toHaveBeenCalledTimes(1);
+    expect(AI.run).toHaveBeenCalledTimes(2); // one technique cleanup plus one bounded format extraction
     // Trending effects' cleanup stays on llama, as before (a category's asks gpt-oss-120b first).
     expect(AI.run.mock.calls[0][0]).toBe(AI_MODEL);
     expect(AI.run.mock.calls[0][1]).toMatchObject({ max_tokens: 1500 });
@@ -717,7 +781,7 @@ describe("runEffects", () => {
     const doc = await runEffects(env, { fetch: day1.fetch, now: NOW });
 
     expect(doc.status).toBe("partial");
-    expect(doc.notes).toEqual(["ai_fallback"]);
+    expect(doc.notes).toEqual(["ai_fallback", "formats_ai_unavailable"]);
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect"]);
     expect(doc.items[0]).toMatchObject({
       name: { en: "clone effect", ar: "تأثير الاستنساخ" }, // the dictionary's own label
@@ -744,7 +808,7 @@ describe("runEffects", () => {
       fetch: day3.fetch,
       now: new Date("2026-10-09T05:35:00Z"),
     });
-    expect(third.notes).toEqual(["ai_fallback"]);
+    expect(third.notes).toEqual(["ai_fallback", "formats_ai_unavailable"]);
     expect(third.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
     expect(third.meta["outfit-trend"]).toMatchObject({ checked: false });
   });
@@ -1063,7 +1127,7 @@ describe("runEffects", () => {
         force: true,
         aiTimeoutMs: 100,
       });
-      expect(cut.notes).toEqual(["ai_fallback"]);
+      expect(cut.notes).toEqual(["ai_fallback", "formats_ai_unavailable"]);
     },
   );
 

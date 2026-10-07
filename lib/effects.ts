@@ -1,5 +1,6 @@
 import { hasArabic } from "./research";
 import { scoutCall, type ScoutConfig } from "./scoutClient";
+import { EDIT_FORMAT_VERSION, parseEditFormats, type EditFormat } from "./editFormats";
 
 /**
  * Trending effects in Discover (planning/tools/18-trending-effects.md §4): the Worker's daily list of editing effects
@@ -21,6 +22,8 @@ export interface TrendingEffect {
 }
 
 export interface TrendingEffects {
+  formatVersion?: number;
+  formats?: EditFormat[];
   /** v1 counts only identified platform accounts. Older cached numbers are not trustworthy. */
   evidenceVersion?: number;
   status: "ok" | "partial" | "failed" | "never";
@@ -36,7 +39,7 @@ const MAX_ITEMS = 12;
 const CACHE_TTL_MS = 60 * 60 * 1000;
 /** A list older than this is not "this week" any more: the row hides. */
 const MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
-const CACHE_PREFIX = "3z-effects-v2|";
+const CACHE_PREFIX = "3z-effects-v3|";
 export const EFFECTS_EVIDENCE_VERSION = 1;
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object";
@@ -124,6 +127,9 @@ function parseEffect(x: unknown, trusted: boolean): TrendingEffect | null {
 export function parseTrendingEffects(raw: unknown): TrendingEffects | null {
   if (!isObj(raw) || !STATUSES.has(raw.status as string) || !Array.isArray(raw.items)) return null;
   return {
+    ...(raw.formatVersion === EDIT_FORMAT_VERSION
+      ? { formatVersion: EDIT_FORMAT_VERSION, formats: parseEditFormats(raw.formats) }
+      : {}),
     ...(raw.evidenceVersion === EFFECTS_EVIDENCE_VERSION
       ? { evidenceVersion: EFFECTS_EVIDENCE_VERSION }
       : {}),
@@ -183,7 +189,8 @@ export async function fetchTrendingEffects(
   if (kept) return kept;
   const r = await scoutCall(config, "/effects/trending", {}, { fetchImpl: opts.fetchImpl });
   const data = r.ok ? parseTrendingEffects(r.data) : null;
-  if (data?.items.length) writeTabCache(CACHE_PREFIX + config.url, data, now);
+  if (data && (data.items.length || data.formats?.length))
+    writeTabCache(CACHE_PREFIX + config.url, data, now);
   return data;
 }
 
@@ -214,7 +221,8 @@ export async function runTrendingEffectsNow(
       : { method: "POST" };
     const r = await scoutCall(config, "/effects/run", init, { fetchImpl: opts.fetchImpl });
     const data = r.ok ? parseTrendingEffects(r.data) : null;
-    if (data?.items.length) writeTabCache(CACHE_PREFIX + config.url, data, Date.now());
+    if (data && (data.items.length || data.formats?.length))
+      writeTabCache(CACHE_PREFIX + config.url, data, Date.now());
     return data;
   })();
   running.set(config.url, run);

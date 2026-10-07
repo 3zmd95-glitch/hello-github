@@ -25,6 +25,7 @@ import {
 } from "@/lib/discover";
 import type { Lang, Skill } from "@/lib/domain";
 import { discoverPrompts } from "@/lib/discoverPrompts";
+import { filterFormatAnswer, type EditFormat } from "@/lib/editFormats";
 import { allGenres, GENRES } from "@/lib/genres";
 import { useT, type MessageKey } from "@/lib/i18n";
 import type { AiChoice, AiSelection } from "@/lib/localAi";
@@ -230,6 +231,11 @@ export default function ResearchPanel({
   // The "Not this?" choice, for the topic it was made on (another topic or genre drops it), and the search
   // attempt a failed platform's Retry sends past the cache.
   const [picked, setPicked] = useState<{ on: string; pick: DiscoverPick } | null>(null);
+  const [formatSearch, setFormatSearch] = useState<{
+    query: string;
+    intent: "examples" | "tutorials";
+    format: EditFormat;
+  } | null>(null);
   const [forceAt, setForceAt] = useState(-1);
 
   /* ---------- the query ---------- */
@@ -240,6 +246,7 @@ export default function ResearchPanel({
   // The edit genres: the built-in ones, then the ones the owner added in Settings.
   const genres = useMemo(() => allGenres(customGenres), [customGenres]);
   const genre = genreId ? genres.find((g) => g.id === genreId) : undefined;
+  const activeFormat = formatSearch?.query === base && !genre ? formatSearch : null;
   // The page stands in for the category search until a search runs; Discover v2 with a Worker only. Saved only shows
   // the saved posts instead, as it does for a search.
   const showPage =
@@ -257,6 +264,7 @@ export default function ResearchPanel({
 
   /** The typed text becomes the topic (Discover: remembered as a recent topic) or the skill's override. */
   const commit = (text: string) => {
+    setFormatSearch(null);
     setSubmittedMode(searchMode);
     setSubmittedAi(
       aiChoice.provider === "builtin" ? undefined : { ...aiChoice, provider: aiChoice.provider },
@@ -294,6 +302,7 @@ export default function ResearchPanel({
    */
   const pickGenre = (id: string | null) => {
     if (aiSearchBlocked) return;
+    setFormatSearch(null);
     setEditing(false);
     setPicked(null);
     setSubmittedMode(searchMode);
@@ -327,6 +336,7 @@ export default function ResearchPanel({
   // and its chip is brought into view in the row. The owner's next taps decide from there.
   const [opened, setOpened] = useState<string | null>(null);
   if (openGenre && openGenre !== opened) {
+    setFormatSearch(null);
     setOpened(openGenre);
     setEditing(false);
     setGenreId(openGenre);
@@ -430,7 +440,18 @@ export default function ResearchPanel({
       editing,
     ],
   );
-  const disc = useDiscoverQuery(discoverReq, attempt, forceAt === attempt);
+  const rawDisc = useDiscoverQuery(discoverReq, attempt, forceAt === attempt);
+  // A format search keeps its specific audio + visual identity even when an older Worker returns broad music results.
+  const disc = useMemo(
+    () =>
+      rawDisc.status === "ok" && activeFormat
+        ? {
+            ...rawDisc,
+            answer: filterFormatAnswer(rawDisc.answer, activeFormat.format, activeFormat.intent),
+          }
+        : rawDisc,
+    [rawDisc, activeFormat],
+  );
   // Claude's picks (free: a KV read), asked when v2 opens and again at each search attempt.
   const picks = useDiscoverPicks(v2 ? scoutCfg : null, attempt);
   // The tab badges count the posts shown; a tab is empty only with none at all (hidden ones included).
@@ -442,6 +463,7 @@ export default function ResearchPanel({
     disc.status === "loading" ? null : disc.status === "off" ? 0 : disc.attempt,
   );
   const onAlternative = (alt: DiscoverAlternative) => {
+    setFormatSearch(null);
     setPicked({ on: pickOn, pick: "exact" in alt ? { exact: true } : { term: alt.termId } });
     setAttempt((a) => a + 1);
   };
@@ -952,7 +974,30 @@ export default function ResearchPanel({
       {!skill && v2 && scoutCfg && (
         <TrendingEffects
           config={scoutCfg}
+          onPickFormat={(query, intent, format) => {
+            setFormatSearch({ query, intent, format });
+            setSearchMode("keyword");
+            setSubmittedMode("keyword");
+            setSubmittedAi(undefined);
+            setGenreId(null);
+            setPage(null);
+            setSavedOnly(false);
+            setProgramId("");
+            setHintOn(false);
+            setTopic(query);
+            setDraft(null);
+            setPicked({ on: `|${query}`, pick: { exact: true } });
+            setEditing(true);
+            setArFirst(false);
+            setLength("any");
+            setRecency(intent === "tutorials" ? "any" : "month");
+            setSort("relevance");
+            pickTab("all");
+            setAttempt((a) => a + 1);
+            addRecentTopic(query);
+          }}
           onPick={(query) => {
+            setFormatSearch(null);
             setSearchMode("keyword");
             setSubmittedMode("keyword");
             setGenreId(null);
@@ -974,6 +1019,7 @@ export default function ResearchPanel({
               className="px-chip max-w-[12rem] overflow-hidden text-ellipsis"
               dir="auto"
               onClick={() => {
+                setFormatSearch(null);
                 setTopic(rt);
                 setDraft(null);
                 setEditing(false);
@@ -1105,6 +1151,7 @@ export default function ResearchPanel({
           config={scoutCfg}
           genre={genre}
           onPickStyle={(style) => {
+            setFormatSearch(null);
             // That style within the category, in Keywords (never an AI plan or the owner's subscription),
             // like a 🔥 chip.
             leaving.current = document.activeElement;
@@ -1350,6 +1397,7 @@ export default function ResearchPanel({
                     setSubmittedMode("keyword");
                     setSubmittedAi(undefined);
                     setTopic(topic);
+                    setFormatSearch(null);
                     setDraft(null);
                     setPage(null);
                     setEditing(true);
@@ -1465,7 +1513,12 @@ export default function ResearchPanel({
             renderAction={renderAction}
             onAlternative={onAlternative}
             onRetry={onRetry}
-            picks={picksFor(picks, disc.answer.topicKey)}
+            picks={activeFormat ? undefined : picksFor(picks, disc.answer.topicKey)}
+            formatSearch={
+              activeFormat
+                ? { name: activeFormat.format.name, intent: activeFormat.intent }
+                : undefined
+            }
           />
         )}
 
@@ -1474,8 +1527,15 @@ export default function ResearchPanel({
             className="px-tile border-edge flex flex-col items-center gap-2 rounded-[2px] border-2 border-dashed p-4 text-center"
             data-testid="research-empty"
           >
-            <p className="bg-panel-2 text-ink-2 rounded-[2px] px-2 py-1 text-sm">
-              {savedOnly ? t("research.emptySaved") : t("research.empty")}
+            <p
+              className="bg-panel-2 text-ink-2 rounded-[2px] px-2 py-1 text-sm"
+              data-testid={!savedOnly && activeFormat ? "format-search-empty" : undefined}
+            >
+              {savedOnly
+                ? t("research.emptySaved")
+                : activeFormat
+                  ? t("formats.searchEmpty")
+                  : t("research.empty")}
             </p>
             {!savedOnly && q && <PlatformLinks q={q} idPrefix="empty-link" only={tab} />}
           </div>

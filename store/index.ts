@@ -124,6 +124,12 @@ import {
   type InspirationStage,
 } from "@/lib/inspiration";
 import { rankFromXp } from "@/lib/rank";
+import {
+  EditFormatSchema,
+  FollowedFormatsSchema,
+  formatIdentity,
+  type EditFormat,
+} from "@/lib/editFormats";
 import { seasonState, type SeasonState } from "@/lib/season";
 import {
   FREEZE_TOTAL_CAP,
@@ -183,6 +189,7 @@ export const PersistedStateSchema = z.object({
   /** Scout v0 (1.13): references the owner attached to a skill, by skill id. */
   savedRefs: z.record(z.string(), z.array(RefSchema)).default({}),
   inspirations: InspirationsSchema,
+  followedFormats: FollowedFormatsSchema,
   /** Scout v0 (1.13): last topics typed on /discover, most recent first, capped at 8. */
   recentTopics: z.array(z.string()).default([]),
   /** 📝 One Markdown note per skill, by skill id (the Research quest's home). */
@@ -338,6 +345,9 @@ export interface PostedResult {
 }
 
 export interface StoreActions {
+  followFormat(format: EditFormat, now?: Date): void;
+  unfollowFormat(identity: string): void;
+  refreshFollowedFormats(formats: readonly EditFormat[]): void;
   saveInspiration(item: ResearchItem, now?: Date): void;
   updateInspiration(url: string, patch: { note?: string; stage?: InspirationStage }): void;
   removeInspiration(url: string): void;
@@ -505,6 +515,7 @@ const initialData = (): PersistedState => ({
   reviews: [],
   savedRefs: {},
   inspirations: [],
+  followedFormats: [],
   recentTopics: [],
   notes: {},
   gemEvents: [],
@@ -556,6 +567,7 @@ const pick = (s: PersistedState): PersistedState => ({
   reviews: s.reviews,
   savedRefs: s.savedRefs,
   inspirations: s.inspirations,
+  followedFormats: s.followedFormats,
   recentTopics: s.recentTopics,
   notes: s.notes,
   gemEvents: s.gemEvents,
@@ -928,6 +940,48 @@ export const useStore = create<StoreState>()(
 
       saveInspiration(item, now = new Date()) {
         set((s) => ({ inspirations: saveInspiration(s.inspirations, item, now) }));
+      },
+
+      followFormat(format, now = new Date()) {
+        const checked = EditFormatSchema.safeParse(format);
+        if (!checked.success) return;
+        const key = formatIdentity(checked.data);
+        set((s) => {
+          const existing = s.followedFormats.find((entry) => formatIdentity(entry.format) === key);
+          return {
+            followedFormats: [
+              { format: checked.data, followedAt: existing?.followedAt ?? now.toISOString() },
+              ...s.followedFormats.filter((entry) => formatIdentity(entry.format) !== key),
+            ].slice(0, 64),
+          };
+        });
+      },
+
+      unfollowFormat(identity) {
+        set((s) => ({
+          followedFormats: s.followedFormats.filter(
+            (entry) => formatIdentity(entry.format) !== identity,
+          ),
+        }));
+      },
+
+      refreshFollowedFormats(formats) {
+        const checked = formats.flatMap((format) => {
+          const parsed = EditFormatSchema.safeParse(format);
+          return parsed.success ? [parsed.data] : [];
+        });
+        const byKey = new Map(checked.map((format) => [formatIdentity(format), format]));
+        set((s) => {
+          let changed = false;
+          const followedFormats = s.followedFormats.map((entry) => {
+            const next = byKey.get(formatIdentity(entry.format));
+            if (!next || Date.parse(next.lastChecked) <= Date.parse(entry.format.lastChecked))
+              return entry;
+            changed = true;
+            return { ...entry, format: next };
+          });
+          return changed ? { followedFormats } : s;
+        });
       },
 
       updateInspiration(url, patch) {

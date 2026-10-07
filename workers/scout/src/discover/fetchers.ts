@@ -79,6 +79,8 @@ export async function tavilyCall(
     timeRange?: DiscoverTimeRange;
     /** The run's time, for the posts' dates (normalize.ts); the clock's by default. */
     now?: Date;
+    /** Internal format discovery only; normalization clamps this to 1000. Default preview remains 220. */
+    maxSnippetLength?: number;
   },
   timeoutMs = CALL_TIMEOUT_MS,
 ): Promise<TavilyOutcome> {
@@ -118,8 +120,8 @@ export async function tavilyCall(
         typeof normalizeDiscoverHits
       >[0];
       const { cards, profiles } = one
-        ? normalizeDiscoverHits(hits, one, call.now)
-        : { cards: normalizeHits(hits, platforms, call.now), profiles: [] };
+        ? normalizeDiscoverHits(hits, one, call.now, call.maxSnippetLength)
+        : { cards: normalizeHits(hits, platforms, call.now, call.maxSnippetLength), profiles: [] };
       return { ok: true, cards, profiles, credits: data.usage?.credits ?? 1 };
     });
     return out ?? { ok: false, error: "upstream" };

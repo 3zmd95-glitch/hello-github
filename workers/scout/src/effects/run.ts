@@ -11,6 +11,7 @@ import { utcDay } from "../trends/kv";
 import { cleanWithAi, type AiVerdict } from "./ai";
 import { extractCandidates, type ExtractExtra, type PostCounts } from "./extract";
 import { daySlot, familiesForSlot, SLOTS } from "./families";
+import { discoverFormats, focusedFormatQuery, FORMAT_VERSION } from "./formats";
 import { readEffects, writeEffects } from "./kv";
 import { creatorsBetween, daysBetween, mergeHistory, scoreEffects } from "./score";
 import { searchFamilies, type EffectsEnv, type FamilyStats } from "./sources";
@@ -213,6 +214,8 @@ type RunOptions = {
   fetch?: typeof fetch;
   now?: Date;
   force?: boolean;
+  /** A manual scan may upgrade today's older technique-only result; cron does not spend again just for migration. */
+  upgradeFormats?: boolean;
   /** Each Tavily and YouTube call (default 12 s). */
   timeoutMs?: number;
   /** The AI call, apart, so a short search limit never cuts it (default 60 s). */
@@ -361,6 +364,10 @@ async function scan(
       ? ((prev.slot ?? daySlot(today)) + 1) % SLOTS
       : daySlot(today);
   const queries = familiesForSlot(slot);
+  // Four technique families, one open format-discovery query, and one identity follow-up (or another broad
+  // query before a format is known). Still exactly six queries / at most eighteen paid searches.
+  const focused = focusedFormatQuery(prev, now, slot);
+  if (focused) queries[queries.length - 1] = focused;
   const { posts, credits, errors, families, tight } = await searchFamilies(
     env,
     doFetch,
@@ -380,6 +387,10 @@ async function scan(
     shown,
     memory,
   } = await rememberPosts(env, prev, today, posts, notes, { aiTimeoutMs: opts.aiTimeoutMs });
+  // Keep the raw posts: the generic extractor deliberately discards song identity. One independent bounded
+  // extraction preserves the song + visual pattern instead of merging it into an evergreen technique.
+  const { formatNote, ...formats } = await discoverFormats(env, prev, posts, now, opts.aiTimeoutMs);
+  if (formatNote) notes.add(formatNote);
   // A changing YouTube search sample cannot establish growth. Save those quota calls for actual video searches.
   const items = scoreEffects(merged, shown, today, {});
   return {
@@ -387,6 +398,7 @@ async function scan(
     families,
     memory,
     doc: {
+      ...formats,
       evidenceVersion: EFFECTS_EVIDENCE_VERSION,
       ranOn: today,
       updatedAt: now.toISOString(),
@@ -406,7 +418,14 @@ export async function runEffects(env: EffectsEnv, opts: RunOptions = {}): Promis
   // undefined: KV could not be read, so nothing is spent or written over a history this run never saw.
   const prev = await readEffects(env).catch(() => undefined);
   // Once a day, unless forced; a day whose run failed may run again (the dashboard's retry), a good day may not.
-  if (prev && !opts.force && prev.ranOn === today && prev.status !== "failed") return prev;
+  if (
+    prev &&
+    !opts.force &&
+    prev.ranOn === today &&
+    prev.status !== "failed" &&
+    !(opts.upgradeFormats && prev.formatVersion !== FORMAT_VERSION)
+  )
+    return prev;
   // A run that would spend counts itself against the day's cap before its first search; force skips the cap.
   const attempt =
     prev === undefined || opts.force ? true : await countAttempt(env, `effects:attempts:${today}`);

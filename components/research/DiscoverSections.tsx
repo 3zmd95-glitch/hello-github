@@ -51,6 +51,7 @@ export default function DiscoverSections({
   onAlternative,
   onRetry,
   picks,
+  formatSearch,
 }: {
   answer: DiscoverAnswer;
   q: string;
@@ -65,8 +66,9 @@ export default function DiscoverSections({
   onRetry: () => void;
   /** Claude's picks saved for this answer's topic. */
   picks?: PicksTopic;
+  formatSearch?: { name: { en: string; ar?: string }; intent: "examples" | "tutorials" };
 }) {
-  const { t, L } = useT();
+  const { t, L, lang } = useT();
   const ids = useId();
   const [showHidden, setShowHidden] = useState(false);
   const [open, setOpen] = useState<Record<DiscoverSection, boolean>>({
@@ -140,46 +142,73 @@ export default function DiscoverSections({
 
   return (
     <div
-      className="flex flex-col gap-4"
+      className="flex min-w-0 flex-col gap-4"
       data-testid="discover-sections"
       data-topic={answer.topicKey}
     >
-      <div
-        className="flex flex-wrap items-center gap-1.5 text-xs"
-        data-testid="discover-understood"
-      >
-        {answer.understood.ai && (
-          <span className="px-chip" data-testid="discover-ai-plan">
-            {t("search.aiPlan")}
-            {answer.understood.model &&
-              ` · ${answer.understood.provider === "chatgpt" ? "ChatGPT" : "Claude"} · ${answer.understood.model}${answer.understood.effort ? ` · ${answer.understood.effort}` : ""}`}
+      {formatSearch && (
+        <div
+          className="border-edge bg-panel-2 min-w-0 border-s-2 p-2 text-xs [overflow-wrap:anywhere]"
+          data-testid="format-search-status"
+        >
+          <p className="font-bold" dir="auto">
+            {t("formats.searchTitle", {
+              name:
+                lang === "ar"
+                  ? (formatSearch.name.ar ?? formatSearch.name.en)
+                  : formatSearch.name.en,
+            })}
+          </p>
+          <p className="text-muted mt-1">
+            {t(
+              formatSearch.intent === "tutorials"
+                ? "formats.searchTutorialRules"
+                : "formats.searchRules",
+            )}
+          </p>
+        </div>
+      )}
+      {!formatSearch && (
+        <div
+          className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs"
+          data-testid="discover-understood"
+        >
+          {answer.understood.ai && (
+            <span
+              className="px-chip max-w-full min-w-0 [overflow-wrap:anywhere] whitespace-normal"
+              data-testid="discover-ai-plan"
+            >
+              {t("search.aiPlan")}
+              {answer.understood.model &&
+                ` · ${answer.understood.provider === "chatgpt" ? "ChatGPT" : "Claude"} · ${answer.understood.model}${answer.understood.effort ? ` · ${answer.understood.effort}` : ""}`}
+            </span>
+          )}
+          <span className="text-ink-2 max-w-full min-w-0 [overflow-wrap:anywhere]">
+            {answer.understood.exact
+              ? t("search.exactNow", { q })
+              : `${t("search.understood", { label: L(answer.understood.label) })}${answer.understood.ai ? "" : ` · ${t(bothLangs ? "search.bothLangs" : "search.englishOnly")}`}`}
           </span>
-        )}
-        <span className="text-ink-2">
-          {answer.understood.exact
-            ? t("search.exactNow", { q })
-            : `${t("search.understood", { label: L(answer.understood.label) })}${answer.understood.ai ? "" : ` · ${t(bothLangs ? "search.bothLangs" : "search.englishOnly")}`}`}
-        </span>
-        {answer.alternatives.length > 0 && (
-          <span className="text-muted">{t("search.notThis")}</span>
-        )}
-        {answer.alternatives.map((alt) => (
-          <button
-            key={"exact" in alt ? "exact" : alt.termId}
-            type="button"
-            className="px-fchip"
-            onClick={() => onAlternative(alt)}
-            data-testid={"exact" in alt ? "discover-alt-exact" : `discover-alt-${alt.termId}`}
-          >
-            {"exact" in alt ? t("search.exactly", { q }) : L(alt.label)}
-          </button>
-        ))}
-        {answer.cached && (
-          <span className="text-muted ms-auto" data-testid="discover-cached">
-            {t("search.cached")}
-          </span>
-        )}
-      </div>
+          {answer.alternatives.length > 0 && (
+            <span className="text-muted">{t("search.notThis")}</span>
+          )}
+          {answer.alternatives.map((alt) => (
+            <button
+              key={"exact" in alt ? "exact" : alt.termId}
+              type="button"
+              className="px-fchip max-w-full min-w-0 text-start [overflow-wrap:anywhere] whitespace-normal"
+              onClick={() => onAlternative(alt)}
+              data-testid={"exact" in alt ? "discover-alt-exact" : `discover-alt-${alt.termId}`}
+            >
+              {"exact" in alt ? t("search.exactly", { q }) : L(alt.label)}
+            </button>
+          ))}
+          {answer.cached && (
+            <span className="text-muted ms-auto" data-testid="discover-cached">
+              {t("search.cached")}
+            </span>
+          )}
+        </div>
+      )}
 
       {answer.items.some((i) => i.outsideCategory) && (
         <p className="text-ink-2 text-xs" data-testid="discover-outside-category">
