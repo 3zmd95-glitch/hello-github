@@ -75,8 +75,20 @@ describe("the skills index", () => {
 });
 
 describe("lessonsDue", () => {
+  it("B6: version 4 since live fix 3, so the lessons written before it refresh at each category's next scan", () => {
+    const at = (v: number) => ({
+      v,
+      updatedAt: "2026-10-06T05:40:00Z",
+      photo: [],
+      video: [],
+      edit: [],
+    });
+    expect(lessonsDue(at(3), "2026-10-07")).toBe(true);
+    expect(lessonsDue(at(4), "2026-10-07")).toBe(false);
+  });
+
   it("missing, of an older version (none before live fix 1, 2 before live fix 2), or 6 or more days old (a broken date too)", () => {
-    const at = (updatedAt: string, v = 3) => ({
+    const at = (updatedAt: string, v = 4) => ({
       v,
       updatedAt,
       photo: [],
@@ -91,7 +103,7 @@ describe("lessonsDue", () => {
     // Live fix 1's lessons (Cars' one-line how-tos): due at the next scan, so they come back structured (live fix 2).
     expect(lessonsDue(at("2026-10-06T05:40:00Z", 2), "2026-10-07")).toBe(true);
     // KV is untrusted: a version that is no number is an older one.
-    const text = { ...at("2026-10-06T05:40:00Z"), v: "3" as unknown as number };
+    const text = { ...at("2026-10-06T05:40:00Z"), v: "4" as unknown as number };
     expect(lessonsDue(text, "2026-10-07")).toBe(true);
     expect(lessonsDue(at("2026-10-01T05:40:00Z"), "2026-10-07")).toBe(true);
     expect(lessonsDue(at("2026-09-30T05:40:00Z"), "2026-10-07")).toBe(true);
@@ -154,6 +166,22 @@ describe("pickTechniques", () => {
     expect(picks!.photo).toEqual([{ name: { en: "Hyperlapse" }, query: "car hyperlapse" }]);
     expect(picks!.video[0].name).toEqual({ en: "Rolling shot", ar: "رولنق شوت" });
     expect(rejects).toEqual({ latin_ar: 1 });
+  });
+
+  it("B3: picks for the category's own subject: no car example in the prompt, and an editing-led subject's photography", async () => {
+    // Anime's live picks were the prompt's car examples ("Panning At Shutter", "Low-Angle Hero Shot", "Light Painting").
+    const e = answering({
+      photo: [pick("figure photography", "تصوير مجسمات", "anime figure photo")],
+    });
+    await pickTechniques(e, categoryById("anime")!, []);
+    const { system, user } = sent(e);
+    expect(system).not.toMatch(/\bcars?\b/i);
+    expect(system).toContain("Choose techniques a creator of this subject uses.");
+    expect(system).toContain(
+      "For a subject led by editing (anime, gaming), photo means the photography its creators do " +
+        "(e.g. figure or cosplay photography for anime, setup photography for gaming).",
+    );
+    expect(user).toContain("Category: Anime (anime edit, anime amv)");
   });
 
   it("is null without the AI, with no answer or when it keeps nothing", async () => {
@@ -343,14 +371,17 @@ describe("writeHowTos", () => {
       "ar: the same three lines in natural Hijazi Arabic in Arabic script, at most 400 characters.",
     );
     expect(system).toContain(
-      "Never generic advice such as 'use a high-quality camera', 'use editing software' or 'edit the video'.",
+      "Never generic advice such as 'use a high-quality camera', 'good lighting', 'use editing software', 'a video " +
+        "editing app' or 'edit the video'.",
     );
-    // One worked example from another subject, so it is not copied for cars.
+    // One worked example from another subject, plainly the format only (live fix 3: Food's and Anime's Speed Ramp
+    // copied it).
     expect(system).toContain(
-      "An example from another subject, coffee, a top-down pour: shoot: 'Mount the phone overhead on a tripod arm " +
-        "and pour slowly from the edge of the frame into the cup'; settings: '4K at 60 fps for a smooth half-speed " +
-        "slow-down, exposure locked, soft window light from the side'; edit: 'In CapCut slow the pour to 0.5x with a " +
-        "speed curve and add a light steam overlay'. Write your own for this subject: never copy the example.",
+      "This example only shows the format; its words are about skateboarding, never this subject: shoot: 'Ride " +
+        "beside the skater on a second board, camera low, keeping the deck in the lower third'; settings: '4K at 120 " +
+        "fps for slow motion, shutter 1/250 s, gimbal in follow mode'; edit: 'In CapCut ramp the kickflip to 0.3x with " +
+        "a speed curve, then back to full speed on the landing'. Write every line yourself for this subject and never " +
+        "reuse the example's words.",
     );
     expect(system).toContain(
       "Base the lines on the videos' titles and snippets when they help, else on standard practice.",
@@ -384,8 +415,63 @@ describe("writeHowTos", () => {
       "edit",
       "ar",
     ]);
-    // An area's 3 how-tos, 3 English lines and the Arabic each, fit in about 1,800 tokens.
-    expect(call).toMatchObject({ max_tokens: 1800 });
+    // B5: gpt-oss-120b reasons before it answers: about 3,000 tokens.
+    expect(call).toMatchObject({ max_tokens: 3000 });
+    expect(e.AI.run.mock.calls[0][0]).toBe("@cf/openai/gpt-oss-120b");
+  });
+
+  it("B1: drops a how-to that copies the prompt's example (Food's and Anime's live Speed Ramp), counted; a coffee line is no copy", async () => {
+    const rejects: Record<string, number> = {};
+    const e = answering({
+      techniques: [
+        {
+          i: 0,
+          shoot:
+            "Ride beside the skater on a second board, camera low, keeping the deck in the lower third.",
+          settings: "4K at 120 fps for slow motion, shutter 1/250 s, gimbal in follow mode.",
+          edit: "In CapCut ramp the kickflip to 0.3x with a speed curve, then back to full speed on the landing.",
+        },
+        // One phrase of it is enough, in any case and with any hyphen.
+        {
+          i: 1,
+          ...LINES,
+          edit: "In CapCut slow the Second-Board pass to 0.5x with a speed curve.",
+        },
+        { i: 2, ...LINES },
+        // The example used to be coffee, a category: Coffee's own pour lines are no copy now (review of live fix 3).
+        {
+          i: 3,
+          ...LINES,
+          shoot: "Film a top-down pour into the cup with a tripod arm over the table.",
+          edit: "In CapCut add a light steam overlay as the pour lands in the cup.",
+        },
+      ],
+    });
+    const drafts = ["speed ramp", "b", "c", "pour"].map((en) => draft("edit", en));
+    const out = await writeHowTos(e, categoryById("coffee")!, drafts, [], 1000, rejects);
+    expect([...out!.keys()]).toEqual([2, 3]);
+    expect(rejects).toEqual({ copied_example: 2 });
+  });
+
+  it("B2: drops a how-to with a generic line (Food's and Anime's live 'Shoot with a high-quality camera…'), counted", async () => {
+    const rejects: Record<string, number> = {};
+    const generic = [
+      "Shoot with a high-quality camera and good lighting.",
+      "Light the dish with good lighting from a window.",
+      "Finish it in editing software with smooth cuts in CapCut.",
+      "In CapCut edit the video to the beat of the song.",
+      "Open a video editing app like CapCut and add the flash.",
+    ];
+    const e = answering({
+      techniques: [
+        ...generic.map((line, i) => ({ i, ...LINES, [i < 2 ? "shoot" : "edit"]: line })),
+        { i: 5, ...LINES },
+      ],
+    });
+    const drafts = [0, 1, 2, 3, 4, 5].map((n) => draft("video", `flash transition ${n}`));
+    const out = await writeHowTos(e, CARS, drafts, [], 1000, rejects);
+    expect([...out!.keys()]).toEqual([5]);
+    expect(rejects).toEqual({ generic_line: 5 });
   });
 
   it("stores the lines as 'Shoot: …\\nSettings: …\\nEdit: …', each clipped to 140 characters and the Arabic to 400; null with no list", async () => {
@@ -621,7 +707,7 @@ describe("refreshLessons", () => {
     ],
   });
   const LAST: Lessons = {
-    v: 3,
+    v: 4,
     updatedAt: "2026-09-30T05:40:00.000Z",
     photo: [old("old photo")],
     video: [],
@@ -659,7 +745,7 @@ describe("refreshLessons", () => {
       ["You write", ["edit", "edit", "edit"]],
     ]);
     expect(lessons!.updatedAt).toBe(NOW.toISOString());
-    expect(lessons!.v).toBe(3);
+    expect(lessons!.v).toBe(4);
     expect(lessons!.photo.map((t) => t.name.en)).toEqual([
       "panning",
       "light painting",
@@ -899,11 +985,111 @@ describe("refreshLessons", () => {
     ]);
     expect(lessons!.video).toHaveLength(2);
     expect(lessons!.edit).toEqual(LAST.edit);
-    // The diagnostics name the area, so a fallback that recurs shows at the live check.
+    // The diagnostics name the area, so a fallback that recurs shows at the live check: neither model answered it.
     expect(counts).toMatchObject({ written: 5, failed: 1, kept: ["edit"] });
+    expect(counts.models.edit).toBe("none");
     // No lessons last week: that area is empty.
     const first = await refreshLessons({ ...KEYS, AI: editFails }, web().fetch, CARS, [], NOW);
     expect(first.lessons!.edit).toEqual([]);
+  });
+
+  it("B5: gpt-oss-120b writes the pick and each area's how-tos (3,000 tokens); llama answers a call it leaves unusable; the models are counted", async () => {
+    const AI = {
+      run: vi.fn(async (model: string, input: Record<string, unknown>): Promise<unknown> => {
+        const { system, user } = messages(input);
+        if (system.startsWith("You plan")) return { response: PICKS };
+        const techniques = shown(user);
+        // gpt-oss answers the videography call with no JSON: llama answers it.
+        if (techniques[0].area === "video" && model.includes("gpt-oss"))
+          return {
+            output: [{ type: "message", content: [{ type: "output_text", text: "Sorry." }] }],
+          };
+        const answer = { techniques: techniques.map(({ i }) => ({ i, ...LINES })) };
+        return {
+          choices: [{ message: { content: `\`\`\`json\n${JSON.stringify(answer)}\n\`\`\`` } }],
+        };
+      }),
+    };
+    const { lessons, counts } = await refreshLessons({ ...KEYS, AI }, web().fetch, CARS, [], NOW);
+    expect(
+      AI.run.mock.calls.map(([model, input]) => [
+        model.split("/").pop(),
+        (input as { max_tokens: number }).max_tokens,
+      ]),
+    ).toEqual([
+      ["gpt-oss-120b", 3000],
+      ["gpt-oss-120b", 3000],
+      ["gpt-oss-120b", 3000],
+      ["gpt-oss-120b", 3000],
+      ["llama-3.3-70b-instruct-fp8-fast", 3000],
+    ]);
+    expect(counts.models).toEqual({
+      pick: "gpt-oss-120b",
+      photo: "gpt-oss-120b",
+      video: "llama-3.3-70b-instruct-fp8-fast",
+      edit: "gpt-oss-120b",
+    });
+    expect(lessons!.video.map((t) => t.name.en)).toEqual(["rolling shot", "drone chase"]);
+    expect(lessons!.edit).toHaveLength(3);
+  });
+
+  it("B4: an example must be about the subject (Food's live 'MindShift BackLight 36L Review'), counted; a tutorial may teach it in general", async () => {
+    const AI = {
+      run: vi.fn(async (_model: string, input: Record<string, unknown>): Promise<unknown> => {
+        const { system, user } = messages(input);
+        if (system.startsWith("You plan"))
+          return {
+            response: {
+              photo: [pick("backlight", "إضاءة خلفية", "food backlight")],
+              video: [],
+              edit: [],
+            },
+          };
+        return { response: { techniques: shown(user).map(({ i }) => ({ i, ...LINES })) } };
+      }),
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      const { language } = JSON.parse(String(init?.body)) as { language: string };
+      const results =
+        language === "ar"
+          ? []
+          : [
+              {
+                url: "https://www.youtube.com/watch?v=mindshift01",
+                title: "MindShift BackLight 36L Review",
+                content: "A camera backpack that opens from the back",
+              },
+              {
+                url: "https://www.instagram.com/p/FOOD1/",
+                title: "Backlit burgers: food backlight at sunset",
+                content: "",
+              },
+              // A teaching title off the subject that is not the tutorial: never an example (review of live fix 3).
+              {
+                url: "https://www.instagram.com/p/TIPS1/",
+                title: "Backlight tips for portraits",
+                content: "",
+              },
+              {
+                url: "https://www.youtube.com/watch?v=backlightTut",
+                title: "How to backlight anything",
+                content: "",
+              },
+            ];
+      return json({ results, usage: { credits: 1 } });
+    });
+    const { lessons, counts } = await refreshLessons(
+      { ...KEYS, AI },
+      fetch,
+      categoryById("food")!,
+      [],
+      NOW,
+    );
+    expect(lessons!.photo[0].videos.map((v) => [v.kind, v.title])).toEqual([
+      ["example", "Backlit burgers: food backlight at sunset"],
+      ["tutorial", "How to backlight anything"],
+    ]);
+    expect(counts).toMatchObject({ offTopic: 0, offSubject: 2 });
   });
 
   it("asks the 3 areas' how-tos at once", async () => {

@@ -112,14 +112,17 @@ export function scoreEffects(
   meta: Record<string, EffectMeta>,
   today: string,
   youtube: Record<string, { newVideos: number; views7d: number }>,
+  /** Creators this week an effect needs: Trending effects' 3; a category asks 2 (planning/tools/19-category-trends.md
+   * §2). Either way `meta` holds only the names the AI approved and the dictionary's. */
+  minCreators = MIN_CREATORS,
 ): EffectItem[] {
   const scored = Object.entries(history).flatMap(([key, entries]) => {
     const m = meta[key];
     if (!m) return [];
     const creators = creatorsBetween(entries, today, 0, 6).size;
     const recent = creatorsBetween(entries, today, 0, 2).size;
-    // Under 3 creators this week, or fading: none in the last 3 days (growth 0, so score 0).
-    if (creators < MIN_CREATORS || !recent) return [];
+    // Under the minimum this week, or fading: none in the last 3 days (growth 0, so score 0).
+    if (creators < minCreators || !recent) return [];
     const before = creatorsBetween(entries, today, 3, 5).size;
     // No creators in days 3–5: new (growth 3).
     const growth = before === 0 ? 3 : Math.round((recent / before) * 100) / 100;

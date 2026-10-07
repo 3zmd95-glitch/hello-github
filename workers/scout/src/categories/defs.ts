@@ -14,6 +14,9 @@ export const CATEGORY_SLOTS: readonly string[] = ["05:40", "05:45", "05:50", "05
 export const CATEGORY_SUFFIXES: readonly string[] = ["shot", "angle", "lighting", "look"];
 /** A category's memory keeps at most this many names (Trending effects keeps 400). */
 export const CATEGORY_KEYS = 200;
+/** Creators this week a category style needs (Trending effects needs 3): after live fix 1, Cars' 6 searches found 35
+ * posts and 1 style with 3 creators. A name outside the dictionary still needs the AI's approval. */
+export const CATEGORY_MIN_CREATORS = 2;
 
 export const categoryKey = (id: string) => `category:${id}`;
 export const attemptsKey = (id: string, day: string) => `category:attempts:${id}:${day}`;

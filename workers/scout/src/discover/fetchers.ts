@@ -2,8 +2,9 @@
  * Discover v2 step 2: the outbound calls (planning/tools/13-discover-search-v2.md). One Tavily search per
  * TikTok / Instagram query (20 results, the same 1 credit as 10), one YouTube `search.list` per YouTube query
  * (20 results, 1 of the project's 100 calls a day), and the day's YouTube reservation: Discover and the connector
- * may spend `DISCOVER_YT_CAP` (70) calls a UTC day, so the Trend Radar keeps its 18. KV has no atomic increment:
- * the cap is best-effort when two searches overlap (the radar's counter works the same way).
+ * may spend `DISCOVER_YT_CAP` (66) calls a UTC day, so the Trend Radar keeps its 18, Trending effects its 6 and the
+ * category scans their 4 (planning/tools/19-category-trends.md §6). KV has no atomic increment: the cap is best-effort
+ * when two searches overlap (the radar's counter works the same way).
  */
 
 import {
@@ -25,13 +26,13 @@ export interface FetchEnv {
   TAVILY_API_KEY?: string;
   YOUTUBE_API_KEY?: string;
   SOCIAL_KV?: KVNamespace;
-  /** Var: `search.list` calls Discover and the connector may spend a UTC day (default 70). */
+  /** Var: `search.list` calls Discover and the connector may spend a UTC day (default 66). */
   DISCOVER_YT_CAP?: string;
 }
 
 export const CALL_TIMEOUT_MS = 12_000;
 export const RESULTS_PER_CALL = 20;
-export const DEFAULT_YT_CAP = 70;
+export const DEFAULT_YT_CAP = 66;
 const COUNTER_TTL_S = 2 * 86_400;
 const SNIPPET_MAX = 220;
 const TITLE_MAX = 160;
@@ -242,11 +243,16 @@ export async function youtubeCall(
 
 /* ---------- the day's YouTube calls ---------- */
 
-/** `DISCOVER_YT_CAP` if it is a number ≥ 0 ("0" turns YouTube off); unset, blank or other: 70. */
+/** A var that caps calls: a number ≥ 0 ("0" turns them off); unset, blank or other: `fallback`. */
+export function capVar(raw: string | undefined, fallback: number): number {
+  const t = raw?.trim();
+  const n = Number(t);
+  return t && Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+
+/** `DISCOVER_YT_CAP` if it is a number ≥ 0 ("0" turns YouTube off); unset, blank or other: 66. */
 export function youtubeCap(env: FetchEnv): number {
-  const raw = env.DISCOVER_YT_CAP?.trim();
-  const n = Number(raw);
-  return raw && Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_YT_CAP;
+  return capVar(env.DISCOVER_YT_CAP, DEFAULT_YT_CAP);
 }
 
 export async function youtubeUsedToday(env: FetchEnv, now: Date): Promise<number> {

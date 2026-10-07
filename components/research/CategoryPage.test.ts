@@ -103,6 +103,29 @@ const RUN_LIMIT = "خلصت فحوصات اليوم الثلاثة، تقدر ت
 const STALE = "ما قدرت أحدّثها اليوم";
 const BUDGET = "وقّفت الفحص عشان عمليات البحث حق هالشهر قرّبت تخلص";
 
+/** A top video (§6) of a platform: YouTube's with views and a thumbnail, the others as the scan stores them. */
+const topVideo = (platform: "yt" | "tt" | "ig", n: number, views?: number) => ({
+  url:
+    platform === "yt"
+      ? `https://www.youtube.com/watch?v=carTop${String(n).padStart(5, "0")}`
+      : platform === "tt"
+        ? `https://www.tiktok.com/@car${n}/video/${7_000_000 + n}`
+        : `https://www.instagram.com/p/CarTop${n}`,
+  title: `Top car edit ${n}`,
+  creator: `creator${n}`,
+  ...(views === undefined ? {} : { views }),
+  ...(platform === "yt"
+    ? { thumbnail: `https://i.ytimg.com/vi/carTop${String(n).padStart(5, "0")}/mqdefault.jpg` }
+    : {}),
+});
+/** The stored lists: 30 YouTube videos (most viewed first), no TikTok post, 14 reels. */
+const TOP = {
+  updatedAt: new Date(Date.now() - 30 * HOUR).toISOString(),
+  yt: Array.from({ length: 30 }, (_, i) => topVideo("yt", i + 1, (30 - i) * 1000)),
+  tt: [],
+  ig: Array.from({ length: 14 }, (_, i) => topVideo("ig", i + 1)),
+};
+
 /** What `GET /categories/cars` answers; null = an older Worker without the route (404). */
 let page: unknown;
 let runAnswer: { body: unknown; status: number };
@@ -111,6 +134,11 @@ let posts: RequestInit[];
 let releaseRun: (() => void) | undefined;
 /** When set, `GET /categories/cars` waits for it. */
 let getGate: Promise<void> | undefined;
+/** What `GET /categories/cars/top/<platform>` answers (Brave on demand), the platforms asked in order, and a gate the
+ * answer waits for when set. */
+let topAnswers: Partial<Record<"tt" | "ig", { body: unknown; status?: number }>>;
+let topAsked: string[];
+let topGate: Promise<void> | undefined;
 let calls: {
   style: string[];
   all: number;
@@ -132,6 +160,16 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     posts.push(init);
     await new Promise<void>((r) => (releaseRun = r));
     return json(runAnswer.body, runAnswer.status);
+  }
+  const top = pathname.match(/^\/categories\/cars\/top\/(tt|ig)$/);
+  if (top && !init?.method) {
+    const p = top[1] as "tt" | "ig";
+    topAsked.push(p);
+    await topGate;
+    const a = topAnswers[p] ?? {
+      body: { platform: p, items: [], source: "scan", note: "no_key" },
+    };
+    return json(a.body, a.status ?? 200);
   }
   return json({ error: "not_found" }, 404);
 }
@@ -198,6 +236,9 @@ beforeEach(() => {
   posts = [];
   releaseRun = undefined;
   getGate = undefined;
+  topAnswers = {};
+  topAsked = [];
+  topGate = undefined;
   calls = { style: [], all: 0, skill: [], unavailable: 0, played: [] };
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   sessionStorage.clear();
@@ -601,5 +642,276 @@ describe("the category page", () => {
     act(() => style("rolling-shot").click());
     expect(calls.all).toBe(0);
     expect(calls.style).toEqual(["rolling shot"]);
+  });
+});
+
+describe("the 🏆 top videos per platform (§6)", () => {
+  const tabs = () => all("category-top-tab");
+  const tab = (p: string) =>
+    host.querySelector<HTMLButtonElement>(
+      `[data-testid="category-top-tab"][data-platform="${p}"]`,
+    )!;
+  const items = () => all("category-top-item");
+  const titles = () =>
+    items().map((i) => i.querySelector('[data-testid="result-title"]')!.textContent);
+  const more = () => $("category-top-more");
+  const line = () => $("category-top-line")!.textContent;
+  const open = async (p: string) => {
+    act(() => tab(p).click());
+    await settle();
+  };
+  /** The Worker's answer with Brave's group (`brave`, as Brave gave it) beside the stored list (`scan`). */
+  const fromBrave = (p: "tt" | "ig", brave: unknown[], scan: unknown[] = []) => ({
+    body: { platform: p, scan, brave, source: "brave", endpoint: "videos" },
+  });
+  /** The Worker's answer without Brave: the stored list and why. */
+  const alone = (p: "tt" | "ig", scan: unknown[], note: string) => ({
+    body: { platform: p, scan, brave: [], source: "scan", note },
+  });
+  const press = async (key: string) => {
+    act(() => {
+      document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    });
+    await settle();
+  };
+  const selected = () => tabs().find((b) => b.getAttribute("aria-selected") === "true")!;
+
+  it("after the 🔥 row: YouTube · TikTok · Instagram with their counts; 12 show, Show more adds 12", async () => {
+    page = docOf({ top: TOP });
+    await mount("en");
+    const headings = [...$("category-page")!.querySelectorAll("h3")].map((h) => h.textContent);
+    expect(headings.slice(0, 2)).toEqual(["🔥 Trending in Cars this week", "🏆 Top in Cars"]);
+    const list = $("category-top")!.querySelector('[role="tablist"]')!;
+    expect(list.getAttribute("aria-label")).toBe("Top videos by platform");
+    // TikTok's count comes with its list (Brave's, asked when the tab opens).
+    expect(tabs().map((b) => [b.dataset.platform, b.textContent, b.dataset.count])).toEqual([
+      ["yt", "▶30YouTube", "30"],
+      ["tt", "♪TikTok", ""],
+      ["ig", "📷14Instagram", "14"],
+    ]);
+    expect(tab("yt").getAttribute("aria-selected")).toBe("true");
+    expect(tab("yt").tabIndex).toBe(0);
+    expect(tab("tt").tabIndex).toBe(-1);
+    const panel = $("category-top-panel")!;
+    expect(panel.getAttribute("role")).toBe("tabpanel");
+    expect(panel.getAttribute("aria-labelledby")).toBe(tab("yt").id);
+    // YouTube's most viewed first, 12 at a time, as Discover's result cards: views and the creator when known.
+    expect(titles()).toEqual(TOP.yt.slice(0, 12).map((v) => v.title));
+    const first = items()[0];
+    expect(first.querySelector('[data-testid="result-stats"]')!.getAttribute("data-views")).toBe(
+      "30000",
+    );
+    expect(first.textContent).toContain("creator1");
+    expect(first.querySelector("img")!.getAttribute("src")).toBe(TOP.yt[0].thumbnail);
+    expect(more()!.textContent).toBe("Show more (12)");
+    act(() => more()!.click());
+    expect(items()).toHaveLength(24);
+    expect(more()!.textContent).toBe("Show more (6)");
+    act(() => more()!.click());
+    expect(items()).toHaveLength(30);
+    expect(more()).toBeNull();
+    // No Brave group, and no credit, on YouTube.
+    expect($("category-top-brave")).toBeNull();
+    expect($("category-top-credit")).toBeNull();
+    // A video plays in the app's player.
+    act(() => first.querySelector<HTMLElement>('[data-testid="result-play"]')!.click());
+    expect(calls.played[0]).toMatchObject({
+      platform: "yt",
+      url: TOP.yt[0].url,
+      handle: "creator1",
+    });
+    expect(topAsked).toEqual([]);
+  });
+
+  it("TikTok loads on its first open, once a visit: 'Loading…', then Brave's group", async () => {
+    page = docOf({ top: TOP });
+    let release!: () => void;
+    topGate = new Promise<void>((r) => (release = r));
+    topAnswers = { tt: fromBrave("tt", [topVideo("tt", 1, 900), topVideo("tt", 2)]) };
+    await mount("en");
+    await open("tt");
+    expect(tab("tt").getAttribute("aria-selected")).toBe("true");
+    expect(line()).toBe("Loading…");
+    release();
+    await settle();
+    expect(line()).toBe("");
+    expect(titles()).toEqual(["Top car edit 1", "Top car edit 2"]);
+    expect(items().map((i) => i.dataset.platform)).toEqual(["tt", "tt"]);
+    expect(tab("tt").dataset.count).toBe("2");
+    await open("yt");
+    await open("tt");
+    expect(titles()).toEqual(["Top car edit 1", "Top car edit 2"]);
+    expect(topAsked).toEqual(["tt"]);
+  });
+
+  it("C2, C3: the scan's list, then 'More from Brave Search' in Brave's order, 12 at a time across both, Brave credited under its group", async () => {
+    const scan = [1, 2, 3].map((n) => topVideo("tt", 100 + n));
+    // Brave's order, its least viewed first: never sorted by views.
+    const brave = Array.from({ length: 14 }, (_, i) => topVideo("tt", i + 1, (i + 1) * 1000));
+    page = docOf({ top: { ...TOP, tt: scan } });
+    topAnswers = { tt: fromBrave("tt", brave, scan) };
+    await mount("en");
+    await open("tt");
+    expect(tab("tt").dataset.count).toBe("17");
+    expect(titles()).toEqual([
+      ...scan.map((v) => v.title),
+      ...brave.slice(0, 9).map((v) => v.title),
+    ]);
+    const group = $("category-top-brave")!;
+    expect(group.textContent).toBe("More from Brave Search");
+    // The group's heading sits between the stored list and Brave's.
+    const order = all("category-top-item").concat(group);
+    expect(order.indexOf(group)).toBe(order.length - 1);
+    expect(
+      group.compareDocumentPosition(items()[2]) & Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+    expect(
+      group.compareDocumentPosition(items()[3]) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // The credit under Brave's group, outside the status line: Brave's page, in a new tab.
+    const credit = $("category-top-credit")!;
+    const link = credit.querySelector("a")!;
+    expect(link.textContent).toBe("Powered by Brave Search");
+    expect(link.getAttribute("href")).toBe("https://brave.com/search/api/");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    expect(credit.closest('[role="status"]')).toBeNull();
+    expect(
+      items()[11].compareDocumentPosition(credit) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(more()!.textContent).toBe("Show more (5)");
+    act(() => more()!.click());
+    expect(titles()).toEqual([...scan, ...brave].map((v) => v.title));
+    expect(more()).toBeNull();
+    // Brave's items play in the app's player too.
+    act(() => items()[3].querySelector<HTMLElement>('[data-testid="result-play"]')!.click());
+    expect(calls.played[0]).toMatchObject({ platform: "tt", url: brave[0].url });
+  });
+
+  it("in Arabic, Brave's credit reads 'النتائج من Brave Search', its group 'أكثر من Brave Search'", async () => {
+    page = docOf({ top: TOP });
+    topAnswers = { tt: fromBrave("tt", [topVideo("tt", 1)]) };
+    await mount("ar");
+    await open("tt");
+    expect($("category-top-brave")!.textContent).toBe("أكثر من Brave Search");
+    expect($("category-top-credit")!.textContent).toBe("النتائج من Brave Search");
+  });
+
+  it("says why a list is the scan's alone: Brave not connected (TikTok), out of reach, or today's searches used up; no credit", async () => {
+    page = docOf({ top: { ...TOP, tt: [topVideo("tt", 9)] } });
+    const lines = [
+      ["no_key", "More TikTok results once Brave search is connected"],
+      ["brave_failed", "Couldn't reach Brave search right now"],
+      ["daily_cap", "Today's Brave searches are used up — more tomorrow"],
+    ];
+    for (const [note, text] of lines) {
+      topAnswers = { tt: alone("tt", [topVideo("tt", 9)], note) };
+      act(() => root.unmount());
+      root = createRoot(host);
+      await mount("en");
+      await open("tt");
+      expect(line(), note).toBe(text);
+      expect(titles()).toEqual(["Top car edit 9"]);
+      expect($("category-top-credit")).toBeNull();
+    }
+    // No answer at all: the stored list, and Brave out of reach.
+    topAnswers = { tt: { body: { error: "upstream" }, status: 502 } };
+    act(() => root.unmount());
+    root = createRoot(host);
+    await mount("en");
+    await open("tt");
+    expect(line()).toBe("Couldn't reach Brave search right now");
+    expect(titles()).toEqual(["Top car edit 9"]);
+  });
+
+  it("C10: an answer with an empty stored list (the Worker could not read its copy) keeps the page's own, each post once", async () => {
+    const [a, b, c] = [1, 2, 3].map((n) => topVideo("tt", n));
+    page = docOf({ top: { ...TOP, tt: [a, b] } });
+    topAnswers = { tt: fromBrave("tt", [{ ...b, title: "b as Brave writes it" }, c], []) };
+    await mount("en");
+    await open("tt");
+    expect(titles()).toEqual([a.title, b.title, c.title]);
+    expect(tab("tt").dataset.count).toBe("3");
+  });
+
+  it("Instagram tops up from Brave on its first open while its list is under 50; a full list asks nothing", async () => {
+    page = docOf({ top: TOP });
+    const brave = Array.from({ length: 20 }, (_, i) => topVideo("ig", 100 + i));
+    topAnswers = { ig: fromBrave("ig", brave, TOP.ig) };
+    await mount("en");
+    await open("ig");
+    expect(topAsked).toEqual(["ig"]);
+    // The 14 stored reels, then Brave's 20.
+    expect(tab("ig").dataset.count).toBe("34");
+    expect(titles()).toEqual(TOP.ig.slice(0, 12).map((v) => v.title));
+    // Without Brave the stored reels stand on their own: no line on Instagram.
+    act(() => root.unmount());
+    root = createRoot(host);
+    topAnswers = { ig: alone("ig", TOP.ig, "no_key") };
+    await mount("en");
+    await open("ig");
+    expect(line()).toBe("");
+    expect(tab("ig").dataset.count).toBe("14");
+    act(() => root.unmount());
+    root = createRoot(host);
+    sessionStorage.clear();
+    topAsked = [];
+    const full = Array.from({ length: 50 }, (_, i) => topVideo("ig", i + 1));
+    page = docOf({ top: { ...TOP, ig: full } });
+    await mount("en");
+    await open("ig");
+    expect(topAsked).toEqual([]);
+    expect(tab("ig").dataset.count).toBe("50");
+  });
+
+  it("English first in Arabic too: the platforms' own names, the titles as given, read in their own direction", async () => {
+    page = docOf({ top: TOP });
+    await mount("ar");
+    expect($("category-top")!.querySelector("h3")!.textContent).toBe("🏆 الأقوى في سيارات");
+    expect(tabs().map((b) => b.textContent)).toEqual(["▶30YouTube", "♪TikTok", "📷14Instagram"]);
+    const title = items()[0].querySelector('[data-testid="result-title"]')!;
+    expect(title.textContent).toBe("Top car edit 1");
+    expect(title.getAttribute("dir")).toBe("auto");
+    expect($("category-top")!.querySelector('[role="tablist"]')!.getAttribute("aria-label")).toBe(
+      "أقوى الفيديوهات حسب المنصة",
+    );
+  });
+
+  it("C7: the arrow keys move focus between the tabs, mirrored in Arabic; TikTok and Instagram wait for Enter, Space or a tap", async () => {
+    page = docOf({ top: TOP });
+    topAnswers = { ig: fromBrave("ig", [topVideo("ig", 100)], TOP.ig) };
+    await mount("en");
+    tab("yt").focus();
+    // Past TikTok to Instagram: focus moves, nothing is selected or asked.
+    await press("ArrowRight");
+    expect(document.activeElement).toBe(tab("tt"));
+    expect(selected().dataset.platform).toBe("yt");
+    await press("ArrowRight");
+    expect(document.activeElement).toBe(tab("ig"));
+    expect(selected().dataset.platform).toBe("yt");
+    expect(topAsked).toEqual([]);
+    // A tap (Enter or Space on a focused tab is one) selects and loads it.
+    await open("ig");
+    expect(selected().dataset.platform).toBe("ig");
+    expect(topAsked).toEqual(["ig"]);
+    // YouTube's list is already here: it follows focus.
+    tab("ig").focus();
+    await press("ArrowRight");
+    expect(document.activeElement).toBe(tab("yt"));
+    expect(selected().dataset.platform).toBe("yt");
+    act(() => root.unmount());
+    root = createRoot(host);
+    await mount("ar");
+    tab("yt").focus();
+    await press("ArrowLeft");
+    expect(document.activeElement).toBe(tab("tt"));
+    expect(selected().dataset.platform).toBe("yt");
+    expect(topAsked).toEqual(["ig"]);
+  });
+
+  it("a page from before §6 says the top videos come with the next scan", async () => {
+    await mount("en");
+    expect($("category-top")).toBeNull();
+    expect($("category-page")!.textContent).toContain("Top videos come with the next scan");
   });
 });

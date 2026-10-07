@@ -243,6 +243,58 @@ describe("askAi", () => {
       ),
     ).toEqual({ a: 1 });
   });
+  it("B5: asks the model given (category lessons: gpt-oss-120b); Trending effects' cleanup stays on llama", async () => {
+    const e = env(async () => ({ response: { a: 1 } }));
+    await askAi(e, call, 1000, "@cf/openai/gpt-oss-120b");
+    await askAi(e, call, 1000);
+    expect(e.AI.run.mock.calls.map(([model]) => model)).toEqual([
+      "@cf/openai/gpt-oss-120b",
+      AI_MODEL,
+    ]);
+    expect(e.AI.run.mock.calls[0][1]).toMatchObject({ max_tokens: 10 });
+  });
+
+  it("B5: reads the answer in whichever shape the model gives it, a code fence around it too", async () => {
+    const shapes = [
+      { response: '{"a":1}' },
+      { response: { a: 1 } },
+      { response: '```json\n{"a":1}\n```' },
+      { choices: [{ message: { content: '{"a":1}' } }] },
+      { choices: [{ message: { content: '```\n{"a":1}\n```' } }] },
+      // The Responses API: its reasoning first, then the message.
+      {
+        output: [
+          { type: "reasoning", content: [{ type: "reasoning_text", text: "Think about {a}..." }] },
+          { type: "message", content: [{ type: "output_text", text: '{"a":1}' }] },
+        ],
+      },
+    ];
+    for (const shape of shapes)
+      expect(
+        await askAi(
+          env(async () => shape),
+          call,
+          1000,
+        ),
+        JSON.stringify(shape),
+      ).toEqual({ a: 1 });
+    for (const none of [
+      {},
+      { response: null },
+      { choices: [] },
+      { output: [{ content: "x" }] },
+      null,
+    ])
+      expect(
+        await askAi(
+          env(async () => none),
+          call,
+          1000,
+        ),
+        JSON.stringify(none),
+      ).toBeNull();
+  });
+
   it("is null without a binding, on broken JSON, an error or a timeout", async () => {
     expect(await askAi({}, call, 1000)).toBeNull();
     expect(

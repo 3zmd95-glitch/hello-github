@@ -422,7 +422,7 @@ describe("runDiscover", () => {
 
   it("searches YouTube as far as the day's cap goes, and does not cache that part answer", async () => {
     const env = ENV();
-    await env.SOCIAL_KV.put(discoverKeys.yt("2026-10-03"), "69");
+    await env.SOCIAL_KV.put(discoverKeys.yt("2026-10-03"), "65");
     const fetchMock = web();
     const answer = await runDiscover(env, { q: "flash" }, { fetch: fetchMock, now: NOW });
     const searches = fetchMock.mock.calls.filter(([u]) => String(u).includes("/youtube/v3/search"));
@@ -550,7 +550,7 @@ describe("discoverUsage", () => {
     const usage = await discoverUsage(env, fetchMock, NOW);
     expect(usage).toEqual({
       tavily: { used: 412, limit: 1000, plan: "Researcher", paygoUsed: 0, paygoLimit: 5000 },
-      youtube: { usedToday: 9, cap: 70 },
+      youtube: { usedToday: 9, cap: 66 },
       connector: { usedToday: 12, cap: 60 },
     });
     expect(kv.store.get(usageKeys.tavily)?.expirationTtl).toBe(600);

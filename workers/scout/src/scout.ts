@@ -17,10 +17,13 @@
  *                           planning/tools/18-trending-effects.md)
  *   POST /effects/run     → run the daily effects job now (once per UTC day unless `force: true` or that
  *                           day's run failed; at most 3 spending runs a UTC day without `force`)
- *   GET  /categories/:id  → a Discover category's page: this week's trends and the week's lessons
- *                           (categories/routes.ts, planning/tools/19-category-trends.md)
+ *   GET  /categories/:id  → a Discover category's page: this week's trends, the week's lessons and the top videos
+ *                           per platform (categories/routes.ts, planning/tools/19-category-trends.md)
  *   POST /categories/:id/run → scan that category now (once per UTC day unless `force: true` or that day's run
  *                           failed; at most 3 spending runs a category a UTC day, forced ones included)
+ *   GET  /categories/:id/top/:platform → a TikTok (`tt`) or Instagram (`ig`) tab's top videos: the stored list and
+ *                           Brave's Search API results beside it, never stored (BRAVE_API_KEY, at most BRAVE_DAILY a
+ *                           UTC day)
  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
  *   /mcp, /authorize, /token, /register → served by index.ts (OAuth + MCP): the Claude connector
  *                           (discover/mcp.ts, discover/auth.ts)
@@ -65,8 +68,13 @@ export interface Env extends SocialEnv, TrendsEnv {
   SCOUT_TOKEN?: string;
   /** Var: comma-separated list of origins allowed to call the Worker from a browser. */
   ALLOWED_ORIGINS?: string;
-  /** Var: YouTube `search.list` calls Discover and the connector may spend a UTC day (default 70). */
+  /** Var: YouTube `search.list` calls Discover and the connector may spend a UTC day (default 66). */
   DISCOVER_YT_CAP?: string;
+  /** Secret, optional: Brave's Search API key for the category pages' TikTok and Instagram tabs (categories/top.ts).
+   * Never logged or echoed. */
+  BRAVE_API_KEY?: string;
+  /** Var: Brave requests a UTC day (default 40). */
+  BRAVE_DAILY?: string;
   /** Var: Tavily lookups the Claude connector may spend a Riyadh day (default 60). */
   MCP_DAILY_LOOKUPS?: string;
   /** Var: "off" makes /health say `discover: false`, so dashboards go back to /search (default on). */

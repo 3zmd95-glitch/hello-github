@@ -20,8 +20,9 @@ interface YtStatsReply {
   }[];
 }
 
-/** A count as the API sends it, as a whole number ≥ 0; undefined when it is missing (hidden likes) or odd. */
-function ytCount(x: unknown): number | undefined {
+/** A count as the API sends it, as a whole number ≥ 0; undefined when it is missing (hidden likes) or odd. Brave's
+ * views are read the same way (categories/top.ts). */
+export function ytCount(x: unknown): number | undefined {
   const n = typeof x === "number" ? x : typeof x === "string" && x.trim() ? Number(x) : Number.NaN;
   return Number.isSafeInteger(n) && n >= 0 ? n : undefined;
 }
