@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Clock, Film, Lightbulb, Rocket, TrendingUp, type LucideIcon } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 import Chip from "@/components/ui/ios/Chip";
 import { ListGroup, ListRow } from "@/components/ui/ios/List";
 import { PLATFORMS } from "@/lib/domain";
@@ -12,7 +12,7 @@ import { PLATFORM_META, overduePosts } from "@/lib/social";
 import { addDays } from "@/lib/streak";
 import { visibleTrends } from "@/lib/trends";
 import { ideasCount, useStore } from "@/store";
-import { calendarPostHref } from "./platform";
+import { calendarPostHref, withName } from "./platform";
 
 /** Numbers older than this many days count as stale for a platform the owner has an account on. */
 const STALE_DAYS = 14;
@@ -30,19 +30,6 @@ interface InboxRow {
   /** A post title inside the line (`{name}`): the owner's own text, isolated so its direction keeps to itself. */
   name?: string;
   href: string;
-}
-
-/** The line with the post title in a `<bdi>` (`t` keeps the `{name}` placeholder it was not given). */
-function withName(text: string, name: string | undefined): ReactNode {
-  if (name === undefined) return text;
-  const [pre, post = ""] = text.split("{name}");
-  return (
-    <>
-      {pre}
-      <bdi>{name}</bdi>
-      {post}
-    </>
-  );
 }
 
 /** Row icon per kind (tools/18 §3.6): overdue in warn, stale numbers on the neutral fill, the rest tinted. */

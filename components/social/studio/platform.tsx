@@ -123,6 +123,22 @@ export function withNum(text: string, n: ReactNode): ReactNode {
   );
 }
 
+/**
+ * A translated line with the post title in a `<bdi>` (`t` keeps a `{name}` placeholder it was not given): the
+ * owner's own text keeps its direction, so a mixed Arabic/English title cannot reorder the sentence around it.
+ */
+export function withName(text: string, name: string | undefined): ReactNode {
+  if (name === undefined) return text;
+  const [pre, post = ""] = text.split("{name}");
+  return (
+    <>
+      {pre}
+      <bdi>{name}</bdi>
+      {post}
+    </>
+  );
+}
+
 /** Link into the calendar agent's screen, opening one post. */
 export function calendarPostHref(postId: string): string {
   return `/social/calendar/#post=${postId}`;

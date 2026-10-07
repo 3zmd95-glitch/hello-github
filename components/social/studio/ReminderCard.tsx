@@ -9,11 +9,12 @@ import { flowState } from "@/lib/flow";
 import { useT } from "@/lib/i18n";
 import { PLATFORM_META, nextPost } from "@/lib/social";
 import { streak as streakOf, useStore } from "@/store";
+import { withName } from "./platform";
 
 /**
  * Today's reminder: the next post's time when it falls today, plus the Training world's flame state so the
  * two worlds nudge each other ("your flame is waiting" links back to Training's Today). One bare row: a clock,
- * the post line, the flame line, the way back.
+ * the post line (its title isolated in a `<bdi>`), the flame line, the way back.
  */
 export default function ReminderCard({ today, now }: { today: string; now: number }) {
   const { t, L } = useT();
@@ -47,11 +48,13 @@ export default function ReminderCard({ today, now }: { today: string; now: numbe
         title={
           <span data-testid="studio-reminder-post">
             {todayPost
-              ? t("social.studio.reminderPost", {
-                  t: todayPost.plannedTime ?? "",
-                  name: todayPost.title,
-                  platform: L(PLATFORM_META[todayPost.platform].name),
-                })
+              ? withName(
+                  t("social.studio.reminderPost", {
+                    t: todayPost.plannedTime ?? "",
+                    platform: L(PLATFORM_META[todayPost.platform].name),
+                  }),
+                  todayPost.title,
+                )
               : t("social.studio.reminderNoPost")}
           </span>
         }

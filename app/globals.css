@@ -1820,8 +1820,15 @@
     letter-spacing: -0.02em;
     font-variant-numeric: tabular-nums;
     direction: ltr;
-    text-align: match-parent;
     unicode-bidi: isolate;
+  }
+  /* The number is an LTR isolate, so `start` would mean left in Arabic too: put it on the label's side by the page
+     direction (match-parent would do it, but Chromium only knows the prefixed value). */
+  :root[data-world="social"][dir="rtl"] .ios-stat b {
+    text-align: right;
+  }
+  :root[data-world="social"][dir="ltr"] .ios-stat b {
+    text-align: left;
   }
   .ios-delta {
     display: inline-flex;
