@@ -392,6 +392,8 @@ describe("POST /search", () => {
         title: "Match cut transitions",
         snippet: "How to do a match cut in CapCut",
         url: "https://www.tiktok.com/@editor.sam/video/7300000000000000001",
+        // TikTok and Instagram posts are dated by their own id (postDate.ts).
+        published: "2023-11-11T00:48:18.000Z",
       },
       {
         platform: "ig",
@@ -399,6 +401,7 @@ describe("POST /search", () => {
         title: "Reel by cutsbyfaisal",
         snippet: "Match cut reel",
         url: "https://www.instagram.com/p/C1abcDEF",
+        published: "2011-08-24T21:31:47.855Z",
       },
       {
         platform: "ig",
@@ -406,6 +409,7 @@ describe("POST /search", () => {
         title: "Post",
         snippet: "A post",
         url: "https://www.instagram.com/p/XyZ123",
+        published: "2011-08-24T21:07:04.765Z",
       },
       {
         platform: "yt",
@@ -678,6 +682,7 @@ describe("POST /search: timeRange and thumbnails", () => {
         snippet: "",
         url: video,
         thumb: "https://p16.tiktokcdn.com/door.jpg",
+        published: "2024-09-08T18:46:55.000Z",
       },
     ]);
   });

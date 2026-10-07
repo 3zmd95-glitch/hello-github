@@ -7,7 +7,8 @@
 
 import { mentions } from "../discover/relevance";
 import { normalizeTerm, TERMS, type EditTerm } from "../discover/terms";
-import type { Candidate, EffectPlatform, EffectPost } from "./types";
+import { daysBetween } from "./score";
+import { HISTORY_DAYS, type Candidate, type EffectPlatform, type EffectPost } from "./types";
 
 /** Words that are never part of a name: walking back from the suffix, the first one ends the name. */
 const GENERIC = new Set(
@@ -210,26 +211,58 @@ export async function creatorId(platform: EffectPlatform, handleOrUrl: string): 
   return [...digest.slice(0, 4)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** A scan's posts: kept (dated within 14 days), too old, and with no date (diagnostics' `posts`). */
+export interface PostCounts {
+  kept: number;
+  old: number;
+  undated: number;
+}
+
+/**
+ * Candidates from the posts of the last 14 days at `today` (live, 2026-10-07: "this week" rested on scans of September
+ * posts). A post with no date is skipped too. Each creator is filed under the UTC day of their latest post (never after
+ * today); the samples are the newest posts.
+ */
 export async function extractCandidates(
   posts: readonly EffectPost[],
+  today: string,
   extra: ExtractExtra = {},
-): Promise<Map<string, Candidate>> {
-  const found = new Map<string, Candidate>();
+): Promise<{ cands: Map<string, Candidate>; posts: PostCounts }> {
+  const counts: PostCounts = { kept: 0, old: 0, undated: 0 };
   const seen = new Set<string>();
+  const dated: { post: EffectPost; at: number; day: string }[] = [];
   for (const post of posts) {
     if (seen.has(post.url)) continue; // two family searches can return the same post: count it once
     seen.add(post.url);
+    const at = Date.parse(post.published ?? "");
+    if (Number.isNaN(at)) {
+      counts.undated++;
+      continue;
+    }
+    const posted = new Date(at).toISOString().slice(0, 10);
+    const day = posted > today ? today : posted;
+    if (daysBetween(day, today) >= HISTORY_DAYS) {
+      counts.old++;
+      continue;
+    }
+    counts.kept++;
+    dated.push({ post, at, day });
+  }
+  // Newest first: a creator's first post here is their latest, and the samples are the newest.
+  dated.sort((a, b) => b.at - a.at);
+  const found = new Map<string, Candidate>();
+  for (const { post, day } of dated) {
     const id = await creatorId(post.platform, post.handle || post.url);
     // " | " keeps a name from running from the title into the snippet.
     for (const c of candidatesOf(`${post.title} | ${post.snippet}`, extra)) {
       const cand: Candidate = found.get(c.key) ?? {
         ...c,
-        ids: new Set<string>(),
+        days: new Map<string, string>(),
         posts: 0,
         platforms: new Set<EffectPlatform>(),
         samples: [],
       };
-      cand.ids.add(id);
+      if (!cand.days.has(id)) cand.days.set(id, day);
       cand.posts += 1;
       cand.platforms.add(post.platform);
       if (cand.samples.length < 2)
@@ -237,5 +270,5 @@ export async function extractCandidates(
       found.set(c.key, cand);
     }
   }
-  return found;
+  return { cands: found, posts: counts };
 }

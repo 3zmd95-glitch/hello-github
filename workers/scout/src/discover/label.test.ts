@@ -4,7 +4,8 @@ import { creatorsOf, labelCards, TUTORIAL_RE } from "./label";
 import { planSearch } from "./plan";
 import type { PlannedQuery } from "./types";
 
-const plan = planSearch({ q: "flash" });
+// An Arabic search: its plan holds the queries of both languages.
+const plan = planSearch({ q: "flash", lang: "ar" });
 const query = (id: string): PlannedQuery => plan.queries.find((q) => q.id === id)!;
 let n = 0;
 const card = (over: Partial<ScoutResult>): ScoutResult => ({
@@ -73,6 +74,44 @@ describe("labelCards", () => {
       );
       expect(item.offTopic).toBe(true);
       expect(item.outsideCategory).toBeUndefined();
+    });
+  });
+
+  // A trend chip's search (`editing`): live, 2026-10-07, the "Glow Effect" chip showed Arabic beauty-serum reels.
+  describe("a trend chip's search", () => {
+    const labels = (plan: ReturnType<typeof planSearch>, titles: string[]) =>
+      labelCards(
+        titles.map((title) => ({ card: card({ title }), query: plan.queries[0] })),
+        plan,
+      ).map((i) => !!i.offTopic);
+    const TITLES = [
+      // The live beauty reel: "Effect" is only the product's name.
+      "سيروم كولاجين جلو بوستر (Collagen Glow Effect)",
+      "Glow effect serum for glass skin ✨",
+      "Product Cutout … Insta Edit में Glow Effect",
+      "Glow effect in After Effects",
+      "Glow Effect tutorial",
+      "the new glow effect trend 🔥",
+    ];
+
+    it("needs an editing cue besides the effect's own name", () => {
+      const glow = planSearch({ q: "Glow Effect", editing: true });
+      expect(labels(glow, TITLES)).toEqual([true, true, false, false, false, false]);
+    });
+
+    it("an ordinary search keeps them as before", () => {
+      expect(labels(planSearch({ q: "Glow Effect" }), TITLES).slice(0, 2)).toEqual([false, false]);
+    });
+
+    it("inside a category, its filming words count as cues (a camera style names no edit)", () => {
+      const cars = planSearch({
+        q: "rolling shot",
+        genreQuery: { en: "car edit", ar: "ايديت سيارات" },
+        editing: true,
+      });
+      expect(
+        labels(cars, ["Cinematic rolling shot of a BMW M3", "rolling shot car for sale"]),
+      ).toEqual([false, true]);
     });
   });
 

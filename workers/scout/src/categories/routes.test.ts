@@ -7,6 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usageKeys } from "../discover/usage";
+import { instagramShortcodeAt } from "../postDate";
 import { handle, type Env } from "../scout";
 import { runTick } from "../social/cron";
 import { TAVILY_URL } from "../trends/tavily";
@@ -29,8 +30,10 @@ const json = (body: unknown, status = 200) =>
 /** Tavily answering every search with 4 creators' speed-ramp reels (a category searches Instagram alone): a
  * dictionary technique, shown without the AI. YouTube's top-list search (§6) finds nothing, so no views call follows. */
 function tavily() {
+  // Posted the day before (the trends count each creator on the day they posted, read from the post id).
+  const posted = new Date("2026-10-06T04:00:00Z");
   const results = ["c1", "c2", "c3", "c4"].map((handle, i) => ({
-    url: `https://www.instagram.com/${handle}/reel/R${i + 1}/`,
+    url: `https://www.instagram.com/${handle}/reel/${instagramShortcodeAt(posted, i + 1)}/`,
     title: "speed ramp car edit 🔥",
     content: "#caredit",
   }));

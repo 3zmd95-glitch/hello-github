@@ -1,6 +1,7 @@
 import type { Genre, Lang } from "./domain";
 import { subscriptionPlan, type AiSelection } from "./localAi";
 import {
+  hasArabic,
   popularityOf,
   type LengthFilter,
   type Recency,
@@ -90,6 +91,10 @@ export interface DiscoverRequest {
   term?: string;
   genreQuery?: { ar?: string; en?: string };
   program?: string;
+  /** "ar" adds the Arabic tutorials query; "en" (or none, from an older dashboard) plans English only (English first). */
+  lang?: Lang;
+  /** A trend chip's search (the 🔥 row, a category's style): cards need an editing cue. Keyword searches only. */
+  editing?: true;
   timeRange?: "week" | "month" | "year";
   ytLength?: "short" | "long";
   platforms?: DiscoverPlatform[];
@@ -119,6 +124,15 @@ const clip = (text: string, max: number) =>
     .replace(/[\uD800-\uDBFF]$/, "")
     .trim();
 
+/**
+ * A keyword search's language, worked out for each search (the owner, 2026-10-07: "English First"): Arabic when what was
+ * typed has Arabic letters or Arabic first is on (the Worker then adds the Arabic tutorials query), else English. So a
+ * trend chip's English never sticks to the next search.
+ */
+export function discoverLang(typed: string, arFirst: boolean): Lang {
+  return arFirst || hasArabic(typed) ? "ar" : "en";
+}
+
 export function discoverRequestFrom(input: {
   mode?: "ai";
   subscription?: AiSelection;
@@ -128,6 +142,10 @@ export function discoverRequestFrom(input: {
   recency: Recency;
   length: LengthFilter;
   pick?: DiscoverPick;
+  /** The panel's "Arabic first": the search asks Arabic too ({@link discoverLang}). */
+  arFirst?: boolean;
+  /** A trend chip's search (keyword searches). */
+  editing?: boolean;
 }): DiscoverRequest | null {
   const typed = clip(input.base, input.mode === "ai" ? 600 : MAX_Q);
   const ar = clip(input.genre?.queries.ar[0] ?? "", MAX_GENRE_QUERY);
@@ -146,6 +164,9 @@ export function discoverRequestFrom(input: {
     ...(input.pick?.term ? { term: input.pick.term } : {}),
     ...(genreQuery.ar || genreQuery.en ? { genreQuery } : {}),
     ...(program ? { program } : {}),
+    // An AI brief plans its own languages.
+    ...(input.mode !== "ai" ? { lang: discoverLang(typed, !!input.arFirst) } : {}),
+    ...(input.mode !== "ai" && input.editing ? { editing: true as const } : {}),
     ...(input.recency !== "any" ? { timeRange: input.recency } : {}),
     ...(input.length !== "any" ? { ytLength: input.length } : {}),
   };
@@ -273,8 +294,8 @@ export function parseDiscoverAnswer(raw: unknown): DiscoverAnswer | null {
 /* ---------- cache ---------- */
 
 export const DISCOVER_CACHE_KEY = "3z-discover-cache";
-/** 5: focused category plans/retries; older generic answers must not bypass the new pipeline. */
-export const DISCOVER_CACHE_VERSION = 5;
+/** 6: real post dates (the Posted filter by them), English-first plans; older answers must not bypass them. */
+export const DISCOVER_CACHE_VERSION = 6;
 export const DISCOVER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Answers kept on the device, newest first (memory keeps this session's). */
 export const DISCOVER_CACHE_MAX = 8;
@@ -325,6 +346,8 @@ export function discoverRequestKey(config: ScoutConfig, req: DiscoverRequest): s
     term: req.term ?? "",
     genre: [req.genreQuery?.ar ?? "", req.genreQuery?.en ?? ""],
     program: req.program ?? "",
+    lang: req.lang ?? "en",
+    editing: !!req.editing,
     timeRange: req.timeRange ?? "",
     ytLength: req.ytLength ?? "",
     platforms: [...(req.platforms ?? [])].sort(),
@@ -537,6 +560,9 @@ export function sectionItems(
     (i) => i.section === section && onTab(i, opts.tab) && (opts.showHidden || !i.offTopic),
   );
   if (opts.sort === "popular") list = byPopularity(list);
+  // All: Instagram and TikTok first (the owner, 2026-10-07), each group keeping its order.
+  if (opts.tab === "all")
+    list = [...list.filter((i) => i.platform !== "yt"), ...list.filter((i) => i.platform === "yt")];
   if (opts.arFirst) list = arabicFirstOf(list);
   return list;
 }

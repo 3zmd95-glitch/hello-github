@@ -53,7 +53,12 @@ const ANSWER = {
       section: "tutorial",
       stats: { views: 90000 },
     }),
-    item(21, { section: "tutorial", lang: "ar", title: "شرح تأثير فلاش" }),
+    item(21, {
+      section: "tutorial",
+      lang: "ar",
+      title: "شرح تأثير فلاش",
+      published: "2025-05-30T10:00:00.000Z",
+    }),
     item(22, {
       platform: "ig",
       url: "https://www.instagram.com/p/OFF/",
@@ -710,6 +715,18 @@ test("Discover v2: one search, sections, Not this?, tabs, hidden posts, a failed
   await expect(page.getByTestId("discover-creator")).toHaveCount(1);
   await expect(page.getByTestId("tab-all")).toHaveAttribute("data-count", "10");
   await expect(page.getByTestId("discover-usage")).toContainText("412");
+  // Instagram and TikTok first (the owner, 2026-10-07): the tabs, and on All each section; a card shows its date.
+  expect(
+    await page
+      .locator('[role="tab"][data-testid^="tab-"]')
+      .evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute("data-testid"))),
+  ).toEqual(["tab-all", "tab-ig", "tab-tt", "tab-yt"]);
+  const firstTutorial = page
+    .getByTestId("discover-section-tutorial")
+    .getByTestId("result-card")
+    .first();
+  await expect(firstTutorial).toHaveAttribute("data-platform", "tt");
+  await expect(firstTutorial.getByTestId("result-date")).toHaveText("May 30, 2025");
 
   // Show more opens the rest of a section.
   const examples = page.getByTestId("discover-section-example");
@@ -886,7 +903,11 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   await expect(fresh).toContainText("4 صنّاع · ▶ ↑3×");
   // English first in Arabic too (live fix 1): the English name, the Arabic one in the tooltip.
   await expect(fresh).toContainText("swagger trend");
-  await expect(fresh).toHaveAttribute("title", "Clone yourself with one hair flip\nترند السواقر");
+  // The tooltip ends with what "4 creators" means: posted it in the last 7 days (by each post's own date).
+  await expect(fresh).toHaveAttribute(
+    "title",
+    "Clone yourself with one hair flip\nترند السواقر\n4 صنّاع نزّلوه آخر 7 أيام",
+  );
   // The 8 chips overflow their strip, which scrolls sideways; the 375 px page never does.
   const strip = row.getByTestId("trending-effect").first().locator("xpath=..");
   expect(await strip.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
@@ -909,7 +930,8 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   await expect.poll(() => asked.length).toBe(1);
   await row.locator('[data-testid="trending-effect"][data-key="clone-effect"]').click();
   await expect.poll(() => asked.length).toBe(2);
-  expect(asked[1]).toEqual({ q: "clone effect" });
+  // English, with editing context (live: an Arabic query found beauty serums for "Glow Effect").
+  expect(asked[1]).toEqual({ q: "clone effect", lang: "en", editing: true });
   await expect(page.getByTestId("genre-coffee")).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByTestId("discover-topic")).toHaveValue("clone effect");
   await expect(page.getByTestId("discover-recent-topic").first()).toHaveText("clone effect");
@@ -978,6 +1000,8 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
   expect(asked[0]).toEqual({
     q: "rolling shot",
     genreQuery: { ar: "ايديت سيارات", en: "car edit" },
+    lang: "en",
+    editing: true,
   });
   await expect(page.getByTestId("category-page")).toHaveCount(0);
   await expect(page.getByTestId("discover-sections")).toBeVisible();
@@ -998,7 +1022,7 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
   await cat.getByTestId("category-search-all").click();
   await expect
     .poll(() => asked.at(-1))
-    .toEqual({ q: "car edit", genreQuery: { ar: "ايديت سيارات" } });
+    .toEqual({ q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" });
   await expect(page.getByTestId("category-page")).toHaveCount(0);
   expect(await fitsViewport(page)).toBe(true);
 });

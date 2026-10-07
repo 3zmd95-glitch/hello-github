@@ -70,6 +70,8 @@ export async function searchVideos(
   }
   const req: DiscoverRequest = {
     q: input.topic,
+    // Both languages, as the tool's description says (the dashboard asks Arabic only for an Arabic search).
+    lang: "ar",
     ...(input.exact ? { exact: true } : {}),
     ...(input.timeRange ? { timeRange: input.timeRange } : {}),
     // Deduped like parseDiscoverBody's, so a platform named twice keeps the same 6-hour answer key.

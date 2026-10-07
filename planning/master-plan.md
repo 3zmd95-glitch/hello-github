@@ -602,6 +602,12 @@ page needs working?"
 - **Rejected:** scraping TikTok Creative Center, which TikTok's rules forbid since April 2026. We link to it instead.
 - **Spec:** `tools/18-trending-effects.md`.
 - **Built** on branch `claude/trending-effects-spec` (PR #41); the live check follows the merge and the Worker deploy.
+- **Live fix, real post dates (Oct 7):** the owner saw "this week" chips resting on May posts and beauty reels under
+  "Glow Effect": "rework if needed. English First. Instagram and tiktok first". Tavily sends no Instagram dates and its
+  "week" is unreliable, and creators were filed under scan days. Each TikTok / Instagram post is now dated by its own id
+  (checked on the owner's reels); creators count on the day they posted; Discover's week asks Tavily for a month and keeps
+  the posts dated inside it; searches are English first, chip taps add an editing check; Instagram and TikTok come first.
+  Branch `claude/trends-real-dates`; `tools/18-trending-effects.md` "Real post dates" and `tools/13` "Live fix".
 
 Round 37 (Oct 6, 2026). The owner asked for Discover's categories to teach: "every category should show me the best
 and the most trendy … I wanna learn from each category how it will benefit me in terms of photography and videography

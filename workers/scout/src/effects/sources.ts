@@ -95,11 +95,12 @@ export async function searchFamilies(
   /** Category scans (planning/tools/19-category-trends.md §2): `numbering`, the list whose 1-based places number the
    * stats (default the 18 families); `tight`, the budget decision already made (they pause before searching);
    * `searches`, the calls a query gets (default Trending effects' 3: Instagram over a week and a month, TikTok over a
-   * month). */
+   * month). Both jobs pass their `now`, the time the posts' dates are read at. */
   opts: {
     numbering?: readonly string[];
     tight?: boolean;
     searches?: readonly (typeof SEARCHES)[number][];
+    now?: Date;
   } = {},
 ): Promise<{
   posts: EffectPost[];
@@ -127,7 +128,7 @@ export async function searchFamilies(
   for (const { platform, timeRange, stat } of tight ? IG_MONTH : (opts.searches ?? SEARCHES)) {
     const replies = await Promise.all(
       queries.map((q) =>
-        tavilyCall(env, doFetch, { q, platform, lang: "en", timeRange }, timeoutMs),
+        tavilyCall(env, doFetch, { q, platform, lang: "en", timeRange, now: opts.now }, timeoutMs),
       ),
     );
     replies.forEach((r, i) => {
@@ -135,11 +136,18 @@ export async function searchFamilies(
       out.credits += r.credits;
       const { stats, urls } = families[i];
       stats[stat] = r.cards.length;
-      // A post two searches found is one post.
-      for (const { handle, title, snippet, url } of r.cards)
+      // A post two searches found is one post; its date (from its id) says which day it counts on.
+      for (const { handle, title, snippet, url, published } of r.cards)
         if (!urls.has(url)) {
           urls.add(url);
-          out.posts.push({ platform, handle, title, snippet, url });
+          out.posts.push({
+            platform,
+            handle,
+            title,
+            snippet,
+            url,
+            ...(published ? { published } : {}),
+          });
         }
     });
   }

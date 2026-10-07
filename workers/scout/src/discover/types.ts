@@ -23,6 +23,16 @@ export interface DiscoverRequest {
   genreQuery?: { ar?: string; en?: string };
   /** "DaVinci Resolve": goes on the tutorial queries. */
   program?: string;
+  /**
+   * The search's language. English first (the owner, 2026-10-07): the planned search asks English only; "ar" adds the
+   * Arabic tutorials query. AI plans ignore it.
+   */
+  lang?: Lang;
+  /**
+   * A trend chip's search (the 🔥 row, a category's style): a card is off-topic unless its text also holds an editing
+   * cue besides the effect's own name (label.ts). Keyword searches only.
+   */
+  editing?: true;
   timeRange?: DiscoverTimeRange;
   ytLength?: "short" | "long";
   /** Default: all three. */
@@ -64,6 +74,11 @@ export interface SearchPlan {
   topicWords: string[];
   /** The card must also mention an editing word (dictionary entries with `specific: false`). */
   needsEditingWord: boolean;
+  /**
+   * A trend chip's search (`DiscoverRequest.editing`): a card must also mention one of these cues besides the topic's
+   * own words (matching form): the editing cues, and inside a category its filming words too.
+   */
+  editing?: string[];
   /** Every group must match; synonyms inside one group are alternatives. */
   requiredGroups?: string[][];
   /**

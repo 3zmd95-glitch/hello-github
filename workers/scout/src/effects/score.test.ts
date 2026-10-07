@@ -9,11 +9,12 @@ import {
 } from "./score";
 import { HISTORY_KEYS, type Candidate, type EffectMeta, type HistoryEntry } from "./types";
 
-const cand = (key: string, ids: string[], termId?: string): Candidate => ({
+/** A candidate whose creators all posted on `day` (by default the day these tests run). */
+const cand = (key: string, ids: string[], termId?: string, day = "2026-10-06"): Candidate => ({
   key,
   name: key.replace(/-/g, " "),
   ...(termId ? { termId } : {}),
-  ids: new Set(ids),
+  days: new Map(ids.map((id) => [id, day])),
   posts: ids.length,
   platforms: new Set(["tt"]),
   samples: [],
@@ -102,6 +103,34 @@ describe("scoring", () => {
       ],
       gone: [{ day: "2026-10-06", ids: ["x"] }],
     });
+  });
+
+  // Live, 2026-10-07: every creator went under the scan's day, so "this week" counted scans of September posts.
+  it("files each creator under the day they posted: a post 10 days old lands on its day, not this week", () => {
+    const k = cand("k", []);
+    k.days = new Map([
+      ["old", "2026-09-26"],
+      ["new", "2026-10-05"],
+    ]);
+    const merged = mergeHistory(
+      { k: [{ day: "2026-10-05", ids: ["seen"] }] },
+      "2026-10-06",
+      new Map([["k", k]]),
+    );
+    expect([...merged.k].sort((a, b) => a.day.localeCompare(b.day))).toEqual([
+      { day: "2026-09-26", ids: ["old"] },
+      { day: "2026-10-05", ids: ["seen", "new"] },
+    ]);
+    expect([...creatorsBetween(merged.k, "2026-10-06", 0, 6)].sort()).toEqual(["new", "seen"]);
+  });
+
+  it("keeps today's YouTube views on today's entry, even when no creator posted today", () => {
+    const history: Record<string, HistoryEntry[]> = { k: [{ day: "2026-10-03", ids: ["a"] }] };
+    setViews(history, "2026-10-06", { k: 5000 });
+    expect(history.k).toEqual([
+      { day: "2026-10-03", ids: ["a"] },
+      { day: "2026-10-06", ids: [], views7d: 5000 },
+    ]);
   });
 
   it("unions creators over windows and computes growth between 3-day windows", () => {
@@ -195,7 +224,9 @@ describe("scoring", () => {
     ]);
   });
 
-  it("leaves out a fading effect: 3 creators or more, but none in the last 3 days (score 0)", () => {
+  // Days are post days now (2026-10-07): an effect whose creators posted 3–6 days ago is still this week's (the live
+  // clone effect: Oct 1 and 3 on Oct 7). It shows with growth 0, after the growing ones.
+  it("shows an effect with 3 creators this week but none in the last 3 days last, with growth 0", () => {
     const abc = ["a", "b", "c"];
     const history: Record<string, HistoryEntry[]> = {
       // Seen only 6 days ago, and only in days 3–5: growth 0 either way.
@@ -215,7 +246,46 @@ describe("scoring", () => {
       "2026-10-06",
       {},
     );
-    expect(items.map((i) => [i.key, i.growth])).toEqual([["steady", 1]]);
+    expect(items.map((i) => [i.key, i.growth])).toEqual([
+      ["steady", 1],
+      ["cooling", 0],
+      ["faded", 0],
+    ]);
+  });
+
+  it("ranks a quiet trend (growth 0) after a growing editing technique: growth 0 comes last of all", () => {
+    const history: Record<string, HistoryEntry[]> = {
+      // 3 creators 4 days ago, none since: a trend (a new name), but growth 0.
+      "quiet-trend": [{ day: "2026-10-02", ids: ["x", "y", "z"] }],
+      // 9 creators: 6 in the last 3 days, 3 in days 3–5: growth 2. A technique, not a trend.
+      glitch: [
+        { day: "2026-10-06", ids: ["a", "b", "c", "d", "e", "f"] },
+        { day: "2026-10-02", ids: ["g", "h", "i"] },
+      ],
+    };
+    const items = scoreEffects(
+      history,
+      { "quiet-trend": meta("quiet-trend"), glitch: meta("glitch", "glitch") },
+      "2026-10-06",
+      {},
+    );
+    expect(items.map((i) => [i.key, i.creators, i.growth])).toEqual([
+      ["glitch", 9, 2],
+      ["quiet-trend", 3, 0],
+    ]);
+  });
+
+  it("marks NEW by the scan day a name was first seen, not by its oldest post", () => {
+    const history = {
+      fresh: [
+        { day: "2026-09-28", ids: ["z"] },
+        { day: "2026-10-05", ids: ["a", "b", "c"] },
+      ],
+    };
+    const firstSeenYesterday = { fresh: { ...meta("fresh"), firstSeen: "2026-10-05" } };
+    expect(scoreEffects(history, firstSeenYesterday, "2026-10-06", {})[0].isNew).toBe(true);
+    // A name from before the field: its oldest day.
+    expect(scoreEffects(history, { fresh: meta("fresh") }, "2026-10-06", {})[0].isNew).toBe(false);
   });
 
   it("takes the caller's minimum of creators: a category shows an approved 2-creator style, Trending effects keeps 3", () => {
