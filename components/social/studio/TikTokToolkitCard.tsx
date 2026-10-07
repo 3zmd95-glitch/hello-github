@@ -6,7 +6,13 @@ import Card from "@/components/ui/ios/Card";
 import PlatformBadge from "@/components/ui/ios/PlatformBadge";
 import { useT } from "@/lib/i18n";
 
-/** TikTok's personal-account workflow (plan, send to TikTok's inbox, finish in the app) and what it cannot do. */
+const HIT_LINK = "px-link relative text-sm after:absolute after:inset-x-0 after:-inset-y-3";
+
+/**
+ * TikTok's personal-account workflow (plan, send to TikTok's inbox, finish in the app) and what it cannot do. The two
+ * text links get 44px tall hit areas (`::after`, 12px above and below); the 24px row gap keeps wrapped lines' areas
+ * apart.
+ */
 export default function TikTokToolkitCard() {
   const { t } = useT();
   return (
@@ -16,15 +22,15 @@ export default function TikTokToolkitCard() {
         <h2 className="text-[15px] font-semibold">{t("tiktok.toolkit.title")}</h2>
       </div>
       <p className="text-ink-2 mt-2.5 text-sm">{t("tiktok.toolkit.body")}</p>
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-6">
         <Link href="/social/calendar/" className="px-btn px-btn-sm no-underline">
           <CalendarPlus size={16} strokeWidth={1.75} aria-hidden />
           {t("tiktok.toolkit.plan")}
         </Link>
-        <Link href="/social/automations/" className="px-link text-sm">
+        <Link href="/social/automations/" className={HIT_LINK}>
           {t("tiktok.toolkit.finish")}
         </Link>
-        <Link href="/social/growth/#tiktok-brief" className="px-link text-sm">
+        <Link href="/social/growth/#tiktok-brief" className={HIT_LINK}>
           {t("tiktok.toolkit.results")}
         </Link>
       </div>

@@ -11,6 +11,7 @@ export default function StatTile({
   prefix = "",
   delta,
   countUp = true,
+  start = true,
   className = "",
   testId,
   ...rest
@@ -22,10 +23,12 @@ export default function StatTile({
   prefix?: string;
   delta?: ReactNode;
   countUp?: boolean;
+  /** Hold the count-up until true (the card is on screen). */
+  start?: boolean;
   className?: string;
   testId?: string;
 } & HTMLAttributes<HTMLDivElement>) {
-  const shown = useCountUp(value, { decimals, enabled: countUp });
+  const shown = useCountUp(value, { decimals, enabled: countUp, start });
   return (
     <div className={`ios-stat ${className}`} data-testid={testId} {...rest}>
       <small>{label}</small>

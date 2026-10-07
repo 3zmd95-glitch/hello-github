@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Clock, Film, Lightbulb, Rocket, TrendingUp, type LucideIcon } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import Chip from "@/components/ui/ios/Chip";
 import { ListGroup, ListRow } from "@/components/ui/ios/List";
 import { PLATFORMS } from "@/lib/domain";
@@ -27,7 +27,22 @@ interface InboxRow {
   kind: "overdue" | "unscheduled" | "manual" | "ideas" | "trends" | "stale";
   key: MessageKey;
   vars?: Vars;
+  /** A post title inside the line (`{name}`): the owner's own text, isolated so its direction keeps to itself. */
+  name?: string;
   href: string;
+}
+
+/** The line with the post title in a `<bdi>` (`t` keeps the `{name}` placeholder it was not given). */
+function withName(text: string, name: string | undefined): ReactNode {
+  if (name === undefined) return text;
+  const [pre, post = ""] = text.split("{name}");
+  return (
+    <>
+      {pre}
+      <bdi>{name}</bdi>
+      {post}
+    </>
+  );
 }
 
 /** Row icon per kind (tools/18 §3.6): overdue in warn, stale numbers on the neutral fill, the rest tinted. */
@@ -46,7 +61,8 @@ const ICON: Record<InboxRow["kind"], { icon: LucideIcon; tone?: "warn" | "fill" 
  * hub's "Post these yourself" list), ideas waiting in the bank, new trend rows this week, platforms with an
  * account whose numbers are older than two weeks. A post with a due manual row gets no overdue row: the
  * manual row stands in for it, so the post is counted once. A grouped list: one row per item with its icon
- * and a chevron to where it is handled, or one "all clear" row.
+ * and a chevron to where it is handled, or one "all clear" row. A line may take two lines, so the half that says what
+ * to do stays readable.
  */
 export default function InboxCard({ today, now }: { today: string; now: number }) {
   const { t, L, lang } = useT();
@@ -66,7 +82,7 @@ export default function InboxCard({ today, now }: { today: string; now: number }
           id: `overdue:${p.id}`,
           kind: "overdue",
           key: "social.studio.inboxOverdue",
-          vars: { name: p.title },
+          name: p.title,
           href: calendarPostHref(p.id),
         });
     for (const p of posts)
@@ -75,7 +91,7 @@ export default function InboxCard({ today, now }: { today: string; now: number }
           id: `unscheduled:${p.id}`,
           kind: "unscheduled",
           key: "social.studio.inboxUnscheduled",
-          vars: { name: p.title },
+          name: p.title,
           href: calendarPostHref(p.id),
         });
     const list = new Intl.ListFormat(lang === "ar" ? "ar" : "en", { type: "conjunction" });
@@ -84,8 +100,8 @@ export default function InboxCard({ today, now }: { today: string; now: number }
         id: `manual:${p.id}`,
         kind: "manual",
         key: "social.studio.inboxManual",
+        name: p.title,
         vars: {
-          name: p.title,
           platforms: list.format(pendingManualPlatforms(p).map((m) => L(PLATFORM_META[m].name))),
         },
         href: "/social/automations/#manual",
@@ -155,7 +171,11 @@ export default function InboxCard({ today, now }: { today: string; now: number }
               href={r.href}
               icon={<Icon size={22} strokeWidth={1.75} aria-hidden />}
               iconTone={tone}
-              title={t(r.key, r.vars)}
+              title={
+                <span className="line-clamp-2 whitespace-normal">
+                  {withName(t(r.key, r.vars), r.name)}
+                </span>
+              }
               chevron
               testId="inbox-row"
               data-kind={r.kind}

@@ -7,7 +7,7 @@ import { pullOffset } from "@/lib/motion";
 const HOLD_MAX_MS = 8000;
 
 /**
- * Pull-to-refresh on the window scroll (the dashboard scrolls the document). Touch only (desktop has a button).
+ * Pull-to-refresh on the window scroll (the dashboard scrolls the document). Touch only: desktop has no pull.
  * A touch that starts inside the target (default `#main`) with the page at the top translates the target down with
  * resistance; past `threshold` the release calls `onRefresh`, holds the content at 56px with `refreshing: true`
  * (≥ 1.1s, at most 8s), then springs back. While enabled the page's own overscroll bounce is off, so the two never

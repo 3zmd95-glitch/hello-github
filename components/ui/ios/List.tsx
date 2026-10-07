@@ -2,7 +2,11 @@ import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import type { HTMLAttributes, ReactNode } from "react";
 
-/** A grouped list: a small header (with optional trailing content: a count chip, a `HeadLink`) over the rows. */
+/**
+ * A grouped list: a small header (with optional trailing content: a count chip, a `HeadLink`) over the rows. With
+ * trailing content the header gets 8px more air above, room for a `HeadLink`'s 44px hit area, which then never
+ * reaches the first row.
+ */
 export function ListGroup({
   header,
   trailing,
@@ -20,7 +24,7 @@ export function ListGroup({
   return (
     <section className={`flex flex-col gap-1.5 ${className}`} data-testid={testId} {...rest}>
       {header && (
-        <div className="flex items-center justify-between gap-2 pe-4">
+        <div className={`flex items-center justify-between gap-2 pe-4 ${trailing ? "pt-2" : ""}`}>
           <h2 className="ios-gh text-[13px]">{header}</h2>
           {trailing}
         </div>

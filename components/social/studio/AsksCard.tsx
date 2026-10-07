@@ -16,7 +16,9 @@ const norm = (s: string) => s.trim().toLowerCase();
 
 /**
  * Top 3 "what people want" asks with their counts, as a grouped list; each can become an idea in the bank. The
- * button then morphs into the "in the ideas bank" chip with a pop, and the chip takes the button's focus.
+ * button then morphs into the "in the ideas bank" chip with a pop, and the chip takes the button's focus. An ask is
+ * the audience's own words: its line takes the direction of its text (`dir="auto"`), so the cut lands at its end in
+ * either language, while it stays aligned with the row.
  */
 export default function AsksCard() {
   const { t, L } = useT();
@@ -58,7 +60,15 @@ export default function AsksCard() {
             <ListRow
               key={ask.id}
               icon={<MessageCircle size={22} strokeWidth={1.75} aria-hidden />}
-              title={ask.text}
+              title={
+                <span
+                  dir="auto"
+                  // Aligned by the row (the parent's direction); Chromium only knows the prefixed value.
+                  className="block truncate [text-align:-webkit-match-parent] [text-align:match-parent]"
+                >
+                  {ask.text}
+                </span>
+              }
               sub={
                 <>
                   <span data-testid="ask-count">
@@ -72,7 +82,8 @@ export default function AsksCard() {
                   <Link
                     ref={just ? chipRef : undefined}
                     href="/social/ideas/"
-                    className={`ios-chip tint no-underline ${just ? "ios-pop" : ""}`}
+                    // A 44px tall hit area around the 24px chip, inside the row.
+                    className={`ios-chip tint relative no-underline after:absolute after:inset-x-0 after:-inset-y-2.5 ${just ? "ios-pop" : ""}`}
                     data-testid="ask-in-ideas"
                   >
                     {t("social.studio.asksInIdeas")}

@@ -1,10 +1,9 @@
 "use client";
 
 import { ArrowDown, LoaderCircle } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
-import { useNow } from "@/components/today/useNow";
 import { useToday } from "@/components/today/useToday";
 import PageHeader from "@/components/ui/ios/PageHeader";
 import { useFirstVisit } from "@/components/ui/ios/useFirstVisit";
@@ -22,17 +21,26 @@ import WeekPlanCard from "./studio/WeekPlanCard";
 import TikTokToolkitCard from "./studio/TikTokToolkitCard";
 import { syncSocialNow } from "./useSocialSync";
 
+const everySecond = (onChange: () => void) => {
+  const id = setInterval(onChange, 1000);
+  return () => clearInterval(id);
+};
+const thisMinute = () => Math.floor(Date.now() / 60_000) * 60_000;
+const zero = () => 0;
+
 /**
  * Studio: the Social world's home (master plan round 16). Next post + countdown, today's reminder, this
- * week's plan, the growth snapshot, the top 3 audience asks and a rules-based inbox. Everything derives from
- * the store, so planning a post anywhere (calendar, ideas, a skill's Produce quest) shows up here at once.
+ * week's plan, the growth snapshot, a rules-based inbox, the top 3 audience asks and the TikTok toolkit.
+ * Everything derives from the store, so planning a post anywhere (calendar, ideas, a skill's Produce quest) shows
+ * up here at once.
  */
 export default function StudioScreen() {
   const { t, lang } = useT();
   const today = useToday();
-  // Minute resolution for the inbox and reminder; the hero keeps its own second-by-second clock.
-  const tick = useNow(true);
-  const nowMinute = Math.floor(tick / 60_000) * 60_000;
+  // Minute resolution for the eyebrow, the inbox and the reminder: read every second, but the snapshot only changes
+  // when the minute turns, so React re-renders the cards once a minute (0 on the server and the hydration render).
+  // The hero keeps its own second-by-second clock.
+  const nowMinute = useSyncExternalStore(everySecond, thisMinute, zero);
   const first = useFirstVisit("studio");
   const eyebrowFmt = useMemo(
     () =>
@@ -51,20 +59,22 @@ export default function StudioScreen() {
       <PullToRefresh />
       <PageHeader eyebrow={eyebrow} title={t("social.studio.title")} sub={t("social.studio.sub")} />
 
-      {/* Every card is a direct child, so the first-visit entrance staggers them one by one. From md: six tracks;
-          every card spans the row except the hero (4) next to the reminder (2) and growth (3) next to the asks (3),
-          so the week plan, the toolkit and the inbox are full width. The spans go by position, so every card always
-          renders (each has its own empty state and never returns null). */}
+      {/* Spec §6 order (the mockup's), then the TikTok toolkit last. Every card is a direct child, so the first-visit
+          entrance staggers them one by one. From md: six tracks; every card spans the row except the hero (4) next to
+          the reminder (2) and the growth (3) next to the inbox (3), so the week plan, the asks and the toolkit are
+          full width. The growth card keeps its own height (a long inbox beside it would stretch it into blank space).
+          The spans go by position, so every card always renders (each has its own empty state and never returns
+          null). */}
       <div
-        className={`${first ? "ios-stagger" : ""} flex flex-col gap-3 md:grid md:grid-cols-6 md:[&>*]:col-span-6 md:[&>:nth-child(1)]:col-span-4 md:[&>:nth-child(2)]:col-span-2 md:[&>:nth-child(5)]:col-span-3 md:[&>:nth-child(6)]:col-span-3`}
+        className={`${first ? "ios-stagger" : ""} flex flex-col gap-3 md:grid md:grid-cols-6 md:[&>*]:col-span-6 md:[&>:nth-child(1)]:col-span-4 md:[&>:nth-child(2)]:col-span-2 md:[&>:nth-child(4)]:col-span-3 md:[&>:nth-child(4)]:self-start md:[&>:nth-child(5)]:col-span-3`}
       >
         <NextPostHero today={today} />
         <ReminderCard today={today} now={nowMinute} />
         <WeekPlanCard today={today} />
-        <TikTokToolkitCard />
         <GrowthSnapshotCard today={today} first={first} />
-        <AsksCard />
         <InboxCard today={today} now={nowMinute} />
+        <AsksCard />
+        <TikTokToolkitCard />
       </div>
     </div>
   );

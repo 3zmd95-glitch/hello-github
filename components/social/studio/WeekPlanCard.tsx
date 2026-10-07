@@ -14,8 +14,8 @@ import { calendarPostHref } from "./platform";
 
 /**
  * This week's posting plan (Sat–Fri): seven day cells (weekday letter, date, today in accent, a dot per post in its
- * platform color), then "posted/total" and "without a day" chips. A day with posts opens it in the calendar: the
- * post itself when it is the only one, else the day.
+ * platform color, at most four), then "posted/total" and "without a day" chips. A day with posts opens it in the
+ * calendar: the post itself when it is the only one, else the day. Today's cell is `aria-current="date"`.
  */
 export default function WeekPlanCard({ today }: { today: string }) {
   const { t, lang } = useT();
@@ -49,6 +49,7 @@ export default function WeekPlanCard({ today }: { today: string }) {
             "data-today": day === today,
             "data-count": count,
             "data-day": day,
+            "aria-current": day === today ? ("date" as const) : undefined,
           };
           const body = (
             <>
@@ -58,7 +59,7 @@ export default function WeekPlanCard({ today }: { today: string }) {
               </small>
               <b className="num">{formatDayNumber(day)}</b>
               <span className="flex h-1.5 gap-[3px]">
-                {dayPosts.map((p) => (
+                {dayPosts.slice(0, 4).map((p) => (
                   <i
                     key={p.id}
                     className="studio-pdot"

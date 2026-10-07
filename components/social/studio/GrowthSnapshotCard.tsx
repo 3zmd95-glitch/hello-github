@@ -2,10 +2,11 @@
 
 import { RefreshCw, TrendingDown, TrendingUp, Trophy } from "lucide-react";
 import Link from "next/link";
-import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import Card, { CardHead, HeadLink } from "@/components/ui/ios/Card";
 import EmptyState from "@/components/ui/ios/EmptyState";
 import StatTile from "@/components/ui/ios/StatTile";
+import { useInView } from "@/components/ui/ios/useInView";
 import { allOverview } from "@/lib/analytics";
 import { PLATFORMS } from "@/lib/domain";
 import { bestPlatform, followerTrail, snapshotDelta, totals } from "@/lib/growth";
@@ -24,8 +25,8 @@ function sumDelta(values: (number | null)[]): number | null {
   return known.length ? known.reduce((a, b) => a + b, 0) : null;
 }
 
-/** "+1.2K" / "−300": the sign rides inside the number. */
-const signed = (n: number) => `${n < 0 ? "−" : "+"}${fmtCount(Math.abs(n))}`;
+/** "+1.2K" / "−300" / "0" (growth/format.ts `fmtSigned`'s rule): the sign rides inside the number. */
+const signed = (n: number) => (n === 0 ? "0" : `${n < 0 ? "−" : "+"}${fmtCount(Math.abs(n))}`);
 
 /** The sparkline's viewBox (mockup `.chart`); it scales to the card width. */
 const W = 320;
@@ -65,29 +66,41 @@ export function sparkPath(points: readonly { day: string; followers: number }[])
 }
 
 /**
- * 30-day total followers, 70px tall at phone width. On the first visit the line draws itself once (dash offset
- * after a double rAF, 1.3s), then the area fades in and the end dot pops; later visits and reduced motion show it
- * drawn. Hand-drawn until Phase 5 brings LineChart's `mini` mode.
+ * 30-day total followers, 70px tall at phone width. On the first visit the line waits hidden until `start` (the
+ * card is on screen), then draws itself once (dash offset after a double rAF, 1.3s), the area fades in and the end
+ * dot pops; later visits and reduced motion show it drawn. Hand-drawn until Phase 5 brings LineChart's `mini` mode.
  */
 function Sparkline({
   points,
   animate,
+  start,
 }: {
   points: readonly { day: string; followers: number }[];
   animate: boolean;
+  start: boolean;
 }) {
   const ref = useRef<SVGSVGElement>(null);
   const { line, area, end } = useMemo(() => sparkPath(points), [points]);
+  const draw = animate && !prefersReducedMotion();
+  const started = useRef(false);
 
-  // Before the first paint, so the drawn line never flashes.
+  // Hidden before the first paint, so the drawn line never flashes; measured again when new numbers change the line
+  // while it still waits.
   useLayoutEffect(() => {
     const svg = ref.current;
     const ln = svg?.querySelector<SVGPathElement>(".studio-spark-ln");
-    if (!animate || !svg || !ln || prefersReducedMotion()) return;
+    if (!draw || started.current || !svg || !ln) return;
     const length = ln.getTotalLength();
     ln.style.strokeDasharray = `${length}`;
     ln.style.strokeDashoffset = `${length}`;
     svg.dataset.drawn = "false";
+  }, [draw, line]);
+
+  useEffect(() => {
+    const svg = ref.current;
+    const ln = svg?.querySelector<SVGPathElement>(".studio-spark-ln");
+    if (!draw || !start || !svg || !ln) return;
+    started.current = true;
     let inner = 0;
     const outer = requestAnimationFrame(() => {
       inner = requestAnimationFrame(() => {
@@ -107,10 +120,8 @@ function Sparkline({
       cancelAnimationFrame(outer);
       cancelAnimationFrame(inner);
       ln.removeEventListener("transitionend", settle);
-      settle();
-      delete svg.dataset.drawn;
     };
-  }, [animate]);
+  }, [draw, start]);
 
   return (
     <svg ref={ref} className="studio-spark" viewBox={`0 0 ${W} ${H}`} aria-hidden>
@@ -129,7 +140,8 @@ function Sparkline({
 
 /**
  * Followers + 30-day views across every platform with numbers (count up on the first visit), their 30-day deltas,
- * the 30-day follower sparkline and the fastest-growing platform.
+ * the 30-day follower sparkline and the fastest-growing platform (only when it grew). The card sits below the fold,
+ * so the count-up and the draw-on wait until it is on screen and has risen.
  */
 export default function GrowthSnapshotCard({ today, first }: { today: string; first: boolean }) {
   const { t, L, lang } = useT();
@@ -145,13 +157,17 @@ export default function GrowthSnapshotCard({ today, first }: { today: string; fi
   const followersDelta = sumDelta(deltas.map((d) => d.followers));
   const viewsDelta = sumDelta(deltas.map((d) => d.views));
   const empty = all.platforms.length === 0;
+  const cardRef = useRef<HTMLDivElement>(null);
+  const seen = useInView(cardRef);
 
   const delta = (n: number | null): ReactNode => {
     if (n === null) return undefined;
-    const Icon = n < 0 ? TrendingDown : TrendingUp;
+    // No change reads "0" in the neutral grey, without an arrow.
+    const Icon = n < 0 ? TrendingDown : n > 0 ? TrendingUp : null;
+    const tone = n < 0 ? "text-danger" : n === 0 ? "text-ink-2" : "";
     return (
-      <span className={`inline-flex items-center gap-1 ${n < 0 ? "text-danger" : ""}`}>
-        <Icon size={13} strokeWidth={1.75} aria-hidden />
+      <span className={`inline-flex items-center gap-1 ${tone}`}>
+        {Icon && <Icon size={13} strokeWidth={1.75} aria-hidden />}
         {withNum(t("social.studio.growthDelta"), signed(n))}
       </span>
     );
@@ -160,7 +176,7 @@ export default function GrowthSnapshotCard({ today, first }: { today: string; fi
   const views = compactCount(sums.views30d);
 
   return (
-    <Card className="@container" testId="studio-growth" data-empty={empty}>
+    <Card ref={cardRef} className="@container" testId="studio-growth" data-empty={empty}>
       <CardHead title={t("social.studio.growth")}>
         {!empty && (
           <HeadLink href="/social/growth/" testId="studio-growth-open">
@@ -195,6 +211,7 @@ export default function GrowthSnapshotCard({ today, first }: { today: string; fi
               suffix={followers.suffix}
               delta={delta(followersDelta)}
               countUp={first}
+              start={seen}
               testId="studio-growth-followers"
               data-value={all.totalFollowers}
             />
@@ -205,12 +222,13 @@ export default function GrowthSnapshotCard({ today, first }: { today: string; fi
               suffix={views.suffix}
               delta={delta(viewsDelta)}
               countUp={first}
+              start={seen}
               testId="studio-growth-views"
             />
           </div>
-          {trail.length > 1 && <Sparkline points={trail} animate={first} />}
+          {trail.length > 1 && <Sparkline points={trail} animate={first} start={seen} />}
           <p className="text-ink-2 mt-2.5 flex items-center gap-1.5 text-[13px]">
-            {best ? (
+            {best && best.followers > 0 ? (
               <>
                 <Trophy size={15} strokeWidth={1.75} className="text-warn shrink-0" aria-hidden />
                 <span>
