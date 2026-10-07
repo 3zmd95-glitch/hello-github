@@ -8,9 +8,10 @@
  *                                 answers like the GET. Once per UTC day unless `force: true` or that day's run failed;
  *                                 at most 3 spending runs a category a UTC day, forced ones included (note `attempts`).
  *                                 Body `{ force?: boolean }` or empty; anything else is a 400.
- *   GET  /categories/:id/top/tt → a TikTok (or `/ig` Instagram) tab's list: Brave's results merged with the stored
- *                                 list, { platform, items, source, note?, endpoint? } (top.ts `braveTop`), never kept
- *                                 (`Cache-Control: no-store`; Brave's terms forbid storing its results)
+ *   GET  /categories/:id/top/tt → a TikTok (or `/ig` Instagram) tab's lists: the stored one and Brave's own group, as
+ *                                 Brave gave it, { platform, scan, brave, source, note?, endpoint? } (top.ts
+ *                                 `braveTop`), never kept (`Cache-Control: no-store`; Brave's terms forbid storing
+ *                                 its results)
  *
  * Only the built-in categories of genres.json have a page: any other id, or any other method, is the router's 404.
  * The router in `scout.ts` has already checked CORS and the bearer token.

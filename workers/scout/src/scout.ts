@@ -21,8 +21,9 @@
  *                           per platform (categories/routes.ts, planning/tools/19-category-trends.md)
  *   POST /categories/:id/run → scan that category now (once per UTC day unless `force: true` or that day's run
  *                           failed; at most 3 spending runs a category a UTC day, forced ones included)
- *   GET  /categories/:id/top/:platform → a TikTok (`tt`) or Instagram (`ig`) tab's top videos: Brave's Search API
- *                           merged with the stored list, never stored (BRAVE_API_KEY, at most BRAVE_DAILY a UTC day)
+ *   GET  /categories/:id/top/:platform → a TikTok (`tt`) or Instagram (`ig`) tab's top videos: the stored list and
+ *                           Brave's Search API results beside it, never stored (BRAVE_API_KEY, at most BRAVE_DAILY a
+ *                           UTC day)
  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
  *   /mcp, /authorize, /token, /register → served by index.ts (OAuth + MCP): the Claude connector
  *                           (discover/mcp.ts, discover/auth.ts)

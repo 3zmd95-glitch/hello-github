@@ -629,15 +629,21 @@ and editing".
 - **Top videos per platform** (Oct 7, branch `claude/category-top-videos`). The owner: "Every category should show at
   least 50 results in every platform with top tier results"; for TikTok he chose Brave's official Search API (he adds
   `BRAVE_API_KEY` in Cloudflare himself).
-  - **The page:** "🏆 Top in Cars" after the 🔥 row, with YouTube · TikTok · Instagram tabs, up to 50 videos each,
-    best first, as Discover's result cards.
-  - **YouTube:** its 50 most viewed of the month, 1 `search.list` a scan; Discover's YouTube cap went from 70 to 66.
+  - **The page:** "🏆 Top in Cars" after the 🔥 row, with YouTube · TikTok · Instagram tabs, up to 50 videos each, as
+    Discover's result cards.
+  - **YouTube:** its 50 most viewed of the month, 1 `search.list` on each cron scan and a category's first top scan
+    (Scan again keeps the list); Discover's YouTube cap went from 70 to 66.
   - **Instagram:** the scan's own posts.
-  - **TikTok, and Instagram under 50:** Brave when the tab opens, ≤ 40 requests a day (about 1,000 a month in Brave's
-    $5 credit). Brave's results are never stored (its terms).
+  - **TikTok, and Instagram under 50:** Brave when the tab is chosen, ≤ 40 requests a day (about 1,000 a month in
+    Brave's $5 credit). Brave's results are never stored and are shown as Brave gave them, as their own group "More
+    from Brave Search", with "Powered by Brave Search" under it (its terms and its credit).
   - **After the live rescan** (35 posts, 1 style at 3 creators): YouTube's videos feed the category trends, and a
     category style needs 2 creators (Trending effects keeps 3).
-  - Details: `tools/19-category-trends.md` §6.
+  - **Fix round and live fix 3** (the reviewer's findings; the Food and Anime lessons copied the prompt's coffee
+    example, wrote "high-quality camera" lines, picked car techniques for anime and showed a backpack review): copied
+    and generic how-tos dropped, no car example in the pick prompt, examples must name the category, gpt-oss-120b for
+    the lessons with llama as the fallback, lessons version 4.
+  - Details: `tools/19-category-trends.md` §3, §6 and its live check.
 
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
