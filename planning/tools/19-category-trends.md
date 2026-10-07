@@ -54,6 +54,7 @@ Choices, one question at a time:
   under it, the Arabic name (the 🔥 Trending effects row does the same). A tap searches that style within Cars in
   Keywords mode, for example "rolling shot car edit". A page over 7 days old says "🔥 Trending in Cars", without "this
   week".
+- **🏆 Top in Cars** (§6, 2026-10-07): YouTube · TikTok · Instagram tabs, each up to 50 videos, best first.
 - **Three shelves:** 📷 Photography, 🎥 Videography and ✂️ Editing. Each is a sideways row of about 3 technique cards
   for the category. A card shows:
   - the technique's English name; in the Arabic UI the Arabic name follows as a muted line, right to left;
@@ -108,6 +109,16 @@ up to 20 (the live check below). Trending effects' history agrees. More queries 
 creators for the same credits. Trending effects keeps its own 3 searches a family (Instagram over a week and a month,
 TikTok over a month); `searchFamilies` takes the category's plan as an option.
 
+**YouTube's videos too** (2026-10-07). The scan's YouTube top list (§6: the main query's 50 most viewed videos of the
+month) joins the posts the extraction reads, as `yt` posts: the title and description (clipped to 220 characters, as
+Discover's YouTube cards) are the text, the channel is the creator. It costs nothing more: the same 2 calls as the top
+list. A forced scan later the same UTC day keeps the day's list without asking YouTube again, so it adds no YouTube
+posts; the day's creators from them stay, because a day's runs add together.
+
+Live note (the coordinator's rescan of Cars after live fix 1, 2026-10-07): the 6 Instagram-month searches returned 35
+posts, and 4 of the 6 queries returned none. The AI judged 13 names and approved 7, and only 1 style reached 3
+creators. Hence the YouTube posts above, and 2 creators a style (Scoring, below).
+
 **Extraction.** Trending effects' rules, with two additions for categories:
 - Camera words join the suffixes: "shot(s)", "angle", "lighting", "look", so "rolling shot" and "low angle" are named.
 - The category's own words, from its names and its main query ("car", "cars", "edit"; a plural name word's singular
@@ -119,15 +130,18 @@ TikTok over a month); `searchFamilies` takes the category's plan as an option.
 true or false." An answer with an empty list is counted in the diagnostics as the reject `empty_list` (Trending
 effects' too: a count only).
 
-**Scoring.** Distinct creators over 7 days (at least 3), growth, NEW, trends first (names outside the dictionary and
-dictionary trend entries), then techniques, top 12. The memory is per category: 14 days, at most 200 keys.
+**Scoring.** Distinct creators over 7 days, at least 2 since 2026-10-07 (Trending effects keeps 3: `scoreEffects` takes
+the minimum, `CATEGORY_MIN_CREATORS`). A name outside the dictionary still shows only once the AI has approved it. Then
+growth, NEW, trends first (names outside the dictionary and dictionary trend entries), then techniques, top 12. The
+memory is per category: 14 days, at most 200 keys.
 
 **Storage.** One KV document per category, `category:<id>`:
-`{ ranOn, updatedAt, status, notes?, items, lessons?, meta, history, diagnostics }`.
+`{ ranOn, updatedAt, status, notes?, items, lessons?, top?, meta, history, diagnostics }` (`top`: §6).
 
 **Routes** (Bearer, like the others):
-- `GET /categories/:id`: `{ status, updatedAt, notes?, items, lessons }`, or `never`.
+- `GET /categories/:id`: `{ status, updatedAt, notes?, items, lessons, top }`, or `never`.
 - `POST /categories/:id/run` with `{ force? }`.
+- `GET /categories/:id/top/:platform`: §6.
 
 **Limits.** Once per UTC day per category unless forced, or unless that day's run failed. At most 3 spending runs per
 category a day (`category:attempts:<id>:<day>`).
@@ -226,12 +240,21 @@ category a day (`category:attempts:<id>:<day>`).
 That is about 1,000 over the free plan, roughly $8 a month at $0.008 a credit with pay-as-you-go. The owner turns
 pay-as-you-go on in his Tavily account; Claude never handles payments.
 
+**Other APIs (§6, 2026-10-07):**
+
+| API | Use | Budget |
+| --- | --- | --- |
+| YouTube Data API `search.list` | The top list, 1 a scan (plus 1 `videos.list`) | 4 a day of the shared 100: radar 18 + effects 6 + Discover 66 (was 70) + categories 4 = 94 |
+| Brave Search API | The TikTok and Instagram tabs, when the owner opens one | ≤ 40 requests a day (`BRAVE_DAILY`); about 1,000 a month are free with Brave's $5 monthly credit, then $5 per 1,000. **Brave's results are never stored** |
+
 **Budget guard.** At 90% of the month's credits (Discover's cached figure; when none is kept, Tavily's own `GET /usage`,
 asked once and kept 10 minutes), category scans and lessons pause and keep their last results. The month is the plan
 plus a positive pay-as-you-go limit; an unknown figure is not tight. They add the note `tavily_budget`. Trending
 effects cuts back as it already does, on the same figure and the same month (one rule, `monthTight`).
 
-**YouTube.** Lessons find YouTube videos through Tavily, so the shared `search.list` 100 a day is untouched.
+**YouTube.** Lessons find YouTube videos through Tavily. Since §6 the scan's top list spends 1 `search.list` a scan
+outside Discover's counter (4 a day; at most one a category a UTC day, since a forced scan later that day keeps the
+day's list), and Discover's `DISCOVER_YT_CAP` went from 70 to 66 to make room: the day stays at 94 of the 100.
 
 **Workers AI.** The estimate is about 6,000 of the free 10,000 neurons a day for categories:
 - 4 scans × 3 batches;
@@ -242,11 +265,15 @@ On a day the AI is unavailable, new names wait (`ai_fallback`) and lessons keep 
 Workers Paid ($5 a month) lifts the limit; the live check measures it first.
 
 **Each invocation.** One category per invocation, either a cron slot or a POST. CPU is about 70–90 ms, as for effects;
-Cloudflare has reported no CPU-limit errors so far. Subrequests per run are at most about 31, under the 50 a free
+Cloudflare has reported no CPU-limit errors so far. Subrequests per run are at most about 33, under the 50 a free
 invocation allows:
 - 16 Tavily searches and 1 Tavily `/usage`;
+- 2 YouTube calls (§6: `search.list` and `videos.list`);
 - 7 AI calls: 3 cleanup batches, 1 pick and 3 how-to calls;
 - 7 KV operations.
+
+An opened Brave tab (§6) is an invocation of its own: 2 KV reads (the page, the day's counter), 1–3 Brave requests and
+1 KV write (the counter).
 
 **KV writes.** About 6 a day plus the attempt counters, well under 1,000.
 
@@ -269,6 +296,98 @@ invocation allows:
 - Whether lessons' combined-domain search finds enough Instagram and TikTok examples, or examples should come mostly from
   the trend samples.
 - Later, not now: owner-added categories, and the connector's `get_trends` exposing category trends.
+
+### 6. Top videos per platform (2026-10-07)
+
+The owner: "Every category should show at least 50 results in every platform with top tier results". There is no
+official TikTok search we may use, and Tavily finds 1–2 TikTok posts a search. Asked how to cover TikTok, he chose
+**"Add Brave Search for TikTok"**. He adds the key himself, as the Worker secret `BRAVE_API_KEY`.
+
+**Brave's terms (binding).** Customers "shall not store, cache, or create a database of Search Results, in whole or in
+part, other than transient storage required for operation".
+- Brave's results are never written to KV, and the Worker sends them with `Cache-Control: no-store`.
+- They live only in the page's memory for that visit, never in sessionStorage.
+- YouTube's and Tavily's results are stored with the page, like the trend samples.
+
+**What the owner sees** (English first):
+- **The row.** After the 🔥 row: "🏆 Top in Cars", with tabs ▶ YouTube · ♪ TikTok · 📷 Instagram, each with its count
+  (TikTok's once its list came).
+  - It is a `tablist`: the arrow keys move between the tabs, mirrored in Arabic.
+  - The platforms keep their own names in both languages. The copy is Hijazi Arabic and English, keys in parity.
+- **A tab.** Up to 50 videos, best first, 12 at a time; "Show more" adds 12.
+  - Each video is Discover's result card (`ResultCard`): its thumbnail (Instagram's preview through the Worker), its
+    title as given, the creator, the views when known, and the app's player.
+- **YouTube and Instagram** come with the page.
+- **TikTok** loads on its first open, once a visit: "Loading…", then Brave's list, with the scan's few TikTok posts
+  merged in.
+  - Without the Brave key: the scan's posts, and "More TikTok results once Brave search is connected".
+  - Brave failing (429 or other): the scan's posts, and "Couldn't reach Brave search right now".
+  - Past the day's Brave requests: the scan's posts, and "Today's Brave searches are used up — more tomorrow".
+- **Instagram**, while its stored list has fewer than 50, tops up from Brave on its first open, the same way. Without
+  the key it says nothing: its stored reels stand on their own.
+- **A page from before §6** says "Top videos come with the next scan".
+- **At 375 px** the tabs fit in their strip, and the page never scrolls sideways.
+
+**Worker** (`workers/scout/src/categories/top.ts`):
+- **YouTube (stored).**
+  - `search.list` for the main query ("car edit"): `type=video`, `order=viewCount`, `publishedAfter` = the scan's
+    time − 30 days, `maxResults=50`, `relevanceLanguage=en`, `safeSearch=moderate`.
+  - Then one `videos.list` (`part=statistics,snippet`) for the views, channel, title and description.
+  - ≤ 50 by views: `{ url, title, creator, views, publishedAt, thumbnail }`, with `YOUTUBE_API_KEY`, outside
+    `DISCOVER_YT_CAP`.
+  - No key, or a failed call: the note `youtube`, the last list kept, the page still saved.
+  - Once a UTC day a category: a forced scan later that day keeps the day's list.
+  - Its videos also feed the trends (§2).
+- **Instagram (stored).** Every Instagram post of the scan's 6 searches, once each: the ones more of them found first,
+  then as first seen. ≤ 50, `{ url, title, creator? }`; the creator comes from the URL or the page text; no views.
+- **TikTok (stored).** The TikTok posts the scan saw. Since live fix 1 the scan searches Instagram alone, so this is
+  usually empty: the field is there for the merge.
+- **Storage.** `top: { updatedAt, yt, ig, tt }` in `category:<id>`. `GET /categories/:id` answers it. `readCategory`
+  reads it entry by entry: a malformed entry is dropped, and an older page has none.
+- **On demand:** `GET /categories/:id/top/tt` (or `/ig`), Bearer like the others.
+  - Brave's video search (`/res/v1/videos/search`, the key in `X-Subscription-Token`): `q` = the main query +
+    ` site:tiktok.com` (or ` site:instagram.com`), `count=50`, `freshness=pm`, `search_lang=en`, `safesearch=moderate`.
+  - Only https single posts of that platform, their links made canonical like the Worker's other post links:
+    `{ url, title, creator, views, thumbnail, age }`. Under 50 matches: one more page (`offset=1`).
+  - The video endpoint refused with a 4xx other than 429 (not in the plan): Brave's web search
+    (`/res/v1/web/search`), `count=20`, offsets 0 and 1, its `web.results` and `videos.results`.
+  - The answer: Brave's matches first, the most viewed first, then the stored list's other posts, ≤ 50.
+    `{ platform, items, source: "brave" | "scan", note?: "no_key" | "brave_failed" | "daily_cap", endpoint?:
+    "videos" | "web" }`.
+  - At most `BRAVE_DAILY` (default 40) requests a UTC day, counted in KV `brave:count:<day>` (2-day TTL): the only
+    KV write.
+
+**Search before building.**
+- npm's `brave-search` (a typed wrapper for web, news, image and local search) and `@microfox/brave`: **rejected**. The
+  rule is no new dependencies, and two GET calls with one header need none.
+- `tools/05-found-on-github.md` and `tools/13` rejected Brave in 2026 for its card-only sign-up; the owner chose it now.
+
+**Built** (branch `claude/category-top-videos`, 2026-10-07):
+- **Worker:** `categories/top.ts` (YouTube's list, the scan's lists, the stored lists' check, Brave) and the route.
+  - `DISCOVER_YT_CAP` is 66 (`wrangler.jsonc`, the code's default, the docs).
+  - `ytCount` (youtubeStats.ts) and a shared `capVar` (discover/fetchers.ts) are reused.
+  - `EffectPlatform` takes `yt` for the category's YouTube posts. `scoreEffects` takes the minimum of creators;
+    Trending effects' default is unchanged.
+- **Dashboard:** `lib/categories.ts` parses `top` and asks for a tab (`fetchCategoryTop`, never kept).
+  `CategoryPage.tsx` has the 🏆 row, with Discover's `ResultCard` for each video (its props fit).
+- **Decisions where the brief met itself or the code:**
+  - A forced scan later the same UTC day keeps the day's YouTube list, with no second `search.list`, so the shared
+    100 a day stay safe however often Scan again is tapped.
+  - A failed YouTube call keeps the last stored list (noted `youtube`), as a failed scan keeps its page. The brief
+    said "no YouTube list".
+  - Brave requests an open: 1–2, or 3 when the video endpoint is refused and the web search's two pages follow. The
+    brief's "at most 2" met its "offsets 0 and 1" there. Every request counts against the day, the refused one too. A
+    second page that fails keeps the first.
+  - Links are kept only when they are one post (a profile, tag or sound page cannot play here). The URL's own host is
+    checked: `meta_url.hostname` is the same host.
+  - Titles lose the platform's wrapping (" | TikTok", "<name> on Instagram: …"), with the Worker's own normalizers. A
+    TikTok title that says nothing gives way to its creator.
+  - The Instagram tab says nothing when Brave isn't connected (the brief's line names TikTok).
+- **Tests:** `pnpm test` 2,247 in 109 files (the Worker's 944 in 35 included); e2e 342 passed (phone 171, desktop 171)
+  and 6 skipped by design, of 348. Lint, typecheck (app and Worker) and build clean.
+- **Owner's steps:** Cloudflare → Workers & Pages → 3z-scout → Settings → Variables and Secrets → Add → Secret,
+  `BRAVE_API_KEY`. Brave's $5 monthly credit needs Brave attributed on the project's website or about page (Brave's
+  2026 pricing): his call.
 
 ## Built (planning/plans/2026-10-06-category-trends.md)
 
@@ -324,8 +443,8 @@ invocation allows:
 - **Budgets:**
   - 6 Tavily credits a scan, 4 scans a day (about 720 a month);
   - lessons at most 10 credits a category every 6 days (about 600 a month);
-  - no YouTube Data API;
-  - ≤ 31 subrequests a run (≤ 7 AI calls);
+  - no YouTube Data API (since §6: 1 `search.list` and 1 `videos.list` a scan);
+  - ≤ 31 subrequests a run (≤ 7 AI calls; 33 since §6's 2 YouTube calls);
   - about 10 KV writes a day.
 
 ## Live check (2026-10-07)

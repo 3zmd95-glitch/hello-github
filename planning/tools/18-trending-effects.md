@@ -173,7 +173,8 @@ These were run through Discover's own Worker (Posted: Week). They cost about 35 
   Tavily's `GET /usage` and the figure's KV write.
 - 18 Tavily credits, about 540 a month: owner-approved ("I dont care about search credit… test until I can catch the
   trends", 2026-10-06). 6 when the budget guard is on.
-- 6 of YouTube's 100 daily searches. With the radar's 18 and Discover's 70, the total is 94.
+- 6 of YouTube's 100 daily searches. With the radar's 18 and Discover's 70, the total is 94. Since 2026-10-07 Discover
+  has 66 and the category top lists 4 (`tools/19-category-trends.md` §6): still 94.
 - ≤ 3 AI calls, 1 KV write and the attempt counter's write.
 - The 18 searches go out 6 at a time (one search of each family): a Worker keeps 6 connections open and queues the
   rest, whose 12 s limit would run while they wait.

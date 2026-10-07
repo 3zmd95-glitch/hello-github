@@ -626,6 +626,18 @@ and editing".
   - English first on the page and the 🔥 row, with Arabic only in Arabic script;
   - lessons carry a version, so Cars' first lessons refresh at its next scan.
   Details: `tools/19-category-trends.md` "Live check (2026-10-07)".
+- **Top videos per platform** (Oct 7, branch `claude/category-top-videos`). The owner: "Every category should show at
+  least 50 results in every platform with top tier results"; for TikTok he chose Brave's official Search API (he adds
+  `BRAVE_API_KEY` in Cloudflare himself).
+  - **The page:** "🏆 Top in Cars" after the 🔥 row, with YouTube · TikTok · Instagram tabs, up to 50 videos each,
+    best first, as Discover's result cards.
+  - **YouTube:** its 50 most viewed of the month, 1 `search.list` a scan; Discover's YouTube cap went from 70 to 66.
+  - **Instagram:** the scan's own posts.
+  - **TikTok, and Instagram under 50:** Brave when the tab opens, ≤ 40 requests a day (about 1,000 a month in Brave's
+    $5 credit). Brave's results are never stored (its terms).
+  - **After the live rescan** (35 posts, 1 style at 3 creators): YouTube's videos feed the category trends, and a
+    category style needs 2 creators (Trending effects keeps 3).
+  - Details: `tools/19-category-trends.md` §6.
 
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
