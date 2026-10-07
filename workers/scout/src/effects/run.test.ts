@@ -226,6 +226,19 @@ describe("runEffects", () => {
     expect(stored(KV).diagnostics).toEqual(JSON.parse(line).effects);
   });
 
+  it("never asks TikTok's Discovery API or reads its token: TikTok trends are the category pages' alone", async () => {
+    const { env, KV } = setup();
+    KV.store.set("tiktokads:token", "v1.sealed.token");
+    const { fetch, count } = web();
+    const doc = await runEffects(env, { fetch, now: NOW });
+    expect(doc.status).toBe("ok");
+    expect(count).toEqual({ tavily: 18, search: 2, stats: 1 });
+    expect(fetch.mock.calls.filter(([u]) => String(u).includes("business-api.tiktok.com"))).toEqual(
+      [],
+    );
+    expect(KV.get.mock.calls.map(([key]) => key)).not.toContain("tiktokads:token");
+  });
+
   it("with Tavily's month 90 % spent (Discover's cached figure), only the Instagram month search a family, noted", async () => {
     const { env, KV } = setup();
     KV.store.set(usageKeys.tavily, JSON.stringify({ used: 950, limit: 1000 }));

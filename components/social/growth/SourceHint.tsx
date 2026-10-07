@@ -27,7 +27,7 @@ export default function SourceHint({
         : t("growth.source.none");
   return (
     <span
-      className={`text-muted text-[0.68rem] leading-tight ${className}`}
+      className={`text-muted text-[11px] leading-tight ${className}`}
       data-testid={testId}
       data-source={source}
     >

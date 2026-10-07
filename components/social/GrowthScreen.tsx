@@ -1,11 +1,13 @@
 "use client";
 
+import { FileUp, Link2, LoaderCircle, Plus, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useToday } from "@/components/today/useToday";
 import PageHeader from "@/components/ui/ios/PageHeader";
+import { useFirstVisit } from "@/components/ui/ios/useFirstVisit";
 import { useSocialSync } from "@/components/social/useSocialSync";
 import { allOverview, platformOverview } from "@/lib/analytics";
 import type { Platform } from "@/lib/domain";
@@ -44,6 +46,8 @@ export default function GrowthScreen() {
   const today = useToday();
   /** End of the Riyadh day: the windows (7 / 30 / 90 days) then cover whole days and stay stable all day. */
   const now = useMemo(() => Date.parse(`${today}T23:59:59+03:00`), [today]);
+  /** The numbers count up and the charts draw themselves on the first visit of this page load only. */
+  const first = useFirstVisit("growth");
   const state = useStore(useShallow(analyticsState));
   const demographics = useStore((s) => s.demographics);
   const [filter, setFilter] = useState<AnalyticsFilter>("all");
@@ -82,7 +86,7 @@ export default function GrowthScreen() {
     : t("growth.ai.topEngagement.none");
 
   return (
-    <div className="flex flex-col gap-4" data-testid="growth-screen" data-tab={filter}>
+    <div className="flex flex-col gap-3" data-testid="growth-screen" data-tab={filter}>
       <PageHeader title={t("social.growth.title")} sub={t("social.growth.sub")} />
       <div className="flex flex-wrap gap-2">
         {sync.configured && (
@@ -96,9 +100,7 @@ export default function GrowthScreen() {
           >
             {sync.busy ? (
               <>
-                <span aria-hidden className="acc-spin">
-                  ⟳
-                </span>{" "}
+                <LoaderCircle size={16} strokeWidth={1.75} className="acc-spin" aria-hidden />
                 {t("growth.sync.busy")}
               </>
             ) : (
@@ -112,7 +114,8 @@ export default function GrowthScreen() {
           onClick={() => setDialog("add")}
           data-testid="growth-add"
         >
-          ➕ {t("growth.add")}
+          <Plus size={16} strokeWidth={1.75} aria-hidden />
+          {t("growth.add")}
         </button>
         <button
           type="button"
@@ -120,122 +123,144 @@ export default function GrowthScreen() {
           onClick={() => setDialog("import")}
           data-testid="growth-import"
         >
-          📄 {t("growth.import")}
+          <FileUp size={16} strokeWidth={1.75} aria-hidden />
+          {t("growth.import")}
         </button>
       </div>
 
       <PlatformFilter value={filter} onChange={setFilter} />
 
-      {filter === "all" && !anyConnected && (
-        <section
-          className="px-card gr-cta flex flex-wrap items-center gap-3"
-          data-testid="growth-connect-cta"
-        >
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <h2 className="text-base">{t("growth.sync.cta.title")}</h2>
-            <p className="text-ink-2 text-sm">{t("growth.sync.cta.body")}</p>
-            {sync.error && (
-              <p role="alert" className="text-danger text-xs" data-testid="growth-sync-error">
-                {t(sync.error)}
-              </p>
-            )}
-          </div>
-          <Link
-            href="/settings/#accounts"
-            className="px-btn no-underline"
-            data-testid="growth-connect-link"
+      {/* The filter's tab panel: focusable (APG tabs), so the view under the tabs is one stop away. */}
+      <div
+        role="tabpanel"
+        id={`gr-panel-${filter}`}
+        aria-labelledby={`gr-tab-${filter}`}
+        tabIndex={0}
+        className="flex flex-col gap-3"
+      >
+        {filter === "all" && !anyConnected && (
+          <section
+            className="ios-card flex flex-wrap items-center gap-3"
+            data-testid="growth-connect-cta"
           >
-            {t("growth.sync.cta.button")}
-          </Link>
-        </section>
-      )}
-
-      <div className="flex flex-wrap gap-2">
-        <AiButton
-          testId="analytics-changed"
-          pressed={changed}
-          onClick={() => setChanged((v) => !v)}
-        >
-          {t("growth.changed.button")}
-        </AiButton>
-        {filter === "all" && (
-          <AiButton
-            testId="analytics-engagement"
-            pressed={topEngagement}
-            onClick={() => setTopEngagement((v) => !v)}
-          >
-            {t("growth.ai.topEngagement.button")}
-          </AiButton>
+            <span className="ios-ic self-start">
+              <Link2 size={20} strokeWidth={1.75} aria-hidden />
+            </span>
+            <div className="flex min-w-0 flex-1 basis-48 flex-col gap-1">
+              <h2 className="text-base">{t("growth.sync.cta.title")}</h2>
+              <p className="text-ink-2 text-sm">{t("growth.sync.cta.body")}</p>
+              {sync.error && (
+                <p role="alert" className="text-danger text-xs" data-testid="growth-sync-error">
+                  {t(sync.error)}
+                </p>
+              )}
+            </div>
+            <Link
+              href="/settings/#accounts"
+              className="px-btn no-underline"
+              data-testid="growth-connect-link"
+            >
+              {t("growth.sync.cta.button")}
+            </Link>
+          </section>
         )}
-      </div>
-      {changed && <WhatChanged snapshots={state.snapshots} now={now} />}
-      {topEngagement && filter === "all" && (
-        <p
-          className="px-card an-ai-card text-sm"
-          data-testid="analytics-engagement-text"
-          data-platform={best?.platform ?? ""}
-        >
-          <span aria-hidden>✨</span> {bestText}
-        </p>
-      )}
 
-      {platform && overview ? (
-        <PlatformTab
-          key={platform}
-          platform={platform}
-          today={today}
-          overview={overview}
-          demographics={demographics}
-          onAddDemographics={() => setDialog("demo")}
-        />
-      ) : all.platforms.length === 0 ? (
-        <section className="px-card flex flex-col gap-3" data-testid="growth-empty">
-          <h2 className="text-lg">{t("growth.empty.title")}</h2>
-          <p className="text-ink-2 text-sm">{t("growth.empty.body")}</p>
-          <p className="text-muted text-xs">{t("growth.empty.where")}</p>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="px-btn"
-              onClick={() => setDialog("add")}
-              data-testid="empty-add"
+        <div className="flex flex-wrap gap-2">
+          <AiButton
+            testId="analytics-changed"
+            pressed={changed}
+            onClick={() => setChanged((v) => !v)}
+          >
+            {t("growth.changed.button")}
+          </AiButton>
+          {filter === "all" && (
+            <AiButton
+              testId="analytics-engagement"
+              pressed={topEngagement}
+              onClick={() => setTopEngagement((v) => !v)}
             >
-              ➕ {t("growth.add")}
-            </button>
-            <button
-              type="button"
-              className="px-btn px-btn-ghost"
-              onClick={() => setDialog("import")}
-              data-testid="empty-import"
-            >
-              📄 {t("growth.import")}
-            </button>
-          </div>
-        </section>
-      ) : (
-        <>
-          <KpiRow all={all} />
-          <PlatformCards platforms={all.platforms} onOpen={setFilter} />
-          <PostActivity
-            title={t("growth.activity.title")}
-            counts={all.posts}
-            rows={all.platforms}
-            note={t("growth.activity.note")}
+              {t("growth.ai.topEngagement.button")}
+            </AiButton>
+          )}
+        </div>
+        {changed && <WhatChanged snapshots={state.snapshots} now={now} />}
+        {topEngagement && filter === "all" && (
+          <p
+            className="ios-card flex items-start gap-2 text-sm"
+            data-testid="analytics-engagement-text"
+            data-platform={best?.platform ?? ""}
+          >
+            <Sparkles
+              size={16}
+              strokeWidth={1.75}
+              className="text-tint mt-0.5 shrink-0"
+              aria-hidden
+            />
+            <span>{bestText}</span>
+          </p>
+        )}
+
+        {platform && overview ? (
+          <PlatformTab
+            key={platform}
+            platform={platform}
+            today={today}
+            overview={overview}
+            demographics={demographics}
+            onAddDemographics={() => setDialog("demo")}
+            animate={first}
           />
-        </>
-      )}
+        ) : all.platforms.length === 0 ? (
+          <section className="px-card flex flex-col gap-3" data-testid="growth-empty">
+            <h2 className="text-lg">{t("growth.empty.title")}</h2>
+            <p className="text-ink-2 text-sm">{t("growth.empty.body")}</p>
+            <p className="text-muted text-xs">{t("growth.empty.where")}</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="px-btn"
+                onClick={() => setDialog("add")}
+                data-testid="empty-add"
+              >
+                <Plus size={18} strokeWidth={1.75} aria-hidden />
+                {t("growth.add")}
+              </button>
+              <button
+                type="button"
+                className="px-btn px-btn-ghost"
+                onClick={() => setDialog("import")}
+                data-testid="empty-import"
+              >
+                <FileUp size={18} strokeWidth={1.75} aria-hidden />
+                {t("growth.import")}
+              </button>
+            </div>
+          </section>
+        ) : (
+          <>
+            <KpiRow all={all} countUp={first} />
+            <PlatformCards platforms={all.platforms} onOpen={setFilter} />
+            <PostActivity
+              title={t("growth.activity.title")}
+              counts={all.posts}
+              rows={all.platforms}
+              note={t("growth.activity.note")}
+            />
+          </>
+        )}
 
-      <MyContent
-        stats={state.postStats}
-        filter={filter}
-        now={now}
-        today={today}
-        onImport={() => setDialog("content")}
-      />
+        <MyContent
+          stats={state.postStats}
+          filter={filter}
+          now={now}
+          today={today}
+          onImport={() => setDialog("content")}
+        />
 
-      {(filter === "all" || filter === "tiktok") && <TikTokBrief now={now} />}
+        {(filter === "all" || filter === "tiktok") && <TikTokBrief now={now} />}
 
-      <AudienceAsks platform={platform} />
+        <AudienceAsks platform={platform} />
+      </div>
 
       {dialog === "add" && (
         <SnapshotForm platform={platform} today={today} onClose={() => setDialog(null)} />

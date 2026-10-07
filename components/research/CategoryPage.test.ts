@@ -139,6 +139,9 @@ let getGate: Promise<void> | undefined;
 let topAnswers: Partial<Record<"tt" | "ig", { body: unknown; status?: number }>>;
 let topAsked: string[];
 let topGate: Promise<void> | undefined;
+/** What `POST /tiktokads/connect` answers (TikTok for Business's authorization page), and the bodies it was sent. */
+let connectAnswer: { body: unknown; status?: number };
+let connectAsked: unknown[];
 let calls: {
   style: string[];
   all: number;
@@ -170,6 +173,10 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       body: { platform: p, items: [], source: "scan", note: "no_key" },
     };
     return json(a.body, a.status ?? 200);
+  }
+  if (pathname === "/tiktokads/connect" && init?.method === "POST") {
+    connectAsked.push(JSON.parse(String(init.body)));
+    return json(connectAnswer.body, connectAnswer.status ?? 200);
   }
   return json({ error: "not_found" }, 404);
 }
@@ -239,6 +246,8 @@ beforeEach(() => {
   topAnswers = {};
   topAsked = [];
   topGate = undefined;
+  connectAnswer = { body: { error: "not_configured" }, status: 409 };
+  connectAsked = [];
   calls = { style: [], all: 0, skill: [], unavailable: 0, played: [] };
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   sessionStorage.clear();
@@ -797,10 +806,11 @@ describe("the 🏆 top videos per platform (§6)", () => {
     expect($("category-top-credit")!.textContent).toBe("النتائج من Brave Search");
   });
 
-  it("says why a list is the scan's alone: Brave not connected (TikTok), out of reach, or today's searches used up; no credit", async () => {
+  it("says why a list is the stored one alone: Brave out of reach, or today's searches used up; Brave off (no_key) says nothing; no credit", async () => {
     page = docOf({ top: { ...TOP, tt: [topVideo("tt", 9)] } });
     const lines = [
-      ["no_key", "More TikTok results once Brave search is connected"],
+      // Off by choice since the TikTok tab reads TikTok's Discovery API (§6).
+      ["no_key", ""],
       ["brave_failed", "Couldn't reach Brave search right now"],
       ["daily_cap", "Today's Brave searches are used up — more tomorrow"],
     ];
@@ -907,6 +917,70 @@ describe("the 🏆 top videos per platform (§6)", () => {
     expect(document.activeElement).toBe(tab("tt"));
     expect(selected().dataset.platform).toBe("yt");
     expect(topAsked).toEqual(["ig"]);
+  });
+
+  it("D1: an empty TikTok tab offers 'Connect TikTok trends': it asks the Worker for TikTok's page with this page's address and goes there", async () => {
+    page = docOf({ top: TOP });
+    let release!: () => void;
+    topGate = new Promise<void>((r) => (release = r));
+    topAnswers = { tt: alone("tt", [], "no_key") };
+    window.history.replaceState(null, "", "/discover/?x=1");
+    const here = window.location.href;
+    // TikTok's page, as a same-page address jsdom can follow.
+    connectAnswer = { body: { url: `${here}#tiktok-portal` } };
+    await mount("en");
+    await open("tt");
+    // Not while TikTok's list is on its way.
+    expect(line()).toBe("Loading…");
+    expect($("category-top-connect")).toBeNull();
+    release();
+    await settle();
+    expect(line()).toBe("Nothing here yet");
+    const button = $("category-top-connect") as HTMLButtonElement;
+    expect(button.textContent).toBe("Connect TikTok trends");
+    act(() => button.click());
+    await settle();
+    expect(connectAsked).toEqual([{ returnTo: here }]);
+    expect(window.location.hash).toBe("#tiktok-portal");
+    // On its way to TikTok: the button rests.
+    expect(($("category-top-connect") as HTMLButtonElement).disabled).toBe(true);
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("D1: a refused connect (no secret on the Worker, no answer) says so, and the button stays; in Arabic too", async () => {
+    page = docOf({ top: TOP });
+    topAnswers = { tt: alone("tt", [], "no_key") };
+    await mount("en");
+    await open("tt");
+    act(() => $("category-top-connect")!.click());
+    await settle();
+    expect(connectAsked).toHaveLength(1);
+    expect(line()).toBe("Couldn't connect TikTok — try again in a bit");
+    expect(($("category-top-connect") as HTMLButtonElement).disabled).toBe(false);
+    act(() => root.unmount());
+    root = createRoot(host);
+    await mount("ar");
+    await open("tt");
+    expect($("category-top-connect")!.textContent).toBe("اربط ترندات تيك توك");
+    act(() => $("category-top-connect")!.click());
+    await settle();
+    expect(line()).toBe("ما قدرت أربط تيك توك، جرّب بعد شوي");
+  });
+
+  it("D1: a TikTok tab with videos offers no connect; nor does Instagram, even empty", async () => {
+    const tt = [topVideo("tt", 1), topVideo("tt", 2)];
+    page = docOf({ top: { ...TOP, tt, ig: [] } });
+    topAnswers = { tt: alone("tt", tt, "no_key"), ig: alone("ig", [], "no_key") };
+    await mount("en");
+    await open("tt");
+    expect(titles()).toEqual(tt.map((v) => v.title));
+    expect(line()).toBe("");
+    expect($("category-top-connect")).toBeNull();
+    await open("ig");
+    expect(line()).toBe("Nothing here yet");
+    expect($("category-top-connect")).toBeNull();
+    await open("yt");
+    expect($("category-top-connect")).toBeNull();
   });
 
   it("a page from before §6 says the top videos come with the next scan", async () => {

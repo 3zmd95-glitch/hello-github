@@ -108,6 +108,7 @@
   "replies.notice.scanRequested": "طلبنا فحص؛ الردود تطلع خلال دقيقة.",
   "replies.notice.paused": "الردود موقّفة؛ شغّلها عشان نفحص.",
   "replies.notice.guard": "وصلنا حد التخزين المجاني اليوم؛ نكمل بعد 3 الفجر.",
+  "replies.toast.saved": "انحفظ",
   "replies.default.title": "الرد الافتراضي",
   "replies.default.hint": "لما أحد يرسل لك رسالة ما فيها أي كلمة من الردود. مرة وحدة باليوم لكل شخص، وما يرد على الستوري ولا الإيموجي ولا لما ترد أنت بنفسك.",
   "replies.default.suggested": "وصلت رسالتك 🙏 برد عليك أول ما أقدر.",

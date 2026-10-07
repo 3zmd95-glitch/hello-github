@@ -490,6 +490,43 @@ describe("ResultCard ▶ (full card)", () => {
     expect($("result-title")!.textContent).toBe("Match cut in 10 seconds");
     expect(asked).toHaveLength(1);
   });
+
+  it("a TikTok trend titled only by its hashtag (a category page's TikTok tab) shows the post's caption and picture", async () => {
+    // TikTok's Discovery API sends no caption: the Worker titles each trending video with its hashtag.
+    const caption = "Night drive in the M4 🌙";
+    const picture = `${WORKER}/thumb/trend.png`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ title: caption, author: "@car.one", thumb: picture, url: "" }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+      ),
+    );
+    act(() =>
+      useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
+    );
+    const item: ResearchItem = {
+      platform: "tt",
+      handle: "@car.one",
+      title: "#carsoftiktok",
+      snippet: "",
+      url: "https://www.tiktok.com/@car.one/video/7300000000000000077",
+    };
+    render({ item });
+    await settle();
+    expect($("result-title")!.textContent).toBe(caption);
+    expect($("result-thumb")!.getAttribute("src")).toBe(picture);
+    // More than the hashtag is a title of its own.
+    render({ item: { ...item, title: "#carsoftiktok night drive" } });
+    await settle();
+    expect($("result-title")!.textContent).toBe("#carsoftiktok night drive");
+  });
 });
 
 describe("ResultCard ▶ (compact: the skill sheet's saved references)", () => {

@@ -77,9 +77,10 @@ test("Social Analytics: the seeded All view, the TikTok view with demographics, 
   );
 
   // TikTok view: 5 overview rows, demographics with Saudi Arabia first and 25-34 the widest bar.
+  // The filter is an iOS segmented control: tabs carry aria-selected (a tab cannot be aria-pressed).
   await page.getByTestId("analytics-platform-tiktok").click();
   await expect(page.getByTestId("analytics-platform-tiktok")).toHaveAttribute(
-    "aria-pressed",
+    "aria-selected",
     "true",
   );
   await expect(page.getByTestId("growth-screen")).toHaveAttribute("data-tab", "tiktok");
@@ -257,12 +258,27 @@ test("Growth basics still work: add a snapshot, import a stats CSV with the th a
   // The Threads view: the seeded handle, two snapshot rows, a new handle persists across reloads.
   await thCard.getByTestId("platform-card-open").click();
   await expect(page.getByTestId("growth-screen")).toHaveAttribute("data-tab", "threads");
+  // The tab panel is labelled by the selected tab, and on a phone the sideways scroller brings that tab into view.
+  const threadsTab = page.getByTestId("analytics-platform-threads");
+  await expect(page.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "gr-tab-threads");
+  await expect(threadsTab).toHaveAttribute("aria-controls", "gr-panel-threads");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(threadsTab).toBeInViewport({ ratio: 1 });
   // On the seed day itself today's row replaces the seeded one, later it sits next to it.
   const rowsBefore = await page.getByTestId("snapshot-row").count();
   expect(rowsBefore).toBeGreaterThanOrEqual(1);
   await expect(page.getByTestId("snapshot-row").first()).toHaveAttribute("data-day", riyadhDay());
   await expect(page.getByTestId("snapshot-row").first()).toContainText("50");
   await expect(page.getByTestId("chart-followers").locator("svg")).toBeVisible();
+  // The follower chart scrubs: a pointer at its end shows the glass tooltip with the nearest day (today's 50).
+  const chartSvg = page.getByTestId("chart-followers").locator("svg");
+  await expect(chartSvg).toHaveCSS("touch-action", "pan-y"); // a swipe that starts on the chart still scrolls the page
+  const chartBox = (await chartSvg.boundingBox())!;
+  await chartSvg.hover({ position: { x: chartBox.width - 2, y: chartBox.height / 2 } });
+  const tip = page.getByTestId("chart-followers").locator(".an-tip");
+  await expect(tip).toHaveAttribute("data-on", "true");
+  await expect(tip.locator("b")).toHaveText("50");
+  await expect(tip.locator("small")).toHaveText("اليوم");
   await expect(page.getByTestId("account-handle")).toHaveValue("3z.prod");
   await expect(page.getByTestId("planned-empty-link")).toHaveAttribute("href", "/social/calendar/");
   await expect(page.getByTestId("content-tip")).toHaveAttribute("data-rule", "noRecent");
@@ -286,6 +302,10 @@ test("Growth basics still work: add a snapshot, import a stats CSV with the th a
   await expect(page.getByTestId("ask-count")).toHaveText("1");
   await page.getByTestId("ask-bump").click();
   await expect(page.getByTestId("ask-count")).toHaveText("2");
+  // The Studio's "turn into idea": the button becomes the "in the ideas bank" chip, which takes the focus.
+  await page.getByTestId("ask-to-idea").click();
+  await expect(page.getByTestId("ask-in-ideas")).toHaveAttribute("href", "/social/ideas/");
+  await expect(page.getByTestId("ask-in-ideas")).toBeFocused();
   await page.reload();
   await expect(page.getByTestId("ask-row")).toHaveCount(1);
   await page.getByTestId("ask-remove").click();
@@ -305,6 +325,13 @@ test("Growth basics still work: add a snapshot, import a stats CSV with the th a
 test("a bad CSV line is listed and cannot be imported", async ({ page }) => {
   await freshState(page, "/social/growth/");
   await page.getByTestId("growth-import").click();
+  // The forms are iOS sheets: a labelled modal dialog.
+  await expect(page.getByTestId("csv-dialog")).toHaveAttribute("role", "dialog");
+  await expect(page.getByTestId("csv-dialog")).toHaveAttribute("aria-modal", "true");
+  await expect(page.getByTestId("csv-dialog")).toHaveAttribute(
+    "aria-labelledby",
+    "csv-dialog-title",
+  );
   await page.getByTestId("csv-text").fill("foo,bar\n");
   await expect(page.getByTestId("csv-errors")).toBeVisible();
   await expect(page.getByTestId("csv-error")).toHaveCount(1);
@@ -336,11 +363,11 @@ test("every platform view, including the manual-only ones, fits the viewport", a
   for (const p of ["instagram", "youtube", "threads", "x", "snapchat"]) {
     await page.getByTestId(`analytics-platform-${p}`).click();
     await expect(page.getByTestId(`analytics-platform-${p}`)).toHaveAttribute(
-      "aria-pressed",
+      "aria-selected",
       "true",
     );
     await expect(page.getByTestId("analytics-platform-all")).toHaveAttribute(
-      "aria-pressed",
+      "aria-selected",
       "false",
     );
     expect(await page.getByTestId("overview-row").count()).toBeGreaterThan(0);
@@ -348,7 +375,13 @@ test("every platform view, including the manual-only ones, fits the viewport", a
     await expect(page.getByTestId("account-card")).toBeVisible();
     expect(await fitsViewport(page)).toBe(true);
   }
-  await expect(page.getByTestId("analytics-platform-x")).toHaveAttribute("data-manual", "true");
+  // X and Snapchat say "manual only" (a tooltip, and read out after the name).
+  const manualX = page.getByTestId("analytics-platform-x").locator("[data-manual]");
+  await expect(manualX).toHaveAttribute("data-manual", "true");
+  await expect(manualX).toHaveAttribute("title", "يدوي بس");
+  await expect(page.getByTestId("analytics-platform-tiktok").locator("[data-manual]")).toHaveCount(
+    0,
+  );
   // Snapchat has no breakdown and offers the manual entry; Instagram's comes from the seed.
   await expect(page.getByTestId("demographics-empty")).toBeVisible();
   await page.getByTestId("analytics-platform-instagram").click();

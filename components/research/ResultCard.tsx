@@ -69,8 +69,10 @@ function useThumb(item: ResearchItem): { thumb?: string; title: string; onError:
   const mine = fresh?.url === item.url ? fresh : undefined;
   const renewed = mine?.thumb;
   const thumb = [renewed, item.thumb].find((s): s is string => !!s && !failed.includes(s));
-  // The Worker titles a TikTok card whose page title says nothing ("TikTok - Make Your Day") with its handle.
-  const generic = item.platform === "tt" && item.title === item.handle;
+  // The Worker titles a TikTok card whose page title says nothing ("TikTok - Make Your Day") with its handle, and a
+  // TikTok trend (a category page's TikTok tab: TikTok's Discovery API sends no caption) with its hashtag alone.
+  const generic =
+    item.platform === "tt" && (item.title === item.handle || /^#[^\s#]+$/u.test(item.title));
   const title = (generic && mine?.title) || item.title;
   const onError = () => {
     if (!thumb) return;

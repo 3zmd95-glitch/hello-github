@@ -3,6 +3,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { PlatformOverview, PostCounts } from "@/lib/analytics";
 import { useT } from "@/lib/i18n";
+import { PlatformGlyph } from "@/lib/platformIcons";
 import { PLATFORM_META } from "@/lib/social";
 
 /**
@@ -33,9 +34,9 @@ export default function PostActivity({
       <h2 className="text-base">{title}</h2>
       <div className="grid grid-cols-3 gap-2">
         {tiles.map(([id, n, label]) => (
-          <div key={id} className="px-inset an-kpi" data-testid={`activity-${id}`} data-value={n}>
-            <span className="text-muted text-xs">{label}</span>
-            <b className="gr-value">{n}</b>
+          <div key={id} className="ios-stat" data-testid={`activity-${id}`} data-value={n}>
+            <small>{label}</small>
+            <b className="num">{n}</b>
           </div>
         ))}
       </div>
@@ -49,10 +50,10 @@ export default function PostActivity({
                 className="an-mini-row"
                 data-testid="activity-platform"
                 data-platform={o.platform}
-                style={{ "--c": meta.color } as CSSProperties}
+                style={{ "--c": `var(--pc-${o.platform})` } as CSSProperties}
               >
                 <i className="gr-key" aria-hidden />
-                <span aria-hidden>{meta.icon}</span>
+                <PlatformGlyph platform={o.platform} size={14} className="text-ink-2 shrink-0" />
                 <span className="min-w-0 flex-1 truncate text-sm font-semibold">
                   {L(meta.name)}
                 </span>

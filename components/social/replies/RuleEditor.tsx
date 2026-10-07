@@ -1,6 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { Check, Megaphone, MessageCircle, Pin, X } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import Chip from "@/components/ui/ios/Chip";
+import { useSheetClose } from "@/components/ui/ios/Sheet";
 import type { AutoReply, SocialPostStat, SocialStatusMap } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import {
@@ -14,8 +17,10 @@ import {
   splitKeywords,
   type ReplyProblemCode,
 } from "@/lib/replies";
+import Fold from "./Fold";
 import PhonePreview from "./PhonePreview";
 import PostGrid, { type PostTile } from "./PostGrid";
+import SwitchRow from "./SwitchRow";
 
 const PROBLEM_KEY: Record<ReplyProblemCode, MessageKey> = {
   noKeywords: "replies.problem.noKeywords",
@@ -34,13 +39,20 @@ const PROBLEM_KEY: Record<ReplyProblemCode, MessageKey> = {
 };
 
 type Target = "post" | "anyPost" | "message";
+const TARGETS: readonly Target[] = ["post", "anyPost", "message"];
+const TARGET_ICON: Record<Target, ReactNode> = {
+  post: <Pin size={20} strokeWidth={1.75} aria-hidden />,
+  anyPost: <Megaphone size={20} strokeWidth={1.75} aria-hidden />,
+  message: <MessageCircle size={20} strokeWidth={1.75} aria-hidden />,
+};
 const NO_POST = { postId: null, permalink: undefined, title: undefined, thumbUrl: undefined };
 
 /**
- * The rule editor, full page and Beacons style (round 34): trigger cards (a chosen post from a thumbnail grid, any
- * post, or a DM / story reply), keywords as chips with an exact-match switch, up to three public replies (comment
- * rules), the DM with its link buttons and the «تابعني» switch, and a live phone preview. Saving is refused while a
- * problem is listed; the Worker checks the same rules again.
+ * The rule editor (Beacons style, round 34; in an iOS sheet since round 35): trigger choices (a chosen post from a
+ * thumbnail grid, any post, or a DM / story reply), keywords as chips with an exact-match switch, up to three public
+ * replies (comment rules), the DM with its link buttons and the «تابعني» switch, and a live phone preview (beside the
+ * form in the desktop dialog, folded on phones). Saving is refused while a problem is listed; the Worker checks the
+ * same rules again. A save the Worker took closes the sheet with its exit.
  */
 export default function RuleEditor({
   value,
@@ -50,7 +62,6 @@ export default function RuleEditor({
   username,
   busy,
   onSave,
-  onCancel,
 }: {
   value: AutoReply;
   posts: readonly SocialPostStat[];
@@ -58,10 +69,10 @@ export default function RuleEditor({
   origin?: string;
   username?: string;
   busy: boolean;
-  onSave: (a: AutoReply) => void;
-  onCancel: () => void;
+  onSave: (a: AutoReply) => Promise<boolean>;
 }) {
   const { t } = useT();
+  const close = useSheetClose();
   const [draft, setDraft] = useState<AutoReply>(value);
   const [choosingPost, setChoosingPost] = useState(
     value.trigger === "comment" && value.postId !== null,
@@ -97,7 +108,7 @@ export default function RuleEditor({
 
   const setTarget = (next: Target) => {
     setChoosingPost(next === "post");
-    // The DM card keeps what was typed for a comment (back on a comment card it is all there); replyInput and the
+    // The DM choice keeps what was typed for a comment (back on a comment choice it is all there); replyInput and the
     // Worker leave the post and the public replies out of a message rule.
     if (next === "message") patch({ trigger: "message" });
     else if (next === "anyPost") patch({ trigger: "comment", ...NO_POST });
@@ -109,81 +120,62 @@ export default function RuleEditor({
     patch({ keywords: splitKeywords([...draft.keywords, text].join("\n")) });
     setWord("");
   };
-  const submit = () => {
+  const submit = async () => {
     setTried(true);
     if (noPost || problems.length) return;
-    onSave(draft);
+    if (await onSave(draft)) close();
   };
 
   const preview = <PhonePreview rule={draft} origin={origin} username={username} />;
+  const remove = (label: string, onClick: () => void, testId: string) => (
+    <button
+      type="button"
+      className="ar-x"
+      aria-label={label}
+      onClick={onClick}
+      data-testid={testId}
+    >
+      <X size={16} strokeWidth={2} aria-hidden />
+    </button>
+  );
 
   return (
     <form
-      className="flex flex-col gap-4"
+      className="ar-editor flex flex-col gap-5"
       data-testid="autoreply-form"
       // Our own checks only: the browser's would stop a link without https:// before our message shows.
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        submit();
+        void submit();
       }}
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className="px-btn px-btn-ghost px-btn-sm"
-          onClick={onCancel}
-          data-testid="editor-back"
-        >
-          {t("replies.back")}
-        </button>
-        <h1 className="text-xl">
-          {t(value.createdAt ? "replies.form.editTitle" : "replies.form.newTitle")}
-        </h1>
-        <button
-          type="submit"
-          className="px-btn ms-auto"
-          disabled={busy}
-          data-testid="autoreply-save"
-        >
-          {t("replies.saveChanges")}
-        </button>
-      </div>
-
-      {tried && (noPost || problems.length > 0) && (
-        <ul className="text-danger flex flex-col gap-0.5 text-xs" data-testid="autoreply-problems">
-          {noPost && <li>{t("replies.problem.noPost")}</li>}
-          {problems.map((p) => (
-            <li key={p.code}>
-              {t(PROBLEM_KEY[p.code], p.max !== undefined ? { max: p.max } : undefined)}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-        <div className="flex min-w-0 flex-col gap-3">
+      <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_16rem] md:items-start">
+        <div className="flex min-w-0 flex-col gap-5">
           {/* Trigger */}
-          <section className="px-card flex flex-col gap-2">
+          <section className="flex flex-col gap-2">
             <span className="text-ink-2 text-sm font-bold">{t("replies.form.when")}</span>
-            <div
-              className="flex flex-col gap-1.5"
-              role="radiogroup"
-              aria-label={t("replies.form.when")}
-            >
-              {(["post", "anyPost", "message"] as const).map((k) => (
+            <div className="ios-list" role="radiogroup" aria-label={t("replies.form.when")}>
+              {TARGETS.map((k) => (
                 <button
                   key={k}
                   type="button"
                   role="radio"
                   aria-checked={target === k}
                   onClick={() => setTarget(k)}
-                  className="px-inset flex items-center gap-2 text-start text-sm"
-                  style={target === k ? { outline: "2px solid var(--accent)" } : undefined}
+                  className="ios-row"
                   data-testid={`autoreply-target-${k}`}
                 >
-                  <span aria-hidden>{k === "message" ? "💬" : k === "post" ? "📌" : "📣"}</span>
-                  {t(`replies.form.target.${k}`)}
+                  <span className="ios-ic">{TARGET_ICON[k]}</span>
+                  <span className="ios-tx">
+                    <b>{t(`replies.form.target.${k}`)}</b>
+                  </span>
+                  <Check
+                    size={20}
+                    strokeWidth={2}
+                    className={target === k ? "text-tint" : "invisible"}
+                    aria-hidden
+                  />
                 </button>
               ))}
             </div>
@@ -191,24 +183,23 @@ export default function RuleEditor({
           </section>
 
           {/* Keywords */}
-          <section className="px-card flex flex-col gap-2">
+          <section className="flex flex-col gap-2">
             <span className="text-ink-2 text-sm font-bold">{t("replies.form.keywords")}</span>
-            <div className="flex flex-wrap items-center gap-1.5">
+            {/* 12px between wrapped rows: each chip's ✕ hit area reaches 6px over and under its chip, never into the
+                row next to it (globals.css `.ar-chip-x`). */}
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-3">
               {draft.keywords.map((k) => (
-                <span
-                  key={k}
-                  className="px-chip flex items-center gap-1 text-xs"
-                  data-testid="autoreply-keyword-chip"
-                >
-                  {k}
+                <Chip key={k} className="pe-0.5" data-testid="autoreply-keyword-chip">
+                  <span dir="auto">{k}</span>
                   <button
                     type="button"
+                    className="ar-chip-x"
                     aria-label={t("replies.form.removeKeyword", { word: k })}
                     onClick={() => patch({ keywords: draft.keywords.filter((x) => x !== k) })}
                   >
-                    ×
+                    <X size={12} strokeWidth={2.25} aria-hidden />
                   </button>
-                </span>
+                </Chip>
               ))}
               <input
                 type="text"
@@ -234,37 +225,26 @@ export default function RuleEditor({
                 data-testid="autoreply-keyword-input"
               />
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                role="switch"
-                checked={draft.match === "exact"}
-                onChange={(e) => patch({ match: e.target.checked ? "exact" : "contains" })}
-                data-testid="autoreply-exact"
-              />
-              {t("replies.form.exact")}
-            </label>
+            <SwitchRow
+              label={t("replies.form.exact")}
+              checked={draft.match === "exact"}
+              onChange={(on) => patch({ match: on ? "exact" : "contains" })}
+              testId="autoreply-exact"
+            />
             <span className="text-muted text-xs">{t("replies.form.keywordsHint")}</span>
           </section>
 
           {/* Public replies (comment rules) */}
           {draft.trigger === "comment" && (
-            <section className="px-card flex flex-col gap-2" data-testid="autoreply-public-section">
-              <label className="flex items-center gap-2 text-sm font-bold">
-                <span className="text-ink-2">{t("replies.form.publicReply")}</span>
-                <input
-                  type="checkbox"
-                  role="switch"
-                  className="ms-auto"
-                  checked={draft.publicReplies.length > 0}
-                  onChange={(e) =>
-                    patch({
-                      publicReplies: e.target.checked ? [t("replies.form.publicSuggested")] : [],
-                    })
-                  }
-                  data-testid="autoreply-public-on"
-                />
-              </label>
+            <section className="flex flex-col gap-2" data-testid="autoreply-public-section">
+              <SwitchRow
+                label={t("replies.form.publicReply")}
+                checked={draft.publicReplies.length > 0}
+                onChange={(on) =>
+                  patch({ publicReplies: on ? [t("replies.form.publicSuggested")] : [] })
+                }
+                testId="autoreply-public-on"
+              />
               {draft.publicReplies.map((r, i) => (
                 <div key={i} className="flex items-center gap-1.5">
                   <input
@@ -282,17 +262,11 @@ export default function RuleEditor({
                     }
                     data-testid={`autoreply-public-${i}`}
                   />
-                  <button
-                    type="button"
-                    className="px-btn px-btn-ghost px-btn-sm"
-                    aria-label={t("replies.delete")}
-                    onClick={() =>
-                      patch({ publicReplies: draft.publicReplies.filter((_, j) => j !== i) })
-                    }
-                    data-testid={`autoreply-public-remove-${i}`}
-                  >
-                    ✕
-                  </button>
+                  {remove(
+                    t("replies.delete"),
+                    () => patch({ publicReplies: draft.publicReplies.filter((_, j) => j !== i) }),
+                    `autoreply-public-remove-${i}`,
+                  )}
                 </div>
               ))}
               {draft.publicReplies.length > 0 &&
@@ -313,12 +287,12 @@ export default function RuleEditor({
           )}
 
           {/* The DM */}
-          <section className="px-card flex flex-col gap-2">
-            <label className="flex flex-col gap-1">
-              <span className="flex items-center gap-2 text-sm font-bold">
-                <span className="text-ink-2">{t("replies.form.dm")}</span>
+          <section className="flex flex-col gap-2">
+            <label className="flex flex-col gap-1.5">
+              <span className="flex items-center justify-between gap-2">
+                <span className="text-ink-2 text-sm font-bold">{t("replies.form.dm")}</span>
                 <span
-                  className={`num ms-auto text-xs font-normal ${left < 0 ? "text-danger" : "text-muted"}`}
+                  className={`num text-xs ${left < 0 ? "text-danger" : "text-muted"}`}
                   data-testid="autoreply-dm-left"
                 >
                   {t(left < 0 ? "replies.lettersOver" : "replies.lettersLeft", {
@@ -334,7 +308,7 @@ export default function RuleEditor({
                 data-testid="autoreply-dm"
               />
             </label>
-            <span className="text-ink-2 text-sm font-bold">{t("replies.form.buttons")}</span>
+            <span className="text-ink-2 mt-1 text-sm font-bold">{t("replies.form.buttons")}</span>
             {draft.buttons.map((b, i) => (
               <div
                 key={i}
@@ -374,15 +348,11 @@ export default function RuleEditor({
                   }
                   data-testid={`autoreply-button-url-${i}`}
                 />
-                <button
-                  type="button"
-                  className="px-btn px-btn-ghost px-btn-sm"
-                  aria-label={t("replies.delete")}
-                  onClick={() => patch({ buttons: draft.buttons.filter((_, j) => j !== i) })}
-                  data-testid={`autoreply-button-remove-${i}`}
-                >
-                  ✕
-                </button>
+                {remove(
+                  t("replies.delete"),
+                  () => patch({ buttons: draft.buttons.filter((_, j) => j !== i) }),
+                  `autoreply-button-remove-${i}`,
+                )}
               </div>
             ))}
             {buttonsLeft > 0 && (
@@ -395,45 +365,63 @@ export default function RuleEditor({
                 {t("replies.form.addButton")}
               </button>
             )}
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                role="switch"
-                checked={draft.followButton}
-                disabled={!draft.followButton && buttonsLeft <= 0}
-                onChange={(e) => patch({ followButton: e.target.checked })}
-                data-testid="autoreply-follow"
-              />
-              {t("replies.form.follow")}
-            </label>
+            <SwitchRow
+              label={t("replies.form.follow")}
+              checked={draft.followButton}
+              onChange={(on) => patch({ followButton: on })}
+              disabled={!draft.followButton && buttonsLeft <= 0}
+              testId="autoreply-follow"
+            />
             <span className="text-muted text-xs">{t("replies.form.dmHint")}</span>
           </section>
 
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              role="switch"
-              checked={draft.enabled}
-              onChange={(e) => patch({ enabled: e.target.checked })}
-              data-testid="autoreply-enabled"
-            />
-            {t("replies.form.enabled")}
-          </label>
+          <SwitchRow
+            label={t("replies.form.enabled")}
+            checked={draft.enabled}
+            onChange={(on) => patch({ enabled: on })}
+            testId="autoreply-enabled"
+          />
+
+          {/* Phones: the preview behind a disclosure row, before Save. */}
+          <Fold
+            title={t("replies.preview.open")}
+            summaryTestId="autoreply-preview-open"
+            className="md:hidden"
+          >
+            {preview}
+          </Fold>
         </div>
 
-        {/* The preview: beside the form on wide screens (sticky under the top bar), behind a button on phones */}
-        <div className="hidden self-start lg:sticky lg:top-[calc(56px+3px+24px)] lg:block">
-          {preview}
-        </div>
-        <details className="px-card lg:hidden">
-          <summary
-            className="cursor-pointer text-sm font-bold"
-            data-testid="autoreply-preview-open"
-          >
-            {t("replies.preview.open")}
-          </summary>
-          <div className="mt-2">{preview}</div>
-        </details>
+        {/* The desktop dialog: the preview beside the form, kept in view while the form scrolls. */}
+        <div className="hidden md:sticky md:top-0 md:block">{preview}</div>
+      </div>
+
+      {tried && (noPost || problems.length > 0) && (
+        <ul
+          className="text-danger flex flex-col gap-0.5 text-[13px]"
+          data-testid="autoreply-problems"
+        >
+          {noPost && <li>{t("replies.problem.noPost")}</li>}
+          {problems.map((p) => (
+            <li key={p.code}>
+              {t(PROBLEM_KEY[p.code], p.max !== undefined ? { max: p.max } : undefined)}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          className="px-btn px-btn-ghost"
+          onClick={close}
+          data-testid="editor-back"
+        >
+          {t("common.cancel")}
+        </button>
+        <button type="submit" className="px-btn" disabled={busy} data-testid="autoreply-save">
+          {t("replies.saveChanges")}
+        </button>
       </div>
     </form>
   );

@@ -3,7 +3,8 @@
 // and the Trend Radar feed (round 30, planning/tools/08-trends.md).
 // Secrets (set by the deploy workflow with `wrangler secret put`, never committed): TAVILY_API_KEY,
 // SCOUT_TOKEN, META_APP_ID, META_APP_SECRET, THREADS_APP_ID, THREADS_APP_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, TIKTOK_CLIENT_KEY,
-// TIKTOK_CLIENT_SECRET, YOUTUBE_API_KEY. BRAVE_API_KEY (optional, the category pages' TikTok and Instagram tabs) is
+// TIKTOK_CLIENT_SECRET, YOUTUBE_API_KEY. TIKTOK_ADS_SECRET (the TikTok for Business app's secret: the category pages'
+// TikTok trends) and BRAVE_API_KEY (optional, the category pages' TikTok and Instagram tabs; off, BRAVE_DAILY "0") are
 // added by the owner in Cloudflare (Workers & Pages → 3z-scout → Settings → Variables and Secrets → Add → Secret).
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -30,8 +31,14 @@
     "DISCOVER_YT_CAP": "66",
     "MCP_DAILY_LOOKUPS": "60",
     // Brave Search requests a UTC day for the category pages' TikTok and Instagram tabs (planning/tools/19-category-
-    // trends.md §6). Brave's $5 monthly credit covers about 1,000 requests, then $5 per 1,000.
-    "BRAVE_DAILY": "40",
+    // trends.md §6). "0": off since 2026-10-07 (Brave's index held TikTok topic pages, not videos); the TikTok tab
+    // reads TikTok's Discovery API instead. Brave's $5 monthly credit covers about 1,000 requests, then $5 per 1,000.
+    "BRAVE_DAILY": "0",
+    // The owner's TikTok for Business app "ONUS Content Planner" (scope Discovery): its id is public, its secret is
+    // TIKTOK_ADS_SECRET. Its redirect: https://3z-scout.3zmd95.workers.dev/oauth/tiktokads/callback.
+    "TIKTOK_ADS_APP_ID": "7693488727766597653",
+    // The country of the category pages' TikTok trends (English first, global).
+    "TIKTOK_DISCOVERY_COUNTRY": "US",
     // "off" sends dashboards back to the old per-platform search.
     "DISCOVER_V2": "on",
     // The connector's address as Claude sees it (OAuth protected-resource metadata must equal it).
