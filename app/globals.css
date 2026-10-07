@@ -3525,6 +3525,28 @@
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
     animation: ios-pop 0.45s var(--spring);
   }
+
+  /* Automations rows: the head line (badge, title over time, chip, chevron) is the link to the post; its networks
+     and manual steps run under it, lined up with the title. */
+  .ap-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .ap-row:has(> .ap-open:active) {
+    background: var(--panel-2);
+  }
+  .ap-open {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    color: inherit;
+    text-decoration: none;
+  }
+  .ap-sub {
+    padding-inline-start: 52px;
+  }
 }
 /* Dark: the menu is an elevated gray over the list (both would be --panel). */
 @media (prefers-color-scheme: dark) {
