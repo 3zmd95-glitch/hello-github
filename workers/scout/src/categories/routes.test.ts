@@ -1,7 +1,8 @@
 /**
  * Category wiring (planning/tools/19-category-trends.md §2): the two routes through `handle()`, as
  * effects/routes.test.ts does, and the 4 cron slots. This Worker has no AI binding: a scan notes "ai_fallback" and
- * shows dictionary techniques only, and lessons (which need the AI) are not tried.
+ * shows dictionary techniques only, and lessons (which need the AI) are not tried. Nor is TikTok for Business connected
+ * (§6): a scan notes "tiktok_auth" and asks TikTok nothing.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -214,7 +215,7 @@ describe("/categories routes", () => {
     expect(body).toEqual(answer(storedDoc(kv)));
     expect(body).toMatchObject({
       status: "partial",
-      notes: ["ai_fallback"],
+      notes: ["tiktok_auth", "ai_fallback"],
       updatedAt: NOW.toISOString(),
     });
     expect(body.items.map((i) => i.key)).toEqual(["speed-ramp"]);
@@ -370,7 +371,7 @@ describe("the category slots", () => {
     expect(Object.keys(offGrid)).toEqual(["replies"]);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(await runTick(env, Date.parse("2026-10-07T05:40:00Z"), { fetch: fetchMock })).toEqual({
-      category: { id: "cars", status: "partial", items: 1, notes: ["ai_fallback"] },
+      category: { id: "cars", status: "partial", items: 1, notes: ["tiktok_auth", "ai_fallback"] },
     });
     expect(
       await runTick(env, Date.parse("2026-10-07T05:55:00Z"), { fetch: fetchMock }),

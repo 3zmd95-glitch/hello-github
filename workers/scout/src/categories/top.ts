@@ -4,11 +4,14 @@
  * - YouTube, stored with the page: the category's main query by views over the last 30 days, one `search.list` and
  *   one `videos.list` on the cron's scans and a category's first top scan only (Scan again keeps the stored list),
  *   outside Discover's `DISCOVER_YT_CAP` (66 since §6: 18 + 6 + 66 + 4 cron scans = 94 of the 100 a day).
- * - Instagram and TikTok, stored: the scan's own Tavily posts, the ones more searches found first.
+ * - Instagram, stored: the scan's own Tavily posts, the ones more searches found first.
+ * - TikTok, stored: TikTok's own Discovery API on every scan (categories/tiktok.ts, since 2026-10-07: Brave's index held
+ *   TikTok topic pages, not videos).
  * - On demand for TikTok and Instagram (`GET /categories/:id/top/:platform`): Brave's Search API, its matches in their
  *   own group as Brave gave them, beside the stored list. Brave's terms: "shall not store, cache, or create a database
  *   of Search Results, in whole or in part, other than transient storage required for operation". Its results are
- *   never written: the only KV write is the day's request counter.
+ *   never written: the only KV write is the day's request counter. Off since 2026-10-07 (`BRAVE_DAILY` "0"): the stored
+ *   list alone, noted `no_key`.
  */
 
 import { CALL_TIMEOUT_MS, capVar, timed } from "../discover/fetchers";
@@ -29,7 +32,7 @@ import { YT_SEARCH_URL } from "../trends/youtubeSearch";
 import { ytCount } from "../youtubeStats";
 import type { TopLists, TopVideo } from "./types";
 
-export type TopPlatform = keyof Omit<TopLists, "updatedAt">;
+export type TopPlatform = keyof Omit<TopLists, "updatedAt" | "ttUpdatedAt">;
 /** The platforms Brave tops up (YouTube's list comes from its own API). */
 export type BravePlatform = Exclude<TopPlatform, "yt">;
 export const TOP_MAX = 50;
@@ -70,11 +73,12 @@ export interface TopAnswer {
   stats?: { raw: number; hosts: Record<string, number> };
 }
 
-type Reply = { status: number; body: unknown };
+export type Reply = { status: number; body: unknown };
 
 /** GET `url` as JSON within `timeoutMs`, body included: its status (0 when no answer came) and its body (null when it is
- * no JSON or no 2xx; a refused body is let go, so it does not hold one of the Worker's 6 connections). */
-async function getJson(
+ * no JSON or no 2xx; a refused body is let go, so it does not hold one of the Worker's 6 connections). TikTok's
+ * Discovery calls too (tiktok.ts). */
+export async function getJson(
   doFetch: typeof fetch,
   url: string,
   headers: Record<string, string>,
@@ -95,14 +99,14 @@ async function getJson(
   }
 }
 
-const answered = (r: Reply): r is { status: number; body: Record<string, unknown> } =>
+export const answered = (r: Reply): r is { status: number; body: Record<string, unknown> } =>
   r.status >= 200 && r.status < 300 && isRecord(r.body);
 
 /** Text as shown: one line, without bidi marks, clipped; "" for anything else. */
 const text = (x: unknown, max: number) =>
   typeof x === "string" ? (clip(cleanText(x), max) as string) : "";
 
-function withParams(base: string, params: Record<string, string>): string {
+export function withParams(base: string, params: Record<string, string>): string {
   const u = new URL(base);
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
   return u.toString();
@@ -137,12 +141,19 @@ export function readTop(x: unknown): TopLists | undefined {
   if (!isRecord(x) || typeof x.updatedAt !== "string") return undefined;
   const list = (p: TopPlatform) =>
     (Array.isArray(x[p]) ? (x[p] as unknown[]) : []).flatMap(storedVideo).slice(0, TOP_MAX);
-  return { updatedAt: x.updatedAt, yt: list("yt"), ig: list("ig"), tt: list("tt") };
+  return {
+    updatedAt: x.updatedAt,
+    yt: list("yt"),
+    ig: list("ig"),
+    tt: list("tt"),
+    ...(typeof x.ttUpdatedAt === "string" ? { ttUpdatedAt: x.ttUpdatedAt } : {}),
+  };
 }
 
 /**
- * The stored Instagram or TikTok list: the scan's posts of that platform, each once. The ones more of the scan's
- * searches found come first, then in the order first seen (the searches' order, then Tavily's rank); ≤ 50.
+ * The stored Instagram list (TikTok's too before 2026-10-07): the scan's posts of that platform, each once. The ones
+ * more of the scan's searches found come first, then in the order first seen (the searches' order, then Tavily's rank);
+ * ≤ 50.
  * `searchFamilies` keeps a post once a search, so a post's count is the number of searches that found it. The creator
  * is the handle the URL or the page text gave, when there is one; Tavily gives no views.
  */
