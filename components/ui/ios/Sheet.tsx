@@ -34,8 +34,9 @@ let behind = 0;
 /**
  * iOS sheet (tools/18 §3.5). Portaled to <body> on the z-39 layer, so the skill popup (z-40), ConfirmDialog (z-50),
  * the player (z-60) and celebrations (z-80) open above it. Phones: a bottom sheet with detents (visible fractions of
- * the viewport), dragged by its grabber/header. md+: a centered dialog. Mounted = open; ✕, the backdrop, Esc, a drag
- * past the last detent and Back play the exit, then `onClose` runs (the caller unmounts it).
+ * the viewport), dragged by its grabber/header. md+: a centered dialog (`wide`: 680px instead of 560px). Mounted =
+ * open; ✕, the backdrop, Esc, a drag past the last detent and Back play the exit, then `onClose` runs (the caller
+ * unmounts it). An Escape a child already handled (`preventDefault`: an inline edit reverting) leaves it open.
  */
 export default function Sheet({
   onClose,
@@ -47,6 +48,8 @@ export default function Sheet({
   initialDetent = 0,
   attrs,
   backCloses = true,
+  wide,
+  closeTestId,
   children,
 }: {
   onClose: () => void;
@@ -58,6 +61,8 @@ export default function Sheet({
   initialDetent?: number;
   attrs?: Record<string, string>;
   backCloses?: boolean;
+  wide?: boolean;
+  closeTestId?: string;
   children: ReactNode;
 }) {
   const { t } = useT();
@@ -139,7 +144,7 @@ export default function Sheet({
     body.style.overflow = "hidden";
     panelRef.current?.focus({ preventScroll: true });
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") requestClose();
+      if (e.key === "Escape" && !e.defaultPrevented) requestClose();
     };
     document.addEventListener("keydown", onKey);
     return () => {
@@ -228,6 +233,7 @@ export default function Sheet({
           tabIndex={-1}
           className="ios-sheet"
           data-mode={desktop ? "dialog" : "sheet"}
+          data-wide={wide || undefined}
           data-testid={testId}
           style={style}
           {...attrs}
@@ -242,7 +248,7 @@ export default function Sheet({
             {!desktop && <span className="ios-handle" aria-hidden />}
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <h2 id={titleId} className="ios-sheet-title">
+                <h2 id={titleId} className="ios-sheet-title" dir="auto">
                   {title}
                 </h2>
                 {sub && <p className="ios-sheet-sub">{sub}</p>}
@@ -252,6 +258,7 @@ export default function Sheet({
                 className="ios-close"
                 aria-label={t("common.close")}
                 onClick={requestClose}
+                data-testid={closeTestId}
               >
                 <X size={16} strokeWidth={1.75} aria-hidden />
               </button>

@@ -101,23 +101,13 @@ export default function PostForm({
   };
 
   return (
-    <SheetFrame testId="post-form-sheet" titleId="post-form-title" onClose={onClose}>
+    <SheetFrame
+      testId="post-form-sheet"
+      titleId="post-form-title"
+      title={t("calendar.form.title")}
+      onClose={onClose}
+    >
       <form onSubmit={submit} className="flex flex-col gap-4" data-testid="post-form">
-        <header className="flex items-start gap-3">
-          <h2 id="post-form-title" className="min-w-0 flex-1 text-xl">
-            {t("calendar.form.title")}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("common.close")}
-            className="px-btn px-btn-ghost px-btn-sm shrink-0"
-            data-testid="post-form-close"
-          >
-            ✕
-          </button>
-        </header>
-
         <fieldset className="flex flex-col gap-1.5">
           <legend className="text-ink-2 mb-1.5 text-sm font-bold">
             {t("calendar.form.platform")}

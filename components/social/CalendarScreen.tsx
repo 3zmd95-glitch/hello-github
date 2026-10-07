@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToday } from "@/components/today/useToday";
 import PageHeader from "@/components/ui/ios/PageHeader";
 import Segmented from "@/components/ui/ios/Segmented";
@@ -33,7 +33,10 @@ function clearHash(): void {
  * its tabpanel) per platform (filter chips with the brand glyphs), the "+ New post" sheet and the post popup. Deep
  * links: `#post=<id>` opens that post's popup (the Studio home, the Ideas bank and the skill sheet link here),
  * `#day=YYYY-MM-DD` focuses a day in the week view, as a tap on a day of the week strip or the month grid does; both
- * are read on mount and on `hashchange`, and closing the popup clears the hash with `history.replaceState`.
+ * are read on mount and on `hashchange`.
+ * A tap on a post pushes its `#post=` entry: Back closes the popup (with the sheet's exit), any other close goes back
+ * off the entry. A popup opened from the URL pushed nothing, so closing it clears the hash with
+ * `history.replaceState` and never leaves the calendar.
  */
 export default function CalendarScreen() {
   const { t, L } = useT();
@@ -44,7 +47,10 @@ export default function CalendarScreen() {
   const [weekStart, setWeekStart] = useState(() => weekKey(today));
   const [monthKey, setMonthKey] = useState(() => monthKeyOf(today));
   const [focusDay, setFocusDay] = useState<string | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
+  /** The post popup; `leaving` once Back took its entry away (it plays the exit, then closes). */
+  const [open, setOpen] = useState<{ id: string; leaving: boolean } | null>(null);
+  /** The open popup's `#post=` entry was pushed by a tap here, so closing goes back off it. */
+  const pushed = useRef(false);
   const [draft, setDraft] = useState<{ day: string | null } | null>(null);
 
   /** The week view on that day's week, with the day picked (strip and list). */
@@ -58,14 +64,16 @@ export default function CalendarScreen() {
     const apply = () => {
       const h = parseCalendarHash(window.location.hash);
       if (h.day) showDay(h.day);
+      pushed.current = false;
       if (h.post) {
-        if (useStore.getState().posts.some((p) => p.id === h.post)) setOpenId(h.post);
-        else {
+        if (useStore.getState().posts.some((p) => p.id === h.post)) {
+          setOpen({ id: h.post, leaving: false });
+        } else {
           // Unknown id: fall back to the normal week view.
-          setOpenId(null);
+          setOpen(null);
           clearHash();
         }
-      }
+      } else setOpen((o) => o && { ...o, leaving: true });
     };
     apply();
     window.addEventListener("hashchange", apply);
@@ -77,13 +85,17 @@ export default function CalendarScreen() {
     [posts, filter],
   );
 
-  const open = useCallback((id: string) => {
-    setOpenId(id);
-    history.replaceState(null, "", postHash(id));
+  const openPost = useCallback((id: string) => {
+    setOpen({ id, leaving: false });
+    history.pushState(null, "", postHash(id));
+    pushed.current = true;
   }, []);
   const close = useCallback(() => {
-    setOpenId(null);
-    clearHash();
+    setOpen(null);
+    if (pushed.current) {
+      pushed.current = false;
+      history.back();
+    } else clearHash();
   }, []);
   const newOn = useCallback((day: string | null) => setDraft({ day }), []);
   const created = useCallback((post: Post) => {
@@ -175,7 +187,7 @@ export default function CalendarScreen() {
               setFocusDay(null);
             }}
             onDay={showDay}
-            onOpen={open}
+            onOpen={openPost}
             onNewOn={newOn}
           />
         )}
@@ -189,13 +201,13 @@ export default function CalendarScreen() {
             onNewOn={newOn}
           />
         )}
-        {view === "stages" && <StagesBoard posts={filtered} onOpen={open} />}
+        {view === "stages" && <StagesBoard posts={filtered} onOpen={openPost} />}
       </div>
 
       {draft && (
         <PostForm initialDay={draft.day} onClose={() => setDraft(null)} onCreated={created} />
       )}
-      {openId && <PostSheet key={openId} postId={openId} onClose={close} />}
+      {open && <PostSheet key={open.id} postId={open.id} leaving={open.leaving} onClose={close} />}
     </div>
   );
 }

@@ -132,6 +132,8 @@ test("plan a post from idea to posted: week, popup, script, shots, month and sta
   await page.getByTestId("post-tab-script").click();
   await expect(page.getByTestId("script-hook")).toHaveValue("وقّف! لا تكمّل تمرير قبل ما تشوف دا");
   await page.getByTestId("post-close").click();
+  // Closing goes back off the entry the tap pushed (asynchronous): wait for it before the next navigation.
+  await expect(page).not.toHaveURL(/#post=/);
 
   // Deep link contract: /social/calendar/#post=<id> opens that post's popup on load.
   await page.goto(`/social/calendar/#post=${id}`);
@@ -272,4 +274,63 @@ test("the week strip rests on this week, a swipe to next week moves the view, a 
   await expect(page.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "cal-view-tab-week");
   await expect(page.getByTestId("post-card")).toHaveCount(1);
   await noHorizontalScroll(page);
+});
+
+test("the post popup and history: a tap pushes #post=, Back closes it with the exit, a deep link closes in place", async ({
+  page,
+}) => {
+  await freshState(page, "/social/calendar/");
+  await page.locator('[data-testid="calendar-new"]:visible').click();
+  await page.getByTestId("post-title").fill("Back test");
+  await page.getByTestId("post-save").click();
+  const card = page.getByTestId("post-card");
+  const id = (await card.getAttribute("data-post")) ?? "";
+  const sheet = page.getByTestId("post-sheet");
+
+  // A tap pushes the popup's entry; Back closes the popup with the sheet's exit (motion on for this step) and stays
+  // on the calendar.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await card.locator("button").first().click();
+  await expect(sheet).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/social/calendar/#post=${id}$`));
+  await page.locator(".ios-sheet-root").evaluate((root) => {
+    const phases: string[] = [];
+    (window as unknown as { phases: string[] }).phases = phases;
+    new MutationObserver(() => phases.push(root.getAttribute("data-phase") ?? "")).observe(root, {
+      attributes: true,
+      attributeFilter: ["data-phase"],
+    });
+  });
+  await page.goBack();
+  await expect(sheet).toHaveCount(0);
+  await expect(page).toHaveURL(/\/social\/calendar\/$/);
+  expect(await page.evaluate(() => (window as unknown as { phases: string[] }).phases)).toContain(
+    "exit",
+  );
+  await page.emulateMedia({ reducedMotion: "reduce" });
+
+  // Escape: the first one reverts a title edit in progress (the sheet stays), the next one closes the sheet and goes
+  // back off its entry.
+  await card.locator("button").first().click();
+  await expect(page).toHaveURL(/#post=/);
+  // The sheet's body scrolls; the segmented tabs keep their height instead of shrinking with it.
+  expect((await sheet.getByRole("tablist").boundingBox())?.height).toBeGreaterThanOrEqual(32);
+  const title = page.getByTestId("post-title-edit");
+  await title.fill("Edited");
+  await title.press("Escape");
+  await expect(title).toHaveValue("Back test");
+  await expect(sheet).toBeVisible();
+  await title.press("Escape");
+  await expect(sheet).toHaveCount(0);
+  await expect(page).toHaveURL(/\/social\/calendar\/$/);
+  await expect(card).toContainText("Back test");
+
+  // A deep link pushed nothing: ✕ clears the hash in place and never navigates away from the calendar.
+  await page.goto("/social/");
+  await page.goto(`/social/calendar/#post=${id}`);
+  await expect(sheet).toBeVisible();
+  await page.getByTestId("post-close").click();
+  await expect(sheet).toHaveCount(0);
+  await expect(page).toHaveURL(/\/social\/calendar\/$/);
+  await expect(page.getByTestId("calendar-screen")).toBeVisible();
 });

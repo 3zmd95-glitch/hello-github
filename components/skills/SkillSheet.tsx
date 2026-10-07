@@ -65,7 +65,7 @@ export default function SkillSheet({ skillId, onClose }: { skillId: string; onCl
         aria-labelledby={titleId}
         tabIndex={-1}
         data-testid="skill-sheet"
-        className="px-card anim-sheet relative flex max-h-[88dvh] w-full flex-col gap-4 overflow-y-auto overscroll-contain rounded-t-[10px] pb-[calc(16px+env(safe-area-inset-bottom,0px))] outline-none md:max-w-[600px] md:rounded-[2px] md:pb-4"
+        className="px-card anim-sheet relative flex max-h-[88dvh] w-full flex-col gap-4 overflow-y-auto overscroll-contain rounded-t-[10px] pb-[calc(16px+env(safe-area-inset-bottom,0px))] outline-none md:max-w-[600px] md:rounded-[var(--radius)] md:pb-4"
       >
         <SheetBody skill={skill} titleId={titleId} onClose={onClose} />
       </div>
