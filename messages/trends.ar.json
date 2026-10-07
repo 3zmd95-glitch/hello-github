@@ -66,5 +66,5 @@
   "trends.err.network": "ما قدرنا نوصل للـ Worker. تأكد من النت",
   "trends.err.rateLimited": "الـ Worker مشغول، جرّب بعد شوي",
   "trends.err.upstream": "الـ Worker رد بشي ما فهمناه. جرّب مرة ثانية",
-  "trends.inboxNew": "📈 {n} ترند جديد هذا الأسبوع"
+  "trends.inboxNew": "{n} ترند جديد هذا الأسبوع"
 }

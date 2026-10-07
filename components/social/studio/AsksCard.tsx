@@ -1,17 +1,25 @@
 "use client";
 
+import { MessageCircle, Sparkles } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { HeadLink } from "@/components/ui/ios/Card";
+import EmptyState from "@/components/ui/ios/EmptyState";
+import { ListGroup, ListRow } from "@/components/ui/ios/List";
 import { topAsks } from "@/lib/growth";
 import { useT } from "@/lib/i18n";
+import { PLATFORM_META } from "@/lib/social";
 import { useStore } from "@/store";
-import { PlatformChip } from "./platform";
+import { withNum } from "./platform";
 
 const norm = (s: string) => s.trim().toLowerCase();
 
-/** Top 3 "what people want" asks with their counts; each can become an idea in the bank. */
+/**
+ * Top 3 "what people want" asks with their counts, as a grouped list; each can become an idea in the bank. The
+ * button then morphs into the "in the ideas bank" chip with a pop, and the chip takes the button's focus.
+ */
 export default function AsksCard() {
-  const { t } = useT();
+  const { t, L } = useT();
   const asks = useStore((s) => s.audienceAsks);
   const ideas = useStore((s) => s.ideas);
   const addIdea = useStore((s) => s.addIdea);
@@ -20,77 +28,80 @@ export default function AsksCard() {
     () => new Set(ideas.filter((i) => i.source === "audience").map((i) => norm(i.text))),
     [ideas],
   );
+  const [converted, setConverted] = useState<string | null>(null);
+  const chipRef = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    if (converted) chipRef.current?.focus();
+  }, [converted]);
 
   return (
-    <section
-      className="px-card flex flex-col gap-3"
-      data-testid="studio-asks"
+    <ListGroup
+      header={t("social.studio.asks")}
+      testId="studio-asks"
       data-empty={top.length === 0}
-    >
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base">{t("social.studio.asks")}</h2>
-        <Link
-          href="/social/growth/"
-          className="px-link text-xs no-underline"
-          data-testid="studio-asks-open"
-        >
+      trailing={
+        <HeadLink href="/social/growth/" testId="studio-asks-open">
           {t("social.studio.asksOpen")}
-        </Link>
-      </header>
+        </HeadLink>
+      }
+    >
       {top.length === 0 ? (
-        <p className="text-ink-2 text-sm" data-testid="studio-asks-empty">
-          {t("social.studio.asksEmpty")}
-        </p>
+        <EmptyState
+          icon={<MessageCircle size={24} strokeWidth={1.75} aria-hidden />}
+          title={t("social.studio.asksEmpty")}
+          testId="studio-asks-empty"
+        />
       ) : (
-        <ol className="flex flex-col gap-2">
-          {top.map((ask, i) => {
-            const saved = inIdeas.has(norm(ask.text));
-            return (
-              <li
-                key={ask.id}
-                className="px-inset flex flex-col gap-2"
-                data-testid="ask-row"
-                data-ask={ask.id}
-              >
-                <div className="flex items-start gap-2">
-                  <span className="num text-muted text-xs">{i + 1}</span>
-                  <span className="min-w-0 flex-1 text-sm">{ask.text}</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-chip" data-testid="ask-count">
-                    {t("social.studio.asksMentions", { n: ask.count })}
+        top.map((ask) => {
+          const just = converted === ask.id;
+          return (
+            <ListRow
+              key={ask.id}
+              icon={<MessageCircle size={22} strokeWidth={1.75} aria-hidden />}
+              title={ask.text}
+              sub={
+                <>
+                  <span data-testid="ask-count">
+                    {withNum(t("social.studio.asksMentions"), ask.count)}
                   </span>
-                  {ask.platform && <PlatformChip platform={ask.platform} />}
-                  {saved ? (
-                    <Link
-                      href="/social/ideas/"
-                      className="px-chip px-chip-green no-underline"
-                      data-testid="ask-in-ideas"
-                    >
-                      {t("social.studio.asksInIdeas")}
-                    </Link>
-                  ) : (
-                    <button
-                      type="button"
-                      className="px-btn px-btn-ghost px-btn-sm ms-auto"
-                      onClick={() =>
-                        addIdea({
-                          text: ask.text,
-                          source: "audience",
-                          ...(ask.platform ? { platform: ask.platform } : {}),
-                        })
-                      }
-                      data-testid="ask-to-idea"
-                    >
-                      {t("social.studio.asksToIdea")}
-                    </button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ol>
+                  {ask.platform && ` · ${L(PLATFORM_META[ask.platform].name)}`}
+                </>
+              }
+              trailing={
+                inIdeas.has(norm(ask.text)) ? (
+                  <Link
+                    ref={just ? chipRef : undefined}
+                    href="/social/ideas/"
+                    className={`ios-chip tint no-underline ${just ? "ios-pop" : ""}`}
+                    data-testid="ask-in-ideas"
+                  >
+                    {t("social.studio.asksInIdeas")}
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    className="px-btn px-btn-ghost px-btn-sm"
+                    onClick={() => {
+                      addIdea({
+                        text: ask.text,
+                        source: "audience",
+                        ...(ask.platform ? { platform: ask.platform } : {}),
+                      });
+                      setConverted(ask.id);
+                    }}
+                    data-testid="ask-to-idea"
+                  >
+                    <Sparkles size={14} strokeWidth={1.75} aria-hidden />
+                    {t("social.studio.asksToIdea")}
+                  </button>
+                )
+              }
+              testId="ask-row"
+              data-ask={ask.id}
+            />
+          );
+        })
       )}
-    </section>
+    </ListGroup>
   );
 }

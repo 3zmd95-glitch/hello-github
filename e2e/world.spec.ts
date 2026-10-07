@@ -13,9 +13,9 @@ const SOCIAL_PATHS = [
   "/social/more/",
 ];
 
-/** Computed border radius (px) of the first `.px-card` on the page. */
+/** Computed border radius (px) of the first `.px-card`, or iOS `Card` (the Studio has only those). */
 async function cardRadius(page: Page): Promise<number> {
-  const card = page.locator(".px-card").first();
+  const card = page.locator(".px-card, .ios-card").first();
   await expect(card).toBeVisible();
   return card.evaluate((el) => parseFloat(getComputedStyle(el).borderRadius));
 }

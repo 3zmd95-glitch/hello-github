@@ -1772,6 +1772,10 @@
     background: var(--warn-bg);
     color: var(--warn);
   }
+  /* A control that just turned into this element (a button morphing into a chip) pops in. */
+  .ios-pop {
+    animation: ios-pop 0.45s var(--spring);
+  }
   .ios-stat {
     background: var(--panel-2);
     border-radius: 16px;
