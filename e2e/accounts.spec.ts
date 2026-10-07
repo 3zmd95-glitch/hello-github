@@ -326,7 +326,7 @@ test("Social Analytics: live TikTok card from a pull, the seeded Instagram card 
 
   const tt = platformCard(page, "tiktok");
   await expect(tt.getByTestId("source-badge")).toHaveAttribute("data-source", "live");
-  await expect(tt.locator('[data-metric="totalFollowers"]')).toContainText("1.3k");
+  await expect(tt.locator('[data-metric="totalFollowers"]')).toContainText("1.3K");
   await expect(tt.getByTestId("platform-card-link")).toHaveAttribute(
     "href",
     "https://www.tiktok.com/@3z.prod",

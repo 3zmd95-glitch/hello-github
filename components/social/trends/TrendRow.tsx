@@ -2,7 +2,7 @@
 
 import { Search, Star, X } from "lucide-react";
 import Link from "next/link";
-import { fmtCount } from "@/components/social/studio/platform";
+import { fmtCount } from "@/components/social/growth/format";
 import PlatformBadge from "@/components/ui/ios/PlatformBadge";
 import type { TrendItem } from "@/lib/domain";
 import { useT } from "@/lib/i18n";

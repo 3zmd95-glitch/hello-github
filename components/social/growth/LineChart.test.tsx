@@ -241,7 +241,10 @@ describe("LineChart", () => {
     expect(svg.dataset.scrubbing).toBe("true");
     expect(value()).toBe("1,250");
     expect(tip.querySelector("small")!.textContent).not.toBe("");
-    expect(tip.style.left).toBe(`${clampTip(Number(ring.getAttribute("cx")), width)}px`);
+    expect(tip.style.getPropertyValue("--tip-x")).toBe(
+      `${clampTip(Number(ring.getAttribute("cx")), width)}px`,
+    );
+    expect(tip.style.left).toBe("");
     pointer("pointermove", width, 100);
     expect(value()).toBe("1,478");
     expect(tip.querySelector("small")!.textContent).toBe("اليوم");

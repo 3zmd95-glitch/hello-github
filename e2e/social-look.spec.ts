@@ -150,6 +150,28 @@ test("Social tab bar: the lens follows the active tab, no lens without a tab, mi
   await expect(page.getByTestId("tab-indicator")).toHaveCount(0);
 });
 
+test("reduced motion: the tab bar runs no transition or animation, also after a scroll", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "tab bar is phone only");
+  // The suite runs with prefers-reduced-motion: reduce (playwright.config).
+  await freshState(page, "/social/");
+  const tabbar = page.getByTestId("tabbar");
+  await expect(tabbar).toBeVisible();
+  const running = () =>
+    tabbar.evaluate(
+      (el) => el.getAnimations({ subtree: true }).filter((a) => a.playState === "running").length,
+    );
+  expect(await running()).toBe(0);
+  await page.evaluate(() => window.scrollTo(0, 400));
+  await expect(page.locator("html")).toHaveAttribute("data-tabbar", "mini");
+  expect(await running()).toBe(0);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.locator("html")).not.toHaveAttribute("data-tabbar");
+  expect(await running()).toBe(0);
+});
+
 test("theme-color follows the world and survives client navigation", async ({ page }) => {
   await freshState(page, "/social/");
   const colors = () =>

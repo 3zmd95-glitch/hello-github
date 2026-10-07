@@ -1806,6 +1806,10 @@
     background: var(--warn-bg);
     color: var(--warn);
   }
+  /* The one spinner (pull to refresh, the radar's refresh, Growth's sync): a full turn every 0.8s. */
+  .ios-spin {
+    animation: ios-spin 0.8s linear infinite;
+  }
   /* A control that just turned into this element (a button morphing into a chip) pops in. */
   .ios-pop {
     animation: ios-pop 0.45s var(--spring);
@@ -2407,12 +2411,6 @@
     transform: translateY(12px) scale(0.992);
   }
 }
-@keyframes ios-pout {
-  to {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-}
 @keyframes ios-pop {
   50% {
     transform: scale(1.35);
@@ -2494,12 +2492,17 @@
   overflow: hidden;
   min-width: 40px;
 }
+/* The fill is full width and scaled from the inline start (transform only, never width). */
 .an-bar > i {
   display: block;
   height: 100%;
   border-radius: 999px;
   background: var(--c, var(--ink));
-  transition: width 0.4s ease;
+  transform-origin: right center;
+  transition: transform var(--t-med) var(--out);
+}
+[dir="ltr"] .an-bar > i {
+  transform-origin: left center;
 }
 .an-swatch {
   display: inline-block;
@@ -2517,26 +2520,6 @@
   font-size: 15px;
   font-weight: 700;
   font-family: var(--font-body);
-}
-.an-toggle {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 999px;
-  border: 1px solid var(--edge);
-  background: var(--panel);
-}
-.an-toggle > button {
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-.an-toggle > button[aria-pressed="true"] {
-  background: var(--panel-3);
-  color: var(--ink);
 }
 
 /* Charts (mockup `.chart`). LineChart sets data-drawn "false" then "true" on the svg: the line draws itself, the area
@@ -2610,10 +2593,13 @@
 .an-chart [data-scrubbing] :is(.an-mk, .an-mkd) {
   opacity: 1;
 }
+/* x rides on `translate` (set per move, never transitioned, so it keeps up with the finger); the show / hide drop is
+   the transitioned `transform`. */
 .an-tip {
   position: absolute;
   top: 0;
   left: 0;
+  translate: var(--tip-x, 0px) 0;
   z-index: 2;
   display: flex;
   flex-direction: column;
@@ -3173,6 +3159,10 @@
 }
 .ios-chips::-webkit-scrollbar {
   display: none;
+}
+/* The row scrolls sideways (and clips what reaches past it): the chips' focus ring is drawn inside. */
+.ios-chips > :focus-visible {
+  outline-offset: -2px;
 }
 @media (min-width: 768px) {
   .ios-chips {

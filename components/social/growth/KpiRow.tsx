@@ -3,7 +3,7 @@
 import StatTile from "@/components/ui/ios/StatTile";
 import type { AllOverview } from "@/lib/analytics";
 import { useT } from "@/lib/i18n";
-import { countParts } from "./format";
+import { compactCount } from "./format";
 
 /**
  * The "All" view's four KPI tiles (white cards on the page ground, as in the mockup): Total Followers · Avg.
@@ -12,7 +12,7 @@ import { countParts } from "./format";
 export default function KpiRow({ all, countUp }: { all: AllOverview; countUp: boolean }) {
   const { t } = useT();
   const hint = t("growth.kpi.hint");
-  const counted = (n: number | null) => (n === null ? null : countParts(n));
+  const counted = (n: number | null) => (n === null ? null : compactCount(n));
   const tiles = [
     {
       id: "followers",

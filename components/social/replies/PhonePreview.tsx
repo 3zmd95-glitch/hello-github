@@ -101,6 +101,7 @@ export default function PhonePreview({
       </div>
       {tabs.length > 1 && (
         <Segmented
+          role="radiogroup"
           className="w-full max-w-72"
           label={t("replies.form.preview")}
           value={shown}

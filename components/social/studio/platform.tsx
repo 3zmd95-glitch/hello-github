@@ -69,25 +69,6 @@ export function PlatformPicker({
 }
 
 /**
- * A count split for display (and for a count-up that keeps its suffix): 1_478 → 1.5 "K", 184_230 → 184 "K",
- * 2_100_000 → 2.1 "M"; one decimal under 100 unless it is .0, whole numbers from 100 up and below 1,000.
- */
-export function compactCount(n: number): { value: number; decimals: number; suffix: string } {
-  const abs = Math.abs(n);
-  const [unit, suffix] =
-    abs >= 1_000_000 ? [1_000_000, "M"] : abs >= 1_000 ? [1_000, "K"] : [1, ""];
-  const x = abs / unit;
-  const value = unit === 1 || x >= 100 ? Math.round(x) : Number(x.toFixed(1));
-  return { value: n < 0 ? -value : value, decimals: Number.isInteger(value) ? 0 : 1, suffix };
-}
-
-/** "1.2K" / "108.7K" / "1.2M" with Latin digits; below 1000 as is. */
-export function fmtCount(n: number): string {
-  const { value, decimals, suffix } = compactCount(n);
-  return `${value.toFixed(decimals)}${suffix}`;
-}
-
-/**
  * A translated line that keeps its `{n}` placeholder (`t(key)` called without `n`), with `n` rendered as an
  * LTR-isolated `.num`, so a sign or a "K" stays beside its digits inside Arabic text.
  */

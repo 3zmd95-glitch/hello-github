@@ -132,7 +132,7 @@ export default function PlatformTab({
     >
       {/* Overview */}
       <section className="flex flex-col gap-2" data-testid="platform-overview">
-        <h2 className="text-base">{t("growth.overview.title", { platform: name })}</h2>
+        <h2 className="ios-gh text-[13px]">{t("growth.overview.title", { platform: name })}</h2>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
           {overview.rows.map((row) => (
             <div
@@ -171,7 +171,9 @@ export default function PlatformTab({
       ) : (
         <section className="px-card flex flex-col gap-2" data-testid="demographics-empty">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base">{t("growth.demo.title", { platform: name })}</h2>
+            <h2 className="text-ink-2 text-[13px] font-semibold">
+              {t("growth.demo.title", { platform: name })}
+            </h2>
             <button
               type="button"
               className="px-btn px-btn-ghost px-btn-sm ms-auto"
@@ -296,7 +298,7 @@ export default function PlatformTab({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {/* This week's planned posts */}
         <section className="px-card flex flex-col gap-2" data-testid="planned-posts">
-          <h2 className="text-base">{t("growth.planned.title")}</h2>
+          <h2 className="text-ink-2 text-[13px] font-semibold">{t("growth.planned.title")}</h2>
           {week.length === 0 ? (
             <p className="text-ink-2 text-sm">
               {t("growth.planned.empty")}{" "}
@@ -331,7 +333,7 @@ export default function PlatformTab({
 
         {/* Latest posted (calendar) + tip */}
         <section className="px-card flex flex-col gap-2" data-testid="posted-posts">
-          <h2 className="text-base">{t("growth.posted.title")}</h2>
+          <h2 className="text-ink-2 text-[13px] font-semibold">{t("growth.posted.title")}</h2>
           {posted.length === 0 ? (
             <p className="text-ink-2 text-sm">{t("growth.posted.empty")}</p>
           ) : (
@@ -351,7 +353,7 @@ export default function PlatformTab({
       {/* Snapshot history */}
       <section className="px-card flex flex-col gap-3" data-testid="snapshot-history">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-base">{t("growth.history.title")}</h2>
+          <h2 className="text-ink-2 text-[13px] font-semibold">{t("growth.history.title")}</h2>
           <span className="text-muted text-xs">
             {t("growth.chart.days90")} · <span className="num">{history.length}</span>
           </span>

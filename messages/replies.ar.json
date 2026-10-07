@@ -98,7 +98,6 @@
   "replies.err.rejected": "إنستقرام رفض",
   "replies.err.upstream": "فيه مشكلة عند إنستقرام",
   "replies.err.notEligible": "إنستقرام ما يقبل رسالة خاصة على هذا التعليق (قديم أكثر من 7 أيام، أو انرد عليه بالخاص قبل، أو انحذف، أو صاحبه ما يستقبل رسائل).",
-  "replies.notice.saved": "انحفظ ✓",
   "replies.notice.deleted": "انحذف",
   "replies.notice.scanRequested": "طلبنا فحص؛ الردود تطلع خلال دقيقة.",
   "replies.notice.paused": "الردود موقّفة؛ شغّلها عشان نفحص.",

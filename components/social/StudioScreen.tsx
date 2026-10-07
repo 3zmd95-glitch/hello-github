@@ -94,7 +94,7 @@ function PullToRefresh() {
   const { pull, refreshing } = usePullToRefresh(async (held) => {
     const r = configured ? await syncSocialNow() : null;
     await held; // the spinner turns first, then the toast (mockup)
-    if (r && !r.ok) toast("notice", { icon: "⚠️", sound: null, name: t(r.error) });
+    if (r && !r.ok) toast("notice", { icon: "⚠️", tone: "warn", sound: null, name: t(r.error) });
     else toast("notice", { icon: "", name: t("social.studio.refreshed") });
   });
 

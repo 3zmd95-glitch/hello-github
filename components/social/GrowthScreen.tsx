@@ -1,11 +1,12 @@
 "use client";
 
-import { FileUp, Link2, LoaderCircle, Plus, Sparkles } from "lucide-react";
+import { FileUp, Link2, LoaderCircle, Plus, Sparkles, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useToday } from "@/components/today/useToday";
+import EmptyState from "@/components/ui/ios/EmptyState";
 import PageHeader from "@/components/ui/ios/PageHeader";
 import { useFirstVisit } from "@/components/ui/ios/useFirstVisit";
 import { useSocialSync } from "@/components/social/useSocialSync";
@@ -100,7 +101,7 @@ export default function GrowthScreen() {
           >
             {sync.busy ? (
               <>
-                <LoaderCircle size={16} strokeWidth={1.75} className="acc-spin" aria-hidden />
+                <LoaderCircle size={16} strokeWidth={1.75} className="ios-spin" aria-hidden />
                 {t("growth.sync.busy")}
               </>
             ) : (
@@ -211,31 +212,39 @@ export default function GrowthScreen() {
             animate={first}
           />
         ) : all.platforms.length === 0 ? (
-          <section className="px-card flex flex-col gap-3" data-testid="growth-empty">
-            <h2 className="text-lg">{t("growth.empty.title")}</h2>
-            <p className="text-ink-2 text-sm">{t("growth.empty.body")}</p>
-            <p className="text-muted text-xs">{t("growth.empty.where")}</p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="px-btn"
-                onClick={() => setDialog("add")}
-                data-testid="empty-add"
-              >
-                <Plus size={18} strokeWidth={1.75} aria-hidden />
-                {t("growth.add")}
-              </button>
-              <button
-                type="button"
-                className="px-btn px-btn-ghost"
-                onClick={() => setDialog("import")}
-                data-testid="empty-import"
-              >
-                <FileUp size={18} strokeWidth={1.75} aria-hidden />
-                {t("growth.import")}
-              </button>
-            </div>
-          </section>
+          <div className="ios-list">
+            <EmptyState
+              icon={<TrendingUp size={24} strokeWidth={1.75} aria-hidden />}
+              title={t("growth.empty.title")}
+              hint={t("growth.empty.body")}
+              action={
+                <div className="flex flex-col items-center gap-3">
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <button
+                      type="button"
+                      className="px-btn"
+                      onClick={() => setDialog("add")}
+                      data-testid="empty-add"
+                    >
+                      <Plus size={18} strokeWidth={1.75} aria-hidden />
+                      {t("growth.add")}
+                    </button>
+                    <button
+                      type="button"
+                      className="px-btn px-btn-ghost"
+                      onClick={() => setDialog("import")}
+                      data-testid="empty-import"
+                    >
+                      <FileUp size={18} strokeWidth={1.75} aria-hidden />
+                      {t("growth.import")}
+                    </button>
+                  </div>
+                  <p className="text-muted max-w-[36ch] text-xs">{t("growth.empty.where")}</p>
+                </div>
+              }
+              testId="growth-empty"
+            />
+          </div>
         ) : (
           <>
             <KpiRow all={all} countUp={first} />

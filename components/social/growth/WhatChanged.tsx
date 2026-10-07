@@ -21,8 +21,8 @@ export default function WhatChanged({
   );
   return (
     <section className="px-card flex flex-col gap-2" data-testid="analytics-changed-card">
-      <h2 className="flex items-center gap-2 text-base">
-        <Sparkles size={18} strokeWidth={1.75} className="text-tint shrink-0" aria-hidden />
+      <h2 className="text-ink-2 flex items-center gap-2 text-[13px] font-semibold">
+        <Sparkles size={15} strokeWidth={1.75} className="text-tint shrink-0" aria-hidden />
         {t("growth.changed.title")}
       </h2>
       <ul className="flex flex-col gap-1 text-sm" data-testid="analytics-changed-text">

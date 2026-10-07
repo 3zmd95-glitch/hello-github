@@ -21,7 +21,9 @@ const CORS = {
 };
 
 async function fitsViewport(page: Page): Promise<boolean> {
-  return page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  return page.evaluate(
+    () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+  );
 }
 
 /**

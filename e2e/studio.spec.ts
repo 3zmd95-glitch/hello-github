@@ -7,7 +7,7 @@ const SKILL_ID = "smart-bins-keywords";
 const STORAGE_KEY = "3z-prod-v1";
 
 const fitsViewport = (page: Page) =>
-  page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
 /** Today's Riyadh day key, the way lib/streak computes it. */
 const riyadhToday = (): string =>

@@ -123,7 +123,9 @@ test("creator previews, protects edits, applies selected fields and exports prod
     expect(spoken.join(" ")).toBe([draft.hook, ...draft.beats, draft.cta].join(" "));
   }
   expect(requests).toBe(2);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
-    true,
-  );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
 });

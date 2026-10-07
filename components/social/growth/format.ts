@@ -2,8 +2,9 @@ import type { Platform } from "@/lib/domain";
 import type { MetricFormat } from "@/lib/analytics";
 
 /**
- * Number formatting for the Social Analytics screen, the way Beacons shows them: Latin digits in both
- * languages, compact from 1,000 up with one decimal ("1.5k", "30.2k", "1.2m"), whole numbers below.
+ * Number formatting for the Social world (Studio, Growth, the Trend Radar): Latin digits in both languages; counts
+ * compact from 1,000 up with an uppercase K / M and one decimal where it adds information ("12.4K", "184.2K",
+ * "30K", "2.1M"), whole numbers below.
  */
 const plain = new Intl.NumberFormat("en");
 
@@ -12,28 +13,26 @@ const oneDecimal = (x: number): string => {
   return r % 1 === 0 ? String(r) : r.toFixed(1);
 };
 
-export function fmtCount(n: number): string {
-  if (!Number.isFinite(n)) return "–";
-  const abs = Math.abs(n);
-  const sign = n < 0 ? "−" : "";
-  if (abs >= 1_000_000) return `${sign}${oneDecimal(abs / 1_000_000)}m`;
-  if (abs >= 1_000) return `${sign}${oneDecimal(abs / 1_000)}k`;
-  return `${sign}${plain.format(Math.round(abs))}`;
-}
-
 /**
- * `fmtCount`'s number split for a count-up that keeps its suffix: 1_478 → 1.5 "k", 30_000 → 30 "k", 999 → 999 "".
- * Printed as `value` with `decimals` digits, then the suffix, it reads like fmtCount.
+ * A count split for display and for a count-up that keeps its suffix: 1_478 → 1.5 "K", 30_000 → 30 "K",
+ * 184_230 → 184.2 "K", 999 → 999 "". A rounding that reaches the next unit moves up (999_950 → 1 "M").
+ * Printed as `value` with `decimals` digits, then the suffix, it reads like `fmtCount`.
  */
-export function countParts(n: number): { value: number; decimals: number; suffix: string } {
+export function compactCount(n: number): { value: number; decimals: number; suffix: string } {
   const abs = Math.abs(n);
-  const [unit, suffix] =
-    abs >= 1_000_000 ? [1_000_000, "m"] : abs >= 1_000 ? [1_000, "k"] : [1, ""];
+  const [unit, suffix] = abs >= 999_950 ? [1_000_000, "M"] : abs >= 999.5 ? [1_000, "K"] : [1, ""];
   const value = unit === 1 ? Math.round(abs) : Math.round((abs / unit) * 10) / 10;
   return { value: n < 0 ? -value : value, decimals: Number.isInteger(value) ? 0 : 1, suffix };
 }
 
-/** Signed compact count: "+300", "−1.2k", "0". */
+/** "12.4K", "184.2K", "−300": `compactCount` as text (a minus sign, not a hyphen). */
+export function fmtCount(n: number): string {
+  if (!Number.isFinite(n)) return "–";
+  const { value, decimals, suffix } = compactCount(n);
+  return `${value < 0 ? "−" : ""}${Math.abs(value).toFixed(decimals)}${suffix}`;
+}
+
+/** Signed compact count: "+300", "−1.2K", "0". */
 export function fmtSigned(n: number): string {
   if (!Number.isFinite(n)) return "–";
   if (n === 0) return "0";
@@ -78,7 +77,7 @@ export function fmtMetric(value: number | null | undefined, format: MetricFormat
   }
 }
 
-/** Axis ticks: "1.2k" style, but whole numbers under 1,000. */
+/** Axis ticks: "1.2K" style, but whole numbers under 1,000. */
 export function fmtTick(n: number): string {
   return Math.abs(n) >= 1000 ? fmtCount(n) : plain.format(Math.round(n));
 }

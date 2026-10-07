@@ -79,6 +79,8 @@ export interface CelebrationPayload {
   name?: string;
   /** notice: the icon to show (defaults to ℹ️). */
   icon?: string;
+  /** notice: "warn" for an error or a warning; Social draws its warning icon from this, Training keeps `icon`. */
+  tone?: "warn";
   /** Override the kind's default sound; null = silent. */
   sound?: SoundName | null;
 }
@@ -269,7 +271,7 @@ function SmallToast({ item }: { item: Item }) {
       {social ? (
         // 📱 A glass capsule with a line icon; the emoji icon is not shown in Social.
         <div data-testid="toast" data-kind={item.kind} className="ios-toast glass anim-toast">
-          {icon === "⚠️" ? (
+          {item.payload.tone === "warn" ? (
             <TriangleAlert size={18} strokeWidth={1.75} className="text-warn" aria-hidden />
           ) : (
             <Check size={18} strokeWidth={1.75} aria-hidden />

@@ -98,7 +98,6 @@
   "replies.err.rejected": "Instagram refused",
   "replies.err.upstream": "Instagram has a problem",
   "replies.err.notEligible": "Instagram takes no private reply to this comment (older than 7 days, already answered privately, deleted, or the account blocks message requests).",
-  "replies.notice.saved": "Saved ✓",
   "replies.notice.deleted": "Deleted",
   "replies.notice.scanRequested": "Check requested; replies go out within a minute.",
   "replies.notice.paused": "Replies are paused; switch them back on to check.",

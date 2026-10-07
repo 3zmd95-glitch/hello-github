@@ -3,6 +3,7 @@
 import { MapPin, PenLine, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import Segmented from "@/components/ui/ios/Segmented";
 import { formatDayShort } from "@/components/planner/weekLabel";
 import {
   AGE_BUCKETS,
@@ -87,7 +88,9 @@ export default function Demographics({
       data-day={day ?? ""}
     >
       <header className="flex flex-wrap items-center gap-2">
-        <h2 className="text-base">{t("growth.demo.title", { platform: name })}</h2>
+        <h2 className="text-ink-2 text-[13px] font-semibold">
+          {t("growth.demo.title", { platform: name })}
+        </h2>
         {day && (
           <span className="px-chip num" data-testid="demo-day">
             {t("growth.demo.asOf", { day: formatDayShort(day, lang) })}
@@ -157,23 +160,23 @@ export default function Demographics({
           >
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-ink-2 text-xs font-semibold">{t("growth.demo.age")}</h3>
-              <div className="an-toggle ms-auto" role="group" aria-label={t("growth.demo.age")}>
-                {(["all", "male", "female"] as const).map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    aria-pressed={ageView === v}
-                    onClick={() => setAgeView(v)}
-                    data-testid={`demo-age-toggle-${v}`}
-                  >
-                    {v === "all"
+              <Segmented
+                role="radiogroup"
+                label={t("growth.demo.age")}
+                className="ms-auto"
+                value={ageView}
+                onChange={setAgeView}
+                options={(["all", "male", "female"] as const).map((v) => ({
+                  value: v,
+                  label:
+                    v === "all"
                       ? t("growth.demo.ageAll")
                       : v === "male"
                         ? t("growth.demo.male")
-                        : t("growth.demo.female")}
-                  </button>
-                ))}
-              </div>
+                        : t("growth.demo.female"),
+                  testId: `demo-age-toggle-${v}`,
+                }))}
+              />
             </div>
             {ageRows.length === 0 && (
               <p className="text-muted text-xs" data-testid="demo-age-empty">
@@ -193,7 +196,7 @@ export default function Demographics({
                     {b.bucket}
                   </span>
                   <span className="an-bar flex-1">
-                    <i style={{ width: `${maxAge > 0 ? (b.pct / maxAge) * 100 : 0}%` }} />
+                    <i style={{ transform: `scaleX(${maxAge > 0 ? b.pct / maxAge : 0})` }} />
                   </span>
                   <b className="num w-12 shrink-0 text-end text-xs">{fmtEngagement(b.pct)}</b>
                 </li>
@@ -208,19 +211,18 @@ export default function Demographics({
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-ink-2 text-xs font-semibold">{t("growth.demo.geo")}</h3>
               {cities.length > 0 && (
-                <div className="an-toggle ms-auto" role="group" aria-label={t("growth.demo.geo")}>
-                  {(["country", "city"] as const).map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      aria-pressed={geo === v}
-                      onClick={() => setGeoView(v)}
-                      data-testid={`demo-geo-toggle-${v}`}
-                    >
-                      {v === "country" ? t("growth.demo.countries") : t("growth.demo.cities")}
-                    </button>
-                  ))}
-                </div>
+                <Segmented
+                  role="radiogroup"
+                  label={t("growth.demo.geo")}
+                  className="ms-auto"
+                  value={geo}
+                  onChange={setGeoView}
+                  options={(["country", "city"] as const).map((v) => ({
+                    value: v,
+                    label: v === "country" ? t("growth.demo.countries") : t("growth.demo.cities"),
+                    testId: `demo-geo-toggle-${v}`,
+                  }))}
+                />
               )}
             </div>
             <ul className="flex flex-col gap-1.5">
@@ -243,7 +245,7 @@ export default function Demographics({
                     {geo === "city" ? r.key : countryName(r.key, lang)}
                   </span>
                   <span className="an-bar flex-1">
-                    <i style={{ width: `${maxGeo > 0 ? (r.pct / maxGeo) * 100 : 0}%` }} />
+                    <i style={{ transform: `scaleX(${maxGeo > 0 ? r.pct / maxGeo : 0})` }} />
                   </span>
                   <b className="num w-12 shrink-0 text-end text-xs">{fmtEngagement(r.pct)}</b>
                 </li>

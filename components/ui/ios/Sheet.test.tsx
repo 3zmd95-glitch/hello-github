@@ -259,6 +259,23 @@ describe("Sheet with motion (phone)", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("ignores a second finger while a drag is in progress", () => {
+    const onClose = vi.fn();
+    const { sheet, fire } = open(onClose);
+    const grab = sheet.querySelector(".ios-grab")!;
+    fire("pointerdown", 300, 1000);
+    fire("pointermove", 340, 1100); // 40px down
+    act(() => {
+      const e = new PointerEvent("pointerdown", { bubbles: true, clientY: 600, pointerId: 2 });
+      Object.defineProperty(e, "timeStamp", { value: 1150 });
+      grab.dispatchEvent(e);
+    });
+    fire("pointermove", 360, 1200); // the first finger goes on: 60px from where it started
+    expect(sheet.style.transform).toBe(`translate3d(0, ${mediumY() + 60}px, 0)`);
+    fire("pointerup", 360, 1400);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("springs back to its detent when beforeClose refuses a flick past the last one", () => {
     const onClose = vi.fn();
     const beforeClose = vi.fn(() => false);

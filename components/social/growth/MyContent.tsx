@@ -75,7 +75,7 @@ export default function MyContent({
     <section className="flex flex-col gap-3" data-testid="my-content" data-count={stats.length}>
       <header className="flex flex-col gap-2 px-1 sm:flex-row sm:items-end sm:gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h2 className="text-base">{t("growth.content.title")}</h2>
+          <h2 className="text-ink-2 text-[13px] font-semibold">{t("growth.content.title")}</h2>
           <p className="text-ink-2 text-[13px]">{t("growth.content.sub")}</p>
         </div>
         <div className="flex flex-wrap gap-2">

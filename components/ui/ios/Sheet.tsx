@@ -227,7 +227,8 @@ export default function Sheet({
   const stops = [...order.map(restY), closedY];
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (desktop || phase !== "open" || e.button !== 0) return;
+    // One drag at a time: a second finger on the grabber would restart it from the wrong base.
+    if (drag.current || desktop || phase !== "open" || e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button, a, input, textarea, select")) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const base = restY(detent);

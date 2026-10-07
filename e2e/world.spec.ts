@@ -209,8 +209,11 @@ for (const path of SOCIAL_PATHS) {
   test(`no horizontal scroll on ${path}`, async ({ page }) => {
     await freshState(page, path);
     await expect(page.locator("html")).toHaveAttribute("data-world", "social");
+    // The routes ship only the splash: measure the screen, against the page's own width (on the phone, mobile
+    // emulation grows innerWidth to fit any overflow).
+    await expect(page.locator("main h1").first()).toBeVisible();
     const fits = await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
     );
     expect(fits).toBe(true);
   });

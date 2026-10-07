@@ -31,7 +31,7 @@ export default function PostActivity({
   ];
   return (
     <section className="px-card flex flex-col gap-3" data-testid="post-activity">
-      <h2 className="text-base">{title}</h2>
+      <h2 className="text-ink-2 text-[13px] font-semibold">{title}</h2>
       <div className="grid grid-cols-3 gap-2">
         {tiles.map(([id, n, label]) => (
           <div key={id} className="ios-stat" data-testid={`activity-${id}`} data-value={n}>
