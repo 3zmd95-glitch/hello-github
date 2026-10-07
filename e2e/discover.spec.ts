@@ -890,6 +890,10 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
   // A technique's skill opens that skill; its videos play in the app's player.
   const panning = cat.getByTestId("category-technique").first();
   await expect(panning.getByTestId("category-ai")).toHaveText("✦ AI");
+  // The Arabic how-to reads right to left: the "✦ AI" badge carries its own direction, so the paragraph's dir=auto
+  // goes by the how-to's words.
+  const howTo = panning.getByTestId("category-ai").locator("..");
+  expect(await howTo.evaluate((p) => p.matches(":dir(rtl)"))).toBe(true);
   await panning.getByTestId("category-skill").click();
   await expect(page.getByTestId("skill-sheet")).toBeVisible();
   await page.getByTestId("sheet-close").click();
@@ -924,6 +928,8 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
     cat.getByRole("heading", { level: 3, name: "🔥 Trending in Cars this week" }),
   ).toBeVisible();
   await expect(cat.getByTestId("category-search-all")).toHaveText("Search all Cars videos →");
+  // In English the how-to reads left to right.
+  expect(await howTo.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
   await cat.getByTestId("category-search-all").click();
   await expect
     .poll(() => asked.at(-1))

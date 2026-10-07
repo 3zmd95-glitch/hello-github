@@ -303,15 +303,8 @@ export default function ResearchPanel({
   };
 
   // A search that closes the category page (Search all, a style) or clears the box (the category-only button) takes
-  // the focused button with it: once the search's render is on screen, focus goes to the search box (after a style,
-  // Keywords' input in place of AI's textarea). Only when that button had focus: a tap on iOS focuses nothing, so
-  // nothing moves there.
+  // the focused button with it; the element that had focus is kept here for the effect below.
   const leaving = useRef<Element | null>(null);
-  useEffect(() => {
-    const was = leaving.current;
-    leaving.current = null;
-    if (was && !was.isConnected) document.getElementById(`${ids}-topic`)?.focus();
-  });
 
   const searchGenreOnly = () => {
     if (!genre || aiSearchBlocked) return;
@@ -332,6 +325,7 @@ export default function ResearchPanel({
   if (openGenre && openGenre !== opened) {
     setOpened(openGenre);
     setGenreId(openGenre);
+    setPage(null); // the link searches, even over that category's page
     setAttempt((a) => a + 1);
   }
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -339,6 +333,17 @@ export default function ResearchPanel({
     if (!opened) return;
     chipRefs.current.get(opened)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [opened]);
+
+  // Once the search that took the focused button away is on screen: focus goes to the chip of the category it keeps
+  // on (the one that opened the page), a button, so no phone keyboard pops up over the results; the search box if
+  // that chip is missing. Only when that button had focus: a tap on iOS focuses nothing, so nothing moves there.
+  useEffect(() => {
+    const was = leaving.current;
+    leaving.current = null;
+    if (!was || was.isConnected) return;
+    const chip = genre ? chipRefs.current.get(genre.id) : undefined;
+    (chip ?? document.getElementById(`${ids}-topic`))?.focus();
+  });
 
   const pickTab = (next: ResearchTab) => {
     setTab(next);

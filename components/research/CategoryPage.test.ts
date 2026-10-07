@@ -95,7 +95,8 @@ const docOf = (over: Record<string, unknown> = {}) => ({
 });
 const NEVER = { status: "never", items: [] };
 const RUN_FAILED = "ما قدرت أشغّل الفحص، جرّب بعد شوي";
-const RUN_LIMIT = "جرّبت كذا مرة اليوم، أرجع أجرّب بكرة";
+// A category's own limit line: nothing retries it tomorrow (its next turn can be 3 days away).
+const RUN_LIMIT = "خلصت فحوصات اليوم الثلاثة، تقدر تفحص مرة ثانية بكرة";
 const STALE = "ما قدرت أحدّثها اليوم";
 const BUDGET = "وقّفت الفحص عشان عمليات البحث حق هالشهر قرّبت تخلص";
 
@@ -245,6 +246,9 @@ describe("the category page", () => {
     const [panning, rolling, speed] = all("category-technique");
     expect(panning.querySelector("h4")!.textContent).toBe("بانينق");
     expect(panning.querySelector('[data-testid="category-ai"]')!.textContent).toBe("✦ AI");
+    // The badge sets its own direction, so the how-to's own words give the paragraph its direction (dir=auto skips
+    // a child with a `dir`): an Arabic how-to reads right to left. e2e/discover.spec.ts checks it in Chromium.
+    expect(panning.querySelector('[data-testid="category-ai"]')!.getAttribute("dir")).toBe("ltr");
     expect(panning.textContent).toContain("طريقة بانينق");
     // 🎯 only for a skill the app knows: the craft skill and the DaVinci one, never an unknown id.
     expect(panning.querySelector('[data-testid="category-skill"]')!.textContent).toContain(
@@ -517,6 +521,39 @@ describe("the category page", () => {
     await settle();
     expect($("category-page")!.getAttribute("data-state")).toBe("page");
     expect(styleKeys()).toEqual(["rolling-shot", "speed-ramp"]);
+  });
+
+  it("drops 'this week' from the trends' title once the page is over 7 days old", async () => {
+    page = docOf({ updatedAt: new Date(Date.now() - 8 * 24 * HOUR).toISOString() });
+    await mount();
+    const titles = () => [...$("category-page")!.querySelectorAll("h3")].map((h) => h.textContent);
+    expect(titles()[0]).toBe("🔥 الترند في سيارات");
+    act(() => root.unmount());
+    root = createRoot(host);
+    sessionStorage.clear();
+    page = docOf({ updatedAt: new Date(Date.now() - 6 * 24 * HOUR).toISOString() });
+    await mount();
+    expect(titles()[0]).toBe("🔥 الترند في سيارات هالأسبوع");
+  });
+
+  it("renders techniques and videos that share a name or a link (React keys never collide)", async () => {
+    const [tutorial] = technique("panning", "بانينق", 1).videos.slice(2);
+    const twin = {
+      ...technique("panning", "بانينق", 1),
+      // The Arabic tutorial at the English one's link.
+      videos: [tutorial, { ...tutorial, title: "شرح", lang: "ar" }],
+    };
+    page = docOf({ lessons: { ...LESSONS, photo: [twin, twin] } });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await mount();
+      const photo = shelves()[0];
+      expect(photo.querySelectorAll('[data-testid="category-technique"]')).toHaveLength(2);
+      expect(photo.querySelectorAll('[data-testid="category-video"]')).toHaveLength(4);
+      expect(errors.mock.calls.flat().join(" ")).not.toMatch(/same key/);
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   it("while Discover can't search (AI mode, no model chosen), Search all rests; a style still searches", async () => {

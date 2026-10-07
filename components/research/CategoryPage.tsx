@@ -24,6 +24,8 @@ import { PLATFORM_META } from "./ResultCard";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
+/** A page older than this no longer says "this week". */
+const WEEK = 7 * DAY;
 const SHELF: Record<Area, MessageKey> = {
   photo: "search.categoryPhoto",
   video: "search.categoryVideo",
@@ -48,7 +50,8 @@ const SCAN_LINE: Record<Exclude<Scan, "idle">, MessageKey> = {
   running: "search.categoryRunning",
   failed: "search.trendingRunFailed",
   paused: "search.categoryBudget",
-  limit: "search.trendingRunLimit",
+  // Its own line: nothing retries a category tomorrow (its next turn can be 3 days away).
+  limit: "search.categoryRunLimit",
 };
 
 /**
@@ -202,7 +205,8 @@ export default function CategoryPage({
     );
   };
 
-  const videoRow = (v: LessonVideo) => {
+  // Keyed by place and link: an Arabic tutorial can share an English one's link.
+  const videoRow = (v: LessonVideo, i: number) => {
     const kind = t(
       v.kind === "example"
         ? "search.categoryExample"
@@ -222,7 +226,7 @@ export default function CategoryPage({
     const cls =
       "text-ink-2 flex w-full min-w-0 items-center gap-1.5 text-start text-xs hover:underline";
     return (
-      <li key={v.url} className="min-w-0">
+      <li key={`${i}:${v.url}`} className="min-w-0">
         {canEmbed(v.platform, v.url) ? (
           <button
             type="button"
@@ -251,11 +255,12 @@ export default function CategoryPage({
     );
   };
 
-  const card = (tech: Technique) => {
+  // Keyed by place and name: two techniques of a shelf can share a name.
+  const card = (tech: Technique, i: number) => {
     const skill = tech.skillId ? getSkill(tech.skillId) : undefined;
     return (
       <li
-        key={tech.name.en}
+        key={`${i}:${tech.name.en}`}
         className="border-edge bg-panel-2 relative flex w-64 shrink-0 snap-start flex-col gap-1.5 rounded-[2px] border-2 p-2.5 shadow-[3px_3px_0_var(--edge)]"
         data-testid="category-technique"
       >
@@ -266,6 +271,9 @@ export default function CategoryPage({
           <span
             className="bg-panel-3 text-ink me-1 rounded-[2px] px-1 text-[10px] font-bold"
             title={t("search.categoryAiNote")}
+            // Its own direction: the paragraph's dir=auto then reads the how-to's words, not this Latin "AI", so an
+            // Arabic how-to runs right to left.
+            dir="ltr"
             data-testid="category-ai"
           >
             ✦ AI
@@ -362,7 +370,9 @@ export default function CategoryPage({
           )}
           <section aria-labelledby={`${id}-trends`} className="flex min-w-0 flex-col gap-1.5">
             <h3 id={`${id}-trends`} className="text-sm font-bold">
-              {t("search.categoryTrends", { genre: name })}
+              {t(age > WEEK ? "search.categoryTrendsOld" : "search.categoryTrends", {
+                genre: name,
+              })}
             </h3>
             {data.items.length ? (
               <div
