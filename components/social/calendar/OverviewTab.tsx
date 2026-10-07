@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useGameActions } from "@/components/celebrate/useGameActions";
 import { useSkillSheet } from "@/components/skills/SkillSheetProvider";
 import { resyncKey } from "@/components/social/usePublish";
@@ -13,27 +13,26 @@ import { formatDayLong, formatInstant } from "./dates";
 import SkillPicker from "./SkillPicker";
 
 /**
- * Overview tab of the post popup: hook (+ ideas), caption with its limit, hashtags, the planned day/time with
+ * Overview tab of the post popup: the title, hook (+ ideas), caption with its limit, hashtags, the planned day/time with
  * the best-time hint and the honest reminder note (round 30: the time shows on the calendar and the Studio's
  * Today reminder; phone reminders come with notifications later), a line saying a sent auto-post follows
  * these edits by itself, the linked skill, "Mark as posted" (+ link → the Produce quest bridge with its
- * celebration), copy and delete.
+ * celebration), copy and delete (`onDelete`: the popup removes the post once its exit has played).
  */
 export default function OverviewTab({
   post,
   skill,
   urlFocus,
-  onDeleted,
+  onDelete,
 }: {
   post: Post;
   skill: Skill | undefined;
   /** Bumped by the stage stepper's "posted" step: focus the link input. */
   urlFocus: number;
-  onDeleted: () => void;
+  onDelete: () => void;
 }) {
   const { t, L, lang } = useT();
   const updatePost = useStore((s) => s.updatePost);
-  const removePost = useStore((s) => s.removePost);
   const unmarkPosted = useStore((s) => s.unmarkPosted);
   const produceDone = useStore(
     (s) =>
@@ -98,6 +97,18 @@ export default function OverviewTab({
 
   return (
     <div className="flex flex-col gap-4" data-testid="post-overview">
+      {/* Title (it also heads the sheet) */}
+      <section className="flex flex-col gap-1.5">
+        <label htmlFor="post-title-edit" className="text-ink-2 text-sm font-bold">
+          {t("calendar.form.postTitle")}
+        </label>
+        <TitleInput
+          id="post-title-edit"
+          value={post.title}
+          onSave={(title) => updatePost(post.id, { title })}
+        />
+      </section>
+
       {/* Hook */}
       <section className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
@@ -443,11 +454,65 @@ export default function OverviewTab({
           onCancel={() => setConfirm(false)}
           onConfirm={() => {
             setConfirm(false);
-            removePost(post.id);
-            onDeleted();
+            onDelete();
           }}
         />
       )}
     </div>
+  );
+}
+
+/**
+ * The title field: saves a non-empty change on blur or Enter. Escape with an edit in progress reverts it and is the
+ * field's own (preventDefault: the sheet stays open); the next Escape closes the sheet.
+ */
+function TitleInput({
+  id,
+  value,
+  onSave,
+}: {
+  id: string;
+  value: string;
+  onSave: (title: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  // Follow a title change from elsewhere (adjusting state during render, no effect).
+  const [seen, setSeen] = useState(value);
+  if (value !== seen) {
+    setSeen(value);
+    setDraft(value);
+  }
+  const commit = () => {
+    const next = draft.trim();
+    if (!next) {
+      setDraft(value);
+      return;
+    }
+    if (next !== value) onSave(next);
+  };
+  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit();
+      e.currentTarget.blur();
+    }
+    if (e.key === "Escape" && draft !== value) {
+      e.preventDefault();
+      setDraft(value);
+    }
+  };
+  return (
+    <input
+      id={id}
+      type="text"
+      dir="auto"
+      className="px-input"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={onKey}
+      autoComplete="off"
+      data-testid="post-title-edit"
+    />
   );
 }

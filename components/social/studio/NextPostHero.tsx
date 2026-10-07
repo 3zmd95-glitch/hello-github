@@ -22,8 +22,8 @@ const RING_SPAN_MS = 48 * 3_600_000;
 /**
  * The Studio's hero: the next planned post with a live countdown and a ring that empties as its time comes. When
  * nothing is due later but a planned post's time already passed, that one shows in its overdue state instead: the
- * countdown line and a full ring in warn.
- * Empty → plan the first post.
+ * countdown line and a full ring in warn. Empty → plan the first post. Both plan buttons open the calendar's new-post
+ * sheet (`#new`).
  */
 export default function NextPostHero({ today }: { today: string }) {
   const { t, L, lang } = useT();
@@ -42,7 +42,11 @@ export default function NextPostHero({ today }: { today: string }) {
     <h2 className="text-ink-2 text-[13px] font-semibold">{t("social.studio.heroLabel")}</h2>
   );
   const plan = (text: string) => (
-    <Link href="/social/calendar/" className="px-btn no-underline" data-testid="studio-next-cta">
+    <Link
+      href="/social/calendar/#new"
+      className="px-btn no-underline"
+      data-testid="studio-next-cta"
+    >
       <CalendarPlus size={18} strokeWidth={1.75} aria-hidden />
       {text}
     </Link>
@@ -95,7 +99,10 @@ export default function NextPostHero({ today }: { today: string }) {
       </div>
       <div className="flex items-center gap-3.5">
         <div className="min-w-0 flex-1">
-          <h3 data-testid="studio-next-title">{post.title}</h3>
+          {/* The owner's own text keeps its direction (isolated like withName's post names). */}
+          <h3 data-testid="studio-next-title">
+            <bdi>{post.title}</bdi>
+          </h3>
           <p
             className={`mt-1 flex items-center gap-1 text-[14px] font-semibold ${isOverdue ? "text-warn" : "text-tint"}`}
             data-testid="studio-countdown"

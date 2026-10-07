@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, StrictMode } from "react";
+import { act, StrictMode, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PLAYER_HISTORY_KEY } from "@/components/player/useBackToClose";
@@ -26,14 +26,14 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mount(onClose: () => void) {
+function mount(onClose: () => void, child: ReactNode = <button type="button">داخل</button>) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
   act(() =>
     root!.render(
       <Sheet onClose={onClose} title="بوست جديد" titleId="t1" testId="sheet">
-        <button type="button">داخل</button>
+        {child}
       </Sheet>,
     ),
   );
@@ -58,6 +58,54 @@ describe("Sheet", () => {
     mount(onClose);
     act(() => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // The post popup's title field reverts its edit on Escape (preventDefault): that Escape is the field's, the next one
+  // (focus elsewhere) closes the sheet.
+  it("leaves an Escape a child already handled; a plain one closes", () => {
+    const onClose = vi.fn();
+    mount(
+      onClose,
+      <input
+        data-testid="edit"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") e.preventDefault();
+        }}
+      />,
+    );
+    const escape = () =>
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => {
+      document.querySelector('[data-testid="edit"]')!.dispatchEvent(escape());
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    act(() => {
+      document.dispatchEvent(escape());
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // The skill sheet (its own dialog, z-40) can open over the post popup: an Escape pressed in it is that dialog's.
+  it("leaves an Escape pressed in another dialog on top; with focus back in the sheet it closes", () => {
+    const onClose = vi.fn();
+    mount(onClose);
+    const top = document.createElement("div");
+    top.setAttribute("role", "dialog");
+    top.tabIndex = -1;
+    document.body.appendChild(top);
+    top.focus();
+    const escape = () =>
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    act(() => {
+      top.dispatchEvent(escape());
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    document.querySelector<HTMLElement>('[data-testid="sheet"]')!.focus();
+    top.remove();
+    act(() => {
+      document.dispatchEvent(escape());
     });
     expect(onClose).toHaveBeenCalledTimes(1);
   });

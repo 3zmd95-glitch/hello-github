@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { sparkPath } from "./GrowthSnapshotCard";
+// @vitest-environment jsdom
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Sparkline, sparkPath } from "./GrowthSnapshotCard";
 import { compactCount, fmtCount } from "./platform";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("growth snapshot helpers", () => {
   it("sparkPath smooths through the points (M, Q to each midpoint, T the last), x by date, y min…max", () => {
@@ -35,5 +40,36 @@ describe("growth snapshot helpers", () => {
       expect(compactCount(n), String(n)).toEqual({ value, decimals, suffix });
       expect(fmtCount(n), String(n)).toBe(text);
     }
+  });
+});
+
+describe("Sparkline", () => {
+  const svgProto = SVGElement.prototype as { getTotalLength?: () => number };
+  afterEach(() => {
+    delete svgProto.getTotalLength;
+    vi.unstubAllGlobals();
+  });
+
+  it("shows a line still waiting to draw again when reduced motion turns on", () => {
+    svgProto.getTotalLength = () => 300; // jsdom has no SVG geometry
+    let reduce = false;
+    vi.stubGlobal("matchMedia", () => ({ matches: reduce }));
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    const points = [
+      { day: "2026-09-01", followers: 100 },
+      { day: "2026-09-21", followers: 150 },
+    ];
+    const render = () =>
+      act(() => root.render(createElement(Sparkline, { points, animate: true, start: false })));
+    render();
+    const svg = host.querySelector("svg")!;
+    const ln = svg.querySelector<SVGPathElement>(".studio-spark-ln")!;
+    const hidden = () => [ln.style.strokeDasharray, ln.style.strokeDashoffset, svg.dataset.drawn];
+    expect(hidden()).toEqual(["300", "300", "false"]); // waiting for the card to come on screen
+    reduce = true;
+    render();
+    expect(hidden()).toEqual(["", "", undefined]);
+    act(() => root.unmount());
   });
 });

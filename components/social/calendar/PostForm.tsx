@@ -2,13 +2,14 @@
 
 import { useState, type FormEvent } from "react";
 import { useSocialSync } from "@/components/social/useSocialSync";
+import { useSheetClose } from "@/components/ui/ios/Sheet";
 import { PLATFORMS, type Platform, type Post, type Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { PlatformGlyph } from "@/lib/platformIcons";
 import { autoPostOf, isManual } from "@/lib/publish";
 import { bestTime, PLATFORM_META } from "@/lib/social";
 import { isSocialPlatform } from "@/lib/socialSync";
 import { useStore } from "@/store";
-import { platformStyle } from "./PlatformChip";
 import SheetFrame from "./SheetFrame";
 import SkillPicker from "./SkillPicker";
 
@@ -19,6 +20,8 @@ import SkillPicker from "./SkillPicker";
  * and an optional skill link. With a skill the post is created through `createPostFromSkill` (the bridge to
  * the Produce quest) and then patched with what was typed; without one through `addPost`. Extra networks are
  * written as the post's `autoPost` right after creation, so posts without any keep `autoPost` undefined.
+ * Cancel and Save close through the sheet, so its exit plays: `onCreated` runs at once (the calendar moves to the
+ * post's day behind the leaving sheet), `onClose` once the sheet is gone.
  */
 export default function PostForm({
   initialDay,
@@ -29,7 +32,28 @@ export default function PostForm({
   onClose: () => void;
   onCreated: (post: Post) => void;
 }) {
+  const { t } = useT();
+  return (
+    <SheetFrame
+      testId="post-form-sheet"
+      titleId="post-form-title"
+      title={t("calendar.form.title")}
+      onClose={onClose}
+    >
+      <PostFormBody initialDay={initialDay} onCreated={onCreated} />
+    </SheetFrame>
+  );
+}
+
+function PostFormBody({
+  initialDay,
+  onCreated,
+}: {
+  initialDay: string | null;
+  onCreated: (post: Post) => void;
+}) {
   const { t, L } = useT();
+  const close = useSheetClose();
   const { status } = useSocialSync();
   const [platform, setPlatform] = useState<Platform>("tiktok");
   const [title, setTitle] = useState("");
@@ -97,185 +121,172 @@ export default function PostForm({
       if (autoPost) post = s.updatePost(post.id, autoPost(post)) ?? post;
     }
     if (post) onCreated(post);
-    else onClose();
+    close();
   };
 
   return (
-    <SheetFrame testId="post-form-sheet" titleId="post-form-title" onClose={onClose}>
-      <form onSubmit={submit} className="flex flex-col gap-4" data-testid="post-form">
-        <header className="flex items-start gap-3">
-          <h2 id="post-form-title" className="min-w-0 flex-1 text-xl">
-            {t("calendar.form.title")}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("common.close")}
-            className="px-btn px-btn-ghost px-btn-sm shrink-0"
-            data-testid="post-form-close"
-          >
-            ✕
-          </button>
-        </header>
+    <form onSubmit={submit} className="flex flex-col gap-4" data-testid="post-form">
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="text-ink-2 mb-1.5 text-sm font-bold">
+          {t("calendar.form.platform")}
+        </legend>
+        <div className="flex flex-wrap gap-1.5">
+          {PLATFORMS.map((p) => (
+            <button
+              key={p}
+              type="button"
+              className="px-fchip cal-fchip"
+              aria-pressed={platform === p}
+              onClick={() => pickPlatform(p)}
+              data-testid={`post-platform-${p}`}
+              data-platform={p}
+            >
+              <PlatformGlyph platform={p} size={14} className="shrink-0" />
+              {L(PLATFORM_META[p].name)}
+            </button>
+          ))}
+        </div>
+      </fieldset>
 
-        <fieldset className="flex flex-col gap-1.5">
+      {showNetworks && (
+        <fieldset className="flex flex-col gap-1.5" data-testid="post-networks">
           <legend className="text-ink-2 mb-1.5 text-sm font-bold">
-            {t("calendar.form.platform")}
+            {t("calendar.form.networks")}
           </legend>
           <div className="flex flex-wrap gap-1.5">
-            {PLATFORMS.map((p) => (
-              <button
-                key={p}
-                type="button"
-                className="px-fchip cal-fchip"
-                style={platformStyle(p)}
-                aria-pressed={platform === p}
-                onClick={() => pickPlatform(p)}
-                data-testid={`post-platform-${p}`}
-              >
-                <span aria-hidden>{PLATFORM_META[p].icon}</span> {L(PLATFORM_META[p].name)}
-              </button>
-            ))}
+            {offered.map((p) => {
+              const own = p === platform;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  className="px-fchip cal-fchip"
+                  aria-pressed={ticked(p)}
+                  aria-disabled={own}
+                  title={isManual(p) ? t("publish.net.manual") : undefined}
+                  onClick={() => {
+                    if (!own) setPicked({ ...picked, [p]: !ticked(p) });
+                  }}
+                  data-testid={`post-net-${p}`}
+                  data-own={own}
+                  data-platform={p}
+                >
+                  <PlatformGlyph platform={p} size={14} className="shrink-0" />
+                  {L(PLATFORM_META[p].name)}
+                  {isManual(p) && <span aria-hidden>✋</span>}
+                </button>
+              );
+            })}
           </div>
+          <span className="text-muted text-xs">{t("calendar.form.networksHint")}</span>
         </fieldset>
+      )}
 
-        {showNetworks && (
-          <fieldset className="flex flex-col gap-1.5" data-testid="post-networks">
-            <legend className="text-ink-2 mb-1.5 text-sm font-bold">
-              {t("calendar.form.networks")}
-            </legend>
-            <div className="flex flex-wrap gap-1.5">
-              {offered.map((p) => {
-                const own = p === platform;
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    className="px-fchip cal-fchip"
-                    style={platformStyle(p)}
-                    aria-pressed={ticked(p)}
-                    aria-disabled={own}
-                    title={isManual(p) ? t("publish.net.manual") : undefined}
-                    onClick={() => {
-                      if (!own) setPicked({ ...picked, [p]: !ticked(p) });
-                    }}
-                    data-testid={`post-net-${p}`}
-                    data-own={own}
-                  >
-                    <span aria-hidden>{PLATFORM_META[p].icon}</span> {L(PLATFORM_META[p].name)}
-                    {isManual(p) && <span aria-hidden>✋</span>}
-                  </button>
-                );
-              })}
-            </div>
-            <span className="text-muted text-xs">{t("calendar.form.networksHint")}</span>
-          </fieldset>
-        )}
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-ink-2 font-bold">{t("calendar.form.postTitle")}</span>
+        <input
+          type="text"
+          className="px-input"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder={skill ? L(skill.name) : t("calendar.form.titlePh")}
+          autoComplete="off"
+          data-testid="post-title"
+        />
+        {skill && <span className="text-muted text-xs">{t("calendar.form.skillTitleHint")}</span>}
+      </label>
 
+      <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-ink-2 font-bold">{t("calendar.form.postTitle")}</span>
+          <span className="text-ink-2 font-bold">{t("calendar.form.day")}</span>
           <input
-            type="text"
-            className="px-input"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder={skill ? L(skill.name) : t("calendar.form.titlePh")}
-            autoComplete="off"
-            data-testid="post-title"
+            type="date"
+            dir="ltr"
+            className="px-input num"
+            value={day}
+            onChange={(e) => pickDay(e.target.value)}
+            data-testid="post-day"
           />
-          {skill && <span className="text-muted text-xs">{t("calendar.form.skillTitleHint")}</span>}
         </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-ink-2 font-bold">{t("calendar.form.time")}</span>
+          <input
+            type="time"
+            dir="ltr"
+            className="px-input num"
+            value={time}
+            onChange={(e) => {
+              setTime(e.target.value);
+              setTimeTouched(true);
+            }}
+            data-testid="post-time"
+          />
+        </label>
+      </div>
+      <p className="text-muted -mt-2 flex flex-wrap items-center gap-2 text-xs">
+        <span data-testid="post-best-time">
+          ⏰{" "}
+          {t("calendar.form.bestTime", { platform: L(PLATFORM_META[platform].name), time: best })}
+        </span>
+        {time !== best && (
+          <button
+            type="button"
+            className="px-link"
+            onClick={() => {
+              setTime(best);
+              setTimeTouched(false);
+            }}
+          >
+            {t("calendar.form.useBest")}
+          </button>
+        )}
+      </p>
 
-        <div className="grid grid-cols-2 gap-3">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-ink-2 font-bold">{t("calendar.form.day")}</span>
-            <input
-              type="date"
-              dir="ltr"
-              className="px-input num"
-              value={day}
-              onChange={(e) => pickDay(e.target.value)}
-              data-testid="post-day"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-ink-2 font-bold">{t("calendar.form.time")}</span>
-            <input
-              type="time"
-              dir="ltr"
-              className="px-input num"
-              value={time}
-              onChange={(e) => {
-                setTime(e.target.value);
-                setTimeTouched(true);
-              }}
-              data-testid="post-time"
-            />
-          </label>
-        </div>
-        <p className="text-muted -mt-2 flex flex-wrap items-center gap-2 text-xs">
-          <span data-testid="post-best-time">
-            ⏰{" "}
-            {t("calendar.form.bestTime", { platform: L(PLATFORM_META[platform].name), time: best })}
-          </span>
-          {time !== best && (
+      <label className="flex items-center gap-3 text-sm">
+        <input
+          type="checkbox"
+          className="h-5 w-5 accent-[var(--accent)]"
+          checked={template}
+          onChange={(e) => setTemplate(e.target.checked)}
+          data-testid="post-template"
+        />
+        <span>{t("calendar.form.template")}</span>
+      </label>
+
+      <section className="flex flex-col gap-2">
+        <span className="text-ink-2 text-sm font-bold">{t("calendar.form.skill")}</span>
+        {skill ? (
+          <div className="px-inset flex items-center gap-2 text-sm" data-testid="post-skill-picked">
+            <span aria-hidden>🎮</span>
+            <b className="min-w-0 flex-1 truncate">{L(skill.name)}</b>
             <button
               type="button"
-              className="px-link"
-              onClick={() => {
-                setTime(best);
-                setTimeTouched(false);
-              }}
+              className="px-btn px-btn-ghost px-btn-sm"
+              onClick={() => setSkill(null)}
+              data-testid="post-skill-unlink"
             >
-              {t("calendar.form.useBest")}
+              {t("calendar.form.unlink")}
             </button>
-          )}
-        </p>
+          </div>
+        ) : (
+          <SkillPicker testId="post-skill" onPick={setSkill} />
+        )}
+        <span className="text-muted text-xs">{t("calendar.form.skillHint")}</span>
+      </section>
 
-        <label className="flex items-center gap-3 text-sm">
-          <input
-            type="checkbox"
-            className="h-5 w-5 accent-[var(--accent)]"
-            checked={template}
-            onChange={(e) => setTemplate(e.target.checked)}
-            data-testid="post-template"
-          />
-          <span>{t("calendar.form.template")}</span>
-        </label>
-
-        <section className="flex flex-col gap-2">
-          <span className="text-ink-2 text-sm font-bold">{t("calendar.form.skill")}</span>
-          {skill ? (
-            <div
-              className="px-inset flex items-center gap-2 text-sm"
-              data-testid="post-skill-picked"
-            >
-              <span aria-hidden>🎮</span>
-              <b className="min-w-0 flex-1 truncate">{L(skill.name)}</b>
-              <button
-                type="button"
-                className="px-btn px-btn-ghost px-btn-sm"
-                onClick={() => setSkill(null)}
-                data-testid="post-skill-unlink"
-              >
-                {t("calendar.form.unlink")}
-              </button>
-            </div>
-          ) : (
-            <SkillPicker testId="post-skill" onPick={setSkill} />
-          )}
-          <span className="text-muted text-xs">{t("calendar.form.skillHint")}</span>
-        </section>
-
-        <div className="flex flex-wrap justify-end gap-2">
-          <button type="button" className="px-btn px-btn-ghost" onClick={onClose}>
-            {t("common.cancel")}
-          </button>
-          <button type="submit" className="px-btn" disabled={!canSave} data-testid="post-save">
-            {t("calendar.form.save")}
-          </button>
-        </div>
-      </form>
-    </SheetFrame>
+      <div className="flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          className="px-btn px-btn-ghost"
+          onClick={close}
+          data-testid="post-form-cancel"
+        >
+          {t("common.cancel")}
+        </button>
+        <button type="submit" className="px-btn" disabled={!canSave} data-testid="post-save">
+          {t("calendar.form.save")}
+        </button>
+      </div>
+    </form>
   );
 }

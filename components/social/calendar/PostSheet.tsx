@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { Gamepad2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePublishAutoResync } from "@/components/social/usePublish";
+import Chip from "@/components/ui/ios/Chip";
+import Segmented from "@/components/ui/ios/Segmented";
+import { useSheetClose } from "@/components/ui/ios/Sheet";
 import { getSkill } from "@/data";
 import { POST_STAGES, type Post, type PostStage } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
@@ -18,42 +22,62 @@ type Tab = "overview" | "script" | "shots" | "autopost";
 const TABS: readonly Tab[] = ["overview", "script", "shots", "autopost"];
 
 /**
- * Post popup (round 17): header with platform + inline-editable title, the 6-step stage stepper with the
- * "suggested" hint, and the Overview · Script · Shots · Auto-post tabs. Edits go straight to the store, so the
- * popup updates in place (no remount, scroll kept). Closes itself when the post is deleted. Since round 30 the
- * body also keeps a sent auto-post job fresh (`usePublishAutoResync`), whichever tab edits the post.
+ * Post popup (round 17; an iOS sheet since round 35): the post title heads the sheet (the Overview tab edits it), then
+ * the platform / stage / linked-skill chips, the 6-step stage stepper with the "suggested" hint, and the Overview ·
+ * Script · Shots · Auto-post tabs. Edits go straight to the store, so the popup updates in place (no remount, scroll
+ * kept). Delete plays the sheet's exit first and removes the post after it (the popup never shows empty); a post
+ * deleted elsewhere closes it at once. Since round 30 the body also keeps a sent auto-post job fresh
+ * (`usePublishAutoResync`), whichever tab edits the post. The calendar owns the popup's `#post=` history entry, so Back
+ * is not the sheet's own; `leaving` (Back already took that entry) plays the sheet's exit.
  */
-export default function PostSheet({ postId, onClose }: { postId: string; onClose: () => void }) {
+export default function PostSheet({
+  postId,
+  leaving,
+  onClose,
+}: {
+  postId: string;
+  leaving: boolean;
+  onClose: () => void;
+}) {
   const post = useStore((s) => s.posts.find((p) => p.id === postId));
+  /** Delete was confirmed in the popup: the post goes once the exit has played. */
+  const deleting = useRef(false);
   useEffect(() => {
-    if (!post) onClose();
+    if (!post && !deleting.current) onClose();
   }, [post, onClose]);
+  const closed = useCallback(() => {
+    onClose();
+    if (deleting.current) useStore.getState().removePost(postId);
+  }, [onClose, postId]);
   if (!post) return null;
-  const titleId = `post-sheet-title-${post.id}`;
   return (
     <SheetFrame
       testId="post-sheet"
-      titleId={titleId}
-      onClose={onClose}
+      titleId={`post-sheet-title-${post.id}`}
+      title={post.title}
+      onClose={closed}
       wide
+      backCloses={false}
+      closeTestId="post-close"
       attrs={{ "data-post": post.id, "data-stage": post.stage, "data-platform": post.platform }}
     >
-      <SheetBody post={post} titleId={titleId} onClose={onClose} />
+      {leaving && <CloseNow />}
+      <SheetBody post={post} onDelete={() => (deleting.current = true)} />
     </SheetFrame>
   );
 }
 
-function SheetBody({
-  post,
-  titleId,
-  onClose,
-}: {
-  post: Post;
-  titleId: string;
-  onClose: () => void;
-}) {
+/** Plays the surrounding sheet's exit as soon as it mounts. */
+function CloseNow() {
+  const close = useSheetClose();
+  useEffect(() => close(), [close]);
+  return null;
+}
+
+/** `onDelete` marks the post for removal; the body then closes the sheet, which removes it after the exit. */
+function SheetBody({ post, onDelete }: { post: Post; onDelete: () => void }) {
   const { t, L } = useT();
-  const updatePost = useStore((s) => s.updatePost);
+  const close = useSheetClose();
   const setPostStage = useStore((s) => s.setPostStage);
   const unmarkPosted = useStore((s) => s.unmarkPosted);
   usePublishAutoResync(post);
@@ -77,36 +101,15 @@ function SheetBody({
 
   return (
     <>
-      <header className="flex items-start gap-3">
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <PlatformChip platform={post.platform} />
-            <StageChip stage={post.stage} />
-            {skill && (
-              <span className="px-chip" title={t("calendar.linked")}>
-                📎🎮 <span className="max-w-[10rem] truncate">{L(skill.name)}</span>
-              </span>
-            )}
-          </div>
-          <h2 id={titleId} className="sr-only">
-            {post.title}
-          </h2>
-          <TitleInput
-            value={post.title}
-            label={t("calendar.form.postTitle")}
-            onSave={(title) => updatePost(post.id, { title })}
-          />
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={t("common.close")}
-          className="px-btn px-btn-ghost px-btn-sm shrink-0"
-          data-testid="post-close"
-        >
-          ✕
-        </button>
-      </header>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <PlatformChip platform={post.platform} />
+        <StageChip stage={post.stage} />
+        {skill && (
+          <Chip icon={<Gamepad2 size={12} aria-hidden />} title={t("calendar.linkedSkill")}>
+            <span className="max-w-[10rem] truncate">{L(skill.name)}</span>
+          </Chip>
+        )}
+      </div>
 
       <section className="flex flex-col gap-1.5">
         <span className="text-muted text-xs">{t("calendar.sheet.stage")}</span>
@@ -143,83 +146,40 @@ function SheetBody({
         )}
       </section>
 
-      <div className="cal-tabs self-start" role="tablist">
-        {TABS.map((tb) => (
-          <button
-            key={tb}
-            type="button"
-            role="tab"
-            className="cal-tab"
-            aria-selected={tab === tb}
-            onClick={() => setTab(tb)}
-            data-testid={`post-tab-${tb}`}
-          >
-            {t(`calendar.sheet.tab.${tb}`)}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        options={TABS.map((tb) => ({
+          value: tb,
+          label: t(`calendar.sheet.tab.${tb}`),
+          testId: `post-tab-${tb}`,
+        }))}
+        value={tab}
+        onChange={setTab}
+        label={post.title}
+        idPrefix="post-sheet"
+      />
 
-      <div role="tabpanel">
+      {/* Focusable (APG tabs): Script and Shots open on plain text, not on a control. */}
+      <div
+        role="tabpanel"
+        id={`post-sheet-panel-${tab}`}
+        aria-labelledby={`post-sheet-tab-${tab}`}
+        tabIndex={0}
+      >
         {tab === "overview" && (
-          <OverviewTab post={post} skill={skill} urlFocus={urlFocus} onDeleted={onClose} />
+          <OverviewTab
+            post={post}
+            skill={skill}
+            urlFocus={urlFocus}
+            onDelete={() => {
+              onDelete();
+              close();
+            }}
+          />
         )}
         {tab === "script" && <ScriptTab post={post} />}
         {tab === "shots" && <ShotsTab post={post} />}
         {tab === "autopost" && <AutoPostTab post={post} />}
       </div>
     </>
-  );
-}
-
-/** Inline-editable title: commits a non-empty change on blur or Enter, Esc restores. */
-function TitleInput({
-  value,
-  label,
-  onSave,
-}: {
-  value: string;
-  label: string;
-  onSave: (title: string) => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  // Follow a title change from elsewhere (adjusting state during render, no effect).
-  const [seen, setSeen] = useState(value);
-  if (value !== seen) {
-    setSeen(value);
-    setDraft(value);
-  }
-  const commit = () => {
-    const next = draft.trim();
-    if (!next) {
-      setDraft(value);
-      return;
-    }
-    if (next !== value) onSave(next);
-  };
-  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      commit();
-      e.currentTarget.blur();
-    }
-    // Esc closes the sheet (SheetFrame); stop it here so an edit in progress is just reverted.
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      setDraft(value);
-      e.currentTarget.blur();
-    }
-  };
-  return (
-    <input
-      type="text"
-      className="cal-title-input"
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={onKey}
-      aria-label={label}
-      autoComplete="off"
-      data-testid="post-title-edit"
-    />
   );
 }

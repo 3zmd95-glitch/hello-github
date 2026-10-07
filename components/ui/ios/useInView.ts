@@ -9,8 +9,12 @@ import { prefersReducedMotion } from "@/lib/motion";
  * drawing itself) waits for it, so it plays where the owner can see it. True at once without IntersectionObserver
  * or with reduced motion.
  *
- * The entrance is read with `getAnimations()` rather than an `animationend` listener: the stagger starts with the
- * prerendered HTML, so it can end before hydration attaches anything, and a listener would then wait forever.
+ * The entrance is read with `getAnimations()` rather than an `animationend` listener: a later visit has no entrance
+ * animation, so no event would ever come, and a cancelled one never ends but its `finished` still settles. (The
+ * Studio always mounts on the client after the splash, so its stagger is still running when this effect reads it.)
+ *
+ * An element taller than about 1/threshold viewport heights (≈ 2.9 at 0.35) never reaches the threshold, and an
+ * infinite animation on the element itself never settles: either way `seen` stays false.
  */
 export function useInView(ref: RefObject<Element | null>, threshold = 0.35): boolean {
   const instant = typeof IntersectionObserver === "undefined" || prefersReducedMotion();
@@ -24,7 +28,10 @@ export function useInView(ref: RefObject<Element | null>, threshold = 0.35): boo
     const entered = Promise.allSettled(el.getAnimations?.().map((a) => a.finished) ?? []);
     const io = new IntersectionObserver(
       (entries) => {
-        if (!entries.some((e) => e.isIntersecting)) return;
+        // The ratio too: Firefox reports isIntersecting for any overlap, below the threshold as well.
+        // The epsilon: Chromium stores thresholds as 32-bit floats (0.35 crosses at 0.3499999940395355).
+        if (!entries.some((e) => e.isIntersecting && e.intersectionRatio >= threshold - 1e-6))
+          return;
         io.disconnect();
         void entered.then(() => {
           if (alive) setSeen(true);
