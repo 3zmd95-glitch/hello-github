@@ -88,6 +88,38 @@ describe("parseCategory", () => {
     expect(parseCategory({ status: "never", items: [] })).toEqual({ status: "never", items: [] });
     expect(parseCategory({ items: [] })).toBeNull();
   });
+
+  it("keeps https videos only, 3 techniques a shelf and 4 videos a technique, as the Worker writes them", () => {
+    const tech = (n: number, videos: unknown[]) => ({
+      ...TECH,
+      name: { en: `t${n}`, ar: `ت${n}` },
+      videos,
+    });
+    const six = [1, 2, 3, 4, 5, 6].map((n) => ({
+      ...TT,
+      url: `https://www.tiktok.com/@c/video/${n}`,
+    }));
+    const doc = {
+      ...DOC,
+      lessons: {
+        ...LESSONS,
+        photo: [1, 2, 3, 4, 5].map((n) => tech(n, [TT, YT])),
+        video: [
+          tech(6, [
+            { ...TT, url: "http://www.tiktok.com/@c/video/1" },
+            { ...YT, url: "javascript:alert(1)" },
+            YT,
+          ]),
+        ],
+        // 2 examples, 1 tutorial and 1 Arabic tutorial at most.
+        edit: [tech(7, six)],
+      },
+    };
+    const lessons = parseCategory(doc)!.lessons!;
+    expect(lessons.photo.map((t) => t.name.en)).toEqual(["t1", "t2", "t3"]);
+    expect(lessons.video[0].videos).toEqual([YT]);
+    expect(lessons.edit[0].videos).toEqual(six.slice(0, 4));
+  });
 });
 
 describe("pageState", () => {

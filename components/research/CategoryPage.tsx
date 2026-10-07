@@ -68,6 +68,7 @@ export default function CategoryPage({
   onSearchAll,
   onOpenSkill,
   onUnavailable,
+  searchBlocked = false,
 }: {
   config: ScoutConfig;
   genre: Genre;
@@ -77,6 +78,9 @@ export default function CategoryPage({
   onOpenSkill: (skillId: string) => void;
   /** No page from this Worker (an older one, a refused token, no network): today's category search instead. */
   onUnavailable: () => void;
+  /** Discover can't search now (AI mode with no model chosen): Search all rests, as the category chips do. A style
+   * still searches, in Keywords, like a 🔥 chip. */
+  searchBlocked?: boolean;
 }) {
   const { t, L } = useT();
   const id = useId();
@@ -118,9 +122,12 @@ export default function CategoryPage({
     void fetchCategory(config, genre.id).then((r) => {
       if (!alive) return;
       if (!r) return onUnavailable();
-      setData(r);
-      // A scan this tab started before (Discover left and opened again) may still run: wait for its answer.
+      // A scan this tab started before (Discover left and opened again) may still run: wait for its answer. With
+      // nothing to show yet, it may also have answered into the tab's copy while this GET was on its way (show that).
       const pending = categoryScanInFlight(config, genre.id);
+      const meanwhile =
+        !pending && pageState(r) === "never" ? cachedCategory(config, genre.id) : null;
+      setData(meanwhile ?? r);
       if (!pending) return;
       setScan("running");
       void pending.then(landed);
@@ -164,29 +171,36 @@ export default function CategoryPage({
   // The UI language, English when a style has no Arabic name.
   const text = (x: { en: string; ar?: string }) => L({ en: x.en, ar: x.ar || x.en });
 
-  const styleChip = (s: TrendingEffect) => (
-    <button
-      key={s.key}
-      type="button"
-      className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
-      title={s.what && text(s.what)}
-      onClick={() => onPickStyle(effectQuery(s))}
-      data-testid="category-style"
-      data-key={s.key}
-    >
-      <span className="flex items-center gap-1.5">
-        <span dir="auto">{text(s.name)}</span>
-        {s.isNew && (
-          <span className="bg-gold text-gold-ink rounded-[2px] px-1 text-[10px] leading-4 font-bold">
-            {t("search.trendingNew")}
-          </span>
-        )}
-      </span>
-      <span className="text-ink-2 text-[11px] font-normal">
-        {t("search.trendingCreators", { n: s.creators })}
-      </span>
-    </button>
-  );
+  // Labelled as the 🔥 row's chips are, without their YouTube note (a category has no YouTube check).
+  const styleChip = (s: TrendingEffect) => {
+    const styleName = text(s.name);
+    const what = s.what && text(s.what);
+    const creators = t("search.trendingCreators", { n: s.creators });
+    return (
+      <button
+        key={s.key}
+        type="button"
+        className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
+        title={what}
+        aria-label={[styleName, s.isNew && t("search.trendingNew"), creators, what]
+          .filter(Boolean)
+          .join(" · ")}
+        onClick={() => onPickStyle(effectQuery(s))}
+        data-testid="category-style"
+        data-key={s.key}
+      >
+        <span className="flex items-center gap-1.5">
+          <span dir="auto">{styleName}</span>
+          {s.isNew && (
+            <span className="bg-gold text-gold-ink rounded-[2px] px-1 text-[10px] leading-4 font-bold">
+              {t("search.trendingNew")}
+            </span>
+          )}
+        </span>
+        <span className="text-ink-2 text-[11px] font-normal">{creators}</span>
+      </button>
+    );
+  };
 
   const videoRow = (v: LessonVideo) => {
     const kind = t(
@@ -371,6 +385,7 @@ export default function CategoryPage({
       <button
         type="button"
         className="px-btn px-btn-ghost px-btn-sm w-fit"
+        disabled={searchBlocked}
         onClick={onSearchAll}
         data-testid="category-search-all"
       >

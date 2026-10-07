@@ -36,6 +36,8 @@ export interface CategoryPageData extends TrendingEffects {
 
 const CACHE_PREFIX = "3z-category|";
 const PER_AREA = 3;
+/** The Worker's most a technique: 2 examples, 1 tutorial and 1 Arabic tutorial. */
+const VIDEOS = 4;
 const PLATFORMS = new Set(["yt", "tt", "ig"]);
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object";
@@ -66,7 +68,10 @@ function parseTechnique(x: unknown): Technique | null {
   const name = both(x.name);
   const howTo = both(x.howTo);
   const videos = Array.isArray(x.videos)
-    ? x.videos.map(parseVideo).filter((v): v is LessonVideo => !!v)
+    ? x.videos
+        .map(parseVideo)
+        .filter((v): v is LessonVideo => !!v)
+        .slice(0, VIDEOS)
     : [];
   // A technique without a video is never shown (spec §3); a technique without both languages neither.
   if (!name || !howTo || !videos.length) return null;

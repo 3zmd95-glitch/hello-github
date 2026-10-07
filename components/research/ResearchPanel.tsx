@@ -302,8 +302,20 @@ export default function ResearchPanel({
     setAttempt((a) => a + 1);
   };
 
+  // A search that closes the category page (Search all, a style) or clears the box (the category-only button) takes
+  // the focused button with it: once the search's render is on screen, focus goes to the search box (after a style,
+  // Keywords' input in place of AI's textarea). Only when that button had focus: a tap on iOS focuses nothing, so
+  // nothing moves there.
+  const leaving = useRef<Element | null>(null);
+  useEffect(() => {
+    const was = leaving.current;
+    leaving.current = null;
+    if (was && !was.isConnected) document.getElementById(`${ids}-topic`)?.focus();
+  });
+
   const searchGenreOnly = () => {
     if (!genre || aiSearchBlocked) return;
+    leaving.current = document.activeElement;
     commit("");
     setAttempt((a) => a + 1);
   };
@@ -739,6 +751,7 @@ export default function ResearchPanel({
         <div className={`flex gap-2 ${searchMode === "ai" ? "flex-col sm:flex-row" : ""}`}>
           {searchMode === "ai" && !skill ? (
             <textarea
+              id={`${ids}-topic`}
               rows={3}
               maxLength={600}
               dir="auto"
@@ -757,6 +770,7 @@ export default function ResearchPanel({
             />
           ) : (
             <input
+              id={`${ids}-topic`}
               type="search"
               enterKeyHint="search"
               autoComplete="off"
@@ -1042,6 +1056,7 @@ export default function ResearchPanel({
           onPickStyle={(style) => {
             // That style within the category, in Keywords (never an AI plan or the owner's subscription),
             // like a 🔥 chip.
+            leaving.current = document.activeElement;
             setSearchMode("keyword");
             setSubmittedMode("keyword");
             setTopic(style);
@@ -1053,6 +1068,7 @@ export default function ResearchPanel({
           onSearchAll={searchGenreOnly}
           onOpenSkill={sheet.open}
           onUnavailable={pageUnavailable}
+          searchBlocked={aiSearchBlocked}
         />
       )}
 

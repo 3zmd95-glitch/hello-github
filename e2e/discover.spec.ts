@@ -193,7 +193,37 @@ const CATEGORY_CARS = {
   },
 };
 
-async function stubWorker(page: Page, discover: (body: Record<string, unknown>) => unknown) {
+/** A full Cars page for the 375 px check: 12 styles, and 3 techniques with long names on each shelf. */
+const CATEGORY_CARS_FULL = {
+  ...CATEGORY_CARS,
+  items: Array.from({ length: 12 }, (_, n) => ({
+    ...CATEGORY_CARS.items[0],
+    key: `style-${n}`,
+    name: { en: `cinematic style number ${n}`, ar: `ستايل سينمائي رقم ${n}` },
+  })),
+  lessons: {
+    ...CATEGORY_CARS.lessons,
+    photo: [1, 2, 3].map((n) =>
+      technique(
+        `photo technique with a long name ${n}`,
+        `تقنية تصوير باسم طويل ${n}`,
+        n,
+        "phone-180-shutter",
+      ),
+    ),
+    video: [4, 5, 6].map((n) => technique(`video technique ${n}`, `تقنية فيديو ${n}`, n)),
+    edit: [7, 8, 9].map((n) =>
+      technique(`edit technique ${n}`, `تقنية مونتاج ${n}`, n, "speed-ramp-retime"),
+    ),
+  },
+};
+
+async function stubWorker(
+  page: Page,
+  discover: (body: Record<string, unknown>) => unknown,
+  /** What `GET /categories/cars` answers. */
+  category: unknown = CATEGORY_CARS,
+) {
   const asked: Record<string, unknown>[] = [];
   await page.route(`${WORKER}/**`, async (route) => {
     const req = route.request();
@@ -218,7 +248,7 @@ async function stubWorker(page: Page, discover: (body: Record<string, unknown>) 
     // Scan again: the run's fresh list.
     if (url.pathname === "/effects/run" && req.method() === "POST")
       return reply({ ...EFFECTS, updatedAt: new Date().toISOString() });
-    if (url.pathname === "/categories/cars") return reply(CATEGORY_CARS);
+    if (url.pathname === "/categories/cars") return reply(category);
     // Scan again: the scan's fresh page.
     if (url.pathname === "/categories/cars/run" && req.method() === "POST")
       return reply({ ...CATEGORY_CARS, updatedAt: new Date().toISOString() });
@@ -899,5 +929,33 @@ test("Discover v2: a category with nothing typed opens its page — trends, less
     .poll(() => asked.at(-1))
     .toEqual({ q: "car edit", genreQuery: { ar: "ايديت سيارات" } });
   await expect(page.getByTestId("category-page")).toHaveCount(0);
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("Discover v2: a full category page at 375 px never scrolls sideways; its chips and shelves do", async ({
+  page,
+}) => {
+  await stubWorker(page, () => ANSWER, CATEGORY_CARS_FULL);
+  await connectWorker(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/discover/");
+  await page.getByTestId("genre-cars").click();
+
+  const cat = page.getByTestId("category-page");
+  await expect(cat.getByTestId("category-style")).toHaveCount(12);
+  await expect(cat.getByTestId("category-technique")).toHaveCount(9);
+  const scrollsSideways = (el: Element) => el.scrollWidth > el.clientWidth;
+  expect(await cat.getByTestId("category-styles").evaluate(scrollsSideways)).toBe(true);
+  const shelves = await cat.getByTestId("category-shelf").all();
+  expect(shelves).toHaveLength(3);
+  for (const shelf of shelves)
+    expect(await shelf.locator("ul").first().evaluate(scrollsSideways)).toBe(true);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // English's longer words never push the page wider either.
+  await page.getByTestId("lang-en").click();
+  await expect(
+    cat.getByRole("heading", { level: 3, name: "🔥 Trending in Cars this week" }),
+  ).toBeVisible();
   expect(await fitsViewport(page)).toBe(true);
 });

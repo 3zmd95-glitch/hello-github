@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoPlayerContext, type PlayableItem } from "@/components/player/VideoPlayerContext";
 import { getSkill } from "@/data";
 import { GENRES } from "@/data/genres";
+import { runCategoryNow } from "@/lib/categories";
 import type { Lang } from "@/lib/domain";
 import { useStore } from "@/store";
 import CategoryPage from "./CategoryPage";
@@ -104,6 +105,8 @@ let runAnswer: { body: unknown; status: number };
 let posts: RequestInit[];
 /** Holds `POST /categories/cars/run` until the test lets it answer. */
 let releaseRun: (() => void) | undefined;
+/** When set, `GET /categories/cars` waits for it. */
+let getGate: Promise<void> | undefined;
 let calls: {
   style: string[];
   all: number;
@@ -117,8 +120,10 @@ const json = (body: unknown, status = 200) =>
 
 async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const { pathname } = new URL(String(input));
-  if (pathname === "/categories/cars" && !init?.method)
+  if (pathname === "/categories/cars" && !init?.method) {
+    await getGate;
     return page === null ? json({ error: "not_found" }, 404) : json(page);
+  }
   if (pathname === "/categories/cars/run" && init?.method === "POST") {
     posts.push(init);
     await new Promise<void>((r) => (releaseRun = r));
@@ -149,7 +154,7 @@ const settle = () =>
     for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
   });
 
-async function mount(lang: Lang = "ar") {
+async function mount(lang: Lang = "ar", props: { searchBlocked?: boolean } = {}) {
   useStore.getState().setSettings({ lang });
   const player = {
     current: null,
@@ -168,6 +173,7 @@ async function mount(lang: Lang = "ar") {
           onSearchAll: () => void calls.all++,
           onOpenSkill: (id: string) => void calls.skill.push(id),
           onUnavailable: () => void calls.unavailable++,
+          ...props,
         }),
       ),
     ),
@@ -187,6 +193,7 @@ beforeEach(() => {
   runAnswer = { body: docOf({ updatedAt: new Date().toISOString() }), status: 200 };
   posts = [];
   releaseRun = undefined;
+  getGate = undefined;
   calls = { style: [], all: 0, skill: [], unavailable: 0, played: [] };
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   sessionStorage.clear();
@@ -202,6 +209,7 @@ afterEach(async () => {
   act(() => root.unmount());
   host.remove();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("the category page", () => {
@@ -224,6 +232,9 @@ describe("the category page", () => {
     expect(style("rolling-shot").textContent).toContain("جديد");
     expect(style("rolling-shot").textContent).toContain("6 صنّاع");
     expect(style("speed-ramp").textContent).not.toContain("جديد");
+    // The 🔥 row's label: name, NEW, creators (and the line of what it is, when there is one).
+    expect(style("rolling-shot").getAttribute("aria-label")).toBe("لقطة متحركة · جديد · 6 صنّاع");
+    expect(style("speed-ramp").getAttribute("aria-label")).toBe("سبيد رامب · 9 صنّاع");
     expect(
       shelves().map((s) => [s.getAttribute("data-area"), s.querySelector("h3")!.textContent]),
     ).toEqual([
@@ -380,14 +391,22 @@ describe("the category page", () => {
     expect($("category-page")!.textContent!.split(BUDGET)).toHaveLength(2);
     act(() => root.unmount());
 
-    // A failed update over a page made earlier today: the scan failed, the day had its update.
+    // A failed update over a page made earlier today: the scan failed, the day had its update. On a fixed clock (local
+    // noon, the page made at 09:00), so the page and the check never fall on two sides of midnight.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 7, 12));
     root = createRoot(host);
     sessionStorage.clear();
-    page = docOf({ status: "failed", notes: ["quota"], updatedAt: new Date().toISOString() });
+    page = docOf({
+      status: "failed",
+      notes: ["quota"],
+      updatedAt: new Date(2026, 9, 7, 9).toISOString(),
+    });
     await mount();
     expect($("category-page")!.textContent).toContain(RUN_FAILED);
     expect($("category-page")!.textContent).not.toContain(STALE);
     act(() => root.unmount());
+    vi.useRealTimers();
 
     // Never scanned, and the month already tight: the first-scan button with the budget line.
     root = createRoot(host);
@@ -417,5 +436,96 @@ describe("the category page", () => {
     expect(styleKeys()).toHaveLength(2);
     expect(shelves()).toHaveLength(3);
     expect(status()).toBe(RUN_FAILED);
+  });
+
+  it("opened again during its scan, waits for that same scan: no second request", async () => {
+    await mount();
+    act(() => rescan().click());
+    await settle();
+    act(() => root.unmount());
+    root = createRoot(host);
+    await mount();
+    expect(status()).toBe("أفحص سيارات… ممكن ياخذ دقيقة");
+    expect(rescan().disabled).toBe(true);
+    await answerRun();
+    expect(posts).toHaveLength(1);
+    expect($("category-page")!.textContent).toContain("تحدّثت الحين");
+    expect(status()).toBe("");
+  });
+
+  it("after a scan, moves focus to its heading only when the owner was on the page", async () => {
+    const elsewhere = document.createElement("input");
+    document.body.append(elsewhere);
+    try {
+      await mount();
+      const scan = async () => {
+        act(() => rescan().click());
+        await settle();
+        await answerRun();
+      };
+      // Busy elsewhere (typing in another box): focus stays there.
+      elsewhere.focus();
+      await scan();
+      expect(document.activeElement).toBe(elsewhere);
+      // On the page (a style chip), or nowhere: the heading, which reads out the new page.
+      const heading = $("category-page")!.querySelector("h2");
+      style("rolling-shot").focus();
+      await scan();
+      expect(document.activeElement).toBe(heading);
+      elsewhere.focus();
+      elsewhere.blur();
+      await scan();
+      expect(document.activeElement).toBe(heading);
+    } finally {
+      elsewhere.remove();
+    }
+  });
+
+  it("a video the player can't embed (a TikTok photo post) links out in a new tab", async () => {
+    const photoPost = {
+      url: "https://www.tiktok.com/@cars/photo/7001",
+      title: "carousel",
+      platform: "tt",
+      kind: "example",
+      lang: "en",
+    };
+    page = docOf({
+      lessons: {
+        ...LESSONS,
+        photo: [{ ...technique("panning", "بانينق", 1), videos: [photoPost] }],
+      },
+    });
+    await mount();
+    const video = all("category-technique")[0].querySelector('[data-testid="category-video"]')!;
+    expect(video.tagName).toBe("A");
+    expect(video.getAttribute("href")).toBe(photoPost.url);
+    expect(video.getAttribute("target")).toBe("_blank");
+    expect(video.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("a GET answering 'never' after this tab's scan landed shows that scan's page, not the first scan", async () => {
+    page = NEVER;
+    let releaseGet!: () => void;
+    getGate = new Promise<void>((r) => (releaseGet = r));
+    await mount();
+    expect($("category-page")).toBeNull(); // the GET is on its way
+    // Meanwhile a scan from another mount of the page answers into this tab's copy.
+    await runCategoryNow(CONFIG, "cars", {
+      fetchImpl: async () => json(docOf({ updatedAt: new Date().toISOString() })),
+    });
+    releaseGet();
+    await settle();
+    expect($("category-page")!.getAttribute("data-state")).toBe("page");
+    expect(styleKeys()).toEqual(["rolling-shot", "speed-ramp"]);
+  });
+
+  it("while Discover can't search (AI mode, no model chosen), Search all rests; a style still searches", async () => {
+    await mount("ar", { searchBlocked: true });
+    const searchAll = $("category-search-all") as HTMLButtonElement;
+    expect(searchAll.disabled).toBe(true);
+    act(() => searchAll.click());
+    act(() => style("rolling-shot").click());
+    expect(calls.all).toBe(0);
+    expect(calls.style).toEqual(["rolling shot"]);
   });
 });
