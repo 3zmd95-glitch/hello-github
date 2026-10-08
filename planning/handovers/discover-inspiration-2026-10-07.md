@@ -78,3 +78,44 @@ The owner's Reel https://www.instagram.com/reel/DdP6LgrT_aD/ exposed a different
 Final checks: **2,575 tests in 128 files passed; 382 browser tests passed with eight existing viewport-specific skips**. Lint, typecheck, production build, formatting and diff checks passed. The final copy-only clarification passed 78 component/message tests and, after another build, all 34 Discover browser tests. The English/Arabic phone and desktop format flow covers exact queries, relevant/noisy results, empty states, normal-search reset and saved following.
 
 The final frontend build was copied into primary `out/` and verified on **localhost:3000** without restarting its server. The Instagram reference thumbnail loads; Following (1) survives reload and remains saved. Recent examples returned zero supported matches. The live usage display was **861/1000 monthly lookups, 58/66 YouTube searches**; recheck before future calls because the monthly counter may be stale. No effects/category rescans or budget increases occurred. A live screenshot is at `C:\Users\AORUS\AppData\Local\Temp\discover-formats-live-2026-10-07.jpg`. PR #70 remains open and the shared Worker unchanged.
+
+## Latest continuation: public source and actual frame checks — 8 October 2026
+
+This section supersedes earlier runtime and verification status above. Work remains in the same managed worktree and PR #70. **Do not merge or deploy based on the earlier unanswered rollout question.** The owner's latest instruction was to continue implementation/testing.
+
+### What now works locally
+
+- The Reel inspector checks the actual public caption and displayed audio, with explicit match/unknown/mismatch outcomes. Original audio means unknown; source labels are not waveform analysis. This free source read uses neither Tavily nor inference.
+- Optional ChatGPT inspection uses the selected account/model/effort and either eight timestamped video frames or an explicitly selected preview image. Accessible clips are bounded to 90 seconds and 12 MiB. FFmpeg/ffprobe are already installed; no new dependency or service was added. The implementation parses inert public embed data, checks exact post identity and allowed hosts, bounds downloads/decoding, and removes owned temporary media. No browser cookies, tokens or private endpoint are used.
+- Selected-format searches automatically check up to six Instagram leads. Actual captions replace contaminated excerpts; displayed audio is assessed separately. Unsupported leads appear in a separate related-lessons list, and source audio cannot substitute for visual evidence. The Worker has equivalent bounded source enrichment, pending deployment.
+- English/Arabic UI distinguishes sampled composition from full motion, audio synchronization and popularity. Claude image transport is explicitly unavailable; there is no provider/model downgrade or implicit preview fallback.
+
+### Tested, with actual outcomes
+
+**2,675 unit tests in 134 files; 384 browser tests passed, eight existing skips.** Lint, typecheck, production build, formatting and diff checks passed. The final browser suite used a frozen build to avoid output-file contention.
+
+Two real frame inference checks completed through the app using **GPT-6-Astra / max** (highest effort this connection exposes):
+
+1. Owner's `DdP6LgrT_aD`: eight frames across 16.019 seconds. Source audio agrees; Astra identified repeated figures at 9.011s and 15.769s and returned visual support. A human-readable contact sheet was independently reviewed by root.
+2. Earlier false lead `DaX6-f9ox7D`: eight frames across 61.437 seconds. Cutout/transform teaching clues were visible, but the format was **uncertain**, not confirmed, and Original audio stayed unknown. Do not relabel it a proven mismatch.
+
+The car variation `DdtwTB7sr5g` had copyright-blocked public media; no bypass was attempted. The live tutorial search returned **zero supported indexed matches**, so no claim of successful automatic format discovery is justified. Current visible usage: **914/1000 monthly lookups, 1/66 YouTube searches today**. Recheck before spending more; do not raise caps.
+
+Local evidence: `C:\Users\AORUS\AppData\Local\Temp\3z-format-evidence-FJwlyD` contains contact sheets and timestamp/hash metadata. Positive UI proof: `C:\Users\AORUS\AppData\Local\Temp\discover-frame-check-live-2026-10-08.png`; negative UI proof: `C:\Users\AORUS\AppData\Local\Temp\discover-frame-negative-2026-10-08.png`. Full media/individual JPEGs were cleaned up by the decoder.
+
+### Running app and restart instructions
+
+**localhost:3000 is the only user-facing preview.** Old Node PID 40336 was replaced by **PID 3800**, running worktree `scripts/local-ai/main.ts` with its TSX loader. Its working directory is the primary checkout, so it serves the final build copied into primary ignored `out/`. Existing ChatGPT authorization was verified in the UI after restart; credentials were not read or copied.
+
+Logs: `C:\Users\AORUS\AppData\Local\Temp\discover-local-2026-10-08.out.log` and `.err.log`. The primary tracked source remains old main `898483f`. Rebuilding from primary would overwrite the updated preview. To restart later, verify the listener's process identity before stopping it and run **`pnpm local:serve` from the managed worktree**, whose `out/` also contains the final build. Use the existing runtime auth directory through normal app behavior; never inspect its auth files. The temporary port-3100 test server was stopped.
+
+The frozen browser-test build remains at `C:\Users\AORUS\AppData\Local\Temp\discover-e2e-f559d3b69bed46ebab2976e3067d03ef`: automatic approval review blocked its cleanup without a specific reason. It is disposable generated output and contains no copied auth files.
+
+### Remaining work, in order
+
+1. Review/integrate PR #70 and deploy the Worker after the pending owner rollout decision; then test the new automatic source enrichment against live scans. Current shared backend still lacks these changes.
+2. Improve retrieval of actual matching recent edits, including captionless examples. Passing a pasted reference check does not establish automatic discovery quality. Evaluate positives and near-misses across genres; the earlier 12-genre search audit is not a visual review of every returned video.
+3. Verify supported Meta audio catalogue access through normal authorization, and obtain dated repeated-use evidence before claiming a format is trending now. Cumulative audio use alone does not measure a visual recipe or recent growth.
+4. Add temporal/audio analysis only with a supported transport and a measured evaluation. Current sampled frames do not verify beat synchronization or all motion; Claude vision, automatic personal-feed monitoring and trend notifications are not implemented.
+
+Implementation decisions, boundaries and sources: `planning/tools/22-edit-formats.md`. Continue from this section rather than redoing the previous source investigation or running another full test suite without a code change.

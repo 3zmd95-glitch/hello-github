@@ -46,6 +46,18 @@ const SampleSchema = z.object({
   audioQuote: z.string().max(500).optional(),
   formatQuote: z.string().max(500).optional(),
   basis: z.enum(["partial-playback", "user-description", "caption"]).optional(),
+  captionSource: z.literal("instagram-public-embed").optional(),
+  audioSource: z
+    .object({
+      title: z.string().max(500),
+      artist: z.string().max(200).optional(),
+      url: z
+        .string()
+        .max(1000)
+        .refine((url) => platformUrl(url, true))
+        .optional(),
+    })
+    .optional(),
 });
 
 /** Mirrors Worker EditFormat v1, with explicit provenance for separately reviewed references. */
@@ -261,6 +273,20 @@ const VISUAL_COMPOSITING =
   /\b(?:rotoscop\w*|cut[ -]?outs?|composit(?:e|ing)|(?:visual|video|layer|subject|person) masks?|mask(?:s|ed|ing)?(?:\s+\w+){0,2}\s+(?:layers?|subjects?|people|persons?|figures?|frames?)|duplicat(?:e|ed|ing)\s+(?:video\s+)?(?:frames?|layers?))\b|ماسك|روتوسكوب|قص الشخص|طبقات الفيديو/i;
 type FormatSearchItem = Pick<DiscoverItem, "title" | "snippet" | "section" | "url" | "platform">;
 
+/** Only visual/teaching language belongs here; callers must not append an audio label to this text. */
+export function formatVisualEvidence(
+  text: string,
+  format: EditFormat,
+  intent: "examples" | "tutorials",
+): boolean {
+  if (intent === "tutorials" && !TEACHING.test(text)) return false;
+  if (AUDIO_CLONING.test(text) && !VISUAL_COMPOSITING.test(text)) return false;
+  const wanted = visualWords(visualSearchLabel(format));
+  const actual = visualWords(text);
+  if (wanted.size < 2 || [...wanted].some((word) => !actual.has(word))) return false;
+  return EDITING.test(text) || [...wanted].filter((word) => !NON_VISUAL.has(word)).length >= 2;
+}
+
 /** A selected format is a conjunction: the named audio/format AND its visual recipe. Ordinary Discover searches
  * do not use this gate. A result mentioning only an artist, album or generic cinematic style never qualifies. */
 export function formatItemMatches(
@@ -293,12 +319,9 @@ export function formatItemMatches(
     !wordsPresent(text, format.audio.artist)
   )
     return false;
-  const wanted = visualWords(visualSearchLabel(format));
-  const actual = visualWords(text);
-  if (wanted.size < 2 || [...wanted].some((word) => !actual.has(word))) return false;
   // Two generic nouns like "song beats" cannot establish a visual edit. Repeated figures is a visual phrase;
   // singing along to a beat, fashion/album news, and generic LUT advertisements are not.
-  return EDITING.test(text) || [...wanted].filter((word) => !NON_VISUAL.has(word)).length >= 2;
+  return formatVisualEvidence(text, format, intent);
 }
 
 /** Recount creators from accepted references so profile-only search noise cannot survive an empty format result.
@@ -308,14 +331,22 @@ export function filterFormatAnswer(
   format: EditFormat,
   intent: "examples" | "tutorials",
 ): DiscoverAnswer {
-  const items = answer.items
-    .filter((item) => formatItemMatches(item, format, intent))
-    .map((item) => {
-      const accepted = { ...item };
-      delete accepted.offTopic;
-      delete accepted.outsideCategory;
-      return accepted;
-    });
+  return withFormatItems(
+    answer,
+    answer.items.filter((item) => formatItemMatches(item, format, intent)),
+  );
+}
+
+export function withFormatItems(
+  answer: DiscoverAnswer,
+  acceptedItems: DiscoverItem[],
+): DiscoverAnswer {
+  const items = acceptedItems.map((item) => {
+    const accepted = { ...item };
+    delete accepted.offTopic;
+    delete accepted.outsideCategory;
+    return accepted;
+  });
   const handleKey = (p: string, h: string) => `${p}:${h.trim().replace(/^@/, "").toLowerCase()}`;
   const creators = answer.creators.flatMap((creator) => {
     const accepted = items.filter(

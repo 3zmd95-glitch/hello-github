@@ -389,7 +389,14 @@ async function scan(
   } = await rememberPosts(env, prev, today, posts, notes, { aiTimeoutMs: opts.aiTimeoutMs });
   // Keep the raw posts: the generic extractor deliberately discards song identity. One independent bounded
   // extraction preserves the song + visual pattern instead of merging it into an evergreen technique.
-  const { formatNote, ...formats } = await discoverFormats(env, prev, posts, now, opts.aiTimeoutMs);
+  const { formatNote, ...formats } = await discoverFormats(
+    env,
+    prev,
+    posts,
+    now,
+    opts.aiTimeoutMs,
+    doFetch,
+  );
   if (formatNote) notes.add(formatNote);
   // A changing YouTube search sample cannot establish growth. Save those quota calls for actual video searches.
   const items = scoreEffects(merged, shown, today, {});

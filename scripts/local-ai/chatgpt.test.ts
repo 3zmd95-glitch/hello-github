@@ -404,6 +404,37 @@ describe("ChatGPT plan connection", { timeout: 15_000 }, () => {
 });
 
 describe("ChatGPT structured search plans", { timeout: 15_000 }, () => {
+  it("sends explicit image bytes through the same selected subscription model without hosted tools", async () => {
+    const h = await harness();
+    await h.signedIn();
+    await h.provider.plan({
+      model: "account-premium",
+      effort: "max",
+      instructions: "Assess this thumbnail only",
+      input: "One source thumbnail",
+      images: [{ mime: "image/jpeg", base64: "/9j/4A==" }],
+      schemaName: "discover_format_verification",
+      schema: { type: "object", properties: {}, additionalProperties: false },
+      signal: new AbortController().signal,
+    });
+    expect(h.bodies[0].body).toMatchObject({
+      model: "account-premium",
+      store: false,
+      stream: true,
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: "One source thumbnail" },
+            { type: "input_image", image_url: "data:image/jpeg;base64,/9j/4A==", detail: "high" },
+          ],
+        },
+      ],
+      text: { format: { name: "discover_format_verification", strict: true } },
+    });
+    expect(h.bodies[0].body).not.toHaveProperty("tools");
+    expect(h.bodies[0].body).not.toHaveProperty("max_output_tokens");
+  });
   it("uses only account-listed models and supported efforts with subscription-safe fields", async () => {
     const h = await harness();
     await h.signedIn();

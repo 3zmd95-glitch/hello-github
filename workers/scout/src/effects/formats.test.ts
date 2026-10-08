@@ -5,6 +5,7 @@ import {
   focusedFormatQuery,
   formatInputs,
   FORMAT_MAX_POSTS,
+  FORMAT_SOURCE_MAX,
   validateFormats,
 } from "./formats";
 import type { EffectPost } from "./types";
@@ -43,6 +44,241 @@ const validate = (formats: unknown[], posts: EffectPost[]) =>
   validateFormats({ formats }, formatInputs(posts, NOW), NOW);
 const ai = (formats: unknown[] | null) => ({
   AI: { run: vi.fn(async () => (formats === null ? null : { response: { formats } })) },
+});
+const instagram = (n: number, caption?: string): EffectPost => ({
+  ...post(n, { caption }),
+  platform: "ig",
+  url: `https://www.instagram.com/reel/SOURCE${n}/`,
+});
+function sourceResponse(
+  input: RequestInfo | URL,
+  caption = PATTERN,
+  audio = `Artist One · ${SONG}`,
+) {
+  const id = new URL(String(input)).pathname.split("/")[2];
+  return new Response(
+    `<div class="Embed"><a class="Username" href="https://www.instagram.com/sourcecreator/">sourcecreator</a>` +
+      `<div class="HeaderSecondaryContent"><a href="https://www.instagram.com/reels/audio/123456/">${audio}</a></div>` +
+      `<a class="EmbeddedMedia" href="https://www.instagram.com/p/${id}/"><img class="EmbeddedMediaImage" src="https://scontent.cdninstagram.com/post.jpg"></a>` +
+      `<div class="Caption">${caption}</div></div>`,
+    { headers: { "Content-Type": "text/html" } },
+  );
+}
+function promptPosts(env: ReturnType<typeof ai>) {
+  const calls = env.AI.run.mock.calls as unknown as [string, { messages: { content: string }[] }][];
+  return JSON.parse(calls[0][1].messages[1].content).posts as {
+    postId: string;
+    caption: string;
+    captionSource?: string;
+    sourceAudio?: { title: string; artist?: string };
+  }[];
+}
+const sourceCandidate = () => ({
+  ...candidate(["p0"]),
+  observations: [{ postId: "p0", patternQuote: PATTERN, audioQuote: SONG }],
+});
+
+describe("bounded Instagram source enrichment", () => {
+  it("uses the authentic caption and separate audio label, preserving the existing published date", async () => {
+    const env = ai([sourceCandidate()]);
+    const doFetch = vi.fn<typeof fetch>(async (input) => sourceResponse(input));
+    const result = await discoverFormats(
+      env,
+      null,
+      [instagram(1, `${PATTERN}; unrelated indexed song`)],
+      NOW,
+      30_000,
+      doFetch,
+    );
+    expect(doFetch).toHaveBeenCalledTimes(1);
+    expect(promptPosts(env)).toEqual([
+      {
+        postId: "p0",
+        caption: PATTERN,
+        captionSource: "instagram-public-embed",
+        sourceAudio: {
+          title: SONG,
+          artist: "Artist One",
+          url: "https://www.instagram.com/reels/audio/123456/",
+        },
+      },
+    ]);
+    expect(result.formats).toHaveLength(1);
+    expect(result.formats![0].samples[0]).toMatchObject({
+      title: PATTERN,
+      handle: "sourcecreator",
+      published: "2026-10-06T12:00:00.000Z",
+      observedAt: NOW.toISOString(),
+      captionSource: "instagram-public-embed",
+      audioSource: {
+        title: SONG,
+        artist: "Artist One",
+        url: "https://www.instagram.com/reels/audio/123456/",
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("unrelated indexed song");
+    expect(JSON.stringify(result)).not.toMatch(/videoVerified|playback|thumbnail/);
+  });
+
+  it("rejects a different song, unsupported artist, abbreviated track title, and Original audio guesses", async () => {
+    for (const label of [
+      "Artist One · Other Song",
+      "Artist Two · Night Drive",
+      "Artist One · Night Drive / Second Half",
+      "Original audio",
+    ]) {
+      const doFetch = vi.fn<typeof fetch>(async (input) =>
+        sourceResponse(input, `${PATTERN}; Night Drive by Artist One`, label),
+      );
+      const result = await discoverFormats(
+        ai([sourceCandidate()]),
+        null,
+        [instagram(1)],
+        NOW,
+        30_000,
+        doFetch,
+      );
+      expect(result.formats, label).toEqual([]);
+    }
+    const original = {
+      ...sourceCandidate(),
+      audio: { title: "Original audio" },
+      observations: [{ postId: "p0", patternQuote: PATTERN, audioQuote: "Original audio" }],
+    };
+    const doFetch = vi.fn<typeof fetch>(async (input) =>
+      sourceResponse(input, PATTERN, "Original audio"),
+    );
+    expect(
+      (await discoverFormats(ai([original]), null, [instagram(1)], NOW, 30_000, doFetch)).formats,
+    ).toEqual([]);
+    const omittedArtist = { ...sourceCandidate(), audio: { title: SONG } };
+    const namedSource = vi.fn<typeof fetch>(async (input) => sourceResponse(input));
+    expect(
+      (await discoverFormats(ai([omittedArtist]), null, [instagram(1)], NOW, 30_000, namedSource))
+        .formats,
+    ).toEqual([]);
+  });
+
+  it("does not manufacture visual evidence from an audio title or keep contradicted indexed memory", async () => {
+    const original = instagram(1);
+    const earlier = await discoverFormats(
+      ai([candidate(["p0"])]),
+      null,
+      [original],
+      NOW,
+      30_000,
+      vi.fn<typeof fetch>(async () => new Response("unavailable", { status: 403 })),
+    );
+    expect(earlier.formats).toHaveLength(1);
+    const env = ai([sourceCandidate()]);
+    const doFetch = vi.fn<typeof fetch>(async (input) =>
+      sourceResponse(input, "Feeling out of place lately #cinematic"),
+    );
+    const result = await discoverFormats(env, earlier, [original], NOW, 30_000, doFetch);
+    expect(env.AI.run).not.toHaveBeenCalled();
+    expect(result.formats).toEqual([]);
+    expect(result.formatMemory).toEqual([]);
+  });
+
+  it("keeps unavailable source results as indexed evidence without source provenance", async () => {
+    const doFetch = vi.fn<typeof fetch>(
+      async () => new Response("Log in", { headers: { "Content-Type": "text/html" } }),
+    );
+    const result = await discoverFormats(
+      ai([candidate(["p0"])]),
+      null,
+      [instagram(1)],
+      NOW,
+      30_000,
+      doFetch,
+    );
+    expect(result.formats).toHaveLength(1);
+    expect(result.formats![0].samples[0]).not.toHaveProperty("captionSource");
+    expect(result.formats![0].samples[0]).not.toHaveProperty("audioSource");
+  });
+
+  it("preserves dated old evidence when an available embed has no caption to verify it against", async () => {
+    const original = instagram(1);
+    const earlier = await discoverFormats(
+      ai([candidate(["p0"])]),
+      null,
+      [original],
+      NOW,
+      30_000,
+      vi.fn<typeof fetch>(async () => new Response("", { status: 403 })),
+    );
+    const env = ai([sourceCandidate()]);
+    const later = new Date("2026-10-08T12:00:00.000Z");
+    const doFetch = vi.fn<typeof fetch>(async (input) =>
+      sourceResponse(input, "", "Original audio"),
+    );
+    const result = await discoverFormats(env, earlier, [original], later, 30_000, doFetch);
+    expect(env.AI.run).not.toHaveBeenCalled();
+    expect(result.formats).toEqual(earlier.formats);
+    expect(result.formats![0].lastChecked).toBe(NOW.toISOString());
+  });
+
+  it("does not treat a later Original audio label as proof that earlier supported music is different", async () => {
+    const original = instagram(1);
+    const earlier = await discoverFormats(
+      ai([sourceCandidate()]),
+      null,
+      [original],
+      NOW,
+      30_000,
+      vi.fn<typeof fetch>(async (input) => sourceResponse(input)),
+    );
+    const later = await discoverFormats(
+      ai([sourceCandidate()]),
+      earlier,
+      [original],
+      new Date("2026-10-08T12:00:00.000Z"),
+      30_000,
+      vi.fn<typeof fetch>(async (input) => sourceResponse(input, PATTERN, "Original audio")),
+    );
+    expect(later.formats).toEqual(earlier.formats);
+    expect(later.formats![0].lastChecked).toBe(NOW.toISOString());
+  });
+
+  it("bounds source requests to six with at most two simultaneous calls and reuses warm cache", async () => {
+    let active = 0;
+    let peak = 0;
+    const doFetch = vi.fn<typeof fetch>(async (input) => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      active--;
+      return sourceResponse(input);
+    });
+    const posts = Array.from({ length: 15 }, (_, n) => instagram(n + 1));
+    const first = await discoverFormats(ai([]), null, posts, NOW, 30_000, doFetch);
+    expect(doFetch).toHaveBeenCalledTimes(FORMAT_SOURCE_MAX);
+    expect(peak).toBe(2);
+    await discoverFormats(ai([]), first, posts, NOW, 30_000, doFetch);
+    expect(doFetch).toHaveBeenCalledTimes(FORMAT_SOURCE_MAX);
+    const miss = vi.fn<typeof fetch>(async () => new Response("", { status: 404 }));
+    await discoverFormats(ai([]), null, [instagram(1)], NOW, 30_000, miss);
+    await discoverFormats(ai([]), null, [instagram(1)], NOW, 30_000, miss);
+    expect(miss).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the source cache isolated by fetch provider and makes no lookups without AI", async () => {
+    const source = vi.fn<typeof fetch>(async (input) => sourceResponse(input));
+    const other = vi.fn<typeof fetch>(async (input) =>
+      sourceResponse(input, "A different source caption"),
+    );
+    await discoverFormats(ai([sourceCandidate()]), null, [instagram(1)], NOW, 30_000, source);
+    const env = ai([sourceCandidate()]);
+    expect((await discoverFormats(env, null, [instagram(1)], NOW, 30_000, other)).formats).toEqual(
+      [],
+    );
+    expect(other).toHaveBeenCalledTimes(1);
+    const unused = vi.fn<typeof fetch>(async () => {
+      throw new Error("network should not run");
+    });
+    await discoverFormats({}, null, [instagram(1)], NOW, 30_000, unused);
+    expect(unused).not.toHaveBeenCalled();
+  });
 });
 
 describe("specific caption-supported edit formats", () => {

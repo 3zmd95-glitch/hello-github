@@ -25,7 +25,8 @@ import {
 } from "@/lib/discover";
 import type { Lang, Skill } from "@/lib/domain";
 import { discoverPrompts } from "@/lib/discoverPrompts";
-import { filterFormatAnswer, type EditFormat } from "@/lib/editFormats";
+import type { EditFormat } from "@/lib/editFormats";
+import { applyFormatSources } from "@/lib/formatSources";
 import { allGenres, GENRES } from "@/lib/genres";
 import { useT, type MessageKey } from "@/lib/i18n";
 import type { AiChoice, AiSelection } from "@/lib/localAi";
@@ -87,6 +88,7 @@ import {
   type ScoutSearchState,
 } from "./useScout";
 import { useYoutubeQuery } from "./useYoutube";
+import { useFormatSources } from "./useFormatSources";
 
 /** Last platform tab, remembered per device. */
 export const RESEARCH_TAB_KEY = "3z-research-tab";
@@ -441,16 +443,33 @@ export default function ResearchPanel({
     ],
   );
   const rawDisc = useDiscoverQuery(discoverReq, attempt, forceAt === attempt);
+  const formatSources = useFormatSources(
+    rawDisc.status === "ok" ? rawDisc.answer : null,
+    activeFormat?.format,
+    activeFormat?.intent,
+  );
+  const sourceChecked = useMemo(
+    () =>
+      rawDisc.status === "ok" && activeFormat
+        ? applyFormatSources(
+            rawDisc.answer,
+            activeFormat.format,
+            activeFormat.intent,
+            formatSources.sources,
+          )
+        : null,
+    [rawDisc, activeFormat, formatSources.sources],
+  );
   // A format search keeps its specific audio + visual identity even when an older Worker returns broad music results.
   const disc = useMemo(
     () =>
-      rawDisc.status === "ok" && activeFormat
+      rawDisc.status === "ok" && sourceChecked
         ? {
             ...rawDisc,
-            answer: filterFormatAnswer(rawDisc.answer, activeFormat.format, activeFormat.intent),
+            answer: sourceChecked.answer,
           }
         : rawDisc,
-    [rawDisc, activeFormat],
+    [rawDisc, sourceChecked],
   );
   // Claude's picks (free: a KV read), asked when v2 opens and again at each search attempt.
   const picks = useDiscoverPicks(v2 ? scoutCfg : null, attempt);
@@ -1519,6 +1538,8 @@ export default function ResearchPanel({
                 ? { name: activeFormat.format.name, intent: activeFormat.intent }
                 : undefined
             }
+            sourceChecking={formatSources.checking}
+            sourceExcluded={sourceChecked?.excluded}
           />
         )}
 

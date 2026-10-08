@@ -172,6 +172,79 @@ afterEach(() => {
 });
 
 describe("runEffects", () => {
+  it("enriches six existing Instagram leads through the scan fetch without spending extra search credits", async () => {
+    const pattern = "multiple frozen clones appear on each beat";
+    const hits = Array.from({ length: 8 }, (_, n) => ({
+      ...ig(`indexed${n}`, "Frozen clone montage", n + 200),
+      content: `${pattern}; wrong indexed soundtrack`,
+    }));
+    const upstream = web({ hits });
+    const sources: string[] = [];
+    const doFetch = vi.fn<typeof fetch>(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.hostname !== "www.instagram.com") return upstream.fetch(input, init);
+      sources.push(url.href);
+      const id = url.pathname.split("/")[2];
+      return new Response(
+        `<div class="Embed"><a class="Username" href="https://www.instagram.com/source${sources.length}/">source</a>` +
+          `<div class="HeaderSecondaryContent">Artist One · Night Drive</div>` +
+          `<a class="EmbeddedMedia" href="https://www.instagram.com/p/${id}/"></a>` +
+          `<div class="Caption">${pattern}</div></div>`,
+        { headers: { "Content-Type": "text/html" } },
+      );
+    });
+    const { env, KV, AI } = setup();
+    const technique = AI.run.getMockImplementation()!;
+    AI.run.mockImplementation(async (model, input) => {
+      if (!(input.messages as { content: string }[])[0].content.startsWith("Discover specific"))
+        return technique(model, input);
+      const raw = JSON.parse(userText(input)) as {
+        posts: {
+          postId: string;
+          caption: string;
+          sourceAudio?: { title: string; artist: string };
+        }[];
+      };
+      const actual = raw.posts.filter((p) => p.sourceAudio);
+      expect(actual).toHaveLength(6);
+      expect(actual.every((p) => p.caption === pattern)).toBe(true);
+      return {
+        response: {
+          formats: [
+            {
+              name: { en: "Night Drive clone montage" },
+              visualPattern: { en: pattern },
+              audio: { title: "Night Drive", artist: "Artist One" },
+              observations: actual.map((p) => ({
+                postId: p.postId,
+                patternQuote: pattern,
+                audioQuote: "Night Drive",
+              })),
+            },
+          ],
+        },
+      };
+    });
+    const result = await runEffects(env, { fetch: doFetch, now: NOW });
+    expect(sources).toHaveLength(6);
+    expect(sources.every((url) => url.endsWith("/embed/captioned/"))).toBe(true);
+    expect(upstream.count.tavily).toBe(18);
+    expect(familiesOf(upstream.searched)).toHaveLength(6);
+    expect(result.formats![0].evidence).toMatchObject({
+      state: "repeated",
+      creators7d: 6,
+      posts7d: 6,
+    });
+    expect(
+      stored(KV).formatMemory![0].samples.every(
+        (sample) =>
+          sample.captionSource === "instagram-public-embed" &&
+          sample.audioSource?.title === "Night Drive",
+      ),
+    ).toBe(true);
+    expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY]);
+  });
+
   it("persists specific formats and revisits their song+visual identity within the unchanged daily search budget", async () => {
     const pattern = "multiple frozen clones appear on each beat";
     const song = "Night Drive";

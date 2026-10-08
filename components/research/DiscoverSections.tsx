@@ -52,6 +52,8 @@ export default function DiscoverSections({
   onRetry,
   picks,
   formatSearch,
+  sourceChecking,
+  sourceExcluded,
 }: {
   answer: DiscoverAnswer;
   q: string;
@@ -67,6 +69,8 @@ export default function DiscoverSections({
   /** Claude's picks saved for this answer's topic. */
   picks?: PicksTopic;
   formatSearch?: { name: { en: string; ar?: string }; intent: "examples" | "tutorials" };
+  sourceChecking?: boolean;
+  sourceExcluded?: { url: string; title: string; reason: "audio" | "caption" }[];
 }) {
   const { t, L, lang } = useT();
   const ids = useId();
@@ -166,6 +170,41 @@ export default function DiscoverSections({
                 : "formats.searchRules",
             )}
           </p>
+          {sourceChecking && (
+            <p className="mt-2" role="status">
+              {t("formats.checkingSources")}
+            </p>
+          )}
+          {!!sourceExcluded?.length && (
+            <details className="mt-2" data-testid="format-source-excluded">
+              <summary className="px-link cursor-pointer">
+                {t("formats.excludedSources", { n: sourceExcluded.length })}
+              </summary>
+              <p className="text-muted mt-2">{t("formats.excludedHelp")}</p>
+              <ul className="mt-2 space-y-2">
+                {sourceExcluded.map((item) => (
+                  <li key={item.url}>
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-link"
+                      dir="auto"
+                    >
+                      {item.title}
+                    </a>
+                    <p className="text-muted">
+                      {t(
+                        item.reason === "audio"
+                          ? "formats.excludedAudio"
+                          : "formats.excludedCaption",
+                      )}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
       {!formatSearch && (

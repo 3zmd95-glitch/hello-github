@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { freshState } from "./helpers";
+import { REVIEWED_FORMAT_SEEDS } from "../lib/formatSeeds";
 
 const WORKER = "https://3z-scout.example.workers.dev";
 const TOKEN = "test-token";
@@ -1410,4 +1411,123 @@ test("Discover v2: an empty TikTok tab connects TikTok trends — TikTok for Bus
   expect(connects).toEqual([{ returnTo: `${baseURL}/discover/` }]);
   // The address no longer says so, so a reload says nothing.
   await expect(page).toHaveURL(`${baseURL}/discover/`);
+});
+
+test("Reel source check: authentic audio, explicit frame inspection, rejected indexed lead and bilingual layout", async ({
+  page,
+}, testInfo) => {
+  await stubSubscriptions(page);
+  const target = REVIEWED_FORMAT_SEEDS[0];
+  const canonical = "https://www.instagram.com/p/DdP6LgrT_aD/";
+  const badUrl = "https://www.instagram.com/p/DaX6-f9ox7D/";
+  const checked = new Date().toISOString();
+  const source = (url: string) => ({
+    status: "available",
+    url,
+    title: url === badUrl ? "I made a tutorial" : "Feeling out place lately",
+    description:
+      url === badUrl
+        ? "I decided to make a tutorial with narration"
+        : "Feeling out place lately #filmmaking",
+    thumbnailUrl: "https://scontent.cdninstagram.com/test.jpg",
+    author: "test_creator",
+    observedAt: checked,
+    provenance: "instagram-public-embed",
+    audio:
+      url === badUrl
+        ? { title: "Original audio" }
+        : { title: "DON'T BE DUMB / TRIP BABY", artist: "A$AP Rocky" },
+  });
+  let inspections = 0;
+  await page.route("**/api/local-ai/instagram-source?*", (route) =>
+    route.fulfill({
+      json: source(
+        new URL(route.request().url()).searchParams.get("url")!.replace("/reel/", "/p/"),
+      ),
+    }),
+  );
+  await page.route("**/api/local-ai/verify-format", (route) => {
+    const body = route.request().postDataJSON();
+    expect(body).toMatchObject({
+      provider: "chatgpt",
+      model: "gpt-6-astra",
+      effort: "ultra",
+      mode: "frames",
+      lang: "en",
+    });
+    inspections++;
+    return route.fulfill({
+      json: {
+        provider: body.provider,
+        model: body.model,
+        effort: body.effort,
+        verification: {
+          version: 1,
+          checkedAt: checked,
+          formatKey: target.key,
+          url: canonical,
+          visual: "match",
+          audio: "match",
+          teaching: "unknown",
+          observations: ["Synthetic fixture: repeated figures are visible in sampled frames."],
+          limitations: ["sampled_frames", "motion_partial", "synchronization_unverified"],
+          basis: "source-frames-and-metadata",
+          frameCount: 2,
+          frames: [
+            { timestampSeconds: 0, sha256: "a".repeat(64) },
+            { timestampSeconds: 10, sha256: "b".repeat(64) },
+          ],
+          durationSeconds: 16,
+          videoSha256: "c".repeat(64),
+          framesObservedAt: checked,
+          source: source(canonical),
+        },
+      },
+    });
+  });
+  await stubWorker(page, () => ({
+    ...ANSWER,
+    items: [
+      item(801, {
+        platform: "ig",
+        url: badUrl,
+        title: "TRIP BABY repeating figures tutorial",
+        snippet: "How to create repeating figures in DaVinci Resolve",
+        section: "tutorial",
+      }),
+    ],
+    alternatives: [],
+    creators: [],
+  }));
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await page.getByRole("button", { name: "EN", exact: true }).click();
+  const inspector = page.getByTestId("format-inspector");
+  await inspector.locator("summary").first().click();
+  await inspector.getByTestId("format-check-source").click();
+  await expect(inspector.getByTestId("format-source-result")).toContainText(
+    "The displayed audio matches",
+  );
+  expect(inspections).toBe(0);
+  await inspector.getByText("Inspect the edit with AI", { exact: true }).click();
+  await inspector.getByTestId("ai-provider").selectOption("claude");
+  await expect(inspector.getByTestId("format-inspect-preview")).toBeDisabled();
+  expect(inspections).toBe(0);
+  await inspector.getByTestId("ai-provider").selectOption("chatgpt");
+  await inspector.getByTestId("ai-model").selectOption("gpt-6-astra");
+  await inspector.getByTestId("format-inspect-preview").click();
+  await expect(inspector.getByTestId("format-visual-result")).toContainText("sampled video frames");
+  await expect(inspector.getByTestId("format-visual-result")).toContainText(
+    "synchronization were not verified",
+  );
+  expect(inspections).toBe(1);
+  expect(await fitsViewport(page)).toBe(true);
+  await inspector.screenshot({ path: testInfo.outputPath("synthetic-source-frame-check.png") });
+  const card = page.getByTestId("edit-formats").locator(`[data-key="${target.key}"]`);
+  await card.getByTestId("format-find-tutorials").click();
+  await expect(page.getByTestId("format-source-excluded")).toBeVisible();
+  await expect(page.getByTestId("discover-section-tutorial")).toHaveCount(0);
+  await page.getByRole("button", { name: "AR", exact: true }).click();
+  await expect(inspector).toContainText("فريمات من الفيديو");
+  expect(await fitsViewport(page)).toBe(true);
 });

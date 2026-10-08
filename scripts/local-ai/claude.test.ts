@@ -85,6 +85,13 @@ async function fixture(
 }
 
 describe("Claude subscription adapter", () => {
+  it("rejects image verification explicitly before any CLI call instead of silently dropping the image", async () => {
+    const f = await fixture();
+    await expect(
+      f.provider.plan({ ...planInput(), images: [{ mime: "image/jpeg", base64: "/9j/4A==" }] }),
+    ).rejects.toMatchObject({ code: "claude_images_unavailable" });
+    expect(f.calls).toHaveLength(0);
+  });
   it("requires app activation, reuses native login, and does not expose the email", async () => {
     const f = await fixture();
     const initial = await f.provider.status();

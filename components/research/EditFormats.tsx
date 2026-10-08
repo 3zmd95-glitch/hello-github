@@ -15,6 +15,7 @@ import { useStore } from "@/store";
 import type { ResearchItem } from "@/lib/research";
 import ResultCard from "./ResultCard";
 import SaveInspirationButton from "./SaveInspirationButton";
+import FormatSourceInspector from "./FormatSourceInspector";
 
 /** A specific visual recipe with its audio, kept separate from the generic technique vocabulary. */
 export default function EditFormats({
@@ -272,7 +273,9 @@ export default function EditFormats({
                               ? "formats.partialPlayback"
                               : sample.basis === "user-description"
                                 ? "formats.userDescription"
-                                : "formats.captionOnly",
+                                : sample.captionSource === "instagram-public-embed"
+                                  ? "formats.publicCaption"
+                                  : "formats.captionOnly",
                           )}
                         </p>
                         {sample.patternQuote && (
@@ -299,6 +302,7 @@ export default function EditFormats({
           );
         })}
       </div>
+      <FormatSourceInspector formats={formats} />
       <p className="text-muted text-xs">{t("formats.local")}</p>
     </section>
   );
