@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { handle, type Env } from "../scout";
 import { savePicks } from "./picks";
 import { parseDiscoverBody } from "./routes";
+import { usageKeys } from "./usage";
 
 const TOKEN = "s3cret-token";
 const APP = "https://3zmd95-glitch.github.io";
@@ -144,7 +145,62 @@ describe("/discover routes", () => {
     );
     const res = await handle(req("/discover/usage"), ENV, undefined, { fetch: fetchMock });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { tavily: unknown }).tavily).toEqual({ used: 5, limit: 1000 });
+    expect(((await res.json()) as { tavily: unknown }).tavily).toEqual({
+      used: 5,
+      limit: 1000,
+      observedAt: expect.any(String),
+      cached: false,
+    });
+  });
+
+  it("refreshes real provider usage after an attempt without making a search or raising limits", async () => {
+    const store = new Map<string, string>([
+      [usageKeys.tavily, JSON.stringify({ used: 947, limit: 1000 })],
+    ]);
+    const SOCIAL_KV = {
+      async get(key: string) {
+        return store.get(key) ?? null;
+      },
+      async put(key: string, value: string) {
+        store.set(key, value);
+      },
+    } as unknown as KVNamespace;
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      json({ account: { plan_usage: 996, plan_limit: 1000 } }),
+    );
+    const env = { ...ENV, SOCIAL_KV };
+    const passive = await handle(req("/discover/usage"), env, undefined, { fetch: fetchMock });
+    expect(((await passive.json()) as { tavily: unknown }).tavily).toEqual({
+      used: 947,
+      limit: 1000,
+      cached: true,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const refreshed = await handle(req("/discover/usage?refresh=1"), env, undefined, {
+      fetch: fetchMock,
+    });
+    const usage = ((await refreshed.json()) as { tavily: unknown }).tavily;
+    expect(usage).toEqual({
+      used: 996,
+      limit: 1000,
+      observedAt: expect.any(String),
+      cached: false,
+    });
+    expect(refreshed.headers.get("Cache-Control")).toBe("no-store");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toBe("https://api.tavily.com/usage");
+    expect(fetchMock.mock.calls[0][1]?.method ?? "GET").toBe("GET");
+    const after = await handle(req("/discover/usage"), env, undefined, { fetch: fetchMock });
+    expect(((await after.json()) as { tavily: unknown }).tavily).toEqual({
+      ...(usage as object),
+      cached: true,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const denied = await handle(req("/discover/usage?refresh=1", { token: null }), env, undefined, {
+      fetch: fetchMock,
+    });
+    expect(denied.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("serves Claude's picks for the topic asked", async () => {

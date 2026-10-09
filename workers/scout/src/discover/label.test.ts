@@ -18,6 +18,108 @@ const card = (over: Partial<ScoutResult>): ScoutResult => ({
 });
 
 describe("labelCards", () => {
+  it("future tutorials, comment requests and tutorial hashtags remain examples", () => {
+    const titles = [
+      "Flash transition tutorial coming soon",
+      "Flash edit. Comment tutorial for the guide",
+      "Flash effect #tutorial",
+      "شرح الفلاش قريب",
+      "How to make a flash transition",
+    ];
+    const items = labelCards(
+      titles.map((title) => ({ card: card({ title }), query: query("tt-tutorials-en") })),
+      plan,
+    );
+    expect(items.map((item) => item.section)).toEqual([
+      "example",
+      "example",
+      "example",
+      "example",
+      "tutorial",
+    ]);
+  });
+  it.each([
+    [
+      "Cars",
+      "Car rotoscoping tutorial",
+      "Comment CAR to get the AI prompt for this cinematic car commercial",
+    ],
+    [
+      "Food & restaurants",
+      "Food cutout animation tutorial",
+      "sneaking food... #shorts #viral #edit",
+    ],
+    ["Anime", "Anime split screen beat sync", "Anime full episode #animeedit"],
+    ["Travel", "Travel whip pan tutorial", "Time Travel Effect Tutorial"],
+    ["Football", "Football freeze frame tutorial", "Football coaching: how to shoot harder #edit"],
+    ["Coffee", "Coffee macro closeup tutorial", "Coffee commercial espresso machine - buy now"],
+    [
+      "Perfume",
+      "Perfume reflection shot tutorial",
+      "Creating a Luxurious Atmosphere for Your Perfume Store",
+    ],
+    [
+      "Camping & desert",
+      "Camping drone reveal tutorial",
+      "A highly realistic cinematic selfie photograph during a desert film shoot. Foreground: I hold a phone",
+    ],
+    [
+      "Fashion",
+      "Fashion motion graphics breakdown",
+      "Fashion lookbook: shop now with discount code",
+    ],
+    ["Gaming", "Valorant motion tracking tutorial", "GATOTKACA Build Tutorial #gaming #montage"],
+    ["Weddings", "Wedding sound design breakdown", "Wedding photography packages - discount code"],
+    ["Gym", "Gym light sweep tutorial", "Gym workout routine to build muscle #gymedit"],
+  ])("%s normal searches share the category-page craft gate", (name, useful, noise) => {
+    const own = planSearch({ q: name });
+    expect(own.categoryId).toBeTruthy();
+    const labelled = labelCards(
+      [useful, noise].map((title) => ({ card: card({ title }), query: own.queries[0] })),
+      own,
+      { relaxCategory: true },
+    );
+    expect(labelled.map((i) => !!i.offTopic)).toEqual([false, true]);
+    expect(labelled[1].outsideCategory).toBeUndefined();
+  });
+  it("preserves exact, custom category and connector queries without introducing a built-in gate", () => {
+    const mine = {
+      q: "food deals",
+      platform: "ig" as const,
+      lang: "en" as const,
+      intent: "examples" as const,
+    };
+    for (const own of [
+      planSearch({ q: "food edit", exact: true }),
+      planSearch({ q: "food edit", queries: [mine] }),
+      planSearch({ q: "food edit", genreQuery: { en: "ceramics" } }),
+    ])
+      expect(own.categoryId).toBeUndefined();
+    for (const own of [
+      planSearch({ q: "food edit", exact: true }),
+      planSearch({ q: "food edit", queries: [mine] }),
+    ]) {
+      expect(
+        labelCards([{ card: card({ title: "Food deals #edit" }), query: own.queries[0] }], own)[0]
+          .offTopic,
+      ).toBeUndefined();
+    }
+  });
+  it("category relaxation cannot bring promotional bait back as an outside-category idea", () => {
+    const own = planSearch({ q: "match cut", genreQuery: { en: "car edit" } });
+    const [item] = labelCards(
+      [
+        {
+          card: card({ title: "Comment CAR for the prompt - car match cut cinematic commercial" }),
+          query: own.queries[0],
+        },
+      ],
+      own,
+      { relaxCategory: true },
+    );
+    expect(item.offTopic).toBe(true);
+    expect(item.outsideCategory).toBeUndefined();
+  });
   it("requires both the technique and selected genre, in either language", () => {
     const coffee = planSearch({
       q: "match cut",
@@ -126,7 +228,7 @@ describe("labelCards", () => {
   it("requires the subject for a genre-only search, not just the word edit", () => {
     const cars = planSearch({ q: "car edit", genreQuery: { ar: "ايديت سيارات" } });
     const items = labelCards(
-      ["Football edit", "Cinematic BMW edit", "ايديت سيارات"].map((title) => ({
+      ["Football edit", "Cinematic BMW edit", "ايديت سيارات ماتش كت"].map((title) => ({
         card: card({ title }),
         query: cars.queries[0],
       })),

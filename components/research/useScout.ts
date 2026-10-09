@@ -17,6 +17,7 @@ import {
   type ScoutTimeRange,
 } from "@/lib/scoutClient";
 import { useStore } from "@/store";
+import { useActiveSnapshot } from "./useActiveSnapshot";
 
 /**
  * The Scout Worker config from Settings, or null. Selects the two strings separately (primitives, so the
@@ -110,8 +111,17 @@ export function unionCount<T extends { url: string }>(
  * never spends a second credit. A new `attempt` (the panel's "Search" press counter) asks again after an
  * error; a cached success still costs nothing.
  */
-export function useScoutQuery(params: ScoutSearchParams | null, attempt = 0): ScoutSearchState {
-  const config = useScoutConfig();
+export function useScoutQuery(
+  requested: ScoutSearchParams | null,
+  requestedAttempt = 0,
+  enabled = true,
+): ScoutSearchState {
+  const configured = useScoutConfig();
+  const selection = useActiveSnapshot(
+    { config: configured, params: requested, attempt: requestedAttempt },
+    enabled,
+  );
+  const { config = null, params = null, attempt = 0 } = selection ?? {};
   const key = params ? scoutCacheKey(params) : "";
   const active = !!config && !!params;
   const [settled, setSettled] = useState<Settled | null>(null);

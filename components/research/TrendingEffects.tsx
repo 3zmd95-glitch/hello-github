@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   cachedTrendingEffects,
+  EFFECTS_EVIDENCE_VERSION,
   effectQuery,
   fetchTrendingEffects,
   rowVisible,
@@ -13,12 +14,16 @@ import {
 } from "@/lib/effects";
 import { useT } from "@/lib/i18n";
 import type { ScoutConfig } from "@/lib/scoutClient";
+import { mergeEditFormats, type EditFormat } from "@/lib/editFormats";
+import { REVIEWED_FORMAT_SEEDS } from "@/lib/formatSeeds";
+import { useStore } from "@/store";
+import EffectEvidence from "./EffectEvidence";
+import EditFormats from "./EditFormats";
+import FormatSourceInspector from "./FormatSourceInspector";
 
 const CREATIVE_CENTER =
   "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en";
 const HOUR = 3_600_000;
-/** YouTube's views of the week up at least this much: the "▶ ↑N×" note. */
-const YT_NOTE_FROM = 1.5;
 
 /** The line under the first-scan button, by the scan's state. */
 const SCAN_LINE = {
@@ -30,7 +35,7 @@ const SCAN_LINE = {
 
 /** Where the row rests after a scan's answer `r` (null: the request failed). */
 function afterScan(r: Trending | null): "idle" | "failed" | "limit" | "none" {
-  if (r?.items.length) return "idle";
+  if (r?.items.length || r?.formats?.length) return "idle";
   // The Worker's tries for the day are spent: the button rests until the next visit.
   if (r?.notes?.includes("attempts")) return "limit";
   // A run that found nothing rests too. No answer, or the Worker's own failed run with no list: a retry.
@@ -38,20 +43,27 @@ function afterScan(r: Trending | null): "idle" | "failed" | "limit" | "none" {
 }
 
 /**
- * 🔥 Discover's row of this week's trending editing effects (planning/tools/18-trending-effects.md §4): the Worker's
+ * Discover's observed editing techniques (planning/tools/18-trending-effects.md): the Worker's
  * daily list as chips that each run a search, with "Scan again" to run the job now; a first-scan button before the
  * Worker's first run, and nothing at all for an older Worker, a list older than 3 days or an answer that did not
- * come. TikTok / Instagram figures are creators mentioning the effect, never views; only the YouTube note counts views.
+ * come. Migrated counts describe identified platform accounts mentioning a technique; no popularity/NEW badges.
  */
 export default function TrendingEffects({
   config,
   onPick,
+  onPickFormat,
+  compact = false,
+  afterFormats,
 }: {
   config: ScoutConfig;
   /** A tapped chip's search ({@link effectQuery}). */
   onPick: (q: string) => void;
+  onPickFormat?: (q: string, intent: "examples" | "tutorials", format: EditFormat) => void;
+  compact?: boolean;
+  afterFormats?: ReactNode;
 }) {
   const { t } = useT();
+  const followed = useStore((s) => s.followedFormats);
   const id = useId();
   // Captured once, like the panel's: the age line needs no ticking clock.
   const [now] = useState(() => Date.now());
@@ -124,7 +136,6 @@ export default function TrendingEffects({
 
   // A first scan that rests keeps the row as it was (not hidden after a minute of "Scanning…").
   const state = scan === "limit" || scan === "none" ? "never" : rowVisible(data, now);
-  if (!data || state === "hidden") return null;
 
   // About a minute. Leaving Discover never cancels it (lib/effects keeps the list it finds for the next visit, and a
   // revisit meanwhile waits for it); this row then ignores its answer. `force`: Scan again, past the Worker's
@@ -135,6 +146,51 @@ export default function TrendingEffects({
       if (mounted.current) landed(r, force);
     });
   };
+  const formats = (
+    <EditFormats
+      data={data}
+      onPick={onPickFormat ?? onPick}
+      onScan={data?.formatVersion === 1 ? () => runNow(true) : undefined}
+      scanning={scan === "running"}
+      scanStatus={
+        scan === "running"
+          ? t("formats.scanning")
+          : scan === "failed" || data?.status === "failed"
+            ? t("formats.scanFailed")
+            : data?.notes?.includes("formats_ai_unavailable")
+              ? t("formats.scanUnavailable")
+              : scan === "limit" || data?.notes?.includes("attempts")
+                ? t(SCAN_LINE.limit)
+                : data?.formatVersion === 1 &&
+                    !data.formats?.length &&
+                    (data.status === "ok" || data.status === "partial")
+                  ? t("formats.noAutomatic")
+                  : ""
+      }
+    />
+  );
+  const formatPanel = compact ? (
+    <details data-testid="browse-formats" className="border-edge border-t pt-3">
+      <summary className="w-fit cursor-pointer text-sm font-bold">{t("feed.references")}</summary>
+      {formats}
+    </details>
+  ) : (
+    formats
+  );
+  const inspector = (
+    <FormatSourceInspector
+      key="source-inspector"
+      formats={mergeEditFormats(data?.formats ?? [], REVIEWED_FORMAT_SEEDS, followed)}
+    />
+  );
+  if (!data || state === "hidden")
+    return (
+      <>
+        {formatPanel}
+        {afterFormats}
+        {inspector}
+      </>
+    );
   // The scan's line: waiting, or why it rests; before the first run, also the Worker's own failed run.
   const line =
     scan !== "idle"
@@ -149,118 +205,123 @@ export default function TrendingEffects({
   const chip = (e: TrendingEffect) => {
     const name = e.name.en;
     const what = e.what?.en;
-    const g = e.youtube?.growth;
-    const yt = g !== undefined && g >= YT_NOTE_FROM ? `▶ ↑${Math.round(g * 10) / 10}×` : "";
-    const creators = t("search.trendingCreators", { n: e.creators });
+    const trusted = data.evidenceVersion === EFFECTS_EVIDENCE_VERSION;
+    const creators = trusted ? t("search.trendingCreators", { n: e.creators }) : "";
     return (
-      <button
-        key={e.key}
-        type="button"
-        className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
-        title={[what, e.name.ar, t("search.trendingCreatorsTip", { n: e.creators })]
-          .filter(Boolean)
-          .join("\n")}
-        aria-label={[name, e.isNew && t("search.trendingNew"), creators, yt, what]
-          .filter(Boolean)
-          .join(" · ")}
-        onClick={() => onPick(effectQuery(e))}
-        data-testid="trending-effect"
-        data-key={e.key}
-      >
-        <span className="flex items-center gap-1.5">
-          <span dir="auto">{name}</span>
-          {e.isNew && (
-            <span className="bg-gold text-gold-ink rounded-[2px] px-1 text-[10px] leading-4 font-bold">
-              {t("search.trendingNew")}
-            </span>
-          )}
-        </span>
-        <span className="text-ink-2 text-[11px] font-normal">
-          {creators}
-          {yt && (
-            <>
-              {" · "}
-              <span dir="ltr">{yt}</span>
-            </>
-          )}
-        </span>
-      </button>
+      <div key={e.key} className="flex shrink-0 flex-col items-start gap-1">
+        <button
+          type="button"
+          className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
+          title={[what, e.name.ar, trusted && t("search.trendingCreatorsTip", { n: e.creators })]
+            .filter(Boolean)
+            .join("\n")}
+          aria-label={[name, creators, what].filter(Boolean).join(" · ")}
+          onClick={() => onPick(effectQuery(e))}
+          data-testid="trending-effect"
+          data-key={e.key}
+        >
+          <span className="flex items-center gap-1.5">
+            <span dir="auto">{name}</span>
+          </span>
+          {creators && <span className="text-ink-2 text-[11px] font-normal">{creators}</span>}
+        </button>
+        {trusted && <EffectEvidence effect={e} />}
+      </div>
     );
   };
 
   return (
-    <section
-      aria-labelledby={`${id}-title`}
-      className="flex min-w-0 flex-col gap-1.5"
-      data-testid="trending-effects"
-      data-state={state}
-    >
-      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <h2 ref={heading} id={`${id}-title`} tabIndex={-1} className="text-sm font-bold">
-          {t("search.trendingTitle")}
-        </h2>
-        {state !== "never" && (
-          <>
-            <span className="text-muted text-xs">
-              {/* A list made under an hour ago (or after this page opened: a scan just now) is "just now". */}
-              {age < HOUR
-                ? t("search.trendingUpdatedNow")
-                : t("search.trendingUpdated", { n: Math.round(age / HOUR) })}
-            </span>
-            <a
-              href={CREATIVE_CENTER}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-link text-xs"
-            >
-              {t("search.trendingCreative")}
-            </a>
-            <button
-              ref={rescanButton}
-              type="button"
-              className="px-link text-xs disabled:opacity-50"
-              disabled={scan === "running"}
-              onClick={() => runNow(true)}
-              data-testid="trending-rescan"
-            >
-              {t("search.trendingRescan")}
-            </button>
-            {/* Always there (empty while idle), so its next words are announced: waiting, or a scan that failed
-                (the list stays). */}
-            <span role="status" className="text-muted text-xs">
-              {line}
-            </span>
-          </>
+    <>
+      {formatPanel}
+      {afterFormats}
+      <details
+        open={compact ? undefined : true}
+        data-testid="browse-techniques"
+        className="border-edge border-t pt-3"
+      >
+        {compact && (
+          <summary className="w-fit cursor-pointer text-sm font-bold">
+            {t("layout.techniques")}
+          </summary>
         )}
-      </div>
-      {state === "stale-failed" && (
-        <p className="text-muted text-xs">{t("search.trendingStale")}</p>
-      )}
-      {state === "never" ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            ref={runButton}
-            type="button"
-            className="px-btn px-btn-sm"
-            disabled={scan === "running" || scan === "limit" || scan === "none"}
-            onClick={() => runNow(false)}
-            data-testid="trending-run"
+        <div className={compact ? "mt-3" : ""}>
+          <section
+            aria-labelledby={`${id}-title`}
+            className="flex min-w-0 flex-col gap-1.5"
+            data-testid="trending-effects"
+            data-state={state}
           >
-            {t("search.trendingRun")}
-          </button>
-          {/* Always there (empty while idle), so its next words are announced. A scan that could not answer, or
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <h2 ref={heading} id={`${id}-title`} tabIndex={-1} className="text-sm font-bold">
+                {t("search.trendingTitle")}
+              </h2>
+              {state !== "never" && (
+                <>
+                  <span className="text-muted text-xs">
+                    {/* A list made under an hour ago (or after this page opened: a scan just now) is "just now". */}
+                    {age < HOUR
+                      ? t("search.trendingUpdatedNow")
+                      : t("search.trendingUpdated", { n: Math.round(age / HOUR) })}
+                  </span>
+                  <a
+                    href={CREATIVE_CENTER}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-link text-xs"
+                  >
+                    {t("search.trendingCreative")}
+                  </a>
+                  <button
+                    ref={rescanButton}
+                    type="button"
+                    className="px-link text-xs disabled:opacity-50"
+                    disabled={scan === "running"}
+                    onClick={() => runNow(true)}
+                    data-testid="trending-rescan"
+                  >
+                    {t("search.trendingRescan")}
+                  </button>
+                  {/* Always there (empty while idle), so its next words are announced: waiting, or a scan that failed
+                (the list stays). */}
+                  <span role="status" className="text-muted text-xs">
+                    {line}
+                  </span>
+                </>
+              )}
+            </div>
+            <p className="text-muted text-xs">{t("search.effectsEvidenceNote")}</p>
+            {state === "stale-failed" && (
+              <p className="text-muted text-xs">{t("search.trendingStale")}</p>
+            )}
+            {state === "never" ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  ref={runButton}
+                  type="button"
+                  className="px-btn px-btn-sm"
+                  disabled={scan === "running" || scan === "limit" || scan === "none"}
+                  onClick={() => runNow(false)}
+                  data-testid="trending-run"
+                >
+                  {t("search.trendingRun")}
+                </button>
+                {/* Always there (empty while idle), so its next words are announced. A scan that could not answer, or
               the Worker's own failed run (no list yet), says so; the button stays for a retry. The day's tries
               spent, or nothing trending yet, rest the button with their own line. */}
-          <p role="status" className="text-muted text-xs">
-            {line}
-          </p>
+                <p role="status" className="text-muted text-xs">
+                  {line}
+                </p>
+              </div>
+            ) : (
+              // One row that scrolls sideways (the page never does), like the genre chips.
+              <div className="flex min-w-0 gap-1.5 overflow-x-auto px-0.5 pt-0.5 pb-1.5">
+                {data.items.map(chip)}
+              </div>
+            )}
+          </section>
         </div>
-      ) : (
-        // One row that scrolls sideways (the page never does), like the genre chips.
-        <div className="flex min-w-0 gap-1.5 overflow-x-auto px-0.5 pt-0.5 pb-1.5">
-          {data.items.map(chip)}
-        </div>
-      )}
-    </section>
+      </details>
+      {inspector}
+    </>
   );
 }

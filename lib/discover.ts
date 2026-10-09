@@ -2,7 +2,7 @@ import type { Genre, Lang } from "./domain";
 import { subscriptionPlan, type AiSelection } from "./localAi";
 import {
   hasArabic,
-  popularityOf,
+  sortByPopularity,
   type LengthFilter,
   type Recency,
   type ResearchTab,
@@ -17,6 +17,7 @@ import {
   type ScoutSearchOpts,
   type Stats,
 } from "./scoutClient";
+import { rankDiscoverItems } from "./discoverRanking";
 
 /**
  * Discover v2 client (round 33, planning/tools/13-discover-search-v2.md): one `POST /discover` per search,
@@ -28,6 +29,23 @@ import {
 
 export type DiscoverPlatform = "tt" | "ig" | "yt";
 export type DiscoverSection = "example" | "tutorial";
+
+/** A source observation, kept separate from an indexed search excerpt. */
+export interface DiscoverSourceEvidence {
+  source:
+    | "youtube-api"
+    | "instagram-public-embed"
+    | "tiktok-oembed"
+    | "tiktok-public-page"
+    | "indexed-excerpt";
+  observedAt: string;
+  likes?: number;
+  views?: number;
+  published?: string;
+  caption?: string;
+  author?: string;
+  availability?: "available" | "unavailable";
+}
 
 export interface DiscoverItem {
   platform: DiscoverPlatform;
@@ -44,6 +62,7 @@ export interface DiscoverItem {
   /** Shown for the typed idea although it does not mention the selected category (nothing had both). */
   outsideCategory?: true;
   profile?: string;
+  evidence?: DiscoverSourceEvidence;
 }
 
 export interface DiscoverCreator {
@@ -61,7 +80,12 @@ export type DiscoverPlatformStatus =
   | { ok: true; retried?: boolean; partial?: DiscoverPlatformError }
   | { ok: false; error: DiscoverPlatformError };
 
+/** Producer's retrieval/labeling contract, mirrored from workers/scout/src/discover/types.ts. */
+export const DISCOVER_QUALITY_VERSION = 7;
+
 export interface DiscoverAnswer {
+  /** Missing on older Workers: can be displayed, but must never enter the current cache. */
+  qualityVersion?: number;
   topicKey: string;
   understood: {
     termId?: string;
@@ -198,6 +222,7 @@ function parseItem(x: unknown): DiscoverItem | null {
     return null;
   if (x.section !== "example" && x.section !== "tutorial") return null;
   const stats = parseStats(x.stats);
+  const evidence = parseDiscoverEvidence(x.evidence);
   return {
     platform: x.platform as DiscoverPlatform,
     handle: x.handle,
@@ -212,6 +237,38 @@ function parseItem(x: unknown): DiscoverItem | null {
     ...(x.offTopic === true ? { offTopic: true as const } : {}),
     ...(x.outsideCategory === true ? { outsideCategory: true as const } : {}),
     ...(isStr(x.profile) ? { profile: x.profile } : {}),
+    ...(evidence ? { evidence } : {}),
+  };
+}
+
+export function parseDiscoverEvidence(value: unknown): DiscoverSourceEvidence | undefined {
+  if (
+    !isObj(value) ||
+    ![
+      "youtube-api",
+      "instagram-public-embed",
+      "tiktok-oembed",
+      "tiktok-public-page",
+      "indexed-excerpt",
+    ].includes(value.source as string) ||
+    !isStr(value.observedAt) ||
+    !Number.isFinite(Date.parse(value.observedAt))
+  )
+    return;
+  const counts = parseStats(value);
+  return {
+    source: value.source as DiscoverSourceEvidence["source"],
+    observedAt: value.observedAt,
+    ...(counts?.likes !== undefined ? { likes: counts.likes } : {}),
+    ...(counts?.views !== undefined ? { views: counts.views } : {}),
+    ...(isStr(value.published) && Number.isFinite(Date.parse(value.published))
+      ? { published: value.published }
+      : {}),
+    ...(isStr(value.caption) ? { caption: value.caption.slice(0, 4000) } : {}),
+    ...(isStr(value.author) ? { author: value.author.slice(0, 200) } : {}),
+    ...(value.availability === "available" || value.availability === "unavailable"
+      ? { availability: value.availability }
+      : {}),
   };
 }
 
@@ -265,6 +322,9 @@ export function parseDiscoverAnswer(raw: unknown): DiscoverAnswer | null {
   }
   const cost: Record<string, unknown> = isObj(raw.cost) ? raw.cost : {};
   return {
+    ...(Number.isSafeInteger(raw.qualityVersion) && (raw.qualityVersion as number) >= 0
+      ? { qualityVersion: raw.qualityVersion as number }
+      : {}),
     topicKey: raw.topicKey,
     understood: {
       ...(isStr(u.termId) ? { termId: u.termId } : {}),
@@ -294,8 +354,8 @@ export function parseDiscoverAnswer(raw: unknown): DiscoverAnswer | null {
 /* ---------- cache ---------- */
 
 export const DISCOVER_CACHE_KEY = "3z-discover-cache";
-/** 6: real post dates (the Posted filter by them), English-first plans; older answers must not bypass them. */
-export const DISCOVER_CACHE_VERSION = 6;
+/** 7: known-category searches share the craft gate; older answers must not bypass it. */
+export const DISCOVER_CACHE_VERSION = 7;
 export const DISCOVER_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Answers kept on the device, newest first (memory keeps this session's). */
 export const DISCOVER_CACHE_MAX = 8;
@@ -363,7 +423,7 @@ function storedOf(storage: KeyValueStorage | null): Record<string, Entry> {
     for (const [k, e] of Object.entries(isObj(raw) ? raw : {})) {
       if (!k.startsWith(PREFIX) || !isObj(e) || typeof e.at !== "number") continue;
       const answer = parseDiscoverAnswer(e.answer);
-      if (answer) entries[k] = { at: e.at, answer };
+      if (answer && cacheable(answer)) entries[k] = { at: e.at, answer };
     }
   } catch {
     // Unreadable: nothing kept.
@@ -385,13 +445,17 @@ function forgetStored(storage: KeyValueStorage | null): void {
 const fresh = (e: Entry | undefined, now: number): e is Entry =>
   !!e && now - e.at < DISCOVER_CACHE_TTL_MS;
 
+/** A new frontend may still be talking to an old Worker during rollout. Its complete flag is insufficient. */
+const cacheable = (answer: DiscoverAnswer): boolean =>
+  answer.qualityVersion === DISCOVER_QUALITY_VERSION && answer.complete && answer.items.length > 0;
+
 function cacheGet(
   key: string,
   storage: KeyValueStorage | null,
   now: number,
 ): DiscoverAnswer | undefined {
   const mem = memory.get(key);
-  if (fresh(mem, now)) return mem.answer;
+  if (fresh(mem, now) && cacheable(mem.answer)) return mem.answer;
   const kept = storedOf(storage)[key];
   if (fresh(kept, now)) {
     memory.set(key, kept);
@@ -406,6 +470,7 @@ function cacheSet(
   storage: KeyValueStorage | null,
   now: number,
 ): void {
+  if (!cacheable(answer)) return;
   // Kept as a hit serves it: from the cache, and it costs nothing then.
   const entry: Entry = {
     at: now,
@@ -513,8 +578,8 @@ export async function discoverSearch(
         ok: false,
         error: { type: subscription ? "subscription_worker_upgrade" : "ai_unavailable" },
       };
-    // Kept only when the Worker calls it complete and it found something (an empty answer can be a fluke).
-    if (answer.complete && answer.items.length > 0) cacheSet(key, answer, storage, now());
+    // Require the producing Worker's quality version, not just this frontend's cache-key version.
+    if (cacheable(answer)) cacheSet(key, answer, storage, now());
     return { ok: true, answer };
   })();
   inflight.set(key, run);
@@ -545,10 +610,7 @@ function arabicFirstOf(list: DiscoverItem[]): DiscoverItem[] {
 }
 
 function byPopularity(list: DiscoverItem[]): DiscoverItem[] {
-  return list
-    .map((item, i) => ({ item, i, p: popularityOf(item.stats) }))
-    .sort((a, b) => (b.p ?? -1) - (a.p ?? -1) || a.i - b.i)
-    .map((x) => x.item);
+  return sortByPopularity(list);
 }
 
 export function sectionItems(
@@ -561,27 +623,18 @@ export function sectionItems(
   );
   if (opts.sort === "popular") list = byPopularity(list);
   // All: Instagram and TikTok first (the owner, 2026-10-07), each group keeping its order.
-  if (opts.tab === "all")
+  if (opts.tab === "all" && opts.sort !== "popular")
     list = [...list.filter((i) => i.platform !== "yt"), ...list.filter((i) => i.platform === "yt")];
   if (opts.arFirst) list = arabicFirstOf(list);
   return list;
 }
 
-/** The shown posts with the biggest numbers (views, else likes x 10), 6 by default; ties: newest first. */
+/** Recent examples meeting the evidence policy. Show hidden never relaxes popular admission. */
 export function popularItems(answer: DiscoverAnswer, opts: ViewOpts, max = 6): DiscoverItem[] {
-  return answer.items
-    .filter(
-      (i) =>
-        onTab(i, opts.tab) &&
-        (opts.showHidden || !i.offTopic) &&
-        popularityOf(i.stats) !== undefined,
-    )
-    .sort(
-      (a, b) =>
-        (popularityOf(b.stats) ?? 0) - (popularityOf(a.stats) ?? 0) ||
-        (b.published ?? "").localeCompare(a.published ?? ""),
-    )
-    .slice(0, max);
+  return rankDiscoverItems(
+    answer.items.filter((i) => onTab(i, opts.tab)),
+    { mode: "popular" },
+  ).items.slice(0, max);
 }
 
 export function tabCounts(
@@ -611,6 +664,9 @@ export interface DiscoverUsage {
         plan?: string;
         paygoUsed?: number;
         paygoLimit?: number | null;
+        /** Optional on upgraded Workers; never manufacture freshness for an old reply. */
+        observedAt?: string;
+        cached?: boolean;
       }
     | { error: string };
   youtube: { usedToday: number; cap: number };
@@ -619,9 +675,14 @@ export interface DiscoverUsage {
 
 export async function discoverUsage(
   config: ScoutConfig,
-  opts: ScoutSearchOpts = {},
+  opts: ScoutSearchOpts & { refresh?: boolean } = {},
 ): Promise<{ ok: true; usage: DiscoverUsage } | { ok: false; error: ScoutError }> {
-  const r = await scoutCall(config, "/discover/usage", {}, opts);
+  const r = await scoutCall(
+    config,
+    `/discover/usage${opts.refresh ? "?refresh=1" : ""}`,
+    { cache: "no-store" },
+    opts,
+  );
   if (!r.ok) return r;
   const d = r.data as DiscoverUsage;
   if (!isObj(d) || !isObj(d.tavily) || !isObj(d.youtube) || !isObj(d.connector)) {

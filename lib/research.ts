@@ -663,29 +663,38 @@ export function arabicFirst<T extends { title: string; snippet?: string }>(
 }
 
 /**
- * One number to rank a post by: its views when known, else its likes × 10 (about one like per ten views,
- * so a TikTok with likes only can sit next to a YouTube video with views). Undefined when neither is known.
+ * The reported headline count. This is not a cross-platform score or an estimate of views.
  */
 export function popularityOf(stats?: Stats): number | undefined {
   if (stats?.views !== undefined) return stats.views;
-  if (stats?.likes !== undefined) return stats.likes * 10;
+  if (stats?.likes !== undefined) return stats.likes;
   return undefined;
 }
 
 /**
- * The "Most popular" order: posts with a known {@link popularityOf} first, highest first; the rest after, in
- * their original order. Stable (ties keep their order) and never touches the list it was given.
+ * Sort comparable counts within their platform/metric, then interleave those groups.
+ * Unknown counts remain last. Likes are never converted into invented views.
  */
-export function sortByPopularity<T extends { stats?: Stats }>(items: readonly T[]): T[] {
-  const known: { item: T; score: number }[] = [];
+export function sortByPopularity<T extends { stats?: Stats; platform?: string }>(
+  items: readonly T[],
+): T[] {
+  const groups = new Map<string, { item: T; score: number }[]>();
   const unknown: T[] = [];
   for (const item of items) {
     const score = popularityOf(item.stats);
     if (score === undefined) unknown.push(item);
-    else known.push({ item, score });
+    else {
+      const key = `${item.platform ?? ""}:${item.stats?.views !== undefined ? "views" : "likes"}`;
+      const group = groups.get(key) ?? [];
+      group.push({ item, score });
+      groups.set(key, group);
+    }
   }
-  known.sort((a, b) => b.score - a.score);
-  return [...known.map((k) => k.item), ...unknown];
+  const buckets = [...groups.values()].map((group) => group.sort((a, b) => b.score - a.score));
+  const ranked: T[] = [];
+  for (let index = 0; buckets.some((group) => index < group.length); index++)
+    for (const group of buckets) if (group[index]) ranked.push(group[index].item);
+  return [...ranked, ...unknown];
 }
 
 /** What the stats chip of a card shows: the views when known, else the likes; undefined without either. */

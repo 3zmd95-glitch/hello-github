@@ -78,6 +78,7 @@ test("manual edits: remove an item, add one from the backlog, keep both over a r
 
   const items = page.getByTestId("plan-item");
   const budget = page.getByTestId("plan-budget");
+  await expect(items.first()).toBeVisible();
   const total = await items.count();
   const minutes0 = Number(await budget.getAttribute("data-minutes"));
   await expect(page.getByTestId("plan-by-me")).toHaveCount(0);

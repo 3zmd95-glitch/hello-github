@@ -76,11 +76,14 @@ const run = (body?: string, token?: string | null) =>
 
 /** What the routes answer for a stored document: everything but the job's memory (history, meta). */
 const answer = (d: EffectsDoc) => ({
+  evidenceVersion: d.evidenceVersion,
   status: d.status,
   ranOn: d.ranOn,
   updatedAt: d.updatedAt,
   notes: d.notes,
   items: d.items,
+  formatVersion: 1,
+  formats: d.formatVersion === 1 ? (d.formats ?? []) : [],
 });
 
 const DOC: EffectsDoc = {
@@ -143,7 +146,7 @@ describe("/effects routes", () => {
     const res = await handle(req("/effects/trending"), env);
     expect(res.status).toBe(200);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe(APP);
-    expect(await res.json()).toEqual({ status: "never", items: [] });
+    expect(await res.json()).toEqual({ status: "never", items: [], formatVersion: 1, formats: [] });
   });
 
   it("GET answers the stored list without the job's memory", async () => {
@@ -156,6 +159,8 @@ describe("/effects routes", () => {
       updatedAt: "2026-10-05T05:35:12.000Z",
       notes: ["youtube_cap"],
       items: DOC.items,
+      formatVersion: 1,
+      formats: [],
     });
   });
 
@@ -220,9 +225,37 @@ describe("/effects routes", () => {
       updatedAt: NOW.toISOString(),
       notes: ["attempts"],
       items: [],
+      formatVersion: 1,
+      formats: [],
     });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(kv.put).not.toHaveBeenCalled();
+  });
+
+  it("advertises format capability for legacy memory and upgrades only on a manual scan within the attempt cap", async () => {
+    const { env, kv } = setup({ ...DOC, ranOn: "2026-10-06", status: "ok", notes: undefined });
+    kv.store.set(ATTEMPTS, "2");
+    const fetchMock = tavily();
+    expect(await (await handle(req("/effects/trending"), env)).json()).toMatchObject({
+      formatVersion: 1,
+      formats: [],
+    });
+    // Deployment alone does not cause cron to spend for a second successful scan today.
+    await runTick(env, NOW.getTime(), { fetch: fetchMock });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const upgraded = await handle(run("{}"), env, undefined, { fetch: fetchMock, now: () => NOW });
+    expect(await upgraded.json()).toMatchObject({ formatVersion: 1, formats: [] });
+    expect(storedDoc(kv).formatVersion).toBe(1);
+    expect(kv.store.get(ATTEMPTS)).toBe("3");
+    expect(fetchMock).toHaveBeenCalledTimes(18);
+    await handle(run("{}"), env, undefined, { fetch: fetchMock, now: () => LATER });
+    expect(fetchMock).toHaveBeenCalledTimes(18);
+    const response = (await (await handle(req("/effects/trending"), env)).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(response).not.toHaveProperty("formatMemory");
+    expect(response).not.toHaveProperty("history");
   });
 
   it("POST refuses any body but { force?: boolean }, spending nothing", async () => {

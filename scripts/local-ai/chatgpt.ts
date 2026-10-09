@@ -837,13 +837,27 @@ export function createChatGptProvider(runtimeDir: string, options: Options = {})
             body: JSON.stringify({
               model: input.model,
               instructions: input.instructions,
-              input: [{ role: "user", content: input.input }],
+              input: [
+                {
+                  role: "user",
+                  content: input.images?.length
+                    ? [
+                        { type: "input_text", text: input.input },
+                        ...input.images.map((image) => ({
+                          type: "input_image",
+                          image_url: `data:${image.mime};base64,${image.base64}`,
+                          detail: "high",
+                        })),
+                      ]
+                    : input.input,
+                },
+              ],
               store: false,
               stream: true,
               text: {
                 format: {
                   type: "json_schema",
-                  name: "discover_search_plan",
+                  name: input.schemaName ?? "discover_search_plan",
                   strict: true,
                   schema: input.schema,
                 },

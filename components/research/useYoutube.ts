@@ -9,6 +9,7 @@ import {
   type YoutubeVideo,
 } from "@/lib/research";
 import { LOADING, OFF, settledFor, type Tagged } from "./useScout";
+import { useActiveSnapshot } from "./useActiveSnapshot";
 
 export type YoutubeState =
   | { status: "off" }
@@ -31,11 +32,17 @@ type Settled = Tagged<
  * ones with their `stats` take their place once that call answers.
  */
 export function useYoutubeQuery(
-  apiKey: string | undefined,
-  q: string,
-  opts: Omit<YoutubeSearchOpts, "fetchImpl">,
-  attempt = 0,
+  requestedApiKey: string | undefined,
+  requestedQuery: string,
+  requestedOpts: Omit<YoutubeSearchOpts, "fetchImpl">,
+  requestedAttempt = 0,
+  enabled = true,
 ): YoutubeState {
+  const selection = useActiveSnapshot(
+    { apiKey: requestedApiKey, q: requestedQuery, opts: requestedOpts, attempt: requestedAttempt },
+    enabled,
+  );
+  const { apiKey, q = "", opts = {}, attempt = 0 } = selection ?? {};
   const query = q.trim();
   const active = !!apiKey && query.length > 0;
   const key = active ? youtubeSearchUrl(apiKey, query, opts) : "";

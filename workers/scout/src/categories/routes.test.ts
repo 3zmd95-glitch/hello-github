@@ -7,12 +7,15 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usageKeys } from "../discover/usage";
+import { EFFECTS_EVIDENCE_VERSION } from "../effects/types";
 import { instagramShortcodeAt } from "../postDate";
 import { handle, type Env } from "../scout";
 import { runTick } from "../social/cron";
+import { encryptJson } from "../social/crypto";
 import { TAVILY_URL } from "../trends/tavily";
 import { YT_SEARCH_URL } from "../trends/youtubeSearch";
 import { handleCategories } from "./routes";
+import { CATEGORY_QUALITY_VERSION } from "./run";
 import { BRAVE_WEB_URL } from "./top";
 import type { CategoryDoc } from "./types";
 
@@ -85,6 +88,7 @@ const run = (id: string, body?: string, token?: string | null) =>
 
 /** What the routes answer for a stored document: no `ranOn`, memory (history, meta) or diagnostics. */
 const answer = (d: CategoryDoc) => ({
+  evidenceVersion: d.evidenceVersion,
   status: d.status,
   updatedAt: d.updatedAt,
   notes: d.notes,
@@ -94,6 +98,8 @@ const answer = (d: CategoryDoc) => ({
 });
 
 const DOC: CategoryDoc = {
+  evidenceVersion: EFFECTS_EVIDENCE_VERSION,
+  qualityVersion: CATEGORY_QUALITY_VERSION,
   ranOn: "2026-10-04",
   updatedAt: "2026-10-04T05:40:09.000Z",
   status: "partial",
@@ -159,6 +165,33 @@ describe("/categories routes", () => {
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe(APP);
     expect(await res.json()).toEqual({ error: "upstream" });
   });
+  it("hides legacy trend claims on reads and cached no-op runs without changing storage or spending", async () => {
+    for (const qualityVersion of [undefined, 0, CATEGORY_QUALITY_VERSION + 1]) {
+      const legacy = { ...DOC, qualityVersion, ranOn: "2026-10-07" };
+      const { env, kv } = setup(legacy);
+      const storedBefore = kv.store.get(KEY);
+      const fetchMock = tavily();
+      const deps = { fetch: fetchMock, now: () => NOW };
+      for (const request of [req("/categories/cars"), run("cars")]) {
+        const response = await handle(request, env, undefined, deps);
+        expect(await response.json()).toEqual({ ...answer(legacy), items: [] });
+      }
+      expect(kv.store.get(KEY)).toBe(storedBefore);
+      expect(kv.put).not.toHaveBeenCalled();
+      expect(kv.store.has(ATTEMPTS)).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  });
+  it("exposes current-version trend evidence without leaking internal migration metadata", async () => {
+    const { env, kv } = setup(DOC);
+    const fetchMock = tavily();
+    const response = await handle(req("/categories/cars"), env, undefined, { fetch: fetchMock });
+    const body = await response.json();
+    expect(body).toEqual(answer(DOC));
+    expect(body).not.toHaveProperty("qualityVersion");
+    expect(kv.put).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it("treats a stored page's lessons as untrusted: the GET and a scan drop a malformed one", async () => {
     const malformed = [
@@ -184,7 +217,7 @@ describe("/categories routes", () => {
   it("GET answers the stored top lists (§6): a malformed entry is dropped alone; a page from before §6 has none", async () => {
     const yt = {
       url: "https://www.youtube.com/watch?v=carVid00001",
-      title: "Car edit",
+      title: "Car match cut",
       creator: "Car Channel",
       views: 1200,
     };
@@ -199,7 +232,15 @@ describe("/categories routes", () => {
     const got = (await (await handle(req("/categories/cars"), env)).json()) as ReturnType<
       typeof answer
     >;
-    expect(got.top).toEqual({ updatedAt: top.updatedAt, yt: [yt], ig: [ig], tt: [] });
+    // A legacy title with no category evidence is removed; qualifying metadata gets explicit provenance.
+    expect(got.top).toEqual({
+      updatedAt: top.updatedAt,
+      yt: [
+        { ...yt, evidence: { basis: "metadata", subjects: ["car"], techniques: ["match cut"] } },
+      ],
+      ig: [],
+      tt: [],
+    });
     const before = setup(DOC);
     expect(await (await handle(req("/categories/cars"), before.env)).json()).not.toHaveProperty(
       "top",
@@ -311,7 +352,8 @@ describe("GET /categories/:id/top/:platform (§6: Brave on demand, never stored)
     // The stored list, then Brave's group as Brave gave it (its title as written).
     expect(await res.json()).toEqual({
       platform: "tt",
-      scan: [SCAN],
+      scan: [],
+      discoveryStatus: "not_connected",
       brave: [
         {
           url: HIT.url,
@@ -348,7 +390,8 @@ describe("GET /categories/:id/top/:platform (§6: Brave on demand, never stored)
       await (await handle(req("/categories/cars/top/tt"), env, undefined, deps)).json(),
     ).toEqual({
       platform: "tt",
-      scan: [SCAN],
+      scan: [],
+      discoveryStatus: "not_connected",
       brave: [],
       source: "scan",
       note: "no_key",
@@ -363,6 +406,31 @@ describe("GET /categories/:id/top/:platform (§6: Brave on demand, never stored)
       scan: [],
       brave: [{ url: HIT.url }],
     });
+  });
+});
+
+describe("TikTok empty source status", () => {
+  it("distinguishes connected empty results, scan needed and upstream failure without fetching videos", async () => {
+    const sealed = await encryptJson(TOKEN, {
+      access_token: "fake-business",
+      advertiser_ids: ["adv1"],
+      connectedAt: "2026-10-07T00:00:00Z",
+    });
+    for (const [doc, status] of [
+      [{ ...DOC, top: { updatedAt: DOC.updatedAt, yt: [], ig: [], tt: [] } }, "ready"],
+      [undefined, "not_scanned"],
+      [
+        { ...DOC, notes: ["tiktok"], top: { updatedAt: DOC.updatedAt, yt: [], ig: [], tt: [] } },
+        "unavailable",
+      ],
+    ] as const) {
+      const { env, kv } = setup(doc as CategoryDoc | undefined);
+      kv.store.set("tiktokads:token", sealed);
+      const fetch = vi.fn<typeof globalThis.fetch>();
+      const response = await handle(req("/categories/cars/top/tt"), env, undefined, { fetch });
+      expect(await response.json()).toMatchObject({ scan: [], discoveryStatus: status });
+      expect(fetch).not.toHaveBeenCalled();
+    }
   });
 });
 

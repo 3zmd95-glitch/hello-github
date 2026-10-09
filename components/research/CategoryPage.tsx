@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import { useVideoPlayer } from "@/components/player/VideoPlayerContext";
-import { getSkill } from "@/data";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import {
   AREAS,
   cachedCategory,
@@ -16,20 +22,19 @@ import {
   TOP_PLATFORMS,
   type Area,
   type CategoryPageData,
-  type LessonVideo,
-  type Technique,
   type TopAnswer,
   type TopLists,
   type TopPlatform,
   type TopVideo,
 } from "@/lib/categories";
 import type { Genre } from "@/lib/domain";
-import { effectQuery, type TrendingEffect } from "@/lib/effects";
-import { canEmbed } from "@/lib/embed";
+import { EFFECTS_EVIDENCE_VERSION, effectQuery, type TrendingEffect } from "@/lib/effects";
 import { useT, type MessageKey } from "@/lib/i18n";
 import type { ResearchItem } from "@/lib/research";
 import type { ScoutConfig } from "@/lib/scoutClient";
 import ResultCard, { PLATFORM_META } from "./ResultCard";
+import CategoryTechniqueCard from "./CategoryTechniqueCard";
+import EffectEvidence from "./EffectEvidence";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -75,9 +80,10 @@ const topItem = (platform: TopPlatform, v: TopVideo): ResearchItem => ({
   platform,
   handle: v.creator ?? "",
   title: v.title,
-  snippet: "",
+  snippet: v.snippet ?? "",
   url: v.url,
   ...(v.thumbnail ? { thumb: v.thumbnail } : {}),
+  ...(v.publishedAt ? { published: v.publishedAt } : {}),
   ...(v.views !== undefined ? { stats: { views: v.views } } : {}),
 });
 
@@ -101,11 +107,13 @@ function TopVideos({
   genreId,
   name,
   top,
+  renderAction,
 }: {
   config: ScoutConfig;
   genreId: string;
   name: string;
   top: TopLists;
+  renderAction?: (item: ResearchItem) => ReactNode;
 }) {
   const { t, dir } = useT();
   const id = useId();
@@ -113,7 +121,9 @@ function TopVideos({
   const [tab, setTab] = useState<TopPlatform>(TOP_PLATFORMS[0]);
   const [shown, setShown] = useState(TOP_SHOW);
   // A Brave tab's answer: none before its first open, null while on its way.
-  const [brave, setBrave] = useState<Partial<Record<TopPlatform, TopAnswer | null>>>({});
+  const [brave, setBrave] = useState<
+    Partial<Record<TopPlatform, (TopAnswer & { requestFailed?: boolean }) | null>>
+  >({});
   const asked = useRef(new Set<TopPlatform>());
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   // "Connect TikTok trends": on its way to TikTok (busy, the page is leaving), or refused.
@@ -135,7 +145,7 @@ function TopVideos({
     void fetchCategoryTop(config, genreId, p).then((r) =>
       setBrave((b) => ({
         ...b,
-        [p]: r ?? { scan: [], brave: [], source: "scan", note: "brave_failed" },
+        [p]: r ?? { scan: top[p], brave: [], source: "scan", requestFailed: true },
       })),
     );
   };
@@ -156,7 +166,7 @@ function TopVideos({
    * Brave's group without the posts the stored list holds, 50 in all. */
   const listsOf = (p: TopPlatform) => {
     const answer = brave[p];
-    const scan = answer?.scan.length ? answer.scan : top[p];
+    const scan = answer ? answer.scan : top[p];
     const urls = new Set(scan.map((v) => v.url));
     const fromBrave = (answer?.brave ?? []).filter((v) => !urls.has(v.url));
     return { scan, brave: fromBrave.slice(0, Math.max(0, TOP_MAX - scan.length)) };
@@ -165,18 +175,32 @@ function TopVideos({
   const lists = listsOf(tab);
   const all = lists.scan.length + lists.brave.length;
   const note = answer?.note;
-  // TikTok's list came and is empty: TikTok for Business may not be connected yet.
-  const offerConnect = tab === "tt" && !!answer && all === 0;
+  // No useful match is not an authentication failure: only the explicit source status offers login.
+  const offerConnect = tab === "tt" && answer?.discoveryStatus === "not_connected";
+  const discoveryLine =
+    tab === "tt"
+      ? offerConnect
+        ? t("search.topTikTokNotConnected")
+        : answer?.discoveryStatus === "unavailable"
+          ? t("search.topTikTokUnavailable")
+          : answer?.discoveryStatus === "not_scanned" && !all
+            ? t("search.topTikTokNotScanned")
+            : ""
+      : "";
   const line =
     answer === null
       ? t("search.topLoading")
-      : offerConnect && connect === "failed"
-        ? t("search.tiktokConnectFailed")
-        : note && note !== "no_key"
-          ? t(TOP_LINE[note])
-          : all
-            ? ""
-            : t("search.topEmpty");
+      : answer?.requestFailed
+        ? t("search.topRequestFailed")
+        : offerConnect && connect === "failed"
+          ? t("search.tiktokConnectFailed")
+          : discoveryLine
+            ? discoveryLine
+            : note && note !== "no_key"
+              ? t(TOP_LINE[note])
+              : all
+                ? ""
+                : t("search.topEmpty");
   // What shows of each group: the stored list first, 12 at a time across both.
   const scanShown = lists.scan.slice(0, shown);
   const braveShown = lists.brave.slice(0, Math.max(0, shown - scanShown.length));
@@ -185,6 +209,28 @@ function TopVideos({
     if (p === "tt" && !brave.tt) return undefined;
     const l = listsOf(p);
     return l.scan.length + l.brave.length;
+  };
+  const videoCard = (video: TopVideo) => {
+    const item = topItem(tab, video);
+    return (
+      <ResultCard
+        key={video.url}
+        item={item}
+        testId="category-top-item"
+        action={
+          <div className="flex min-w-0 flex-col gap-2">
+            <p className="text-muted text-[11px]" data-testid="category-match-evidence">
+              {video.evidence
+                ? t("search.topMatchEvidence", {
+                    techniques: video.evidence.techniques.join(" · "),
+                  })
+                : t("search.topMatchUnknown")}
+            </p>
+            {renderAction?.(item)}
+          </div>
+        }
+      />
+    );
   };
 
   return (
@@ -196,6 +242,7 @@ function TopVideos({
       <h3 id={`${id}-title`} className="text-sm font-bold">
         {t("search.topTitle", { genre: name })}
       </h3>
+      <p className="text-muted text-xs">{t("search.topStudyNote")}</p>
       <div
         role="tablist"
         aria-label={t("search.topTabs")}
@@ -263,9 +310,7 @@ function TopVideos({
         )}
         {scanShown.length > 0 && (
           <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
-            {scanShown.map((v) => (
-              <ResultCard key={v.url} item={topItem(tab, v)} testId="category-top-item" />
-            ))}
+            {scanShown.map(videoCard)}
           </ul>
         )}
         {braveShown.length > 0 && (
@@ -274,9 +319,7 @@ function TopVideos({
               {t("search.topBraveGroup")}
             </h4>
             <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
-              {braveShown.map((v) => (
-                <ResultCard key={v.url} item={topItem(tab, v)} testId="category-top-item" />
-              ))}
+              {braveShown.map(videoCard)}
             </ul>
             {/* Brave's attribution, under its results and outside the status line. */}
             <p className="text-muted text-[11px]" data-testid="category-top-credit">
@@ -301,17 +344,9 @@ function TopVideos({
   );
 }
 
-/**
- * 🚗 A Discover category's page (planning/tools/19-category-trends.md §1, layout B):
- * - the header, with 🔄 Scan again;
- * - this week's trending styles of the category as chips (a tap searches the style within the category, in Keywords);
- * - the Photography / Videography / Editing shelves of technique cards, English first (live fix 1; in Arabic the
- *   Arabic name and how-to follow as muted lines): a ✦ AI how-to (its Shoot, Settings and Edit lines since live fix
- *   2), the skill it practices, and example videos (a tutorial when one teaches) that play in the app's player;
- * - "Search all <category> videos →".
- * Before there is anything to show: the first scan. A Worker without the route (or no answer) hands back to the
- * category search.
- */
+/** A category's real examples first, then its related styles and technique exercises. Every video uses the shared
+ * player and saving action. Study prompts are suggestions based on titles/descriptions; old generated camera
+ * settings remain hidden. A Worker without this route hands back to the category search. */
 export default function CategoryPage({
   config,
   genre,
@@ -320,6 +355,7 @@ export default function CategoryPage({
   onOpenSkill,
   onUnavailable,
   searchBlocked = false,
+  renderAction,
 }: {
   config: ScoutConfig;
   genre: Genre;
@@ -332,10 +368,11 @@ export default function CategoryPage({
   /** Discover can't search now (AI mode with no model chosen): Search all rests, as the category chips do. A style
    * still searches, in Keywords, like a 🔥 chip. */
   searchBlocked?: boolean;
+  renderAction?: (item: ResearchItem) => ReactNode;
 }) {
-  const { t, L, lang } = useT();
+  const { t, L } = useT();
   const id = useId();
-  const player = useVideoPlayer();
+  const [studyOpen, setStudyOpen] = useState<string | null>(null);
   // Captured once, like the 🔥 row's: the age line needs no ticking clock.
   const [now] = useState(() => Date.now());
   // This tab's copy first (an hour at most), so a revisit renders at once. AppShell renders on the client only.
@@ -423,140 +460,26 @@ export default function CategoryPage({
   // both languages (live fix 1): the English name and line, the Arabic name in the tooltip under the line.
   const styleChip = (s: TrendingEffect) => {
     const what = s.what?.en;
-    const creators = t("search.trendingCreators", { n: s.creators });
+    const trusted = data.evidenceVersion === EFFECTS_EVIDENCE_VERSION;
+    const creators = trusted ? t("search.trendingCreators", { n: s.creators }) : "";
     return (
-      <button
-        key={s.key}
-        type="button"
-        className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
-        title={[what, s.name.ar].filter(Boolean).join("\n") || undefined}
-        aria-label={[s.name.en, s.isNew && t("search.trendingNew"), creators, what]
-          .filter(Boolean)
-          .join(" · ")}
-        onClick={() => onPickStyle(effectQuery(s))}
-        data-testid="category-style"
-        data-key={s.key}
-      >
-        <span className="flex items-center gap-1.5">
-          <span dir="auto">{s.name.en}</span>
-          {s.isNew && (
-            <span className="bg-gold text-gold-ink rounded-[2px] px-1 text-[10px] leading-4 font-bold">
-              {t("search.trendingNew")}
-            </span>
-          )}
-        </span>
-        <span className="text-ink-2 text-[11px] font-normal">{creators}</span>
-      </button>
-    );
-  };
-
-  // Keyed by place and link: an Arabic tutorial can share an English one's link.
-  const videoRow = (v: LessonVideo, i: number) => {
-    const kind = t(
-      v.kind === "example"
-        ? "search.categoryExample"
-        : v.lang === "ar"
-          ? "search.categoryTutorialAr"
-          : "search.categoryTutorial",
-    );
-    const body = (
-      <>
-        <span aria-hidden>{PLATFORM_META[v.platform].glyph}</span>
-        <span className="shrink-0 font-bold">{kind}</span>
-        <span dir="auto" className="min-w-0 truncate">
-          {v.title}
-        </span>
-      </>
-    );
-    const cls =
-      "text-ink-2 flex w-full min-w-0 items-center gap-1.5 text-start text-xs hover:underline";
-    return (
-      <li key={`${i}:${v.url}`} className="min-w-0">
-        {canEmbed(v.platform, v.url) ? (
-          <button
-            type="button"
-            className={cls}
-            onClick={() => player.open({ platform: v.platform, url: v.url, title: v.title })}
-            data-testid="category-video"
-            data-kind={v.kind}
-            data-lang={v.lang}
-          >
-            {body}
-          </button>
-        ) : (
-          <a
-            href={v.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cls}
-            data-testid="category-video"
-            data-kind={v.kind}
-            data-lang={v.lang}
-          >
-            {body}
-          </a>
-        )}
-      </li>
-    );
-  };
-
-  // Keyed by place and name: two techniques of a shelf can share a name.
-  const card = (tech: Technique, i: number) => {
-    const skill = tech.skillId ? getSkill(tech.skillId) : undefined;
-    return (
-      <li
-        key={`${i}:${tech.name.en}`}
-        className="border-edge bg-panel-2 relative flex w-64 shrink-0 snap-start flex-col gap-1.5 rounded-[2px] border-2 p-2.5 shadow-[3px_3px_0_var(--edge)]"
-        data-testid="category-technique"
-      >
-        {/* English first in both languages (live fix 1); in Arabic, the Arabic name and how-to (when the Worker has
-            them in Arabic script) follow as muted lines, right to left. */}
-        <h4 className="text-sm font-bold" dir="auto">
-          {tech.name.en}
-        </h4>
-        {lang === "ar" && tech.name.ar && (
-          <p className="text-muted -mt-1 text-xs" dir="rtl" data-testid="category-name-ar">
-            {tech.name.ar}
-          </p>
-        )}
-        {/* Its "Shoot: …", "Settings: …" and "Edit: …" lines (live fix 2), one under another; older lessons' how-to is
-            one paragraph. */}
-        <p
-          className="text-ink-2 text-xs leading-snug whitespace-pre-line"
-          dir="ltr"
-          data-testid="category-howto"
+      <div key={s.key} className="flex shrink-0 flex-col items-start gap-1">
+        <button
+          type="button"
+          className="px-chip shrink-0 flex-col items-start gap-0.5 py-1"
+          title={[what, s.name.ar].filter(Boolean).join("\n") || undefined}
+          aria-label={[s.name.en, creators, what].filter(Boolean).join(" · ")}
+          onClick={() => onPickStyle(effectQuery(s))}
+          data-testid="category-style"
+          data-key={s.key}
         >
-          <span
-            className="bg-panel-3 text-ink me-1 rounded-[2px] px-1 text-[10px] font-bold"
-            title={t("search.categoryAiNote")}
-            data-testid="category-ai"
-          >
-            ✦ AI
+          <span className="flex items-center gap-1.5">
+            <span dir="auto">{s.name.en}</span>
           </span>
-          {tech.howTo.en}
-        </p>
-        {lang === "ar" && tech.howTo.ar && (
-          <p className="text-muted text-xs leading-snug" dir="rtl" data-testid="category-howto-ar">
-            {tech.howTo.ar}
-          </p>
-        )}
-        {/* 🎯 Only for a skill this app knows (the Worker checks its copy of the list; the app checks its own). */}
-        {skill && (
-          <button
-            type="button"
-            className="px-chip w-fit max-w-full text-start"
-            aria-label={t("search.categorySkill", { skill: L(skill.name) })}
-            onClick={() => onOpenSkill(skill.id)}
-            data-testid="category-skill"
-          >
-            🎯{" "}
-            <span dir="auto" className="min-w-0 truncate">
-              {L(skill.name)}
-            </span>
-          </button>
-        )}
-        <ul className="flex min-w-0 flex-col gap-1">{tech.videos.map(videoRow)}</ul>
-      </li>
+          {creators && <span className="text-ink-2 text-[11px] font-normal">{creators}</span>}
+        </button>
+        {trusted && <EffectEvidence effect={s} />}
+      </div>
     );
   };
 
@@ -574,9 +497,20 @@ export default function CategoryPage({
         <h3 id={`${id}-${area}`} className="text-sm font-bold">
           {t(SHELF[area])}
         </h3>
-        {/* One row that scrolls sideways (the page never does), snapping card by card. */}
-        <ul className="flex min-w-0 snap-x scroll-px-1 gap-3 overflow-x-auto px-1 pt-0.5 pb-2">
-          {list.map(card)}
+        <ul className="grid min-w-0 grid-cols-1 items-start gap-4 @lg:grid-cols-2 @3xl:grid-cols-3">
+          {list.map((technique, i) => {
+            const key = `${area}:${i}:${technique.name.en}`;
+            return (
+              <CategoryTechniqueCard
+                key={key}
+                technique={technique}
+                expanded={studyOpen === key}
+                onToggle={() => setStudyOpen((current) => (current === key ? null : key))}
+                onOpenSkill={onOpenSkill}
+                renderAction={renderAction}
+              />
+            );
+          })}
         </ul>
       </section>
     );
@@ -628,12 +562,26 @@ export default function CategoryPage({
           {state === "stale" && scan === "idle" && (
             <p className="text-muted text-xs">{staleLine}</p>
           )}
+          {/* A new category opens a new visit: its Brave answers start over. */}
+          {data.top ? (
+            <TopVideos
+              key={`${genre.id}:${data.updatedAt}:${data.top.updatedAt}`}
+              config={config}
+              genreId={genre.id}
+              name={name}
+              top={data.top}
+              renderAction={renderAction}
+            />
+          ) : (
+            <p className="text-muted text-xs">{t("search.topNone")}</p>
+          )}
           <section aria-labelledby={`${id}-trends`} className="flex min-w-0 flex-col gap-1.5">
             <h3 id={`${id}-trends`} className="text-sm font-bold">
               {t(age > WEEK ? "search.categoryTrendsOld" : "search.categoryTrends", {
                 genre: name,
               })}
             </h3>
+            <p className="text-muted text-xs">{t("search.effectsEvidenceNote")}</p>
             {data.items.length ? (
               <div
                 className="flex min-w-0 gap-1.5 overflow-x-auto px-0.5 pt-0.5 pb-1.5"
@@ -645,20 +593,19 @@ export default function CategoryPage({
               <p className="text-muted text-xs">{t("search.categoryNoTrends")}</p>
             )}
           </section>
-          {/* A new category opens a new visit: its Brave answers start over. */}
-          {data.top ? (
-            <TopVideos
-              key={genre.id}
-              config={config}
-              genreId={genre.id}
-              name={name}
-              top={data.top}
-            />
-          ) : (
-            <p className="text-muted text-xs">{t("search.topNone")}</p>
-          )}
           {data.lessons ? (
-            AREAS.map(shelf)
+            <section
+              className="flex min-w-0 flex-col gap-4"
+              aria-labelledby={`${id}-study-heading`}
+            >
+              <div className="flex flex-col gap-1">
+                <h3 id={`${id}-study-heading`} className="text-base font-bold">
+                  {t("search.categoryLearnTitle")}
+                </h3>
+                <p className="text-ink-2 text-xs">{t("search.categoryLearnHelp")}</p>
+              </div>
+              {AREAS.map(shelf)}
+            </section>
           ) : (
             <p className="text-muted text-xs">{t("search.categoryNoLessons")}</p>
           )}

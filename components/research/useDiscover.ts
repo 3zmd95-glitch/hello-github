@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   discoverPicks,
   discoverRequestKey,
@@ -13,6 +13,7 @@ import {
 } from "@/lib/discover";
 import { scoutHealth, type ScoutConfig, type ScoutError } from "@/lib/scoutClient";
 import { LOADING, OFF, useScoutConfig, type Tagged } from "./useScout";
+import { useActiveSnapshot } from "./useActiveSnapshot";
 
 /**
  * Whether the configured Worker serves Discover v2 (`/health` → `discover: true`), asked once per Worker URL and
@@ -102,11 +103,17 @@ function stands(s: Settled, key: string, attempt: number, force: boolean): boole
  * runs, the answer on screen stays only when the new one costs nothing (see {@link stands}).
  */
 export function useDiscoverQuery(
-  req: DiscoverRequest | null,
-  attempt: number,
-  force = false,
+  requested: DiscoverRequest | null,
+  requestedAttempt: number,
+  requestedForce = false,
+  enabled = true,
 ): DiscoverState {
-  const config = useScoutConfig();
+  const configured = useScoutConfig();
+  const selection = useActiveSnapshot(
+    { config: configured, req: requested, attempt: requestedAttempt, force: requestedForce },
+    enabled,
+  );
+  const { config = null, req = null, attempt = 0, force = false } = selection ?? {};
   const key = config && req ? discoverRequestKey(config, req) : "";
   const body = req ? JSON.stringify(req) : "";
   const [settled, setSettled] = useState<Settled | null>(null);
@@ -143,10 +150,17 @@ export function useDiscoverUsage(
   refresh: number | null,
 ): DiscoverUsage | null {
   const [usage, setUsage] = useState<DiscoverUsage | null>(null);
+  const previous = useRef<{ config: string; refresh: number | null } | null>(null);
   useEffect(() => {
+    const key = config ? JSON.stringify([config.url, config.token]) : "";
+    const earlier = previous.current;
+    previous.current = { config: key, refresh };
     if (!config || refresh === null) return;
+    // Opening the panel may reuse the provider counter. A completed attempt (including failure)
+    // or explicit expansion revision must bypass the Worker's ten-minute counter cache.
+    const fresh = earlier?.config === key && earlier.refresh !== refresh;
     let alive = true;
-    void discoverUsage(config).then((r) => {
+    void discoverUsage(config, { refresh: fresh }).then((r) => {
       if (alive && r.ok) setUsage(r.usage);
     });
     return () => {

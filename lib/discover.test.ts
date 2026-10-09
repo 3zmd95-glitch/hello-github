@@ -7,6 +7,7 @@ import {
   DISCOVER_CACHE_MAX,
   DISCOVER_CACHE_TTL_MS,
   DISCOVER_CACHE_VERSION,
+  DISCOVER_QUALITY_VERSION,
   discoverLang,
   discoverRequestFrom,
   discoverRequestKey,
@@ -40,6 +41,7 @@ const item = (over: Partial<DiscoverItem>): DiscoverItem => ({
   ...over,
 });
 const answer = (items: DiscoverItem[], over: Partial<DiscoverAnswer> = {}): DiscoverAnswer => ({
+  qualityVersion: DISCOVER_QUALITY_VERSION,
   topicKey: "flash-transition",
   understood: {
     termId: "flash-transition",
@@ -182,6 +184,14 @@ describe("the search's language and a trend chip's editing flag", () => {
 });
 
 describe("parseDiscoverAnswer", () => {
+  it("reads the producer's quality marker without inventing it for legacy or malformed replies", () => {
+    expect(parseDiscoverAnswer(answer([]))?.qualityVersion).toBe(DISCOVER_QUALITY_VERSION);
+    for (const qualityVersion of [undefined, "7", -1, 7.5, null]) {
+      expect(
+        parseDiscoverAnswer({ ...answer([]), qualityVersion })?.qualityVersion,
+      ).toBeUndefined();
+    }
+  });
   it("keeps well-formed items and drops broken ones", () => {
     const raw = answer([item({}), { ...item({}), url: 7 } as unknown as DiscoverItem]);
     expect(parseDiscoverAnswer(raw)?.items).toHaveLength(1);
@@ -313,6 +323,31 @@ describe("discoverSearch", () => {
     await discoverSearch(config, { q: "flash" }, { fetchImpl, storage });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
+  it.each([undefined, 6, 8])(
+    "a Worker quality version %s stays visible without poisoning the new cache",
+    async (qualityVersion) => {
+      const storage = memoryStorage();
+      const req = { q: "car edit" };
+      const old = answer([item({ title: "Legacy category result" })], { qualityVersion });
+      const upgraded = answer([item({ title: "Car rotoscoping tutorial" })]);
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response(JSON.stringify(old)))
+        .mockResolvedValueOnce(new Response(JSON.stringify(upgraded)));
+      const first = await discoverSearch(config, req, { fetchImpl, storage });
+      expect(first.ok && first.answer.items[0].title).toBe("Legacy category result");
+      expect(keptKeys(storage)).toEqual([]);
+      expect(peekDiscover(config, req)).toBeUndefined();
+      const next = await discoverSearch(config, req, { fetchImpl, storage });
+      expect(next.ok && next.answer.items[0].title).toBe("Car rotoscoping tutorial");
+      expect(next.ok && next.answer.cached).toBe(false);
+      clearDiscoverCache(null);
+      const repeat = await discoverSearch(config, req, { fetchImpl, storage });
+      expect(repeat.ok && repeat.answer.cached).toBe(true);
+      expect(repeat.ok && repeat.answer.items[0].title).toBe("Car rotoscoping tutorial");
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("does not keep an empty answer", async () => {
     const storage = memoryStorage();
@@ -596,6 +631,34 @@ describe("the device's storage", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(keptKeys(storage)).toEqual([key]);
   });
+  it.each([undefined, 6, 8])(
+    "ignores a predeployment reply marked %s even under the current frontend key",
+    async (qualityVersion) => {
+      const storage = memoryStorage();
+      const req = { q: "coffee edit" };
+      const key = discoverRequestKey(config, req);
+      storage.setItem(
+        DISCOVER_CACHE_KEY,
+        JSON.stringify({
+          [key]: {
+            at: Date.now(),
+            answer: answer([item({ title: "Legacy coffee deal" })], {
+              qualityVersion,
+              cached: true,
+            }),
+          },
+        }),
+      );
+      const fetchImpl = replying(answer([item({ title: "Coffee macro closeup tutorial" })]));
+      const result = await discoverSearch(config, req, { fetchImpl, storage });
+      expect(result.ok && result.answer.items[0].title).toBe("Coffee macro closeup tutorial");
+      expect(result.ok && result.answer.cached).toBe(false);
+      expect(fetchImpl).toHaveBeenCalledOnce();
+      expect(JSON.parse(storage.getItem(DISCOVER_CACHE_KEY)!)[key].answer.qualityVersion).toBe(
+        DISCOVER_QUALITY_VERSION,
+      );
+    },
+  );
 
   it("is read once, not on every miss", async () => {
     const storage = memoryStorage();
@@ -653,6 +716,19 @@ describe("the device's storage", () => {
 });
 
 describe("discoverUsage", () => {
+  it("asks the upgraded Worker to bypass usage caches while preserving unknown freshness on old replies", async () => {
+    const usage = {
+      tavily: { used: 947, limit: 1000 },
+      youtube: { usedToday: 26, cap: 66 },
+      connector: { usedToday: 0, cap: 60 },
+    };
+    const fetchImpl = replying(usage);
+    expect(await discoverUsage(config, { fetchImpl, refresh: true })).toEqual({ ok: true, usage });
+    expect(fetchImpl.mock.calls[0][0]).toBe("https://w.example/discover/usage?refresh=1");
+    expect(fetchImpl.mock.calls[0][1]?.cache).toBe("no-store");
+    expect(usage.tavily).not.toHaveProperty("observedAt");
+    expect(usage.tavily).not.toHaveProperty("cached");
+  });
   it("reads the Worker's usage, and calls a malformed one upstream", async () => {
     const usage = {
       tavily: { used: 412, limit: 1000, plan: "Researcher" },
@@ -704,11 +780,11 @@ describe("views over an answer", () => {
     const s = answer([low, none, high]);
     const opts = { tab: "all" as const, showHidden: false, arFirst: false };
     expect(sectionItems(s, "example", { ...opts, sort: "relevance" })).toEqual([low, none, high]);
-    expect(sectionItems(s, "example", { ...opts, sort: "popular" })).toEqual([high, low, none]);
+    expect(sectionItems(s, "example", { ...opts, sort: "popular" })).toEqual([low, high, none]);
   });
 
   // The owner (2026-10-07): "Instagram and tiktok first".
-  it("in All, lists Instagram and TikTok before YouTube, each kept in its order (by the numbers too)", () => {
+  it("keeps platform preference for relevance but interleaves platform metrics for popularity", () => {
     const yt = item({ platform: "yt", stats: { views: 9000 } });
     const tt = item({ stats: { likes: 5 } });
     const ig = item({ platform: "ig", stats: { likes: 50 } });
@@ -716,15 +792,28 @@ describe("views over an answer", () => {
     const s = answer([yt, tt, ig, tt2]);
     const opts = { tab: "all" as const, showHidden: false, arFirst: false };
     expect(sectionItems(s, "example", { ...opts, sort: "relevance" })).toEqual([tt, ig, tt2, yt]);
-    expect(sectionItems(s, "example", { ...opts, sort: "popular" })).toEqual([ig, tt, tt2, yt]);
+    expect(sectionItems(s, "example", { ...opts, sort: "popular" })).toEqual([yt, tt, ig, tt2]);
     expect(sectionItems(s, "example", { ...opts, tab: "yt", sort: "relevance" })).toEqual([yt]);
   });
 
-  it("ranks Popular now by views, else likes x 10", () => {
-    expect(popularItems(a, { tab: "all", showHidden: false }).map((i) => i.platform)).toEqual([
-      "yt",
-      "tt",
-    ]);
+  it("does not promote tiny, old, lesson, or hidden indexed hits into recent popularity", () => {
+    expect(popularItems(a, { tab: "all", showHidden: false })).toEqual([]);
+    expect(popularItems(a, { tab: "all", showHidden: true })).toEqual([]);
+    const current = item({
+      platform: "ig",
+      url: "https://www.instagram.com/p/current/",
+      title: "Anime match cut edit",
+      published: new Date().toISOString(),
+      evidence: {
+        source: "instagram-public-embed",
+        observedAt: new Date().toISOString(),
+        likes: 12000,
+        caption: "Anime match cut edit",
+      },
+    });
+    expect(popularItems(answer([current, ...items]), { tab: "ig", showHidden: true })).toHaveLength(
+      1,
+    );
   });
 
   it("lists creators of the tab", () => {

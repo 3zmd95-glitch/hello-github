@@ -95,14 +95,16 @@ test("every island on the map has the same skills in its Notes branch, under the
   page,
 }) => {
   await freshState(page, "/map/");
-  const islands = await page
-    .locator('[data-testid="continent"] [data-testid="island"][data-fog="false"]')
-    .evaluateAll((els) =>
-      els.map((el) => ({
-        program: el.getAttribute("data-program")!,
-        pillar: el.closest('[data-testid="continent"]')!.getAttribute("data-pillar")!,
-      })),
-    );
+  const islandRows = page.locator(
+    '[data-testid="continent"] [data-testid="island"][data-fog="false"]',
+  );
+  await expect.poll(() => islandRows.count()).toBeGreaterThan(1);
+  const islands = await islandRows.evaluateAll((els) =>
+    els.map((el) => ({
+      program: el.getAttribute("data-program")!,
+      pillar: el.closest('[data-testid="continent"]')!.getAttribute("data-pillar")!,
+    })),
+  );
   expect(islands.length).toBeGreaterThan(1);
 
   const onMap: Record<string, string[]> = {};

@@ -20,18 +20,30 @@
 
 import { json, parseForce, type EffectsDeps } from "../effects/routes";
 import { categoryById } from "./defs";
-import { readCategory, runCategory } from "./run";
+import { CATEGORY_QUALITY_VERSION, readCategory, runCategory } from "./run";
 import { braveTop, type BravePlatform, type TopEnv } from "./top";
 import type { CategoryDoc } from "./types";
+import { readAdsToken } from "../tiktokads";
+import { probeTikTokAccess } from "./tiktokProbe";
 
 const ROUTE = /^\/categories\/([a-z][a-z0-9-]*)(?:(\/run)|\/top\/(tt|ig))?$/;
 
-/** JSON leaves `notes`, `lessons` and `top` out when there are none. */
-const answer = ({ status, updatedAt, notes, items, lessons, top }: CategoryDoc) => ({
+/** Legacy trend counts stay in storage for migration but are not presented as quality-gated recommendations. */
+const answer = ({
   status,
   updatedAt,
   notes,
   items,
+  lessons,
+  top,
+  qualityVersion,
+  evidenceVersion,
+}: CategoryDoc) => ({
+  evidenceVersion,
+  status,
+  updatedAt,
+  notes,
+  items: qualityVersion === CATEGORY_QUALITY_VERSION ? items : [],
   lessons,
   top,
 });
@@ -42,6 +54,15 @@ export async function handleCategories(
   cors: Headers,
   deps: EffectsDeps = {},
 ): Promise<Response | null> {
+  const probe = new URL(req.url).pathname.match(
+    /^\/categories\/([a-z][a-z0-9-]*)\/native\/tt\/probe$/,
+  );
+  if (probe && req.method === "POST" && categoryById(probe[1])) {
+    const result = await probeTikTokAccess(req, env, probe[1], deps);
+    const headers = new Headers(cors);
+    headers.set("Cache-Control", "no-store");
+    return json(result ?? { error: "bad_request" }, result ? 200 : 400, headers);
+  }
   const m = new URL(req.url).pathname.match(ROUTE);
   const g = m ? categoryById(m[1]) : undefined;
   if (!m || !g) return null;
@@ -58,6 +79,19 @@ export async function handleCategories(
       doc?.top?.[p] ?? [],
       deps.now?.() ?? new Date(),
     );
+    if (p === "tt") {
+      const token = await readAdsToken(env).catch(() => undefined);
+      top.discoveryStatus =
+        token === undefined
+          ? "unavailable"
+          : !token?.advertiser_ids.length
+            ? "not_connected"
+            : !doc?.top
+              ? "not_scanned"
+              : doc.notes?.includes("tiktok")
+                ? "unavailable"
+                : "ready";
+    }
     const headers = new Headers(cors);
     headers.set("Cache-Control", "no-store");
     return json(top, 200, headers);

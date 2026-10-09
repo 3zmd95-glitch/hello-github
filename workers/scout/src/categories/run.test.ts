@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AI_MODEL } from "../discover/ai";
+import { EFFECTS_EVIDENCE_VERSION } from "../effects/types";
 import { TAVILY_USAGE_URL, usageKeys } from "../discover/usage";
 import { instagramShortcodeAt } from "../postDate";
 import { encryptJson } from "../social/crypto";
 import { TAVILY_URL } from "../trends/tavily";
 import { YT_SEARCH_URL } from "../trends/youtubeSearch";
 import { aiContext, categoryById } from "./defs";
-import { LESSON_MODEL } from "./lessons";
-import { readCategory, runCategory } from "./run";
+import { LESSON_MODEL, LESSONS_VERSION, studyFor } from "./lessons";
+import { CATEGORY_QUALITY_VERSION, readCategory, runCategory } from "./run";
 import { TT_TRENDING_URL, TT_VIDEOS_URL } from "./tiktok";
 import type { CategoryDoc, Technique } from "./types";
 
@@ -61,10 +62,18 @@ const lessonHits = (q: string, n: number): Hit[] => [
   {
     url: `https://www.youtube.com/watch?v=lesson${String(n).padStart(5, "0")}`,
     title: `How to shoot: ${q}`,
-    content: "1/30 s, ND filter",
+    content: "A filmmaking demonstration",
   },
-  { url: `https://www.tiktok.com/@t${n}/video/${n}1`, title: `${q} clip`, content: "" },
-  { url: `https://www.instagram.com/i${n}/reel/L${n}/`, title: `${q} reel`, content: "" },
+  {
+    url: `https://www.tiktok.com/@t${n}/video/${n}1`,
+    title: `${q} clip`,
+    content: "Cinematic car filmmaking",
+  },
+  {
+    url: `https://www.instagram.com/i${n}/reel/L${n}/`,
+    title: `${q} reel`,
+    content: "Cinematic car filmmaking",
+  },
 ];
 
 /** YouTube's top list (§6): the search finds 3 car videos, the views call counts them. */
@@ -83,7 +92,7 @@ function youtubeReply(input: string): Response {
       .split(",")
       .map((id) => ({
         id,
-        snippet: { title: `Top ${id}`, channelTitle: "Car Channel" },
+        snippet: { title: `Car cinematic edit ${id}`, channelTitle: "Car Channel" },
         statistics: { viewCount: String(YT_VIEWS[id]) },
       })),
   });
@@ -91,9 +100,12 @@ function youtubeReply(input: string): Response {
 /** The top list's YouTube videos, the most viewed first. */
 const YT_TOP = ["carTop00002", "carTop00003", "carTop00001"].map((id) => ({
   url: `https://www.youtube.com/watch?v=${id}`,
-  title: `Top ${id}`,
+  title: `Car cinematic edit ${id}`,
   creator: "Car Channel",
   views: YT_VIEWS[id],
+  snippet: "",
+  source: "youtube" as const,
+  evidence: { basis: "metadata" as const, subjects: ["car"], techniques: ["cinematic", "editing"] },
 }));
 
 /** TikTok's Discovery API (§6): 3 popular car hashtags in the US, 2 videos each, their share links with a query. */
@@ -103,7 +115,7 @@ function tiktokReply(u: URL): Response {
     return ok(
       [1, 2, 3].map((n) => ({
         hashtag_id: `${n}000`,
-        hashtag_name: `cars${n}`,
+        hashtag_name: ["caredit", "cars", "automotive"][n - 1],
         rank_position: String(n),
         top_country_list: ["US"],
       })),
@@ -122,8 +134,15 @@ function tiktokReply(u: URL): Response {
 const TT_TOP = [1, 2].flatMap((i) =>
   [1, 2, 3].map((n) => ({
     url: `https://www.tiktok.com/@car${n}${i}/video/${n}${i}`,
-    title: `#cars${n}`,
+    title: `Car cinematic edit ${n}${i}`,
     creator: `@car${n}${i}`,
+    snippet: `Car cinematic edit ${n}${i}`,
+    source: "tiktok-discovery" as const,
+    evidence: {
+      basis: "metadata" as const,
+      subjects: ["car"],
+      techniques: ["cinematic", "editing"],
+    },
   })),
 );
 
@@ -155,6 +174,10 @@ function web(
       const u = new URL(String(input));
       tiktokAsked.push(u);
       return over.tiktok?.(u) ?? json({ code: 0, message: "OK", data: { list: [] } });
+    }
+    if (String(input).startsWith("https://www.tiktok.com/oembed?")) {
+      const video = new URL(String(input)).searchParams.get("url")!;
+      return json({ title: `Car cinematic edit ${video.split("/").at(-1)}` });
     }
     if (String(input) !== TAVILY_URL) {
       count.other++;
@@ -231,11 +254,15 @@ const writes = (KV: FakeKV) => KV.put.mock.calls.map(([key]) => key);
 
 const TECHNIQUE: Technique = {
   name: { en: "rolling shot", ar: "لقطة متحركة" },
-  howTo: {
-    en: "Shoot from a car driving beside it at 1/30 s, then steady it in the edit.",
-    ar: "صوّر من سيارة ماشية جنبها على 1/30، وبعدين ثبّتها في المونتاج.",
-  },
+  ...studyFor({ name: { en: "rolling shot" }, query: "car rolling shot" })!,
   videos: [
+    {
+      url: "https://www.instagram.com/p/rolling/",
+      title: "Car rolling shot film",
+      platform: "ig",
+      kind: "example",
+      lang: "en",
+    },
     {
       url: "https://www.youtube.com/watch?v=rollTut0001",
       title: "Rolling shot tutorial",
@@ -263,7 +290,13 @@ const OLD: CategoryDoc = {
       samples: [],
     },
   ],
-  lessons: { v: 4, updatedAt: "2026-10-04T05:40:00.000Z", photo: [], video: [TECHNIQUE], edit: [] },
+  lessons: {
+    v: LESSONS_VERSION,
+    updatedAt: "2026-10-04T05:40:00.000Z",
+    photo: [],
+    video: [TECHNIQUE],
+    edit: [],
+  },
   meta: {},
   history: {},
 };
@@ -276,20 +309,20 @@ afterEach(() => {
 });
 
 describe("runCategory", () => {
-  it("a first scan: 6 queries over Instagram's month, camera words named, the category's own words never, trends first", async () => {
+  it("a first scan: six focused queries split across Instagram and TikTok, with verified creative trends", async () => {
     const { env, KV, AI } = setup();
     const { fetch, count } = web();
     const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
 
-    expect(doc.items.map((i) => i.key)).toEqual(["rolling-shot", "low-angle", "speed-ramp"]);
+    expect(doc.items.map((i) => i.key)).toEqual(["rolling-shot", "speed-ramp", "low-angle"]);
     expect(doc.items[0]).toMatchObject({
       name: { en: "rolling shot" },
       creators: 4,
       isNew: true,
-      growth: 3,
+      growth: 0,
     });
-    // The dictionary technique has as many creators as the top trend, and still comes after the trends.
-    expect(doc.items[2]).toMatchObject({ termId: "speed-ramp", creators: 4, isNew: false });
+    // Current account evidence determines order; a dictionary's static trend flag does not outrank it.
+    expect(doc.items[1]).toMatchObject({ termId: "speed-ramp", creators: 4, isNew: false });
     expect(Object.keys(doc.meta).filter((k) => /(^|-)(car|cars|cinematic)(-|$)/.test(k))).toEqual(
       [],
     );
@@ -301,13 +334,13 @@ describe("runCategory", () => {
     expect(count.other).toBe(0);
     expect(sent(fetch)).toEqual(
       [
-        "car edit trend",
-        "cinematic car edit",
-        "viral car edit",
-        "car edit transition",
-        "car edit capcut template",
-        "car video trend",
-      ].map((q) => [q, ["instagram.com"], "month"]),
+        "cinematic car rolling shots",
+        "automotive commercial car edit",
+        "car match cut transition",
+        "car videography editing tutorial",
+        "car speed ramp cinematic edit",
+        "how to film cinematic car rollers",
+      ].map((q, i) => [q, [i < 4 ? "instagram.com" : "tiktok.com"], "month"]),
     );
     const system = (AI.run.mock.calls[0][1].messages as { content: string }[])[0].content;
     expect(system.endsWith(aiContext(categoryById("cars")!))).toBe(true);
@@ -326,8 +359,8 @@ describe("runCategory", () => {
         family,
         tt: 0,
         igWeek: 0,
-        igMonth: 13,
-        posts: 13,
+        igMonth: family <= 4 ? 13 : 0,
+        posts: family <= 4 ? 13 : 0,
       })),
     });
   });
@@ -386,15 +419,17 @@ describe("runCategory", () => {
     const { fetch, count } = web({
       usage: () => json({ account: { plan_usage: 950, plan_limit: 1000 } }),
     });
+    const beforeRead = Date.now();
     const doc = await runCategory(env, "cars", { fetch, now: NOW });
     expect(doc).toMatchObject({ status: "failed", notes: ["tavily_budget"], items: OLD.items });
     expect(count).toEqual({ tavily: 0, usage: 1, youtube: 0, other: 0 });
     // Kept 10 minutes, as Discover keeps it (the next slots read it), then the paused page.
-    expect(KV.put.mock.calls[0]).toEqual([
-      usageKeys.tavily,
-      JSON.stringify({ used: 950, limit: 1000 }),
-      { expirationTtl: 600 },
-    ]);
+    const usageWrite = KV.put.mock.calls[0];
+    expect(usageWrite).toEqual([usageKeys.tavily, expect.any(String), { expirationTtl: 600 }]);
+    const keptUsage = JSON.parse(usageWrite[1]);
+    expect(keptUsage).toEqual({ used: 950, limit: 1000, observedAt: expect.any(String) });
+    expect(Date.parse(keptUsage.observedAt)).toBeGreaterThanOrEqual(beforeRead);
+    expect(Date.parse(keptUsage.observedAt)).toBeLessThanOrEqual(Date.now());
     expect(writes(KV)).toEqual([usageKeys.tavily, KEY]);
   });
 
@@ -462,7 +497,7 @@ describe("runCategory", () => {
       ),
     };
     const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW, sleep: NO_WAIT });
-    expect(doc.items.map((i) => i.key)).toEqual(["rolling-shot", "low-angle", "speed-ramp"]);
+    expect(doc.items.map((i) => i.key)).toEqual(["rolling-shot", "speed-ramp", "low-angle"]);
     const cleanups = env.AI.run.mock.calls.filter(([, input]) =>
       (input.messages as { content: string }[])[0].content.startsWith("You clean"),
     );
@@ -498,12 +533,83 @@ describe("runCategory", () => {
         },
       ]),
     );
-    const { env } = setup({ stored: { ...OLD, history, meta } });
+    const { env } = setup({
+      stored: {
+        ...OLD,
+        qualityVersion: CATEGORY_QUALITY_VERSION,
+        evidenceVersion: EFFECTS_EVIDENCE_VERSION,
+        history,
+        meta,
+      },
+    });
     const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW });
     expect(Object.keys(doc.history)).toHaveLength(200);
     expect(doc.history["rolling-shot"]).toBeDefined();
     expect((doc.diagnostics as { trimmed: number }).trimmed).toBeGreaterThan(0);
   });
+
+  it("rebuilds legacy trend evidence on the first successful updated scan while preserving lessons and normal spending limits", async () => {
+    const history = { "kitchen-prep": [{ day: "2026-10-06", ids: ["old-a", "old-b"] }] };
+    const meta = {
+      "kitchen-prep": {
+        name: { en: "Kitchen Prep" },
+        checked: true,
+        platforms: ["ig" as const],
+        posts: 2,
+        samples: [
+          { url: "https://www.instagram.com/p/old/", title: "Food processor kitchen prep" },
+        ],
+        firstSeen: "2026-10-06",
+      },
+    };
+    const { env, KV } = setup({ stored: { ...OLD, history, meta } });
+    const { fetch, count } = web();
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+    expect(doc.qualityVersion).toBe(CATEGORY_QUALITY_VERSION);
+    expect(doc.history).not.toHaveProperty("kitchen-prep");
+    expect(doc.meta).not.toHaveProperty("kitchen-prep");
+    expect(doc.items.every((item) => item.key !== "kitchen-prep")).toBe(true);
+    expect(doc.history["rolling-shot"]).toBeDefined();
+    expect(doc.lessons).toEqual(OLD.lessons);
+    expect(count.tavily).toBe(6);
+    expect(KV.store.get(ATTEMPTS)).toBe("1");
+    expect(stored(KV).qualityVersion).toBe(CATEGORY_QUALITY_VERSION);
+  });
+
+  it.each(["cached", "budget", "upstream"])(
+    "does not discard legacy trend evidence when the scan is %s",
+    async (reason) => {
+      const history = { "old-evidence": [{ day: "2026-10-06", ids: ["old-a"] }] };
+      const meta = {
+        "old-evidence": {
+          name: { en: "Old Evidence" },
+          checked: false,
+          platforms: ["ig" as const],
+          posts: 1,
+          samples: [],
+          firstSeen: "2026-10-06",
+        },
+      };
+      const legacy = {
+        ...OLD,
+        history,
+        meta,
+        ...(reason === "cached" ? { ranOn: "2026-10-07" } : {}),
+      };
+      const { env, KV, AI } = setup({ stored: legacy });
+      if (reason === "budget")
+        KV.store.set(usageKeys.tavily, JSON.stringify({ used: 950, limit: 1000 }));
+      const { fetch, count } = web(reason === "upstream" ? { tavily: () => json({}, 500) } : {});
+      const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+      expect(doc.history).toEqual(history);
+      expect(doc.meta).toEqual(meta);
+      expect(doc.lessons).toEqual(OLD.lessons);
+      expect(doc.qualityVersion).toBeUndefined();
+      expect(count.tavily).toBe(reason === "upstream" ? 6 : 0);
+      expect(AI.run).not.toHaveBeenCalled();
+      if (reason === "cached") expect(KV.put).not.toHaveBeenCalled();
+    },
+  );
 
   it("answers an unknown category with a failed page, reading and writing nothing", async () => {
     const { env, KV } = setup();
@@ -517,25 +623,107 @@ describe("runCategory", () => {
 });
 
 describe("runCategory's top lists (§6)", () => {
-  /** PROBE's reels as the stored Instagram list: every search found all 13, so they keep the order first seen. */
-  const IG_TOP = PROBE.map((h) => {
-    const [, handle, id] = h.url.match(/instagram\.com\/([\w.]+)\/reel\/([\w-]+)\//)!;
-    return { url: `https://www.instagram.com/p/${id}`, title: h.title, creator: `@${handle}` };
-  });
+  /** A generic #caredit caption is not a craft reference; quality.test.ts covers the ranking order. */
+  const IG_TOP = expect.arrayContaining(
+    PROBE.filter((h) => h.title !== "car edit trend #caredit").map((h) => {
+      const [, handle, id] = h.url.match(/instagram\.com\/([\w.]+)\/reel\/([\w-]+)\//)!;
+      return expect.objectContaining({
+        url: `https://www.instagram.com/p/${id}`,
+        title: h.title,
+        creator: `@${handle}`,
+        snippet: h.content,
+        source: "tavily",
+        publishedAt: POSTED.toISOString(),
+        evidence: expect.objectContaining({ basis: "metadata" }),
+      });
+    }),
+  );
   const youtubeSearches = (fetch: ReturnType<typeof web>["fetch"]) =>
     fetch.mock.calls
       .map(([u]) => new URL(String(u)))
       .filter((u) => `${u.origin}${u.pathname}` === YT_SEARCH_URL);
 
-  it("T1–T3: YouTube's most viewed of the main query (2 calls) and the scan's Instagram posts, saved with the page", async () => {
+  it("T1–T3: focused YouTube search and category-relevant Instagram posts are saved with metadata evidence", async () => {
     const { env, KV } = setup();
     const { fetch, count } = web();
     const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
     expect(count.youtube).toBe(2);
-    expect(youtubeSearches(fetch).map((u) => u.searchParams.get("q"))).toEqual(["car edit"]);
+    expect(youtubeSearches(fetch).map((u) => u.searchParams.get("q"))).toEqual([
+      "cinematic car rolling shots",
+    ]);
     expect(doc.top).toEqual({ updatedAt: NOW.toISOString(), yt: YT_TOP, ig: IG_TOP, tt: [] });
+    expect(doc.top!.ig).toHaveLength(PROBE.length - 1);
+    expect(doc.top!.ig.some((v) => v.title === "car edit trend #caredit")).toBe(false);
     expect(doc.notes ?? []).not.toContain("youtube");
     expect(stored(KV).top).toEqual(doc.top);
+  });
+
+  it("uses real captioned TikTok search results when Business Discovery is not connected", async () => {
+    const { env } = setup({ tiktok: false });
+    const { fetch, count } = web({
+      tavily: (query) =>
+        query === "car speed ramp cinematic edit" || query === "how to film cinematic car rollers"
+          ? json({
+              results: [
+                {
+                  url: "https://www.tiktok.com/@editor/video/991",
+                  title: "BMW car speed ramp cinematic edit",
+                  content: "Rolling shots edited to the beat",
+                },
+                {
+                  url: "https://www.tiktok.com/@unrelated/video/992",
+                  title: "Breakfast recipe",
+                  content: "Cooking tips",
+                },
+              ],
+              usage: { credits: 1 },
+            })
+          : undefined,
+    });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+    expect(count.tavily).toBe(6);
+    expect(doc.notes).toContain("tiktok_auth");
+    expect(doc.top!.tt).toHaveLength(1);
+    expect(doc.top!.tt[0]).toMatchObject({
+      url: "https://www.tiktok.com/@editor/video/991",
+      title: "BMW car speed ramp cinematic edit",
+      source: "tavily",
+      evidence: { basis: "metadata", subjects: ["car", "BMW"] },
+    });
+  });
+
+  it("merges caption-verified Discovery videos with independent TikTok search evidence without extra Tavily calls", async () => {
+    const { env } = setup();
+    const { fetch, count } = web({
+      tiktok: tiktokReply,
+      tavily: (query) =>
+        query === "car speed ramp cinematic edit" || query === "how to film cinematic car rollers"
+          ? json({
+              results: [
+                {
+                  url: "https://www.tiktok.com/@editor/video/991",
+                  title: "BMW car speed ramp cinematic edit",
+                  content: "Rolling shots edited to the beat",
+                },
+                {
+                  url: "https://www.tiktok.com/@car11/video/11",
+                  title: "Car cinematic edit 11",
+                  content: "",
+                },
+              ],
+              usage: { credits: 1 },
+            })
+          : undefined,
+    });
+    const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
+    expect(count.tavily).toBe(6);
+    expect(doc.top!.tt).toHaveLength(7);
+    expect(new Set(doc.top!.tt.map((v) => v.url)).size).toBe(7);
+    expect(new Set(doc.top!.tt.map((v) => v.source))).toEqual(
+      new Set(["tavily", "tiktok-discovery"]),
+    );
+    expect(doc.top!.tt.every((v) => v.evidence?.basis === "metadata")).toBe(true);
+    expect(doc.notes ?? []).not.toContain("tiktok_auth");
   });
 
   it("YouTube failing, or without its key: noted 'youtube', the page still saved with the last YouTube list", async () => {
@@ -579,7 +767,7 @@ describe("runCategory's top lists (§6)", () => {
       },
       {
         id: "lowAng00002",
-        title: "GT3 night reveal",
+        title: "Porsche GT3 night reveal",
         channelTitle: "Chan A",
         channelId: "UC_a1",
         publishedAt: "2026-10-06T04:00:00Z",
@@ -587,7 +775,7 @@ describe("runCategory's top lists (§6)", () => {
       },
       {
         id: "lowAng00003",
-        title: "Low Angle Shot of the M5",
+        title: "Low Angle Shot of the BMW M5",
         channelTitle: "Chan A",
         channelId: "UC_a2",
         publishedAt: "2026-10-06T04:00:00Z",
@@ -693,7 +881,11 @@ describe("runCategory's top lists (§6)", () => {
     expect(stored(KV).diagnostics).toMatchObject({
       tiktok: {
         // The same 3 hashtags in all 3 lists: each once, tier 3 (a subject word, no edit cue).
-        hashtags: [1, 2, 3].map((n) => ({ name: `cars${n}`, tier: 3 })),
+        hashtags: [
+          { name: "caredit", tier: 1 },
+          { name: "cars", tier: 3 },
+          { name: "automotive", tier: 3 },
+        ],
         lists: { industry: 3, effects: 3, photo: 3 },
         videos: 6,
         raw: 6,
@@ -769,28 +961,17 @@ describe("runCategory's top lists (§6)", () => {
 });
 
 describe("runCategory's lessons (§3)", () => {
-  /** A how-to as the model writes it (live fix 2: three English lines, then the Arabic), and as it is stored. */
-  const LINES = {
-    shoot: "Pan with the car from the roadside, framing it side-on with room ahead.",
-    settings: "Shutter 1/30 s, ISO 100, 35 mm, continuous autofocus locked on the car.",
-    edit: "In Lightroom mask the car and add a little motion blur to the background.",
-    ar: "تابع السيارة من جنب الطريق على شتر 1/30، وبعدين زيد البلر للخلفية في لايتروم.",
-  };
-  const HOW = {
-    en: `Shoot: ${LINES.shoot}\nSettings: ${LINES.settings}\nEdit: ${LINES.edit}`,
-    ar: LINES.ar,
-  };
   const pick = (en: string, query: string) => ({ name: { en, ar: `اسم ${en}` }, query });
   const PICKS = {
     photo: [
       pick("panning", "car panning"),
       pick("light painting", "car light painting"),
-      pick("hero shot", "car hero shot"),
+      pick("low angle", "car low angle"),
     ],
     video: [
       pick("rolling shot", "car rolling shot"),
-      pick("drone chase", "drone car chase"),
-      pick("gimbal reveal", "gimbal car reveal"),
+      pick("drone chase", "car drone chase"),
+      pick("gimbal reveal", "car gimbal reveal"),
     ],
     edit: [
       pick("speed ramp", "speed ramp car"),
@@ -803,24 +984,15 @@ describe("runCategory's lessons (§3)", () => {
     ...OLD,
     lessons: { ...OLD.lessons!, updatedAt: "2026-09-29T05:40:00.000Z" },
   };
-  /** The cleanup of the fake above, plus the lessons' calls: PICKS, then each area's how-tos (its first technique
-   * linked to a skill); `onPick` runs when the pick is asked. */
-  function lessonsAi(howTos?: unknown, onPick = () => {}) {
+  /** Cleanup plus the single technique pick; study suggestions are curated with no generation calls. */
+  function lessonsAi(picks: unknown = PICKS, onPick = () => {}) {
     const cleanup = ai();
     return {
       run: vi.fn(async (model: string, input: Record<string, unknown>): Promise<unknown> => {
-        const [system, user] = (input.messages as { content: string }[]).map((m) => m.content);
+        const [system] = (input.messages as { content: string }[]).map((m) => m.content);
         if (system.startsWith("You plan")) {
           onPick();
-          return { response: PICKS };
-        }
-        if (system.startsWith("You write")) {
-          const techniques = [...user.matchAll(/^- (\d+) \|/gm)].map(([, i]) => ({
-            i: Number(i),
-            ...LINES,
-            ...(i === "0" ? { skillId: "phone-180-shutter" } : {}),
-          }));
-          return { response: howTos ?? { techniques } };
+          return { response: picks };
         }
         return cleanup.run(model, input);
       }),
@@ -851,19 +1023,24 @@ describe("runCategory's lessons (§3)", () => {
     const trends = JSON.parse(KV.put.mock.calls[1][1]) as CategoryDoc;
     expect(trends.items).toEqual(doc.items);
     expect(trends.lessons).toBeUndefined();
-    // The cleanup, the pick, then one how-to call an area: at most 7 AI calls a run.
+    // Cleanup and the pick are the only AI calls; metadata never becomes invented camera settings.
     const systems = asked(env.AI.run);
-    expect(systems.filter((s) => s.startsWith("You write"))).toHaveLength(3);
-    expect(systems.length).toBeLessThanOrEqual(7);
+    expect(systems.filter((s) => s.startsWith("You write"))).toHaveLength(0);
+    expect(systems.filter((s) => s.startsWith("You plan"))).toHaveLength(1);
+    expect(systems.length).toBeLessThanOrEqual(4);
     expect(doc.lessons!.photo).toHaveLength(3);
-    expect(doc.lessons!.photo[0]).toMatchObject({ skillId: "phone-180-shutter", howTo: HOW });
+    expect(doc.lessons!.photo[0]).toMatchObject({
+      skillId: "handheld-no-gimbal",
+      study: { sourceBasis: "title-and-description" },
+    });
+    expect(doc.lessons!.photo[0].howTo.en).not.toContain("Settings:");
     expect(doc.lessons!.video[0].videos.map((v) => v.kind)).toEqual([
       "example",
       "example",
       "tutorial",
     ]);
     expect(stored(KV).lessons).toEqual(doc.lessons);
-    expect(stored(KV).lessons!.v).toBe(4);
+    expect(stored(KV).lessons!.v).toBe(LESSONS_VERSION);
     expect(stored(KV).diagnostics).toMatchObject({
       lessons: {
         picked: 9,
@@ -872,9 +1049,9 @@ describe("runCategory's lessons (§3)", () => {
         // B5: the model that answered each lessons call, for the live check.
         models: {
           pick: "gpt-oss-120b",
-          photo: "gpt-oss-120b",
-          video: "gpt-oss-120b",
-          edit: "gpt-oss-120b",
+          photo: "curated-study",
+          video: "curated-study",
+          edit: "curated-study",
         },
       },
     });
@@ -882,7 +1059,7 @@ describe("runCategory's lessons (§3)", () => {
   });
 
   it("older lessons (no version before live fix 1, 2 before live fix 2, 3 before live fix 3) are due at the next scan, however new; the stored page still reads", async () => {
-    for (const v of [undefined, 2, 3]) {
+    for (const v of [undefined, 2, 3, 4]) {
       const before = { ...OLD.lessons!, v }; // 3 days old; KV's JSON leaves an undefined `v` out
       const { env, KV } = setup({ stored: { ...OLD, lessons: before } });
       env.AI = lessonsAi();
@@ -891,8 +1068,8 @@ describe("runCategory's lessons (§3)", () => {
       expect((await readCategory(env, "cars"))!.lessons).toEqual(before);
       const doc = await runCategory(env, "cars", { fetch, now: NOW, sleep: NO_WAIT });
       expect(count.tavily).toBe(16);
-      expect(doc.lessons).toMatchObject({ v: 4, updatedAt: NOW.toISOString() });
-      expect(doc.lessons!.photo[0].howTo).toEqual(HOW);
+      expect(doc.lessons).toMatchObject({ v: LESSONS_VERSION, updatedAt: NOW.toISOString() });
+      expect(doc.lessons!.photo[0].study?.sourceBasis).toBe("title-and-description");
       expect(stored(KV).lessons).toEqual(doc.lessons);
     }
   });
@@ -909,38 +1086,32 @@ describe("runCategory's lessons (§3)", () => {
 
   it("a refresh that keeps nothing keeps last week's lessons, noted 'lessons'", async () => {
     const { env, KV } = setup({ stored: LAST_WEEK });
-    env.AI = lessonsAi({ techniques: "nope" });
+    env.AI = lessonsAi({});
     const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW, sleep: NO_WAIT });
     expect(doc.lessons).toEqual(LAST_WEEK.lessons);
     expect(doc.notes).toContain("lessons");
     expect(writes(KV)).toEqual([ATTEMPTS, KEY, KEY]);
     expect(stored(KV).diagnostics).toMatchObject({
-      lessons: { picked: 9, written: 0, failed: 3 },
+      lessons: { picked: 0, written: 0, failed: 0 },
     });
   });
 
-  it("an area whose how-to call fails keeps last week's techniques there; the others are new", async () => {
+  it("an area without usable new examples keeps last week's safe study guides; the others are new", async () => {
     const { env, KV } = setup({ stored: LAST_WEEK });
-    const answering = lessonsAi();
-    env.AI = {
-      run: vi.fn(async (model: string, input: Record<string, unknown>): Promise<unknown> => {
-        const [system, user] = (input.messages as { content: string }[]).map((m) => m.content);
-        // The videography call answers nothing.
-        if (system.startsWith("You write") && / \| video \| /.test(user)) return { response: {} };
-        return answering.run(model, input);
-      }),
-    };
+    env.AI = lessonsAi({ ...PICKS, video: [] });
     const doc = await runCategory(env, "cars", { fetch: web().fetch, now: NOW, sleep: NO_WAIT });
     expect(doc.lessons!.updatedAt).toBe(NOW.toISOString());
     expect(doc.lessons!.video).toEqual(LAST_WEEK.lessons!.video);
     expect(doc.lessons!.photo.map((t) => t.name.en)).toEqual([
       "panning",
       "light painting",
-      "hero shot",
+      "low angle",
     ]);
     expect(doc.notes ?? []).not.toContain("lessons");
     expect(stored(KV).lessons).toEqual(doc.lessons);
-    expect(stored(KV).diagnostics).toMatchObject({ lessons: { written: 6, failed: 1 } });
+    expect(stored(KV).diagnostics).toMatchObject({
+      lessons: { written: 6, failed: 0, kept: ["video"] },
+    });
   });
 
   it("a refresh that throws keeps last week's lessons, noted 'lessons'", async () => {

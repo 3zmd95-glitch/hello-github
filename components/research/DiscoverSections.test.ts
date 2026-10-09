@@ -29,6 +29,7 @@ const item = (n: number, over: Record<string, unknown> = {}) => ({
 
 /** 8 TikTok examples, 2 tutorials (one YouTube with views), 1 off-topic Instagram post; Instagram failed. */
 const ANSWER = {
+  qualityVersion: 7,
   topicKey: "flash-transition",
   understood: {
     termId: "flash-transition",
@@ -190,7 +191,13 @@ beforeEach(() => {
   clearDiscoverCache();
   // What each Worker said it serves is kept for the session: every test asks /health afresh.
   clearScoutCaps();
-  useStore.setState({ recentTopics: [], customGenres: [], savedRefs: {} });
+  useStore.setState({
+    recentTopics: [],
+    customGenres: [],
+    savedRefs: {},
+    discoverCandidates: [],
+    discoverFeedback: [],
+  });
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -203,6 +210,60 @@ afterEach(() => {
 });
 
 describe("Discover v2 in the research panel", () => {
+  it("keeps a format search empty when the Worker returns music news and generic lessons, then releases the filter for a normal search", async () => {
+    answer = () => ({
+      ...COMPLETE,
+      items: [
+        item(701, { title: "A$AP Rocky TRIP BABY new album news" }),
+        item(702, { title: "Easy cinematic LUT color grading tutorial", section: "tutorial" }),
+      ],
+    });
+    await mount();
+    act(() => useStore.getState().setSettings({ lang: "en" }));
+    await click($("format-find-tutorials"));
+    expect(discovered.at(-1)).toMatchObject({ exact: true });
+    expect($("format-search-status")!.textContent).toContain("TRIP BABY");
+    expect($("format-search-empty")!.textContent).toContain(
+      "No indexed search text clearly suggested",
+    );
+    expect(all("result-card", $("discover-sections")!)).toHaveLength(0);
+    expect($("format-example")).not.toBeNull();
+    expect($("discover-understood")).toBeNull();
+    expect(count("tab-all")).toBe("0");
+    await submit("music news");
+    expect($("format-search-status")).toBeNull();
+    expect($("format-search-empty")).toBeNull();
+    expect(all("result-card", $("discover-sections")!)).toHaveLength(2);
+    expect(count("tab-all")).toBe("2");
+  });
+
+  it("shows an explicit audio-and-visual tutorial, keeps the filter across platforms and clears it when a category is chosen", async () => {
+    answer = () => ({
+      ...COMPLETE,
+      items: [
+        item(711, {
+          title: "TRIP BABY repeating figures cutout edit tutorial",
+          snippet: "Step by step clone montage breakdown",
+          section: "tutorial",
+        }),
+        item(712, { title: "TRIP BABY speed ramp tutorial", section: "tutorial" }),
+        item(713, { title: "TRIP BABY album news" }),
+      ],
+    });
+    await mount();
+    await click($("format-find-tutorials"));
+    expect(count("tab-all")).toBe("1");
+    expect(all("result-title", $("discover-sections")!).map((link) => link.textContent)).toEqual([
+      "TRIP BABY repeating figures cutout edit tutorial",
+    ]);
+    await click($("tab-tt"));
+    expect($("format-search-status")).not.toBeNull();
+    expect(count("tab-tt")).toBe("1");
+    await click($("genre-coffee"));
+    expect($("format-search-status")).toBeNull();
+    expect(count("tab-all")).toBe("3");
+  });
+
   it("one POST /discover for every platform: the sections, the tab counts and the usage", async () => {
     await mount();
     await submit("flash");
@@ -211,7 +272,8 @@ describe("Discover v2 in the research panel", () => {
     expect(searched).toEqual([]);
 
     expect($("discover-understood")!.textContent).toContain("فهمتها: انتقال فلاش · English بس");
-    expect(count("discover-popular")).toBe("1");
+    // An undated tutorial with unsupported counts does not earn a popularity recommendation.
+    expect($("discover-popular")).toBeNull();
     const examples = $("discover-section-example")!;
     expect(examples.getAttribute("data-count")).toBe("8");
     expect(all("result-card", examples)).toHaveLength(6);
@@ -225,7 +287,7 @@ describe("Discover v2 in the research panel", () => {
       "0",
     ]);
     expect($("discover-usage")!.textContent).toBe(
-      "412 من 1000 بحث مجاني هالشهر · يوتيوب 9/70 اليوم",
+      "آخر استهلاك مُبلّغ · رصيد Tavily هالشهر 412/1000 · يوتيوب 9/70 اليوم",
     );
     expect($("scout-usage")).toBeNull();
     expect($("discover-down-ig")!.getAttribute("data-error")).toBe("upstream");
@@ -369,7 +431,18 @@ describe("Discover v2 in the research panel", () => {
   it("without Tavily's figure the usage line still shows YouTube's count", async () => {
     usageBody = { ...USAGE, tavily: { error: "not_configured" } };
     await mount();
-    expect($("discover-usage")!.textContent).toBe("يوتيوب 9/70 اليوم");
+    expect($("discover-usage")!.textContent).toBe("آخر استهلاك مُبلّغ · يوتيوب 9/70 اليوم");
+  });
+
+  it("shows a source-reported usage timestamp and cache label only when supplied", async () => {
+    usageBody = {
+      ...USAGE,
+      tavily: { ...USAGE.tavily, observedAt: "2026-10-09T12:30:00.000Z", cached: true },
+    };
+    await mount();
+    expect($("discover-usage")!.textContent).toContain("الاستهلاك المُبلّغ في");
+    expect($("discover-usage")!.textContent).toContain("نتيجة محفوظة من قبل");
+    expect($("discover-usage")!.textContent).not.toContain("آخر استهلاك مُبلّغ ·");
   });
 
   it("a Worker from before v2: nothing is asked until /health answers, then the per-platform /search", async () => {

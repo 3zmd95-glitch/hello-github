@@ -11,7 +11,7 @@ import type { Lang } from "@/lib/domain";
 import type { ResearchItem } from "@/lib/research";
 import { clearScoutCache } from "@/lib/scoutClient";
 import { useStore } from "@/store";
-import ResultCard, { PREVIEW_RETRY_MS } from "./ResultCard";
+import ResultCard, { PREVIEW_RETRY_MS, ResultPreview } from "./ResultCard";
 
 // ▶ Watch here (round 32), the cards' side: a card that is one post of YouTube, TikTok or Instagram turns
 // its poster into a ▶ button that hands the post to the app's player (a fake one here: the sheet itself is
@@ -110,6 +110,38 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.unstubAllGlobals();
+});
+
+describe("ResultPreview: a single playable surface", () => {
+  it("opens the same post player without duplicate title or Open controls", () => {
+    act(() =>
+      root.render(
+        createElement(
+          VideoPlayerContext.Provider,
+          { value: player },
+          createElement(ResultPreview, { item: TT, testId: "format-preview" }),
+        ),
+      ),
+    );
+    expect($("format-preview")).not.toBeNull();
+    expect($("result-thumb")?.getAttribute("src")).toBe(TT.thumb);
+    expect($("result-title")).toBeNull();
+    expect($("result-open")).toBeNull();
+    expect(host.querySelectorAll("button")).toHaveLength(1);
+    click($("result-play"));
+    expect(opened).toEqual([
+      { platform: TT.platform, url: TT.url, title: TT.title, handle: TT.handle, thumb: TT.thumb },
+    ]);
+  });
+
+  it("keeps a safe accessible source link when a reference has no player", () => {
+    act(() => root.render(createElement(ResultPreview, { item: WEB })));
+    const link = host.querySelector("a")!;
+    expect(link.href).toBe(WEB.url);
+    expect(link.rel).toBe("noopener noreferrer");
+    expect(link.getAttribute("aria-label")).toContain(WEB.title);
+    expect($("result-play")).toBeNull();
+  });
 });
 
 describe("ResultCard: the post date", () => {
