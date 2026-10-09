@@ -31,6 +31,7 @@ import CategoryVisualChecks from "./CategoryVisualChecks";
 import { useCategoryVisual } from "./useCategoryVisual";
 import { useCreatorExpansion } from "./useCreatorExpansion";
 import CreatorExpansionAction, { CreatorExpansionStatus } from "./CreatorExpansionAction";
+import TikTokNativeAccess from "./TikTokNativeAccess";
 
 /** Category browsing has its own controls and state; it never edits the retained Search form. */
 export default function BrowseCategoryFeed({
@@ -293,6 +294,11 @@ export default function BrowseCategoryFeed({
         ))}
       </div>
       {usage && <DiscoverUsageLine usage={usage} testId="browse-usage" />}
+      <TikTokNativeAccess
+        config={config}
+        categoryId={genre.id}
+        active={active && (tab === "all" || tab === "tt")}
+      />
       <AddCategoryReference
         key={genre.id}
         genreId={genre.id}

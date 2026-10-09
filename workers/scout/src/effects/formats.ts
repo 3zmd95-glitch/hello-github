@@ -567,7 +567,9 @@ export async function discoverFormats(
         new Map([[input.id, input]]),
         now,
       );
-      return checked ? [checked] : [];
+      // This check may invalidate old evidence, but cannot renew its snapshot or provenance.
+      // Only an accepted format below receives new samples together with a new lastChecked.
+      return checked ? [sample] : [];
     });
     return samples.length ? [{ ...format, samples }] : [];
   });

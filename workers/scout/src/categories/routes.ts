@@ -24,6 +24,7 @@ import { CATEGORY_QUALITY_VERSION, readCategory, runCategory } from "./run";
 import { braveTop, type BravePlatform, type TopEnv } from "./top";
 import type { CategoryDoc } from "./types";
 import { readAdsToken } from "../tiktokads";
+import { probeTikTokAccess } from "./tiktokProbe";
 
 const ROUTE = /^\/categories\/([a-z][a-z0-9-]*)(?:(\/run)|\/top\/(tt|ig))?$/;
 
@@ -53,6 +54,15 @@ export async function handleCategories(
   cors: Headers,
   deps: EffectsDeps = {},
 ): Promise<Response | null> {
+  const probe = new URL(req.url).pathname.match(
+    /^\/categories\/([a-z][a-z0-9-]*)\/native\/tt\/probe$/,
+  );
+  if (probe && req.method === "POST" && categoryById(probe[1])) {
+    const result = await probeTikTokAccess(req, env, probe[1], deps);
+    const headers = new Headers(cors);
+    headers.set("Cache-Control", "no-store");
+    return json(result ?? { error: "bad_request" }, result ? 200 : 400, headers);
+  }
   const m = new URL(req.url).pathname.match(ROUTE);
   const g = m ? categoryById(m[1]) : undefined;
   if (!m || !g) return null;

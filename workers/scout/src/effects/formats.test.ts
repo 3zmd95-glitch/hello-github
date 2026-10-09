@@ -240,6 +240,61 @@ describe("bounded Instagram source enrichment", () => {
     expect(later.formats![0].lastChecked).toBe(NOW.toISOString());
   });
 
+  it.each([
+    ["fails", null],
+    ["omits the format", []],
+  ] as const)(
+    "keeps the entire prior snapshot client-readable when AI %s after a matching source check",
+    async (_, formats) => {
+      const { parseEditFormats } = await vi.importActual<{
+        parseEditFormats: (raw: unknown, now: number) => unknown[];
+      }>("../../../../lib/editFormats");
+      const original = instagram(1);
+      const earlier = await discoverFormats(
+        ai([candidate(["p0"])]),
+        null,
+        [original],
+        NOW,
+        30_000,
+        vi.fn<typeof fetch>(async () => new Response("", { status: 403 })),
+      );
+      const tomorrow = new Date("2026-10-08T12:00:00.000Z");
+      const source = vi.fn<typeof fetch>(async (input) => sourceResponse(input));
+      const later = await discoverFormats(
+        ai(formats === null ? null : [...formats]),
+        earlier,
+        [original],
+        tomorrow,
+        30_000,
+        source,
+      );
+      expect(source).toHaveBeenCalledTimes(1);
+      expect(later.formats).toEqual(earlier.formats);
+      expect(later.formats![0].samples[0]).not.toHaveProperty("captionSource");
+      expect(later.formats![0].samples[0].handle).toBe("creator1");
+      expect(Date.parse(later.formats![0].samples[0].observedAt)).toBeLessThanOrEqual(
+        Date.parse(later.formats![0].lastChecked),
+      );
+      expect(parseEditFormats(later.formats, tomorrow.getTime())).toHaveLength(1);
+
+      const accepted = await discoverFormats(
+        ai([sourceCandidate()]),
+        later,
+        [original],
+        tomorrow,
+        30_000,
+        source,
+      );
+      expect(accepted.formats![0].lastChecked).toBe(tomorrow.toISOString());
+      expect(accepted.formats![0].samples[0]).toMatchObject({
+        observedAt: tomorrow.toISOString(),
+        handle: "sourcecreator",
+        captionSource: "instagram-public-embed",
+      });
+      expect(parseEditFormats(accepted.formats, tomorrow.getTime())).toHaveLength(1);
+    },
+  );
+
   it("bounds source requests to six with at most two simultaneous calls and reuses warm cache", async () => {
     let active = 0;
     let peak = 0;
