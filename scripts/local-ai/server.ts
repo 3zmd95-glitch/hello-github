@@ -29,6 +29,18 @@ import {
 } from "../../lib/formatVerification";
 import { fetchFormatImage } from "./formatImage";
 import { extractInstagramFrames } from "./formatVideo";
+import {
+  DISCOVER_VISUAL_SYSTEM,
+  DISCOVER_VISUAL_TTL_MS,
+  DiscoverVisualRequestSchema,
+  DiscoverVisualAssessmentSchema,
+  DiscoverVisualObservationSchema,
+  DiscoverVisualSchema,
+  DiscoverVisualResponseSchema,
+  discoverVisualInput,
+  type DiscoverVisual,
+  type DiscoverVisualObservation,
+} from "../../lib/discoverVisual";
 import { createClaudeProvider } from "./claude";
 import { LocalAiProviderError, type LocalAiProvider, type LocalAiProviderStatus } from "./types";
 
@@ -182,6 +194,7 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
   const now = options.now ?? Date.now;
   const active = new Map<ProviderName, AbortController>();
   const cache = new Map<string, { until: number; value: unknown }>();
+  const visualCache = new Map<string, { until: number; visual: DiscoverVisual }>();
   const previews = new Map<string, { until: number; thumb: string }>();
   const sources = new Map<string, { until: number; source: InstagramSource }>();
   const sourceReads = new Map<string, Promise<InstagramSource>>();
@@ -366,9 +379,227 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
       if (connection[1] === "disconnect") {
         active.get(name)?.abort();
         cache.clear();
+        visualCache.clear();
         await options.providers[name].disconnect();
       } else await options.providers[name].connect();
       reply(res, 200, { ok: true });
+      return;
+    }
+    if (url.pathname === "/api/local-ai/assess-category") {
+      const parsed = DiscoverVisualRequestSchema.safeParse(await readBody(req));
+      if (!parsed.success) throw new LocalAiProviderError("invalid_request");
+      const body = parsed.data;
+      const post = instagramPostUrl(body.url)!;
+      const provider = options.providers.chatgpt;
+      const status = await safeStatus(provider);
+      if (!status.connected || status.sharing !== true)
+        throw new LocalAiProviderError("not_connected");
+      if (body.accountId && body.accountId !== status.accountId)
+        throw new LocalAiProviderError("account_changed");
+      const model = status.models.find((item) => item.id === body.model);
+      if (!model || (body.effort && !model.efforts?.includes(body.effort)))
+        throw new LocalAiProviderError("model_unavailable");
+      if (active.has("chatgpt")) {
+        reply(res, 409, { error: "ai_busy" });
+        return;
+      }
+      const selection = {
+        provider: "chatgpt" as const,
+        model: body.model,
+        ...(body.effort ? { effort: body.effort } : {}),
+        ...(status.accountId ? { accountId: status.accountId } : {}),
+      };
+      const controller = new AbortController();
+      active.set("chatgpt", controller);
+      const disconnected = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      res.once("close", disconnected);
+      const timer = setTimeout(() => controller.abort(), options.planTimeoutMs ?? 185_000);
+      const aborted = new Promise<never>((_, reject) =>
+        controller.signal.addEventListener(
+          "abort",
+          () => reject(new LocalAiProviderError("ai_timeout")),
+          { once: true },
+        ),
+      );
+      let modelCalls: 0 | 1 = 0;
+      let source: InstagramSource | undefined;
+      let observation: DiscoverVisualObservation | undefined;
+      try {
+        source = await Promise.race([sourceFor(post), aborted]);
+        if (
+          source.status !== "available" ||
+          !source.observedAt ||
+          instagramPostUrl(source.url) !== post
+        )
+          throw new LocalAiProviderError("source_unavailable");
+        // A high indexed count cannot buy an inspection of a five-like native source.
+        // Instagram's current public reader exposes likes, not views; unknown stays unknown.
+        if (source.likes === undefined) throw new LocalAiProviderError("source_engagement_unknown");
+        if (source.likes < 500) throw new LocalAiProviderError("source_low_engagement");
+        const sampled = await Promise.race([
+          (options.extractFrames ?? extractInstagramFrames)(
+            post,
+            options.sourceFetch ?? fetch,
+            controller.signal,
+          ),
+          aborted,
+        ]);
+        if (sampled.status !== "available")
+          throw new LocalAiProviderError(`source_frames_${sampled.reason.replace(/-/g, "_")}`);
+        if (
+          sampled.sourceUrl !== post ||
+          sampled.source !== "instagram-public-embed-video" ||
+          sampled.frames.some(
+            (frame) =>
+              frame.mime !== "image/jpeg" ||
+              frame.bytes.length < 4 ||
+              frame.bytes.length > 512 * 1024 ||
+              frame.bytes[0] !== 255 ||
+              frame.bytes[1] !== 216 ||
+              frame.bytes[2] !== 255,
+          )
+        )
+          throw new LocalAiProviderError("source_frames_decode_failed");
+        const snapshot = { caption: source.description, author: source.author };
+        const observed = DiscoverVisualObservationSchema.safeParse({
+          version: 1,
+          url: post,
+          genreId: body.genreId,
+          checkedAt: new Date(now()).toISOString(),
+          source: {
+            provenance: "instagram-public-embed",
+            ...snapshot,
+            observedAt: source.observedAt,
+            sha256: createHash("sha256").update(JSON.stringify(snapshot)).digest("hex"),
+          },
+          media: {
+            provenance: sampled.source,
+            observedAt: sampled.observedAt,
+            durationSeconds: sampled.durationSeconds,
+            videoSha256: sampled.videoSha256,
+            frames: sampled.frames.map((frame) => ({
+              timestampSeconds: frame.timestampSeconds,
+              sha256: createHash("sha256").update(frame.bytes).digest("hex"),
+            })),
+          },
+        });
+        if (!observed.success) throw new LocalAiProviderError("source_frames_decode_failed");
+        observation = observed.data;
+        // Recheck after media work, including cache hits: a changed account cancels this request.
+        const current = await Promise.race([safeStatus(provider), aborted]);
+        if (!current.connected || current.sharing !== true)
+          throw new LocalAiProviderError("not_connected");
+        if (current.accountId !== status.accountId)
+          throw new LocalAiProviderError("account_changed");
+        const currentModel = current.models.find((item) => item.id === body.model);
+        if (!currentModel || (body.effort && !currentModel.efforts?.includes(body.effort)))
+          throw new LocalAiProviderError("model_unavailable");
+        if (controller.signal.aborted) throw new LocalAiProviderError("cancelled");
+        const key = createHash("sha256")
+          .update(
+            JSON.stringify({
+              route: "assess-category-v1",
+              selection,
+              url: post,
+              genreId: body.genreId,
+              lang: body.lang ?? "en",
+              source: snapshot,
+              videoSha256: observation.media.videoSha256,
+              durationSeconds: observation.media.durationSeconds,
+              frames: observation.media.frames,
+            }),
+          )
+          .digest("hex");
+        const hit = visualCache.get(key);
+        if (hit && hit.until > now()) {
+          reply(
+            res,
+            200,
+            DiscoverVisualResponseSchema.parse({
+              status: "assessed",
+              selection,
+              visual: hit.visual,
+              source,
+              cached: true,
+              modelCalls: 0,
+            }),
+          );
+          return;
+        }
+        if (body.allowModel === false) throw new LocalAiProviderError("model_budget");
+        modelCalls = 1;
+        const result = await Promise.race([
+          provider.plan({
+            model: body.model,
+            effort: body.effort,
+            instructions: DISCOVER_VISUAL_SYSTEM,
+            input: discoverVisualInput(body.genreId, source, observation.media, body.lang),
+            images: sampled.frames.map((frame) => ({
+              mime: frame.mime,
+              base64: frame.bytes.toString("base64"),
+            })),
+            schemaName: "discover_category_visual",
+            schema: z.toJSONSchema(DiscoverVisualAssessmentSchema, { target: "draft-7" }),
+            signal: controller.signal,
+          }),
+          aborted,
+        ]);
+        if (controller.signal.aborted) throw new LocalAiProviderError("cancelled");
+        if (result.model !== body.model || Buffer.byteLength(result.text, "utf8") > MAX_PLAN_OUTPUT)
+          throw new LocalAiProviderError("invalid_response");
+        let raw: unknown;
+        try {
+          raw = JSON.parse(result.text);
+        } catch {
+          throw new LocalAiProviderError("invalid_response");
+        }
+        const visual = DiscoverVisualSchema.safeParse({
+          ...observation,
+          checkedAt: new Date(now()).toISOString(),
+          provider: "chatgpt",
+          model: result.model,
+          ...(body.effort ? { effort: body.effort } : {}),
+          assessment: raw,
+          limitations: ["sampled_frames", "motion_partial", "audio_unverified"],
+        });
+        if (!visual.success) throw new LocalAiProviderError("invalid_response");
+        const finalStatus = await Promise.race([safeStatus(provider), aborted]);
+        if (!finalStatus.connected || finalStatus.sharing !== true)
+          throw new LocalAiProviderError("not_connected");
+        if (finalStatus.accountId !== status.accountId)
+          throw new LocalAiProviderError("account_changed");
+        const value = DiscoverVisualResponseSchema.parse({
+          status: "assessed",
+          selection,
+          visual: visual.data,
+          source,
+          cached: false,
+          modelCalls,
+        });
+        if (visualCache.size >= 64) visualCache.delete(visualCache.keys().next().value!);
+        visualCache.set(key, { until: now() + DISCOVER_VISUAL_TTL_MS, visual: visual.data });
+        reply(res, 200, value);
+      } catch (error) {
+        // A validated frame receipt survives a model failure without creating a positive judgment.
+        reply(
+          res,
+          200,
+          DiscoverVisualResponseSchema.parse({
+            status: "unavailable",
+            selection,
+            error: safeError(error),
+            modelCalls,
+            ...(source ? { source } : {}),
+            ...(observation ? { observation } : {}),
+          }),
+        );
+      } finally {
+        clearTimeout(timer);
+        res.off("close", disconnected);
+        if (active.get("chatgpt") === controller) active.delete("chatgpt");
+      }
       return;
     }
     if (url.pathname === "/api/local-ai/verify-format") {

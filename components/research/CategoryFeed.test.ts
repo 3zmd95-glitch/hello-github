@@ -12,6 +12,7 @@ import { useStore } from "@/store";
 import ResearchPanel from "./ResearchPanel";
 import DiscoverScreen from "../discover/DiscoverScreen";
 import { clearScoutCaps } from "./useDiscover";
+import { discoverVisualFixture } from "@/lib/discoverVisual.fixture";
 
 const WORKER = "https://feed.scout.test";
 let requests: Record<string, unknown>[];
@@ -147,6 +148,54 @@ async function mount() {
 }
 
 describe("category editor feed", () => {
+  it("uses canonical sampled-frame evidence in Browse and keeps its limits separate from caption claims", async () => {
+    const at = new Date().toISOString();
+    const item: DiscoverItem = {
+      platform: "ig",
+      url: "https://www.instagram.com/reel/VisualCaptionSparse/?igsh=test",
+      title: "#anime",
+      snippet: "#anime",
+      handle: "visual_editor",
+      lang: "en",
+      section: "example",
+      evidence: {
+        source: "instagram-public-embed",
+        author: "visual_editor",
+        caption: "#anime",
+        observedAt: at,
+        likes: 4000,
+      },
+    };
+    useStore.getState().accumulateDiscoverCandidates([item], { genreId: "anime" });
+    act(() => root.render(createElement(DiscoverScreen)));
+    await settle();
+    await click($("genre-anime"));
+    expect(titles()).toHaveLength(0);
+    expect(requests).toHaveLength(0);
+    expect($("category-visual")?.hasAttribute("open")).toBe(false);
+    expect($("ai-connections", $("category-visual")!)).toBeNull();
+    act(() =>
+      useStore.setState({
+        discoverCandidates: useStore.getState().discoverCandidates.map((candidate) => ({
+          ...candidate,
+          visual: discoverVisualFixture(candidate.item, "anime", Date.now()),
+        })),
+      }),
+    );
+    await settle();
+    expect(titles()).toEqual(["#anime"]);
+    expect($("feed-source-note")?.textContent).toContain("AI checked sampled frames");
+    expect($("feed-source-note")?.textContent).not.toContain("footage has not been reviewed");
+    expect($("feed-visual-evidence")?.textContent).toContain("test-vision · high");
+    expect($("feed-visual-evidence")?.textContent).toContain("Large layered title treatment");
+    expect($("feed-visual-evidence")?.textContent).toContain("11.0s");
+    expect($("feed-visual-evidence")?.textContent).toContain("do not establish full motion");
+    act(() => useStore.getState().setSettings({ lang: "ar" }));
+    await settle();
+    expect($("feed-source-note")?.textContent).not.toContain("AI checked");
+    expect($("feed-visual-evidence")?.textContent).toContain("test-vision · high");
+    expect(requests).toHaveLength(0);
+  });
   it.each(["search", "browse"] as const)(
     "waits for durable category hydration in %s before deciding whether a lookup is needed",
     async (workspace) => {

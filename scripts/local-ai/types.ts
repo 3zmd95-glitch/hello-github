@@ -21,7 +21,7 @@ export interface LocalAiPlanInput {
   input: string;
   /** Only server-fetched public image bytes; never a credential-bearing URL. */
   images?: Array<{ mime: "image/jpeg" | "image/png" | "image/webp"; base64: string }>;
-  schemaName?: "discover_search_plan" | "discover_format_verification";
+  schemaName?: "discover_search_plan" | "discover_format_verification" | "discover_category_visual";
   schema: Record<string, unknown>;
   signal: AbortSignal;
 }

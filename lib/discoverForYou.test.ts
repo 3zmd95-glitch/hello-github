@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { discoverForYou } from "./discoverForYou";
 import type { DiscoverCandidate, DiscoverFeedback, DiscoverSavedInterest } from "./discoverFeed";
 import { carxDraftCandidate } from "../workers/scout/src/categories/carxDraft.fixture";
+import { discoverVisualFixture, discoverVisualObservationFixture } from "./discoverVisual.fixture";
 
 const NOW = Date.parse("2026-10-09T12:00:00Z");
 const captions: Record<string, string> = {
@@ -69,6 +70,43 @@ function saved(entry: DiscoverCandidate): DiscoverSavedInterest {
 }
 
 describe("local For You mix", () => {
+  it("uses each category's visual judgment against the newest shared native source", () => {
+    const anime = candidate("anime", "visual-mix", "The hero faces his rival");
+    anime.visual = discoverVisualFixture(anime.item, "anime", NOW);
+    const cars: DiscoverCandidate = { ...anime, genreId: "cars", visual: undefined };
+    const before = JSON.stringify([anime, cars]);
+    let result = discoverForYou([anime, cars], { now: NOW });
+    expect(result.rows.map((row) => row.genreId)).toEqual(["anime"]);
+    expect(result.rows[0].evidence.visualCraft).toBe(true);
+    expect(result.genreCounts.cars).toBe(0);
+    expect(JSON.stringify([anime, cars])).toBe(before);
+    const refreshed = structuredClone(cars);
+    refreshed.item.evidence!.observedAt = new Date(NOW + 1000).toISOString();
+    refreshed.item.evidence!.likes = 7000;
+    result = discoverForYou([anime, refreshed], { now: NOW + 2000 });
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].evidence.engagement.value).toBe(7000);
+    refreshed.item.evidence!.caption = "A changed ordinary scene";
+    expect(discoverForYou([anime, refreshed], { now: NOW + 2000 }).rows).toEqual([]);
+  });
+  it("preserves a newer changed-media receipt when combining duplicate visual wrappers", () => {
+    const anime = candidate("anime", "changed-media", "The hero faces his rival");
+    anime.visual = discoverVisualFixture(anime.item, "anime", NOW);
+    const changed = {
+      ...anime,
+      visual: undefined,
+      visualObservation: discoverVisualObservationFixture(anime.visual),
+    };
+    changed.visualObservation.checkedAt = new Date(NOW + 1000).toISOString();
+    changed.visualObservation.media.observedAt = changed.visualObservation.checkedAt;
+    changed.visualObservation.media.videoSha256 = "f".repeat(64);
+    for (const inputs of [
+      [anime, changed],
+      [changed, anime],
+    ])
+      expect(discoverForYou(inputs, { now: NOW + 2000 }).rows).toEqual([]);
+  });
+
   it("does not recommend the real CarX multiline draft through For You source sharing", () => {
     const valid = candidate("cars", "genuine-car-speed-ramp");
     const input = [carxDraftCandidate, valid];

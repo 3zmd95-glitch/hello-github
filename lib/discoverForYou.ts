@@ -10,6 +10,7 @@ import {
   rankDiscoverItems,
   type DiscoverEvidence,
   type DiscoverFeedMode,
+  type DiscoverVisualContext,
 } from "./discoverRanking";
 
 export interface DiscoverForYouRow {
@@ -82,6 +83,7 @@ export function discoverForYou(
   const savedInterests = (options.savedInterests ?? []).filter((entry) => time(entry.savedAt, now));
   const sources = sharedSources(candidates, now);
   const groups = new Map<string, Map<string, DiscoverItem>>();
+  const visualGroups = new Map<string, Record<string, DiscoverVisualContext>>();
   for (const entry of candidates) {
     const key = discoverPostKey(entry.item.platform, entry.item.url);
     const source = key && sources.get(key);
@@ -95,6 +97,26 @@ export function discoverForYou(
       outsideCategory: entry.item.outsideCategory,
     });
     groups.set(entry.genreId, group);
+    const visuals = visualGroups.get(entry.genreId) ?? {};
+    const previous = visuals[key];
+    // Source observations may be shared across categories; visual judgments never are. Prefer the
+    // newest category-specific judgment/receipt if a caller supplies duplicate wrappers.
+    const newest = <T extends { checkedAt: string; media: { observedAt: string } }>(
+      a: T | undefined,
+      b: T | undefined,
+    ) =>
+      !a ||
+      (b &&
+        (Date.parse(b.media.observedAt) > Date.parse(a.media.observedAt) ||
+          (b.media.observedAt === a.media.observedAt &&
+            Date.parse(b.checkedAt) > Date.parse(a.checkedAt))))
+        ? b
+        : a;
+    visuals[key] = {
+      visual: newest(previous?.visual, entry.visual),
+      visualObservation: newest(previous?.visualObservation, entry.visualObservation),
+    };
+    visualGroups.set(entry.genreId, visuals);
   }
 
   // Do not resurrect a dismissed post under its second category in the same mixed feed.
@@ -114,6 +136,7 @@ export function discoverForYou(
       feedback,
       savedInterests,
       mode: options.mode ?? "inspiration",
+      visual: visualGroups.get(genreId),
     });
     const rows = ranked.items
       .filter((item) => latestVote.get(item.url)?.action !== "less")

@@ -5,6 +5,7 @@ import { discoverPostKey } from "./discoverFeed";
 import { creatorKey, discoverEvidence, rankDiscoverItems } from "./discoverRanking";
 import { CATEGORY_PROFILES } from "../workers/scout/src/discover/category-profiles";
 import { carxDraftCandidate } from "../workers/scout/src/categories/carxDraft.fixture";
+import { discoverVisualFixture, discoverVisualObservationFixture } from "./discoverVisual.fixture";
 
 const NOW = Date.parse("2026-10-09T12:00:00Z");
 const RECENT = "2026-10-07T12:00:00Z";
@@ -58,6 +59,189 @@ const ranked = (
   mode: "inspiration" | "popular" | "learning" | "explore" = "inspiration",
   feedback: DiscoverFeedback[] = [],
 ) => rankDiscoverItems(items, { now: NOW, genreId: "anime", mode, feedback });
+
+describe("sampled visual craft remains separate from source popularity", () => {
+  const withVisual = (card: DiscoverItem, genreId = "anime") => ({
+    [discoverPostKey(card.platform, card.url)!]: {
+      visual: discoverVisualFixture(card, genreId, NOW),
+    },
+  });
+  it("recovers a source-popular plot-caption edit without inventing a named technique", () => {
+    const card = source("plot", { title: "Naruto confronts his rival in this scene" });
+    expect(ranked([card]).items).toEqual([]);
+    const input = JSON.stringify(card);
+    const result = rankDiscoverItems([card], {
+      genreId: "anime",
+      now: NOW,
+      visual: withVisual(card),
+    });
+    expect(result.items).toHaveLength(1);
+    expect(result.evidence[card.url]).toMatchObject({
+      eligible: true,
+      craft: "none",
+      techniques: [],
+      visualCraft: true,
+      engagement: { value: 5000, basis: "source" },
+    });
+    expect(result.evidence[card.url].reasons).toContain("sampled-visual-craft");
+    expect(result.evidence[card.url].reasons).not.toContain("named-technique");
+    expect(JSON.stringify(card)).toBe(input);
+  });
+  it("can resolve empty prose, but cannot turn five likes or hidden counts into strong engagement", () => {
+    const card = source("empty", { title: "#anime #edit" });
+    expect(
+      rankDiscoverItems([card], { genreId: "anime", now: NOW, visual: withVisual(card) }).items,
+    ).toHaveLength(1);
+    for (const likes of [5, undefined]) {
+      const weak = { ...card, evidence: { ...card.evidence!, likes } };
+      const result = rankDiscoverItems([weak], {
+        genreId: "anime",
+        now: NOW,
+        visual: withVisual(weak),
+      });
+      expect(result.items).toEqual([]);
+      expect(result.evidence[card.url].visualCraft).toBe(true);
+      expect(result.evidence[card.url].engagement.strong).toBe(false);
+    }
+  });
+  it("keeps all substantive metadata exclusions even with a positive model judgment", () => {
+    for (const title of [
+      "Anime full movie with typography",
+      "Food processor anime video",
+      "Foreground: anime hero. Background: realistic selfie photograph",
+      "Anime edit, comment for my prompt pack",
+      "Anime buy now discount code",
+      "Anime full episode",
+    ]) {
+      const card = source("blocked", { title });
+      for (const mode of ["inspiration", "popular", "learning", "explore"] as const)
+        expect(
+          rankDiscoverItems([card], { genreId: "anime", now: NOW, mode, visual: withVisual(card) })
+            .items,
+          title,
+        ).toEqual([]);
+    }
+  });
+  it("does not let uncertain frames or source-film imagery supply added craft, or demote existing references", () => {
+    const plain = source("scene", { title: "Naruto confronts his rival in this scene" });
+    const creative = source("existing");
+    for (const card of [plain, creative]) {
+      const record = withVisual(card);
+      const value = Object.values(record)[0].visual;
+      value.assessment.observations[0].origin = "source-content";
+      let result = rankDiscoverItems([card], { genreId: "anime", now: NOW, visual: record });
+      expect(result.items).toHaveLength(card === creative ? 1 : 0);
+      value.assessment.observations[0].origin = "uploader-added";
+      value.assessment.category = "uncertain";
+      result = rankDiscoverItems([card], { genreId: "anime", now: NOW, visual: record });
+      expect(result.items).toHaveLength(card === creative ? 1 : 0);
+    }
+  });
+  it("preserves Popular date, freshness and native metric gates", () => {
+    const card = source("popular-frames", { title: "Naruto confronts his rival in this scene" });
+    const options = {
+      genreId: "anime",
+      now: NOW,
+      mode: "popular" as const,
+      visual: withVisual(card),
+    };
+    expect(rankDiscoverItems([card], options).items).toHaveLength(1);
+    for (const changed of [
+      { ...card, published: undefined },
+      { ...card, published: "2025-01-01T12:00:00Z" },
+      { ...card, evidence: { ...card.evidence!, likes: 500 } },
+      { ...card, evidence: { ...card.evidence!, observedAt: "2026-10-01T12:00:00Z" } },
+      { ...card, evidence: undefined },
+    ])
+      expect(rankDiscoverItems([changed], options).items).toEqual([]);
+  });
+  it("requires current source text, category and media, and never overrides a dismissal", () => {
+    const card = source("binding", { title: "Naruto confronts his rival in this scene" });
+    const visual = withVisual(card);
+    const key = discoverPostKey("ig", card.url)!;
+    const base = { genreId: "anime", now: NOW, visual };
+    expect(
+      rankDiscoverItems([{ ...card, evidence: { ...card.evidence!, likes: 7000 } }], base).items,
+    ).toHaveLength(1);
+    expect(
+      rankDiscoverItems(
+        [{ ...card, evidence: { ...card.evidence!, caption: "A different ordinary scene" } }],
+        base,
+      ).items,
+    ).toEqual([]);
+    expect(
+      rankDiscoverItems(
+        [{ ...card, evidence: { ...card.evidence!, availability: "unavailable" } }],
+        base,
+      ).items,
+    ).toEqual([]);
+    expect(rankDiscoverItems([card], { ...base, genreId: "cars" }).items).toEqual([]);
+    expect(rankDiscoverItems([card], { ...base, now: NOW + 86_400_001 }).items).toEqual([]);
+    expect(rankDiscoverItems([card], { ...base, feedback: [vote(card, "less")] }).items).toEqual(
+      [],
+    );
+    expect(
+      rankDiscoverItems([card], { ...base, feedback: [vote(card, "hide-creator")] }).items,
+    ).toEqual([]);
+    const changedMedia = discoverVisualObservationFixture(visual[key].visual);
+    changedMedia.media.videoSha256 = "e".repeat(64);
+    changedMedia.media.observedAt = new Date(NOW + 1000).toISOString();
+    changedMedia.checkedAt = changedMedia.media.observedAt;
+    expect(
+      rankDiscoverItems([card], {
+        ...base,
+        now: NOW + 2000,
+        visual: { [key]: { ...visual[key], visualObservation: changedMedia } },
+      }).items,
+    ).toEqual([]);
+  });
+  it("does not turn visible editor treatment into a lesson or change Learning admission", () => {
+    const card = source("not-lesson", { title: "Naruto confronts his rival in this scene" });
+    expect(
+      rankDiscoverItems([card], {
+        genreId: "anime",
+        now: NOW,
+        mode: "learning",
+        visual: withVisual(card),
+      }).items,
+    ).toEqual([]);
+    const unknownSubject = source("lesson-other-subject", {
+      title: "Split screen tutorial: crop each panel",
+    });
+    expect(
+      rankDiscoverItems([unknownSubject], {
+        genreId: "anime",
+        now: NOW,
+        mode: "learning",
+        visual: withVisual(unknownSubject),
+      }).items,
+    ).toEqual([]);
+    const lesson = source("actual-lesson", {
+      title: "Anime split screen tutorial: crop each panel",
+    });
+    const shown = rankDiscoverItems([lesson], {
+      genreId: "anime",
+      now: NOW,
+      mode: "learning",
+      visual: withVisual(lesson),
+    });
+    expect(shown.items).toHaveLength(1);
+    expect(shown.evidence[lesson.url].visual).toBeDefined();
+  });
+  it("supports the twelve categories without transferring a judgment or inventing caption techniques", () => {
+    for (const genreId of Object.keys(CATEGORY_PROFILES)) {
+      const card = source(`visual-${genreId}`, { title: "#reel" });
+      const result = rankDiscoverItems([card], {
+        genreId,
+        now: NOW,
+        visual: withVisual(card, genreId),
+      });
+      expect(result.items, genreId).toHaveLength(1);
+      expect(result.evidence[card.url].techniques, genreId).toEqual([]);
+      expect(result.evidence[card.url].visual?.genreId).toBe(genreId);
+    }
+  });
+});
 
 describe("source-specific discover evidence", () => {
   it("rejects the exact source-checked CarX multiline draft despite its real 401600 views", () => {

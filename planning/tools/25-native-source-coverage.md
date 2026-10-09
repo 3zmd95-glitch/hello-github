@@ -10,7 +10,7 @@ The initial six-post public-source preflight reported **metadata available for 6
 
 Native playback also revealed creative text overlays in corniflix posts whose captions describe the plot. Such posts cannot be reliably dismissed as unedited clips from their captions alone. Equally, a popular scene with overlays is not automatically a strong editing lesson or a spreading visual format. The application needs a path for real audiovisual evidence and explicit personal selection rather than universally admitting hashtags or universally rejecting plot captions.
 
-See [24 — Editor feed](24-editor-feed.md) and the [9 October handover](../handovers/discover-editor-feed-2026-10-09.md) for the prior indexed-search trial, source-aware candidate library, persistence validation, and remaining quality gaps. The capped paid trial is closed; this proposal does not reopen spending or increase quotas.
+See [24 — Editor feed](24-editor-feed.md) and the [9 October handover](../handovers/discover-editor-feed-2026-10-09.md) for the prior indexed-search trial, source-aware candidate library, persistence validation, and remaining quality gaps. The capped paid trial is closed; this work does not reopen spending or increase quotas.
 
 ## Instagram: existing login versus public discovery
 
@@ -76,97 +76,72 @@ The fixed local inspection cap is now **32 MiB**, sufficient for the three measu
 
 All three formerly oversized clips succeeded once under the repaired cap. Twenty-four resulting JPEGs total 559,937 bytes, with exact source URLs, UTC observations, video/frame hashes and sample timestamps retained in the local diagnostic report. Hashes were rechecked with zero mismatches. Raw MP4s were cleaned up; diagnostic JPEGs stay outside Git. The first live proof and repaired report are in `C:/Users/AORUS/AppData/Local/Temp/discover-reel-preflight-9c75efc05e0542d69d67ea2f573a1cc0/` (`report.json`, `report-followup.json`, `diagnostics.json`, `coverage32.json`). These artifacts establish media readability, not automatic relevance or trend admission.
 
-Regression tests exercise an actually streamed valid payload above the old cap, declared and streamed rejection above 32 MiB, cancellation and temporary cleanup. This is a repair to inspection coverage; no general category visual ranker or native discovery grant has been added.
+Regression tests exercise an actually streamed valid payload above the old cap, declared and streamed rejection above 32 MiB, cancellation and temporary cleanup. At that repair checkpoint, no general category visual ranker or native discovery grant had been added. The subsequent generic assessment implementation is recorded below; native discovery access remains unchanged.
 
-## Proposed category visual assessment slice — unimplemented
+## Category visual assessment — implemented, integration validation in progress
 
-One subsequent real UI check using the selected **GPT-6 Astra / max** model described visible glowing type and left the proposed clone interpretation uncertain. This supports reusing the existing image-input transport for broader category assessment; one successful response is not an accuracy benchmark. The following slice is a proposal only. Its initial scope is **Browse category feeds and propagation into the cached For You feed**, not every Search surface, TikTok/YouTube frame extraction, or automatic trend detection.
+One earlier real UI check using **GPT-6 Astra / max** described visible glowing type and left the proposed clone interpretation uncertain. That was the existing format inspector, not a live test of the generic category feed implementation below. It is not an accuracy benchmark.
 
-### Trigger and usage bounds
+The generic slice is now implemented for **Browse category feeds and propagation into cached For You**. Its code is under integration validation. No live generic-classification result or classification-accuracy claim is established here yet. It does not add native candidate discovery, TikTok/YouTube frame extraction, or automatic trend detection, and it does not change every Search surface.
 
-Reuse the existing selected subscription connection, model, effort and account. When visual checking is visibly enabled, an explicit category retrieval may queue checks for its candidate cohort: **at most four public frame preflights and two new model calls per action**, with serial model execution, progress and cancellation. A cached assessment does not consume a model call. Prioritize directly sourced, meaningfully engaged Instagram candidates whose category/craft is unresolved; select from the raw category pool before caption admission so plot-caption false negatives can be inspected. Prefer different creators.
+### Explicit actions and usage bounds
 
-Also provide an explicit **Assess existing candidates** action with the same bounds. It reads the local category pool and public source media but performs no search, so improving candidate quality does not require buying another retrieval. Neither path changes provider quotas. Stop on connection, account-change, model, usage-limit or busy errors; no silent model downgrade, automatic paid fallback or retry. Show the selected model and the maximum inspection count before starting. A search-planning call, where applicable in future surfaces, is separate subscription use and must not be hidden inside that count.
+`CategoryVisualChecks` exposes the selected ChatGPT connection/model/effort, **Assess existing candidates**, and an unchecked, one-use option to also assess the next **Find more** or **Find examples & tutorials** result in the same Browse category. Assessing the existing pool performs public source/media reads and may use the selected subscription; it makes **no new search**. The next-lookup option does not trigger retrieval itself. It is consumed after a successful captured lookup cohort and is cleared or invalidated by scope/selection changes.
 
-Do not launch model requests from rendering, hydration, sorting, category switching, More/Less/Hide feedback, or a periodic clock update. A changed count or completed source enrichment must not restart the queue. No background schedule is part of this slice.
+`useCategoryVisual` runs serially, with **at most four candidate attempts/preflights and two successful assessments per explicit action, including cached or uncertain assessments**. It also caps new model calls at two. A cached assessment consumes a success slot but no new model call; a model failure stops the action. Expected post-specific media failures may advance to another candidate within the four-attempt ceiling. Account/model/connection, usage-limit, busy, decoder-unavailable, unexpected network and invalid-response failures stop the queue. Cancellation does not refund an already-started provider request.
 
-### Endpoint and stored contract
+The queue prefers strong native Instagram candidates with unresolved category/craft, then strong indexed leads for native verification, with creator diversity. It deduplicates canonical post/reel aliases, preserves stronger/newer native evidence over indexed duplicates, and skips native unavailable posts, explicit Less/Hide signals and known hard exclusions. Indexed engagement is only a lead-selection hint. Before any frame extraction or model call, the server reads the exact native source and requires **at least 500 visible likes**. Unknown likes and lower native counts skip inspection and can correct the stored candidate's source data. The current Instagram reader does not expose views, so indexed views cannot replace this server gate.
 
-Add a generic local `POST /api/local-ai/assess-category` using the existing exact-post reader, bounded frame extractor and image-capable ChatGPT transport. Input contains the canonical post, known category, language and `AiSelection`; no invented target format is needed. Initially retain the existing Instagram-only media support. Claude image input remains unsupported until separately implemented and tested.
+Rendering, hydration, feedback, sorting, ordinary navigation, source enrichment and clock updates never start a model request. Expiry merely makes a candidate eligible for a later explicit action. There is no background schedule, hidden model downgrade, new paid-search fallback or quota increase. Claude image input remains unsupported for this slice.
 
-The model returns only constrained category relevance (`supported`, `uncertain`, `mismatch`), a few directly visible added-edit cues with valid frame references, and uncertainty. The server sets post/category identity, schema/rubric version, source-text snapshot/digest, check time, video/frame hashes, timestamps and actual provider/model/effort. Raw model text cannot set those authority fields. Require purposeful added treatment such as styled typography, cutouts, graphic framing or panel composition; sophisticated animation already present in a film, ordinary subtitles, a watermark, attractive footage and hashtags do not establish the uploader's craft. Sparse samples supply no audio, complete motion, synchronization, engagement, growth or whole-video verification.
+### Endpoint, cache and persisted evidence
 
-Keep the compact result in an optional category-scoped `DiscoverCandidate.visual` field, separate from `DiscoverItem.evidence`. Do not persist frame bytes or temporary CDN URLs. Minimal application API:
+`POST /api/local-ai/assess-category` reuses the local server's same-origin protection, connected-account/sharing checks, selected model/effort validation, per-provider active lock, exact-post reader, bounded frame extractor and ChatGPT image transport. `lib/discoverVisual.ts` defines the strict request/response schemas and assessment rubric. Requests accept a known built-in category, canonicalizable Instagram post, language and selected account/model/effort; custom categories and arbitrary hosts are rejected. The existing **32 MiB / 90 seconds / up to eight JPEG frames** extraction bounds remain in place, without a thumbnail fallback.
+
+The model supplies only a constrained judgment: category `supported`, `uncertain` or `mismatch`; zero-based frame citations; up to five observed cues from `typography`, `compositing`, `layout` or `graphic-treatment`; whether each cue is `uploader-added`, `source-content` or `uncertain`; and a short uncertainty statement. The rubric excludes ordinary subtitles, watermarks, source animation/cinematography and attractive footage as proof of uploader-added craft. It does not infer grading, sound, timing, speed ramps, synchronization, engagement, growth, tutorials or complete-video quality from still samples.
+
+The server supplies the version, canonical post, category, timestamps, exact bounded caption/author snapshot and SHA-256 digest, video/frame hashes, ordered sampling times, actual provider/model/effort, and fixed limitations. Raw model output cannot set those fields. Responses are discriminated `assessed` or `unavailable`, bind the selected account/model/effort, report `modelCalls: 0 | 1`, and may carry authentic source metadata. A failure after valid frame extraction can also return a validated media observation without creating a positive judgment.
+
+The in-memory server cache is bounded to 64 assessments for **24 hours**. Its identity includes route/rubric version, post, category, selection including account, language, exact caption/author, video hash, duration and ordered frame hashes/times. A server cache lookup happens after source and media verification; it avoids another model call, not necessarily those public reads. Counts and observation times are excluded from the identity. A cache hit returns the original visual check time plus current source metadata and does not renew applicability. A fresh, source-matching result already in the local library is skipped by the client for the same model/effort.
+
+The optional category-scoped `DiscoverCandidate.visual` is persisted separately from native `DiscoverItem.evidence`. `visualObservation` retains a newer valid media receipt when inference fails, preventing IndexedDB merge from reviving an older positive for changed media. Neither record stores image bytes, temporary CDN URLs, account identity or request generations. The native item is merged using existing source precedence before independently merging visual evidence. Count-only refreshes preserve a valid judgment and its original check time; caption/author changes, native unavailability or a differing current media receipt invalidate it.
+
+The store boundary is:
 
 ```ts
 applyDiscoverVisualResult(response: unknown, guard: {
   epoch: string;
-  generation: number;
   genreId: string;
   url: string;
   selection: AiSelection;
-}): "applied" | "unchanged" | "stale" | "invalid";
+  isCurrent(): boolean; // caller's active abort/navigation/selection generation
+}, now?: Date): "applied" | "unchanged" | "stale" | "invalid";
 
-applicableDiscoverVisual(candidate, currentItem, now): Assessment | undefined;
+applicableDiscoverVisual(
+  candidate: { genreId: string; visual?: DiscoverVisual; visualObservation?: DiscoverVisualObservation },
+  currentItem: DiscoverItem,
+  now?: number,
+): DiscoverVisual | undefined;
 ```
 
-The proposed shared module is `lib/discoverVisual.ts`. Its strict Zod request accepts only `provider: "chatgpt"`, the existing validated model/effort/account selection, canonical Instagram `url`, a built-in `genreId`, and optional `lang`. The category description comes from the server's category registry. Custom categories and other video platforms remain explicitly unsupported in this first slice. The raw model schema and persisted server envelope are:
+Raw `accumulateDiscoverCandidates` cannot add model judgments. Live application checks exact source/post/category/selection, candidate existence, library epoch, active caller generation, schema, citations and bounded timestamps. Reset/import, navigation, cancellation or selection changes reject late results. Applicability is **24 hours** from the original judgment and allows only bounded clock skew. A failed read alone does not prove media changed or renew old evidence. A changed-media receipt can invalidate an old positive even at an equal observation timestamp.
 
-```ts
-type DiscoverVisualAssessment = {
-  category: "supported" | "uncertain" | "mismatch";
-  categoryFrames: number[]; // unique, zero-based indices into the actual supplied frames
-  observations: Array<{
-    cue: "typography" | "compositing" | "layout" | "graphic-treatment";
-    origin: "uploader-added" | "source-content" | "uncertain";
-    description: string;
-    frames: number[]; // at least one valid, unique frame index
-  }>;
-  uncertainty: string;
-};
+Schema-valid visual records round-trip through IndexedDB and owner backups under the existing local-data trust model; malformed optional visual fields are dropped without discarding the native candidate. No signature system or separate import-trust ledger was introduced. Shared native source updates in For You are rechecked against each original category's visual record, so a post's assessment in Anime cannot qualify it in another category.
 
-type DiscoverVisual = {
-  version: 1;
-  url: string;
-  genreId: string;
-  checkedAt: string;
-  provider: "chatgpt";
-  model: string;
-  effort?: string;
-  source: {
-    provenance: "instagram-public-embed";
-    caption: string;
-    author: string;
-    observedAt: string;
-    sha256: string;
-  };
-  media: {
-    provenance: "instagram-public-embed-video";
-    observedAt: string;
-    durationSeconds: number;
-    videoSha256: string;
-    frames: Array<{ timestampSeconds: number; sha256: string }>;
-  };
-  assessment: DiscoverVisualAssessment;
-  limitations: ["sampled_frames", "motion_partial", "audio_unverified"];
-};
-```
+### Feed admission and presentation
 
-Validate with `z.strictObject` throughout: at most five observations, 240 characters per observation, 400 characters of uncertainty, eight unique citations per list, 4,000 source-caption characters, 200 author characters, ISO timestamps and lowercase 64-character SHA-256 digests. Media has two to eight frames, increasing timestamps within a positive duration of at most 90 seconds. Category support and every usable craft cue require actual frame citations. An affirmative fallback needs both supported category evidence and a purposeful `uploader-added` observation. Color treatment is deliberately absent: isolated stills cannot establish whether the uploader graded the source. Ordinary subtitles/watermarks and the source film's animation remain insufficient even if a model calls them typography or graphics.
+An applicable affirmative assessment requires both frame-supported category evidence and purposeful `uploader-added` craft. It can resolve missing category/craft or `empty-prose`, with a distinct `sampled-visual-craft` reason. It never rewrites the native caption or turns an inferred cue into a source-named technique. The explicit exclusions `full-feature-upload`, `equipment`, `image-prompt`, `prompt-bait`, `sales` and `ordinary-content` remain blockers. Sparse uncertainty or mismatch does not demote an otherwise metadata-qualified reference; explicit dismissal and native unavailability still dominate.
 
-The successful route returns `{ visual, source: InstagramSource }`, allowing the existing native-source application helper to run before the guarded visual write. The server sets every envelope field and checks the returned model against the selected model; the model supplies only `assessment`. Account identity stays in the transient request guard and server cache key, never in the persisted visual record. Exact bounded caption and author fields enter the prompt and the synchronous applicability comparison; their server digest records the same binding without requiring asynchronous hashing inside ranking. A count-only refresh keeps that binding valid. The applicability window remains 24 hours, with no automatic renewal.
+Inspiration still requires meaningful native engagement for these Instagram candidates. **Popular's engagement, native-source, observation-freshness and publication-date gates are unchanged**; visual craft may supply the craft component but cannot manufacture popularity or growth. **Learn keeps its metadata-only teaching/admission gate.** A visual check cannot turn an ordinary example into a tutorial. The cards show dated sampled-frame observations, selected model and limits. Applicable strong visual references receive ordinary strong-reference retention priority, not manual-import priority.
 
-Reuse the existing `verify-format` route's same-origin guard, connected-account/sharing checks, selected effort validation, per-provider active lock, cancellation, `sourceFor`, frame extractor and image transport. Add only the new schema name to `LocalAiPlanInput`; there is no thumbnail fallback, generic prompt input or new credential handling. Source/decode failures must remain distinguishable from model attempts so the four-preflight/two-model-call queue limit is enforceable; an ambiguous interrupted model request counts against the limit. Existing media hashes, not raw video or frames, are the reusable inspection artifact.
+The code paths are `lib/discoverVisual.ts`, `scripts/local-ai/server.ts`, `lib/discoverVisualClient.ts`, `components/research/useCategoryVisual.ts`, `CategoryVisualChecks.tsx`, `BrowseCategoryFeed.tsx`, candidate/store persistence, `lib/discoverRanking.ts` and `lib/discoverForYou.ts`.
 
-Raw `accumulateDiscoverCandidates` must not introduce model judgments. Merge the authoritative native item first using existing source precedence, then merge the visual record independently; native count updates must not erase a visual-only change. Valid records round-trip through IndexedDB and the owner's backups under the existing local-data trust model. No signatures, separate import trust ledger, or stripping of valid backup assessments is required. Schema validation, binding and applicability still apply after import.
+### Follow-up handover: integration validation
 
-### Ranking and stale-result rules
+Focused development checks have passed, including **177 tests across six persistence/store/shared-schema files**, plus app TypeScript and clean targeted lint for those persistence changes. Separately reported endpoint/provider/extractor and ranking batches overlap shared coverage; do not add their totals or substitute them for a final full-suite run. Regressions include canonical post/reel deduplication, source corrections over inflated indexed aliases, source-text/media changes, count-only refreshes, category isolation, backup and native-adapter reload, reset/import/cancel races, terminal usage/account/model failures, queue bounds, expiry without automatic work, and zero hidden model calls from feedback/re-render.
 
-- An applicable affirmative assessment may resolve missing craft, missing category, or empty prose. Add a distinct visual-craft reason; do not rewrite native captions or label an inferred cue as a source-named technique. Source engagement floors still govern Inspiration, and all existing native-metric, freshness and publication-date requirements still govern Popular. Learning admission stays unchanged in this slice. Sparse absence/uncertainty does not demote an otherwise valid reference; Less/Hide and native unavailability continue to dominate.
-- Expose the current metadata exclusion reasons without changing their semantics: `empty-prose`, `full-feature-upload`, `equipment`, `image-prompt`, `prompt-bait`, `sales`, `ordinary-content`. Initially only `empty-prose` is visually overridable; the other explicit exclusions remain blockers. Do not globally override `meta.excluded` or stale indexed flags without affirmative category-and-craft evidence.
-- Server cache identity includes canonical post, category/rubric and extraction versions, selected provider/account/model/effort, output language, exact supplied source text, video hash and ordered frame hashes/timestamps. Counts and metadata observation times are excluded, so changing likes does not trigger another model call. Use an initial 24-hour applicability window; expiry does not automatically renew a check.
-- Exact source-text mismatch or newly observed different media hashes makes the old result inapplicable. A failed media read establishes neither change nor freshness: preserve the dated old record without renewing it. If frames succeed but the subsequent model call fails, a validated response may still report their media identity so an actually changed video cannot retain an old positive assessment.
-- Live response validation checks post, category, selected model/effort and account context. Reject future/invalid times, unsupported versions and invalid frame references. Before applying, confirm the active generation, library epoch and candidate still exist; reset/import/navigation cancellation must prevent late writes.
-- For You may share the newest native source across duplicates, but retains each original category's visual record and revalidates it against that source. One category's assessment cannot qualify the same post in another. Applicable strong visual references can receive normal strong-reference retention priority, never manual-import priority or invented popularity.
+The frozen source passed **3,029 unit tests / 156 files**, lint, app/Worker typechecks and build. The full 406-case browser run passed 396 existing cases and skipped eight intentional viewport cases. Two new cases initially failed an incomplete test-only Worker setup; after correcting it, both desktop and phone cases passed, including selected model/effort, the two-assessment ceiling, no search, canonical Browse admission, For You propagation, persistence and EN/AR layout. This is a full run plus a focused correction.
 
-Implement and test in this order: endpoint/schema; candidate merge/persistence and pure ranking; Browse queue plus existing-pool action; For You propagation. Regressions must cover source-text/hash changes, unchanged counts, category isolation, backup round-trip, reset/import races, uncertainty, hard exclusions, usage termination and zero model calls from feedback/reload. A small real-video comparison with clear edits and ordinary/ambiguous examples remains necessary before claiming useful classification accuracy. This proposed slice improves evidence for retrieved candidates; it does not solve missing native discovery supply or complete the owner's overall goal.
+Actual localhost:3000 Chrome assessment used **gpt-6-astra / max** and completed **two assessments from two attempts**, with no Tavily calls. `DePNO4ABNRb` received frame-cited typography/framing evidence. A new personal reference, `DdFckpqzmb8`, was added with the manual keep preference unchecked and was absent from Inspiration before assessment. After the model cited layered display typography, it qualified with about 1.5K native likes. The added record and its original check timestamp survived reload. Both examples stayed outside Popular and Learn; Xenoz's evidence also appeared in For You. Choppem was absent from the first 24 mixed cards, so its For You display was not established in the live pass. Details and local screenshot are in the October 9 editor-feed handover.
+
+These two previously played positive examples establish integration behavior, **not balanced classification accuracy**. No ordinary/ambiguous control was assessed in this batch. One bounded model description ended in a fragment; raw text is retained. Missing native discovery supply, fuller audiovisual assessment and measured trend adoption remain open. Keep the capped paid-search trial closed.

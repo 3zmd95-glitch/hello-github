@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DiscoverItem } from "./discover";
 import type { Inspiration } from "./inspiration";
 import { CATEGORY_PROFILES } from "../workers/scout/src/discover/category-profiles";
 import { rankDiscoverItems } from "./discoverRanking";
+import { applicableDiscoverVisual, type DiscoverVisual } from "./discoverVisual";
 import {
   DISCOVER_CANDIDATE_MAX,
   DISCOVER_CANDIDATE_MAX_CHARS,
@@ -21,6 +22,7 @@ import {
   restoreDiscoverFeedback,
   savedDiscoverInterests,
   type DiscoverFeedbackInput,
+  type DiscoverCandidate,
 } from "./discoverFeed";
 
 const now = new Date("2026-10-09T12:00:00Z");
@@ -42,6 +44,216 @@ const vote = (action: DiscoverFeedbackInput["action"], id = "ABC123"): DiscoverF
   genreId: "coffee",
   techniques: ["Match cut"],
   action,
+});
+
+const visualCandidate = (): DiscoverCandidate => {
+  const item: DiscoverItem = {
+    ...post(),
+    evidence: {
+      source: "instagram-public-embed",
+      observedAt: now.toISOString(),
+      caption: "Coffee on the counter",
+      author: "editor",
+      likes: 2000,
+    },
+  };
+  const [candidate] = accumulateCategoryCandidates([], [item], { genreId: "coffee", now });
+  const visual: DiscoverVisual = {
+    version: 1,
+    url: "https://www.instagram.com/p/ABC123/",
+    genreId: "coffee",
+    checkedAt: now.toISOString(),
+    source: {
+      provenance: "instagram-public-embed",
+      caption: item.evidence!.caption!,
+      author: "editor",
+      observedAt: now.toISOString(),
+      sha256: "a".repeat(64),
+    },
+    media: {
+      provenance: "instagram-public-embed-video",
+      observedAt: now.toISOString(),
+      durationSeconds: 12,
+      videoSha256: "b".repeat(64),
+      frames: [
+        { timestampSeconds: 0, sha256: "c".repeat(64) },
+        { timestampSeconds: 6, sha256: "d".repeat(64) },
+      ],
+    },
+    provider: "chatgpt",
+    model: "gpt-6-astra",
+    effort: "max",
+    assessment: {
+      category: "supported",
+      categoryFrames: [0, 1],
+      observations: [
+        {
+          cue: "layout",
+          origin: "uploader-added",
+          description: "Two coffee panels share one frame.",
+          frames: [1],
+        },
+      ],
+      uncertainty: "Only sampled frames were inspected.",
+    },
+    limitations: ["sampled_frames", "motion_partial", "audio_unverified"],
+  };
+  return { ...candidate, visual };
+};
+
+describe("category visual evidence persistence", () => {
+  it("retains source-strong visual craft at capacity without protecting low counts or hard exclusions", () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now.getTime());
+    try {
+      const full = accumulateCategoryCandidates(
+        [],
+        Array.from({ length: DISCOVER_CATEGORY_MAX }, (_, index) => ({
+          ...post(`indexed${index}`),
+          stats: { likes: 5000 },
+        })),
+        { genreId: "coffee", now },
+      );
+      const candidate = visualCandidate();
+      expect(
+        mergeDiscoverCandidates(full, [candidate]).some(
+          (entry) => entry.item.url === candidate.item.url,
+        ),
+      ).toBe(true);
+      const low = {
+        ...candidate,
+        item: { ...candidate.item, evidence: { ...candidate.item.evidence!, likes: 5 } },
+      };
+      expect(
+        mergeDiscoverCandidates(full, [low]).some((entry) => entry.item.url === candidate.item.url),
+      ).toBe(false);
+      const caption = "Coffee machine for sale. Buy now.";
+      const sales = {
+        ...candidate,
+        item: { ...candidate.item, evidence: { ...candidate.item.evidence!, caption } },
+        visual: { ...candidate.visual!, source: { ...candidate.visual!.source, caption } },
+      };
+      expect(
+        mergeDiscoverCandidates(full, [sales]).some(
+          (entry) => entry.item.url === candidate.item.url,
+        ),
+      ).toBe(false);
+      clock.mockReturnValue(now.getTime() + 2 * 86_400_000);
+      expect(
+        mergeDiscoverCandidates(full, [candidate]).some(
+          (entry) => entry.item.url === candidate.item.url,
+        ),
+      ).toBe(false);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("merges a visual-only result independently of native source selection", () => {
+    const candidate = visualCandidate();
+    const raw = { ...candidate, visual: undefined };
+    const merged = mergeDiscoverCandidates([raw], [candidate]);
+    expect(merged[0].visual).toBe(candidate.visual);
+    expect(merged[0].item).toBe(raw.item);
+    expect(mergeDiscoverCandidates(merged, [candidate])).toBe(merged);
+    expect(merged[0].visualObservation).toBeUndefined();
+  });
+
+  it("preserves a valid judgment through count-only refresh and stale indexed replay", () => {
+    const candidate = visualCandidate();
+    const refreshed = accumulateCategoryCandidates(
+      [candidate],
+      [
+        {
+          ...candidate.item,
+          evidence: { ...candidate.item.evidence!, observedAt: later.toISOString(), likes: 3500 },
+        },
+      ],
+      { genreId: "coffee", now: later },
+    );
+    expect(refreshed[0].visual).toBe(candidate.visual);
+    expect(refreshed[0].item.evidence?.likes).toBe(3500);
+    const replayed = accumulateCategoryCandidates(refreshed, [post()], {
+      genreId: "coffee",
+      now: later,
+    });
+    expect(replayed).toBe(refreshed);
+    expect(applicableDiscoverVisual(replayed[0], replayed[0].item, later.getTime())).toBeDefined();
+  });
+
+  it.each([
+    { caption: "A different native caption" },
+    { author: "another-editor" },
+    { availability: "unavailable" as const },
+  ])("does not retain a judgment after its source changes: %j", (change) => {
+    const candidate = visualCandidate();
+    const next = accumulateCategoryCandidates(
+      [candidate],
+      [
+        {
+          ...candidate.item,
+          evidence: { ...candidate.item.evidence!, ...change, observedAt: later.toISOString() },
+        },
+      ],
+      { genreId: "coffee", now: later },
+    );
+    expect(next[0].visual).toBeUndefined();
+    expect(mergeDiscoverCandidates(next, [candidate])[0].visual).toBeUndefined();
+  });
+
+  it.each([now, later])(
+    "keeps a failed-inference media receipt at %s through durable merge and backup parsing",
+    (receiptTime) => {
+      const candidate = visualCandidate();
+      const visual = candidate.visual!;
+      const base = {
+        version: visual.version,
+        url: visual.url,
+        genreId: visual.genreId,
+        checkedAt: visual.checkedAt,
+        source: visual.source,
+        media: visual.media,
+      };
+      const observation = {
+        ...base,
+        checkedAt: receiptTime.toISOString(),
+        media: {
+          ...base.media,
+          observedAt: receiptTime.toISOString(),
+          videoSha256: "e".repeat(64),
+        },
+      };
+      const failed = mergeDiscoverCandidates(
+        [candidate],
+        [{ ...candidate, visualObservation: observation }],
+      );
+      expect(failed[0].visual).toBeUndefined();
+      expect(failed[0].visualObservation).toEqual(observation);
+      const replayed = mergeDiscoverCandidates([candidate], failed);
+      expect(replayed[0].visual).toBeUndefined();
+      expect(
+        DiscoverCandidatesSchema.parse(JSON.parse(JSON.stringify(replayed)))[0].visualObservation,
+      ).toEqual(observation);
+    },
+  );
+
+  it("preserves schema-valid backups but never propagates visual evidence between categories or from raw items", () => {
+    const candidate = visualCandidate();
+    const restored = DiscoverCandidatesSchema.parse(JSON.parse(JSON.stringify([candidate])));
+    expect(restored[0].visual).toEqual(candidate.visual);
+    const other = DiscoverCandidatesSchema.parse([{ ...candidate, genreId: "cars" }]);
+    expect(other[0].visual).toBeUndefined();
+    const raw = accumulateCategoryCandidates(
+      [],
+      [{ ...candidate.item, visual: candidate.visual } as DiscoverItem],
+      { genreId: "coffee", now },
+    );
+    expect(raw[0].visual).toBeUndefined();
+    const malformed = DiscoverCandidatesSchema.parse([
+      { ...candidate, visual: { ...candidate.visual, version: 99 } },
+    ]);
+    expect(malformed).toHaveLength(1);
+    expect(malformed[0].visual).toBeUndefined();
+  });
 });
 
 describe("category candidate library", () => {

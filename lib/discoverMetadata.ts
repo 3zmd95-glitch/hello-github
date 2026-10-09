@@ -51,6 +51,7 @@ export function discoverCreativeEvidence(genreId: string, text: string): Categor
     subjects: [...result.subjects],
     techniques: [...result.techniques],
     namedTechniques: [...result.namedTechniques],
+    exclusions: [...result.exclusions],
   };
 }
 

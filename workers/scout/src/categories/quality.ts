@@ -303,6 +303,15 @@ function expanded(genreId: string, text: string): string {
   });
 }
 
+export type CategoryExclusion =
+  | "empty-prose"
+  | "full-feature-upload"
+  | "equipment"
+  | "image-prompt"
+  | "prompt-bait"
+  | "sales"
+  | "ordinary-content";
+
 export interface CategoryCreativeEvidence {
   category: boolean;
   creative: boolean;
@@ -314,6 +323,8 @@ export interface CategoryCreativeEvidence {
   teaching: boolean;
   /** Promotional, ordinary-content or empty-tag noise that a personal preference must not promote. */
   excluded: boolean;
+  /** Keep missing text distinct from substantive exclusions when independent visual evidence exists. */
+  exclusions: CategoryExclusion[];
   /** A creative project described in prose; an #edit hashtag alone cannot supply this evidence. */
   project: boolean;
   score: number;
@@ -379,14 +390,15 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
     /\b(?:foreground|background)\s*:/i.test(prose) &&
     /\b(?:realistic|photorealistic|selfie)\s+(?:\w+\s+){0,3}(?:photograph|image)\b/i.test(prose) &&
     !teaching;
-  const excluded =
-    !/\p{L}/u.test(prose) ||
-    fullFeatureUpload ||
-    equipment ||
-    imagePrompt ||
-    (promptBait && !(teaching && substantive)) ||
-    (sales && !(teaching && substantive)) ||
-    (ordinaryContent && !substantive);
+  const exclusions: CategoryExclusion[] = [];
+  if (!/\p{L}/u.test(prose)) exclusions.push("empty-prose");
+  if (fullFeatureUpload) exclusions.push("full-feature-upload");
+  if (equipment) exclusions.push("equipment");
+  if (imagePrompt) exclusions.push("image-prompt");
+  if (promptBait && !(teaching && substantive)) exclusions.push("prompt-bait");
+  if (sales && !(teaching && substantive)) exclusions.push("sales");
+  if (ordinaryContent && !substantive) exclusions.push("ordinary-content");
+  const excluded = exclusions.length > 0;
   const creative =
     !excluded &&
     techniques.length > 0 &&
@@ -418,6 +430,7 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
         ),
     teaching: !excluded && teaching,
     excluded,
+    exclusions,
     project,
     // Even several generic project labels cannot outrank one named craft through popularity.
     score: creative ? (substantive ? 20 : 4) + Math.min(techniques.length, 4) * 2 : 0,

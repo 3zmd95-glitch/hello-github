@@ -48,12 +48,14 @@ describe("bounded local caption analysis cache", () => {
     const first = discoverCreativeEvidence("coffee", "Coffee match cut");
     first.techniques.push("invented");
     first.subjects.length = 0;
+    first.exclusions.push("sales");
     const cloned = structuredClone({ genre: "coffee", caption: "Coffee match cut" });
     const repeated = discoverCreativeEvidence(cloned.genre, cloned.caption);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(repeated.techniques).toContain("match cut");
     expect(repeated.techniques).not.toContain("invented");
     expect(repeated.subjects).toContain("coffee");
+    expect(repeated.exclusions).toEqual([]);
     expect(discoverMetadataCacheSize().entries).toBe(1);
   });
 

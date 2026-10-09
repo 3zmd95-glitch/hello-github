@@ -125,6 +125,13 @@ import {
 } from "@/lib/inspiration";
 import { rankFromXp } from "@/lib/rank";
 import type { DiscoverItem } from "@/lib/discover";
+import type { AiSelection } from "@/lib/localAi";
+import { applyInstagramEvidence } from "@/lib/discoverSources";
+import {
+  DiscoverVisualResponseSchema,
+  applicableDiscoverVisual,
+  discoverVisualSourceMatches,
+} from "@/lib/discoverVisual";
 import {
   DiscoverCandidatesSchema,
   DiscoverFeedbackListSchema,
@@ -133,6 +140,7 @@ import {
   restoreDiscoverFeedback,
   localDiscoverCandidateFallback,
   mergeDiscoverCandidates,
+  discoverPostKey,
   type DiscoverFeedbackInput,
   type DiscoverFeedbackUndo,
 } from "@/lib/discoverFeed";
@@ -366,11 +374,26 @@ export interface PostedResult {
   quest: CompleteResult | null;
 }
 
+export interface DiscoverVisualApplyGuard {
+  epoch: string;
+  genreId: string;
+  url: string;
+  selection: AiSelection;
+  /** The active caller's abort/selection/navigation generation; never persisted. */
+  isCurrent(): boolean;
+}
+export type DiscoverVisualApplyResult = "applied" | "unchanged" | "stale" | "invalid";
+
 export interface StoreActions {
   accumulateDiscoverCandidates(
     items: readonly DiscoverItem[],
     options: { genreId: string; manuallyAdded?: true; now?: Date },
   ): void;
+  applyDiscoverVisualResult(
+    response: unknown,
+    guard: DiscoverVisualApplyGuard,
+    now?: Date,
+  ): DiscoverVisualApplyResult;
   setDiscoverFeedback(input: DiscoverFeedbackInput, now?: Date): DiscoverFeedbackUndo | undefined;
   undoDiscoverFeedback(undo: DiscoverFeedbackUndo): void;
   clearDiscoverFeedback(): void;
@@ -1024,6 +1047,81 @@ export const useStore = create<StoreState>()(
           set({ discoverCandidates: next });
           candidateLibrary().changed();
         }
+      },
+
+      applyDiscoverVisualResult(response, guard, now = new Date()) {
+        const state = get();
+        if (!guard.isCurrent() || guard.epoch !== state.discoverLibraryEpoch) return "stale";
+        const url = discoverPostKey("ig", guard.url);
+        if (!url || !Number.isFinite(now.getTime())) return "invalid";
+        const current = state.discoverCandidates.find(
+          (entry) => entry.genreId === guard.genreId && entry.item.url === url,
+        );
+        if (!current) return "stale";
+        const parsed = DiscoverVisualResponseSchema.safeParse(response);
+        if (!parsed.success) return "invalid";
+        const result = parsed.data;
+        if (
+          result.selection.provider !== guard.selection.provider ||
+          result.selection.model !== guard.selection.model ||
+          result.selection.effort !== guard.selection.effort ||
+          result.selection.accountId !== guard.selection.accountId
+        )
+          return "invalid";
+        const observation = result.status === "assessed" ? result.visual : result.observation;
+        if (
+          (result.source && discoverPostKey("ig", result.source.url) !== url) ||
+          (observation &&
+            (observation.genreId !== guard.genreId ||
+              discoverPostKey("ig", observation.url) !== url))
+        )
+          return "invalid";
+        const timestamps = [
+          result.source?.observedAt,
+          observation?.checkedAt,
+          observation?.source.observedAt,
+          observation?.media.observedAt,
+        ].filter((value): value is string => typeof value === "string");
+        if (
+          timestamps.some(
+            (value) =>
+              !Number.isFinite(Date.parse(value)) || Date.parse(value) > now.getTime() + 300_000,
+          )
+        )
+          return "invalid";
+        // Returned metadata is authoritative only through the existing exact-post and time-aware merge.
+        const item = result.source
+          ? applyInstagramEvidence(current.item, result.source)
+          : current.item;
+        if (observation && !discoverVisualSourceMatches(observation, item)) return "stale";
+        if (
+          result.status === "assessed" &&
+          (result.visual.provider !== guard.selection.provider ||
+            result.visual.model !== guard.selection.model ||
+            result.visual.effort !== guard.selection.effort ||
+            !applicableDiscoverVisual(
+              { genreId: guard.genreId, visual: result.visual },
+              item,
+              now.getTime(),
+            ))
+        )
+          return "invalid";
+        // The same request may settle after a synchronous listener reset/import or caller cancellation.
+        if (!guard.isCurrent() || guard.epoch !== get().discoverLibraryEpoch) return "stale";
+        const next = mergeDiscoverCandidates(state.discoverCandidates, [
+          {
+            ...current,
+            item,
+            ...(result.status === "assessed" ? { visual: result.visual } : {}),
+            ...(result.status === "unavailable" && result.observation
+              ? { visualObservation: result.observation }
+              : {}),
+          },
+        ]);
+        if (next === state.discoverCandidates) return "unchanged";
+        set({ discoverCandidates: next });
+        candidateLibrary().changed();
+        return "applied";
       },
 
       setDiscoverFeedback(input, now = new Date()) {

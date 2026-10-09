@@ -9,6 +9,7 @@ import { useT, type MessageKey } from "@/lib/i18n";
 import type { ResearchItem, ResearchTab } from "@/lib/research";
 import ResultCard from "./ResultCard";
 import FeedSearchStatus from "./FeedSearchStatus";
+import type { DiscoverVisual } from "@/lib/discoverVisual";
 
 const PAGE_SIZE = 12;
 const MODES: Record<DiscoverFeedMode, MessageKey> = {
@@ -261,13 +262,15 @@ function FeedCards(props: CategoryFeedProps) {
                   )}
                   <p className="text-muted text-[11px]" data-testid="feed-source-note">
                     {t(
-                      evidence?.sourceTier === "direct"
-                        ? "feed.sourceRead"
-                        : props.likedUrls.has(item.url)
-                          ? "feed.personalUnverified"
-                          : evidence?.sourceTier === "indexed"
-                            ? "feed.indexed"
-                            : "feed.noEvidence",
+                      evidence?.visual
+                        ? "visual.cardLabel"
+                        : evidence?.sourceTier === "direct"
+                          ? "feed.sourceRead"
+                          : props.likedUrls.has(item.url)
+                            ? "feed.personalUnverified"
+                            : evidence?.sourceTier === "indexed"
+                              ? "feed.indexed"
+                              : "feed.noEvidence",
                     )}
                   </p>
                   <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -308,6 +311,7 @@ function FeedCards(props: CategoryFeedProps) {
                   </div>
                   <details className="text-xs" data-testid="feed-why">
                     <summary className="px-link w-fit cursor-pointer">{t("feed.why")}</summary>
+                    {evidence?.visual && <VisualEvidence visual={evidence.visual} />}
                     {!!evidence?.techniques.length && (
                       <p className="mt-1" dir="auto">
                         {t("feed.technique", {
@@ -337,5 +341,58 @@ function FeedCards(props: CategoryFeedProps) {
         </button>
       )}
     </>
+  );
+}
+
+function VisualEvidence({ visual }: { visual: DiscoverVisual }) {
+  const { t, lang } = useT();
+  return (
+    <div className="mt-2 flex min-w-0 flex-col gap-1" data-testid="feed-visual-evidence">
+      <p className="font-bold">{t("visual.cardDetails")}</p>
+      <p dir="ltr" className="break-words">
+        ChatGPT · {visual.model}
+        {visual.effort ? ` · ${visual.effort}` : ""}
+      </p>
+      <p>
+        {t("formats.checked", {
+          date: new Date(visual.checkedAt).toLocaleString(lang === "ar" ? "ar-SA" : "en-US"),
+        })}
+      </p>
+      <p>
+        {t(
+          visual.assessment.category === "supported"
+            ? "visual.cardCategorySupported"
+            : visual.assessment.category === "mismatch"
+              ? "visual.cardCategoryMismatch"
+              : "visual.cardCategoryUncertain",
+        )}
+      </p>
+      <ul className="list-disc space-y-1 ps-4">
+        {visual.assessment.observations.map((observation, index) => (
+          <li key={index}>
+            <span>
+              {t(
+                observation.origin === "uploader-added"
+                  ? "visual.cardAdded"
+                  : observation.origin === "source-content"
+                    ? "visual.cardSource"
+                    : "visual.cardUncertain",
+              )}
+              :{" "}
+            </span>
+            <span dir="auto">{observation.description}</span>{" "}
+            <span className="text-muted" dir="ltr">
+              (
+              {observation.frames
+                .map((frame) => `${visual.media.frames[frame].timestampSeconds.toFixed(1)}s`)
+                .join(" · ")}
+              )
+            </span>
+          </li>
+        ))}
+      </ul>
+      {visual.assessment.uncertainty && <p dir="auto">{visual.assessment.uncertainty}</p>}
+      <p className="text-muted">{t("visual.cardLimits")}</p>
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-/** Local, deterministic ranking of retrieved candidates. Metadata establishes relevance, never visual quality.
+/** Local, deterministic ranking of retrieved candidates. Sampled visual judgments remain separate from metadata.
  * Recomputing this over cached candidates performs no network requests and cannot spend search credits. */
 import { CATEGORY_PROFILES } from "../workers/scout/src/discover/category-profiles";
 import {
@@ -12,7 +12,15 @@ import {
   discoverPostKey,
   type DiscoverFeedback,
   type DiscoverSavedInterest,
+  type DiscoverCandidate,
 } from "./discoverFeed";
+import {
+  applicableDiscoverVisual,
+  hasDiscoverVisualCraft,
+  type DiscoverVisual,
+} from "./discoverVisual";
+
+export type DiscoverVisualContext = Pick<DiscoverCandidate, "visual" | "visualObservation">;
 
 export type DiscoverFeedMode = "inspiration" | "popular" | "learning" | "explore";
 export type DiscoverReason =
@@ -32,7 +40,8 @@ export type DiscoverReason =
   | "no-craft"
   | "personal-interest"
   | "personal-dismissed"
-  | "source-unavailable";
+  | "source-unavailable"
+  | "sampled-visual-craft";
 
 export interface DiscoverEvidence {
   techniques: string[];
@@ -41,6 +50,9 @@ export interface DiscoverEvidence {
   craft: "specific" | "generic" | "none";
   /** A described creative project, not a claim of a named technique or watched visual quality. */
   project?: boolean;
+  /** Affirmative added treatment in sampled frames, not a source-named technique or whole-video review. */
+  visualCraft?: boolean;
+  visual?: DiscoverVisual;
   teaching: boolean;
   sourceTier: "direct" | "indexed" | "unknown";
   engagement: {
@@ -118,6 +130,7 @@ export function discoverEvidence(
   item: DiscoverItem,
   genreId?: string,
   now = Date.now(),
+  visualContext?: DiscoverVisualContext,
 ): DiscoverEvidence {
   const isDirect = direct(item);
   const meta = metadata(item, genreId);
@@ -154,11 +167,17 @@ export function discoverEvidence(
   const published = sourcePublished ?? reportedPublished;
   const ageDays = published === undefined ? undefined : Math.max(0, (now - published) / DAY);
   const recent = ageDays !== undefined && ageDays <= 30;
-  const categoryMatch = !genreId || meta.category;
+  const visual = genreId
+    ? applicableDiscoverVisual({ ...visualContext, genreId }, item, now)
+    : undefined;
+  const hardExcluded = meta.exclusions.some((reason) => reason !== "empty-prose");
+  const visualCraft = !!visual && !hardExcluded && hasDiscoverVisualCraft(visual);
+  const categoryMatch = !genreId || meta.category || visualCraft;
   const craft = meta.namedTechniques.length ? "specific" : meta.creative ? "generic" : "none";
   // Worker flags describe the indexed excerpt's query match. A native caption can independently
   // establish a known category; absent/unknown captions cannot erase a previous negative label.
-  const sourceCategoryProof = isDirect && !!CATEGORY_PROFILES[genreId ?? ""] && meta.eligible;
+  const sourceCategoryProof =
+    isDirect && !!CATEGORY_PROFILES[genreId ?? ""] && (meta.eligible || visualCraft);
   const offTopic = !!item.offTopic && !sourceCategoryProof;
   const outsideCategory = !!item.outsideCategory && !sourceCategoryProof;
   const unavailable = isDirect && item.evidence?.availability === "unavailable";
@@ -166,12 +185,12 @@ export function discoverEvidence(
     !unavailable &&
     !!discoverPostKey(item.platform, item.url) &&
     categoryMatch &&
-    meta.creative &&
+    (meta.creative || visualCraft) &&
     !offTopic &&
     !outsideCategory;
   const popular =
     eligible &&
-    (craft === "specific" || meta.project) &&
+    (craft === "specific" || meta.project || visualCraft) &&
     !meta.teaching &&
     isDirect &&
     fresh &&
@@ -182,6 +201,7 @@ export function discoverEvidence(
   const reasons: DiscoverReason[] = [];
   if (unavailable) reasons.push("source-unavailable");
   if (craft === "specific") reasons.push("named-technique");
+  if (visualCraft) reasons.push("sampled-visual-craft");
   if (meta.teaching && meta.creative) reasons.push("teaching");
   if (isDirect && item.evidence?.caption?.trim()) reasons.push("source-caption");
   if (!isDirect) reasons.push("indexed-only");
@@ -193,8 +213,8 @@ export function discoverEvidence(
   else if (ageDays !== undefined) reasons.push("old-post");
   else reasons.push("unknown-date");
   if (!categoryMatch || outsideCategory) reasons.push("outside-category");
-  if (offTopic || meta.excluded) reasons.push("off-topic");
-  if (craft === "none") reasons.push("no-craft");
+  if (offTopic || (meta.excluded && !visualCraft)) reasons.push("off-topic");
+  if (craft === "none" && !visualCraft) reasons.push("no-craft");
   // Log of a ratio to the platform's own floor; likes are never converted into fictional views.
   const engagementScore =
     metric && value !== undefined
@@ -213,6 +233,7 @@ export function discoverEvidence(
     categoryMatch,
     craft,
     project: meta.project,
+    ...(visual ? { visual, visualCraft } : {}),
     teaching: meta.teaching && meta.creative,
     sourceTier,
     engagement: {
@@ -236,6 +257,7 @@ export function discoverEvidence(
     popular,
     score:
       (craft === "specific" ? 45 : craft === "generic" ? 10 : 0) +
+      (visualCraft ? 30 : 0) +
       Math.min(3, meta.namedTechniques.length) * 5 +
       engagementScore +
       (recent ? 10 : 0) +
@@ -297,6 +319,8 @@ export function rankDiscoverItems(
     feedback?: DiscoverFeedback[];
     savedInterests?: DiscoverSavedInterest[];
     mode?: DiscoverFeedMode;
+    /** Category-scoped records keyed by canonical post URL; never shared across genres. */
+    visual?: Readonly<Record<string, DiscoverVisualContext>>;
   } = {},
 ): { items: DiscoverItem[]; evidence: Record<string, DiscoverEvidence>; excluded: number } {
   const now = Number.isFinite(options.now) ? options.now! : Date.now();
@@ -339,7 +363,7 @@ export function rankDiscoverItems(
   const savedExamples = [...saved.keys()].flatMap((key) => {
     const row = unique.get(key);
     if (!row) return [];
-    const proof = discoverEvidence(row.item, options.genreId, now);
+    const proof = discoverEvidence(row.item, options.genreId, now, options.visual?.[key]);
     const vote = feedbackFor(row.item, feedback, options.genreId);
     return proof.eligible &&
       proof.craft === "specific" &&
@@ -349,7 +373,7 @@ export function rankDiscoverItems(
       : [];
   });
   for (const [key, row] of unique) {
-    const proof = discoverEvidence(row.item, options.genreId, now);
+    const proof = discoverEvidence(row.item, options.genreId, now, options.visual?.[key]);
     const vote = feedbackFor(row.item, feedback, options.genreId);
     const personal = vote?.action === "more" && personalReference(row.item, options.genreId);
     const dismissed = vote?.action === "less" || vote?.action === "hide-creator";
@@ -390,7 +414,7 @@ export function rankDiscoverItems(
     for (const alias of row.aliases) evidence[alias] = proof;
     const inspiration =
       proof.eligible &&
-      (proof.craft === "specific" || proof.project) &&
+      (proof.craft === "specific" || proof.project || proof.visualCraft) &&
       proof.engagement.strong &&
       // Public source counts prevent inflated Instagram/TikTok excerpts flashing into the main feed.
       // Legacy YouTube API statistics remain explicitly reported until provenance reaches the Worker.
@@ -400,7 +424,8 @@ export function rankDiscoverItems(
       (mode === "popular"
         ? proof.popular
         : mode === "learning"
-          ? proof.eligible && proof.teaching
+          ? // Show any dated frame observations, but preserve the metadata-only lesson admission gate.
+            discoverEvidence(row.item, options.genreId, now).eligible && proof.teaching
           : mode === "explore"
             ? proof.eligible || personal
             : !proof.teaching && (inspiration || personal));

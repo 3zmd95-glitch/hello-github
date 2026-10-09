@@ -9,6 +9,26 @@ import type { TopVideo } from "./types";
 import { carxDraftCandidate } from "./carxDraft.fixture";
 
 describe("category recommendations grounded in metadata", () => {
+  it("distinguishes absent caption prose from hard exclusions without changing metadata admission", () => {
+    const cases = [
+      ["#anime #edit", "empty-prose"],
+      ["Anime full movie with typography", "full-feature-upload"],
+      ["Food processor video", "equipment"],
+      ["Foreground: anime hero. Background: realistic selfie photograph", "image-prompt"],
+      ["Anime edit, comment for my prompt pack", "prompt-bait"],
+      ["Anime buy now discount code", "sales"],
+      ["Anime full episode", "ordinary-content"],
+    ] as const;
+    for (const [caption, reason] of cases) {
+      const result = evidence("anime", caption);
+      expect(result.exclusions, caption).toContain(reason);
+      expect(result.excluded, caption).toBe(true);
+      expect(result.eligible, caption).toBe(false);
+    }
+    expect(evidence("anime", "Naruto confronts his rival in this scene").exclusions).toEqual([]);
+    expect(evidence("anime", "Anime masking tutorial: trace the figure").exclusions).toEqual([]);
+  });
+
   it("removes the real multiline CarX draft and its trailing keyword list without inventing craft", () => {
     const { title, snippet } = carxDraftCandidate.item;
     expect(evidence("cars", `${title}\n${snippet}`)).toMatchObject({

@@ -6,6 +6,7 @@ import {
   categoryCandidates,
   discoverFeedbackCreator,
   discoverFeedbackForItem,
+  discoverPostKey,
   savedDiscoverInterests,
   type DiscoverFeedbackUndo,
 } from "@/lib/discoverFeed";
@@ -26,6 +27,8 @@ import { useCategoryEntry } from "./useCategoryEntry";
 import { useExpansionDiagnostics } from "./useExpansionDiagnostics";
 import DiscoverUsageLine from "./DiscoverUsageLine";
 import AddCategoryReference from "./AddCategoryReference";
+import CategoryVisualChecks from "./CategoryVisualChecks";
+import { useCategoryVisual } from "./useCategoryVisual";
 
 /** Category browsing has its own controls and state; it never edits the retained Search form. */
 export default function BrowseCategoryFeed({
@@ -43,7 +46,7 @@ export default function BrowseCategoryFeed({
   onCategory: (id: string) => void;
   onOpenInspiration: (url: string) => void;
 }) {
-  const { t, L } = useT();
+  const { t, L, lang } = useT();
   const config = useScoutConfig();
   const youtubeKey = useStore((s) => getApiKey(s, "youtube"));
   const candidates = useStore((s) => s.discoverCandidates);
@@ -106,13 +109,40 @@ export default function BrowseCategoryFeed({
   }, [active, query, genre.id, accumulate, record, clear]);
   const pool = useMemo(() => categoryCandidates(candidates, genre.id), [candidates, genre.id]);
   const sources = useFeedSources(pool, active && !entry.loading, youtubeKey);
+  const visualContext = useMemo(
+    () =>
+      Object.fromEntries(
+        candidates
+          .filter((candidate) => candidate.genreId === genre.id)
+          .map((candidate) => [
+            discoverPostKey(candidate.item.platform, candidate.item.url) ?? candidate.item.url,
+            candidate,
+          ]),
+      ),
+    [candidates, genre.id],
+  );
+  const visual = useCategoryVisual({
+    items: sources.items,
+    genreId: genre.id,
+    active: active && !entry.loading,
+    lang,
+    platform: tab,
+    now,
+  });
   useEffect(() => {
     if (active && sources.items.length) accumulate(sources.items, { genreId: genre.id });
   }, [active, sources.items, genre.id, accumulate]);
   const rank = useMemo(
     () =>
-      rankDiscoverItems(sources.items, { genreId: genre.id, mode, now, feedback, savedInterests }),
-    [sources.items, genre.id, mode, now, feedback, savedInterests],
+      rankDiscoverItems(sources.items, {
+        genreId: genre.id,
+        mode,
+        now,
+        feedback,
+        savedInterests,
+        visual: visualContext,
+      }),
+    [sources.items, genre.id, mode, now, feedback, savedInterests, visualContext],
   );
   const explore = useMemo(
     () =>
@@ -122,8 +152,9 @@ export default function BrowseCategoryFeed({
         now,
         feedback,
         savedInterests,
+        visual: visualContext,
       }),
-    [sources.items, genre.id, now, feedback, savedInterests],
+    [sources.items, genre.id, now, feedback, savedInterests, visualContext],
   );
   const usage = useDiscoverUsage(
     active ? config : null,
@@ -144,6 +175,7 @@ export default function BrowseCategoryFeed({
     )
       return;
     const abort = new AbortController();
+    const assessCohort = visual.captureNextLookup();
     controller.current = abort;
     setBusy(abort);
     setRefilling(refill);
@@ -167,6 +199,7 @@ export default function BrowseCategoryFeed({
       if (result.ok) {
         accumulate(result.answer.items, { genreId: genre.id });
         record(result.answer, tab === "all" ? undefined : [tab]);
+        assessCohort?.(result.answer.items);
       } else {
         clear();
         setError(result.error);
@@ -260,6 +293,7 @@ export default function BrowseCategoryFeed({
           }
         }}
       />
+      <CategoryVisualChecks queue={visual} lookupBusy={!!busy && !busy.signal.aborted} />
       {(error || query.status === "error") && (
         <p role="alert" className="text-sm">
           {t(

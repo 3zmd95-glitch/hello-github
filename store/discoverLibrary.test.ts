@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UseStore } from "idb-keyval";
 import { accumulateCategoryCandidates } from "../lib/discoverFeed";
+import type { DiscoverVisual } from "../lib/discoverVisual";
 
 const backend = vi.hoisted(() => ({
   value: undefined as unknown,
@@ -72,6 +73,111 @@ afterEach(() => {
 });
 
 describe("candidate library store migration", () => {
+  it("retains a changed-media receipt through the production IDB updater and a fresh store reload", async () => {
+    const [candidate] = candidates("VISUAL");
+    const visual: DiscoverVisual = {
+      version: 1,
+      url: "https://www.instagram.com/p/VISUAL/",
+      genreId: "coffee",
+      checkedAt: now.toISOString(),
+      source: {
+        provenance: "instagram-public-embed",
+        caption: "Coffee match cut",
+        author: "editor",
+        observedAt: now.toISOString(),
+        sha256: "a".repeat(64),
+      },
+      media: {
+        provenance: "instagram-public-embed-video",
+        observedAt: now.toISOString(),
+        durationSeconds: 12,
+        videoSha256: "b".repeat(64),
+        frames: [
+          { timestampSeconds: 0, sha256: "c".repeat(64) },
+          { timestampSeconds: 6, sha256: "d".repeat(64) },
+        ],
+      },
+      provider: "chatgpt",
+      model: "gpt-6-astra",
+      effort: "max",
+      assessment: {
+        category: "supported",
+        categoryFrames: [0],
+        observations: [
+          { cue: "layout", origin: "uploader-added", description: "Two panels.", frames: [1] },
+        ],
+        uncertainty: "Samples only.",
+      },
+      limitations: ["sampled_frames", "motion_partial", "audio_unverified"],
+    };
+    candidate.item.evidence = {
+      source: "instagram-public-embed",
+      caption: "Coffee match cut",
+      author: "editor",
+      observedAt: now.toISOString(),
+      likes: 2000,
+    };
+    candidate.visual = visual;
+    backend.value = { version: 1, epoch: "visual-library", candidates: [candidate] };
+    const first = await import("./index");
+    await first.hydrateStore();
+    expect(first.useStore.getState().discoverCandidates[0].visual).toEqual(visual);
+    const later = "2026-10-09T12:02:00Z";
+    const observation = {
+      version: visual.version,
+      url: visual.url,
+      genreId: visual.genreId,
+      checkedAt: later,
+      source: visual.source,
+      media: { ...visual.media, observedAt: later, videoSha256: "e".repeat(64) },
+    };
+    const selection = { provider: "chatgpt" as const, model: visual.model, effort: visual.effort };
+    expect(
+      first.useStore.getState().applyDiscoverVisualResult(
+        {
+          status: "unavailable",
+          error: "ai_limit",
+          selection,
+          modelCalls: 1,
+          observation,
+          source: {
+            status: "available",
+            url: visual.url,
+            title: "Coffee match cut",
+            description: "Coffee match cut",
+            author: "editor",
+            thumbnailUrl: "",
+            provenance: "instagram-public-embed",
+            observedAt: later,
+            likes: 3000,
+          },
+        },
+        {
+          epoch: first.useStore.getState().discoverLibraryEpoch,
+          genreId: "coffee",
+          url: candidate.item.url,
+          selection,
+          isCurrent: () => true,
+        },
+        new Date(later),
+      ),
+    ).toBe("applied");
+    await first.flushDiscoverLibrary();
+    expect(backend.value).toMatchObject({
+      candidates: [{ visualObservation: observation, item: { evidence: { likes: 3000 } } }],
+    });
+    expect(
+      (backend.value as { candidates: (typeof candidate)[] }).candidates[0].visual,
+    ).toBeUndefined();
+    vi.resetModules();
+    const reloaded = await import("./index");
+    await reloaded.hydrateStore();
+    const restored = reloaded.useStore.getState().discoverCandidates[0];
+    expect(restored.visual).toBeUndefined();
+    expect(restored.visualObservation).toEqual(observation);
+    expect(restored.item.evidence?.likes).toBe(3000);
+  });
+
   it("keeps legacy fallback until confirmed commit, omits it afterward, and restores it after failure", async () => {
     const { useStore, hydrateStore, flushDiscoverLibrary, STORAGE_KEY } = await import("./index");
     const legacy = candidates("LEGACY");

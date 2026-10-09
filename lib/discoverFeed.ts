@@ -7,6 +7,16 @@ import {
   discoverSourceCaption,
 } from "./discoverMetadata";
 import { CATEGORY_PROFILES } from "../workers/scout/src/discover/category-profiles";
+import {
+  DiscoverVisualSchema,
+  DiscoverVisualObservationSchema,
+  discoverVisualSourceMatches,
+  discoverVisualMediaMatches,
+  applicableDiscoverVisual,
+  hasDiscoverVisualCraft,
+  type DiscoverVisual,
+  type DiscoverVisualObservation,
+} from "./discoverVisual";
 
 export const DISCOVER_CANDIDATE_MAX = 3000;
 export const DISCOVER_CATEGORY_MAX = 100;
@@ -190,14 +200,22 @@ export interface DiscoverCandidate {
   obtainedAt: string;
   /** A deliberately imported reference in this category, never source evidence or ranking admission. */
   origin?: "manual";
+  /** Sampled visual judgment in this category; never native caption, metric, or popularity evidence. */
+  visual?: DiscoverVisual;
+  /** A newer sampled-media receipt may invalidate an older judgment even when inference failed. */
+  visualObservation?: DiscoverVisualObservation;
 }
 
-export const DiscoverCandidateSchema = z.object({
-  genreId: GENRE,
-  item: CandidateItemSchema,
-  obtainedAt: DATE,
-  origin: z.literal("manual").optional(),
-});
+export const DiscoverCandidateSchema = z
+  .object({
+    genreId: GENRE,
+    item: CandidateItemSchema,
+    obtainedAt: DATE,
+    origin: z.literal("manual").optional(),
+    visual: DiscoverVisualSchema.optional().catch(undefined),
+    visualObservation: DiscoverVisualObservationSchema.optional().catch(undefined),
+  })
+  .transform((entry): DiscoverCandidate => mergeCandidateVisual(entry, entry));
 
 function candidateKey(entry: DiscoverCandidate): string {
   return `${entry.genreId}\n${entry.item.platform}\n${entry.item.url}`;
@@ -214,9 +232,71 @@ function direct(item: DiscoverItem): boolean {
 /** A stale cache/index reply must not overwrite a directly observed source, its caption, or its numbers. */
 function betterCandidate(old: DiscoverCandidate, next: DiscoverCandidate): DiscoverCandidate {
   const content = betterCandidateContent(old, next);
-  return (old.origin === "manual" || next.origin === "manual") && content.origin !== "manual"
-    ? { ...content, origin: "manual" }
-    : content;
+  const merged = mergeCandidateVisual(content, old, next);
+  return (old.origin === "manual" || next.origin === "manual") && merged.origin !== "manual"
+    ? { ...merged, origin: "manual" }
+    : merged;
+}
+
+function visualTime(visual: DiscoverVisualObservation): number {
+  return Date.parse(visual.media.observedAt) || 0;
+}
+
+function observationOf(visual: DiscoverVisualObservation): DiscoverVisualObservation {
+  return {
+    version: visual.version,
+    url: visual.url,
+    genreId: visual.genreId,
+    checkedAt: visual.checkedAt,
+    source: visual.source,
+    media: visual.media,
+  };
+}
+
+/** Merge source observations and judgments independently of native count/caption selection.
+ * A media receipt survives failed inference so an older durable positive cannot reappear. */
+function mergeCandidateVisual(
+  content: DiscoverCandidate,
+  ...entries: DiscoverCandidate[]
+): DiscoverCandidate {
+  const observations = entries
+    .flatMap((entry) => [entry.visualObservation, entry.visual])
+    .filter((value): value is DiscoverVisualObservation => !!value)
+    .filter((value) => value.genreId === content.genreId)
+    .sort(
+      (a, b) =>
+        visualTime(b) - visualTime(a) ||
+        Date.parse(b.checkedAt) - Date.parse(a.checkedAt) ||
+        Number("assessment" in a) - Number("assessment" in b),
+    );
+  const latest = observations[0];
+  const judgments = entries
+    .map((entry) => entry.visual)
+    .filter((value): value is DiscoverVisual => !!value)
+    .filter((value) => value.genreId === content.genreId)
+    .sort((a, b) => Date.parse(b.checkedAt) - Date.parse(a.checkedAt));
+  const newest = judgments[0];
+  const visual =
+    newest &&
+    discoverVisualSourceMatches(newest, content.item) &&
+    (!latest || discoverVisualMediaMatches(newest, latest))
+      ? newest
+      : undefined;
+  // Keep a failed inspection's media receipt only when it is needed beyond the retained judgment.
+  const observation =
+    latest &&
+    discoverVisualSourceMatches(latest, content.item) &&
+    (!visual || visualTime(latest) > visualTime(visual))
+      ? observationOf(latest)
+      : undefined;
+  const visualObservation =
+    observation &&
+    content.visualObservation &&
+    JSON.stringify(observation) === JSON.stringify(content.visualObservation)
+      ? content.visualObservation
+      : observation;
+  if (content.visual === visual && content.visualObservation === visualObservation) return content;
+  return { ...content, visual, visualObservation };
 }
 
 function betterCandidateContent(
@@ -249,11 +329,16 @@ function retentionQuality(entry: DiscoverCandidate): { tier: number; lane: strin
   const lane = `${item.platform}:${meta.teaching ? "lesson" : "example"}`;
   if (item.evidence?.availability === "unavailable") return { tier: 0, lane };
   if (entry.origin === "manual") return { tier: 7, lane };
-  const sourceCategoryProof = isDirect && !!CATEGORY_PROFILES[entry.genreId] && meta.eligible;
-  if (!sourceCategoryProof && (item.offTopic || item.outsideCategory))
-    return { tier: 0, lane };
-  if (!meta.category || meta.excluded) return { tier: 1, lane };
-  if (!meta.creative) return { tier: 2, lane };
+  const visual = entry.visual ? applicableDiscoverVisual(entry, item) : undefined;
+  const visualCraft =
+    !!visual &&
+    meta.exclusions.every((reason) => reason === "empty-prose") &&
+    hasDiscoverVisualCraft(visual);
+  const sourceCategoryProof =
+    isDirect && !!CATEGORY_PROFILES[entry.genreId] && (meta.eligible || visualCraft);
+  if (!sourceCategoryProof && (item.offTopic || item.outsideCategory)) return { tier: 0, lane };
+  if ((!meta.category || meta.excluded) && !visualCraft) return { tier: 1, lane };
+  if (!meta.creative && !visualCraft) return { tier: 2, lane };
   if (meta.teaching) return { tier: 6, lane };
   const stats =
     isDirect || item.evidence?.source === "indexed-excerpt" ? item.evidence : item.stats;
@@ -279,7 +364,7 @@ function retentionQuality(entry: DiscoverCandidate): { tier: number; lane: strin
         : item.platform === "yt"
           ? 5000
           : 10000);
-  if ((meta.namedTechniques.length > 0 || meta.project) && meaningful)
+  if ((meta.namedTechniques.length > 0 || meta.project || visualCraft) && meaningful)
     return { tier: isDirect || item.platform === "yt" ? 6 : 5, lane };
   return { tier: value === undefined || meaningful ? 4 : 3, lane };
 }
