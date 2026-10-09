@@ -147,3 +147,33 @@ Logs: `C:\Users\AORUS\AppData\Local\Temp\discover-layout-2026-10-09.out.log` and
 ### Next work
 
 The layout is ready locally. PR #70 still needs the owner's pending integration/Worker rollout decision. Automatic discovery of recent matching edits, supported Meta audio access, current repeated-use evidence, and fuller motion/audio verification remain unfinished as detailed above. Do not equate this layout completion, a supplied-Reel visual check, or passing synthetic tests with proof of automatic trend quality. No Worker deployment or merge was performed.
+
+## Requested real Chrome tests — 9 October 2026
+
+The owner's next instruction was “do tests in chrome.” The connected Chrome extension was available, and the actual user tab on **http://localhost:3000/discover/** was reloaded and tested. This supersedes the earlier lack of live Chrome verification for the layout.
+
+### Live checks passed
+
+- Browse, Search and Saved navigation. An unsubmitted draft, TikTok selection and Week filter survived navigation. Real Coffee results, TikTok selection, Most popular sorting and a second unsubmitted draft also survived Browse → Saved → Search.
+- Choosing Coffee from Browse with an unsubmitted AI brief and Week/TikTok choices opened Search in Keywords with an empty topic, All platforms and Any time. The live result showed **39 total: 6 Instagram, 5 TikTok, 28 YouTube**.
+- All six Instagram result thumbnails loaded (`complete` and positive `naturalWidth`). The reviewed TRIP BABY reference also displayed its actual preview. Its Instagram iframe played: visible media state showed 9.37/16.02 seconds, not paused, readyState 4 and no media error.
+- A temporary app-only saved reference, note and Practising status survived a real Chrome reload. The test reference was removed afterward using the reversible Remove from practice action; Saved returned to its original zero items and the existing Followed format remained.
+- The inspector retained a changed Reel URL and provider through navigation and a language switch. No caption/AI inspection or scan button was submitted. The original provider and URL were restored afterward.
+- Program/options, recent-topic and category disclosures worked. English and Arabic layouts were inspected at the normal desktop size and a temporary 390×844 Chrome viewport. DOM width checks found no page-wide horizontal overflow. Original English language, All-platform choice and default viewport were restored; Chrome was left open on Browse.
+- The bounded console check for localhost errors returned no entries. This does not assert that every external provider/network request was error-free.
+
+### Fix found during the test
+
+Saved's empty state still said “Save a video from Explore.” Updated it to **Browse** and Arabic **«تصفّح»** in the two translation files. The 77 existing message/library/component tests passed; the app was rebuilt, copied into the existing primary `out/`, and both strings were verified after a Chrome reload. No new test was added for this wording-only change.
+
+The repository's full pre-push gates were rerun afterward: lint, app/Worker typecheck, **2,680 unit tests in 134 files**, production build, and **392 browser tests with eight expected viewport-specific skips** all passed. These repeat the prior totals rather than adding new coverage counts. The owned port-3100 test server was stopped; live port 3000 remains running.
+
+### Evidence and limits
+
+Actual Chrome screenshots: `C:\Users\AORUS\AppData\Local\Temp\discover-chrome-live-browse-2026-10-09.jpg` and `C:\Users\AORUS\AppData\Local\Temp\discover-chrome-live-phone-ar-2026-10-09.jpg`. These are live app screenshots, unlike the earlier synthetic Playwright images.
+
+One Coffee keyword-category search was deliberately submitted. The visible usage was **933/1000 monthly lookups, 2/66 YouTube searches today** afterward (0/66 before). The unchanged monthly display is not independent billing confirmation. No AI inference, effect/category scan, budget increase, account authorization change, Worker deployment or merge was performed.
+
+The live results still include older useful videos and a questionable tutorial lead, `https://www.instagram.com/p/DbcvlaPBXrp/` (caption discusses the whole coffee unit and old/new lighting). Its footage was not reviewed. Do not claim every result is an editing tutorial or a current trend; backend rollout and source-quality work remain as listed above. This Chrome check sampled Coffee and did not repeat the earlier twelve-genre audit.
+
+A read-only probe against the pending branch confirmed this metadata still passes: `eligible: true`, `section: "tutorial"`, `offTopic: false`; category ranking retains it. In `workers/scout/src/categories/quality.ts`, generic video/lighting language supplies creative context (including lighting supporting itself). In `workers/scout/src/discover/label.ts`, the future announcement “A tutorial is coming” satisfies the tutorial keyword. **Deploying the current branch alone will not fix this case.** Before claiming category lesson quality, add this metadata regression, distinguish room/fixture lighting from filmmaking context, and separate future tutorial announcements from actual teaching. No backend change was made during this Chrome UI test request.
