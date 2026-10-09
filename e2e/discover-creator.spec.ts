@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { openBrowseCategories, seedState, switchLang } from "./helpers";
 import type { DiscoverItem } from "../lib/discover";
 import { creatorProjects } from "../workers/scout/src/categories/creatorProjects.fixture";
+import { soundtrackResource } from "../workers/scout/src/categories/soundtrackResource.fixture";
 
 test("creator uploads are explicit, bounded, source grounded and cached across feed navigation", async ({
   page,
@@ -193,13 +194,18 @@ test("creator uploads are explicit, bounded, source grounded and cached across f
   expect(state.inspirations ?? []).toEqual([]);
 });
 
-test("native descriptions keep finished AMVs out of Learn and background cafe music out of editing feeds", async ({
+test("native descriptions separate finished edits, lessons, ambience and audio resources", async ({
   page,
 }) => {
-  const at = new Date().toISOString();
+  // Keep the captured Oct 7 post recent so Popular cannot pass only because it aged out.
+  const observed = new Date("2026-10-09T12:00:00Z");
+  await page.clock.setFixedTime(observed);
+  const at = observed.toISOString();
   const worker = "https://classification-fixture.example.workers.dev";
   const records = [
     ...creatorProjects.map((project) => ({ ...project, genreId: "anime" })),
+    // Preserve the captured publication date; synthetic controls use the fixed test clock.
+    { ...soundtrackResource, genreId: "travel" },
     {
       id: "MaskLesson1",
       genreId: "anime",
@@ -253,6 +259,26 @@ Tutorial Channel :- https://youtu.be/MaskLesson1`,
       published: at,
       description:
         "How to light coffee B-roll: put a soft light behind the cup, then adjust the fill card step by step.",
+    },
+    {
+      id: "TravelFilm1",
+      genreId: "travel",
+      author: "Travel filmmaker",
+      title: "Iceland slow motion travel film",
+      views: 60_000,
+      published: at,
+      description:
+        "A cinematic travel film I shot and edited in Iceland, using slow motion and match cuts between the waterfalls and mountains.",
+    },
+    {
+      id: "TravelLearn",
+      genreId: "travel",
+      author: "Travel teacher",
+      title: "Travel slow motion tutorial in DaVinci Resolve",
+      views: 50,
+      published: at,
+      description:
+        "How to edit travel footage in slow motion: set the timeline frame rate, conform the clip, then adjust the retime curve step by step.",
     },
   ];
   const paid: string[] = [];
@@ -363,5 +389,49 @@ Tutorial Channel :- https://youtu.be/MaskLesson1`,
     if (mode === "learning")
       await expect(feed.getByTestId("result-title")).toHaveText("Coffee lighting tutorial");
   }
+  await page.getByTestId("browse-category-switch").selectOption("travel");
+  await expect(page.getByTestId("feed-checking")).toHaveCount(0);
+  for (const mode of ["inspiration", "popular", "learning"]) {
+    await feed.getByTestId(`feed-mode-${mode}`).click();
+    await expect(feed.locator('a[href="https://www.youtube.com/watch?v=Vwk6nYu3nho"]')).toHaveCount(
+      0,
+    );
+    await expect(feed.getByTestId("result-title")).toHaveText(
+      mode === "learning"
+        ? "Travel slow motion tutorial in DaVinci Resolve"
+        : "Iceland slow motion travel film",
+    );
+  }
+  // Excluding a soundtrack from editing recommendations must not delete the stored reference.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Promise<boolean>((resolve, reject) => {
+            const request = indexedDB.open("3z-prod-discover");
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+              const database = request.result;
+              const read = database
+                .transaction("candidates")
+                .objectStore("candidates")
+                .get("corpus");
+              read.onerror = () => {
+                database.close();
+                reject(read.error);
+              };
+              read.onsuccess = () => {
+                const retained = read.result?.candidates?.some(
+                  (row: { genreId: string; item: { url: string } }) =>
+                    row.genreId === "travel" && row.item.url.includes("Vwk6nYu3nho"),
+                );
+                database.close();
+                resolve(Boolean(retained));
+              };
+            };
+          }),
+      ),
+    )
+    .toBe(true);
   expect(paid).toEqual([]);
 });

@@ -8,6 +8,7 @@ import {
 import type { TopVideo } from "./types";
 import { carxDraftCandidate } from "./carxDraft.fixture";
 import { creatorProjects } from "./creatorProjects.fixture";
+import { soundtrackResource } from "./soundtrackResource.fixture";
 
 describe("category recommendations grounded in metadata", () => {
   it("distinguishes absent caption prose from hard exclusions without changing metadata admission", () => {
@@ -159,6 +160,102 @@ describe("category recommendations grounded in metadata", () => {
     ).toMatchObject({ eligible: true, teaching: true });
   });
 
+  it("does not turn the complete captured song-recommendation caption into applied slow motion", () => {
+    const caption = `${soundtrackResource.title}\n${soundtrackResource.description}`;
+    expect(evidence("travel", caption)).toMatchObject({
+      category: true,
+      creative: false,
+      eligible: false,
+      namedTechniques: [],
+      project: false,
+      teaching: false,
+    });
+  });
+  it.each([
+    ["travel", "Best songs for slow-motion travel reels"],
+    ["travel", "Best songs for slow-motion travel reels #tutorial"],
+    ["travel", "Travel slow motion reel songs"],
+    ["travel", "Travel slow motion reel songs #tutorial #travel"],
+    ["travel", "Travel slow motion reel songs #travel"],
+    ["travel", "Travel slow motion reel songs 🎵"],
+    ["travel", "Travel slow motion reel songs (part 1)"],
+    ["travel", "Soundtrack suggestions for travel speed ramps"],
+    ["anime", "Best songs for Naruto AMV edits\nMusic for anime beat sync edits"],
+    ["travel", "أفضل أغاني للسلوموشن في فيديو السفر"],
+    ["travel", "أفضل أغاني للسلوموشن في فيديو السفر #شرح"],
+    ["travel", "موسيقى مناسبة للسبيد رامب في فيديو السفر"],
+  ])(
+    "does not use soundtrack intended-use text as craft or project evidence: %s / %s",
+    (genreId, caption) => {
+      expect(evidence(genreId, caption)).toMatchObject({
+        namedTechniques: [],
+        project: false,
+        eligible: false,
+        teaching: false,
+      });
+    },
+  );
+  it.each([
+    [
+      "travel",
+      "I filmed this travel sequence at 120fps and edited it in slow motion. Songs for the finished reel",
+      "slow motion",
+    ],
+    ["travel", "My travel slow-motion film | Song ideas for travel speed ramps", "slow motion"],
+    ["travel", "My travel slow-motion film Song ideas for travel speed ramps", "slow motion"],
+    ["travel", "Song ideas for my travel reel, I filmed this trip in slow motion", "slow motion"],
+    ["travel", "Song ideas for my travel reel — we edited this trip in slow motion", "slow motion"],
+    ["travel", "أغاني مناسبة للسفر، صورت رحلتي بالسلوموشن", "slow motion"],
+    [
+      "travel",
+      "Song ideas for travel speed ramps; I filmed this trip in slow motion",
+      "slow motion",
+    ],
+    [
+      "anime",
+      "Yuta beat-sync edit #anime\nMusic: Imagine Dragons\nAudio Edit by: another creator",
+      "beat sync",
+    ],
+    ["travel", "صورت لقطات السفر بالسلوموشن. أغاني مناسبة للسفر", "slow motion"],
+  ])(
+    "keeps independently described work alongside soundtrack resources: %s / %s",
+    (genreId, caption, technique) => {
+      expect(evidence(genreId, caption).eligible).toBe(true);
+      expect(evidence(genreId, caption).namedTechniques).toContain(technique);
+    },
+  );
+  it.each([
+    ["anime", "How to choose songs and beat-sync an anime edit"],
+    ["weddings", "Wedding film sound design breakdown: layer footsteps under music"],
+    ["travel", "How to shoot slow-motion travel footage\nSongs for the finished reel"],
+    ["travel", "Travel slow-motion tutorial: choose music for the sequence, then align the cuts"],
+    ["travel", "شرح تصميم صوت لفيديو السفر: دمج الموسيقى مع خطوات المشي"],
+  ])("keeps genuine music-related instruction: %s / %s", (genreId, caption) => {
+    expect(evidence(genreId, caption)).toMatchObject({ eligible: true, teaching: true });
+  });
+  it("keeps an independently described AMV without claiming the credited soundtrack is a visual technique", () => {
+    expect(
+      evidence("anime", "Naruto — Enemy [AMV/Edit]\nSong: Imagine Dragons\nAudio Edit by: editor"),
+    ).toMatchObject({ eligible: true, project: true, namedTechniques: [] });
+    expect(evidence("travel", "Cinematic music video filmed during my travel trip")).toMatchObject({
+      eligible: true,
+      project: true,
+    });
+    expect(evidence("anime", "Beat sync music video — Naruto AMV")).toMatchObject({
+      eligible: true,
+      project: true,
+      namedTechniques: ["beat sync"],
+    });
+  });
+  it("preserves source paragraph boundaries for real instruction after a separate biography", () => {
+    const caption =
+      "Anime masking edit\nAbout Me:\nI share songs for anime edits.\n\nHow to animate the mask: draw an outline, then add keyframes.";
+    expect(evidence("anime", caption)).toMatchObject({
+      eligible: true,
+      teaching: true,
+      namedTechniques: ["masking"],
+    });
+  });
   it("separates named craft from generic AMV and ambient room lighting", () => {
     expect(evidence("anime", "Anime AMV edit")).toMatchObject({
       eligible: true,

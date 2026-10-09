@@ -6,6 +6,7 @@ import { creatorKey, discoverEvidence, rankDiscoverItems } from "./discoverRanki
 import { CATEGORY_PROFILES } from "../workers/scout/src/discover/category-profiles";
 import { carxDraftCandidate } from "../workers/scout/src/categories/carxDraft.fixture";
 import { creatorProjects } from "../workers/scout/src/categories/creatorProjects.fixture";
+import { soundtrackResource } from "../workers/scout/src/categories/soundtrackResource.fixture";
 import { discoverVisualFixture, discoverVisualObservationFixture } from "./discoverVisual.fixture";
 
 const NOW = Date.parse("2026-10-09T12:00:00Z");
@@ -647,6 +648,38 @@ describe("quality and learning modes", () => {
     expect(ranked([card], "learning").items).toEqual([]);
     expect(ranked([card], "explore").items[0].section).toBe("example");
     expect(card.section).toBe("tutorial");
+  });
+  it("cannot promote the captured recent soundtrack recommendation by borrowing slow-motion keywords", () => {
+    const card = item(soundtrackResource.id, {
+      platform: "yt",
+      url: soundtrackResource.url,
+      title: soundtrackResource.title,
+      snippet: soundtrackResource.description,
+      handle: soundtrackResource.author,
+      evidence: {
+        source: "youtube-api",
+        observedAt: new Date(NOW).toISOString(),
+        caption: `${soundtrackResource.title} ${soundtrackResource.description}`,
+        views: soundtrackResource.views,
+        published: soundtrackResource.published,
+      },
+    });
+    expect(discoverEvidence(card, "travel", NOW)).toMatchObject({
+      categoryMatch: true,
+      sourceTier: "direct",
+      craft: "none",
+      techniques: [],
+      project: false,
+      teaching: false,
+      eligible: false,
+      popular: false,
+      engagement: { basis: "source", strong: true, fresh: true },
+      date: { recent: true },
+    });
+    for (const mode of ["inspiration", "popular", "learning", "explore"] as const)
+      expect(rankDiscoverItems([card], { genreId: "travel", now: NOW, mode }).items).toEqual([]);
+    expect(card.evidence?.caption).toContain("slow motion reel songs");
+    expect(card.evidence?.views).toBe(soundtrackResource.views);
   });
   it("does not mistake a coffee room's ambient lighting for a filmmaking technique", () => {
     const coffee = item("room", {

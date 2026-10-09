@@ -109,6 +109,42 @@ const FORMS = Object.entries(CREATIVE).map(([name, aliases]) => ({
 const PROJECT = new Set(["filmmaking", "cinematic", "creative commercial", "montage"]);
 const CONTEXTUAL = new Set(["shot planning", "lighting", "editing"]);
 const FAN_EDIT_GENRES = new Set(["anime", "football", "gaming"]);
+const CRAFT_FOR_SOUNDTRACK = new RegExp(
+  `(?<![\\p{L}\\p{N}])(?:${Object.values(CREATIVE)
+    .flat()
+    .map((alias) => alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "[ -]+"))
+    .join(
+      "|",
+    )})(?:s)?(?:[ -]+(?:reels?|videos?|edits?))?[ -]+(?:songs?|music|audio|soundtracks?|tracks?)(?=\\s*(?:$|(?:for|ideas?|suggestions?|recommendations?)\\b))`,
+  "iu",
+);
+
+/** Music recommendations describe where a track could be used, not an edit already performed.
+ * Mask the resource span only: retain independent title/body craft, credits and actual lessons. */
+function appliedCraftText(text: string): string {
+  return text
+    .split(
+      /([.!?؟;؛|\r\n]+|[,،—]\s*(?=(?:i|we)\s+(?:filmed|shot|edited|animated|created)\b|و?(?:صورت|صورنا|عدلت|عدلنا|صممت|صممنا)\s))/iu,
+    )
+    .map((clause, index) => {
+      if (index % 2) return clause;
+      const purpose =
+        /\b(?:songs?|music|audio|soundtracks?|tracks?)\s+(?:(?:ideas?|suggestions?|recommendations?)(?:\s+for)?|for|to (?:use|add) (?:to|in|for))\b|(?:[أا]غاني|موسيقى|موسيقي|صوتيات|[أا]صوات)\s+(?:مناسب[ةه]\s+)?(?:لل?|من [أا]جل)/iu.exec(
+          clause,
+        );
+      // Decorative suffixes and tags do not change a soundtrack noun phrase into applied craft.
+      // Removing only the tail preserves match positions in the original source clause.
+      const modifier = CRAFT_FOR_SOUNDTRACK.exec(
+        clause.replace(/(?:#[\p{L}\p{N}_]+|\((?:part|pt)\s+\d{1,3}\)|[^\p{L}\p{N}\s]|\s)+$/giu, ""),
+      );
+      const start = Math.min(purpose?.index ?? Infinity, modifier?.index ?? Infinity);
+      // A bare #tutorial cannot turn intended-use words into an applied technique or a lesson.
+      if (!Number.isFinite(start) || hasTeachingEvidence(clause.replace(/#[\p{L}\p{N}_]+/gu, " ")))
+        return clause;
+      return clause.slice(0, start);
+    })
+    .join("");
+}
 
 /** An unfinished alternate-caption draft is not a description of the published edit. Remove its
  * sample and unresolved continuation, preserving independent titles and preceding instruction.
@@ -376,6 +412,8 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
   text = captionEvidenceText(text);
   const profile = CATEGORY_PROFILES[genreId];
   const normalized = normalizeTerm(expanded(genreId, text));
+  const craftText = appliedCraftText(text);
+  const craftNormalized = normalizeTerm(expanded(genreId, craftText));
   // "Time travel" names an effect, not a destination; other real travel words can still establish the category.
   const subjectText =
     genreId === "travel" ? normalized.replace(/\btime travel\b/g, " ") : normalized;
@@ -389,10 +427,11 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
     aliases.some(
       (a) =>
         !(name === "creative commercial" && a === "commercial" && commercialMachine) &&
-        has(normalized, a),
+        has(craftNormalized, a),
     ),
   ).map((a) => a.name);
   const prose = text.replace(/#[\p{L}\p{N}_]+/gu, "").replace(/https?:\/\/\S+/g, "");
+  const craftProse = craftText.replace(/#[\p{L}\p{N}_]+/gu, "").replace(/https?:\/\/\S+/g, "");
   const equipment =
     /\b(food processors?|prep tables?|work tables?|stainless steel kitchen|air fryers?)\b/i.test(
       text,
@@ -406,7 +445,7 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
     /\b(?:get|grab|download|buy)\b[^.!?\n]{0,60}\b(?:ai prompts?|prompt packs?)\b/i.test(text) ||
     /(?:اكتب|علق|أرسل|ارسل)[^.!?\n]{0,100}(?:برومبت|برومبتات)/.test(text);
   const substantive = techniques.some((t) => !PROJECT.has(t) && !CONTEXTUAL.has(t));
-  const teaching = hasTeachingEvidence(text);
+  const teaching = hasTeachingEvidence(craftText);
   const title = text.split(/\r?\n/, 1)[0];
   const fullFeatureUpload =
     /\b(?:full(?:[ -]length)?|complete)[ -]+(?:movies?|feature(?:[ -]films?)?)\b|(?:فيلم|الفيلم)\s+كامل/iu.test(
@@ -429,10 +468,11 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
     );
   const backgroundAmbience = longPlayback && ambience && passiveUse && !teaching;
   const visualContext =
-    /\b(video|film|camera|photography|photograph|composition|shoot|shooting)\b/i.test(prose) ||
-    /تصوير|لقط/.test(prose);
+    /\b(video|film|camera|photography|photograph|composition|shoot|shooting)\b/i.test(craftProse) ||
+    /تصوير|لقط/.test(craftProse);
   const teachesEditing =
-    teaching && CREATIVE.editing.some((word) => has(normalizeTerm(prose), normalizeTerm(word)));
+    teaching &&
+    CREATIVE.editing.some((word) => has(normalizeTerm(craftProse), normalizeTerm(word)));
   const contextual =
     (techniques.includes("shot planning") && visualContext) ||
     (techniques.includes("lighting") && visualContext) ||
@@ -461,17 +501,17 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
     techniques.length > 0 &&
     (substantive || techniques.some((t) => PROJECT.has(t)) || contextual);
   const category = subjects.length > 0;
-  const proseNormalized = normalizeTerm(prose);
+  const proseNormalized = normalizeTerm(craftProse);
   const project =
     creative &&
-    (describedEditProject(genreId, text) ||
+    (describedEditProject(genreId, craftText) ||
       (techniques.includes("creative commercial") &&
         CREATIVE["creative commercial"].some((alias) =>
           has(proseNormalized, normalizeTerm(alias)),
         )) ||
       ["short film", "highlight film", "lookbook"].some((alias) => has(proseNormalized, alias)) ||
       (CREATIVE.cinematic.some((alias) => has(proseNormalized, normalizeTerm(alias))) &&
-        /\b(?:film|video|reel|edit)\b|(?:فيلم|فيديو|ايديت|إيديت)/iu.test(prose)));
+        /\b(?:film|video|reel|edit)\b|(?:فيلم|فيديو|ايديت|إيديت)/iu.test(craftProse)));
   return {
     category,
     creative,
