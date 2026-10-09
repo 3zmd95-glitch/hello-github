@@ -7,6 +7,7 @@ import {
 } from "./quality";
 import type { TopVideo } from "./types";
 import { carxDraftCandidate } from "./carxDraft.fixture";
+import { creatorProjects } from "./creatorProjects.fixture";
 
 describe("category recommendations grounded in metadata", () => {
   it("distinguishes absent caption prose from hard exclusions without changing metadata admission", () => {
@@ -71,6 +72,41 @@ describe("category recommendations grounded in metadata", () => {
       "شرح مونتاج فيلم كامل في الصحراء خطوة بخطوة",
     ])
       expect(evidence("camping", caption).eligible, caption).toBe(true);
+  });
+
+  it("rejects advertised long background ambience even when its footage is called B-roll", () => {
+    const caption =
+      "CAFÉ in 4K | 2 Hours | Real Cafe B-Roll Footage Relaxing Jazz Music Coffee Shop Vibes Ambience LoFi\n" +
+      "Enjoy beautiful footage of cafes, baristas, and latte art with relaxing coffee shop ambient sounds and jazz music. Play in the background as you work, study, meditate, exercise, work out, sleep, rest, focus, de-stress, or relax.";
+    expect(evidence("coffee", caption)).toMatchObject({
+      category: true,
+      creative: false,
+      eligible: false,
+      excluded: true,
+      exclusions: ["background-ambience"],
+      namedTechniques: [],
+    });
+    expect(
+      evidence(
+        "coffee",
+        "Coffee Shop Ambience | 90 Minutes of B-Roll and Relaxing Jazz Music for Study and Sleep",
+      ).eligible,
+    ).toBe(false);
+    expect(
+      evidence("coffee", `${caption}\nB-roll tutorial coming soon. Comment TUTORIAL for my guide.`)
+        .eligible,
+    ).toBe(false);
+  });
+
+  it.each([
+    "Cafe cinematic edit with B-roll and ambient sounds",
+    "Coffee B-roll | Relaxing jazz music and cafe ambience",
+    "Coffee B-roll filming workshop | 2 Hours of camera movement demonstrations",
+    "Cafe sound design tutorial | How to create 2 hours of background ambience for study and sleep",
+    "Coffee shop ambience editing breakdown | 90 minutes\nLearn how to mix background music and B-roll for a relaxing study video.",
+  ])("preserves creative cafe edits and ambience instruction: %s", (caption) => {
+    expect(evidence("coffee", caption).eligible).toBe(true);
+    expect(evidence("coffee", caption).exclusions).not.toContain("background-ambience");
   });
 
   const draft = `Smooth cutout transition with clean subject masking, seamless edge blending, fast cinematic motion, dynamic zoom, motion blur, speed ramp, and a professional, high-quality edit with no flicker or rough edges." Or, if it's specifically for a car edit: KEYWORD BMW EDITS BMW CLIPS FOR EDITS`;
@@ -165,6 +201,82 @@ describe("category recommendations grounded in metadata", () => {
       namedTechniques: ["beat sync"],
     });
     expect(hasTeachingEvidence("تقسيم الشاشة للأنمي #شرح")).toBe(true);
+  });
+  it.each(creatorProjects)(
+    "does not classify the observed $title project as instruction from a biography or fair-use notice",
+    (project) => {
+      const caption = `${project.title}\n${project.description}`;
+      expect(hasTeachingEvidence(caption)).toBe(false);
+      expect(evidence("anime", caption)).toMatchObject({
+        eligible: true,
+        project: true,
+        teaching: false,
+      });
+    },
+  );
+  it("does not borrow a tutorial keyword from a creator biography or an SEO section", () => {
+    const project =
+      "Anime masking edit\nAbout Me: I share editing tutorials on my channel.\n\nTags & Keywords:\nAnime masking tutorial\nAnime editing tips";
+    expect(hasTeachingEvidence(project)).toBe(false);
+    expect(
+      hasTeachingEvidence(
+        "Anime masking edit\nAbout the channel:\nWe create edits and tutorials.\n\nThanks for watching.",
+      ),
+    ).toBe(false);
+  });
+  it.each([
+    "Keywords & Hashtags",
+    "Hashtags & Keywords",
+    "Tags and Hashtags",
+    "Keywords & Tags & Hashtags",
+  ])(
+    "ignores explicit %s sections without treating character breakdown keywords as a lesson",
+    (heading) => {
+      expect(
+        hasTeachingEvidence(
+          `Anime AMV edit\n${heading}:\nsubaru mental breakdown, anime breakdown edit, anime editing tutorial`,
+        ),
+      ).toBe(false);
+    },
+  );
+  it("ignores only a dedicated external tutorial-channel link, preserving instruction around it", () => {
+    const promo = "Tutorial Channel :- https://youtu.be/4UZfGR2GKfI?si=lAvHPYsebfZCtFkg";
+    expect(hasTeachingEvidence(`Anime AMV edit\n${promo}\nThanks for watching`)).toBe(false);
+    expect(hasTeachingEvidence(`Anime masking tutorial\n${promo}`)).toBe(true);
+    expect(
+      hasTeachingEvidence(
+        `Anime AMV edit\n${promo}\nHow to mask the subject: trace the outline and add keyframes.`,
+      ),
+    ).toBe(true);
+    expect(
+      hasTeachingEvidence(
+        "Anime masking\nTutorial Channel: how to make a channel intro with masks",
+      ),
+    ).toBe(true);
+  });
+  it("preserves real title/body instructions alongside those same non-post sections", () => {
+    for (const project of creatorProjects) {
+      expect(hasTeachingEvidence(`Anime masking tutorial\n${project.description}`)).toBe(true);
+      expect(
+        hasTeachingEvidence(
+          `Anime edit\nHow to animate the mask: trace the outline, then keyframe its shape.\n${project.description}`,
+        ),
+      ).toBe(true);
+    }
+    expect(
+      hasTeachingEvidence(
+        "Anime edit\nAbout Me:\nI make edits and share project files.\n\nTutorial:\nHow to animate a mask around the subject.",
+      ),
+    ).toBe(true);
+    expect(
+      hasTeachingEvidence(
+        "About Me: typography animation tutorial\nCreate a kinetic introduction for an anime editor.",
+      ),
+    ).toBe(true);
+    expect(
+      hasTeachingEvidence("Anime copyright and fair use explained\nLearn what attribution means."),
+    ).toBe(true);
+    expect(hasTeachingEvidence("Anime masking tutorial\nTags:\nanime\nmasking")).toBe(true);
   });
   it("recognizes the observed first-person filming process and explanatory cinematic shot list", () => {
     const carProcess =

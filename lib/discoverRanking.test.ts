@@ -5,6 +5,7 @@ import { discoverPostKey } from "./discoverFeed";
 import { creatorKey, discoverEvidence, rankDiscoverItems } from "./discoverRanking";
 import { CATEGORY_PROFILES } from "../workers/scout/src/discover/category-profiles";
 import { carxDraftCandidate } from "../workers/scout/src/categories/carxDraft.fixture";
+import { creatorProjects } from "../workers/scout/src/categories/creatorProjects.fixture";
 import { discoverVisualFixture, discoverVisualObservationFixture } from "./discoverVisual.fixture";
 
 const NOW = Date.parse("2026-10-09T12:00:00Z");
@@ -662,6 +663,60 @@ describe("quality and learning modes", () => {
         NOW,
       ).techniques,
     ).toContain("lighting");
+  });
+  it.each(creatorProjects)(
+    "keeps the source-popular $title project in Inspiration instead of Learn",
+    (project) => {
+      const card = item(project.id, {
+        platform: "yt",
+        url: `https://www.youtube.com/watch?v=${project.id}`,
+        title: project.title,
+        snippet: project.description,
+        handle: project.author,
+        evidence: {
+          source: "youtube-api",
+          observedAt: new Date(NOW).toISOString(),
+          caption: `${project.title} ${project.description}`,
+          views: project.views,
+          published: project.published,
+        },
+      });
+      expect(discoverEvidence(card, "anime", NOW)).toMatchObject({
+        eligible: true,
+        teaching: false,
+        project: true,
+      });
+      expect(ranked([card], "learning").items).toEqual([]);
+      expect(ranked([card], "inspiration").items).toHaveLength(1);
+      expect(ranked([card], "popular").items).toHaveLength(
+        ["ZRD2hb_Qz8w", "bxtmvGt-ujk"].includes(project.id) ? 1 : 0,
+      );
+    },
+  );
+  it("excludes the source-popular two-hour cafe background-music upload despite its B-roll title", () => {
+    const title =
+      "CAFÉ in 4K | 2 Hours | Real Cafe B-Roll Footage Relaxing Jazz Music Coffee Shop Vibes Ambience LoFi";
+    const snippet =
+      "Enjoy beautiful footage of cafes, baristas, and latte art with relaxing coffee shop ambient sounds and jazz music. Play in the background as you work, study, meditate, exercise, work out, sleep, rest, focus, de-stress, or relax.";
+    const card = item("Amh5NZMkf3I", {
+      platform: "yt",
+      url: "https://www.youtube.com/watch?v=Amh5NZMkf3I",
+      handle: "REST EASY FILMS",
+      title,
+      snippet,
+      evidence: {
+        source: "youtube-api",
+        observedAt: new Date(NOW).toISOString(),
+        caption: `${title} ${snippet}`,
+        views: 206500,
+        published: "2022-10-18T12:00:00Z",
+      },
+    });
+    const proof = discoverEvidence(card, "coffee", NOW);
+    expect(proof.engagement).toMatchObject({ basis: "source", strong: true, value: 206500 });
+    expect(proof).toMatchObject({ eligible: false, craft: "none", techniques: [] });
+    for (const mode of ["inspiration", "popular", "learning", "explore"] as const)
+      expect(rankDiscoverItems([card], { genreId: "coffee", now: NOW, mode }).items).toEqual([]);
   });
   it("keeps actual Arabic named craft and learning in every category without promoting generic subjects", () => {
     const cues = {

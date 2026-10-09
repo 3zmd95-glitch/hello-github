@@ -78,7 +78,7 @@ async function boundedJson(response: Response): Promise<unknown> {
   }
 }
 
-function parseSource(
+export function parseYoutubeSource(
   value: unknown,
   requested: ReadonlySet<string>,
   now: number,
@@ -126,6 +126,38 @@ function parseSource(
       ...(unavailable ? { availability: "unavailable" } : {}),
     },
   };
+}
+
+/** Share sources parsed from an official videos.list reply with the card hydrator. Memory only.
+ * Callers must use parseYoutubeSource on the bounded official response, never an indexed item. */
+export function primeYoutubeEvidence(
+  apiKey: string,
+  sources: readonly YoutubeSource[],
+  now = Date.now(),
+): void {
+  const key = apiKey.trim();
+  if (!key || !Number.isFinite(now)) return;
+  for (const source of sources) {
+    const id = new URL(source.url).searchParams.get("v");
+    const observed = Date.parse(source.evidence.observedAt);
+    if (
+      !id ||
+      !VIDEO_ID.test(id) ||
+      source.url !== `https://www.youtube.com/watch?v=${id}` ||
+      source.evidence.source !== "youtube-api" ||
+      !Number.isFinite(observed) ||
+      observed > now + CLOCK_SKEW_MS ||
+      now - observed >= SOURCE_TTL_MS
+    )
+      continue;
+    const stored = cache.get(cacheKey(key, id));
+    if (stored && stored.checkedAt > observed) continue;
+    remember(cacheKey(key, id), {
+      source: structuredClone(source),
+      checkedAt: observed,
+      expiresAt: observed + SOURCE_TTL_MS,
+    });
+  }
 }
 
 /** One read-only official videos.list batch for already retrieved IDs, never another video search.
@@ -191,7 +223,7 @@ export async function fetchYoutubeEvidence(
     const ids = new Set(missing);
     const sources = new Map<string, YoutubeSource>();
     for (const item of body.items) {
-      const source = parseSource(item, ids, observedAt);
+      const source = parseYoutubeSource(item, ids, observedAt);
       if (source) sources.set(new URL(source.url).searchParams.get("v")!, source);
     }
     for (const id of missing) {

@@ -169,9 +169,48 @@ function describedEditProject(genreId: string, text: string): boolean {
   });
 }
 
+/** A creator's biography, SEO list and statutory notice describe neither this post's lesson
+ * nor its steps. Keep the actual title/body, and resume when a new paragraph/section begins. */
+function postTeachingText(text: string): string {
+  let ancillary = false;
+  const output: string[] = [];
+  for (const [index, line] of text.split(/\r?\n/).entries()) {
+    if (!line.trim() || !/[\p{L}\p{N}]/u.test(line)) {
+      ancillary = false;
+      output.push("");
+      continue;
+    }
+    const heading = line.match(/^[^\p{L}\p{N}]*([\p{L}][\p{L}\p{N} &/-]{0,65}):\s*(.*)$/u);
+    if (heading) ancillary = false;
+    const name = heading?.[1].toLowerCase().trim() ?? "";
+    const body = heading?.[2] ?? "";
+    const biography =
+      /^(?:about me|about us|about (?:the|my|our) channel|creator bio)$/.test(name) &&
+      (!body || /^(?:welcome\b|(?:i|we|my|our)\b)/i.test(body));
+    const keywords =
+      /^(?:tags|keywords|hashtags)(?:\s*(?:&|and)\s*(?:tags|keywords|hashtags))*$/.test(name);
+    const externalTutorialChannel =
+      /^tutorials? channel$/.test(name) && /^[\s\-–—:>]*https?:\/\/\S+\s*$/i.test(body);
+    // This dedicated outbound resource line advertises instruction elsewhere, not this upload.
+    // Do not suppress following post-level instructions or titles that themselves name a lesson.
+    if (index > 0 && externalTutorialChannel) continue;
+    // A title such as "About Me: typography tutorial" is real post-level text, not a bio footer.
+    if (index > 0 && (biography || keywords)) ancillary = true;
+    const legal =
+      /\bcopyright disclaimer under section 107\b|\bnon[ -]?profit,?\s+educational or personal use tips the balance\b/i.exec(
+        line,
+      );
+    if (legal) {
+      if (!ancillary) output.push(line.slice(0, legal.index));
+      ancillary = true;
+    } else if (!ancillary) output.push(line);
+  }
+  return output.join("\n");
+}
+
 /** A teaching word alone is not a lesson when the post only requests, promises or advertises one. */
 export function hasTeachingEvidence(text: string): boolean {
-  text = captionEvidenceText(text);
+  text = postTeachingText(captionEvidenceText(text));
   const prose = text.replace(/#[\p{L}\p{N}_]+/gu, " ").replace(/https?:\/\/\S+/g, " ");
   const normalized = normalizeTerm(prose);
   const craftContext =
@@ -306,6 +345,7 @@ function expanded(genreId: string, text: string): string {
 export type CategoryExclusion =
   | "empty-prose"
   | "full-feature-upload"
+  | "background-ambience"
   | "equipment"
   | "image-prompt"
   | "prompt-bait"
@@ -372,6 +412,22 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
     /\b(?:full(?:[ -]length)?|complete)[ -]+(?:movies?|feature(?:[ -]films?)?)\b|(?:فيلم|الفيلم)\s+كامل/iu.test(
       title,
     ) && !hasTeachingEvidence(title);
+  // A long passive-listening upload may contain real B-roll, but its advertised purpose is
+  // background playback. Require duration, ambience and use together; neither length nor
+  // ambient sound alone disqualifies an edit, and real sound-design/editing lessons stay useful.
+  const longPlayback =
+    /\b(?:[1-9]\d*(?:\.\d+)?|one|two|three|four|eight|ten|twelve)[ -]*(?:hours?|hrs?)\b|\b(?:[6-9]\d|\d{3,})[ -]*(?:minutes?|mins?)\b/i.test(
+      title,
+    );
+  const ambience =
+    /\b(?:ambience|ambiance|ambient sounds?|relaxing (?:jazz )?music|jazz music|lo[ -]?fi|white noise)\b/i.test(
+      title,
+    );
+  const passiveUse =
+    /\bbackground (?:music|sounds?|playback)\b|\b(?:play|playing|listen|listening)\b[^.!?\n]{0,40}\bthe background\b|\bfor (?:work|study|studying|sleep|sleeping|meditation|relaxation|focus)\b/i.test(
+      prose,
+    );
+  const backgroundAmbience = longPlayback && ambience && passiveUse && !teaching;
   const visualContext =
     /\b(video|film|camera|photography|photograph|composition|shoot|shooting)\b/i.test(prose) ||
     /تصوير|لقط/.test(prose);
@@ -393,6 +449,7 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
   const exclusions: CategoryExclusion[] = [];
   if (!/\p{L}/u.test(prose)) exclusions.push("empty-prose");
   if (fullFeatureUpload) exclusions.push("full-feature-upload");
+  if (backgroundAmbience) exclusions.push("background-ambience");
   if (equipment) exclusions.push("equipment");
   if (imagePrompt) exclusions.push("image-prompt");
   if (promptBait && !(teaching && substantive)) exclusions.push("prompt-bait");

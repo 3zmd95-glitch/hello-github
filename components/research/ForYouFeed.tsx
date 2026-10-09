@@ -14,6 +14,8 @@ import { useT } from "@/lib/i18n";
 import type { ResearchItem } from "@/lib/research";
 import { useStore } from "@/store";
 import CategoryFeed, { type FeedFeedbackAction } from "./CategoryFeed";
+import { useCreatorExpansion } from "./useCreatorExpansion";
+import CreatorExpansionAction, { CreatorExpansionStatus } from "./CreatorExpansionAction";
 
 /** A local view of already-found posts. Browsing, ranking and feedback never fetch candidates. */
 export default function ForYouFeed({
@@ -27,7 +29,7 @@ export default function ForYouFeed({
   onCategory: (id: string) => void;
   renderAction: (item: ResearchItem) => ReactNode;
 }) {
-  const { t, L } = useT();
+  const { t, L, lang } = useT();
   const candidates = useStore((s) => s.discoverCandidates);
   const feedback = useStore((s) => s.discoverFeedback);
   const inspirations = useStore((s) => s.inspirations);
@@ -46,6 +48,13 @@ export default function ForYouFeed({
     [candidates, mode, feedback, savedInterests, now],
   );
   const byUrl = new Map(feed.rows.map((row) => [row.item.url, row]));
+  const creatorExpansion = useCreatorExpansion({
+    rows: feed.rows,
+    active: true,
+    context: "for-you",
+    mode,
+    lang,
+  });
   return (
     <CategoryFeed
       testId="for-you-feed"
@@ -58,6 +67,10 @@ export default function ForYouFeed({
       evidence={Object.fromEntries(feed.rows.map((row) => [row.item.url, row.evidence]))}
       tab="all"
       renderAction={renderAction}
+      renderCreatorAction={(item) => {
+        const row = byUrl.get(item.url);
+        return row ? <CreatorExpansionAction queue={creatorExpansion} row={row} /> : null;
+      }}
       categoryForItem={(item) => {
         const row = byUrl.get(item.url);
         const genre = genres.find((candidate) => candidate.id === row?.genreId);
@@ -66,18 +79,21 @@ export default function ForYouFeed({
           : undefined;
       }}
       intro={
-        <details
-          key={feed.rows.length ? "populated" : "empty"}
-          open={feed.rows.length ? undefined : true}
-          className="border-edge border-y py-2"
-          data-testid="browse-categories"
-        >
-          <summary className="w-fit cursor-pointer text-sm font-bold">
-            {t("feed.chooseCategory")}
-          </summary>
-          <p className="text-muted my-2 text-xs">{t("feed.chooseCategoryHelp")}</p>
-          {categoryPicker}
-        </details>
+        <>
+          <CreatorExpansionStatus queue={creatorExpansion} />
+          <details
+            key={feed.rows.length ? "populated" : "empty"}
+            open={feed.rows.length ? undefined : true}
+            className="border-edge border-y py-2"
+            data-testid="browse-categories"
+          >
+            <summary className="w-fit cursor-pointer text-sm font-bold">
+              {t("feed.chooseCategory")}
+            </summary>
+            <p className="text-muted my-2 text-xs">{t("feed.chooseCategoryHelp")}</p>
+            {categoryPicker}
+          </details>
+        </>
       }
       likedUrls={
         new Set(

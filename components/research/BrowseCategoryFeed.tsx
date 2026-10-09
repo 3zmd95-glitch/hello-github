@@ -29,6 +29,8 @@ import DiscoverUsageLine from "./DiscoverUsageLine";
 import AddCategoryReference from "./AddCategoryReference";
 import CategoryVisualChecks from "./CategoryVisualChecks";
 import { useCategoryVisual } from "./useCategoryVisual";
+import { useCreatorExpansion } from "./useCreatorExpansion";
+import CreatorExpansionAction, { CreatorExpansionStatus } from "./CreatorExpansionAction";
 
 /** Category browsing has its own controls and state; it never edits the retained Search form. */
 export default function BrowseCategoryFeed({
@@ -156,6 +158,15 @@ export default function BrowseCategoryFeed({
       }),
     [sources.items, genre.id, now, feedback, savedInterests, visualContext],
   );
+  const creatorExpansion = useCreatorExpansion({
+    rows: rank.items
+      .filter((item) => tab === "all" || item.platform === tab)
+      .map((item) => ({ item, genreId: genre.id })),
+    active: active && !entry.loading,
+    context: `${genre.id}|${tab}`,
+    mode,
+    lang,
+  });
   const usage = useDiscoverUsage(
     active ? config : null,
     query.status === "loading" ? null : usageRevision + (query.status === "ok" ? 1 : 0),
@@ -305,6 +316,7 @@ export default function BrowseCategoryFeed({
       )}
       <CategoryFeed
         genre={L(genre.name)}
+        intro={<CreatorExpansionStatus queue={creatorExpansion} />}
         diagnostics={diagnostics}
         quotaPlatforms={quotaPlatforms}
         mode={mode}
@@ -313,6 +325,9 @@ export default function BrowseCategoryFeed({
         evidence={rank.evidence}
         tab={tab}
         renderAction={(item) => <SaveInspirationButton item={item} onOpen={onOpenInspiration} />}
+        renderCreatorAction={(item) => (
+          <CreatorExpansionAction queue={creatorExpansion} row={{ item, genreId: genre.id }} />
+        )}
         onFeedback={vote}
         likedUrls={
           new Set(

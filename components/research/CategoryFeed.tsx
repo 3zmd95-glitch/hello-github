@@ -42,6 +42,7 @@ export interface CategoryFeedProps {
   evidence: Record<string, DiscoverEvidence>;
   tab: ResearchTab;
   renderAction: (item: ResearchItem) => ReactNode;
+  renderCreatorAction?: (item: DiscoverItem) => ReactNode;
   onFeedback: (item: DiscoverItem, action: FeedFeedbackAction) => void;
   likedUrls: ReadonlySet<string>;
   undo?: { action: FeedFeedbackAction; onUndo: () => void };
@@ -309,6 +310,7 @@ function FeedCards(props: CategoryFeedProps) {
                       </button>
                     )}
                   </div>
+                  {props.renderCreatorAction?.(item)}
                   <details className="text-xs" data-testid="feed-why">
                     <summary className="px-link w-fit cursor-pointer">{t("feed.why")}</summary>
                     {evidence?.visual && <VisualEvidence visual={evidence.visual} />}
