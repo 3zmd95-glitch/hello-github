@@ -307,7 +307,16 @@ beforeEach(() => {
   clearScoutCaps();
   clearDiscoverCache();
   clearYoutubeCache();
-  useStore.setState({ recentTopics: [], customGenres: [], savedRefs: {}, inspirations: [] });
+  useStore.setState({
+    // This component fixture bypasses AppShell's awaited library hydration.
+    discoverLibraryStatus: "ready",
+    recentTopics: [],
+    customGenres: [],
+    savedRefs: {},
+    inspirations: [],
+    discoverCandidates: [],
+    discoverFeedback: [],
+  });
   useStore.getState().clearTrends();
   host = document.createElement("div");
   document.body.append(host);
@@ -739,7 +748,8 @@ describe("ResearchPanel Most popular sort and stats chips", () => {
     await click("filter-sort-popular");
     expect(pressed("filter-sort-popular")).toBe("true");
     expect(pressed("filter-sort-relevance")).toBe("false");
-    expect(titles()).toEqual(["tt-b", "tt-a", "yt-a", "ig-a"]);
+    // Keep platform metrics separate; likes are never converted into hypothetical views.
+    expect(titles()).toEqual(["yt-a", "tt-b", "tt-a", "ig-a"]);
     expect($("filters-count")?.textContent).toBe("1");
     expect($("popular-note")).toBeNull();
     // The same requests, the same credits, the same badges.
@@ -1081,14 +1091,15 @@ describe("Discover category searches and optional study guides", () => {
     // Discover's tabs, filters bar and filters stand aside with the results while the page shows.
     const searchParts = () => [
       host.querySelector<HTMLElement>('[role="tablist"]')!.hidden,
-      $("filters-toggle")!.parentElement!.hidden,
+      $("filters-toggle")!.hidden || $("filters-toggle")!.parentElement!.hidden,
       $("filters")!.hidden,
       $("research-results")!.hidden,
     ];
     expect(searchParts()).toEqual([true, true, true, true]);
     await click("category-search-all");
     expect($("category-page")).toBeNull();
-    expect(searchParts()).toEqual([false, false, false, false]);
+    expect(searchParts()).toEqual([false, true, true, false]);
+    expect($("category-feed")).not.toBeNull();
     expect(discoverAsked).toEqual([
       { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" },
       { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" },
@@ -1297,14 +1308,15 @@ describe("Discover category searches and optional study guides", () => {
     async (leaveCategory) => {
       discoverAlternatives = [{ exact: true }];
       await mount({ v2: true, lang: "en" });
+      type("speed ramp");
       await click("genre-cars");
       await click("discover-alt-exact");
-      expect(discoverAsked.at(-1)).toMatchObject({ q: "car edit", exact: true });
+      expect(discoverAsked.at(-1)).toMatchObject({ q: "speed ramp", exact: true });
       await click(leaveCategory);
       await click("genre-cars");
       expect(discoverAsked.at(-1)).toEqual({
-        q: "car edit",
-        genreQuery: { ar: "ايديت سيارات" },
+        q: "speed ramp",
+        genreQuery: { ar: "ايديت سيارات", en: "car edit" },
         lang: "en",
       });
       expect(pressed("genre-cars")).toBe("true");

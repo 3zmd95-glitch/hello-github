@@ -716,6 +716,19 @@ describe("the device's storage", () => {
 });
 
 describe("discoverUsage", () => {
+  it("asks the upgraded Worker to bypass usage caches while preserving unknown freshness on old replies", async () => {
+    const usage = {
+      tavily: { used: 947, limit: 1000 },
+      youtube: { usedToday: 26, cap: 66 },
+      connector: { usedToday: 0, cap: 60 },
+    };
+    const fetchImpl = replying(usage);
+    expect(await discoverUsage(config, { fetchImpl, refresh: true })).toEqual({ ok: true, usage });
+    expect(fetchImpl.mock.calls[0][0]).toBe("https://w.example/discover/usage?refresh=1");
+    expect(fetchImpl.mock.calls[0][1]?.cache).toBe("no-store");
+    expect(usage.tavily).not.toHaveProperty("observedAt");
+    expect(usage.tavily).not.toHaveProperty("cached");
+  });
   it("reads the Worker's usage, and calls a malformed one upstream", async () => {
     const usage = {
       tavily: { used: 412, limit: 1000, plan: "Researcher" },
@@ -767,11 +780,11 @@ describe("views over an answer", () => {
     const s = answer([low, none, high]);
     const opts = { tab: "all" as const, showHidden: false, arFirst: false };
     expect(sectionItems(s, "example", { ...opts, sort: "relevance" })).toEqual([low, none, high]);
-    expect(sectionItems(s, "example", { ...opts, sort: "popular" })).toEqual([high, low, none]);
+    expect(sectionItems(s, "example", { ...opts, sort: "popular" })).toEqual([low, high, none]);
   });
 
   // The owner (2026-10-07): "Instagram and tiktok first".
-  it("in All, lists Instagram and TikTok before YouTube, each kept in its order (by the numbers too)", () => {
+  it("keeps platform preference for relevance but interleaves platform metrics for popularity", () => {
     const yt = item({ platform: "yt", stats: { views: 9000 } });
     const tt = item({ stats: { likes: 5 } });
     const ig = item({ platform: "ig", stats: { likes: 50 } });
@@ -779,15 +792,28 @@ describe("views over an answer", () => {
     const s = answer([yt, tt, ig, tt2]);
     const opts = { tab: "all" as const, showHidden: false, arFirst: false };
     expect(sectionItems(s, "example", { ...opts, sort: "relevance" })).toEqual([tt, ig, tt2, yt]);
-    expect(sectionItems(s, "example", { ...opts, sort: "popular" })).toEqual([ig, tt, tt2, yt]);
+    expect(sectionItems(s, "example", { ...opts, sort: "popular" })).toEqual([yt, tt, ig, tt2]);
     expect(sectionItems(s, "example", { ...opts, tab: "yt", sort: "relevance" })).toEqual([yt]);
   });
 
-  it("ranks Popular now by views, else likes x 10", () => {
-    expect(popularItems(a, { tab: "all", showHidden: false }).map((i) => i.platform)).toEqual([
-      "yt",
-      "tt",
-    ]);
+  it("does not promote tiny, old, lesson, or hidden indexed hits into recent popularity", () => {
+    expect(popularItems(a, { tab: "all", showHidden: false })).toEqual([]);
+    expect(popularItems(a, { tab: "all", showHidden: true })).toEqual([]);
+    const current = item({
+      platform: "ig",
+      url: "https://www.instagram.com/p/current/",
+      title: "Anime match cut edit",
+      published: new Date().toISOString(),
+      evidence: {
+        source: "instagram-public-embed",
+        observedAt: new Date().toISOString(),
+        likes: 12000,
+        caption: "Anime match cut edit",
+      },
+    });
+    expect(popularItems(answer([current, ...items]), { tab: "ig", showHidden: true })).toHaveLength(
+      1,
+    );
   });
 
   it("lists creators of the tab", () => {

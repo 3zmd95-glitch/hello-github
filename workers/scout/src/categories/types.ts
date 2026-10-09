@@ -7,6 +7,8 @@
 
 import type { EffectsDoc } from "../effects/types";
 import type { Platform } from "../normalize";
+import type { TopVideo } from "./video";
+export type { TopVideo } from "./video";
 
 export type Area = "photo" | "video" | "edit";
 export const AREAS: readonly Area[] = ["photo", "video", "edit"];
@@ -42,18 +44,6 @@ export interface Lessons {
 /** A category candidate: YouTube metadata, indexed post metadata, or Discovery with a public TikTok caption.
  * `evidence` explains matching title/caption/description text, never visual verification or a quality guarantee.
  * Brave's separate, unstored group retains its provider order and attribution. */
-export interface TopVideo {
-  url: string;
-  title: string;
-  creator?: string;
-  views?: number;
-  publishedAt?: string;
-  thumbnail?: string;
-  age?: string;
-  snippet?: string;
-  source?: "tavily" | "youtube" | "tiktok-discovery";
-  evidence?: { basis: "metadata"; subjects: string[]; techniques: string[] };
-}
 /** The stored lists, ≤ 50 each, best first. `updatedAt` is YouTube's list's date (kept with a kept list, C1); TikTok's
  * list has its own (`ttUpdatedAt`, when TikTok's Discovery API last filled it; none before that). */
 export interface TopLists {

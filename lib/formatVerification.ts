@@ -181,6 +181,7 @@ export const InstagramSourceSchema = z.object({
   observedAt: z.string().datetime().nullable(),
   provenance: z.literal("instagram-public-embed"),
   author: z.string().max(200),
+  likes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   audio: z
     .object({
       title: z.string().max(500),

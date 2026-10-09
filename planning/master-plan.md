@@ -1,5 +1,9 @@
 # 3z Creator Platform — Master Plan
 
+## Current implementation work — 9 October 2026
+
+Discover is being reworked into a personalized editor feed after the owner rejected weak Anime/Instagram recommendations. Source checks, explicit preferences, a retained candidate library and separate inspiration, recent-popularity and learning modes are implemented; live category coverage and Chrome acceptance are still in progress. See [the current handover](handovers/discover-editor-feed-2026-10-09.md) and [source-access and feed design](tools/24-editor-feed.md). The live preview stays on localhost:3000; PR #70 remains unmerged and the shared Worker has not been deployed. The older brainstorming sections below are historical planning, not the current implementation status.
+
 ## Context
 The owner (3z) is a Saudi content creator (videography first, then design and business). They are paying for Framer + Base44 to build a
 personal site, and those subscriptions are too expensive. Goal: one **self-owned** platform in `3zmd95-glitch/hello-github` with:

@@ -116,7 +116,14 @@ export async function handleDiscover(
     }
   }
   if (pathname === "/discover/usage" && req.method === "GET") {
-    return reply(await discoverUsage(env, doFetch, now), 200, cors);
+    const refresh = new URL(req.url).searchParams.get("refresh") === "1";
+    const response = reply(
+      await discoverUsage(env, doFetch, now, undefined, { refresh }),
+      200,
+      cors,
+    );
+    response.headers.set("Cache-Control", "no-store");
+    return response;
   }
   if (pathname === "/discover/picks" && req.method === "GET") {
     const topic = new URL(req.url).searchParams.get("topic") || undefined;

@@ -25,6 +25,23 @@ export interface Stats {
   comments?: number;
 }
 
+/** Source-bound observation; mirrored by the Discover client. Indexed counts have no native timestamp. */
+export interface SourceEvidence {
+  source:
+    | "youtube-api"
+    | "instagram-public-embed"
+    | "tiktok-oembed"
+    | "tiktok-public-page"
+    | "indexed-excerpt";
+  observedAt: string;
+  likes?: number;
+  views?: number;
+  published?: string;
+  caption?: string;
+  author?: string;
+  availability?: "available" | "unavailable";
+}
+
 export interface ScoutResult {
   platform: Platform;
   handle: string;
@@ -42,6 +59,7 @@ export interface ScoutResult {
    * YouTube from the Data API's `publishedAt`, else Tavily's `published_date`.
    */
   published?: string;
+  evidence?: SourceEvidence;
 }
 
 /** One hit as Tavily returns it (only the fields we read). */

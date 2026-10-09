@@ -164,7 +164,7 @@ async function scan(
     ...(v.publishedAt ? { published: v.publishedAt } : {}),
   }));
   const all = [...posts, ...(youtube?.posts ?? []), ...tiktokPosts].filter(
-    (p) => categoryCreativeEvidence(g.id, `${p.title} ${p.snippet}`).eligible,
+    (p) => categoryCreativeEvidence(g.id, `${p.title}\n${p.snippet}`).eligible,
   );
   // Reset generated trend evidence once on a successful spending scan. This does not schedule extra scans,
   // touch lessons/top lists, or alter user data. Cached no-ops and failed/budget-blocked runs retain their document.

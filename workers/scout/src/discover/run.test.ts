@@ -656,12 +656,21 @@ describe("discoverUsage", () => {
     const env = { TAVILY_API_KEY: "k", SOCIAL_KV: kv };
     const usage = await discoverUsage(env, fetchMock, NOW);
     expect(usage).toEqual({
-      tavily: { used: 412, limit: 1000, plan: "Researcher", paygoUsed: 0, paygoLimit: 5000 },
+      tavily: {
+        used: 412,
+        limit: 1000,
+        plan: "Researcher",
+        paygoUsed: 0,
+        paygoLimit: 5000,
+        observedAt: expect.any(String),
+        cached: false,
+      },
       youtube: { usedToday: 9, cap: 66 },
       connector: { usedToday: 12, cap: 60 },
     });
     expect(kv.store.get(usageKeys.tavily)?.expirationTtl).toBe(600);
-    await discoverUsage(env, fetchMock, NOW);
+    const cached = await discoverUsage(env, fetchMock, NOW);
+    expect(cached.tavily).toEqual({ ...usage.tavily, cached: true });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

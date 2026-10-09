@@ -11,6 +11,15 @@ import { REVIEWED_FORMAT_SEEDS } from "../../lib/formatSeeds";
 
 const servers: Server[] = [];
 const directories: string[] = [];
+// Fetch rejects these ports before making an HTTP request. Windows may allocate one to listen(0).
+// Mirrored from the Fetch bad-port table bundled in Next's @edge-runtime/primitives/fetch.js.
+const FETCH_BLOCKED_PORTS = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102,
+  103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465,
+  512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993,
+  995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668,
+  6669, 6679, 6697, 10080,
+]);
 afterEach(async () => {
   for (const server of servers.splice(0)) {
     server.closeAllConnections();
@@ -38,6 +47,45 @@ const body = {
   accountId: "account-1",
   request: { q: "Find coffee match cuts" },
 };
+
+describe("public TikTok source route", () => {
+  it("keeps source reads same-origin, bound to canonical posts, cached, and separate from AI", async () => {
+    const sourceFetch = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          '<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">' +
+            JSON.stringify({
+              __DEFAULT_SCOPE__: { "webapp.video-detail": { statusCode: 10204 } },
+            }) +
+            "</script>",
+          { headers: { "content-type": "text/html" } },
+        ),
+    );
+    const f = await fixture(125_000, { sourceFetch });
+    const route =
+      "/api/local-ai/tiktok-source?url=" +
+      encodeURIComponent(
+        "https://www.tiktok.com/@xutakoi/video/7682973506094533919?tracking=discard",
+      );
+    expect((await fetch(f.base + route)).status).toBe(403);
+    const response = await fetch(f.base + route, { headers: f.headers });
+    expect(await response.json()).toMatchObject({
+      status: "unavailable",
+      url: "https://www.tiktok.com/@xutakoi/video/7682973506094533919",
+    });
+    await fetch(f.base + route, { headers: f.headers });
+    expect(sourceFetch).toHaveBeenCalledOnce();
+    expect(sourceFetch.mock.calls[0][0]).toBe(
+      "https://www.tiktok.com/@xutakoi/video/7682973506094533919",
+    );
+    const invalid = await fetch(
+      f.base + "/api/local-ai/tiktok-source?url=" + encodeURIComponent("https://attacker.test"),
+      { headers: f.headers },
+    );
+    expect(invalid.status).toBe(400);
+    expect(sourceFetch).toHaveBeenCalledOnce();
+  });
+});
 
 async function fixture(
   timeout = 125_000,
@@ -70,7 +118,13 @@ async function fixture(
     ...extra,
   });
   servers.push(server);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const allocated = server.address();
+    if (allocated && typeof allocated !== "string" && !FETCH_BLOCKED_PORTS.has(allocated.port))
+      break;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("test listener failed");
   const base = `http://127.0.0.1:${address.port}`;

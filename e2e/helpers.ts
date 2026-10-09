@@ -18,9 +18,24 @@ async function openDetails(page: Page, testId: string): Promise<void> {
     await details.locator(":scope > summary").click();
 }
 
-/** Browse's genre grid is already visible; Search keeps the same category controls in a disclosure. */
+/** Browse opens categories when its local feed is empty; both workspaces otherwise keep them in a disclosure. */
 export async function openDiscoverCategories(page: Page): Promise<void> {
+  await openDiscoverSearch(page);
   await openDetails(page, "search-categories");
+}
+
+export async function openBrowseCategories(page: Page): Promise<void> {
+  await page.getByTestId("inspiration-explore").click();
+  if (await page.getByTestId("browse-back").isVisible())
+    await page.getByTestId("browse-back").click();
+  await openDetails(page, "browse-categories");
+}
+
+export async function openBrowseFormats(page: Page): Promise<void> {
+  await page.getByTestId("inspiration-explore").click();
+  if (await page.getByTestId("browse-back").isVisible())
+    await page.getByTestId("browse-back").click();
+  await openDetails(page, "browse-formats");
 }
 
 export async function openDiscoverOptions(page: Page): Promise<void> {
@@ -47,6 +62,8 @@ export async function openResearchFilters(page: Page): Promise<void> {
 
 export async function openBrowseTechniques(page: Page): Promise<void> {
   await page.getByTestId("inspiration-explore").click();
+  if (await page.getByTestId("browse-back").isVisible())
+    await page.getByTestId("browse-back").click();
   await openDetails(page, "browse-techniques");
 }
 

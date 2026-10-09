@@ -9,6 +9,11 @@ import { AI_SYSTEM, AiPlanSchema, aiSearchInput } from "../../workers/scout/src/
 import { normalizeTerm } from "../../workers/scout/src/discover/terms";
 import { instagramPostUrl, lookupInstagramPreview } from "../../workers/scout/src/instagramPreview";
 import {
+  lookupTikTokSource,
+  tiktokPostUrl,
+  type TikTokSource,
+} from "../../workers/scout/src/tiktokSource";
+import {
   lookupInstagramSource,
   type InstagramSource,
 } from "../../workers/scout/src/instagramSource";
@@ -180,6 +185,8 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
   const previews = new Map<string, { until: number; thumb: string }>();
   const sources = new Map<string, { until: number; source: InstagramSource }>();
   const sourceReads = new Map<string, Promise<InstagramSource>>();
+  const tiktokSources = new Map<string, { until: number; source: TikTokSource }>();
+  const tiktokReads = new Map<string, Promise<TikTokSource>>();
   let rateWindow = now();
   let mutations = 0;
   let previewWindow = now();
@@ -189,7 +196,7 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
     if (cached && cached.until > now()) return cached.source;
     const running = sourceReads.get(post);
     if (running) return running;
-    if (sourceReads.size >= 4) throw new LocalAiProviderError("source_busy");
+    if (sourceReads.size + tiktokReads.size >= 4) throw new LocalAiProviderError("source_busy");
     if (now() - previewWindow > 60_000) {
       previewWindow = now();
       previewReads = 0;
@@ -271,6 +278,40 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
       const post = instagramPostUrl(url.searchParams.get("url") ?? "");
       if (!post) throw new LocalAiProviderError("invalid_request");
       reply(res, 200, await sourceFor(post));
+      return;
+    }
+    if (url.pathname === "/api/local-ai/tiktok-source" && req.method === "GET") {
+      const post = tiktokPostUrl(url.searchParams.get("url") ?? "");
+      if (!post) throw new LocalAiProviderError("invalid_request");
+      const cached = tiktokSources.get(post);
+      if (cached && cached.until > now()) {
+        reply(res, 200, cached.source);
+        return;
+      }
+      let reading = tiktokReads.get(post);
+      if (!reading) {
+        if (tiktokReads.size + sourceReads.size >= 4) throw new LocalAiProviderError("source_busy");
+        if (now() - previewWindow > 60_000) {
+          previewWindow = now();
+          previewReads = 0;
+        }
+        if (++previewReads > PREVIEWS_PER_MINUTE)
+          throw new LocalAiProviderError("local_rate_limit");
+        reading = lookupTikTokSource(post, options.sourceFetch ?? fetch)
+          .then((source) => {
+            if (tiktokSources.size >= 128) tiktokSources.delete(tiktokSources.keys().next().value!);
+            tiktokSources.set(post, {
+              until: now() + (source.status === "unknown" ? 60_000 : 900_000),
+              source,
+            });
+            return source;
+          })
+          .finally(() => {
+            tiktokReads.delete(post);
+          });
+        tiktokReads.set(post, reading);
+      }
+      reply(res, 200, await reading);
       return;
     }
     // An Instagram post's preview read over this computer's own connection: Instagram turned away about 4 in 10 of

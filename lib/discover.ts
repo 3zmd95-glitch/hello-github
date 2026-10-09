@@ -2,7 +2,7 @@ import type { Genre, Lang } from "./domain";
 import { subscriptionPlan, type AiSelection } from "./localAi";
 import {
   hasArabic,
-  popularityOf,
+  sortByPopularity,
   type LengthFilter,
   type Recency,
   type ResearchTab,
@@ -17,6 +17,7 @@ import {
   type ScoutSearchOpts,
   type Stats,
 } from "./scoutClient";
+import { rankDiscoverItems } from "./discoverRanking";
 
 /**
  * Discover v2 client (round 33, planning/tools/13-discover-search-v2.md): one `POST /discover` per search,
@@ -28,6 +29,23 @@ import {
 
 export type DiscoverPlatform = "tt" | "ig" | "yt";
 export type DiscoverSection = "example" | "tutorial";
+
+/** A source observation, kept separate from an indexed search excerpt. */
+export interface DiscoverSourceEvidence {
+  source:
+    | "youtube-api"
+    | "instagram-public-embed"
+    | "tiktok-oembed"
+    | "tiktok-public-page"
+    | "indexed-excerpt";
+  observedAt: string;
+  likes?: number;
+  views?: number;
+  published?: string;
+  caption?: string;
+  author?: string;
+  availability?: "available" | "unavailable";
+}
 
 export interface DiscoverItem {
   platform: DiscoverPlatform;
@@ -44,6 +62,7 @@ export interface DiscoverItem {
   /** Shown for the typed idea although it does not mention the selected category (nothing had both). */
   outsideCategory?: true;
   profile?: string;
+  evidence?: DiscoverSourceEvidence;
 }
 
 export interface DiscoverCreator {
@@ -203,6 +222,7 @@ function parseItem(x: unknown): DiscoverItem | null {
     return null;
   if (x.section !== "example" && x.section !== "tutorial") return null;
   const stats = parseStats(x.stats);
+  const evidence = parseDiscoverEvidence(x.evidence);
   return {
     platform: x.platform as DiscoverPlatform,
     handle: x.handle,
@@ -217,6 +237,38 @@ function parseItem(x: unknown): DiscoverItem | null {
     ...(x.offTopic === true ? { offTopic: true as const } : {}),
     ...(x.outsideCategory === true ? { outsideCategory: true as const } : {}),
     ...(isStr(x.profile) ? { profile: x.profile } : {}),
+    ...(evidence ? { evidence } : {}),
+  };
+}
+
+export function parseDiscoverEvidence(value: unknown): DiscoverSourceEvidence | undefined {
+  if (
+    !isObj(value) ||
+    ![
+      "youtube-api",
+      "instagram-public-embed",
+      "tiktok-oembed",
+      "tiktok-public-page",
+      "indexed-excerpt",
+    ].includes(value.source as string) ||
+    !isStr(value.observedAt) ||
+    !Number.isFinite(Date.parse(value.observedAt))
+  )
+    return;
+  const counts = parseStats(value);
+  return {
+    source: value.source as DiscoverSourceEvidence["source"],
+    observedAt: value.observedAt,
+    ...(counts?.likes !== undefined ? { likes: counts.likes } : {}),
+    ...(counts?.views !== undefined ? { views: counts.views } : {}),
+    ...(isStr(value.published) && Number.isFinite(Date.parse(value.published))
+      ? { published: value.published }
+      : {}),
+    ...(isStr(value.caption) ? { caption: value.caption.slice(0, 4000) } : {}),
+    ...(isStr(value.author) ? { author: value.author.slice(0, 200) } : {}),
+    ...(value.availability === "available" || value.availability === "unavailable"
+      ? { availability: value.availability }
+      : {}),
   };
 }
 
@@ -558,10 +610,7 @@ function arabicFirstOf(list: DiscoverItem[]): DiscoverItem[] {
 }
 
 function byPopularity(list: DiscoverItem[]): DiscoverItem[] {
-  return list
-    .map((item, i) => ({ item, i, p: popularityOf(item.stats) }))
-    .sort((a, b) => (b.p ?? -1) - (a.p ?? -1) || a.i - b.i)
-    .map((x) => x.item);
+  return sortByPopularity(list);
 }
 
 export function sectionItems(
@@ -574,27 +623,18 @@ export function sectionItems(
   );
   if (opts.sort === "popular") list = byPopularity(list);
   // All: Instagram and TikTok first (the owner, 2026-10-07), each group keeping its order.
-  if (opts.tab === "all")
+  if (opts.tab === "all" && opts.sort !== "popular")
     list = [...list.filter((i) => i.platform !== "yt"), ...list.filter((i) => i.platform === "yt")];
   if (opts.arFirst) list = arabicFirstOf(list);
   return list;
 }
 
-/** The shown posts with the biggest numbers (views, else likes x 10), 6 by default; ties: newest first. */
+/** Recent examples meeting the evidence policy. Show hidden never relaxes popular admission. */
 export function popularItems(answer: DiscoverAnswer, opts: ViewOpts, max = 6): DiscoverItem[] {
-  return answer.items
-    .filter(
-      (i) =>
-        onTab(i, opts.tab) &&
-        (opts.showHidden || !i.offTopic) &&
-        popularityOf(i.stats) !== undefined,
-    )
-    .sort(
-      (a, b) =>
-        (popularityOf(b.stats) ?? 0) - (popularityOf(a.stats) ?? 0) ||
-        (b.published ?? "").localeCompare(a.published ?? ""),
-    )
-    .slice(0, max);
+  return rankDiscoverItems(
+    answer.items.filter((i) => onTab(i, opts.tab)),
+    { mode: "popular" },
+  ).items.slice(0, max);
 }
 
 export function tabCounts(
@@ -624,6 +664,9 @@ export interface DiscoverUsage {
         plan?: string;
         paygoUsed?: number;
         paygoLimit?: number | null;
+        /** Optional on upgraded Workers; never manufacture freshness for an old reply. */
+        observedAt?: string;
+        cached?: boolean;
       }
     | { error: string };
   youtube: { usedToday: number; cap: number };
@@ -632,9 +675,14 @@ export interface DiscoverUsage {
 
 export async function discoverUsage(
   config: ScoutConfig,
-  opts: ScoutSearchOpts = {},
+  opts: ScoutSearchOpts & { refresh?: boolean } = {},
 ): Promise<{ ok: true; usage: DiscoverUsage } | { ok: false; error: ScoutError }> {
-  const r = await scoutCall(config, "/discover/usage", {}, opts);
+  const r = await scoutCall(
+    config,
+    `/discover/usage${opts.refresh ? "?refresh=1" : ""}`,
+    { cache: "no-store" },
+    opts,
+  );
   if (!r.ok) return r;
   const d = r.data as DiscoverUsage;
   if (!isObj(d) || !isObj(d.tavily) || !isObj(d.youtube) || !isObj(d.connector)) {

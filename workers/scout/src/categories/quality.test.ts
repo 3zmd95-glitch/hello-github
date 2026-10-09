@@ -1,9 +1,216 @@
 import { describe, expect, it } from "vitest";
 import { CATEGORY_PROFILES } from "../discover/category-profiles";
-import { categoryCreativeEvidence as evidence, rankCategoryVideos } from "./quality";
+import {
+  categoryCreativeEvidence as evidence,
+  hasTeachingEvidence,
+  rankCategoryVideos,
+} from "./quality";
 import type { TopVideo } from "./types";
+import { carxDraftCandidate } from "./carxDraft.fixture";
 
 describe("category recommendations grounded in metadata", () => {
+  it("removes the real multiline CarX draft and its trailing keyword list without inventing craft", () => {
+    const { title, snippet } = carxDraftCandidate.item;
+    expect(evidence("cars", `${title}\n${snippet}`)).toMatchObject({
+      category: true,
+      eligible: false,
+      creative: false,
+      project: false,
+      namedTechniques: [],
+      teaching: false,
+    });
+    expect(evidence("cars", `BMW cinematic car film\n${snippet}`)).toMatchObject({
+      eligible: true,
+      project: true,
+      namedTechniques: [],
+    });
+    const lesson = `Car masking tutorial: draw an outline and feather the edge. Prompt example:\n${snippet}`;
+    expect(evidence("cars", lesson)).toMatchObject({
+      eligible: true,
+      teaching: true,
+      namedTechniques: ["masking"],
+    });
+  });
+
+  it("rejects full feature uploads matching a desert subject without rejecting short films or movie-editing lessons", () => {
+    expect(
+      evidence(
+        "camping",
+        "She’s Trapped in the Desert! | Thriller movie | Hangar | Full movies\nA cinematic story filmed in the desert with dramatic lighting.",
+      ),
+    ).toMatchObject({ category: true, excluded: true, eligible: false });
+    expect(
+      evidence("camping", "Desert thriller | Full-length movie\nA match cut in the opening scene")
+        .eligible,
+    ).toBe(false);
+    expect(evidence("camping", "فيلم كامل في الصحراء\nتلوين سينمائي").eligible).toBe(false);
+    for (const caption of [
+      "Cinematic camping film: a weekend in the desert",
+      "Desert short film — complete story",
+      "Color grading a full movie tutorial\nDesert footage: match shadows between shots",
+      "شرح مونتاج فيلم كامل في الصحراء خطوة بخطوة",
+    ])
+      expect(evidence("camping", caption).eligible, caption).toBe(true);
+  });
+
+  const draft = `Smooth cutout transition with clean subject masking, seamless edge blending, fast cinematic motion, dynamic zoom, motion blur, speed ramp, and a professional, high-quality edit with no flicker or rough edges." Or, if it's specifically for a car edit: KEYWORD BMW EDITS BMW CLIPS FOR EDITS`;
+
+  it("does not treat the observed unfinished alternate-caption draft as proof of craft", () => {
+    expect(
+      evidence("cars", `BMW M4 COMPETITION CAR TROLL FACE EDITING SHORT 🔥☠️\n${draft}`),
+    ).toMatchObject({
+      category: true,
+      creative: false,
+      project: false,
+      namedTechniques: [],
+      teaching: false,
+    });
+    expect(evidence("cars", draft).namedTechniques).toEqual([]);
+    expect(
+      hasTeachingEvidence(
+        `How to speed ramp a car video." Or, if it's specifically for a car edit: [Insert your caption]`,
+      ),
+    ).toBe(false);
+  });
+
+  it("preserves a separate genuine project title without borrowing techniques from its draft description", () => {
+    expect(evidence("cars", `BMW cinematic car film\n${draft}`)).toMatchObject({
+      category: true,
+      eligible: true,
+      project: true,
+      namedTechniques: [],
+    });
+    expect(evidence("anime", `Yuta edit reworked #anime\n${draft}`)).toMatchObject({
+      eligible: true,
+      project: true,
+      namedTechniques: [],
+    });
+  });
+
+  it("preserves real instruction quoting a draft and ordinary conditional editing advice", () => {
+    const lesson = `Car masking tutorial: draw the outline around the car and feather the edge. Prompt example: "${draft}`;
+    expect(evidence("cars", lesson)).toMatchObject({ eligible: true, teaching: true });
+    expect(evidence("cars", lesson).namedTechniques).toEqual(["masking"]);
+    expect(hasTeachingEvidence(lesson)).toBe(true);
+    expect(
+      evidence(
+        "cars",
+        "Car masking tutorial. Or, if it's specifically for a car edit: track the mask along the door.",
+      ),
+    ).toMatchObject({ eligible: true, teaching: true });
+    expect(
+      evidence("cars", "AI car commercial breakdown: match cut between generated shots"),
+    ).toMatchObject({ eligible: true, teaching: true });
+  });
+
+  it("separates named craft from generic AMV and ambient room lighting", () => {
+    expect(evidence("anime", "Anime AMV edit")).toMatchObject({
+      eligible: true,
+      namedTechniques: [],
+    });
+    expect(evidence("coffee", "Cozy coffee room lighting ideas")).toMatchObject({
+      eligible: false,
+      namedTechniques: [],
+    });
+    expect(evidence("coffee", "Coffee photography rim light tutorial").namedTechniques).toContain(
+      "lighting",
+    );
+  });
+  it.each([
+    "Speed ramp tutorial coming soon",
+    "Comment tutorial for my masking guide",
+    "Want a tutorial for this match cut?",
+    "I followed a speed ramp tutorial",
+    "My new video #tutorial",
+    "اكتب شرح عشان ارسل الطريقة",
+    "شرح الماسك قريب",
+  ])("does not mistake requests or future lessons for teaching: %s", (text) => {
+    expect(hasTeachingEvidence(text)).toBe(false);
+  });
+  it.each([
+    "Masking tutorial: align the frames and draw a mask",
+    "How to film coffee",
+    "Match cut breakdown. Comment CAR for the prompt.",
+    "شرح الماسك خطوة بخطوة",
+  ])("preserves actual teaching even alongside an incidental request: %s", (text) => {
+    expect(hasTeachingEvidence(text)).toBe(true);
+  });
+  it("keeps the observed Four Corner Beat Sync tutorial and Arabic craft teaching tags", () => {
+    const caption =
+      "Four Corner Beat Sync effect #CapCut #capcutpioneer #animeedit #demonslayer #tutorial";
+    expect(hasTeachingEvidence(caption)).toBe(true);
+    expect(evidence("anime", caption)).toMatchObject({
+      eligible: true,
+      teaching: true,
+      namedTechniques: ["beat sync"],
+    });
+    expect(hasTeachingEvidence("تقسيم الشاشة للأنمي #شرح")).toBe(true);
+  });
+  it("recognizes the observed first-person filming process and explanatory cinematic shot list", () => {
+    const carProcess =
+      "How I Film Cinematic Car Videos (Rollers + B-Roll). Join the #1 Automotive Filmmakers Community";
+    const shotList =
+      "A Simple list to make your videos feel more cinematic. –Wide shot This sets the scene. –Low angle. –Close-up. –High angle. –Profile shot.";
+    expect(hasTeachingEvidence(carProcess)).toBe(true);
+    expect(evidence("cars", carProcess)).toMatchObject({ eligible: true, teaching: true });
+    expect(hasTeachingEvidence(shotList)).toBe(true);
+  });
+  it("recognizes a single actual editing tip as learning instead of a finished inspiration edit", () => {
+    const caption =
+      "Quick and easy editing tip for your gaming clips! #cod #warzone #capcut #gaming #streaming";
+    expect(evidence("gaming", caption)).toMatchObject({ eligible: true, teaching: true });
+    expect(hasTeachingEvidence("Editing tip coming tomorrow for your gaming clips")).toBe(false);
+    expect(hasTeachingEvidence("Comment TIP for my gaming editing tip")).toBe(false);
+    expect(hasTeachingEvidence("Tip your barista for this coffee")).toBe(false);
+  });
+  it("does not mistake a commercial coffee machine's product specification demo for a filmed ad", () => {
+    expect(
+      evidence(
+        "coffee",
+        "CM3131B Product Demo: Compact Commercial Coffee Machine INS Video. Product specifications.",
+      ),
+    ).toMatchObject({
+      creative: false,
+      project: false,
+      eligible: false,
+    });
+    expect(evidence("coffee", "Commercial espresso machine product demo").project).toBe(false);
+    expect(evidence("coffee", "Coffee machine commercial filmed with match cuts")).toMatchObject({
+      eligible: true,
+      project: true,
+    });
+    expect(evidence("coffee", "Commercial coffee machine stop motion video ad")).toMatchObject({
+      eligible: true,
+      project: true,
+    });
+  });
+  it.each([
+    "How I Film Cinematic Car Videos: coming soon",
+    "Comment CAR for how I film cinematic car videos",
+    "Want to see how I shoot car rollers?",
+    "How I will film my car video next week",
+    "My cinematic film: wide shot, low angle, close-up, high angle, profile shot",
+    "Comment SHOTS for a shot list: wide shot, low angle, close-up",
+    "A Simple list to make your videos feel more cinematic. Wide shot this sets the scene. Low angle. Close-up. Coming soon.",
+  ])(
+    "does not promote first-person promises, requests or a bare shot list into teaching: %s",
+    (text) => {
+      expect(hasTeachingEvidence(text)).toBe(false);
+    },
+  );
+  it.each([
+    "Four Corner Beat Sync effect #tutorial coming soon",
+    "Anime beat sync: comment #tutorial to get the guide",
+    "Anime beat sync tutorial coming soon. #tutorial",
+    "Anime beat sync edit. Coming soon. #tutorial",
+    "Anime masking edit. Want a #tutorial?",
+    "#beatsync #animeedit #tutorial",
+    "Anime AMV #tutorial",
+    "تقسيم الشاشة للأنمي #شرح قريب",
+    "تقسيم الشاشة اكتب #شرح عشان ارسل الطريقة",
+  ])("a teaching tag cannot turn a promise or unsupported post into a lesson: %s", (text) => {
+    expect(hasTeachingEvidence(text)).toBe(false);
+  });
   it("requires both subject and creative evidence across all12 category profiles", () => {
     for (const [id, profile] of Object.entries(CATEGORY_PROFILES)) {
       expect(evidence(id, profile.examples.en).eligible, id).toBe(true);
@@ -12,6 +219,55 @@ describe("category recommendations grounded in metadata", () => {
     expect(evidence("food", "Cinematic car edit with speed ramps").eligible).toBe(false);
     expect(evidence("cars", "carpet lighting review").category).toBe(false);
     expect(evidence("coffee", "coffeemaker price list").eligible).toBe(false);
+  });
+  it.each([
+    "Epic Food Photography Lighting Setup! #FoodPhotography #LightingSetup #FilmmakingTips. Transform your food photos with this easy lighting setup! I'm sharing my secrets for creating mouthwatering images.",
+    "PHOTOGRAPHER EXPLAINS: Easiest Food Photography Lighting Techniques. I am talking all about my go to lighting setups.",
+  ])("recognizes observed explanatory food photography lessons: %s", (text) => {
+    expect(hasTeachingEvidence(text)).toBe(true);
+    expect(evidence("food", text)).toMatchObject({ eligible: true, teaching: true });
+  });
+  it.each([
+    "Food photography lighting: I'm sharing my secrets tomorrow",
+    "Food photography lighting: I'm sharing my secrets if you comment FOOD",
+    "Food photography lighting setup for my finished commercial",
+    "I'm sharing my photography portfolio with you",
+  ])("requires actual explanatory intent beyond a finished photo project: %s", (text) => {
+    expect(hasTeachingEvidence(text)).toBe(false);
+  });
+  it("distinguishes a described creative project from a plot clip with an edit hashtag", () => {
+    expect(evidence("anime", "Yuta edit reworked #animeedit")).toMatchObject({
+      eligible: true,
+      project: true,
+      namedTechniques: [],
+    });
+    expect(evidence("anime", "Naruto never gives up #animeedit")).toMatchObject({
+      project: false,
+      namedTechniques: [],
+    });
+    expect(evidence("camping", "Cinematic camping film")).toMatchObject({
+      eligible: true,
+      project: true,
+      namedTechniques: [],
+    });
+  });
+  it.each([
+    "Nobody perfect🙄# #amv #anime #3danimation #funny #scene #edit #memes amv #anime #3danimation #funny #scene #edit #memes",
+    "Nobody perfect #anime\namv #anime #scene #edit",
+    "Naruto never gives up #anime edit #memes",
+    "Nobody perfect #anime AMV/EDIT #scene",
+  ])("does not join an isolated project label across a hashtag pile: %s", (caption) => {
+    expect(evidence("anime", caption)).toMatchObject({ project: false, namedTechniques: [] });
+  });
+  it.each([
+    "Anime AMV edit",
+    "Yuta edit reworked #animeedit",
+    "Deku and Dark Might You Are Next「Boku no Hero Academia Season 7 AMV/EDIT」ᴴᴰ #anime #scene",
+    "DEKU is back HOME #anime\nDeku and Dark Might You Are Next「Boku no Hero Academia Season 7 AMV/EDIT」ᴴᴰ",
+    "Naruto montage #anime",
+    "مونتاج أنمي #انمي",
+  ])("preserves a described AMV or edit project despite adjacent tags: %s", (caption) => {
+    expect(evidence("anime", caption)).toMatchObject({ eligible: true, project: true });
   });
   it.each([
     "Stainless Steel Kitchen Prep: Perfect for Food Prep",

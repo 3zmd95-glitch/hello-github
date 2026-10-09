@@ -204,6 +204,19 @@ describe("relevantCards", () => {
 });
 
 describe("pickVideos", () => {
+  it("does not assign tutorial slots to requests or promised future lessons", () => {
+    const videos = pickVideos(
+      [
+        card("yt", 1, "Car masking tutorial coming soon"),
+        card("ig", 2, "Car speed ramp. Comment TUTORIAL for the guide"),
+        card("yt", 3, "Car masking tutorial: draw the mask"),
+      ],
+      [],
+    );
+    expect(videos.filter((video) => video.kind === "tutorial").map((video) => video.url)).toEqual([
+      "https://www.youtube.com/watch?v=vid3abcdef",
+    ]);
+  });
   it("1 tutorial (YouTube, a 'tutorial' title first) and 2 examples (Instagram or TikTok first)", () => {
     const videos = pickVideos(
       [

@@ -1,5 +1,6 @@
 import { Parser } from "htmlparser2";
 import { instagramImageUrl, instagramPostUrl } from "./instagramPreview";
+import { parseEngagement } from "./normalize";
 
 const MAX_SOURCE_BYTES = 384 * 1024;
 const TIMEOUT_MS = 5000;
@@ -16,6 +17,8 @@ export interface InstagramSource {
   observedAt: string | null;
   provenance: "instagram-public-embed";
   audio?: { title: string; artist?: string; url?: string };
+  /** Only the exact post's visible SocialProof, never a number in its caption. */
+  likes?: number;
 }
 
 function unavailable(url: string): InstagramSource {
@@ -91,6 +94,7 @@ export async function readInstagramSource(res: Response, post: string): Promise<
   let description = "";
   let audioLabel = "";
   let musicUrl: string | undefined;
+  let socialProof = "";
   const has = (name: string) => stack.some((element) => element.classes.has(name));
   const parser = new Parser({
     onopentag(name, attrs) {
@@ -102,8 +106,7 @@ export async function readInstagramSource(res: Response, post: string): Promise<
         attrs.hidden !== undefined ||
         attrs["aria-hidden"] === "true" ||
         /(?:display\s*:\s*none|visibility\s*:\s*hidden)/i.test(attrs.style ?? "");
-      const currentPost =
-        name === "a" && classes.has("EmbeddedMedia") ? instagramPostUrl(attrs.href ?? "") : null;
+      const currentPost = name === "a" ? instagramPostUrl(attrs.href ?? "") : null;
       stack.push({ classes, ignored, mediaPost: currentPost });
       if (ignored) return;
       if (classes.has("Embed") && !rootDepth) rootDepth = stack.length;
@@ -134,6 +137,9 @@ export async function readInstagramSource(res: Response, post: string): Promise<
       }
       if (has("HeaderSecondaryContent")) {
         audioLabel += value.slice(0, Math.max(0, 500 - audioLabel.length));
+      }
+      if (has("SocialProof") && stack.some((element) => element.mediaPost === post)) {
+        socialProof += value.slice(0, Math.max(0, 200 - socialProof.length));
       }
     },
     onclosetag() {
@@ -171,6 +177,7 @@ export async function readInstagramSource(res: Response, post: string): Promise<
         ...(musicUrl ? { url: musicUrl } : {}),
       }
     : undefined;
+  const likes = parseEngagement(socialProof.trim())?.likes;
   return {
     status: "available",
     url: post,
@@ -181,6 +188,7 @@ export async function readInstagramSource(res: Response, post: string): Promise<
     observedAt: new Date().toISOString(),
     provenance: "instagram-public-embed",
     ...(audio?.title ? { audio } : {}),
+    ...(likes !== undefined ? { likes } : {}),
   };
 }
 

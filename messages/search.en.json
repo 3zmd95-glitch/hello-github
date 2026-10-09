@@ -79,7 +79,7 @@
   "search.ytBackTomorrow": "YouTube is done for today, back tomorrow",
   "search.creditsOut": "Free lookups used up · turn on pay-as-you-go in Tavily",
   "search.creditsOutLink": "Open Tavily ↗",
-  "search.usage": "{used} of {limit} free lookups this month",
+  "search.usage": "Tavily credits {used}/{limit} this month",
   "search.usageYt": "YouTube {used}/{cap} today",
   "search.cached": "From memory, cost nothing",
   "search.searching": "Searching Instagram, TikTok and YouTube in Arabic and English…",

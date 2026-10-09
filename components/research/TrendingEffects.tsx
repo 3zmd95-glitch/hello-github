@@ -146,7 +146,7 @@ export default function TrendingEffects({
       if (mounted.current) landed(r, force);
     });
   };
-  const formatPanel = (
+  const formats = (
     <EditFormats
       data={data}
       onPick={onPickFormat ?? onPick}
@@ -168,6 +168,14 @@ export default function TrendingEffects({
                   : ""
       }
     />
+  );
+  const formatPanel = compact ? (
+    <details data-testid="browse-formats" className="border-edge border-t pt-3">
+      <summary className="w-fit cursor-pointer text-sm font-bold">{t("feed.references")}</summary>
+      {formats}
+    </details>
+  ) : (
+    formats
   );
   const inspector = (
     <FormatSourceInspector

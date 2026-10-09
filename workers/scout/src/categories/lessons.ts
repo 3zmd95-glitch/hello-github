@@ -22,7 +22,7 @@ import {
 } from "../normalize";
 import type { Genre } from "../trends/genres";
 import { categorySubject } from "./defs";
-import { categoryCreativeEvidence } from "./quality";
+import { categoryCreativeEvidence, hasTeachingEvidence } from "./quality";
 import { SKILL_IDS } from "./skills";
 import { AREAS, type Area, type LessonVideo, type Lessons, type Technique } from "./types";
 
@@ -39,8 +39,6 @@ const AR_TUTORIALS = 6;
 const AT_ONCE = 5;
 const AI_TIMEOUT_MS = 60_000;
 const SHORT = new Set<Platform>(["ig", "tt"]);
-const TUTORIAL =
-  /\b(?:how to|tutorial|step by step|guide|tips|explained|breakdown)\b|(?:شرح|تعلم|خطوات|طريقة)/iu;
 type Text = { en: string; ar?: string };
 type Study = NonNullable<Technique["study"]>;
 type Guide = { aliases: string[]; watchFor: Text; tryIt: Text; skillId?: string };
@@ -483,7 +481,7 @@ export async function pickTechniques(
   );
 }
 
-const isTutorial = (c: { title: string }) => TUTORIAL.test(c.title);
+const isTutorial = (c: { title: string }) => hasTeachingEvidence(c.title);
 
 /** Every named technique core must be present; generic adjectives and partial-word matches are no evidence. */
 export function relevantCards(cards: readonly ScoutResult[], pick: TechniquePick): ScoutResult[] {
@@ -648,7 +646,7 @@ export async function refreshLessons(
     const relevant = relevantCards(candidates, pick);
     counts.offTopic += candidates.length - relevant.length;
     const cards = relevant.filter((c) => {
-      const evidence = categoryCreativeEvidence(g.id, `${c.title} ${c.snippet}`);
+      const evidence = categoryCreativeEvidence(g.id, `${c.title}\n${c.snippet}`);
       return evidence.eligible || (isTutorial(c) && evidence.creative);
     });
     counts.offSubject += relevant.length - cards.length;
@@ -687,7 +685,7 @@ export async function refreshLessons(
   for (const { technique, pick } of pending) {
     const ar = relevantCards(arabic, pick).find(
       (c) =>
-        !given.has(c.url) && categoryCreativeEvidence(g.id, `${c.title} ${c.snippet}`).creative,
+        !given.has(c.url) && categoryCreativeEvidence(g.id, `${c.title}\n${c.snippet}`).creative,
     );
     if (ar) {
       technique.videos.push(lessonVideo(ar, "tutorial", "ar"));

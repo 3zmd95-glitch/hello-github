@@ -1,7 +1,9 @@
 "use client";
 
 import ResearchPanel from "@/components/research/ResearchPanel";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { allGenres } from "@/lib/genres";
+import BrowseCategoryFeed from "@/components/research/BrowseCategoryFeed";
 import { useT } from "@/lib/i18n";
 import { useStore } from "@/store";
 import InspirationLibrary from "./InspirationLibrary";
@@ -14,6 +16,11 @@ export default function DiscoverScreen() {
   const openGenre = useGenreLink();
   const tiktok = useTikTokReturn();
   const count = useStore((s) => s.inspirations.length);
+  const customGenres = useStore((s) => s.customGenres);
+  const genres = useMemo(() => allGenres(customGenres), [customGenres]);
+  const [browseGenreId, setBrowseGenreId] = useState<string | null>(null);
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const browseGenre = genres.find((genre) => genre.id === browseGenreId);
   const [view, setView] = useState<"browse" | "search" | "practice">("browse");
   const [openedGenre, setOpenedGenre] = useState<string | null>(null);
   if (openGenre && openGenre !== openedGenre) {
@@ -73,7 +80,7 @@ export default function DiscoverScreen() {
           {t("layout.saved", { n: count })}
         </button>
       </div>
-      <div hidden={view === "practice"}>
+      <div hidden={view === "practice" || (view === "browse" && categoryOpen && !!browseGenre)}>
         <ResearchPanel
           workspace={view === "browse" ? "browse" : "search"}
           onSearch={() => {
@@ -82,12 +89,31 @@ export default function DiscoverScreen() {
           }}
           stickyTop="max-md:top-[calc(59px+env(safe-area-inset-top,0px))]"
           openGenre={openGenre}
+          active={view === "search"}
+          showBrowse={!categoryOpen}
+          onBrowseCategory={(id) => {
+            setBrowseGenreId(id);
+            setCategoryOpen(true);
+          }}
           onOpenInspiration={(url) => {
             setFocusUrl(url);
             setView("practice");
           }}
         />
       </div>
+      {browseGenre && (
+        <BrowseCategoryFeed
+          genre={browseGenre}
+          genres={genres}
+          active={view === "browse" && categoryOpen}
+          onBack={() => setCategoryOpen(false)}
+          onCategory={setBrowseGenreId}
+          onOpenInspiration={(url) => {
+            setFocusUrl(url);
+            setView("practice");
+          }}
+        />
+      )}
       {view === "practice" && (
         <InspirationLibrary focusUrl={focusUrl} onExplore={() => setView("browse")} />
       )}

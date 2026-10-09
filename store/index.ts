@@ -124,6 +124,23 @@ import {
   type InspirationStage,
 } from "@/lib/inspiration";
 import { rankFromXp } from "@/lib/rank";
+import type { DiscoverItem } from "@/lib/discover";
+import {
+  DiscoverCandidatesSchema,
+  DiscoverFeedbackListSchema,
+  accumulateCategoryCandidates,
+  changeDiscoverFeedback,
+  restoreDiscoverFeedback,
+  localDiscoverCandidateFallback,
+  mergeDiscoverCandidates,
+  type DiscoverFeedbackInput,
+  type DiscoverFeedbackUndo,
+} from "@/lib/discoverFeed";
+import {
+  createDiscoverLibrary,
+  indexedDiscoverLibrary,
+  type DiscoverLibraryStatus,
+} from "@/lib/discoverLibrary";
 import {
   EditFormatSchema,
   FollowedFormatsSchema,
@@ -190,6 +207,11 @@ export const PersistedStateSchema = z.object({
   savedRefs: z.record(z.string(), z.array(RefSchema)).default({}),
   inspirations: InspirationsSchema,
   followedFormats: FollowedFormatsSchema,
+  discoverCandidates: DiscoverCandidatesSchema,
+  /** A reset/import fence: failed durable writes must not resurrect a previous library on reload. */
+  discoverLibraryEpoch: z.string().max(200).default(""),
+  discoverLibraryPendingReplacement: z.boolean().default(false),
+  discoverFeedback: DiscoverFeedbackListSchema,
   /** Scout v0 (1.13): last topics typed on /discover, most recent first, capped at 8. */
   recentTopics: z.array(z.string()).default([]),
   /** 📝 One Markdown note per skill, by skill id (the Research quest's home). */
@@ -345,6 +367,13 @@ export interface PostedResult {
 }
 
 export interface StoreActions {
+  accumulateDiscoverCandidates(
+    items: readonly DiscoverItem[],
+    options: { genreId: string; manuallyAdded?: true; now?: Date },
+  ): void;
+  setDiscoverFeedback(input: DiscoverFeedbackInput, now?: Date): DiscoverFeedbackUndo | undefined;
+  undoDiscoverFeedback(undo: DiscoverFeedbackUndo): void;
+  clearDiscoverFeedback(): void;
   followFormat(format: EditFormat, now?: Date): void;
   unfollowFormat(identity: string): void;
   refreshFollowedFormats(formats: readonly EditFormat[]): void;
@@ -504,7 +533,8 @@ export interface StoreActions {
   reset(): void;
 }
 
-export type StoreState = PersistedState & StoreActions;
+export type StoreState = PersistedState &
+  StoreActions & { discoverLibraryStatus: DiscoverLibraryStatus };
 
 const initialData = (): PersistedState => ({
   settings: { ...DEFAULT_SETTINGS, gear: [...DEFAULT_SETTINGS.gear] },
@@ -516,6 +546,10 @@ const initialData = (): PersistedState => ({
   savedRefs: {},
   inspirations: [],
   followedFormats: [],
+  discoverCandidates: [],
+  discoverLibraryEpoch: "",
+  discoverLibraryPendingReplacement: false,
+  discoverFeedback: [],
   recentTopics: [],
   notes: {},
   gemEvents: [],
@@ -568,6 +602,10 @@ const pick = (s: PersistedState): PersistedState => ({
   savedRefs: s.savedRefs,
   inspirations: s.inspirations,
   followedFormats: s.followedFormats,
+  discoverCandidates: s.discoverCandidates,
+  discoverLibraryEpoch: s.discoverLibraryEpoch,
+  discoverLibraryPendingReplacement: s.discoverLibraryPendingReplacement,
+  discoverFeedback: s.discoverFeedback,
   recentTopics: s.recentTopics,
   notes: s.notes,
   gemEvents: s.gemEvents,
@@ -616,6 +654,40 @@ const safeLocalStorage = (): StateStorage => {
   }
   return memoryStorage();
 };
+
+type LocalPersistedState = Omit<PersistedState, "discoverCandidates"> & {
+  discoverCandidates?: PersistedState["discoverCandidates"];
+};
+let discoveryLibrary: ReturnType<typeof createDiscoverLibrary> | undefined;
+function candidateLibrary() {
+  return (discoveryLibrary ??= createDiscoverLibrary(indexedDiscoverLibrary(), {
+    current: () => useStore.getState().discoverCandidates,
+    epoch: () => useStore.getState().discoverLibraryEpoch,
+    pendingReplacement: () => useStore.getState().discoverLibraryPendingReplacement,
+    apply: (discoverCandidates, epoch) => {
+      if (discoverCandidates !== useStore.getState().discoverCandidates || epoch !== undefined)
+        useStore.setState({
+          discoverCandidates,
+          ...(epoch !== undefined ? { discoverLibraryEpoch: epoch } : {}),
+        });
+    },
+    status: (discoverLibraryStatus) =>
+      useStore.setState({
+        discoverLibraryStatus,
+        ...(discoverLibraryStatus === "ready" ? { discoverLibraryPendingReplacement: false } : {}),
+      }),
+  }));
+}
+function pickLocal(state: StoreState): LocalPersistedState {
+  const { discoverCandidates, ...progress } = pick(state);
+  return discoveryLibrary?.durable()
+    ? progress
+    : { ...progress, discoverCandidates: localDiscoverCandidateFallback(discoverCandidates) };
+}
+/** Wait before exporting or testing a durable reload; this never calls a provider. */
+export function flushDiscoverLibrary(): Promise<void> {
+  return candidateLibrary().flush();
+}
 
 /**
  * One-time shape migration: a save from before `apiKeys` existed had a flat `settings.youtubeApiKey`.
@@ -794,9 +866,10 @@ function settledFocus(s: PersistedState, now: Date): Partial<PersistedState> {
 }
 
 export const useStore = create<StoreState>()(
-  persist<StoreState, [], [], PersistedState>(
+  persist<StoreState, [], [], LocalPersistedState>(
     (set, get) => ({
       ...initialData(),
+      discoverLibraryStatus: "loading",
 
       completeQuest(skillId, quest, proofUrl, now = new Date()) {
         const state = get();
@@ -940,6 +1013,35 @@ export const useStore = create<StoreState>()(
 
       saveInspiration(item, now = new Date()) {
         set((s) => ({ inspirations: saveInspiration(s.inspirations, item, now) }));
+      },
+
+      accumulateDiscoverCandidates(items, options) {
+        const current = get().discoverCandidates;
+        const next = accumulateCategoryCandidates(current, items, options);
+        // Cached results and source-enrichment effects can repeat a payload. Keep the same state
+        // identity (and original obtainedAt) until actual candidate content changes.
+        if (current !== next) {
+          set({ discoverCandidates: next });
+          candidateLibrary().changed();
+        }
+      },
+
+      setDiscoverFeedback(input, now = new Date()) {
+        const current = get().discoverFeedback;
+        const { feedback, undo } = changeDiscoverFeedback(current, input, now);
+        if (JSON.stringify(current) !== JSON.stringify(feedback))
+          set({ discoverFeedback: feedback });
+        return undo;
+      },
+
+      undoDiscoverFeedback(undo) {
+        const current = get().discoverFeedback;
+        const next = restoreDiscoverFeedback(current, undo);
+        if (JSON.stringify(current) !== JSON.stringify(next)) set({ discoverFeedback: next });
+      },
+
+      clearDiscoverFeedback() {
+        if (get().discoverFeedback.length) set({ discoverFeedback: [] });
       },
 
       followFormat(format, now = new Date()) {
@@ -1590,40 +1692,69 @@ export const useStore = create<StoreState>()(
       },
 
       exportState(now = new Date()) {
+        if (get().discoverLibraryStatus === "loading")
+          throw new Error("Candidate library is still loading");
         const file: ExportFile = {
           app: "3z-prod",
           version: STORE_VERSION,
           exportedAt: now.toISOString(),
-          state: pick(get()),
+          state: {
+            ...pick(get()),
+            discoverLibraryEpoch: "",
+            discoverLibraryPendingReplacement: false,
+          },
         };
         return JSON.stringify(file, null, 2);
       },
 
       importState(json) {
         const file = ExportFileSchema.parse(JSON.parse(json));
-        set({ ...file.state, rewards: ensureBuiltInRewards(file.state.rewards) });
+        set({
+          ...file.state,
+          discoverLibraryEpoch: newId(),
+          discoverLibraryPendingReplacement: true,
+          rewards: ensureBuiltInRewards(file.state.rewards),
+        });
+        candidateLibrary().replace();
       },
 
       reset() {
-        set(initialData());
+        set({
+          ...initialData(),
+          discoverLibraryEpoch: newId(),
+          discoverLibraryPendingReplacement: true,
+        });
+        candidateLibrary().replace();
       },
     }),
     {
       name: STORAGE_KEY,
       version: STORE_VERSION,
       storage: createJSONStorage(safeLocalStorage),
-      partialize: pick,
+      partialize: pickLocal,
       // Screens call hydrateStore() on mount, so server and first client render match.
       skipHydration: true,
+      onRehydrateStorage: () => (_state, error) => {
+        if (!error) void candidateLibrary().rehydrate();
+      },
       merge: (persisted, current) => {
         const parsed = PersistedStateSchema.partial()
           .extend({ settings: SettingsSchema.partial().optional() })
           .safeParse(migrateLegacySettings(persisted));
         if (!parsed.success) return current;
         const p = parsed.data;
+        const changedEpoch =
+          p.discoverLibraryEpoch !== undefined &&
+          p.discoverLibraryEpoch !== current.discoverLibraryEpoch;
         return {
           ...current,
           ...p,
+          discoverCandidates: changedEpoch
+            ? (p.discoverCandidates ?? [])
+            : p.discoverCandidates
+              ? mergeDiscoverCandidates(current.discoverCandidates, p.discoverCandidates)
+              : current.discoverCandidates,
+          ...(changedEpoch ? { discoverLibraryStatus: "loading" as const } : {}),
           settings: { ...current.settings, ...(p.settings ?? {}) },
           rewards: ensureBuiltInRewards(p.rewards ?? current.rewards),
         } as StoreState;
@@ -1666,9 +1797,10 @@ function addBonusFreezes(s: PersistedState, n: number, now: Date): number {
 }
 
 /** Load saved progress from localStorage. Call once on the client (e.g. in a root useEffect). */
-export function hydrateStore(): Promise<void> | void {
+export async function hydrateStore(): Promise<void> {
   followOtherTabs();
-  return useStore.persist.rehydrate();
+  await useStore.persist.rehydrate();
+  await flushDiscoverLibrary();
 }
 
 let followingOtherTabs = false;

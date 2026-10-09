@@ -93,7 +93,18 @@ export async function enrichYoutubeStats(
       if (views !== undefined) stats.views = views;
       if (likes !== undefined) stats.likes = likes;
       if (comments !== undefined) stats.comments = comments;
-      if (Object.keys(stats).length) card.stats = stats;
+      if (Object.keys(stats).length) {
+        card.stats = stats;
+        card.evidence = {
+          source: "youtube-api",
+          observedAt: new Date().toISOString(),
+          caption: `${card.title} ${card.snippet}`.trim().slice(0, 4000),
+          author: card.handle,
+          ...(views !== undefined ? { views } : {}),
+          ...(likes !== undefined ? { likes } : {}),
+          ...(card.published ? { published: card.published } : {}),
+        };
+      }
     }
   } finally {
     clearTimeout(timer);

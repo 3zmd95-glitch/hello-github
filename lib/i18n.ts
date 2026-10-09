@@ -39,6 +39,8 @@ import arTikTok from "@/messages/tiktok.ar.json";
 import enTikTok from "@/messages/tiktok.en.json";
 import arInspiration from "@/messages/inspiration.ar.json";
 import enInspiration from "@/messages/inspiration.en.json";
+import arFeed from "@/messages/feed.ar.json";
+import enFeed from "@/messages/feed.en.json";
 import type { Lang, LText } from "@/lib/domain";
 import { useStore } from "@/store";
 
@@ -79,6 +81,7 @@ export const MESSAGE_FILES = {
   creator: { ar: arCreator, en: enCreator },
   tiktok: { ar: arTikTok, en: enTikTok },
   inspiration: { ar: arInspiration, en: enInspiration },
+  feed: { ar: arFeed, en: enFeed },
 } as const;
 
 const ar = {
@@ -102,6 +105,7 @@ const ar = {
   ...arCreator,
   ...arTikTok,
   ...arInspiration,
+  ...arFeed,
 };
 const en = {
   ...enBase,
@@ -124,6 +128,7 @@ const en = {
   ...enCreator,
   ...enTikTok,
   ...enInspiration,
+  ...enFeed,
 };
 
 export type MessageKey = keyof typeof ar;

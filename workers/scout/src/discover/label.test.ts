@@ -18,6 +18,26 @@ const card = (over: Partial<ScoutResult>): ScoutResult => ({
 });
 
 describe("labelCards", () => {
+  it("future tutorials, comment requests and tutorial hashtags remain examples", () => {
+    const titles = [
+      "Flash transition tutorial coming soon",
+      "Flash edit. Comment tutorial for the guide",
+      "Flash effect #tutorial",
+      "شرح الفلاش قريب",
+      "How to make a flash transition",
+    ];
+    const items = labelCards(
+      titles.map((title) => ({ card: card({ title }), query: query("tt-tutorials-en") })),
+      plan,
+    );
+    expect(items.map((item) => item.section)).toEqual([
+      "example",
+      "example",
+      "example",
+      "example",
+      "tutorial",
+    ]);
+  });
   it.each([
     [
       "Cars",

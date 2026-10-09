@@ -419,15 +419,17 @@ describe("runCategory", () => {
     const { fetch, count } = web({
       usage: () => json({ account: { plan_usage: 950, plan_limit: 1000 } }),
     });
+    const beforeRead = Date.now();
     const doc = await runCategory(env, "cars", { fetch, now: NOW });
     expect(doc).toMatchObject({ status: "failed", notes: ["tavily_budget"], items: OLD.items });
     expect(count).toEqual({ tavily: 0, usage: 1, youtube: 0, other: 0 });
     // Kept 10 minutes, as Discover keeps it (the next slots read it), then the paused page.
-    expect(KV.put.mock.calls[0]).toEqual([
-      usageKeys.tavily,
-      JSON.stringify({ used: 950, limit: 1000 }),
-      { expirationTtl: 600 },
-    ]);
+    const usageWrite = KV.put.mock.calls[0];
+    expect(usageWrite).toEqual([usageKeys.tavily, expect.any(String), { expirationTtl: 600 }]);
+    const keptUsage = JSON.parse(usageWrite[1]);
+    expect(keptUsage).toEqual({ used: 950, limit: 1000, observedAt: expect.any(String) });
+    expect(Date.parse(keptUsage.observedAt)).toBeGreaterThanOrEqual(beforeRead);
+    expect(Date.parse(keptUsage.observedAt)).toBeLessThanOrEqual(Date.now());
     expect(writes(KV)).toEqual([usageKeys.tavily, KEY]);
   });
 

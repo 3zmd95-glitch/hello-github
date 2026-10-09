@@ -157,6 +157,7 @@ export default function ResultCard({
   item,
   action,
   compact = false,
+  collapseDuplicateSnippet = false,
   onRemove,
   testId = "result-card",
   className = "min-w-0",
@@ -164,6 +165,8 @@ export default function ResultCard({
   item: ResearchItem;
   action?: ReactNode;
   compact?: boolean;
+  /** Feed cards can keep repeated source-caption text behind More. */
+  collapseDuplicateSnippet?: boolean;
   onRemove?: () => void;
   /** Full mode: the card's `data-testid` (a result of the search by default). */
   testId?: string;
@@ -173,7 +176,13 @@ export default function ResultCard({
   return compact ? (
     <CompactCard item={item} onRemove={onRemove} />
   ) : (
-    <FullCard item={item} action={action} testId={testId} className={className} />
+    <FullCard
+      item={item}
+      action={action}
+      testId={testId}
+      className={className}
+      collapseDuplicateSnippet={collapseDuplicateSnippet}
+    />
   );
 }
 
@@ -234,11 +243,13 @@ function FullCard({
   action,
   testId,
   className,
+  collapseDuplicateSnippet,
 }: {
   item: ResearchItem;
   action?: ReactNode;
   testId: string;
   className: string;
+  collapseDuplicateSnippet: boolean;
 }) {
   const { t } = useT();
   const [expanded, setExpanded] = useState(false);
@@ -246,6 +257,10 @@ function FullCard({
   const play = usePlay({ ...item, title }, thumb);
   const meta = PLATFORM_META[item.platform];
   const longSnippet = item.snippet.length > 90;
+  const duplicateSnippet =
+    collapseDuplicateSnippet &&
+    title.trim().length >= 12 &&
+    item.snippet.trim().startsWith(title.trim());
   const media = <Media item={item} thumb={thumb} onError={onError} playable={!!play} />;
   return (
     <li
@@ -303,7 +318,7 @@ function FullCard({
         >
           {title}
         </a>
-        {item.snippet && (
+        {item.snippet && (!duplicateSnippet || expanded) && (
           <p
             dir="auto"
             className={`text-ink-2 text-xs ${expanded ? "" : "line-clamp-2"}`}

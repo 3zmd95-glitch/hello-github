@@ -18,6 +18,7 @@ import { useT, type MessageKey } from "@/lib/i18n";
 import type { ResearchItem, ResearchTab, SortMode } from "@/lib/research";
 import PicksSection from "./PicksSection";
 import ResultCard, { PLATFORM_META } from "./ResultCard";
+import CategoryFeed, { type CategoryFeedProps } from "./CategoryFeed";
 
 const SHOW = 6;
 const TAVILY_HOME = "https://app.tavily.com/";
@@ -54,6 +55,7 @@ export default function DiscoverSections({
   formatSearch,
   sourceChecking,
   sourceExcluded,
+  categoryFeed,
 }: {
   answer: DiscoverAnswer;
   q: string;
@@ -71,6 +73,7 @@ export default function DiscoverSections({
   formatSearch?: { name: { en: string; ar?: string }; intent: "examples" | "tutorials" };
   sourceChecking?: boolean;
   sourceExcluded?: { url: string; title: string; reason: "audio" | "caption" }[];
+  categoryFeed?: CategoryFeedProps;
 }) {
   const { t, L, lang } = useT();
   const ids = useId();
@@ -207,7 +210,7 @@ export default function DiscoverSections({
           )}
         </div>
       )}
-      {!formatSearch && (
+      {!formatSearch && !categoryFeed && (
         <div
           className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs"
           data-testid="discover-understood"
@@ -249,13 +252,13 @@ export default function DiscoverSections({
         </div>
       )}
 
-      {answer.items.some((i) => i.outsideCategory) && (
+      {!categoryFeed && answer.items.some((i) => i.outsideCategory) && (
         <p className="text-ink-2 text-xs" data-testid="discover-outside-category">
           {t("search.outsideCategory")}
         </p>
       )}
 
-      {picks && pickItems.length > 0 && (
+      {!categoryFeed && picks && pickItems.length > 0 && (
         <PicksSection
           topic={{ ...picks, items: pickItems }}
           headingLevel={headingLevel}
@@ -263,7 +266,7 @@ export default function DiscoverSections({
         />
       )}
 
-      {quota && (
+      {!categoryFeed && quota && (
         <div
           className="px-tile border-edge flex flex-wrap items-center gap-2 rounded-[2px] border-2 p-2 text-xs"
           data-testid="discover-credits-out"
@@ -274,43 +277,46 @@ export default function DiscoverSections({
           </a>
         </div>
       )}
-      {failed
-        .filter((f) => f.error !== "quota")
-        .map(({ p, error, partial }) => {
-          const name = PLATFORM_META[p].label;
-          return (
-            <div
-              key={p}
-              className="text-muted flex flex-wrap items-center gap-2 text-xs"
-              data-testid={`discover-down-${p}`}
-              data-error={error}
-            >
-              <span>
-                {error === "daily_cap"
-                  ? t("search.ytBackTomorrow")
-                  : error === "auth"
-                    ? t("search.platformAuth", { platform: name })
-                    : error === "not_configured"
-                      ? t("search.platformNotSet", { platform: name })
-                      : t(partial ? "search.platformPartial" : "search.platformDown", {
-                          platform: name,
-                        })}
-              </span>
-              {error === "upstream" && (
-                <button
-                  type="button"
-                  className="px-btn px-btn-ghost px-btn-sm"
-                  onClick={onRetry}
-                  data-testid={`discover-retry-${p}`}
-                >
-                  {t("search.retry")}
-                </button>
-              )}
-            </div>
-          );
-        })}
+      {!categoryFeed &&
+        failed
+          .filter((f) => f.error !== "quota")
+          .map(({ p, error, partial }) => {
+            const name = PLATFORM_META[p].label;
+            return (
+              <div
+                key={p}
+                className="text-muted flex flex-wrap items-center gap-2 text-xs"
+                data-testid={`discover-down-${p}`}
+                data-error={error}
+              >
+                <span>
+                  {error === "daily_cap"
+                    ? t("search.ytBackTomorrow")
+                    : error === "auth"
+                      ? t("search.platformAuth", { platform: name })
+                      : error === "not_configured"
+                        ? t("search.platformNotSet", { platform: name })
+                        : t(partial ? "search.platformPartial" : "search.platformDown", {
+                            platform: name,
+                          })}
+                </span>
+                {error === "upstream" && (
+                  <button
+                    type="button"
+                    className="px-btn px-btn-ghost px-btn-sm"
+                    onClick={onRetry}
+                    data-testid={`discover-retry-${p}`}
+                  >
+                    {t("search.retry")}
+                  </button>
+                )}
+              </div>
+            );
+          })}
 
-      {popular.length > 0 && (
+      {categoryFeed && <CategoryFeed {...categoryFeed} />}
+
+      {!categoryFeed && popular.length > 0 && (
         <section
           aria-labelledby={`${ids}-popular`}
           className="flex min-w-0 flex-col gap-1.5"
@@ -329,10 +335,10 @@ export default function DiscoverSections({
         </section>
       )}
 
-      {section("example", "search.examples")}
-      {section("tutorial", "search.tutorials")}
+      {!categoryFeed && section("example", "search.examples")}
+      {!categoryFeed && section("tutorial", "search.tutorials")}
 
-      {creators.length > 0 && (
+      {!categoryFeed && creators.length > 0 && (
         <section
           aria-labelledby={`${ids}-creators`}
           className="flex flex-col gap-2"
@@ -370,7 +376,7 @@ export default function DiscoverSections({
         </section>
       )}
 
-      {hidden > 0 && (
+      {!categoryFeed && hidden > 0 && (
         <p
           className="text-muted flex flex-wrap items-center gap-2 text-xs"
           data-testid="discover-hidden"

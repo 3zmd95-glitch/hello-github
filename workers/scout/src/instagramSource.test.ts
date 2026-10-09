@@ -15,6 +15,34 @@ const embed = (
   `<html><body><div class="Embed"><div class="Header"><a class="Username" href="https://www.instagram.com/jayp.zip/">jayp.zip</a><div class="HeaderSecondaryContent"><span>${audio}</span></div></div><div class="Content"><a class="EmbeddedMedia" href="https://www.instagram.com/reel/${id}/?utm_source=ig_embed"><img class="EmbeddedMediaImage" src="${IMAGE.replace("&", "&amp;")}"></a></div><div class="Caption"><a class="CaptionUsername" href="https://www.instagram.com/jayp.zip/">jayp.zip</a>${caption}<a class="CaptionCommentsExpand">View all comments</a></div></div><script>ignored application payload</script></body></html>`;
 
 describe("authentic Instagram public source metadata", () => {
+  it("reads the exact post's visible like count rather than caption bait or another post", async () => {
+    const markup = embed("DRpa87-Eo9V", "100000 likes and I post a tutorial").replace(
+      '<div class="Caption">',
+      '<div class="SocialProof"><a href="https://www.instagram.com/reel/DRpa87-Eo9V/">10 likes</a></div><div class="Caption">',
+    );
+    const result = await readInstagramSource(
+      html(markup),
+      "https://www.instagram.com/p/DRpa87-Eo9V/",
+    );
+    expect(result.likes).toBe(10);
+    expect(result.description).toBe("100000 likes and I post a tutorial");
+    expect(
+      (
+        await readInstagramSource(
+          html(markup.replace('reel/DRpa87-Eo9V/\">10', 'reel/OTHER/\">10')),
+          "https://www.instagram.com/p/DRpa87-Eo9V/",
+        )
+      ).likes,
+    ).toBeUndefined();
+    expect(
+      (
+        await readInstagramSource(
+          html(markup.replace("10 likes", "٠ إعجاب")),
+          "https://www.instagram.com/p/DRpa87-Eo9V/",
+        )
+      ).likes,
+    ).toBe(0);
+  });
   it("keeps the captionless-format user reference unknown visually while retaining its actual soundtrack", async () => {
     const result = await readInstagramSource(html(embed()), POST);
     expect(result).toEqual({

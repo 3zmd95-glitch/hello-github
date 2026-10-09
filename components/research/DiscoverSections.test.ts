@@ -191,7 +191,13 @@ beforeEach(() => {
   clearDiscoverCache();
   // What each Worker said it serves is kept for the session: every test asks /health afresh.
   clearScoutCaps();
-  useStore.setState({ recentTopics: [], customGenres: [], savedRefs: {} });
+  useStore.setState({
+    recentTopics: [],
+    customGenres: [],
+    savedRefs: {},
+    discoverCandidates: [],
+    discoverFeedback: [],
+  });
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -266,7 +272,8 @@ describe("Discover v2 in the research panel", () => {
     expect(searched).toEqual([]);
 
     expect($("discover-understood")!.textContent).toContain("فهمتها: انتقال فلاش · English بس");
-    expect(count("discover-popular")).toBe("1");
+    // An undated tutorial with unsupported counts does not earn a popularity recommendation.
+    expect($("discover-popular")).toBeNull();
     const examples = $("discover-section-example")!;
     expect(examples.getAttribute("data-count")).toBe("8");
     expect(all("result-card", examples)).toHaveLength(6);
@@ -280,7 +287,7 @@ describe("Discover v2 in the research panel", () => {
       "0",
     ]);
     expect($("discover-usage")!.textContent).toBe(
-      "412 من 1000 بحث مجاني هالشهر · يوتيوب 9/70 اليوم",
+      "آخر استهلاك مُبلّغ · رصيد Tavily هالشهر 412/1000 · يوتيوب 9/70 اليوم",
     );
     expect($("scout-usage")).toBeNull();
     expect($("discover-down-ig")!.getAttribute("data-error")).toBe("upstream");
@@ -424,7 +431,18 @@ describe("Discover v2 in the research panel", () => {
   it("without Tavily's figure the usage line still shows YouTube's count", async () => {
     usageBody = { ...USAGE, tavily: { error: "not_configured" } };
     await mount();
-    expect($("discover-usage")!.textContent).toBe("يوتيوب 9/70 اليوم");
+    expect($("discover-usage")!.textContent).toBe("آخر استهلاك مُبلّغ · يوتيوب 9/70 اليوم");
+  });
+
+  it("shows a source-reported usage timestamp and cache label only when supplied", async () => {
+    usageBody = {
+      ...USAGE,
+      tavily: { ...USAGE.tavily, observedAt: "2026-10-09T12:30:00.000Z", cached: true },
+    };
+    await mount();
+    expect($("discover-usage")!.textContent).toContain("الاستهلاك المُبلّغ في");
+    expect($("discover-usage")!.textContent).toContain("نتيجة محفوظة من قبل");
+    expect($("discover-usage")!.textContent).not.toContain("آخر استهلاك مُبلّغ ·");
   });
 
   it("a Worker from before v2: nothing is asked until /health answers, then the per-platform /search", async () => {

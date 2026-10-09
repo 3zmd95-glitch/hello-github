@@ -27,6 +27,9 @@ export interface TavilyUsage {
   plan?: string;
   paygoUsed?: number;
   paygoLimit?: number | null;
+  /** When this Worker actually received the provider counter; absent for legacy KV entries. */
+  observedAt?: string;
+  cached?: boolean;
 }
 
 export interface UsageAnswer {
@@ -68,14 +71,21 @@ export async function tavilyUsage(
   env: UsageEnv,
   doFetch: typeof fetch,
   timeoutMs: number,
+  options: { refresh?: boolean; includeFreshness?: boolean } = {},
 ): Promise<TavilyUsage | { error: PlatformError }> {
   if (!env.TAVILY_API_KEY) return { error: "not_configured" };
-  const kept = env.SOCIAL_KV
-    ? await env.SOCIAL_KV.get(usageKeys.tavily, "text").catch(() => null)
-    : null;
+  const kept =
+    env.SOCIAL_KV && !options.refresh
+      ? await env.SOCIAL_KV.get(usageKeys.tavily, "text").catch(() => null)
+      : null;
   if (kept) {
     try {
-      return JSON.parse(kept) as TavilyUsage;
+      const { observedAt, ...usage } = JSON.parse(kept) as TavilyUsage;
+      delete usage.cached;
+      const validDate = typeof observedAt === "string" && Number.isFinite(Date.parse(observedAt));
+      return options.includeFreshness
+        ? { ...usage, ...(validDate ? { observedAt } : {}), cached: true }
+        : usage;
     } catch {
       // ask again
     }
@@ -110,12 +120,13 @@ export async function tavilyUsage(
     ...(paygoUsed !== undefined ? { paygoUsed } : {}),
     ...(paygoLimit !== undefined ? { paygoLimit } : {}),
   };
+  const observedAt = new Date().toISOString();
   if (env.SOCIAL_KV) {
-    await env.SOCIAL_KV.put(usageKeys.tavily, JSON.stringify(usage), {
+    await env.SOCIAL_KV.put(usageKeys.tavily, JSON.stringify({ ...usage, observedAt }), {
       expirationTtl: USAGE_TTL_S,
     }).catch(() => undefined);
   }
-  return usage;
+  return options.includeFreshness ? { ...usage, observedAt, cached: false } : usage;
 }
 
 /** `timeoutMs`: the limit of Tavily's `/usage` call (tests shorten it). */
@@ -124,9 +135,10 @@ export async function discoverUsage(
   doFetch: typeof fetch,
   now: Date,
   timeoutMs = CALL_TIMEOUT_MS,
+  options: { refresh?: boolean } = {},
 ): Promise<UsageAnswer> {
   const [tavily, yt, connector] = await Promise.all([
-    tavilyUsage(env, doFetch, timeoutMs),
+    tavilyUsage(env, doFetch, timeoutMs, { ...options, includeFreshness: true }),
     youtubeUsedToday(env, now).catch(() => 0),
     connectorUsedToday(env, now).catch(() => 0),
   ]);

@@ -21,8 +21,19 @@ import {
   picksFor,
   tabCounts,
   type DiscoverAlternative,
+  type DiscoverAnswer,
   type DiscoverPick,
 } from "@/lib/discover";
+import {
+  categoryCandidates,
+  discoverFeedbackCreator,
+  discoverFeedbackForItem,
+  savedDiscoverInterests,
+  type DiscoverFeedbackUndo,
+} from "@/lib/discoverFeed";
+import { CATEGORY_EXPANSION_ROUNDS, expandCategory } from "@/lib/discoverExpansion";
+import { categoryRefillCost, refillCategory } from "@/lib/discoverRefill";
+import { rankDiscoverItems, type DiscoverFeedMode } from "@/lib/discoverRanking";
 import type { Lang, Skill } from "@/lib/domain";
 import { discoverPrompts } from "@/lib/discoverPrompts";
 import type { EditFormat } from "@/lib/editFormats";
@@ -70,6 +81,7 @@ import { getApiKey, useStore } from "@/store";
 import DiscoverSections from "./DiscoverSections";
 import AiConnectionControls from "./AiConnectionControls";
 import CategoryPage from "./CategoryPage";
+import ForYouFeed from "./ForYouFeed";
 import PasteLinkForm from "./PasteLinkForm";
 import PicksSection from "./PicksSection";
 import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
@@ -89,6 +101,11 @@ import {
 } from "./useScout";
 import { useYoutubeQuery } from "./useYoutube";
 import { useFormatSources } from "./useFormatSources";
+import { useFeedSources } from "./useFeedSources";
+import { useCategoryEntry } from "./useCategoryEntry";
+import { useExpansionDiagnostics } from "./useExpansionDiagnostics";
+import DiscoverUsageLine from "./DiscoverUsageLine";
+import type { CategoryFeedProps, FeedFeedbackAction } from "./CategoryFeed";
 
 /** Last platform tab, remembered per device. */
 export const RESEARCH_TAB_KEY = "3z-research-tab";
@@ -175,6 +192,9 @@ export default function ResearchPanel({
   onOpenInspiration,
   workspace,
   onSearch,
+  onBrowseCategory,
+  active = true,
+  showBrowse = true,
 }: {
   /** Skill sheet mode; omitted = Discover mode. */
   skill?: Skill;
@@ -189,6 +209,9 @@ export default function ResearchPanel({
   /** Presentation only: keep one query mounted while moving between Browse and Search. */
   workspace?: "browse" | "search";
   onSearch?: () => void;
+  onBrowseCategory?: (id: string) => void;
+  active?: boolean;
+  showBrowse?: boolean;
 }) {
   const { t, L, lang, dir } = useT();
   const browsing = !skill && workspace === "browse";
@@ -213,6 +236,22 @@ export default function ResearchPanel({
   // name no editing besides the effect: live, "Glow Effect" found beauty serums). Any other search turns it off.
   const [editing, setEditing] = useState(false);
   const [sort, setSort] = useState<SortMode>("relevance");
+  const [feedMode, setFeedMode] = useState<DiscoverFeedMode>("inspiration");
+  // Query dates stay fixed for cache keys; new source evidence and feedback need a current clock.
+  const [feedNow, setFeedNow] = useState(() => Date.now());
+  const [feedUndo, setFeedUndo] = useState<{
+    action: FeedFeedbackAction;
+    token: DiscoverFeedbackUndo;
+  }>();
+  const [feedExpansion, setFeedExpansion] = useState<{
+    scope: string;
+    busy: boolean;
+    refilling?: boolean;
+    error?: ScoutError;
+  }>({ scope: "", busy: false });
+  const [feedRounds, setFeedRounds] = useState<Record<string, number>>({});
+  const [feedUsageRevision, setFeedUsageRevision] = useState(0);
+  const feedAbort = useRef<AbortController | null>(null);
   const [genreId, setGenreId] = useState<string | null>(null);
   // The built-in category's optional Study guides page; searches and genre changes close it.
   const [page, setPage] = useState<string | null>(null);
@@ -228,7 +267,13 @@ export default function ResearchPanel({
   const removeRef = useStore((s) => s.removeRef);
   const savedRefs = useStore((s) => s.savedRefs);
   const inspirations = useStore((s) => s.inspirations);
+  const savedInterests = useMemo(() => savedDiscoverInterests(inspirations), [inspirations]);
   const customGenres = useStore((s) => s.customGenres);
+  const discoverCandidates = useStore((s) => s.discoverCandidates);
+  const discoverFeedback = useStore((s) => s.discoverFeedback);
+  const accumulateDiscoverCandidates = useStore((s) => s.accumulateDiscoverCandidates);
+  const setDiscoverFeedback = useStore((s) => s.setDiscoverFeedback);
+  const undoDiscoverFeedback = useStore((s) => s.undoDiscoverFeedback);
   const trends = useStore((s) => s.trends);
   const ytKey = useStore((s) => getApiKey(s, "youtube"));
   const scoutCfg = useScoutConfig();
@@ -260,6 +305,46 @@ export default function ResearchPanel({
   // the saved posts instead, as it does for a search.
   const showPage =
     !skill && v2 && !!scoutCfg && !!genre && page === genre.id && !base && !savedOnly;
+  const isCategoryFeed = !skill && v2 && !!genre && !base && !showPage && !savedOnly;
+  useEffect(() => {
+    if (!isCategoryFeed) return;
+    const tick = setInterval(() => setFeedNow(Date.now()), 60_000);
+    return () => clearInterval(tick);
+  }, [isCategoryFeed]);
+  const categoryEntry = useCategoryEntry(
+    genre?.id,
+    scoutCfg,
+    genre ? discoverRequestFrom({ base: "", genre, recency: "any", length: "any" }) : null,
+    active && isCategoryFeed,
+  );
+  const {
+    diagnostics: feedDiagnostics,
+    quotaPlatforms: feedQuotaPlatforms,
+    record: recordFeedDiagnostics,
+    clear: clearFeedDiagnostics,
+  } = useExpansionDiagnostics(genre?.id ?? "");
+  useEffect(() => {
+    if (active && isCategoryFeed && categoryEntry.cached)
+      recordFeedDiagnostics(categoryEntry.cached);
+  }, [active, isCategoryFeed, categoryEntry.cached, recordFeedDiagnostics]);
+  const feedScope = isCategoryFeed ? `${genre.id}|${tab}` : "";
+  // All covers every platform. Widening after a platform-only batch advances past its
+  // query too, so switching tabs cannot spend another search on the same batch.
+  const feedRound = isCategoryFeed
+    ? Math.max(
+        feedRounds[`${genre.id}|all`] ?? 0,
+        ...(tab === "all" ? ["ig", "tt", "yt"] : [tab]).map(
+          (platform) => feedRounds[`${genre.id}|${platform}`] ?? 0,
+        ),
+      )
+    : 0;
+  useEffect(
+    () => () => {
+      feedAbort.current?.abort();
+      feedAbort.current = null;
+    },
+    [feedScope],
+  );
   // Topic (or skill name), then the genre's main query in the search language, then the program hint.
   const q = researchQuery(base, queryLang, genre, hintOn ? hint : undefined);
   // Instagram hashtags are Latin slugs: the skill's EN name, or the Discover topic when it's Latin; the
@@ -310,6 +395,12 @@ export default function ResearchPanel({
    * on, or off when it's the active chip (null = off). A genre alone never lands in the recent topics.
    */
   const pickGenre = (id: string | null) => {
+    if (browsing && v2 && id && onBrowseCategory) {
+      onBrowseCategory(id);
+      return;
+    }
+    setFeedMode("inspiration");
+    setFeedUndo(undefined);
     if (browsing) {
       // Browsing starts a new category, never a stale subscription brief or hidden filter.
       setSearchMode("keyword");
@@ -417,7 +508,7 @@ export default function ResearchPanel({
     order: ytOrder,
   };
   const ytWanted = live && legacy && hasYt && (tab === "all" || tab === "yt");
-  const yt = useYoutubeQuery(ytWanted ? ytKey : undefined, q, ytOpts, attempt);
+  const yt = useYoutubeQuery(ytWanted ? ytKey : undefined, q, ytOpts, attempt, active);
   // A key that's out of quota or refused: YouTube comes from the Worker instead. The failed query stays
   // settled (ytWanted doesn't depend on this), so it doesn't flip back and forth.
   const ytDown =
@@ -432,9 +523,9 @@ export default function ResearchPanel({
   const paramsFor = (p: Platform) =>
     scoutParams(q, scoutPlatformsFor(p, ytApi), searchLang, timeRange);
   const wants = (p: Platform) => live && legacy && (tab === "all" || tab === p);
-  const scoutTt = useScoutQuery(wants("tt") ? paramsFor("tt") : null, attempt);
-  const scoutIg = useScoutQuery(wants("ig") ? paramsFor("ig") : null, attempt);
-  const scoutYt = useScoutQuery(wants("yt") ? paramsFor("yt") : null, attempt);
+  const scoutTt = useScoutQuery(wants("tt") ? paramsFor("tt") : null, attempt, active);
+  const scoutIg = useScoutQuery(wants("ig") ? paramsFor("ig") : null, attempt, active);
+  const scoutYt = useScoutQuery(wants("yt") ? paramsFor("yt") : null, attempt, active);
   const scoutBy: Record<Platform, ScoutSearchState> = { yt: scoutYt, tt: scoutTt, ig: scoutIg };
 
   // Discover v2: one request for every platform, both languages. A memo, so the React Compiler sees it frozen
@@ -442,7 +533,7 @@ export default function ResearchPanel({
   const pickOn = `${genre?.id ?? ""}|${base}`;
   const discoverReq = useMemo(
     () =>
-      v2 && !savedOnly && !showPage
+      v2 && !savedOnly && !showPage && !(isCategoryFeed && categoryEntry.skipSearch)
         ? discoverRequestFrom({
             mode: submittedMode === "ai" ? "ai" : undefined,
             subscription: submittedAi,
@@ -460,6 +551,8 @@ export default function ResearchPanel({
       v2,
       savedOnly,
       showPage,
+      isCategoryFeed,
+      categoryEntry.skipSearch,
       base,
       genre,
       hintOn,
@@ -474,9 +567,121 @@ export default function ResearchPanel({
       editing,
     ],
   );
-  const rawDisc = useDiscoverQuery(discoverReq, attempt, forceAt === attempt);
+  const rawDisc = useDiscoverQuery(discoverReq, attempt, forceAt === attempt, active);
+  useEffect(() => {
+    if (!active || !isCategoryFeed || !genre) return;
+    if (rawDisc.status === "ok") {
+      accumulateDiscoverCandidates(rawDisc.answer.items, { genreId: genre.id });
+      recordFeedDiagnostics(rawDisc.answer);
+    } else if (rawDisc.status === "error") clearFeedDiagnostics();
+  }, [
+    active,
+    isCategoryFeed,
+    genre,
+    rawDisc,
+    accumulateDiscoverCandidates,
+    recordFeedDiagnostics,
+    clearFeedDiagnostics,
+  ]);
+  const feedCandidates = useMemo(
+    () => (isCategoryFeed && genre ? categoryCandidates(discoverCandidates, genre.id) : []),
+    [isCategoryFeed, genre, discoverCandidates],
+  );
+  const feedSources = useFeedSources(
+    feedCandidates,
+    isCategoryFeed && active && !categoryEntry.loading,
+    ytKey,
+  );
+  useEffect(() => {
+    if (active && isCategoryFeed && genre && feedSources.items.length)
+      accumulateDiscoverCandidates(feedSources.items, { genreId: genre.id });
+  }, [active, isCategoryFeed, genre, feedSources.items, accumulateDiscoverCandidates]);
+  const feedRank = useMemo(
+    () =>
+      rankDiscoverItems(feedSources.items, {
+        genreId: genre?.id,
+        now: feedNow,
+        feedback: discoverFeedback,
+        savedInterests,
+        mode: feedMode,
+      }),
+    [feedSources.items, genre?.id, feedNow, discoverFeedback, savedInterests, feedMode],
+  );
+  const feedExplore = useMemo(
+    () =>
+      rankDiscoverItems(feedSources.items, {
+        genreId: genre?.id,
+        now: feedNow,
+        feedback: discoverFeedback,
+        savedInterests,
+        mode: "explore",
+      }),
+    [feedSources.items, genre?.id, feedNow, discoverFeedback, savedInterests],
+  );
+  const feedAnswer = useMemo<DiscoverAnswer | undefined>(() => {
+    if (!isCategoryFeed || !genre) return undefined;
+    return {
+      ...(rawDisc.status === "ok"
+        ? rawDisc.answer
+        : {
+            topicKey: genre.id,
+            understood: { label: genre.name, exact: false },
+            alternatives: [],
+            creators: [],
+            platforms: {},
+            cost: { tavily: 0, youtubeSearch: 0 },
+            cached: true,
+            complete: false,
+          }),
+      items: feedRank.items,
+    };
+  }, [isCategoryFeed, genre, rawDisc, feedRank.items]);
+  const findMoreEdits = async (refill = false) => {
+    if (!isCategoryFeed || !genre || !scoutCfg || feedAbort.current) return;
+    const scope = feedScope;
+    const round = feedRound;
+    if (!refill && round >= CATEGORY_EXPANSION_ROUNDS) return;
+    const controller = new AbortController();
+    feedAbort.current = controller;
+    if (!refill)
+      setFeedRounds((rounds) => ({
+        ...rounds,
+        [scope]: round + 1,
+        ...(tab === "all"
+          ? Object.fromEntries(
+              ["ig", "tt", "yt"].map((platform) => [`${genre.id}|${platform}`, round + 1]),
+            )
+          : {}),
+      }));
+    setFeedExpansion({ scope, busy: true, refilling: refill });
+    try {
+      const options = { platform: tab === "all" ? undefined : tab, signal: controller.signal };
+      const result = refill
+        ? await refillCategory(scoutCfg, genre, options)
+        : await expandCategory(scoutCfg, genre, { ...options, round });
+      if (controller.signal.aborted) return;
+      if (result.ok) {
+        accumulateDiscoverCandidates(result.answer.items, { genreId: genre.id });
+        recordFeedDiagnostics(result.answer, tab === "all" ? undefined : [tab]);
+        setFeedExpansion({ scope, busy: false });
+      } else {
+        clearFeedDiagnostics();
+        setFeedExpansion({ scope, busy: false, error: result.error });
+      }
+    } catch {
+      if (!controller.signal.aborted) {
+        clearFeedDiagnostics();
+        setFeedExpansion({ scope, busy: false, error: { type: "network" } });
+      }
+    } finally {
+      if (feedAbort.current === controller) feedAbort.current = null;
+      // Read the account counter after the bounded request, including a failed request
+      // that may already have spent credits. This never starts another search.
+      setFeedUsageRevision((revision) => revision + 1);
+    }
+  };
   const formatSources = useFormatSources(
-    rawDisc.status === "ok" ? rawDisc.answer : null,
+    active && rawDisc.status === "ok" ? rawDisc.answer : null,
     activeFormat?.format,
     activeFormat?.intent,
   );
@@ -506,12 +711,22 @@ export default function ResearchPanel({
   // Claude's picks (free: a KV read), asked when v2 opens and again at each search attempt.
   const picks = useDiscoverPicks(v2 ? scoutCfg : null, attempt);
   // The tab badges count the posts shown; a tab is empty only with none at all (hidden ones included).
-  const discShown = disc.status === "ok" ? tabCounts(disc.answer, false) : undefined;
-  const discAll = disc.status === "ok" ? tabCounts(disc.answer, true) : undefined;
+  const discShown = feedAnswer
+    ? tabCounts(feedAnswer, false)
+    : disc.status === "ok"
+      ? tabCounts(disc.answer, false)
+      : undefined;
+  const discAll = feedAnswer
+    ? tabCounts(feedAnswer, false)
+    : disc.status === "ok"
+      ? tabCounts(disc.answer, true)
+      : undefined;
   // The usage line asks again once an answer lands (each search's own attempt), never at the click.
   const discUsage = useDiscoverUsage(
     v2 ? scoutCfg : null,
-    disc.status === "loading" ? null : disc.status === "off" ? 0 : disc.attempt,
+    disc.status === "loading"
+      ? null
+      : (disc.status === "off" ? 0 : disc.attempt) + feedUsageRevision,
   );
   const onAlternative = (alt: DiscoverAlternative) => {
     setFormatSearch(null);
@@ -718,6 +933,69 @@ export default function ResearchPanel({
       </span>
     );
 
+  const categoryFeed: CategoryFeedProps | undefined =
+    feedAnswer && genre
+      ? {
+          genre: L(genre.name),
+          diagnostics: feedDiagnostics,
+          quotaPlatforms: feedQuotaPlatforms,
+          mode: feedMode,
+          onMode: setFeedMode,
+          items: feedRank.items,
+          evidence: feedRank.evidence,
+          tab,
+          renderAction,
+          checking: feedSources.checking,
+          loading:
+            (categoryEntry.loading || rawDisc.status === "loading") && !feedCandidates.length,
+          likedUrls: new Set(
+            feedRank.items
+              .filter(
+                (item) =>
+                  discoverFeedbackForItem(discoverFeedback, item, genre.id)?.action === "more",
+              )
+              .map((item) => item.url),
+          ),
+          onFeedback: (item, action) => {
+            setFeedNow(Date.now());
+            const token = setDiscoverFeedback({
+              url: item.url,
+              platform: item.platform,
+              creator: discoverFeedbackCreator(item),
+              genreId: genre.id,
+              techniques: feedRank.evidence[item.url]?.techniques,
+              action,
+            });
+            if (token) setFeedUndo({ action, token });
+          },
+          undo: feedUndo
+            ? {
+                action: feedUndo.action,
+                onUndo: () => {
+                  undoDiscoverFeedback(feedUndo.token);
+                  setFeedUndo(undefined);
+                },
+              }
+            : undefined,
+          onFindMore: () => {
+            void findMoreEdits();
+          },
+          onRefill: () => {
+            void findMoreEdits(true);
+          },
+          refilling:
+            feedExpansion.scope === feedScope && feedExpansion.busy && feedExpansion.refilling,
+          canRefill: !!scoutCfg,
+          refillCost: categoryRefillCost(tab === "all" ? undefined : tab),
+          findingMore:
+            feedExpansion.scope === feedScope && feedExpansion.busy && !feedExpansion.refilling,
+          canFindMore: feedRound < CATEGORY_EXPANSION_ROUNDS,
+          searchCost: tab === "all" ? 3 : 1,
+          exploreCount: feedExplore.items.filter((item) => tab === "all" || item.platform === tab)
+            .length,
+        }
+      : undefined;
+
   /* ---------- notes, hints, errors ---------- */
 
   const scoutHint = !savedOnly && !scoutCfg && tab !== "yt" && (!!q || !!skill);
@@ -753,11 +1031,13 @@ export default function ResearchPanel({
   const anySettled = [yt, scoutTt, scoutIg, scoutYt].some((s) => s.status === "ok");
   // v2: nothing on this tab, hidden posts included; or no word to search in what was typed (emoji only).
   const v2Empty = v2 && !savedOnly && (discoverReq ? discAll?.[tab] === 0 : live);
-  const showEmpty = savedOnly
-    ? items.length === 0
-    : v2
-      ? v2Empty
-      : !!q && anySettled && !loading && items.length === 0;
+  const showEmpty = isCategoryFeed
+    ? false
+    : savedOnly
+      ? items.length === 0
+      : v2
+        ? v2Empty
+        : !!q && anySettled && !loading && items.length === 0;
   const activeFilters =
     (recency !== "any" ? 1 : 0) +
     (length !== "any" ? 1 : 0) +
@@ -814,6 +1094,7 @@ export default function ResearchPanel({
   // in the sheet.
   const WeekTitle = skill ? "h3" : "h2";
   const SearchOptions = organized ? "details" : "div";
+  const CategoryIdeas = isCategoryFeed ? "details" : "div";
 
   const genrePicker = (
     <div
@@ -1141,6 +1422,14 @@ export default function ResearchPanel({
       </div>
       <div hidden={organized && !browsing}>
         <div className="flex min-w-0 flex-col gap-6" data-testid="discover-browse">
+          {organized && browsing && showBrowse && (
+            <ForYouFeed
+              genres={genres}
+              categoryPicker={genrePicker}
+              onCategory={pickGenre}
+              renderAction={renderAction}
+            />
+          )}
           {/* 🔥 This week's trending effects (Discover v2 only): a chip is a search for the effect, like a recent
           topic, with the category cleared, and always in Keywords: a tap never spends an AI plan or the owner's
           ChatGPT / Claude usage. */}
@@ -1148,7 +1437,6 @@ export default function ResearchPanel({
             <TrendingEffects
               config={scoutCfg}
               compact={organized}
-              afterFormats={organized && browsing ? genrePicker : undefined}
               onPickFormat={(query, intent, format) => {
                 onSearch?.();
                 setFormatSearch({ query, intent, format });
@@ -1191,7 +1479,6 @@ export default function ResearchPanel({
               }}
             />
           )}
-          {organized && browsing && (!v2 || !scoutCfg) && genrePicker}
         </div>
       </div>
       <div hidden={browsing}>
@@ -1256,7 +1543,12 @@ export default function ResearchPanel({
                   )}
               </div>
               {discoverPrompts(genre.id).length > 0 && (
-                <>
+                <CategoryIdeas className="text-xs">
+                  {isCategoryFeed && (
+                    <summary className="px-link w-fit cursor-pointer">
+                      {t("feed.searchIdeas")}
+                    </summary>
+                  )}
                   <p className="text-muted text-xs">{t("search.genreIdeaHelp")}</p>
                   <div className="flex min-w-0 flex-wrap gap-1.5" data-testid="discover-prompts">
                     {discoverPrompts(genre.id).map((prompt) => (
@@ -1270,7 +1562,7 @@ export default function ResearchPanel({
                       </button>
                     ))}
                   </div>
-                </>
+                </CategoryIdeas>
               )}
             </div>
           )}
@@ -1353,6 +1645,7 @@ export default function ResearchPanel({
           <div className="flex items-center gap-2" hidden={showPage}>
             <button
               type="button"
+              hidden={isCategoryFeed}
               className={`px-btn px-btn-ghost px-btn-sm ${organized ? "" : "md:hidden"}`}
               aria-expanded={filtersOpen}
               aria-controls={`${ids}-filters`}
@@ -1370,18 +1663,7 @@ export default function ResearchPanel({
               )}
             </button>
             {scoutCfg && v2 && discUsage && (
-              <p className="text-muted ms-auto text-xs" data-testid="discover-usage">
-                {/* Tavily's figure when the Worker could read it; YouTube's count either way. */}
-                {"used" in discUsage.tavily &&
-                  `${t("search.usage", {
-                    used: discUsage.tavily.used,
-                    limit: discUsage.tavily.limit ?? "∞",
-                  })} · `}
-                {t("search.usageYt", {
-                  used: discUsage.youtube.usedToday,
-                  cap: discUsage.youtube.cap,
-                })}
-              </p>
+              <DiscoverUsageLine usage={discUsage} testId="discover-usage" />
             )}
             {scoutCfg && !v2 && (
               <p
@@ -1396,7 +1678,7 @@ export default function ResearchPanel({
           <div
             id={`${ids}-filters`}
             className={`${filtersOpen ? "flex" : "hidden"} flex-col gap-2.5 ${organized ? "" : "md:flex"} md:flex-row md:flex-wrap md:items-end md:gap-x-5`}
-            hidden={showPage}
+            hidden={showPage || isCategoryFeed}
             data-testid="filters"
           >
             <ChipGroup label={t("research.recency")}>
@@ -1623,7 +1905,7 @@ export default function ResearchPanel({
               ))}
 
             {v2 && !savedOnly && disc.status === "error" && <ScoutErrorLine error={disc.error} />}
-            {v2 && !savedOnly && loading && (
+            {v2 && !savedOnly && loading && !isCategoryFeed && (
               <div className="flex flex-col gap-2" data-testid="discover-loading">
                 <p className="text-muted text-xs">
                   {t(
@@ -1641,10 +1923,10 @@ export default function ResearchPanel({
             )}
             {/* Also on an empty tab: the understood line, "Not this?" and why a platform failed stay above the
             empty box. A new search starts with its off-topic posts hidden and its sections closed. */}
-            {v2 && !savedOnly && disc.status === "ok" && (
+            {v2 && !savedOnly && (disc.status === "ok" || feedAnswer) && (
               <DiscoverSections
-                key={disc.key}
-                answer={disc.answer}
+                key={feedAnswer ? `feed-${genre?.id}` : disc.status === "ok" ? disc.key : ""}
+                answer={feedAnswer ?? (disc.status === "ok" ? disc.answer : null)!}
                 q={discoverReq?.q ?? q}
                 tab={tab}
                 sort={sort}
@@ -1654,7 +1936,12 @@ export default function ResearchPanel({
                 renderAction={renderAction}
                 onAlternative={onAlternative}
                 onRetry={onRetry}
-                picks={activeFormat ? undefined : picksFor(picks, disc.answer.topicKey)}
+                picks={
+                  activeFormat || categoryFeed
+                    ? undefined
+                    : picksFor(picks, disc.status === "ok" ? disc.answer.topicKey : "")
+                }
+                categoryFeed={categoryFeed}
                 formatSearch={
                   activeFormat
                     ? { name: activeFormat.format.name, intent: activeFormat.intent }
@@ -1663,6 +1950,9 @@ export default function ResearchPanel({
                 sourceChecking={formatSources.checking}
                 sourceExcluded={sourceChecked?.excluded}
               />
+            )}
+            {isCategoryFeed && feedExpansion.scope === feedScope && feedExpansion.error && (
+              <ScoutErrorLine error={feedExpansion.error} />
             )}
 
             {showEmpty && (

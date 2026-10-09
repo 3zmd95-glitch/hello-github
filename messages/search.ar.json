@@ -79,7 +79,7 @@
   "search.ytBackTomorrow": "يوتيوب خلّص حدّه اليوم، يرجع بكرة",
   "search.creditsOut": "خلصت عمليات البحث المجانية · فعّل الدفع حسب الاستخدام في Tavily",
   "search.creditsOutLink": "افتح Tavily ↗",
-  "search.usage": "{used} من {limit} بحث مجاني هالشهر",
+  "search.usage": "رصيد Tavily هالشهر {used}/{limit}",
   "search.usageYt": "يوتيوب {used}/{cap} اليوم",
   "search.cached": "من الذاكرة، ما كلّف شي",
   "search.searching": "أدوّر في انستقرام وتيك توك ويوتيوب بالعربي والإنجليزي…",

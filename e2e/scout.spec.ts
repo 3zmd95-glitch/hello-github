@@ -859,16 +859,16 @@ test("Most popular: cards are ordered by their stats, and each shows its views o
   await expect(card(page, "ig").getByTestId("result-stats")).toHaveCount(0);
   await expect(page.getByTestId("popular-note")).toHaveCount(0);
 
-  // Most popular: highest first (views, else likes x 10), the card without numbers last. Sorting is
-  // local: no new Worker request, no credit.
+  // Most popular: sort within metric groups (views, then likes), without converting likes into
+  // invented views; the card without numbers is last. Sorting is local: no new request or credit.
   await openResearchFilters(page);
   await expect(page.getByTestId("filter-sort-relevance")).toHaveAttribute("aria-pressed", "true");
   await page.getByTestId("filter-sort-popular").click();
   await expect(page.getByTestId("filter-sort-popular")).toHaveAttribute("aria-pressed", "true");
   await expect(titles(page)).toHaveText([
+    "Match cuts explained",
     "ماتش كت بالجوال",
     "Match cut in 10 seconds",
-    "Match cuts explained",
     "Match cut reel",
   ]);
   expect(calls.search).toBe(3);
