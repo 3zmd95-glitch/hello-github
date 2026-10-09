@@ -1,4 +1,13 @@
 {
+  "layout.browse": "تصفّح",
+  "layout.search": "ابحث",
+  "layout.saved": "المحفوظات ({n})",
+  "layout.genres": "تصفّح حسب المجال",
+  "layout.category": "اختار مجال",
+  "layout.categoryActive": "المجال: {name}",
+  "layout.searchHelp": "دوّر على تأثير، شرح أو صانع محتوى في إنستقرام وتيك توك ويوتيوب.",
+  "layout.searchOptions": "البرنامج وخيارات البحث",
+  "layout.techniques": "استكشف تقنيات المونتاج",
   "search.aiProvider": "مزوّد الذكاء",
   "search.aiBuiltin": "الذكاء المدمج",
   "search.aiModel": "الموديل",

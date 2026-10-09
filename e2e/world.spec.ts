@@ -134,7 +134,7 @@ test("Social More opens 🔎 Discover in the Training world, and the switch retu
   await expect(page).toHaveURL(/\/discover\/$/);
   await expect(page.locator("html")).toHaveAttribute("data-world", "training");
   await expect(page.getByTestId("world-training")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("discover-topic")).toBeVisible();
+  await expect(page.getByTestId("inspiration-explore")).toHaveAttribute("aria-pressed", "true");
   await expect(nav.locator('a[href="/discover/"]')).toHaveAttribute("aria-current", "page");
   await expect(nav.locator('a[href="/social/more/"]')).toHaveCount(0);
 
@@ -169,7 +169,7 @@ test("desktop: the Social sidebar opens 🔎 Discover in the Training world, and
   await expect(page).toHaveURL(/\/discover\/$/);
   await expect(page.locator("html")).toHaveAttribute("data-world", "training");
   await expect(page.getByTestId("world-training")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("discover-topic")).toBeVisible();
+  await expect(page.getByTestId("inspiration-explore")).toHaveAttribute("aria-pressed", "true");
   // The sidebar is the Training one now, with Discover as its active item.
   await expect(discover).toHaveAttribute("aria-current", "page");
   await expect(sidenav.locator('a[href="/skills/"]')).toHaveCount(1);

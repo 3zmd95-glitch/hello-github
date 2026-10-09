@@ -119,3 +119,31 @@ The frozen browser-test build remains at `C:\Users\AORUS\AppData\Local\Temp\disc
 4. Add temporal/audio analysis only with a supported transport and a measured evaluation. Current sampled frames do not verify beat synchronization or all motion; Claude vision, automatic personal-feed monitoring and trend notifications are not implemented.
 
 Implementation decisions, boundaries and sources: `planning/tools/22-edit-formats.md`. Continue from this section rather than redoing the previous source investigation or running another full test suite without a code change.
+
+## Latest continuation: simpler Discover layout — 9 October 2026
+
+The owner found the page confusing and asked to continue the interrupted layout work. This section supersedes the runtime and local validation status above; the remaining retrieval/rollout work is unchanged. Work remains in the same managed worktree, branch and PR #70.
+
+### Completed layout
+
+- Discover starts on **Browse**, with compact edit-format cards, a category grid, then collapsed technique exploration and Reel inspection. Cards retain evidence/freshness caveats, one shared playable preview, Find examples, Learn this edit and Follow. Full source detail is expandable.
+- **Search** groups the query, platform choices, results and collapsed filters. Program/search options, category refinement and history are disclosures. Platforms/date filters can be selected before submitting a query.
+- **Saved** keeps the existing practice library. One ResearchPanel remains mounted across views, preserving results, drafts and filters without issuing another search. A category selected from Browse deliberately starts a fresh keyword search, clearing old AI briefs and hidden filters. Genre deep links still open Search.
+- The source inspector keeps its pasted URL/provider/open state when the initial effects response arrives; a regression reproduced the reset before the stable-key fix.
+- Existing theme, phone/desktop responsiveness and Arabic/English parity are retained. Decision record: `planning/tools/23-discover-layout.md`.
+
+### Verified outcomes
+
+**2,680 unit tests across 134 files passed.** Lint, app/Worker typecheck and production build passed. The full browser suite passed **392 tests with eight existing viewport-specific skips**. After the final inspector-state fix, a fresh build and **all 44 Discover browser tests** passed again (overlapping the full suite). Formatting and diff checks passed.
+
+All eight Browse/Search screenshots in English/Arabic on phone/desktop were reviewed. Files are under worktree `test-results/discover-Discover-navigati-cf3b9-ssive-compact-and-bilingual-{phone,desktop}/`, named `synthetic-{browse,search}-{en,ar}.png`. Provider data/previews are synthetic; this turn did not rerun paid searches, AI inference, live category scans or source-quality evaluation. Chrome was receiving the owner's input, so its active tab was left alone; there was no new live Chrome visual verification this turn.
+
+### Current localhost runtime
+
+The earlier PID 3800 was no longer running. **PID 7452** now serves **http://localhost:3000/** using the worktree's `scripts/local-ai/main.ts` and TSX loader, with primary `C:\Users\AORUS\Documents\hello-github` as its working directory. The final tested frontend was copied into primary ignored `out/`. An HTTP read of `/discover/` returned 200 and exactly matched the final build HTML; source and copied HTML hashes matched. The temporary port-3100 test server was stopped.
+
+Logs: `C:\Users\AORUS\AppData\Local\Temp\discover-layout-2026-10-09.out.log` and `.err.log`. Auth storage remains in the existing runtime directory; no credentials or browser storage were read/copied. Connection functionality was last verified through the UI in the 8 October work above, not reauthorized in this layout turn. The primary tracked source is still old main `898483f`; continue from the managed worktree to avoid replacing this preview with old code.
+
+### Next work
+
+The layout is ready locally. PR #70 still needs the owner's pending integration/Worker rollout decision. Automatic discovery of recent matching edits, supported Meta audio access, current repeated-use evidence, and fuller motion/audio verification remain unfinished as detailed above. Do not equate this layout completion, a supplied-Reel visual check, or passing synthetic tests with proof of automatic trend quality. No Worker deployment or merge was performed.

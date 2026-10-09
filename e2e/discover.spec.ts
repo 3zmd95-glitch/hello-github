@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { freshState } from "./helpers";
+import {
+  freshState,
+  openDiscoverSearch,
+  openDiscoverCategories,
+  openResearchFilters,
+  openBrowseTechniques,
+} from "./helpers";
 import { REVIEWED_FORMAT_SEEDS } from "../lib/formatSeeds";
 
 const WORKER = "https://3z-scout.example.workers.dev";
@@ -388,7 +394,9 @@ async function connectWorker(page: Page) {
 
 async function search(page: Page, q: string) {
   await page.goto("/discover/");
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").fill(q);
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").press("Enter");
 }
 
@@ -451,6 +459,143 @@ async function stubSubscriptions(page: Page, failure?: string) {
   return plans;
 }
 
+test("Discover navigation: Browse, Search and Saved are passive, compact and bilingual", async ({
+  page,
+}, testInfo) => {
+  const plans = await stubSubscriptions(page);
+  const asked = await stubWorker(page, () => ANSWER);
+  const scans: string[] = [];
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      /^\/(effects|categories\/[^/]+)\/run$/.test(new URL(request.url()).pathname)
+    )
+      scans.push(request.url());
+  });
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await expect(page.getByTestId("inspiration-explore")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("discover-topic")).toBeHidden();
+  await expect(page.getByTestId("genre-cars")).toBeVisible();
+  await expect(page.getByTestId("trending-effect").first()).toBeHidden();
+  await expect(page.getByTestId("format-inspector")).not.toHaveAttribute("open", "");
+
+  for (const lang of ["en", "ar"] as const) {
+    await page.getByTestId("lang-" + lang).click();
+    await expect(page.locator("html")).toHaveAttribute("dir", lang === "ar" ? "rtl" : "ltr");
+    await expect(page.getByTestId("inspiration-explore")).toHaveText(
+      lang === "ar" ? "تصفّح" : "Browse",
+    );
+    await expect(page.getByTestId("inspiration-search")).toHaveText(
+      lang === "ar" ? "ابحث" : "Search",
+    );
+    await expect(page.getByTestId("inspiration-library-open")).toHaveText(
+      lang === "ar" ? "المحفوظات (0)" : "Saved (0)",
+    );
+    expect(await fitsViewport(page)).toBe(true);
+    await page.screenshot({
+      path: testInfo.outputPath(`synthetic-browse-${lang}.png`),
+      fullPage: true,
+      scale: "css",
+    });
+    await openDiscoverSearch(page);
+    await expect(page.getByTestId("discover-topic")).toBeVisible();
+    await expect(page.getByTestId("edit-formats")).toBeHidden();
+    // Platform and time can be chosen before spending on a search, with the filter details closed by default.
+    await expect(page.getByTestId("tab-tt")).toBeVisible();
+    await expect(page.getByTestId("filters-toggle")).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByTestId("filters")).toBeHidden();
+    await expect(page.getByTestId("genre-cars")).toBeHidden();
+    await expect(page.getByTestId("discover-program")).toBeHidden();
+    expect(await fitsViewport(page)).toBe(true);
+    await page.screenshot({
+      path: testInfo.outputPath(`synthetic-search-${lang}.png`),
+      fullPage: true,
+      scale: "css",
+    });
+    await page.getByTestId("inspiration-library-open").click();
+    await expect(page.getByTestId("inspiration-library")).toBeVisible();
+    await expect(page.getByTestId("discover-topic")).toBeHidden();
+    expect(await fitsViewport(page)).toBe(true);
+    await page.getByTestId("inspiration-explore").click();
+    await expect(page.getByTestId("genre-cars")).toBeVisible();
+  }
+  expect(asked).toHaveLength(0);
+  expect(plans).toHaveLength(0);
+  expect(scans).toHaveLength(0);
+});
+
+for (const empty of [false, true]) {
+  test(
+    "Discover navigation preserves " +
+      (empty ? "empty" : "partial") +
+      " uncached results, filters and unsubmitted drafts",
+    async ({ page }) => {
+      const plans = await stubSubscriptions(page);
+      const asked = await stubWorker(page, () =>
+        empty ? { ...ANSWER, items: [], creators: [] } : ANSWER,
+      );
+      await connectWorker(page);
+      await search(page, "flash");
+      await expect(page.getByTestId("discover-sections")).toBeVisible();
+      expect(asked).toHaveLength(1);
+      await page.getByTestId("tab-tt").click();
+      await openResearchFilters(page);
+      await page.getByTestId("filter-sort-popular").click();
+      const examples = page.getByTestId("discover-section-example").getByTestId("result-card");
+      await expect(examples).toHaveCount(empty ? 0 : 6);
+      await page.getByTestId("discover-topic").fill("an unfinished next search");
+      await page.getByTestId("inspiration-explore").click();
+      await expect(page.getByTestId("genre-cars")).toBeVisible();
+      await expect(page.getByTestId("discover-sections")).toBeHidden();
+      await page.getByTestId("inspiration-library-open").click();
+      await expect(page.getByTestId("inspiration-library")).toBeVisible();
+      await openDiscoverSearch(page);
+      await expect(page.getByTestId("discover-topic")).toHaveValue("an unfinished next search");
+      await expect(page.getByTestId("tab-tt")).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByTestId("filter-sort-popular")).toHaveAttribute("aria-pressed", "true");
+      await expect(page.getByTestId("discover-understood")).toContainText("انتقال فلاش");
+      await expect(page.getByTestId("discover-sections")).toBeVisible();
+      await expect(examples).toHaveCount(empty ? 0 : 6);
+      // Both fixtures are deliberately incomplete, so a remount/reissue cannot be hidden by a free browser cache hit.
+      expect(asked).toHaveLength(1);
+      expect(plans).toHaveLength(0);
+    },
+  );
+}
+
+test("Browse category starts fresh keyword search without a stale AI brief or hidden filters", async ({
+  page,
+}) => {
+  const plans = await stubSubscriptions(page);
+  const asked = await stubWorker(page, () => ANSWER);
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await openDiscoverSearch(page);
+  await page.getByTestId("discover-mode-ai").click();
+  await page.getByTestId("ai-provider").selectOption("chatgpt");
+  await page.getByTestId("chatgpt-welcome").getByRole("button").click();
+  await page.getByTestId("ai-model").selectOption("gpt-6-astra");
+  await page
+    .getByTestId("discover-topic")
+    .fill("Find coffee match cuts with this expensive unsubmitted AI brief");
+  await page.getByTestId("tab-tt").click();
+  await openResearchFilters(page);
+  await page.getByTestId("filter-time-week").click();
+  await page.getByTestId("inspiration-explore").click();
+  await page.getByTestId("genre-cars").click();
+  await expect(page.getByTestId("inspiration-search")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("discover-sections")).toBeVisible();
+  await expect(page.getByTestId("discover-mode-keyword")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("discover-topic")).toHaveValue("");
+  await expect(page.getByTestId("tab-all")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("filter-time-any")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("discover-ai-plan")).toHaveCount(0);
+  await expect(page.getByTestId("search-categories")).toContainText("سيارات");
+  expect(asked).toEqual([{ q: "car edit", lang: "en", genreQuery: { ar: "ايديت سيارات" } }]);
+  expect(plans).toHaveLength(0);
+});
+
 test("subscriptions: explicit model choice, maximum effort, submitted identity and cache isolation", async ({
   page,
 }) => {
@@ -474,12 +619,14 @@ test("subscriptions: explicit model choice, maximum effort, submitted identity a
   });
   await connectWorker(page);
   await page.goto("/discover/");
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-mode-ai").click();
   await page.getByTestId("ai-provider").selectOption("chatgpt");
   await expect(page.getByTestId("chatgpt-welcome")).toBeVisible();
   await page.getByTestId("chatgpt-welcome").getByRole("button").click();
   await page.getByTestId("ai-model").selectOption("gpt-6-astra");
   await expect(page.getByTestId("ai-effort")).toHaveValue("ultra");
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").fill("Find coffee match cuts");
   expect(plans).toHaveLength(0);
   expect(asked).toHaveLength(0);
@@ -515,9 +662,11 @@ test("subscription allowance failure never falls back or launches video searches
   const asked = await stubWorker(page, () => ANSWER);
   await connectWorker(page);
   await page.goto("/discover/");
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-mode-ai").click();
   await page.getByTestId("ai-provider").selectOption("claude");
   await page.getByTestId("ai-model").selectOption("claude-fable-5-1");
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").fill("coffee match cuts");
   await page.getByTestId("research-search").click();
   await expect(page.getByTestId("research-results")).toContainText("حد الاستخدام");
@@ -551,16 +700,20 @@ test("AI brief: preserves filters, searches only on submit, separates cache and 
   });
   await connectWorker(page);
   await page.goto("/discover/");
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-coffee").click();
   await expect(page.getByTestId("discover-sections")).toBeVisible();
   // A broad genre radar must not sit above the focused v2 results or fetch unrelated posts.
   expect(trendReads).toBe(0);
   await expect(page.getByTestId("genre-week")).toHaveCount(0);
   const before = asked.length;
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-mode-ai").click();
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").fill("Find coffee match cuts and DaVinci tutorials");
   await expect(page.getByTestId("genre-coffee")).toHaveAttribute("aria-pressed", "true");
   expect(asked).toHaveLength(before);
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").press("Enter");
   await expect(page.getByTestId("discover-ai-plan")).toBeVisible();
   expect(asked.at(-1)).toMatchObject({
@@ -571,18 +724,21 @@ test("AI brief: preserves filters, searches only on submit, separates cache and 
   await expect(page.getByTestId("discover-understood")).toContainText("ماتش كت للقهوة");
   await expect(page.getByTestId("discover-prompts")).toContainText("قهوة");
   expect(await fitsViewport(page)).toBe(true);
-  if (await page.getByTestId("filters-toggle").isVisible())
-    await page.getByTestId("filters-toggle").click();
+  await openResearchFilters(page);
   await page.getByTestId("filter-time-week").click();
   await expect.poll(() => asked.at(-1)).toMatchObject({ mode: "ai", timeRange: "week" });
+  await openResearchFilters(page);
   await page.getByTestId("filter-len-short").click();
   await expect.poll(() => asked.at(-1)).toMatchObject({ mode: "ai", ytLength: "short" });
   await expect(page.getByTestId("discover-sections")).toBeVisible();
   const afterFilters = asked.length;
   await page.getByTestId("tab-yt").click();
+  await openResearchFilters(page);
   await page.getByTestId("filter-sort-popular").click();
+  await openResearchFilters(page);
   await page.getByTestId("filter-arfirst").click();
   expect(asked).toHaveLength(afterFilters);
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-mode-keyword").click();
   await expect(page.getByTestId("discover-topic")).toHaveValue(
     "Find coffee match cuts and DaVinci tutorials",
@@ -625,7 +781,9 @@ test("AI unavailable and daily limit are honest, with a working keyword recovery
   );
   await connectWorker(page);
   await page.goto("/discover/");
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-mode-ai").click();
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").fill("coffee match cut");
   await page.getByTestId("research-search").click();
   await expect(page.getByTestId("research-results")).toContainText("مو متاح دحين");
@@ -633,10 +791,13 @@ test("AI unavailable and daily limit are honest, with a working keyword recovery
   limited = true;
   await page.getByTestId("research-search").click();
   await expect(page.getByTestId("research-results")).toContainText("الـ٢٠");
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-mode-keyword").click();
   await page.getByTestId("research-search").click();
   await expect(page.getByTestId("discover-sections")).toBeVisible();
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-mode-ai").click();
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect
     .poll(() => asked.at(-1))
@@ -857,6 +1018,8 @@ test("Discover v2: Claude's picks show on the topic and on an empty Discover", a
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/discover/");
 
+  await openDiscoverSearch(page);
+
   // Nothing typed: the newest topics' picks, each saying its topic, asked once on opening.
   const latest = page.getByTestId("discover-picks-latest");
   await expect(latest).toBeVisible();
@@ -884,7 +1047,9 @@ test("Discover v2: Claude's picks show on the topic and on an empty Discover", a
   expect(await fitsViewport(page)).toBe(true);
   expect(picksAsked).toHaveLength(1);
 
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").fill("flash");
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").press("Enter");
   const topicPicks = page.getByTestId("discover-sections").getByTestId("discover-picks");
   await expect(topicPicks).toHaveAttribute("data-topic", "flash-transition");
@@ -919,6 +1084,7 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/discover/");
 
+  await openBrowseTechniques(page);
   const row = page.getByTestId("trending-effects");
   await expect(row).toHaveAttribute("data-state", "list");
   await expect(row.getByTestId("trending-effect")).toHaveCount(8);
@@ -950,8 +1116,10 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   expect(await fitsViewport(page)).toBe(true);
 
   // With a category on, a chip searches the effect alone: the dictionary effect by its English label.
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-coffee").click();
   await expect.poll(() => asked.length).toBe(1);
+  await openBrowseTechniques(page);
   await row.locator('[data-testid="trending-effect"][data-key="clone-effect"]').click();
   await expect.poll(() => asked.length).toBe(2);
   // English, with editing context (live: an Arabic query found beauty serums for "Glow Effect"), and Posted on Week:
@@ -1056,6 +1224,7 @@ test("Edit formats: audio and visual identity, saved following, exact tutorial s
   await expect(page.getByTestId("discover-section-tutorial")).toContainText(formatLesson.title);
   await expect(page.getByTestId("discover-sections")).not.toContainText(albumNews.title);
   expect(await fitsViewport(page)).toBe(true);
+  await page.getByTestId("inspiration-explore").click();
   await panel.screenshot({ path: testInfo.outputPath("synthetic-edit-formats.png") });
 
   await repeats.getByTestId("format-find-examples").click();
@@ -1066,6 +1235,7 @@ test("Edit formats: audio and visual identity, saved following, exact tutorial s
   await search(page, "album news");
   await expect(page.getByTestId("format-search-status")).not.toBeVisible();
   await expect(page.getByTestId("discover-section-example")).toContainText(albumNews.title);
+  await page.getByTestId("inspiration-explore").click();
   await repeats.getByTestId("format-follow").click();
   await panel.getByTestId("formats-following").click();
   await expect(panel.getByTestId("edit-format")).toHaveCount(0);
@@ -1092,6 +1262,7 @@ test("Discover v2: a genre searches first; Study guides opens lessons and explic
       categoryRequests.push(`${request.method()} ${new URL(request.url()).pathname}`);
   });
   // Arabic first: genre selection uses the normal editing search. Guides require a separate action.
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect.poll(() => asked.length).toBe(1);
   expect(asked[0]).toEqual({ q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" });
@@ -1106,6 +1277,7 @@ test("Discover v2: a genre searches first; Study guides opens lessons and explic
     fullPage: true,
   });
   await expect(page.getByTestId("discover-study-guides")).toHaveText("أدلة التعلّم");
+  await openDiscoverCategories(page);
   await page.getByTestId("discover-study-guides").click();
   const cat = page.getByTestId("category-page");
   await expect(cat).toHaveAttribute("data-state", "page");
@@ -1178,10 +1350,14 @@ test("Discover v2: a genre searches first; Study guides opens lessons and explic
 
   // English: clear the topic and explicitly reopen guides; Search all returns to the category search.
   await page.getByTestId("lang-en").click();
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").fill("");
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect(page.getByTestId("discover-study-guides")).toHaveText("Study guides");
+  await openDiscoverCategories(page);
   await page.getByTestId("discover-study-guides").click();
   await expect(
     cat.getByRole("heading", { level: 3, name: "✂️ Techniques found in Cars" }),
@@ -1213,7 +1389,9 @@ test("Discover category: save an edit, record what to try, and keep its practice
   );
   await page.goto("/discover/");
   await page.getByTestId("lang-en").click();
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
+  await openDiscoverCategories(page);
   await page.getByTestId("discover-study-guides").click();
   const topCard = page.getByTestId("category-top-item").first();
   const save = topCard.getByTestId("inspiration-save");
@@ -1221,8 +1399,7 @@ test("Discover category: save an edit, record what to try, and keep its practice
   await expect(save).toHaveAttribute("aria-pressed", "true");
   // The existing Saved only filter includes one-click inspiration saves too.
   await page.getByTestId("category-search-all").click();
-  if (await page.getByTestId("filters-toggle").isVisible())
-    await page.getByTestId("filters-toggle").click();
+  await openResearchFilters(page);
   await page.getByTestId("filter-saved").click();
   const savedResult = page.getByTestId("research-results").getByTestId("result-card");
   await expect(savedResult).toHaveCount(1);
@@ -1241,7 +1418,7 @@ test("Discover category: save an edit, record what to try, and keep its practice
     fullPage: true,
   });
   // Saving an already-saved card opens its notes; it never deletes the work.
-  await page.getByTestId("inspiration-explore").click();
+  await openDiscoverSearch(page);
   await savedResult.getByTestId("inspiration-save").click();
   await expect(card.getByTestId("inspiration-note")).toHaveValue(note);
   await expect(card.getByTestId("inspiration-stage")).toHaveValue("trying");
@@ -1264,7 +1441,9 @@ test("Discover v2: a full category page at 375 px never scrolls sideways; only t
   await connectWorker(page);
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/discover/");
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
+  await openDiscoverCategories(page);
   await page.getByTestId("discover-study-guides").click();
   const cat = page.getByTestId("category-page");
   await expect(cat.getByTestId("category-style")).toHaveCount(12);
@@ -1292,7 +1471,9 @@ test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikT
   await connectWorker(page);
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/discover/");
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
+  await openDiscoverCategories(page);
   await page.getByTestId("discover-study-guides").click();
   const top = page.getByTestId("category-top");
   await expect(top.getByRole("heading", { level: 3 })).toHaveText("مونتاج تتعلّم منه · سيارات");
@@ -1392,7 +1573,9 @@ test("Discover v2: an empty TikTok tab connects TikTok trends — TikTok for Bus
   );
   await connectWorker(page);
   await page.goto("/discover/");
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
+  await openDiscoverCategories(page);
   await page.getByTestId("discover-study-guides").click();
   const top = page.getByTestId("category-top");
   await top.locator('[data-testid="category-top-tab"][data-platform="tt"]').click();
@@ -1528,6 +1711,7 @@ test("Reel source check: authentic audio, explicit frame inspection, rejected in
   await expect(page.getByTestId("format-source-excluded")).toBeVisible();
   await expect(page.getByTestId("discover-section-tutorial")).toHaveCount(0);
   await page.getByRole("button", { name: "AR", exact: true }).click();
+  await page.getByTestId("inspiration-explore").click();
   await expect(inspector).toContainText("فريمات من الفيديو");
   expect(await fitsViewport(page)).toBe(true);
 });

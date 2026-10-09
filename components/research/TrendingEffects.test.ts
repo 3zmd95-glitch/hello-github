@@ -181,6 +181,55 @@ afterEach(async () => {
 });
 
 describe("the trending-effects row", () => {
+  it("preserves the inspector's edited URL and provider while the initial effects read settles", async () => {
+    let releaseGet!: () => void;
+    getGate = new Promise<void>((resolve) => {
+      releaseGet = resolve;
+    });
+    try {
+      await mount("en");
+      expect(gets).toBe(1);
+      expect($("trending-effects")).toBeNull();
+      const inspector = $("format-inspector") as HTMLDetailsElement;
+      act(() => {
+        inspector.open = true;
+        inspector.dispatchEvent(new Event("toggle"));
+      });
+      const input = $("format-check-url") as HTMLInputElement;
+      const typedUrl = "https://www.instagram.com/reel/OwnerChosenReference/";
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+          input,
+          typedUrl,
+        );
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const aiDetails = inspector.querySelector("details")!;
+      act(() => {
+        aiDetails.open = true;
+        aiDetails.dispatchEvent(new Event("toggle"));
+      });
+      await settle();
+      act(() => {
+        const provider = $("ai-provider") as HTMLSelectElement;
+        provider.value = "claude";
+        provider.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      expect(($("ai-provider") as HTMLSelectElement).value).toBe("claude");
+
+      releaseGet();
+      await settle();
+      expect(chips()).toHaveLength(4);
+      expect($("format-inspector")).toBe(inspector);
+      expect(inspector.open).toBe(true);
+      expect(($("format-check-url") as HTMLInputElement).value).toBe(typedUrl);
+      expect(($("ai-provider") as HTMLSelectElement).value).toBe("claude");
+      expect(posts).toHaveLength(0);
+    } finally {
+      releaseGet();
+    }
+  });
+
   it("reports a failed formats-only scan while retaining its cards and followed snapshot", async () => {
     const at = new Date(Date.now() - 60_000).toISOString();
     const format = {

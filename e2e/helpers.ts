@@ -1,4 +1,54 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+
+/** Change workspace without changing or submitting the retained query. Skill-sheet panels have no workspace tabs. */
+export async function openDiscoverSearch(page: Page): Promise<void> {
+  if (!/^\/discover\/?$/.test(new URL(page.url()).pathname)) return;
+  const button = page.getByTestId("inspiration-search");
+  await expect(button).toBeVisible();
+  if ((await button.getAttribute("aria-pressed")) !== "true") await button.click();
+}
+
+async function openDetails(page: Page, testId: string): Promise<void> {
+  const details = page.getByTestId(testId);
+  if (
+    (await details.count()) &&
+    (await details.isVisible()) &&
+    (await details.getAttribute("open")) === null
+  )
+    await details.locator(":scope > summary").click();
+}
+
+/** Browse's genre grid is already visible; Search keeps the same category controls in a disclosure. */
+export async function openDiscoverCategories(page: Page): Promise<void> {
+  await openDetails(page, "search-categories");
+}
+
+export async function openDiscoverOptions(page: Page): Promise<void> {
+  await openDiscoverSearch(page);
+  const toggle = page.getByTestId("search-options-toggle");
+  if (await toggle.isVisible()) {
+    const details = toggle.locator("xpath=ancestor::details[1]");
+    if ((await details.getAttribute("open")) === null) await toggle.click();
+  }
+}
+
+export async function openDiscoverHistory(page: Page): Promise<void> {
+  await openDiscoverSearch(page);
+  await openDetails(page, "search-history");
+}
+
+/** Discover collapses filters on every viewport; the existing skill-sheet behavior stays unchanged. */
+export async function openResearchFilters(page: Page): Promise<void> {
+  const toggle = page.getByTestId("filters-toggle");
+  if ((await toggle.isVisible()) && (await toggle.getAttribute("aria-expanded")) !== "true")
+    await toggle.click();
+  await expect(page.getByTestId("filters")).toBeVisible();
+}
+
+export async function openBrowseTechniques(page: Page): Promise<void> {
+  await page.getByTestId("inspiration-explore").click();
+  await openDetails(page, "browse-techniques");
+}
 
 /**
  * Navigate to a fresh instance of the app: go to the path, clear any saved progress, then reload so the

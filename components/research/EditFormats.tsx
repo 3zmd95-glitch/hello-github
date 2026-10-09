@@ -13,9 +13,8 @@ import { REVIEWED_FORMAT_SEEDS } from "@/lib/formatSeeds";
 import { useT } from "@/lib/i18n";
 import { useStore } from "@/store";
 import type { ResearchItem } from "@/lib/research";
-import ResultCard from "./ResultCard";
+import { ResultPreview } from "./ResultCard";
 import SaveInspirationButton from "./SaveInspirationButton";
-import FormatSourceInspector from "./FormatSourceInspector";
 
 /** A specific visual recipe with its audio, kept separate from the generic technique vocabulary. */
 export default function EditFormats({
@@ -62,21 +61,21 @@ export default function EditFormats({
   return (
     <section
       aria-labelledby={headingId}
-      className="border-edge bg-panel/60 flex min-w-0 flex-col gap-3 border-2 p-3"
+      className="@container flex min-w-0 flex-col gap-3"
       data-testid="edit-formats"
       dir={lang === "ar" ? "rtl" : "ltr"}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 id={headingId} className="text-sm font-bold">
-            {t("formats.title")}
+          <h2 id={headingId} className="text-base font-bold">
+            {t("formats.browseTitle")}
           </h2>
-          <p className="text-muted mt-1 max-w-3xl text-xs">{t("formats.help")}</p>
+          <p className="text-muted mt-1 text-xs">{t("formats.browseHelp")}</p>
         </div>
         {onScan && (
           <button
             type="button"
-            className="px-btn px-btn-sm"
+            className="px-link text-xs disabled:opacity-50"
             disabled={scanning}
             onClick={onScan}
             data-testid="formats-scan"
@@ -85,7 +84,11 @@ export default function EditFormats({
           </button>
         )}
       </div>
-      <p role="status" className="text-muted text-xs" data-testid="formats-scan-status">
+      <p
+        role="status"
+        className={scanStatus ? "text-muted text-xs" : "sr-only"}
+        data-testid="formats-scan-status"
+      >
         {scanStatus ?? ""}
       </p>
       <div className="flex flex-wrap gap-2">
@@ -107,11 +110,6 @@ export default function EditFormats({
           {t("formats.followingCount", { n: followed.length })}
         </button>
       </div>
-      {!data?.formatVersion && (
-        <p className="text-muted text-xs" data-testid="formats-awaiting-scan">
-          {t("formats.awaitingScan")}
-        </p>
-      )}
       {!shown.length && (
         <p className="text-muted text-sm">
           {t(onlyFollowing ? "formats.emptyFollowing" : "formats.empty")}
@@ -137,20 +135,21 @@ export default function EditFormats({
           return (
             <article
               key={identity}
-              className="border-edge bg-panel grid min-w-0 gap-3 border-2 p-3 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]"
+              className="border-edge bg-panel grid min-w-0 gap-3 border-2 p-3 @min-[36rem]:grid-cols-[minmax(0,13rem)_minmax(0,1fr)]"
               data-testid="edit-format"
               data-key={format.key}
             >
-              <ul className="w-full max-w-sm min-w-0">
-                <ResultCard
-                  item={preview}
-                  testId="format-preview"
-                  action={<SaveInspirationButton item={preview} />}
-                />
-              </ul>
+              <div className="min-w-0">
+                <ResultPreview item={preview} testId="format-preview" />
+                {sample.handle && (
+                  <p className="text-muted mt-1 truncate text-xs" dir="ltr">
+                    {sample.handle}
+                  </p>
+                )}
+              </div>
               <div className="flex min-w-0 flex-col gap-2">
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <h3 className="min-w-0 text-sm font-bold break-words" dir="auto">
+                  <h3 className="min-w-0 text-base leading-snug font-bold break-words" dir="auto">
                     {localText(format.name)}
                   </h3>
                   <span
@@ -166,71 +165,35 @@ export default function EditFormats({
                     )}
                   </span>
                 </div>
-                <p className="text-ink-2 text-xs" dir="auto">
+                <p className="text-ink-2 text-xs break-words" dir="auto">
                   {localText(format.visualPattern)}
                 </p>
                 {format.audio && (
-                  <p className="text-xs" dir="auto">
+                  <p className="text-xs break-words" dir="auto">
                     <span className="font-bold">{t("formats.audio")}</span> {format.audio.title}
                     {format.audio.artist ? ` · ${format.audio.artist}` : ""}
                   </p>
                 )}
-                <p className="text-muted text-xs">
-                  {reviewed
-                    ? t("formats.reviewedNote")
-                    : t("formats.evidence", {
-                        creators: format.evidence.creators7d,
-                        posts: format.evidence.posts7d,
-                      })}{" "}
-                  {t("formats.checked", { date: day(format.lastChecked) })}
+                <p className="text-muted text-xs" data-testid="format-evidence-caveat">
+                  {t(reviewed ? "formats.cardReviewed" : "formats.cardUnverified")}
                 </p>
                 {freshness !== "recent" && (
                   <p className="text-muted text-xs" data-testid="format-freshness">
-                    {t(freshness === "unknown" ? "formats.dateUnknown" : "formats.stale")}
+                    {t(freshness === "unknown" ? "formats.cardDateUnknown" : "formats.cardOlder")}
                   </p>
                 )}
-                <div className="flex flex-wrap items-center gap-2">
-                  <a
-                    href={format.samples[0].url}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
                     className="px-btn px-btn-sm"
-                    data-testid="format-example"
-                  >
-                    {t("formats.watch")}
-                  </a>
-                  {format.audio?.url && (
-                    <a
-                      href={format.audio.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-link text-xs"
-                    >
-                      {t("formats.openAudio")}
-                    </a>
-                  )}
-                  <button
-                    type="button"
-                    className={`px-btn px-btn-sm ${isFollowed ? "px-btn-gold" : ""}`}
-                    aria-pressed={isFollowed}
-                    onClick={() => (isFollowed ? unfollow(identity) : follow(format))}
-                    data-testid="format-follow"
-                  >
-                    {t(isFollowed ? "formats.followed" : "formats.follow")}
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    className="px-link text-xs"
                     onClick={() => onPick(editFormatQuery(format, "examples"), "examples", format)}
                     data-testid="format-find-examples"
                   >
-                    {t("formats.findExamples")}
+                    {t("formats.primaryExamples")}
                   </button>
                   <button
                     type="button"
-                    className="px-link text-xs"
+                    className="px-btn px-btn-ghost px-btn-sm"
                     onClick={() =>
                       onPick(editFormatQuery(format, "tutorials"), "tutorials", format)
                     }
@@ -238,16 +201,48 @@ export default function EditFormats({
                   >
                     {t("formats.findTutorials")}
                   </button>
+                  <button
+                    type="button"
+                    className={`px-chip min-h-8 ${isFollowed ? "bg-gold text-bg" : ""}`}
+                    aria-pressed={isFollowed}
+                    aria-label={t(isFollowed ? "formats.followed" : "formats.follow")}
+                    onClick={() => (isFollowed ? unfollow(identity) : follow(format))}
+                    data-testid="format-follow"
+                  >
+                    {t(isFollowed ? "formats.cardFollowing" : "formats.follow")}
+                  </button>
                 </div>
                 <details className="text-xs" data-testid="format-sources">
                   <summary className="px-link cursor-pointer">
-                    {t("formats.sources", { n: format.samples.length })}
+                    {t("formats.cardSources", { n: format.samples.length })}
                   </summary>
+                  <p className="text-muted mt-2">
+                    {reviewed
+                      ? t("formats.reviewedNote")
+                      : t("formats.evidence", {
+                          creators: format.evidence.creators7d,
+                          posts: format.evidence.posts7d,
+                        })}{" "}
+                    {t("formats.checked", { date: day(format.lastChecked) })}
+                  </p>
                   {format.reviewNote && (
                     <p className="text-muted mt-2 text-xs" dir="auto">
                       {localText(format.reviewNote)}
                     </p>
                   )}
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <SaveInspirationButton item={preview} />
+                    {format.audio?.url && (
+                      <a
+                        href={format.audio.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-link"
+                      >
+                        {t("formats.openAudio")}
+                      </a>
+                    )}
+                  </div>
                   <ul className="mt-2 flex flex-col gap-2">
                     {format.samples.map((sample, index) => (
                       <li key={`${sample.url}-${index}`} className="border-edge border-s-2 ps-2">
@@ -257,6 +252,7 @@ export default function EditFormats({
                           rel="noopener noreferrer"
                           className="px-link break-words"
                           dir="auto"
+                          data-testid={index === 0 ? "format-example" : undefined}
                         >
                           {sample.handle ?? (sample.title || sample.platform)}
                         </a>
@@ -302,8 +298,15 @@ export default function EditFormats({
           );
         })}
       </div>
-      <FormatSourceInspector formats={formats} />
-      <p className="text-muted text-xs">{t("formats.local")}</p>
+      <details className="text-muted text-xs">
+        <summary className="px-link w-fit cursor-pointer">{t("formats.aboutResults")}</summary>
+        <p className="mt-2">{t("formats.local")}</p>
+        {!data?.formatVersion && (
+          <p className="mt-2" data-testid="formats-awaiting-scan">
+            {t("formats.awaitingScan")}
+          </p>
+        )}
+      </details>
     </section>
   );
 }

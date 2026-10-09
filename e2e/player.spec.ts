@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { freshState } from "./helpers";
+import { freshState, openDiscoverSearch } from "./helpers";
 
 // ▶ Watch here (round 32): the player sheet in a browser, from Discover's cards and from a saved reference in
 // the skill sheet. The Scout Worker is a fake at https://scout.test (like e2e/scout.spec.ts); the three
@@ -275,7 +275,9 @@ async function connectWorker(page: Page): Promise<void> {
 /** Discover, searched for "match cut": every card of the fake Worker is on the page. */
 async function openDiscover(page: Page): Promise<void> {
   await page.goto("/discover/");
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").fill("match cut");
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").press("Enter");
   for (const r of RESULTS) await expect(card(page, r.title)).toBeVisible();
 }

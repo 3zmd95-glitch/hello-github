@@ -1,4 +1,13 @@
 {
+  "layout.browse": "Browse",
+  "layout.search": "Search",
+  "layout.saved": "Saved ({n})",
+  "layout.genres": "Browse by category",
+  "layout.category": "Choose a category",
+  "layout.categoryActive": "Category: {name}",
+  "layout.searchHelp": "Find a specific effect, tutorial or creator across Instagram, TikTok and YouTube.",
+  "layout.searchOptions": "Program & search options",
+  "layout.techniques": "Explore editing techniques",
   "search.aiProvider": "AI provider",
   "search.aiBuiltin": "Built-in AI",
   "search.aiModel": "Model",

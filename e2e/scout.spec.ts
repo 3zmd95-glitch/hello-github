@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { freshState } from "./helpers";
+import {
+  freshState,
+  openDiscoverCategories,
+  openDiscoverHistory,
+  openDiscoverOptions,
+  openDiscoverSearch,
+  openResearchFilters,
+} from "./helpers";
 
 // Scout Worker (build plan 1.14) against a fake Worker at https://scout.test, stubbed with page.route.
 const WORKER = "https://scout.test";
@@ -233,13 +240,6 @@ async function openSkillSheet(page: Page): Promise<void> {
   await expect(page.getByTestId("skill-sheet")).toBeVisible();
 }
 
-/** On phones the filter chips sit behind a "Filters" button; on desktop they're always shown. */
-async function openFilters(page: Page): Promise<void> {
-  const toggle = page.getByTestId("filters-toggle");
-  if (await toggle.isVisible()) await toggle.click();
-  await expect(page.getByTestId("filters")).toBeVisible();
-}
-
 const card = (page: Page, platform: string) =>
   page.locator(`[data-testid="result-card"][data-platform="${platform}"]`);
 
@@ -263,6 +263,7 @@ async function blockPlatforms(page: Page): Promise<string[]> {
 
 test("without the Worker, Discover shows a one-line hint linking to Settings", async ({ page }) => {
   await freshState(page, "/discover/");
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").fill("match cut");
   await page.getByTestId("discover-topic").press("Enter");
   const hint = page.getByTestId("scout-not-configured");
@@ -282,6 +283,7 @@ test("Discover: Worker cards with thumbnails, tabs query their own platform, att
   await connectWorker(page);
 
   await page.goto("/discover/");
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").fill("match cut");
   await page.getByTestId("discover-topic").press("Enter");
 
@@ -349,7 +351,9 @@ test("Discover: Worker cards with thumbnails, tabs query their own platform, att
 
   // Reload: the tab is remembered on this device, and the same topic comes from the cache (no new call).
   await page.reload();
+  await openDiscoverSearch(page);
   await expect(page.getByTestId("tab-tt")).toHaveAttribute("aria-selected", "true");
+  await openDiscoverHistory(page);
   await page.getByTestId("discover-recent-topic").filter({ hasText: "match cut" }).click();
   await expect(tt).toBeVisible();
   await expect(tt.getByTestId("result-attached")).toBeVisible();
@@ -358,7 +362,7 @@ test("Discover: Worker cards with thumbnails, tabs query their own platform, att
 
   // "Saved only" shows the references already attached (from the store), not search results.
   await page.getByTestId("tab-all").click();
-  await openFilters(page);
+  await openResearchFilters(page);
   await page.getByTestId("filter-saved").click();
   await expect(page.getByTestId("result-card")).toHaveCount(1);
   await expect(card(page, "tt")).toContainText("Match cut in 10 seconds");
@@ -390,6 +394,7 @@ test("tabs switch sources: YouTube goes to the Data API when a key exists, the r
   const yt = await stubYoutube(page, { apiVid1: { title: "From the YouTube API", views: 1234 } });
 
   await page.goto("/discover/");
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").fill("match cut");
   await page.getByTestId("research-search").click();
 
@@ -418,12 +423,13 @@ test("tabs switch sources: YouTube goes to the Data API when a key exists, the r
   expect(calls.bodies).toHaveLength(2);
 
   // Recency goes to the Worker as timeRange (and to YouTube as publishedAfter on its tabs).
-  await openFilters(page);
+  await openResearchFilters(page);
   await page.getByTestId("filter-time-month").click();
   await expect.poll(() => calls.bodies.length).toBe(3);
   expect(calls.bodies[2]).toMatchObject({ platforms: ["ig"], timeRange: "month" });
 
   // Arabic first: sends lang "ar" and sorts Arabic titles to the top.
+  await openDiscoverOptions(page);
   await page.getByTestId("research-lang-en").click();
   await page.getByTestId("tab-tt").click();
   await expect(card(page, "tt").first()).toContainText("Match cut in 10 seconds");
@@ -492,15 +498,20 @@ async function search(page: Page, topic = "match cut"): Promise<void> {
   await page.getByTestId("discover-topic").press("Enter");
 }
 
+/** Choose one platform before the first query, without spending searches on the other platforms. */
+async function openDiscoverWithTab(page: Page, platform: "tt" | "yt"): Promise<void> {
+  await page.goto("/discover/");
+  await openDiscoverSearch(page);
+  await page.getByTestId(`tab-${platform}`).click();
+}
+
 test("tab badges: empty until that tab's own search has answered, then its own count", async ({
   page,
 }) => {
   const calls = await stubWorker(page);
   await connectWorker(page);
-  await page.goto("/discover/");
-
-  // Start on TikTok: only TikTok is asked, and only TikTok gets a badge (not one borrowed from All).
-  await page.getByTestId("tab-tt").click();
+  // Start on TikTok: only TikTok is asked, and only TikTok gets a badge.
+  await openDiscoverWithTab(page, "tt");
   await search(page);
   await expect(page.getByTestId("tab-tt")).toHaveAttribute("data-count", "2");
   await expect(page.getByTestId("tab-ig")).toHaveAttribute("data-count", "");
@@ -528,6 +539,7 @@ test("Search again after a Worker error asks again, and the cards replace the er
   const calls = await stubWorker(page, { fail: 3 });
   await connectWorker(page);
   await page.goto("/discover/");
+  await openDiscoverSearch(page);
   await search(page);
 
   // The same failure on every platform is said once.
@@ -554,6 +566,7 @@ test("All: a platform with nothing says so, with a link to search it there; the 
   await stubWorker(page, { empty: ["ig"] });
   await connectWorker(page);
   await page.goto("/discover/");
+  await openDiscoverSearch(page);
   await search(page);
 
   await expect(card(page, "tt").first()).toBeVisible();
@@ -567,12 +580,14 @@ test("All: a platform with nothing says so, with a link to search it there; the 
 
   // The "↗ ⋯" menu closes on a tap outside it, on Escape, and after following one of its links.
   const menu = page.getByTestId("research-more");
+  await openDiscoverOptions(page);
   await page.getByTestId("research-more-toggle").click();
   await expect(menu).toHaveAttribute("open", "");
   // (All is the tab farthest from the menu, which covers the others on a phone.)
   await page.getByTestId("tab-all").click();
   await expect(menu).not.toHaveAttribute("open");
 
+  await openDiscoverOptions(page);
   await page.getByTestId("research-more-toggle").click();
   await expect(menu).toHaveAttribute("open", "");
   await page.keyboard.press("Escape");
@@ -583,6 +598,7 @@ test("All: a platform with nothing says so, with a link to search it there; the 
     .route("https://www.tiktok.com/**", (route) =>
       route.fulfill({ status: 200, contentType: "text/html", body: "<p>TikTok</p>" }),
     );
+  await openDiscoverOptions(page);
   await page.getByTestId("research-more-toggle").click();
   const popup = page.waitForEvent("popup");
   await page.getByTestId("research-link-tt").click();
@@ -606,6 +622,7 @@ test("a YouTube key that's out of quota: YouTube comes from the Worker instead",
   );
 
   await page.goto("/discover/");
+  await openDiscoverSearch(page);
   await search(page);
   await expect(page.getByTestId("yt-error")).toHaveAttribute("data-error", "quota");
   await expect(card(page, "yt")).toContainText("Match cuts explained");
@@ -624,8 +641,7 @@ test("an expired TikTok thumbnail is swapped for a fresh one from oEmbed, asked 
 }) => {
   const calls = await stubWorker(page, { expired: ["/thumb/tt1.png"] });
   await connectWorker(page);
-  await page.goto("/discover/");
-  await page.getByTestId("tab-tt").click();
+  await openDiscoverWithTab(page, "tt");
   await search(page);
 
   const tt = card(page, "tt").filter({ hasText: "Match cut in 10 seconds" });
@@ -651,12 +667,12 @@ test("edit genre: a chip alone searches the genre's own words, in the search lan
 }) => {
   const calls = await stubWorker(page);
   await connectWorker(page);
-  await page.goto("/discover/");
   // One platform, so every search is exactly one Worker request.
-  await page.getByTestId("tab-tt").click();
+  await openDiscoverWithTab(page, "tt");
 
   // The row offers every built-in genre without wrapping: the tabs stay in view, the page never scrolls
   // sideways (the row itself does).
+  await openDiscoverCategories(page);
   await expect(page.locator('[data-testid="genres-chips"] [data-testid^="genre-"]')).toHaveCount(
     12,
   );
@@ -666,6 +682,7 @@ test("edit genre: a chip alone searches the genre's own words, in the search lan
   );
 
   // No topic typed: the chip is the whole search, in Arabic (the search language of an Arabic dashboard).
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "true");
   await expect(genreOn(page)).toHaveAttribute("data-genre", "cars");
@@ -694,12 +711,14 @@ test("edit genre: a chip alone searches the genre's own words, in the search lan
   );
 
   // EN as the search language: the genre's English words.
+  await openDiscoverOptions(page);
   await page.getByTestId("research-lang-en").click();
   await expect.poll(() => calls.bodies.length).toBe(2);
   expect(calls.bodies[1]).toMatchObject({ q: CARS_EN, platforms: ["tt"], lang: "en" });
   await expect(page.getByTestId("research-link-yt")).toHaveAttribute("href", /car%20edit$/);
 
   // A chip at the far end of the row is reachable too (the row scrolls to it).
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-gym").click();
   await expect(page.getByTestId("genre-gym")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "false");
@@ -714,15 +733,16 @@ test("edit genre: a topic and a genre are searched together, and only the topic 
 }) => {
   const calls = await stubWorker(page);
   await connectWorker(page);
-  await page.goto("/discover/");
-  await page.getByTestId("tab-tt").click();
+  await openDiscoverWithTab(page, "tt");
 
   // Typed but not submitted: the chip commits it as the topic, then searches topic + genre.
   await page.getByTestId("discover-topic").fill("drift");
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect(card(page, "tt").first()).toBeVisible();
   expect(asked(calls)).toEqual([`drift ${CARS_AR}`]);
   await expect(page.getByTestId("discover-topic")).toHaveValue("drift");
+  await openDiscoverHistory(page);
   await expect(page.getByTestId("discover-recent-topic")).toHaveText(["drift"]);
   await expect(page.getByTestId("research-link-tt")).toHaveAttribute(
     "href",
@@ -735,6 +755,7 @@ test("edit genre: a topic and a genre are searched together, and only the topic 
   );
 
   // Another genre replaces the first one.
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-food").click();
   await expect(page.getByTestId("genre-food")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "false");
@@ -745,18 +766,19 @@ test("edit genre: a topic and a genre are searched together, and only the topic 
   await search(page, "night");
   await expect.poll(() => calls.bodies.length).toBe(3);
   expect(asked(calls)[2]).toBe(`night ${FOOD_AR}`);
+  await openDiscoverOptions(page);
   await page.getByTestId("discover-program").selectOption("davinci");
   await expect.poll(() => calls.bodies.length).toBe(4);
   expect(asked(calls)[3]).toBe(`night ${FOOD_AR} DaVinci Resolve`);
   // Recent topics hold the typed topics only, never the genre's words.
+  await openDiscoverHistory(page);
   await expect(page.getByTestId("discover-recent-topic")).toHaveText(["night", "drift"]);
 });
 
 test("edit genre: tapping the active chip (or the ✕) clears it", async ({ page }) => {
   const calls = await stubWorker(page);
   await connectWorker(page);
-  await page.goto("/discover/");
-  await page.getByTestId("tab-tt").click();
+  await openDiscoverWithTab(page, "tt");
   const ttLink = page.getByTestId("research-link-tt");
   const plain = "https://www.tiktok.com/search?q=match%20cut";
 
@@ -764,12 +786,14 @@ test("edit genre: tapping the active chip (or the ✕) clears it", async ({ page
   await expect(card(page, "tt").first()).toBeVisible();
   await expect(page.getByTestId("genres-clear")).toHaveCount(0);
 
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => calls.bodies.length).toBe(2);
   expect(asked(calls)).toEqual(["match cut", `match cut ${CARS_AR}`]);
 
   // The same chip again: no genre, and the topic alone is searched (served from the cache, no credit).
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "false");
   await expect(genreOn(page)).toHaveAttribute("data-genre", "");
@@ -778,6 +802,7 @@ test("edit genre: tapping the active chip (or the ✕) clears it", async ({ page
   expect(calls.search).toBe(2);
 
   // The ✕ at the end of the row does the same, and only shows while a genre is on.
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-anime").click();
   await expect(page.getByTestId("genre-anime")).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => calls.bodies.length).toBe(3);
@@ -789,9 +814,11 @@ test("edit genre: tapping the active chip (or the ✕) clears it", async ({ page
 
   // A genre with no topic, cleared: nothing is left to search.
   await search(page, "");
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect.poll(() => calls.bodies.length).toBe(4);
   expect(asked(calls)[3]).toBe(CARS_AR);
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect(page.getByTestId("research-start")).toBeVisible();
   await expect(page.getByTestId("result-card")).toHaveCount(0);
@@ -804,6 +831,7 @@ test("Most popular: cards are ordered by their stats, and each shows its views o
   const calls = await stubWorker(page);
   await connectWorker(page);
   await page.goto("/discover/");
+  await openDiscoverSearch(page);
   await search(page);
 
   // Best match (the default): the order the sources gave, platforms interleaved.
@@ -833,7 +861,7 @@ test("Most popular: cards are ordered by their stats, and each shows its views o
 
   // Most popular: highest first (views, else likes x 10), the card without numbers last. Sorting is
   // local: no new Worker request, no credit.
-  await openFilters(page);
+  await openResearchFilters(page);
   await expect(page.getByTestId("filter-sort-relevance")).toHaveAttribute("aria-pressed", "true");
   await page.getByTestId("filter-sort-popular").click();
   await expect(page.getByTestId("filter-sort-popular")).toHaveAttribute("aria-pressed", "true");
@@ -896,8 +924,8 @@ test("Most popular with a YouTube key: the API is asked by view count, and its s
   await addYoutubeKey(page);
   const yt = await stubYoutube(page, VIDEOS);
 
-  await page.goto("/discover/");
-  await page.getByTestId("tab-yt").click();
+  await openDiscoverWithTab(page, "yt");
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect(titles(page)).toHaveText(["Quiet one", "Big one", "No numbers"]);
 
@@ -917,7 +945,7 @@ test("Most popular with a YouTube key: the API is asked by view count, and its s
   ).toHaveCount(0);
 
   // Most popular: a search of its own with order=viewCount, shown highest first.
-  await openFilters(page);
+  await openResearchFilters(page);
   await page.getByTestId("filter-sort-popular").click();
   await expect.poll(() => yt.search.length).toBe(2);
   expect(yt.search[1].searchParams.get("order")).toBe("viewCount");
@@ -946,15 +974,14 @@ test("YouTube statistics failing: the videos still show, without numbers; Search
   const api = { statsDown: true };
   const yt = await stubYoutube(page, VIDEOS, api);
 
-  await page.goto("/discover/");
-  await page.getByTestId("tab-yt").click();
+  await openDiscoverWithTab(page, "yt");
   await search(page, "car edit");
   await expect(titles(page)).toHaveText(["Quiet one", "Big one", "No numbers"]);
   expect(yt.stats).toHaveLength(1);
   await expect(page.getByTestId("yt-error")).toHaveCount(0);
   await expect(page.getByTestId("result-stats")).toHaveCount(0);
 
-  await openFilters(page);
+  await openResearchFilters(page);
   await page.getByTestId("filter-sort-popular").click();
   await expect.poll(() => yt.search.length).toBe(2);
   await expect(page.getByTestId("popular-note")).toBeVisible();
@@ -1068,18 +1095,19 @@ test("Most viewed this week: a picked genre shows the radar's rows of it in one 
   test.slow();
   const calls = await stubWorker(page, { feed: weekFeed });
   await connectWorker(page);
-  await page.goto("/discover/");
-  await page.getByTestId("tab-tt").click();
+  await openDiscoverWithTab(page, "tt");
 
   // Without a genre there is no strip, and the feed is never asked for.
   const week = page.getByTestId("genre-week");
   const weekTitles = week.getByTestId("result-title");
+  await openDiscoverCategories(page);
   await expect(page.getByTestId("genres-row")).toBeVisible();
   await expect(week).toHaveCount(0);
   expect(calls.trends).toEqual([]);
 
   // A genre: the app had no feed, so it reads the Worker's once (never runs the sources), and shows the
   // genre's Arabic rows (the search language), best first, the six first of those with a link.
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect(week).toBeVisible();
   await expect(week).toHaveAttribute("data-genre", "cars");
@@ -1132,23 +1160,28 @@ test("Most viewed this week: a picked genre shows the radar's rows of it in one 
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
 
   // English words, English rows; another genre, its own rows; a genre without rows, no strip at all.
+  await openDiscoverOptions(page);
   await page.getByTestId("research-lang-en").click();
   await expect(weekTitles).toHaveText(["Cinematic car edit"]);
+  await openDiscoverOptions(page);
   await page.getByTestId("research-lang-ar").click();
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-food").click();
   await expect(week).toHaveAttribute("data-genre", "food");
   await expect(weekTitles).toHaveText(["أحلى مطاعم الرياض"]);
   await expect(page.getByTestId("genre-week-source")).toHaveText(
     "من رادار الترند: بحث يوتيوب عن أكل ومطاعم",
   );
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-anime").click();
   await expect(page.getByTestId("genre-anime")).toHaveAttribute("aria-pressed", "true");
   await expect(week).toHaveCount(0);
 
   // Saved only hides it; off again, it is back.
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect(weekTitles).toHaveCount(6);
-  await openFilters(page);
+  await openResearchFilters(page);
   await page.getByTestId("filter-saved").click();
   await expect(page.getByTestId("filter-saved")).toHaveAttribute("aria-pressed", "true");
   await expect(week).toHaveCount(0);
@@ -1181,6 +1214,8 @@ test("/discover/?genre=cars opens with the Cars chip pressed and the genre's sea
 
   // The link the radar's genre chips open (lib/genres discoverGenreHref), loaded directly.
   await page.goto("/discover/?genre=cars");
+  await openDiscoverSearch(page);
+  await openDiscoverCategories(page);
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "true");
   await expect(picked).toHaveCount(1);
   await expect(genreOn(page)).toHaveAttribute("data-genre", "cars");
@@ -1200,15 +1235,23 @@ test("/discover/?genre=cars opens with the Cars chip pressed and the genre's sea
 
   // A reload does not force the genre again.
   await page.reload();
+  await openDiscoverSearch(page);
+  await openDiscoverCategories(page);
   await expect(page.getByTestId("genres-row")).toBeVisible();
   await expect(genreOn(page)).toHaveAttribute("data-genre", "");
   await expect(picked).toHaveCount(0);
   expect(calls.search).toBe(3);
 
-  // A chip at the far end of the row is brought into view (the row scrolls to it on a phone).
+  // A deep-linked category is named in the collapsed disclosure; its far-end chip remains reachable.
   await page.goto("/discover/?genre=gym");
+  await openDiscoverSearch(page);
+  const categories = page.getByTestId("search-categories");
+  await expect(categories).not.toHaveAttribute("open");
+  await expect(categories.locator(":scope > summary")).toContainText("جيم");
+  await openDiscoverCategories(page);
   const gym = page.getByTestId("genre-gym");
   await expect(gym).toHaveAttribute("aria-pressed", "true");
+  await gym.scrollIntoViewIfNeeded();
   await expect(gym).toBeInViewport();
   await expect.poll(() => calls.search).toBe(6);
   expect(asked(calls).slice(3)).toEqual(["ايديت جيم", "ايديت جيم", "ايديت جيم"]);
@@ -1216,6 +1259,7 @@ test("/discover/?genre=cars opens with the Cars chip pressed and the genre's sea
 
   // A genre the app does not know is ignored (and taken off the address too).
   await page.goto("/discover/?genre=drone");
+  await openDiscoverSearch(page);
   await expect(page).toHaveURL(/\/discover\/$/);
   await expect(page.getByTestId("research-start")).toBeVisible();
   await expect(picked).toHaveCount(0);
@@ -1231,6 +1275,7 @@ test("▶ Watch here: a post card's poster is a ▶ that opens the player, and I
   await stubWorker(page);
   await connectWorker(page);
   await page.goto("/discover/");
+  await openDiscoverSearch(page);
   await search(page);
 
   const tt = card(page, "tt").filter({ hasText: "Match cut in 10 seconds" });

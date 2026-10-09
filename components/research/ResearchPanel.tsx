@@ -173,6 +173,8 @@ export default function ResearchPanel({
   stickyTop = "max-md:-top-4",
   openGenre,
   onOpenInspiration,
+  workspace,
+  onSearch,
 }: {
   /** Skill sheet mode; omitted = Discover mode. */
   skill?: Skill;
@@ -184,8 +186,13 @@ export default function ResearchPanel({
    */
   openGenre?: string | null;
   onOpenInspiration?: (url: string) => void;
+  /** Presentation only: keep one query mounted while moving between Browse and Search. */
+  workspace?: "browse" | "search";
+  onSearch?: () => void;
 }) {
   const { t, L, lang, dir } = useT();
+  const browsing = !skill && workspace === "browse";
+  const organized = !skill && workspace !== undefined;
   const ids = useId();
   const [queryLang, setQueryLang] = useState<Lang>(lang);
   const [draft, setDraft] = useState<string | null>(null);
@@ -303,6 +310,31 @@ export default function ResearchPanel({
    * on, or off when it's the active chip (null = off). A genre alone never lands in the recent topics.
    */
   const pickGenre = (id: string | null) => {
+    if (browsing) {
+      // Browsing starts a new category, never a stale subscription brief or hidden filter.
+      setSearchMode("keyword");
+      setSubmittedMode("keyword");
+      setSubmittedAi(undefined);
+      setTopic("");
+      setDraft(null);
+      setFormatSearch(null);
+      setPicked(null);
+      setGenreId(id);
+      setPage(null);
+      setSavedOnly(false);
+      setProgramId("");
+      setHintOn(true);
+      setRecency("any");
+      setLength("any");
+      setSort("relevance");
+      setArFirst(false);
+      setEditing(false);
+      setTab("all");
+      writeTab("all");
+      setAttempt((a) => a + 1);
+      onSearch?.();
+      return;
+    }
     if (aiSearchBlocked) return;
     setFormatSearch(null);
     setEditing(false);
@@ -781,788 +813,879 @@ export default function ResearchPanel({
   // The strip's title sits one level under the screen's own: the page title in Discover, the skill's name
   // in the sheet.
   const WeekTitle = skill ? "h3" : "h2";
+  const SearchOptions = organized ? "details" : "div";
+
+  const genrePicker = (
+    <div
+      role="group"
+      aria-labelledby={`${ids}-genres`}
+      className={
+        browsing
+          ? "flex min-w-0 flex-col gap-3"
+          : "flex min-w-0 items-center gap-1.5 @3xl:items-start"
+      }
+      data-testid="genres-row"
+      data-genre={genre?.id ?? ""}
+    >
+      <span
+        id={`${ids}-genres`}
+        className={
+          browsing
+            ? "text-base font-bold"
+            : "text-muted shrink-0 text-xs whitespace-nowrap @3xl:pt-2.5"
+        }
+      >
+        {t(browsing ? "layout.genres" : "genres.label")}
+      </span>
+      <div
+        className={
+          browsing
+            ? "grid w-full grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
+            : "flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-0.5 pt-0.5 pb-1.5 @3xl:flex-wrap @3xl:overflow-x-visible"
+        }
+        data-testid="genres-chips"
+      >
+        {genres.map((g) => (
+          <button
+            key={g.id}
+            ref={(el) => {
+              if (el) chipRefs.current.set(g.id, el);
+              else chipRefs.current.delete(g.id);
+            }}
+            type="button"
+            className={
+              browsing
+                ? "border-edge bg-panel-2 hover:bg-panel-3 flex min-h-12 items-center gap-2 border-2 px-3 py-2 text-start text-sm font-bold"
+                : "px-fchip shrink-0"
+            }
+            aria-pressed={!browsing && g.id === genre?.id}
+            disabled={!browsing && aiSearchBlocked}
+            onClick={() => pickGenre(g.id)}
+            data-testid={`genre-${g.id}`}
+          >
+            <span aria-hidden>{g.emoji}</span>
+            <span dir="auto">{L(g.name)}</span>
+          </button>
+        ))}
+      </div>
+      {/* Outside the scrolling chips (at the far end), so it's in reach when the active chip isn't. */}
+      {genre && !browsing && (
+        <button
+          type="button"
+          className="px-fchip shrink-0"
+          aria-label={t("genres.clear")}
+          title={t("genres.clear")}
+          disabled={!browsing && aiSearchBlocked}
+          onClick={() => pickGenre(null)}
+          data-testid="genres-clear"
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <section
       className={`@container flex flex-col gap-3 ${skill ? "px-inset" : "px-card"}`}
       data-testid="research-panel"
     >
-      {/* ---------- search bar ---------- */}
-      <form
-        onSubmit={submit}
-        role="search"
-        className={`${barBg} border-edge z-10 flex flex-col gap-2 border-b-2 pt-1 pb-2.5 ${skill ? `max-md:sticky ${stickyTop}` : ""}`}
-        data-testid="research-bar"
-      >
-        {!skill && v2 && (
-          <div className="flex flex-col gap-2">
-            <div role="group" aria-label={t("search.modeLabel")} className="flex flex-wrap gap-2">
-              {(["keyword", "ai"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className="px-fchip"
-                  aria-pressed={searchMode === mode}
-                  data-testid={`discover-mode-${mode}`}
-                  onClick={() => setSearchMode(mode)}
-                >
-                  {t(mode === "ai" ? "search.aiMode" : "search.keywordMode")}
-                </button>
-              ))}
-            </div>
-            {searchMode === "ai" && <p className="text-ink-2 text-xs">{t("search.aiHelp")}</p>}
-            {searchMode === "ai" && (
-              <AiConnectionControls value={aiChoice} onChange={setAiChoice} />
-            )}
-          </div>
-        )}
-        <div className={`flex gap-2 ${searchMode === "ai" ? "flex-col sm:flex-row" : ""}`}>
-          {searchMode === "ai" && !skill ? (
-            <textarea
-              id={`${ids}-topic`}
-              rows={3}
-              maxLength={600}
-              dir="auto"
-              className="px-input min-w-0 flex-1 resize-y"
-              placeholder={t("search.aiPlaceholder")}
-              aria-label={t("research.topicLabel")}
-              value={draft ?? base}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault();
-                  e.currentTarget.form?.requestSubmit();
-                }
-              }}
-              data-testid="discover-topic"
-            />
-          ) : (
-            <input
-              id={`${ids}-topic`}
-              type="search"
-              enterKeyHint="search"
-              autoComplete="off"
-              dir="auto"
-              className="px-input flex-1"
-              placeholder={skill ? defaultName : t("discover.topicPh")}
-              aria-label={t("research.topicLabel")}
-              value={draft ?? base}
-              onChange={(e) => setDraft(e.target.value)}
-              data-testid={skill ? "research-topic" : "discover-topic"}
-              maxLength={200}
-            />
-          )}
-          <button
-            type="submit"
-            className="px-btn shrink-0 self-start"
-            data-testid="research-search"
-            disabled={aiSearchBlocked}
+      <div hidden={browsing}>
+        <div className="flex min-w-0 flex-col gap-3">
+          {organized && <p className="text-ink-2 text-sm">{t("layout.searchHelp")}</p>}
+          {/* ---------- search bar ---------- */}
+          <form
+            onSubmit={submit}
+            role="search"
+            className={`${barBg} border-edge z-10 flex flex-col gap-2 border-b-2 pt-1 pb-2.5 ${skill ? `max-md:sticky ${stickyTop}` : ""}`}
+            data-testid="research-bar"
           >
-            {t(searchMode === "ai" ? "search.aiSearch" : "research.searchBtn")}
-          </button>
-        </div>
-        {!skill && v2 && searchMode === "ai" && !genre && (
-          <div className="flex flex-wrap items-center gap-1.5" data-testid="discover-prompts">
-            <span className="text-muted text-xs">{t("search.trySpecific")}</span>
-            {discoverPrompts().map((prompt) => (
-              <button
-                type="button"
-                key={prompt.en}
-                className="px-fchip max-w-full text-start whitespace-normal"
-                onClick={() => {
-                  setDraft(L(prompt));
-                }}
-              >
-                {L(prompt)}
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {!v2 && (
-            <div
-              role="group"
-              aria-label={t("research.lang")}
-              className="border-edge bg-edge flex w-fit gap-[2px] rounded-[2px] border-2"
-            >
-              {(["ar", "en"] as const).map((l) => (
-                <button
-                  key={l}
-                  type="button"
-                  aria-pressed={queryLang === l}
-                  onClick={() => setQueryLang(l)}
-                  className={`num min-h-7 px-2.5 text-xs font-bold ${l === queryLang ? "bg-gold text-gold-ink" : "bg-panel-2 text-ink-2"}`}
-                  data-testid={`research-lang-${l}`}
+            {!skill && v2 && (
+              <div className="flex flex-col gap-2">
+                <div
+                  role="group"
+                  aria-label={t("search.modeLabel")}
+                  className="flex flex-wrap gap-2"
                 >
-                  {l.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          )}
-          {v2 && searchMode === "keyword" && (
-            <span className="text-muted text-xs" data-testid="discover-langs">
-              {t(
-                discoverLang(draft ?? base, arFirst) === "ar"
-                  ? "search.bothLangs"
-                  : "search.englishOnly",
-              )}
-            </span>
-          )}
-          {!skill && (
-            <select
-              className="px-input w-auto max-w-[12.5rem] py-1"
-              aria-label={t("discover.program")}
-              value={programId}
-              onChange={(e) => setProgramId(e.target.value)}
-              data-testid="discover-program"
-            >
-              <option value="">{t("discover.program")}</option>
-              {programs
-                .filter((p) => p.kind === "app")
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.icon} {L(p.name)}
-                  </option>
-                ))}
-            </select>
-          )}
-          {hint && (
-            <button
-              type="button"
-              className="px-fchip"
-              aria-pressed={hintOn}
-              title={t("research.hintToggle")}
-              onClick={() => setHintOn((v) => !v)}
-              data-testid="research-hint"
-            >
-              <span dir="ltr">+ {hint}</span>
-            </button>
-          )}
-          {skill && (override !== null || draft !== null) && (
-            <button
-              type="button"
-              className="px-fchip"
-              onClick={() => {
-                setOverride(null);
-                setDraft(null);
-              }}
-              data-testid="research-reset"
-            >
-              {t("research.reset")}
-            </button>
-          )}
-          {q && (
-            <details ref={moreRef} className="relative ms-auto" data-testid="research-more">
-              <summary
-                className="px-btn px-btn-ghost px-btn-sm list-none [&::-webkit-details-marker]:hidden"
-                aria-label={t("research.openOn")}
-                title={t("research.openOn")}
-                data-testid="research-more-toggle"
-              >
-                ↗ ⋯
-              </summary>
-              <div
-                className="border-edge bg-panel absolute end-0 top-full z-20 mt-1.5 flex flex-col gap-2 rounded-[2px] border-[3px] p-2 shadow-[4px_4px_0_var(--edge)]"
-                onClick={(e) => {
-                  // A link opens in a new tab (or the app): the menu's done.
-                  if ((e.target as Element).closest("a")) closeMore();
-                }}
-              >
-                <span className="text-muted text-xs whitespace-nowrap">{t("research.openOn")}</span>
-                <PlatformLinks q={q} idPrefix="research-link" stack />
-                {tag && (
-                  <a
-                    href={`https://www.instagram.com/explore/tags/${tag}/`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-link text-xs"
-                    dir="ltr"
-                    data-testid="research-link-ig-hashtag"
-                  >
-                    #{tag}
-                  </a>
+                  {(["keyword", "ai"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      className="px-fchip"
+                      aria-pressed={searchMode === mode}
+                      data-testid={`discover-mode-${mode}`}
+                      onClick={() => setSearchMode(mode)}
+                    >
+                      {t(mode === "ai" ? "search.aiMode" : "search.keywordMode")}
+                    </button>
+                  ))}
+                </div>
+                {searchMode === "ai" && <p className="text-ink-2 text-xs">{t("search.aiHelp")}</p>}
+                {searchMode === "ai" && (
+                  <AiConnectionControls value={aiChoice} onChange={setAiChoice} />
                 )}
               </div>
-            </details>
-          )}
-        </div>
-      </form>
-      {/* 🔥 This week's trending effects (Discover v2 only): a chip is a search for the effect, like a recent
-          topic, with the category cleared, and always in Keywords: a tap never spends an AI plan or the owner's
-          ChatGPT / Claude usage. */}
-      {!skill && v2 && scoutCfg && (
-        <TrendingEffects
-          config={scoutCfg}
-          onPickFormat={(query, intent, format) => {
-            setFormatSearch({ query, intent, format });
-            setSearchMode("keyword");
-            setSubmittedMode("keyword");
-            setSubmittedAi(undefined);
-            setGenreId(null);
-            setPage(null);
-            setSavedOnly(false);
-            setProgramId("");
-            setHintOn(false);
-            setTopic(query);
-            setDraft(null);
-            setPicked({ on: `|${query}`, pick: { exact: true } });
-            setEditing(true);
-            setArFirst(false);
-            setLength("any");
-            setRecency(intent === "tutorials" ? "any" : "month");
-            setSort("relevance");
-            pickTab("all");
-            setAttempt((a) => a + 1);
-            addRecentTopic(query);
-          }}
-          onPick={(query) => {
-            setFormatSearch(null);
-            setSearchMode("keyword");
-            setSubmittedMode("keyword");
-            setGenreId(null);
-            setTopic(query);
-            setDraft(null);
-            chipSearch();
-            setAttempt((a) => a + 1);
-            addRecentTopic(query);
-          }}
-        />
-      )}
-      {!skill && recentTopics.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-muted text-xs">{t("discover.recent")}</span>
-          {recentTopics.slice(0, 6).map((rt) => (
-            <button
-              key={rt}
-              type="button"
-              className="px-chip max-w-[12rem] overflow-hidden text-ellipsis"
-              dir="auto"
-              onClick={() => {
-                setFormatSearch(null);
-                setTopic(rt);
-                setDraft(null);
-                setEditing(false);
-                setAttempt((a) => a + 1);
-                addRecentTopic(rt);
-              }}
-              data-testid="discover-recent-topic"
-            >
-              {rt}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ---------- edit genre: one row that scrolls sideways (the tabs stay where they are); it wraps
-          only where the panel is wide ---------- */}
-      <div
-        role="group"
-        aria-labelledby={`${ids}-genres`}
-        className="flex min-w-0 items-center gap-1.5 @3xl:items-start"
-        data-testid="genres-row"
-        data-genre={genre?.id ?? ""}
-      >
-        <span
-          id={`${ids}-genres`}
-          className="text-muted shrink-0 text-xs whitespace-nowrap @3xl:pt-2.5"
-        >
-          {t("genres.label")}
-        </span>
-        <div
-          className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-0.5 pt-0.5 pb-1.5 @3xl:flex-wrap @3xl:overflow-x-visible"
-          data-testid="genres-chips"
-        >
-          {genres.map((g) => (
-            <button
-              key={g.id}
-              ref={(el) => {
-                if (el) chipRefs.current.set(g.id, el);
-                else chipRefs.current.delete(g.id);
-              }}
-              type="button"
-              className="px-fchip shrink-0"
-              aria-pressed={g.id === genre?.id}
-              disabled={aiSearchBlocked}
-              onClick={() => pickGenre(g.id)}
-              data-testid={`genre-${g.id}`}
-            >
-              <span aria-hidden>{g.emoji}</span>
-              <span dir="auto">{L(g.name)}</span>
-            </button>
-          ))}
-        </div>
-        {/* Outside the scrolling chips (at the far end), so it's in reach when the active chip isn't. */}
-        {genre && (
-          <button
-            type="button"
-            className="px-fchip shrink-0"
-            aria-label={t("genres.clear")}
-            title={t("genres.clear")}
-            disabled={aiSearchBlocked}
-            onClick={() => pickGenre(null)}
-            data-testid="genres-clear"
-          >
-            ✕
-          </button>
-        )}
-      </div>
-
-      {!skill && v2 && genre && (
-        <div className="flex min-w-0 flex-col gap-1.5" data-testid="discover-category-ideas">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-            <p className="text-ink-2 text-xs" data-testid="discover-category-focus">
-              <span className="font-bold">{t("search.genreFocus", { genre: L(genre.name) })}</span>
-              {hasDraftTopic && (
-                <span className="text-muted ms-2">{t("search.genreWithTopic")}</span>
-              )}
-            </p>
-            {hasDraftTopic && (
-              <button
-                type="button"
-                className="px-fchip max-w-full text-start whitespace-normal"
-                onClick={searchGenreOnly}
-                disabled={aiSearchBlocked}
-                data-testid="discover-category-only"
-              >
-                {t("search.genreOnly", { genre: L(genre.name) })}
-              </button>
             )}
-            {!base &&
-              !hasDraftTopic &&
-              !savedOnly &&
-              scoutCfg &&
-              GENRES.some((g) => g.id === genre.id) && (
-                <button
-                  type="button"
-                  className="px-fchip max-w-full text-start whitespace-normal"
-                  aria-pressed={showPage}
-                  onClick={() => setPage(showPage ? null : genre.id)}
-                  disabled={aiSearchBlocked}
-                  data-testid="discover-study-guides"
-                >
-                  {t("inspiration.studyGuides")}
-                </button>
+            <div className={`flex gap-2 ${searchMode === "ai" ? "flex-col sm:flex-row" : ""}`}>
+              {searchMode === "ai" && !skill ? (
+                <textarea
+                  id={`${ids}-topic`}
+                  rows={3}
+                  maxLength={600}
+                  dir="auto"
+                  className="px-input min-w-0 flex-1 resize-y"
+                  placeholder={t("search.aiPlaceholder")}
+                  aria-label={t("research.topicLabel")}
+                  value={draft ?? base}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      e.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                  data-testid="discover-topic"
+                />
+              ) : (
+                <input
+                  id={`${ids}-topic`}
+                  type="search"
+                  enterKeyHint="search"
+                  autoComplete="off"
+                  dir="auto"
+                  className="px-input flex-1"
+                  placeholder={skill ? defaultName : t("discover.topicPh")}
+                  aria-label={t("research.topicLabel")}
+                  value={draft ?? base}
+                  onChange={(e) => setDraft(e.target.value)}
+                  data-testid={skill ? "research-topic" : "discover-topic"}
+                  maxLength={200}
+                />
               )}
-          </div>
-          {discoverPrompts(genre.id).length > 0 && (
-            <>
-              <p className="text-muted text-xs">{t("search.genreIdeaHelp")}</p>
-              <div className="flex min-w-0 flex-wrap gap-1.5" data-testid="discover-prompts">
-                {discoverPrompts(genre.id).map((prompt) => (
+              <button
+                type="submit"
+                className="px-btn shrink-0 self-start"
+                data-testid="research-search"
+                disabled={aiSearchBlocked}
+              >
+                {t(searchMode === "ai" ? "search.aiSearch" : "research.searchBtn")}
+              </button>
+            </div>
+            {!skill && v2 && searchMode === "ai" && !genre && (
+              <div className="flex flex-wrap items-center gap-1.5" data-testid="discover-prompts">
+                <span className="text-muted text-xs">{t("search.trySpecific")}</span>
+                {discoverPrompts().map((prompt) => (
                   <button
                     type="button"
                     key={prompt.en}
                     className="px-fchip max-w-full text-start whitespace-normal"
-                    onClick={() => setDraft(L(prompt))}
+                    onClick={() => {
+                      setDraft(L(prompt));
+                    }}
                   >
                     {L(prompt)}
                   </button>
                 ))}
               </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {showPage && genre && scoutCfg && (
-        <CategoryPage
-          key={genre.id}
-          config={scoutCfg}
-          genre={genre}
-          onPickStyle={(style) => {
-            setFormatSearch(null);
-            // That style within the category, in Keywords (never an AI plan or the owner's subscription),
-            // like a 🔥 chip.
-            leaving.current = document.activeElement;
-            setSearchMode("keyword");
-            setSubmittedMode("keyword");
-            setTopic(style);
-            setDraft(null);
-            setPage(null);
-            chipSearch();
-            setAttempt((a) => a + 1);
-            addRecentTopic(style);
-          }}
-          onSearchAll={searchGenreOnly}
-          onOpenSkill={sheet.open}
-          renderAction={renderAction}
-          onUnavailable={pageUnavailable}
-          searchBlocked={aiSearchBlocked}
-        />
-      )}
-
-      {/* ---------- platform tabs ---------- */}
-      <div
-        role="tablist"
-        aria-label={t("research.tabs")}
-        className="grid grid-cols-4 gap-1.5"
-        onKeyDown={onTabKey}
-        hidden={showPage}
-      >
-        {RESEARCH_TABS.map((tb, i) => {
-          const active = tb === tab;
-          const count = shownCounts[tb];
-          return (
-            <button
-              key={tb}
-              ref={(el) => {
-                tabRefs.current[i] = el;
-              }}
-              type="button"
-              role="tab"
-              id={`${ids}-tab-${tb}`}
-              aria-selected={active}
-              aria-controls={`${ids}-panel`}
-              tabIndex={active ? 0 : -1}
-              onClick={() => pickTab(tb)}
-              className={`border-edge flex min-w-0 flex-col items-center gap-0.5 rounded-[2px] border-2 px-1 py-1.5 font-bold ${active ? "bg-gold text-gold-ink shadow-[3px_3px_0_var(--edge)]" : "bg-panel-2 text-ink-2 shadow-[2px_2px_0_var(--edge)]"}`}
-              data-testid={`tab-${tb}`}
-              data-count={count ?? ""}
-            >
-              <span className="flex items-center gap-1 text-sm leading-none">
-                <span aria-hidden>{TAB_GLYPH[tb]}</span>
-                {count !== undefined && (
-                  <span
-                    className="num border-edge bg-edge text-ink min-w-[18px] rounded-[2px] border px-1 text-[10px] leading-[16px]"
-                    data-testid="tab-count"
+            )}
+            <SearchOptions data-testid="search-options">
+              {organized && (
+                <summary
+                  data-testid="search-options-toggle"
+                  className="text-muted w-fit cursor-pointer text-xs"
+                >
+                  {t("layout.searchOptions")}
+                </summary>
+              )}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {!v2 && (
+                  <div
+                    role="group"
+                    aria-label={t("research.lang")}
+                    className="border-edge bg-edge flex w-fit gap-[2px] rounded-[2px] border-2"
                   >
-                    {count}
+                    {(["ar", "en"] as const).map((l) => (
+                      <button
+                        key={l}
+                        type="button"
+                        aria-pressed={queryLang === l}
+                        onClick={() => setQueryLang(l)}
+                        className={`num min-h-7 px-2.5 text-xs font-bold ${l === queryLang ? "bg-gold text-gold-ink" : "bg-panel-2 text-ink-2"}`}
+                        data-testid={`research-lang-${l}`}
+                      >
+                        {l.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {v2 && searchMode === "keyword" && (
+                  <span className="text-muted text-xs" data-testid="discover-langs">
+                    {t(
+                      discoverLang(draft ?? base, arFirst) === "ar"
+                        ? "search.bothLangs"
+                        : "search.englishOnly",
+                    )}
                   </span>
                 )}
-              </span>
-              <span className="w-full truncate text-center text-[11px]">{t(TAB_LABEL[tb])}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* ---------- filters ---------- */}
-      <div className="flex items-center gap-2" hidden={showPage}>
-        <button
-          type="button"
-          className="px-btn px-btn-ghost px-btn-sm md:hidden"
-          aria-expanded={filtersOpen}
-          aria-controls={`${ids}-filters`}
-          onClick={() => setFiltersOpen((o) => !o)}
-          data-testid="filters-toggle"
-        >
-          ⚙ {t("research.filters")}
-          {activeFilters > 0 && (
-            <span
-              className="num bg-gold text-gold-ink border-edge rounded-[2px] border px-1 text-[10px]"
-              data-testid="filters-count"
-            >
-              {activeFilters}
-            </span>
+                {!skill && (
+                  <select
+                    className="px-input w-auto max-w-[12.5rem] py-1"
+                    aria-label={t("discover.program")}
+                    value={programId}
+                    onChange={(e) => setProgramId(e.target.value)}
+                    data-testid="discover-program"
+                  >
+                    <option value="">{t("discover.program")}</option>
+                    {programs
+                      .filter((p) => p.kind === "app")
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.icon} {L(p.name)}
+                        </option>
+                      ))}
+                  </select>
+                )}
+                {hint && (
+                  <button
+                    type="button"
+                    className="px-fchip"
+                    aria-pressed={hintOn}
+                    title={t("research.hintToggle")}
+                    onClick={() => setHintOn((v) => !v)}
+                    data-testid="research-hint"
+                  >
+                    <span dir="ltr">+ {hint}</span>
+                  </button>
+                )}
+                {skill && (override !== null || draft !== null) && (
+                  <button
+                    type="button"
+                    className="px-fchip"
+                    onClick={() => {
+                      setOverride(null);
+                      setDraft(null);
+                    }}
+                    data-testid="research-reset"
+                  >
+                    {t("research.reset")}
+                  </button>
+                )}
+                {q && (
+                  <details ref={moreRef} className="relative ms-auto" data-testid="research-more">
+                    <summary
+                      className="px-btn px-btn-ghost px-btn-sm list-none [&::-webkit-details-marker]:hidden"
+                      aria-label={t("research.openOn")}
+                      title={t("research.openOn")}
+                      data-testid="research-more-toggle"
+                    >
+                      ↗ ⋯
+                    </summary>
+                    <div
+                      className="border-edge bg-panel absolute end-0 top-full z-20 mt-1.5 flex flex-col gap-2 rounded-[2px] border-[3px] p-2 shadow-[4px_4px_0_var(--edge)]"
+                      onClick={(e) => {
+                        // A link opens in a new tab (or the app): the menu's done.
+                        if ((e.target as Element).closest("a")) closeMore();
+                      }}
+                    >
+                      <span className="text-muted text-xs whitespace-nowrap">
+                        {t("research.openOn")}
+                      </span>
+                      <PlatformLinks q={q} idPrefix="research-link" stack />
+                      {tag && (
+                        <a
+                          href={`https://www.instagram.com/explore/tags/${tag}/`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-link text-xs"
+                          dir="ltr"
+                          data-testid="research-link-ig-hashtag"
+                        >
+                          #{tag}
+                        </a>
+                      )}
+                    </div>
+                  </details>
+                )}
+              </div>
+            </SearchOptions>
+          </form>
+          {!skill && recentTopics.length > 0 && (
+            <details open={organized ? undefined : true} data-testid="search-history">
+              <summary className="text-muted w-fit cursor-pointer text-xs">
+                {t("discover.recent")}
+              </summary>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {recentTopics.slice(0, 6).map((rt) => (
+                  <button
+                    key={rt}
+                    type="button"
+                    className="px-chip max-w-[12rem] overflow-hidden text-ellipsis"
+                    dir="auto"
+                    onClick={() => {
+                      setFormatSearch(null);
+                      setTopic(rt);
+                      setDraft(null);
+                      setEditing(false);
+                      setAttempt((a) => a + 1);
+                      addRecentTopic(rt);
+                    }}
+                    data-testid="discover-recent-topic"
+                  >
+                    {rt}
+                  </button>
+                ))}
+              </div>
+            </details>
           )}
-        </button>
-        {scoutCfg && v2 && discUsage && (
-          <p className="text-muted ms-auto text-xs" data-testid="discover-usage">
-            {/* Tavily's figure when the Worker could read it; YouTube's count either way. */}
-            {"used" in discUsage.tavily &&
-              `${t("search.usage", {
-                used: discUsage.tavily.used,
-                limit: discUsage.tavily.limit ?? "∞",
-              })} · `}
-            {t("search.usageYt", { used: discUsage.youtube.usedToday, cap: discUsage.youtube.cap })}
-          </p>
-        )}
-        {scoutCfg && !v2 && (
-          <p className="text-muted ms-auto text-xs" data-testid="scout-usage" data-count={usage}>
-            {t("research.scoutUsage", { n: usage, max: SCOUT_MONTHLY_FREE })}
-          </p>
-        )}
-      </div>
-      <div
-        id={`${ids}-filters`}
-        className={`${filtersOpen ? "flex" : "hidden"} flex-col gap-2.5 md:flex md:flex-row md:flex-wrap md:items-end md:gap-x-5`}
-        hidden={showPage}
-        data-testid="filters"
-      >
-        <ChipGroup label={t("research.recency")}>
-          {RECENCY.map((o) => (
-            <button
-              key={o.v}
-              type="button"
-              className="px-fchip"
-              aria-pressed={recency === o.v}
-              onClick={() => setRecency(o.v)}
-              data-testid={`filter-time-${o.v}`}
-            >
-              {t(o.label)}
-            </button>
-          ))}
-        </ChipGroup>
-        {showLength && (
-          <ChipGroup label={t("research.length")}>
-            {LENGTHS.map((o) => (
-              <button
-                key={o.v}
-                type="button"
-                className="px-fchip"
-                aria-pressed={length === o.v}
-                onClick={() => setLength(o.v)}
-                data-testid={`filter-len-${o.v}`}
-              >
-                {t(o.label)}
-              </button>
-            ))}
-          </ChipGroup>
-        )}
-        <ChipGroup label={t("research.sortLabel")}>
-          {SORTS.map((o) => (
-            <button
-              key={o.v}
-              type="button"
-              className="px-fchip"
-              aria-pressed={sort === o.v}
-              onClick={() => setSort(o.v)}
-              data-testid={`filter-sort-${o.v}`}
-            >
-              {t(o.label)}
-            </button>
-          ))}
-        </ChipGroup>
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            className="px-fchip"
-            aria-pressed={savedOnly}
-            onClick={() => setSavedOnly((v) => !v)}
-            data-testid="filter-saved"
-          >
-            {t("research.savedOnly")}
-          </button>
-          <button
-            type="button"
-            className="px-fchip"
-            aria-pressed={arFirst}
-            onClick={() => setArFirst((v) => !v)}
-            data-testid="filter-arfirst"
-          >
-            {t("research.arFirst")}
-          </button>
         </div>
       </div>
+      <div hidden={organized && !browsing}>
+        <div className="flex min-w-0 flex-col gap-6" data-testid="discover-browse">
+          {/* 🔥 This week's trending effects (Discover v2 only): a chip is a search for the effect, like a recent
+          topic, with the category cleared, and always in Keywords: a tap never spends an AI plan or the owner's
+          ChatGPT / Claude usage. */}
+          {!skill && v2 && scoutCfg && (
+            <TrendingEffects
+              config={scoutCfg}
+              compact={organized}
+              afterFormats={organized && browsing ? genrePicker : undefined}
+              onPickFormat={(query, intent, format) => {
+                onSearch?.();
+                setFormatSearch({ query, intent, format });
+                setSearchMode("keyword");
+                setSubmittedMode("keyword");
+                setSubmittedAi(undefined);
+                setGenreId(null);
+                setPage(null);
+                setSavedOnly(false);
+                setProgramId("");
+                setHintOn(false);
+                setTopic(query);
+                setDraft(null);
+                setPicked({ on: `|${query}`, pick: { exact: true } });
+                setEditing(true);
+                setArFirst(false);
+                setLength("any");
+                setRecency(intent === "tutorials" ? "any" : "month");
+                setSort("relevance");
+                pickTab("all");
+                setAttempt((a) => a + 1);
+                addRecentTopic(query);
+              }}
+              onPick={(query) => {
+                onSearch?.();
+                setSubmittedAi(undefined);
+                setProgramId("");
+                setPage(null);
+                setSavedOnly(false);
+                setPicked(null);
+                setFormatSearch(null);
+                setSearchMode("keyword");
+                setSubmittedMode("keyword");
+                setGenreId(null);
+                setTopic(query);
+                setDraft(null);
+                chipSearch();
+                setAttempt((a) => a + 1);
+                addRecentTopic(query);
+              }}
+            />
+          )}
+          {organized && browsing && (!v2 || !scoutCfg) && genrePicker}
+        </div>
+      </div>
+      <div hidden={browsing}>
+        <div className="flex min-w-0 flex-col gap-3">
+          {organized ? (
+            <details
+              data-testid="search-categories"
+              className="border-edge border-b pb-3"
+              onToggle={(event) => {
+                if (event.currentTarget.open && genre)
+                  chipRefs.current
+                    .get(genre.id)
+                    ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+              }}
+            >
+              <summary className="w-fit cursor-pointer text-sm font-bold">
+                {genre ? t("layout.categoryActive", { name: L(genre.name) }) : t("layout.category")}
+              </summary>
+              <div className="mt-3">{!browsing && genrePicker}</div>
+            </details>
+          ) : (
+            genrePicker
+          )}
 
-      {/* ---------- most viewed this week: one row of cards that scrolls sideways (the page never does:
+          {!skill && v2 && genre && (
+            <div className="flex min-w-0 flex-col gap-1.5" data-testid="discover-category-ideas">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+                <p className="text-ink-2 text-xs" data-testid="discover-category-focus">
+                  <span className="font-bold">
+                    {t("search.genreFocus", { genre: L(genre.name) })}
+                  </span>
+                  {hasDraftTopic && (
+                    <span className="text-muted ms-2">{t("search.genreWithTopic")}</span>
+                  )}
+                </p>
+                {hasDraftTopic && (
+                  <button
+                    type="button"
+                    className="px-fchip max-w-full text-start whitespace-normal"
+                    onClick={searchGenreOnly}
+                    disabled={aiSearchBlocked}
+                    data-testid="discover-category-only"
+                  >
+                    {t("search.genreOnly", { genre: L(genre.name) })}
+                  </button>
+                )}
+                {!base &&
+                  !hasDraftTopic &&
+                  !savedOnly &&
+                  scoutCfg &&
+                  GENRES.some((g) => g.id === genre.id) && (
+                    <button
+                      type="button"
+                      className="px-fchip max-w-full text-start whitespace-normal"
+                      aria-pressed={showPage}
+                      onClick={() => setPage(showPage ? null : genre.id)}
+                      disabled={aiSearchBlocked}
+                      data-testid="discover-study-guides"
+                    >
+                      {t("inspiration.studyGuides")}
+                    </button>
+                  )}
+              </div>
+              {discoverPrompts(genre.id).length > 0 && (
+                <>
+                  <p className="text-muted text-xs">{t("search.genreIdeaHelp")}</p>
+                  <div className="flex min-w-0 flex-wrap gap-1.5" data-testid="discover-prompts">
+                    {discoverPrompts(genre.id).map((prompt) => (
+                      <button
+                        type="button"
+                        key={prompt.en}
+                        className="px-fchip max-w-full text-start whitespace-normal"
+                        onClick={() => setDraft(L(prompt))}
+                      >
+                        {L(prompt)}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {showPage && genre && scoutCfg && (
+            <CategoryPage
+              key={genre.id}
+              config={scoutCfg}
+              genre={genre}
+              onPickStyle={(style) => {
+                setFormatSearch(null);
+                // That style within the category, in Keywords (never an AI plan or the owner's subscription),
+                // like a 🔥 chip.
+                leaving.current = document.activeElement;
+                setSearchMode("keyword");
+                setSubmittedMode("keyword");
+                setTopic(style);
+                setDraft(null);
+                setPage(null);
+                chipSearch();
+                setAttempt((a) => a + 1);
+                addRecentTopic(style);
+              }}
+              onSearchAll={searchGenreOnly}
+              onOpenSkill={sheet.open}
+              renderAction={renderAction}
+              onUnavailable={pageUnavailable}
+              searchBlocked={aiSearchBlocked}
+            />
+          )}
+
+          {/* ---------- platform tabs ---------- */}
+          <div
+            role="tablist"
+            aria-label={t("research.tabs")}
+            className="grid grid-cols-4 gap-1.5"
+            onKeyDown={onTabKey}
+            hidden={showPage}
+          >
+            {RESEARCH_TABS.map((tb, i) => {
+              const active = tb === tab;
+              const count = shownCounts[tb];
+              return (
+                <button
+                  key={tb}
+                  ref={(el) => {
+                    tabRefs.current[i] = el;
+                  }}
+                  type="button"
+                  role="tab"
+                  id={`${ids}-tab-${tb}`}
+                  aria-selected={active}
+                  aria-controls={`${ids}-panel`}
+                  tabIndex={active ? 0 : -1}
+                  onClick={() => pickTab(tb)}
+                  className={`border-edge flex min-w-0 flex-col items-center gap-0.5 rounded-[2px] border-2 px-1 py-1.5 font-bold ${active ? "bg-gold text-gold-ink shadow-[3px_3px_0_var(--edge)]" : "bg-panel-2 text-ink-2 shadow-[2px_2px_0_var(--edge)]"}`}
+                  data-testid={`tab-${tb}`}
+                  data-count={count ?? ""}
+                >
+                  <span className="flex items-center gap-1 text-sm leading-none">
+                    <span aria-hidden>{TAB_GLYPH[tb]}</span>
+                    {count !== undefined && (
+                      <span
+                        className="num border-edge bg-edge text-ink min-w-[18px] rounded-[2px] border px-1 text-[10px] leading-[16px]"
+                        data-testid="tab-count"
+                      >
+                        {count}
+                      </span>
+                    )}
+                  </span>
+                  <span className="w-full truncate text-center text-[11px]">
+                    {t(TAB_LABEL[tb])}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ---------- filters ---------- */}
+          <div className="flex items-center gap-2" hidden={showPage}>
+            <button
+              type="button"
+              className={`px-btn px-btn-ghost px-btn-sm ${organized ? "" : "md:hidden"}`}
+              aria-expanded={filtersOpen}
+              aria-controls={`${ids}-filters`}
+              onClick={() => setFiltersOpen((o) => !o)}
+              data-testid="filters-toggle"
+            >
+              ⚙ {t("research.filters")}
+              {activeFilters > 0 && (
+                <span
+                  className="num bg-gold text-gold-ink border-edge rounded-[2px] border px-1 text-[10px]"
+                  data-testid="filters-count"
+                >
+                  {activeFilters}
+                </span>
+              )}
+            </button>
+            {scoutCfg && v2 && discUsage && (
+              <p className="text-muted ms-auto text-xs" data-testid="discover-usage">
+                {/* Tavily's figure when the Worker could read it; YouTube's count either way. */}
+                {"used" in discUsage.tavily &&
+                  `${t("search.usage", {
+                    used: discUsage.tavily.used,
+                    limit: discUsage.tavily.limit ?? "∞",
+                  })} · `}
+                {t("search.usageYt", {
+                  used: discUsage.youtube.usedToday,
+                  cap: discUsage.youtube.cap,
+                })}
+              </p>
+            )}
+            {scoutCfg && !v2 && (
+              <p
+                className="text-muted ms-auto text-xs"
+                data-testid="scout-usage"
+                data-count={usage}
+              >
+                {t("research.scoutUsage", { n: usage, max: SCOUT_MONTHLY_FREE })}
+              </p>
+            )}
+          </div>
+          <div
+            id={`${ids}-filters`}
+            className={`${filtersOpen ? "flex" : "hidden"} flex-col gap-2.5 ${organized ? "" : "md:flex"} md:flex-row md:flex-wrap md:items-end md:gap-x-5`}
+            hidden={showPage}
+            data-testid="filters"
+          >
+            <ChipGroup label={t("research.recency")}>
+              {RECENCY.map((o) => (
+                <button
+                  key={o.v}
+                  type="button"
+                  className="px-fchip"
+                  aria-pressed={recency === o.v}
+                  onClick={() => setRecency(o.v)}
+                  data-testid={`filter-time-${o.v}`}
+                >
+                  {t(o.label)}
+                </button>
+              ))}
+            </ChipGroup>
+            {showLength && (
+              <ChipGroup label={t("research.length")}>
+                {LENGTHS.map((o) => (
+                  <button
+                    key={o.v}
+                    type="button"
+                    className="px-fchip"
+                    aria-pressed={length === o.v}
+                    onClick={() => setLength(o.v)}
+                    data-testid={`filter-len-${o.v}`}
+                  >
+                    {t(o.label)}
+                  </button>
+                ))}
+              </ChipGroup>
+            )}
+            <ChipGroup label={t("research.sortLabel")}>
+              {SORTS.map((o) => (
+                <button
+                  key={o.v}
+                  type="button"
+                  className="px-fchip"
+                  aria-pressed={sort === o.v}
+                  onClick={() => setSort(o.v)}
+                  data-testid={`filter-sort-${o.v}`}
+                >
+                  {t(o.label)}
+                </button>
+              ))}
+            </ChipGroup>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                className="px-fchip"
+                aria-pressed={savedOnly}
+                onClick={() => setSavedOnly((v) => !v)}
+                data-testid="filter-saved"
+              >
+                {t("research.savedOnly")}
+              </button>
+              <button
+                type="button"
+                className="px-fchip"
+                aria-pressed={arFirst}
+                onClick={() => setArFirst((v) => !v)}
+                data-testid="filter-arfirst"
+              >
+                {t("research.arFirst")}
+              </button>
+            </div>
+          </div>
+
+          {/* ---------- most viewed this week: one row of cards that scrolls sideways (the page never does:
           each card holds its own absolute bits) and snaps with its padding kept, so the first card's edge
           shows in Arabic too; what a keyword search found, so the line by the title says where it comes
           from ---------- */}
-      {genre && weekItems.length > 0 && (
-        <section
-          aria-labelledby={`${ids}-week`}
-          className="flex min-w-0 flex-col gap-1.5"
-          data-testid="genre-week"
-          data-genre={genre.id}
-          data-count={weekItems.length}
-        >
-          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <WeekTitle id={`${ids}-week`} className="text-sm" data-testid="genre-week-title">
-              {t("research.weekTitle")}
-            </WeekTitle>
-            <p className="text-muted text-xs" data-testid="genre-week-source">
-              {t("research.weekSource", { genre: L(genre.name) })}
-            </p>
-          </div>
-          <ul
-            aria-labelledby={`${ids}-week`}
-            className="flex min-w-0 snap-x scroll-px-1 gap-3 overflow-x-auto px-1 pt-0.5 pb-2"
-            data-testid="genre-week-list"
-          >
-            {weekItems.map((item) => (
-              <ResultCard
-                key={item.url}
-                item={item}
-                action={renderAction(item)}
-                testId="genre-week-item"
-                className="w-60 shrink-0 snap-start"
-              />
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* ---------- results ---------- */}
-      <div
-        role="tabpanel"
-        id={`${ids}-panel`}
-        aria-labelledby={`${ids}-tab-${tab}`}
-        aria-busy={loading}
-        className="flex flex-col gap-3"
-        hidden={showPage}
-        data-testid="research-results"
-        data-tab={tab}
-      >
-        {!skill && !q && !savedOnly && (
-          <div className="flex flex-col gap-2 py-3" data-testid="research-start">
-            <h2 className="text-base">{t("inspiration.starters")}</h2>
-            <p className="text-ink-2 text-sm">{t("inspiration.startersHelp")}</p>
-            <div className="flex flex-wrap gap-2">
-              {(
-                [
-                  ["inspiration.matchCuts", "match cut filmmaking"],
-                  ["inspiration.phoneFilms", "iPhone cinematic filmmaking"],
-                  ["inspiration.color", "cinematic color grading"],
-                  ["inspiration.product", "product commercial b roll"],
-                ] as const
-              ).map(([label, topic]) => (
-                <button
-                  key={label}
-                  type="button"
-                  className="px-fchip"
-                  onClick={() => {
-                    setSearchMode("keyword");
-                    setSubmittedMode("keyword");
-                    setSubmittedAi(undefined);
-                    setTopic(topic);
-                    setFormatSearch(null);
-                    setDraft(null);
-                    setPage(null);
-                    setEditing(true);
-                    setPicked(null);
-                    addRecentTopic(topic);
-                  }}
-                >
-                  {t(label)}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        {v2 && !skill && !q && !savedOnly && picks.length > 0 && (
-          <div className="flex flex-col gap-3" data-testid="discover-picks-latest">
-            <h2 className="text-sm font-bold">{t("search.picksLatest")}</h2>
-            {picks.slice(0, 3).map((saved) => (
-              <PicksSection
-                key={saved.topicKey}
-                topic={saved}
-                headingLevel="h3"
-                renderAction={renderAction}
-                showTopic
-              />
-            ))}
-          </div>
-        )}
-        {scoutHint && <Hint testId="scout-not-configured">{t("research.scoutNotConfigured")}</Hint>}
-        {ytHint && (!!q || !!skill) && <Hint testId="yt-no-key">{t("research.enableYt")}</Hint>}
-        {!v2 &&
-          scoutErrors.map((g) => (
-            <ScoutErrorLine
-              key={g.error.type}
-              error={g.error}
-              platforms={tab === "all" ? g.platforms : undefined}
-            />
-          ))}
-        {!v2 && !savedOnly && yt.status === "error" && <YoutubeErrorLine error={yt.error} />}
-        {!v2 && ytViaScout && (
-          <p className="text-muted text-xs" data-testid="yt-via-scout">
-            {t("research.ytViaScout")}
-          </p>
-        )}
-        {!v2 && lenNote && (
-          <p className="text-muted text-xs" data-testid="len-needs-key">
-            {t("research.lenNeedsKey")}
-          </p>
-        )}
-        {popularNote && (
-          <p className="text-muted text-xs" data-testid="popular-note">
-            {t("research.popularNote")}
-          </p>
-        )}
-
-        {(!v2 || savedOnly) && (items.length > 0 || (loading && !savedOnly)) && (
-          <ul
-            className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3"
-            aria-label={t("research.results")}
-            data-testid="result-list"
-          >
-            {items.map((item) => (
-              <ResultCard key={item.url} item={item} action={renderAction(item)} />
-            ))}
-            {loading &&
-              !savedOnly &&
-              Array.from({ length: items.length > 0 ? 2 : 3 }, (_, i) => (
-                <SkeletonCard key={i} vertical={tab === "tt" || tab === "ig" || i % 3 === 1} />
-              ))}
-          </ul>
-        )}
-
-        {!v2 &&
-          noneOn.map((p) => (
-            <div
-              key={p}
-              className="text-muted flex flex-wrap items-center gap-2 text-xs"
-              data-testid={`research-none-${p}`}
+          {genre && weekItems.length > 0 && (
+            <section
+              aria-labelledby={`${ids}-week`}
+              className="flex min-w-0 flex-col gap-1.5"
+              data-testid="genre-week"
+              data-genre={genre.id}
+              data-count={weekItems.length}
             >
-              <span>{t(NONE_ON[p])}</span>
-              <PlatformLinks q={q} idPrefix={`none-link-${p}`} only={p} />
-            </div>
-          ))}
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <WeekTitle id={`${ids}-week`} className="text-sm" data-testid="genre-week-title">
+                  {t("research.weekTitle")}
+                </WeekTitle>
+                <p className="text-muted text-xs" data-testid="genre-week-source">
+                  {t("research.weekSource", { genre: L(genre.name) })}
+                </p>
+              </div>
+              <ul
+                aria-labelledby={`${ids}-week`}
+                className="flex min-w-0 snap-x scroll-px-1 gap-3 overflow-x-auto px-1 pt-0.5 pb-2"
+                data-testid="genre-week-list"
+              >
+                {weekItems.map((item) => (
+                  <ResultCard
+                    key={item.url}
+                    item={item}
+                    action={renderAction(item)}
+                    testId="genre-week-item"
+                    className="w-60 shrink-0 snap-start"
+                  />
+                ))}
+              </ul>
+            </section>
+          )}
 
-        {v2 && !savedOnly && disc.status === "error" && <ScoutErrorLine error={disc.error} />}
-        {v2 && !savedOnly && loading && (
-          <div className="flex flex-col gap-2" data-testid="discover-loading">
-            <p className="text-muted text-xs">
-              {t(
-                submittedMode === "keyword" && discoverLang(base, arFirst) !== "ar"
-                  ? "search.searchingEn"
-                  : "search.searching",
-              )}
-            </p>
-            <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
-              {Array.from({ length: 3 }, (_, i) => (
-                <SkeletonCard key={i} vertical={i % 3 !== 1} />
-              ))}
-            </ul>
-          </div>
-        )}
-        {/* Also on an empty tab: the understood line, "Not this?" and why a platform failed stay above the
-            empty box. A new search starts with its off-topic posts hidden and its sections closed. */}
-        {v2 && !savedOnly && disc.status === "ok" && (
-          <DiscoverSections
-            key={disc.key}
-            answer={disc.answer}
-            q={discoverReq?.q ?? q}
-            tab={tab}
-            sort={sort}
-            arFirst={arFirst}
-            bothLangs={discoverLang(base, arFirst) === "ar"}
-            headingLevel={skill ? "h3" : "h2"}
-            renderAction={renderAction}
-            onAlternative={onAlternative}
-            onRetry={onRetry}
-            picks={activeFormat ? undefined : picksFor(picks, disc.answer.topicKey)}
-            formatSearch={
-              activeFormat
-                ? { name: activeFormat.format.name, intent: activeFormat.intent }
-                : undefined
-            }
-            sourceChecking={formatSources.checking}
-            sourceExcluded={sourceChecked?.excluded}
-          />
-        )}
-
-        {showEmpty && (
+          {/* ---------- results ---------- */}
           <div
-            className="px-tile border-edge flex flex-col items-center gap-2 rounded-[2px] border-2 border-dashed p-4 text-center"
-            data-testid="research-empty"
+            role="tabpanel"
+            id={`${ids}-panel`}
+            aria-labelledby={`${ids}-tab-${tab}`}
+            aria-busy={loading}
+            className="flex flex-col gap-3"
+            hidden={showPage}
+            data-testid="research-results"
+            data-tab={tab}
           >
-            <p
-              className="bg-panel-2 text-ink-2 rounded-[2px] px-2 py-1 text-sm"
-              data-testid={!savedOnly && activeFormat ? "format-search-empty" : undefined}
-            >
-              {savedOnly
-                ? t("research.emptySaved")
-                : activeFormat
-                  ? t("formats.searchEmpty")
-                  : t("research.empty")}
-            </p>
-            {!savedOnly && q && <PlatformLinks q={q} idPrefix="empty-link" only={tab} />}
-          </div>
-        )}
-      </div>
+            {!skill && !q && !savedOnly && (
+              <div className="flex flex-col gap-2 py-3" data-testid="research-start">
+                <h2 className="text-base">{t("inspiration.starters")}</h2>
+                <p className="text-ink-2 text-sm">{t("inspiration.startersHelp")}</p>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      ["inspiration.matchCuts", "match cut filmmaking"],
+                      ["inspiration.phoneFilms", "iPhone cinematic filmmaking"],
+                      ["inspiration.color", "cinematic color grading"],
+                      ["inspiration.product", "product commercial b roll"],
+                    ] as const
+                  ).map(([label, topic]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      className="px-fchip"
+                      onClick={() => {
+                        setSearchMode("keyword");
+                        setSubmittedMode("keyword");
+                        setSubmittedAi(undefined);
+                        setTopic(topic);
+                        setFormatSearch(null);
+                        setDraft(null);
+                        setPage(null);
+                        setEditing(true);
+                        setPicked(null);
+                        addRecentTopic(topic);
+                      }}
+                    >
+                      {t(label)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {v2 && !skill && !q && !savedOnly && picks.length > 0 && (
+              <div className="flex flex-col gap-3" data-testid="discover-picks-latest">
+                <h2 className="text-sm font-bold">{t("search.picksLatest")}</h2>
+                {picks.slice(0, 3).map((saved) => (
+                  <PicksSection
+                    key={saved.topicKey}
+                    topic={saved}
+                    headingLevel="h3"
+                    renderAction={renderAction}
+                    showTopic
+                  />
+                ))}
+              </div>
+            )}
+            {scoutHint && (
+              <Hint testId="scout-not-configured">{t("research.scoutNotConfigured")}</Hint>
+            )}
+            {ytHint && (!!q || !!skill) && <Hint testId="yt-no-key">{t("research.enableYt")}</Hint>}
+            {!v2 &&
+              scoutErrors.map((g) => (
+                <ScoutErrorLine
+                  key={g.error.type}
+                  error={g.error}
+                  platforms={tab === "all" ? g.platforms : undefined}
+                />
+              ))}
+            {!v2 && !savedOnly && yt.status === "error" && <YoutubeErrorLine error={yt.error} />}
+            {!v2 && ytViaScout && (
+              <p className="text-muted text-xs" data-testid="yt-via-scout">
+                {t("research.ytViaScout")}
+              </p>
+            )}
+            {!v2 && lenNote && (
+              <p className="text-muted text-xs" data-testid="len-needs-key">
+                {t("research.lenNeedsKey")}
+              </p>
+            )}
+            {popularNote && (
+              <p className="text-muted text-xs" data-testid="popular-note">
+                {t("research.popularNote")}
+              </p>
+            )}
 
+            {(!v2 || savedOnly) && (items.length > 0 || (loading && !savedOnly)) && (
+              <ul
+                className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3"
+                aria-label={t("research.results")}
+                data-testid="result-list"
+              >
+                {items.map((item) => (
+                  <ResultCard key={item.url} item={item} action={renderAction(item)} />
+                ))}
+                {loading &&
+                  !savedOnly &&
+                  Array.from({ length: items.length > 0 ? 2 : 3 }, (_, i) => (
+                    <SkeletonCard key={i} vertical={tab === "tt" || tab === "ig" || i % 3 === 1} />
+                  ))}
+              </ul>
+            )}
+
+            {!v2 &&
+              noneOn.map((p) => (
+                <div
+                  key={p}
+                  className="text-muted flex flex-wrap items-center gap-2 text-xs"
+                  data-testid={`research-none-${p}`}
+                >
+                  <span>{t(NONE_ON[p])}</span>
+                  <PlatformLinks q={q} idPrefix={`none-link-${p}`} only={p} />
+                </div>
+              ))}
+
+            {v2 && !savedOnly && disc.status === "error" && <ScoutErrorLine error={disc.error} />}
+            {v2 && !savedOnly && loading && (
+              <div className="flex flex-col gap-2" data-testid="discover-loading">
+                <p className="text-muted text-xs">
+                  {t(
+                    submittedMode === "keyword" && discoverLang(base, arFirst) !== "ar"
+                      ? "search.searchingEn"
+                      : "search.searching",
+                  )}
+                </p>
+                <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
+                  {Array.from({ length: 3 }, (_, i) => (
+                    <SkeletonCard key={i} vertical={i % 3 !== 1} />
+                  ))}
+                </ul>
+              </div>
+            )}
+            {/* Also on an empty tab: the understood line, "Not this?" and why a platform failed stay above the
+            empty box. A new search starts with its off-topic posts hidden and its sections closed. */}
+            {v2 && !savedOnly && disc.status === "ok" && (
+              <DiscoverSections
+                key={disc.key}
+                answer={disc.answer}
+                q={discoverReq?.q ?? q}
+                tab={tab}
+                sort={sort}
+                arFirst={arFirst}
+                bothLangs={discoverLang(base, arFirst) === "ar"}
+                headingLevel={skill ? "h3" : "h2"}
+                renderAction={renderAction}
+                onAlternative={onAlternative}
+                onRetry={onRetry}
+                picks={activeFormat ? undefined : picksFor(picks, disc.answer.topicKey)}
+                formatSearch={
+                  activeFormat
+                    ? { name: activeFormat.format.name, intent: activeFormat.intent }
+                    : undefined
+                }
+                sourceChecking={formatSources.checking}
+                sourceExcluded={sourceChecked?.excluded}
+              />
+            )}
+
+            {showEmpty && (
+              <div
+                className="px-tile border-edge flex flex-col items-center gap-2 rounded-[2px] border-2 border-dashed p-4 text-center"
+                data-testid="research-empty"
+              >
+                <p
+                  className="bg-panel-2 text-ink-2 rounded-[2px] px-2 py-1 text-sm"
+                  data-testid={!savedOnly && activeFormat ? "format-search-empty" : undefined}
+                >
+                  {savedOnly
+                    ? t("research.emptySaved")
+                    : activeFormat
+                      ? t("formats.searchEmpty")
+                      : t("research.empty")}
+                </p>
+                {!savedOnly && q && <PlatformLinks q={q} idPrefix="empty-link" only={tab} />}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
       {skill && (
         <details className="border-edge border-t-2 pt-2.5" data-testid="paste-disclosure">
           <summary className="w-fit text-sm font-bold" data-testid="paste-toggle">

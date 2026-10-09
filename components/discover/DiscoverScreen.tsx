@@ -1,7 +1,7 @@
 "use client";
 
 import ResearchPanel from "@/components/research/ResearchPanel";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "@/lib/i18n";
 import { useStore } from "@/store";
 import InspirationLibrary from "./InspirationLibrary";
@@ -14,8 +14,21 @@ export default function DiscoverScreen() {
   const openGenre = useGenreLink();
   const tiktok = useTikTokReturn();
   const count = useStore((s) => s.inspirations.length);
-  const [view, setView] = useState<"explore" | "practice">("explore");
+  const [view, setView] = useState<"browse" | "search" | "practice">("browse");
+  const [openedGenre, setOpenedGenre] = useState<string | null>(null);
+  if (openGenre && openGenre !== openedGenre) {
+    setOpenedGenre(openGenre);
+    setView("search");
+  }
   const [focusUrl, setFocusUrl] = useState<string>();
+  const searchButton = useRef<HTMLButtonElement>(null);
+  const focusSearch = useRef(false);
+  useEffect(() => {
+    if (view !== "search" || !focusSearch.current) return;
+    focusSearch.current = false;
+    searchButton.current?.focus();
+    searchButton.current?.scrollIntoView({ block: "nearest" });
+  }, [view]);
   return (
     <>
       <header className="flex flex-col gap-1">
@@ -27,19 +40,29 @@ export default function DiscoverScreen() {
             t(tiktok === "connected" ? "search.tiktokConnected" : "search.tiktokConnectFailed")}
         </p>
       </header>
-      <div role="group" aria-label={t("discover.title")} className="flex flex-wrap gap-2">
+      <div role="group" aria-label={t("discover.title")} className="grid grid-cols-3 gap-2">
         <button
           type="button"
-          className={`px-btn ${view === "explore" ? "px-btn-gold" : "px-btn-ghost"}`}
-          aria-pressed={view === "explore"}
-          onClick={() => setView("explore")}
+          className={`px-btn min-w-0 justify-center ${view === "browse" ? "px-btn-gold" : "px-btn-ghost"}`}
+          aria-pressed={view === "browse"}
+          onClick={() => setView("browse")}
           data-testid="inspiration-explore"
         >
-          {t("inspiration.explore")}
+          {t("layout.browse")}
         </button>
         <button
           type="button"
-          className={`px-btn ${view === "practice" ? "px-btn-gold" : "px-btn-ghost"}`}
+          className={`px-btn min-w-0 justify-center ${view === "search" ? "px-btn-gold" : "px-btn-ghost"}`}
+          aria-pressed={view === "search"}
+          onClick={() => setView("search")}
+          data-testid="inspiration-search"
+          ref={searchButton}
+        >
+          {t("layout.search")}
+        </button>
+        <button
+          type="button"
+          className={`px-btn min-w-0 justify-center ${view === "practice" ? "px-btn-gold" : "px-btn-ghost"}`}
           aria-pressed={view === "practice"}
           onClick={() => {
             setFocusUrl(undefined);
@@ -47,11 +70,16 @@ export default function DiscoverScreen() {
           }}
           data-testid="inspiration-library-open"
         >
-          {t("inspiration.library", { n: count })}
+          {t("layout.saved", { n: count })}
         </button>
       </div>
-      <div hidden={view !== "explore"}>
+      <div hidden={view === "practice"}>
         <ResearchPanel
+          workspace={view === "browse" ? "browse" : "search"}
+          onSearch={() => {
+            focusSearch.current = true;
+            setView("search");
+          }}
           stickyTop="max-md:top-[calc(59px+env(safe-area-inset-top,0px))]"
           openGenre={openGenre}
           onOpenInspiration={(url) => {
@@ -61,7 +89,7 @@ export default function DiscoverScreen() {
         />
       </div>
       {view === "practice" && (
-        <InspirationLibrary focusUrl={focusUrl} onExplore={() => setView("explore")} />
+        <InspirationLibrary focusUrl={focusUrl} onExplore={() => setView("browse")} />
       )}
     </>
   );

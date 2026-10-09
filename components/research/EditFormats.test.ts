@@ -71,9 +71,10 @@ describe("edit format discovery cards", () => {
     expect(card().textContent).toContain("3 identified accounts · 4 indexed posts");
     expect(card().textContent).toContain("actual caption, audio and video have not been verified");
     expect(card().querySelector('[data-testid="format-preview"]')).not.toBeNull();
-    expect(card().querySelector('[data-testid="format-preview"]')!.parentElement!.tagName).toBe(
-      "UL",
-    );
+    expect(
+      card().querySelector('[data-testid="format-preview"] [data-testid="result-play"]'),
+    ).not.toBeNull();
+    expect(card().querySelector('[data-testid="result-open"]')).toBeNull();
     const link = card().querySelector<HTMLAnchorElement>('[data-testid="format-example"]')!;
     expect(link.href).toBe(FORMAT.samples[0].url);
     expect(link.rel).toBe("noopener noreferrer");
@@ -109,7 +110,7 @@ describe("edit format discovery cards", () => {
     render({ status: "ok", items: [] });
     expect(host.querySelector('[data-testid="formats-awaiting-scan"]')).not.toBeNull();
     expect(host.textContent).toContain("Reviewed reference");
-    expect(host.textContent).toContain("Current momentum is unknown");
+    expect(host.textContent).toContain("current momentum unconfirmed");
     expect(host.textContent).not.toContain("0 identified accounts");
     expect(host.textContent).toContain(REVIEWED_FORMAT_SEEDS[0].audio!.title);
   });
@@ -121,6 +122,55 @@ describe("edit format discovery cards", () => {
     expect(card().textContent).toContain("مونتاج تكرار الشخص");
     expect(card().textContent).toContain("TRIP BABY");
     expect(button("format-follow", card()).textContent).toBe("تابع الفكرة");
+    expect(button("format-find-examples", card()).textContent).toBe("شوف أمثلة");
+  });
+
+  it("keeps three clear browse actions and honest caveats visible while evidence and save controls start closed", () => {
+    render();
+    const details = card().querySelector<HTMLDetailsElement>('[data-testid="format-sources"]')!;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain("3 identified accounts · 4 indexed posts");
+    expect(button("inspiration-save", card()).closest("details")).toBe(details);
+    expect(
+      card().querySelector('[data-testid="format-evidence-state"]')!.closest("details"),
+    ).toBeNull();
+    const caveat = card().querySelector('[data-testid="format-evidence-caveat"]')!;
+    expect(caveat.textContent).toContain("has not been visually verified");
+    expect(caveat.closest("details")).toBeNull();
+    const actions = [...card().querySelectorAll("button")].filter(
+      (element) => !element.closest("details") && element.dataset.testid !== "result-play",
+    );
+    expect(actions.map((element) => element.textContent)).toEqual([
+      "Find examples",
+      "Learn this edit",
+      "Follow format",
+    ]);
+    expect(card().querySelectorAll("h3")).toHaveLength(1);
+    expect(host.querySelector('[data-testid="format-inspector"]')).toBeNull();
+    act(() => details.querySelector("summary")!.click());
+    expect(details.open).toBe(true);
+    act(() => button("inspiration-save", details).click());
+    expect(
+      useStore
+        .getState()
+        .inspirations.some((entry) => entry.ref.url === "https://www.instagram.com/p/TEST"),
+    ).toBe(true);
+  });
+
+  it("leaves freshness warnings visible even when evidence details are collapsed", () => {
+    const old = new Date(Date.now() - 20 * 86_400_000).toISOString();
+    render({
+      ...DATA,
+      formats: [
+        { ...FORMAT, lastChecked: old, evidence: { ...FORMAT.evidence, latestPostAt: old } },
+      ],
+    });
+    const warning = card().querySelector('[data-testid="format-freshness"]')!;
+    expect(warning.textContent).toContain("Older evidence");
+    expect(warning.closest("details")).toBeNull();
+    expect(card().querySelector('[data-testid="format-evidence-state"]')!.textContent).toBe(
+      "Candidate format",
+    );
   });
 
   it("judges a new manual scan at its check time after the panel has been open for a while", () => {

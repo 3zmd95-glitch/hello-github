@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { freshState } from "./helpers";
+import {
+  freshState,
+  openDiscoverOptions,
+  openDiscoverSearch,
+  openResearchFilters,
+  openDiscoverCategories,
+} from "./helpers";
 
 // Same DaVinci skill used by mastery.spec.ts: "Smart Bins + Keywords" / "الـ Smart Bins والكلمات المفتاحية",
 // already shipped with real yt/tt/ig/web refs, under Editing → davinci.
@@ -37,11 +43,9 @@ async function blockPlatforms(page: Page): Promise<string[]> {
   return asked;
 }
 
-/** On phones the filter chips sit behind a "Filters" button; on desktop they're always shown. */
+/** The skill sheet keeps its original responsive filters. */
 async function openFilters(page: Page): Promise<void> {
-  const toggle = page.getByTestId("filters-toggle");
-  if (await toggle.isVisible()) await toggle.click();
-  await expect(page.getByTestId("filters")).toBeVisible();
+  await openResearchFilters(page);
 }
 
 test("skill sheet Research panel: EN topic, program hint chip, editable topic with reset, platform links", async ({
@@ -54,10 +58,12 @@ test("skill sheet Research panel: EN topic, program hint chip, editable topic wi
   await expect(page.getByTestId("research-panel")).toBeVisible();
 
   // Switch the panel's own language toggle to EN so the query uses the English skill name.
+  await openDiscoverOptions(page);
   await page.getByTestId("research-lang-en").click();
   await expect(page.getByTestId("research-topic")).toHaveValue(new RegExp(EN_NAME_PART));
 
   // The open-on-platform links live in the search bar's overflow.
+  await openDiscoverOptions(page);
   await page.getByTestId("research-more-toggle").click();
   const encoded = encodeURIComponent(EN_NAME_PART);
   for (const id of ["research-link-yt", "research-link-tt", "research-link-ig"]) {
@@ -134,18 +140,23 @@ test("/discover/: a topic builds an encoded YouTube link, and Discover is a phon
 
   // The tab exists in the (phone) tab bar regardless of viewport, even where CSS hides it on desktop.
   await expect(page.getByTestId("tabbar").locator('a[href="/discover/"]')).toHaveCount(1);
+  await openDiscoverSearch(page);
   await expect(page.getByTestId("research-start")).toBeVisible();
 
   // Typing alone searches nothing; Enter commits the topic.
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").fill("match cut");
   await expect(page.getByTestId("research-more")).toHaveCount(0);
+  await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").press("Enter");
 
+  await openDiscoverOptions(page);
   await page.getByTestId("research-more-toggle").click();
   const href = await page.getByTestId("research-link-yt").getAttribute("href");
   expect(href).toMatch(/match(\+|%20)cut/);
 
   // With a program picked, the searches get its name but the Instagram hashtag stays the topic's own.
+  await openDiscoverOptions(page);
   await page.getByTestId("discover-program").selectOption("davinci");
   await expect(page.getByTestId("research-link-yt")).toHaveAttribute("href", /DaVinci%20Resolve/);
   await expect(page.getByTestId("research-link-ig-hashtag")).toHaveAttribute(
@@ -222,10 +233,12 @@ test("in-app YouTube results render from a stubbed API with filters, and attach 
 
   // Length and recency filters go to the API as videoDuration / publishedAfter.
   await openFilters(page);
+  await openResearchFilters(page);
   await page.getByTestId("filter-len-short").click();
   await expect(page.getByTestId("filter-len-short")).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => requests.length).toBe(2);
   expect(requests[1].searchParams.get("videoDuration")).toBe("short");
+  await openResearchFilters(page);
   await page.getByTestId("filter-time-week").click();
   await expect.poll(() => requests.length).toBe(3);
   expect(requests[2].searchParams.get("publishedAfter")).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00Z$/);
@@ -234,8 +247,10 @@ test("in-app YouTube results render from a stubbed API with filters, and attach 
     await expect(page.getByTestId("filters-count")).toHaveText("2");
   }
   // Step back through combinations already asked for: served from the session cache, no new API call.
+  await openResearchFilters(page);
   await page.getByTestId("filter-time-any").click();
   await expect(result).toBeVisible();
+  await openResearchFilters(page);
   await page.getByTestId("filter-len-any").click();
   await expect(result).toBeVisible();
   expect(requests).toHaveLength(3);
@@ -272,6 +287,7 @@ test("skill sheet Research panel: an edit genre narrows the skill's search; rese
   await freshState(page, "/skills/");
   await openSkillSheet(page);
   await page.getByTestId("research-toggle").click();
+  await openDiscoverOptions(page);
   await page.getByTestId("research-lang-en").click();
 
   const skillName = encodeURIComponent("Smart Bins + Keywords");
@@ -281,6 +297,7 @@ test("skill sheet Research panel: an edit genre narrows the skill's search; rese
 
   // The genre row sits right under the search bar; the skill's name stays the base of the search.
   await expect(page.getByTestId("genres-row")).toBeVisible();
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("research-topic")).toHaveValue("Smart Bins + Keywords");
@@ -292,11 +309,13 @@ test("skill sheet Research panel: an edit genre narrows the skill's search; rese
   );
 
   // The search language picks the genre's words; the skill's name follows it too.
+  await openDiscoverOptions(page);
   await page.getByTestId("research-lang-ar").click();
   await expect(tt).toHaveAttribute(
     "href",
     new RegExp(`${encodeURIComponent("ايديت سيارات")}%20DaVinci%20Resolve$`),
   );
+  await openDiscoverOptions(page);
   await page.getByTestId("research-lang-en").click();
 
   // An override of the topic is searched with the genre; "reset" brings the name back and keeps the genre.
@@ -309,6 +328,7 @@ test("skill sheet Research panel: an edit genre narrows the skill's search; rese
   await expect(tt).toHaveAttribute("href", href(`${skillName}%20car%20edit%20DaVinci%20Resolve`));
 
   // The active chip again: back to the skill's plain search.
+  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "false");
   await expect(tt).toHaveAttribute("href", href(`${skillName}%20DaVinci%20Resolve`));

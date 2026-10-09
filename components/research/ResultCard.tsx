@@ -181,6 +181,49 @@ export default function ResultCard({
 const MEDIA_FRAME =
   "border-edge relative block aspect-video overflow-hidden border-b-2 bg-[var(--edge)]";
 
+/** The existing preview and player without a second card title or duplicate browsing actions. */
+export function ResultPreview({
+  item,
+  testId = "result-preview",
+}: {
+  item: ResearchItem;
+  testId?: string;
+}) {
+  const { t } = useT();
+  const { thumb, title, onError } = useThumb(item);
+  const play = usePlay({ ...item, title }, thumb);
+  const media = <Media item={item} thumb={thumb} onError={onError} playable={!!play} />;
+  return (
+    <div className="border-edge overflow-hidden border-2" data-testid={testId}>
+      {play ? (
+        <button
+          type="button"
+          onClick={play}
+          aria-label={t("player.watchLabel", { title })}
+          className="bg-panel-3 group relative block aspect-video w-full overflow-hidden focus-visible:outline-hidden"
+          data-testid="result-play"
+        >
+          <span className="absolute inset-0">{media}</span>
+          <span
+            aria-hidden
+            className="group-focus-visible:outline-gold pointer-events-none absolute inset-0 group-focus-visible:outline-[3px] group-focus-visible:outline-offset-[-5px]"
+          />
+        </button>
+      ) : (
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`${t("research.scoutOpen")}: ${title}`}
+          className="bg-panel-3 relative block aspect-video overflow-hidden"
+        >
+          {media}
+        </a>
+      )}
+    </div>
+  );
+}
+
 /**
  * The card is `relative`: it holds its own absolutely placed bits (the screen-reader words of the counts).
  * Without it their box is the page's, so in a row that scrolls sideways the cards scrolled out of view
