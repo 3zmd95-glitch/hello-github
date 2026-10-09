@@ -6,7 +6,8 @@ import { basename, dirname, join, resolve } from "node:path";
 import { lookupInstagramMedia } from "../../workers/scout/src/instagramMedia";
 import { instagramPostUrl } from "../../workers/scout/src/instagramPreview";
 
-const MAX_VIDEO_BYTES = 12 * 1024 * 1024;
+// Measured public clips of 14–30 MB can fit the same 90-second/eight-frame inspection budget.
+const MAX_VIDEO_BYTES = 32 * 1024 * 1024;
 const MAX_FRAME_BYTES = 512 * 1024;
 const MAX_DURATION_SECONDS = 90;
 const FRAME_COUNT = 8;

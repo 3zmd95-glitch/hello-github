@@ -1,4 +1,4 @@
-import { access, writeFile } from "node:fs/promises";
+import { access, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -96,23 +96,90 @@ describe("bounded Instagram video frame sampling", () => {
       access(dirname(probe.mock.calls[0][1][probe.mock.calls[0][1].indexOf("-i") + 1])),
     ).rejects.toThrow();
   });
-  it("enforces both declared and streamed byte limits", async () => {
-    for (const media of [
-      () =>
-        new Response("small", {
-          headers: { "Content-Type": "video/mp4", "Content-Length": String(13 * 1024 * 1024) },
-        }),
-      () =>
-        new Response(new Uint8Array(12 * 1024 * 1024 + 1), {
-          headers: { "Content-Type": "video/mp4" },
-        }),
-    ]) {
-      const runProcess = processFixture();
-      expect(
-        await extractInstagramFrames(POST, fetchFixture(15, media), undefined, { runProcess }),
-      ).toMatchObject({ status: "unavailable", reason: "too-large" });
-      expect(runProcess).not.toHaveBeenCalled();
-    }
+  it("accepts a thirteen-MiB MP4 payload beyond the former cap and cleans the complete temporary input", async () => {
+    const bytes = Buffer.alloc(13 * 1024 * 1024);
+    VIDEO_BYTES.copy(bytes);
+    const runProcess = processFixture();
+    let localFile = "";
+    runProcess.mockImplementationOnce(async (_executable, args) => {
+      localFile = args[args.indexOf("-i") + 1];
+      expect((await stat(localFile)).size).toBe(bytes.length);
+      return JSON.stringify({
+        format: { duration: "15.916" },
+        streams: [{ codec_type: "video", width: 502, height: 886 }],
+      });
+    });
+    const result = await extractInstagramFrames(
+      POST,
+      fetchFixture(
+        15.916,
+        () =>
+          new Response(bytes, {
+            headers: { "Content-Type": "video/mp4", "Content-Length": String(bytes.length) },
+          }),
+      ),
+      undefined,
+      { runProcess },
+    );
+    expect(result.status).toBe("available");
+    if (result.status === "available") expect(result.frames).toHaveLength(8);
+    expect(runProcess).toHaveBeenCalledTimes(9);
+    await expect(access(dirname(localFile))).rejects.toThrow();
+  });
+  it("cancels a declared payload over thirty-two MiB before any decoder or file work", async () => {
+    const cancelled = vi.fn();
+    const runProcess = processFixture();
+    const result = await extractInstagramFrames(
+      POST,
+      fetchFixture(
+        15,
+        () =>
+          new Response(new ReadableStream({ cancel: cancelled }), {
+            headers: {
+              "Content-Type": "video/mp4",
+              "Content-Length": String(32 * 1024 * 1024 + 1),
+            },
+          }),
+      ),
+      undefined,
+      { runProcess },
+    );
+    expect(result).toMatchObject({ status: "unavailable", reason: "too-large" });
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(runProcess).not.toHaveBeenCalled();
+  });
+  it("cancels an oversized streamed payload even when Content-Length underreports its size", async () => {
+    const cancelled = vi.fn();
+    const runProcess = processFixture();
+    const chunk = new Uint8Array(1024 * 1024);
+    chunk.set(VIDEO_BYTES);
+    let chunks = 0;
+    const result = await extractInstagramFrames(
+      POST,
+      fetchFixture(
+        15,
+        () =>
+          new Response(
+            new ReadableStream({
+              pull(controller) {
+                // Leave unread data queued when the 33rd MiB crosses the bound, so cancellation
+                // is observable rather than an already closed stream's harmless no-op.
+                if (chunks++ < 34) controller.enqueue(chunk);
+                else controller.close();
+              },
+              cancel: cancelled,
+            }),
+            {
+              headers: { "Content-Type": "video/mp4", "Content-Length": "10" },
+            },
+          ),
+      ),
+      undefined,
+      { runProcess },
+    );
+    expect(result).toMatchObject({ status: "unavailable", reason: "too-large" });
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(runProcess).not.toHaveBeenCalled();
   });
   it("rejects redirects, non-MP4 responses and forged MP4 content", async () => {
     for (const media of [

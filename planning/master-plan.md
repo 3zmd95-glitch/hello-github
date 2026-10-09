@@ -2,7 +2,7 @@
 
 ## Current implementation work — 9 October 2026
 
-Discover is being reworked into a personalized editor feed after the owner rejected weak Anime/Instagram recommendations. Source checks, explicit preferences, a retained candidate library and separate inspiration, recent-popularity and learning modes are implemented; live category coverage and Chrome acceptance are still in progress. See [the current handover](handovers/discover-editor-feed-2026-10-09.md) and [source-access and feed design](tools/24-editor-feed.md). The live preview stays on localhost:3000; PR #70 remains unmerged and the shared Worker has not been deployed. The older brainstorming sections below are historical planning, not the current implementation status.
+Discover is being reworked into a personalized editor feed after the owner rejected weak Anime/Instagram recommendations. Source checks, explicit preferences, a retained candidate library and separate inspiration, recent-popularity and learning modes are implemented; automatic source coverage and visual relevance remain open. A measured public-video limit repair improved the six-post frame-access sample from one to four readable clips. See [the current handover](handovers/discover-editor-feed-2026-10-09.md), [source-access and feed design](tools/24-editor-feed.md), and [native-source coverage](tools/25-native-source-coverage.md). The live preview stays on localhost:3000; PR #70 remains unmerged and the shared Worker has not been deployed. The older brainstorming sections below are historical planning, not the current implementation status.
 
 ## Context
 The owner (3z) is a Saudi content creator (videography first, then design and business). They are paying for Framer + Base44 to build a
