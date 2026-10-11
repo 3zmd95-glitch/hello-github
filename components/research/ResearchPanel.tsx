@@ -88,6 +88,7 @@ import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
 import SkillPicker from "./SkillPicker";
 import SaveInspirationButton from "./SaveInspirationButton";
 import TrendingEffects from "./TrendingEffects";
+import TikTokNativeDiscovery from "./TikTokNativeDiscovery";
 import { useDiscoverPicks, useDiscoverQuery, useDiscoverUsage, useScoutCaps } from "./useDiscover";
 import {
   groupErrors,
@@ -943,6 +944,15 @@ export default function ResearchPanel({
     feedAnswer && genre
       ? {
           genre: L(genre.name),
+          intro: (
+            <TikTokNativeDiscovery
+              config={scoutCfg}
+              categoryId={genre.id}
+              knownItems={feedCandidates}
+              active={active && !categoryEntry.loading && (tab === "all" || tab === "tt")}
+              onCandidates={(items) => accumulateDiscoverCandidates(items, { genreId: genre.id })}
+            />
+          ),
           diagnostics: feedDiagnostics,
           quotaPlatforms: feedQuotaPlatforms,
           mode: feedMode,

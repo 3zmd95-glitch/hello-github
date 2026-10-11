@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getSkill, skills } from "@/data";
-import { clearDiscoverCache, type DiscoverAlternative } from "@/lib/discover";
+import { clearDiscoverCache, type DiscoverAlternative, type DiscoverItem } from "@/lib/discover";
 import { discoverPrompts } from "@/lib/discoverPrompts";
 import type { TrendItemInput, TrendsFeedInput } from "@/lib/domain";
 import { GENRES } from "@/lib/genres";
@@ -86,6 +86,28 @@ let effectsAsked: number;
 /** What the fake Worker's `GET /categories/:id` answers; null = no such route (a 404, an older Worker). */
 let categoryDoc: unknown;
 let categoryCalls: string[];
+let nativeCalls: { categoryId: string; body: unknown; signal?: AbortSignal | null }[];
+let nativeReply: (categoryId: string) => Response | Promise<Response>;
+const nativeLead: DiscoverItem = {
+  platform: "tt",
+  url: "https://www.tiktok.com/@travelcrew/video/7690000000000000001",
+  title: "Travel cinematic film",
+  snippet: "",
+  handle: "@travelcrew",
+  section: "example",
+  lang: "en",
+};
+const nativeAnswer = (categoryId: string) => ({
+  version: 1,
+  categoryId,
+  country: "US",
+  dateRange: "7DAY",
+  checkedAt: new Date().toISOString(),
+  status: "accepted",
+  captioned: 0,
+  supply: { matchedHashtags: 1, videoCandidates: 1, unseenRemaining: 0, skippedKnown: 1 },
+  items: [nativeLead],
+});
 
 /** This week's trending effects: one dictionary effect. */
 const EFFECTS = {
@@ -186,6 +208,15 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   if (url.origin === WORKER && url.pathname === "/effects/trending") {
     effectsAsked++;
     return effectsDoc ? json(effectsDoc) : json({ error: "not_found" }, 404);
+  }
+  const nativeCategory = url.pathname.match(/^\/categories\/([^/]+)\/native\/tt\/acquire$/)?.[1];
+  if (url.origin === WORKER && nativeCategory && init?.method === "POST") {
+    nativeCalls.push({
+      categoryId: nativeCategory,
+      body: JSON.parse(String(init.body)),
+      signal: init.signal,
+    });
+    return nativeReply(nativeCategory);
   }
   if (url.origin === WORKER && url.pathname.startsWith("/categories/")) {
     categoryCalls.push(`${init?.method ?? "GET"} ${url.pathname}`);
@@ -299,6 +330,8 @@ beforeEach(() => {
   effectsAsked = 0;
   categoryDoc = null;
   categoryCalls = [];
+  nativeCalls = [];
+  nativeReply = (categoryId) => json(nativeAnswer(categoryId));
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   localStorage.clear();
   // The trending effects' 1 h copy lives in this tab's sessionStorage.
@@ -1040,6 +1073,102 @@ describe("ResearchPanel Most viewed this week", () => {
     await settle();
     expect(useStore.getState().savedRefs["smart-bins-keywords"] ?? []).toEqual([]);
   });
+});
+
+describe("native acquisition in category Search", () => {
+  const retained = (id: string): DiscoverItem => ({
+    ...nativeLead,
+    url: `https://www.tiktok.com/@retained/video/${id}`,
+  });
+  const seedCategories = () => {
+    useStore.getState().accumulateDiscoverCandidates([retained("7680000000000000001")], {
+      genreId: "travel",
+    });
+    useStore.getState().accumulateDiscoverCandidates([retained("7680000000000000002")], {
+      genreId: "camping",
+    });
+  };
+
+  it("retrieves Travel leads explicitly with only that category's known IDs and no indexed search", async () => {
+    seedCategories();
+    await mount({ v2: true, lang: "en", tab: "all" });
+    await click("genre-travel");
+    expect($("category-feed")).not.toBeNull();
+    expect($("tiktok-native-discovery")).not.toBeNull();
+    expect(nativeCalls).toEqual([]);
+    expect(discoverAsked).toEqual([]);
+    await click("tiktok-find-edits");
+    expect(nativeCalls).toHaveLength(1);
+    expect(nativeCalls[0]).toMatchObject({
+      categoryId: "travel",
+      body: { country: "US", excludeVideoIds: ["7680000000000000001"] },
+    });
+    expect(
+      useStore
+        .getState()
+        .discoverCandidates.filter((candidate) => candidate.item.url === nativeLead.url),
+    ).toMatchObject([{ genreId: "travel", item: nativeLead }]);
+    await click("tiktok-find-edits");
+    expect(nativeCalls).toHaveLength(1);
+    expect(discoverAsked).toEqual([]);
+    expect(asked).toEqual([]);
+    expect(localPlans).toEqual([]);
+    expect(useStore.getState().inspirations).toEqual([]);
+    expect(useStore.getState().discoverFeedback).toEqual([]);
+  });
+
+  it("does not offer category acquisition for a detailed topic or other platform tab", async () => {
+    seedCategories();
+    await mount({ v2: true, lang: "en", tab: "ig" });
+    await click("genre-travel");
+    expect($("tiktok-native-discovery")).toBeNull();
+    await click("tab-tt");
+    expect($("tiktok-native-discovery")).not.toBeNull();
+    await submit("drone match cuts over mountain trails");
+    expect($("category-feed")).toBeNull();
+    expect($("tiktok-native-discovery")).toBeNull();
+    expect(nativeCalls).toEqual([]);
+  });
+
+  it.each(["category", "config", "cancel", "inactive"])(
+    "discards a late native response after %s changes",
+    async (change) => {
+      seedCategories();
+      let complete!: (response: Response) => void;
+      nativeReply = () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        });
+      await mount({ v2: true, lang: "en" });
+      await click("genre-travel");
+      await click("tiktok-find-edits");
+      expect(nativeCalls).toHaveLength(1);
+      if (change === "category") await click("genre-camping");
+      else if (change === "config") {
+        act(() => useStore.getState().setSettings({ apiKeys: { scoutToken: "rotated" } }));
+        await settle();
+      } else if (change === "inactive") {
+        act(() => root.render(createElement(ResearchPanel, { active: false })));
+        await settle();
+      } else {
+        const cancel = $("tiktok-native-discovery")!.querySelector<HTMLButtonElement>(
+          "button:not([data-testid])",
+        )!;
+        act(() => cancel.click());
+        await settle();
+      }
+      expect(nativeCalls[0].signal?.aborted).toBe(true);
+      await act(async () => complete(json(nativeAnswer("travel"))));
+      await settle();
+      expect(
+        useStore
+          .getState()
+          .discoverCandidates.some((candidate) => candidate.item.url === nativeLead.url),
+      ).toBe(false);
+      expect(nativeCalls).toHaveLength(1);
+      expect(discoverAsked).toEqual([]);
+    },
+  );
 });
 
 describe("Discover category searches and optional study guides", () => {
