@@ -131,6 +131,7 @@ import { applyInstagramEvidence } from "@/lib/discoverSources";
 import {
   DiscoverVisualResponseSchema,
   applicableDiscoverVisual,
+  canonicalDiscoverVisualUrl,
   discoverVisualSourceMatches,
 } from "@/lib/discoverVisual";
 import {
@@ -157,6 +158,11 @@ import {
   formatIdentity,
   type EditFormat,
 } from "@/lib/editFormats";
+import {
+  FormatObservationsSchema,
+  upsertFormatObservation,
+  type FormatObservationInput,
+} from "@/lib/formatObservations";
 import { seasonState, type SeasonState } from "@/lib/season";
 import {
   FREEZE_TOTAL_CAP,
@@ -217,6 +223,7 @@ export const PersistedStateSchema = z.object({
   savedRefs: z.record(z.string(), z.array(RefSchema)).default({}),
   inspirations: InspirationsSchema,
   followedFormats: FollowedFormatsSchema,
+  formatObservations: FormatObservationsSchema,
   discoverCandidates: DiscoverCandidatesSchema,
   /** A reset/import fence: failed durable writes must not resurrect a previous library on reload. */
   discoverLibraryEpoch: z.string().max(200).default(""),
@@ -414,6 +421,8 @@ export interface StoreActions {
   followFormat(format: EditFormat, now?: Date): void;
   unfollowFormat(identity: string): void;
   refreshFollowedFormats(formats: readonly EditFormat[]): void;
+  recordFormatObservation(input: FormatObservationInput, now?: Date): boolean;
+  removeFormatObservation(targetKey: string, url: string): void;
   saveInspiration(item: ResearchItem, now?: Date): void;
   updateInspiration(url: string, patch: { note?: string; stage?: InspirationStage }): void;
   removeInspiration(url: string): void;
@@ -583,6 +592,7 @@ const initialData = (): PersistedState => ({
   savedRefs: {},
   inspirations: [],
   followedFormats: [],
+  formatObservations: [],
   discoverCandidates: [],
   discoverLibraryEpoch: "",
   discoverLibraryPendingReplacement: false,
@@ -639,6 +649,7 @@ const pick = (s: PersistedState): PersistedState => ({
   savedRefs: s.savedRefs,
   inspirations: s.inspirations,
   followedFormats: s.followedFormats,
+  formatObservations: s.formatObservations,
   discoverCandidates: s.discoverCandidates,
   discoverLibraryEpoch: s.discoverLibraryEpoch,
   discoverLibraryPendingReplacement: s.discoverLibraryPendingReplacement,
@@ -1240,6 +1251,22 @@ export const useStore = create<StoreState>()(
           });
           return changed ? { followedFormats } : s;
         });
+      },
+
+      recordFormatObservation(input, now = new Date()) {
+        const current = get().formatObservations;
+        const next = upsertFormatObservation(current, input, now);
+        if (next === current) return false;
+        set({ formatObservations: [...next] });
+        return true;
+      },
+
+      removeFormatObservation(targetKey, url) {
+        const canonical = canonicalDiscoverVisualUrl(url);
+        if (!canonical) return;
+        const current = get().formatObservations;
+        const next = current.filter((row) => row.target.key !== targetKey || row.url !== canonical);
+        if (next.length !== current.length) set({ formatObservations: next });
       },
 
       updateInspiration(url, patch) {

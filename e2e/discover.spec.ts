@@ -1714,6 +1714,19 @@ test("Reel source check: authentic audio, explicit frame inspection, rejected in
     "synchronization were not verified",
   );
   expect(inspections).toBe(1);
+  await inspector.getByTestId("format-check-history").locator("summary").click();
+  await expect(inspector.getByTestId("format-check-counts")).toContainText(
+    "Recorded audio matches: 1",
+  );
+  await expect(inspector.getByTestId("format-check-counts")).toContainText(
+    "Sampled-frame matches: 1",
+  );
+  await expect(inspector.getByTestId("format-check-counts")).toContainText("Recent creators: 0");
+  await page.reload();
+  await inspector.locator("summary").first().click();
+  await expect(inspector.getByTestId("format-check-reused")).toContainText("No new check was run");
+  await expect(inspector.getByTestId("format-visual-result")).toContainText("sampled video frames");
+  expect(inspections).toBe(1);
   expect(await fitsViewport(page)).toBe(true);
   await inspector.screenshot({ path: testInfo.outputPath("synthetic-source-frame-check.png") });
   const card = page.getByTestId("edit-formats").locator(`[data-key="${target.key}"]`);

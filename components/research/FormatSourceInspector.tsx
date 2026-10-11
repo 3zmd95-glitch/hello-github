@@ -3,11 +3,14 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { EditFormat } from "@/lib/editFormats";
 import { assessFormatSource, formatVerificationTarget } from "@/lib/formatVerification";
-import { inspectFormatPreview, localInstagramSource } from "@/lib/formatSources";
+import { inspectFormatPreview, localInstagramSource, sourceKey } from "@/lib/formatSources";
+import { selectFormatObservations } from "@/lib/formatObservations";
 import { useT } from "@/lib/i18n";
 import { subscriptionError, type AiChoice } from "@/lib/localAi";
 import type { InstagramSource } from "../../workers/scout/src/instagramSource";
+import { useStore } from "@/store";
 import AiConnectionControls from "./AiConnectionControls";
+import FormatObservationSummary from "./FormatObservationSummary";
 
 type Inspection = Extract<Awaited<ReturnType<typeof inspectFormatPreview>>, { ok: true }>["data"];
 
@@ -20,8 +23,16 @@ export default function FormatSourceInspector({ formats }: { formats: EditFormat
   const [url, setUrl] = useState(
     format?.samples.find((sample) => sample.platform === "ig")?.url ?? "",
   );
-  const [source, setSource] = useState<InstagramSource | null>(null);
-  const [inspection, setInspection] = useState<Inspection | null>(null);
+  const [liveSource, setSource] = useState<InstagramSource | null>(null);
+  const [liveInspection, setInspection] = useState<Inspection | null>(null);
+  const observations = useStore((state) => state.formatObservations);
+  const saved = format
+    ? selectFormatObservations(observations, formatVerificationTarget(format)).find(
+        (row) => sourceKey(row.url) === sourceKey(url),
+      )
+    : undefined;
+  const source = liveSource ?? saved?.source ?? null;
+  const inspection = liveInspection ?? saved?.inspection ?? null;
   const [choice, setChoice] = useState<AiChoice>({ provider: "builtin", model: "" });
   const [aiOpen, setAiOpen] = useState(false);
   const [mode, setMode] = useState<"frames" | "preview">("frames");
@@ -29,6 +40,19 @@ export default function FormatSourceInspector({ formats }: { formats: EditFormat
   const [error, setError] = useState<string | null>(null);
   const pending = useRef<AbortController | null>(null);
   useEffect(() => () => pending.current?.abort(), []);
+  useEffect(
+    () =>
+      useStore.subscribe((state, previous) => {
+        if (state.discoverLibraryEpoch === previous.discoverLibraryEpoch) return;
+        pending.current?.abort();
+        pending.current = null;
+        setBusy(null);
+        setSource(null);
+        setInspection(null);
+        setError(null);
+      }),
+    [],
+  );
   const reset = () => {
     pending.current?.abort();
     pending.current = null;
@@ -41,6 +65,11 @@ export default function FormatSourceInspector({ formats }: { formats: EditFormat
     if (!format || busy) return;
     reset();
     const controller = new AbortController();
+    const epoch = useStore.getState().discoverLibraryEpoch;
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      pending.current === controller &&
+      useStore.getState().discoverLibraryEpoch === epoch;
     pending.current = controller;
     setBusy(ai ? "ai" : "source");
     if (ai && choice.provider === "chatgpt" && choice.model) {
@@ -52,15 +81,25 @@ export default function FormatSourceInspector({ formats }: { formats: EditFormat
         controller.signal,
         mode,
       );
-      if (controller.signal.aborted) return;
+      if (!isCurrent()) return;
       if (result.ok) {
         setInspection(result.data);
         setSource(result.data.verification.source);
+        useStore.getState().recordFormatObservation({
+          target: formatVerificationTarget(format),
+          source: result.data.verification.source,
+          inspection: result.data,
+        });
       } else setError(result.error);
     } else {
       const result = await localInstagramSource(url, controller.signal);
-      if (controller.signal.aborted) return;
+      if (!isCurrent()) return;
       setSource(result);
+      if (result)
+        useStore.getState().recordFormatObservation({
+          target: formatVerificationTarget(format),
+          source: result,
+        });
       if (!result || result.status !== "available") setError("source_unavailable");
     }
     setBusy(null);
@@ -85,6 +124,7 @@ export default function FormatSourceInspector({ formats }: { formats: EditFormat
       </summary>
       <div className="mt-3 flex min-w-0 flex-col gap-3">
         <p className="text-muted">{t("formats.checkHelp")}</p>
+        <p className="text-muted">{t("formats.checksSavedHelp")}</p>
         <label htmlFor={`${id}-format`}>{t("formats.checkAgainst")}</label>
         <select
           id={`${id}-format`}
@@ -135,6 +175,25 @@ export default function FormatSourceInspector({ formats }: { formats: EditFormat
             {t(busy === "source" ? "formats.checking" : "formats.checkSource")}
           </button>
         </form>
+        {saved && !liveSource && (
+          <p className="text-muted" data-testid="format-check-reused">
+            {t("formats.checkReused", {
+              date: new Date(saved.checkedAt).toLocaleString(lang === "ar" ? "ar-SA" : "en-GB", {
+                calendar: "gregory",
+              }),
+            })}
+          </p>
+        )}
+        <FormatObservationSummary
+          format={format}
+          onOpen={(row) => {
+            reset();
+            setUrl(row.url);
+          }}
+          onRemove={(row) => {
+            if (sourceKey(url) === sourceKey(row.url)) reset();
+          }}
+        />
         {source?.status === "available" && assessment && (
           <div className="bg-panel-2 flex flex-col gap-2 p-3" data-testid="format-source-result">
             <p className="font-bold">

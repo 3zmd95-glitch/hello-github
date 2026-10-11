@@ -15,6 +15,7 @@ import { useStore } from "@/store";
 import type { ResearchItem } from "@/lib/research";
 import { ResultPreview } from "./ResultCard";
 import SaveInspirationButton from "./SaveInspirationButton";
+import FormatObservationSummary from "./FormatObservationSummary";
 
 /** A specific visual recipe with its audio, kept separate from the generic technique vocabulary. */
 export default function EditFormats({
@@ -177,6 +178,7 @@ export default function EditFormats({
                 <p className="text-muted text-xs" data-testid="format-evidence-caveat">
                   {t(reviewed ? "formats.cardReviewed" : "formats.cardUnverified")}
                 </p>
+                <FormatObservationSummary format={format} />
                 {freshness !== "recent" && (
                   <p className="text-muted text-xs" data-testid="format-freshness">
                     {t(freshness === "unknown" ? "formats.cardDateUnknown" : "formats.cardOlder")}
