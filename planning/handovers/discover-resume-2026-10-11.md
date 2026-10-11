@@ -1,6 +1,6 @@
 # Discover handover — 11 October 2026
 
-Read this first. Older chronological notes are preserved in [history](discover-resume-2026-10-11-history.md); do not load that entire file unless needed. Detailed design and measured evidence live in planning/tools/24 through48.
+Read this first. Older chronological notes are preserved in [history](discover-resume-2026-10-11-history.md); do not load that entire file unless needed. Detailed design and measured evidence live in planning/tools/24 through49.
 
 ## Objective and constraints
 
@@ -13,7 +13,17 @@ Conserve the user's usage. No broad new audits, repeated live model calls, paid 
 - Managed source: `C:/Users/AORUS/.codex/worktrees/discover-inspiration/hello-github`, branch `codex/discover-inspiration`. Latest format-source invalidation correction follows9045332; use git log for the current hash.
 - Primary `C:/Users/AORUS/Documents/hello-github` serves the managed build copied into its ignored out. Do not run the older primary tracked source. Current local server is **PID26016**, command session12900, restarted from managed source for the format-source correction. Preserve it.
 - PR70: https://github.com/3zmd95-glitch/hello-github/pull/70 — open, unmerged. Do not merge without the user's request.
-- Worker **f94b947** deployed successfully via **38143707034** (tests and Deploy). This continuation changes no Worker code and needs no deployment. Older f94b947 app CI runs were cancelled by the subsequent docs push; current local gates pass. Check current-head CI once if needed, not old cancelled runs.
+- Worker **e3b5ebf** deployed successfully via **38151982415** (tests and actual Deploy). Latest bounded craft-retrieval result is below. No frontend/local-server changes this continuation; runtime26016 and primaryout remain valid. Check current-head CI once if needed, not old cancelled runs.
+
+## Latest continuation: bounded native retrieval, no demonstrated live gain
+
+Worker selector now reserves at most2of10hashtags for named craft tags from effects/photo charts, excluding generic tags, recognized other subjects and country mismatches. Same3charts+1related-video+12caption limit; final category/craft/source/popularity gates unchanged. Tools/49 contains the hypothesis, reuse and measured result. All gates passed: lint, app/Worker types, **3,753tests/184files**, build, **430browser passes/8intentional skips/0failures**. Logs: Temp `discover-craft-retrieval-gates.log` and `discover-craft-retrieval-browser.log`. Worker deployed, PR70 remains unmerged.
+
+One actual Chrome US Coffee refresh returned12, kept7new references and qualified**0Inspiration/0Popular** after checks settled. Existing Inspiration14combined/3TikTok, Popular0, TikTokExplore10. All7new candidates have available public-source receipts with43.2K–3.7Mviews; captions are recipes, coffee humor or sparse tags. No footage review, paid search or AI call. Do not infer poor editing merely from missing caption evidence, or claim this change improved real-world recall. Tests demonstrate newly reachable craft-tagged examples; live chosen hashtag names were not exposed. No second batch.
+
+Public receipt: Temp `discover-craft-coffee-candidates-2026-10-11.json`. Full private export: Downloads `3z-prod-progress-2026-10-11 (2).json`, saved18:38Riyadh; do not publish or print it. The download event timed out after saving and reset browser bindings. Same Chrome3 remained connected; old handles reported detached, so a fresh same-session Discover tab restored control. Saved3 and14combined/3TikTok persisted. No helper reinstall or permission is needed.
+
+Keep the bounded correction but stop repeating chart-retrieval experiments without new evidence. Useful next direction: actual audiovisual assessment of strong caption-poor native candidates, or native keyword supply. Example retained unreviewed lead: coffee.tales1/7692598509207325966,3.7Mviews/679.8Klikes, caption onlycoffee tags. Existing native Coffee-grid examples in tools/28 are also still unreviewed. TikTok direct-media403 remains a capability limit: no cookie/host workaround, no claim that TikTok frame sampling works. This is not completion of the overall Discover goal.
 
 ## Earlier verified durable-review change
 
