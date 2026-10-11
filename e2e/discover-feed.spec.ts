@@ -202,6 +202,8 @@ test("category feed separates popularity and learning, remembers feedback, and f
   await expect(feed.getByTestId("result-title")).not.toHaveText(hiddenTitle!);
   expect(asked).toHaveLength(1);
   await expect(page.getByTestId("feed-refill-options")).not.toHaveAttribute("open", "");
+  await expect(page.getByTestId("feed-indexed-options")).not.toHaveAttribute("open", "");
+  await page.getByTestId("feed-indexed-options").locator(":scope > summary").click();
   await page.getByTestId("feed-refill-options").locator("summary").click();
   expect(asked).toHaveLength(1);
   await page.getByTestId("feed-refill").click();

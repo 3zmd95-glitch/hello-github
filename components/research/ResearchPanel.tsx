@@ -89,7 +89,7 @@ import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
 import SkillPicker from "./SkillPicker";
 import SaveInspirationButton from "./SaveInspirationButton";
 import TrendingEffects from "./TrendingEffects";
-import TikTokNativeDiscovery from "./TikTokNativeDiscovery";
+import CategoryRefreshAction from "./CategoryRefreshAction";
 import CategorySemanticChecks from "./CategorySemanticChecks";
 import { useCategorySemantic } from "./useCategorySemantic";
 import { useDiscoverPicks, useDiscoverQuery, useDiscoverUsage, useScoutCaps } from "./useDiscover";
@@ -254,6 +254,7 @@ export default function ResearchPanel({
     error?: ScoutError;
   }>({ scope: "", busy: false });
   const [feedRounds, setFeedRounds] = useState<Record<string, number>>({});
+  const [refreshBusy, setRefreshBusy] = useState(false);
   const [feedUsageRevision, setFeedUsageRevision] = useState(0);
   const feedAbort = useRef<AbortController | null>(null);
   const [genreId, setGenreId] = useState<string | null>(null);
@@ -677,7 +678,7 @@ export default function ResearchPanel({
     };
   }, [isCategoryFeed, genre, rawDisc, feedRank.items]);
   const findMoreEdits = async (refill = false) => {
-    if (!isCategoryFeed || !genre || !scoutCfg || feedAbort.current) return;
+    if (!isCategoryFeed || !genre || !scoutCfg || refreshBusy || feedAbort.current) return;
     const scope = feedScope;
     const round = feedRound;
     if (!refill && round >= CATEGORY_EXPANSION_ROUNDS) return;
@@ -980,20 +981,27 @@ export default function ResearchPanel({
       ? {
           genre: L(genre.name),
           intro: (
-            <>
-              <TikTokNativeDiscovery
-                config={scoutCfg}
-                categoryId={genre.id}
-                knownItems={feedCandidates}
-                active={active && !categoryEntry.loading && (tab === "all" || tab === "tt")}
-                onCandidates={(items) => accumulateDiscoverCandidates(items, { genreId: genre.id })}
-              />
-              <CategorySemanticChecks
-                queue={semantic}
-                lookupBusy={feedExpansion.scope === feedScope && feedExpansion.busy}
-              />
-            </>
+            <CategorySemanticChecks
+              queue={semantic}
+              lookupBusy={feedExpansion.scope === feedScope && feedExpansion.busy}
+            />
           ),
+          refresh: (
+            <CategoryRefreshAction
+              genre={genre}
+              tab={tab}
+              config={scoutCfg}
+              active={active && isCategoryFeed && !categoryEntry.loading}
+              checking={feedSources.checking}
+              onBusyChange={setRefreshBusy}
+              disabled={
+                rawDisc.status === "loading" ||
+                (feedExpansion.scope === feedScope && feedExpansion.busy)
+              }
+            />
+          ),
+          searchOptionsCollapsed: true,
+          refreshing: refreshBusy,
           diagnostics: feedDiagnostics,
           quotaPlatforms: feedQuotaPlatforms,
           mode: feedMode,

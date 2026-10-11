@@ -21,6 +21,8 @@ let usageRequests: number;
 let fixtures: DiscoverItem[];
 let platformStatuses: DiscoverAnswer["platforms"];
 let searchFailure: boolean;
+let nativeRequests: Record<string, unknown>[];
+let nativeReply: () => Response | Promise<Response>;
 let host: HTMLDivElement;
 let root: Root;
 const $ = (id: string, within: ParentNode = host) =>
@@ -31,6 +33,17 @@ const all = (id: string, within: ParentNode = host) => [
 const titles = () => all("result-title", $("category-feed")!).map((node) => node.textContent);
 const json = (data: unknown) =>
   new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } });
+const nativeAnswer = () => ({
+  version: 1,
+  categoryId: "anime",
+  country: "US",
+  dateRange: "7DAY",
+  checkedAt: new Date().toISOString(),
+  status: "accepted",
+  captioned: 0,
+  supply: { matchedHashtags: 1, videoCandidates: 0, unseenRemaining: 0, skippedKnown: 0 },
+  items: [],
+});
 const settle = async () =>
   act(async () => {
     for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
@@ -72,6 +85,8 @@ beforeEach(() => {
   usageRequests = 0;
   platformStatuses = { yt: { ok: true }, ig: { ok: true }, tt: { ok: true } };
   searchFailure = false;
+  nativeRequests = [];
+  nativeReply = () => json(nativeAnswer());
   fixtures = [
     video("animeStrongA", "Anime beat sync edit", 40_000, "@first"),
     video("animeStrongB", "Anime split screen edit", 35_000, "@second"),
@@ -91,6 +106,10 @@ beforeEach(() => {
       const url = new URL(String(input), "http://localhost");
       if (url.pathname === "/health")
         return json({ ok: true, auth: true, tavily: true, discover: true });
+      if (url.pathname === "/categories/anime/native/tt/acquire" && init?.method === "POST") {
+        nativeRequests.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return nativeReply();
+      }
       if (url.pathname === "/discover" && init?.method === "POST") {
         requests.push(JSON.parse(String(init.body)) as Record<string, unknown>);
         if (searchFailure) return new Response("{}", { status: 503 });
@@ -149,6 +168,103 @@ async function mount() {
 }
 
 describe("category editor feed", () => {
+  it.each(["search", "browse"] as const)(
+    "blocks advanced paid searches during refresh in %s and restores them after cancellation",
+    async (workspace) => {
+      if (workspace === "browse") {
+        act(() => root.render(createElement(DiscoverScreen)));
+        await settle();
+        await click($("genre-anime"));
+      } else await mount();
+      await click($(workspace === "browse" ? "browse-tab-all" : "tab-all"));
+      await click($("feed-indexed-options")!.querySelector("summary"));
+      await click($("feed-refill-options")!.querySelector("summary"));
+      const initialRequests = requests.length;
+      let finishNative!: (response: Response) => void;
+      nativeReply = () =>
+        new Promise((resolve) => {
+          finishNative = resolve;
+        });
+      await click($("category-refresh-run"));
+      expect(nativeRequests).toHaveLength(1);
+      for (const control of ["feed-find-more", "feed-refill"]) {
+        expect(($(control) as HTMLButtonElement).disabled).toBe(true);
+        await click($(control));
+      }
+      expect(requests).toHaveLength(initialRequests);
+      await click($("category-refresh-cancel"));
+      for (const control of ["feed-find-more", "feed-refill"])
+        expect(($(control) as HTMLButtonElement).disabled).toBe(false);
+      await click($("feed-find-more"));
+      expect(requests).toHaveLength(initialRequests + 1);
+      await act(async () => finishNative(json(nativeAnswer())));
+      await settle();
+      expect(requests).toHaveLength(initialRequests + 1);
+    },
+  );
+
+  it.each(["search", "browse"] as const)(
+    "refreshes only TikTok on its selected tab in %s and keeps platform navigation passive",
+    async (workspace) => {
+      if (workspace === "browse") {
+        act(() => root.render(createElement(DiscoverScreen)));
+        await settle();
+        await click($("genre-anime"));
+      } else await mount();
+      const tab = (platform: string) =>
+        $(workspace === "browse" ? `browse-tab-${platform}` : `tab-${platform}`);
+      const initialRequests = requests.length;
+      expect($("category-refresh")).not.toBeNull();
+      expect($("feed-indexed-options")?.hasAttribute("open")).toBe(false);
+      expect(nativeRequests).toEqual([]);
+      await click(tab("tt"));
+      expect(nativeRequests).toEqual([]);
+      expect(requests).toHaveLength(initialRequests);
+      await click($("category-refresh-run"));
+      expect(nativeRequests).toEqual([{ country: "US", excludeVideoIds: [] }]);
+      expect(requests).toHaveLength(initialRequests);
+      expect($("category-refresh-result")).not.toBeNull();
+      await click(tab("ig"));
+      expect($("category-refresh")).not.toBeNull();
+      expect($("category-refresh-region")).toBeNull();
+      expect($("category-refresh-run")).toBeNull();
+      expect($("category-refresh-instagram")?.getAttribute("href")).toContain("instagram.com");
+      expect(nativeRequests).toHaveLength(1);
+      expect(requests).toHaveLength(initialRequests);
+      expect(all("tiktok-native-discovery")).toHaveLength(0);
+    },
+  );
+
+  it.each(["search", "browse"] as const)(
+    "refreshes All sequentially in %s and limits the indexed request to YouTube",
+    async (workspace) => {
+      if (workspace === "browse") {
+        act(() => root.render(createElement(DiscoverScreen)));
+        await settle();
+        await click($("genre-anime"));
+      } else await mount();
+      await click($(workspace === "browse" ? "browse-tab-all" : "tab-all"));
+      const initialRequests = requests.length;
+      const initialTitles = titles();
+      let finishNative!: (response: Response) => void;
+      nativeReply = () =>
+        new Promise((resolve) => {
+          finishNative = resolve;
+        });
+      await click($("category-refresh-run"));
+      expect(nativeRequests).toHaveLength(1);
+      expect(requests).toHaveLength(initialRequests);
+      expect(titles()).toEqual(initialTitles);
+      await act(async () => finishNative(json(nativeAnswer())));
+      await settle();
+      expect(requests).toHaveLength(initialRequests + 1);
+      expect(requests.at(-1)).toMatchObject({ platforms: ["yt"] });
+      expect(nativeRequests).toHaveLength(1);
+      expect(titles()).toEqual(initialTitles);
+      expect($("category-refresh-result")).not.toBeNull();
+    },
+  );
+
   it.each(["search", "browse"] as const)(
     "checks a previewed caption only after an explicit selected-model action in %s, then shows source quotes",
     async (workspace) => {
@@ -543,6 +659,7 @@ describe("category editor feed", () => {
       expect($("feed-search-status")?.textContent).toContain("before feed filters");
 
       platformStatuses = { ig: { ok: false, error: "quota" } };
+      await click($("feed-indexed-options")!.querySelector("summary"));
       await click($("feed-find-more"));
       expect($("feed-search-ig")?.textContent).toContain("Search allowance reached");
       expect($("feed-search-yt")?.dataset.state).toBe("unknown");
@@ -584,6 +701,7 @@ describe("category editor feed", () => {
       await settle();
       expect(titles()).toHaveLength(0);
       expect(requests).toHaveLength(1);
+      await click($("feed-indexed-options")!.querySelector("summary"));
       expect($("feed-refill-options")?.hasAttribute("open")).toBe(false);
       await click($("feed-refill-options")!.querySelector("summary"));
       expect(requests).toHaveLength(1);
@@ -686,6 +804,7 @@ describe("category editor feed", () => {
     expect($("discover-usage")?.closest("[hidden]")).toBeNull();
     expect($("discover-usage")?.textContent).toContain("931");
     const beforeUsage = usageRequests;
+    await click($("feed-indexed-options")!.querySelector("summary"));
     await click($("feed-find-more"));
     expect(requests).toHaveLength(2);
     const firstQuery = requests.at(-1)?.q;
@@ -761,6 +880,7 @@ describe("category editor feed", () => {
   it("fetches another bounded batch only on Find more and reports source uncertainty in Arabic too", async () => {
     await mount();
     fixtures = [video("animeNewEdit", "Anime rotoscoping edit", 50_000, "@new")];
+    await click($("feed-indexed-options")!.querySelector("summary"));
     await click($("feed-find-more"));
     expect(requests).toHaveLength(2);
     expect(titles()).toContain("Anime rotoscoping edit");

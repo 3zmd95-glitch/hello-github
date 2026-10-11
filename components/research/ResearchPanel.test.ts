@@ -1176,13 +1176,13 @@ describe("native acquisition in category Search", () => {
 
   it("retrieves Travel leads explicitly with only that category's known IDs and no indexed search", async () => {
     seedCategories();
-    await mount({ v2: true, lang: "en", tab: "all" });
+    await mount({ v2: true, lang: "en", tab: "tt" });
     await click("genre-travel");
     expect($("category-feed")).not.toBeNull();
-    expect($("tiktok-native-discovery")).not.toBeNull();
+    expect($("category-refresh")).not.toBeNull();
     expect(nativeCalls).toEqual([]);
     expect(discoverAsked).toEqual([]);
-    await click("tiktok-find-edits");
+    await click("category-refresh-run");
     expect(nativeCalls).toHaveLength(1);
     expect(nativeCalls[0]).toMatchObject({
       categoryId: "travel",
@@ -1193,7 +1193,7 @@ describe("native acquisition in category Search", () => {
         .getState()
         .discoverCandidates.filter((candidate) => candidate.item.url === nativeLead.url),
     ).toMatchObject([{ genreId: "travel", item: nativeLead }]);
-    await click("tiktok-find-edits");
+    await click("category-refresh-run");
     expect(nativeCalls).toHaveLength(1);
     expect(discoverAsked).toEqual([]);
     expect(asked).toEqual([]);
@@ -1202,16 +1202,17 @@ describe("native acquisition in category Search", () => {
     expect(useStore.getState().discoverFeedback).toEqual([]);
   });
 
-  it("does not offer category acquisition for a detailed topic or other platform tab", async () => {
+  it("shows category refresh on each platform but removes it for a detailed topic", async () => {
     seedCategories();
     await mount({ v2: true, lang: "en", tab: "ig" });
     await click("genre-travel");
-    expect($("tiktok-native-discovery")).toBeNull();
+    expect($("category-refresh")).not.toBeNull();
+    expect($("category-refresh-region")).toBeNull();
     await click("tab-tt");
-    expect($("tiktok-native-discovery")).not.toBeNull();
+    expect($("category-refresh-region")).not.toBeNull();
     await submit("drone match cuts over mountain trails");
     expect($("category-feed")).toBeNull();
-    expect($("tiktok-native-discovery")).toBeNull();
+    expect($("category-refresh")).toBeNull();
     expect(nativeCalls).toEqual([]);
   });
 
@@ -1226,7 +1227,7 @@ describe("native acquisition in category Search", () => {
         });
       await mount({ v2: true, lang: "en" });
       await click("genre-travel");
-      await click("tiktok-find-edits");
+      await click("category-refresh-run");
       expect(nativeCalls).toHaveLength(1);
       if (change === "category") await click("genre-camping");
       else if (change === "config") {
@@ -1236,11 +1237,7 @@ describe("native acquisition in category Search", () => {
         act(() => root.render(createElement(ResearchPanel, { active: false })));
         await settle();
       } else {
-        const cancel = $("tiktok-native-discovery")!.querySelector<HTMLButtonElement>(
-          "button:not([data-testid])",
-        )!;
-        act(() => cancel.click());
-        await settle();
+        await click("category-refresh-cancel");
       }
       expect(nativeCalls[0].signal?.aborted).toBe(true);
       await act(async () => complete(json(nativeAnswer("travel"))));

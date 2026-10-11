@@ -2,6 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { openBrowseCategories, seedState, switchLang } from "./helpers";
 import en from "../messages/feed.en.json";
 import ar from "../messages/feed.ar.json";
+import refreshEn from "../messages/inspiration.en.json";
+import refreshAr from "../messages/inspiration.ar.json";
 import type { DiscoverItem } from "../lib/discover";
 
 const worker = "https://tiktok-access-fixture.example.workers.dev";
@@ -208,22 +210,23 @@ test("native TikTok retrieval is explicit, bypasses search credits, and preserve
 }) => {
   const state = await setup(page);
   expect(state.acquisitions).toEqual([]);
+  await page.getByTestId("browse-tab-tt").click();
   const count = await page.getByTestId("feed-count").textContent();
-  await page.getByTestId("tiktok-find-edits").click();
-  await expect(page.getByTestId("tiktok-find-result")).toHaveText(en["feed.tiktokFindEmpty"]);
+  await page.getByTestId("category-refresh-run").click();
+  await expect(page.getByTestId("category-refresh-result")).toContainText("Returned: 0");
   await expect(page.getByTestId("feed-count")).toHaveText(count!);
-  await expect(page.getByTestId("tiktok-find-edits")).toBeDisabled();
+  await expect(page.getByTestId("category-refresh-run")).toBeDisabled();
   expect(state.acquisitions).toEqual(["anime"]);
   expect(state.forbidden).toEqual([]);
   await switchLang(page, "ar");
-  await expect(page.getByTestId("tiktok-find-edits")).toHaveText(ar["feed.tiktokFind"]);
-  await expect(page.getByTestId("tiktok-find-result")).toHaveText(ar["feed.tiktokFindEmpty"]);
-  await page.getByTestId("tiktok-region").selectOption("SA");
-  await expect(page.getByTestId("tiktok-find-edits")).toBeEnabled();
-  await expect(page.getByTestId("tiktok-find-result")).toHaveCount(0);
+  await expect(page.getByTestId("category-refresh-run")).toHaveText(refreshAr["refresh.tiktok"]);
+  await expect(page.getByTestId("category-refresh-result")).toContainText("رجعنا 0 مرجع");
+  await page.getByTestId("category-refresh-region").selectOption("SA");
+  await expect(page.getByTestId("category-refresh-run")).toBeEnabled();
+  await expect(page.getByTestId("category-refresh-result")).toHaveCount(0);
   expect(state.acquisitions).toEqual(["anime"]);
-  await page.getByTestId("tiktok-find-edits").click();
-  await expect(page.getByTestId("tiktok-find-result")).toHaveText(ar["feed.tiktokFindEmpty"]);
+  await page.getByTestId("category-refresh-run").click();
+  await expect(page.getByTestId("category-refresh-result")).toContainText("رجعنا 0 مرجع");
   expect(state.acquisitions).toEqual(["anime", "anime"]);
   expect(state.forbidden).toEqual([]);
 });
@@ -232,6 +235,7 @@ test("native next batches skip retained posts after reload and stop when the cha
   page,
 }) => {
   const state = await setup(page);
+  await page.getByTestId("browse-tab-tt").click();
   state.nativeBatches = [1, 2].map((n) => [
     {
       platform: "tt",
@@ -243,16 +247,19 @@ test("native next batches skip retained posts after reload and stop when the cha
       section: "example",
     },
   ]);
-  await page.getByTestId("tiktok-find-edits").click();
-  await expect(page.getByTestId("tiktok-find-edits")).toHaveText(en["feed.tiktokFindMore"]);
-  await expect(page.getByTestId("tiktok-find-edits")).toBeEnabled();
+  await page.getByTestId("category-refresh-run").click();
+  await expect(page.getByTestId("category-refresh-result")).toContainText("Returned: 1");
+  await expect(page.getByTestId("category-refresh-run")).toHaveText(refreshEn["refresh.tiktok"]);
+  await expect(page.getByTestId("category-refresh-run")).toBeEnabled();
   expect(state.exclusions).toEqual([[]]);
   await page.reload();
   await openBrowseCategories(page);
   await page.getByTestId("genre-anime").click();
+  await page.getByTestId("browse-tab-tt").click();
   expect(state.acquisitions).toEqual(["anime"]);
-  await page.getByTestId("tiktok-find-edits").click();
-  await expect(page.getByTestId("tiktok-find-edits")).toBeDisabled();
+  await page.getByTestId("category-refresh-run").click();
+  await expect(page.getByTestId("category-refresh-result")).toContainText("Returned: 1");
+  await expect(page.getByTestId("category-refresh-run")).toBeDisabled();
   expect(state.exclusions).toEqual([[], ["7559999999000000001"]]);
   expect(state.acquisitions).toEqual(["anime", "anime"]);
   expect(state.forbidden).toEqual([]);

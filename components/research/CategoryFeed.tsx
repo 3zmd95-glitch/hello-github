@@ -34,6 +34,9 @@ export interface CategoryFeedProps {
   help?: string;
   testId?: string;
   intro?: ReactNode;
+  refresh?: ReactNode;
+  searchOptionsCollapsed?: boolean;
+  refreshing?: boolean;
   diagnostics?: DiscoverSourceDiagnostic[];
   quotaPlatforms?: DiscoverPlatform[];
   categoryForItem?: (item: DiscoverItem) => { label: string; onPick: () => void } | undefined;
@@ -182,14 +185,16 @@ export default function CategoryFeed(props: CategoryFeedProps) {
             {t("feed.exploreLeads", { n: props.exploreCount })}
           </button>
         )}
+      {props.refresh}
       {props.onFindMore && (
-        <div className="border-edge flex min-w-0 flex-col items-start gap-1.5 border-t pt-3">
+        <SearchOptions collapsed={props.searchOptionsCollapsed}>
           <button
             type="button"
             className="px-btn px-btn-sm"
             onClick={props.onFindMore}
             disabled={
               props.loading ||
+              props.refreshing ||
               props.findingMore ||
               props.refilling ||
               !props.canFindMore ||
@@ -221,7 +226,11 @@ export default function CategoryFeed(props: CategoryFeedProps) {
                   className="px-btn px-btn-ghost px-btn-sm"
                   onClick={props.onRefill}
                   disabled={
-                    props.loading || props.findingMore || props.refilling || !props.canRefill
+                    props.loading ||
+                    props.refreshing ||
+                    props.findingMore ||
+                    props.refilling ||
+                    !props.canRefill
                   }
                   data-testid="feed-refill"
                 >
@@ -236,9 +245,22 @@ export default function CategoryFeed(props: CategoryFeedProps) {
               </div>
             </details>
           )}
-        </div>
+        </SearchOptions>
       )}
     </section>
+  );
+}
+
+function SearchOptions({ collapsed, children }: { collapsed?: boolean; children: ReactNode }) {
+  const { t } = useT();
+  const content = <div className="flex min-w-0 flex-col items-start gap-1.5 pt-3">{children}</div>;
+  return collapsed ? (
+    <details className="border-edge border-t pt-2 text-xs" data-testid="feed-indexed-options">
+      <summary className="px-link w-fit cursor-pointer">{t("refresh.indexed")}</summary>
+      {content}
+    </details>
+  ) : (
+    <div className="border-edge border-t">{content}</div>
   );
 }
 

@@ -34,7 +34,7 @@ import { useCategorySemantic } from "./useCategorySemantic";
 import { useCreatorExpansion } from "./useCreatorExpansion";
 import CreatorExpansionAction, { CreatorExpansionStatus } from "./CreatorExpansionAction";
 import TikTokNativeAccess from "./TikTokNativeAccess";
-import TikTokNativeDiscovery from "./TikTokNativeDiscovery";
+import CategoryRefreshAction from "./CategoryRefreshAction";
 
 /** Category browsing has its own controls and state; it never edits the retained Search form. */
 export default function BrowseCategoryFeed({
@@ -68,6 +68,7 @@ export default function BrowseCategoryFeed({
   const [rounds, setRounds] = useState<Record<string, number>>({});
   const [usageRevision, setUsageRevision] = useState(0);
   const [busy, setBusy] = useState<AbortController | null>(null);
+  const [refreshBusy, setRefreshBusy] = useState(false);
   const [refilling, setRefilling] = useState(false);
   const [error, setError] = useState<ScoutError>();
   const [undo, setUndo] = useState<{ action: FeedFeedbackAction; token: DiscoverFeedbackUndo }>();
@@ -192,6 +193,7 @@ export default function BrowseCategoryFeed({
     if (
       !active ||
       !config ||
+      refreshBusy ||
       controller.current ||
       (!refill && nextRound >= CATEGORY_EXPANSION_ROUNDS)
     )
@@ -304,13 +306,6 @@ export default function BrowseCategoryFeed({
         ))}
       </div>
       {usage && <DiscoverUsageLine usage={usage} testId="browse-usage" />}
-      <TikTokNativeDiscovery
-        config={config}
-        categoryId={genre.id}
-        knownItems={pool}
-        active={active && (tab === "all" || tab === "tt")}
-        onCandidates={(items) => accumulate(items, { genreId: genre.id })}
-      />
       <TikTokNativeAccess
         config={config}
         categoryId={genre.id}
@@ -373,6 +368,19 @@ export default function BrowseCategoryFeed({
               }
             : undefined
         }
+        refresh={
+          <CategoryRefreshAction
+            genre={genre}
+            tab={tab}
+            config={config}
+            active={active && !entry.loading}
+            checking={sources.checking}
+            disabled={query.status === "loading" || (!!busy && !busy.signal.aborted)}
+            onBusyChange={setRefreshBusy}
+          />
+        }
+        searchOptionsCollapsed
+        refreshing={refreshBusy}
         onFindMore={() => {
           void findMore();
         }}
