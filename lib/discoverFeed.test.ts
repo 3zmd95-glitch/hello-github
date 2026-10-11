@@ -205,6 +205,8 @@ describe("category visual evidence persistence", () => {
     (receiptTime) => {
       const candidate = visualCandidate();
       const visual = candidate.visual!;
+      if (visual.media.provenance !== "instagram-public-embed-video")
+        throw new Error("Expected the existing Instagram fixture");
       const base = {
         version: visual.version,
         url: visual.url,

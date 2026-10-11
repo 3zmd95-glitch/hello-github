@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { DiscoverItem } from "./discover";
 import {
   applicableDiscoverVisual,
+  CapturedVideoReviewResponseSchema,
+  canonicalDiscoverVisualEvidenceUrl,
+  discoverVisualMediaMatches,
   canonicalDiscoverVisualUrl,
   discoverVisualInput,
   discoverVisualSourceMatches,
@@ -28,7 +31,9 @@ const source = {
   thumbnailUrl: "",
   likes: 2000,
 };
-const visual: DiscoverVisual = {
+const visual: DiscoverVisual & {
+  media: Extract<DiscoverVisual["media"], { provenance: "instagram-public-embed-video" }>;
+} = {
   version: 1,
   url,
   genreId: "anime",
@@ -303,5 +308,138 @@ describe("category visual evidence", () => {
     });
     expect(input.source).not.toHaveProperty("likes");
     expect(input.source).not.toHaveProperty("title");
+  });
+});
+
+describe("captured screenshot visual evidence", () => {
+  const ttUrl = "https://www.tiktok.com/@editor/video/7137219803013500203";
+  const ttSource = {
+    status: "available" as const,
+    url: ttUrl,
+    provenance: "tiktok-public-page" as const,
+    observedAt: when,
+    caption: source.description,
+    author: source.author,
+    likes: 2000,
+  };
+  const captured: DiscoverVisual = {
+    ...visual,
+    url: ttUrl,
+    source: { ...visual.source, provenance: "tiktok-public-page" },
+    media: {
+      provenance: "browser-visible-video",
+      observedAt: when,
+      durationSeconds: 30,
+      captureSha256: "b".repeat(64),
+      frames: visual.media.frames.map((frame) => ({ ...frame, capturedAt: when })),
+    },
+  };
+  const ttItem: DiscoverItem = {
+    ...item,
+    platform: "tt",
+    url: ttUrl,
+    evidence: { ...item.evidence!, source: "tiktok-public-page" },
+  };
+  it("keeps Instagram-only identities strict while source-bound screenshot assessments are reusable", () => {
+    expect(canonicalDiscoverVisualUrl(ttUrl)).toBeNull();
+    expect(canonicalDiscoverVisualEvidenceUrl(ttUrl)).toBe(ttUrl);
+    expect(DiscoverVisualSchema.safeParse(captured).success).toBe(true);
+    expect(
+      applicableDiscoverVisual({ genreId: "anime", visual: captured }, ttItem, now + 7 * 86400000),
+    ).toEqual(captured);
+    expect(hasDiscoverVisualCraft(captured)).toBe(true);
+    for (const altered of [
+      { ...ttItem, url: ttUrl.replace("editor", "someone") },
+      { ...ttItem, evidence: { ...ttItem.evidence!, caption: "Changed" } },
+      { ...ttItem, evidence: { ...ttItem.evidence!, author: "other" } },
+      { ...ttItem, evidence: { ...ttItem.evidence!, availability: "unavailable" as const } },
+    ])
+      expect(
+        applicableDiscoverVisual({ genreId: "anime", visual: captured }, altered, now),
+      ).toBeUndefined();
+    expect(
+      applicableDiscoverVisual(
+        {
+          genreId: "anime",
+          visual: { ...captured, checkedAt: new Date(now + 600000).toISOString() },
+        },
+        ttItem,
+        now,
+      ),
+    ).toBeUndefined();
+  });
+  it("rejects fabricated original-video provenance, mixed source identities, repeated pixels and invalid citations", () => {
+    for (const bad of [
+      { ...captured, media: { ...captured.media, videoSha256: "a".repeat(64) } },
+      { ...captured, source: visual.source },
+      { ...captured, media: visual.media },
+      { ...captured, url },
+      {
+        ...captured,
+        media: {
+          ...captured.media,
+          frames: [
+            captured.media.frames[0],
+            { ...captured.media.frames[1], sha256: captured.media.frames[0].sha256 },
+          ],
+        },
+      },
+      { ...captured, assessment: { ...captured.assessment, categoryFrames: [7] } },
+    ])
+      expect(DiscoverVisualSchema.safeParse(bad).success).toBe(false);
+    expect(
+      hasDiscoverVisualCraft({
+        ...captured,
+        assessment: { ...captured.assessment, observations: [] },
+      }),
+    ).toBe(false);
+    const changed = {
+      ...captured,
+      media: { ...captured.media, captureSha256: "f".repeat(64) },
+    } as DiscoverVisual;
+    expect(discoverVisualMediaMatches(captured, changed)).toBe(false);
+    expect(
+      applicableDiscoverVisual(
+        {
+          genreId: "anime",
+          visual: captured,
+          visualObservation: {
+            version: changed.version,
+            url: changed.url,
+            genreId: changed.genreId,
+            checkedAt: changed.checkedAt,
+            source: changed.source,
+            media: changed.media,
+          },
+        },
+        ttItem,
+        now,
+      ),
+    ).toBeUndefined();
+  });
+  it("keeps response source, capture and selection provenance independent of metadata counts", () => {
+    const response = {
+      status: "assessed",
+      selection: { provider: "chatgpt", model: captured.model, effort: captured.effort },
+      visual: captured,
+      source: ttSource,
+      cached: false,
+      modelCalls: 1,
+    };
+    expect(CapturedVideoReviewResponseSchema.safeParse(response).success).toBe(true);
+    expect(DiscoverVisualResponseSchema.safeParse(response).success).toBe(false);
+    for (const bad of [
+      { ...response, source: { ...ttSource, author: "other" } },
+      { ...response, source: { ...ttSource, caption: "changed" } },
+      { ...response, source: { ...ttSource, status: "unknown" } },
+      { ...response, visual },
+      { ...response, cached: true },
+      { ...response, selection: { ...response.selection, model: "fallback" } },
+    ])
+      expect(CapturedVideoReviewResponseSchema.safeParse(bad).success).toBe(false);
+    const input = JSON.parse(discoverVisualInput("anime", ttSource, captured.media));
+    expect(input.source).toEqual({ caption: source.description, author: source.author });
+    expect(input.sampling.limitations).toContain("not original media");
+    expect(input.sampling.limitations).toContain("approximate");
   });
 });

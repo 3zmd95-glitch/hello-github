@@ -304,7 +304,9 @@ function FeedCards(props: CategoryFeedProps) {
                   <p className="text-muted text-[11px]" data-testid="feed-source-note">
                     {t(
                       evidence?.visual
-                        ? "visual.cardLabel"
+                        ? evidence.visual.media.provenance === "browser-visible-video"
+                          ? "capture.cardLabel"
+                          : "visual.cardLabel"
                         : evidence?.sourceTier === "direct"
                           ? "feed.sourceRead"
                           : props.likedUrls.has(item.url)
@@ -458,7 +460,13 @@ function VisualEvidence({ visual }: { visual: DiscoverVisual }) {
     frames.map((frame) => `${visual.media.frames[frame].timestampSeconds.toFixed(1)}s`).join(" · ");
   return (
     <div className="mt-2 flex min-w-0 flex-col gap-1" data-testid="feed-visual-evidence">
-      <p className="font-bold">{t("visual.cardDetails")}</p>
+      <p className="font-bold">
+        {t(
+          visual.media.provenance === "browser-visible-video"
+            ? "capture.cardDetails"
+            : "visual.cardDetails",
+        )}
+      </p>
       <p dir="ltr" className="break-words">
         ChatGPT · {visual.model}
         {visual.effort ? ` · ${visual.effort}` : ""}
@@ -534,7 +542,13 @@ function VisualEvidence({ visual }: { visual: DiscoverVisual }) {
         </section>
       )}
       {visual.assessment.uncertainty && <p dir="auto">{visual.assessment.uncertainty}</p>}
-      <p className="text-muted">{t("visual.cardLimits")}</p>
+      <p className="text-muted">
+        {t(
+          visual.media.provenance === "browser-visible-video"
+            ? "capture.limits"
+            : "visual.cardLimits",
+        )}
+      </p>
     </div>
   );
 }

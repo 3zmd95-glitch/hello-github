@@ -1,6 +1,6 @@
 # Discover handover — 11 October 2026
 
-Read this first. Older chronological notes are preserved in [history](discover-resume-2026-10-11-history.md); do not load that entire file unless needed. Detailed design and measured evidence live in planning/tools/24 through49.
+Read this first. Older chronological notes are preserved in [history](discover-resume-2026-10-11-history.md); do not load that entire file unless needed. Detailed design and measured evidence live in planning/tools/24 through50.
 
 ## Objective and constraints
 
@@ -11,9 +11,21 @@ Conserve the user's usage. No broad new audits, repeated live model calls, paid 
 ## Source, runtime and review
 
 - Managed source: `C:/Users/AORUS/.codex/worktrees/discover-inspiration/hello-github`, branch `codex/discover-inspiration`. Latest format-source invalidation correction follows9045332; use git log for the current hash.
-- Primary `C:/Users/AORUS/Documents/hello-github` serves the managed build copied into its ignored out. Do not run the older primary tracked source. Current local server is **PID26016**, command session12900, restarted from managed source for the format-source correction. Preserve it.
+- Primary `C:/Users/AORUS/Documents/hello-github` serves the managed build copied into its ignored out. Do not run the older primary tracked source. Current local server is **PID27644**, command session82193, restarted from managed source for screenshot review. Preserve it.
 - PR70: https://github.com/3zmd95-glitch/hello-github/pull/70 — open, unmerged. Do not merge without the user's request.
-- Worker **e3b5ebf** deployed successfully via **38151982415** (tests and actual Deploy). Latest bounded craft-retrieval result is below. No frontend/local-server changes this continuation; runtime26016 and primaryout remain valid. Check current-head CI once if needed, not old cancelled runs.
+- Worker **e3b5ebf** deployed successfully via **38151982415** (tests and actual Deploy). Screenshot review changes the frontend/localserver only; no new Worker deployment. Check current-head CI once if needed, not old cancelled runs.
+
+## Latest continuation: screenshot review ready; expanded capture approval pending
+
+Tools/50 documents the implementation and exact boundaries. New optional helper0.2.0 panel captures2–8explicitly chosen moments from one fully visible public TikTok video (<=90s), crops locally, previews and saves boundedJSON. ExistingactiveTab/scriptingpermissions only, no background capture/media extraction/cookies. Global Discover file preview works fromForYou; import changes no feed and sends no pixels. A separate explicit check uses the exact connected model/account/effort, actualTikTokpublicsource and screenshothash. Saved assessment distinguishes browser screenshots from original video, preserves originalcapturetimes and leaves motion/audio/authenticity unverified. Existing engagement/recency/relevance gates remain. Ordinary quote captions aren't creative typography by themselves.
+
+**Approval pending:** asked the user once to enable/test the new image-capture feature on one publicTikTokpost and send the cropped images to connectedAstra/max for oneassessment. Do not reinstall or reask the already-approved links-only helper. Do not activate real image capture or send images until the pending answer arrives. Check the current conversation for that answer before asking again. This is a new capability, not demonstrated live-quality gain. No real capturedfile or modelcall was made this continuation.
+
+Validation: lint/types, **3,799unit/190files**, build passed. Fullbrowser430existingpasses/8intentional skips;6newcases initially exposed fixture errors, corrected withoutappchanges, and all6passed targeted. Thus436casespassed acrossfull+targeted, no unresolvedfailure. Temp logs `discover-video-review-gates.log`, `discover-video-review-browser.log`, `discover-video-review-regression.log`. Don't rerun those suites without newcode/failure. Managedexport copied toprimaryout (Discoverhash13C165A052841153F92BC709A4A62A2F3A58C329DC7204CF41D8431BABC83D89), runtime27644/session82193 usesmanagedserver, primarycwd; connections retained.
+
+ActualChrome3/tab295817377 `http://localhost:3000/discover/#video-capture`: expandedpanel, Coffee, connectedgpt-6-astra/max, Checkdisabled withoutfile, Saved3, ForYou30. ScreenshotTemp `discover-video-review-ready-2026-10-11.png`. Markedhandoff. OldDOMbindings timedout duringfullbrowserload; samebrowserfresh-tab recovered. No native capture or AI assessment yet.
+
+Before implementation, nativecoffee.tales1/7692598509207325966 sample at~1.25/~6.45seconds showed coffeewhirl+plainrelationshipquote despite679.9Klikes, supporting refusal to promote fromcounts. Nativea.gji0/7692546728540589318 singleframe showedcoffeeonwoodcounter; insufficientmotion/qualityproof. Do not repeat these read-onlychecks or claimwholeclip/audioinspection. Afterapproval, test one boundedrealcapture endtoend and reportactualassessment/retained/qualifiedseparately. Overallnative-qualitydiscovery andtrendadoption remainunfinished.
 
 ## Latest continuation: bounded native retrieval, no demonstrated live gain
 

@@ -33,6 +33,8 @@ import {
   DISCOVER_VISUAL_SYSTEM,
   DISCOVER_VISUAL_TTL_MS,
   DiscoverVisualRequestSchema,
+  CapturedVideoReviewRequestSchema,
+  CapturedVideoReviewResponseSchema,
   DiscoverVisualAssessmentV2Schema,
   DISCOVER_VISUAL_RUBRIC_VERSION,
   DiscoverVisualObservationSchema,
@@ -42,6 +44,10 @@ import {
   type DiscoverVisual,
   type DiscoverVisualObservation,
 } from "../../lib/discoverVisual";
+import {
+  NATIVE_VIDEO_CAPTURE_MAX_BYTES,
+  nativeVideoCaptureHash,
+} from "../../lib/nativeVideoCapture";
 import { createClaudeProvider } from "./claude";
 import {
   DISCOVER_SEMANTIC_SYSTEM,
@@ -144,11 +150,11 @@ function reply(res: ServerResponse, status: number, data: unknown) {
   res.end(JSON.stringify(data));
 }
 
-function readBody(req: IncomingMessage): Promise<unknown> {
+function readBody(req: IncomingMessage, maxBytes = MAX_BODY): Promise<unknown> {
   if (!/^application\/json(?:\s*;|$)/i.test(req.headers["content-type"] ?? ""))
     return Promise.reject(new LocalAiProviderError("invalid_request"));
   const declaredLength = req.headers["content-length"];
-  if (declaredLength && Number(declaredLength) > MAX_BODY)
+  if (declaredLength && Number(declaredLength) > maxBytes)
     return Promise.reject(new LocalAiProviderError("request_too_large"));
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -167,7 +173,7 @@ function readBody(req: IncomingMessage): Promise<unknown> {
     };
     const onData = (chunk: Buffer) => {
       bytes += chunk.length;
-      if (bytes > MAX_BODY) return fail("request_too_large");
+      if (bytes > maxBytes) return fail("request_too_large");
       chunks.push(chunk);
     };
     const onError = () => fail("invalid_request");
@@ -608,11 +614,25 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
       }
       return;
     }
-    if (url.pathname === "/api/local-ai/assess-category") {
-      const parsed = DiscoverVisualRequestSchema.safeParse(await readBody(req));
+    if (
+      url.pathname === "/api/local-ai/assess-category" ||
+      url.pathname === "/api/local-ai/review-captured-video"
+    ) {
+      const capturedRoute = url.pathname === "/api/local-ai/review-captured-video";
+      const parsed = capturedRoute
+        ? CapturedVideoReviewRequestSchema.safeParse(
+            await readBody(req, NATIVE_VIDEO_CAPTURE_MAX_BYTES),
+          )
+        : DiscoverVisualRequestSchema.safeParse(await readBody(req));
       if (!parsed.success) throw new LocalAiProviderError("invalid_request");
       const body = parsed.data;
-      const post = instagramPostUrl(body.url)!;
+      const capture = "capture" in body ? body.capture : undefined;
+      if (capture?.frames.some((frame) => Date.parse(frame.capturedAt) > now() + 300_000))
+        throw new LocalAiProviderError("invalid_request");
+      const post = capture?.url ?? instagramPostUrl("url" in body ? body.url : "")!;
+      const responseSchema = capturedRoute
+        ? CapturedVideoReviewResponseSchema
+        : DiscoverVisualResponseSchema;
       const provider = options.providers.chatgpt;
       const status = await safeStatus(provider);
       if (!status.connected || status.sharing !== true)
@@ -647,57 +667,79 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
         ),
       );
       let modelCalls: 0 | 1 = 0;
-      let source: InstagramSource | undefined;
+      let source: InstagramSource | TikTokSource | undefined;
       let observation: DiscoverVisualObservation | undefined;
       try {
-        source = await Promise.race([sourceFor(post), aborted]);
+        source = await Promise.race([capture ? tiktokSourceFor(post) : sourceFor(post), aborted]);
         if (
           source.status !== "available" ||
           !source.observedAt ||
-          instagramPostUrl(source.url) !== post
+          (capture ? source.url !== post : instagramPostUrl(source.url) !== post)
         )
           throw new LocalAiProviderError("source_unavailable");
-        // A high indexed count cannot buy an inspection of a five-like native source.
-        // Instagram's current public reader exposes likes, not views; unknown stays unknown.
-        if (source.likes === undefined) throw new LocalAiProviderError("source_engagement_unknown");
-        if (source.likes < 500) throw new LocalAiProviderError("source_low_engagement");
-        const sampled = await Promise.race([
-          (options.extractFrames ?? extractInstagramFrames)(
-            post,
-            options.sourceFetch ?? fetch,
-            controller.signal,
-          ),
-          aborted,
-        ]);
-        if (sampled.status !== "available")
-          throw new LocalAiProviderError(`source_frames_${sampled.reason.replace(/-/g, "_")}`);
-        if (
-          sampled.sourceUrl !== post ||
-          sampled.source !== "instagram-public-embed-video" ||
-          sampled.frames.some(
-            (frame) =>
-              frame.mime !== "image/jpeg" ||
-              frame.bytes.length < 4 ||
-              frame.bytes.length > 512 * 1024 ||
-              frame.bytes[0] !== 255 ||
-              frame.bytes[1] !== 216 ||
-              frame.bytes[2] !== 255,
+        // Use the same native metric/floor as Inspiration; uploaded pixels cannot supply counts.
+        const nativeCount =
+          source.provenance === "tiktok-public-page" && source.views !== undefined
+            ? source.views
+            : source.likes;
+        const floor =
+          source.provenance === "tiktok-public-page" && source.views !== undefined ? 10000 : 500;
+        if (nativeCount === undefined) throw new LocalAiProviderError("source_engagement_unknown");
+        if (nativeCount < floor) throw new LocalAiProviderError("source_low_engagement");
+        const snapshot = {
+          caption: source.provenance === "tiktok-public-page" ? source.caption : source.description,
+          author: source.author,
+        };
+        let media: DiscoverVisualObservation["media"];
+        let images: { mime: "image/jpeg"; base64: string }[];
+        if (capture) {
+          images = capture.frames.map((frame) => ({
+            mime: "image/jpeg",
+            base64: frame.dataUrl.slice("data:image/jpeg;base64,".length),
+          }));
+          media = {
+            provenance: "browser-visible-video",
+            observedAt: capture.capturedAt,
+            durationSeconds: capture.durationSeconds,
+            captureSha256: await nativeVideoCaptureHash(capture),
+            frames: capture.frames.map((frame, index) => ({
+              timestampSeconds: frame.timestampSeconds,
+              capturedAt: frame.capturedAt,
+              sha256: createHash("sha256")
+                .update(Buffer.from(images[index].base64, "base64"))
+                .digest("hex"),
+            })),
+          };
+        } else {
+          const sampled = await Promise.race([
+            (options.extractFrames ?? extractInstagramFrames)(
+              post,
+              options.sourceFetch ?? fetch,
+              controller.signal,
+            ),
+            aborted,
+          ]);
+          if (sampled.status !== "available")
+            throw new LocalAiProviderError(`source_frames_${sampled.reason.replace(/-/g, "_")}`);
+          if (
+            sampled.sourceUrl !== post ||
+            sampled.source !== "instagram-public-embed-video" ||
+            sampled.frames.some(
+              (frame) =>
+                frame.mime !== "image/jpeg" ||
+                frame.bytes.length < 4 ||
+                frame.bytes.length > 512 * 1024 ||
+                frame.bytes[0] !== 255 ||
+                frame.bytes[1] !== 216 ||
+                frame.bytes[2] !== 255,
+            )
           )
-        )
-          throw new LocalAiProviderError("source_frames_decode_failed");
-        const snapshot = { caption: source.description, author: source.author };
-        const observed = DiscoverVisualObservationSchema.safeParse({
-          version: 1,
-          url: post,
-          genreId: body.genreId,
-          checkedAt: new Date(now()).toISOString(),
-          source: {
-            provenance: "instagram-public-embed",
-            ...snapshot,
-            observedAt: source.observedAt,
-            sha256: createHash("sha256").update(JSON.stringify(snapshot)).digest("hex"),
-          },
-          media: {
+            throw new LocalAiProviderError("source_frames_decode_failed");
+          images = sampled.frames.map((frame) => ({
+            mime: frame.mime,
+            base64: frame.bytes.toString("base64"),
+          }));
+          media = {
             provenance: sampled.source,
             observedAt: sampled.observedAt,
             durationSeconds: sampled.durationSeconds,
@@ -706,7 +748,20 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
               timestampSeconds: frame.timestampSeconds,
               sha256: createHash("sha256").update(frame.bytes).digest("hex"),
             })),
+          };
+        }
+        const observed = DiscoverVisualObservationSchema.safeParse({
+          version: 1,
+          url: post,
+          genreId: body.genreId,
+          checkedAt: new Date(now()).toISOString(),
+          source: {
+            provenance: source.provenance,
+            ...snapshot,
+            observedAt: source.observedAt,
+            sha256: createHash("sha256").update(JSON.stringify(snapshot)).digest("hex"),
           },
+          media,
         });
         if (!observed.success) throw new LocalAiProviderError("source_frames_decode_failed");
         observation = observed.data;
@@ -723,13 +778,16 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
         const key = createHash("sha256")
           .update(
             JSON.stringify({
-              route: `assess-category-v${DISCOVER_VISUAL_RUBRIC_VERSION}`,
+              route: `${capturedRoute ? "review-captured-video-v1" : "assess-category"}-v${DISCOVER_VISUAL_RUBRIC_VERSION}`,
               selection,
               url: post,
               genreId: body.genreId,
               lang: body.lang ?? "en",
               source: snapshot,
-              videoSha256: observation.media.videoSha256,
+              mediaHash:
+                observation.media.provenance === "browser-visible-video"
+                  ? observation.media.captureSha256
+                  : observation.media.videoSha256,
               durationSeconds: observation.media.durationSeconds,
               frames: observation.media.frames,
             }),
@@ -740,7 +798,7 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
           reply(
             res,
             200,
-            DiscoverVisualResponseSchema.parse({
+            responseSchema.parse({
               status: "assessed",
               selection,
               visual: hit.visual,
@@ -759,10 +817,7 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
             effort: body.effort,
             instructions: DISCOVER_VISUAL_SYSTEM,
             input: discoverVisualInput(body.genreId, source, observation.media, body.lang),
-            images: sampled.frames.map((frame) => ({
-              mime: frame.mime,
-              base64: frame.bytes.toString("base64"),
-            })),
+            images,
             schemaName: "discover_category_visual",
             schema: z.toJSONSchema(DiscoverVisualAssessmentV2Schema, { target: "draft-7" }),
             signal: controller.signal,
@@ -794,7 +849,7 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
           throw new LocalAiProviderError("not_connected");
         if (finalStatus.accountId !== status.accountId)
           throw new LocalAiProviderError("account_changed");
-        const value = DiscoverVisualResponseSchema.parse({
+        const value = responseSchema.parse({
           status: "assessed",
           selection,
           visual: visual.data,
@@ -810,7 +865,7 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
         reply(
           res,
           200,
-          DiscoverVisualResponseSchema.parse({
+          responseSchema.parse({
             status: "unavailable",
             selection,
             error: safeError(error),

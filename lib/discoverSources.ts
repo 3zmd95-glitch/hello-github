@@ -6,7 +6,7 @@ import { postedAt } from "../workers/scout/src/postDate";
 import { isLocalAiHost } from "./localAi";
 import { z } from "zod";
 
-const TikTokSourceSchema = z.object({
+export const TikTokSourceSchema = z.object({
   status: z.enum(["available", "unavailable", "unknown"]),
   url: z
     .string()

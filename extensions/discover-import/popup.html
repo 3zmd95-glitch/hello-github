@@ -19,6 +19,18 @@
     </fieldset>
     <button id="review" class="primary" type="button" hidden disabled></button>
     <p id="local" class="muted"></p>
+    <details id="video-review">
+      <summary id="video-heading"></summary>
+      <p id="video-privacy" class="muted"></p>
+      <button id="video-capture" type="button"></button>
+      <p id="video-status" role="status" aria-live="polite"></p>
+      <a id="video-source" target="_blank" rel="noopener noreferrer" hidden></a>
+      <div id="video-frames"></div>
+      <button id="video-save" type="button" disabled></button>
+      <button id="video-reset" type="button" disabled></button>
+      <button id="video-open" type="button"></button>
+      <p id="video-help" class="muted"></p>
+    </details>
     <script type="module" src="popup.js"></script>
   </body>
 </html>

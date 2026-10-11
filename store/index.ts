@@ -127,14 +127,16 @@ import { rankFromXp } from "@/lib/rank";
 import type { DiscoverItem } from "@/lib/discover";
 import type { AiSelection } from "@/lib/localAi";
 import { DiscoverSemanticResponseSchema, applicableDiscoverSemantic } from "@/lib/discoverSemantic";
-import { applyInstagramEvidence } from "@/lib/discoverSources";
+import { applyInstagramEvidence, applyTikTokEvidence } from "@/lib/discoverSources";
 import {
+  CapturedVideoReviewResponseSchema,
   DiscoverVisualResponseSchema,
   DISCOVER_VISUAL_TTL_MS,
   applicableDiscoverVisual,
   canonicalDiscoverVisualUrl,
   discoverVisualSourceMatches,
 } from "@/lib/discoverVisual";
+import { canonicalNativeVideoUrl } from "@/lib/nativeVideoCapture";
 import {
   DiscoverCandidatesSchema,
   DiscoverFeedbackListSchema,
@@ -409,6 +411,11 @@ export interface DiscoverSemanticApplyGuard {
 }
 
 export interface StoreActions {
+  applyCapturedVideoReviewResult(
+    response: unknown,
+    guard: DiscoverVisualApplyGuard,
+    now?: Date,
+  ): DiscoverVisualApplyResult;
   applyDiscoverSemanticResult(
     response: unknown,
     guard: DiscoverSemanticApplyGuard,
@@ -1124,6 +1131,85 @@ export const useStore = create<StoreState>()(
         }
         if (!guard.isCurrent() || guard.epoch !== get().discoverLibraryEpoch) return "stale";
         const next = mergeDiscoverCandidates(state.discoverCandidates, incoming);
+        if (next === state.discoverCandidates) return "unchanged";
+        set({ discoverCandidates: next });
+        candidateLibrary().changed();
+        return "applied";
+      },
+
+      applyCapturedVideoReviewResult(response, guard, now = new Date()) {
+        const state = get();
+        if (
+          !guard.isCurrent() ||
+          guard.epoch !== state.discoverLibraryEpoch ||
+          state.discoverLibraryStatus === "loading"
+        )
+          return "stale";
+        const url = canonicalNativeVideoUrl(guard.url);
+        if (!url || !Number.isFinite(now.getTime())) return "invalid";
+        const parsed = CapturedVideoReviewResponseSchema.safeParse(response);
+        if (!parsed.success) return "invalid";
+        const result = parsed.data;
+        if (
+          result.selection.provider !== guard.selection.provider ||
+          result.selection.model !== guard.selection.model ||
+          result.selection.effort !== guard.selection.effort ||
+          result.selection.accountId !== guard.selection.accountId
+        )
+          return "invalid";
+        // A failed check never overwrites an existing judgment or saves uploaded screenshots.
+        if (result.status !== "assessed") return "unchanged";
+        if (
+          canonicalNativeVideoUrl(result.source.url) !== url ||
+          result.visual.url !== url ||
+          result.visual.genreId !== guard.genreId ||
+          result.visual.media.provenance !== "browser-visible-video" ||
+          !result.source.observedAt ||
+          Date.parse(result.source.observedAt) > now.getTime() + 300_000 ||
+          now.getTime() - Date.parse(result.visual.checkedAt) >= DISCOVER_VISUAL_TTL_MS
+        )
+          return "invalid";
+        const current = state.discoverCandidates.find(
+          (entry) =>
+            entry.genreId === guard.genreId &&
+            entry.item.platform === "tt" &&
+            canonicalNativeVideoUrl(entry.item.url) === url,
+        );
+        const item = applyTikTokEvidence(
+          current?.item ?? {
+            platform: "tt",
+            url,
+            handle: "",
+            title: "TikTok",
+            snippet: "",
+            lang: state.settings.lang,
+            section: "example",
+          },
+          result.source,
+        );
+        if (
+          !applicableDiscoverVisual(
+            {
+              genreId: guard.genreId,
+              visual: result.visual,
+              visualObservation: current?.visualObservation,
+            },
+            item,
+            now.getTime(),
+          )
+        )
+          return "stale";
+        if (!guard.isCurrent() || guard.epoch !== get().discoverLibraryEpoch) return "stale";
+        const next = mergeDiscoverCandidates(state.discoverCandidates, [
+          {
+            ...current,
+            genreId: guard.genreId,
+            obtainedAt: current?.obtainedAt ?? now.toISOString(),
+            origin: current?.origin ?? "manual",
+            item,
+            visual: result.visual,
+          },
+        ]);
         if (next === state.discoverCandidates) return "unchanged";
         set({ discoverCandidates: next });
         candidateLibrary().changed();

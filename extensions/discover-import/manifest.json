@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Discover — review visible results",
-  "version": "0.1.0",
-  "description": "Choose visible video links from a public search page and review them in your local Discover app.",
+  "version": "0.2.0",
+  "description": "Review visible social video links in Discover, or explicitly capture and preview moments from a public TikTok video.",
   "permissions": ["activeTab", "scripting"],
   "action": {
     "default_title": "Review search results in Discover",

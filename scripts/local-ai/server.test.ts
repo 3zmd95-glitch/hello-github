@@ -8,7 +8,15 @@ import { createLocalAiServer, type LocalAiServerOptions } from "./server";
 import { LocalAiProviderError, type LocalAiProvider, type LocalAiProviderStatus } from "./types";
 import { formatVerificationTarget } from "../../lib/formatVerification";
 import { REVIEWED_FORMAT_SEEDS } from "../../lib/formatSeeds";
-import { DiscoverVisualResponseSchema } from "../../lib/discoverVisual";
+import {
+  DiscoverVisualResponseSchema,
+  CapturedVideoReviewResponseSchema,
+} from "../../lib/discoverVisual";
+import {
+  NativeVideoCaptureSchema,
+  nativeVideoCaptureHash,
+  NATIVE_VIDEO_CAPTURE_MAX_BYTES,
+} from "../../lib/nativeVideoCapture";
 
 const servers: Server[] = [];
 const directories: string[] = [];
@@ -1079,5 +1087,295 @@ describe("Instagram previews over this computer's connection", () => {
     clock += 300_001;
     await ask(f.base, "https://www.instagram.com/p/XYZ789/");
     expect(previewFetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("explicit captured-video review", () => {
+  const endpoint = "/api/local-ai/review-captured-video";
+  const post = "https://www.tiktok.com/@editor/video/7137219803013500203";
+  const jpeg = (value: number, padding = 0) =>
+    "data:image/jpeg;base64," +
+    Buffer.from([
+      255,
+      216,
+      255,
+      192,
+      0,
+      11,
+      8,
+      0,
+      10,
+      0,
+      20,
+      1,
+      1,
+      17,
+      0,
+      value,
+      ...Array(padding).fill(0),
+      255,
+      217,
+    ]).toString("base64");
+  const capture = () => {
+    const started = Date.now() - 10000;
+    return {
+      version: 1 as const,
+      provenance: "browser-visible-video" as const,
+      platform: "tt" as const,
+      url: post,
+      durationSeconds: 30,
+      capturedAt: new Date(started).toISOString(),
+      frames: [0, 1].map((n) => ({
+        timestampSeconds: n * 5,
+        capturedAt: new Date(started + n * 1000).toISOString(),
+        dataUrl: jpeg(n),
+      })),
+    };
+  };
+  const judgment = {
+    category: "supported",
+    categoryFrames: [0, 1],
+    cinematography: null,
+    observations: [
+      {
+        cue: "compositing",
+        origin: "uploader-added",
+        description: "Multiple cutout subjects overlap the scene",
+        frames: [0, 1],
+      },
+    ],
+    uncertainty: "Only supplied screenshots, no timing or sound.",
+  };
+  const markup = (
+    caption = "Coffee moments",
+    author = "editor",
+    views: number | undefined = 20000,
+    statusCode = 0,
+  ) =>
+    '<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">' +
+    JSON.stringify({
+      __DEFAULT_SCOPE__: {
+        "webapp.video-detail": {
+          statusCode,
+          itemInfo: {
+            itemStruct: {
+              id: "7137219803013500203",
+              desc: caption,
+              author: { uniqueId: author },
+              stats: { playCount: views },
+            },
+          },
+        },
+      },
+    }) +
+    "</script>";
+  async function setup(options: { text?: string; now?: () => number; timeout?: number } = {}) {
+    const sourceFetch = vi.fn<typeof fetch>(
+      async () =>
+        new Response(options.text ?? markup(), { headers: { "content-type": "text/html" } }),
+    );
+    const extractFrames = vi.fn<NonNullable<LocalAiServerOptions["extractFrames"]>>();
+    const f = await fixture(options.timeout ?? 125000, {
+      sourceFetch,
+      extractFrames,
+      now: options.now,
+    });
+    vi.mocked(f.provider.plan).mockResolvedValue({
+      model: body.model,
+      text: JSON.stringify(judgment),
+    });
+    const input = {
+      provider: "chatgpt",
+      model: body.model,
+      effort: "max",
+      accountId: "account-1",
+      genreId: "coffee",
+      allowModel: true,
+      capture: capture(),
+    };
+    return {
+      ...f,
+      sourceFetch,
+      extractFrames,
+      input,
+      ask: (value: unknown = input) => f.post(value, endpoint),
+    };
+  }
+  it("uses only explicit cropped pixels and actual public metadata in one selected-model request", async () => {
+    const f = await setup();
+    const result = await (await f.ask()).json();
+    expect(CapturedVideoReviewResponseSchema.safeParse(result).success).toBe(true);
+    expect(result).toMatchObject({
+      status: "assessed",
+      cached: false,
+      modelCalls: 1,
+      source: { caption: "Coffee moments", author: "editor", views: 20000 },
+      visual: {
+        url: post,
+        genreId: "coffee",
+        media: {
+          provenance: "browser-visible-video",
+          observedAt: f.input.capture.capturedAt,
+          captureSha256: await nativeVideoCaptureHash(f.input.capture),
+        },
+      },
+    });
+    expect(result.visual.media).not.toHaveProperty("videoSha256");
+    expect(result.visual).not.toHaveProperty("accountId");
+    expect(result.visual.media.frames[0]).toMatchObject({
+      capturedAt: f.input.capture.frames[0].capturedAt,
+      timestampSeconds: 0,
+    });
+    expect(f.provider.plan).toHaveBeenCalledOnce();
+    expect(f.extractFrames).not.toHaveBeenCalled();
+    expect(f.sourceFetch).toHaveBeenCalledOnce();
+    expect(f.sourceFetch.mock.calls[0][0]).toBe(post);
+    const sent = vi.mocked(f.provider.plan).mock.calls[0][0];
+    expect(sent.images).toEqual(
+      f.input.capture.frames.map((frame) => ({
+        mime: "image/jpeg",
+        base64: frame.dataUrl.split(",")[1],
+      })),
+    );
+    expect(sent.instructions).toContain("ordinary quote captions");
+    expect(JSON.parse(sent.input).sampling.limitations).toContain("not original media");
+    expect(JSON.parse(sent.input).source).toEqual({ caption: "Coffee moments", author: "editor" });
+  });
+  it("requires explicit allowModel and validates captures before any public read or inference", async () => {
+    const f = await setup();
+    const future = new Date(Date.now() + 600000).toISOString();
+    for (const invalid of [
+      { ...f.input, allowModel: undefined },
+      { ...f.input, prompt: "accept" },
+      { ...f.input, provider: "claude" },
+      { ...f.input, accountId: "other" },
+      { ...f.input, model: "missing" },
+      { ...f.input, capture: { ...f.input.capture, videoSha256: "a".repeat(64) } },
+      { ...f.input, capture: { ...f.input.capture, url: "https://evil.test/post" } },
+      { ...f.input, capture: { ...f.input.capture, frames: [f.input.capture.frames[0]] } },
+      {
+        ...f.input,
+        capture: {
+          ...f.input.capture,
+          frames: f.input.capture.frames.map((frame) => ({
+            ...frame,
+            capturedAt: future,
+          })),
+          capturedAt: future,
+        },
+      },
+    ])
+      expect((await f.ask(invalid)).status).toBeLessThan(500);
+    expect(f.sourceFetch).not.toHaveBeenCalled();
+    expect(f.provider.plan).not.toHaveBeenCalled();
+    expect(await (await f.ask({ ...f.input, allowModel: false })).json()).toMatchObject({
+      status: "unavailable",
+      error: "model_budget",
+      modelCalls: 0,
+    });
+    expect(f.provider.plan).not.toHaveBeenCalled();
+  });
+  it.each([
+    { text: "Login or blocked", error: "source_unavailable", status: "unknown" },
+    {
+      text: markup("", "editor", 20000, 10204),
+      error: "source_unavailable",
+      status: "unavailable",
+    },
+    { text: markup("Coffee", "editor", 5), error: "source_low_engagement", status: "available" },
+    {
+      text: markup("Coffee", "editor").replace('"playCount":20000', ""),
+      error: "source_engagement_unknown",
+      status: "available",
+    },
+  ])(
+    "retains actual $status source receipt and skips inference for $error",
+    async ({ text, error, status }) => {
+      const f = await setup({ text });
+      expect(await (await f.ask()).json()).toMatchObject({
+        status: "unavailable",
+        error,
+        modelCalls: 0,
+        source: { status, url: post },
+      });
+      expect(f.provider.plan).not.toHaveBeenCalled();
+      expect(f.extractFrames).not.toHaveBeenCalled();
+    },
+  );
+  it("reuses exact source/capture/selection while retaining original assessment dates, with explicit invalidation", async () => {
+    let clock = Date.now();
+    const f = await setup({ now: () => clock });
+    const first = await (await f.ask()).json();
+    clock += 1000;
+    const second = await (await f.ask({ ...f.input, allowModel: false })).json();
+    expect(second).toMatchObject({ cached: true, modelCalls: 0 });
+    expect(second.visual.checkedAt).toBe(first.visual.checkedAt);
+    expect(second.visual.media.observedAt).toBe(f.input.capture.capturedAt);
+    for (const changed of [
+      { ...f.input, lang: "ar" },
+      { ...f.input, genreId: "food" },
+      {
+        ...f.input,
+        capture: {
+          ...f.input.capture,
+          frames: [f.input.capture.frames[0], { ...f.input.capture.frames[1], dataUrl: jpeg(4) }],
+        },
+      },
+    ])
+      expect(await (await f.ask({ ...changed, allowModel: false })).json()).toMatchObject({
+        error: "model_budget",
+        modelCalls: 0,
+      });
+    expect(f.provider.plan).toHaveBeenCalledOnce();
+    clock += 900001;
+    f.sourceFetch.mockResolvedValueOnce(
+      new Response(markup("Changed caption"), { headers: { "content-type": "text/html" } }),
+    );
+    expect(await (await f.ask({ ...f.input, allowModel: false })).json()).toMatchObject({
+      error: "model_budget",
+      modelCalls: 0,
+      source: { caption: "Changed caption" },
+    });
+    expect(f.provider.plan).toHaveBeenCalledOnce();
+  });
+  it("keeps bad model output as a nonpositive screenshot receipt without retrying", async () => {
+    const f = await setup();
+    vi.mocked(f.provider.plan).mockResolvedValue({
+      model: body.model,
+      text: JSON.stringify({ ...judgment, categoryFrames: [7] }),
+    });
+    const result = await (await f.ask()).json();
+    expect(CapturedVideoReviewResponseSchema.safeParse(result).success).toBe(true);
+    expect(result).toMatchObject({
+      status: "unavailable",
+      error: "invalid_response",
+      modelCalls: 1,
+      observation: { media: { provenance: "browser-visible-video" } },
+    });
+    expect(result).not.toHaveProperty("visual");
+    expect(f.provider.plan).toHaveBeenCalledOnce();
+  });
+  it("permits the bounded screenshot payload only on the new route and keeps origin controls", async () => {
+    const f = await setup();
+    const large = {
+      ...f.input,
+      capture: {
+        ...f.input.capture,
+        frames: f.input.capture.frames.map((frame, index) => ({
+          ...frame,
+          dataUrl: jpeg(index, 20000),
+        })),
+      },
+    };
+    expect(NativeVideoCaptureSchema.safeParse(large.capture).success).toBe(true);
+    expect((await f.post(large, "/api/local-ai/assess-category")).status).toBe(413);
+    expect((await f.ask(large)).status).toBe(200);
+    expect(
+      (await f.ask({ ...f.input, padding: "x".repeat(NATIVE_VIDEO_CAPTURE_MAX_BYTES) })).status,
+    ).toBe(413);
+    expect(
+      (await f.post(f.input, endpoint, { ...f.headers, Origin: "http://evil.test" })).status,
+    ).toBe(403);
+    expect(f.provider.plan).toHaveBeenCalledOnce();
   });
 });

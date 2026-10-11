@@ -8,6 +8,7 @@ import { useT } from "@/lib/i18n";
 import { useStore } from "@/store";
 import InspirationLibrary from "./InspirationLibrary";
 import NativeResultsImport from "./NativeResultsImport";
+import NativeVideoCaptureReview from "./NativeVideoCaptureReview";
 import { useGenreLink, useTikTokReturn } from "./useGenreLink";
 import type { FormatVerificationTarget } from "@/lib/formatVerification";
 
@@ -68,6 +69,14 @@ export default function DiscoverScreen() {
             revision: (previous?.revision ?? 0) + 1,
           }));
           setCategoryOpen(false);
+          setView("browse");
+        }}
+      />
+      <NativeVideoCaptureReview
+        genres={genres}
+        onReviewed={(id) => {
+          setBrowseGenreId(id);
+          setCategoryOpen(true);
           setView("browse");
         }}
       />
