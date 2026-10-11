@@ -1,9 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Discover — review visible results",
-  "version": "0.2.0",
-  "description": "Review visible social video links in Discover, or explicitly capture and preview moments from a public TikTok video.",
-  "permissions": ["activeTab", "scripting"],
+  "version": "0.3.0",
+  "description": "Review visible links and TikTok screenshots, or optionally connect Discover to public native search cards on request.",
+  "permissions": ["activeTab", "scripting", "storage", "alarms"],
+  "optional_host_permissions": [
+    "https://www.instagram.com/*",
+    "https://www.tiktok.com/*",
+    "https://www.youtube.com/*"
+  ],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "externally_connectable": { "matches": ["http://localhost/*"] },
   "action": {
     "default_title": "Review search results in Discover",
     "default_popup": "popup.html"

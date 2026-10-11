@@ -1,5 +1,7 @@
 "use client";
 
+import { nativeHelperId } from "@/lib/discoverNativeSearch";
+
 import Link from "next/link";
 import {
   useCallback,
@@ -407,7 +409,9 @@ export default function ResearchPanel({
       browsing &&
       id &&
       onBrowseCategory &&
-      (v2 || useStore.getState().discoverCandidates.some((entry) => entry.genreId === id))
+      (v2 ||
+        nativeHelperId() ||
+        useStore.getState().discoverCandidates.some((entry) => entry.genreId === id))
     ) {
       // A retained local category remains browsable while remote capability checks are unavailable.
       onBrowseCategory(id);

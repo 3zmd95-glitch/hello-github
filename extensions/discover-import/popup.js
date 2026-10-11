@@ -1,11 +1,35 @@
 /* global chrome */
 import { collectVisibleDiscoverLinks } from "./capture.js";
+import { NATIVE_ORIGINS } from "./native-protocol.js";
 import {
   visibleTikTokVideo,
   sameCaptureTarget,
   cropVideoScreenshot,
   appendCapturedFrame,
 } from "./video-capture.js";
+
+const nativeCopy = {
+  ar: {
+    heading: "اربط بحث المنصات بـ Discover",
+    privacy:
+      "بموافقتك، Discover يفتح تبويبات بحث في إنستقرام وتيك توك ويوتيوب ويقرأ بطاقات النتائج العامة المحمّلة: الرابط، النص الظاهر، صورة البطاقة والأرقام المعروضة. يبدأ فقط لما تطلب بحث أو نتائج زيادة، وما يقرأ ملفات الارتباط أو يشغّل المقاطع. زر نتائج زيادة يمرّر صفحة البحث مرة واحدة. تبويبات البحث تنقفل بعد ١٥ دقيقة أو لما تلغي البحث أو تبدأ بحث جديد.",
+    connect: "اربط Discover",
+    connecting: "نجهّز الربط…",
+    connected: "فتحنا Discover. اختار تصنيف واطلب بحث المنصات.",
+    declined: "ما تم الربط. تقدر تستخدم الروابط الظاهرة واللقطات كالمعتاد.",
+    failed: "ما قدرنا نربط الإضافة. شغّل التطبيق المحلي وجرّب ثاني.",
+  },
+  en: {
+    heading: "Connect native search to Discover",
+    privacy:
+      "With your permission, Discover opens Instagram, TikTok and YouTube search tabs and reads loaded public result cards: links, visible text, card images and displayed counts. It runs only when you request search or more results; it does not read cookies or play videos. More results scrolls the search page once. Search tabs close after 15 minutes, cancellation or a new search.",
+    connect: "Connect Discover",
+    connecting: "Connecting…",
+    connected: "Opened Discover. Choose a category and request native search.",
+    declined: "Not connected. Visible links and screenshots remain available.",
+    failed: "Couldn't connect. Start the local app and try again.",
+  },
+};
 
 const videoCopy = {
   ar: {
@@ -99,6 +123,7 @@ let status = "";
 let busy = false;
 let videoCapture = null;
 let videoStatus = "";
+let nativeStatus = "";
 const selected = new Set();
 const elements = Object.fromEntries(
   [
@@ -113,6 +138,10 @@ const elements = Object.fromEntries(
     "links",
     "review",
     "local",
+    "native-heading",
+    "native-privacy",
+    "native-connect",
+    "native-status",
     "video-heading",
     "video-privacy",
     "video-help",
@@ -141,6 +170,11 @@ function render() {
   elements.review.disabled = busy || !selected.size;
   elements.review.hidden = !capture?.urls.length;
   elements.results.hidden = !capture?.urls.length;
+  const nativeText = nativeCopy[language];
+  for (const key of ["heading", "privacy", "connect"])
+    elements[`native-${key}`].textContent = nativeText[key];
+  elements["native-status"].textContent = nativeText[nativeStatus] || "";
+  elements["native-connect"].disabled = busy;
   const videoText = videoCopy[language];
   for (const key of ["heading", "privacy", "help", "capture", "save", "reset", "open"])
     elements[`video-${key}`].textContent = videoText[key];
@@ -162,6 +196,29 @@ function render() {
 elements.language.addEventListener("click", () => {
   language = language === "ar" ? "en" : "ar";
   render();
+});
+
+elements["native-connect"].addEventListener("click", async () => {
+  if (busy) return;
+  busy = true;
+  nativeStatus = "connecting";
+  render();
+  try {
+    // Called directly from this click, before any await, to retain Chrome's user gesture.
+    const granted = await chrome.permissions.request({ origins: NATIVE_ORIGINS });
+    if (!granted) nativeStatus = "declined";
+    else {
+      await chrome.tabs.create({
+        url: `http://localhost:3000/discover/#discover-helper=${chrome.runtime.id}`,
+      });
+      nativeStatus = "connected";
+    }
+  } catch {
+    nativeStatus = "failed";
+  } finally {
+    busy = false;
+    render();
+  }
 });
 
 elements.capture.addEventListener("click", async () => {

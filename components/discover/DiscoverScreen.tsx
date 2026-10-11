@@ -3,7 +3,8 @@
 import ResearchPanel from "@/components/research/ResearchPanel";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { allGenres } from "@/lib/genres";
-import BrowseCategoryFeed from "@/components/research/BrowseCategoryFeed";
+import CategoryDiscovery from "@/components/research/CategoryDiscovery";
+import { initializeNativeHelper } from "@/lib/discoverNativeSearch";
 import { useT } from "@/lib/i18n";
 import { useStore } from "@/store";
 import InspirationLibrary from "./InspirationLibrary";
@@ -16,6 +17,9 @@ import type { FormatVerificationTarget } from "@/lib/formatVerification";
  * while the library is open so returning to a category preserves its selected video and results. */
 export default function DiscoverScreen() {
   const { t } = useT();
+  useEffect(() => {
+    initializeNativeHelper();
+  }, []);
   const openGenre = useGenreLink();
   const tiktok = useTikTokReturn();
   const count = useStore((s) => s.inspirations.length);
@@ -136,7 +140,7 @@ export default function DiscoverScreen() {
         />
       </div>
       {browseGenre && (
-        <BrowseCategoryFeed
+        <CategoryDiscovery
           key={importRevision}
           genre={browseGenre}
           genres={genres}

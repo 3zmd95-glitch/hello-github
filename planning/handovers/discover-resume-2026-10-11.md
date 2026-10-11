@@ -15,7 +15,31 @@ Conserve the user's usage. No broad new audits, repeated live model calls, paid 
 - PR70: https://github.com/3zmd95-glitch/hello-github/pull/70 — open, unmerged. Do not merge without the user's request.
 - Worker **e3b5ebf** deployed successfully via **38151982415** (tests and actual Deploy). Screenshot review changes the frontend/localserver only; no new Worker deployment. Check current-head CI once if needed, not old cancelled runs.
 
-## Current checkpoint: native Camping search measured
+## Current checkpoint: combined native searches (supersedes the library-only approach)
+
+The category screen now has a connected native result feed using the existing optional Chrome helper, alongside the checked reference library. The old library counts were not platform coverage. User approved persistent native-search access to all three sites, manually reloaded version 0.3.0, and the popup successfully opened the localhost connection. Actual Chrome displays **Chrome connected**. Do not repeat installation or ask for the same host permissions.
+
+Live Chrome evidence before the subsequent collector corrections: Anime first batch **40 (IG6/TT22/YT12)**; fresh Anime search **34 (IG6/TT12/YT16)**; Coffee **26 (IG6/TT12/YT8)**. After opening the owned native Instagram Coffee tab and pressing More, Instagram grew **6 to 24**; TikTok/YouTube retained counts but reported read failures. This demonstrates delayed/background rendering. Saved remains 3. Public metadata checks populate captions/counts without AI or paid web queries. These are actual native keyword results in platform order, not verified trends or a replicated private recommendation algorithm. All 12 category routes have fixture browser coverage; the actual full-category matrix remains unfinished.
+
+Live testing found missing YouTube thumbnails and a failed Anime More request (all platforms retained their earlier totals but reported a read failure at the deadline). Corrections address accessibility-hidden yet visibly rendered thumbnail images, early initial settling, and no-growth More being mistaken for a timeout. The extension source is updated; **another manual extension Reload is needed before these corrections can be tested live**. Existing site grants should persist. Native platforms may delay rendering in background tabs; do not claim the collector is optimal from fixture tests.
+
+Evidence: Temp `discover-native-coffee-live-2026-10-11.png` and `discover-native-live-receipt-2026-10-11.json`. Browser control via CUA timed out twice for 300 seconds; native Windows computer-use remained available. Avoid repeating long failed calls. Never automate chrome://extensions: its navigation was explicitly policy-blocked. User must perform Reload there.
+
+All final gates passed after the collector corrections and the Checked references auto-search guard: lint, app/Worker types, production build, **3,874 unit tests across 197 files**, and **438 browser passes / 8 intentional skips / 0 failures**. This includes 103 helper tests. Logs: Temp `discover-native-final-gates.log` and `discover-native-final-browser.log`. Full design/live evidence: `planning/tools/32-native-search-feed.md`. Latest managed export is on localhost:3000; both Discover HTML hashes match `63A29398CDED8AF40EADAAB019CCECDB9828C3419E6E8E4A5F22953623D467CD`. Existing runtime preserved; no Worker deployment. Do not rerun these suites for documentation-only changes.
+
+Next: reload the corrected helper, test fresh searches and More in actual Chrome, verify YouTube images and actual result growth, then run the remaining category matrix. Retain failed/platform-attention statuses honestly. Continue trend-quality and audiovisual verification separately; native search presence or a large count does not establish either.
+
+## Previous checkpoint: fresh native Anime evidence
+
+Previous turn was progress: c37e3a3 added the category TikTok keyword link, and Camping gained two source-qualified older references. This continuation inspected current clean c37e3a3 and PR70 (open; current-head checks running at the initial check), then made **one native TikTok query `anime AMV edit`**, with no paid search or model assessment.
+
+Imported three new observed public video links through the existing review UI and completed source checks: `zoanopx/7695102870487567647`, `.maisamu/7693049286145182996`, `animefightamvs/7695071207317687583`. Baseline Anime Inspiration30 (IG2/TT3/YT25), Popular15 (IG1/TT3/YT11). Final Inspiration**31** (IG2/TT4/YT25), Popular**16** (IG1/TT4/YT11). The new admitted post is AnimeFightAMVs' “The Flaw of the World,” published October10,336.8K source views; native page showed108.7Klikes/1day. Reload and category reopening retained both counts, Saved3 unchanged. Source-derived admission is not a complete visual-quality assessment.
+
+Two valuable counterexamples remain in Explore: Zoan's Seven Deadly Sins/One Piece comparison (native455Klikes/23hours; source1.5Mviews), and Muu's Death Note/Tame Impala edit (native346.7Klikes/6days; source1.2Mviews). One sampled native frame of Zoan showed a stylized metallic PRIDE/emblem over character imagery. Muu at~7/18s showed three composited screens in a dark checker-floor scene. These observations support further visual review; they are not saved AI verdicts, proof of authorship, complete motion/audio review, or repeated trend adoption. Do not keep changing caption admission to force these through. No new screenshot-helper capture or connected-model call was made.
+
+Chrome is left on Anime/TikTok/Popular. Proof: Temp `discover-anime-native-recent-2026-10-11.png`. Existing source/build/runtime unchanged (c37e3a3;3000/PID27644). No new tests needed for this data/evidence-only continuation. Next concrete bottleneck: source-complete, recent, popular posts with sparse captions need grounded visual assessment; Zoan/Muu are exact retained positive-looking probes. Do not repeat their discovery/source requests. Format-adoption gap also persists: old TRIP BABY checks cannot establish recent adoption; audio-grid discovery of unseen recent independent creators is an existing route, while the links helper currently does not capture Instagram audio-grid pages.
+
+## Completed checkpoint: native Camping search measured
 
 Capture consent is explicitly confirmed by the user's “Enable and test one video” reply. The one-post test below already fulfilled it: do not repeat the assessment. Current-head7b30808 CI runs38156234503/38156244386 both passed. The next bounded probe used no AI or paid search.
 
