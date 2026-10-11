@@ -4,7 +4,10 @@ import type { DiscoverItem } from "./discover";
 import { canonicalDiscoverVisualUrl } from "./discoverVisual";
 
 export const DISCOVER_SEMANTIC_VERSION = 1;
-export const DISCOVER_SEMANTIC_TTL_MS = 86_400_000;
+/** The source must be fresh when first assessed; unchanged caption meaning does not expire. */
+export const DISCOVER_SEMANTIC_SOURCE_MAX_AGE_MS = 86_400_000;
+/** Compatibility duration for the server's bounded memory cache, not persisted judgment expiry. */
+export const DISCOVER_SEMANTIC_TTL_MS = DISCOVER_SEMANTIC_SOURCE_MAX_AGE_MS;
 const CLOCK_SKEW_MS = 300_000;
 
 /** Public post identity only; this browser-safe helper never follows redirects. */
@@ -109,7 +112,8 @@ export const DiscoverSemanticSchema = z
       ctx.addIssue({ code: "custom", message: "Source provenance does not match the platform" });
     if (
       Date.parse(source.observedAt) > Date.parse(value.checkedAt) + CLOCK_SKEW_MS ||
-      Date.parse(value.checkedAt) - Date.parse(source.observedAt) >= DISCOVER_SEMANTIC_TTL_MS
+      Date.parse(value.checkedAt) - Date.parse(source.observedAt) >=
+        DISCOVER_SEMANTIC_SOURCE_MAX_AGE_MS
     )
       ctx.addIssue({ code: "custom", message: "Invalid source observation timeline" });
     if (
@@ -169,6 +173,8 @@ export function discoverSemanticSourceMatches(
     (item.evidence.author ?? "") === record.source.author
   );
 }
+/** Reuse positive and negative caption judgments while their exact source identity still matches.
+ * Engagement freshness and publication age are evaluated separately by ranking. */
 export function applicableDiscoverSemantic(
   context: { genreId: string; semantic?: DiscoverSemantic },
   item: DiscoverItem,
@@ -183,8 +189,6 @@ export function applicableDiscoverSemantic(
     context.genreId !== record.genreId ||
     checked > now + CLOCK_SKEW_MS ||
     observed > now + CLOCK_SKEW_MS ||
-    now - checked >= DISCOVER_SEMANTIC_TTL_MS ||
-    now - observed >= DISCOVER_SEMANTIC_TTL_MS ||
     !discoverSemanticSourceMatches(record, item)
   )
     return;

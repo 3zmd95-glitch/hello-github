@@ -8,7 +8,7 @@ import {
   DiscoverSemanticRequestSchema,
   DiscoverSemanticResponseSchema,
   DiscoverSemanticSchema,
-  DISCOVER_SEMANTIC_TTL_MS,
+  DISCOVER_SEMANTIC_SOURCE_MAX_AGE_MS,
   type DiscoverSemantic,
 } from "./discoverSemantic";
 
@@ -142,8 +142,43 @@ describe("caption semantic contract", () => {
     ).toBe(true);
   });
 
-  it("expires both assessment and source, rejects future times and unsupported versions", () => {
-    for (const clock of [now + DISCOVER_SEMANTIC_TTL_MS, now - 300001, NaN])
+  it.each([2, 7])("retains exact-caption judgments after %s days and native refreshes", (days) => {
+    const later = now + days * 86_400_000;
+    const refreshed = {
+      ...item,
+      evidence: { ...item.evidence!, observedAt: new Date(later).toISOString(), likes: 30000 },
+    };
+    for (const current of [item, refreshed])
+      expect(applicableDiscoverSemantic({ genreId: "travel", semantic }, current, later)).toEqual(
+        semantic,
+      );
+    expect(
+      applicableDiscoverSemantic(
+        { genreId: "travel", semantic },
+        { ...refreshed, evidence: { ...refreshed.evidence, caption: "Changed source caption" } },
+        later,
+      ),
+    ).toBeUndefined();
+  });
+
+  it.each([
+    { category: "mismatch" as const },
+    { category: "uncertain" as const },
+    { project: "none" as const },
+    { project: "uncertain" as const },
+  ])("retains negative or uncertain judgments after a week: %j", (patch) => {
+    const record = { ...semantic, assessment: { ...semantic.assessment, ...patch } };
+    expect(
+      applicableDiscoverSemantic(
+        { genreId: "travel", semantic: record },
+        item,
+        now + 7 * 86_400_000,
+      ),
+    ).toEqual(record);
+  });
+
+  it("requires fresh source at assessment and rejects future times and unsupported versions", () => {
+    for (const clock of [now - 300001, NaN])
       expect(
         applicableDiscoverSemantic({ genreId: "travel", semantic }, item, clock),
       ).toBeUndefined();
@@ -151,12 +186,24 @@ describe("caption semantic contract", () => {
       ...semantic,
       source: {
         ...semantic.source,
-        observedAt: new Date(now - DISCOVER_SEMANTIC_TTL_MS + 1000).toISOString(),
+        observedAt: new Date(now - DISCOVER_SEMANTIC_SOURCE_MAX_AGE_MS).toISOString(),
+      },
+    };
+    expect(DiscoverSemanticSchema.safeParse(oldSource).success).toBe(false);
+    const freshEnough = {
+      ...oldSource,
+      source: {
+        ...oldSource.source,
+        observedAt: new Date(now - DISCOVER_SEMANTIC_SOURCE_MAX_AGE_MS + 1).toISOString(),
       },
     };
     expect(
-      applicableDiscoverSemantic({ genreId: "travel", semantic: oldSource }, item, now + 1000),
-    ).toBeUndefined();
+      applicableDiscoverSemantic(
+        { genreId: "travel", semantic: freshEnough },
+        item,
+        now + 7 * 86_400_000,
+      ),
+    ).toEqual(freshEnough);
     const future = {
       ...semantic,
       source: { ...semantic.source, observedAt: new Date(now + 300001).toISOString() },

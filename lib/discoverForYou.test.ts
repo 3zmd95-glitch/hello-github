@@ -3,7 +3,6 @@ import { discoverForYou } from "./discoverForYou";
 import type { DiscoverCandidate, DiscoverFeedback, DiscoverSavedInterest } from "./discoverFeed";
 import { carxDraftCandidate } from "../workers/scout/src/categories/carxDraft.fixture";
 import { discoverVisualFixture, discoverVisualObservationFixture } from "./discoverVisual.fixture";
-import { DISCOVER_SEMANTIC_TTL_MS } from "./discoverSemantic";
 
 const NOW = Date.parse("2026-10-09T12:00:00Z");
 const captions: Record<string, string> = {
@@ -136,8 +135,26 @@ describe("local For You mix", () => {
     expect(feed.rows[0].evidence.engagement.value).toBe(3000000);
     fresh.item.evidence!.caption = "Shopping for things that look nice.";
     expect(discoverForYou([travel, fresh], { now: NOW + 2000 }).rows).toEqual([]);
-    expect(discoverForYou([travel], { now: NOW + DISCOVER_SEMANTIC_TTL_MS }).rows).toEqual([]);
   });
+
+  it.each([2, 7])(
+    "retains caption-qualified For You posts after %s days and source refresh",
+    (days) => {
+      const travel = captionCandidate();
+      const later = NOW + days * 86_400_000;
+      expect(discoverForYou([travel], { now: later }).rows).toHaveLength(1);
+      const refreshed = structuredClone(travel);
+      refreshed.semantic = undefined;
+      refreshed.item.evidence!.observedAt = new Date(later).toISOString();
+      refreshed.item.evidence!.views = 3000000;
+      const feed = discoverForYou([travel, refreshed], { now: later });
+      expect(feed.rows).toHaveLength(1);
+      expect(feed.rows[0].evidence.semantic).toEqual(travel.semantic);
+      expect(feed.rows[0].evidence.engagement.value).toBe(3000000);
+      refreshed.item.evidence!.caption = "Shopping for things that look nice.";
+      expect(discoverForYou([travel, refreshed], { now: later }).rows).toEqual([]);
+    },
+  );
 
   it("retains the newest caption judgment without reviving older positives from duplicate wrappers", () => {
     const travel = captionCandidate();
@@ -153,8 +170,10 @@ describe("local For You mix", () => {
       for (const inputs of [
         [travel, newer],
         [newer, travel],
-      ])
+      ]) {
         expect(discoverForYou(inputs, { now: NOW + 2000 }).rows).toEqual([]);
+        expect(discoverForYou(inputs, { now: NOW + 7 * 86_400_000 }).rows).toEqual([]);
+      }
     }
     const changed = structuredClone(travel);
     changed.semantic!.checkedAt = new Date(NOW + 1000).toISOString();

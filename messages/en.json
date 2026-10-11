@@ -412,7 +412,7 @@
   "notes.graphIsland": "{name} island",
   "semantic.title": "Understand captions",
   "semantic.help": "Check public Instagram and TikTok captions for this category and a described creative project. This reads source text; it does not judge video quality or current popularity.",
-  "semantic.limit": "Up to 3 posts in one model request per click. Recent matching checks are reused.",
+  "semantic.limit": "Up to 3 posts in one model request per click. Saved checks are reused while the source caption stays the same.",
   "semantic.assess": "Check up to 3 captions",
   "semantic.noCandidates": "No unchecked source captions need this check on this tab. Posts need verified strong engagement; check more sources first if needed.",
   "semantic.progress": "Checking {total} source captions…",

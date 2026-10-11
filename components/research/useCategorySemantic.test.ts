@@ -121,15 +121,13 @@ describe("explicit caption batch", () => {
   it("does no work from renders or feedback; one click batches at most three source-ready store/current candidates", async () => {
     render();
     act(() =>
-      useStore
-        .getState()
-        .setDiscoverFeedback({
-          url: allItems[5].url,
-          platform: "tt",
-          creator: allItems[5].handle,
-          genreId: "anime",
-          action: "more",
-        }),
+      useStore.getState().setDiscoverFeedback({
+        url: allItems[5].url,
+        platform: "tt",
+        creator: allItems[5].handle,
+        genreId: "anime",
+        action: "more",
+      }),
     );
     expect(client.assessCategorySemantic).not.toHaveBeenCalled();
     await act(async () => {
@@ -151,7 +149,7 @@ describe("explicit caption batch", () => {
     render();
     expect(client.assessCategorySemantic).toHaveBeenCalledTimes(1);
   });
-  it("honors the current platform and skips equivalent fresh records even on another explicit click", async () => {
+  it("honors the current platform and skips equivalent records even on another explicit click", async () => {
     props = { ...props, platform: "tt" };
     render();
     await act(async () => {
@@ -231,24 +229,46 @@ describe("explicit caption batch", () => {
     );
     expect(client.assessCategorySemantic).toHaveBeenCalledTimes(1);
   });
-  it("allows another explicit check after expiry or a changed source caption, without running automatically", async () => {
+  it("keeps unchanged caption judgments out of later batches and only rechecks changed text", async () => {
     props = { ...props, platform: "ig" };
     render();
     await act(async () => {
       await queue.assess();
     });
     expect(queue.eligibleCount).toBe(0);
+    const assessedAt = useStore.getState().discoverCandidates[0].semantic?.checkedAt;
+    const later = Date.now() + 7 * 86400000;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(later);
+    props = { ...props, now: later };
+    act(() => {
+      useStore.getState().accumulateDiscoverCandidates(
+        allItems.map((post) => ({
+          ...post,
+          evidence: { ...post.evidence!, observedAt: new Date(later).toISOString() },
+        })),
+        { genreId: "anime" },
+      );
+    });
+    render();
+    expect(queue.eligibleCount).toBe(0);
+    await act(async () => {
+      await queue.assess();
+    });
+    expect(client.assessCategorySemantic).toHaveBeenCalledTimes(1);
+    expect(useStore.getState().discoverCandidates[0].semantic?.checkedAt).toBe(assessedAt);
     items = [
       {
         ...allItems[0],
-        evidence: { ...allItems[0].evidence!, caption: `${caption} A new chapter.` },
+        evidence: {
+          ...allItems[0].evidence!,
+          caption: `${caption} A new chapter.`,
+          observedAt: new Date(later).toISOString(),
+        },
       },
     ];
     render();
     expect(queue.eligibleCount).toBe(1);
-    props = { ...props, now: Date.now() + 86400001 };
-    render();
-    expect(queue.eligibleCount).toBe(3);
     expect(client.assessCategorySemantic).toHaveBeenCalledTimes(1);
   });
 });

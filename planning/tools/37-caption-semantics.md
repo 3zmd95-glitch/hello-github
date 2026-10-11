@@ -1,5 +1,7 @@
 # Bounded public-caption semantics — October 11, 2026
 
+Follow-up: [tools/38](38-durable-caption-understanding.md) separates durable exact-caption judgments from the server's 24-hour memory cache. The original expiry behavior described below is superseded; source/assessment timelines are still validated when created and popularity remains independently time-sensitive.
+
 ## Problem and scope
 
 The native Travel benchmark in tools/36 found authentic high-engagement TikTok posts whose source captions describe a location or filmed journey without a literal Travel keyword. A category selected during intake cannot supply the missing evidence. The new optional caption assessment asks the already-connected ChatGPT provider to interpret the authentic source text, with category fit and a completed creative project judged separately.

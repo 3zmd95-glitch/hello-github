@@ -66,10 +66,11 @@ function record(index = 2): DiscoverCandidate {
 const rank = (
   entry: DiscoverCandidate,
   mode: "inspiration" | "popular" | "learning" = "inspiration",
+  at = now,
 ) =>
   rankDiscoverItems([entry.item], {
     genreId: entry.genreId,
-    now,
+    now: at,
     mode,
     visual: { [entry.item.url]: entry },
   });
@@ -122,6 +123,7 @@ describe("source-bound caption context in category ranking", () => {
       { ...entry, genreId: "anime" },
       {
         ...entry,
+        // The source cannot have been observed a day after its assessment.
         semantic: { ...entry.semantic!, checkedAt: new Date(now - 86400001).toISOString() },
       },
       {
@@ -130,6 +132,42 @@ describe("source-bound caption context in category ranking", () => {
       },
     ];
     for (const variant of variants) expect(rank(variant).items).toHaveLength(0);
+  });
+  it.each([2, 7])(
+    "retains inspiration after %s days when the native caption is unchanged",
+    (days) => {
+      const entry = record();
+      const later = now + days * 86_400_000;
+      const refreshed = {
+        ...entry,
+        semantic: undefined,
+        item: {
+          ...entry.item,
+          evidence: { ...entry.item.evidence!, observedAt: new Date(later).toISOString() },
+        },
+      };
+      const [merged] = mergeDiscoverCandidates([entry], [refreshed]);
+      expect(merged.semantic).toEqual(entry.semantic);
+      const result = rank(merged, "inspiration", later);
+      expect(result.items).toHaveLength(1);
+      expect(result.evidence[entry.item.url].semantic).toEqual(entry.semantic);
+      expect(result.evidence[entry.item.url].engagement.fresh).toBe(true);
+    },
+  );
+  it("does not renew Popular with stale counts when a caption judgment remains applicable", () => {
+    const entry = record();
+    entry.item.evidence!.published = new Date(now).toISOString();
+    expect(rank(entry, "popular").items).toHaveLength(1);
+    const later = now + 7 * 86_400_000;
+    const result = rank(entry, "popular", later);
+    expect(result.items).toHaveLength(0);
+    expect(result.evidence[entry.item.url]).toMatchObject({
+      semantic: entry.semantic,
+      project: true,
+      engagement: { fresh: false },
+      date: { recent: true },
+    });
+    expect(rank(entry, "inspiration", later).items).toHaveLength(1);
   });
   it("does not promote uncertain, mismatched or category-only judgments", () => {
     const entry = record();
@@ -212,5 +250,9 @@ describe("source-bound caption context in category ranking", () => {
     expect(mergeDiscoverCandidates(merged, [entry])[0].semantic?.assessment.category).toBe(
       "mismatch",
     );
+    const later = now + 7 * 86_400_000;
+    const result = rank(merged[0], "inspiration", later);
+    expect(result.items).toHaveLength(0);
+    expect(result.evidence[entry.item.url].semantic).toEqual(newer.semantic);
   });
 });
