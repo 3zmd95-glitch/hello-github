@@ -46,8 +46,8 @@ import { AREAS, type CategoryDoc, type TopLists } from "./types";
 
 /** A scan reads TikTok's Discovery API with the TikTok for Business token (tiktokads.ts). */
 export type CategoryEnv = EffectsEnv & TikTokAdsEnv;
-/** Category counts from before metadata quality gating must not qualify as new creative evidence. */
-export const CATEGORY_QUALITY_VERSION = 1;
+/** Older aggregate counts may include planned/negated productions; never present them as current evidence. */
+export const CATEGORY_QUALITY_VERSION = 2;
 
 export type CategoryRunOptions = {
   fetch?: typeof fetch;

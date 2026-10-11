@@ -716,8 +716,16 @@ describe("quality and learning modes", () => {
       );
     }
   });
+  it("does not show a promised tutorial as an existing creative example", () => {
+    const card = item("promisedlesson", {
+      title: "Anime masking tutorial coming tomorrow",
+      section: "tutorial",
+    });
+    for (const mode of ["learning", "explore", "inspiration", "popular"] as const)
+      expect(ranked([card], mode).items).toEqual([]);
+    expect(card.section).toBe("tutorial");
+  });
   it.each([
-    "Anime masking tutorial coming tomorrow",
     "Anime beat sync edit. Comment TUTORIAL for the guide",
     "Anime split screen edit. Want a tutorial?",
     "Anime AMV edit #tutorial",

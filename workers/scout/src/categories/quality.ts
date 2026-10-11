@@ -109,6 +109,78 @@ const FORMS = Object.entries(CREATIVE).map(([name, aliases]) => ({
 const PROJECT = new Set(["filmmaking", "cinematic", "creative commercial", "montage"]);
 const CONTEXTUAL = new Set(["shot planning", "lighting", "editing"]);
 const FAN_EDIT_GENRES = new Set(["anime", "football", "gaming"]);
+const PRODUCTION_ACTION =
+  "(?:make|create|film|shoot|edit|animate|record|produce|use|add|apply|try|practice|learn|finish|upload|post|share)";
+const COMPLETED_ACTION =
+  "(?:made|created|filmed|shot|edited|animated|recorded|produced|used|added|applied|tried|practiced|learned|learnt|finished|uploaded|posted|shared)";
+const UNSUPPORTED_PRODUCTION = new RegExp(
+  [
+    // Production plans/requests, not isolated words such as Tomorrow in a film title.
+    `\\b(?:i|we|they|he|she)(?:['’]ll|\\s+(?:will|would|could|might|may|(?:want|need|plan|hope) to)|(?:['’]m|['’]re|\\s+(?:am|are|is)) (?:going|planning|hoping) to)\\s+(?:(?:not|never|soon|finally)\\s+)?${PRODUCTION_ACTION}\\b`,
+    `\\b(?:should|shall|can|could|would|will)\\s+(?:i|we|you|someone|somebody)\\s+(?:please\\s+)?${PRODUCTION_ACTION}\\b|\\bplease\\s+${PRODUCTION_ACTION}\\b`,
+    `\\b(?:if|imagine|wish)\\s+(?:i|we|you)\\s+(?:${PRODUCTION_ACTION}|${COMPLETED_ACTION})\\b`,
+    `\\b(?:i|we)\\s+(?:(?:didn['’]t|did not)\\s+${PRODUCTION_ACTION}|(?:haven['’]t|have not|never)\\s+${COMPLETED_ACTION}|${COMPLETED_ACTION}\\s+(?:no|nothing|none))\\b`,
+    "\\b(?:i|we)\\s+(?:(?:just|recently|only)\\s+)?(?:watched|saw|followed|liked|reposted)\\b",
+  ].join("|"),
+  "iu",
+);
+const ARABIC_ACTION =
+  "(?:[ان]صنع|[ان]سوي|[ان]عمل|[ان]صور|[ان]عدل|[ان]ستخدم|[ان]ضيف|[ان]طبق|[ان]نشر)";
+const ARABIC_COMPLETED =
+  "(?:سويت|سوينا|عملت|عملنا|صنعت|صنعنا|صورت|صورنا|عدلت|عدلنا|استخدمت|استخدمنا|اضفت|اضفنا|طبقت|طبقنا)";
+const UNSUPPORTED_ARABIC_PRODUCTION = new RegExp(
+  `(?:^|\\s)(?:(?:راح|سوف|لن|لم|ممكن|هل)\\s+${ARABIC_ACTION}|س${ARABIC_ACTION}|(?:بكرة|بكره)\\s+(?:ب${ARABIC_ACTION}|بسوي)|(?:ما|لو|يا ليتني|يا ليتنا)\\s+(?:${ARABIC_ACTION}|${ARABIC_COMPLETED})|(?:شفت|شفنا|شاهدت|شاهدنا|تابعت|تابعنا))(?=\\s|$)`,
+  "u",
+);
+
+/** Assertions about future, requested, denied or somebody else's work cannot supply this post's
+ * craft. Scope the removal to a clause, retaining independent titles, completed work and lessons. */
+function appliedCreativeText(text: string): string {
+  text = postTeachingText(text);
+  const lessonTitle = hasTeachingEvidence(text.split(/\r?\n/, 1)[0]);
+  const parts = text.split(
+    /([.!?؟;؛|\r\n]+|[,،—]\s*(?=(?:(?:and|but|then)\s+)?(?:i|we)\b|و?(?:صورت|صورنا|عدلت|عدلنا|صممت|صممنا|سويت|سوينا)\s)|(?<!\s)\s+(?:and|but|then)\s+(?=(?:i|we)\s)|(?<!\s)\s+(?=و(?:صورت|صورنا|عدلت|عدلنا|صممت|صممنا|سويت|سوينا)\s))/iu,
+  );
+  let unsupported = false;
+  return parts
+    .map((clause, index) => {
+      if (index % 2) return clause;
+      const prose = clause.replace(/#[\p{L}\p{N}_]+|https?:\/\/\S+/gu, " ");
+      // Attached tags cannot resurrect a rejected assertion on the previous line.
+      if (!/\p{L}/u.test(prose)) return unsupported ? "" : clause;
+      const normalized = clause.replace(/[\u064b-\u065f\u0670\u0640]/g, "").replace(/[أإآ]/g, "ا");
+      const claim =
+        UNSUPPORTED_PRODUCTION.exec(normalized) ?? UNSUPPORTED_ARABIC_PRODUCTION.exec(normalized);
+      const announced =
+        /\b(?:coming|available|releasing|dropping)\s+(?:soon|tomorrow|next week)\b/iu.test(prose);
+      const requestedSteps = numberedCreativeSteps(prose) && !hasTeachingEvidence(prose);
+      // A current lesson may narrate its next action in the future tense. Tie that reading to
+      // an actual lesson title and a local "today/in this video" frame, never a whole caption.
+      const lessonFrame =
+        /^(?:\s*(?:today|in this (?:video|lesson|tutorial))\b|\s*(?:اليوم|في هذا (?:الفيديو|الدرس))\s)/iu;
+      const currentInstruction =
+        lessonTitle &&
+        (lessonFrame.test(prose) ||
+          /^\s*in this (?:video|lesson|tutorial)(?: series)?\s*$/i.test(parts[index - 2] ?? "")) &&
+        /^\s*(?:(?:i|we)\s+will\s+(?!not\b|never\b)|(?:راح|سوف)\s)/iu.test(claim?.[0] ?? "") &&
+        !/\b(?:tomorrow|next week|upcoming|coming soon|next video)\b|(?:بكرة|بكره|القادم)/iu.test(
+          prose,
+        );
+      if (currentInstruction) {
+        unsupported = false;
+        return clause;
+      }
+      unsupported = !!claim || announced || requestedSteps;
+      if (!unsupported) return clause;
+      // Conditional instruction can explain an action without asserting it happened. Keep the
+      // independently stated lesson before that action; a promised lesson has no such prefix.
+      const prefix = claim ? normalized.slice(0, claim.index) : "";
+      if (!announced && !requestedSteps && hasTeachingEvidence(prefix))
+        return /^\s*(?:if|imagine|wish|لو|يا ليت)/iu.test(claim![0]) ? clause : prefix;
+      return "";
+    })
+    .join("");
+}
 const CRAFT_FOR_SOUNDTRACK = new RegExp(
   `(?<![\\p{L}\\p{N}])(?:${Object.values(CREATIVE)
     .flat()
@@ -265,12 +337,14 @@ function productionCreditEvidence(text: string): { completed: boolean; projectTe
     }
     // Future plans, questions, quoted templates and service biographies are not credits
     // for an observed finished project. Keep these guards local to the credit block.
+    // A credited person's name (e.g. Will) is not a modal verb in the surrounding prose.
+    const creditContext = prose.replace(editing, " ").replace(camera, " ");
     if (
       /[?؟]|\b(?:if|wish|imagine|would|could|should|will|might|tomorrow|upcoming|soon|planned|never|not|no|isn['’]t|wasn['’]t|didn['’]t|template|example|sample|draft|prompt|bio|portfolio|services|booking)\b|\b(?:about (?:me|us)|for hire|hire (?:me|us)|available for|dm for|book now|next week)\b/iu.test(
-        block,
+        creditContext,
       ) ||
       /(?:^|\s)(?:ما|لم|لن|لو|يا ليت|راح|سوف|بكرة|بكره|ليس|قريبا|قريبًا)(?:\s|$)|قالب|مثال|مسودة|برومبت|نبذة|خدمات|للحجز|للتواصل|راسلني|متاح للعمل/u.test(
-        block,
+        creditContext,
       )
     )
       continue;
@@ -334,6 +408,19 @@ function postTeachingText(text: string): string {
   return output.join("\n");
 }
 
+/** Counted instructions need a creation action and a visual subject; physical steps and recipes
+ * do not become filmmaking lessons merely because their titles contain a number. */
+function numberedCreativeSteps(text: string): boolean {
+  return (
+    /\b(?:[1-9]\d?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:(?:easy|simple|quick)\s+)?steps?\s+to\s+(?:make|create|film|shoot|edit|animate|colou?r grade|light)\b/i.test(
+      text,
+    ) &&
+    /\b(?:videos?|films?|reels?|edits?|editing|amvs?|montages?|footage|photographs?|photography|animation|cinematic|filmmaking|cinematography|videography)\b/i.test(
+      text,
+    )
+  );
+}
+
 /** A teaching word alone is not a lesson when the post only requests, promises or advertises one. */
 export function hasTeachingEvidence(text: string): boolean {
   text = postTeachingText(captionEvidenceText(text));
@@ -376,12 +463,13 @@ export function hasTeachingEvidence(text: string): boolean {
         sentence,
       ) ||
       ((craftContext || namedCraft) && /\btip\b/i.test(sentence)) ||
+      numberedCreativeSteps(sentence) ||
       firstPersonProcess ||
       explainedProcess;
     if (!teaching) return false;
     const solicitation =
       (explainedProcess && /\b(?:comment|dm|message|reply|request)\b/i.test(sentence)) ||
-      /\b(?:comment|dm|message|reply|ask|request|want|need|should i|shall i|would you|do you)\b[^.!?\n]{0,120}\b(?:tutorial|guide|lesson|breakdown|tips?|how[ -]to|how (?:i|we))\b/i.test(
+      /\b(?:comment|dm|message|reply|ask|request|want|need|should i|shall i|would you|do you)\b[^.!?\n]{0,120}\b(?:tutorial|guide|lesson|breakdown|tips?|how[ -]to|how (?:i|we)|steps? to)\b/i.test(
         sentence,
       ) ||
       /(?:تبون|تبغون|تبو|يبغى|يبغي|تريدون|تريد|بدكم|عايزين|اكتب|علق|ارسل|أرسل|اطلب)[^.!?\n]{0,100}(?:شرح|طريقة|طريقه|تعليم)/u.test(
@@ -392,13 +480,13 @@ export function hasTeachingEvidence(text: string): boolean {
         /\b(?:coming soon|coming tomorrow|available soon|next week|coming next|tomorrow)\b/i.test(
           sentence,
         )) ||
-      /\b(?:tutorials?|guides?|lessons?|breakdown|tips?)\b[^.!?\n]{0,65}\b(?:coming|soon|tomorrow|next week|later|on (?:my|our) (?:page|channel)|link in bio|available on)\b/i.test(
+      /\b(?:tutorials?|guides?|lessons?|breakdown|tips?|steps? to)\b[^.!?\n]{0,65}\b(?:coming|soon|tomorrow|next week|later|on (?:my|our) (?:page|channel)|link in bio|available on)\b/i.test(
         sentence,
       ) ||
-      /\b(?:will|gonna|going to|planning to)\b[^.!?\n]{0,80}\b(?:tutorial|teach|explain|breakdown)\b/i.test(
+      /\b(?:will|gonna|going to|planning to)\b[^.!?\n]{0,80}\b(?:tutorial|teach|explain|breakdown|steps? to)\b/i.test(
         sentence,
       ) ||
-      /\b(?:followed|watched|used|thanks for|credit to)\b[^.!?\n]{0,70}\b(?:tutorial|guide|lesson)\b/i.test(
+      /\b(?:followed|watched|used|thanks for|credit to)\b[^.!?\n]{0,70}\b(?:tutorial|guide|lesson|how[ -]to|how (?:i|we)|steps? to)\b/i.test(
         sentence,
       ) ||
       /(?:الشرح|شرح|الطريقة|الطريقه)[^.!?\n]{0,60}(?:قريب|بكرة|بكره|لاحق|بايو|البايو|قناتي)/u.test(
@@ -503,8 +591,9 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
   text = captionEvidenceText(text);
   const profile = CATEGORY_PROFILES[genreId];
   const normalized = normalizeTerm(expanded(genreId, text));
-  const craftText = appliedCraftText(text);
+  const craftText = appliedCraftText(appliedCreativeText(text));
   const craftNormalized = normalizeTerm(expanded(genreId, craftText));
+  const teaching = hasTeachingEvidence(craftText);
   // "Time travel" names an effect, not a destination; other real travel words can still establish the category.
   const subjectText =
     genreId === "travel" ? normalized.replace(/\btime travel\b/g, " ") : normalized;
@@ -534,6 +623,8 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
         has(craftNormalized, a),
     ),
   ).map((a) => a.name);
+  if (teaching && numberedCreativeSteps(craftText) && !techniques.length)
+    techniques.push("filmmaking");
   const filmedProject = describedFilmingProject(genreId, craftText);
   const productionCredits = productionCreditEvidence(craftText);
   const creditedProject = productionCredits.completed;
@@ -554,7 +645,6 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
     /\b(?:get|grab|download|buy)\b[^.!?\n]{0,60}\b(?:ai prompts?|prompt packs?)\b/i.test(text) ||
     /(?:اكتب|علق|أرسل|ارسل)[^.!?\n]{0,100}(?:برومبت|برومبتات)/.test(text);
   const substantive = techniques.some((t) => !PROJECT.has(t) && !CONTEXTUAL.has(t));
-  const teaching = hasTeachingEvidence(craftText);
   const title = text.split(/\r?\n/, 1)[0];
   const fullFeatureUpload =
     /\b(?:full(?:[ -]length)?|complete)[ -]+(?:movies?|feature(?:[ -]films?)?)\b|(?:فيلم|الفيلم)\s+كامل/iu.test(
@@ -578,6 +668,7 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
   const backgroundAmbience = longPlayback && ambience && passiveUse && !teaching;
   const visualContext =
     /\b(video|film|camera|photography|photograph|composition|shoot|shooting)\b/i.test(craftProse) ||
+    (teaching && /\b(?:filmmaking|cinematography|videography)\b/i.test(craftProse)) ||
     /تصوير|لقط/.test(craftProse);
   const teachesEditing =
     teaching &&

@@ -188,6 +188,175 @@ describe("completed filming projects without technique keywords", () => {
   );
 });
 
+describe("applied creative claims", () => {
+  it.each([1, 1_000])(
+    "handles a %s-character whitespace run with or without a clause boundary",
+    (length) => {
+      const gap = " ".repeat(length);
+      const promise = "I will make an anime edit tomorrow";
+      expect(evidence("anime", `${promise}${gap}with masking`).creative).toBe(false);
+      expect(evidence("anime", `${promise}${gap}and I made this Naruto AMV.`).project).toBe(true);
+      expect(evidence("football", `راح أسوي مونتاج كرة القدم${gap}بكرة`).creative).toBe(false);
+      expect(
+        evidence("football", `راح أسوي مونتاج كرة القدم${gap}وسويت مونتاج ميسي.`).project,
+      ).toBe(true);
+    },
+  );
+
+  it.each(Object.entries(CATEGORY_PROFILES))(
+    "does not promote promised %s work through a montage or named technique",
+    (genre, profile) => {
+      for (const caption of [
+        `I will make a ${profile.subject.en} montage tomorrow`,
+        `I will try a ${profile.subject.en} speed ramp tomorrow`,
+      ])
+        expect(evidence(genre, caption)).toMatchObject({
+          creative: false,
+          project: false,
+          namedTechniques: [],
+          teaching: false,
+        });
+    },
+  );
+
+  it.each([
+    ["anime", "Should I make an anime edit?"],
+    ["football", "I watched someone else’s football edit"],
+    ["coffee", "Should I make a cinematic coffee film?"],
+    ["coffee", "I will make a coffee commercial tomorrow"],
+    ["travel", "I watched someone else’s travel short film"],
+    ["anime", "I did not edit an anime clip with masking"],
+    ["anime", "I haven't made an anime montage"],
+    ["anime", "I will learn anime masking tomorrow"],
+    ["anime", "I will practice anime masking tomorrow.\n#anime #masking"],
+    ["anime", "If we made an anime edit with masking"],
+    ["anime", "Please make an anime edit with masking"],
+    ["anime", "I watched how to make an anime masking edit"],
+    ["anime", "راح أسوي مونتاج للأنمي بكرة"],
+    ["anime", "هل أصنع ايديت أنمي؟"],
+    ["football", "مَا سويت مونتاج لكرة القدم"],
+    ["football", "شاهدت مونتاج كرة القدم لشخص آخر"],
+    ["coffee", "سوف أصور فيديو قهوة بالسبيد رامب"],
+  ])("keeps unsupported source claims out of craft evidence: %s / %s", (genre, caption) => {
+    expect(evidence(genre, caption)).toMatchObject({
+      creative: false,
+      project: false,
+      namedTechniques: [],
+      teaching: false,
+    });
+  });
+
+  it.each([
+    ["anime", "Anime edit"],
+    ["gaming", "Valorant montage"],
+    ["anime", "Yuta edit reworked #anime"],
+    ["anime", "Never Give Up — Naruto AMV"],
+    ["travel", "Tomorrow — cinematic travel film"],
+    ["football", "مونتاج كرة القدم"],
+    ["anime", "Naruto — Enemy [AMV/Edit]\nAudio Edit by: another creator"],
+    ["coffee", "Edit by Will — Shot by Sam #coffee"],
+    ["anime", "Should I make an anime edit? I made this Naruto AMV."],
+    ["anime", "I will make an anime edit tomorrow, I made this Naruto AMV."],
+    ["anime", "I watched an anime edit and I made this Naruto AMV."],
+    ["anime", "I made this Naruto AMV, but I will make another anime edit tomorrow."],
+    ["football", "سويت مونتاج كرة القدم. هل أصنع مونتاج ثاني؟"],
+    ["coffee", "راح أسوي مونتاج قهوة، صورت فيديو للقهوة اليوم"],
+  ])("preserves titles, credits and independently completed work: %s / %s", (genre, caption) => {
+    expect(evidence(genre, caption)).toMatchObject({ eligible: true, project: true });
+  });
+
+  it.each([
+    ["anime", "How to edit an anime AMV if we use masking", "masking"],
+    ["coffee", "Coffee masking tutorial: if we use a mask, track its edge", "masking"],
+    ["anime", "كيف نعدل الأنمي بالماسك؟", "masking"],
+    ["anime", "شرح الماسك للأنمي: لو نستخدم الماسك نضبط الحواف", "masking"],
+  ])("preserves conditional and question-form lessons: %s / %s", (genre, caption, craft) => {
+    expect(evidence(genre, caption)).toMatchObject({ eligible: true, teaching: true });
+    expect(evidence(genre, caption).namedTechniques).toContain(craft);
+  });
+
+  it("retains the observed campfire lesson's lighting without borrowing a biography's context", () => {
+    const caption =
+      "No-Budget Filmmaking 101: Lighting a Campfire Scene #BeforeAndAfter\nA quick before and after look at how we setup and shot a nighttime campfire scene with minimal gear.";
+    expect(evidence("camping", caption)).toMatchObject({
+      eligible: true,
+      teaching: true,
+      namedTechniques: ["lighting"],
+    });
+    expect(evidence("coffee", "Cozy coffee room lighting ideas").namedTechniques).toEqual([]);
+    expect(evidence("food", "The lighting I use for food videography")).toMatchObject({
+      teaching: false,
+      namedTechniques: [],
+    });
+  });
+
+  const perfumeLesson =
+    "HOW I SHOOT PERFUME BOTTLE - Using two different techniques to light the product in easy way";
+  it.each([
+    "Today I will create beautiful minimalistic composition with perfume bottle.",
+    "In this video, I will create beautiful minimalistic composition with perfume bottle.",
+  ])("keeps current production instruction under an established lesson title: %s", (body) => {
+    expect(evidence("perfume", `${perfumeLesson}\n${body}`)).toMatchObject({
+      teaching: true,
+      namedTechniques: ["shot composition"],
+    });
+    expect(evidence("perfume", `Perfume bottle\n${body}`).namedTechniques).toEqual([]);
+  });
+
+  it.each([
+    "In the upcoming videos, I will create beautiful minimalistic composition with perfume bottle.",
+    "Today I will create beautiful minimalistic composition with perfume bottle tomorrow.",
+    "In this video, I will not create a composition with a perfume bottle.",
+  ])(
+    "an actual lesson does not borrow named craft from a separate promise or denial: %s",
+    (body) => {
+      expect(evidence("perfume", `${perfumeLesson}\n${body}`)).toMatchObject({
+        teaching: true,
+        namedTechniques: [],
+      });
+    },
+  );
+});
+
+describe("numbered creative instructions", () => {
+  it.each([
+    "5 Easy Steps To Make A Cinematic Travel Film",
+    "3 simple steps to edit a travel montage",
+    "Five steps to film a travel video",
+    "One quick step to animate a travel video",
+    "5 خطوات لتصوير فيلم سفر سينمائي",
+  ])("recognizes a lesson rather than a finished travel project: %s", (caption) => {
+    expect(hasTeachingEvidence(caption)).toBe(true);
+    expect(evidence("travel", caption)).toMatchObject({ eligible: true, teaching: true });
+  });
+
+  it.each([
+    "5 Easy Steps To Make A Cinematic Travel Film coming tomorrow",
+    "5 Easy Steps To Make A Cinematic Travel Film tomorrow",
+    "Want 5 Easy Steps To Make A Cinematic Travel Film?",
+    "Comment TRAVEL for 5 Easy Steps To Make A Cinematic Travel Film",
+    "I will share 5 Easy Steps To Make A Cinematic Travel Film",
+    "I watched 5 Easy Steps To Make A Cinematic Travel Film",
+  ])("does not promote requested, promised or watched numbered lessons: %s", (caption) => {
+    expect(hasTeachingEvidence(caption)).toBe(false);
+    expect(evidence("travel", caption)).toMatchObject({
+      creative: false,
+      project: false,
+      teaching: false,
+      namedTechniques: [],
+    });
+  });
+
+  it.each([
+    "5 steps to the coffee shop",
+    "5 easy steps to make coffee",
+    "Travel film: five steps across the bridge",
+    "Five Steps — cinematic travel film",
+  ])("does not infer instruction from physical steps or an artistic title: %s", (caption) => {
+    expect(hasTeachingEvidence(caption)).toBe(false);
+  });
+});
+
 describe("category recommendations grounded in metadata", () => {
   it.each([
     "Milroe magic #jalenmilroe #alabamafootball #footballedits",

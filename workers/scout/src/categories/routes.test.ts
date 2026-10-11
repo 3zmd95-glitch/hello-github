@@ -166,7 +166,12 @@ describe("/categories routes", () => {
     expect(await res.json()).toEqual({ error: "upstream" });
   });
   it("hides legacy trend claims on reads and cached no-op runs without changing storage or spending", async () => {
-    for (const qualityVersion of [undefined, 0, CATEGORY_QUALITY_VERSION + 1]) {
+    for (const qualityVersion of [
+      undefined,
+      0,
+      CATEGORY_QUALITY_VERSION - 1,
+      CATEGORY_QUALITY_VERSION + 1,
+    ]) {
       const legacy = { ...DOC, qualityVersion, ranOn: "2026-10-07" };
       const { env, kv } = setup(legacy);
       const storedBefore = kv.store.get(KEY);

@@ -60,13 +60,17 @@ describe("caption candidate selection", () => {
     delete missing.evidence;
     const gone = item(3);
     gone.evidence!.availability = "unavailable";
+    const earlierAvailable = item(3);
+    earlierAvailable.evidence!.observedAt = new Date(
+      Date.parse(gone.evidence!.observedAt) - 1000,
+    ).toISOString();
     const old = item(4);
     old.evidence!.observedAt = new Date(Date.now() - 4 * 86400000).toISOString();
     const blank = item(5);
     blank.evidence!.caption = "";
-    expect(categorySemanticCandidates([low, missing, item(3), gone, old, blank], "anime")).toEqual(
-      [],
-    );
+    expect(
+      categorySemanticCandidates([low, missing, earlierAvailable, gone, old, blank], "anime"),
+    ).toEqual([]);
   });
   it("skips already described captions, substantive exclusions, hidden creators and arbitrary URLs", () => {
     const described = item(1);
