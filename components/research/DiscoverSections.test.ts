@@ -462,10 +462,15 @@ describe("Discover v2 in the research panel", () => {
     expect($("scout-usage")).not.toBeNull();
     expect($("discover-usage")).toBeNull();
     // Nor does it ask for Claude's picks or the trending effects (v2 routes).
-    const asked = vi.mocked(fetch).mock.calls.map(([input]) => new URL(String(input)).pathname);
+    // Local reviewed references may request a relative thumbnail URL even with a legacy Worker.
+    const asked = vi
+      .mocked(fetch)
+      .mock.calls.map(([input]) => new URL(String(input), location.origin).pathname);
     expect(asked).toContain("/search");
     expect(asked).not.toContain("/discover/picks");
     expect(asked).not.toContain("/effects/trending");
+    expect(asked).not.toContain("/api/local-ai/instagram-source");
+    expect($("format-inspector")).not.toBeNull();
     expect($("trending-effects")).toBeNull();
   });
 });

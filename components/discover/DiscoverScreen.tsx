@@ -9,6 +9,7 @@ import { useStore } from "@/store";
 import InspirationLibrary from "./InspirationLibrary";
 import NativeResultsImport from "./NativeResultsImport";
 import { useGenreLink, useTikTokReturn } from "./useGenreLink";
+import type { FormatVerificationTarget } from "@/lib/formatVerification";
 
 /** Explore real references, then keep personal observations and practice progress. The search remains mounted
  * while the library is open so returning to a category preserves its selected video and results. */
@@ -22,6 +23,10 @@ export default function DiscoverScreen() {
   const [browseGenreId, setBrowseGenreId] = useState<string | null>(null);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
+  const [formatReviewRequest, setFormatReviewRequest] = useState<{
+    target: FormatVerificationTarget;
+    revision: number;
+  }>();
   const browseGenre = genres.find((genre) => genre.id === browseGenreId);
   const [view, setView] = useState<"browse" | "search" | "practice">("browse");
   const [openedGenre, setOpenedGenre] = useState<string | null>(null);
@@ -55,6 +60,14 @@ export default function DiscoverScreen() {
           setImportRevision((previous) => previous + 1);
           setBrowseGenreId(id);
           setCategoryOpen(true);
+          setView("browse");
+        }}
+        onFormatImported={(target) => {
+          setFormatReviewRequest((previous) => ({
+            target,
+            revision: (previous?.revision ?? 0) + 1,
+          }));
+          setCategoryOpen(false);
           setView("browse");
         }}
       />
@@ -93,6 +106,7 @@ export default function DiscoverScreen() {
       </div>
       <div hidden={view === "practice" || (view === "browse" && categoryOpen && !!browseGenre)}>
         <ResearchPanel
+          formatReviewRequest={formatReviewRequest}
           workspace={view === "browse" ? "browse" : "search"}
           onSearch={() => {
             focusSearch.current = true;

@@ -1,4 +1,10 @@
 {
+  "feed.nativeDestination": "Add these results to",
+  "feed.nativeCategoryDestination": "A category",
+  "feed.nativeFormatDestination": "An editing format",
+  "feed.nativeFormatHelp": "Choose up to 6 videos and an editing format to review them against. These are unverified leads. Adding them runs no source checks or AI.",
+  "feed.nativeChooseFormat": "Choose an editing format",
+  "feed.nativeFormatImported": "{n} selected links are in this format’s review queue. No source or AI check has run.",
   "feed.nativeImport": "Add results from native search",
   "feed.nativeImportHelp": "Choose the videos and their category. Discover will check available source details after you add them. They may appear in Explore while editing relevance and popularity are unverified. This does not save favourites or change your preferences.",
   "feed.nativeImportConfirm": "Add {n} selected videos",

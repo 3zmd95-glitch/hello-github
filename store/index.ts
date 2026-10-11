@@ -164,6 +164,12 @@ import {
   upsertFormatObservation,
   type FormatObservationInput,
 } from "@/lib/formatObservations";
+import {
+  FormatQueueSchema,
+  addFormatCandidates as addFormatCandidatesToQueue,
+  removeFormatCandidate as removeFormatCandidateFromQueue,
+} from "@/lib/formatQueue";
+import type { FormatVerificationTarget } from "@/lib/formatVerification";
 import { seasonState, type SeasonState } from "@/lib/season";
 import {
   FREEZE_TOTAL_CAP,
@@ -225,6 +231,7 @@ export const PersistedStateSchema = z.object({
   inspirations: InspirationsSchema,
   followedFormats: FollowedFormatsSchema,
   formatObservations: FormatObservationsSchema,
+  formatQueue: FormatQueueSchema,
   discoverCandidates: DiscoverCandidatesSchema,
   /** A reset/import fence: failed durable writes must not resurrect a previous library on reload. */
   discoverLibraryEpoch: z.string().max(200).default(""),
@@ -424,6 +431,8 @@ export interface StoreActions {
   refreshFollowedFormats(formats: readonly EditFormat[]): void;
   recordFormatObservation(input: FormatObservationInput, now?: Date): boolean;
   removeFormatObservation(targetKey: string, url: string): void;
+  addFormatCandidates(target: FormatVerificationTarget, urls: readonly string[]): void;
+  removeFormatCandidate(target: FormatVerificationTarget, url: string): void;
   saveInspiration(item: ResearchItem, now?: Date): void;
   updateInspiration(url: string, patch: { note?: string; stage?: InspirationStage }): void;
   removeInspiration(url: string): void;
@@ -594,6 +603,7 @@ const initialData = (): PersistedState => ({
   inspirations: [],
   followedFormats: [],
   formatObservations: [],
+  formatQueue: [],
   discoverCandidates: [],
   discoverLibraryEpoch: "",
   discoverLibraryPendingReplacement: false,
@@ -651,6 +661,7 @@ const pick = (s: PersistedState): PersistedState => ({
   inspirations: s.inspirations,
   followedFormats: s.followedFormats,
   formatObservations: s.formatObservations,
+  formatQueue: s.formatQueue,
   discoverCandidates: s.discoverCandidates,
   discoverLibraryEpoch: s.discoverLibraryEpoch,
   discoverLibraryPendingReplacement: s.discoverLibraryPendingReplacement,
@@ -1270,6 +1281,18 @@ export const useStore = create<StoreState>()(
         const current = get().formatObservations;
         const next = current.filter((row) => row.target.key !== targetKey || row.url !== canonical);
         if (next.length !== current.length) set({ formatObservations: next });
+      },
+
+      addFormatCandidates(target, urls) {
+        const current = get().formatQueue;
+        const next = addFormatCandidatesToQueue(current, target, urls);
+        if (next !== current) set({ formatQueue: [...next] });
+      },
+
+      removeFormatCandidate(target, url) {
+        const current = get().formatQueue;
+        const next = removeFormatCandidateFromQueue(current, target, url);
+        if (next !== current) set({ formatQueue: [...next] });
       },
 
       updateInspiration(url, patch) {

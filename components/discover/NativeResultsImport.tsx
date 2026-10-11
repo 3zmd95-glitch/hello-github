@@ -10,20 +10,37 @@ import {
   type NativeImport,
 } from "@/lib/discoverNativeImport";
 import { useStore } from "@/store";
+import { mergeEditFormats } from "@/lib/editFormats";
+import { REVIEWED_FORMAT_SEEDS } from "@/lib/formatSeeds";
+import { formatVerificationTarget, type FormatVerificationTarget } from "@/lib/formatVerification";
+import { selectFormatCandidates } from "@/lib/formatQueue";
+import { canonicalDiscoverVisualUrl } from "@/lib/discoverVisual";
 
 export default function NativeResultsImport({
   genres,
   onImported,
+  onFormatImported,
 }: {
   genres: Genre[];
   onImported: (genreId: string) => void;
+  onFormatImported?: (target: FormatVerificationTarget) => void;
 }) {
   const { t, L, lang } = useT();
   const loading = useStore((s) => s.discoverLibraryStatus === "loading");
+  const followed = useStore((s) => s.followedFormats);
+  const formats = mergeEditFormats([], REVIEWED_FORMAT_SEEDS, followed);
   const [incoming, setIncoming] = useState<NativeImport | "invalid" | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [genreId, setGenreId] = useState("");
-  const [retained, setRetained] = useState<number | null>(null);
+  const [destination, setDestination] = useState("category");
+  const [formatKey, setFormatKey] = useState("");
+  const [retained, setRetained] = useState<{ n: number; kind: string } | null>(null);
+  const selectedFormat = formats.find((format) => format.key === formatKey);
+  const isFormat =
+    destination === "format" && incoming !== "invalid" && incoming?.platform === "ig";
+  const validDestination = isFormat
+    ? !!selectedFormat && selected.length <= 6
+    : genres.some((genre) => genre.id === genreId);
   const consumed = useRef(false);
   useEffect(() => {
     const read = () => {
@@ -38,6 +55,8 @@ export default function NativeResultsImport({
       setIncoming(parsed ?? "invalid");
       setSelected(parsed?.urls ?? []);
       setGenreId("");
+      setDestination("category");
+      setFormatKey("");
       setRetained(null);
     };
     read();
@@ -47,7 +66,9 @@ export default function NativeResultsImport({
   if (!incoming)
     return retained === null ? null : (
       <p role="status" data-testid="native-import-result" className="text-ink-2 text-sm">
-        {t("feed.nativeImported", { n: retained })}
+        {t(retained.kind === "format" ? "feed.nativeFormatImported" : "feed.nativeImported", {
+          n: retained.n,
+        })}
       </p>
     );
   return (
@@ -61,23 +82,58 @@ export default function NativeResultsImport({
         <p role="alert">{t("feed.nativeInvalid")}</p>
       ) : (
         <>
-          <p className="text-ink-2 text-sm">{t("feed.nativeImportHelp")}</p>
-          <label className="flex flex-col gap-1 text-sm">
-            {t("feed.chooseCategory")}
-            <select
-              className="px-input min-w-0"
-              data-testid="native-import-category"
-              value={genreId}
-              onChange={(e) => setGenreId(e.target.value)}
-            >
-              <option value="">{t("feed.chooseCategory")}</option>
-              {genres.map((genre) => (
-                <option key={genre.id} value={genre.id}>
-                  {genre.emoji} {L(genre.name)}
-                </option>
-              ))}
-            </select>
-          </label>
+          {incoming.platform === "ig" && (
+            <label className="flex flex-col gap-1 text-sm">
+              {t("feed.nativeDestination")}
+              <select
+                className="px-input min-w-0"
+                data-testid="native-import-destination"
+                value={destination}
+                onChange={(event) => setDestination(event.target.value)}
+              >
+                <option value="category">{t("feed.nativeCategoryDestination")}</option>
+                <option value="format">{t("feed.nativeFormatDestination")}</option>
+              </select>
+            </label>
+          )}
+          <p className="text-ink-2 text-sm">
+            {t(isFormat ? "feed.nativeFormatHelp" : "feed.nativeImportHelp")}
+          </p>
+          {isFormat ? (
+            <label className="flex flex-col gap-1 text-sm">
+              {t("feed.nativeChooseFormat")}
+              <select
+                className="px-input min-w-0"
+                data-testid="native-import-format"
+                value={formatKey}
+                onChange={(event) => setFormatKey(event.target.value)}
+              >
+                <option value="">{t("feed.nativeChooseFormat")}</option>
+                {formats.map((format) => (
+                  <option key={format.key} value={format.key}>
+                    {lang === "ar" ? (format.name.ar ?? format.name.en) : format.name.en}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label className="flex flex-col gap-1 text-sm">
+              {t("feed.chooseCategory")}
+              <select
+                className="px-input min-w-0"
+                data-testid="native-import-category"
+                value={genreId}
+                onChange={(e) => setGenreId(e.target.value)}
+              >
+                <option value="">{t("feed.chooseCategory")}</option>
+                {genres.map((genre) => (
+                  <option key={genre.id} value={genre.id}>
+                    {genre.emoji} {L(genre.name)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className="max-h-64 space-y-2 overflow-y-auto">
             {incoming.urls.map((url) => (
               <label key={url} className="flex min-w-0 items-start gap-2 text-sm">
@@ -101,16 +157,29 @@ export default function NativeResultsImport({
             type="button"
             className="px-btn px-btn-green"
             data-testid="native-import-confirm"
-            disabled={loading || !selected.length || !genres.some((genre) => genre.id === genreId)}
+            disabled={loading || !selected.length || !validDestination}
             onClick={() => {
               const state = useStore.getState();
               if (
                 consumed.current ||
                 state.discoverLibraryStatus === "loading" ||
-                !genres.some((genre) => genre.id === genreId)
+                !validDestination
               )
                 return;
               consumed.current = true;
+              if (isFormat && selectedFormat) {
+                const target = formatVerificationTarget(selectedFormat);
+                const urls = incoming.urls.filter((url) => selected.includes(url));
+                state.addFormatCandidates(target, urls);
+                const identities = new Set(urls.map(canonicalDiscoverVisualUrl));
+                const kept = selectFormatCandidates(useStore.getState().formatQueue, target).filter(
+                  (entry) => identities.has(entry.url),
+                ).length;
+                setRetained({ n: kept, kind: "format" });
+                setIncoming(null);
+                if (kept) onFormatImported?.(target);
+                return;
+              }
               const items = nativeImportItems(
                 incoming,
                 selected,
@@ -125,7 +194,7 @@ export default function NativeResultsImport({
                   (entry) =>
                     entry.genreId === genreId && items.some((item) => item.url === entry.item.url),
                 ).length;
-              setRetained(kept);
+              setRetained({ n: kept, kind: "category" });
               setIncoming(null);
               // With stored leads, category entry skips search; normal bounded source checks can run.
               if (kept) onImported(genreId);

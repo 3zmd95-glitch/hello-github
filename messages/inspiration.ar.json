@@ -1,4 +1,10 @@
 {
+  "formats.queueOriginalTarget": "الوصف وقت إضافة الروابط",
+  "formats.queueTitle": "نتائج من التطبيق للمراجعة ({n})",
+  "formats.queueHelp": "هذي روابط للمراجعة، مو تطابقات مؤكدة. افتح رابط وافحص مصدره قبل ما تفحص اللقطات. فتح القائمة أو استرجاعها ما يستخدم الذكاء الاصطناعي.",
+  "formats.queueUnchecked": "لسه ما اتفحص",
+  "formats.queueOpen": "افتح للمراجعة",
+  "formats.queueRemove": "شيل من القائمة",
   "refresh.all": "حدّث TikTok وYouTube",
   "refresh.tiktok": "حدّث TikTok",
   "refresh.youtube": "حدّث YouTube",

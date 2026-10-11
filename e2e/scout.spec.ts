@@ -1288,7 +1288,7 @@ test("▶ Watch here: a post card's poster is a ▶ that opens the player, and I
   // Every card is one post of a platform with a player: its media frame is the ▶ button, named after the
   // post, with the picture in it. The title and "open ↗" still open the platform in a new tab.
   await expect(page.getByTestId("result-card")).toHaveCount(4);
-  await expect(page.getByTestId("result-play")).toHaveCount(4);
+  await expect(page.getByTestId("result-card").getByTestId("result-play")).toHaveCount(4);
   await expect(tt.getByTestId("result-play")).toHaveAccessibleName(
     "شاهد «Match cut in 10 seconds» هنا",
   );

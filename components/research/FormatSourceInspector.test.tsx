@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REVIEWED_FORMAT_SEEDS } from "@/lib/formatSeeds";
 import { localInstagramSource } from "@/lib/formatSources";
 import { useStore } from "@/store";
-import type { InstagramSource } from "@/lib/formatVerification";
+import { formatVerificationTarget, type InstagramSource } from "@/lib/formatVerification";
 import FormatSourceInspector from "./FormatSourceInspector";
 
 vi.mock("@/lib/formatSources", async (original) => ({
@@ -51,6 +51,44 @@ afterEach(() => {
 });
 
 describe("saved explicit format checks", () => {
+  it("opens the original imported target after a same-key format changes or disappears", async () => {
+    const target = formatVerificationTarget(format);
+    useStore.getState().addFormatCandidates(target, [source().url]);
+    const changed = { ...format, name: { en: "A changed live description" } };
+    act(() =>
+      root.render(
+        createElement(FormatSourceInspector, {
+          formats: [changed],
+          requestedTarget: target,
+        }),
+      ),
+    );
+    expect((host.querySelector("select") as HTMLSelectElement).value).toBe(JSON.stringify(target));
+    expect(host.querySelectorAll('[data-testid="format-queued-post"]')).toHaveLength(1);
+    expect(readSource).not.toHaveBeenCalled();
+    readSource.mockResolvedValue(source());
+    await act(async () => {
+      submit();
+    });
+    expect(useStore.getState().formatObservations[0].target).toEqual(target);
+    act(() =>
+      root.render(
+        createElement(FormatSourceInspector, {
+          formats: [],
+          requestedTarget: target,
+        }),
+      ),
+    );
+    expect(host.querySelector('[data-testid="format-source-result"]')?.textContent).toContain(
+      "A real source caption",
+    );
+    expect(readSource).toHaveBeenCalledTimes(1);
+    act(() =>
+      host.querySelector<HTMLButtonElement>('[data-testid="format-remove-candidate"]')!.click(),
+    );
+    expect(host.querySelector('[data-testid="format-source-result"]')).toBeNull();
+    expect(useStore.getState().formatObservations).toHaveLength(1);
+  });
   it("restores a source check without fetching again, then removes the displayed saved result", async () => {
     readSource.mockResolvedValue(source());
     render();

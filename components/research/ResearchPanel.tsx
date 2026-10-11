@@ -89,6 +89,7 @@ import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
 import SkillPicker from "./SkillPicker";
 import SaveInspirationButton from "./SaveInspirationButton";
 import TrendingEffects from "./TrendingEffects";
+import type { FormatVerificationTarget } from "@/lib/formatVerification";
 import CategoryRefreshAction from "./CategoryRefreshAction";
 import CategorySemanticChecks from "./CategorySemanticChecks";
 import { useCategorySemantic } from "./useCategorySemantic";
@@ -199,6 +200,7 @@ export default function ResearchPanel({
   onBrowseCategory,
   active = true,
   showBrowse = true,
+  formatReviewRequest,
 }: {
   /** Skill sheet mode; omitted = Discover mode. */
   skill?: Skill;
@@ -216,6 +218,7 @@ export default function ResearchPanel({
   onBrowseCategory?: (id: string) => void;
   active?: boolean;
   showBrowse?: boolean;
+  formatReviewRequest?: { target: FormatVerificationTarget; revision: number };
 }) {
   const { t, L, lang, dir } = useT();
   const browsing = !skill && workspace === "browse";
@@ -1497,12 +1500,12 @@ export default function ResearchPanel({
               renderAction={renderAction}
             />
           )}
-          {/* 🔥 This week's trending effects (Discover v2 only): a chip is a search for the effect, like a recent
-          topic, with the category cleared, and always in Keywords: a tap never spends an AI plan or the owner's
-          ChatGPT / Claude usage. */}
-          {!skill && v2 && scoutCfg && (
+          {/* Local format references and review stay available without a Worker. Only v2 enables remote
+          effect retrieval. A chip runs a keyword search, never an AI plan. */}
+          {!skill && (
             <TrendingEffects
-              config={scoutCfg}
+              formatReviewRequest={formatReviewRequest}
+              config={v2 ? scoutCfg : null}
               compact={organized}
               onPickFormat={(query, intent, format) => {
                 onSearch?.();

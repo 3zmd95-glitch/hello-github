@@ -1,4 +1,10 @@
 {
+  "formats.queueOriginalTarget": "original imported description",
+  "formats.queueTitle": "Native results to review ({n})",
+  "formats.queueHelp": "These links are leads, not confirmed matches. Open one and check its source before inspecting frames. Opening or restoring this list uses no AI.",
+  "formats.queueUnchecked": "Not checked yet",
+  "formats.queueOpen": "Open for review",
+  "formats.queueRemove": "Remove from list",
   "refresh.all": "Refresh TikTok + YouTube",
   "refresh.tiktok": "Refresh TikTok",
   "refresh.youtube": "Refresh YouTube",

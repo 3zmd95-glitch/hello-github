@@ -6,6 +6,7 @@ import { allGenres } from "@/lib/genres";
 import { NATIVE_IMPORT_PREFIX } from "@/lib/discoverNativeImport";
 import { useStore } from "@/store";
 import NativeResultsImport from "./NativeResultsImport";
+import { REVIEWED_FORMAT_SEEDS } from "@/lib/formatSeeds";
 
 let host: HTMLDivElement;
 let root: Root;
@@ -29,6 +30,7 @@ beforeEach(() => {
     discoverCandidates: [],
     discoverFeedback: [],
     inspirations: [],
+    formatQueue: [],
   });
   useStore.getState().setSettings({ lang: "en" });
   vi.stubGlobal(
@@ -91,4 +93,27 @@ it("disables importing during hydration and when all links are unchecked", () =>
   });
   expect(($("confirm") as HTMLButtonElement).disabled).toBe(true);
   expect(useStore.getState().discoverCandidates).toEqual([]);
+});
+it("requires reducing a format import to six links and keeps it separate from category imports", () => {
+  const urls = Array.from(
+    { length: 7 },
+    (_, i) => `https://www.instagram.com/reel/Queue00000${i}/`,
+  );
+  incoming({ version: 1, platform: "ig", urls });
+  act(() => {
+    ($("destination") as HTMLSelectElement).value = "format";
+    $("destination").dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  act(() => {
+    ($("format") as HTMLSelectElement).value = REVIEWED_FORMAT_SEEDS[0].key;
+    $("format").dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(($("confirm") as HTMLButtonElement).disabled).toBe(true);
+  act(() => host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  expect(($("confirm") as HTMLButtonElement).disabled).toBe(false);
+  act(() => $("confirm").click());
+  expect(useStore.getState().formatQueue).toHaveLength(6);
+  expect(useStore.getState().discoverCandidates).toEqual([]);
+  expect(onImported).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
 });

@@ -20,6 +20,7 @@ import { useStore } from "@/store";
 import EffectEvidence from "./EffectEvidence";
 import EditFormats from "./EditFormats";
 import FormatSourceInspector from "./FormatSourceInspector";
+import type { FormatVerificationTarget } from "@/lib/formatVerification";
 
 const CREATIVE_CENTER =
   "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en";
@@ -54,13 +55,15 @@ export default function TrendingEffects({
   onPickFormat,
   compact = false,
   afterFormats,
+  formatReviewRequest,
 }: {
-  config: ScoutConfig;
+  config: ScoutConfig | null;
   /** A tapped chip's search ({@link effectQuery}). */
   onPick: (q: string) => void;
   onPickFormat?: (q: string, intent: "examples" | "tutorials", format: EditFormat) => void;
   compact?: boolean;
   afterFormats?: ReactNode;
+  formatReviewRequest?: { target: FormatVerificationTarget; revision: number };
 }) {
   const { t } = useT();
   const followed = useStore((s) => s.followedFormats);
@@ -70,7 +73,10 @@ export default function TrendingEffects({
   // This tab's copy first (an hour at most; lib reads it in try/catch), so a revisit renders the row at once and
   // nothing pops in under a tap. Read in render safely: AppShell shows its Splash until the store hydrates on the
   // client (`skipHydration`), so the server never renders this row and no hydration can mismatch.
-  const [data, setData] = useState<Trending | null>(() => cachedTrendingEffects(config));
+  const [cachedData, setData] = useState<Trending | null>(() =>
+    config ? cachedTrendingEffects(config) : null,
+  );
+  const data = config ? cachedData : null;
   // A scan from this row: running; failed to answer (its line shows until the next tap, and what the row showed
   // stays); or a first scan answered without a list and resting until the next visit, the button off: the Worker's
   // tries for the day are spent ("limit"), or nothing trends widely enough yet ("none").
@@ -115,6 +121,7 @@ export default function TrendingEffects({
   }, []);
 
   useEffect(() => {
+    if (!config) return;
     let alive = true;
     void fetchTrendingEffects(config).then((r) => {
       if (!alive) return;
@@ -141,6 +148,7 @@ export default function TrendingEffects({
   // revisit meanwhile waits for it); this row then ignores its answer. `force`: Scan again, past the Worker's
   // once-a-day guard and its 3 tries a day.
   const runNow = (force: boolean) => {
+    if (!config) return;
     setScan("running");
     void runTrendingEffectsNow(config, { force }).then((r) => {
       if (mounted.current) landed(r, force);
@@ -179,7 +187,13 @@ export default function TrendingEffects({
   );
   const inspector = (
     <FormatSourceInspector
-      key="source-inspector"
+      key={
+        formatReviewRequest
+          ? `${formatReviewRequest.target.key}:${formatReviewRequest.revision}`
+          : "source-inspector"
+      }
+      requestedTarget={formatReviewRequest?.target}
+      initiallyOpen={!!formatReviewRequest}
       formats={mergeEditFormats(data?.formats ?? [], REVIEWED_FORMAT_SEEDS, followed)}
     />
   );

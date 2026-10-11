@@ -377,7 +377,11 @@ describe("ResearchPanel genre row", () => {
     expect(useStore.getState().savedRefs).toEqual({});
     await click("filter-saved");
     expect(titles()).toEqual(["tt-a"]);
-    expect($("inspiration-save")?.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      host
+        .querySelector('[data-testid="result-card"] [data-testid="inspiration-save"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
   });
 
   it("lists the built-in genres, then the owner's own with ✨, under their label", async () => {

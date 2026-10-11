@@ -1,16 +1,16 @@
 # Discover handover — 11 October 2026
 
-Read this first. Older chronological notes are preserved in [history](discover-resume-2026-10-11-history.md); do not load that entire file unless needed. Detailed design and measured evidence live in planning/tools/24 through45.
+Read this first. Older chronological notes are preserved in [history](discover-resume-2026-10-11-history.md); do not load that entire file unless needed. Detailed design and measured evidence live in planning/tools/24 through47.
 
 ## Objective and constraints
 
 The goal remains **active, incomplete**: combined Instagram/TikTok/YouTube discovery for an editor's inspiration and learning, strong mainstream editing references, genuinely recent popularity and evidence of repeated effect/audio adoption. Validate in actual Chrome. A working helper or passing tests does not prove native-quality coverage.
 
-Conserve the user's usage. No broad new audits, repeated live model calls, paid queries or complete test reruns without a new reason. Keep the app on **localhost:3000**. The Chrome helper is **already installed/pinned/tested on all three platforms**; never repeat installation or permission requests. Historic Tavily trial used4credits (~$0.032); paid search/auto-upgrade stay off. Latest continuation used one selected-post visual check and no paid searches; its reusable record is described below.
+Conserve the user's usage. No broad new audits, repeated live model calls, paid queries or complete test reruns without a new reason. Keep the app on **localhost:3000**. The Chrome helper is **already installed/pinned/tested on all three platforms**; never repeat installation or permission requests. Historic Tavily trial used4credits (~$0.032); paid search/auto-upgrade stay off. Latest format-queue continuation used no model calls or paid searches. Preserve the previous Food visual check described below.
 
 ## Source, runtime and review
 
-- Managed source: `C:/Users/AORUS/.codex/worktrees/discover-inspiration/hello-github`, branch `codex/discover-inspiration`. Latest selected-video review follows1120690; use git log for the current hash.
+- Managed source: `C:/Users/AORUS/.codex/worktrees/discover-inspiration/hello-github`, branch `codex/discover-inspiration`. Latest native format queue follows0cd9306; use git log for the current hash.
 - Primary `C:/Users/AORUS/Documents/hello-github` serves the managed build copied into its ignored out. Do not run the older primary tracked source. Existing local server **PID37380** was preserved.
 - PR70: https://github.com/3zmd95-glitch/hello-github/pull/70 — open, unmerged. Do not merge without the user's request.
 - Worker **f94b947** deployed successfully via **38143707034** (tests and Deploy). This continuation changes no Worker code and needs no deployment. Older f94b947 app CI runs were cancelled by the subsequent docs push; current local gates pass. Check current-head CI once if needed, not old cancelled runs.
@@ -56,3 +56,13 @@ Full gates passed: lint, app/Worker types, **3,725tests/182files**, build, **428
 Actual Chrome used **one selected-post check**: astro_fries/DdO2KGQNDKX with gpt-6-astra/max (highest effort offered by the connected app). Saved assessment **October11,17:22:09 Riyadh** supports Food, added typography, composition and shot variety. Motion/audio/authorship stay unverified. It recovers **Food Instagram Inspiration1→2 / combined9→10 / Popular0→1**, because its September13 date and approximately6.6K source likes separately meet Popular gates. Reload retained the identical assessment and Popular card. Saved remains3. No paid queries and no other model checks. Final Chrome: Food/Instagram/Popular with evidence expanded; proof Temp `discover-selected-food-2026-10-11.png`.
 
 Do not re-review this exact post or repeat these gates without a new change. Remaining: native supply across categories/platforms, sparse-caption th0.th_burger and strx's unreviewed craft ambiguity, subject compound recognition, broader audiovisual inspection, and repeated effect/audio adoption. This result is one recent reference, not a verified widespread trend. Continue from those gaps, not more perishable-caption phrase patches or repeated sample imports.
+
+## Latest implementation: native format review queue
+
+Instagram native imports now choose Category or Editing format. Up to6 selected links attach to the exact effect/audio snapshot in a persistent neutral queue (48overall); full/duplicate imports preserve existing entries/dates. Opening the queue or a row performs no source/model check. Local inspection remains available without a Worker, and changed/removed format descriptions retain historical queue access. No Saved, preferences, follow or category-candidate mutations. tools/47 has design and evidence.
+
+Final lint, app/Worker types, **3,741tests/184files** and build passed. Browser full run:428passes/8intentional skips; two legacy poster assertions needed scoping to result cards after local format references became available without v2, and both passed targeted phone/desktop reruns. Thus430cases passed across full+targeted runs; no unresolved failure. New queue test covers explicit source request, no automatic model/search POST, neutral persistence and EN/AR layouts. Logs: Temp discover-format-queue-final-gates.log, -build.log, -browser.log, -regression.log. Managed export copied to primaryout, hashes matched; server37380 preserved; temporary3101/PID30048 stopped. No Worker changes. Prior0cd9306 GitHub checks all succeeded.
+
+Actual Chrome: imported four observed native TRIP BABY audio-grid links via local review fragment (not a new toolbar capture), then four explicit public source reads, no AI/paid search. sauravx.21/DdRPhe4vc9s, j03yway/DdQ3O8ASoqJ, ysnmusic.00/DeU6BHAuDSo each matched the audio. DdQMTSbgJ21 metadata unavailable, retained as inconclusive. Native audio page says9.9Kreels, which covers all audio uses, not this effect's adoption. The ysnmusic meme is the useful negative comparison. No frames/motion/audio listening performed. After reload all4rows persist; opening j03yway reuses17:49:27Riyadh record; local counts3audio/0sampled-frame/0recentcreators. Saved3. Chrome left on this queue/history; proof and visible-text receipt in Temp discover-native-format-queue-2026-10-11.png/.json.
+
+Next useful step: use this saved cohort for bounded actual frame/playback comparisons only if worth the user's usage, keeping music memes separate from the repeated-figure format. Do not reimport/recheck captions, infer trend growth from9.9Kaudio uses, or repeat fullgates for docs/data-only work. Native supply across all categories/platforms and measured effect adoption remain unfinished.

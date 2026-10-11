@@ -2,7 +2,11 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { EditFormat } from "@/lib/editFormats";
-import { assessFormatSource, formatVerificationTarget } from "@/lib/formatVerification";
+import {
+  assessFormatSource,
+  formatVerificationTarget,
+  type FormatVerificationTarget,
+} from "@/lib/formatVerification";
 import { inspectFormatPreview, localInstagramSource, sourceKey } from "@/lib/formatSources";
 import { selectFormatObservations } from "@/lib/formatObservations";
 import { useT } from "@/lib/i18n";
@@ -11,26 +15,42 @@ import type { InstagramSource } from "../../workers/scout/src/instagramSource";
 import { useStore } from "@/store";
 import AiConnectionControls from "./AiConnectionControls";
 import FormatObservationSummary from "./FormatObservationSummary";
+import { selectFormatCandidates, formatQueueOptions, formatTargetId } from "@/lib/formatQueue";
 
 type Inspection = Extract<Awaited<ReturnType<typeof inspectFormatPreview>>, { ok: true }>["data"];
 
 /** A visible, on-demand source check, kept separate from search and from whole-video verification. */
-export default function FormatSourceInspector({ formats }: { formats: EditFormat[] }) {
+export default function FormatSourceInspector({
+  formats,
+  requestedTarget,
+  initiallyOpen = false,
+}: {
+  formats: EditFormat[];
+  requestedTarget?: FormatVerificationTarget;
+  initiallyOpen?: boolean;
+}) {
   const { t, lang } = useT();
   const id = useId();
-  const [key, setKey] = useState(formats[0]?.key ?? "");
-  const format = formats.find((row) => row.key === key) ?? formats[0];
+  const queue = useStore((state) => state.formatQueue);
+  const options = formatQueueOptions(formats, queue);
+  const [key, setKey] = useState(
+    (requestedTarget ? formatTargetId(requestedTarget) : null) ?? options[0]?.id ?? "",
+  );
+  const selected = options.find((row) => row.id === key) ?? options[0];
+  const format = selected?.format;
+  const candidates = format ? selectFormatCandidates(queue, formatVerificationTarget(format)) : [];
   const [url, setUrl] = useState(
-    format?.samples.find((sample) => sample.platform === "ig")?.url ?? "",
+    (requestedTarget ? candidates[0]?.url : undefined) ??
+      format?.samples.find((sample) => sample.platform === "ig")?.url ??
+      "",
   );
   const [liveSource, setSource] = useState<InstagramSource | null>(null);
   const [liveInspection, setInspection] = useState<Inspection | null>(null);
   const observations = useStore((state) => state.formatObservations);
-  const saved = format
-    ? selectFormatObservations(observations, formatVerificationTarget(format)).find(
-        (row) => sourceKey(row.url) === sourceKey(url),
-      )
-    : undefined;
+  const savedRows = format
+    ? selectFormatObservations(observations, formatVerificationTarget(format))
+    : [];
+  const saved = savedRows.find((row) => sourceKey(row.url) === sourceKey(url));
   const source = liveSource ?? saved?.source ?? null;
   const inspection = liveInspection ?? saved?.inspection ?? null;
   const [choice, setChoice] = useState<AiChoice>({ provider: "builtin", model: "" });
@@ -39,6 +59,11 @@ export default function FormatSourceInspector({ formats }: { formats: EditFormat
   const [busy, setBusy] = useState<"source" | "ai" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pending = useRef<AbortController | null>(null);
+  const details = useRef<HTMLDetailsElement | null>(null);
+  const [open, setOpen] = useState(initiallyOpen);
+  useEffect(() => {
+    if (initiallyOpen) details.current?.scrollIntoView({ block: "start" });
+  }, [initiallyOpen]);
   useEffect(() => () => pending.current?.abort(), []);
   useEffect(
     () =>
@@ -118,7 +143,13 @@ export default function FormatSourceInspector({ formats }: { formats: EditFormat
             ? "search.subscriptionLimit"
             : "formats.checkFailed";
   return (
-    <details className="border-edge border-t-2 pt-3 text-xs" data-testid="format-inspector">
+    <details
+      className="border-edge border-t-2 pt-3 text-xs"
+      data-testid="format-inspector"
+      ref={details}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
       <summary className="px-link w-fit cursor-pointer font-bold">
         {t("formats.checkTitle")}
       </summary>
@@ -129,20 +160,107 @@ export default function FormatSourceInspector({ formats }: { formats: EditFormat
         <select
           id={`${id}-format`}
           className="px-input w-full min-w-0"
-          value={format.key}
+          value={selected.id}
           onChange={(event) => {
             reset();
             setKey(event.target.value);
-            const next = formats.find((row) => row.key === event.target.value);
-            setUrl(next?.samples.find((sample) => sample.platform === "ig")?.url ?? "");
+            const next = options.find((row) => row.id === event.target.value)?.format;
+            setUrl(
+              (next
+                ? selectFormatCandidates(queue, formatVerificationTarget(next))[0]?.url
+                : undefined) ??
+                next?.samples.find((sample) => sample.platform === "ig")?.url ??
+                "",
+            );
           }}
         >
-          {formats.map((row) => (
-            <option key={row.key} value={row.key}>
-              {lang === "ar" ? (row.name.ar ?? row.name.en) : row.name.en}
+          {options.map((row) => (
+            <option key={row.id} value={row.id}>
+              {lang === "ar" ? (row.format.name.ar ?? row.format.name.en) : row.format.name.en}
+              {row.historical ? ` — ${t("formats.queueOriginalTarget")}` : ""}
             </option>
           ))}
         </select>
+        {!!candidates.length && (
+          <section className="border-edge space-y-2 border p-3" data-testid="format-pending-review">
+            <h3 className="font-bold">{t("formats.queueTitle", { n: candidates.length })}</h3>
+            <p className="text-muted">{t("formats.queueHelp")}</p>
+            <ul className="max-h-64 space-y-2 overflow-y-auto">
+              {candidates.map((candidate) => {
+                const record = savedRows.find(
+                  (row) => sourceKey(row.url) === sourceKey(candidate.url),
+                );
+                return (
+                  <li
+                    key={candidate.url}
+                    className="border-edge space-y-1 border-t pt-2"
+                    data-testid="format-queued-post"
+                  >
+                    <a
+                      className="px-link block break-all"
+                      href={candidate.url}
+                      dir="auto"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {record?.source.author || candidate.url}
+                    </a>
+                    <p className="text-muted">
+                      {t(
+                        !record
+                          ? "formats.queueUnchecked"
+                          : record.source.status !== "available"
+                            ? "formats.checkUnavailable"
+                            : record.inspection?.verification.basis === "source-frames-and-metadata"
+                              ? "formats.savedFrames"
+                              : record.inspection
+                                ? "formats.savedThumbnail"
+                                : "formats.savedMetadata",
+                      )}
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        className="px-link"
+                        data-testid="format-open-candidate"
+                        onClick={() => {
+                          reset();
+                          setUrl(candidate.url);
+                        }}
+                      >
+                        {t("formats.queueOpen")}
+                      </button>
+                      <button
+                        type="button"
+                        className="px-link text-muted"
+                        data-testid="format-remove-candidate"
+                        onClick={() => {
+                          reset();
+                          useStore
+                            .getState()
+                            .removeFormatCandidate(formatVerificationTarget(format), candidate.url);
+                          if (selected.historical && candidates.length === 1) {
+                            const next = formatQueueOptions(
+                              formats,
+                              useStore.getState().formatQueue,
+                            )[0];
+                            setKey(next?.id ?? "");
+                            setUrl(
+                              next?.format.samples.find((sample) => sample.platform === "ig")
+                                ?.url ?? "",
+                            );
+                          }
+                        }}
+                      >
+                        {t("formats.queueRemove")}
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
         <form
           className="flex min-w-0 flex-wrap gap-2"
           onSubmit={(event) => {
