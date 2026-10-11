@@ -35,6 +35,8 @@ export default function CategoryRefreshAction({
     return () => onBusyChange?.(false);
   }, [queue.busy, onBusyChange]);
   const query = categoryExpansionQuery(genre, 0);
+  // Native-only wording from the Camping keyword pilot; leave indexed expansion unchanged.
+  const tiktokQuery = genre.id === "camping" ? "camping cinematic edit" : query;
   if (!active) return null;
   return (
     <div
@@ -85,6 +87,17 @@ export default function CategoryRefreshAction({
             {t("feed.tiktokAccessCancel")}
           </button>
         )}
+        {(tab === "all" || tab === "tt") && tiktokQuery && (
+          <a
+            className="px-link"
+            href={platformSearchUrl("tt", tiktokQuery)}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="category-refresh-tiktok-search"
+          >
+            {t("refresh.tiktokSearch")}
+          </a>
+        )}
         {(tab === "all" || tab === "ig") && query && (
           <a
             className={tab === "ig" ? "px-btn px-btn-sm w-fit" : "px-link"}
@@ -106,6 +119,9 @@ export default function CategoryRefreshAction({
               : "refresh.help",
         )}
       </p>
+      {(tab === "all" || tab === "tt") && (
+        <p className="text-muted">{t("refresh.tiktokSearchHelp")}</p>
+      )}
       {tab === "all" && <p className="text-muted">{t("refresh.instagramHelp")}</p>}
       {tab !== "ig" && !config && <p>{t("feed.tiktokAccessConfig")}</p>}
       {(tab === "all" || tab === "yt") && queue.youtubeExhausted && (

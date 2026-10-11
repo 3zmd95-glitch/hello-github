@@ -15,7 +15,19 @@ Conserve the user's usage. No broad new audits, repeated live model calls, paid 
 - PR70: https://github.com/3zmd95-glitch/hello-github/pull/70 — open, unmerged. Do not merge without the user's request.
 - Worker **e3b5ebf** deployed successfully via **38151982415** (tests and actual Deploy). Screenshot review changes the frontend/localserver only; no new Worker deployment. Check current-head CI once if needed, not old cancelled runs.
 
-## Current checkpoint: real TikTok capture and one Astra assessment completed
+## Current checkpoint: native Camping search measured
+
+Capture consent is explicitly confirmed by the user's “Enable and test one video” reply. The one-post test below already fulfilled it: do not repeat the assessment. Current-head7b30808 CI runs38156234503/38156244386 both passed. The next bounded probe used no AI or paid search.
+
+Camping started with Inspiration2 (YouTube2, Instagram0, TikTok0), Popular0. The category's Instagram link (`camping outdoor film`) returned no results; searching `camping` in Instagram's own UI returned accounts, not video references. This does not establish that a shorter keyword fixes Instagram video retrieval.
+
+One actual Chrome TikTok search for `camping cinematic edit` returned relevant-looking video leads. Imported twelve observed public video links through the existing native-import review (URL fragment, not another helper-toolbar test); all twelve were retained for source checks. Inspiration became **4: TikTok2, YouTube2, Instagram0**. The two newly admitted TikToks are robbiakb/7569220040629701909 (90.2K source views, November5,2025) and pusakafirdaus_/7530219722420374789 (3.6M source views, July23,2025). Their footage remains unreviewed. **Popular stays0**: old high-engagement posts are not current trends. Saved3 unchanged. Reload and reopening Camping in Search retained TikTok2/combined4. The prior27/36 coverage matrix is historical, not current.
+
+This probe supports exposing native TikTok keyword search alongside chart refresh, reusing existing search links and the already-installed review helper. Implemented in the shared category refresh controls for All/TikTok, EN/AR, without automatic requests or new permissions. Camping uses the measured query; other categories reuse existing expansion wording. Instagram/retrieval planners unchanged. It does not establish fresh supply, visual quality, broad category coverage or multi-creator effect adoption.
+
+Validation: lint, app/Worker types, **3,803unit/190files**, production build, **436browser passes/8intentional skips/0failures** in one full run; Temp `discover-native-link-gates.log`. Four focused integration cases also passed. Build copied to primary ignoredout, existing3000runtime27644/session82193 preserved. Served Discover SHA256: `693652045ABCB7944518FAA1CB54142C9E052579A523FBB2ECA5A0E38C8381F3`. Actual Chrome verified the new link's exact URL, Arabic and English copy, persistent4/2/0/2counts and Saved3. Chrome left on Camping/All/Inspiration. Proof: Temp `discover-camping-native-search-2026-10-11.png`; earlier visible-text `discover-camping-native-results-2026-10-11.txt`. No further model calls, paid searches or Worker deployment. Do not rerun the same Camping batch. Next unresolved work is fresh source supply and audiovisual/format evidence, not another chart retry or caption-only promotion.
+
+## Completed checkpoint: real TikTok capture and one Astra assessment
 
 The user resumed with **Continue**, authorizing the pending one-post image-capture pilot. Approval is resolved; do not ask again or reinstall the helper. Both implementation CI runs38154281234/38154277767 completed successfully. No Worker changes or paid searches this continuation.
 

@@ -14,6 +14,10 @@ import DiscoverScreen from "../discover/DiscoverScreen";
 import { clearScoutCaps } from "./useDiscover";
 import { discoverVisualFixture } from "@/lib/discoverVisual.fixture";
 import type { DiscoverSemantic, DiscoverSemanticRequest } from "@/lib/discoverSemantic";
+import { GENRES } from "@/lib/genres";
+import inspirationEn from "@/messages/inspiration.en.json";
+import inspirationAr from "@/messages/inspiration.ar.json";
+import CategoryRefreshAction from "./CategoryRefreshAction";
 
 const WORKER = "https://feed.scout.test";
 let requests: Record<string, unknown>[];
@@ -218,6 +222,10 @@ describe("category editor feed", () => {
       expect($("feed-indexed-options")?.hasAttribute("open")).toBe(false);
       expect(nativeRequests).toEqual([]);
       await click(tab("tt"));
+      expect($("category-refresh-tiktok-search")?.getAttribute("href")).toBe(
+        "https://www.tiktok.com/search?q=anime%20AMV%20edit",
+      );
+      expect($("category-refresh-instagram")).toBeNull();
       expect(nativeRequests).toEqual([]);
       expect(requests).toHaveLength(initialRequests);
       await click($("category-refresh-run"));
@@ -229,9 +237,44 @@ describe("category editor feed", () => {
       expect($("category-refresh-region")).toBeNull();
       expect($("category-refresh-run")).toBeNull();
       expect($("category-refresh-instagram")?.getAttribute("href")).toContain("instagram.com");
+      expect($("category-refresh-tiktok-search")).toBeNull();
       expect(nativeRequests).toHaveLength(1);
       expect(requests).toHaveLength(initialRequests);
       expect(all("tiktok-native-discovery")).toHaveLength(0);
+    },
+  );
+
+  it.each(["en", "ar"] as const)(
+    "offers the proven Camping keyword search without a connection or acquisition in %s",
+    async (lang) => {
+      useStore.getState().setSettings({ lang });
+      const copy = lang === "ar" ? inspirationAr : inspirationEn;
+      const genre = GENRES.find((entry) => entry.id === "camping")!;
+      for (const tab of ["all", "tt", "yt", "ig"] as const) {
+        act(() =>
+          root.render(
+            createElement(CategoryRefreshAction, { genre, tab, config: null, active: true }),
+          ),
+        );
+        await settle();
+        const link = $("category-refresh-tiktok-search");
+        if (tab === "all" || tab === "tt") {
+          expect(link?.getAttribute("href")).toBe(
+            "https://www.tiktok.com/search?q=camping%20cinematic%20edit",
+          );
+          expect(link?.textContent).toBe(copy["refresh.tiktokSearch"]);
+          expect(link?.getAttribute("target")).toBe("_blank");
+          expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
+          expect(host.textContent).toContain(copy["refresh.tiktokSearchHelp"]);
+        } else expect(link).toBeNull();
+        if (tab === "all" || tab === "ig") {
+          expect($("category-refresh-instagram")?.getAttribute("href")).toContain(
+            "camping%20outdoor%20film",
+          );
+        }
+      }
+      expect(fetch).not.toHaveBeenCalled();
+      expect(useStore.getState().discoverCandidates).toEqual([]);
     },
   );
 
