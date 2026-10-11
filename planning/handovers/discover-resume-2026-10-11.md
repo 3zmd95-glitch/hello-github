@@ -1,6 +1,37 @@
 # Discover continuation — 11 October 2026
 
+## Latest continuation — coverage, native Fashion intake and publication dates
+
+Previous turn made verified implementation progress (66de33f); both associated CI runs now passed. This pass measured native coverage, imported Fashion references and exposed/fixed an Instagram publication-date defect. Direct Chrome selection of every category, in Inspiration mode with Instagram selected, measured this pre-Fashion-import matrix. These are actual qualifying feed counts, not proof of video quality or current trends:
+
+| Category | Instagram | TikTok | YouTube |
+|---|---:|---:|---:|
+| Cars | 0 | 1 | 2 |
+| Food | 0 | 1 | 7 |
+| Anime | 1 | 3 | 25 |
+| Travel | 0 | 0 | 8 |
+| Football | 2 | 1 | 12 |
+| Coffee | 1 | 3 | 9 |
+| Perfume | 0 | 3 | 6 |
+| Camping | 0 | 0 | 2 |
+| Fashion | 0 | 0 | 7 |
+| Gaming | 0 | 1 | 4 |
+| Weddings | 0 | 1 | 8 |
+| Gym | 3 | 0 | 6 |
+
+**TikTok visual-review feasibility is not established.** A bounded public-page probe for cutieshoko / 7692535162537610527 returned a matching itemStruct (14-second video) with playAddr/downloadAddr on v16/v19-webapp-prime.tiktok.com. Both native addresses returned HTTP 403 HTML to cookie-free direct media requests. A final same-User-Agent consistency check returned no typed detail at all. Stop this route here; no cookies, impersonation, private API, auth expansion or model calls. The existing source parser and FFmpeg limits could be reused only after a supported, reliable media path is established. Inspected [yt-dlp's supported-extractor list](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md?plain=1); a listed extractor is not evidence that this session can access these videos. No dependency was added. Public-only probe script lives in system Temp `discover-tiktok-media-probe.mjs`; it does not print signed URLs. Do not build a TikTok review button based on mocks alone or repeat these same probes.
+
+**Fashion intake:** authorized native Chrome search `https://www.instagram.com/explore/search/keyword/?q=%23fashionfilm` supplied eight selected visible reels through the existing explicit review: C99TvD4yf1Z, DKxCNJdI3S5, DbYmiQ5hzpr, DdgqYzZM67T, DaTB077PV9D, DHblXgfTJsl, DPD8PieDTyH, DZfjUKFIIco. No extension installation, paid search or preferences changed. Fashion/Instagram Explore zero → one after source checks settled, initially Inspiration zero. The retained jay.bevs film has 23.8K public-embed likes (native Chrome displayed 23.7K), and native date July 28, 2024. Its caption describes shooting fashion footage around Melbourne; a native playback sample shows composed fashion footage. This is an older inspiration candidate, not a current trend or full audiovisual review.
+
+One explicit `gpt-6.1-sol` / medium action saved **two assessments from four media attempts**. It admitted a different film, weyzclothing / **DZfjUKFIIco**, using frame-cited composition/staging/shot variety and its director/DOP/editor credits. Instagram Inspiration **0 → 1**; combined Fashion **7 → 8 = 7 YouTube + 1 Instagram**. Instagram Popular and Learn both remain zero; Saved remains three. The public embed says 3.6K likes, while actual native Chrome shows 7,717 likes and June 12 (2026, 17 weeks ago). Record this discrepancy rather than describing public-embed counts as exact live native counts. No second action or auto-next check. This is another older reference; it does not establish current-trend coverage.
+
+**Publication-date correction:** native Instagram imports had no `published` field, and `applyInstagramEvidence` never filled it despite the existing post-ID date reader. Conversely an incorrect indexed date survived a native source read. This meant recent native imports could not pass the date gate, and old indexed posts could retain a false recent date. The fix reuses the established date helper only after exact available-source verification, binds plausibility to observation time, backfills both item/evidence dates, and preserves newer-source protection/idempotence. Eight newly failing regression cases were observed before the fix; all 14 source tests passed after it. Full lint, app/Worker types, production build and **3,451 tests / 171 files** passed; full browser suite **420 passed / eight intentional skips / zero failures** on port 3101. A phone/desktop browser regression imports one recent shortcode and a misdated older post and proves only the recent one enters Popular. Logs: system Temp `discover-native-date-{lint,types,tests,browser}.log`. Tested export copied to primary `out`; server PID31288 preserved.
+
+**Live date verification:** actual Chrome on localhost:3000 now shows Fashion/Weyz **Jun 12**, Coffee/mad.vsion **Nov 9, 2022**. Their native calendar dates agree; both Instagram Popular feeds stay zero, and each Inspiration feed retains its single reviewed film after reload. Saved remains three. The ID-derived timestamp is a dating approximation: Weyz decoded 2026-06-12T16:44:35.939Z versus native DOM publication 2026-06-12T16:47:57.000Z (about three minutes apart), not exact native publication time. Screenshot: system Temp `discover-fashion-dates-2026-10-11.png`. Native Fashion intake and one bounded model action were the only new supply/review work; no paid search, additional permission, extension installation, preference vote or Worker deployment. The next work should address the measured empty native categories and fresh supply, not repeat this pilot/date repair. TikTok direct media remains unproven; native-like coverage/current trend tracking are still incomplete.
+
 ## Latest implementation — source-attributed cinematography
+
+Source **66de33fe53e6e5658fd6901790b62a931f9caf40** is pushed to PR #70; the description is updated and the PR remains unmerged. Separate CI runs **38128637001 / 38128634665** subsequently both passed. No Worker deployment was needed for this change. Newer uncommitted work is described in the section above.
 
 Implemented the gap identified by the native Coffee pilot below. Rubric 2 keeps added graphics separate from frame-cited live-action composition, lighting, staging and shot variety. It requires an exact native-caption production claim and at least two distinct sampled images; attribution is explicitly the creator's claim, not independently verified authorship. Film/TV excerpts, animation, gameplay and unknown origins cannot qualify through this new route. Existing engagement, relevance, exclusion, recency and teaching rules remain. All attribution quotes, including uncertain/third-party ones, must actually appear in the source caption. See [tools/33](../tools/33-filmed-cinematography.md).
 

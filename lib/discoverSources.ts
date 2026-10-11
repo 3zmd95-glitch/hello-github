@@ -2,6 +2,7 @@ import type { DiscoverItem } from "./discover";
 import { canonicalRefUrl } from "./research";
 import type { InstagramSource } from "../workers/scout/src/instagramSource";
 import type { TikTokSource } from "../workers/scout/src/tiktokSource";
+import { postedAt } from "../workers/scout/src/postDate";
 import { isLocalAiHost } from "./localAi";
 import { z } from "zod";
 
@@ -129,6 +130,7 @@ export function applyInstagramEvidence(
   if (
     item.platform !== "ig" ||
     source?.status !== "available" ||
+    source.provenance !== "instagram-public-embed" ||
     !source.observedAt ||
     canonicalRefUrl("ig", source.url) !== canonicalRefUrl("ig", item.url)
   )
@@ -138,12 +140,17 @@ export function applyInstagramEvidence(
     Date.parse(item.evidence.observedAt) > Date.parse(source.observedAt)
   )
     return item;
+  const observedAt = new Date(source.observedAt);
+  const idDate = postedAt(source.url, observedAt);
+  // The shared decoder tolerates clock skew; a source read cannot prove a future publication.
+  const published = idDate && Date.parse(idDate) <= observedAt.getTime() ? idDate : undefined;
   if (
     item.evidence?.source === "instagram-public-embed" &&
     item.evidence.observedAt === source.observedAt &&
     item.evidence.caption === source.description &&
     item.evidence.likes === source.likes &&
-    item.evidence.author === source.author
+    item.evidence.author === source.author &&
+    (!published || (item.published === published && item.evidence.published === published))
   )
     return item;
   return {
@@ -151,6 +158,7 @@ export function applyInstagramEvidence(
     title: source.description.slice(0, 160) || source.author || item.handle,
     snippet: source.description,
     handle: source.author || item.handle,
+    ...(published ? { published } : {}),
     ...(source.thumbnailUrl ? { thumb: source.thumbnailUrl } : {}),
     // A refreshed source never inherits a search snippet's unverified counts.
     stats: source.likes === undefined ? undefined : { likes: source.likes },
@@ -159,6 +167,7 @@ export function applyInstagramEvidence(
       observedAt: source.observedAt,
       caption: source.description,
       author: source.author,
+      ...(published ? { published } : {}),
       ...(source.likes !== undefined ? { likes: source.likes } : {}),
     },
   };
