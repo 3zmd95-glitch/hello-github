@@ -7,6 +7,7 @@ import BrowseCategoryFeed from "@/components/research/BrowseCategoryFeed";
 import { useT } from "@/lib/i18n";
 import { useStore } from "@/store";
 import InspirationLibrary from "./InspirationLibrary";
+import NativeResultsImport from "./NativeResultsImport";
 import { useGenreLink, useTikTokReturn } from "./useGenreLink";
 
 /** Explore real references, then keep personal observations and practice progress. The search remains mounted
@@ -20,6 +21,7 @@ export default function DiscoverScreen() {
   const genres = useMemo(() => allGenres(customGenres), [customGenres]);
   const [browseGenreId, setBrowseGenreId] = useState<string | null>(null);
   const [categoryOpen, setCategoryOpen] = useState(false);
+  const [importRevision, setImportRevision] = useState(0);
   const browseGenre = genres.find((genre) => genre.id === browseGenreId);
   const [view, setView] = useState<"browse" | "search" | "practice">("browse");
   const [openedGenre, setOpenedGenre] = useState<string | null>(null);
@@ -47,6 +49,15 @@ export default function DiscoverScreen() {
             t(tiktok === "connected" ? "search.tiktokConnected" : "search.tiktokConnectFailed")}
         </p>
       </header>
+      <NativeResultsImport
+        genres={genres}
+        onImported={(id) => {
+          setImportRevision((previous) => previous + 1);
+          setBrowseGenreId(id);
+          setCategoryOpen(true);
+          setView("browse");
+        }}
+      />
       <div role="group" aria-label={t("discover.title")} className="grid grid-cols-3 gap-2">
         <button
           type="button"
@@ -103,6 +114,7 @@ export default function DiscoverScreen() {
       </div>
       {browseGenre && (
         <BrowseCategoryFeed
+          key={importRevision}
           genre={browseGenre}
           genres={genres}
           active={view === "browse" && categoryOpen}

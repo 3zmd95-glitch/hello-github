@@ -395,7 +395,13 @@ export default function ResearchPanel({
    * on, or off when it's the active chip (null = off). A genre alone never lands in the recent topics.
    */
   const pickGenre = (id: string | null) => {
-    if (browsing && v2 && id && onBrowseCategory) {
+    if (
+      browsing &&
+      id &&
+      onBrowseCategory &&
+      (v2 || useStore.getState().discoverCandidates.some((entry) => entry.genreId === id))
+    ) {
+      // A retained local category remains browsable while remote capability checks are unavailable.
       onBrowseCategory(id);
       return;
     }

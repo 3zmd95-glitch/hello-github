@@ -1,5 +1,7 @@
 # Completed filming projects — 11 October 2026
 
+Source `d914d64` is pushed on PR #70 and deployed successfully by Worker workflow 38122498016. Live screenshot: system Temp `discover-coffee-recall-2026-10-11.png`. Separate CI was still running at last observation. Final deployment notes were written locally after the code push.
+
 ## Observed false negative
 
 Native TikTok Coffee search exposed [this public café film](https://www.tiktok.com/@israelllsss0_0/video/7626098740452986119). Its caption says “You let us film your coffee shop and this happened.” The public source read returned 120,700 likes, 1,200,000 views and publication 7 April 2026. Actual Chrome confirmed 120.7K likes, a nineteen-second player and sampled close-up product footage of coffee being poured. This is an older popular reference, not current trend-growth evidence or a full audiovisual review.

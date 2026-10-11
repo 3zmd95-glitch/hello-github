@@ -1,4 +1,9 @@
 {
+  "feed.nativeImport": "Add results from native search",
+  "feed.nativeImportHelp": "Choose the videos and their category. Discover will check available source details after you add them. They may appear in Explore while editing relevance and popularity are unverified. This does not save favourites or change your preferences.",
+  "feed.nativeImportConfirm": "Add {n} selected videos",
+  "feed.nativeImported": "{n} selected links are in this category. Source checks and feed requirements determine which videos appear here.",
+  "feed.nativeInvalid": "This import link is invalid. Return to the search page and select the videos again.",
   "feed.title": "{genre} edits",
   "feed.forYou": "For You",
   "feed.backForYou": "← Back to For You",
