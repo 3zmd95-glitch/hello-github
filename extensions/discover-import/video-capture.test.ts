@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   appendCapturedFrame,
   cropVideoScreenshot,
+  hasScreenshotDetail,
   sameCaptureTarget,
   visibleTikTokVideo,
 } from "./video-capture.js";
@@ -49,6 +50,30 @@ beforeEach(() => {
     objectFit: "cover",
     objectPosition: "50% 50%",
   }));
+});
+
+describe("screenshot detail beyond sparse player controls", () => {
+  // The capture validator samples one pixel in each 16; these are synthetic image samples.
+  const pixels = (light: (index: number) => number) => {
+    const data = new Uint8ClampedArray(10000 * 64);
+    for (let index = 0; index < 10000; index++)
+      data[index * 64] = data[index * 64 + 1] = data[index * 64 + 2] = light(index);
+    return data;
+  };
+  it("rejects near-black crops with sparse bright icons, captions and compression noise", () => {
+    // Approximate the observed failed crop: almost all black, <2% controls with full contrast.
+    const overlayOnly = pixels((index) =>
+      index % 100 < 1 ? 255 : index % 100 < 2 ? 24 : index % 3,
+    );
+    expect(hasScreenshotDetail(overlayOnly)).toBe(false);
+    expect(hasScreenshotDetail(pixels(() => 0))).toBe(false);
+    expect(hasScreenshotDetail(pixels(() => 255))).toBe(false);
+  });
+  it("keeps dark scene detail without requiring bright pixels or high average brightness", () => {
+    expect(hasScreenshotDetail(pixels((index) => 2 + (index % 17)))).toBe(true);
+    expect(hasScreenshotDetail(pixels((index) => (index % 10 === 0 ? 28 : 2)))).toBe(true);
+    expect(hasScreenshotDetail(pixels((index) => 30 + (index % 180)))).toBe(true);
+  });
 });
 afterEach(() => {
   vi.restoreAllMocks();

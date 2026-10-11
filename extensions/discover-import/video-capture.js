@@ -116,6 +116,26 @@ export function sameCaptureTarget(before, after) {
   );
 }
 
+/** Sparse player icons must not turn an otherwise uniform crop into usable image evidence.
+ * Measure contrast after trimming 2% at either end, never overall brightness: dark detail counts. */
+export function hasScreenshotDetail(pixels) {
+  const histogram = new Uint32Array(256);
+  let count = 0;
+  for (let i = 0; i + 2 < pixels.length; i += 64) {
+    histogram[Math.round((pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3)]++;
+    count++;
+  }
+  if (!count) return false;
+  const trim = Math.floor(count * 0.02);
+  let low = 0,
+    high = 255,
+    discarded = 0;
+  while (low < 255 && discarded + histogram[low] <= trim) discarded += histogram[low++];
+  discarded = 0;
+  while (high > 0 && discarded + histogram[high] <= trim) discarded += histogram[high--];
+  return high - low >= 8;
+}
+
 /** Crop locally. The surrounding page image is never retained, exported or transmitted. */
 export async function cropVideoScreenshot(dataUrl, target) {
   const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob());
@@ -153,14 +173,7 @@ export async function cropVideoScreenshot(dataUrl, target) {
     );
     // Reject blank/uniform frames; no pixel content leaves this local crop function.
     const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-    let low = 255,
-      high = 0;
-    for (let i = 0; i < pixels.length; i += 64) {
-      const light = (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3;
-      low = Math.min(low, light);
-      high = Math.max(high, light);
-    }
-    if (high - low < 8) throw new Error("blank");
+    if (!hasScreenshotDetail(pixels)) throw new Error("blank");
     for (const quality of [0.82, 0.65, 0.48]) {
       const crop = canvas.toDataURL("image/jpeg", quality);
       if (crop.startsWith("data:image/jpeg;base64,") && crop.length <= 218475) return crop;
