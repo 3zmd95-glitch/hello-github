@@ -9,6 +9,40 @@ import { creatorProjects } from "../workers/scout/src/categories/creatorProjects
 import { soundtrackResource } from "../workers/scout/src/categories/soundtrackResource.fixture";
 import { discoverVisualFixture, discoverVisualObservationFixture } from "./discoverVisual.fixture";
 import { filmedCoffeeProject } from "../workers/scout/src/categories/filmedProject.fixture";
+import { creditedCoffeeProject } from "../workers/scout/src/categories/productionCredits.fixture";
+
+it("admits a native credited production without turning old work, small posts or other genres into popular edits", () => {
+  const post: DiscoverItem = {
+    platform: "tt",
+    url: creditedCoffeeProject.url,
+    handle: creditedCoffeeProject.author,
+    title: creditedCoffeeProject.caption,
+    snippet: "",
+    lang: "en",
+    section: "example",
+    evidence: {
+      source: "tiktok-public-page",
+      observedAt: "2026-10-11T08:00:00Z",
+      caption: creditedCoffeeProject.caption,
+      likes: creditedCoffeeProject.likes,
+      views: creditedCoffeeProject.views,
+      published: creditedCoffeeProject.published,
+    },
+  };
+  const options = { genreId: "coffee", now: Date.parse("2026-10-11T08:05:00Z") };
+  expect(rankDiscoverItems([post], { ...options, mode: "inspiration" }).items).toHaveLength(1);
+  expect(rankDiscoverItems([post], { ...options, mode: "popular" }).items).toHaveLength(0);
+  expect(rankDiscoverItems([post], { ...options, mode: "learning" }).items).toHaveLength(0);
+  expect(
+    rankDiscoverItems([post], { ...options, genreId: "anime", mode: "inspiration" }).items,
+  ).toHaveLength(0);
+  expect(
+    rankDiscoverItems([{ ...post, evidence: { ...post.evidence!, likes: 5, views: 50 } }], {
+      ...options,
+      mode: "inspiration",
+    }).items,
+  ).toHaveLength(0);
+});
 
 it("admits the real filmed Coffee project as older inspiration, never a current trend or lesson", () => {
   const post: DiscoverItem = {

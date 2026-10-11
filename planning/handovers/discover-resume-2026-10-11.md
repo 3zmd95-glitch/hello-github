@@ -1,5 +1,13 @@
 # Discover continuation — 11 October 2026
 
+## Current continuation — native Coffee intake and production credits
+
+The previous turn was concrete progress: `530ceeb1ecfd44c4dd28e6221436df938217a8ca` is pushed, preview updated, review flow verified. Both CI runs 38123819855 and 38123817314 subsequently passed. The extension installation question remains unanswered; nothing installed or granted. This turn uses the already-authorized Chrome UI for a bounded six-link native Coffee pilot, no paid search/model call. See [exact sources and baseline](../tools/31-native-coffee-pilot.md).
+
+Six visible native results were explicitly imported as neutral leads. After source checks, TikTok Inspiration stayed two; Explore grew five → nine. Saved stayed three. This demonstrates the source/admission gap rather than native-quality completion. An actual twelve-second Aziz reel visibly includes product callout graphics, and direct metadata credits editing/colour and camera work (1,100 likes / 28,700 views, June 2026). Paired production roles were unrecognized despite describing authored work. Shared English/Arabic production-credit project evidence is under validation; it retains age/engagement/lesson/exclusion rules. Generic cinematic tags and the separate filming-prose detector stay unchanged. A review also guards independent project text from being suppressed by unrelated unconfirmed credits.
+
+Current correction passed **3,402 root tests / 170 files**, lint, app/Worker types, build and **414 browser cases / eight intentional skips / zero failures** on port 3101. The tested export was copied to primary `out`; the existing local server remains PID 32924. Actual Chrome after source checks settled: Coffee Inspiration **All 12 = 9 YouTube + 3 TikTok + 0 Instagram**, TikTok two → three. Aziz displays 28.7K native views; it remains absent from Popular recently (zero) and Learn (three). Saved stays three. Screenshot: system Temp `discover-coffee-credits-2026-10-11.png`. Logs: Temp `discover-credit-{lint,types,tests,build,browser}.log`. Source deployment is recorded below once complete.
+
 ## Current continuation — optional native-search import
 
 The combined native-equivalent discovery goal remains active. Prepared an optional Chrome companion in `extensions/discover-import/` plus the app's explicit review step. It captures only selected visible direct-post URLs on permitted native search pages, sends them to localhost:3000, requires a category/confirmation, and preserves native evidence without saving favourites or preferences. See [scope, reuse decision and limitations](../tools/30-native-search-import.md). No installation or new browser permission yet; the workflow preference question remains unanswered. No new paid search or model assessment.

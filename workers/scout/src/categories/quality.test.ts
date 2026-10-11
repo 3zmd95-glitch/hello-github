@@ -10,6 +10,108 @@ import { carxDraftCandidate } from "./carxDraft.fixture";
 import { creatorProjects } from "./creatorProjects.fixture";
 import { soundtrackResource } from "./soundtrackResource.fixture";
 import { filmedCoffeeProject } from "./filmedProject.fixture";
+import { creditedCoffeeProject } from "./productionCredits.fixture";
+
+describe("paired production credits", () => {
+  it("recognizes the observed Coffee production credits without inventing technique or teaching", () => {
+    expect(evidence("coffee", creditedCoffeeProject.caption)).toMatchObject({
+      category: true,
+      creative: true,
+      eligible: true,
+      project: true,
+      namedTechniques: [],
+      teaching: false,
+    });
+  });
+
+  it.each(Object.keys(CATEGORY_PROFILES))(
+    "accepts paired credits with a source %s subject tag",
+    (genre) => {
+      expect(
+        evidence(genre, `Edited by Noor — Filmed by Alex #${CATEGORY_PROFILES[genre].subject.en}`),
+      ).toMatchObject({
+        category: true,
+        eligible: true,
+        project: true,
+        namedTechniques: [],
+        teaching: false,
+      });
+    },
+  );
+
+  it.each([
+    "Editor: @sam.edits | Camera: @lee.films #coffee",
+    "Editing and colour by Amina\nCinematography by Omar\n#coffee",
+    "مونتاج وتلوين: عزيز — تصوير: فهد #قهوة",
+    "التحرير بواسطة نورة | التصوير بواسطة ليان #قهوة",
+    "تحرير بيد عزيز - Shot by @fahad #coffee",
+  ])("recognizes named bilingual production roles: %s", (caption) => {
+    expect(evidence("coffee", caption)).toMatchObject({
+      eligible: true,
+      project: true,
+      namedTechniques: [],
+      teaching: false,
+    });
+  });
+
+  it.each([
+    "If we make coffee: Edit by Alex - Shot by Sam",
+    "Tomorrow: Edit by Alex - Shot by Sam #coffee",
+    "Edit by Alex - Shot by Sam? #coffee",
+    "Not Edit by Alex - Shot by Sam #coffee",
+    "Coffee caption template: Edit by Alex - Shot by Sam",
+    "مونتاج: عزيز - تصوير: فهد بكرة #قهوة",
+    "لو نصور قهوة: مونتاج: عزيز - تصوير: فهد",
+    "تحرير بواسطة عزيز - تصوير بواسطة فهد؟ #قهوة",
+    "#Edit by Alex #Shot by Sam #coffee",
+    "Edit by Alex #coffee",
+    "Shot by Sam #coffee",
+    "Music by Alex - Shot by Sam #coffee",
+    "Music edited by Alex - Shot by Sam #coffee",
+    "Edit by someone - Shot by nobody #coffee",
+    "Edit by [your name] - Shot by [camera name] #coffee",
+    "About me: Edit by Alex - Shot by Sam #coffee",
+    "Hire us: Edit by Alex - Shot by Sam #coffee",
+    "Coffee inspiration\nAbout me: I make videos\nEdit by Alex - Shot by Sam",
+    "Coffee inspiration\nKeywords: Edit by Alex - Shot by Sam",
+    "Coffee inspiration. Music for Edit by Alex - Shot by Sam",
+    'Coffee inspiration\nCaption example: "Edit by Alex - Shot by Sam"\nOr, if it is for a coffee video: [add your credits]',
+  ])("does not turn unsupported credit text into a completed project: %s", (caption) => {
+    expect(evidence("coffee", caption).project).toBe(false);
+  });
+
+  it.each([
+    "Upcoming workshop credits: Edit by Alex - Shot by Sam",
+    "Coffee caption template: Edit by Alex - Shot by Sam",
+    "مونتاج: عزيز - تصوير: فهد بكرة #قهوة",
+  ])("preserves an independently described project beside unsupported credits: %s", (credits) => {
+    expect(evidence("coffee", credits).project).toBe(false);
+    expect(evidence("coffee", `Cinematic coffee film\n\n${credits}`)).toMatchObject({
+      eligible: true,
+      project: true,
+      namedTechniques: [],
+      teaching: false,
+    });
+    expect(evidence("coffee", `${credits}\n\nCinematic coffee film`).project).toBe(true);
+  });
+
+  it("keeps subject and established content exclusions mandatory", () => {
+    const credits = "Edit by Alex - Shot by Sam";
+    expect(evidence("coffee", `${credits} #cars`).eligible).toBe(false);
+    for (const caption of [
+      `Coffee espresso extraction. ${credits}`,
+      `Coffee buy now. ${credits}`,
+      `Coffee full movie. ${credits}`,
+      `3 hours relaxing music for studying with coffee. ${credits}`,
+    ])
+      expect(evidence("coffee", caption)).toMatchObject({ eligible: false, project: false });
+    expect(evidence("coffee", "My favourite cafe #cinematic")).toMatchObject({
+      eligible: true,
+      project: false,
+      namedTechniques: [],
+    });
+  });
+});
 
 describe("completed filming projects without technique keywords", () => {
   it("recognizes the real native Coffee project without inventing a technique or lesson", () => {

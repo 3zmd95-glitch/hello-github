@@ -242,6 +242,59 @@ function describedFilmingProject(genreId: string, text: string): boolean {
     });
 }
 
+/** Paired, named production credits describe this completed project without identifying a
+ * technique. A subject may live in the source tags, but role tags cannot supply credits. */
+function productionCreditEvidence(text: string): { completed: boolean; projectText: string } {
+  const creditText = postTeachingText(appliedCraftText(captionEvidenceText(text))).replace(
+    /[\u064b-\u065f\u0670\u0640\u200e\u200f]/g,
+    "",
+  );
+  const editing =
+    /(?<![\p{L}\p{N}_#])(?:(?:edit(?:ed|ing)?|editor)(?:\s*(?:&|and)\s*colou?r)?(?:\s+by\s+|\s*:\s*)|(?:ال)?(?:مونتاج|تحرير|إيديت|ايديت)(?:\s*و\s*(?:ال)?تلوين)?(?:\s+(?:بواسطة|بيد)\s+|\s*:\s*))(@?[\p{L}\p{N}_][\p{L}\p{N}_.-]*)/giu;
+  const camera =
+    /(?<![\p{L}\p{N}_#])(?:(?:shot|filmed)\s+by\s+|(?:camera|filming|cinematography)(?:\s+by\s+|\s*:\s*)|(?:ال)?(?:تصوير|كاميرا)(?:\s+(?:بواسطة|بيد)\s+|\s*:\s*))(@?[\p{L}\p{N}_][\p{L}\p{N}_.-]*)/giu;
+  let completed = false;
+  const projectBlocks: string[] = [];
+  for (const block of creditText.split(/\n\s*\n/u)) {
+    const prose = block.replace(/#[\p{L}\p{N}_]+|https?:\/\/\S+/gu, " ");
+    const editors = [...prose.matchAll(editing)];
+    const cameras = [...prose.matchAll(camera)];
+    if (!editors.length || !cameras.length) {
+      projectBlocks.push(block);
+      continue;
+    }
+    // Future plans, questions, quoted templates and service biographies are not credits
+    // for an observed finished project. Keep these guards local to the credit block.
+    if (
+      /[?؟]|\b(?:if|wish|imagine|would|could|should|will|might|tomorrow|upcoming|soon|planned|never|not|no|isn['’]t|wasn['’]t|didn['’]t|template|example|sample|draft|prompt|bio|portfolio|services|booking)\b|\b(?:about (?:me|us)|for hire|hire (?:me|us)|available for|dm for|book now|next week)\b/iu.test(
+        block,
+      ) ||
+      /(?:^|\s)(?:ما|لم|لن|لو|يا ليت|راح|سوف|بكرة|بكره|ليس|قريبا|قريبًا)(?:\s|$)|قالب|مثال|مسودة|برومبت|نبذة|خدمات|للحجز|للتواصل|راسلني|متاح للعمل/u.test(
+        block,
+      )
+    )
+      continue;
+    const named = (credit: RegExpMatchArray) => {
+      const name = credit[1].replace(/^@/, "");
+      const prefix = prose.slice(Math.max(0, credit.index! - 40), credit.index);
+      return (
+        /\p{L}{2}/u.test(name) &&
+        !/^(?:me|us|you|them|someone|somebody|nobody|none|name|your|tbd|unknown|editor|camera|أنا|انا|نحن|أنت|انت|فلان|اسم|مجهول)$/iu.test(
+          name,
+        ) &&
+        !/\b(?:music|audio|song|soundtrack)\s*$|(?:موسيقى|الصوت|صوت|أغنية)\s*$/iu.test(prefix)
+      );
+    };
+    if (editors.some(named) && cameras.some(named)) {
+      completed = true;
+      projectBlocks.push(block);
+    }
+  }
+  // Unsupported credits cannot supply fallback project words (e.g. مونتاج), but an
+  // independent completed project in another paragraph retains its own evidence.
+  return { completed, projectText: projectBlocks.join("\n\n") };
+}
+
 /** A creator's biography, SEO list and statutory notice describe neither this post's lesson
  * nor its steps. Keep the actual title/body, and resume when a new paragraph/section begins. */
 function postTeachingText(text: string): string {
@@ -482,7 +535,10 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
     ),
   ).map((a) => a.name);
   const filmedProject = describedFilmingProject(genreId, craftText);
-  if (filmedProject && !techniques.includes("filmmaking")) techniques.push("filmmaking");
+  const productionCredits = productionCreditEvidence(craftText);
+  const creditedProject = productionCredits.completed;
+  if ((filmedProject || creditedProject) && !techniques.includes("filmmaking"))
+    techniques.push("filmmaking");
   const prose = text.replace(/#[\p{L}\p{N}_]+/gu, "").replace(/https?:\/\/\S+/g, "");
   const craftProse = craftText.replace(/#[\p{L}\p{N}_]+/gu, "").replace(/https?:\/\/\S+/g, "");
   const equipment =
@@ -555,18 +611,22 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
     techniques.length > 0 &&
     (substantive || techniques.some((t) => PROJECT.has(t)) || contextual);
   const category = subjects.length > 0 && !otherSport;
-  const proseNormalized = normalizeTerm(craftProse);
+  const projectProse = productionCredits.projectText
+    .replace(/#[\p{L}\p{N}_]+/gu, "")
+    .replace(/https?:\/\/\S+/g, "");
+  const proseNormalized = normalizeTerm(projectProse);
   const project =
     creative &&
     (filmedProject ||
-      describedEditProject(genreId, craftText) ||
+      creditedProject ||
+      describedEditProject(genreId, productionCredits.projectText) ||
       (techniques.includes("creative commercial") &&
         CREATIVE["creative commercial"].some((alias) =>
           has(proseNormalized, normalizeTerm(alias)),
         )) ||
       ["short film", "highlight film", "lookbook"].some((alias) => has(proseNormalized, alias)) ||
       (CREATIVE.cinematic.some((alias) => has(proseNormalized, normalizeTerm(alias))) &&
-        /\b(?:film|video|reel|edit)\b|(?:فيلم|فيديو|ايديت|إيديت)/iu.test(craftProse)));
+        /\b(?:film|video|reel|edit)\b|(?:فيلم|فيديو|ايديت|إيديت)/iu.test(projectProse)));
   return {
     category,
     creative,
