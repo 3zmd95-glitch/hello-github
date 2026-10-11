@@ -1,6 +1,6 @@
 # Discover handover — 11 October 2026
 
-Read this first. Older chronological notes are preserved in [history](discover-resume-2026-10-11-history.md); do not load that entire file unless needed. Detailed design and measured evidence live in planning/tools/24 through47.
+Read this first. Older chronological notes are preserved in [history](discover-resume-2026-10-11-history.md); do not load that entire file unless needed. Detailed design and measured evidence live in planning/tools/24 through48.
 
 ## Objective and constraints
 
@@ -10,8 +10,8 @@ Conserve the user's usage. No broad new audits, repeated live model calls, paid 
 
 ## Source, runtime and review
 
-- Managed source: `C:/Users/AORUS/.codex/worktrees/discover-inspiration/hello-github`, branch `codex/discover-inspiration`. Latest native format queue follows0cd9306; use git log for the current hash.
-- Primary `C:/Users/AORUS/Documents/hello-github` serves the managed build copied into its ignored out. Do not run the older primary tracked source. Existing local server **PID37380** was preserved.
+- Managed source: `C:/Users/AORUS/.codex/worktrees/discover-inspiration/hello-github`, branch `codex/discover-inspiration`. Latest format-source invalidation correction follows9045332; use git log for the current hash.
+- Primary `C:/Users/AORUS/Documents/hello-github` serves the managed build copied into its ignored out. Do not run the older primary tracked source. Current local server is **PID26016**, command session12900, restarted from managed source for the format-source correction. Preserve it.
 - PR70: https://github.com/3zmd95-glitch/hello-github/pull/70 — open, unmerged. Do not merge without the user's request.
 - Worker **f94b947** deployed successfully via **38143707034** (tests and Deploy). This continuation changes no Worker code and needs no deployment. Older f94b947 app CI runs were cancelled by the subsequent docs push; current local gates pass. Check current-head CI once if needed, not old cancelled runs.
 
@@ -66,3 +66,29 @@ Final lint, app/Worker types, **3,741tests/184files** and build passed. Browser 
 Actual Chrome: imported four observed native TRIP BABY audio-grid links via local review fragment (not a new toolbar capture), then four explicit public source reads, no AI/paid search. sauravx.21/DdRPhe4vc9s, j03yway/DdQ3O8ASoqJ, ysnmusic.00/DeU6BHAuDSo each matched the audio. DdQMTSbgJ21 metadata unavailable, retained as inconclusive. Native audio page says9.9Kreels, which covers all audio uses, not this effect's adoption. The ysnmusic meme is the useful negative comparison. No frames/motion/audio listening performed. After reload all4rows persist; opening j03yway reuses17:49:27Riyadh record; local counts3audio/0sampled-frame/0recentcreators. Saved3. Chrome left on this queue/history; proof and visible-text receipt in Temp discover-native-format-queue-2026-10-11.png/.json.
 
 Next useful step: use this saved cohort for bounded actual frame/playback comparisons only if worth the user's usage, keeping music memes separate from the repeated-figure format. Do not reimport/recheck captions, infer trend growth from9.9Kaudio uses, or repeat fullgates for docs/data-only work. Native supply across all categories/platforms and measured effect adoption remain unfinished.
+
+## Latest bounded native Perfume check (18:03 Riyadh, no code changes)
+
+This data-only check used **9045332856b87ddaebbb999804716299913d08ef**. Both check and both e2e jobs on PR70 passed (runs38148919423/38148923550). No local test/build/deployment was repeated for that data-only continuation; the following implementation has its own validation and runtime update below.
+
+Opened the native Instagram `perfume product film` search and inspected the first six visible posts. Excluded kaylammendez/Dc1AbQzSFVQ because the actual caption/subject was body care rather than clearly perfume. Retained the other five links through the existing local import review fragment, not a new toolbar-helper capture. The import alone added **zero** Inspiration references; baseline Perfume was Instagram0/TikTok3/YouTube6, combined9, Popular0.
+
+- alchemist.fragrance/DTVGnjXkd55: public13,882likes, native January10,2026; sparse caption announcing OUT WEST. Retained, no visual review.
+- **migbrgd/DHbbxItsg8I**: public6,513likes, native named liker plus6,512others; native March20,2025. Caption claims a self-shot Le Labo spec project. Selected this exact post for **one** gpt-6-astra/max visual check. Saved October11,18:03:17Riyadh. Sampled stills support category, brand typography/endcard, composition, lighting and shot variety. Full motion/audio/graphic authorship remain unverified. Actual Chrome Inspiration **Instagram0→1 / combined9→10**; **Popular stays0**, correctly excluding the old post. Reload retained the same checkedAt/model/evidence and counts. Saved remains3; feedback/follows were untouched. Do not run another check on this post.
+- khan.ayan9/DX4M1DBhGJh: public45,899likes; caption only “Try this out!” and generic filmmaking/tutorial/lighting tags. Retained, no visual review. High counts alone do not prove subject, creative quality or recent popularity.
+- souphics/DTFHopUEpiy: public122likes, app January4; explicit fragrance/product-motion client-work caption, admitted only to broader Explore, not promoted through weaker engagement gates.
+- DHBNVcGx4Tb: source unavailable, retained as inconclusive.
+
+No paid queries, one model check, five imported candidates, one newly qualified reference. Public source receipts: system Temp `discover-native-perfume-source-2026-10-11.json`. Chrome screenshot after reload: `discover-native-perfume-2026-10-11.png`. Final Chrome tab is Perfume/Instagram/Inspiration with evidence expanded. This fills another inspiration gap; it adds **no new recent trend** and does not establish native-quality coverage across all categories.
+
+Read-only TikTok acquisition audit found industry-chart creative hashtags must contain the category in the hashtag name before video inspection. Reserving a bounded portion of the existing ten hashtag slots for subject-neutral craft tags is only an untested supply hypothesis, not a demonstrated fix; no change shipped. Existing native Coffee/Camping samples already show more retrieval can yield zero qualified edits. Continue with measured visual relevance and recent native supply, preserving admission gates and avoiding another general query-volume experiment without evidence.
+
+## Latest implementation and live check: invalidation and format cohort
+
+An AI format check could receive unavailable source metadata yet leave its prior positive stored/displayed. The server now returns its actual unavailable receipt; the client validates schema, unavailable status and exact post binding, and the inspector records it to invalidate the previous positive. Media/model failures without contradictory source evidence preserve the saved observation. No fabricated receipt or second source request. Details: tools/48-format-source-invalidation.md.
+
+All final gates passed: lint, app/Worker types, **3,747 unit tests/184files**, production build, **430 browser passes/8intentional skips/0failures** in a complete run. Phone/desktop regression covers success, transient media failure, unavailable source and reload. An initial custom test server mistakenly served directory listings and was stopped; the final passing run used the repository's normal startup. Logs: Temp `discover-format-invalidation-gates.log`, `discover-format-invalidation-browser-fixed.log`. Managed export copied to primaryout; discover/index SHA256 **C555A9A357CBB1628D7DD876BE2BF1BD37AAEB11F71C4AA48FC8F577EF77F6DB** matches. Runtime restarted on3000 asPID26016/session12900 because the local server changed. No Worker changes or deployment.
+
+Actual Chrome reused the existing four-post TRIP BABY queue. **One successful gpt-6-astra/max frame assessment** of sauravx.21/DdRPhe4vc9s saved18:09:02Riyadh supports layered paddlers, mountains and boats across eight samples. Native Instagram displaysSeptember14 and403likes. This is historical visual-format evidence, not a current popular reference. The ysnmusic.00/DeU6BHAuDSo negative comparison visibly shows a music-taste meme, posted19hours earlier with2Klikes; its frame extraction failed, so no visual verdict was saved. Do not claim the AI rejected it or retry decoding without new evidence. No paid searches; two media attempts yielded only one saved AI assessment.
+
+After deploying/reloading in actual Chrome, the same18:09:02assessment and allfourrows persist, **3audio matches/1sampled-frame match/0recent creators**, Saved3. Proof: Temp `discover-format-cohort-2026-10-11.png`; visible-text/source-context receipt `.json`. Final Chrome is this saved check with history expanded. The caption/frame/motion distinction works on this bounded sample. Current multi-creator effect adoption remains unproven: the visual match is too old, and a recent song use alone is insufficient. Continue from fresh visual-format supply and category coverage, not another review of these exact posts or an audio-use-count trend claim.

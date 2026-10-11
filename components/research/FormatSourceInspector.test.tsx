@@ -3,7 +3,9 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REVIEWED_FORMAT_SEEDS } from "@/lib/formatSeeds";
-import { localInstagramSource } from "@/lib/formatSources";
+import { inspectFormatPreview, localInstagramSource } from "@/lib/formatSources";
+import { summarizeFormatObservations } from "@/lib/formatObservations";
+import type { AiChoice } from "@/lib/localAi";
 import { useStore } from "@/store";
 import { formatVerificationTarget, type InstagramSource } from "@/lib/formatVerification";
 import FormatSourceInspector from "./FormatSourceInspector";
@@ -11,12 +13,26 @@ import FormatSourceInspector from "./FormatSourceInspector";
 vi.mock("@/lib/formatSources", async (original) => ({
   ...(await original<typeof import("@/lib/formatSources")>()),
   localInstagramSource: vi.fn(),
+  inspectFormatPreview: vi.fn(),
+}));
+vi.mock("./AiConnectionControls", () => ({
+  default: ({ onChange }: { onChange: (choice: AiChoice) => void }) =>
+    createElement(
+      "button",
+      {
+        type: "button",
+        "data-testid": "choose-test-model",
+        onClick: () => onChange({ provider: "chatgpt", model: "chosen", effort: "max" }),
+      },
+      "Choose model",
+    ),
 }));
 
 const format = REVIEWED_FORMAT_SEEDS[0];
 let host: HTMLDivElement;
 let root: Root;
 const readSource = vi.mocked(localInstagramSource);
+const inspect = vi.mocked(inspectFormatPreview);
 const source = (): InstagramSource => ({
   status: "available",
   url: format.samples.find((sample) => sample.platform === "ig")!.url,
@@ -34,6 +50,50 @@ const submit = () =>
   host
     .querySelector("form")!
     .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+const inspectSaved = async () => {
+  act(() => {
+    const panel = Array.from(host.querySelectorAll("details")).at(-1)!;
+    panel.open = true;
+    panel.dispatchEvent(new Event("toggle"));
+  });
+  act(() => host.querySelector<HTMLButtonElement>('[data-testid="choose-test-model"]')!.click());
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('[data-testid="format-inspect-preview"]')!.click(),
+  );
+};
+function saveMatch() {
+  const original = source();
+  useStore.getState().recordFormatObservation({
+    target: formatVerificationTarget(format),
+    source: original,
+    inspection: {
+      provider: "chatgpt",
+      model: "chosen",
+      effort: "max",
+      verification: {
+        version: 1,
+        formatKey: format.key,
+        url: original.url,
+        checkedAt: new Date(Date.now() - 500).toISOString(),
+        visual: "match",
+        audio: "match",
+        teaching: "unknown",
+        observations: ["Repeated cutouts in the sampled frames"],
+        limitations: ["sampled_frames", "motion_partial", "synchronization_unverified"],
+        basis: "source-frames-and-metadata",
+        frames: [
+          { timestampSeconds: 0, sha256: "a".repeat(64) },
+          { timestampSeconds: 1, sha256: "b".repeat(64) },
+        ],
+        durationSeconds: 2,
+        videoSha256: "c".repeat(64),
+        framesObservedAt: original.observedAt!,
+        frameCount: 2,
+        source: original,
+      },
+    },
+  });
+}
 
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -41,6 +101,7 @@ beforeEach(() => {
   useStore.getState().reset();
   useStore.getState().setSettings({ lang: "en" });
   readSource.mockReset();
+  inspect.mockReset();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -51,6 +112,66 @@ afterEach(() => {
 });
 
 describe("saved explicit format checks", () => {
+  it("records an AI check's actual unavailable receipt and removes the previous positive after reload", async () => {
+    saveMatch();
+    render();
+    expect(host.querySelector('[data-testid="format-visual-result"]')).not.toBeNull();
+    expect(
+      summarizeFormatObservations(
+        useStore.getState().formatObservations,
+        formatVerificationTarget(format),
+      ).sampledMatches,
+    ).toBe(1);
+    const unavailable: InstagramSource = {
+      status: "unavailable",
+      url: source().url,
+      title: "",
+      description: "",
+      thumbnailUrl: "",
+      author: "",
+      observedAt: null,
+      provenance: "instagram-public-embed",
+    };
+    inspect.mockResolvedValue({ ok: false, error: "source_unavailable", source: unavailable });
+    await inspectSaved();
+    expect(host.querySelector('[data-testid="format-visual-result"]')).toBeNull();
+    expect(host.querySelector('[role="alert"]')).not.toBeNull();
+    expect(useStore.getState().formatObservations[0]).toMatchObject({
+      source: { status: "unavailable", observedAt: null },
+    });
+    expect(useStore.getState().formatObservations[0].inspection).toBeUndefined();
+    expect(
+      summarizeFormatObservations(
+        useStore.getState().formatObservations,
+        formatVerificationTarget(format),
+      ),
+    ).toEqual({ checkedPosts: 1, audioMatches: 0, sampledMatches: 0, recentCreators: 0 });
+    act(() => root.unmount());
+    root = createRoot(host);
+    render();
+    expect(host.querySelector('[data-testid="format-visual-result"]')).toBeNull();
+    expect(inspect).toHaveBeenCalledTimes(1);
+    expect(readSource).not.toHaveBeenCalled();
+  });
+
+  it.each(["source_frames_unavailable", "ai_timeout", "source_unavailable"])(
+    "keeps prior evidence for %s without an unavailable source receipt",
+    async (error) => {
+      saveMatch();
+      const original = useStore.getState().formatObservations;
+      render();
+      inspect.mockResolvedValue({ ok: false, error });
+      await inspectSaved();
+      expect(host.querySelector('[data-testid="format-visual-result"]')).not.toBeNull();
+      expect(host.querySelector('[role="alert"]')).not.toBeNull();
+      expect(useStore.getState().formatObservations).toBe(original);
+      expect(
+        summarizeFormatObservations(original, formatVerificationTarget(format)).sampledMatches,
+      ).toBe(1);
+      expect(readSource).not.toHaveBeenCalled();
+    },
+  );
+
   it("opens the original imported target after a same-key format changes or disappears", async () => {
     const target = formatVerificationTarget(format);
     useStore.getState().addFormatCandidates(target, [source().url]);

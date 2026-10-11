@@ -10,6 +10,7 @@ import {
   formatVerificationTarget,
   FormatVerificationResponseSchema,
   InstagramSourceSchema,
+  type FormatVerificationResponse,
 } from "./formatVerification";
 import { isLocalAiHost, type AiSelection } from "./localAi";
 import { canonicalRefUrl } from "./research";
@@ -45,7 +46,10 @@ export async function inspectFormatPreview(
   lang: "ar" | "en",
   signal?: AbortSignal,
   mode: "preview" | "frames" = "frames",
-) {
+): Promise<
+  | { ok: true; data: FormatVerificationResponse }
+  | { ok: false; error: string; source?: InstagramSource }
+> {
   if (!isLocalAiHost()) return { ok: false as const, error: "local_ai_unavailable" };
   try {
     const response = await fetch("/api/local-ai/verify-format", {
@@ -65,11 +69,20 @@ export async function inspectFormatPreview(
     if (!response.headers.get("content-type")?.includes("application/json"))
       return { ok: false as const, error: "local_ai_unavailable" };
     const raw = await response.json();
-    if (!response.ok)
+    if (!response.ok) {
+      const error = typeof raw?.error === "string" ? raw.error : "verification_failed";
+      const source =
+        error === "source_unavailable" ? InstagramSourceSchema.safeParse(raw.source) : null;
       return {
         ok: false as const,
-        error: typeof raw?.error === "string" ? raw.error : "verification_failed",
+        error,
+        ...(source?.success &&
+        source.data.status === "unavailable" &&
+        sourceKey(source.data.url) === sourceKey(url)
+          ? { source: source.data }
+          : {}),
       };
+    }
     const parsed = FormatVerificationResponseSchema.safeParse(raw);
     if (
       !parsed.success ||

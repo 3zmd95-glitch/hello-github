@@ -48,8 +48,8 @@ const answer = (url = wrong): DiscoverAnswer => ({
   cached: true,
   complete: true,
 });
-const json = (body: unknown) =>
-  new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 afterEach(() => vi.unstubAllGlobals());
 
 describe("format source checks", () => {
@@ -160,5 +160,36 @@ describe("format source checks", () => {
       lang: "ar",
     });
     expect(body.format.samples).toBeUndefined();
+  });
+
+  it("returns only an actual unavailable receipt bound to the requested post", async () => {
+    vi.stubGlobal("window", { location: { hostname: "localhost" } });
+    const unavailable = source(original, { status: "unavailable", observedAt: null });
+    const fetch = vi.fn(async () =>
+      json({ error: "source_unavailable", source: unavailable }, 502),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const inspect = () =>
+      inspectFormatPreview({ provider: "chatgpt", model: "chosen" }, format, original, "en");
+    expect(await inspect()).toEqual({
+      ok: false,
+      error: "source_unavailable",
+      source: unavailable,
+    });
+    for (const invalid of [
+      undefined,
+      source(original),
+      { ...unavailable, url: wrong },
+      { ...unavailable, provenance: "forged" },
+    ]) {
+      fetch.mockImplementation(async () =>
+        json({ error: "source_unavailable", source: invalid }, 502),
+      );
+      expect(await inspect()).toEqual({ ok: false, error: "source_unavailable" });
+    }
+    for (const error of ["source_frames_unavailable", "ai_timeout"]) {
+      fetch.mockImplementation(async () => json({ error, source: unavailable }, 502));
+      expect(await inspect()).toEqual({ ok: false, error });
+    }
   });
 });

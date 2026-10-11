@@ -863,7 +863,11 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
       try {
         // Public metadata and image requests are deliberately separate from the authenticated provider transport.
         const source = await Promise.race([sourceFor(post), aborted]);
-        if (source.status !== "available") throw new LocalAiProviderError("source_unavailable");
+        if (source.status !== "available") {
+          // Preserve the actual source receipt so the client can invalidate an older saved match.
+          reply(res, 502, { error: "source_unavailable", source });
+          return;
+        }
         const isFrames = body.mode === "frames";
         let images: Array<{ mime: "image/jpeg" | "image/png" | "image/webp"; base64: string }>;
         let media: {

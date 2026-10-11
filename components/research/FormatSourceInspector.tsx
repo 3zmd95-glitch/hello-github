@@ -115,7 +115,16 @@ export default function FormatSourceInspector({
           source: result.data.verification.source,
           inspection: result.data,
         });
-      } else setError(result.error);
+      } else {
+        setError(result.error);
+        if (result.source) {
+          setSource(result.source);
+          useStore.getState().recordFormatObservation({
+            target: formatVerificationTarget(format),
+            source: result.source,
+          });
+        }
+      }
     } else {
       const result = await localInstagramSource(url, controller.signal);
       if (!isCurrent()) return;

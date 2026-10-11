@@ -600,6 +600,16 @@ describe("explicit source thumbnail verification", () => {
     const f = await fixture(125_000, { sourceFetch });
     expect(await (await f.post(verifyBody, endpoint)).json()).toEqual({
       error: "source_unavailable",
+      source: {
+        status: "unavailable",
+        url: "https://www.instagram.com/p/DdP6LgrT_aD/",
+        title: "",
+        description: "",
+        thumbnailUrl: "",
+        author: "",
+        observedAt: null,
+        provenance: "instagram-public-embed",
+      },
     });
     expect(f.provider.plan).not.toHaveBeenCalled();
     const corrupt = await fixture(125_000, {
@@ -615,6 +625,45 @@ describe("explicit source thumbnail verification", () => {
       error: "source_image_unavailable",
     });
     expect(corrupt.provider.plan).not.toHaveBeenCalled();
+  });
+
+  it("returns the unavailable reader receipt when a previously checked source becomes unavailable", async () => {
+    let clock = Date.now();
+    let available = true;
+    const sourceFetch = vi.fn<typeof fetch>(async (input) =>
+      String(input).includes("cdninstagram")
+        ? new Response(jpeg, { headers: { "Content-Type": "image/jpeg" } })
+        : new Response(markup(available ? "DdP6LgrT_aD" : "OTHER"), {
+            headers: { "Content-Type": "text/html" },
+          }),
+    );
+    const f = await fixture(125_000, { sourceFetch, now: () => clock });
+    vi.mocked(f.provider.plan).mockResolvedValue({
+      model: body.model,
+      text: JSON.stringify({ ...assessment, visual: "match" }),
+    });
+    expect((await (await f.post(verifyBody, endpoint)).json()).verification.visual).toBe("match");
+    available = false;
+    clock += 16 * 60_000;
+    const response = await f.post(verifyBody, endpoint);
+    expect(response.status).toBe(502);
+    const result = await response.json();
+    expect(result).toMatchObject({
+      error: "source_unavailable",
+      source: {
+        status: "unavailable",
+        url: "https://www.instagram.com/p/DdP6LgrT_aD/",
+        observedAt: null,
+        provenance: "instagram-public-embed",
+      },
+    });
+    const receipt = await fetch(
+      f.base + `/api/local-ai/instagram-source?url=${encodeURIComponent(url)}`,
+      { headers: f.headers },
+    );
+    expect(await receipt.json()).toEqual(result.source);
+    expect(sourceFetch).toHaveBeenCalledTimes(3);
+    expect(f.provider.plan).toHaveBeenCalledOnce();
   });
 
   it.each([

@@ -1632,6 +1632,7 @@ test("Reel source check: authentic audio, explicit frame inspection, rejected in
         : { title: "DON'T BE DUMB / TRIP BABY", artist: "A$AP Rocky" },
   });
   let inspections = 0;
+  let inspectionFailure: "source_frames_unavailable" | "source_unavailable" | undefined;
   await page.route("**/api/local-ai/instagram-source?*", (route) =>
     route.fulfill({
       json: source(
@@ -1649,6 +1650,28 @@ test("Reel source check: authentic audio, explicit frame inspection, rejected in
       lang: "en",
     });
     inspections++;
+    if (inspectionFailure) {
+      return route.fulfill({
+        status: 502,
+        json: {
+          error: inspectionFailure,
+          ...(inspectionFailure === "source_unavailable"
+            ? {
+                source: {
+                  status: "unavailable",
+                  url: canonical,
+                  title: "",
+                  description: "",
+                  thumbnailUrl: "",
+                  author: "",
+                  observedAt: null,
+                  provenance: "instagram-public-embed",
+                },
+              }
+            : {}),
+        },
+      });
+    }
     return route.fulfill({
       json: {
         provider: body.provider,
@@ -1738,4 +1761,37 @@ test("Reel source check: authentic audio, explicit frame inspection, rejected in
   await page.getByTestId("inspiration-explore").click();
   await expect(inspector).toContainText("فريمات من الفيديو");
   expect(await fitsViewport(page)).toBe(true);
+
+  // A failed media attempt does not disprove saved evidence. A new unavailable source receipt does.
+  await page.getByRole("button", { name: "EN", exact: true }).click();
+  await inspector.getByText("Inspect the edit with AI", { exact: true }).click();
+  await inspector.getByTestId("ai-provider").selectOption("chatgpt");
+  await inspector.getByTestId("ai-model").selectOption("gpt-6-astra");
+  inspectionFailure = "source_frames_unavailable";
+  await inspector.getByTestId("format-inspect-preview").click();
+  await expect(inspector.getByRole("alert")).toBeVisible();
+  await expect(inspector.getByTestId("format-visual-result")).toContainText("sampled video frames");
+  expect(inspections).toBe(2);
+
+  inspectionFailure = "source_unavailable";
+  await inspector.getByTestId("format-inspect-preview").click();
+  await expect(inspector.getByRole("alert")).toContainText("public metadata");
+  await expect(inspector.getByTestId("format-visual-result")).toHaveCount(0);
+  await inspector.getByTestId("format-check-history").locator("summary").click();
+  await expect(inspector.getByTestId("format-check-counts")).toContainText(
+    "Sampled-frame matches: 0",
+  );
+  await expect(inspector.getByTestId("format-check-counts")).toContainText(
+    "Recorded audio matches: 0",
+  );
+  expect(inspections).toBe(3);
+  await page.reload();
+  await inspector.locator("summary").first().click();
+  await expect(inspector.getByTestId("format-check-reused")).toContainText("No new check was run");
+  await expect(inspector.getByTestId("format-visual-result")).toHaveCount(0);
+  await inspector.getByTestId("format-check-history").locator("summary").click();
+  await expect(inspector.getByTestId("format-check-counts")).toContainText(
+    "Sampled-frame matches: 0",
+  );
+  expect(inspections).toBe(3);
 });
