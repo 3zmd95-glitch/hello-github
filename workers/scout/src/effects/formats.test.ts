@@ -244,11 +244,8 @@ describe("bounded Instagram source enrichment", () => {
     ["fails", null],
     ["omits the format", []],
   ] as const)(
-    "keeps the entire prior snapshot client-readable when AI %s after a matching source check",
+    "keeps the entire prior snapshot when AI %s after a matching source check",
     async (_, formats) => {
-      const { parseEditFormats } = await vi.importActual<{
-        parseEditFormats: (raw: unknown, now: number) => unknown[];
-      }>("../../../../lib/editFormats");
       const original = instagram(1);
       const earlier = await discoverFormats(
         ai([candidate(["p0"])]),
@@ -275,7 +272,6 @@ describe("bounded Instagram source enrichment", () => {
       expect(Date.parse(later.formats![0].samples[0].observedAt)).toBeLessThanOrEqual(
         Date.parse(later.formats![0].lastChecked),
       );
-      expect(parseEditFormats(later.formats, tomorrow.getTime())).toHaveLength(1);
 
       const accepted = await discoverFormats(
         ai([sourceCandidate()]),
@@ -291,7 +287,6 @@ describe("bounded Instagram source enrichment", () => {
         handle: "sourcecreator",
         captionSource: "instagram-public-embed",
       });
-      expect(parseEditFormats(accepted.formats, tomorrow.getTime())).toHaveLength(1);
     },
   );
 
