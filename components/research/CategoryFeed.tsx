@@ -54,6 +54,8 @@ export interface CategoryFeedProps {
   findingMore: boolean;
   canFindMore: boolean;
   checking?: boolean;
+  remainingSources?: number;
+  onCheckRemainingSources?: () => void;
   loading?: boolean;
   searchCost: number;
   exploreCount: number;
@@ -119,6 +121,20 @@ export default function CategoryFeed(props: CategoryFeedProps) {
         <p className="text-muted text-xs" role="status" data-testid="feed-checking">
           {t(props.loading ? "feed.loading" : "feed.checking")}
         </p>
+      )}
+      {!!props.remainingSources && props.onCheckRemainingSources && (
+        <div className="flex flex-col items-start gap-1" data-testid="feed-unchecked-sources">
+          <button
+            type="button"
+            className="px-btn px-btn-ghost px-btn-sm"
+            disabled={props.loading || props.checking}
+            onClick={props.onCheckRemainingSources}
+            data-testid="feed-check-remaining"
+          >
+            {t("feed.checkRemaining", { n: props.remainingSources })}
+          </button>
+          <p className="text-muted text-xs">{t("feed.checkRemainingHelp")}</p>
+        </div>
       )}
       {props.undo && (
         <div

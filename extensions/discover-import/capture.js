@@ -50,6 +50,20 @@ export function collectVisibleDiscoverLinks() {
     return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? `https://www.youtube.com/watch?v=${id}` : null;
   }
 
+  const root = document.documentElement;
+  const body = document.body;
+  const rootStyle = window.getComputedStyle(root);
+  const bodyStyle = body ? window.getComputedStyle(body) : null;
+  // CSS Overflow 3 §3.3: propagated overflow clips the viewport, not a possibly zero-height box.
+  // HTML/body containment or non-visible root overflow prevents the body's special propagation.
+  const bodyOverflowIsViewport =
+    root.localName === "html" &&
+    body?.parentElement === root &&
+    (rootStyle.overflowX || rootStyle.overflow || "visible") === "visible" &&
+    (rootStyle.overflowY || rootStyle.overflow || "visible") === "visible" &&
+    (!rootStyle.contain || rootStyle.contain === "none") &&
+    (!bodyStyle?.contain || bodyStyle.contain === "none");
+
   function isVisible(anchor) {
     if (
       anchor.checkVisibility &&
@@ -72,6 +86,8 @@ export function collectVisibleDiscoverLinks() {
         return false;
       if (
         node !== anchor &&
+        node !== root &&
+        !(node === body && bodyOverflowIsViewport) &&
         /(hidden|clip|scroll|auto)/.test(`${style.overflowX} ${style.overflowY} ${style.overflow}`)
       ) {
         clips.push({ rect: node.getBoundingClientRect(), style });

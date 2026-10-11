@@ -21,10 +21,10 @@ const EMPTY_SOURCES: FormatSources = {};
 const EMPTY_TIKTOK: Record<string, TikTokSource | null> = {};
 const urlOf = (item: DiscoverItem) => canonicalRefUrl(item.platform, item.url);
 
-/** Two public reads at a time, eighteen per platform. A new candidate set prioritizes unread sources. */
+/** Two public reads at a time, eighteen per platform and action. Membership changes prioritize unread sources. */
 export function useFeedSources(items: DiscoverItem[], active: boolean, youtubeKey = "") {
   const attempted = useRef(new Map<string, number>());
-  // Membership is the trigger. A corrected count must not abort/reorder its own source queue.
+  // Corrected counts must not abort/reorder their own source queue.
   const scope = JSON.stringify(
     active ? [...new Set(items.filter((item) => item.platform !== "yt").map(urlOf))].sort() : [],
   );
@@ -54,10 +54,23 @@ export function useFeedSources(items: DiscoverItem[], active: boolean, youtubeKe
     tiktok: Record<string, TikTokSource | null>;
     pending: boolean;
   }>({ scope: "", sources: {}, tiktok: {}, pending: false });
+  const [batch, setBatch] = useState(0);
+  const currentRun = useRef<{
+    scope: string;
+    busy: boolean;
+    cancelled: boolean;
+    sources: FormatSources;
+    tiktok: Record<string, TikTokSource | null>;
+  } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    const sources: FormatSources = {};
-    const tiktok: Record<string, TikTokSource | null> = {};
+    const previous = currentRun.current;
+    // Continuations keep completed attempts, including nulls; a new membership starts its own bounded pass.
+    const sources: FormatSources = previous?.scope === scope ? { ...previous.sources } : {};
+    const tiktok: Record<string, TikTokSource | null> =
+      previous?.scope === scope ? { ...previous.tiktok } : {};
+    const run = { scope, busy: false, cancelled: false, sources, tiktok };
+    currentRun.current = run;
     const priorities = new Map(items.map((item) => [urlOf(item), discoverEvidence(item).score]));
     const platforms = active
       ? ["ig", "tt"].map((platform) =>
@@ -66,6 +79,7 @@ export function useFeedSources(items: DiscoverItem[], active: boolean, youtubeKe
               items.filter((item) => item.platform === platform).map((item) => [urlOf(item), item]),
             ).values(),
           ]
+            .filter((item) => !(urlOf(item) in sources) && !(urlOf(item) in tiktok))
             .sort(
               (a, b) =>
                 (Date.parse(a.evidence?.observedAt ?? "") || attempted.current.get(urlOf(a)) || 0) -
@@ -83,6 +97,7 @@ export function useFeedSources(items: DiscoverItem[], active: boolean, youtubeKe
     const queue = Array.from({ length: 18 }, (_, index) =>
       platforms.flatMap((posts) => (posts[index] ? [posts[index]] : [])),
     ).flat();
+    run.busy = queue.length > 0;
     let cursor = 0;
     let settled = 0;
     const next = async () => {
@@ -96,19 +111,23 @@ export function useFeedSources(items: DiscoverItem[], active: boolean, youtubeKe
         else sources[url] = await localInstagramSource(url, controller.signal);
         if (controller.signal.aborted) return;
         settled++;
+        run.busy = settled < queue.length;
         setResult({
           scope,
           sources: { ...sources },
           tiktok: { ...tiktok },
-          pending: settled < queue.length,
+          pending: run.busy,
         });
       }
     };
     void Promise.all([next(), next()]);
-    return () => controller.abort();
-    // Deliberately capture the newest item evidence only when candidate membership changes.
+    return () => {
+      run.cancelled = true;
+      controller.abort();
+    };
+    // Capture current evidence on a membership change or an explicit continuation, never a source rerender.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope]);
+  }, [scope, batch]);
   const sources = result.scope === scope ? result.sources : EMPTY_SOURCES;
   const tiktok = result.scope === scope ? result.tiktok : EMPTY_TIKTOK;
   const enriched = useMemo(
@@ -127,10 +146,32 @@ export function useFeedSources(items: DiscoverItem[], active: boolean, youtubeKe
       ),
     [items, sources, tiktok, youtube, youtubeScope, youtubeKey],
   );
-  return {
-    items: enriched,
-    checking:
-      (scope !== "[]" && (result.scope !== scope || result.pending)) ||
-      (youtubeScope !== "[]" && (youtube.scope !== youtubeScope || youtube.key !== youtubeKey)),
+  const checking =
+    (scope !== "[]" && (result.scope !== scope || result.pending)) ||
+    (youtubeScope !== "[]" && (youtube.scope !== youtubeScope || youtube.key !== youtubeKey));
+  const remaining = active
+    ? [...new Set(items.filter((item) => item.platform !== "yt").map(urlOf))].filter(
+        (url) => !(url in sources) && !(url in tiktok),
+      ).length
+    : 0;
+  const checkRemaining = () => {
+    const run = currentRun.current;
+    if (
+      !active ||
+      checking ||
+      run?.scope !== scope ||
+      run.busy ||
+      run.cancelled ||
+      !items.some(
+        (item) =>
+          item.platform !== "yt" && !(urlOf(item) in run.sources) && !(urlOf(item) in run.tiktok),
+      )
+    )
+      return;
+    // Lock synchronously: repeated clicks before React renders still request only one batch.
+    run.busy = true;
+    setResult((current) => ({ ...current, pending: true }));
+    setBatch((current) => current + 1);
   };
+  return { items: enriched, checking, remaining, checkRemaining };
 }

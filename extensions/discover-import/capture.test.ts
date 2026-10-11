@@ -39,11 +39,16 @@ function link(href: string, bounds = rect(), parent: HTMLElement = document.body
 
 beforeEach(() => {
   document.body.replaceChildren();
+  document.body.removeAttribute("style");
+  document.documentElement.removeAttribute("style");
   Object.defineProperty(document, "elementFromPoint", { configurable: true, value: undefined });
   source("https://www.tiktok.com/search?q=editing");
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("allowed public search pages", () => {
   it.each([
@@ -132,6 +137,76 @@ describe("direct post canonicalization", () => {
 });
 
 describe("visible links only", () => {
+  it("captures visible YouTube titles when a zero-height body's overflow belongs to the viewport", () => {
+    source("https://www.youtube.com/results?search_query=cinematiccoffee");
+    document.documentElement.style.overflow = "visible";
+    document.body.style.overflowX = "auto";
+    document.body.style.overflowY = "scroll";
+    vi.spyOn(document.body, "getBoundingClientRect").mockReturnValue(rect(0, 0, 1000, 0));
+    const results = document.createElement("ytd-search");
+    results.style.overflowX = "auto";
+    results.style.overflowY = "hidden";
+    results.getBoundingClientRect = () => rect(0, 0, 1000, 7637);
+    document.body.append(results);
+    for (const [index, id] of [youtubeId, "12345678901", "ABCDEFGHIJK"].entries()) {
+      const thumbnail = link(`/watch?v=${id}`, rect(20, 20 + index * 150), results);
+      thumbnail.setAttribute("aria-hidden", "true");
+      link(`/watch?v=${id}`, rect(150, 20 + index * 150), results);
+    }
+    link("/watch?v=offscreen01", rect(20, 810), results);
+    expect(collectVisibleDiscoverLinks().urls).toEqual([
+      `https://www.youtube.com/watch?v=${youtubeId}`,
+      "https://www.youtube.com/watch?v=12345678901",
+      "https://www.youtube.com/watch?v=ABCDEFGHIJK",
+    ]);
+  });
+  it.each([
+    ["auto", "auto"],
+    ["visible", "hidden"],
+  ])("preserves body clipping when root overflow is %s/%s", (x, y) => {
+    document.documentElement.style.overflowX = x;
+    document.documentElement.style.overflowY = y;
+    document.body.style.overflowX = "hidden";
+    document.body.style.overflowY = "hidden";
+    vi.spyOn(document.documentElement, "getBoundingClientRect").mockReturnValue(
+      rect(0, 0, 1000, 0),
+    );
+    vi.spyOn(document.body, "getBoundingClientRect").mockReturnValue(rect(0, 0, 1000, 50));
+    link(`/@visible/video/${videoId}`, rect(20, 20, 100, 10));
+    link(`/@clipped/video/${videoId}`, rect(20, 100, 100, 10));
+    expect(collectVisibleDiscoverLinks().urls).toEqual([
+      `https://www.tiktok.com/@visible/video/${videoId}`,
+    ]);
+  });
+  it.each(["html", "body"])("preserves body clipping with containment on %s", (tag) => {
+    document.documentElement.style.overflow = "visible";
+    document.querySelector<HTMLElement>(tag)!.style.contain = "layout";
+    document.body.style.overflowX = "hidden";
+    document.body.style.overflowY = "hidden";
+    vi.spyOn(document.body, "getBoundingClientRect").mockReturnValue(rect(0, 0, 1000, 50));
+    link(`/@clipped/video/${videoId}`, rect(20, 100));
+    expect(collectVisibleDiscoverLinks().urls).toEqual([]);
+  });
+  it("keeps nested clipping and body visibility guards when body overflow propagates", () => {
+    document.documentElement.style.overflow = "visible";
+    document.body.style.overflowX = "auto";
+    document.body.style.overflowY = "auto";
+    const parent = document.createElement("div");
+    parent.style.overflowX = "hidden";
+    parent.style.overflowY = "hidden";
+    parent.getBoundingClientRect = () => rect(0, 0, 1000, 50);
+    document.body.append(parent);
+    link(`/@clipped/video/${videoId}`, rect(20, 100), parent);
+    link(`/@visible/video/${videoId}`, rect(20, 20, 100, 10), parent);
+    expect(collectVisibleDiscoverLinks().urls).toEqual([
+      `https://www.tiktok.com/@visible/video/${videoId}`,
+    ]);
+    document.body.style.visibility = "hidden";
+    expect(collectVisibleDiscoverLinks().urls).toEqual([]);
+    document.body.style.visibility = "visible";
+    document.documentElement.style.opacity = "0";
+    expect(collectVisibleDiscoverLinks().urls).toEqual([]);
+  });
   it("excludes offscreen, empty, hidden, transparent and aria-hidden anchors", () => {
     const hidden = link(`/@hidden/video/${videoId}`);
     hidden.hidden = true;

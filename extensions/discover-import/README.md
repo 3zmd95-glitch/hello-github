@@ -23,3 +23,11 @@ The extension has not been installed automatically. Installation and each captur
 - Instagram links normalize to `/p/<id>`. The helper cannot determine whether an Instagram search tile is a video from its URL alone; review the post in Discover.
 
 `capture.js` exports a self-contained collector so Chrome can serialize it into its isolated execution world. `capture.test.ts` exercises the collector against synthetic DOM fixtures; it never opens real accounts or websites.
+
+## Installed TikTok runtime check
+
+On October 11, 2026, the user manually installed and pinned extension `eoffjihbiadleilmkaojegcecadmdigf`. A real native TikTok coffee search returned 11 visible direct video links, all initially unchecked. Selecting two in the popup and choosing **Review in Discover** opened the local app at `http://localhost:3000` with exactly those two links.
+
+The app review selected Coffee, unchecked the christianpaulfilm link, and imported only [coffeepetite's post 7663025453136989472](https://www.tiktok.com/@coffeepetite/video/7663025453136989472). Saved inspirations remained at three. This confirms the installed capture and explicit selection/import workflow; it does not prove the post's creative quality or current-trend eligibility.
+
+Installed Instagram capture also passed on #fashionfilm: six visible post links, zero selected. Installed YouTube search initially returned zero due to incorrect clipping against its zero-height body. After the viewport-overflow correction, reopening the popup captured all three visible videos (S3JMwz3LCvc, aTC_RNYtEb0, lAd3LYIZMjs), with tracking removed and none selected. Both are capture checks; the TikTok pilot above verifies the full app import. These results do not establish current-trend or creative-quality coverage.

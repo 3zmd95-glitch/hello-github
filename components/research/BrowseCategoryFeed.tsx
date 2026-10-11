@@ -374,6 +374,8 @@ export default function BrowseCategoryFeed({
         findingMore={!!busy && !busy.signal.aborted && !refilling}
         canFindMore={!!config && nextRound < CATEGORY_EXPANSION_ROUNDS}
         checking={sources.checking}
+        remainingSources={sources.remaining}
+        onCheckRemainingSources={sources.checkRemaining}
         loading={(entry.loading || query.status === "loading") && !pool.length}
         searchCost={tab === "all" ? 3 : 1}
         exploreCount={explore.items.filter((item) => tab === "all" || item.platform === tab).length}

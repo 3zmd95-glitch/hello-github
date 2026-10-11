@@ -32,6 +32,8 @@
   "feed.findingMore": "Finding more edits…",
   "feed.loading": "Finding editing references…",
   "feed.checking": "Checking post details…",
+  "feed.checkRemaining": "Check remaining links ({n})",
+  "feed.checkRemainingHelp": "Checks a small batch of existing Instagram and TikTok links in this category. Uses no search or AI credits.",
   "feed.searchCost": "Up to {n} platform lookups; credit costs vary.",
   "feed.findMoreHelp": "Search for another small batch. Changing modes or feedback does not run a search.",
   "feed.noMore": "No more searches are available for this feed right now.",

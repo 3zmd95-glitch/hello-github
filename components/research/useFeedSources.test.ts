@@ -275,6 +275,123 @@ describe("optional official YouTube evidence batch", () => {
 });
 
 describe("bounded public category-source queue", () => {
+  it("checks eighteen of twenty-four imports, then the remaining six only on an explicit action", async () => {
+    const items = Array.from({ length: 24 }, (_, i) => card("ig", i));
+    await render(items);
+    await act(async () => latest.checkRemaining());
+    expect(reads).toHaveLength(2);
+    await drain();
+    expect(reads).toHaveLength(18);
+    expect(latest.remaining).toBe(6);
+    expect(latest.checking).toBe(false);
+    const firstBatch = latest.items.filter((item) => item.evidence);
+    const continueFirstBatch = latest.checkRemaining;
+    await render([...items].reverse());
+    expect(reads).toHaveLength(18);
+    await act(async () => {
+      latest.checkRemaining();
+      latest.checkRemaining();
+    });
+    expect(reads).toHaveLength(20);
+    expect(latest.checking).toBe(true);
+    await act(async () => latest.checkRemaining());
+    expect(reads).toHaveLength(20);
+    await drain();
+    expect(reads).toHaveLength(24);
+    expect(new Set(reads.map((read) => read.url)).size).toBe(24);
+    expect(maxInFlight).toBe(2);
+    expect(latest.remaining).toBe(0);
+    expect(latest.checking).toBe(false);
+    expect(latest.items.every((item) => item.evidence?.likes === 5)).toBe(true);
+    for (const prior of firstBatch)
+      expect(latest.items.find((item) => item.url === prior.url)).toEqual(prior);
+    await act(async () => {
+      latest.checkRemaining();
+      continueFirstBatch();
+    });
+    expect(reads).toHaveLength(24);
+    expect(latest.checking).toBe(false);
+  });
+  it("bounds every continuation per platform and counts canonical aliases only once", async () => {
+    const instagram = Array.from({ length: 40 }, (_, i) => card("ig", i));
+    const tiktok = Array.from({ length: 21 }, (_, i) => card("tt", i));
+    const youtube = [card("yt", 1)];
+    await render([
+      ...instagram,
+      ...instagram.map((item) => ({ ...item, url: sourceKey(item.url) })),
+      ...tiktok,
+      ...tiktok.map((item) => ({ ...item, url: `${item.url}?lang=en` })),
+      ...youtube,
+    ]);
+    await drain();
+    expect(latest.remaining).toBe(25);
+    await act(async () => latest.checkRemaining());
+    expect(reads.slice(36).map((read) => read.platform)).toEqual(["ig", "tt"]);
+    await drain();
+    expect(bridges.instagram).toHaveBeenCalledTimes(36);
+    expect(bridges.tiktok).toHaveBeenCalledTimes(21);
+    expect(latest.remaining).toBe(4);
+    expect(latest.checking).toBe(false);
+    await act(async () => latest.checkRemaining());
+    await drain();
+    expect(bridges.instagram).toHaveBeenCalledTimes(40);
+    expect(bridges.tiktok).toHaveBeenCalledTimes(21);
+    expect(new Set(reads.map((read) => read.url)).size).toBe(61);
+    expect(latest.remaining).toBe(0);
+    expect(maxInFlight).toBe(2);
+    expect(latest.items.filter((item) => item.platform === "yt")).toEqual(youtube);
+  });
+  it("does not include failed attempts in remaining or silently retry them on continuation", async () => {
+    await render(Array.from({ length: 24 }, (_, i) => card("ig", i)));
+    await drain(false, true);
+    expect(latest.remaining).toBe(6);
+    expect(latest.items.every((item) => !item.evidence)).toBe(true);
+    await act(async () => latest.checkRemaining());
+    await drain();
+    expect(reads).toHaveLength(24);
+    expect(new Set(reads.map((read) => read.url)).size).toBe(24);
+    expect(latest.items.filter((item) => item.evidence)).toHaveLength(6);
+    expect(latest.remaining).toBe(0);
+  });
+  it("cancels a continuation and rejects late results and stale actions after a membership change", async () => {
+    await render(Array.from({ length: 24 }, (_, i) => card("ig", i)));
+    await drain();
+    const oldAction = latest.checkRemaining;
+    await act(async () => oldAction());
+    const abandoned = reads.slice(18);
+    expect(abandoned).toHaveLength(2);
+    await render([card("tt", 80), card("tt", 81)]);
+    expect(abandoned.every((read) => read.signal?.aborted)).toBe(true);
+    await resolveBatch(abandoned);
+    await act(async () => oldAction());
+    expect(reads).toHaveLength(22);
+    expect(latest.items.every((item) => item.platform === "tt" && !item.evidence)).toBe(true);
+    await drain();
+    expect(latest.items.every((item) => item.evidence?.source === "tiktok-public-page")).toBe(true);
+    expect(latest.remaining).toBe(0);
+    expect(latest.checking).toBe(false);
+    expect(maxInFlight).toBe(2);
+  });
+  it("does not continue an inactive membership or restart a cancelled continuation from a stale action", async () => {
+    const items = Array.from({ length: 24 }, (_, i) => card("ig", i));
+    await render(items);
+    await drain();
+    const oldAction = latest.checkRemaining;
+    await act(async () => oldAction());
+    const abandoned = reads.slice(18);
+    await render(items, false);
+    expect(abandoned.every((read) => read.signal?.aborted)).toBe(true);
+    const inactiveSnapshots = snapshots;
+    await act(async () => {
+      latest.checkRemaining();
+      oldAction();
+    });
+    expect(snapshots).toBe(inactiveSnapshots);
+    await resolveBatch(abandoned);
+    expect(reads).toHaveLength(20);
+    expect(latest.remaining).toBe(0);
+    expect(latest.checking).toBe(false);
+  });
   it("reads at most eighteen per platform with only two concurrent requests, without touching YouTube", async () => {
     const items = ["ig", "tt", "yt"].flatMap((p) =>
       Array.from({ length: 30 }, (_, i) => card(p as DiscoverItem["platform"], i)),

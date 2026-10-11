@@ -103,6 +103,88 @@ test("cancelling native results leaves the category library empty", async ({ pag
   expect(sourceReads).toEqual([]);
 });
 
+test("a native import checks the remaining six links without another search", async ({ page }) => {
+  const observedAt = new Date().toISOString();
+  const urls = Array.from(
+    { length: 24 },
+    (_, i) =>
+      `https://www.instagram.com/p/${instagramShortcodeAt(new Date(Date.now() - 86_400_000 - i * 1000))}`,
+  );
+  const sourceReads: string[] = [];
+  const searches: string[] = [];
+  let releaseTail!: () => void;
+  const tail = new Promise<void>((resolve) => {
+    releaseTail = resolve;
+  });
+  const worker = "https://native-remaining.example.workers.dev";
+  await page.route(`${worker}/**`, (route) => {
+    if (route.request().method() === "POST") searches.push(route.request().url());
+    return route.fulfill({
+      headers: { "Access-Control-Allow-Origin": "*" },
+      json: { ok: true, auth: true, discover: true },
+    });
+  });
+  await page.route("**/api/local-ai/**", async (route) => {
+    const request = new URL(route.request().url());
+    const post = request.searchParams.get("url")?.replace(/\/$/, "");
+    if (request.pathname === "/api/local-ai/instagram-source" && post && urls.includes(post)) {
+      sourceReads.push(post);
+      const sequence = sourceReads.length;
+      if (sequence > 18) await tail;
+      return route.fulfill({
+        json: {
+          status: "available",
+          url: post,
+          observedAt,
+          provenance: "instagram-public-embed",
+          title: "Coffee commercial film with match cuts",
+          description: "Coffee commercial film with match cuts",
+          author: `filmmaker${urls.indexOf(post)}`,
+          thumbnailUrl: "",
+          likes: sequence <= 18 ? 5 : 20_000,
+        },
+      });
+    }
+    if (/assess|plan|search/.test(request.pathname)) searches.push(request.pathname);
+    return route.fulfill({ status: 404, json: {} });
+  });
+  await seedState(
+    page,
+    "/discover/#discover-import=" +
+      encodeURIComponent(JSON.stringify({ version: 1, platform: "ig", urls })),
+    {
+      settings: { lang: "en", apiKeys: { scoutUrl: worker, scoutToken: "fixture" } },
+    },
+  );
+  await page.getByTestId("native-import-category").selectOption("coffee");
+  await page.getByTestId("native-import-confirm").click();
+  await expect(page.getByTestId("native-import-result")).toContainText("24 selected");
+  await expect.poll(() => sourceReads.length).toBe(18);
+  await expect(page.getByTestId("feed-checking")).toBeHidden();
+  const next = page.getByTestId("feed-check-remaining");
+  await expect(next).toHaveText("Check remaining links (6)");
+  const firstBatch = [...sourceReads];
+  await page.getByTestId("feed-mode-popular").click();
+  await expect(page.getByTestId("feed-list").getByTestId("feed-card")).toHaveCount(0);
+  expect(sourceReads).toEqual(firstBatch);
+  await switchLang(page, "ar");
+  await expect(next).toHaveText("تحقق من الروابط الباقية (6)");
+  await next.click();
+  await expect(page.getByTestId("feed-checking")).toBeVisible();
+  await expect(next).toBeDisabled();
+  releaseTail();
+  await expect.poll(() => sourceReads.length).toBe(24);
+  await expect(page.getByTestId("feed-checking")).toBeHidden();
+  await expect(next).toBeHidden();
+  expect(new Set(sourceReads).size).toBe(24);
+  await expect(page.getByTestId("feed-list").getByTestId("feed-card")).toHaveCount(6);
+  await expect(page.getByTestId("inspiration-library-open")).toContainText("0");
+  expect(searches).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
+    true,
+  );
+});
+
 test("native Instagram dates restore recent imports and reject misdated old posts from Popular", async ({
   page,
 }) => {

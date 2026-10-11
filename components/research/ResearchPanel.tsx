@@ -952,6 +952,8 @@ export default function ResearchPanel({
           tab,
           renderAction,
           checking: feedSources.checking,
+          remainingSources: feedSources.remaining,
+          onCheckRemainingSources: feedSources.checkRemaining,
           loading:
             (categoryEntry.loading || rawDisc.status === "loading") && !feedCandidates.length,
           likedUrls: new Set(

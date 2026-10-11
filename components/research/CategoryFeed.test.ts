@@ -148,6 +148,35 @@ async function mount() {
 }
 
 describe("category editor feed", () => {
+  it.each(["search", "browse"] as const)(
+    "offers explicit remaining-source checks in %s without searching again",
+    async (workspace) => {
+      const items: DiscoverItem[] = Array.from({ length: 24 }, (_, index) => ({
+        platform: "ig",
+        url: `https://www.instagram.com/p/Queue${workspace}${String(index).padStart(2, "0")}/`,
+        title: "Anime match cut edit",
+        snippet: "Anime match cut edit",
+        handle: `creator${index}`,
+        lang: "en",
+        section: "example",
+      }));
+      act(() => useStore.getState().accumulateDiscoverCandidates(items, { genreId: "anime" }));
+      if (workspace === "browse") {
+        act(() => root.render(createElement(DiscoverScreen)));
+        await settle();
+        await click($("genre-anime"));
+      } else await mount();
+      expect($("feed-check-remaining")?.textContent).toBe("Check remaining links (6)");
+      expect($("feed-unchecked-sources")?.textContent).toContain("Uses no search or AI credits.");
+      await click($("feed-mode-popular"));
+      expect($("feed-check-remaining")?.textContent).toBe("Check remaining links (6)");
+      await click($("feed-check-remaining"));
+      expect($("feed-unchecked-sources")).toBeNull();
+      expect(requests).toHaveLength(0);
+      expect(useStore.getState().inspirations).toHaveLength(0);
+      expect(useStore.getState().discoverFeedback).toHaveLength(0);
+    },
+  );
   it("uses canonical sampled-frame evidence in Browse and keeps its limits separate from caption claims", async () => {
     const at = new Date().toISOString();
     const item: DiscoverItem = {
