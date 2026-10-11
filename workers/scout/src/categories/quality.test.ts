@@ -11,6 +11,35 @@ import { creatorProjects } from "./creatorProjects.fixture";
 import { soundtrackResource } from "./soundtrackResource.fixture";
 
 describe("category recommendations grounded in metadata", () => {
+  it.each([
+    "Milroe magic #jalenmilroe #alabamafootball #footballedits",
+    "Case Keenum deserved everything #casekeenum#bears#edit#football#nfl",
+    "Pats are back #patriots #nfledit #footballedits #drakemaye",
+    "American football match cut tutorial step by step",
+    "College football cinematic film #football",
+    "شرح مونتاج كرة القدم الأمريكية على الإيقاع",
+  ])("keeps explicit American football out of soccer: %s", (caption) => {
+    expect(evidence("football", caption)).toMatchObject({
+      category: false,
+      eligible: false,
+      excluded: true,
+      exclusions: ["other-sport"],
+    });
+  });
+
+  it.each([
+    "Football beat sync edit",
+    "Soccer match cut edit using an NFL transition",
+    "Messi cinematic edit #football #nfl",
+    "شرح مونتاج كرة القدم على الإيقاع",
+  ])("preserves ambiguous football and explicit soccer references: %s", (caption) => {
+    expect(evidence("football", caption)).toMatchObject({ category: true, eligible: true });
+  });
+
+  it("does not apply the soccer distinction to another genre's filmmaking lesson", () => {
+    expect(evidence("gym", "Gym lighting tutorial: film an NFL player").eligible).toBe(true);
+  });
+
   it("distinguishes absent caption prose from hard exclusions without changing metadata admission", () => {
     const cases = [
       ["#anime #edit", "empty-prose"],

@@ -386,6 +386,7 @@ export type CategoryExclusion =
   | "image-prompt"
   | "prompt-bait"
   | "sales"
+  | "other-sport"
   | "ordinary-content";
 
 export interface CategoryCreativeEvidence {
@@ -420,6 +421,19 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
   const subjects = [
     ...new Set((profile?.subjects ?? []).filter((s) => has(subjectText, normalizeTerm(s)))),
   ];
+  // This category means association football. US charts also return NFL/college edits
+  // under #football; explicit soccer/player evidence can still establish a mixed reference.
+  const otherSport =
+    genreId === "football" &&
+    (/\b(?:nfl(?:edits?)?|american ?football|college ?football|ncaa ?football|alabama ?football|super ?bowl|gridiron)\b/i.test(
+      normalized,
+    ) ||
+      ["كرة القدم الأمريكية", "كورة أمريكية"].some((word) =>
+        has(normalized, normalizeTerm(word)),
+      )) &&
+    !["soccer", "Messi", "Ronaldo", "ميسي", "رونالدو"].some((word) =>
+      has(subjectText, normalizeTerm(word)),
+    );
   // "Commercial coffee machine" is an equipment class, not a filmed commercial.
   // Other explicit ad/craft words can still establish a real creative example.
   const commercialMachine = /\bcommercial\s+(?:coffee|espresso)\s+machines?\b/i.test(text);
@@ -494,13 +508,14 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
   if (imagePrompt) exclusions.push("image-prompt");
   if (promptBait && !(teaching && substantive)) exclusions.push("prompt-bait");
   if (sales && !(teaching && substantive)) exclusions.push("sales");
+  if (otherSport) exclusions.push("other-sport");
   if (ordinaryContent && !substantive) exclusions.push("ordinary-content");
   const excluded = exclusions.length > 0;
   const creative =
     !excluded &&
     techniques.length > 0 &&
     (substantive || techniques.some((t) => PROJECT.has(t)) || contextual);
-  const category = subjects.length > 0;
+  const category = subjects.length > 0 && !otherSport;
   const proseNormalized = normalizeTerm(craftProse);
   const project =
     creative &&

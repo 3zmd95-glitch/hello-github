@@ -68,6 +68,19 @@ describe("sampled visual craft remains separate from source popularity", () => {
       visual: discoverVisualFixture(card, genreId, NOW),
     },
   });
+  it("does not promote another sport into soccer through popularity, feedback or visual craft", () => {
+    const card = source("nfl", { title: "NFL football beat sync edit" });
+    for (const mode of ["inspiration", "popular", "learning", "explore"] as const)
+      expect(
+        rankDiscoverItems([card], {
+          genreId: "football",
+          now: NOW,
+          mode,
+          feedback: [vote(card, "more", { genreId: "football" })],
+          visual: withVisual(card, "football"),
+        }).items,
+      ).toEqual([]);
+  });
   it("recovers a source-popular plot-caption edit without inventing a named technique", () => {
     const card = source("plot", { title: "Naruto confronts his rival in this scene" });
     expect(ranked([card]).items).toEqual([]);

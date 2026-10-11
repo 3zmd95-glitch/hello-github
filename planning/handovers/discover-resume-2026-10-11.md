@@ -1,5 +1,35 @@
 # Discover continuation — 11 October 2026
 
+## Latest implementation — platform persistence and soccer relevance
+
+The two audit findings below are now fixed and verified at localhost:3000. Changing genre preserves TikTok/Instagram/YouTube selection. The shared classifier rejects explicit American-football captions from soccer, including the three observed false positives and Arabic wording; mixed references with explicit soccer evidence remain eligible. Popularity, personal votes and sampled visual craft cannot override the wrong-sport exclusion.
+
+All required gates passed: **3,246 root tests / 166 files**, **1,323 Worker tests / 47 files**, lint, app/Worker types, production build and **410 browser tests / eight intentional skips / zero failures**. Actual Chrome confirmed all three platform selections persist, Football/TikTok Explore is **five cards rather than eight** with all three wrong-sport posts removed, and Anime/TikTok Inspiration remains three. Source checks settled. The tested export was copied to primary's ignored `out` without restarting the existing server. Screenshot: Temp `discover-category-fixes-2026-10-11.jpg`; gate log: `discover-category-fixes-gates-2026-10-11.log`. No new paid retrieval, AI assessment, OAuth or preferences.
+
+Next: diagnose the four empty native categories with bounded nonsecret stage counts, then improve candidate supply and visual evaluation. The complete Instagram/YouTube genre matrix, native Instagram access and actual effect/audio trend-growth detection remain open. The audit-only checkpoint below is historical; do not redo its now-completed platform/sport fixes.
+
+## Latest checkpoint — twelve-genre native TikTok audit
+
+Continue in small, bounded slices to conserve the user's usage. The deployed code is still `3ac2d49`; no production code changed during this audit. Its separate GitHub CI run `38117648051` has now **passed both jobs**, in addition to the already successful Worker deployment. Do not rerun completed suites merely for these notes. PR #70 remains unmerged.
+
+The native action has now been tried once in every genre in actual Chrome. Only the earlier Anime pilot added qualifying Inspiration. The eleven remaining categories returned 64 candidates in total but added no Inspiration; candidate counts include duplicates and are not a quality score. Food, Perfume, Fashion and Gaming returned explicit empty results. See the measured table and caveats in [tools/28](../tools/28-native-tiktok-candidates.md).
+
+**Audit correction:** selecting another category resets the platform to All. The initial before/after counts outside Anime therefore describe the All-platform feed, not TikTok alone. This was caught by inspecting actual card platforms and the selected button; TikTok-only post-retrieval counts were then measured with the button explicitly selected, without another retrieval. Do not reuse the earlier mislabeled Football/Perfume/Fashion counts as TikTok counts.
+
+Next focused implementation should address two observed issues: preserve the selected platform across genre changes, and stop explicit NFL/American-football posts from matching the soccer category just because they contain `#football`. Football's new Explore leads have native counts but mostly generic editing captions; three explicitly describe American football. Do not promote these to Inspiration merely to fill the page. Then diagnose empty native categories (hashtag selection versus related-video supply) with bounded, nonsecret stage counts before adding providers or spending money.
+
+Meta's current official hashtag-discovery documentation requires the Facebook Login API's `instagram_basic` permission and Instagram Public Content Access app-review feature. The existing connector uses Instagram Login's `instagram_business_basic`/insights scopes, which do not establish that access. No additional grant or app review was initiated. Full Instagram/YouTube genre review, Saudi coverage, visual quality and effect/audio trend growth remain unfinished.
+
+No subagents, paid search, model assessments, permission changes or server restart were used. Tavily remains disabled after the previous $0.032 trial. Public audit details are saved in system Temp `discover-tiktok-genres-2026-10-11.json`; the durable summary is tools/28. Preserve localhost:3000 and its private existing connections. These documentation updates are local and uncommitted.
+
+## Latest outcome — native videos now reach the feed
+
+Separate GitHub CI run `38117648051` at `3ac2d49` has passed both jobs. The deployment also completed successfully.
+
+`3ac2d49` is pushed and deployed (Worker run `38117645876` succeeded). Actual Chrome on localhost:3000 retrieved twelve Anime TikTok candidates with the new native action. Source checks increased TikTok Inspiration **1 → 3**; final modes **3 Inspiration / 3 Popular / 1 Learn / 8 Explore**. Three Inspiration cards survived reload without another retrieval. Two added AMVs played with visible text overlays on edited anime footage (native player likes about 62.2K and 92.2K). The Learn candidate visibly demonstrated CapCut timeline/clip controls and an instructional arrow. These are limited visual samples, not a broad quality benchmark. Exact URLs, dates/counts, screenshots, limits and next work: [native candidate pilot](../tools/28-native-tiktok-candidates.md).
+
+All local gates passed before push: 3,234 root tests / 166 files, 1,312 Worker tests, lint/types/build and 408 browser cases / eight intentional skips. The tested export is copied to the primary checkout's ignored `out`; localhost remains port 3000 with its existing server/connection files. No new paid search, model call, grant, preferences or schedule. PR #70 remains unmerged. Final live-outcome documentation is saved locally after the code push and may be uncommitted; the PR body was updated. Next continuation should test weaker native categories and address remaining Instagram/quality coverage, rather than repeat the established Anime access probe. Earlier “video access untested” statements below are historical.
+
 ## Native video acquisition implementation
 
 The next continuation established the current official related-video contract in Chrome and implemented **Find TikTok edits** for Browse's All/TikTok tabs. It retrieves up to twelve canonical leads using only the native API/public captions, then passes them to the existing library/source checks. It corrects cross-country hashtag selection, nullable success envelopes, mismatched video identity and caption-poor lead handling. No web-search credits, model, new grant or background schedule. Full gates passed: 3,234 root tests / 166 files, 1,312 Worker tests, lint/types/build and 408 browser cases with eight intentional skips. See [the candidate pilot](../tools/28-native-tiktok-candidates.md) for contracts, bounds and live outcome. Chrome's baseline was one Anime TikTok Inspiration result. The older access-only checkpoint below is historical.

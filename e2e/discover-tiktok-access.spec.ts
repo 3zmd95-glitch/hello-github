@@ -156,6 +156,31 @@ async function openAccess(page: Page) {
   if ((await access.getAttribute("open")) === null) await access.locator("summary").click();
 }
 
+test("changing genres preserves the chosen platform without native or paid retrieval", async ({
+  page,
+}) => {
+  const state = await setup(page);
+  for (const [platform, genre] of [
+    ["tt", "coffee"],
+    ["ig", "anime"],
+    ["yt", "coffee"],
+  ]) {
+    await page.getByTestId(`browse-tab-${platform}`).click();
+    await page.getByTestId("browse-category-switch").selectOption(genre);
+    await expect(page.getByTestId(`browse-tab-${platform}`)).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByTestId("browse-tab-all")).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByTestId("category-feed").getByTestId("feed-card")).toHaveCount(
+      platform === "yt" ? 1 : 0,
+    );
+  }
+  expect(state.probes).toEqual([]);
+  expect(state.acquisitions).toEqual([]);
+  expect(state.forbidden).toEqual([]);
+});
+
 test("native TikTok retrieval is explicit, bypasses search credits, and preserves an existing feed on empty results", async ({
   page,
 }) => {

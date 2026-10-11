@@ -72,7 +72,6 @@ export default function BrowseCategoryFeed({
   const [previousGenre, setPreviousGenre] = useState(genre.id);
   if (previousGenre !== genre.id) {
     setPreviousGenre(genre.id);
-    setTab("all");
     setMode("inspiration");
     setUndo(undefined);
     setError(undefined);
