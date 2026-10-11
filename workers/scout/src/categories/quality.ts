@@ -205,6 +205,43 @@ function describedEditProject(genreId: string, text: string): boolean {
   });
 }
 
+/** Completed production prose can identify a project without naming its editing technique.
+ * Keep subject and action in one sentence; tags, promises and channel bios cannot supply it. */
+function describedFilmingProject(genreId: string, text: string): boolean {
+  const subjects = CATEGORY_PROFILES[genreId]?.subjects ?? [];
+  return postTeachingText(text)
+    .split(/(?<=[.!?؟;؛])|[\r\n]+|#[\p{L}\p{N}_]+|https?:\/\/\S+/u)
+    .some((sentence) => {
+      const normalized = normalizeTerm(sentence);
+      const arabic = sentence.replace(/[\u064b-\u065f\u0670\u0640]/g, "");
+      if (!subjects.some((subject) => has(normalized, normalizeTerm(subject)))) return false;
+      if (
+        /[?؟]|\b(?:if|wish|imagine|would|could|will|tomorrow|never|not|didn['’]t|haven['’]t)\b/iu.test(
+          sentence,
+        ) ||
+        /(?:^|\s)(?:ما|لم|لن|لو|يا ليت|راح|سوف|بكرة|بكره)(?:\s|$)/u.test(arabic)
+      )
+        return false;
+      if (
+        /\b(?:i|we)\s+(?:(?:just|recently|finally)\s+)?filmed\s+(?!(?:(?:absolutely|literally)\s+)?(?:no|nothing|none)\b)\S/iu.test(
+          sentence,
+        )
+      )
+        return true;
+      // A commission alone may describe tomorrow's work; require a completed-result cue.
+      if (
+        /\byou\s+(?:let|asked|invited|hired)\s+(?:me|us)\s+(?:to\s+)?film\s+\S/iu.test(sentence) &&
+        /\band (?:this|that) happened\b|\bhere(?:['’]s| is) (?:the|our) (?:result|video|film)\b/iu.test(
+          sentence,
+        )
+      )
+        return true;
+      return /(?:^|\s)(?:صورت|صورنا)\s+(?:(?:هذا|هذي)\s+)?(?:ال|هال)?(?:فيديو|فيلم|ريلز|إعلان|اعلان)(?:\s|$)/u.test(
+        arabic,
+      );
+    });
+}
+
 /** A creator's biography, SEO list and statutory notice describe neither this post's lesson
  * nor its steps. Keep the actual title/body, and resume when a new paragraph/section begins. */
 function postTeachingText(text: string): string {
@@ -444,6 +481,8 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
         has(craftNormalized, a),
     ),
   ).map((a) => a.name);
+  const filmedProject = describedFilmingProject(genreId, craftText);
+  if (filmedProject && !techniques.includes("filmmaking")) techniques.push("filmmaking");
   const prose = text.replace(/#[\p{L}\p{N}_]+/gu, "").replace(/https?:\/\/\S+/g, "");
   const craftProse = craftText.replace(/#[\p{L}\p{N}_]+/gu, "").replace(/https?:\/\/\S+/g, "");
   const equipment =
@@ -519,7 +558,8 @@ export function categoryCreativeEvidence(genreId: string, text: string): Categor
   const proseNormalized = normalizeTerm(craftProse);
   const project =
     creative &&
-    (describedEditProject(genreId, craftText) ||
+    (filmedProject ||
+      describedEditProject(genreId, craftText) ||
       (techniques.includes("creative commercial") &&
         CREATIVE["creative commercial"].some((alias) =>
           has(proseNormalized, normalizeTerm(alias)),

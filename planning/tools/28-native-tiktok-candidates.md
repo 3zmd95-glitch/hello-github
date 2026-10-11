@@ -2,6 +2,8 @@
 
 ## Native-search benchmark and regional retrieval
 
+**Deployment/live outcome:** `3d4a8d7` deployed successfully in Worker run 38121375901. One actual Chrome Saudi Coffee action returned twelve candidates, with settled TikTok totals still **1 Inspiration / 0 Popular / 3 Learn / 4 Explore**. It did not add a qualifying Coffee edit. Combined Inspiration has ten cards (nine YouTube, one TikTok, zero Instagram). The regional route works but has not established a quality improvement. One free YouTube refill returned twenty posts and also left its nine Inspiration cards unchanged. Do not repeat these calls merely to reconfirm. Screenshot: system Temp `discover-combined-grid-2026-10-11.png`.
+
 The user supplied a TikTok Coffee search grid as the target: every category should combine strong mainstream Instagram/TikTok/YouTube videos with a native browsing feel. The current sparse, caption-led feed does not meet that target. Preserve that scope; neither a prettier grid nor additional chart candidates establishes native-search equivalence or overall completion.
 
 Actual Chrome opened `https://www.tiktok.com/search?q=coffee` in the user's existing browser session. Its native result set included these public, useful evaluation leads (read 11 October 2026):

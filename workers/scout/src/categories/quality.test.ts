@@ -9,6 +9,82 @@ import type { TopVideo } from "./types";
 import { carxDraftCandidate } from "./carxDraft.fixture";
 import { creatorProjects } from "./creatorProjects.fixture";
 import { soundtrackResource } from "./soundtrackResource.fixture";
+import { filmedCoffeeProject } from "./filmedProject.fixture";
+
+describe("completed filming projects without technique keywords", () => {
+  it("recognizes the real native Coffee project without inventing a technique or lesson", () => {
+    expect(evidence("coffee", filmedCoffeeProject.caption)).toMatchObject({
+      category: true,
+      creative: true,
+      project: true,
+      eligible: true,
+      techniques: ["filmmaking"],
+      namedTechniques: [],
+      teaching: false,
+    });
+  });
+
+  it.each(Object.keys(CATEGORY_PROFILES))("recognizes a described completed %s video", (genre) => {
+    const subject = CATEGORY_PROFILES[genre].subject.en;
+    expect(evidence(genre, `We filmed this ${subject} video.`)).toMatchObject({
+      category: true,
+      creative: true,
+      project: true,
+      namedTechniques: [],
+      teaching: false,
+    });
+  });
+
+  it.each([
+    "صورنا فيديو للقهوة في الكافيه",
+    "صوّرت فيلم عن قهوة الصباح",
+    "We recently filmed this coffee shop.",
+    "We filmed this coffee video with no tripod.",
+    "We never filmed that coffee shop. We filmed this coffee video.",
+    "صورنا هالفيديو عن قهوة الصباح",
+    "You hired us to film your coffee shop — here is the result.",
+  ])("accepts completed production prose: %s", (caption) => {
+    expect(evidence("coffee", caption)).toMatchObject({ creative: true, project: true });
+  });
+
+  it.each([
+    "If we filmed your coffee shop, it would look great.",
+    "I wish we filmed this coffee shop.",
+    "We never filmed this coffee shop.",
+    "We filmed nothing at this coffee shop.",
+    "We filmed no coffee video.",
+    "We filmed absolutely nothing at this coffee shop.",
+    "Would you let us film your coffee shop and this happened?",
+    "You hired us to film your coffee shop tomorrow.",
+    "You asked us to film your coffee shop.",
+    "We filmed this coffee shop?",
+    "We filmed this. #coffee",
+    "We filmed this. Coffee is great.",
+    "We filmed this https://example.test/coffee",
+    "Coffee film on the milk.",
+    "Coffee video\nAbout us: We filmed this coffee shop.",
+    "Coffee video\nKeywords: We filmed this coffee shop.",
+    "Music for videos where we filmed this coffee shop.",
+    "ما صورنا فيديو للقهوة",
+    "مَا صوّرت فيديو للقهوة",
+    "راح نصور فيديو للقهوة",
+    "صورت قهوتي",
+  ])("does not turn unsupported wording into a completed project: %s", (caption) => {
+    expect(evidence("coffee", caption).project).toBe(false);
+  });
+
+  it.each(["buy now", "comment for my prompt pack", "espresso extraction"])(
+    "preserves the %s exclusion",
+    (suffix) => {
+      expect(evidence("coffee", `${filmedCoffeeProject.caption}\n${suffix}`)).toMatchObject({
+        excluded: true,
+        creative: false,
+        project: false,
+        eligible: false,
+      });
+    },
+  );
+});
 
 describe("category recommendations grounded in metadata", () => {
   it.each([
