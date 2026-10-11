@@ -51,6 +51,7 @@ function response(request: DiscoverVisualRequest, cached = false): DiscoverVisua
     },
     visual: {
       version: 1,
+      rubricVersion: 2,
       url: request.url,
       genreId: request.genreId,
       checkedAt: at,
@@ -77,6 +78,7 @@ function response(request: DiscoverVisualRequest, cached = false): DiscoverVisua
       assessment: {
         category: "supported",
         categoryFrames: [0],
+        cinematography: null,
         observations: [
           {
             cue: "typography",
@@ -140,6 +142,31 @@ afterEach(() => {
 });
 
 describe("explicit category visual queue", () => {
+  it("allows an explicit current-rubric check after legacy graphics judgments without running on migration", async () => {
+    await act(async () => {
+      await queue.assess();
+    });
+    expect(queue.eligibleCount).toBe(4);
+    act(() =>
+      useStore.setState({
+        discoverCandidates: useStore.getState().discoverCandidates.map((candidate) => {
+          if (!candidate.visual) return candidate;
+          const legacy = structuredClone(candidate.visual);
+          delete legacy.rubricVersion;
+          delete legacy.assessment.cinematography;
+          return { ...candidate, visual: legacy };
+        }),
+      }),
+    );
+    render();
+    expect(queue.eligibleCount).toBe(6);
+    expect(client.assessCategoryVisual).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await queue.assess();
+    });
+    expect(queue.eligibleCount).toBe(4);
+    expect(client.assessCategoryVisual).toHaveBeenCalledTimes(4);
+  });
   it("does nothing on rendering, ordinary navigation or feedback; an explicit action makes two sequential calls and persists the results", async () => {
     render();
     act(() =>

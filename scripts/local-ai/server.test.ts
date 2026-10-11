@@ -667,6 +667,7 @@ describe("category source-frame assessment", () => {
   const judgment = {
     category: "supported",
     categoryFrames: [0, 1],
+    cinematography: null,
     observations: [
       {
         cue: "typography",
@@ -739,6 +740,7 @@ describe("category source-frame assessment", () => {
       selection: { provider: "chatgpt", model: body.model, effort: "max", accountId: "account-1" },
       source: { likes: 2000 },
       visual: {
+        rubricVersion: 2,
         url: post,
         genreId: "anime",
         provider: "chatgpt",
@@ -756,9 +758,11 @@ describe("category source-frame assessment", () => {
     );
     expect(sent.schemaName).toBe("discover_category_visual");
     expect(sent.schema).toHaveProperty("additionalProperties", false);
+    expect(sent.schema).toHaveProperty("required", expect.arrayContaining(["cinematography"]));
     expect(sent.instructions).toContain("untrusted data");
     expect(sent.instructions).toContain("no audio is supplied");
     expect(sent.instructions).toContain("Ordinary subtitles, watermarks");
+    expect(sent.instructions).toContain("A claim is not verified authorship");
     expect(JSON.parse(sent.input)).toMatchObject({
       outputLanguage: "Arabic",
       category: { id: "anime" },

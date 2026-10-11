@@ -50,7 +50,7 @@ export interface DiscoverEvidence {
   craft: "specific" | "generic" | "none";
   /** A described creative project, not a claim of a named technique or watched visual quality. */
   project?: boolean;
-  /** Affirmative added treatment in sampled frames, not a source-named technique or whole-video review. */
+  /** Added treatment or source-attributed filming visible in sampled frames; not a whole-video review. */
   visualCraft?: boolean;
   visual?: DiscoverVisual;
   teaching: boolean;

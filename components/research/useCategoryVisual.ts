@@ -2,7 +2,11 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DiscoverItem } from "@/lib/discover";
-import { applicableDiscoverVisual, canonicalDiscoverVisualUrl } from "@/lib/discoverVisual";
+import {
+  applicableDiscoverVisual,
+  canonicalDiscoverVisualUrl,
+  DISCOVER_VISUAL_RUBRIC_VERSION,
+} from "@/lib/discoverVisual";
 import {
   assessCategoryVisual,
   categoryVisualCandidates,
@@ -98,7 +102,11 @@ export function useCategoryVisual({
           .filter((candidate) => {
             if (candidate.genreId !== genreId) return false;
             const visual = applicableDiscoverVisual(candidate, candidate.item, now);
-            return visual?.model === choice.model && visual.effort === choice.effort;
+            return (
+              visual?.rubricVersion === DISCOVER_VISUAL_RUBRIC_VERSION &&
+              visual.model === choice.model &&
+              visual.effort === choice.effort
+            );
           })
           .map((candidate) => canonicalDiscoverVisualUrl(candidate.item.url)),
       ),
@@ -127,7 +135,11 @@ export function useCategoryVisual({
         .discoverCandidates.filter((candidate) => {
           if (candidate.genreId !== genreId) return false;
           const visual = applicableDiscoverVisual(candidate, candidate.item);
-          return visual?.model === choice.model && visual.effort === choice.effort;
+          return (
+            visual?.rubricVersion === DISCOVER_VISUAL_RUBRIC_VERSION &&
+            visual.model === choice.model &&
+            visual.effort === choice.effort
+          );
         })
         .map((candidate) => canonicalDiscoverVisualUrl(candidate.item.url)),
     );

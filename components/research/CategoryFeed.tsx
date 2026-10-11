@@ -9,7 +9,7 @@ import { useT, type MessageKey } from "@/lib/i18n";
 import type { ResearchItem, ResearchTab } from "@/lib/research";
 import ResultCard from "./ResultCard";
 import FeedSearchStatus from "./FeedSearchStatus";
-import type { DiscoverVisual } from "@/lib/discoverVisual";
+import { hasDiscoverCinematography, type DiscoverVisual } from "@/lib/discoverVisual";
 
 const PAGE_SIZE = 12;
 const MODES: Record<DiscoverFeedMode, MessageKey> = {
@@ -349,6 +349,28 @@ function FeedCards(props: CategoryFeedProps) {
 
 function VisualEvidence({ visual }: { visual: DiscoverVisual }) {
   const { t, lang } = useT();
+  const cinematography = visual.rubricVersion === 2 ? visual.assessment.cinematography : null;
+  const footageLabels = {
+    "live-action": "visual.cardFootageLiveAction",
+    "film-tv-excerpt": "visual.cardFootageFilmTv",
+    animation: "visual.cardFootageAnimation",
+    gameplay: "visual.cardFootageGameplay",
+    uncertain: "visual.cardFootageUncertain",
+  } as const satisfies Record<string, MessageKey>;
+  const attributionLabels = {
+    "creator-claim": "visual.cardAttributionCreatorClaim",
+    "third-party": "visual.cardAttributionThirdParty",
+    unattributed: "visual.cardAttributionMissing",
+    uncertain: "visual.cardAttributionUncertain",
+  } as const satisfies Record<string, MessageKey>;
+  const cueLabels = {
+    composition: "visual.cardCinematographyComposition",
+    lighting: "visual.cardCinematographyLighting",
+    staging: "visual.cardCinematographyStaging",
+    "shot-variety": "visual.cardCinematographyShotVariety",
+  } as const satisfies Record<string, MessageKey>;
+  const frameTimes = (frames: readonly number[]) =>
+    frames.map((frame) => `${visual.media.frames[frame].timestampSeconds.toFixed(1)}s`).join(" · ");
   return (
     <div className="mt-2 flex min-w-0 flex-col gap-1" data-testid="feed-visual-evidence">
       <p className="font-bold">{t("visual.cardDetails")}</p>
@@ -370,6 +392,9 @@ function VisualEvidence({ visual }: { visual: DiscoverVisual }) {
               : "visual.cardCategoryUncertain",
         )}
       </p>
+      {!!visual.assessment.observations.length && (
+        <p className="mt-1 font-bold">{t("visual.cardGraphics")}</p>
+      )}
       <ul className="list-disc space-y-1 ps-4">
         {visual.assessment.observations.map((observation, index) => (
           <li key={index}>
@@ -385,15 +410,44 @@ function VisualEvidence({ visual }: { visual: DiscoverVisual }) {
             </span>
             <span dir="auto">{observation.description}</span>{" "}
             <span className="text-muted" dir="ltr">
-              (
-              {observation.frames
-                .map((frame) => `${visual.media.frames[frame].timestampSeconds.toFixed(1)}s`)
-                .join(" · ")}
-              )
+              ({frameTimes(observation.frames)})
             </span>
           </li>
         ))}
       </ul>
+      {cinematography && (
+        <section className="mt-2 flex min-w-0 flex-col gap-1" data-testid="feed-cinematography">
+          <p className="font-bold">{t("visual.cardCinematography")}</p>
+          <p data-testid="feed-cinematography-status">
+            {t(
+              hasDiscoverCinematography(visual)
+                ? "visual.cardCinematographySupported"
+                : "visual.cardCinematographyUnconfirmed",
+            )}
+          </p>
+          <p>{t(footageLabels[cinematography.footage])}</p>
+          <p data-testid="feed-cinematography-attribution">
+            {t(attributionLabels[cinematography.attribution.status])}
+          </p>
+          {!!cinematography.attribution.quote && (
+            <blockquote className="border-s border-current ps-2" dir="auto">
+              {cinematography.attribution.quote}
+            </blockquote>
+          )}
+          <p className="text-muted">{t("visual.cardAttributionLimits")}</p>
+          <ul className="list-disc space-y-1 ps-4">
+            {cinematography.observations.map((observation, index) => (
+              <li key={index}>
+                <span>{t(cueLabels[observation.cue])}: </span>
+                <span dir="auto">{observation.description}</span>{" "}
+                <span className="text-muted" dir="ltr">
+                  ({frameTimes(observation.frames)})
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {visual.assessment.uncertainty && <p dir="auto">{visual.assessment.uncertainty}</p>}
       <p className="text-muted">{t("visual.cardLimits")}</p>
     </div>

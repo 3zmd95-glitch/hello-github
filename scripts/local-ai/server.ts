@@ -33,7 +33,8 @@ import {
   DISCOVER_VISUAL_SYSTEM,
   DISCOVER_VISUAL_TTL_MS,
   DiscoverVisualRequestSchema,
-  DiscoverVisualAssessmentSchema,
+  DiscoverVisualAssessmentV2Schema,
+  DISCOVER_VISUAL_RUBRIC_VERSION,
   DiscoverVisualObservationSchema,
   DiscoverVisualSchema,
   DiscoverVisualResponseSchema,
@@ -500,7 +501,7 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
         const key = createHash("sha256")
           .update(
             JSON.stringify({
-              route: "assess-category-v1",
+              route: `assess-category-v${DISCOVER_VISUAL_RUBRIC_VERSION}`,
               selection,
               url: post,
               genreId: body.genreId,
@@ -541,7 +542,7 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
               base64: frame.bytes.toString("base64"),
             })),
             schemaName: "discover_category_visual",
-            schema: z.toJSONSchema(DiscoverVisualAssessmentSchema, { target: "draft-7" }),
+            schema: z.toJSONSchema(DiscoverVisualAssessmentV2Schema, { target: "draft-7" }),
             signal: controller.signal,
           }),
           aborted,
@@ -557,6 +558,7 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
         }
         const visual = DiscoverVisualSchema.safeParse({
           ...observation,
+          rubricVersion: DISCOVER_VISUAL_RUBRIC_VERSION,
           checkedAt: new Date(now()).toISOString(),
           provider: "chatgpt",
           model: result.model,

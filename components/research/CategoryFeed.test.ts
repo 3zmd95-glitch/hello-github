@@ -196,6 +196,131 @@ describe("category editor feed", () => {
     expect($("feed-visual-evidence")?.textContent).toContain("test-vision · high");
     expect(requests).toHaveLength(0);
   });
+  it("keeps cinematography citations separate from graphics and distinguishes source claims in both languages", async () => {
+    const caption = "Had so much fun filming this video at Dissolved Solids";
+    const item: DiscoverItem = {
+      platform: "ig",
+      url: "https://www.instagram.com/p/CoffeeFilmFixture/",
+      title: caption,
+      snippet: caption,
+      handle: "coffee_filmmaker",
+      lang: "en",
+      section: "example",
+      evidence: {
+        source: "instagram-public-embed",
+        author: "coffee_filmmaker",
+        caption,
+        observedAt: new Date().toISOString(),
+        likes: 82100,
+      },
+    };
+    const legacy = discoverVisualFixture(item, "coffee", Date.now());
+    const visual: typeof legacy = {
+      ...legacy,
+      rubricVersion: 2,
+      assessment: {
+        ...legacy.assessment,
+        cinematography: {
+          footage: "live-action",
+          attribution: { status: "creator-claim", quote: caption },
+          observations: [
+            {
+              cue: "composition",
+              description: "Beans framed against an uncluttered background",
+              frames: [0],
+            },
+            {
+              cue: "lighting",
+              description: "Directional light separates the brewing vessel",
+              frames: [1],
+            },
+          ],
+        },
+      },
+    };
+    useStore.getState().accumulateDiscoverCandidates([item], { genreId: "coffee" });
+    const show = async (record: typeof legacy) => {
+      act(() =>
+        useStore.setState({
+          discoverCandidates: useStore.getState().discoverCandidates.map((candidate) => ({
+            ...candidate,
+            visual: record,
+          })),
+        }),
+      );
+      await settle();
+    };
+    await show(visual);
+    act(() => root.render(createElement(DiscoverScreen)));
+    await settle();
+    await click($("genre-coffee"));
+    const cinema = $("feed-cinematography")!;
+    expect(cinema).not.toBeNull();
+    expect($("feed-visual-evidence")?.textContent).toContain("Graphics and compositing");
+    expect($("feed-visual-evidence")?.textContent).toContain("Large layered title treatment");
+    expect(cinema.textContent).not.toContain("Large layered title treatment");
+    expect(cinema.textContent).toContain(
+      "Composition: Beans framed against an uncluttered background (0.0s)",
+    );
+    expect(cinema.textContent).toContain(
+      "Lighting: Directional light separates the brewing vessel (11.0s)",
+    );
+    expect(cinema.querySelector("blockquote")?.textContent).toBe(caption);
+    expect($("feed-cinematography-status")?.textContent).toContain(
+      "with a creator claim in the caption",
+    );
+    expect($("feed-cinematography-attribution")?.textContent).toBe(
+      "The caption claims the creator filmed this post.",
+    );
+    expect(cinema.textContent).toContain("Authorship has not been independently verified.");
+
+    act(() => useStore.getState().setSettings({ lang: "ar" }));
+    await settle();
+    expect($("feed-cinematography")?.textContent).toContain("ملاحظات على التصوير");
+    expect($("feed-cinematography")?.textContent).toContain("تكوين اللقطة");
+    expect($("feed-cinematography-attribution")?.textContent).toBe(
+      "صاحب المنشور يقول في الوصف إنه صوّر المقطع.",
+    );
+    expect($("feed-cinematography")?.textContent).toContain(
+      "ما تحققنا بشكل مستقل من مين صوّر المقطع.",
+    );
+
+    const uncertain: typeof legacy = {
+      ...visual,
+      assessment: {
+        ...visual.assessment,
+        cinematography: {
+          ...visual.assessment.cinematography!,
+          attribution: { status: "uncertain", quote: "" },
+        },
+      },
+    };
+    await show(uncertain);
+    expect($("feed-cinematography-attribution")?.textContent).toBe(
+      "مو واضح من المصدر مين صوّر المقطع.",
+    );
+    expect($("feed-cinematography-status")?.textContent).toContain("ما تكفي");
+    act(() => useStore.getState().setSettings({ lang: "en" }));
+    await settle();
+    expect($("feed-cinematography-status")?.textContent).toBe(
+      "These samples and source details do not establish creator-filmed cinematography.",
+    );
+    expect($("feed-cinematography-status")?.textContent).not.toContain(
+      "support deliberate filming choices",
+    );
+    expect($("feed-cinematography-attribution")?.textContent).toBe(
+      "The source does not clearly establish who filmed this post.",
+    );
+    expect($("feed-cinematography")?.querySelector("blockquote")).toBeNull();
+
+    await show({ ...visual, assessment: { ...visual.assessment, cinematography: null } });
+    expect($("feed-cinematography")).toBeNull();
+    expect($("feed-visual-evidence")?.textContent).toContain("Large layered title treatment");
+    await show(legacy);
+    expect($("feed-cinematography")).toBeNull();
+    expect($("feed-visual-evidence")?.textContent).toContain("Large layered title treatment");
+    expect(requests).toHaveLength(0);
+  });
   it.each(["search", "browse"] as const)(
     "waits for durable category hydration in %s before deciding whether a lookup is needed",
     async (workspace) => {
