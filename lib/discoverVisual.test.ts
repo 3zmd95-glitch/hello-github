@@ -139,11 +139,19 @@ describe("category visual evidence", () => {
       ),
     ).toBeUndefined();
   });
-  it("keeps old audit bindings without renewing the 24-hour assessment or accepting future checks", () => {
+  it("reuses dated frame judgments without renewing them or accepting future checks", () => {
     expect(discoverVisualSourceMatches(visual, item)).toBe(true);
-    expect(
-      applicableDiscoverVisual({ genreId: "anime", visual }, item, now + DISCOVER_VISUAL_TTL_MS),
-    ).toBeUndefined();
+    for (const days of [1, 7, 60]) {
+      const later = now + days * DISCOVER_VISUAL_TTL_MS;
+      const refreshed = {
+        ...item,
+        evidence: { ...item.evidence!, observedAt: new Date(later).toISOString(), likes: 3000 },
+      };
+      for (const current of [item, refreshed])
+        expect(applicableDiscoverVisual({ genreId: "anime", visual }, current, later)).toEqual(
+          visual,
+        );
+    }
     expect(
       applicableDiscoverVisual({ genreId: "anime", visual }, item, now - 300001),
     ).toBeUndefined();

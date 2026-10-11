@@ -288,7 +288,7 @@ describe("explicit category visual queue", () => {
     await settle();
     expect(client.assessCategoryVisual).toHaveBeenCalledTimes(2);
   });
-  it("makes expired assessments eligible after the clock advances without starting another request", async () => {
+  it("does not requeue unchanged assessed posts merely because a day passes", async () => {
     const clock = Date.now();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(clock);
@@ -299,12 +299,16 @@ describe("explicit category visual queue", () => {
     vi.setSystemTime(clock + 86400001);
     props = { ...props, now: Date.now() };
     render();
-    expect(queue.eligibleCount).toBe(6);
+    expect(queue.eligibleCount).toBe(4);
     expect(client.assessCategoryVisual).toHaveBeenCalledTimes(2);
     await act(async () => {
       await queue.assess();
     });
     expect(client.assessCategoryVisual).toHaveBeenCalledTimes(4);
+    const assessedUrls = vi
+      .mocked(client.assessCategoryVisual)
+      .mock.calls.map(([request]) => request.url);
+    expect(new Set(assessedUrls).size).toBe(4);
     vi.useRealTimers();
   });
 });

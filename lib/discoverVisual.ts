@@ -6,6 +6,8 @@ import type { DiscoverItem } from "./discover";
 export const DISCOVER_VISUAL_VERSION = 1;
 /** Separate from the source/media record version: older graphic assessments remain readable. */
 export const DISCOVER_VISUAL_RUBRIC_VERSION = 2;
+/** Server response-cache / live-response lifetime only. A saved judgment records what its exact sampled frames
+ * showed at checkedAt; elapsed time does not change those pixels or renew current popularity. */
 export const DISCOVER_VISUAL_TTL_MS = 86_400_000;
 const CLOCK_SKEW_MS = 300_000;
 const Hash = z.string().regex(/^[a-f0-9]{64}$/);
@@ -241,6 +243,8 @@ export function discoverVisualSourceMatches(
     (item.evidence.author ?? "") === visual.source.author
   );
 }
+/** Reuse the dated frame judgment while source identity matches and no newer media observation
+ * contradicts it. Source engagement and post recency are independently checked by ranking. */
 export function applicableDiscoverVisual(
   candidate: {
     genreId: string;
@@ -259,7 +263,6 @@ export function applicableDiscoverVisual(
     checked > now + CLOCK_SKEW_MS ||
     Date.parse(visual.source.observedAt) > now + CLOCK_SKEW_MS ||
     Date.parse(visual.media.observedAt) > now + CLOCK_SKEW_MS ||
-    now - checked >= DISCOVER_VISUAL_TTL_MS ||
     !discoverVisualSourceMatches(visual, item)
   )
     return;

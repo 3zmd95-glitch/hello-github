@@ -225,6 +225,9 @@ for (const genreId of ["anime", "coffee"] as const)
     });
     await page.getByTestId("browse-back").click();
     await expect(page.getByTestId("for-you-feed").getByTestId("feed-card")).toHaveCount(2);
+    // A week passing must not erase the stored pixel judgment or cause repeat inference.
+    // This advances the test browser's Date only; it does not renew source/assessment timestamps.
+    await page.clock.setFixedTime(new Date(Date.parse(at) + 7 * 86_400_000));
     // The durable library has to carry the visual observation, not just the rendered card.
     await page.reload();
     await expect(page.getByTestId("for-you-feed").getByTestId("feed-card")).toHaveCount(2);

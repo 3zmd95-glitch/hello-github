@@ -130,6 +130,7 @@ import { DiscoverSemanticResponseSchema, applicableDiscoverSemantic } from "@/li
 import { applyInstagramEvidence } from "@/lib/discoverSources";
 import {
   DiscoverVisualResponseSchema,
+  DISCOVER_VISUAL_TTL_MS,
   applicableDiscoverVisual,
   canonicalDiscoverVisualUrl,
   discoverVisualSourceMatches,
@@ -1168,6 +1169,8 @@ export const useStore = create<StoreState>()(
           (result.visual.provider !== guard.selection.provider ||
             result.visual.model !== guard.selection.model ||
             result.visual.effort !== guard.selection.effort ||
+            // Stored judgments persist, but a newly received stale response must not enter as live evidence.
+            now.getTime() - Date.parse(result.visual.checkedAt) >= DISCOVER_VISUAL_TTL_MS ||
             !applicableDiscoverVisual(
               { genreId: guard.genreId, visual: result.visual },
               item,

@@ -142,7 +142,7 @@ describe("category visual evidence persistence", () => {
         mergeDiscoverCandidates(full, [candidate]).some(
           (entry) => entry.item.url === candidate.item.url,
         ),
-      ).toBe(false);
+      ).toBe(true);
     } finally {
       clock.mockRestore();
     }

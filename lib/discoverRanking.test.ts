@@ -332,7 +332,7 @@ describe("sampled visual craft remains separate from source popularity", () => {
       ).items,
     ).toEqual([]);
     expect(rankDiscoverItems([card], { ...base, genreId: "cars" }).items).toEqual([]);
-    expect(rankDiscoverItems([card], { ...base, now: NOW + 86_400_001 }).items).toEqual([]);
+    expect(rankDiscoverItems([card], { ...base, now: NOW + 86_400_001 }).items).toHaveLength(1);
     expect(rankDiscoverItems([card], { ...base, feedback: [vote(card, "less")] }).items).toEqual(
       [],
     );
@@ -350,6 +350,28 @@ describe("sampled visual craft remains separate from source popularity", () => {
         visual: { [key]: { ...visual[key], visualObservation: changedMedia } },
       }).items,
     ).toEqual([]);
+  });
+  it("keeps saved frame evidence while stale engagement and old dates leave Popular", () => {
+    const card = source("dated-frames", { title: "Naruto confronts his rival in this scene" });
+    const visual = withVisual(card);
+    const key = discoverPostKey("ig", card.url)!;
+    const checkedAt = visual[key].visual.checkedAt;
+    const later = NOW + 7 * 86_400_000;
+    const base = { genreId: "anime", now: later, visual };
+    expect(rankDiscoverItems([card], base).items).toHaveLength(1);
+    const stale = rankDiscoverItems([card], { ...base, mode: "popular" });
+    expect(stale.items).toEqual([]);
+    expect(stale.evidence[key].reasons).toContain("stale-engagement");
+    expect(stale.evidence[key].visual?.checkedAt).toBe(checkedAt);
+    const refreshed = {
+      ...card,
+      evidence: { ...card.evidence!, observedAt: new Date(later).toISOString() },
+    };
+    expect(rankDiscoverItems([refreshed], { ...base, mode: "popular" }).items).toHaveLength(1);
+    const old = { ...refreshed, published: "2025-01-01T00:00:00Z" };
+    expect(rankDiscoverItems([old], base).items).toHaveLength(1);
+    expect(rankDiscoverItems([old], { ...base, mode: "popular" }).items).toEqual([]);
+    expect(rankDiscoverItems([old], base).evidence[key].visual?.checkedAt).toBe(checkedAt);
   });
   it("does not turn visible editor treatment into a lesson or change Learning admission", () => {
     const card = source("not-lesson", { title: "Naruto confronts his rival in this scene" });
