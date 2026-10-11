@@ -409,5 +409,22 @@
   "notes.graphLabel": "شبكة النوتات: {n} مهارة و {l} رابط",
   "notes.graphNodeNote": "{name} · فيها نوت",
   "notes.graphNodeEmpty": "{name} · لسه بدون نوت",
-  "notes.graphIsland": "جزيرة {name}"
+  "notes.graphIsland": "جزيرة {name}",
+  "semantic.title": "فهم وصف المنشورات",
+  "semantic.help": "افحص أوصاف إنستغرام وتيك توك العامة للتأكد من علاقتها بالفئة ووجود وصف لمشروع إبداعي. الفحص يقرأ نص المصدر ولا يقيّم جودة الفيديو أو رواجه الحالي.",
+  "semantic.limit": "حتى ٣ منشورات في طلب واحد للنموذج بكل ضغطة. نستخدم الفحوص الحديثة المطابقة من جديد.",
+  "semantic.assess": "افحص حتى ٣ أوصاف",
+  "semantic.noCandidates": "ما فيه أوصاف مصادر غير مفحوصة تحتاج الفحص في هذا التبويب. لازم يكون للمنشورات تفاعل قوي متحقق منه؛ افحص مصادر أكثر إذا احتجت.",
+  "semantic.progress": "نفحص {total} من أوصاف المصادر…",
+  "semantic.cancelled": "أُلغي فحص الأوصاف.",
+  "semantic.complete": "فحصنا {n} من {total} أوصاف مصادر.",
+  "semantic.failed": "ما قدرنا نكمل فحص الأوصاف. ما جرّبنا منشورات أخرى أو نماذج بديلة.",
+  "semantic.cardDetails": "فهم وصف المنشور",
+  "semantic.cardCategorySupported": "الوصف يدعم علاقة المنشور بهذه الفئة.",
+  "semantic.cardCategoryMismatch": "الوصف يتحدث عن فئة مختلفة.",
+  "semantic.cardCategoryUncertain": "علاقة المنشور بالفئة غير مؤكدة من هذا الوصف.",
+  "semantic.cardProjectDescribed": "الوصف يذكر مشروعًا إبداعيًا.",
+  "semantic.cardProjectNone": "الوصف ما يذكر مشروعًا إبداعيًا.",
+  "semantic.cardProjectUncertain": "وجود مشروع إبداعي غير مؤكد من هذا الوصف.",
+  "semantic.cardLimits": "مبني على اقتباسات وصف المصدر فقط. ما يتحقق من محتوى الفيديو أو التقنيات المسماة أو الجودة أو صاحب العمل أو الرواج."
 }

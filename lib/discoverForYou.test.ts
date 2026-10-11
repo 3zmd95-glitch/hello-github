@@ -3,6 +3,7 @@ import { discoverForYou } from "./discoverForYou";
 import type { DiscoverCandidate, DiscoverFeedback, DiscoverSavedInterest } from "./discoverFeed";
 import { carxDraftCandidate } from "../workers/scout/src/categories/carxDraft.fixture";
 import { discoverVisualFixture, discoverVisualObservationFixture } from "./discoverVisual.fixture";
+import { DISCOVER_SEMANTIC_TTL_MS } from "./discoverSemantic";
 
 const NOW = Date.parse("2026-10-09T12:00:00Z");
 const captions: Record<string, string> = {
@@ -69,7 +70,102 @@ function saved(entry: DiscoverCandidate): DiscoverSavedInterest {
   };
 }
 
+function captionCandidate(): DiscoverCandidate {
+  const caption =
+    "A brand-new day in New York City! 🗽 I had to hop on this trend of showing the beauty of this incredible city through my camera, inspired by the last Spider-Man movie. Hope you guys like it! #newyork #brandnewday #sonyalpha #cinematic #filmmaking ";
+  const entry = candidate("travel", "caption-new-york", caption);
+  entry.item.platform = "tt";
+  entry.item.url = "https://www.tiktok.com/@alvarovaliente_/video/7672800453221944589";
+  entry.item.evidence!.source = "tiktok-public-page";
+  entry.item.evidence!.views = 2400000;
+  entry.item.evidence!.likes = 584100;
+  entry.item.evidence!.published = "2026-08-11T12:00:00Z";
+  entry.item.outsideCategory = true;
+  entry.semantic = {
+    version: 1,
+    url: entry.item.url,
+    genreId: "travel",
+    checkedAt: new Date(NOW).toISOString(),
+    model: "selected-model",
+    source: {
+      provenance: "tiktok-public-page",
+      caption,
+      author: entry.item.evidence!.author!,
+      observedAt: new Date(NOW).toISOString(),
+    },
+    assessment: {
+      category: "supported",
+      categoryQuote: "New York City",
+      project: "described",
+      projectQuote: "showing the beauty of this incredible city through my camera",
+      reason: "The caption describes this creative destination film, without inspecting footage.",
+    },
+  };
+  return entry;
+}
+
 describe("local For You mix", () => {
+  it("includes a caption-qualified native post in For You with its category and evidence intact", () => {
+    const travel = captionCandidate();
+    expect(discoverForYou([{ ...travel, semantic: undefined }], { now: NOW }).rows).toEqual([]);
+    const before = JSON.stringify(travel);
+    const feed = discoverForYou([travel], { now: NOW });
+    expect(feed.rows).toHaveLength(1);
+    expect(feed.rows[0].genreId).toBe("travel");
+    expect(feed.rows[0].item.url).toBe(travel.item.url);
+    expect(feed.rows[0].evidence.semantic).toEqual(travel.semantic);
+    expect(feed.rows[0].evidence.reasons).toContain("caption-context");
+    expect(feed.rows[0].evidence.reasons).toContain("old-post");
+    expect(feed.rows[0].evidence.techniques).toEqual([]);
+    expect(feed.totalQualified).toBe(1);
+    expect(feed.genreCounts).toEqual({ travel: 1 });
+    expect(discoverForYou([travel], { now: NOW, mode: "popular" }).rows).toEqual([]);
+    expect(JSON.stringify(travel)).toBe(before);
+  });
+
+  it("keeps caption judgments category-scoped and bound to the newest shared native source", () => {
+    const travel = captionCandidate();
+    const other: DiscoverCandidate = { ...travel, genreId: "cars" };
+    const fresh = structuredClone(other);
+    fresh.item.evidence!.observedAt = new Date(NOW + 1000).toISOString();
+    fresh.item.evidence!.likes = 600000;
+    fresh.item.evidence!.views = 3000000;
+    const feed = discoverForYou([travel, fresh], { now: NOW + 2000 });
+    expect(feed.genreCounts).toEqual({ travel: 1, cars: 0 });
+    expect(feed.rows[0].evidence.semantic).toEqual(travel.semantic);
+    expect(feed.rows[0].evidence.engagement.value).toBe(3000000);
+    fresh.item.evidence!.caption = "Shopping for things that look nice.";
+    expect(discoverForYou([travel, fresh], { now: NOW + 2000 }).rows).toEqual([]);
+    expect(discoverForYou([travel], { now: NOW + DISCOVER_SEMANTIC_TTL_MS }).rows).toEqual([]);
+  });
+
+  it("retains the newest caption judgment without reviving older positives from duplicate wrappers", () => {
+    const travel = captionCandidate();
+    for (const category of ["mismatch", "uncertain"] as const) {
+      const newer: DiscoverCandidate = {
+        ...travel,
+        semantic: {
+          ...travel.semantic!,
+          checkedAt: new Date(NOW + 1000).toISOString(),
+          assessment: { ...travel.semantic!.assessment, category },
+        },
+      };
+      for (const inputs of [
+        [travel, newer],
+        [newer, travel],
+      ])
+        expect(discoverForYou(inputs, { now: NOW + 2000 }).rows).toEqual([]);
+    }
+    const changed = structuredClone(travel);
+    changed.semantic!.checkedAt = new Date(NOW + 1000).toISOString();
+    changed.semantic!.source.caption += " Updated.";
+    for (const inputs of [
+      [travel, changed],
+      [changed, travel],
+    ])
+      expect(discoverForYou(inputs, { now: NOW + 2000 }).rows).toEqual([]);
+  });
+
   it("uses each category's visual judgment against the newest shared native source", () => {
     const anime = candidate("anime", "visual-mix", "The hero faces his rival");
     anime.visual = discoverVisualFixture(anime.item, "anime", NOW);

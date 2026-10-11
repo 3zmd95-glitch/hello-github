@@ -43,6 +43,17 @@ import {
   type DiscoverVisualObservation,
 } from "../../lib/discoverVisual";
 import { createClaudeProvider } from "./claude";
+import {
+  DISCOVER_SEMANTIC_SYSTEM,
+  DISCOVER_SEMANTIC_TTL_MS,
+  DISCOVER_SEMANTIC_VERSION,
+  DiscoverSemanticRequestSchema,
+  DiscoverSemanticBatchAssessmentSchema,
+  DiscoverSemanticSchema,
+  DiscoverSemanticResponseSchema,
+  discoverSemanticInput,
+  type DiscoverSemantic,
+} from "../../lib/discoverSemantic";
 import { LocalAiProviderError, type LocalAiProvider, type LocalAiProviderStatus } from "./types";
 
 type ProviderName = "chatgpt" | "claude";
@@ -196,6 +207,7 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
   const active = new Map<ProviderName, AbortController>();
   const cache = new Map<string, { until: number; value: unknown }>();
   const visualCache = new Map<string, { until: number; visual: DiscoverVisual }>();
+  const semanticCache = new Map<string, { until: number; semantic: DiscoverSemantic }>();
   const previews = new Map<string, { until: number; thumb: string }>();
   const sources = new Map<string, { until: number; source: InstagramSource }>();
   const sourceReads = new Map<string, Promise<InstagramSource>>();
@@ -234,6 +246,32 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
         sourceReads.delete(post);
       });
     sourceReads.set(post, reading);
+    return reading;
+  };
+  const tiktokSourceFor = async (post: string): Promise<TikTokSource> => {
+    const cached = tiktokSources.get(post);
+    if (cached && cached.until > now()) return cached.source;
+    const running = tiktokReads.get(post);
+    if (running) return running;
+    if (tiktokReads.size + sourceReads.size >= 4) throw new LocalAiProviderError("source_busy");
+    if (now() - previewWindow > 60_000) {
+      previewWindow = now();
+      previewReads = 0;
+    }
+    if (++previewReads > PREVIEWS_PER_MINUTE) throw new LocalAiProviderError("local_rate_limit");
+    const reading = lookupTikTokSource(post, options.sourceFetch ?? fetch)
+      .then((source) => {
+        if (tiktokSources.size >= 128) tiktokSources.delete(tiktokSources.keys().next().value!);
+        tiktokSources.set(post, {
+          until: now() + (source.status === "unknown" ? 60_000 : 900_000),
+          source,
+        });
+        return source;
+      })
+      .finally(() => {
+        tiktokReads.delete(post);
+      });
+    tiktokReads.set(post, reading);
     return reading;
   };
   const serve = async (req: IncomingMessage, res: ServerResponse) => {
@@ -297,35 +335,7 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
     if (url.pathname === "/api/local-ai/tiktok-source" && req.method === "GET") {
       const post = tiktokPostUrl(url.searchParams.get("url") ?? "");
       if (!post) throw new LocalAiProviderError("invalid_request");
-      const cached = tiktokSources.get(post);
-      if (cached && cached.until > now()) {
-        reply(res, 200, cached.source);
-        return;
-      }
-      let reading = tiktokReads.get(post);
-      if (!reading) {
-        if (tiktokReads.size + sourceReads.size >= 4) throw new LocalAiProviderError("source_busy");
-        if (now() - previewWindow > 60_000) {
-          previewWindow = now();
-          previewReads = 0;
-        }
-        if (++previewReads > PREVIEWS_PER_MINUTE)
-          throw new LocalAiProviderError("local_rate_limit");
-        reading = lookupTikTokSource(post, options.sourceFetch ?? fetch)
-          .then((source) => {
-            if (tiktokSources.size >= 128) tiktokSources.delete(tiktokSources.keys().next().value!);
-            tiktokSources.set(post, {
-              until: now() + (source.status === "unknown" ? 60_000 : 900_000),
-              source,
-            });
-            return source;
-          })
-          .finally(() => {
-            tiktokReads.delete(post);
-          });
-        tiktokReads.set(post, reading);
-      }
-      reply(res, 200, await reading);
+      reply(res, 200, await tiktokSourceFor(post));
       return;
     }
     // An Instagram post's preview read over this computer's own connection: Instagram turned away about 4 in 10 of
@@ -381,9 +391,221 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
         active.get(name)?.abort();
         cache.clear();
         visualCache.clear();
+        semanticCache.clear();
         await options.providers[name].disconnect();
       } else await options.providers[name].connect();
       reply(res, 200, { ok: true });
+      return;
+    }
+    if (url.pathname === "/api/local-ai/assess-caption") {
+      const parsed = DiscoverSemanticRequestSchema.safeParse(await readBody(req));
+      if (!parsed.success) throw new LocalAiProviderError("invalid_request");
+      const body = parsed.data;
+      const provider = options.providers.chatgpt;
+      const status = await safeStatus(provider);
+      if (!status.connected || status.sharing !== true)
+        throw new LocalAiProviderError("not_connected");
+      if (body.accountId && body.accountId !== status.accountId)
+        throw new LocalAiProviderError("account_changed");
+      const model = status.models.find((item) => item.id === body.model);
+      if (!model || (body.effort && !model.efforts?.includes(body.effort)))
+        throw new LocalAiProviderError("model_unavailable");
+      if (active.has("chatgpt")) {
+        reply(res, 409, { error: "ai_busy" });
+        return;
+      }
+      const selection = {
+        provider: "chatgpt" as const,
+        model: body.model,
+        ...(body.effort ? { effort: body.effort } : {}),
+        ...(status.accountId ? { accountId: status.accountId } : {}),
+      };
+      const controller = new AbortController();
+      active.set("chatgpt", controller);
+      const disconnected = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      res.once("close", disconnected);
+      const timer = setTimeout(() => controller.abort(), options.planTimeoutMs ?? 185_000);
+      const aborted = new Promise<never>((_, reject) =>
+        controller.signal.addEventListener(
+          "abort",
+          () => reject(new LocalAiProviderError("ai_timeout")),
+          { once: true },
+        ),
+      );
+      let modelCalls: 0 | 1 = 0;
+      const checkSelection = async () => {
+        const current = await Promise.race([safeStatus(provider), aborted]);
+        if (!current.connected || current.sharing !== true)
+          throw new LocalAiProviderError("not_connected");
+        if (current.accountId !== status.accountId)
+          throw new LocalAiProviderError("account_changed");
+        const currentModel = current.models.find((item) => item.id === body.model);
+        if (!currentModel || (body.effort && !currentModel.efforts?.includes(body.effort)))
+          throw new LocalAiProviderError("model_unavailable");
+        if (controller.signal.aborted) throw new LocalAiProviderError("cancelled");
+      };
+      try {
+        const snapshots = await Promise.race([
+          Promise.all(
+            body.urls.map(async (post) => {
+              if (instagramPostUrl(post)) {
+                const source = await sourceFor(post);
+                if (
+                  source.status !== "available" ||
+                  !source.observedAt ||
+                  instagramPostUrl(source.url) !== post ||
+                  !source.description.trim()
+                )
+                  return null;
+                return {
+                  url: post,
+                  source: {
+                    provenance: "instagram-public-embed" as const,
+                    caption: source.description,
+                    author: source.author,
+                    observedAt: source.observedAt,
+                  },
+                };
+              }
+              const source = await tiktokSourceFor(post);
+              if (
+                source.status !== "available" ||
+                !source.observedAt ||
+                tiktokPostUrl(source.url) !== post ||
+                !source.caption?.trim()
+              )
+                return null;
+              return {
+                url: post,
+                source: {
+                  provenance: source.provenance,
+                  caption: source.caption,
+                  author: source.author ?? "",
+                  observedAt: source.observedAt,
+                },
+              };
+            }),
+          ),
+          aborted,
+        ]);
+        const sources = snapshots.filter((snapshot) => snapshot !== null);
+        if (!sources.length) throw new LocalAiProviderError("source_unavailable");
+        await checkSelection();
+        const entries = sources.map((snapshot) => {
+          const key = createHash("sha256")
+            .update(
+              JSON.stringify({
+                version: DISCOVER_SEMANTIC_VERSION,
+                selection,
+                genreId: body.genreId,
+                lang: body.lang ?? "en",
+                url: snapshot.url,
+                source: {
+                  provenance: snapshot.source.provenance,
+                  caption: snapshot.source.caption,
+                  author: snapshot.source.author,
+                },
+              }),
+            )
+            .digest("hex");
+          const hit = semanticCache.get(key);
+          return { snapshot, key, cached: hit && hit.until > now() ? hit.semantic : undefined };
+        });
+        const missing = entries.filter((entry) => !entry.cached);
+        if (missing.length && body.allowModel === false)
+          throw new LocalAiProviderError("model_budget");
+        const assessed: DiscoverSemantic[] = [];
+        if (missing.length) {
+          modelCalls = 1;
+          const result = await Promise.race([
+            provider.plan({
+              model: body.model,
+              effort: body.effort,
+              instructions: DISCOVER_SEMANTIC_SYSTEM,
+              input: discoverSemanticInput(
+                body.genreId,
+                missing.map((entry) => entry.snapshot),
+                body.lang,
+              ),
+              schemaName: "discover_caption_semantics",
+              schema: z.toJSONSchema(DiscoverSemanticBatchAssessmentSchema, { target: "draft-7" }),
+              signal: controller.signal,
+            }),
+            aborted,
+          ]);
+          if (controller.signal.aborted) throw new LocalAiProviderError("cancelled");
+          if (
+            result.model !== body.model ||
+            Buffer.byteLength(result.text, "utf8") > MAX_PLAN_OUTPUT
+          )
+            throw new LocalAiProviderError("invalid_response");
+          let raw: unknown;
+          try {
+            raw = JSON.parse(result.text);
+          } catch {
+            throw new LocalAiProviderError("invalid_response");
+          }
+          const output = DiscoverSemanticBatchAssessmentSchema.safeParse(raw);
+          if (
+            !output.success ||
+            output.data.assessments.length !== missing.length ||
+            new Set(output.data.assessments.map((item) => item.index)).size !== missing.length ||
+            output.data.assessments.some((item) => item.index >= missing.length)
+          )
+            throw new LocalAiProviderError("invalid_response");
+          for (let index = 0; index < missing.length; index++) {
+            const record = DiscoverSemanticSchema.safeParse({
+              version: DISCOVER_SEMANTIC_VERSION,
+              ...missing[index].snapshot,
+              genreId: body.genreId,
+              checkedAt: new Date(now()).toISOString(),
+              model: result.model,
+              ...(body.effort ? { effort: body.effort } : {}),
+              assessment: output.data.assessments.find((item) => item.index === index)!.assessment,
+            });
+            if (!record.success) throw new LocalAiProviderError("invalid_response");
+            assessed.push(record.data);
+          }
+        }
+        await checkSelection();
+        // Validate the entire response before committing any member of this batch to cache.
+        const value = DiscoverSemanticResponseSchema.parse({
+          status: "assessed",
+          selection,
+          semantics: entries.map((entry) => entry.cached ?? assessed[missing.indexOf(entry)]),
+          modelCalls,
+          cached: modelCalls === 0,
+        });
+        for (let index = 0; index < missing.length; index++) {
+          if (semanticCache.size >= 128) semanticCache.delete(semanticCache.keys().next().value!);
+          semanticCache.set(missing[index].key, {
+            until:
+              Math.min(
+                Date.parse(assessed[index].checkedAt),
+                Date.parse(assessed[index].source.observedAt),
+              ) + DISCOVER_SEMANTIC_TTL_MS,
+            semantic: assessed[index],
+          });
+        }
+        reply(res, 200, value);
+      } catch (error) {
+        reply(
+          res,
+          200,
+          DiscoverSemanticResponseSchema.parse({
+            status: "unavailable",
+            selection,
+            error: safeError(error),
+            modelCalls,
+          }),
+        );
+      } finally {
+        clearTimeout(timer);
+        res.off("close", disconnected);
+        if (active.get("chatgpt") === controller) active.delete("chatgpt");
+      }
       return;
     }
     if (url.pathname === "/api/local-ai/assess-category") {

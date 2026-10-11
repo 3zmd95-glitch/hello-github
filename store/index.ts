@@ -126,6 +126,7 @@ import {
 import { rankFromXp } from "@/lib/rank";
 import type { DiscoverItem } from "@/lib/discover";
 import type { AiSelection } from "@/lib/localAi";
+import { DiscoverSemanticResponseSchema, applicableDiscoverSemantic } from "@/lib/discoverSemantic";
 import { applyInstagramEvidence } from "@/lib/discoverSources";
 import {
   DiscoverVisualResponseSchema,
@@ -141,6 +142,7 @@ import {
   localDiscoverCandidateFallback,
   mergeDiscoverCandidates,
   discoverPostKey,
+  type DiscoverCandidate,
   type DiscoverFeedbackInput,
   type DiscoverFeedbackUndo,
 } from "@/lib/discoverFeed";
@@ -383,8 +385,20 @@ export interface DiscoverVisualApplyGuard {
   isCurrent(): boolean;
 }
 export type DiscoverVisualApplyResult = "applied" | "unchanged" | "stale" | "invalid";
+export interface DiscoverSemanticApplyGuard {
+  epoch: string;
+  genreId: string;
+  urls: string[];
+  selection: AiSelection;
+  isCurrent(): boolean;
+}
 
 export interface StoreActions {
+  applyDiscoverSemanticResult(
+    response: unknown,
+    guard: DiscoverSemanticApplyGuard,
+    now?: Date,
+  ): DiscoverVisualApplyResult;
   accumulateDiscoverCandidates(
     items: readonly DiscoverItem[],
     options: { genreId: string; manuallyAdded?: true; now?: Date },
@@ -1047,6 +1061,50 @@ export const useStore = create<StoreState>()(
           set({ discoverCandidates: next });
           candidateLibrary().changed();
         }
+      },
+
+      applyDiscoverSemanticResult(response, guard, now = new Date()) {
+        const state = get();
+        if (!guard.isCurrent() || guard.epoch !== state.discoverLibraryEpoch) return "stale";
+        if (!Number.isFinite(now.getTime())) return "invalid";
+        const parsed = DiscoverSemanticResponseSchema.safeParse(response);
+        if (!parsed.success) return "invalid";
+        const result = parsed.data;
+        if (
+          result.selection.provider !== guard.selection.provider ||
+          result.selection.model !== guard.selection.model ||
+          result.selection.effort !== guard.selection.effort ||
+          result.selection.accountId !== guard.selection.accountId
+        )
+          return "invalid";
+        if (result.status !== "assessed") return "unchanged";
+        const key = (url: string) => discoverPostKey("tt", url) ?? discoverPostKey("ig", url);
+        const requested = new Set(guard.urls.map(key).filter(Boolean));
+        if (!requested.size || requested.size > 3) return "invalid";
+        const incoming: DiscoverCandidate[] = [];
+        for (const semantic of result.semantics) {
+          const url = key(semantic.url);
+          if (!url || !requested.has(url) || semantic.genreId !== guard.genreId) return "invalid";
+          const current = state.discoverCandidates.find(
+            (entry) => entry.genreId === guard.genreId && key(entry.item.url) === url,
+          );
+          if (!current) return "stale";
+          if (
+            !applicableDiscoverSemantic(
+              { genreId: guard.genreId, semantic },
+              current.item,
+              now.getTime(),
+            )
+          )
+            return "stale";
+          incoming.push({ ...current, semantic });
+        }
+        if (!guard.isCurrent() || guard.epoch !== get().discoverLibraryEpoch) return "stale";
+        const next = mergeDiscoverCandidates(state.discoverCandidates, incoming);
+        if (next === state.discoverCandidates) return "unchanged";
+        set({ discoverCandidates: next });
+        candidateLibrary().changed();
+        return "applied";
       },
 
       applyDiscoverVisualResult(response, guard, now = new Date()) {

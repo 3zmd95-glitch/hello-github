@@ -17,6 +17,12 @@ import {
   type DiscoverVisual,
   type DiscoverVisualObservation,
 } from "./discoverVisual";
+import {
+  DiscoverSemanticSchema,
+  discoverSemanticSourceMatches,
+  applicableDiscoverSemantic,
+  type DiscoverSemantic,
+} from "./discoverSemantic";
 
 export const DISCOVER_CANDIDATE_MAX = 3000;
 export const DISCOVER_CATEGORY_MAX = 100;
@@ -204,6 +210,8 @@ export interface DiscoverCandidate {
   visual?: DiscoverVisual;
   /** A newer sampled-media receipt may invalidate an older judgment even when inference failed. */
   visualObservation?: DiscoverVisualObservation;
+  /** Caption interpretation, never watched footage, metrics, or trend evidence. */
+  semantic?: DiscoverSemantic;
 }
 
 export const DiscoverCandidateSchema = z
@@ -214,6 +222,7 @@ export const DiscoverCandidateSchema = z
     origin: z.literal("manual").optional(),
     visual: DiscoverVisualSchema.optional().catch(undefined),
     visualObservation: DiscoverVisualObservationSchema.optional().catch(undefined),
+    semantic: DiscoverSemanticSchema.optional().catch(undefined),
   })
   .transform((entry): DiscoverCandidate => mergeCandidateVisual(entry, entry));
 
@@ -295,8 +304,23 @@ function mergeCandidateVisual(
     JSON.stringify(observation) === JSON.stringify(content.visualObservation)
       ? content.visualObservation
       : observation;
-  if (content.visual === visual && content.visualObservation === visualObservation) return content;
-  return { ...content, visual, visualObservation };
+  // Consider the newest judgment first, including negative/uncertain decisions. Do not revive an
+  // older positive if the new source differs or a newer assessment rejects the category.
+  const newestSemantic = entries
+    .map((entry) => entry.semantic)
+    .filter((value): value is DiscoverSemantic => !!value && value.genreId === content.genreId)
+    .sort((a, b) => Date.parse(b.checkedAt) - Date.parse(a.checkedAt))[0];
+  const semantic =
+    newestSemantic && discoverSemanticSourceMatches(newestSemantic, content.item)
+      ? newestSemantic
+      : undefined;
+  if (
+    content.visual === visual &&
+    content.visualObservation === visualObservation &&
+    content.semantic === semantic
+  )
+    return content;
+  return { ...content, visual, visualObservation, semantic };
 }
 
 function betterCandidateContent(
@@ -334,11 +358,17 @@ function retentionQuality(entry: DiscoverCandidate): { tier: number; lane: strin
     !!visual &&
     meta.exclusions.every((reason) => reason === "empty-prose") &&
     hasDiscoverVisualCraft(visual);
+  const semantic = entry.semantic ? applicableDiscoverSemantic(entry, item) : undefined;
+  const semanticCategory = semantic?.assessment.category === "supported" && !meta.excluded;
+  const semanticProject = semanticCategory && semantic?.assessment.project === "described";
   const sourceCategoryProof =
-    isDirect && !!CATEGORY_PROFILES[entry.genreId] && (meta.eligible || visualCraft);
+    isDirect &&
+    !!CATEGORY_PROFILES[entry.genreId] &&
+    (meta.eligible || visualCraft || (semanticCategory && (meta.creative || semanticProject)));
   if (!sourceCategoryProof && (item.offTopic || item.outsideCategory)) return { tier: 0, lane };
-  if ((!meta.category || meta.excluded) && !visualCraft) return { tier: 1, lane };
-  if (!meta.creative && !visualCraft) return { tier: 2, lane };
+  if ((!meta.category || meta.excluded) && !visualCraft && !semanticCategory)
+    return { tier: 1, lane };
+  if (!meta.creative && !visualCraft && !semanticProject) return { tier: 2, lane };
   if (meta.teaching) return { tier: 6, lane };
   const stats =
     isDirect || item.evidence?.source === "indexed-excerpt" ? item.evidence : item.stats;
@@ -364,7 +394,10 @@ function retentionQuality(entry: DiscoverCandidate): { tier: number; lane: strin
         : item.platform === "yt"
           ? 5000
           : 10000);
-  if ((meta.namedTechniques.length > 0 || meta.project || visualCraft) && meaningful)
+  if (
+    (meta.namedTechniques.length > 0 || meta.project || visualCraft || semanticProject) &&
+    meaningful
+  )
     return { tier: isDirect || item.platform === "yt" ? 6 : 5, lane };
   return { tier: value === undefined || meaningful ? 4 : 3, lane };
 }

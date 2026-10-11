@@ -6,6 +6,7 @@ import { getSkill, skills } from "@/data";
 import { clearDiscoverCache, type DiscoverAlternative, type DiscoverItem } from "@/lib/discover";
 import { discoverPrompts } from "@/lib/discoverPrompts";
 import type { TrendItemInput, TrendsFeedInput } from "@/lib/domain";
+import type { DiscoverSemantic } from "@/lib/discoverSemantic";
 import { GENRES } from "@/lib/genres";
 import { clearYoutubeCache } from "@/lib/research";
 import { clearScoutCache } from "@/lib/scoutClient";
@@ -1076,6 +1077,90 @@ describe("ResearchPanel Most viewed this week", () => {
 });
 
 describe("native acquisition in category Search", () => {
+  it.each(["semantic", "source-caption"] as const)(
+    "counts %s admitted rows in category platform badges despite indexed offTopic flags",
+    async (proof) => {
+      const at = new Date().toISOString();
+      const caption =
+        proof === "semantic"
+          ? "Cinematic frames from New York."
+          : "Travel drone shot tutorial step by step";
+      const item: DiscoverItem = {
+        ...nativeLead,
+        title: "Unrelated indexed title",
+        offTopic: true,
+        outsideCategory: true,
+        section: proof === "semantic" ? "example" : "tutorial",
+        evidence: {
+          source: "tiktok-public-page",
+          caption,
+          author: "travelcrew",
+          observedAt: at,
+          availability: "available",
+          likes: proof === "semantic" ? 4000 : 50,
+        },
+      };
+      useStore.getState().accumulateDiscoverCandidates([item], { genreId: "travel" });
+      if (proof === "semantic") {
+        const semantic: DiscoverSemantic = {
+          version: 1,
+          url: item.url,
+          genreId: "travel",
+          model: "selected-caption-model",
+          checkedAt: at,
+          source: {
+            provenance: "tiktok-public-page",
+            caption,
+            author: "travelcrew",
+            observedAt: at,
+          },
+          assessment: {
+            category: "supported",
+            categoryQuote: caption,
+            project: "described",
+            projectQuote: caption,
+            reason: "The caption describes a filmed destination.",
+          },
+        };
+        useStore.setState({
+          discoverCandidates: useStore
+            .getState()
+            .discoverCandidates.map((candidate) => ({ ...candidate, semantic })),
+        });
+      }
+      await mount({ v2: true, lang: "en", tab: "all" });
+      await click("genre-travel");
+      if (proof === "source-caption") await click("feed-mode-learning");
+      expect(host.querySelectorAll('[data-testid="feed-card"]')).toHaveLength(1);
+      expect($("tab-all")?.getAttribute("data-count")).toBe("1");
+      expect($("tab-tt")?.getAttribute("data-count")).toBe("1");
+      expect($("tab-ig")?.getAttribute("data-count")).toBe("0");
+      expect($("tab-yt")?.getAttribute("data-count")).toBe("0");
+      await click("tab-tt");
+      expect(host.querySelectorAll('[data-testid="feed-card"]')).toHaveLength(1);
+      expect($("tab-tt")?.getAttribute("data-count")).toBe("1");
+      expect(useStore.getState().discoverCandidates[0].item.offTopic).toBe(true);
+      expect(discoverAsked).toEqual([]);
+      expect(localPlans).toEqual([]);
+    },
+  );
+  it("offers caption understanding only in category feeds, not detailed or creator searches", async () => {
+    await mount({ v2: true, lang: "en", tab: "all" });
+    await click("genre-travel");
+    expect($("category-semantic")).not.toBeNull();
+    expect($("category-semantic")?.hasAttribute("open")).toBe(false);
+    await submit("drone match cuts over mountain trails");
+    expect($("category-semantic")).toBeNull();
+    await submit("@travelcrew");
+    expect($("category-semantic")).toBeNull();
+    expect(localPlans).toEqual([]);
+  });
+  it("does not offer caption understanding in the skill sheet", async () => {
+    await mount({ v2: true, lang: "en", skillId: "smart-bins-keywords" });
+    await click("genre-travel");
+    expect($("category-semantic")).toBeNull();
+    expect(localPlans).toEqual([]);
+  });
   const retained = (id: string): DiscoverItem => ({
     ...nativeLead,
     url: `https://www.tiktok.com/@retained/video/${id}`,

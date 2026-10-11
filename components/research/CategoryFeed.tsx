@@ -10,6 +10,7 @@ import type { ResearchItem, ResearchTab } from "@/lib/research";
 import ResultCard from "./ResultCard";
 import FeedSearchStatus from "./FeedSearchStatus";
 import { hasDiscoverCinematography, type DiscoverVisual } from "@/lib/discoverVisual";
+import type { DiscoverSemantic } from "@/lib/discoverSemantic";
 
 const PAGE_SIZE = 12;
 const MODES: Record<DiscoverFeedMode, MessageKey> = {
@@ -330,6 +331,7 @@ function FeedCards(props: CategoryFeedProps) {
                   {props.renderCreatorAction?.(item)}
                   <details className="text-xs" data-testid="feed-why">
                     <summary className="px-link w-fit cursor-pointer">{t("feed.why")}</summary>
+                    {evidence?.semantic && <SemanticEvidence semantic={evidence.semantic} />}
                     {evidence?.visual && <VisualEvidence visual={evidence.visual} />}
                     {!!evidence?.techniques.length && (
                       <p className="mt-1" dir="auto">
@@ -360,6 +362,51 @@ function FeedCards(props: CategoryFeedProps) {
         </button>
       )}
     </>
+  );
+}
+
+function SemanticEvidence({ semantic }: { semantic: DiscoverSemantic }) {
+  const { t, lang } = useT();
+  const { assessment } = semantic;
+  const quotes = [...new Set([assessment.categoryQuote, assessment.projectQuote].filter(Boolean))];
+  return (
+    <div className="mt-2 flex min-w-0 flex-col gap-1" data-testid="feed-semantic-evidence">
+      <p className="font-bold">{t("semantic.cardDetails")}</p>
+      <p dir="ltr" className="break-words">
+        ChatGPT · {semantic.model}
+        {semantic.effort ? ` · ${semantic.effort}` : ""}
+      </p>
+      <p>
+        {t("formats.checked", {
+          date: new Date(semantic.checkedAt).toLocaleString(lang === "ar" ? "ar-SA" : "en-US"),
+        })}
+      </p>
+      <p>
+        {t(
+          assessment.category === "supported"
+            ? "semantic.cardCategorySupported"
+            : assessment.category === "mismatch"
+              ? "semantic.cardCategoryMismatch"
+              : "semantic.cardCategoryUncertain",
+        )}
+      </p>
+      <p>
+        {t(
+          assessment.project === "described"
+            ? "semantic.cardProjectDescribed"
+            : assessment.project === "none"
+              ? "semantic.cardProjectNone"
+              : "semantic.cardProjectUncertain",
+        )}
+      </p>
+      {quotes.map((quote) => (
+        <blockquote key={quote} className="border-s border-current ps-2" dir="auto">
+          {quote}
+        </blockquote>
+      ))}
+      <p dir="auto">{assessment.reason}</p>
+      <p className="text-muted">{t("semantic.cardLimits")}</p>
+    </div>
   );
 }
 

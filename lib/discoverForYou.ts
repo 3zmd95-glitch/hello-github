@@ -99,8 +99,8 @@ export function discoverForYou(
     groups.set(entry.genreId, group);
     const visuals = visualGroups.get(entry.genreId) ?? {};
     const previous = visuals[key];
-    // Source observations may be shared across categories; visual judgments never are. Prefer the
-    // newest category-specific judgment/receipt if a caller supplies duplicate wrappers.
+    // Source observations may be shared across categories; judgments never are. Prefer the newest
+    // category-specific judgment/receipt if a caller supplies duplicate wrappers.
     const newest = <T extends { checkedAt: string; media: { observedAt: string } }>(
       a: T | undefined,
       b: T | undefined,
@@ -112,9 +112,17 @@ export function discoverForYou(
             Date.parse(b.checkedAt) > Date.parse(a.checkedAt))))
         ? b
         : a;
+    const semantic = entry.semantic?.genreId === entry.genreId ? entry.semantic : undefined;
     visuals[key] = {
       visual: newest(previous?.visual, entry.visual),
       visualObservation: newest(previous?.visualObservation, entry.visualObservation),
+      // Select before source/freshness validation in rankDiscoverItems: a newer negative or
+      // changed-source judgment must not allow an older positive to reappear.
+      semantic:
+        !previous?.semantic ||
+        (semantic && Date.parse(semantic.checkedAt) > Date.parse(previous.semantic.checkedAt))
+          ? semantic
+          : previous.semantic,
     };
     visualGroups.set(entry.genreId, visuals);
   }

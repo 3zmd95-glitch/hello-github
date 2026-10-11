@@ -28,6 +28,7 @@ import {
   categoryCandidates,
   discoverFeedbackCreator,
   discoverFeedbackForItem,
+  discoverPostKey,
   savedDiscoverInterests,
   type DiscoverFeedbackUndo,
 } from "@/lib/discoverFeed";
@@ -89,6 +90,8 @@ import SkillPicker from "./SkillPicker";
 import SaveInspirationButton from "./SaveInspirationButton";
 import TrendingEffects from "./TrendingEffects";
 import TikTokNativeDiscovery from "./TikTokNativeDiscovery";
+import CategorySemanticChecks from "./CategorySemanticChecks";
+import { useCategorySemantic } from "./useCategorySemantic";
 import { useDiscoverPicks, useDiscoverQuery, useDiscoverUsage, useScoutCaps } from "./useDiscover";
 import {
   groupErrors,
@@ -603,6 +606,26 @@ export default function ResearchPanel({
     if (active && isCategoryFeed && genre && feedSources.items.length)
       accumulateDiscoverCandidates(feedSources.items, { genreId: genre.id });
   }, [active, isCategoryFeed, genre, feedSources.items, accumulateDiscoverCandidates]);
+  const feedContext = useMemo(
+    () =>
+      Object.fromEntries(
+        discoverCandidates
+          .filter((candidate) => candidate.genreId === genre?.id)
+          .map((candidate) => [
+            discoverPostKey(candidate.item.platform, candidate.item.url) ?? candidate.item.url,
+            candidate,
+          ]),
+      ),
+    [discoverCandidates, genre?.id],
+  );
+  const semantic = useCategorySemantic({
+    items: feedSources.items,
+    genreId: genre?.id ?? "",
+    active: active && isCategoryFeed && !categoryEntry.loading,
+    lang,
+    platform: tab,
+    now: feedNow,
+  });
   const feedRank = useMemo(
     () =>
       rankDiscoverItems(feedSources.items, {
@@ -611,8 +634,17 @@ export default function ResearchPanel({
         feedback: discoverFeedback,
         savedInterests,
         mode: feedMode,
+        visual: feedContext,
       }),
-    [feedSources.items, genre?.id, feedNow, discoverFeedback, savedInterests, feedMode],
+    [
+      feedSources.items,
+      genre?.id,
+      feedNow,
+      discoverFeedback,
+      savedInterests,
+      feedMode,
+      feedContext,
+    ],
   );
   const feedExplore = useMemo(
     () =>
@@ -622,8 +654,9 @@ export default function ResearchPanel({
         feedback: discoverFeedback,
         savedInterests,
         mode: "explore",
+        visual: feedContext,
       }),
-    [feedSources.items, genre?.id, feedNow, discoverFeedback, savedInterests],
+    [feedSources.items, genre?.id, feedNow, discoverFeedback, savedInterests, feedContext],
   );
   const feedAnswer = useMemo<DiscoverAnswer | undefined>(() => {
     if (!isCategoryFeed || !genre) return undefined;
@@ -717,14 +750,16 @@ export default function ResearchPanel({
   );
   // Claude's picks (free: a KV read), asked when v2 opens and again at each search attempt.
   const picks = useDiscoverPicks(v2 ? scoutCfg : null, attempt);
-  // The tab badges count the posts shown; a tab is empty only with none at all (hidden ones included).
-  const discShown = feedAnswer
-    ? tabCounts(feedAnswer, false)
+  // Category admission already considered source/semantic proof. Indexed offTopic flags must not
+  // hide a ranked row from its badge; detailed searches retain their own hidden-result policy.
+  const feedCounts = feedAnswer ? tabCounts(feedAnswer, true) : undefined;
+  const discShown = feedCounts
+    ? feedCounts
     : disc.status === "ok"
       ? tabCounts(disc.answer, false)
       : undefined;
-  const discAll = feedAnswer
-    ? tabCounts(feedAnswer, false)
+  const discAll = feedCounts
+    ? feedCounts
     : disc.status === "ok"
       ? tabCounts(disc.answer, true)
       : undefined;
@@ -945,13 +980,19 @@ export default function ResearchPanel({
       ? {
           genre: L(genre.name),
           intro: (
-            <TikTokNativeDiscovery
-              config={scoutCfg}
-              categoryId={genre.id}
-              knownItems={feedCandidates}
-              active={active && !categoryEntry.loading && (tab === "all" || tab === "tt")}
-              onCandidates={(items) => accumulateDiscoverCandidates(items, { genreId: genre.id })}
-            />
+            <>
+              <TikTokNativeDiscovery
+                config={scoutCfg}
+                categoryId={genre.id}
+                knownItems={feedCandidates}
+                active={active && !categoryEntry.loading && (tab === "all" || tab === "tt")}
+                onCandidates={(items) => accumulateDiscoverCandidates(items, { genreId: genre.id })}
+              />
+              <CategorySemanticChecks
+                queue={semantic}
+                lookupBusy={feedExpansion.scope === feedScope && feedExpansion.busy}
+              />
+            </>
           ),
           diagnostics: feedDiagnostics,
           quotaPlatforms: feedQuotaPlatforms,

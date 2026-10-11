@@ -19,8 +19,12 @@ import {
   hasDiscoverVisualCraft,
   type DiscoverVisual,
 } from "./discoverVisual";
+import { applicableDiscoverSemantic, type DiscoverSemantic } from "./discoverSemantic";
 
-export type DiscoverVisualContext = Pick<DiscoverCandidate, "visual" | "visualObservation">;
+export type DiscoverVisualContext = Pick<
+  DiscoverCandidate,
+  "visual" | "visualObservation" | "semantic"
+>;
 
 export type DiscoverFeedMode = "inspiration" | "popular" | "learning" | "explore";
 export type DiscoverReason =
@@ -41,7 +45,8 @@ export type DiscoverReason =
   | "personal-interest"
   | "personal-dismissed"
   | "source-unavailable"
-  | "sampled-visual-craft";
+  | "sampled-visual-craft"
+  | "caption-context";
 
 export interface DiscoverEvidence {
   techniques: string[];
@@ -53,6 +58,8 @@ export interface DiscoverEvidence {
   /** Added treatment or source-attributed filming visible in sampled frames; not a whole-video review. */
   visualCraft?: boolean;
   visual?: DiscoverVisual;
+  /** Exact-source caption understanding; no footage was inspected by this assessment. */
+  semantic?: DiscoverSemantic;
   teaching: boolean;
   sourceTier: "direct" | "indexed" | "unknown";
   engagement: {
@@ -172,12 +179,24 @@ export function discoverEvidence(
     : undefined;
   const hardExcluded = meta.exclusions.some((reason) => reason !== "empty-prose");
   const visualCraft = !!visual && !hardExcluded && hasDiscoverVisualCraft(visual);
-  const categoryMatch = !genreId || meta.category || visualCraft;
-  const craft = meta.namedTechniques.length ? "specific" : meta.creative ? "generic" : "none";
+  const semantic = genreId
+    ? applicableDiscoverSemantic({ ...visualContext, genreId }, item, now)
+    : undefined;
+  const semanticCategory = !meta.excluded && semantic?.assessment.category === "supported";
+  const semanticProject = semanticCategory && semantic?.assessment.project === "described";
+  const project = meta.project || semanticProject;
+  const categoryMatch = !genreId || meta.category || visualCraft || semanticCategory;
+  const craft = meta.namedTechniques.length
+    ? "specific"
+    : meta.creative || semanticProject
+      ? "generic"
+      : "none";
   // Worker flags describe the indexed excerpt's query match. A native caption can independently
   // establish a known category; absent/unknown captions cannot erase a previous negative label.
   const sourceCategoryProof =
-    isDirect && !!CATEGORY_PROFILES[genreId ?? ""] && (meta.eligible || visualCraft);
+    isDirect &&
+    !!CATEGORY_PROFILES[genreId ?? ""] &&
+    (meta.eligible || visualCraft || (semanticCategory && (meta.creative || semanticProject)));
   const offTopic = !!item.offTopic && !sourceCategoryProof;
   const outsideCategory = !!item.outsideCategory && !sourceCategoryProof;
   const unavailable = isDirect && item.evidence?.availability === "unavailable";
@@ -185,12 +204,12 @@ export function discoverEvidence(
     !unavailable &&
     !!discoverPostKey(item.platform, item.url) &&
     categoryMatch &&
-    (meta.creative || visualCraft) &&
+    (meta.creative || visualCraft || semanticProject) &&
     !offTopic &&
     !outsideCategory;
   const popular =
     eligible &&
-    (craft === "specific" || meta.project || visualCraft) &&
+    (craft === "specific" || project || visualCraft) &&
     !meta.teaching &&
     isDirect &&
     fresh &&
@@ -202,6 +221,7 @@ export function discoverEvidence(
   if (unavailable) reasons.push("source-unavailable");
   if (craft === "specific") reasons.push("named-technique");
   if (visualCraft) reasons.push("sampled-visual-craft");
+  if (semanticCategory) reasons.push("caption-context");
   if (meta.teaching && meta.creative) reasons.push("teaching");
   if (isDirect && item.evidence?.caption?.trim()) reasons.push("source-caption");
   if (!isDirect) reasons.push("indexed-only");
@@ -232,8 +252,9 @@ export function discoverEvidence(
     reasons,
     categoryMatch,
     craft,
-    project: meta.project,
+    project,
     ...(visual ? { visual, visualCraft } : {}),
+    ...(semantic ? { semantic } : {}),
     teaching: meta.teaching && meta.creative,
     sourceTier,
     engagement: {

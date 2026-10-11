@@ -409,5 +409,22 @@
   "notes.graphLabel": "Notes graph: {n} skills and {l} links",
   "notes.graphNodeNote": "{name} · has a note",
   "notes.graphNodeEmpty": "{name} · no note yet",
-  "notes.graphIsland": "{name} island"
+  "notes.graphIsland": "{name} island",
+  "semantic.title": "Understand captions",
+  "semantic.help": "Check public Instagram and TikTok captions for this category and a described creative project. This reads source text; it does not judge video quality or current popularity.",
+  "semantic.limit": "Up to 3 posts in one model request per click. Recent matching checks are reused.",
+  "semantic.assess": "Check up to 3 captions",
+  "semantic.noCandidates": "No unchecked source captions need this check on this tab. Posts need verified strong engagement; check more sources first if needed.",
+  "semantic.progress": "Checking {total} source captions…",
+  "semantic.cancelled": "Caption check cancelled.",
+  "semantic.complete": "Checked {n} of {total} source captions.",
+  "semantic.failed": "Could not complete this caption check. No other posts or fallback models were tried.",
+  "semantic.cardDetails": "Caption understanding",
+  "semantic.cardCategorySupported": "The caption supports this category.",
+  "semantic.cardCategoryMismatch": "The caption describes a different category.",
+  "semantic.cardCategoryUncertain": "Category relevance is uncertain from this caption.",
+  "semantic.cardProjectDescribed": "The caption describes a creative project.",
+  "semantic.cardProjectNone": "No creative project is described in the caption.",
+  "semantic.cardProjectUncertain": "A creative project is uncertain from this caption.",
+  "semantic.cardLimits": "Based on source-caption quotes only. This does not verify footage, named techniques, quality, authorship, or popularity."
 }

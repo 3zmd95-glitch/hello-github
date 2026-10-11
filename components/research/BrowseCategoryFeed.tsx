@@ -29,6 +29,8 @@ import DiscoverUsageLine from "./DiscoverUsageLine";
 import AddCategoryReference from "./AddCategoryReference";
 import CategoryVisualChecks from "./CategoryVisualChecks";
 import { useCategoryVisual } from "./useCategoryVisual";
+import CategorySemanticChecks from "./CategorySemanticChecks";
+import { useCategorySemantic } from "./useCategorySemantic";
 import { useCreatorExpansion } from "./useCreatorExpansion";
 import CreatorExpansionAction, { CreatorExpansionStatus } from "./CreatorExpansionAction";
 import TikTokNativeAccess from "./TikTokNativeAccess";
@@ -125,6 +127,14 @@ export default function BrowseCategoryFeed({
     [candidates, genre.id],
   );
   const visual = useCategoryVisual({
+    items: sources.items,
+    genreId: genre.id,
+    active: active && !entry.loading,
+    lang,
+    platform: tab,
+    now,
+  });
+  const semantic = useCategorySemantic({
     items: sources.items,
     genreId: genre.id,
     active: active && !entry.loading,
@@ -318,6 +328,7 @@ export default function BrowseCategoryFeed({
         }}
       />
       <CategoryVisualChecks queue={visual} lookupBusy={!!busy && !busy.signal.aborted} />
+      <CategorySemanticChecks queue={semantic} lookupBusy={!!busy && !busy.signal.aborted} />
       {(error || query.status === "error") && (
         <p role="alert" className="text-sm">
           {t(

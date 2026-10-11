@@ -13,6 +13,7 @@ import ResearchPanel from "./ResearchPanel";
 import DiscoverScreen from "../discover/DiscoverScreen";
 import { clearScoutCaps } from "./useDiscover";
 import { discoverVisualFixture } from "@/lib/discoverVisual.fixture";
+import type { DiscoverSemantic, DiscoverSemanticRequest } from "@/lib/discoverSemantic";
 
 const WORKER = "https://feed.scout.test";
 let requests: Record<string, unknown>[];
@@ -148,6 +149,143 @@ async function mount() {
 }
 
 describe("category editor feed", () => {
+  it.each(["search", "browse"] as const)(
+    "checks a previewed caption only after an explicit selected-model action in %s, then shows source quotes",
+    async (workspace) => {
+      const caption = "We brought this little story to life. #anime";
+      const at = new Date().toISOString();
+      const item: DiscoverItem = {
+        platform: "ig",
+        url: "https://www.instagram.com/p/CaptionStory/",
+        title: caption,
+        snippet: "",
+        handle: "story_editor",
+        lang: "en",
+        section: "example",
+        offTopic: true,
+        evidence: {
+          source: "instagram-public-embed",
+          caption,
+          author: "story_editor",
+          observedAt: at,
+          likes: 4000,
+          availability: "available",
+        },
+      };
+      const semantic: DiscoverSemantic = {
+        version: 1,
+        url: item.url,
+        genreId: "anime",
+        checkedAt: at,
+        model: "chosen-caption-model",
+        effort: "high",
+        source: {
+          provenance: "instagram-public-embed",
+          caption,
+          author: "story_editor",
+          observedAt: at,
+        },
+        assessment: {
+          category: "supported",
+          categoryQuote: "#anime",
+          project: "described",
+          projectQuote: "We brought this little story to life.",
+          reason: "The caption describes a completed creative story.",
+        },
+      };
+      const captionRequests: DiscoverSemanticRequest[] = [];
+      const baseFetch = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation(async (input, init) => {
+        const path = new URL(String(input), "http://localhost").pathname;
+        if (path === "/api/local-ai/status")
+          return json({
+            available: true,
+            providers: {
+              chatgpt: {
+                connected: true,
+                sharing: true,
+                accountId: "chosen-caption-account",
+                models: [{ id: semantic.model, name: "Selected caption model", efforts: ["high"] }],
+              },
+              claude: { connected: false, models: [] },
+            },
+          });
+        if (path === "/api/local-ai/assess-caption") {
+          const request = JSON.parse(String(init?.body)) as DiscoverSemanticRequest;
+          captionRequests.push(request);
+          return json({
+            status: "assessed",
+            selection: {
+              provider: request.provider,
+              model: request.model,
+              effort: request.effort,
+              accountId: request.accountId,
+            },
+            semantics: [semantic],
+            cached: false,
+            modelCalls: 1,
+          });
+        }
+        return baseFetch(input, init);
+      });
+      useStore.getState().accumulateDiscoverCandidates([item], { genreId: "anime" });
+      if (workspace === "browse") {
+        act(() => root.render(createElement(DiscoverScreen)));
+        await settle();
+        await click($("genre-anime"));
+      } else await mount();
+      expect($("category-semantic")?.hasAttribute("open")).toBe(false);
+      expect($("ai-connections", $("category-semantic")!)).toBeNull();
+      expect(captionRequests).toEqual([]);
+      expect(titles()).toEqual([]);
+      act(() => {
+        const details = $("category-semantic") as HTMLDetailsElement;
+        details.open = true;
+        details.dispatchEvent(new Event("toggle"));
+      });
+      await settle();
+      expect($("category-semantic-preview")?.textContent).toContain(caption);
+      expect($("category-semantic")?.textContent).toContain(
+        "Up to 3 posts in one model request per click",
+      );
+      expect(captionRequests).toEqual([]);
+      act(() => {
+        const select = $("ai-model", $("category-semantic")!) as HTMLSelectElement;
+        select.value = semantic.model;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await settle();
+      expect(captionRequests).toEqual([]);
+      await click($("category-semantic-assess"));
+      expect(captionRequests).toEqual([
+        {
+          provider: "chatgpt",
+          model: semantic.model,
+          effort: "high",
+          accountId: "chosen-caption-account",
+          genreId: "anime",
+          urls: [item.url],
+          lang: "en",
+        },
+      ]);
+      expect(titles()).toEqual([caption]);
+      expect($("feed-semantic-evidence")?.textContent).toContain("chosen-caption-model · high");
+      expect($("feed-semantic-evidence")?.textContent).toContain(
+        "We brought this little story to life.",
+      );
+      expect($("feed-semantic-evidence")?.textContent).toContain("does not verify footage");
+      expect($("feed-visual-evidence")).toBeNull();
+      expect(($("category-semantic-assess") as HTMLButtonElement).disabled).toBe(true);
+      expect(useStore.getState().discoverFeedback).toEqual([]);
+      expect(useStore.getState().inspirations).toEqual([]);
+      act(() => useStore.getState().setSettings({ lang: "ar" }));
+      await settle();
+      expect($("feed-semantic-evidence")?.textContent).toContain("فهم وصف المنشور");
+      expect($("category-semantic")?.textContent).toContain("فهم وصف المنشورات");
+      expect(captionRequests).toHaveLength(1);
+      expect(requests).toHaveLength(0);
+    },
+  );
   it.each(["search", "browse"] as const)(
     "offers explicit remaining-source checks in %s without searching again",
     async (workspace) => {
