@@ -49,6 +49,7 @@ export const TT_PHOTO = "PHOTOGRAPHY";
 
 /** `video_list` takes at most 10 hashtags. */
 const HASHTAGS = 10;
+const NEUTRAL_CRAFT_HASHTAGS = 2;
 /** Documented related-video horizon per picked hashtag; never traverse arbitrary upstream arrays. */
 const VIDEOS_PER_HASHTAG = 20;
 /** Hard ceiling, three concurrent public oEmbed requests; Discovery hashtags never count as captions. */
@@ -72,8 +73,8 @@ export interface TikTokTop {
 }
 
 type Hashtag = { id: string; name: string; rank: number; here: boolean };
-/** 1: creative cue and category; 3: category only (still must pass caption evidence before recommending). */
-type Tier = 1 | 3;
+/** 1: category craft; 2: subject-neutral named craft; 3: category only. All are retrieval leads. */
+type Tier = 1 | 2 | 3;
 type Picked = Hashtag & { tier: Tier };
 
 /** TIKTOK_DISCOVERY_COUNTRY when it is a 2-letter code, else US (English first, global). */
@@ -132,39 +133,49 @@ function parse(list: unknown[], country: string): Hashtag[] {
   });
 }
 
-function tierOf(name: string, id: string): Tier | undefined {
-  const evidence = categoryCreativeEvidence(id, name.replace(/_/g, " ") + ` #${name}`);
+function tierOf(name: string, id: string, editList: boolean): Tier | undefined {
+  const text = name.replace(/_/g, " ") + ` #${name}`;
+  const evidence = categoryCreativeEvidence(id, text);
   // A broad #caredit tag is a useful lead, even though "car edit" alone is insufficient
   // caption evidence for recommending a video. Every candidate still passes the final gate.
-  return evidence.category
-    ? evidence.creative || evidence.techniques.includes("editing")
-      ? 1
-      : 3
-    : undefined;
+  if (evidence.category)
+    return evidence.creative || evidence.techniques.includes("editing") ? 1 : 3;
+  // Effects/photo charts can supply techniques whose tag doesn't name its videos' subjects.
+  // Generic edit/style tags and recognized other-category subjects never use these reserved slots.
+  if (!editList || !evidence.namedTechniques.length) return undefined;
+  const otherSubject = Object.keys(CATEGORY_PROFILES).some((other) => {
+    const proof = categoryCreativeEvidence(other, text);
+    return proof.subjects.length > 0 || proof.exclusions.includes("other-sport");
+  });
+  return otherSubject ? undefined : 2;
 }
 
-/** At most10 subject-specific hashtags, creative ones first, then plain category tags. No unrelated fill tier. */
+/** Keep at most two named-craft leads within the existing ten-tag budget; captions decide category fit. */
 function pick(
   lists: { tags: unknown[]; editList: boolean }[],
   country: string,
   id: string,
 ): Picked[] {
   const best = new Map<string, Picked>();
-  for (const { tags } of lists)
+  for (const { tags, editList } of lists)
     for (const t of parse(tags, country)) {
-      const tier = tierOf(t.name, id);
-      const had = best.get(t.id);
       // video_list requires the requested country to be in this hashtag's top_country_list.
-      if (t.here && tier && (!had || tier < had.tier)) best.set(t.id, { ...t, tier });
+      if (!t.here) continue;
+      const tier = tierOf(t.name, id, editList);
+      const had = best.get(t.id);
+      if (tier && (!had || tier < had.tier)) best.set(t.id, { ...t, tier });
     }
-  const out: Picked[] = [];
-  for (const tier of [1, 3]) {
-    const tags = [...best.values()]
+  const ranked = (tier: Tier) =>
+    [...best.values()]
       .filter((t) => t.tier === tier)
       .sort((a, b) => (a.rank === b.rank ? 0 : a.rank - b.rank));
-    out.push(...tags);
-  }
-  return out.slice(0, HASHTAGS);
+  const neutral = ranked(2).slice(0, NEUTRAL_CRAFT_HASHTAGS);
+  const category = [...ranked(1), ...ranked(3)].slice(0, HASHTAGS - neutral.length);
+  return [
+    ...category.filter((t) => t.tier === 1),
+    ...neutral,
+    ...category.filter((t) => t.tier === 3),
+  ];
 }
 
 /** One of TikTok's videos as a top video: its share link without the query, kept only when it is an https tiktok.com

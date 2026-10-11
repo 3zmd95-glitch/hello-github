@@ -125,6 +125,114 @@ describe("caption-grounded TikTok category discovery", () => {
     expect((await tiktokTop(env(), fetch, "food", 1000, null)).videos).toEqual([]);
     expect(fetch).toHaveBeenCalledTimes(3);
   });
+  it("reserves two of ten slots for ranked neutral craft leads without increasing the caption budget", async () => {
+    const fetch = network({
+      tags: Array.from({ length: 10 }, (_, i) =>
+        tag(String(i + 1), i < 2 ? "coffeeedit" : "coffee", i + 1),
+      ),
+      effects: [tag("20", "speedramp", 6), tag("21", "matchcut", 1)],
+      photo: [tag("20", "speedramp", 6), tag("22", "colorgrading", 9)],
+      caption: (url) =>
+        json({
+          title: url.pathname.endsWith("/2101")
+            ? "Coffee match cut commercial"
+            : url.pathname.endsWith("/2001")
+              ? "Car speed ramp commercial"
+              : "Coffee at my local cafe",
+        }),
+    });
+    const result = await tiktokTop(env(), fetch, "coffee", 1000, null);
+    const videoCall = fetch.mock.calls.find(([input]) => String(input).startsWith(TT_VIDEOS_URL))!;
+    expect(JSON.parse(new URL(String(videoCall[0])).searchParams.get("hashtag_ids")!)).toEqual([
+      "1",
+      "2",
+      "21",
+      "20",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+    ]);
+    expect(result.diagnostics).toMatchObject({ captionCandidates: 12, raw: 20 });
+    expect(result.candidates).toHaveLength(12);
+    // The technique tag only gets its video inspected; the actual caption must establish category and craft.
+    expect(result.videos?.map((video) => video.title)).toEqual(["Coffee match cut commercial"]);
+    expect(
+      fetch.mock.calls.filter(([input]) => String(input).startsWith(TT_TRENDING_URL)),
+    ).toHaveLength(3);
+    expect(
+      fetch.mock.calls.filter(([input]) => String(input).startsWith(TT_VIDEOS_URL)),
+    ).toHaveLength(1);
+    expect(fetch.mock.calls.filter(([input]) => String(input).includes("/oembed"))).toHaveLength(
+      12,
+    );
+    expect(fetch).toHaveBeenCalledTimes(16);
+  });
+
+  it.each(["coffee", "camping", "gym"])(
+    "can retrieve two craft leads for undersupplied %s without padding more slots",
+    async (category) => {
+      const fetch = network({
+        tags: [],
+        effects: [tag("1", "speedramp", 3), tag("2", "matchcut", 1)],
+        photo: [tag("3", "colorgrading", 2)],
+        caption: () => json({ title: `${category} match cut commercial` }),
+      });
+      const result = await tiktokTop(env(), fetch, category, 1000, null);
+      expect(result.diagnostics?.hashtags).toEqual([
+        { name: "matchcut", tier: 2 },
+        { name: "colorgrading", tier: 2 },
+      ]);
+      expect(result.candidates).toHaveLength(4);
+      expect(result.videos).toHaveLength(4);
+      expect(fetch).toHaveBeenCalledTimes(8);
+    },
+  );
+
+  it("rejects generic, other-category, wrong-country and non-edit-chart craft tags", async () => {
+    const fetch = network({
+      tags: [tag("1", "rotoscoping")],
+      effects: [
+        ...[
+          "fyp",
+          "viral",
+          "edit",
+          "cinematic",
+          "capcut",
+          "car_speedramp",
+          "anime_matchcut",
+          "football_colorgrading",
+          "nfl_speedramp",
+        ].map((name, i) => tag(String(i + 2), name)),
+        { ...tag("30", "matchcut"), top_country_list: ["JP"] },
+      ],
+      photo: [{ ...tag("31", "speedramp"), top_country_list: ["SA"] }],
+    });
+    const result = await tiktokTop(env(), fetch, "coffee", 1000, null);
+    expect(result.diagnostics?.hashtags).toEqual([]);
+    expect(result.candidates).toEqual([]);
+    expect(result.videos).toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("retains neutral craft candidates with missing captions without copying the hashtag into evidence", async () => {
+    const fetch = network({
+      tags: [],
+      effects: [tag("1", "matchcut")],
+      caption: () => json({}, 404),
+    });
+    const result = await tiktokTop(env(), fetch, "coffee", 1000, null);
+    expect(result.candidates).toHaveLength(2);
+    expect(
+      result.candidates?.every(
+        (video) => video.title === "TikTok video" && !video.evidence && !video.snippet,
+      ),
+    ).toBe(true);
+    expect(result.videos).toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(6);
+  });
   it("checks at most12 unique captions and ranks specific metadata instead of hashtag order", async () => {
     const fetch = network({
       videos: () =>
