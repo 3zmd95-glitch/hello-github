@@ -4,17 +4,19 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { useT, type MessageKey } from "@/lib/i18n";
 import type { ScoutConfig } from "@/lib/scoutClient";
 import type { DiscoverItem } from "@/lib/discover";
-import { acquireTikTokEdits, type TikTokCountry } from "@/lib/tiktokAccess";
+import { acquireTikTokEdits, knownTikTokIds, type TikTokCountry } from "@/lib/tiktokAccess";
 
 export default function TikTokNativeDiscovery({
   config,
   categoryId,
   active,
+  knownItems = [],
   onCandidates,
 }: {
   config: ScoutConfig | null;
   categoryId: string;
   active: boolean;
+  knownItems?: readonly DiscoverItem[];
   onCandidates: (items: DiscoverItem[]) => void;
 }) {
   const { t } = useT();
@@ -22,6 +24,7 @@ export default function TikTokNativeDiscovery({
   const scope = JSON.stringify([active, categoryId, country, config?.url, config?.token]);
   const current = useRef(scope);
   const pending = useRef<AbortController | null>(null);
+  const seen = useRef<{ scope: string; ids: string[] }>({ scope, ids: [] });
   const [state, setState] = useState<{
     scope: string;
     busy?: boolean;
@@ -43,6 +46,12 @@ export default function TikTokNativeDiscovery({
     if (!active || !config || pending.current || visible?.done) return;
     const controller = new AbortController();
     pending.current = controller;
+    const excludeVideoIds = [
+      ...new Set([
+        ...(seen.current.scope === scope ? seen.current.ids : []),
+        ...knownTikTokIds(knownItems),
+      ]),
+    ].slice(0, 200);
     const valid = () =>
       current.current === scope && pending.current === controller && !controller.signal.aborted;
     setState({ scope, busy: true, message: "feed.tiktokFindWorking" });
@@ -50,18 +59,28 @@ export default function TikTokNativeDiscovery({
       const result = await acquireTikTokEdits(config, categoryId, {
         signal: controller.signal,
         country,
+        excludeVideoIds,
       });
       if (!valid()) return;
       if (result.ok && result.value.status === "accepted") {
+        seen.current = {
+          scope,
+          ids: [...new Set([...excludeVideoIds, ...knownTikTokIds(result.value.items)])].slice(
+            0,
+            200,
+          ),
+        };
         onCandidates(result.value.items);
         setState({
           scope,
-          done: true,
+          done: !result.value.supply?.unseenRemaining || seen.current.ids.length >= 200,
           message: result.value.items.length
             ? "feed.tiktokFindResult"
             : result.value.supply?.matchedHashtags === 0
               ? "feed.tiktokFindNoTags"
-              : "feed.tiktokFindEmpty",
+              : result.value.supply?.skippedKnown
+                ? "feed.tiktokFindSeen"
+                : "feed.tiktokFindEmpty",
           n: result.value.items.length,
         });
       } else {
@@ -118,7 +137,7 @@ export default function TikTokNativeDiscovery({
           onClick={() => void acquire()}
           data-testid="tiktok-find-edits"
         >
-          {t("feed.tiktokFind")}
+          {t(visible?.n && !visible.done ? "feed.tiktokFindMore" : "feed.tiktokFind")}
         </button>
         {visible?.busy && (
           <button

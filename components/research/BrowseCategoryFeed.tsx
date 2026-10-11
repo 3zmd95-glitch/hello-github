@@ -297,6 +297,7 @@ export default function BrowseCategoryFeed({
       <TikTokNativeDiscovery
         config={config}
         categoryId={genre.id}
+        knownItems={pool}
         active={active && (tab === "all" || tab === "tt")}
         onCandidates={(items) => accumulate(items, { genreId: genre.id })}
       />

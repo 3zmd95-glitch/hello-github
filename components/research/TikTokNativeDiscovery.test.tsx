@@ -5,7 +5,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import TikTokNativeDiscovery from "./TikTokNativeDiscovery";
 import { acquireTikTokEdits, type TikTokAcquisition } from "@/lib/tiktokAccess";
 
-vi.mock("@/lib/tiktokAccess", () => ({ acquireTikTokEdits: vi.fn() }));
+vi.mock("@/lib/tiktokAccess", async (original) => ({
+  ...(await original<typeof import("@/lib/tiktokAccess")>()),
+  acquireTikTokEdits: vi.fn(),
+}));
 vi.mock("@/lib/i18n", () => ({ useT: () => ({ t: (key: string) => key }) }));
 const config = { url: "https://worker.test", token: "fixture" };
 const value: TikTokAcquisition = {
@@ -122,4 +125,41 @@ it("does not replace existing candidates when the provider fails", async () => {
   await click();
   expect(onCandidates).not.toHaveBeenCalled();
   expect(host.textContent).toContain("feed.tiktokAccessUpstream");
+});
+
+it("each deliberate next batch skips retained and newly received identities without passive retrieval", async () => {
+  const retained = {
+    ...value.items[0],
+    url: "https://www.tiktok.com/@other/video/7559999999000000002",
+  };
+  vi.mocked(acquireTikTokEdits).mockResolvedValueOnce({
+    ok: true,
+    value: {
+      ...value,
+      supply: { matchedHashtags: 1, videoCandidates: 1, unseenRemaining: 8, skippedKnown: 1 },
+    },
+  });
+  render({ knownItems: [retained] });
+  await click();
+  expect(vi.mocked(acquireTikTokEdits).mock.calls[0][2]?.excludeVideoIds).toEqual([
+    "7559999999000000002",
+  ]);
+  expect(host.textContent).toContain("feed.tiktokFindMore");
+  expect(acquireTikTokEdits).toHaveBeenCalledTimes(1);
+  vi.mocked(acquireTikTokEdits).mockResolvedValueOnce({
+    ok: true,
+    value: {
+      ...value,
+      items: [],
+      supply: { matchedHashtags: 1, videoCandidates: 0, unseenRemaining: 0, skippedKnown: 2 },
+    },
+  });
+  await click();
+  expect(vi.mocked(acquireTikTokEdits).mock.calls[1][2]?.excludeVideoIds).toEqual([
+    "7559999999000000002",
+    "7559999999000000001",
+  ]);
+  expect(host.textContent).toContain("feed.tiktokFindSeen");
+  await click();
+  expect(acquireTikTokEdits).toHaveBeenCalledTimes(2);
 });

@@ -24,6 +24,7 @@ const req = (init: RequestInit = {}) =>
     ...init,
   });
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
+const nativeId = (i: number) => `75599999990000000${String(i).padStart(2, "0")}`;
 const network = (country = "US") =>
   vi.fn<typeof fetch>(async (input) => {
     const url = new URL(String(input));
@@ -55,8 +56,8 @@ const network = (country = "US") =>
             {
               hashtag_id: "1",
               top_video_list: Array.from({ length: 20 }, (_, i) => ({
-                video_id: `75599999990000000${String(i).padStart(2, "0")}`,
-                share_url: `https://www.tiktok.com/@animecreator/video/75599999990000000${String(i).padStart(2, "0")}`,
+                video_id: nativeId(i),
+                share_url: `https://www.tiktok.com/@animecreator/video/${nativeId(i)}`,
               })),
             },
           ],
@@ -78,10 +79,12 @@ it("acquires bounded native leads without spending/searching, copying hashtag ev
     status: string;
     items: Record<string, unknown>[];
     captioned: number;
+    supply: Record<string, number>;
   };
   expect(body.status).toBe("accepted");
   expect(body.items).toHaveLength(12);
   expect(body.captioned).toBe(12);
+  expect(body.supply).toEqual({ matchedHashtags: 1, videoCandidates: 12 });
   expect(fetch).toHaveBeenCalledTimes(16);
   for (const [input, init] of fetch.mock.calls) {
     const url = new URL(String(input));
@@ -103,10 +106,115 @@ it.each(["[]", '{"force":true}', '{"country":"JP"}', '{"country":null}', "x".rep
   "rejects unexpected body %s before retrieval",
   async (body) => {
     const fetch = network();
-    expect(await acquireTikTok(req({ body }), makeEnv(), "anime", { fetch })).toBeNull();
+    const env = makeEnv();
+    expect(await acquireTikTok(req({ body }), env, "anime", { fetch })).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
+    expect(env.SOCIAL_KV!.get).not.toHaveBeenCalled();
   },
 );
+
+it("traverses twelve then eight unseen leads within the same request and caption budgets", async () => {
+  const fetch = network();
+  const first = await acquireTikTok(req({ body: '{"excludeVideoIds":[]}' }), makeEnv(), "anime", {
+    fetch,
+  });
+  expect(first).toMatchObject({
+    captioned: 12,
+    supply: { matchedHashtags: 1, videoCandidates: 12, unseenRemaining: 8, skippedKnown: 0 },
+  });
+  expect(fetch).toHaveBeenCalledTimes(16);
+  const excluded = first!.items.map((item) => item.url.split("/").at(-1)!);
+  expect(excluded).toEqual(Array.from({ length: 12 }, (_, i) => nativeId(i)));
+  fetch.mockClear();
+  const next = await acquireTikTok(
+    req({ body: JSON.stringify({ excludeVideoIds: excluded }) }),
+    makeEnv(),
+    "anime",
+    { fetch },
+  );
+  expect(next).toMatchObject({
+    captioned: 8,
+    supply: { matchedHashtags: 1, videoCandidates: 8, unseenRemaining: 0, skippedKnown: 12 },
+  });
+  expect(next!.items.map((item) => item.url.split("/").at(-1))).toEqual(
+    Array.from({ length: 8 }, (_, i) => nativeId(i + 12)),
+  );
+  expect(fetch).toHaveBeenCalledTimes(12);
+  const captionUrls = fetch.mock.calls
+    .filter(([input]) => String(input).includes("/oembed"))
+    .map(([input]) => new URL(String(input)).searchParams.get("url"));
+  expect(captionUrls).toHaveLength(8);
+  expect(captionUrls.every((url) => !excluded.some((id) => url!.endsWith(`/${id}`)))).toBe(true);
+
+  fetch.mockClear();
+  const exhausted = await acquireTikTok(
+    req({
+      body: JSON.stringify({
+        excludeVideoIds: Array.from({ length: 20 }, (_, i) => nativeId(i)),
+      }),
+    }),
+    makeEnv(),
+    "anime",
+    { fetch },
+  );
+  expect(exhausted).toMatchObject({
+    items: [],
+    captioned: 0,
+    supply: { matchedHashtags: 1, videoCandidates: 0, unseenRemaining: 0, skippedKnown: 20 },
+  });
+  expect(fetch).toHaveBeenCalledTimes(4);
+  expect(fetch.mock.calls.some(([input]) => String(input).includes("/oembed"))).toBe(false);
+});
+
+it.each([
+  null,
+  "123456789012345",
+  [123456789012345],
+  [null],
+  ["1".repeat(14)],
+  ["1".repeat(26)],
+  ["１２３４５６７８９０１２３４５"],
+  [" 123456789012345"],
+  ["123456789012345x"],
+  [nativeId(1), nativeId(1)],
+  Array.from({ length: 201 }, (_, i) => String(7559999999000000000n + BigInt(i))),
+])("rejects invalid exclusions before token or provider access: %j", async (excludeVideoIds) => {
+  const env = makeEnv();
+  const fetch = network();
+  expect(
+    await acquireTikTok(req({ body: JSON.stringify({ excludeVideoIds }) }), env, "anime", {
+      fetch,
+    }),
+  ).toBeNull();
+  expect(env.SOCIAL_KV!.get).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("accepts the 200-ID limit and enforces the request byte limit before token access", async () => {
+  const env = makeEnv();
+  const fetch = network();
+  const body = JSON.stringify({
+    excludeVideoIds: Array.from({ length: 200 }, (_, i) =>
+      String(7559999999000000000n + BigInt(i)),
+    ),
+  });
+  expect(body.length).toBeLessThan(8192);
+  const accepted = await acquireTikTok(req({ body: body.padEnd(8192, " ") }), env, "anime", {
+    fetch,
+  });
+  expect(accepted).toMatchObject({
+    status: "accepted",
+    supply: { skippedKnown: 20, unseenRemaining: 0 },
+  });
+  expect(fetch).toHaveBeenCalledTimes(4);
+  fetch.mockClear();
+  vi.mocked(env.SOCIAL_KV!.get).mockClear();
+  expect(
+    await acquireTikTok(req({ body: body.padEnd(8193, " ") }), env, "anime", { fetch }),
+  ).toBeNull();
+  expect(env.SOCIAL_KV!.get).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+});
 
 it("uses the requested Saudi chart and only hashtags supporting that country", async () => {
   const fetch = network("SA");

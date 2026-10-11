@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { acquireTikTokEdits, probeTikTokAccess, readTikTokStoredStatus } from "./tiktokAccess";
+import {
+  acquireTikTokEdits,
+  knownTikTokIds,
+  probeTikTokAccess,
+  readTikTokStoredStatus,
+} from "./tiktokAccess";
+import type { DiscoverItem } from "./discover";
 
 const config = { url: "https://scout.test", token: "private-test-token" };
 const NOW = Date.parse("2026-10-10T01:00:00Z");
@@ -40,6 +46,73 @@ const acquisition = {
     },
   ],
 };
+it("extracts only distinct valid public TikTok IDs, bounded at 200", () => {
+  const item = acquisition.items[0] as DiscoverItem;
+  expect(
+    knownTikTokIds([
+      item,
+      { ...item, url: item.url + "?tracking=ignored" },
+      { ...item, platform: "ig" },
+      { ...item, url: "https://evil.test/@x/video/7559999999000000001" },
+      { ...item, url: "https://www.tiktok.com/@x/video/123" },
+    ]),
+  ).toEqual(["7559999999000000001"]);
+  expect(
+    knownTikTokIds(
+      Array.from({ length: 201 }, (_, i) => ({
+        ...item,
+        url: `https://www.tiktok.com/@x/video/7559999999000000${String(i).padStart(3, "0")}`,
+      })),
+    ),
+  ).toHaveLength(200);
+});
+it.each([
+  ["bad"],
+  ["7559999999000000001", "7559999999000000001"],
+  Array(201).fill("7559999999000000001"),
+])("rejects malformed exclusions before making a request", async (...args) => {
+  const fetchImpl = vi.fn<typeof fetch>();
+  expect(await acquireTikTokEdits(config, "anime", { fetchImpl, excludeVideoIds: args })).toEqual({
+    ok: false,
+    error: "malformed",
+  });
+  expect(fetchImpl).not.toHaveBeenCalled();
+});
+it("binds traversal metadata to a unique unseen batch and sends only excluded IDs", async () => {
+  const answer = {
+    ...acquisition,
+    supply: { matchedHashtags: 1, videoCandidates: 1, unseenRemaining: 7, skippedKnown: 1 },
+  };
+  const fetchImpl = vi.fn<typeof fetch>(async () => json(answer));
+  const excludeVideoIds = ["7559999999000000002"];
+  expect(
+    await acquireTikTokEdits(config, "anime", { fetchImpl, excludeVideoIds, now: () => NOW }),
+  ).toEqual({ ok: true, value: answer });
+  expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ excludeVideoIds });
+  expect(
+    await acquireTikTokEdits(config, "anime", {
+      fetchImpl,
+      excludeVideoIds: ["7559999999000000001"],
+      now: () => NOW,
+    }),
+  ).toEqual({ ok: false, error: "malformed" });
+  for (const bad of [
+    {
+      ...answer,
+      items: [...answer.items, ...answer.items],
+      captioned: 2,
+      supply: { ...answer.supply, videoCandidates: 2 },
+    },
+    { ...answer, supply: { ...answer.supply, skippedKnown: undefined } },
+    { ...answer, supply: { ...answer.supply, unseenRemaining: 200 } },
+  ])
+    expect(
+      await acquireTikTokEdits(config, "anime", {
+        fetchImpl: async () => json(bad),
+        now: () => NOW,
+      }),
+    ).toEqual({ ok: false, error: "malformed" });
+});
 it("retrieves native candidates through one authenticated request, without indexed search or inferred evidence", async () => {
   const fetchImpl = vi.fn<typeof fetch>(async () => json(acquisition));
   expect(await acquireTikTokEdits(config, "anime", { fetchImpl, now: () => NOW })).toEqual({

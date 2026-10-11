@@ -12,6 +12,7 @@ export async function acquireTikTok(
 ) {
   const controller = new AbortController();
   let country: "US" | "SA" = "US";
+  let excludeVideoIds: string[] | undefined;
   const base = () => ({
     version: 1,
     categoryId,
@@ -64,15 +65,26 @@ export async function acquireTikTok(
   };
   const run = async () => {
     try {
-      const text = (await readLimited(req, 256, controller.signal)).trim();
+      const text = (await readLimited(req, 8192, controller.signal)).trim();
       if (text) {
         const body: unknown = JSON.parse(text);
         if (
           !isRecord(body) ||
-          Object.keys(body).some((key) => key !== "country") ||
+          Object.keys(body).some((key) => key !== "country" && key !== "excludeVideoIds") ||
           (body.country !== undefined && body.country !== "US" && body.country !== "SA")
         )
           return null;
+        if (body.excludeVideoIds !== undefined) {
+          const ids = body.excludeVideoIds;
+          if (
+            !Array.isArray(ids) ||
+            ids.length > 200 ||
+            ids.some((id) => typeof id !== "string" || !/^\d{15,25}$/.test(id)) ||
+            new Set(ids).size !== ids.length
+          )
+            return null;
+          excludeVideoIds = ids;
+        }
         if (body.country === "US" || body.country === "SA") country = body.country;
       }
     } catch {
@@ -84,6 +96,7 @@ export async function acquireTikTok(
       categoryId,
       6_000,
       null,
+      { excludeVideoIds },
     );
     if (controller.signal.aborted) return { ...base(), status: "cancelled" };
     if (found.note)
@@ -96,6 +109,18 @@ export async function acquireTikTok(
           ? found.diagnostics.hashtags.length
           : 0,
         videoCandidates: (found.candidates ?? []).length,
+        ...(excludeVideoIds !== undefined
+          ? {
+              unseenRemaining:
+                typeof found.diagnostics?.unseenRemaining === "number"
+                  ? found.diagnostics.unseenRemaining
+                  : 0,
+              skippedKnown:
+                typeof found.diagnostics?.skippedKnown === "number"
+                  ? found.diagnostics.skippedKnown
+                  : 0,
+            }
+          : {}),
       },
       captioned: typeof found.diagnostics?.captioned === "number" ? found.diagnostics.captioned : 0,
       items: (found.candidates ?? []).slice(0, 12).map((video) => ({

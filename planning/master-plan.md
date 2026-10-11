@@ -787,3 +787,6 @@ covering: Today (level/XP, daily streak + micro-actions, 3 next quests, reward p
 with 4 quest pips and difficulty tier), Discover (AI suggestions in Saudi Arabic), Audience + Social (growth charts), Leads, and Content.
 Arabic RTL with an English toggle, in the dark/green 3z Prod look, phone and desktop layouts.
 The owner reacts to it, and we keep brainstorming (DaVinci skill tree, social/trends, money/legal) before any Phase 0 work.
+# Native candidate traversal — 11 October 2026
+
+Repeated TikTok acquisition previously revisited the same first twelve candidates. Reuse the existing native API and category library to skip retained public IDs before the bounded caption batch, exposing another explicit batch while the returned chart has unseen candidates. No added provider, paid search or model call. Validation/live outcome: [tools/32](tools/32-unseen-native-candidates.md). This addresses candidate coverage, not native-search equivalence or verified trend growth.

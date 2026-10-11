@@ -167,6 +167,69 @@ describe("caption-grounded TikTok category discovery", () => {
       (await tiktokTop(env(), fetch, "food", 1000, null)).videos?.map((v) => v.creator),
     ).toEqual(["@same", "@other", "@same", "@same"]);
   });
+  it("counts distinct unseen and retained IDs without letting malformed or duplicate rows consume the budget", async () => {
+    const id = (n: number) => String(7559999999000000000n + BigInt(n));
+    const fetch = network({
+      tags: [tag("1", "foodedit"), tag("2", "food")],
+      videos: () =>
+        ok([
+          { hashtag_id: "unknown", top_video_list: [vid(id(99))] },
+          {
+            hashtag_id: "1",
+            top_video_list: [
+              vid(id(1)),
+              vid(id(2)),
+              vid(id(2), "anotherhandle"),
+              { ...vid(id(4)), video_id: id(5) },
+              null,
+              { share_url: `https://evil.test/@food/video/${id(6)}` },
+            ],
+          },
+          {
+            hashtag_id: "2",
+            top_video_list: [vid(id(1), "changedhandle"), vid(id(3)), vid(id(2))],
+          },
+        ]),
+      caption: () => json({}, 404),
+    });
+    const result = await tiktokTop(env(), fetch, "food", 1000, null, {
+      excludeVideoIds: [id(1), id(100)],
+    });
+    expect(result.candidates?.map((video) => video.url.split("/").at(-1))).toEqual([id(2), id(3)]);
+    expect(result.diagnostics).toMatchObject({
+      captionCandidates: 2,
+      skippedKnown: 1,
+      unseenRemaining: 0,
+      captioned: 0,
+    });
+    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(result.videos).toEqual([]);
+  });
+
+  it("bounds each provider column at twenty before deriving the remaining horizon", async () => {
+    const id = (n: number) => String(7559999999000000000n + BigInt(n));
+    const fetch = network({
+      tags: Array.from({ length: 10 }, (_, i) => tag(String(i), "foodedit", i)),
+      videos: (ids) =>
+        ok(
+          ids.map((tagId) => ({
+            hashtag_id: tagId,
+            top_video_list: Array.from({ length: 30 }, (_, i) => vid(id(Number(tagId) * 30 + i))),
+          })),
+        ),
+    });
+    const result = await tiktokTop(env(), fetch, "food", 1000, null, { excludeVideoIds: [] });
+    expect(result.diagnostics).toMatchObject({
+      raw: 200,
+      captionCandidates: 12,
+      skippedKnown: 0,
+      unseenRemaining: 188,
+    });
+    expect(result.candidates?.slice(0, 10).map((video) => video.url.split("/").at(-1))).toEqual(
+      Array.from({ length: 10 }, (_, i) => id(i * 30)),
+    );
+    expect(fetch).toHaveBeenCalledTimes(16);
+  });
   it("limits concurrent public caption requests to three", async () => {
     const fake = network({
       videos: () =>

@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { openBrowseCategories, seedState, switchLang } from "./helpers";
 import en from "../messages/feed.en.json";
 import ar from "../messages/feed.ar.json";
+import type { DiscoverItem } from "../lib/discover";
 
 const worker = "https://tiktok-access-fixture.example.workers.dev";
 const cors = {
@@ -28,6 +29,8 @@ async function setup(page: Page) {
     forbidden: [] as string[],
     aborted: [] as string[],
     acquisitions: [] as string[],
+    exclusions: [] as string[][],
+    nativeBatches: undefined as DiscoverItem[][] | undefined,
   };
   page.on("request", (request) => {
     if (
@@ -58,10 +61,14 @@ async function setup(page: Page) {
     if (acquire) {
       expect(request.method()).toBe("POST");
       const country = request.postDataJSON().country;
+      const excludeVideoIds = request.postDataJSON().excludeVideoIds as string[];
       expect(["US", "SA"]).toContain(country);
-      expect(request.postDataJSON()).toEqual({ country });
+      expect(request.postDataJSON()).toEqual({ country, excludeVideoIds });
+      expect(excludeVideoIds.every((id) => /^\d{15,25}$/.test(id))).toBe(true);
+      state.exclusions.push(excludeVideoIds);
       expect(request.headers().authorization).toBe("Bearer fixture");
       state.acquisitions.push(acquire[1]);
+      const items = state.nativeBatches?.shift() ?? [];
       return route.fulfill({
         headers: cors,
         json: {
@@ -71,8 +78,21 @@ async function setup(page: Page) {
           dateRange: "7DAY",
           checkedAt: new Date().toISOString(),
           status: "accepted",
-          items: [],
+          items,
           captioned: 0,
+          ...(state.nativeBatches
+            ? {
+                supply: {
+                  matchedHashtags: 1,
+                  videoCandidates: items.length,
+                  unseenRemaining: state.nativeBatches.reduce(
+                    (count, batch) => count + batch.length,
+                    0,
+                  ),
+                  skippedKnown: excludeVideoIds.length,
+                },
+              }
+            : {}),
         },
       });
     }
@@ -204,6 +224,36 @@ test("native TikTok retrieval is explicit, bypasses search credits, and preserve
   expect(state.acquisitions).toEqual(["anime"]);
   await page.getByTestId("tiktok-find-edits").click();
   await expect(page.getByTestId("tiktok-find-result")).toHaveText(ar["feed.tiktokFindEmpty"]);
+  expect(state.acquisitions).toEqual(["anime", "anime"]);
+  expect(state.forbidden).toEqual([]);
+});
+
+test("native next batches skip retained posts after reload and stop when the chart is exhausted", async ({
+  page,
+}) => {
+  const state = await setup(page);
+  state.nativeBatches = [1, 2].map((n) => [
+    {
+      platform: "tt",
+      url: `https://www.tiktok.com/@artist/video/755999999900000000${n}`,
+      handle: "artist",
+      title: "Anime transition edit",
+      snippet: "",
+      lang: "en",
+      section: "example",
+    },
+  ]);
+  await page.getByTestId("tiktok-find-edits").click();
+  await expect(page.getByTestId("tiktok-find-edits")).toHaveText(en["feed.tiktokFindMore"]);
+  await expect(page.getByTestId("tiktok-find-edits")).toBeEnabled();
+  expect(state.exclusions).toEqual([[]]);
+  await page.reload();
+  await openBrowseCategories(page);
+  await page.getByTestId("genre-anime").click();
+  expect(state.acquisitions).toEqual(["anime"]);
+  await page.getByTestId("tiktok-find-edits").click();
+  await expect(page.getByTestId("tiktok-find-edits")).toBeDisabled();
+  expect(state.exclusions).toEqual([[], ["7559999999000000001"]]);
   expect(state.acquisitions).toEqual(["anime", "anime"]);
   expect(state.forbidden).toEqual([]);
 });

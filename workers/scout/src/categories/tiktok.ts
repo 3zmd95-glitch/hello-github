@@ -49,6 +49,8 @@ export const TT_PHOTO = "PHOTOGRAPHY";
 
 /** `video_list` takes at most 10 hashtags. */
 const HASHTAGS = 10;
+/** Documented related-video horizon per picked hashtag; never traverse arbitrary upstream arrays. */
+const VIDEOS_PER_HASHTAG = 20;
 /** Hard ceiling, three concurrent public oEmbed requests; Discovery hashtags never count as captions. */
 export const TIKTOK_CAPTION_MAX = 12;
 const CAPTION_TIMEOUT_MS = 4_000;
@@ -183,19 +185,27 @@ function tiktokVideo(x: unknown, hashtag: string): { id: string; video: TopVideo
   return { id, video: { url: m[0], title: `#${hashtag}`, creator: m[1] } };
 }
 
-/** Diversify the bounded caption-candidate pool before inspecting any caption, each video once. */
-function inTurns(columns: { name: string; videos: unknown[] }[]): TopVideo[] {
+/** Skip retained IDs before spending the caption budget; count the remaining bounded horizon.
+ * Each valid video contributes once even when several hashtags or handles share its ID. */
+function inTurns(
+  columns: { name: string; videos: unknown[] }[],
+  excluded: ReadonlySet<string>,
+): { candidates: TopVideo[]; skippedKnown: number; unseenRemaining: number } {
   const out: TopVideo[] = [];
   const seen = new Set<string>();
+  let skippedKnown = 0;
+  let unseenRemaining = 0;
   const depth = Math.max(0, ...columns.map((c) => c.videos.length));
-  for (let i = 0; i < depth && out.length < TIKTOK_CAPTION_MAX; i++)
+  for (let i = 0; i < depth; i++)
     for (const c of columns) {
       const v = tiktokVideo(c.videos[i], c.name);
-      if (!v || seen.has(v.id) || out.length >= TIKTOK_CAPTION_MAX) continue;
+      if (!v || seen.has(v.id)) continue;
       seen.add(v.id);
-      out.push(v.video);
+      if (excluded.has(v.id)) skippedKnown++;
+      else if (out.length < TIKTOK_CAPTION_MAX) out.push(v.video);
+      else unseenRemaining++;
     }
-  return out;
+  return { candidates: out, skippedKnown, unseenRemaining };
 }
 
 /** Reuses /oembed's normalized public cache entries and its six-hour TikTok TTL. Never sends the Business token.
@@ -268,6 +278,7 @@ export async function tiktokTop(
   id: string,
   timeoutMs = CALL_TIMEOUT_MS,
   cache: Cache | null = defaultCache(),
+  options: { excludeVideoIds?: readonly string[] } = {},
 ): Promise<TikTokTop> {
   try {
     const token = await readAdsToken(env);
@@ -323,11 +334,14 @@ export async function tiktokTop(
       const byId = new Map<string, unknown[]>();
       for (const e of lists)
         if (isRecord(e) && Array.isArray(e.top_video_list))
-          byId.set(String(e.hashtag_id), e.top_video_list);
+          byId.set(String(e.hashtag_id), e.top_video_list.slice(0, VIDEOS_PER_HASHTAG));
       // The picked order, whatever order TikTok answers in.
       columns = picked.map((h) => ({ name: h.name, videos: byId.get(h.id) ?? [] }));
     }
-    const candidates = inTurns(columns);
+    const { candidates, skippedKnown, unseenRemaining } = inTurns(
+      columns,
+      new Set(options.excludeVideoIds),
+    );
     const captioned: TopVideo[] = [];
     for (let i = 0; i < candidates.length; i += 3) {
       const batch = await Promise.all(
@@ -352,6 +366,8 @@ export async function tiktokTop(
         videos: videos.length,
         captionCandidates: candidates.length,
         captioned: captioned.length,
+        skippedKnown,
+        unseenRemaining,
         raw: columns.reduce((n, c) => n + c.videos.length, 0),
         country,
         industry,

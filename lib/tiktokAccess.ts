@@ -1,6 +1,25 @@
 import { z } from "zod";
 import { scoutCall, scoutConfig, type ScoutConfig } from "./scoutClient";
 import type { DiscoverItem } from "./discover";
+import { discoverPostKey } from "./discoverFeed";
+
+const VIDEO_ID = /^\d{15,25}$/;
+const EXCLUDED_IDS = z
+  .array(z.string().regex(VIDEO_ID))
+  .max(200)
+  .refine((ids) => new Set(ids).size === ids.length);
+
+/** Public post identities only; never send captions, preferences or other platform URLs. */
+export function knownTikTokIds(items: readonly DiscoverItem[]): string[] {
+  const ids = new Set<string>();
+  for (const item of items) {
+    if (item.platform !== "tt") continue;
+    const key = discoverPostKey("tt", item.url);
+    const id = key?.match(/\/video\/(\d+)$/)?.[1];
+    if (id && VIDEO_ID.test(id)) ids.add(id);
+  }
+  return [...ids].slice(0, 200);
+}
 
 const STATUS = z
   .object({ connected: z.boolean(), advertisers: z.number().int().nonnegative().safe() })
@@ -239,6 +258,8 @@ const ACQUISITION = z
       .object({
         matchedHashtags: z.number().int().min(0).max(10),
         videoCandidates: z.number().int().min(0).max(12),
+        unseenRemaining: z.number().int().min(0).max(200).optional(),
+        skippedKnown: z.number().int().min(0).max(200).optional(),
       })
       .strict()
       .optional(),
@@ -270,7 +291,13 @@ const ACQUISITION = z
       value.captioned <= value.items.length &&
       (!value.supply ||
         (value.supply.videoCandidates === value.items.length &&
-          (value.supply.matchedHashtags > 0 || value.items.length === 0))) &&
+          (value.supply.matchedHashtags > 0 || value.items.length === 0) &&
+          ((value.supply.unseenRemaining === undefined &&
+            value.supply.skippedKnown === undefined) ||
+            (value.supply.unseenRemaining !== undefined &&
+              value.supply.skippedKnown !== undefined &&
+              value.supply.unseenRemaining + value.supply.skippedKnown + value.items.length <=
+                200)))) &&
       (value.status === "accepted" || (value.items.length === 0 && value.captioned === 0)),
   );
 
@@ -282,10 +309,12 @@ export type TikTokAcquisition = Omit<z.infer<typeof ACQUISITION>, "items"> & {
 export async function acquireTikTokEdits(
   config: ScoutConfig | null,
   categoryId: string,
-  opts: Options & { country?: TikTokCountry } = {},
+  opts: Options & { country?: TikTokCountry; excludeVideoIds?: readonly string[] } = {},
 ): Promise<Result<TikTokAcquisition>> {
   if (!/^[a-z][a-z0-9-]{0,79}$/.test(categoryId)) return { ok: false, error: "malformed" };
   if (opts.country !== undefined && opts.country !== "US" && opts.country !== "SA")
+    return { ok: false, error: "malformed" };
+  if (opts.excludeVideoIds !== undefined && !EXCLUDED_IDS.safeParse(opts.excludeVideoIds).success)
     return { ok: false, error: "malformed" };
   const result = await request(
     config,
@@ -293,7 +322,10 @@ export async function acquireTikTokEdits(
     "POST",
     opts,
     { timeoutMs: 32_000, maxBytes: 128 * 1024 },
-    opts.country ? { country: opts.country } : {},
+    {
+      ...(opts.country ? { country: opts.country } : {}),
+      ...(opts.excludeVideoIds !== undefined ? { excludeVideoIds: opts.excludeVideoIds } : {}),
+    },
   );
   if (!result.ok) return result;
   const parsed = ACQUISITION.safeParse(result.value);
@@ -302,6 +334,12 @@ export async function acquireTikTokEdits(
     parsed.data.categoryId !== categoryId ||
     parsed.data.country !== (opts.country ?? "US") ||
     Math.abs(Date.parse(parsed.data.checkedAt) - (opts.now ?? Date.now)()) > 5 * 60_000
+  )
+    return { ok: false, error: "malformed" };
+  const ids = knownTikTokIds(parsed.data.items);
+  if (
+    ids.length !== parsed.data.items.length ||
+    ids.some((id) => opts.excludeVideoIds?.includes(id))
   )
     return { ok: false, error: "malformed" };
   return { ok: true, value: parsed.data };
