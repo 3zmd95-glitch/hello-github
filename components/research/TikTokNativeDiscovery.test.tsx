@@ -68,6 +68,31 @@ it("retrieves only on explicit action and passes unmodified leads once, with no 
   await click();
   expect(acquireTikTokEdits).toHaveBeenCalledTimes(1);
 });
+it("changing region cancels pending work without retrieving or accepting its late result", async () => {
+  let resolve!: (result: Awaited<ReturnType<typeof acquireTikTokEdits>>) => void;
+  vi.mocked(acquireTikTokEdits).mockImplementation(
+    () =>
+      new Promise((r) => {
+        resolve = r;
+      }),
+  );
+  render();
+  await click();
+  const signal = vi.mocked(acquireTikTokEdits).mock.calls[0][2]?.signal;
+  act(() => {
+    const select = host.querySelector<HTMLSelectElement>("[data-testid=tiktok-region]")!;
+    select.value = "SA";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(signal?.aborted).toBe(true);
+  expect(acquireTikTokEdits).toHaveBeenCalledTimes(1);
+  await act(async () => resolve({ ok: true, value }));
+  expect(onCandidates).not.toHaveBeenCalled();
+  vi.mocked(acquireTikTokEdits).mockResolvedValue({ ok: true, value: { ...value, country: "SA" } });
+  await click();
+  expect(vi.mocked(acquireTikTokEdits).mock.calls[1][2]?.country).toBe("SA");
+  expect(onCandidates).toHaveBeenCalledExactlyOnceWith(value.items);
+});
 it.each([{ categoryId: "coffee" }, { active: false }, { config: { ...config, token: "rotated" } }])(
   "discards a late response after scope changes",
   async (next) => {

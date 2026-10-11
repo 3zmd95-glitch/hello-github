@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { useT, type MessageKey } from "@/lib/i18n";
 import type { ScoutConfig } from "@/lib/scoutClient";
 import type { DiscoverItem } from "@/lib/discover";
-import { acquireTikTokEdits } from "@/lib/tiktokAccess";
+import { acquireTikTokEdits, type TikTokCountry } from "@/lib/tiktokAccess";
 
 export default function TikTokNativeDiscovery({
   config,
@@ -18,7 +18,8 @@ export default function TikTokNativeDiscovery({
   onCandidates: (items: DiscoverItem[]) => void;
 }) {
   const { t } = useT();
-  const scope = JSON.stringify([active, categoryId, config?.url, config?.token]);
+  const [country, setCountry] = useState<TikTokCountry>("US");
+  const scope = JSON.stringify([active, categoryId, country, config?.url, config?.token]);
   const current = useRef(scope);
   const pending = useRef<AbortController | null>(null);
   const [state, setState] = useState<{
@@ -46,14 +47,21 @@ export default function TikTokNativeDiscovery({
       current.current === scope && pending.current === controller && !controller.signal.aborted;
     setState({ scope, busy: true, message: "feed.tiktokFindWorking" });
     try {
-      const result = await acquireTikTokEdits(config, categoryId, { signal: controller.signal });
+      const result = await acquireTikTokEdits(config, categoryId, {
+        signal: controller.signal,
+        country,
+      });
       if (!valid()) return;
       if (result.ok && result.value.status === "accepted") {
         onCandidates(result.value.items);
         setState({
           scope,
           done: true,
-          message: result.value.items.length ? "feed.tiktokFindResult" : "feed.tiktokFindEmpty",
+          message: result.value.items.length
+            ? "feed.tiktokFindResult"
+            : result.value.supply?.matchedHashtags === 0
+              ? "feed.tiktokFindNoTags"
+              : "feed.tiktokFindEmpty",
           n: result.value.items.length,
         });
       } else {
@@ -90,7 +98,19 @@ export default function TikTokNativeDiscovery({
       className="border-edge flex flex-col items-start gap-2 border-t pt-3 text-xs"
       data-testid="tiktok-native-discovery"
     >
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-2">
+          {t("feed.tiktokRegion")}
+          <select
+            className="px-input max-w-full py-1 text-xs"
+            value={country}
+            onChange={(event) => setCountry(event.target.value as TikTokCountry)}
+            data-testid="tiktok-region"
+          >
+            <option value="SA">{t("feed.regionSA")}</option>
+            <option value="US">{t("feed.regionUS")}</option>
+          </select>
+        </label>
         <button
           type="button"
           className="px-btn px-btn-sm"
@@ -114,7 +134,11 @@ export default function TikTokNativeDiscovery({
           </button>
         )}
       </div>
-      <p className="text-muted">{t("feed.tiktokFindHelp")}</p>
+      <p className="text-muted">
+        {t("feed.tiktokFindHelp", {
+          region: t(country === "SA" ? "feed.regionSA" : "feed.regionUS"),
+        })}
+      </p>
       {visible && (
         <p role="status" data-testid="tiktok-find-result">
           {t(visible.message, { n: visible.n ?? 0 })}

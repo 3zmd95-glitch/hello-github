@@ -11,10 +11,11 @@ export async function acquireTikTok(
   deps: { fetch?: typeof fetch; now?: () => Date } = {},
 ) {
   const controller = new AbortController();
+  let country: "US" | "SA" = "US";
   const base = () => ({
     version: 1,
     categoryId,
-    country: "US",
+    country,
     dateRange: "7DAY",
     checkedAt: (deps.now?.() ?? new Date()).toISOString(),
     items: [],
@@ -66,13 +67,19 @@ export async function acquireTikTok(
       const text = (await readLimited(req, 256, controller.signal)).trim();
       if (text) {
         const body: unknown = JSON.parse(text);
-        if (!isRecord(body) || Object.keys(body).length) return null;
+        if (
+          !isRecord(body) ||
+          Object.keys(body).some((key) => key !== "country") ||
+          (body.country !== undefined && body.country !== "US" && body.country !== "SA")
+        )
+          return null;
+        if (body.country === "US" || body.country === "SA") country = body.country;
       }
     } catch {
       return null;
     }
     const found = await tiktokTop(
-      { ...env, TIKTOK_DISCOVERY_COUNTRY: "US" },
+      { ...env, TIKTOK_DISCOVERY_COUNTRY: country },
       nativeFetch,
       categoryId,
       6_000,
@@ -84,6 +91,12 @@ export async function acquireTikTok(
     return {
       ...base(),
       status: "accepted",
+      supply: {
+        matchedHashtags: Array.isArray(found.diagnostics?.hashtags)
+          ? found.diagnostics.hashtags.length
+          : 0,
+        videoCandidates: (found.candidates ?? []).length,
+      },
       captioned: typeof found.diagnostics?.captioned === "number" ? found.diagnostics.captioned : 0,
       items: (found.candidates ?? []).slice(0, 12).map((video) => ({
         platform: "tt",

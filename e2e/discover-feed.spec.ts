@@ -154,6 +154,20 @@ test("category feed separates popularity and learning, remembers feedback, and f
   await expect(feed).toBeVisible();
   await expect(page.getByTestId("feed-checking")).toHaveCount(0);
   await expect(page.getByTestId("feed-card")).toHaveCount(2);
+  const grid = await feed.getByTestId("feed-list").evaluate((element) => {
+    const width = element.getBoundingClientRect().width;
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    return {
+      columns: getComputedStyle(element).gridTemplateColumns.split(/\s+/).length,
+      expected: width >= 48 * rem ? 4 : width >= 32 * rem ? 3 : 2,
+    };
+  });
+  expect(grid.columns).toBe(grid.expected);
+  const portrait = await feed
+    .locator('[data-platform="tt"] [data-testid="result-play"]')
+    .boundingBox();
+  expect(portrait).not.toBeNull();
+  expect(portrait!.width / portrait!.height).toBeCloseTo(0.75, 1);
   await expect(page.getByTestId("browse-tab-ig")).toHaveAttribute("data-count", "0");
   await expect(page.getByTestId("inspiration-explore")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("research-bar")).toBeHidden();

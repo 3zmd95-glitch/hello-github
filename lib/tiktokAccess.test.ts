@@ -56,6 +56,9 @@ it("retrieves native candidates through one authenticated request, without index
 });
 it.each([
   { ...acquisition, categoryId: "coffee" },
+  { ...acquisition, country: "SA" },
+  { ...acquisition, supply: { matchedHashtags: 0, videoCandidates: 1 } },
+  { ...acquisition, supply: { matchedHashtags: 1, videoCandidates: 2 } },
   { ...acquisition, captioned: 2 },
   { ...acquisition, items: Array(13).fill(acquisition.items[0]) },
   { ...acquisition, items: [{ ...acquisition.items[0], stats: { likes: 5 } }] },
@@ -66,6 +69,26 @@ it.each([
   expect(
     await acquireTikTokEdits(config, "anime", {
       fetchImpl: async () => json(body),
+      now: () => NOW,
+    }),
+  ).toEqual({ ok: false, error: "malformed" });
+});
+
+it("binds regional candidates and bounded supply counts to the requested country", async () => {
+  const answer = {
+    ...acquisition,
+    country: "SA",
+    supply: { matchedHashtags: 1, videoCandidates: 1 },
+  };
+  const fetchImpl = vi.fn<typeof fetch>(async () => json(answer));
+  expect(
+    await acquireTikTokEdits(config, "anime", { country: "SA", fetchImpl, now: () => NOW }),
+  ).toEqual({ ok: true, value: answer });
+  expect(fetchImpl.mock.calls[0][1]?.body).toBe('{"country":"SA"}');
+  expect(
+    await acquireTikTokEdits(config, "anime", {
+      country: "SA",
+      fetchImpl: async () => json(acquisition),
       now: () => NOW,
     }),
   ).toEqual({ ok: false, error: "malformed" });

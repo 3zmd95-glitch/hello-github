@@ -24,7 +24,7 @@ const req = (init: RequestInit = {}) =>
     ...init,
   });
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
-const network = () =>
+const network = (country = "US") =>
   vi.fn<typeof fetch>(async (input) => {
     const url = new URL(String(input));
     const endpoint = url.origin + url.pathname;
@@ -36,7 +36,7 @@ const network = () =>
               hashtag_id: "1",
               hashtag_name: "animeedit",
               rank_position: 1,
-              top_country_list: ["US"],
+              top_country_list: [country],
             },
             {
               hashtag_id: "2",
@@ -99,7 +99,7 @@ it("acquires bounded native leads without spending/searching, copying hashtag ev
   expect(env.SOCIAL_KV!.put).not.toHaveBeenCalled();
   expect(JSON.stringify(body)).not.toContain("fake-native-grant");
 });
-it.each(["[]", '{"force":true}', "x".repeat(257)])(
+it.each(["[]", '{"force":true}', '{"country":"JP"}', '{"country":null}', "x".repeat(257)])(
   "rejects unexpected body %s before retrieval",
   async (body) => {
     const fetch = network();
@@ -107,6 +107,38 @@ it.each(["[]", '{"force":true}', "x".repeat(257)])(
     expect(fetch).not.toHaveBeenCalled();
   },
 );
+
+it("uses the requested Saudi chart and only hashtags supporting that country", async () => {
+  const fetch = network("SA");
+  const result = await acquireTikTok(req({ body: '{"country":"SA"}' }), makeEnv(), "anime", {
+    fetch,
+  });
+  expect(result).toMatchObject({
+    country: "SA",
+    status: "accepted",
+    supply: { matchedHashtags: 1, videoCandidates: 12 },
+  });
+  const native = fetch.mock.calls.filter(([input]) =>
+    String(input).startsWith("https://business-api.tiktok.com/"),
+  );
+  expect(native).toHaveLength(4);
+  for (const [input] of native)
+    expect(new URL(String(input)).searchParams.get("country_code")).toBe("SA");
+});
+
+it("reports an empty regional chart without falling back to another country's tags", async () => {
+  const fetch = network("US");
+  const result = await acquireTikTok(req({ body: '{"country":"SA"}' }), makeEnv(), "anime", {
+    fetch,
+  });
+  expect(result).toMatchObject({
+    country: "SA",
+    status: "accepted",
+    items: [],
+    supply: { matchedHashtags: 0, videoCandidates: 0 },
+  });
+  expect(fetch).toHaveBeenCalledTimes(3);
+});
 it("stops without a grant and uses the existing route authentication", async () => {
   const fetch = network();
   expect(await acquireTikTok(req(), makeEnv(null), "anime", { fetch })).toMatchObject({

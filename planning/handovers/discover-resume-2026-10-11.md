@@ -1,6 +1,18 @@
 # Discover continuation — 11 October 2026
 
+## Current work — visual grid and regional acquisition
+
+The tested frontend now serves localhost:3000 with a genuine responsive video grid: Chrome measured four 206 px columns in the same 860 px feed that previously rendered one column. Vertical feed cards use 3:4 previews, wrapped metadata and collapsed descriptions. Existing players and non-feed cards are preserved.
+
+TikTok acquisition now supports explicit US/SA selection, validates country-matched receipts, cancels late regional replies and reports bounded supply counts. This is regional hashtag-chart retrieval, not private personalized keyword search. Saudi supply is pending one live check after deployment. No new provider, grant, paid search or model assessment. See tools/28 for the native Coffee benchmark and caption-poor TikTok visual-evaluation gap.
+
+All frozen-source gates passed: **3,255 root tests / 166 files; 1,327 Worker tests / 47 files; lint; app/Worker types; production build; 410 browser tests / eight intentional skips / zero failures**. The tested export was copied to primary's ignored `out`; server PID 32924 was preserved. Log: Temp `discover-visual-region-gates-2026-10-11.log`. Do not repeat gates for documentation-only updates. Previous commit 8be906a passed its separate CI 38119866564.
+
+One actual Chrome Coffee/YouTube refill returned twenty posts but retained **nine Inspiration cards before and after**, including SJM STUDIOS aTC_RNYtEb0 already present. No claim of improved YouTube quality from that refill. Initial older all-category baselines had unresolved platform/view ambiguity: their claimed All-platform totals and no-gain deltas have been withdrawn. Only explicit TikTok post-check counts and the earlier controlled Anime 1 → 3 result are reliable. Do not rerun all acquisitions to repair reporting.
+
 ## Latest implementation — platform persistence and soccer relevance
+
+Commit **`8be906a0d4a56159f19586181ec7da211d67f43e`** is pushed on PR #70 and successfully deployed by [Worker run 38119864243](https://github.com/3zmd95-glitch/hello-github/actions/runs/38119864243). This supersedes the earlier `3ac2d49` backend state below. Separate CI run `38119866564` was started at the same commit; do not assume its result from deployment/local gates. PR remains unmerged. The final deployment note is saved locally after the push; no additional source change or full-suite repeat is needed for it.
 
 The two audit findings below are now fixed and verified at localhost:3000. Changing genre preserves TikTok/Instagram/YouTube selection. The shared classifier rejects explicit American-football captions from soccer, including the three observed false positives and Arabic wording; mixed references with explicit soccer evidence remain eligible. Popularity, personal votes and sampled visual craft cannot override the wrong-sport exclusion.
 
@@ -12,9 +24,9 @@ Next: diagnose the four empty native categories with bounded nonsecret stage cou
 
 Continue in small, bounded slices to conserve the user's usage. The deployed code is still `3ac2d49`; no production code changed during this audit. Its separate GitHub CI run `38117648051` has now **passed both jobs**, in addition to the already successful Worker deployment. Do not rerun completed suites merely for these notes. PR #70 remains unmerged.
 
-The native action has now been tried once in every genre in actual Chrome. Only the earlier Anime pilot added qualifying Inspiration. The eleven remaining categories returned 64 candidates in total but added no Inspiration; candidate counts include duplicates and are not a quality score. Food, Perfume, Fashion and Gaming returned explicit empty results. See the measured table and caveats in [tools/28](../tools/28-native-tiktok-candidates.md).
+The native action was tried once in every genre in actual Chrome. The controlled Anime pilot added qualifying Inspiration. The eleven remaining categories returned 64 candidates in total; their initial baselines do not establish admission deltas. Candidate counts include duplicates and are not a quality score. Food, Perfume, Fashion and Gaming returned explicit empty results. See the separately rechecked TikTok totals and caveats in [tools/28](../tools/28-native-tiktok-candidates.md).
 
-**Audit correction:** selecting another category resets the platform to All. The initial before/after counts outside Anime therefore describe the All-platform feed, not TikTok alone. This was caught by inspecting actual card platforms and the selected button; TikTok-only post-retrieval counts were then measured with the button explicitly selected, without another retrieval. Do not reuse the earlier mislabeled Football/Perfume/Fashion counts as TikTok counts.
+**Audit correction:** the old selector reset platforms, and the initial before/after views outside Anime did not capture their scope reliably. They cannot be reused as All-platform or TikTok baselines. TikTok-only post-retrieval counts were then measured with the button explicitly selected, without another retrieval. The platform reset is fixed by 8be906a.
 
 Next focused implementation should address two observed issues: preserve the selected platform across genre changes, and stop explicit NFL/American-football posts from matching the soccer category just because they contain `#football`. Football's new Explore leads have native counts but mostly generic editing captions; three explicitly describe American football. Do not promote these to Inspiration merely to fill the page. Then diagnose empty native categories (hashtag selection versus related-video supply) with bounded, nonsecret stage counts before adding providers or spending money.
 

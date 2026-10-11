@@ -157,6 +157,7 @@ export default function ResultCard({
   item,
   action,
   compact = false,
+  visualFeed = false,
   collapseDuplicateSnippet = false,
   onRemove,
   testId = "result-card",
@@ -165,6 +166,8 @@ export default function ResultCard({
   item: ResearchItem;
   action?: ReactNode;
   compact?: boolean;
+  /** Discover uses portrait previews for vertical posts and keeps captions behind More. */
+  visualFeed?: boolean;
   /** Feed cards can keep repeated source-caption text behind More. */
   collapseDuplicateSnippet?: boolean;
   onRemove?: () => void;
@@ -182,6 +185,7 @@ export default function ResultCard({
       testId={testId}
       className={className}
       collapseDuplicateSnippet={collapseDuplicateSnippet}
+      visualFeed={visualFeed}
     />
   );
 }
@@ -244,12 +248,14 @@ function FullCard({
   testId,
   className,
   collapseDuplicateSnippet,
+  visualFeed,
 }: {
   item: ResearchItem;
   action?: ReactNode;
   testId: string;
   className: string;
   collapseDuplicateSnippet: boolean;
+  visualFeed: boolean;
 }) {
   const { t } = useT();
   const [expanded, setExpanded] = useState(false);
@@ -262,6 +268,10 @@ function FullCard({
     title.trim().length >= 12 &&
     item.snippet.trim().startsWith(title.trim());
   const media = <Media item={item} thumb={thumb} onError={onError} playable={!!play} />;
+  const mediaFrame =
+    visualFeed && isVertical(item.platform)
+      ? MEDIA_FRAME.replace("aspect-video", "aspect-[3/4]")
+      : MEDIA_FRAME;
   return (
     <li
       className={`border-edge bg-panel-2 relative flex flex-col overflow-hidden rounded-[2px] border-2 shadow-[3px_3px_0_var(--edge)] ${className}`}
@@ -273,7 +283,7 @@ function FullCard({
           type="button"
           onClick={play}
           aria-label={t("player.watchLabel", { title })}
-          className={`${MEDIA_FRAME} group w-full focus-visible:outline-hidden`}
+          className={`${mediaFrame} group w-full focus-visible:outline-hidden`}
           data-testid="result-play"
         >
           {/* A button lays its content out in a box of its own; this one is the frame's size. */}
@@ -292,19 +302,20 @@ function FullCard({
           rel="noopener noreferrer"
           tabIndex={-1}
           aria-hidden
-          className={MEDIA_FRAME}
+          className={mediaFrame}
         >
           {media}
         </a>
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-1 p-2.5">
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div className={`flex min-w-0 items-center gap-1.5 ${visualFeed ? "flex-wrap" : ""}`}>
           <span className={`px-chip shrink-0 text-[10px] ${meta.chip}`} data-testid="result-chip">
             {meta.glyph} {meta.label}
           </span>
           <span className="text-muted min-w-0 flex-1 truncate text-xs" dir="ltr">
             {item.handle}
           </span>
+          {visualFeed && <span className="basis-full" aria-hidden />}
           {item.published && <PostDate iso={item.published} />}
           {item.stats && <StatsChip stats={item.stats} />}
         </div>
@@ -318,7 +329,7 @@ function FullCard({
         >
           {title}
         </a>
-        {item.snippet && (!duplicateSnippet || expanded) && (
+        {item.snippet && ((!visualFeed && !duplicateSnippet) || expanded) && (
           <p
             dir="auto"
             className={`text-ink-2 text-xs ${expanded ? "" : "line-clamp-2"}`}

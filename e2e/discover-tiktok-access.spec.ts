@@ -57,7 +57,9 @@ async function setup(page: Page) {
     const acquire = path.match(/^\/categories\/(anime|coffee)\/native\/tt\/acquire$/);
     if (acquire) {
       expect(request.method()).toBe("POST");
-      expect(request.postDataJSON()).toEqual({});
+      const country = request.postDataJSON().country;
+      expect(["US", "SA"]).toContain(country);
+      expect(request.postDataJSON()).toEqual({ country });
       expect(request.headers().authorization).toBe("Bearer fixture");
       state.acquisitions.push(acquire[1]);
       return route.fulfill({
@@ -65,7 +67,7 @@ async function setup(page: Page) {
         json: {
           version: 1,
           categoryId: acquire[1],
-          country: "US",
+          country,
           dateRange: "7DAY",
           checkedAt: new Date().toISOString(),
           status: "accepted",
@@ -196,6 +198,14 @@ test("native TikTok retrieval is explicit, bypasses search credits, and preserve
   await switchLang(page, "ar");
   await expect(page.getByTestId("tiktok-find-edits")).toHaveText(ar["feed.tiktokFind"]);
   await expect(page.getByTestId("tiktok-find-result")).toHaveText(ar["feed.tiktokFindEmpty"]);
+  await page.getByTestId("tiktok-region").selectOption("SA");
+  await expect(page.getByTestId("tiktok-find-edits")).toBeEnabled();
+  await expect(page.getByTestId("tiktok-find-result")).toHaveCount(0);
+  expect(state.acquisitions).toEqual(["anime"]);
+  await page.getByTestId("tiktok-find-edits").click();
+  await expect(page.getByTestId("tiktok-find-result")).toHaveText(ar["feed.tiktokFindEmpty"]);
+  expect(state.acquisitions).toEqual(["anime", "anime"]);
+  expect(state.forbidden).toEqual([]);
 });
 
 test("TikTok access is explicit and separates stored grants, native permission and backend support", async ({

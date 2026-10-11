@@ -74,7 +74,7 @@ export default function CategoryFeed(props: CategoryFeedProps) {
   );
   return (
     <section
-      className="flex min-w-0 flex-col gap-3"
+      className="@container flex min-w-0 flex-col gap-3"
       data-testid={props.testId ?? "category-feed"}
       data-mode={props.mode}
     >
@@ -231,7 +231,7 @@ function FeedCards(props: CategoryFeedProps) {
   return (
     <>
       <ul
-        className="grid min-w-0 grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3"
+        className="grid min-w-0 grid-cols-2 items-start gap-3 @lg:grid-cols-3 @3xl:grid-cols-4"
         data-testid="feed-list"
         aria-busy={props.checking || props.findingMore}
       >
@@ -242,6 +242,7 @@ function FeedCards(props: CategoryFeedProps) {
             <ResultCard
               key={item.url}
               item={item}
+              visualFeed
               collapseDuplicateSnippet
               testId="feed-card"
               action={

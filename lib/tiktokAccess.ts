@@ -65,6 +65,7 @@ export type TikTokAccessError =
   | "malformed"
   | "upstream";
 type Result<T> = { ok: true; value: T } | { ok: false; error: TikTokAccessError };
+export type TikTokCountry = "US" | "SA";
 interface Options {
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
@@ -80,6 +81,7 @@ async function request(
   method: "GET" | "POST",
   opts: Options,
   limits = { timeoutMs: TIMEOUT_MS, maxBytes: MAX_BYTES },
+  payload: { country?: TikTokCountry } = {},
 ): Promise<Result<unknown>> {
   const usable = scoutConfig(config?.url, config?.token);
   if (!usable) return { ok: false, error: "unconfigured" };
@@ -155,7 +157,7 @@ async function request(
       {
         method,
         ...(method === "POST"
-          ? { body: "{}", headers: { "Content-Type": "application/json" } }
+          ? { body: JSON.stringify(payload), headers: { "Content-Type": "application/json" } }
           : {}),
         signal: controller.signal,
         redirect: "error",
@@ -228,11 +230,18 @@ const ACQUISITION = z
   .object({
     version: z.literal(1),
     categoryId: z.string(),
-    country: z.literal("US"),
+    country: z.enum(["US", "SA"]),
     dateRange: z.literal("7DAY"),
     checkedAt: z.iso.datetime(),
     status: z.enum(["accepted", "not_connected", "upstream", "timeout", "cancelled"]),
     captioned: z.number().int().min(0).max(12),
+    supply: z
+      .object({
+        matchedHashtags: z.number().int().min(0).max(10),
+        videoCandidates: z.number().int().min(0).max(12),
+      })
+      .strict()
+      .optional(),
     items: z
       .array(
         z
@@ -259,6 +268,9 @@ const ACQUISITION = z
   .refine(
     (value) =>
       value.captioned <= value.items.length &&
+      (!value.supply ||
+        (value.supply.videoCandidates === value.items.length &&
+          (value.supply.matchedHashtags > 0 || value.items.length === 0))) &&
       (value.status === "accepted" || (value.items.length === 0 && value.captioned === 0)),
   );
 
@@ -270,21 +282,25 @@ export type TikTokAcquisition = Omit<z.infer<typeof ACQUISITION>, "items"> & {
 export async function acquireTikTokEdits(
   config: ScoutConfig | null,
   categoryId: string,
-  opts: Options = {},
+  opts: Options & { country?: TikTokCountry } = {},
 ): Promise<Result<TikTokAcquisition>> {
   if (!/^[a-z][a-z0-9-]{0,79}$/.test(categoryId)) return { ok: false, error: "malformed" };
+  if (opts.country !== undefined && opts.country !== "US" && opts.country !== "SA")
+    return { ok: false, error: "malformed" };
   const result = await request(
     config,
     `/categories/${encodeURIComponent(categoryId)}/native/tt/acquire`,
     "POST",
     opts,
     { timeoutMs: 32_000, maxBytes: 128 * 1024 },
+    opts.country ? { country: opts.country } : {},
   );
   if (!result.ok) return result;
   const parsed = ACQUISITION.safeParse(result.value);
   if (
     !parsed.success ||
     parsed.data.categoryId !== categoryId ||
+    parsed.data.country !== (opts.country ?? "US") ||
     Math.abs(Date.parse(parsed.data.checkedAt) - (opts.now ?? Date.now)()) > 5 * 60_000
   )
     return { ok: false, error: "malformed" };

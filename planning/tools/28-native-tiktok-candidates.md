@@ -1,5 +1,27 @@
 # Native TikTok candidate acquisition — 11 October 2026
 
+## Native-search benchmark and regional retrieval
+
+The user supplied a TikTok Coffee search grid as the target: every category should combine strong mainstream Instagram/TikTok/YouTube videos with a native browsing feel. The current sparse, caption-led feed does not meet that target. Preserve that scope; neither a prettier grid nor additional chart candidates establishes native-search equivalence or overall completion.
+
+Actual Chrome opened `https://www.tiktok.com/search?q=coffee` in the user's existing browser session. Its native result set included these public, useful evaluation leads (read 11 October 2026):
+
+- `https://www.tiktok.com/@a.gji0/video/7692546728540589318` — short Arabic caption “ادوخكم شوي” with Coffee/V60/Riyadh tags. Search/player showed 55.4K likes, a one-week age label, 704 comments and eight-second duration. The player displayed a coffee corner; commenters asked for the method. This is a strong caption-poor candidate for visual evaluation, not a verified technique/tutorial/trend-growth label.
+- `https://www.tiktok.com/@israelllsss0_0/video/7626098740452986119` — creator explicitly describes filming a coffee shop; native search displayed 120.7K likes and `4-8`. This wording lacks several of our keyword forms, so include it in retrieval/metadata recall evaluation rather than treating the absence of a technique keyword as bad content.
+- `https://www.tiktok.com/@da7m_q1/video/7493552047946583303` — emoji-led caption, V60/coffee/photography tags, 49.2K displayed likes and a 2025-04-15 date. This is an older popular reference, not proof of a current trend.
+
+These are observed native-search results, not hardcoded product seeds or a harvested private feed. No messages, follows, likes, payment actions or credential reads were performed. The native grid exposes a supply gap: US hashtag charts are different from regionally relevant keyword search, and source popularity alone cannot establish editing quality. Current optional frame assessment is Instagram-only, leaving caption-poor TikTok visual recall unresolved.
+
+Chrome also measured our feed at 860 px wide with **one grid column and no query container**. Container-query classes therefore never activated. The layout now supplies its container, uses two columns on small screens and three/four as space allows, and gives vertical feed posts taller previews. Other ResultCard consumers keep their existing layout. Feed metadata wraps, and duplicate/long captions remain behind More. The existing thumbnail/player is reused; no new UI library.
+
+Native acquisition now accepts only US or SA as an explicit country, retains US as the backward-compatible default, validates the response against the requested region, and cancels stale work on region changes. Existing TikTok contracts already scope charts/related videos by country; hashtags still must list that country. The API exposes bounded counts for matching hashtags and candidate videos, without raw provider messages, advertiser IDs, tokens or inferred engagement. A no-tags outcome can explain a sparse regional chart separately from returned videos. The same 16-request, response-size, timeout and no-paid-search limits remain. Saudi supply must still be measured live after deployment; support/quality is not assumed from the selector. No keyword-search or private-personalization API has been claimed.
+
+All gates passed for these changes: **3,255 root tests / 166 files**, **1,327 Worker tests / 47 files**, lint, types, build and **410 browser tests / eight intentional skips**. The browser regression measures actual grid tracks and vertical-preview aspect ratio, not only class names. In actual Chrome, the same 860 px feed now has **four 206 px columns**. Localhost:3000 serves the tested export. Gate log: Temp `discover-visual-region-gates-2026-10-11.log`; the separate typecheck completed successfully before that run.
+
+The additional native comparison found YouTube's `coffee cinematic` results include `aTC_RNYtEb0` (619K displayed views), `2YNdDAOfqgI` (Oppenheimer Coffee practical-effects Short, 4.6M) and `mcXr_DgwtQk` (Novella Cafe, 194K). Native Instagram hashtag navigation resolved to `/explore/search/keyword/?q=%23coffee`, with 24 reel links initially visible. Its first opened example was `https://www.instagram.com/p/DZm7dZvtKo_/`, coffee.east, around 8.8K likes and a June 15 date; its Russian seasonal-menu caption does not describe editing techniques. These are retrieval benchmarks, not proof every result is a high-quality/current edit.
+
+**Later baseline correction:** the refreshed, explicitly selected Coffee/YouTube feed already contains **nine Inspiration cards**, including `aTC_RNYtEb0`, before any refill in this continuation. Therefore the earlier Coffee “All = 1” value must not be used as an all-platform coverage claim. Initial category/filter timing was not captured reliably enough for cross-platform before/after comparisons. The durable table below keeps only explicitly rechecked TikTok totals. The current code does skip initial category search when any stored candidates exist; that is a general freshness/coverage concern, not evidence that this Coffee feed has no YouTube results. One deliberate YouTube-only refill was started after reading the nine-card baseline; record its outcome rather than repeat it.
+
 ## Corrections from the audit
 
 The next implementation removes the platform reset when a user changes genre. Selecting TikTok, Instagram or YouTube now carries that choice into the next category; a phone/desktop regression checks the selected button, matching card platform and absence of native/paid retrieval. The explicit reset used when adding a reference is unchanged.
@@ -14,24 +36,24 @@ The tested export now serves localhost:3000. In actual Chrome, TikTok, Instagram
 
 The native acquisition action was run once in each genre, with source checks allowed to settle. No additional paid searches, AI assessments or grant changes. This is a supply/admission test, not proof that every listed video is a good edit. Code remains `3ac2d49`; its GitHub CI `38117648051` passed both jobs.
 
-**Scope correction:** changing `browse-category-switch` resets `tab` to All in `BrowseCategoryFeed.tsx`. Consequently the baseline/after measurements for the eleven categories following Anime used All platforms. The post-retrieval TikTok-only totals below were separately read with `browse-tab-tt` explicitly selected. Acquisition was not repeated. The earlier Anime pilot explicitly used TikTok. Counts for modes overlap.
+**Scope correction:** the old category selector reset the platform, and the first cross-category measurements did not reliably capture the selected platform or settled view. Do not use those initial counts as either All-platform totals or acquisition deltas. The TikTok-only totals below were separately read with `browse-tab-tt` explicitly selected, without repeating acquisition. The earlier Anime pilot explicitly used TikTok and supports its 1 → 3 delta. Counts for modes overlap.
 
-| Genre | Native candidates returned | All Inspiration before → after | TikTok Inspiration | TikTok Popular | TikTok Learn | TikTok Explore |
-| --- | ---: | --- | ---: | ---: | ---: | ---: |
-| Anime | 12 | Not measured; TikTok 1 → 3 | 3 | 3 | 1 | 8 |
-| Cars | 12 | 1 → 1 | 1 | 0 | 3 | 7 |
-| Food | 0 | 1 → 1 | 1 | 0 | 5 | 9 |
-| Travel | 4 | 0 → 0 | 0 | 0 | 1 | 3 |
-| Football | 12 | 15 → 15 | 1 | 0 | 0 | 8 |
-| Coffee | 12 | 1 → 1 | 1 | 0 | 3 | 4 |
-| Perfume | 0 | 9 → 9 | 3 | 0 | 0 | 3 |
-| Camping | 1 | 0 → 0 | 0 | 0 | 0 | 3 |
-| Fashion | 0 | 7 → 7 | 0 | 0 | 5 | 5 |
-| Gaming | 0 | 5 → 5 | 1 | 0 | 3 | 4 |
-| Weddings | 12 | 9 → 9 | 1 | 0 | 0 | 1 |
-| Gym | 11 | 9 → 9 | 0 | 0 | 2 | 2 |
+| Genre | Native candidates returned | TikTok Inspiration | TikTok Popular | TikTok Learn | TikTok Explore |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Anime | 12 | 3 | 3 | 1 | 8 |
+| Cars | 12 | 1 | 0 | 3 | 7 |
+| Food | 0 | 1 | 0 | 5 | 9 |
+| Travel | 4 | 0 | 0 | 1 | 3 |
+| Football | 12 | 1 | 0 | 0 | 8 |
+| Coffee | 12 | 1 | 0 | 3 | 4 |
+| Perfume | 0 | 3 | 0 | 0 | 3 |
+| Camping | 1 | 0 | 0 | 0 | 3 |
+| Fashion | 0 | 0 | 0 | 5 | 5 |
+| Gaming | 0 | 1 | 0 | 3 | 4 |
+| Weddings | 12 | 1 | 0 | 0 | 1 |
+| Gym | 11 | 0 | 0 | 2 | 2 |
 
-The four zero results displayed “TikTok returned no usable posts for this category. Your existing feed is kept.” These were accepted empty outcomes, not errors parsed as zero. Cars gained one All Explore lead and Football seven; other recorded All mode totals stayed unchanged. Coffee's initial baseline recorded only Inspiration, so no learning delta is established. Returned counts are not unique additions or verified trending edits. The eleven non-Anime trials returned 64 candidates and added no Inspiration. Native retrieval alone has not solved broad coverage. Coffee and Gym's first TikTok-only rereads still showed pending source checks; their counts were recorded again once settled. The final Chrome preview remains Anime/TikTok with three Inspiration cards, captured in system Temp `discover-native-audit-2026-10-11.jpg`.
+The four zero results displayed “TikTok returned no usable posts for this category. Your existing feed is kept.” These were accepted empty outcomes, not errors parsed as zero. The eleven non-Anime trials returned 64 candidates; these are not unique additions, verified trending edits or a measured quality improvement. Their initial baselines do not support the previously stated no-Inspiration-gain or All-platform deltas. The explicitly rechecked TikTok totals still establish sparse final coverage. Coffee and Gym were reread after source checks settled. The historical Anime screenshot is system Temp `discover-native-audit-2026-10-11.jpg`.
 
 The source-check queue prioritizes unread sources before previously observed evidence, with an eighteen-post/platform batch ceiling. This rules out the simple assumption that it always checks the same oldest array prefix; it does not prove every candidate was checked. Football's eight TikTok Explore cards visibly displayed source counts, so lack of counts is not the only admission issue. Several have only generic edit/football wording, which does not establish a specific technique or a visually reviewed project.
 
