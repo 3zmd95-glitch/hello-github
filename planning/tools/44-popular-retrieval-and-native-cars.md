@@ -20,4 +20,14 @@ The app receipt confirms three retained links. Initial source checks returned av
 
 ## Verification
 
-Final local gates passed: lint, app/Worker types, **3,722 unit tests /182 files**, fresh production build and **428 browser cases /eight intentional skips /zero failures**. Three semantic tests had assumed joined grading hashtags were unrecognized; the real captions now expect source-backed grading, while a separate synthetic model-only caption preserves uncertainty/mismatch/project-negative rejection. The subsequent full unit rerun is green. Logs: system Temp discover-order-{lint,types,unit,browser}.log. Deployment and live comparison follow this source commit; do not treat simulated results as live supply improvement. Earlier baseline14334e5 CI38142564643 completed successfully.
+Final local gates passed: lint, app/Worker types, **3,722 unit tests /182 files**, fresh production build and **428 browser cases /eight intentional skips /zero failures**. Three semantic tests had assumed joined grading hashtags were unrecognized; the real captions now expect source-backed grading, while a separate synthetic model-only caption preserves uncertainty/mismatch/project-negative rejection. The subsequent full unit rerun is green. Logs: system Temp discover-order-{lint,types,unit,browser}.log. Earlier baseline14334e5 CI38142564643 completed successfully.
+
+## Deployment and actual Chrome results
+
+Source **f94b9477ae3505f6487a758d8058c75551b69538** deployed successfully through Worker run **38143707034**, including both Worker tests and Deploy. The tested export was copied to primary out; the existing localhost:3000 server PID37380 and connections were preserved. PR70 is open and unmerged. At the final snapshot, source CI38143709051 and38143706672 were still in progress; local gates above passed.
+
+After the actual Chrome reload, Cars Instagram **Inspiration0→1 and Popular recently0→1**. Gamilego's October1 reference shows **27.3K likes**, “Technique mentioned: color grading,” and the explicit notice that its footage has not been reviewed. The two other imports were retained but not promoted; the old high-like post stays out of Popular. Saved remains3 and preferences were not changed. Final Chrome is Cars/Instagram/Inspiration with the explanation expanded. Proof: system Temp `discover-native-cars-2026-10-11.png`.
+
+For Camping/YouTube, one explicit refresh used the same monthly query as the prior relevance baseline, now ordered by viewCount. It returned **20 candidates, 17 new retained, zero newly qualifying Inspiration and zero Popular**. Inspiration remains2 and Popular0; Explore contains16 broader YouTube matches. Proof: system Temp `discover-order-camping-2026-10-11.png`. Popularity ordering alone did not improve this measured category. No more queries, paid search or live AI were used.
+
+The verified improvement is a recovered source-backed Cars reference, not proof of full-video quality or all-category trend coverage. Next work must improve fresh native candidate supply and evaluate actual craft, rather than repeat weak queries or relax admissions. Multi-post effect/audio adoption remains unfinished.
