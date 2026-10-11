@@ -290,17 +290,20 @@ export function discoverVisualMediaMatches(
     JSON.stringify(a.media.frames) === JSON.stringify(b.media.frames)
   );
 }
-/** Caption attribution is a creator's claim, never proof of authorship derived from pixels. */
+/** Visible filming craft does not establish who filmed it. Attribution remains separately
+ * source-validated; varied frames alone or one repeated observation cannot establish craft. */
 export function hasDiscoverCinematography(visual: DiscoverVisual): boolean {
+  if (!DiscoverVisualSchema.safeParse(visual).success) return false;
   const cinema = visual.assessment.cinematography;
   return (
     visual.rubricVersion === DISCOVER_VISUAL_RUBRIC_VERSION &&
     visual.assessment.category === "supported" &&
     visual.assessment.categoryFrames.length > 0 &&
     cinema?.footage === "live-action" &&
-    cinema.attribution.status === "creator-claim" &&
-    !!cinema.attribution.quote.trim() &&
-    visual.source.caption.includes(cinema.attribution.quote) &&
+    cinema.observations.some((item) => item.cue !== "shot-variety") &&
+    new Set(
+      cinema.observations.map((item) => item.description.trim().replace(/\s+/g, " ").toLowerCase()),
+    ).size >= 2 &&
     new Set(
       cinema.observations
         .flatMap((item) => item.frames)

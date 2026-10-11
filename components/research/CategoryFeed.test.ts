@@ -434,7 +434,7 @@ describe("category editor feed", () => {
     );
     expect(cinema.querySelector("blockquote")?.textContent).toBe(caption);
     expect($("feed-cinematography-status")?.textContent).toContain(
-      "with a creator claim in the caption",
+      "support deliberate filming choices",
     );
     expect($("feed-cinematography-attribution")?.textContent).toBe(
       "The caption claims the creator filmed this post.",
@@ -466,19 +466,35 @@ describe("category editor feed", () => {
     expect($("feed-cinematography-attribution")?.textContent).toBe(
       "مو واضح من المصدر مين صوّر المقطع.",
     );
-    expect($("feed-cinematography-status")?.textContent).toContain("ما تكفي");
+    expect($("feed-cinematography-status")?.textContent).toContain("تدعم وجود اختيارات مقصودة");
     act(() => useStore.getState().setSettings({ lang: "en" }));
     await settle();
     expect($("feed-cinematography-status")?.textContent).toBe(
-      "These samples and source details do not establish creator-filmed cinematography.",
-    );
-    expect($("feed-cinematography-status")?.textContent).not.toContain(
-      "support deliberate filming choices",
+      "The sampled frames support deliberate filming choices. Who filmed the post is assessed separately below.",
     );
     expect($("feed-cinematography-attribution")?.textContent).toBe(
       "The source does not clearly establish who filmed this post.",
     );
     expect($("feed-cinematography")?.querySelector("blockquote")).toBeNull();
+
+    await show({
+      ...uncertain,
+      assessment: {
+        ...uncertain.assessment,
+        cinematography: {
+          ...uncertain.assessment.cinematography!,
+          observations: [uncertain.assessment.cinematography!.observations[0]],
+        },
+      },
+    });
+    expect($("feed-cinematography-status")?.textContent).toBe(
+      "These samples do not provide enough evidence of deliberate filming choices.",
+    );
+    act(() => useStore.getState().setSettings({ lang: "ar" }));
+    await settle();
+    expect($("feed-cinematography-status")?.textContent).toContain("ما توفر أدلة كافية");
+    act(() => useStore.getState().setSettings({ lang: "en" }));
+    await settle();
 
     await show({ ...visual, assessment: { ...visual.assessment, cinematography: null } });
     expect($("feed-cinematography")).toBeNull();

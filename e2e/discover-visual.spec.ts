@@ -9,8 +9,7 @@ for (const genreId of ["anime", "coffee"] as const)
     page,
   }, testInfo) => {
     const at = new Date().toISOString();
-    const caption =
-      genreId === "anime" ? "#anime" : "Coffee. Had so much fun filming this video at our cafe.";
+    const caption = genreId === "anime" ? "#anime" : "#coffee";
     const items: DiscoverItem[] = [1, 2, 3].map((id) => ({
       platform: "ig",
       // The assessment uses /p/id/ while the candidate store/ranker uses /p/id.
@@ -120,15 +119,21 @@ for (const genreId of ["anime", "coffee"] as const)
           visual.assessment.cinematography = {
             footage: "live-action",
             attribution: {
-              status: "creator-claim",
-              quote: "Had so much fun filming this video at our cafe.",
+              status: "unattributed",
+              quote: "",
             },
             observations: [
               {
                 cue: "composition",
                 description:
                   "Synthetic fixture: deliberate foreground cup and background equipment framing.",
-                frames: [0, 1],
+                frames: [0],
+              },
+              {
+                cue: "lighting",
+                description:
+                  "Synthetic fixture: side lighting separates steam from the dark background.",
+                frames: [1],
               },
             ],
           };
@@ -189,10 +194,13 @@ for (const genreId of ["anime", "coffee"] as const)
     );
     if (genreId === "coffee") {
       await expect(card.getByTestId("feed-cinematography")).toBeVisible();
-      await expect(card.getByTestId("feed-cinematography-attribution")).toContainText("claim");
-      await expect(card.getByTestId("feed-cinematography")).toContainText(
-        "Had so much fun filming",
+      await expect(card.getByTestId("feed-cinematography-attribution")).toContainText(
+        "The source does not identify who filmed this post.",
       );
+      await expect(card.getByTestId("feed-cinematography-status")).toContainText(
+        "support deliberate filming choices",
+      );
+      await expect(card.getByTestId("feed-cinematography").locator("blockquote")).toHaveCount(0);
       await page.getByTestId("feed-mode-popular").click();
       await expect(feed.getByTestId("feed-card")).toHaveCount(0);
       await page.getByTestId("feed-mode-learning").click();

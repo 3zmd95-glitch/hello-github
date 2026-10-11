@@ -67,7 +67,7 @@ function ranked(
   });
 }
 
-describe("source-attributed cinematography", () => {
+describe("visible cinematography with separate source attribution", () => {
   it("admits a filmed reference through separate visual/attribution evidence without naming an edit or making an old film trendy", () => {
     expect(rankDiscoverItems([item], { genreId: "coffee", now }).items).toEqual([]);
     const visual = production();
@@ -80,7 +80,7 @@ describe("source-attributed cinematography", () => {
     expect(ranked(item, visual, "learning").items).toEqual([]);
   });
   it.each(["film-tv-excerpt", "animation", "gameplay", "uncertain"] as const)(
-    "does not admit %s as a creator-filmed production",
+    "does not admit %s as live-action cinematography",
     (footage) => {
       const visual = production();
       visual.assessment.cinematography!.footage = footage;
@@ -88,11 +88,52 @@ describe("source-attributed cinematography", () => {
       expect(ranked(item, visual).items).toEqual([]);
     },
   );
-  it.each(["third-party", "unattributed", "uncertain"] as const)(
-    "does not turn %s attribution into verified authorship",
+  it.each(["creator-claim", "third-party", "unattributed", "uncertain"] as const)(
+    "admits the same visible craft with %s attribution without changing that attribution",
     (status) => {
+      const sourceCaption = status === "creator-claim" ? caption : "Coffee in the morning.";
+      const card = {
+        ...item,
+        snippet: sourceCaption,
+        evidence: { ...item.evidence!, caption: sourceCaption },
+      };
+      const visual = production(card);
+      const attribution = { status, quote: status === "creator-claim" ? claim : "" };
+      visual.assessment.cinematography!.attribution = attribution;
+      expect(DiscoverVisualSchema.safeParse(visual).success).toBe(true);
+      expect(hasDiscoverCinematography(visual)).toBe(true);
+      expect(ranked(card, visual).items).toHaveLength(1);
+      expect(visual.assessment.cinematography!.attribution).toEqual(attribution);
+      expect(ranked(card, visual, "popular").items).toEqual([]);
+      expect(ranked(card, visual, "learning").items).toEqual([]);
+    },
+  );
+  it.each(["uncertain", "mismatch"] as const)(
+    "requires supported category rather than %s",
+    (category) => {
       const visual = production();
-      visual.assessment.cinematography!.attribution.status = status;
+      visual.assessment.category = category;
+      expect(hasDiscoverCinematography(visual)).toBe(false);
+      expect(ranked(item, visual).items).toEqual([]);
+    },
+  );
+  it.each(["empty", "single", "repeated", "shot-variety-only"] as const)(
+    "rejects %s observations even when the sampled images differ",
+    (caseName) => {
+      const visual = production();
+      const cinema = visual.assessment.cinematography!;
+      cinema.attribution = { status: "unattributed", quote: "" };
+      if (caseName === "empty") cinema.observations = [];
+      if (caseName === "single")
+        cinema.observations = [{ ...cinema.observations[0], frames: [0, 1] }];
+      if (caseName === "repeated")
+        cinema.observations[1].description = `  ${cinema.observations[0].description.toUpperCase().replaceAll(" ", "  ")}  `;
+      if (caseName === "shot-variety-only")
+        cinema.observations = [
+          { cue: "shot-variety", description: "A wide view of the scene.", frames: [0] },
+          { cue: "shot-variety", description: "A closer view of the same scenery.", frames: [1] },
+        ];
+      expect(DiscoverVisualSchema.safeParse(visual).success).toBe(true);
       expect(hasDiscoverCinematography(visual)).toBe(false);
       expect(ranked(item, visual).items).toEqual([]);
     },
@@ -111,6 +152,8 @@ describe("source-attributed cinematography", () => {
     const missing = production();
     missing.assessment.cinematography!.observations[1].frames = [7];
     expect(DiscoverVisualSchema.safeParse(missing).success).toBe(false);
+    expect(hasDiscoverCinematography(missing)).toBe(false);
+    expect(ranked(item, missing).items).toEqual([]);
   });
   it.each(["creator-claim", "third-party", "unattributed", "uncertain"] as const)(
     "grounds every displayed %s quotation in the source",
@@ -121,8 +164,11 @@ describe("source-attributed cinematography", () => {
         quote: "An invented source quotation.",
       };
       expect(DiscoverVisualSchema.safeParse(visual).success).toBe(false);
+      expect(hasDiscoverCinematography(visual)).toBe(false);
+      expect(ranked(item, visual).items).toEqual([]);
       visual.assessment.cinematography!.attribution.quote = claim;
       expect(DiscoverVisualSchema.safeParse(visual).success).toBe(true);
+      expect(hasDiscoverCinematography(visual)).toBe(true);
     },
   );
   it("preserves source engagement, source identity and substantive exclusions", () => {
