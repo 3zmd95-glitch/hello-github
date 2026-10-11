@@ -1,5 +1,7 @@
 # Discover editor feed — 9 October 2026
 
+**Latest continuation:** [11 October checkpoint](discover-resume-2026-10-11.md) supersedes deployment/runtime status below. Worker `9619af1` deployed; the live TikTok probe returned a transport failure, without a permission conclusion or new videos.
+
 ## Status: tested implementation checkpoint; automatic Instagram coverage remains open
 
 The owner rejected five-like Instagram Anime recommendations and asked for a useful personalized editor feed, tested in real Chrome. Passing code tests or filtering everything into an empty feed is not completion. This continues PR #70 on `codex/discover-inspiration`, in the managed `discover-inspiration/hello-github` worktree. The user-facing preview is **http://localhost:3000/discover/** only. The primary checkout's tracked source remains older main; do not restart that checkout's old development source over the preview.

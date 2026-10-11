@@ -140,7 +140,9 @@ export async function probeTikTokAccess(
         method: "GET",
         headers: { Accept: "application/json", "Access-Token": token.access_token },
         credentials: "omit" as const,
-        redirect: "error" as const,
+        // workerd rejects "error" before sending. Manual returns 3xx to the !ok guard below,
+        // keeping the one-request limit and preventing grant forwarding to a redirect target.
+        redirect: "manual" as const,
         signal: controller.signal,
       };
       response = await (deps.fetch ?? fetch)(endpoint.toString(), init);

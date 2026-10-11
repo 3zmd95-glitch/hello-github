@@ -1,5 +1,15 @@
 # Native TikTok access check — 10 October 2026
 
+## Runtime correction — 11 October
+
+Full runtime-fix gates passed: 3,211 root tests / 164 files; 1,302 Worker-package tests; lint, types, build; 406 browser tests / eight intentional skips. Evidence log: Temp `discover-tiktok-runtime-gates-2026-10-11.log`. Provider outcome must still be checked after deploying this correction.
+
+A zero-network reproduction in the exact workerd runtime bundled with pinned Wrangler reproduced the live `network` receipt. Contrary to the public Request documentation, this runtime throws `TypeError` for `redirect: "error"` before any outbound request. `credentials: "omit"` works. Existing Miniflare/esbuild dependencies from Wrangler were reused; no dependency or service was added.
+
+The probe now uses `redirect: "manual"`. Its existing non-OK response guard cancels/rejects 3xx without following them, preserving one request and preventing forwarding the grant to another destination. A new test bundles the actual probe and encryption code into workerd with an entirely intercepted fake provider. It failed before the correction with the same `network` receipt; afterward it proves a valid response is accepted and a redirect is rejected without a second request or credential forwarding. All 31 focused probe/runtime tests passed. Full gates and postdeployment Chrome outcome are recorded below when verified.
+
+**11 October outcome:** test-boundary repair `9619af1` is pushed and deployed successfully by Worker workflow `38115190517`. Final resumed validation passed 3,210 root tests, 1,301 Worker tests, lint/types/build and 406 browser cases with eight intentional skips. One real Chrome probe reached the deployed route but returned `network` before a provider HTTP response. No permission conclusion or video acquisition follows. See [the latest handover](../handovers/discover-resume-2026-10-11.md) for evidence, runtime and the bounded next diagnostic. Earlier pending-deployment statements below are historical.
+
 ## Purpose and evidence
 
 Discover needs better current candidate supply, not just stricter caption rules. The existing category scan checks Tavily budget and performs indexed searches before native TikTok discovery, and can return before that native call. `/categories/:id/top/tt` may invoke Brave and infers Discovery status from stored state; it is not a pure capability check. The existing authenticated `/tiktokads/status` reports connection presence and advertiser count without validating provider access. The localhost exact-post reader can ground a known TikTok URL, but cannot discover new URLs or access the remote advertiser grant.

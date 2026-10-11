@@ -82,7 +82,7 @@ describe("native TikTok capability probe", () => {
       expect(init).toMatchObject({
         method: "GET",
         credentials: "omit",
-        redirect: "error",
+        redirect: "manual",
         headers: { Accept: "application/json", "Access-Token": ACCESS },
       });
       for (const secret of [OWNER, ACCESS, ADVERTISER, "animeedit"])
