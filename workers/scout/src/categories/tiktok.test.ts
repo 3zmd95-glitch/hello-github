@@ -215,7 +215,12 @@ describe("caption-grounded TikTok category discovery", () => {
       [" sa ", "SA"],
       ["not-a-country", "US"],
     ]) {
-      const fetch = network({ tags: [tag("1", "food", 1), tag("2", "foodedit", 9)] });
+      const fetch = network({
+        tags: [tag("1", "food", 1), tag("2", "foodedit", 9)].map((entry) => ({
+          ...entry,
+          top_country_list: [expected],
+        })),
+      });
       await tiktokTop(env({ TIKTOK_DISCOVERY_COUNTRY: given }), fetch, "food", 1000, null);
       const api = fetch.mock.calls.filter(([u]) => String(u).includes("business-api"));
       expect(
@@ -223,6 +228,29 @@ describe("caption-grounded TikTok category discovery", () => {
       ).toBe(true);
       expect(new URL(String(api.at(-1)![0])).searchParams.get("hashtag_ids")).toBe('["2","1"]');
     }
+  });
+  it("never submits a hashtag from another country or invents a successful malformed list", async () => {
+    const fetch = network({ tags: [{ ...tag("1", "foodedit"), top_country_list: ["JP"] }] });
+    expect((await tiktokTop(env(), fetch, "food", 1000, null)).candidates).toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    const malformed = network({ trending: () => json({ code: 0, data: {} }) });
+    expect((await tiktokTop(env(), malformed, "food", 1000, null)).note).toBe("tiktok");
+  });
+  it("preserves caption-poor leads without using their hashtag as a caption, and rejects conflicting IDs", async () => {
+    const fetch = network({
+      caption: () => json({}, 404),
+      videos: () =>
+        ok([{ hashtag_id: "1", top_video_list: [vid("101"), { ...vid("102"), video_id: "999" }] }]),
+    });
+    const found = await tiktokTop(env(), fetch, "food", 1000, null);
+    expect(found.videos).toEqual([]);
+    expect(found.candidates).toEqual([
+      {
+        url: "https://www.tiktok.com/@creator101/video/101",
+        creator: "@creator101",
+        title: "TikTok video",
+      },
+    ]);
   });
   it("reuses the normalized public oEmbed cache and saves new captions in that format", async () => {
     const cache = {

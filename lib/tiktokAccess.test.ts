@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { probeTikTokAccess, readTikTokStoredStatus } from "./tiktokAccess";
+import { acquireTikTokEdits, probeTikTokAccess, readTikTokStoredStatus } from "./tiktokAccess";
 
 const config = { url: "https://scout.test", token: "private-test-token" };
 const NOW = Date.parse("2026-10-10T01:00:00Z");
@@ -19,6 +19,57 @@ const result = {
 };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 afterEach(() => vi.useRealTimers());
+
+const acquisition = {
+  version: 1,
+  categoryId: "anime",
+  country: "US",
+  dateRange: "7DAY",
+  checkedAt: new Date(NOW).toISOString(),
+  status: "accepted",
+  captioned: 1,
+  items: [
+    {
+      platform: "tt",
+      url: "https://www.tiktok.com/@artist/video/7559999999000000001",
+      handle: "@artist",
+      title: "Anime edit",
+      snippet: "Anime transition edit",
+      lang: "en",
+      section: "example",
+    },
+  ],
+};
+it("retrieves native candidates through one authenticated request, without indexed search or inferred evidence", async () => {
+  const fetchImpl = vi.fn<typeof fetch>(async () => json(acquisition));
+  expect(await acquireTikTokEdits(config, "anime", { fetchImpl, now: () => NOW })).toEqual({
+    ok: true,
+    value: acquisition,
+  });
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
+  expect(fetchImpl.mock.calls[0][0]).toBe("https://scout.test/categories/anime/native/tt/acquire");
+  expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+    method: "POST",
+    body: "{}",
+    headers: { Authorization: "Bearer private-test-token" },
+  });
+});
+it.each([
+  { ...acquisition, categoryId: "coffee" },
+  { ...acquisition, captioned: 2 },
+  { ...acquisition, items: Array(13).fill(acquisition.items[0]) },
+  { ...acquisition, items: [{ ...acquisition.items[0], stats: { likes: 5 } }] },
+  { ...acquisition, items: [{ ...acquisition.items[0], url: "https://evil.test/video/123" }] },
+  { ...acquisition, checkedAt: "2020-01-01T00:00:00.000Z" },
+  { ...acquisition, status: "upstream" },
+])("rejects malformed or mixed-scope native data", async (body) => {
+  expect(
+    await acquireTikTokEdits(config, "anime", {
+      fetchImpl: async () => json(body),
+      now: () => NOW,
+    }),
+  ).toEqual({ ok: false, error: "malformed" });
+});
 
 describe("TikTok stored access and one-request probe clients", () => {
   it("uses the existing Scout auth only for explicit fixed routes without retry or redirects", async () => {

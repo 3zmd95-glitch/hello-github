@@ -1,5 +1,19 @@
 # Discover continuation — 11 October 2026
 
+## Native video acquisition implementation
+
+The next continuation established the current official related-video contract in Chrome and implemented **Find TikTok edits** for Browse's All/TikTok tabs. It retrieves up to twelve canonical leads using only the native API/public captions, then passes them to the existing library/source checks. It corrects cross-country hashtag selection, nullable success envelopes, mismatched video identity and caption-poor lead handling. No web-search credits, model, new grant or background schedule. Full gates passed: 3,234 root tests / 166 files, 1,312 Worker tests, lint/types/build and 408 browser cases with eight intentional skips. See [the candidate pilot](../tools/28-native-tiktok-candidates.md) for contracts, bounds and live outcome. Chrome's baseline was one Anime TikTok Inspiration result. The older access-only checkpoint below is historical.
+
+## Latest verified state — native hashtag access works
+
+Commit **`454b02c54cda0e1531ea9b02703c046cb7dc8698`** is pushed on `codex/discover-inspiration` and successfully deployed by [Worker run 38116448739](https://github.com/3zmd95-glitch/hello-github/actions/runs/38116448739). All gates below passed. PR #70 is unmerged. Its CI run is separate from the successful Worker deployment; inspect its current state on resume if needed.
+
+After reloading localhost:3000 in actual Chrome, Browse → Anime → TikTok → Check access returned: **“TikTok accepted this hashtag request and returned 200 hashtags. Video access and editing relevance are still untested.”** Checked 11 October at **08:58:48 local**, US / seven days / hashtag access only. Screenshot: `C:/Users/AORUS/AppData/Local/Temp/discover-tiktok-runtime-fixed-2026-10-11.jpg`. Exactly one explicit live check was made after this deployment. No new video candidates, paid searches, AI assessments or permissions were added.
+
+The original transport blocker is resolved. **Next work is native candidate acquisition:** establish the current official related-video contract, then perform a bounded acquisition pilot and measure native metadata plus actual editing relevance before widening to all genres/platforms. Do not repeatedly probe this already-established hashtag entitlement or infer that 200 hashtags are 200 popular editing videos. The network failure and speculative diagnosis below describe the earlier checkpoint only.
+
+The postdeployment outcome in this section, tools/27 and master-plan is saved locally after the code push; those final documentation edits may be uncommitted. PR description is updated. Runtime PID 32924 and the localhost:3000 preview were preserved. Logs: Temp `discover-tiktok-runtime-gates-2026-10-11.log` and `discover-tiktok-runtime-deploy-2026-10-11.log`.
+
 ## Subsequent runtime diagnosis
 
 Runtime-fix validation passed **3,211 root tests / 164 files**, lint, app/Worker types, build, **406 browser cases / eight intentional skips**, and **1,302 Worker tests**. Log: system Temp `discover-tiktok-runtime-gates-2026-10-11.log`. The production change is one redirect option plus a comment; no frontend rebuild/copy or local-server restart is needed for the shared-Worker correction. CI `38115192373` at the prior code commit has now completed successfully. The planning files described as uncommitted in the historical checkpoint below are included with this runtime correction. A new live result still requires its deployment.

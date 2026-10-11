@@ -1,0 +1,21 @@
+# Native TikTok candidate acquisition — 11 October 2026
+
+## Evidence and decision
+
+The successful native hashtag probe at commit `454b02c` returned 200 Anime hashtags. The public SDK did not describe related videos, but the current official portal does: [Get trending videos related to hashtags](https://business-api.tiktok.com/portal/docs/get-trending-videos-related-to-hashtags/v1.3), read in actual Chrome on 11 October. It documents GET `/open_api/v1.3/discovery/video_list/`, up to ten `hashtag_ids` from `trending_list`, `HASHTAG`, advertiser grant in the Access-Token header, and a country from each hashtag's `top_country_list`. Its response groups up to twenty videos per hashtag, exposing exact IDs, share URLs and embed URLs; engagement counts and captions are not part of this response. A composite popularity ranking is not proof of editing relevance.
+
+Reuse the existing bounded native retrieval and source-checking/library flow; no new SDK, paid provider or account grant. Correct the old selection rule that filled a requested country's batch with tags from other countries. Missing/null provider success codes are accepted only with a real `data.list`; malformed envelopes are failures. Conflicting video IDs/share links are rejected. Hashtag-only titles are removed from caption-poor retrieval leads.
+
+## User-facing action and boundaries
+
+Browse's All/TikTok tabs expose **Find TikTok edits**, with English/Hijazi Arabic copy and explicit US / past-seven-days context. It makes one authenticated POST to `/categories/:id/native/tt/acquire` on deliberate click, independent of indexed-search credit availability. No request is made on navigation/mount. Pending work cancels on category/platform/config changes or unmount; stale responses cannot append to another category. Repeated clicks are disabled after a successful response in that component scope.
+
+The Worker uses three documented hashtag charts (category, SPECIAL_EFFECTS, PHOTOGRAPHY), at most one related-video request, and at most twelve public caption reads, in batches of three. It caps each response at one MiB and the complete request at 28 seconds. Client deadline is 32 seconds and reply limit 128 KiB. Redirects are manual and rejected; the Business token never accompanies a public caption request. No Tavily/Brave/YouTube search, model call, OAuth, background job, persistent Worker write or retry occurs. Missing grants stop before any provider request. Errors never return raw provider messages, credentials or advertiser IDs.
+
+Up to twelve canonical retrieval leads enter the existing local candidate library. Returned-count copy explicitly separates candidates from new/qualified/trending edits. Existing source checks and feed policy decide recommendations; caption-poor leads carry no fabricated evidence or counts. Empty/error outcomes preserve the existing feed. This action is a bounded supply pilot, not fulfillment of the full discovery goal or proof of native private personalization.
+
+## Verification
+
+Full validation passed **3,234 unit tests / 166 files**, **1,312 Worker tests**, lint, app/Worker types, build and **408 browser cases / eight intentional skips / zero failures**. The Worker-only typecheck initially rejected the browser-compatible credentials field as an excess literal property; matching the already-tested probe's request-options pattern corrected the typing without changing runtime behavior. Final log: Temp `discover-tiktok-acquire-gates-final-2026-10-11.log`. The Anime TikTok feed baseline in actual Chrome is **one Inspiration result** before native acquisition. Live rollout and outcome remain to be recorded.
+
+The initial focused set passed 82 tests across client validation, UI lifecycle, Worker route/retrieval and actual workerd. Coverage includes no passive retrieval, authenticated fixed routes, unknown payload/scope/date rejection, cancellation with ignored abort, hanging grant deadline, raw-ID mismatch, valid country membership, nullable success codes, zero provider calls without a grant, 16-call ceiling, no secret forwarding, no fabricated popularity and no persistent Worker writes. Phone/desktop E2E adds empty-response retention, no indexed search calls, explicit action and Arabic copy. Full gates and the actual Chrome pilot outcome follow when verified.

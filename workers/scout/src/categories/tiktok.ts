@@ -52,8 +52,6 @@ const HASHTAGS = 10;
 /** Hard ceiling, three concurrent public oEmbed requests; Discovery hashtags never count as captions. */
 export const TIKTOK_CAPTION_MAX = 12;
 const CAPTION_TIMEOUT_MS = 4_000;
-/** Prefer tags popular in the country; fewer than three permits other countries' subject-specific tags. */
-const IN_COUNTRY_MIN = 3;
 const DATE_RANGE = "7DAY";
 const MESSAGE_MAX = 120;
 /** The only TikTok link the app's player plays (lib/embed `embedId`): one video, with its creator's handle. */
@@ -65,6 +63,8 @@ const PLAYABLE = /^https:\/\/www\.tiktok\.com\/(@[\w.-]+)\/video\/(\d+)$/;
  * videos TikTok sent), country, industry }. */
 export interface TikTokTop {
   videos?: TopVideo[];
+  /** Bounded retrieval leads, including caption-poor posts. Not recommendations or trend evidence. */
+  candidates?: TopVideo[];
   note?: "tiktok" | "tiktok_auth";
   diagnostics?: Record<string, unknown>;
 }
@@ -80,12 +80,12 @@ function countryOf(env: TikTokAdsEnv): string {
   return c && /^[A-Z]{2}$/.test(c) ? c : "US";
 }
 
-/** `data.list` of an answer with `code: 0` ([] when it has none); undefined for any other answer. */
+/** A real `data.list` on success (the official code can be absent/null); malformed envelopes fail. */
 const listOf = (r: Reply): unknown[] | undefined =>
-  answered(r) && r.body.code === 0
+  answered(r) && (r.body.code == null || r.body.code === 0)
     ? isRecord(r.body.data) && Array.isArray(r.body.data.list)
       ? r.body.data.list
-      : []
+      : undefined
     : undefined;
 
 /** TikTok's failure as the diagnostics keep it: its code and message, else the HTTP status. Never the token. */
@@ -152,15 +152,15 @@ function pick(
     for (const t of parse(tags, country)) {
       const tier = tierOf(t.name, id);
       const had = best.get(t.id);
-      if (tier && (!had || tier < had.tier)) best.set(t.id, { ...t, tier });
+      // video_list requires the requested country to be in this hashtag's top_country_list.
+      if (t.here && tier && (!had || tier < had.tier)) best.set(t.id, { ...t, tier });
     }
   const out: Picked[] = [];
   for (const tier of [1, 3]) {
     const tags = [...best.values()]
       .filter((t) => t.tier === tier)
       .sort((a, b) => (a.rank === b.rank ? 0 : a.rank - b.rank));
-    const here = tags.filter((t) => t.here);
-    out.push(...(here.length >= IN_COUNTRY_MIN ? here : [...here, ...tags.filter((t) => !t.here)]));
+    out.push(...tags);
   }
   return out.slice(0, HASHTAGS);
 }
@@ -178,7 +178,8 @@ function tiktokVideo(x: unknown, hashtag: string): { id: string; video: TopVideo
   if (u.protocol !== "https:" || platformForHost(u.hostname) !== "tt") return undefined;
   const m = canonicalUrl("tt", u).match(PLAYABLE);
   if (!m) return undefined;
-  const id = typeof x.video_id === "string" && x.video_id ? x.video_id : m[2];
+  if (x.video_id != null && x.video_id !== m[2]) return undefined;
+  const id = m[2];
   return { id, video: { url: m[0], title: `#${hashtag}`, creator: m[1] } };
 }
 
@@ -337,6 +338,10 @@ export async function tiktokTop(
     const videos = rankCategoryVideos(id, captioned);
     return {
       videos,
+      candidates: candidates.map(
+        (video) =>
+          captioned.find((found) => found.url === video.url) ?? { ...video, title: "TikTok video" },
+      ),
       diagnostics: {
         hashtags: picked.map((h) => ({ name: h.name, tier: h.tier })),
         lists: {

@@ -25,6 +25,7 @@ import { braveTop, type BravePlatform, type TopEnv } from "./top";
 import type { CategoryDoc } from "./types";
 import { readAdsToken } from "../tiktokads";
 import { probeTikTokAccess } from "./tiktokProbe";
+import { acquireTikTok } from "./tiktokAcquire";
 
 const ROUTE = /^\/categories\/([a-z][a-z0-9-]*)(?:(\/run)|\/top\/(tt|ig))?$/;
 
@@ -55,10 +56,15 @@ export async function handleCategories(
   deps: EffectsDeps = {},
 ): Promise<Response | null> {
   const probe = new URL(req.url).pathname.match(
-    /^\/categories\/([a-z][a-z0-9-]*)\/native\/tt\/probe$/,
+    /^\/categories\/([a-z][a-z0-9-]*)\/native\/tt\/(probe|acquire)$/,
   );
   if (probe && req.method === "POST" && categoryById(probe[1])) {
-    const result = await probeTikTokAccess(req, env, probe[1], deps);
+    const result = await (probe[2] === "acquire" ? acquireTikTok : probeTikTokAccess)(
+      req,
+      env,
+      probe[1],
+      deps,
+    );
     const headers = new Headers(cors);
     headers.set("Cache-Control", "no-store");
     return json(result ?? { error: "bad_request" }, result ? 200 : 400, headers);

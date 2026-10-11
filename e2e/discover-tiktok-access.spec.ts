@@ -27,6 +27,7 @@ async function setup(page: Page) {
     probes: [] as string[],
     forbidden: [] as string[],
     aborted: [] as string[],
+    acquisitions: [] as string[],
   };
   page.on("request", (request) => {
     if (
@@ -53,6 +54,26 @@ async function setup(page: Page) {
       return hold ? reply.catch(() => undefined) : reply;
     }
     const probe = path.match(/^\/categories\/(anime|coffee)\/native\/tt\/probe$/);
+    const acquire = path.match(/^\/categories\/(anime|coffee)\/native\/tt\/acquire$/);
+    if (acquire) {
+      expect(request.method()).toBe("POST");
+      expect(request.postDataJSON()).toEqual({});
+      expect(request.headers().authorization).toBe("Bearer fixture");
+      state.acquisitions.push(acquire[1]);
+      return route.fulfill({
+        headers: cors,
+        json: {
+          version: 1,
+          categoryId: acquire[1],
+          country: "US",
+          dateRange: "7DAY",
+          checkedAt: new Date().toISOString(),
+          status: "accepted",
+          items: [],
+          captioned: 0,
+        },
+      });
+    }
     if (probe) {
       expect(request.method()).toBe("POST");
       expect(request.postDataJSON()).toEqual({});
@@ -134,6 +155,23 @@ async function openAccess(page: Page) {
   const access = page.getByTestId("tiktok-native-access");
   if ((await access.getAttribute("open")) === null) await access.locator("summary").click();
 }
+
+test("native TikTok retrieval is explicit, bypasses search credits, and preserves an existing feed on empty results", async ({
+  page,
+}) => {
+  const state = await setup(page);
+  expect(state.acquisitions).toEqual([]);
+  const count = await page.getByTestId("feed-count").textContent();
+  await page.getByTestId("tiktok-find-edits").click();
+  await expect(page.getByTestId("tiktok-find-result")).toHaveText(en["feed.tiktokFindEmpty"]);
+  await expect(page.getByTestId("feed-count")).toHaveText(count!);
+  await expect(page.getByTestId("tiktok-find-edits")).toBeDisabled();
+  expect(state.acquisitions).toEqual(["anime"]);
+  expect(state.forbidden).toEqual([]);
+  await switchLang(page, "ar");
+  await expect(page.getByTestId("tiktok-find-edits")).toHaveText(ar["feed.tiktokFind"]);
+  await expect(page.getByTestId("tiktok-find-result")).toHaveText(ar["feed.tiktokFindEmpty"]);
+});
 
 test("TikTok access is explicit and separates stored grants, native permission and backend support", async ({
   page,

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { scoutCall, scoutConfig, type ScoutConfig } from "./scoutClient";
+import type { DiscoverItem } from "./discover";
 
 const STATUS = z
   .object({ connected: z.boolean(), advertisers: z.number().int().nonnegative().safe() })
@@ -78,6 +79,7 @@ async function request(
   path: string,
   method: "GET" | "POST",
   opts: Options,
+  limits = { timeoutMs: TIMEOUT_MS, maxBytes: MAX_BYTES },
 ): Promise<Result<unknown>> {
   const usable = scoutConfig(config?.url, config?.token);
   if (!usable) return { ok: false, error: "unconfigured" };
@@ -97,7 +99,7 @@ async function request(
   const timer = setTimeout(() => {
     timedOut = true;
     stop("timeout");
-  }, TIMEOUT_MS);
+  }, limits.timeoutMs);
   const boundedFetch: typeof fetch = async (input, init) => {
     const response = await (opts.fetchImpl ?? fetch)(input, init);
     if (controller.signal.aborted) {
@@ -120,14 +122,14 @@ async function request(
     const cancelReader = () => void reader.cancel().catch(() => undefined);
     controller.signal.addEventListener("abort", cancelReader, { once: true });
     try {
-      if (Number(response.headers.get("content-length")) > MAX_BYTES)
+      if (Number(response.headers.get("content-length")) > limits.maxBytes)
         throw new Error("large response");
       while (true) {
         if (controller.signal.aborted) throw new Error("cancelled");
         const chunk = await reader.read();
         if (chunk.done) break;
         length += chunk.value.byteLength;
-        if (length > MAX_BYTES) throw new Error("large response");
+        if (length > limits.maxBytes) throw new Error("large response");
         chunks.push(chunk.value);
       }
       const bytes = new Uint8Array(length);
@@ -213,6 +215,73 @@ export async function probeTikTokAccess(
   );
   if (!result.ok) return result;
   const parsed = PROBE.safeParse(result.value);
+  if (
+    !parsed.success ||
+    parsed.data.categoryId !== categoryId ||
+    Math.abs(Date.parse(parsed.data.checkedAt) - (opts.now ?? Date.now)()) > 5 * 60_000
+  )
+    return { ok: false, error: "malformed" };
+  return { ok: true, value: parsed.data };
+}
+
+const ACQUISITION = z
+  .object({
+    version: z.literal(1),
+    categoryId: z.string(),
+    country: z.literal("US"),
+    dateRange: z.literal("7DAY"),
+    checkedAt: z.iso.datetime(),
+    status: z.enum(["accepted", "not_connected", "upstream", "timeout", "cancelled"]),
+    captioned: z.number().int().min(0).max(12),
+    items: z
+      .array(
+        z
+          .object({
+            platform: z.literal("tt"),
+            handle: z.string().max(160),
+            url: z.string().regex(/^https:\/\/www\.tiktok\.com\/@[\w.-]+\/video\/\d+$/),
+            title: z.string().min(1).max(160),
+            snippet: z.string().max(1200),
+            section: z.literal("example"),
+            lang: z.enum(["ar", "en"]),
+            thumb: z
+              .string()
+              .url()
+              .max(8192)
+              .refine((url) => url.startsWith("https://"))
+              .optional(),
+          })
+          .strict(),
+      )
+      .max(12),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.captioned <= value.items.length &&
+      (value.status === "accepted" || (value.items.length === 0 && value.captioned === 0)),
+  );
+
+export type TikTokAcquisition = Omit<z.infer<typeof ACQUISITION>, "items"> & {
+  items: DiscoverItem[];
+};
+
+/** Explicit native candidates; no indexed search, preferences, AI or cache writes. */
+export async function acquireTikTokEdits(
+  config: ScoutConfig | null,
+  categoryId: string,
+  opts: Options = {},
+): Promise<Result<TikTokAcquisition>> {
+  if (!/^[a-z][a-z0-9-]{0,79}$/.test(categoryId)) return { ok: false, error: "malformed" };
+  const result = await request(
+    config,
+    `/categories/${encodeURIComponent(categoryId)}/native/tt/acquire`,
+    "POST",
+    opts,
+    { timeoutMs: 32_000, maxBytes: 128 * 1024 },
+  );
+  if (!result.ok) return result;
+  const parsed = ACQUISITION.safeParse(result.value);
   if (
     !parsed.success ||
     parsed.data.categoryId !== categoryId ||

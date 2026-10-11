@@ -2,6 +2,8 @@
 
 ## Runtime correction — 11 October
 
+**Verified live:** runtime fix `454b02c` deployed successfully via workflow `38116448739`. Actual Chrome reloaded localhost:3000 and one Anime/TikTok access check returned **accepted, 200 hashtags** at 08:58:48 local on 11 October (US / 7DAY / HASHTAG). Screenshot: Temp `discover-tiktok-runtime-fixed-2026-10-11.jpg`. This resolves the transport issue and establishes that hashtag request's entitlement only; no video candidates or editing-quality claims follow. Proceed to establish the official related-video contract rather than repeating access probes. Paid search and AI assessment remained off.
+
 Full runtime-fix gates passed: 3,211 root tests / 164 files; 1,302 Worker-package tests; lint, types, build; 406 browser tests / eight intentional skips. Evidence log: Temp `discover-tiktok-runtime-gates-2026-10-11.log`. Provider outcome must still be checked after deploying this correction.
 
 A zero-network reproduction in the exact workerd runtime bundled with pinned Wrangler reproduced the live `network` receipt. Contrary to the public Request documentation, this runtime throws `TypeError` for `redirect: "error"` before any outbound request. `credentials: "omit"` works. Existing Miniflare/esbuild dependencies from Wrangler were reused; no dependency or service was added.

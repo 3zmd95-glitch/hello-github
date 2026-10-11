@@ -2,6 +2,10 @@
 
 ## Current implementation work — 11 October 2026
 
+A bounded native TikTok acquisition action is now implemented for Browse, reusing the existing candidate library and source checks. The current official portal confirms the related-video contract and requires each selected hashtag to support the requested country; the old cross-country fallback is corrected. See [native candidate pilot](tools/28-native-tiktok-candidates.md) for the contract, no-paid-search boundaries and upcoming live outcome.
+
+**Latest live result:** runtime fix `454b02c` deployed successfully. One actual Chrome Anime/TikTok check returned **200 hashtags**, confirming the native hashtag request works. Next: verify the official related-video contract and evaluate a bounded acquisition pilot for useful editing content. This is not yet improved video supply or trend-quality proof. The earlier failure/deployment statements below are historical; [the current handover](handovers/discover-resume-2026-10-11.md) leads with the verified state.
+
 The subsequent native TikTok runtime diagnosis reproduced the transport failure in workerd: `redirect: "error"` is unsupported there despite the public documentation. The probe now uses manual redirects and rejects 3xx before any follow-up request. Its new actual-runtime regression failed before the change and passes afterward, including credential non-forwarding. This uses Wrangler's existing runtime/bundler dependencies; no new provider or paid service. See tools/27 for the next deployment/live outcome.
 
 Latest verified checkpoint: [11 October handover](handovers/discover-resume-2026-10-11.md). Worker commit `9619af1` is now deployed successfully; the actual Chrome TikTok probe returned a transport failure, so provider access and improved native supply remain unverified. Local validation passed 3,210 unit tests, lint/types/build and 406 browser cases with eight intentional skips. PR #70 is unmerged. Continue in small, bounded steps to conserve the user's usage. Deployment statements in earlier progress below are historical.

@@ -31,7 +31,7 @@ export interface TikTokProbeResult {
 }
 
 /** Bounded text, including streamed bodies that omit or understate Content-Length. */
-async function readLimited(
+export async function readLimited(
   message: Request | Response,
   limit: number,
   signal: AbortSignal,
