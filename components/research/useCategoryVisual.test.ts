@@ -142,6 +142,44 @@ afterEach(() => {
 });
 
 describe("explicit category visual queue", () => {
+  it("checks only the selected post and reuses its saved assessment without substituting another", async () => {
+    const selected = items[5];
+    expect(queue.eligibleItems.map((entry) => entry.url)).toContain(selected.url);
+    await act(async () => {
+      await queue.assess(selected.url);
+    });
+    expect(client.assessCategoryVisual).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(client.assessCategoryVisual).mock.calls[0][0].url).toBe(selected.url);
+    expect(queue.progress).toMatchObject({ status: "done", attempted: 1, assessed: 1, total: 1 });
+    await act(async () => {
+      await queue.assess(selected.url);
+    });
+    expect(client.assessCategoryVisual).toHaveBeenCalledTimes(1);
+  });
+  it("never substitutes another post after a selected source fails or becomes ineligible", async () => {
+    vi.mocked(client.assessCategoryVisual).mockResolvedValue({
+      ok: true,
+      data: { status: "unavailable", selection, error: "source_unavailable", modelCalls: 0 },
+    });
+    await act(async () => {
+      await queue.assess(items[5].url);
+    });
+    expect(client.assessCategoryVisual).toHaveBeenCalledTimes(1);
+    act(() => {
+      useStore.getState().setDiscoverFeedback({
+        url: items[4].url,
+        platform: "ig",
+        creator: items[4].handle,
+        genreId: "anime",
+        action: "less",
+      });
+    });
+    await act(async () => {
+      await queue.assess(items[4].url);
+      await queue.assess("https://www.instagram.com/p/NotInThisCategory/");
+    });
+    expect(client.assessCategoryVisual).toHaveBeenCalledTimes(1);
+  });
   it("allows an explicit current-rubric check after legacy graphics judgments without running on migration", async () => {
     await act(async () => {
       await queue.assess();

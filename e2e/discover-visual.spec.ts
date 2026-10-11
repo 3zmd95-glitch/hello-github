@@ -177,10 +177,29 @@ for (const genreId of ["anime", "coffee"] as const)
     );
     await expect(checks.getByTestId("category-visual-after-lookup")).not.toBeChecked();
     expect(requests).toHaveLength(0);
-    await checks.getByTestId("category-visual-assess").click();
-    await expect(checks.getByTestId("category-visual-progress")).toContainText(
-      "2 assessments saved",
-    );
+    if (genreId === "coffee") {
+      const target = checks.getByTestId("category-visual-target");
+      await target.selectOption(canonicalDiscoverVisualUrl(items[1].url)!);
+      expect(requests).toHaveLength(0);
+      await checks.getByRole("button", { name: "Check this video", exact: true }).click();
+      await expect(feed.getByTestId("feed-card")).toHaveCount(1);
+      expect(requests).toHaveLength(1);
+      expect(canonicalDiscoverVisualUrl(requests[0].url)).toBe(
+        canonicalDiscoverVisualUrl(items[1].url),
+      );
+      // Finishing one selected post must not silently switch to a fresh batch.
+      await expect(checks.getByTestId("category-visual-assess")).toBeDisabled();
+      await target.selectOption(canonicalDiscoverVisualUrl(items[0].url)!);
+      await checks.getByRole("button", { name: "Check this video", exact: true }).click();
+      await expect(checks.getByTestId("category-visual-progress")).toContainText(
+        "1 assessments saved",
+      );
+    } else {
+      await checks.getByTestId("category-visual-assess").click();
+      await expect(checks.getByTestId("category-visual-progress")).toContainText(
+        "2 assessments saved",
+      );
+    }
     await expect(feed.getByTestId("feed-card")).toHaveCount(2);
     expect(requests).toHaveLength(2);
     expect(searches).toHaveLength(0);

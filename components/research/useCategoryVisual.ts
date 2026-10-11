@@ -214,9 +214,18 @@ export function useCategoryVisual({
     setAfterLookup,
     canAssess,
     eligibleCount: eligible.length,
+    eligibleItems: eligible,
     progress: progress?.scope === scope ? progress : undefined,
     cancel,
-    assess: () => run(items),
+    // An explicit post never falls back to another candidate, even if it becomes ineligible.
+    assess: (url?: string) =>
+      run(
+        url === undefined
+          ? items
+          : eligible.filter(
+              (item) => canonicalDiscoverVisualUrl(item.url) === canonicalDiscoverVisualUrl(url),
+            ),
+      ),
     captureNextLookup: () => {
       if (!afterLookup || !canAssess) return undefined;
       const token = generation.current;

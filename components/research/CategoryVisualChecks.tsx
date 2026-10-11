@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { canonicalDiscoverVisualUrl } from "@/lib/discoverVisual";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { subscriptionError } from "@/lib/localAi";
 import AiConnectionControls from "./AiConnectionControls";
@@ -12,7 +14,13 @@ export default function CategoryVisualChecks({
   queue: CategoryVisualQueue;
   lookupBusy: boolean;
 }) {
-  const { t } = useT();
+  const { t, dir } = useT();
+  const [selectedUrl, setSelectedUrl] = useState("");
+  const options = queue.eligibleItems.flatMap((item) => {
+    const url = canonicalDiscoverVisualUrl(item.url);
+    return url ? [{ ...item, url }] : [];
+  });
+  const selectionUnavailable = !!selectedUrl && !options.some((item) => item.url === selectedUrl);
   const progress = queue.progress;
   const running = progress?.status === "running";
   const errorKey: MessageKey =
@@ -46,15 +54,64 @@ export default function CategoryVisualChecks({
               {queue.choice.effort ? ` · ${queue.choice.effort}` : ""}
             </p>
           )}
+          <label className="flex min-w-0 flex-col gap-1">
+            <span>{t("visual.target")}</span>
+            <select
+              className="px-input w-full min-w-0"
+              dir={dir}
+              value={selectedUrl}
+              disabled={!queue.canAssess || running || lookupBusy}
+              onChange={(event) => setSelectedUrl(event.target.value)}
+              data-testid="category-visual-target"
+            >
+              <option value="">{t("visual.batchTarget")}</option>
+              {selectionUnavailable && (
+                <option value={selectedUrl} disabled>
+                  {t("visual.unavailableTarget")}
+                </option>
+              )}
+              {options.map((item) => {
+                const label = [item.handle, item.title]
+                  .filter(Boolean)
+                  .join(" · ")
+                  .replace(/\s+/g, " ");
+                return (
+                  <option key={item.url} value={item.url} dir="auto">
+                    {label.length > 120 ? `${label.slice(0, 119)}…` : label}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+          {selectedUrl && (
+            <div className="flex min-w-0 flex-col items-start gap-1">
+              <a
+                className="px-link"
+                href={selectedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="category-visual-target-open"
+              >
+                {t("visual.openTarget")}
+              </a>
+              <p className="text-muted">{t("visual.singleHelp")}</p>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               className="px-btn px-btn-sm"
-              disabled={!queue.canAssess || running || lookupBusy || !queue.eligibleCount}
-              onClick={() => void queue.assess()}
+              disabled={
+                !queue.canAssess ||
+                running ||
+                lookupBusy ||
+                !queue.eligibleCount ||
+                selectionUnavailable
+              }
+              onClick={() => void queue.assess(selectedUrl || undefined)}
               data-testid="category-visual-assess"
             >
-              {t("visual.assess")}
+              {t(selectedUrl ? "visual.assessOne" : "visual.assess")}
             </button>
             {running && (
               <button
@@ -67,7 +124,7 @@ export default function CategoryVisualChecks({
               </button>
             )}
           </div>
-          <label className="flex items-start gap-2">
+          <label className="border-edge mt-1 flex items-start gap-2 border-t pt-2">
             <input
               type="checkbox"
               checked={queue.afterLookup}
