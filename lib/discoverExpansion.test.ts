@@ -99,6 +99,22 @@ const genre: Genre = {
   hashtags: [],
 };
 describe("bounded category discovery expansion", () => {
+  it("requests popular YouTube candidates only when explicitly selected, without changing the month window or call count", async () => {
+    await expandCategory({ url: "https://scout.test", token: "test" }, genre, {
+      round: 0,
+      platform: "yt",
+      ytOrder: "viewCount",
+    });
+    expect(discoverSearch).toHaveBeenCalledOnce();
+    expect(vi.mocked(discoverSearch).mock.calls[0][1]).toEqual({
+      q: "anime AMV edit",
+      exact: true,
+      lang: "en",
+      timeRange: "month",
+      platforms: ["yt"],
+      ytOrder: "viewCount",
+    });
+  });
   it.each(GENRES)(
     "offers distinct discovery wording beyond $id's initial query and retry",
     (genre) => {

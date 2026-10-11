@@ -12,7 +12,7 @@ import { ExternalAiPlanSchema } from "./ai-plan";
 import { readPicks } from "./picks";
 import { runDiscover } from "./run";
 import { normalizeTerm } from "./terms";
-import type { DiscoverRequest, DiscoverTimeRange } from "./types";
+import type { DiscoverRequest, DiscoverTimeRange, DiscoverYoutubeOrder } from "./types";
 import { discoverUsage, type UsageEnv } from "./usage";
 
 const TIME_RANGES: readonly DiscoverTimeRange[] = ["week", "month", "year"];
@@ -54,6 +54,8 @@ export function parseDiscoverBody(raw: unknown): DiscoverRequest | null {
   if (b.timeRange !== undefined && !TIME_RANGES.includes(b.timeRange as DiscoverTimeRange))
     return null;
   if (b.ytLength !== undefined && b.ytLength !== "short" && b.ytLength !== "long") return null;
+  if (b.ytOrder !== undefined && b.ytOrder !== "relevance" && b.ytOrder !== "viewCount")
+    return null;
   if (b.lang !== undefined && b.lang !== "ar" && b.lang !== "en") return null;
   if (b.editing !== undefined && typeof b.editing !== "boolean") return null;
   let genreQuery: DiscoverRequest["genreQuery"];
@@ -84,6 +86,7 @@ export function parseDiscoverBody(raw: unknown): DiscoverRequest | null {
     ...(b.editing === true ? { editing: true as const } : {}),
     ...(b.timeRange ? { timeRange: b.timeRange as DiscoverTimeRange } : {}),
     ...(b.ytLength ? { ytLength: b.ytLength as "short" | "long" } : {}),
+    ...(b.ytOrder ? { ytOrder: b.ytOrder as DiscoverYoutubeOrder } : {}),
     ...(platforms ? { platforms } : {}),
   };
 }

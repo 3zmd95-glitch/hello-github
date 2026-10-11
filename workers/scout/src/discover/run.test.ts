@@ -137,6 +137,50 @@ describe("runDiscover", () => {
     },
   );
 
+  it("keeps relevance and view-count retrieval caches separate without adding search calls", async () => {
+    const env = ENV();
+    const fetchMock = web();
+    const req: DiscoverRequest = { q: "flash", platforms: ["yt"] };
+    const first = await runDiscover(env, req, { fetch: fetchMock, now: NOW });
+    expect(first.cost).toEqual({ tavily: 0, youtubeSearch: 2 });
+    expect(first.cached).toBe(false);
+    const calls = fetchMock.mock.calls.length;
+
+    const relevance = await runDiscover(
+      env,
+      { ...req, ytOrder: "relevance" },
+      { fetch: fetchMock, now: NOW },
+    );
+    expect(relevance.cached).toBe(true);
+    expect(relevance.items).toEqual(first.items);
+    expect(fetchMock).toHaveBeenCalledTimes(calls);
+
+    const popularReq: DiscoverRequest = { ...req, ytOrder: "viewCount" };
+    const popular = await runDiscover(env, popularReq, { fetch: fetchMock, now: NOW });
+    expect(popular.cached).toBe(false);
+    expect(popular.cost).toEqual({ tavily: 0, youtubeSearch: 2 });
+    const searches = fetchMock.mock.calls
+      .map(([input]) => new URL(String(input)))
+      .filter((url) => url.pathname.endsWith("/youtube/v3/search"));
+    expect(searches.map((url) => url.searchParams.get("order"))).toEqual([
+      null,
+      null,
+      "viewCount",
+      "viewCount",
+    ]);
+    expect(searches.slice(2).map((url) => url.searchParams.get("q"))).toEqual(
+      searches.slice(0, 2).map((url) => url.searchParams.get("q")),
+    );
+    expect(env.SOCIAL_KV.store.get(discoverKeys.yt("2026-10-03"))?.value).toBe("4");
+
+    const completedCalls = fetchMock.mock.calls.length;
+    const again = await runDiscover(env, popularReq, { fetch: fetchMock, now: NOW });
+    expect(again.cached).toBe(true);
+    expect(again.items).toEqual(popular.items);
+    expect(again.cost).toEqual({ tavily: 0, youtubeSearch: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(completedCalls);
+  });
+
   // Live, 2026-10-07: Tavily's Instagram "week" held posts from 2023 and May. The post id is the date (postDate.ts).
   it("asks Tavily a wider window, then keeps the posts inside the asked one by their real date", async () => {
     const at = (daysAgo: number) =>
@@ -611,6 +655,12 @@ describe("runDiscover", () => {
       await requestHash({ q: "flash" }),
     );
     expect(await requestHash({ q: "flash", editing: true })).not.toBe(
+      await requestHash({ q: "flash" }),
+    );
+    expect(await requestHash({ q: "flash", ytOrder: "relevance" })).toBe(
+      await requestHash({ q: "flash" }),
+    );
+    expect(await requestHash({ q: "flash", ytOrder: "viewCount" })).not.toBe(
       await requestHash({ q: "flash" }),
     );
     expect(await requestHash({ q: "flash", platforms: ["yt", "tt"] })).toBe(

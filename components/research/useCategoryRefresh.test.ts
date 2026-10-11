@@ -162,7 +162,12 @@ describe("explicit category refresh", () => {
     expect(expansion.expandCategory).toHaveBeenCalledExactlyOnceWith(
       config,
       travel,
-      expect.objectContaining({ platform: "yt", round: 0, signal: expect.any(AbortSignal) }),
+      expect.objectContaining({
+        platform: "yt",
+        ytOrder: "viewCount",
+        round: 0,
+        signal: expect.any(AbortSignal),
+      }),
     );
     expect(queue.outcome).toMatchObject({
       status: "done",

@@ -19,8 +19,7 @@ const urls = [
   "https://www.tiktok.com/@lewisonfilm/video/7490121492424903958",
   "https://www.tiktok.com/@alessvisuals/video/7677300576404770069",
 ];
-function record(index = 2): DiscoverCandidate {
-  const caption = captions[index];
+function record(index = 2, caption = captions[index]): DiscoverCandidate {
   const item: DiscoverItem = {
     url: urls[index],
     platform: "tt",
@@ -76,9 +75,13 @@ const rank = (
   });
 
 describe("source-bound caption context in category ranking", () => {
-  it.each([0, 1, 2])(
-    "recovers travel reference %s without inventing a named effect, lesson or current trend",
-    (index) => {
+  it.each([
+    { index: 0, craft: "generic", techniques: [] },
+    { index: 1, craft: "specific", techniques: ["color grading"] },
+    { index: 2, craft: "specific", techniques: ["color grading"] },
+  ])(
+    "recovers travel reference $index while keeping named craft grounded in its source caption",
+    ({ index, craft, techniques }) => {
       const entry = record(index);
       expect(rankDiscoverItems([entry.item], { genreId: "travel", now }).items).toHaveLength(0);
       expect(rank(entry).items).toHaveLength(1);
@@ -88,9 +91,9 @@ describe("source-bound caption context in category ranking", () => {
       expect(proof).toMatchObject({
         categoryMatch: true,
         project: true,
-        craft: "generic",
+        craft,
         teaching: false,
-        techniques: [],
+        techniques,
         popular: false,
       });
       expect(proof.visual).toBeUndefined();
@@ -170,11 +173,23 @@ describe("source-bound caption context in category ranking", () => {
     expect(rank(entry, "inspiration", later).items).toHaveLength(1);
   });
   it("does not promote uncertain, mismatched or category-only judgments", () => {
-    const entry = record();
+    // Synthetic model-only contrast: the real Nice caption separately claims #colorgrading.
+    const entry = record(
+      2,
+      "Cinematic frames from Nice 🇫🇷 #fyp #filmmakers #davinciresolve #southoffrance",
+    );
+    expect(discoverEvidence(entry.item, "travel", now)).toMatchObject({
+      categoryMatch: false,
+      project: false,
+      craft: "generic",
+      techniques: [],
+    });
+    expect(rank(entry).items).toHaveLength(1);
     for (const patch of [
       { category: "uncertain" as const },
       { category: "mismatch" as const },
       { project: "none" as const },
+      { project: "uncertain" as const },
     ]) {
       expect(
         rank({

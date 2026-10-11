@@ -36,6 +36,8 @@ const CREATIVE: Record<string, readonly string[]> = {
   "color grading": [
     "color grading",
     "colour grading",
+    "colorgrading",
+    "colourgrading",
     "color grade",
     "colorgrade",
     "تلوين سينمائي",

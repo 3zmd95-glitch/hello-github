@@ -52,6 +52,10 @@ describe("parseDiscoverBody", () => {
     expect(parseDiscoverBody({ q: "flash", genreQuery: {} })).toEqual({ q: "flash" });
   });
 
+  it.each(["relevance", "viewCount"])("accepts YouTube retrieval order %s", (ytOrder) => {
+    expect(parseDiscoverBody({ q: "flash", ytOrder })).toEqual({ q: "flash", ytOrder });
+  });
+
   it("refuses bad fields", () => {
     for (const bad of [
       null,
@@ -65,6 +69,11 @@ describe("parseDiscoverBody", () => {
       { q: "x", term: "Bad Id" },
       { q: "x", timeRange: "day" },
       { q: "x", ytLength: "medium" },
+      { q: "x", ytOrder: "date" },
+      { q: "x", ytOrder: "viewcount" },
+      { q: "x", ytOrder: "" },
+      { q: "x", ytOrder: null },
+      { q: "x", ytOrder: 1 },
       { q: "x", platforms: [] },
       { q: "x", platforms: ["fb"] },
       { q: "x", genreQuery: "car" },
@@ -116,7 +125,7 @@ describe("/discover routes", () => {
       body: "{q:",
       headers: { "Content-Type": "application/json" },
     });
-    for (const bad of [post({ q: "" }), notJson]) {
+    for (const bad of [post({ q: "" }), post({ q: "flash", ytOrder: "date" }), notJson]) {
       const res = await handle(bad, ENV, undefined, { fetch: fetchMock });
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ error: "bad_request" });

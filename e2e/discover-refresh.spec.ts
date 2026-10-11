@@ -101,6 +101,7 @@ test("category refresh combines bounded native batches, counts qualified additio
         platforms: ["yt"],
         exact: true,
         timeRange: "month",
+        ytOrder: "viewCount",
       });
       expect(req.postDataJSON().mode).toBeUndefined();
       return reply({

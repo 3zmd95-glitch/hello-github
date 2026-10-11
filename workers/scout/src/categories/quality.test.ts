@@ -12,6 +12,39 @@ import { soundtrackResource } from "./soundtrackResource.fixture";
 import { filmedCoffeeProject } from "./filmedProject.fixture";
 import { creditedCoffeeProject } from "./productionCredits.fixture";
 
+describe("joined color-grading aliases", () => {
+  it.each(["color grading", "colour grading", "colorgrading", "colourgrading"])(
+    "recognizes the same named technique for %s",
+    (alias) => {
+      expect(evidence("cars", `Mercedes c280 #${alias}`)).toMatchObject({
+        category: true,
+        creative: true,
+        eligible: true,
+        namedTechniques: ["color grading"],
+        project: false,
+        teaching: false,
+      });
+    },
+  );
+  it.each(["colorgrading", "colourgrading"])(
+    "keeps unsupported use and soundtrack resources from supplying %s",
+    (alias) => {
+      for (const caption of [
+        `I will use ${alias} on my Mercedes video tomorrow`,
+        `I did not use ${alias} on this Mercedes video`,
+        `Car songs for ${alias}`,
+        `Car ${alias} music suggestions`,
+      ])
+        expect(evidence("cars", caption)).toMatchObject({
+          category: true,
+          creative: false,
+          project: false,
+          namedTechniques: [],
+        });
+    },
+  );
+});
+
 describe("paired production credits", () => {
   it("recognizes the observed Coffee production credits without inventing technique or teaching", () => {
     expect(evidence("coffee", creditedCoffeeProject.caption)).toMatchObject({

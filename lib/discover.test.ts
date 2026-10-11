@@ -180,6 +180,8 @@ describe("the search's language and a trend chip's editing flag", () => {
     expect(key({ q: "x", lang: "en" })).toBe(key({ q: "x" }));
     expect(key({ q: "x", lang: "ar" })).not.toBe(key({ q: "x" }));
     expect(key({ q: "x", editing: true })).not.toBe(key({ q: "x" }));
+    expect(key({ q: "x", ytOrder: "relevance" })).toBe(key({ q: "x" }));
+    expect(key({ q: "x", ytOrder: "viewCount" })).not.toBe(key({ q: "x" }));
   });
 });
 

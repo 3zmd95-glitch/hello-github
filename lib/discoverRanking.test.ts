@@ -10,6 +10,7 @@ import { soundtrackResource } from "../workers/scout/src/categories/soundtrackRe
 import { discoverVisualFixture, discoverVisualObservationFixture } from "./discoverVisual.fixture";
 import { filmedCoffeeProject } from "../workers/scout/src/categories/filmedProject.fixture";
 import { creditedCoffeeProject } from "../workers/scout/src/categories/productionCredits.fixture";
+import { applyInstagramEvidence } from "./discoverSources";
 
 it("admits a native credited production without turning old work, small posts or other genres into popular edits", () => {
   const post: DiscoverItem = {
@@ -126,6 +127,81 @@ const ranked = (
   mode: "inspiration" | "popular" | "learning" | "explore" = "inspiration",
   feedback: DiscoverFeedback[] = [],
 ) => rankDiscoverItems(items, { now: NOW, genreId: "anime", mode, feedback });
+
+describe("native Cars color-grading caption", () => {
+  const now = Date.parse("2026-10-11T16:30:00Z");
+  const options = { genreId: "cars", now };
+  const observed = (id: string, author: string, caption: string, likes: number) =>
+    applyInstagramEvidence(
+      item(id, { title: "Instagram", stats: undefined, published: undefined }),
+      {
+        status: "available",
+        url: `https://www.instagram.com/reel/${id}/`,
+        title: caption,
+        description: caption,
+        author,
+        likes,
+        thumbnailUrl: "",
+        observedAt: new Date(now).toISOString(),
+        provenance: "instagram-public-embed",
+      },
+    );
+  const caption =
+    "Back to the ’90s ✨\n\nMercedes c280 🇩🇪\n#filmmaker #edit #caredit #colorgrading";
+
+  it("admits the observed joined grading tag while preserving source engagement and recency gates", () => {
+    const post = observed("Dd9Ua2pRrsH", "gamilego", caption, 27257);
+    expect(discoverEvidence(post, "cars", now)).toMatchObject({
+      eligible: true,
+      craft: "specific",
+      techniques: ["color grading"],
+      project: false,
+      teaching: false,
+      engagement: { basis: "source", value: 27257, strong: true },
+    });
+    expect(rankDiscoverItems([post], { ...options, mode: "inspiration" }).items).toHaveLength(1);
+    expect(rankDiscoverItems([post], { ...options, mode: "explore" }).items).toHaveLength(1);
+    expect(rankDiscoverItems([post], { ...options, mode: "learning" }).items).toEqual([]);
+    const tiny = { ...post, stats: { likes: 900000 }, evidence: { ...post.evidence!, likes: 5 } };
+    expect(rankDiscoverItems([tiny], { ...options, mode: "inspiration" }).items).toEqual([]);
+    expect(
+      rankDiscoverItems([{ ...post, evidence: undefined }], { ...options, mode: "inspiration" })
+        .items,
+    ).toEqual([]);
+    // Synthetic older-publication contrast; the observed post above was published October 1.
+    const old = { ...post, evidence: { ...post.evidence!, published: "2025-10-01T12:00:00Z" } };
+    expect(rankDiscoverItems([old], { ...options, mode: "inspiration" }).items).toHaveLength(1);
+    expect(rankDiscoverItems([old], { ...options, mode: "popular" }).items).toEqual([]);
+  });
+  it.each([
+    [
+      "Dbd5ji4uO9z",
+      "quentin._fx",
+      "I Said…. SMOOTH ENOUGH ? 🥴\n#caredit #smoothedit #carofinstagram",
+      642054,
+    ],
+    [
+      "DdltV3FsZsw",
+      "g82rey",
+      "Catch the flow with M4⬜️.\n🚙: @g82rey\n🎥: @jasonp.media\n#bmw #m4 #m4competition",
+      422784,
+    ],
+  ] as const)(
+    "keeps the other observed sparse Cars caption %s outside craft admission",
+    (id, author, caption, likes) => {
+      const post = observed(id, author, caption, likes);
+      expect(discoverEvidence(post, "cars", now)).toMatchObject({
+        categoryMatch: true,
+        eligible: false,
+        craft: "none",
+        project: false,
+        reasons: expect.arrayContaining(["no-craft", "strong-engagement"]),
+      });
+      expect(rankDiscoverItems([post], { ...options, mode: "explore" }).items).toEqual([]);
+      expect(rankDiscoverItems([post], { ...options, mode: "inspiration" }).items).toEqual([]);
+    },
+  );
+});
 
 describe("sampled visual craft remains separate from source popularity", () => {
   const withVisual = (card: DiscoverItem, genreId = "anime") => ({

@@ -9,6 +9,7 @@ import type { Lang, LangText } from "./terms";
 
 export type Intent = "examples" | "tutorials";
 export type DiscoverTimeRange = "week" | "month" | "year";
+export type DiscoverYoutubeOrder = "relevance" | "viewCount";
 
 export interface DiscoverRequest {
   q: string;
@@ -35,6 +36,8 @@ export interface DiscoverRequest {
   editing?: true;
   timeRange?: DiscoverTimeRange;
   ytLength?: "short" | "long";
+  /** Official YouTube retrieval order; omitted uses relevance. Does not change our relevance checks. */
+  ytOrder?: DiscoverYoutubeOrder;
   /** Default: all three. */
   platforms?: Platform[];
   /** Claude's own queries (the connector only; never read from an HTTP body). At most 9 are used. */

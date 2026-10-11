@@ -84,6 +84,8 @@ export async function requestHash(req: DiscoverRequest): Promise<string> {
     editing: !!req.editing,
     timeRange: req.timeRange ?? "",
     ytLength: req.ytLength ?? "",
+    // Relevance is the existing default: retain its cache keys, isolate only the new retrieval order.
+    ...(req.ytOrder === "viewCount" ? { ytOrder: req.ytOrder } : {}),
     platforms: [...(req.platforms ?? ["tt", "ig", "yt"])].sort(),
     queries: (req.queries ?? []).map((q) => [
       q.platform,
@@ -266,6 +268,7 @@ export async function runDiscover(
           lang: query.lang,
           timeRange: plan.timeRange ?? req.timeRange,
           ytLength: plan.ytLength ?? req.ytLength,
+          ytOrder: req.ytOrder,
         };
         const out = await youtubeCall(env, deps.fetch, call, deps.now, deps.timeoutMs);
         return out.ok ? { query, cards: out.cards } : { query, cards: [], error: out.error };

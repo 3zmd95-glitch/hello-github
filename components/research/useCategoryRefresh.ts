@@ -293,6 +293,7 @@ export function useCategoryRefresh({
             });
             const result = await expandCategory(config, genre, {
               platform: "yt",
+              ytOrder: "viewCount",
               round,
               signal: controller.signal,
             });

@@ -90,7 +90,11 @@ export function categoryExpansionQuery(genre: Genre, round: number): string | nu
 export async function expandCategory(
   config: ScoutConfig,
   genre: Genre,
-  options: ScoutSearchOpts & { round: number; platform?: DiscoverPlatform },
+  options: ScoutSearchOpts & {
+    round: number;
+    platform?: DiscoverPlatform;
+    ytOrder?: "relevance" | "viewCount";
+  },
 ): Promise<DiscoverResult> {
   const query = categoryExpansionQuery(genre, options.round);
   if (!query) return { ok: false, error: { type: "upstream" } };
@@ -104,6 +108,7 @@ export async function expandCategory(
       // the Worker's known-post-date check, while unknown dates remain explicitly unverified.
       timeRange: "month",
       ...(options.platform ? { platforms: [options.platform] } : {}),
+      ...(options.platform === "yt" && options.ytOrder ? { ytOrder: options.ytOrder } : {}),
     },
     options,
   );

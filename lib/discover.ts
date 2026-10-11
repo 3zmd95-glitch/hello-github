@@ -121,6 +121,8 @@ export interface DiscoverRequest {
   editing?: true;
   timeRange?: "week" | "month" | "year";
   ytLength?: "short" | "long";
+  /** Retrieval ordering only; local creative relevance and recency gates still apply. */
+  ytOrder?: "relevance" | "viewCount";
   platforms?: DiscoverPlatform[];
 }
 
@@ -410,6 +412,7 @@ export function discoverRequestKey(config: ScoutConfig, req: DiscoverRequest): s
     editing: !!req.editing,
     timeRange: req.timeRange ?? "",
     ytLength: req.ytLength ?? "",
+    ...(req.ytOrder === "viewCount" ? { ytOrder: "viewCount" } : {}),
     platforms: [...(req.platforms ?? [])].sort(),
   })}`;
 }
