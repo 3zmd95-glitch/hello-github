@@ -1,0 +1,458 @@
+"use client";
+
+import { useEffect, useId, useRef, useState } from "react";
+import type { EditFormat } from "@/lib/editFormats";
+import {
+  assessFormatSource,
+  formatVerificationTarget,
+  type FormatVerificationTarget,
+} from "@/lib/formatVerification";
+import { inspectFormatPreview, localInstagramSource, sourceKey } from "@/lib/formatSources";
+import { selectFormatObservations } from "@/lib/formatObservations";
+import { useT } from "@/lib/i18n";
+import { subscriptionError, type AiChoice } from "@/lib/localAi";
+import type { InstagramSource } from "../../workers/scout/src/instagramSource";
+import { useStore } from "@/store";
+import AiConnectionControls from "./AiConnectionControls";
+import FormatObservationSummary from "./FormatObservationSummary";
+import { selectFormatCandidates, formatQueueOptions, formatTargetId } from "@/lib/formatQueue";
+
+type Inspection = Extract<Awaited<ReturnType<typeof inspectFormatPreview>>, { ok: true }>["data"];
+
+/** A visible, on-demand source check, kept separate from search and from whole-video verification. */
+export default function FormatSourceInspector({
+  formats,
+  requestedTarget,
+  initiallyOpen = false,
+}: {
+  formats: EditFormat[];
+  requestedTarget?: FormatVerificationTarget;
+  initiallyOpen?: boolean;
+}) {
+  const { t, lang } = useT();
+  const id = useId();
+  const queue = useStore((state) => state.formatQueue);
+  const options = formatQueueOptions(formats, queue);
+  const [key, setKey] = useState(
+    (requestedTarget ? formatTargetId(requestedTarget) : null) ?? options[0]?.id ?? "",
+  );
+  const selected = options.find((row) => row.id === key) ?? options[0];
+  const format = selected?.format;
+  const candidates = format ? selectFormatCandidates(queue, formatVerificationTarget(format)) : [];
+  const [url, setUrl] = useState(
+    (requestedTarget ? candidates[0]?.url : undefined) ??
+      format?.samples.find((sample) => sample.platform === "ig")?.url ??
+      "",
+  );
+  const [liveSource, setSource] = useState<InstagramSource | null>(null);
+  const [liveInspection, setInspection] = useState<Inspection | null>(null);
+  const observations = useStore((state) => state.formatObservations);
+  const savedRows = format
+    ? selectFormatObservations(observations, formatVerificationTarget(format))
+    : [];
+  const saved = savedRows.find((row) => sourceKey(row.url) === sourceKey(url));
+  const source = liveSource ?? saved?.source ?? null;
+  const inspection = liveInspection ?? saved?.inspection ?? null;
+  const [choice, setChoice] = useState<AiChoice>({ provider: "builtin", model: "" });
+  const [aiOpen, setAiOpen] = useState(false);
+  const [mode, setMode] = useState<"frames" | "preview">("frames");
+  const [busy, setBusy] = useState<"source" | "ai" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const pending = useRef<AbortController | null>(null);
+  const details = useRef<HTMLDetailsElement | null>(null);
+  const [open, setOpen] = useState(initiallyOpen);
+  useEffect(() => {
+    if (initiallyOpen) details.current?.scrollIntoView({ block: "start" });
+  }, [initiallyOpen]);
+  useEffect(() => () => pending.current?.abort(), []);
+  useEffect(
+    () =>
+      useStore.subscribe((state, previous) => {
+        if (state.discoverLibraryEpoch === previous.discoverLibraryEpoch) return;
+        pending.current?.abort();
+        pending.current = null;
+        setBusy(null);
+        setSource(null);
+        setInspection(null);
+        setError(null);
+      }),
+    [],
+  );
+  const reset = () => {
+    pending.current?.abort();
+    pending.current = null;
+    setBusy(null);
+    setSource(null);
+    setInspection(null);
+    setError(null);
+  };
+  const check = async (ai = false) => {
+    if (!format || busy) return;
+    reset();
+    const controller = new AbortController();
+    const epoch = useStore.getState().discoverLibraryEpoch;
+    const isCurrent = () =>
+      !controller.signal.aborted &&
+      pending.current === controller &&
+      useStore.getState().discoverLibraryEpoch === epoch;
+    pending.current = controller;
+    setBusy(ai ? "ai" : "source");
+    if (ai && choice.provider === "chatgpt" && choice.model) {
+      const result = await inspectFormatPreview(
+        { ...choice, provider: "chatgpt" },
+        format,
+        url,
+        lang,
+        controller.signal,
+        mode,
+      );
+      if (!isCurrent()) return;
+      if (result.ok) {
+        setInspection(result.data);
+        setSource(result.data.verification.source);
+        useStore.getState().recordFormatObservation({
+          target: formatVerificationTarget(format),
+          source: result.data.verification.source,
+          inspection: result.data,
+        });
+      } else {
+        setError(result.error);
+        if (result.source) {
+          setSource(result.source);
+          useStore.getState().recordFormatObservation({
+            target: formatVerificationTarget(format),
+            source: result.source,
+          });
+        }
+      }
+    } else {
+      const result = await localInstagramSource(url, controller.signal);
+      if (!isCurrent()) return;
+      setSource(result);
+      if (result)
+        useStore.getState().recordFormatObservation({
+          target: formatVerificationTarget(format),
+          source: result,
+        });
+      if (!result || result.status !== "available") setError("source_unavailable");
+    }
+    setBusy(null);
+  };
+  if (!format) return null;
+  const assessment = source ? assessFormatSource(formatVerificationTarget(format), source) : null;
+  const canInspect = choice.provider === "chatgpt" && !!choice.model;
+  const errorKey =
+    error === "source_unavailable"
+      ? "formats.checkUnavailable"
+      : error === "local_ai_unavailable"
+        ? "formats.checkLocalOnly"
+        : error?.startsWith("source_frames_")
+          ? "formats.framesUnavailable"
+          : subscriptionError(error) === "subscription_limit"
+            ? "search.subscriptionLimit"
+            : "formats.checkFailed";
+  return (
+    <details
+      className="border-edge border-t-2 pt-3 text-xs"
+      data-testid="format-inspector"
+      ref={details}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="px-link w-fit cursor-pointer font-bold">
+        {t("formats.checkTitle")}
+      </summary>
+      <div className="mt-3 flex min-w-0 flex-col gap-3">
+        <p className="text-muted">{t("formats.checkHelp")}</p>
+        <p className="text-muted">{t("formats.checksSavedHelp")}</p>
+        <label htmlFor={`${id}-format`}>{t("formats.checkAgainst")}</label>
+        <select
+          id={`${id}-format`}
+          className="px-input w-full min-w-0"
+          value={selected.id}
+          onChange={(event) => {
+            reset();
+            setKey(event.target.value);
+            const next = options.find((row) => row.id === event.target.value)?.format;
+            setUrl(
+              (next
+                ? selectFormatCandidates(queue, formatVerificationTarget(next))[0]?.url
+                : undefined) ??
+                next?.samples.find((sample) => sample.platform === "ig")?.url ??
+                "",
+            );
+          }}
+        >
+          {options.map((row) => (
+            <option key={row.id} value={row.id}>
+              {lang === "ar" ? (row.format.name.ar ?? row.format.name.en) : row.format.name.en}
+              {row.historical ? ` — ${t("formats.queueOriginalTarget")}` : ""}
+            </option>
+          ))}
+        </select>
+        {!!candidates.length && (
+          <section className="border-edge space-y-2 border p-3" data-testid="format-pending-review">
+            <h3 className="font-bold">{t("formats.queueTitle", { n: candidates.length })}</h3>
+            <p className="text-muted">{t("formats.queueHelp")}</p>
+            <ul className="max-h-64 space-y-2 overflow-y-auto">
+              {candidates.map((candidate) => {
+                const record = savedRows.find(
+                  (row) => sourceKey(row.url) === sourceKey(candidate.url),
+                );
+                return (
+                  <li
+                    key={candidate.url}
+                    className="border-edge space-y-1 border-t pt-2"
+                    data-testid="format-queued-post"
+                  >
+                    <a
+                      className="px-link block break-all"
+                      href={candidate.url}
+                      dir="auto"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {record?.source.author || candidate.url}
+                    </a>
+                    <p className="text-muted">
+                      {t(
+                        !record
+                          ? "formats.queueUnchecked"
+                          : record.source.status !== "available"
+                            ? "formats.checkUnavailable"
+                            : record.inspection?.verification.basis === "source-frames-and-metadata"
+                              ? "formats.savedFrames"
+                              : record.inspection
+                                ? "formats.savedThumbnail"
+                                : "formats.savedMetadata",
+                      )}
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        className="px-link"
+                        data-testid="format-open-candidate"
+                        onClick={() => {
+                          reset();
+                          setUrl(candidate.url);
+                        }}
+                      >
+                        {t("formats.queueOpen")}
+                      </button>
+                      <button
+                        type="button"
+                        className="px-link text-muted"
+                        data-testid="format-remove-candidate"
+                        onClick={() => {
+                          reset();
+                          useStore
+                            .getState()
+                            .removeFormatCandidate(formatVerificationTarget(format), candidate.url);
+                          if (selected.historical && candidates.length === 1) {
+                            const next = formatQueueOptions(
+                              formats,
+                              useStore.getState().formatQueue,
+                            )[0];
+                            setKey(next?.id ?? "");
+                            setUrl(
+                              next?.format.samples.find((sample) => sample.platform === "ig")
+                                ?.url ?? "",
+                            );
+                          }
+                        }}
+                      >
+                        {t("formats.queueRemove")}
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+        <form
+          className="flex min-w-0 flex-wrap gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void check();
+          }}
+        >
+          <label className="flex min-w-0 grow flex-col gap-1" htmlFor={`${id}-url`}>
+            <span>{t("formats.checkUrl")}</span>
+            <input
+              id={`${id}-url`}
+              data-testid="format-check-url"
+              className="px-input w-full min-w-0"
+              type="url"
+              required
+              maxLength={1000}
+              value={url}
+              dir="ltr"
+              onChange={(event) => {
+                reset();
+                setUrl(event.target.value);
+              }}
+            />
+          </label>
+          <button
+            className="px-btn px-btn-sm self-end"
+            disabled={!!busy || !url}
+            data-testid="format-check-source"
+          >
+            {t(busy === "source" ? "formats.checking" : "formats.checkSource")}
+          </button>
+        </form>
+        {saved && !liveSource && (
+          <p className="text-muted" data-testid="format-check-reused">
+            {t("formats.checkReused", {
+              date: new Date(saved.checkedAt).toLocaleString(lang === "ar" ? "ar-SA" : "en-GB", {
+                calendar: "gregory",
+              }),
+            })}
+          </p>
+        )}
+        <FormatObservationSummary
+          format={format}
+          onOpen={(row) => {
+            reset();
+            setUrl(row.url);
+          }}
+          onRemove={(row) => {
+            if (sourceKey(url) === sourceKey(row.url)) reset();
+          }}
+        />
+        {source?.status === "available" && assessment && (
+          <div className="bg-panel-2 flex flex-col gap-2 p-3" data-testid="format-source-result">
+            <p className="font-bold">
+              {t(
+                assessment.audio === "match"
+                  ? "formats.audioMatch"
+                  : assessment.audio === "mismatch"
+                    ? "formats.audioMismatch"
+                    : "formats.audioUnknown",
+              )}
+            </p>
+            {source.audio && (
+              <p dir="auto">
+                {source.audio.title}
+                {source.audio.artist ? ` · ${source.audio.artist}` : ""}
+              </p>
+            )}
+            <p className="text-muted">{t("formats.actualCaption")}</p>
+            <blockquote dir="auto" className="break-words">
+              {source.description || t("formats.noCaption")}
+            </blockquote>
+            <p className="text-muted">{t("formats.metadataLimit")}</p>
+            <a
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-link w-fit"
+            >
+              {t("formats.watch")}
+            </a>
+          </div>
+        )}
+        <details onToggle={(event) => setAiOpen(event.currentTarget.open)}>
+          <summary className="px-link w-fit cursor-pointer">{t("formats.inspectTitle")}</summary>
+          {aiOpen && (
+            <div className="mt-2 flex min-w-0 flex-col gap-2">
+              <p className="text-muted">{t("formats.inspectHelp")}</p>
+              <label className="flex flex-col gap-1" htmlFor={`${id}-mode`}>
+                <span>{t("formats.inspectMode")}</span>
+                <select
+                  className="px-input max-w-full"
+                  id={`${id}-mode`}
+                  value={mode}
+                  onChange={(event) => {
+                    reset();
+                    setMode(event.target.value as "frames" | "preview");
+                  }}
+                >
+                  <option value="frames">{t("formats.inspectFrames")}</option>
+                  <option value="preview">{t("formats.inspectPreviewOnly")}</option>
+                </select>
+              </label>
+              <AiConnectionControls
+                value={choice}
+                onChange={(next) => {
+                  reset();
+                  setChoice(next);
+                }}
+              />
+              {choice.provider === "claude" && <p>{t("formats.inspectChatgptOnly")}</p>}
+              <button
+                type="button"
+                className="px-btn px-btn-sm w-fit"
+                disabled={!canInspect || !!busy || !url}
+                onClick={() => void check(true)}
+                data-testid="format-inspect-preview"
+              >
+                {t(busy === "ai" ? "formats.inspecting" : "formats.inspectButton")}
+              </button>
+            </div>
+          )}
+        </details>
+        {inspection && (
+          <div className="bg-panel-2 flex flex-col gap-2 p-3" data-testid="format-visual-result">
+            <p className="font-bold">
+              {t(
+                inspection.verification.visual === "match"
+                  ? "formats.visualMatch"
+                  : inspection.verification.visual === "mismatch"
+                    ? "formats.visualMismatch"
+                    : "formats.visualUnknown",
+              )}
+            </p>
+            <p className="text-muted">
+              {t(
+                inspection.verification.basis === "source-thumbnail-and-metadata"
+                  ? "formats.previewLimit"
+                  : "formats.framesLimit",
+              )}{" "}
+              · {inspection.model}
+              {inspection.effort ? ` · ${inspection.effort}` : ""}
+            </p>
+            {!!inspection.verification.frames?.length && (
+              <p className="text-muted" dir="ltr">
+                {inspection.verification.frames
+                  .map((frame) => `${frame.timestampSeconds.toFixed(1)}s`)
+                  .join(" · ")}
+              </p>
+            )}
+            <ul className="list-disc space-y-1 ps-5" dir="auto">
+              {inspection.verification.observations.map((line, index) => (
+                <li key={index}>{line}</li>
+              ))}
+            </ul>
+            <ul className="text-muted list-disc space-y-1 ps-5">
+              {inspection.verification.limitations
+                .filter(
+                  (line) =>
+                    line !== "motion_partial" ||
+                    !inspection.verification.limitations.includes("sampled_frames"),
+                )
+                .map((line, index) => (
+                  <li key={index}>
+                    {t(
+                      line === "single_thumbnail"
+                        ? "formats.limitThumbnail"
+                        : line === "motion_unverified"
+                          ? "formats.limitMotion"
+                          : line === "synchronization_unverified"
+                            ? "formats.limitSync"
+                            : "formats.limitSamples",
+                    )}
+                  </li>
+                ))}
+            </ul>
+          </div>
+        )}
+        {error && <p role="alert">{t(errorKey)}</p>}
+        {busy && (
+          <p role="status">{t(busy === "ai" ? "formats.inspecting" : "formats.checking")}</p>
+        )}
+      </div>
+    </details>
+  );
+}

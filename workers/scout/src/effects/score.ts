@@ -1,11 +1,9 @@
 /**
- * Trending effects, scoring (planning/tools/18-trending-effects.md §2): distinct creators who posted in the last 7 days
- * (history days are post days since 2026-10-07, "Real post dates"), growth between the last 3 days and the 3 before
- * (none in the last 3 days: growth 0, shown after every effect with a score), NEW for effects outside the dictionary
- * first seen by a scan within 7 days, a small YouTube boost. History holds ≤ 14 days and ≤ 400 keys.
+ * Observed editing techniques (planning/tools/18-trending-effects.md): identified accounts in indexed posts dated
+ * within 7 days, ordered by recent accounts and then weekly accounts. Rotating search samples do not prove trends.
+ * Legacy growth/first-seen fields remain API-compatible but are not popularity claims. History holds ≤ 14 days / 400 keys.
  */
 
-import { TERMS } from "../discover/terms";
 import {
   HISTORY_DAYS,
   HISTORY_KEYS,
@@ -19,8 +17,6 @@ import {
 } from "./types";
 
 const DAY_MS = 86_400_000;
-/** Dictionary entries that are trends (the clone effect, GIF stickers), not always-busy editing techniques. */
-const TREND_TERMS = new Set(TERMS.filter((t) => t.trend).map((t) => t.id));
 
 /** b - a in whole UTC days. */
 export function daysBetween(a: string, b: string): number {
@@ -61,7 +57,9 @@ export function mergeHistory(
   // Another run (Scan again) adds to each day's creators: a name it does not find keeps its earlier ones.
   for (const [key, c] of today) {
     const byDay = new Map<string, string[]>();
-    for (const [id, posted] of c.days) byDay.set(posted, [...(byDay.get(posted) ?? []), id]);
+    const observations = c.observations ?? [...c.days].map(([id, posted]) => ({ id, day: posted }));
+    for (const { id, day: posted } of observations)
+      byDay.set(posted, [...(byDay.get(posted) ?? []), id]);
     let entries = out[key] ?? [];
     for (const [posted, ids] of byDay) {
       const earlier = entries.find((e) => e.day === posted);
@@ -139,13 +137,12 @@ export function scoreEffects(
     // clone effect, Oct 1 and 3 on Oct 7), so a quiet effect shows, after every effect with a score (growth 0).
     if (creators < minCreators) return [];
     const before = creatorsBetween(entries, today, 3, 5).size;
-    // None in the last 3 days: 0; none in days 3–5: new (growth 3).
-    const growth = !recent ? 0 : before === 0 ? 3 : Math.round((recent / before) * 100) / 100;
+    // No baseline means no measured growth. Search coverage is not comparable enough to use this as popularity.
+    const growth = before ? Math.round((recent / before) * 100) / 100 : 0;
     // The scan day it was first seen (a name from before the field: its oldest day).
     const firstSeen = m.firstSeen ?? entries.reduce((d, e) => (e.day < d ? e.day : d), today);
     const ytGrowth = youtubeGrowth(entries, today);
     const yt = youtube[key];
-    const boost = (viewsRatio(entries, today) ?? 0) >= 1.5 ? 1.25 : 1; // the real ratio, not the rounded one
     const item: EffectItem = {
       key,
       name: m.name,
@@ -160,22 +157,24 @@ export function scoreEffects(
       ...(yt
         ? { youtube: { ...yt, ...(ytGrowth !== undefined ? { growth: ytGrowth } : {}) } }
         : {}),
-      samples: m.samples,
+      samples: m.samples
+        .filter((s) => {
+          const at = Date.parse(s.published ?? "");
+          if (!Number.isFinite(at)) return false;
+          const ago = daysBetween(new Date(at).toISOString().slice(0, 10), today);
+          return ago >= 0 && ago <= 6;
+        })
+        .slice(0, 2),
     };
-    // A trend: a name the AI found outside the dictionary, or a dictionary entry marked `trend`.
-    const trend = !m.termId || TREND_TERMS.has(m.termId);
-    return [{ item, score: creators * Math.min(growth, 4) * boost, firstSeen, trend }];
+    // Rank observed accounts and recency, without treating static dictionary flags or search-sample ratios as trends.
+    return [{ item, recent, firstSeen }];
   });
-  // An effect with growth 0 (none in the last 3 days) comes after every effect with a score. Among those: trends first,
-  // then the editing techniques the dictionary knows (slow motion, glitch), which always have many creators: live, they
-  // filled the list and pushed the owner's GIF stickers (6 creators) out of it. Within each, by score; equal scores: the
-  // effect first seen more recently goes first.
+  // Recent account observations first. A first-seen tie-break is discovery order, never evidence of a new trend.
   return scored
     .sort(
       (a, b) =>
-        Number(b.score > 0) - Number(a.score > 0) ||
-        Number(b.trend) - Number(a.trend) ||
-        b.score - a.score ||
+        b.recent - a.recent ||
+        b.item.creators - a.item.creators ||
         daysBetween(a.firstSeen, b.firstSeen),
     )
     .slice(0, MAX_ITEMS)

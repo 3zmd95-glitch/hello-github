@@ -977,7 +977,9 @@ describe("enrichYoutubeStats", () => {
     const url = new URL(String(fetchMock.mock.calls[0][0]));
     expect(`${url.origin}${url.pathname}`).toBe("https://www.googleapis.com/youtube/v3/videos");
     expect(Object.fromEntries(url.searchParams)).toEqual({
-      part: "statistics",
+      part: "snippet,statistics",
+      fields:
+        "items(id,snippet(title,description,channelTitle,publishedAt),statistics(viewCount,likeCount,commentCount))",
       id: "aaa,bbb,ccc,ddd",
       key: "yt-key",
     });
@@ -1122,7 +1124,9 @@ describe("POST /search: stats", () => {
   it("TikTok and Instagram from the page text, YouTube from one videos.list after the thumbnails", async () => {
     const fetchMock = routedFetch(async (url) => {
       expect(Object.fromEntries(url.searchParams)).toEqual({
-        part: "statistics",
+        part: "snippet,statistics",
+        fields:
+          "items(id,snippet(title,description,channelTitle,publishedAt),statistics(viewCount,likeCount,commentCount))",
         id: "abc123XYZ,sh0rt1d",
         key: "yt-key",
       });

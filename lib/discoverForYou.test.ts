@@ -1,0 +1,402 @@
+import { describe, expect, it, vi } from "vitest";
+import { discoverForYou } from "./discoverForYou";
+import type { DiscoverCandidate, DiscoverFeedback, DiscoverSavedInterest } from "./discoverFeed";
+import { carxDraftCandidate } from "../workers/scout/src/categories/carxDraft.fixture";
+import { discoverVisualFixture, discoverVisualObservationFixture } from "./discoverVisual.fixture";
+
+const NOW = Date.parse("2026-10-09T12:00:00Z");
+const captions: Record<string, string> = {
+  cars: "Car speed ramp",
+  food: "Food stop motion",
+  anime: "Anime beat sync",
+  travel: "Travel whip pan",
+  football: "Football freeze frame",
+  coffee: "Coffee macro closeup",
+  perfume: "Perfume reflection shot",
+  camping: "Camping drone reveal",
+  fashion: "Fashion motion graphics",
+  gaming: "Gaming motion tracking",
+  weddings: "Wedding sound design",
+  gym: "Gym light sweep",
+};
+function candidate(genreId: string, id: string, caption = captions[genreId]): DiscoverCandidate {
+  return {
+    genreId,
+    obtainedAt: new Date(NOW).toISOString(),
+    item: {
+      platform: "ig",
+      url: `https://www.instagram.com/p/${id}`,
+      handle: `@${id}`,
+      title: caption,
+      snippet: caption,
+      lang: "en",
+      section: "example",
+      published: "2026-10-08T12:00:00Z",
+      stats: { likes: 5000 },
+      evidence: {
+        source: "instagram-public-embed",
+        caption,
+        author: id,
+        observedAt: new Date(NOW).toISOString(),
+        likes: 5000,
+        published: "2026-10-08T12:00:00Z",
+      },
+    },
+  };
+}
+function feedback(
+  entry: DiscoverCandidate,
+  action: DiscoverFeedback["action"],
+  at = NOW,
+): DiscoverFeedback {
+  return {
+    url: entry.item.url,
+    platform: entry.item.platform,
+    creator: entry.item.handle,
+    genreId: entry.genreId,
+    techniques: [],
+    action,
+    at: new Date(at).toISOString(),
+  };
+}
+function saved(entry: DiscoverCandidate): DiscoverSavedInterest {
+  return {
+    url: entry.item.url,
+    platform: entry.item.platform,
+    creator: entry.item.handle,
+    savedAt: new Date(NOW).toISOString(),
+    stage: "tried",
+  };
+}
+
+function captionCandidate(): DiscoverCandidate {
+  const caption =
+    "A brand-new day in New York City! 🗽 I had to hop on this trend of showing the beauty of this incredible city through my camera, inspired by the last Spider-Man movie. Hope you guys like it! #newyork #brandnewday #sonyalpha #cinematic #filmmaking ";
+  const entry = candidate("travel", "caption-new-york", caption);
+  entry.item.platform = "tt";
+  entry.item.url = "https://www.tiktok.com/@alvarovaliente_/video/7672800453221944589";
+  entry.item.evidence!.source = "tiktok-public-page";
+  entry.item.evidence!.views = 2400000;
+  entry.item.evidence!.likes = 584100;
+  entry.item.evidence!.published = "2026-08-11T12:00:00Z";
+  entry.item.outsideCategory = true;
+  entry.semantic = {
+    version: 1,
+    url: entry.item.url,
+    genreId: "travel",
+    checkedAt: new Date(NOW).toISOString(),
+    model: "selected-model",
+    source: {
+      provenance: "tiktok-public-page",
+      caption,
+      author: entry.item.evidence!.author!,
+      observedAt: new Date(NOW).toISOString(),
+    },
+    assessment: {
+      category: "supported",
+      categoryQuote: "New York City",
+      project: "described",
+      projectQuote: "showing the beauty of this incredible city through my camera",
+      reason: "The caption describes this creative destination film, without inspecting footage.",
+    },
+  };
+  return entry;
+}
+
+describe("local For You mix", () => {
+  it("includes a caption-qualified native post in For You with its category and evidence intact", () => {
+    const travel = captionCandidate();
+    expect(discoverForYou([{ ...travel, semantic: undefined }], { now: NOW }).rows).toEqual([]);
+    const before = JSON.stringify(travel);
+    const feed = discoverForYou([travel], { now: NOW });
+    expect(feed.rows).toHaveLength(1);
+    expect(feed.rows[0].genreId).toBe("travel");
+    expect(feed.rows[0].item.url).toBe(travel.item.url);
+    expect(feed.rows[0].evidence.semantic).toEqual(travel.semantic);
+    expect(feed.rows[0].evidence.reasons).toContain("caption-context");
+    expect(feed.rows[0].evidence.reasons).toContain("old-post");
+    expect(feed.rows[0].evidence.techniques).toEqual([]);
+    expect(feed.totalQualified).toBe(1);
+    expect(feed.genreCounts).toEqual({ travel: 1 });
+    expect(discoverForYou([travel], { now: NOW, mode: "popular" }).rows).toEqual([]);
+    expect(JSON.stringify(travel)).toBe(before);
+  });
+
+  it("keeps caption judgments category-scoped and bound to the newest shared native source", () => {
+    const travel = captionCandidate();
+    const other: DiscoverCandidate = { ...travel, genreId: "cars" };
+    const fresh = structuredClone(other);
+    fresh.item.evidence!.observedAt = new Date(NOW + 1000).toISOString();
+    fresh.item.evidence!.likes = 600000;
+    fresh.item.evidence!.views = 3000000;
+    const feed = discoverForYou([travel, fresh], { now: NOW + 2000 });
+    expect(feed.genreCounts).toEqual({ travel: 1, cars: 0 });
+    expect(feed.rows[0].evidence.semantic).toEqual(travel.semantic);
+    expect(feed.rows[0].evidence.engagement.value).toBe(3000000);
+    fresh.item.evidence!.caption = "Shopping for things that look nice.";
+    expect(discoverForYou([travel, fresh], { now: NOW + 2000 }).rows).toEqual([]);
+  });
+
+  it.each([2, 7])(
+    "retains caption-qualified For You posts after %s days and source refresh",
+    (days) => {
+      const travel = captionCandidate();
+      const later = NOW + days * 86_400_000;
+      expect(discoverForYou([travel], { now: later }).rows).toHaveLength(1);
+      const refreshed = structuredClone(travel);
+      refreshed.semantic = undefined;
+      refreshed.item.evidence!.observedAt = new Date(later).toISOString();
+      refreshed.item.evidence!.views = 3000000;
+      const feed = discoverForYou([travel, refreshed], { now: later });
+      expect(feed.rows).toHaveLength(1);
+      expect(feed.rows[0].evidence.semantic).toEqual(travel.semantic);
+      expect(feed.rows[0].evidence.engagement.value).toBe(3000000);
+      refreshed.item.evidence!.caption = "Shopping for things that look nice.";
+      expect(discoverForYou([travel, refreshed], { now: later }).rows).toEqual([]);
+    },
+  );
+
+  it("retains the newest caption judgment without reviving older positives from duplicate wrappers", () => {
+    const travel = captionCandidate();
+    for (const category of ["mismatch", "uncertain"] as const) {
+      const newer: DiscoverCandidate = {
+        ...travel,
+        semantic: {
+          ...travel.semantic!,
+          checkedAt: new Date(NOW + 1000).toISOString(),
+          assessment: { ...travel.semantic!.assessment, category },
+        },
+      };
+      for (const inputs of [
+        [travel, newer],
+        [newer, travel],
+      ]) {
+        expect(discoverForYou(inputs, { now: NOW + 2000 }).rows).toEqual([]);
+        expect(discoverForYou(inputs, { now: NOW + 7 * 86_400_000 }).rows).toEqual([]);
+      }
+    }
+    const changed = structuredClone(travel);
+    changed.semantic!.checkedAt = new Date(NOW + 1000).toISOString();
+    changed.semantic!.source.caption += " Updated.";
+    for (const inputs of [
+      [travel, changed],
+      [changed, travel],
+    ])
+      expect(discoverForYou(inputs, { now: NOW + 2000 }).rows).toEqual([]);
+  });
+
+  it("uses each category's visual judgment against the newest shared native source", () => {
+    const anime = candidate("anime", "visual-mix", "The hero faces his rival");
+    anime.visual = discoverVisualFixture(anime.item, "anime", NOW);
+    const cars: DiscoverCandidate = { ...anime, genreId: "cars", visual: undefined };
+    const before = JSON.stringify([anime, cars]);
+    let result = discoverForYou([anime, cars], { now: NOW });
+    expect(result.rows.map((row) => row.genreId)).toEqual(["anime"]);
+    expect(result.rows[0].evidence.visualCraft).toBe(true);
+    expect(result.genreCounts.cars).toBe(0);
+    expect(JSON.stringify([anime, cars])).toBe(before);
+    const refreshed = structuredClone(cars);
+    refreshed.item.evidence!.observedAt = new Date(NOW + 1000).toISOString();
+    refreshed.item.evidence!.likes = 7000;
+    result = discoverForYou([anime, refreshed], { now: NOW + 2000 });
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].evidence.engagement.value).toBe(7000);
+    refreshed.item.evidence!.caption = "A changed ordinary scene";
+    expect(discoverForYou([anime, refreshed], { now: NOW + 2000 }).rows).toEqual([]);
+  });
+  it("preserves a newer changed-media receipt when combining duplicate visual wrappers", () => {
+    const anime = candidate("anime", "changed-media", "The hero faces his rival");
+    anime.visual = discoverVisualFixture(anime.item, "anime", NOW);
+    const changed = {
+      ...anime,
+      visual: undefined,
+      visualObservation: discoverVisualObservationFixture(anime.visual),
+    };
+    changed.visualObservation.checkedAt = new Date(NOW + 1000).toISOString();
+    changed.visualObservation.media.observedAt = changed.visualObservation.checkedAt;
+    changed.visualObservation.media.videoSha256 = "f".repeat(64);
+    for (const inputs of [
+      [anime, changed],
+      [changed, anime],
+    ])
+      expect(discoverForYou(inputs, { now: NOW + 2000 }).rows).toEqual([]);
+  });
+
+  it("does not recommend the real CarX multiline draft through For You source sharing", () => {
+    const valid = candidate("cars", "genuine-car-speed-ramp");
+    const input = [carxDraftCandidate, valid];
+    const before = JSON.stringify(input);
+    const feed = discoverForYou(input, { now: Date.parse("2026-10-09T19:00:00Z") });
+    expect(feed.rows.map((row) => row.item.url)).toEqual([valid.item.url]);
+    expect(feed.totalQualified).toBe(1);
+    expect(JSON.stringify(input)).toBe(before);
+  });
+
+  it("shows one qualified example per available category before repeats and retains row provenance", () => {
+    const input = Object.keys(captions).flatMap((genre) =>
+      Array.from({ length: 4 }, (_, i) => candidate(genre, `${genre}${i}`)),
+    );
+    const before = JSON.stringify(input);
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    try {
+      const feed = discoverForYou(input, { now: NOW });
+      expect(feed.rows).toHaveLength(30);
+      expect(feed.totalQualified).toBe(48);
+      expect(new Set(feed.rows.slice(0, 12).map((row) => row.genreId)).size).toBe(12);
+      expect(Object.values(feed.genreCounts)).toEqual(Array(12).fill(4));
+      expect(feed.rows[0].evidence.date).toMatchObject({ basis: "source", recent: true });
+      expect(feed.rows[0].evidence.engagement.observedAt).toBe(new Date(NOW).toISOString());
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(JSON.stringify(input)).toBe(before);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("ranks inside the category instead of admitting another subject from a flattened pool", () => {
+    const wrong = candidate("cars", "wrong", "Anime beat sync");
+    const valid = candidate("coffee", "coffee");
+    const feed = discoverForYou([wrong, valid], { now: NOW });
+    expect(feed.rows.map((row) => row.item.url)).toEqual([valid.item.url]);
+    expect(feed.genreCounts).toEqual({ cars: 0, coffee: 1 });
+  });
+
+  it("preserves category-specific preference ranking, without crowding out other categories", () => {
+    const car = candidate("cars", "car");
+    const coffee = candidate("coffee", "coffee");
+    const otherCoffee = candidate("coffee", "coffee2");
+    const feed = discoverForYou([car, coffee, otherCoffee], {
+      now: NOW,
+      feedback: [feedback(coffee, "more")],
+    });
+    expect(feed.rows[0].item.url).toBe(coffee.item.url);
+    expect(feed.rows[0].evidence.reasons).toContain("personal-interest");
+    expect(feed.rows.slice(0, 2).map((row) => row.genreId)).toEqual(["coffee", "cars"]);
+  });
+
+  it("deduplicates shared posts and does not resurrect a dismissal using its other genre", () => {
+    const car = candidate("cars", "shared", "Car and coffee match cut");
+    const coffee = { ...car, genreId: "coffee" };
+    expect(discoverForYou([car, coffee], { now: NOW }).rows).toHaveLength(1);
+    expect(
+      discoverForYou([car, coffee], { now: NOW, feedback: [feedback(car, "less")] }).rows,
+    ).toEqual([]);
+    const reversed = discoverForYou([car, coffee], {
+      now: NOW + 1000,
+      feedback: [feedback(car, "less"), feedback(coffee, "more", NOW + 1000)],
+    });
+    expect(reversed.rows).toHaveLength(1);
+    expect(reversed.rows[0].genreId).toBe("coffee");
+  });
+
+  it("shares source truth before ranking so an unavailable post cannot leak through an old category copy", () => {
+    const old = candidate("cars", "shared", "Car and coffee match cut");
+    const gone: DiscoverCandidate = {
+      ...old,
+      genreId: "coffee",
+      item: {
+        ...old.item,
+        evidence: {
+          source: "instagram-public-embed",
+          observedAt: new Date(NOW + 1000).toISOString(),
+          availability: "unavailable",
+        },
+      },
+    };
+    for (const mode of ["inspiration", "popular", "learning", "explore"] as const)
+      expect(discoverForYou([old, gone], { now: NOW + 1000, mode }).rows).toEqual([]);
+  });
+
+  it("rechecks stale indexed flags when a shared authentic caption independently proves both categories", () => {
+    const car = candidate("cars", "shared", "Car and coffee match cut");
+    car.item.offTopic = true;
+    const coffee: DiscoverCandidate = {
+      ...car,
+      genreId: "coffee",
+      item: { ...car.item, offTopic: undefined },
+    };
+    const feed = discoverForYou([car, coffee], { now: NOW });
+    expect(feed.rows).toHaveLength(1);
+    expect(feed.genreCounts).toEqual({ cars: 1, coffee: 1 });
+  });
+
+  it("does not transfer one category's authentic source qualification to a different category", () => {
+    const car = candidate("cars", "shared", "Car and coffee match cut");
+    car.item.offTopic = true;
+    const coffee: DiscoverCandidate = {
+      ...car,
+      genreId: "coffee",
+      item: {
+        ...car.item,
+        offTopic: undefined,
+        evidence: {
+          ...car.item.evidence!,
+          caption: "Coffee macro closeup",
+          observedAt: new Date(NOW + 1000).toISOString(),
+        },
+      },
+    };
+    const feed = discoverForYou([car, coffee], { now: NOW + 1000 });
+    expect(feed.rows).toHaveLength(1);
+    expect(feed.rows[0].genreId).toBe("coffee");
+    expect(feed.genreCounts).toEqual({ cars: 0, coffee: 1 });
+  });
+
+  it("offers other creators before a prolific creator repeats in another genre", () => {
+    const car = candidate("cars", "car");
+    const sameCreator = candidate("coffee", "coffee");
+    sameCreator.item.evidence!.author = car.item.evidence!.author;
+    const independent = candidate("coffee", "independent");
+    const rows = discoverForYou([car, sameCreator, independent], { now: NOW }).rows;
+    expect(rows.slice(0, 2).map((row) => row.item.url)).toEqual([
+      car.item.url,
+      independent.item.url,
+    ]);
+  });
+
+  it("uses saved/practice affinity without qualifying tiny-count posts or overriding dismissals", () => {
+    const car = candidate("cars", "car");
+    const coffee = candidate("coffee", "coffee");
+    const tiny = candidate("anime", "tiny");
+    tiny.item.evidence!.likes = 5;
+    const feed = discoverForYou([car, coffee, tiny], {
+      now: NOW,
+      savedInterests: [saved(coffee), saved(tiny)],
+    });
+    expect(feed.rows[0].item.url).toBe(coffee.item.url);
+    expect(feed.rows.some((row) => row.item.url === tiny.item.url)).toBe(false);
+    const hidden = discoverForYou([car, coffee], {
+      now: NOW,
+      savedInterests: [saved(coffee)],
+      feedback: [feedback(coffee, "hide-creator")],
+    });
+    expect(hidden.rows.map((row) => row.item.url)).toEqual([car.item.url]);
+  });
+
+  it("keeps Learning and Popular admission unchanged and reports shortages honestly", () => {
+    const lesson = candidate("coffee", "lesson", "Coffee macro closeup tutorial");
+    lesson.item.evidence!.likes = 5;
+    const recent = candidate("anime", "recent");
+    const old = candidate("cars", "old");
+    old.item.evidence!.published = "2020-01-01T00:00:00Z";
+    expect(
+      discoverForYou([lesson, recent, old], { now: NOW, mode: "learning" }).rows.map(
+        (row) => row.item.url,
+      ),
+    ).toEqual([lesson.item.url]);
+    expect(
+      discoverForYou([lesson, recent, old], { now: NOW, mode: "popular" }).rows.map(
+        (row) => row.item.url,
+      ),
+    ).toEqual([recent.item.url]);
+    expect(discoverForYou([], { now: NOW })).toEqual({
+      rows: [],
+      totalQualified: 0,
+      genreCounts: {},
+    });
+    expect(discoverForYou([recent], { now: NOW, limit: 0 })).toMatchObject({
+      rows: [],
+      totalQualified: 1,
+    });
+  });
+});

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Discover</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header><strong>Discover</strong><button id="language" type="button">English</button></header>
+    <h1 id="heading"></h1>
+    <p id="intro"></p>
+    <p id="privacy" class="muted"></p>
+    <button id="capture" class="primary" type="button"></button>
+    <p id="status" role="status" aria-live="polite"></p>
+    <fieldset id="results" hidden>
+      <legend id="legend"></legend>
+      <div id="links"></div>
+    </fieldset>
+    <button id="review" class="primary" type="button" hidden disabled></button>
+    <p id="local" class="muted"></p>
+    <details id="native-search">
+      <summary id="native-heading"></summary>
+      <p id="native-privacy" class="muted"></p>
+      <button id="native-connect" type="button"></button>
+      <p id="native-status" role="status" aria-live="polite"></p>
+    </details>
+    <details id="video-review">
+      <summary id="video-heading"></summary>
+      <p id="video-privacy" class="muted"></p>
+      <button id="video-capture" type="button"></button>
+      <p id="video-status" role="status" aria-live="polite"></p>
+      <a id="video-source" target="_blank" rel="noopener noreferrer" hidden></a>
+      <div id="video-frames"></div>
+      <button id="video-save" type="button" disabled></button>
+      <button id="video-reset" type="button" disabled></button>
+      <button id="video-open" type="button"></button>
+      <p id="video-help" class="muted"></p>
+    </details>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

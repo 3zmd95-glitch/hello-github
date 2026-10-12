@@ -8,6 +8,7 @@
  */
 
 import type { Profile, ScoutResult } from "../normalize";
+import { categoryCreativeEvidence, hasTeachingEvidence } from "../categories/quality";
 import { hasArabic } from "../trends/normalize";
 import { normalizeTerm } from "./terms";
 import { mentions } from "./relevance";
@@ -94,9 +95,9 @@ export function labelCards(
   for (const { card, query } of found) {
     if (seen.has(card.url)) continue;
     seen.add(card.url);
-    const raw = `${card.title} ${card.snippet}`;
+    const raw = `${card.title}\n${card.snippet}`;
     const text = normalizeTerm(raw);
-    const tutorial = TUTORIAL_RE.test(raw);
+    const tutorial = hasTeachingEvidence(raw);
     const section = tutorial ? "tutorial" : "example";
     const matches = (group: string[]) => group.some((w) => mentions(text, w));
     // A trend chip's search: an editing cue besides the effect's own name (live, 2026-10-07: "Collagen Glow Effect"
@@ -110,8 +111,11 @@ export function labelCards(
       (plan.topicWords.length === 0 ||
         (plan.topicWords.some((w) => mentions(text, w)) &&
           (!plan.needsEditingWord || tutorial || EDITING_FORMS.some((w) => mentions(text, w)))));
-    const onTopic = topicOk && groups.every(matches);
-    ideaOnly.push(!onTopic && topicOk && ideaGroups.every(matches));
+    const quality = plan.categoryId ? categoryCreativeEvidence(plan.categoryId, raw) : undefined;
+    const onTopic = topicOk && groups.every(matches) && (!quality || quality.eligible);
+    ideaOnly.push(
+      !onTopic && topicOk && ideaGroups.every(matches) && (!quality || quality.creative),
+    );
     out.push({
       ...card,
       lang: hasArabic(raw) ? "ar" : query.lang,

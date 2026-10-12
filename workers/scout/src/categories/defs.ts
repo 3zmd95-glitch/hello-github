@@ -6,6 +6,7 @@
  */
 
 import { normalizeTerm } from "../discover/terms";
+import { CATEGORY_PROFILES } from "../discover/category-profiles";
 import { GENRES, type Genre } from "../trends/genres";
 
 /** UTC "HH:MM" of the category slots, right after the effects slot (05:35): slot i scans the day's i-th category. */
@@ -37,19 +38,19 @@ export function categoriesForDay(day: string): string[] {
 export const categorySubject = (g: Genre) => g.queries.en[0].replace(/\s+edit$/i, "");
 
 /**
- * 6 English queries, each searched on Instagram over a month (live fix 1, §2): the main query q1 with " trend", the
- * second as it is, "viral q1", "q1 transition", "q1 capcut template" and "<subject> video trend". For Cars: "car edit
- * trend", "cinematic car edit", "viral car edit", "car edit transition", "car edit capcut template", "car video trend".
+ * Six focused queries with the same six-credit ceiling: four Instagram searches and two TikTok searches.
+ * Specific filming/editing intent replaces broad trend/viral queries; repeated hits never boost a candidate.
  */
 export function categoryQueries(g: Genre): string[] {
-  const q1 = g.queries.en[0];
+  const p = CATEGORY_PROFILES[g.id];
+  const subject = p?.subject.en ?? categorySubject(g);
   return [
-    `${q1} trend`,
-    ...g.queries.en.slice(1, 2),
-    `viral ${q1}`,
-    `${q1} transition`,
-    `${q1} capcut template`,
-    `${categorySubject(g)} video trend`,
+    p?.examples.en ?? `${subject} cinematic film`,
+    p?.retryExamples.en ?? `${subject} video ad`,
+    `${subject} match cut transition`,
+    p?.tutorials.en ?? `${subject} videography tutorial`,
+    `${subject} speed ramp cinematic edit`,
+    p?.retryTutorials.en ?? `${subject} filming breakdown`,
   ];
 }
 

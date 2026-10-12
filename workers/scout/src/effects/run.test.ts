@@ -115,6 +115,9 @@ const titleCase = (s: string) => s.replace(/\b[a-z]/g, (c) => c.toUpperCase());
 function ai(judge: (key: string) => Verdict = () => ({})) {
   return {
     run: vi.fn(async (_model: string, input: Record<string, unknown>): Promise<unknown> => {
+      // The independent format extractor receives raw captions, not the technique cleanup's candidate lines.
+      if ((input.messages as { content: string }[])[0].content.startsWith("Discover specific"))
+        return { response: { formats: [] } };
       const effects = [...userText(input).matchAll(/^- key: (\S+) \| name: (.+?) \| posts:/gm)].map(
         ([, key, name]) => ({
           key,
@@ -169,6 +172,191 @@ afterEach(() => {
 });
 
 describe("runEffects", () => {
+  it("enriches six existing Instagram leads through the scan fetch without spending extra search credits", async () => {
+    const pattern = "multiple frozen clones appear on each beat";
+    const hits = Array.from({ length: 8 }, (_, n) => ({
+      ...ig(`indexed${n}`, "Frozen clone montage", n + 200),
+      content: `${pattern}; wrong indexed soundtrack`,
+    }));
+    const upstream = web({ hits });
+    const sources: string[] = [];
+    const doFetch = vi.fn<typeof fetch>(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.hostname !== "www.instagram.com") return upstream.fetch(input, init);
+      sources.push(url.href);
+      const id = url.pathname.split("/")[2];
+      return new Response(
+        `<div class="Embed"><a class="Username" href="https://www.instagram.com/source${sources.length}/">source</a>` +
+          `<div class="HeaderSecondaryContent">Artist One · Night Drive</div>` +
+          `<a class="EmbeddedMedia" href="https://www.instagram.com/p/${id}/"></a>` +
+          `<div class="Caption">${pattern}</div></div>`,
+        { headers: { "Content-Type": "text/html" } },
+      );
+    });
+    const { env, KV, AI } = setup();
+    const technique = AI.run.getMockImplementation()!;
+    AI.run.mockImplementation(async (model, input) => {
+      if (!(input.messages as { content: string }[])[0].content.startsWith("Discover specific"))
+        return technique(model, input);
+      const raw = JSON.parse(userText(input)) as {
+        posts: {
+          postId: string;
+          caption: string;
+          sourceAudio?: { title: string; artist: string };
+        }[];
+      };
+      const actual = raw.posts.filter((p) => p.sourceAudio);
+      expect(actual).toHaveLength(6);
+      expect(actual.every((p) => p.caption === pattern)).toBe(true);
+      return {
+        response: {
+          formats: [
+            {
+              name: { en: "Night Drive clone montage" },
+              visualPattern: { en: pattern },
+              audio: { title: "Night Drive", artist: "Artist One" },
+              observations: actual.map((p) => ({
+                postId: p.postId,
+                patternQuote: pattern,
+                audioQuote: "Night Drive",
+              })),
+            },
+          ],
+        },
+      };
+    });
+    const result = await runEffects(env, { fetch: doFetch, now: NOW });
+    expect(sources).toHaveLength(6);
+    expect(sources.every((url) => url.endsWith("/embed/captioned/"))).toBe(true);
+    expect(upstream.count.tavily).toBe(18);
+    expect(familiesOf(upstream.searched)).toHaveLength(6);
+    expect(result.formats![0].evidence).toMatchObject({
+      state: "repeated",
+      creators7d: 6,
+      posts7d: 6,
+    });
+    expect(
+      stored(KV).formatMemory![0].samples.every(
+        (sample) =>
+          sample.captionSource === "instagram-public-embed" &&
+          sample.audioSource?.title === "Night Drive",
+      ),
+    ).toBe(true);
+    expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY]);
+  });
+
+  it("persists specific formats and revisits their song+visual identity within the unchanged daily search budget", async () => {
+    const pattern = "multiple frozen clones appear on each beat";
+    const song = "Night Drive";
+    const hits = [1, 2, 3].map((n) => ({
+      ...tt(`format${n}`, "Frozen clone montage", n),
+      content: `${"A filmmaking practice clip. ".repeat(10)}${pattern}; audio: ${song}`,
+    }));
+    const { env, KV, AI } = setup();
+    const techniqueAnswer = AI.run.getMockImplementation()!;
+    AI.run.mockImplementation(async (model, input) => {
+      if (!(input.messages as { content: string }[])[0].content.startsWith("Discover specific"))
+        return techniqueAnswer(model, input);
+      const raw = JSON.parse(userText(input)) as { posts: { postId: string; caption: string }[] };
+      expect(raw.posts.every((p) => p.caption.includes(song))).toBe(true); // beyond the ordinary 220-character preview
+      return {
+        response: {
+          formats: [
+            {
+              name: { en: "Night Drive frozen clone montage" },
+              visualPattern: { en: pattern },
+              audio: { title: song },
+              observations: raw.posts.map((p) => ({
+                postId: p.postId,
+                patternQuote: pattern,
+                audioQuote: song,
+              })),
+            },
+          ],
+        },
+      };
+    });
+    const firstWeb = web({ hits });
+    const first = await runEffects(env, { fetch: firstWeb.fetch, now: NOW });
+    expect(first.formats).toHaveLength(1);
+    expect(first.formatVersion).toBe(1);
+    expect(first.formats![0].evidence).toMatchObject({
+      state: "repeated",
+      creators7d: 3,
+      posts7d: 3,
+    });
+    expect(firstWeb.count.tavily).toBe(18);
+    expect(familiesOf(firstWeb.searched)).toHaveLength(6);
+    expect(stored(KV).formatMemory![0].samples).toHaveLength(3);
+
+    // A following day's automatic discovery uses one of those same six slots for the actual known identity.
+    const secondWeb = web({ hits });
+    const second = await runEffects(env, { fetch: secondWeb.fetch, now: NEXT_DAY });
+    expect(secondWeb.count.tavily).toBe(18);
+    expect(familiesOf(secondWeb.searched)).toHaveLength(6);
+    expect(secondWeb.searched.filter((q) => q.includes(`${song} ${pattern}`))).toHaveLength(3);
+    expect(second.formats![0].firstSeen).toBe(first.formats![0].firstSeen);
+    expect(second.formats![0].lastChecked).toBe(NEXT_DAY.toISOString());
+
+    KV.store.set(usageKeys.tavily, JSON.stringify({ used: 950, limit: 1000 }));
+    const tightWeb = web({ hits });
+    const tight = await runEffects(env, { fetch: tightWeb.fetch, now: NEXT_DAY, force: true });
+    expect(tightWeb.count.tavily).toBe(6);
+    expect(tight.formats![0].key).toBe(first.formats![0].key);
+    expect(tight.notes).toEqual(["tavily_budget"]);
+  });
+
+  it("keeps the newest dated supporting posts when a spelling merges into an older candidate", async () => {
+    const old = [
+      ig("older_a", "Swagger Trend", 201, new Date("2026-09-28T12:00:00Z")),
+      ig("older_b", "Swagger Trend", 202, new Date("2026-09-29T12:00:00Z")),
+    ];
+    const recent = [
+      tt("fresh-a", "Swagger Edit", 203, new Date("2026-10-05T12:00:00Z")),
+      tt("fresh-b", "Swagger Edit", 204, new Date("2026-10-06T10:00:00Z")),
+      tt("fresh-c", "Swagger Edit", 205, new Date("2026-10-06T15:00:00Z")),
+    ];
+    const { env } = setup({
+      judge: (key) => (key === "swagger-edit" ? { sameAs: "swagger-trend" } : {}),
+    });
+    const doc = await runEffects(env, {
+      fetch: web({ hits: [...old, ...recent, recent[2]] }).fetch,
+      now: NOW,
+    });
+    const item = doc.items.find((i) => i.key === "swagger-trend")!;
+    expect(item.creators).toBe(3);
+    expect(item.samples.map((s) => s.url)).toEqual([recent[2].url, recent[1].url]);
+    expect(item.samples.map((s) => s.published)).toEqual([
+      "2026-10-06T15:00:00.000Z",
+      "2026-10-06T10:00:00.000Z",
+    ]);
+    expect(doc.meta["swagger-edit"]).toBeUndefined();
+  });
+
+  it("rebuilds legacy URL-based identities once, then retains the trusted account history", async () => {
+    const first = await runEffects(setup().env, { fetch: web().fetch, now: NOW });
+    const old = { ...first, evidenceVersion: undefined };
+    old.history["clone-effect"] = [{ day: "2026-10-06", ids: ["url-a", "url-b", "url-c"] }];
+    const reset = await runEffects(setup({ stored: old }).env, {
+      fetch: web({ hits: [tt("known", "clone effect tutorial", 999)] }).fetch,
+      now: NEXT_DAY,
+    });
+    expect(reset.evidenceVersion).toBe(1);
+    expect(reset.history["clone-effect"].flatMap((e) => e.ids)).toHaveLength(1);
+    expect(reset.items).toEqual([]);
+    const later = await runEffects(setup({ stored: reset }).env, {
+      fetch: web({
+        hits: [
+          tt("second", "clone effect tutorial", 998),
+          tt("third", "clone effect tutorial", 997),
+        ],
+      }).fetch,
+      now: NEXT_DAY,
+      force: true,
+    });
+    expect(later.items.find((i) => i.key === "clone-effect")?.creators).toBe(3);
+  });
+
   it("first run from the probe titles: the clone effect leads, within the day's budget", async () => {
     const { env, KV, AI } = setup();
     const { fetch, count } = web();
@@ -182,10 +370,9 @@ describe("runEffects", () => {
       what: { en: "What clone effect looks like", ar: "وصف قصير للتأثير" },
       creators: 8,
       isNew: false,
-      growth: 3,
+      growth: 0,
       checked: true,
       platforms: ["ig", "tt"],
-      youtube: { newVideos: 2, views7d: 2000 },
     });
     expect(doc.items[1]).toMatchObject({
       name: { en: "Swagger Trend", ar: "اسم التأثير" }, // a new name takes the AI's English name
@@ -198,8 +385,8 @@ describe("runEffects", () => {
     expect(doc.notes).toBeUndefined();
 
     // 3 Tavily searches a family (Instagram over a week and a month, TikTok over a month).
-    expect(count).toEqual({ tavily: 18, search: 2, stats: 1 });
-    expect(AI.run).toHaveBeenCalledTimes(1);
+    expect(count).toEqual({ tavily: 18, search: 0, stats: 0 });
+    expect(AI.run).toHaveBeenCalledTimes(2); // one technique cleanup plus one bounded format extraction
     // Trending effects' cleanup stays on llama, as before (a category's asks gpt-oss-120b first).
     expect(AI.run.mock.calls[0][0]).toBe(AI_MODEL);
     expect(AI.run.mock.calls[0][1]).toMatchObject({ max_tokens: 1500 });
@@ -303,7 +490,6 @@ describe("runEffects", () => {
       ["2026-09-28", 0],
       ["2026-10-05", 0],
       ["2026-10-06", 3],
-      ["2026-10-07", 0],
     ]);
   });
 
@@ -363,7 +549,7 @@ describe("runEffects", () => {
     const { fetch, count } = web();
     const doc = await runEffects(env, { fetch, now: NOW });
     expect(doc.status).toBe("ok");
-    expect(count).toEqual({ tavily: 18, search: 2, stats: 1 });
+    expect(count).toEqual({ tavily: 18, search: 0, stats: 0 });
     expect(fetch.mock.calls.filter(([u]) => String(u).includes("business-api.tiktok.com"))).toEqual(
       [],
     );
@@ -403,14 +589,11 @@ describe("runEffects", () => {
 
     // A forced run is not counted against the day's cap.
     const forced = await runEffects(env, { fetch, now: later, force: true });
-    expect(count).toEqual({ tavily: 36, search: 4, stats: 2 });
+    expect(count).toEqual({ tavily: 36, search: 0, stats: 0 });
     expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY, EFFECTS_KEY]);
     expect(forced.items[0]).toMatchObject({ key: "clone-effect", creators: 8 });
     // The creators on the day they posted; today's entry holds the day's YouTube views.
-    expect(entries(forced, "clone-effect")).toEqual([
-      ["2026-10-06", 8],
-      ["2026-10-07", 0],
-    ]);
+    expect(entries(forced, "clone-effect")).toEqual([["2026-10-06", 8]]);
   });
 
   it("Scan again the same day searches the next 6 families and adds to what the day already found", async () => {
@@ -441,10 +624,7 @@ describe("runEffects", () => {
     expect(creators).toMatchObject({ "clone-effect": 9, "speed-ramp": 3 });
     // A name this run did not find keeps the day's earlier creators.
     expect(creators["swagger-trend"]).toBe(3);
-    expect(entries(doc2, "clone-effect")).toEqual([
-      ["2026-10-06", 9],
-      ["2026-10-07", 0],
-    ]);
+    expect(entries(doc2, "clone-effect")).toEqual([["2026-10-06", 9]]);
 
     // A third tap: families 13–18; a fourth starts over at 1–6.
     const third = web({ hits: [] });
@@ -513,7 +693,7 @@ describe("runEffects", () => {
     const later = new Date("2026-10-07T09:00:00Z");
     const { fetch, count } = web();
     const doc = await runEffects(env, { fetch, now: later });
-    expect(count).toEqual({ tavily: 18, search: 2, stats: 1 });
+    expect(count).toEqual({ tavily: 18, search: 0, stats: 0 });
     expect(doc).toMatchObject({
       status: "ok",
       ranOn: "2026-10-07",
@@ -664,7 +844,7 @@ describe("runEffects", () => {
     expect(doc.status).toBe("partial");
     expect(doc.notes).toEqual(["quota"]);
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
-    expect(count).toEqual({ tavily: 18, search: 2, stats: 1 });
+    expect(count).toEqual({ tavily: 18, search: 0, stats: 0 });
   });
 
   it("without the AI the chips are dictionary effects and names it approved before; new names wait for a day it works", async () => {
@@ -674,7 +854,7 @@ describe("runEffects", () => {
     const doc = await runEffects(env, { fetch: day1.fetch, now: NOW });
 
     expect(doc.status).toBe("partial");
-    expect(doc.notes).toEqual(["ai_fallback"]);
+    expect(doc.notes).toEqual(["ai_fallback", "formats_ai_unavailable"]);
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect"]);
     expect(doc.items[0]).toMatchObject({
       name: { en: "clone effect", ar: "تأثير الاستنساخ" }, // the dictionary's own label
@@ -685,14 +865,14 @@ describe("runEffects", () => {
       name: { en: "swagger trend" },
       checked: false,
     });
-    expect(day1.count.search).toBe(1);
+    expect(day1.count.search).toBe(0);
     expect(writes(KV)).toEqual([ATTEMPTS, EFFECTS_KEY]);
 
     const day2 = web();
     const next = await runEffects({ ...env, AI: ai() }, { fetch: day2.fetch, now: NEXT_DAY });
     expect(next.status).toBe("ok");
     expect(next.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
-    expect(day2.count.search).toBe(2);
+    expect(day2.count.search).toBe(0);
 
     // The AI fails again: the swagger trend, approved yesterday, still shows; today's new Outfit Trend waits.
     const outfit = [20, 21, 22].map((n) => tt(`o${n}`, "Fit check: Outfit Trend", n));
@@ -701,7 +881,7 @@ describe("runEffects", () => {
       fetch: day3.fetch,
       now: new Date("2026-10-09T05:35:00Z"),
     });
-    expect(third.notes).toEqual(["ai_fallback"]);
+    expect(third.notes).toEqual(["ai_fallback", "formats_ai_unavailable"]);
     expect(third.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
     expect(third.meta["outfit-trend"]).toMatchObject({ checked: false });
   });
@@ -745,7 +925,7 @@ describe("runEffects", () => {
       what: { en: "What clone effect looks like", ar: "وصف قصير للتأثير" },
     });
     expect(doc.meta["swagger-trend"]).toMatchObject({ checked: false });
-    expect(count.search).toBe(1);
+    expect(count.search).toBe(0);
     expect(JSON.parse(String(log.mock.calls[0][0])).effects.ai).toMatchObject({
       judged: 2,
       rejects: { "what:invalid_type": 1 },
@@ -760,7 +940,7 @@ describe("runEffects", () => {
     expect(doc.status).toBe("partial");
     expect(doc.notes).toEqual(["ai_empty"]);
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect"]);
-    expect(count.search).toBe(1);
+    expect(count.search).toBe(0);
     // The log says why, as counts: all 3 verdicts on their keep field.
     expect(JSON.parse(String(log.mock.calls[0][0])).effects.ai).toMatchObject({
       judged: 0,
@@ -826,7 +1006,7 @@ describe("runEffects", () => {
       expect(doc.meta[gone]).toBeUndefined();
       expect(doc.history[gone]).toBeUndefined();
     }
-    expect(count.search).toBe(2);
+    expect(count.search).toBe(0);
     // The log counts what the AI did (no names): 5 verdicts, 1 on the dictionary's clone effect; the swagger and
     // reverse trends approved, the outfit trend dropped, the twin trend merged.
     expect(JSON.parse(String(log.mock.calls[0][0])).effects.ai).toEqual({
@@ -852,7 +1032,7 @@ describe("runEffects", () => {
     const prev = await runEffects(day1.env, { fetch: first.fetch, now: NOW });
     expect(prev.items.map((i) => i.key)).toContain("outfit-trend");
     expect(prev.meta["swagger-edit"]).toMatchObject({ checked: true });
-    expect(first.count.search).toBe(3);
+    expect(first.count.search).toBe(0);
 
     const { env } = setup({
       stored: prev,
@@ -875,11 +1055,11 @@ describe("runEffects", () => {
     // c6–c8 and n1 yesterday (n1 moved over from "swagger edit"), c6 and n2 today: 4 without the move.
     expect(doc.items[1].creators).toBe(5);
     // Yesterday's YouTube views survive the move, so today's growth compares with them.
-    expect(doc.history["swagger-trend"].find((e) => e.day === "2026-10-07")?.views7d).toBe(2000);
-    expect(doc.items[1].youtube).toEqual({ newVideos: 2, views7d: 2000, growth: 1 });
+    expect(doc.history["swagger-trend"].every((e) => e.views7d === undefined)).toBe(true);
+    expect(doc.items[1].youtube).toBeUndefined();
     expect(doc.history["swagger-edit"]).toBeUndefined();
     expect(doc.history["outfit-trend"]).toBeUndefined();
-    expect(second.count.search).toBe(2);
+    expect(second.count.search).toBe(0);
   });
 
   it("a spelling merged into a name first seen today hands it its older first-seen day: no false NEW", async () => {
@@ -911,11 +1091,11 @@ describe("runEffects", () => {
     });
   });
 
-  it("asks YouTube only about effects mentioned today, the top 6 of them", async () => {
+  it("keeps recent observed effects without spending YouTube search quota", async () => {
     const day1 = setup();
     const first = web();
     const prev = await runEffects(day1.env, { fetch: first.fetch, now: NOW });
-    expect(first.queries).toEqual(["clone effect edit", "swagger trend edit"]);
+    expect(first.queries).toEqual([]);
 
     // Today only the clone effect is mentioned: the swagger trend still shows from yesterday, with no YouTube call
     // (its views would have nowhere to go: they are kept on the day's own entry).
@@ -923,11 +1103,11 @@ describe("runEffects", () => {
     const second = web({ hits: [tt("c9", "clone effect tutorial | CapCut", 40)] });
     const doc = await runEffects(env, { fetch: second.fetch, now: NEXT_DAY });
     expect(doc.items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend"]);
-    expect(second.queries).toEqual(["clone effect edit"]);
+    expect(second.queries).toEqual([]);
     expect(doc.items[1].youtube).toBeUndefined();
   });
 
-  it("asks YouTube about a new name as the rules read it today: never its stemmed key, nor the AI's name", async () => {
+  it("keeps an AI label without using it for a paid popularity check", async () => {
     const hits = ["g1", "g2", "g3"].map((h, i) => tt(h, "Ghost Frames Trend", 50 + i));
     const { env } = setup({
       judge: () => ({ name: { en: "Ghost Frame Effect", ar: "اسم التأثير" } }),
@@ -937,7 +1117,7 @@ describe("runEffects", () => {
     expect(doc.items.map((i) => [i.key, i.name.en])).toEqual([
       ["ghost-frame-trend", "Ghost Frame Effect"],
     ]);
-    expect(queries).toEqual(["ghost frames trend edit"]);
+    expect(queries).toEqual([]);
   });
 
   it("gives the AI's slots by creators this week: a slowly building name is judged and shows", async () => {
@@ -971,7 +1151,7 @@ describe("runEffects", () => {
     ]);
   });
 
-  it("asks YouTube the same query for an effect whatever the AI calls it today", async () => {
+  it("AI renaming never triggers a YouTube popularity check", async () => {
     const day1 = setup();
     const first = web();
     const prev = await runEffects(day1.env, { fetch: first.fetch, now: NOW });
@@ -985,42 +1165,19 @@ describe("runEffects", () => {
     const doc = await runEffects(env, { fetch: second.fetch, now: NEXT_DAY });
 
     expect(doc.items[1].name.en).toBe("Swagger Hair Trend");
-    expect(first.queries).toEqual(["clone effect edit", "swagger trend edit"]);
+    expect(first.queries).toEqual([]);
     expect(second.queries).toEqual(first.queries);
   });
 
-  it("YouTube's daily cap: no YouTube numbers, a youtube_cap note, no more calls", async () => {
+  it("does not query YouTube or report changing search samples as growth", async () => {
     const { env } = setup();
-    const { fetch, count } = web({ youtubeSearch: youtubeCap });
+    const { fetch, count } = web({ youtubeSearch: youtubeCap, stats: () => json({}, 500) });
     const doc = await runEffects(env, { fetch, now: NOW });
-
-    expect(doc.status).toBe("partial");
-    expect(doc.notes).toEqual(["youtube_cap"]);
+    expect(doc.status).toBe("ok");
+    expect(doc.notes).toBeUndefined();
     expect(doc.items.length).toBeGreaterThan(0);
     expect(doc.items.every((i) => i.youtube === undefined)).toBe(true);
-    expect(count).toEqual({ tavily: 18, search: 1, stats: 0 });
-  });
-
-  it("YouTube answering the first effect, then hitting the cap, keeps the first effect's numbers", async () => {
-    const { env } = setup();
-    const { fetch, count } = web({ youtubeSearch: (n) => (n > 1 ? youtubeCap() : undefined) });
-    const doc = await runEffects(env, { fetch, now: NOW });
-
-    expect(doc.notes).toEqual(["youtube_cap"]);
-    expect(doc.items[0].youtube).toEqual({ newVideos: 2, views7d: 2000 });
-    expect(doc.items[1].youtube).toBeUndefined();
-    expect(count).toEqual({ tavily: 18, search: 2, stats: 1 });
-  });
-
-  it("a failed YouTube stats call gives no numbers and a youtube_stats note", async () => {
-    const { env } = setup();
-    const { fetch, count } = web({ stats: () => json({ error: "down" }, 500) });
-    const doc = await runEffects(env, { fetch, now: NOW });
-
-    expect(doc.status).toBe("partial");
-    expect(doc.notes).toEqual(["youtube_stats"]);
-    expect(doc.items.every((i) => i.youtube === undefined)).toBe(true);
-    expect(count).toEqual({ tavily: 18, search: 2, stats: 1 });
+    expect(count).toEqual({ tavily: 18, search: 0, stats: 0 });
   });
 
   it(
@@ -1043,7 +1200,7 @@ describe("runEffects", () => {
         force: true,
         aiTimeoutMs: 100,
       });
-      expect(cut.notes).toEqual(["ai_fallback"]);
+      expect(cut.notes).toEqual(["ai_fallback", "formats_ai_unavailable"]);
     },
   );
 
@@ -1159,8 +1316,8 @@ describe("runEffects", () => {
       fetch: dayD.fetch,
       now: new Date("2026-10-04T05:35:00Z"),
     });
-    expect(d.items[0]).toMatchObject({ key: "clone-effect", creators: 3, growth: 3 });
-    expect(dayD.count.search).toBe(1);
+    expect(d.items[0]).toMatchObject({ key: "clone-effect", creators: 3, growth: 0 });
+    expect(dayD.count.search).toBe(0);
 
     const { env } = setup({ stored: d });
     const doc = await runEffects(env, {

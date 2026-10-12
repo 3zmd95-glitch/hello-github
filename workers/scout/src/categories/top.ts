@@ -1,10 +1,9 @@
 /**
- * Top videos per platform on a category page (planning/tools/19-category-trends.md §6). The owner: "Every category
- * should show at least 50 results in every platform with top tier results".
- * - YouTube, stored with the page: the category's main query by views over the last 30 days, one `search.list` and
+ * Creative videos per platform on a category page. Fifty is a ceiling, never a target filled with unrelated posts.
+ * - YouTube, stored with the page: a focused category query by relevance over the last 30 days, one `search.list` and
  *   one `videos.list` on the cron's scans and a category's first top scan only (Scan again keeps the stored list),
  *   outside Discover's `DISCOVER_YT_CAP` (66 since §6: 18 + 6 + 66 + 4 cron scans = 94 of the 100 a day).
- * - Instagram, stored: the scan's own Tavily posts, the ones more searches found first.
+ * - Instagram, stored: the scan's own Tavily posts, ranked by category and creative metadata with creator diversity.
  * - TikTok, stored: TikTok's own Discovery API on every scan (categories/tiktok.ts, since 2026-10-07: Brave's index held
  *   TikTok topic pages, not videos).
  * - On demand for TikTok and Instagram (`GET /categories/:id/top/:platform`): Brave's Search API, its matches in their
@@ -31,6 +30,7 @@ import { YT_VIDEOS_URL, ytThumb, type YtListResponse } from "../trends/youtube";
 import { YT_SEARCH_URL } from "../trends/youtubeSearch";
 import { ytCount } from "../youtubeStats";
 import type { TopLists, TopVideo } from "./types";
+import { rankCategoryVideos } from "./quality";
 
 export type TopPlatform = keyof Omit<TopLists, "updatedAt" | "ttUpdatedAt">;
 /** The platforms Brave tops up (YouTube's list comes from its own API). */
@@ -69,6 +69,8 @@ export interface TopAnswer {
   brave: TopVideo[];
   source: "brave" | "scan";
   note?: "no_key" | "brave_failed" | "daily_cap";
+  /** Connection/source status is independent of whether any candidate passed the quality gate. */
+  discoveryStatus?: "not_connected" | "unavailable" | "ready" | "not_scanned";
   endpoint?: "videos" | "web";
   stats?: { raw: number; hosts: Record<string, number> };
 }
@@ -129,6 +131,10 @@ function storedVideo(x: unknown): TopVideo[] {
       ...(views !== undefined ? { views } : {}),
       ...(typeof x.publishedAt === "string" ? { publishedAt: x.publishedAt } : {}),
       ...(isHttps(x.thumbnail) ? { thumbnail: x.thumbnail } : {}),
+      ...(typeof x.snippet === "string" ? { snippet: x.snippet.slice(0, 1200) } : {}),
+      ...(["tavily", "youtube", "tiktok-discovery"].includes(String(x.source))
+        ? { source: x.source as TopVideo["source"] }
+        : {}),
     },
   ];
 }
@@ -151,29 +157,27 @@ export function readTop(x: unknown): TopLists | undefined {
 }
 
 /**
- * The stored Instagram list (TikTok's too before 2026-10-07): the scan's posts of that platform, each once. The ones
- * more of the scan's searches found come first, then in the order first seen (the searches' order, then Tavily's rank);
- * ≤ 50.
- * `searchFamilies` keeps a post once a search, so a post's count is the number of searches that found it. The creator
- * is the handle the URL or the page text gave, when there is one; Tavily gives no views.
+ * Eligible indexed posts of a platform, each once; metadata relevance and creator diversity determine ordering.
+ * Dates and snippets survive storage. Repeated appearances across search queries never boost a candidate.
  */
-export function scanTop(posts: readonly EffectPost[], platform: EffectPlatform): TopVideo[] {
-  const seen = new Map<string, { post: EffectPost; found: number }>();
-  for (const post of posts) {
-    if (post.platform !== platform) continue;
-    const known = seen.get(post.url);
-    if (known) known.found++;
-    else seen.set(post.url, { post, found: 1 });
-  }
-  // A Map keeps the order first seen, and the sort is stable.
-  return [...seen.values()]
-    .sort((x, y) => y.found - x.found)
-    .slice(0, TOP_MAX)
-    .map(({ post }) => ({
-      url: post.url,
-      title: post.title,
-      ...(post.handle ? { creator: post.handle } : {}),
-    }));
+export function scanTop(
+  posts: readonly EffectPost[],
+  platform: EffectPlatform,
+  genreId: string,
+): TopVideo[] {
+  return rankCategoryVideos(
+    genreId,
+    posts
+      .filter((post) => post.platform === platform)
+      .map((post): TopVideo => ({
+        url: post.url,
+        title: post.title,
+        snippet: post.snippet,
+        source: "tavily",
+        ...(post.published ? { publishedAt: post.published } : {}),
+        ...(post.handle ? { creator: post.handle } : {}),
+      })),
+  );
 }
 
 /**
@@ -198,7 +202,7 @@ export async function youtubeTop(
     withParams(YT_SEARCH_URL, {
       part: "snippet",
       type: "video",
-      order: "viewCount",
+      order: "relevance",
       q,
       publishedAfter: new Date(now.getTime() - MONTH_MS).toISOString(),
       maxResults: String(TOP_MAX),
@@ -248,6 +252,8 @@ export async function youtubeTop(
           video: {
             url,
             title,
+            snippet: text(description, SNIPPET_MAX),
+            source: "youtube",
             ...(creator ? { creator } : {}),
             ...(views !== undefined ? { views } : {}),
             ...(typeof publishedAt === "string" ? { publishedAt } : {}),

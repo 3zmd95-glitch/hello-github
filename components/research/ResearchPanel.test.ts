@@ -3,9 +3,11 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getSkill, skills } from "@/data";
-import { clearDiscoverCache } from "@/lib/discover";
+import { clearDiscoverCache, type DiscoverAlternative, type DiscoverItem } from "@/lib/discover";
 import { discoverPrompts } from "@/lib/discoverPrompts";
 import type { TrendItemInput, TrendsFeedInput } from "@/lib/domain";
+import type { DiscoverSemantic } from "@/lib/discoverSemantic";
+import { GENRES } from "@/lib/genres";
 import { clearYoutubeCache } from "@/lib/research";
 import { clearScoutCache } from "@/lib/scoutClient";
 import { useStore } from "@/store";
@@ -77,16 +79,41 @@ let workerFeed: TrendsFeedInput | null;
 let trendsCalls: string[];
 let discoverV2: boolean;
 let discoverAsked: Record<string, unknown>[];
+let discoverAlternatives: DiscoverAlternative[];
 let localPlans: Record<string, unknown>[];
 /** What the fake Worker's `GET /effects/trending` answers; null = no such route (a 404). */
 let effectsDoc: unknown;
 let effectsAsked: number;
 /** What the fake Worker's `GET /categories/:id` answers; null = no such route (a 404, an older Worker). */
 let categoryDoc: unknown;
+let categoryCalls: string[];
+let nativeCalls: { categoryId: string; body: unknown; signal?: AbortSignal | null }[];
+let nativeReply: (categoryId: string) => Response | Promise<Response>;
+const nativeLead: DiscoverItem = {
+  platform: "tt",
+  url: "https://www.tiktok.com/@travelcrew/video/7690000000000000001",
+  title: "Travel cinematic film",
+  snippet: "",
+  handle: "@travelcrew",
+  section: "example",
+  lang: "en",
+};
+const nativeAnswer = (categoryId: string) => ({
+  version: 1,
+  categoryId,
+  country: "US",
+  dateRange: "7DAY",
+  checkedAt: new Date().toISOString(),
+  status: "accepted",
+  captioned: 0,
+  supply: { matchedHashtags: 1, videoCandidates: 1, unseenRemaining: 0, skippedKnown: 1 },
+  items: [nativeLead],
+});
 
 /** This week's trending effects: one dictionary effect. */
 const EFFECTS = {
   status: "ok",
+  evidenceVersion: 1,
   ranOn: "2026-10-06",
   updatedAt: new Date().toISOString(),
   items: [
@@ -163,7 +190,7 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       },
       items: [],
       creators: [],
-      alternatives: [],
+      alternatives: discoverAlternatives,
       platforms: { yt: { ok: true }, tt: { ok: true }, ig: { ok: true } },
       cost: { tavily: 0, youtubeSearch: 0 },
       cached: false,
@@ -183,8 +210,19 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     effectsAsked++;
     return effectsDoc ? json(effectsDoc) : json({ error: "not_found" }, 404);
   }
-  if (url.origin === WORKER && url.pathname.startsWith("/categories/"))
+  const nativeCategory = url.pathname.match(/^\/categories\/([^/]+)\/native\/tt\/acquire$/)?.[1];
+  if (url.origin === WORKER && nativeCategory && init?.method === "POST") {
+    nativeCalls.push({
+      categoryId: nativeCategory,
+      body: JSON.parse(String(init.body)),
+      signal: init.signal,
+    });
+    return nativeReply(nativeCategory);
+  }
+  if (url.origin === WORKER && url.pathname.startsWith("/categories/")) {
+    categoryCalls.push(`${init?.method ?? "GET"} ${url.pathname}`);
     return categoryDoc ? json(categoryDoc) : json({ error: "not_found" }, 404);
+  }
   if (url.hostname === "www.googleapis.com" && url.pathname.endsWith("/videos")) {
     ytStats.push(url);
     if (statsDown) return json({ error: {} }, 500);
@@ -287,10 +325,14 @@ beforeEach(() => {
   trendsCalls = [];
   discoverV2 = false;
   discoverAsked = [];
+  discoverAlternatives = [];
   localPlans = [];
   effectsDoc = null;
   effectsAsked = 0;
   categoryDoc = null;
+  categoryCalls = [];
+  nativeCalls = [];
+  nativeReply = (categoryId) => json(nativeAnswer(categoryId));
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   localStorage.clear();
   // The trending effects' 1 h copy lives in this tab's sessionStorage.
@@ -299,7 +341,16 @@ beforeEach(() => {
   clearScoutCaps();
   clearDiscoverCache();
   clearYoutubeCache();
-  useStore.setState({ recentTopics: [], customGenres: [], savedRefs: {} });
+  useStore.setState({
+    // This component fixture bypasses AppShell's awaited library hydration.
+    discoverLibraryStatus: "ready",
+    recentTopics: [],
+    customGenres: [],
+    savedRefs: {},
+    inspirations: [],
+    discoverCandidates: [],
+    discoverFeedback: [],
+  });
   useStore.getState().clearTrends();
   host = document.createElement("div");
   document.body.append(host);
@@ -313,6 +364,26 @@ afterEach(() => {
 });
 
 describe("ResearchPanel genre row", () => {
+  it("keeps a newly saved inspiration in Saved only without attaching it to a skill", async () => {
+    await mount({ tab: "tt" });
+    await click("genre-cars");
+    const item =
+      host.querySelector<HTMLElement>(
+        '[data-testid="result-card"] [data-testid="inspiration-save"]',
+      ) ?? $("inspiration-save")!;
+    act(() => item.click());
+    await settle();
+    expect(useStore.getState().inspirations).toHaveLength(1);
+    expect(useStore.getState().savedRefs).toEqual({});
+    await click("filter-saved");
+    expect(titles()).toEqual(["tt-a"]);
+    expect(
+      host
+        .querySelector('[data-testid="result-card"] [data-testid="inspiration-save"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
   it("lists the built-in genres, then the owner's own with ✨, under their label", async () => {
     useStore.getState().addCustomGenre("هجولة", "هجولة درفت");
     await mount();
@@ -715,7 +786,8 @@ describe("ResearchPanel Most popular sort and stats chips", () => {
     await click("filter-sort-popular");
     expect(pressed("filter-sort-popular")).toBe("true");
     expect(pressed("filter-sort-relevance")).toBe("false");
-    expect(titles()).toEqual(["tt-b", "tt-a", "yt-a", "ig-a"]);
+    // Keep platform metrics separate; likes are never converted into hypothetical views.
+    expect(titles()).toEqual(["yt-a", "tt-b", "tt-a", "ig-a"]);
     expect($("filters-count")?.textContent).toBe("1");
     expect($("popular-note")).toBeNull();
     // The same requests, the same credits, the same badges.
@@ -1008,9 +1080,187 @@ describe("ResearchPanel Most viewed this week", () => {
   });
 });
 
-describe("Discover category pages (planning/tools/19-category-trends.md §1)", () => {
+describe("native acquisition in category Search", () => {
+  it.each(["semantic", "source-caption"] as const)(
+    "counts %s admitted rows in category platform badges despite indexed offTopic flags",
+    async (proof) => {
+      const at = new Date().toISOString();
+      const caption =
+        proof === "semantic"
+          ? "Cinematic frames from New York."
+          : "Travel drone shot tutorial step by step";
+      const item: DiscoverItem = {
+        ...nativeLead,
+        title: "Unrelated indexed title",
+        offTopic: true,
+        outsideCategory: true,
+        section: proof === "semantic" ? "example" : "tutorial",
+        evidence: {
+          source: "tiktok-public-page",
+          caption,
+          author: "travelcrew",
+          observedAt: at,
+          availability: "available",
+          likes: proof === "semantic" ? 4000 : 50,
+        },
+      };
+      useStore.getState().accumulateDiscoverCandidates([item], { genreId: "travel" });
+      if (proof === "semantic") {
+        const semantic: DiscoverSemantic = {
+          version: 1,
+          url: item.url,
+          genreId: "travel",
+          model: "selected-caption-model",
+          checkedAt: at,
+          source: {
+            provenance: "tiktok-public-page",
+            caption,
+            author: "travelcrew",
+            observedAt: at,
+          },
+          assessment: {
+            category: "supported",
+            categoryQuote: caption,
+            project: "described",
+            projectQuote: caption,
+            reason: "The caption describes a filmed destination.",
+          },
+        };
+        useStore.setState({
+          discoverCandidates: useStore
+            .getState()
+            .discoverCandidates.map((candidate) => ({ ...candidate, semantic })),
+        });
+      }
+      await mount({ v2: true, lang: "en", tab: "all" });
+      await click("genre-travel");
+      if (proof === "source-caption") await click("feed-mode-learning");
+      expect(host.querySelectorAll('[data-testid="feed-card"]')).toHaveLength(1);
+      expect($("tab-all")?.getAttribute("data-count")).toBe("1");
+      expect($("tab-tt")?.getAttribute("data-count")).toBe("1");
+      expect($("tab-ig")?.getAttribute("data-count")).toBe("0");
+      expect($("tab-yt")?.getAttribute("data-count")).toBe("0");
+      await click("tab-tt");
+      expect(host.querySelectorAll('[data-testid="feed-card"]')).toHaveLength(1);
+      expect($("tab-tt")?.getAttribute("data-count")).toBe("1");
+      expect(useStore.getState().discoverCandidates[0].item.offTopic).toBe(true);
+      expect(discoverAsked).toEqual([]);
+      expect(localPlans).toEqual([]);
+    },
+  );
+  it("offers caption understanding only in category feeds, not detailed or creator searches", async () => {
+    await mount({ v2: true, lang: "en", tab: "all" });
+    await click("genre-travel");
+    expect($("category-semantic")).not.toBeNull();
+    expect($("category-semantic")?.hasAttribute("open")).toBe(false);
+    await submit("drone match cuts over mountain trails");
+    expect($("category-semantic")).toBeNull();
+    await submit("@travelcrew");
+    expect($("category-semantic")).toBeNull();
+    expect(localPlans).toEqual([]);
+  });
+  it("does not offer caption understanding in the skill sheet", async () => {
+    await mount({ v2: true, lang: "en", skillId: "smart-bins-keywords" });
+    await click("genre-travel");
+    expect($("category-semantic")).toBeNull();
+    expect(localPlans).toEqual([]);
+  });
+  const retained = (id: string): DiscoverItem => ({
+    ...nativeLead,
+    url: `https://www.tiktok.com/@retained/video/${id}`,
+  });
+  const seedCategories = () => {
+    useStore.getState().accumulateDiscoverCandidates([retained("7680000000000000001")], {
+      genreId: "travel",
+    });
+    useStore.getState().accumulateDiscoverCandidates([retained("7680000000000000002")], {
+      genreId: "camping",
+    });
+  };
+
+  it("retrieves Travel leads explicitly with only that category's known IDs and no indexed search", async () => {
+    seedCategories();
+    await mount({ v2: true, lang: "en", tab: "tt" });
+    await click("genre-travel");
+    expect($("category-feed")).not.toBeNull();
+    expect($("category-refresh")).not.toBeNull();
+    expect(nativeCalls).toEqual([]);
+    expect(discoverAsked).toEqual([]);
+    await click("category-refresh-run");
+    expect(nativeCalls).toHaveLength(1);
+    expect(nativeCalls[0]).toMatchObject({
+      categoryId: "travel",
+      body: { country: "US", excludeVideoIds: ["7680000000000000001"] },
+    });
+    expect(
+      useStore
+        .getState()
+        .discoverCandidates.filter((candidate) => candidate.item.url === nativeLead.url),
+    ).toMatchObject([{ genreId: "travel", item: nativeLead }]);
+    await click("category-refresh-run");
+    expect(nativeCalls).toHaveLength(1);
+    expect(discoverAsked).toEqual([]);
+    expect(asked).toEqual([]);
+    expect(localPlans).toEqual([]);
+    expect(useStore.getState().inspirations).toEqual([]);
+    expect(useStore.getState().discoverFeedback).toEqual([]);
+  });
+
+  it("shows category refresh on each platform but removes it for a detailed topic", async () => {
+    seedCategories();
+    await mount({ v2: true, lang: "en", tab: "ig" });
+    await click("genre-travel");
+    expect($("category-refresh")).not.toBeNull();
+    expect($("category-refresh-region")).toBeNull();
+    await click("tab-tt");
+    expect($("category-refresh-region")).not.toBeNull();
+    await submit("drone match cuts over mountain trails");
+    expect($("category-feed")).toBeNull();
+    expect($("category-refresh")).toBeNull();
+    expect(nativeCalls).toEqual([]);
+  });
+
+  it.each(["category", "config", "cancel", "inactive"])(
+    "discards a late native response after %s changes",
+    async (change) => {
+      seedCategories();
+      let complete!: (response: Response) => void;
+      nativeReply = () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        });
+      await mount({ v2: true, lang: "en" });
+      await click("genre-travel");
+      await click("category-refresh-run");
+      expect(nativeCalls).toHaveLength(1);
+      if (change === "category") await click("genre-camping");
+      else if (change === "config") {
+        act(() => useStore.getState().setSettings({ apiKeys: { scoutToken: "rotated" } }));
+        await settle();
+      } else if (change === "inactive") {
+        act(() => root.render(createElement(ResearchPanel, { active: false })));
+        await settle();
+      } else {
+        await click("category-refresh-cancel");
+      }
+      expect(nativeCalls[0].signal?.aborted).toBe(true);
+      await act(async () => complete(json(nativeAnswer("travel"))));
+      await settle();
+      expect(
+        useStore
+          .getState()
+          .discoverCandidates.some((candidate) => candidate.item.url === nativeLead.url),
+      ).toBe(false);
+      expect(nativeCalls).toHaveLength(1);
+      expect(discoverAsked).toEqual([]);
+    },
+  );
+});
+
+describe("Discover category searches and optional study guides", () => {
   const CATEGORY = {
     status: "ok",
+    evidenceVersion: 1,
     updatedAt: new Date().toISOString(),
     items: [
       {
@@ -1027,25 +1277,46 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
     ],
   };
 
-  it("a category tapped with nothing typed shows its page instead of searching; Search all runs the category search", async () => {
+  it.each(GENRES)(
+    "$id searches editing references immediately without reading or scanning a category page",
+    async (genre) => {
+      categoryDoc = CATEGORY;
+      await mount({ v2: true, lang: "en" });
+      await click(`genre-${genre.id}`);
+      expect($("category-page")).toBeNull();
+      expect($("research-results")!.hidden).toBe(false);
+      expect(discoverAsked).toHaveLength(1);
+      expect(discoverAsked[0]).toMatchObject({ q: genre.queries.en[0], lang: "en" });
+      expect(categoryCalls).toEqual([]);
+      expect($("discover-study-guides")!.textContent).toBe("Study guides");
+    },
+  );
+
+  it("Study guides explicitly opens the cached page; Search all returns to the category results", async () => {
     categoryDoc = CATEGORY;
     await mount({ v2: true, lang: "en" });
     await click("genre-cars");
+    expect(discoverAsked).toHaveLength(1);
+    expect(categoryCalls).toEqual([]);
+    await click("discover-study-guides");
     expect($("category-page")).not.toBeNull();
-    expect(discoverAsked).toHaveLength(0);
+    expect(categoryCalls).toEqual(["GET /categories/cars"]);
+    expect(pressed("discover-study-guides")).toBe("true");
     expect(pressed("genre-cars")).toBe("true");
     // Discover's tabs, filters bar and filters stand aside with the results while the page shows.
     const searchParts = () => [
       host.querySelector<HTMLElement>('[role="tablist"]')!.hidden,
-      $("filters-toggle")!.parentElement!.hidden,
+      $("filters-toggle")!.hidden || $("filters-toggle")!.parentElement!.hidden,
       $("filters")!.hidden,
       $("research-results")!.hidden,
     ];
     expect(searchParts()).toEqual([true, true, true, true]);
     await click("category-search-all");
     expect($("category-page")).toBeNull();
-    expect(searchParts()).toEqual([false, false, false, false]);
+    expect(searchParts()).toEqual([false, true, true, false]);
+    expect($("category-feed")).not.toBeNull();
     expect(discoverAsked).toEqual([
+      { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" },
       { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" },
     ]);
   });
@@ -1056,10 +1327,12 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
     const reopen = async () => {
       await click("genre-cars"); // Cars off
       type(""); // the box cleared
-      await click("genre-cars"); // Cars again, nothing typed: the page
+      await click("genre-cars");
+      await click("discover-study-guides");
       expect($("category-page")).not.toBeNull();
     };
     await click("genre-cars");
+    await click("discover-study-guides");
     // Search all, focused as a click focuses a button in Chrome (jsdom's click does not). The chip that opened the
     // page, not the search box: focusing a text box can pop a phone's keyboard over the results.
     $("category-search-all")!.focus();
@@ -1085,9 +1358,12 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
     categoryDoc = CATEGORY;
     await mount({ v2: true });
     await click("genre-cars");
+    await click("discover-study-guides");
+    discoverAsked.length = 0;
     await click("discover-mode-ai");
     await select("ai-provider", "claude");
     expect($<HTMLButtonElement>("genre-travel")!.disabled).toBe(true);
+    expect($<HTMLButtonElement>("discover-study-guides")!.disabled).toBe(true);
     expect($<HTMLButtonElement>("category-search-all")!.disabled).toBe(true);
     await click("category-search-all");
     expect(discoverAsked).toHaveLength(0);
@@ -1118,12 +1394,14 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
     try {
       await mount({ v2: true });
       await click("genre-cars");
+      await click("discover-study-guides");
       expect($("category-page")).not.toBeNull();
       // Discover opened again from a /discover/?genre=cars link.
       act(() => root.render(createElement(ResearchPanel, { openGenre: "cars" })));
       await settle();
       expect($("category-page")).toBeNull();
       expect(discoverAsked).toEqual([
+        { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" },
         { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" },
       ]);
     } finally {
@@ -1157,6 +1435,8 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
     await mount({ v2: true });
     await click("discover-mode-ai");
     await click("genre-cars");
+    await click("discover-study-guides");
+    discoverAsked.length = 0;
     act(() =>
       host
         .querySelector<HTMLElement>('[data-testid="category-style"][data-key="rolling-shot"]')!
@@ -1185,11 +1465,13 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
     type("drift");
     await click("genre-cars");
     expect($("category-page")).toBeNull();
+    expect($("discover-study-guides")).toBeNull();
     expect(discoverAsked.at(-1)).toMatchObject({ q: "drift", genreQuery: { en: "car edit" } });
     categoryDoc = null;
     await click("genres-clear");
     type("");
     await click("genre-food");
+    await click("discover-study-guides");
     expect($("category-page")).toBeNull();
     expect(discoverAsked.at(-1)).toMatchObject({ q: "food edit" });
   });
@@ -1200,20 +1482,69 @@ describe("Discover category pages (planning/tools/19-category-trends.md §1)", (
     await mount({ v2: true, lang: "en" });
     await click("genre-custom-drift");
     expect($("category-page")).toBeNull();
+    expect($("discover-study-guides")).toBeNull();
     expect(discoverAsked).toEqual([{ q: "drift edit", lang: "en" }]);
   });
 
-  it("with Saved only on, a category leaves the saved list in view; its page opens once Saved only is off", async () => {
+  it("Saved only keeps saved results and suppresses requests; turning it off searches instead of opening guides", async () => {
     categoryDoc = CATEGORY;
     await mount({ v2: true, lang: "en" });
     await click("filter-saved");
     await click("genre-cars");
     expect($("category-page")).toBeNull();
+    expect($("discover-study-guides")).toBeNull();
     expect($("research-results")!.hidden).toBe(false);
     expect($("filters")!.hidden).toBe(false);
-    await click("filter-saved");
-    expect($("category-page")).not.toBeNull();
-    expect($("research-results")!.hidden).toBe(true);
     expect(discoverAsked).toHaveLength(0);
+    expect(categoryCalls).toEqual([]);
+    await click("filter-saved");
+    expect($("category-page")).toBeNull();
+    expect($("research-results")!.hidden).toBe(false);
+    expect(discoverAsked).toHaveLength(1);
+    expect(categoryCalls).toEqual([]);
+  });
+
+  it("changing genres closes Study guides and never silently reopens the previous page", async () => {
+    categoryDoc = CATEGORY;
+    await mount({ v2: true, lang: "en" });
+    await click("genre-cars");
+    await click("discover-study-guides");
+    expect($("category-page")).not.toBeNull();
+    await click("genre-food");
+    expect($("category-page")).toBeNull();
+    expect(discoverAsked.at(-1)).toMatchObject({ q: "food edit" });
+    await click("genre-cars");
+    expect($("category-page")).toBeNull();
+    expect(categoryCalls).toEqual(["GET /categories/cars"]);
+  });
+
+  it.each(["genre-coffee", "genre-cars", "genres-clear"])(
+    "%s drops the previous category's exact-search override before returning to it",
+    async (leaveCategory) => {
+      discoverAlternatives = [{ exact: true }];
+      await mount({ v2: true, lang: "en" });
+      type("speed ramp");
+      await click("genre-cars");
+      await click("discover-alt-exact");
+      expect(discoverAsked.at(-1)).toMatchObject({ q: "speed ramp", exact: true });
+      await click(leaveCategory);
+      await click("genre-cars");
+      expect(discoverAsked.at(-1)).toEqual({
+        q: "speed ramp",
+        genreQuery: { ar: "ايديت سيارات", en: "car edit" },
+        lang: "en",
+      });
+      expect(pressed("genre-cars")).toBe("true");
+    },
+  );
+
+  it("the skill sheet keeps its skill search and does not offer category study guides", async () => {
+    categoryDoc = CATEGORY;
+    await mount({ v2: true, skillId: "smart-bins-keywords" });
+    await click("genre-cars");
+    expect($("discover-study-guides")).toBeNull();
+    expect($("category-page")).toBeNull();
+    expect(categoryCalls).toEqual([]);
+    expect(discoverAsked.at(-1)).toMatchObject({ genreQuery: { en: "car edit" } });
   });
 });

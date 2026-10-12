@@ -1,23 +1,13 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { freshState } from "./helpers";
+import { freshState, seedState } from "./helpers";
 
 // Ideas bank, iOS look (tools/18 §6): "new idea" opens a sheet; the star button, or a swipe toward the row's end
 // edge (left in Arabic), keeps an idea in favorites; the status chips (favorites, waiting, used) filter the bank
 // next to the source chips; favorites survive a reload; remove asks first; a saved idea rises into the list.
 
-const STORAGE_KEY = "3z-prod-v1";
-
 /** Replace the saved state with these ideas only (as a reload after earlier visits would find them). */
 async function seedIdeas(page: Page, ideas: Record<string, unknown>[]): Promise<void> {
-  await page.goto("/social/ideas/");
-  await page.evaluate(
-    ([key, list]) => {
-      localStorage.clear();
-      localStorage.setItem(key as string, JSON.stringify({ state: { ideas: list }, version: 1 }));
-    },
-    [STORAGE_KEY, ideas] as const,
-  );
-  await page.reload();
+  await seedState(page, "/social/ideas/", { ideas });
 }
 
 async function addIdea(page: Page, text: string): Promise<void> {
@@ -28,6 +18,31 @@ async function addIdea(page: Page, text: string): Promise<void> {
   await page.getByTestId("idea-add").click();
   await expect(sheet).toHaveCount(0);
 }
+
+test("state setup replaces saved ideas after the service worker takes control", async ({
+  page,
+}) => {
+  await seedIdeas(page, [
+    {
+      id: "before-reset",
+      text: "Before reset",
+      source: "me",
+      createdAt: "2026-01-01T09:00:00.000Z",
+    },
+  ]);
+  await expect(page.getByTestId("idea-row")).toContainText("Before reset");
+  // A second setup must unload the app even when its production worker controls navigations.
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+  await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
+  await seedIdeas(page, [
+    { id: "after-reset", text: "After reset", source: "me", createdAt: "2026-01-02T09:00:00.000Z" },
+  ]);
+  await expect(page.getByTestId("idea-row")).toHaveCount(1);
+  await expect(page.getByTestId("idea-row")).toContainText("After reset");
+  await freshState(page, "/social/ideas/");
+  await expect(page.getByTestId("ideas-empty")).toBeVisible();
+  await expect(page.getByTestId("idea-row")).toHaveCount(0);
+});
 
 /**
  * Press on `start` and drag by (dx, dy): a finger on the phone (CDP touch events, so the row's `touch-action:

@@ -1,6 +1,7 @@
 /**
  * Trending effects, the daily run (planning/tools/18-trending-effects.md §1): 6 families × 3 searches → candidates →
- * one AI cleanup → the 7-day history → a YouTube check of the top 6 → one KV write (plus the day's attempt count). It
+ * one AI cleanup → the 7-day account history → one KV write (plus the day's attempt count). No YouTube popularity
+ * check: changing search samples cannot measure growth. It
  * runs at most once per UTC day unless forced or that day's run failed, at most 3 spending runs a UTC day without
  * force, and never throws: a day that fails keeps the previous chips.
  */
@@ -10,20 +11,17 @@ import { utcDay } from "../trends/kv";
 import { cleanWithAi, type AiVerdict } from "./ai";
 import { extractCandidates, type ExtractExtra, type PostCounts } from "./extract";
 import { daySlot, familiesForSlot, SLOTS } from "./families";
+import { discoverFormats, focusedFormatQuery, FORMAT_VERSION } from "./formats";
 import { readEffects, writeEffects } from "./kv";
-import { creatorsBetween, daysBetween, mergeHistory, scoreEffects, setViews } from "./score";
-import {
-  searchFamilies,
-  youtubeCheck,
-  YT_EFFECTS,
-  type EffectsEnv,
-  type FamilyStats,
-} from "./sources";
+import { creatorsBetween, daysBetween, mergeHistory, scoreEffects } from "./score";
+import { searchFamilies, type EffectsEnv, type FamilyStats } from "./sources";
 import {
   IDS_PER_DAY,
+  EFFECTS_EVIDENCE_VERSION,
   type Candidate,
   type EffectMeta,
   type EffectPost,
+  type EffectSample,
   type EffectsDoc,
   type HistoryEntry,
 } from "./types";
@@ -49,6 +47,14 @@ type AiCounts = {
   /** A category's cleanup (gpt-oss-120b first): the model that answered each batch, "none" when neither did. */
   models?: string[];
 };
+
+/** Keep dated evidence across scans and merged spellings before applying the two-link limit. */
+const newestSamples = (samples: readonly EffectSample[]): EffectSample[] =>
+  samples
+    .filter((s) => Number.isFinite(Date.parse(s.published ?? "")))
+    .sort((a, b) => Date.parse(b.published!) - Date.parse(a.published!))
+    .filter((s, i, all) => all.findIndex((p) => p.url === s.url) === i)
+    .slice(0, 2);
 /** For the run's log line, to tune the job at the live check: counts and our own dictionary ids, no names. */
 export type Memory = {
   keys: number;
@@ -145,11 +151,16 @@ function applyVerdicts(
         const was = into.days.get(id);
         if (!was || was < day) into.days.set(id, day);
       });
+      const observations = [
+        ...(into.observations ?? [...into.days].map(([id, day]) => ({ id, day }))),
+        ...(c.observations ?? [...c.days].map(([id, day]) => ({ id, day }))),
+      ];
+      into.observations = observations.filter(
+        (o, i) => observations.findIndex((v) => v.id === o.id && v.day === o.day) === i,
+      );
       c.platforms.forEach((p) => into.platforms.add(p));
       into.posts += c.posts;
-      for (const s of c.samples)
-        if (into.samples.length < 2 && !into.samples.some((x) => x.url === s.url))
-          into.samples.push(s);
+      into.samples = newestSamples([...into.samples, ...c.samples]);
       // The effect was first seen when its earliest spelling was: a merge never makes it NEW again.
       const since = meta[key]?.firstSeen;
       const was = counts.firstSeen.get(root);
@@ -190,7 +201,7 @@ function metaOf(
     checked: v ? v.keep : (old?.checked ?? false),
     platforms: [...c.platforms].sort(),
     posts: c.posts,
-    samples: c.samples,
+    samples: newestSamples([...c.samples, ...(old?.samples ?? [])]),
     firstSeen: merged && merged < seen ? merged : seen,
   };
 }
@@ -203,6 +214,8 @@ type RunOptions = {
   fetch?: typeof fetch;
   now?: Date;
   force?: boolean;
+  /** A manual scan may upgrade today's older technique-only result; cron does not spend again just for migration. */
+  upgradeFormats?: boolean;
   /** Each Tavily and YouTube call (default 12 s). */
   timeoutMs?: number;
   /** The AI call, apart, so a short search limit never cuts it (default 60 s). */
@@ -273,10 +286,13 @@ export async function rememberPosts(
   const byKey = new Map((reply?.verdicts ?? []).map((v) => [v.key, v]));
   const history: History = { ...prev?.history };
   const meta: Meta = { ...prev?.meta };
-  // A memory from before real post dates (2026-10-07: no name has `firstSeen`) filed creators under the scan's day: its
-  // creators go, once, so "this week" never counts a scan of old posts. Each day stays, empty, with its YouTube views, so
+  // Older memories counted unidentified post URLs as accounts, or filed creators under the scan day. Their
+  // identities go once when evidenceVersion changes. Each old day stays empty with its legacy YouTube values, so
   // a name this run does not find keeps its meta (approval, name, line) and the day it was first seen.
-  if (Object.values(meta).some((m) => !m.firstSeen)) {
+  if (
+    prev?.evidenceVersion !== EFFECTS_EVIDENCE_VERSION ||
+    Object.values(meta).some((m) => !m.firstSeen)
+  ) {
     for (const [key, m] of Object.entries(meta))
       meta[key] = { ...m, firstSeen: m.firstSeen ?? firstDay(history[key]) ?? today };
     for (const [key, entries] of Object.entries(history))
@@ -348,6 +364,10 @@ async function scan(
       ? ((prev.slot ?? daySlot(today)) + 1) % SLOTS
       : daySlot(today);
   const queries = familiesForSlot(slot);
+  // Four technique families, one open format-discovery query, and one identity follow-up (or another broad
+  // query before a format is known). Still exactly six queries / at most eighteen paid searches.
+  const focused = focusedFormatQuery(prev, now, slot);
+  if (focused) queries[queries.length - 1] = focused;
   const { posts, credits, errors, families, tight } = await searchFamilies(
     env,
     doFetch,
@@ -362,36 +382,31 @@ async function scan(
     return { doc: failed(prev, today, now, [...notes]), credits, families };
 
   const {
-    cands,
     history: merged,
     meta,
     shown,
     memory,
   } = await rememberPosts(env, prev, today, posts, notes, { aiTimeoutMs: opts.aiTimeoutMs });
-  // YouTube checks the top 6 of the names mentioned today: their views are kept on today's history entry.
-  const mentioned = Object.fromEntries(Object.entries(shown).filter(([k]) => cands.has(k)));
-  const top6 = scoreEffects(merged, mentioned, today, {}).slice(0, YT_EFFECTS);
-  // The name as the rules read it today (a dictionary effect's label): never the AI's renaming, nor the stemmed key,
-  // so views7d compares like with like.
-  const youtube = await youtubeCheck(
+  // Keep the raw posts: the generic extractor deliberately discards song identity. One independent bounded
+  // extraction preserves the song + visual pattern instead of merging it into an evergreen technique.
+  const { formatNote, ...formats } = await discoverFormats(
     env,
-    doFetch,
-    top6.map((i) => ({ key: i.key, en: cands.get(i.key)?.name ?? i.name.en })),
+    prev,
+    posts,
     now,
-    opts.timeoutMs,
+    opts.aiTimeoutMs,
+    doFetch,
   );
-  setViews(
-    merged,
-    today,
-    Object.fromEntries(Object.entries(youtube.results).map(([k, r]) => [k, r.views7d])),
-  );
-  youtube.errors.forEach((e) => notes.add(e));
-  const items = scoreEffects(merged, shown, today, youtube.results);
+  if (formatNote) notes.add(formatNote);
+  // A changing YouTube search sample cannot establish growth. Save those quota calls for actual video searches.
+  const items = scoreEffects(merged, shown, today, {});
   return {
     credits,
     families,
     memory,
     doc: {
+      ...formats,
+      evidenceVersion: EFFECTS_EVIDENCE_VERSION,
       ranOn: today,
       updatedAt: now.toISOString(),
       status: notes.size ? "partial" : "ok",
@@ -410,7 +425,14 @@ export async function runEffects(env: EffectsEnv, opts: RunOptions = {}): Promis
   // undefined: KV could not be read, so nothing is spent or written over a history this run never saw.
   const prev = await readEffects(env).catch(() => undefined);
   // Once a day, unless forced; a day whose run failed may run again (the dashboard's retry), a good day may not.
-  if (prev && !opts.force && prev.ranOn === today && prev.status !== "failed") return prev;
+  if (
+    prev &&
+    !opts.force &&
+    prev.ranOn === today &&
+    prev.status !== "failed" &&
+    !(opts.upgradeFormats && prev.formatVersion !== FORMAT_VERSION)
+  )
+    return prev;
   // A run that would spend counts itself against the day's cap before its first search; force skips the cap.
   const attempt =
     prev === undefined || opts.force ? true : await countAttempt(env, `effects:attempts:${today}`);

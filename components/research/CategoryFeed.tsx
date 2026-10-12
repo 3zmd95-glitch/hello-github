@@ -1,0 +1,554 @@
+"use client";
+
+import { useId, useState, type ReactNode } from "react";
+import type { DiscoverItem, DiscoverPlatform } from "@/lib/discover";
+import type { DiscoverSourceDiagnostic } from "@/lib/discoverExpansion";
+import { discoverFeedbackCreator } from "@/lib/discoverFeed";
+import type { DiscoverEvidence, DiscoverFeedMode } from "@/lib/discoverRanking";
+import { useT, type MessageKey } from "@/lib/i18n";
+import type { ResearchItem, ResearchTab } from "@/lib/research";
+import ResultCard from "./ResultCard";
+import FeedSearchStatus from "./FeedSearchStatus";
+import { hasDiscoverCinematography, type DiscoverVisual } from "@/lib/discoverVisual";
+import type { DiscoverSemantic } from "@/lib/discoverSemantic";
+
+const PAGE_SIZE = 12;
+const MODES: Record<DiscoverFeedMode, MessageKey> = {
+  inspiration: "feed.inspiration",
+  popular: "feed.popular",
+  learning: "feed.learning",
+  explore: "feed.explore",
+};
+const HELP: Record<DiscoverFeedMode, MessageKey> = {
+  inspiration: "feed.inspirationHelp",
+  popular: "feed.popularHelp",
+  learning: "feed.learningHelp",
+  explore: "feed.exploreHelp",
+};
+export type FeedFeedbackAction = "more" | "less" | "hide-creator";
+
+/** Ranking and persistence belong to the parent; changing this view never starts a search. */
+export interface CategoryFeedProps {
+  genre: string;
+  heading?: string;
+  help?: string;
+  testId?: string;
+  intro?: ReactNode;
+  refresh?: ReactNode;
+  searchOptionsCollapsed?: boolean;
+  refreshing?: boolean;
+  diagnostics?: DiscoverSourceDiagnostic[];
+  quotaPlatforms?: DiscoverPlatform[];
+  categoryForItem?: (item: DiscoverItem) => { label: string; onPick: () => void } | undefined;
+  mode: DiscoverFeedMode;
+  onMode: (mode: DiscoverFeedMode) => void;
+  items: DiscoverItem[];
+  evidence: Record<string, DiscoverEvidence>;
+  tab: ResearchTab;
+  renderAction: (item: ResearchItem) => ReactNode;
+  renderCreatorAction?: (item: DiscoverItem) => ReactNode;
+  onFeedback: (item: DiscoverItem, action: FeedFeedbackAction) => void;
+  likedUrls: ReadonlySet<string>;
+  undo?: { action: FeedFeedbackAction; onUndo: () => void };
+  onFindMore?: () => void;
+  onRefill?: () => void;
+  refilling?: boolean;
+  canRefill?: boolean;
+  refillCost?: { tavilyMax: number; youtubeSearchMax: number };
+  findingMore: boolean;
+  canFindMore: boolean;
+  checking?: boolean;
+  remainingSources?: number;
+  onCheckRemainingSources?: () => void;
+  loading?: boolean;
+  searchCost: number;
+  exploreCount: number;
+}
+
+const feedbackLine: Record<FeedFeedbackAction, MessageKey> = {
+  more: "feed.moreSaved",
+  less: "feed.lessSaved",
+  "hide-creator": "feed.creatorHidden",
+};
+
+export default function CategoryFeed(props: CategoryFeedProps) {
+  const { t } = useT();
+  const id = useId();
+  const items = props.items.filter((item) => props.tab === "all" || item.platform === props.tab);
+  const quotaReached = props.quotaPlatforms?.some(
+    (platform) => props.tab === "all" || platform === props.tab,
+  );
+  return (
+    <section
+      className="@container flex min-w-0 flex-col gap-3"
+      data-testid={props.testId ?? "category-feed"}
+      data-mode={props.mode}
+    >
+      <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg" id={`${id}-title`}>
+          {props.heading ?? t("feed.title", { genre: props.genre })}
+        </h2>
+        <p className="text-muted text-xs" data-testid="feed-count">
+          {t("feed.count", { n: items.length })}
+        </p>
+      </div>
+      <div
+        role="group"
+        aria-label={t("feed.modes")}
+        className="grid grid-cols-2 gap-1.5 sm:grid-cols-4"
+      >
+        {(Object.keys(MODES) as DiscoverFeedMode[]).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            className={`px-btn px-btn-sm min-w-0 justify-center ${props.mode === mode ? "px-btn-gold" : "px-btn-ghost"}`}
+            aria-pressed={props.mode === mode}
+            onClick={() => props.onMode(mode)}
+            data-testid={`feed-mode-${mode}`}
+          >
+            {t(MODES[mode])}
+          </button>
+        ))}
+      </div>
+      <p className="text-muted text-xs" data-testid="feed-help">
+        {props.help ?? t(HELP[props.mode])}
+      </p>
+      {props.mode === "popular" && (
+        <details className="text-muted text-xs" data-testid="feed-policy">
+          <summary className="px-link w-fit cursor-pointer">{t("feed.policy")}</summary>
+          <p className="mt-1">{t("feed.popularPolicy")}</p>
+        </details>
+      )}
+      {props.intro}
+      {props.diagnostics && <FeedSearchStatus diagnostics={props.diagnostics} tab={props.tab} />}
+      {(props.loading || props.checking) && (
+        <p className="text-muted text-xs" role="status" data-testid="feed-checking">
+          {t(props.loading ? "feed.loading" : "feed.checking")}
+        </p>
+      )}
+      {!!props.remainingSources && props.onCheckRemainingSources && (
+        <div className="flex flex-col items-start gap-1" data-testid="feed-unchecked-sources">
+          <button
+            type="button"
+            className="px-btn px-btn-ghost px-btn-sm"
+            disabled={props.loading || props.checking}
+            onClick={props.onCheckRemainingSources}
+            data-testid="feed-check-remaining"
+          >
+            {t("feed.checkRemaining", { n: props.remainingSources })}
+          </button>
+          <p className="text-muted text-xs">{t("feed.checkRemainingHelp")}</p>
+        </div>
+      )}
+      {props.undo && (
+        <div
+          className="border-edge bg-panel-2 flex flex-wrap items-center gap-2 border-s-2 p-2 text-xs"
+          role="status"
+          data-testid="feed-feedback-status"
+        >
+          <span>{t(feedbackLine[props.undo.action])}</span>
+          <button
+            type="button"
+            className="px-link font-bold"
+            onClick={props.undo.onUndo}
+            data-testid="feed-undo"
+          >
+            {t("feed.undo")}
+          </button>
+        </div>
+      )}
+      <FeedCards key={`${props.mode}|${props.tab}`} {...props} items={items} />
+      {items.length < 4 && !props.loading && !props.checking && (
+        <p className="text-muted text-xs" data-testid="feed-shortage">
+          {items.length
+            ? t("feed.shortage")
+            : t(
+                props.mode === "popular"
+                  ? "feed.emptyPopular"
+                  : props.mode === "learning"
+                    ? "feed.emptyLearning"
+                    : "feed.empty",
+              )}
+        </p>
+      )}
+      {props.mode !== "explore" &&
+        items.length < 4 &&
+        props.exploreCount > items.length &&
+        !props.loading &&
+        !props.checking && (
+          <button
+            type="button"
+            className="px-link w-fit text-start text-xs"
+            onClick={() => props.onMode("explore")}
+            data-testid="feed-explore-leads"
+          >
+            {t("feed.exploreLeads", { n: props.exploreCount })}
+          </button>
+        )}
+      {props.refresh}
+      {props.onFindMore && (
+        <SearchOptions collapsed={props.searchOptionsCollapsed}>
+          <button
+            type="button"
+            className="px-btn px-btn-sm"
+            onClick={props.onFindMore}
+            disabled={
+              props.loading ||
+              props.refreshing ||
+              props.findingMore ||
+              props.refilling ||
+              !props.canFindMore ||
+              quotaReached
+            }
+            data-testid="feed-find-more"
+          >
+            {t(props.findingMore ? "feed.findingMore" : "feed.findMore")}
+          </button>
+          <p className="text-muted text-xs">
+            {t(
+              quotaReached
+                ? "feed.quotaHelp"
+                : props.canFindMore
+                  ? "feed.findMoreHelp"
+                  : "feed.noMore",
+            )}
+          </p>
+          {props.canFindMore && (
+            <p className="text-muted text-xs">{t("feed.searchCost", { n: props.searchCost })}</p>
+          )}
+          {props.onRefill && props.refillCost && (
+            <details className="mt-1 max-w-full text-xs" data-testid="feed-refill-options">
+              <summary className="px-link cursor-pointer">{t("feed.refillOptions")}</summary>
+              <div className="mt-2 flex flex-col items-start gap-2">
+                <p className="text-muted">{t("feed.refillHelp")}</p>
+                <button
+                  type="button"
+                  className="px-btn px-btn-ghost px-btn-sm"
+                  onClick={props.onRefill}
+                  disabled={
+                    props.loading ||
+                    props.refreshing ||
+                    props.findingMore ||
+                    props.refilling ||
+                    !props.canRefill
+                  }
+                  data-testid="feed-refill"
+                >
+                  {t(props.refilling ? "feed.findingMore" : "feed.refill")}
+                </button>
+                <p className="text-muted">
+                  {t("feed.refillCost", {
+                    web: props.refillCost.tavilyMax,
+                    youtube: props.refillCost.youtubeSearchMax,
+                  })}
+                </p>
+              </div>
+            </details>
+          )}
+        </SearchOptions>
+      )}
+    </section>
+  );
+}
+
+function SearchOptions({ collapsed, children }: { collapsed?: boolean; children: ReactNode }) {
+  const { t } = useT();
+  const content = <div className="flex min-w-0 flex-col items-start gap-1.5 pt-3">{children}</div>;
+  return collapsed ? (
+    <details className="border-edge border-t pt-2 text-xs" data-testid="feed-indexed-options">
+      <summary className="px-link w-fit cursor-pointer">{t("refresh.indexed")}</summary>
+      {content}
+    </details>
+  ) : (
+    <div className="border-edge border-t">{content}</div>
+  );
+}
+
+function FeedCards(props: CategoryFeedProps) {
+  const { t } = useT();
+  const [shown, setShown] = useState(PAGE_SIZE);
+  return (
+    <>
+      <ul
+        className="grid min-w-0 grid-cols-2 items-start gap-3 @lg:grid-cols-3 @3xl:grid-cols-4"
+        data-testid="feed-list"
+        aria-busy={props.checking || props.findingMore}
+      >
+        {props.items.slice(0, shown).map((item) => {
+          const evidence = props.evidence[item.url];
+          const category = props.categoryForItem?.(item);
+          return (
+            <ResultCard
+              key={item.url}
+              item={item}
+              visualFeed
+              collapseDuplicateSnippet
+              testId="feed-card"
+              action={
+                <div className="flex w-full min-w-0 flex-col gap-2">
+                  {props.likedUrls.has(item.url) && (
+                    <span className="text-gold text-xs" data-testid="feed-personal-choice">
+                      {t("feed.personalChoice")}
+                    </span>
+                  )}
+                  {category && (
+                    <button
+                      type="button"
+                      className="px-link w-fit text-start text-xs"
+                      onClick={category.onPick}
+                      data-testid="feed-category"
+                    >
+                      {category.label}
+                    </button>
+                  )}
+                  <p className="text-muted text-[11px]" data-testid="feed-source-note">
+                    {t(
+                      evidence?.visual
+                        ? evidence.visual.media.provenance === "browser-visible-video"
+                          ? "capture.cardLabel"
+                          : "visual.cardLabel"
+                        : evidence?.sourceTier === "direct"
+                          ? "feed.sourceRead"
+                          : props.likedUrls.has(item.url)
+                            ? "feed.personalUnverified"
+                            : evidence?.sourceTier === "indexed"
+                              ? "feed.indexed"
+                              : "feed.noEvidence",
+                    )}
+                  </p>
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    {props.renderAction(item)}
+                  </div>
+                  <div
+                    role="group"
+                    aria-label={t("feed.feedbackLabel")}
+                    className="flex min-w-0 flex-wrap items-center gap-1.5"
+                  >
+                    <button
+                      type="button"
+                      className="px-fchip text-xs"
+                      aria-pressed={props.likedUrls.has(item.url)}
+                      onClick={() => props.onFeedback(item, "more")}
+                      data-testid="feed-more-like"
+                    >
+                      {t("feed.moreLike")}
+                    </button>
+                    <button
+                      type="button"
+                      className="px-link text-xs"
+                      onClick={() => props.onFeedback(item, "less")}
+                      data-testid="feed-not-useful"
+                    >
+                      {t("feed.less")}
+                    </button>
+                    {!!discoverFeedbackCreator(item) && (
+                      <button
+                        type="button"
+                        className="px-link text-xs"
+                        onClick={() => props.onFeedback(item, "hide-creator")}
+                        data-testid="feed-hide-creator"
+                      >
+                        {t("feed.hideCreator")}
+                      </button>
+                    )}
+                  </div>
+                  {props.renderCreatorAction?.(item)}
+                  <details className="text-xs" data-testid="feed-why">
+                    <summary className="px-link w-fit cursor-pointer">{t("feed.why")}</summary>
+                    {evidence?.semantic && <SemanticEvidence semantic={evidence.semantic} />}
+                    {evidence?.visual && <VisualEvidence visual={evidence.visual} />}
+                    {!!evidence?.techniques.length && (
+                      <p className="mt-1" dir="auto">
+                        {t("feed.technique", {
+                          techniques: evidence.techniques.slice(0, 3).join(" · "),
+                        })}
+                      </p>
+                    )}
+                    {evidence?.reasons.includes("personal-interest") && (
+                      <p className="mt-1">{t("feed.personal")}</p>
+                    )}
+                    <p className="text-muted mt-1">{t("feed.localOnly")}</p>
+                  </details>
+                </div>
+              }
+            />
+          );
+        })}
+      </ul>
+      {props.items.length > shown && (
+        <button
+          type="button"
+          className="px-btn px-btn-ghost px-btn-sm w-fit"
+          onClick={() => setShown((n) => n + PAGE_SIZE)}
+          data-testid="feed-show-more"
+        >
+          {t("feed.showMore", { n: Math.min(PAGE_SIZE, props.items.length - shown) })}
+        </button>
+      )}
+    </>
+  );
+}
+
+function SemanticEvidence({ semantic }: { semantic: DiscoverSemantic }) {
+  const { t, lang } = useT();
+  const { assessment } = semantic;
+  const quotes = [...new Set([assessment.categoryQuote, assessment.projectQuote].filter(Boolean))];
+  return (
+    <div className="mt-2 flex min-w-0 flex-col gap-1" data-testid="feed-semantic-evidence">
+      <p className="font-bold">{t("semantic.cardDetails")}</p>
+      <p dir="ltr" className="break-words">
+        ChatGPT · {semantic.model}
+        {semantic.effort ? ` · ${semantic.effort}` : ""}
+      </p>
+      <p>
+        {t("formats.checked", {
+          date: new Date(semantic.checkedAt).toLocaleString(lang === "ar" ? "ar-SA" : "en-US"),
+        })}
+      </p>
+      <p>
+        {t(
+          assessment.category === "supported"
+            ? "semantic.cardCategorySupported"
+            : assessment.category === "mismatch"
+              ? "semantic.cardCategoryMismatch"
+              : "semantic.cardCategoryUncertain",
+        )}
+      </p>
+      <p>
+        {t(
+          assessment.project === "described"
+            ? "semantic.cardProjectDescribed"
+            : assessment.project === "none"
+              ? "semantic.cardProjectNone"
+              : "semantic.cardProjectUncertain",
+        )}
+      </p>
+      {quotes.map((quote) => (
+        <blockquote key={quote} className="border-s border-current ps-2" dir="auto">
+          {quote}
+        </blockquote>
+      ))}
+      <p dir="auto">{assessment.reason}</p>
+      <p className="text-muted">{t("semantic.cardLimits")}</p>
+    </div>
+  );
+}
+
+function VisualEvidence({ visual }: { visual: DiscoverVisual }) {
+  const { t, lang } = useT();
+  const cinematography = visual.rubricVersion === 2 ? visual.assessment.cinematography : null;
+  const footageLabels = {
+    "live-action": "visual.cardFootageLiveAction",
+    "film-tv-excerpt": "visual.cardFootageFilmTv",
+    animation: "visual.cardFootageAnimation",
+    gameplay: "visual.cardFootageGameplay",
+    uncertain: "visual.cardFootageUncertain",
+  } as const satisfies Record<string, MessageKey>;
+  const attributionLabels = {
+    "creator-claim": "visual.cardAttributionCreatorClaim",
+    "third-party": "visual.cardAttributionThirdParty",
+    unattributed: "visual.cardAttributionMissing",
+    uncertain: "visual.cardAttributionUncertain",
+  } as const satisfies Record<string, MessageKey>;
+  const cueLabels = {
+    composition: "visual.cardCinematographyComposition",
+    lighting: "visual.cardCinematographyLighting",
+    staging: "visual.cardCinematographyStaging",
+    "shot-variety": "visual.cardCinematographyShotVariety",
+  } as const satisfies Record<string, MessageKey>;
+  const frameTimes = (frames: readonly number[]) =>
+    frames.map((frame) => `${visual.media.frames[frame].timestampSeconds.toFixed(1)}s`).join(" · ");
+  return (
+    <div className="mt-2 flex min-w-0 flex-col gap-1" data-testid="feed-visual-evidence">
+      <p className="font-bold">
+        {t(
+          visual.media.provenance === "browser-visible-video"
+            ? "capture.cardDetails"
+            : "visual.cardDetails",
+        )}
+      </p>
+      <p dir="ltr" className="break-words">
+        ChatGPT · {visual.model}
+        {visual.effort ? ` · ${visual.effort}` : ""}
+      </p>
+      <p>
+        {t("formats.checked", {
+          date: new Date(visual.checkedAt).toLocaleString(lang === "ar" ? "ar-SA" : "en-US"),
+        })}
+      </p>
+      <p>
+        {t(
+          visual.assessment.category === "supported"
+            ? "visual.cardCategorySupported"
+            : visual.assessment.category === "mismatch"
+              ? "visual.cardCategoryMismatch"
+              : "visual.cardCategoryUncertain",
+        )}
+      </p>
+      {!!visual.assessment.observations.length && (
+        <p className="mt-1 font-bold">{t("visual.cardGraphics")}</p>
+      )}
+      <ul className="list-disc space-y-1 ps-4">
+        {visual.assessment.observations.map((observation, index) => (
+          <li key={index}>
+            <span>
+              {t(
+                observation.origin === "uploader-added"
+                  ? "visual.cardAdded"
+                  : observation.origin === "source-content"
+                    ? "visual.cardSource"
+                    : "visual.cardUncertain",
+              )}
+              :{" "}
+            </span>
+            <span dir="auto">{observation.description}</span>{" "}
+            <span className="text-muted" dir="ltr">
+              ({frameTimes(observation.frames)})
+            </span>
+          </li>
+        ))}
+      </ul>
+      {cinematography && (
+        <section className="mt-2 flex min-w-0 flex-col gap-1" data-testid="feed-cinematography">
+          <p className="font-bold">{t("visual.cardCinematography")}</p>
+          <p data-testid="feed-cinematography-status">
+            {t(
+              hasDiscoverCinematography(visual)
+                ? "visual.cardCinematographySupported"
+                : "visual.cardCinematographyUnconfirmed",
+            )}
+          </p>
+          <p>{t(footageLabels[cinematography.footage])}</p>
+          <p data-testid="feed-cinematography-attribution">
+            {t(attributionLabels[cinematography.attribution.status])}
+          </p>
+          {!!cinematography.attribution.quote && (
+            <blockquote className="border-s border-current ps-2" dir="auto">
+              {cinematography.attribution.quote}
+            </blockquote>
+          )}
+          <p className="text-muted">{t("visual.cardAttributionLimits")}</p>
+          <ul className="list-disc space-y-1 ps-4">
+            {cinematography.observations.map((observation, index) => (
+              <li key={index}>
+                <span>{t(cueLabels[observation.cue])}: </span>
+                <span dir="auto">{observation.description}</span>{" "}
+                <span className="text-muted" dir="ltr">
+                  ({frameTimes(observation.frames)})
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {visual.assessment.uncertainty && <p dir="auto">{visual.assessment.uncertainty}</p>}
+      <p className="text-muted">
+        {t(
+          visual.media.provenance === "browser-visible-video"
+            ? "capture.limits"
+            : "visual.cardLimits",
+        )}
+      </p>
+    </div>
+  );
+}

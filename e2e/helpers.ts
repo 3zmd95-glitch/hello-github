@@ -1,13 +1,112 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
-/**
- * Navigate to a fresh instance of the app: go to the path, clear any saved progress, then reload so the
- * store hydrates from an empty localStorage. Every spec starts from this so tests never depend on order.
- */
-export async function freshState(page: Page, path = "/"): Promise<void> {
+/** Change workspace without changing or submitting the retained query. Skill-sheet panels have no workspace tabs. */
+export async function openDiscoverSearch(page: Page): Promise<void> {
+  if (!/^\/discover\/?$/.test(new URL(page.url()).pathname)) return;
+  const button = page.getByTestId("inspiration-search");
+  await expect(button).toBeVisible();
+  if ((await button.getAttribute("aria-pressed")) !== "true") await button.click();
+}
+
+async function openDetails(page: Page, testId: string): Promise<void> {
+  const details = page.getByTestId(testId);
+  if (
+    (await details.count()) &&
+    (await details.isVisible()) &&
+    (await details.getAttribute("open")) === null
+  )
+    await details.locator(":scope > summary").click();
+}
+
+/** Browse opens categories when its local feed is empty; both workspaces otherwise keep them in a disclosure. */
+export async function openDiscoverCategories(page: Page): Promise<void> {
+  await openDiscoverSearch(page);
+  await openDetails(page, "search-categories");
+}
+
+export async function openBrowseCategories(page: Page): Promise<void> {
+  await page.getByTestId("inspiration-explore").click();
+  if (await page.getByTestId("browse-back").isVisible())
+    await page.getByTestId("browse-back").click();
+  await openDetails(page, "browse-categories");
+}
+
+export async function openBrowseFormats(page: Page): Promise<void> {
+  await page.getByTestId("inspiration-explore").click();
+  if (await page.getByTestId("browse-back").isVisible())
+    await page.getByTestId("browse-back").click();
+  await openDetails(page, "browse-formats");
+}
+
+export async function openDiscoverOptions(page: Page): Promise<void> {
+  await openDiscoverSearch(page);
+  const toggle = page.getByTestId("search-options-toggle");
+  if (await toggle.isVisible()) {
+    const details = toggle.locator("xpath=ancestor::details[1]");
+    if ((await details.getAttribute("open")) === null) await toggle.click();
+  }
+}
+
+export async function openDiscoverHistory(page: Page): Promise<void> {
+  await openDiscoverSearch(page);
+  await openDetails(page, "search-history");
+}
+
+/** Discover collapses filters on every viewport; the existing skill-sheet behavior stays unchanged. */
+export async function openResearchFilters(page: Page): Promise<void> {
+  const toggle = page.getByTestId("filters-toggle");
+  if ((await toggle.isVisible()) && (await toggle.getAttribute("aria-expanded")) !== "true")
+    await toggle.click();
+  await expect(page.getByTestId("filters")).toBeVisible();
+}
+
+export async function openBrowseTechniques(page: Page): Promise<void> {
+  await page.getByTestId("inspiration-explore").click();
+  if (await page.getByTestId("browse-back").isVisible())
+    await page.getByTestId("browse-back").click();
+  await openDetails(page, "browse-techniques");
+}
+
+/** Seed before the app boots: pending hydration in a live page can overwrite direct storage writes. */
+export async function seedState(
+  page: Page,
+  path: string,
+  state?: Record<string, unknown>,
+): Promise<void> {
+  // Unload any previous app before touching storage. The intercepted document has the same origin
+  // and no app code; it cannot race its own IndexedDB migration or persist an old in-memory state.
+  // The production service worker deliberately bypasses /api/, so later resets still reach this route.
+  await page.route(
+    "**/api/__e2e_state_setup__",
+    (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        headers: { "Cache-Control": "no-store" },
+        body: '<!doctype html><html><body data-testid="e2e-state-setup">Test state setup</body></html>',
+      }),
+    { times: 1 },
+  );
+  await page.goto("/api/__e2e_state_setup__");
+  // Fail before mutating either store if routing ever serves an app document instead.
+  await expect(page.getByTestId("e2e-state-setup")).toBeVisible();
+  await page.evaluate(async (initial) => {
+    localStorage.clear();
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase("3z-prod-discover");
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error("Another page still holds the test library open"));
+    });
+    if (initial) localStorage.setItem("3z-prod-v1", JSON.stringify({ state: initial, version: 1 }));
+  }, state);
   await page.goto(path);
-  await page.evaluate(() => localStorage.clear());
-  await page.reload();
+  // AppShell renders main only after localStorage hydration and the durable library flush settle.
+  await expect(page.locator("#main")).toBeVisible();
+}
+
+/** Start with both persisted stores empty, and wait until the app is ready for interaction. */
+export async function freshState(page: Page, path = "/"): Promise<void> {
+  await seedState(page, path);
 }
 
 /**

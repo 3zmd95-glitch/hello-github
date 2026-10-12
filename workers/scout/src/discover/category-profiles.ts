@@ -100,7 +100,7 @@ export const CATEGORY_PROFILES: Readonly<Record<string, CategorySearchProfile>> 
     subject: { en: "perfume", ar: "عطور" },
     subjects: ["perfume", "fragrance", "cologne", "عطر", "عطور", "عطورات"],
     examples: { en: "perfume commercial cinematic video", ar: "إعلان عطر سينمائي" },
-    tutorials: { en: "perfume product lighting tutorial", ar: "شرح تصوير وإضاءة العطور" },
+    tutorials: { en: "perfume product photography lighting tutorial", ar: "شرح تصوير وإضاءة العطور" },
     retryExamples: { en: "fragrance bottle reflection ad", ar: "تصوير زجاجة عطر وانعكاسات" },
     retryTutorials: { en: "perfume commercial filming breakdown", ar: "كواليس تصوير إعلان عطر" },
   },

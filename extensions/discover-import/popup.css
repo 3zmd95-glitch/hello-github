@@ -1,0 +1,143 @@
+:root {
+  color-scheme: dark;
+  font:
+    14px/1.5 system-ui,
+    sans-serif;
+  background: #13151b;
+  color: #f6f7fa;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  width: 390px;
+  margin: 0;
+  padding: 20px;
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+header strong {
+  color: #b8d2ff;
+  font-size: 16px;
+}
+h1 {
+  font-size: 21px;
+  line-height: 1.4;
+  margin: 22px 0 8px;
+}
+p {
+  margin: 8px 0 14px;
+}
+.muted {
+  color: #b5bdca;
+  font-size: 12px;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid #515b70;
+  border-radius: 9px;
+  padding: 8px 12px;
+  color: inherit;
+  background: #242a36;
+}
+button.primary {
+  width: 100%;
+  background: #b8d2ff;
+  color: #102039;
+  font-weight: 650;
+  border-color: #b8d2ff;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
+}
+fieldset {
+  min-width: 0;
+  margin: 16px 0;
+  padding: 0;
+  border: 0;
+}
+legend {
+  font-weight: 650;
+  margin-bottom: 10px;
+}
+#links {
+  max-height: 255px;
+  overflow-y: auto;
+  border: 1px solid #515b70;
+  border-radius: 9px;
+}
+label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid #353e50;
+  cursor: pointer;
+}
+label:last-child {
+  border-bottom: 0;
+}
+label span {
+  direction: ltr;
+  text-align: left;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+input {
+  margin-top: 3px;
+  flex-shrink: 0;
+  accent-color: #b8d2ff;
+}
+[hidden] {
+  display: none !important;
+}
+details {
+  border-top: 1px solid #515b70;
+  padding-top: 14px;
+}
+summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+#video-source {
+  display: block;
+  color: #b8d2ff;
+  overflow-wrap: anywhere;
+  direction: ltr;
+  font-size: 11px;
+}
+#video-frames {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  margin-block: 12px;
+}
+#video-frames figure {
+  margin: 0;
+}
+#video-frames img {
+  width: 100%;
+  height: 100px;
+  object-fit: contain;
+  background: #000;
+}
+#video-frames figcaption {
+  font-size: 11px;
+  text-align: center;
+}
+#video-save,
+#video-reset,
+#video-open {
+  margin-bottom: 8px;
+}

@@ -18,6 +18,7 @@ import { useT, type MessageKey } from "@/lib/i18n";
 import type { ResearchItem, ResearchTab, SortMode } from "@/lib/research";
 import PicksSection from "./PicksSection";
 import ResultCard, { PLATFORM_META } from "./ResultCard";
+import CategoryFeed, { type CategoryFeedProps } from "./CategoryFeed";
 
 const SHOW = 6;
 const TAVILY_HOME = "https://app.tavily.com/";
@@ -51,6 +52,10 @@ export default function DiscoverSections({
   onAlternative,
   onRetry,
   picks,
+  formatSearch,
+  sourceChecking,
+  sourceExcluded,
+  categoryFeed,
 }: {
   answer: DiscoverAnswer;
   q: string;
@@ -65,8 +70,12 @@ export default function DiscoverSections({
   onRetry: () => void;
   /** Claude's picks saved for this answer's topic. */
   picks?: PicksTopic;
+  formatSearch?: { name: { en: string; ar?: string }; intent: "examples" | "tutorials" };
+  sourceChecking?: boolean;
+  sourceExcluded?: { url: string; title: string; reason: "audio" | "caption" }[];
+  categoryFeed?: CategoryFeedProps;
 }) {
-  const { t, L } = useT();
+  const { t, L, lang } = useT();
   const ids = useId();
   const [showHidden, setShowHidden] = useState(false);
   const [open, setOpen] = useState<Record<DiscoverSection, boolean>>({
@@ -140,54 +149,116 @@ export default function DiscoverSections({
 
   return (
     <div
-      className="flex flex-col gap-4"
+      className="flex min-w-0 flex-col gap-4"
       data-testid="discover-sections"
       data-topic={answer.topicKey}
     >
-      <div
-        className="flex flex-wrap items-center gap-1.5 text-xs"
-        data-testid="discover-understood"
-      >
-        {answer.understood.ai && (
-          <span className="px-chip" data-testid="discover-ai-plan">
-            {t("search.aiPlan")}
-            {answer.understood.model &&
-              ` · ${answer.understood.provider === "chatgpt" ? "ChatGPT" : "Claude"} · ${answer.understood.model}${answer.understood.effort ? ` · ${answer.understood.effort}` : ""}`}
+      {formatSearch && (
+        <div
+          className="border-edge bg-panel-2 min-w-0 border-s-2 p-2 text-xs [overflow-wrap:anywhere]"
+          data-testid="format-search-status"
+        >
+          <p className="font-bold" dir="auto">
+            {t("formats.searchTitle", {
+              name:
+                lang === "ar"
+                  ? (formatSearch.name.ar ?? formatSearch.name.en)
+                  : formatSearch.name.en,
+            })}
+          </p>
+          <p className="text-muted mt-1">
+            {t(
+              formatSearch.intent === "tutorials"
+                ? "formats.searchTutorialRules"
+                : "formats.searchRules",
+            )}
+          </p>
+          {sourceChecking && (
+            <p className="mt-2" role="status">
+              {t("formats.checkingSources")}
+            </p>
+          )}
+          {!!sourceExcluded?.length && (
+            <details className="mt-2" data-testid="format-source-excluded">
+              <summary className="px-link cursor-pointer">
+                {t("formats.excludedSources", { n: sourceExcluded.length })}
+              </summary>
+              <p className="text-muted mt-2">{t("formats.excludedHelp")}</p>
+              <ul className="mt-2 space-y-2">
+                {sourceExcluded.map((item) => (
+                  <li key={item.url}>
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-link"
+                      dir="auto"
+                    >
+                      {item.title}
+                    </a>
+                    <p className="text-muted">
+                      {t(
+                        item.reason === "audio"
+                          ? "formats.excludedAudio"
+                          : "formats.excludedCaption",
+                      )}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+      {!formatSearch && !categoryFeed && (
+        <div
+          className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs"
+          data-testid="discover-understood"
+        >
+          {answer.understood.ai && (
+            <span
+              className="px-chip max-w-full min-w-0 [overflow-wrap:anywhere] whitespace-normal"
+              data-testid="discover-ai-plan"
+            >
+              {t("search.aiPlan")}
+              {answer.understood.model &&
+                ` · ${answer.understood.provider === "chatgpt" ? "ChatGPT" : "Claude"} · ${answer.understood.model}${answer.understood.effort ? ` · ${answer.understood.effort}` : ""}`}
+            </span>
+          )}
+          <span className="text-ink-2 max-w-full min-w-0 [overflow-wrap:anywhere]">
+            {answer.understood.exact
+              ? t("search.exactNow", { q })
+              : `${t("search.understood", { label: L(answer.understood.label) })}${answer.understood.ai ? "" : ` · ${t(bothLangs ? "search.bothLangs" : "search.englishOnly")}`}`}
           </span>
-        )}
-        <span className="text-ink-2">
-          {answer.understood.exact
-            ? t("search.exactNow", { q })
-            : `${t("search.understood", { label: L(answer.understood.label) })}${answer.understood.ai ? "" : ` · ${t(bothLangs ? "search.bothLangs" : "search.englishOnly")}`}`}
-        </span>
-        {answer.alternatives.length > 0 && (
-          <span className="text-muted">{t("search.notThis")}</span>
-        )}
-        {answer.alternatives.map((alt) => (
-          <button
-            key={"exact" in alt ? "exact" : alt.termId}
-            type="button"
-            className="px-fchip"
-            onClick={() => onAlternative(alt)}
-            data-testid={"exact" in alt ? "discover-alt-exact" : `discover-alt-${alt.termId}`}
-          >
-            {"exact" in alt ? t("search.exactly", { q }) : L(alt.label)}
-          </button>
-        ))}
-        {answer.cached && (
-          <span className="text-muted ms-auto" data-testid="discover-cached">
-            {t("search.cached")}
-          </span>
-        )}
-      </div>
+          {answer.alternatives.length > 0 && (
+            <span className="text-muted">{t("search.notThis")}</span>
+          )}
+          {answer.alternatives.map((alt) => (
+            <button
+              key={"exact" in alt ? "exact" : alt.termId}
+              type="button"
+              className="px-fchip max-w-full min-w-0 text-start [overflow-wrap:anywhere] whitespace-normal"
+              onClick={() => onAlternative(alt)}
+              data-testid={"exact" in alt ? "discover-alt-exact" : `discover-alt-${alt.termId}`}
+            >
+              {"exact" in alt ? t("search.exactly", { q }) : L(alt.label)}
+            </button>
+          ))}
+          {answer.cached && (
+            <span className="text-muted ms-auto" data-testid="discover-cached">
+              {t("search.cached")}
+            </span>
+          )}
+        </div>
+      )}
 
-      {answer.items.some((i) => i.outsideCategory) && (
+      {!categoryFeed && answer.items.some((i) => i.outsideCategory) && (
         <p className="text-ink-2 text-xs" data-testid="discover-outside-category">
           {t("search.outsideCategory")}
         </p>
       )}
 
-      {picks && pickItems.length > 0 && (
+      {!categoryFeed && picks && pickItems.length > 0 && (
         <PicksSection
           topic={{ ...picks, items: pickItems }}
           headingLevel={headingLevel}
@@ -195,7 +266,7 @@ export default function DiscoverSections({
         />
       )}
 
-      {quota && (
+      {!categoryFeed && quota && (
         <div
           className="px-tile border-edge flex flex-wrap items-center gap-2 rounded-[2px] border-2 p-2 text-xs"
           data-testid="discover-credits-out"
@@ -206,43 +277,46 @@ export default function DiscoverSections({
           </a>
         </div>
       )}
-      {failed
-        .filter((f) => f.error !== "quota")
-        .map(({ p, error, partial }) => {
-          const name = PLATFORM_META[p].label;
-          return (
-            <div
-              key={p}
-              className="text-muted flex flex-wrap items-center gap-2 text-xs"
-              data-testid={`discover-down-${p}`}
-              data-error={error}
-            >
-              <span>
-                {error === "daily_cap"
-                  ? t("search.ytBackTomorrow")
-                  : error === "auth"
-                    ? t("search.platformAuth", { platform: name })
-                    : error === "not_configured"
-                      ? t("search.platformNotSet", { platform: name })
-                      : t(partial ? "search.platformPartial" : "search.platformDown", {
-                          platform: name,
-                        })}
-              </span>
-              {error === "upstream" && (
-                <button
-                  type="button"
-                  className="px-btn px-btn-ghost px-btn-sm"
-                  onClick={onRetry}
-                  data-testid={`discover-retry-${p}`}
-                >
-                  {t("search.retry")}
-                </button>
-              )}
-            </div>
-          );
-        })}
+      {!categoryFeed &&
+        failed
+          .filter((f) => f.error !== "quota")
+          .map(({ p, error, partial }) => {
+            const name = PLATFORM_META[p].label;
+            return (
+              <div
+                key={p}
+                className="text-muted flex flex-wrap items-center gap-2 text-xs"
+                data-testid={`discover-down-${p}`}
+                data-error={error}
+              >
+                <span>
+                  {error === "daily_cap"
+                    ? t("search.ytBackTomorrow")
+                    : error === "auth"
+                      ? t("search.platformAuth", { platform: name })
+                      : error === "not_configured"
+                        ? t("search.platformNotSet", { platform: name })
+                        : t(partial ? "search.platformPartial" : "search.platformDown", {
+                            platform: name,
+                          })}
+                </span>
+                {error === "upstream" && (
+                  <button
+                    type="button"
+                    className="px-btn px-btn-ghost px-btn-sm"
+                    onClick={onRetry}
+                    data-testid={`discover-retry-${p}`}
+                  >
+                    {t("search.retry")}
+                  </button>
+                )}
+              </div>
+            );
+          })}
 
-      {popular.length > 0 && (
+      {categoryFeed && <CategoryFeed {...categoryFeed} />}
+
+      {!categoryFeed && popular.length > 0 && (
         <section
           aria-labelledby={`${ids}-popular`}
           className="flex min-w-0 flex-col gap-1.5"
@@ -261,10 +335,10 @@ export default function DiscoverSections({
         </section>
       )}
 
-      {section("example", "search.examples")}
-      {section("tutorial", "search.tutorials")}
+      {!categoryFeed && section("example", "search.examples")}
+      {!categoryFeed && section("tutorial", "search.tutorials")}
 
-      {creators.length > 0 && (
+      {!categoryFeed && creators.length > 0 && (
         <section
           aria-labelledby={`${ids}-creators`}
           className="flex flex-col gap-2"
@@ -302,7 +376,7 @@ export default function DiscoverSections({
         </section>
       )}
 
-      {hidden > 0 && (
+      {!categoryFeed && hidden > 0 && (
         <p
           className="text-muted flex flex-wrap items-center gap-2 text-xs"
           data-testid="discover-hidden"

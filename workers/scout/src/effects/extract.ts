@@ -203,7 +203,7 @@ export function candidatesOf(
   return [...out.values()];
 }
 
-/** "@User" and "user" are one creator. An Instagram card often has no handle: its post URL is the id then. */
+/** "@User" and "user" are one account. Never use a post URL as an account identity. */
 export async function creatorId(platform: EffectPlatform, handleOrUrl: string): Promise<string> {
   const handle = handleOrUrl.trim().toLowerCase().replace(/^@/, "");
   const bytes = new TextEncoder().encode(`${platform}:${handle}`);
@@ -220,8 +220,8 @@ export interface PostCounts {
 
 /**
  * Candidates from the posts of the last 14 days at `today` (live, 2026-10-07: "this week" rested on scans of September
- * posts). A post with no date is skipped too. Each creator is filed under the UTC day of their latest post (never after
- * today); the samples are the newest posts.
+ * posts). A post with no date or identified account is skipped. Every account/post-day observation is retained;
+ * `days` also records each account's latest date for candidate selection. Samples are the newest posts.
  */
 export async function extractCandidates(
   posts: readonly EffectPost[],
@@ -252,21 +252,31 @@ export async function extractCandidates(
   dated.sort((a, b) => b.at - a.at);
   const found = new Map<string, Candidate>();
   for (const { post, day } of dated) {
-    const id = await creatorId(post.platform, post.handle || post.url);
+    // A post with no identified account can still be a search result, but cannot establish independent adoption.
+    const handle = post.handle.trim();
+    if (!handle || /^https?:\/\//i.test(handle)) continue;
+    const id = await creatorId(post.platform, handle);
     // " | " keeps a name from running from the title into the snippet.
     for (const c of candidatesOf(`${post.title} | ${post.snippet}`, extra)) {
       const cand: Candidate = found.get(c.key) ?? {
         ...c,
         days: new Map<string, string>(),
+        observations: [],
         posts: 0,
         platforms: new Set<EffectPlatform>(),
         samples: [],
       };
       if (!cand.days.has(id)) cand.days.set(id, day);
+      if (!cand.observations!.some((o) => o.id === id && o.day === day))
+        cand.observations!.push({ id, day });
       cand.posts += 1;
       cand.platforms.add(post.platform);
       if (cand.samples.length < 2)
-        cand.samples.push({ url: post.url, title: post.title.slice(0, 120) });
+        cand.samples.push({
+          url: post.url,
+          title: post.title.slice(0, 120),
+          published: post.published,
+        });
       found.set(c.key, cand);
     }
   }

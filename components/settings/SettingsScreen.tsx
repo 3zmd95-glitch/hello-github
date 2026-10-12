@@ -34,6 +34,7 @@ type Pending = { kind: "import"; json: string } | { kind: "reset" } | null;
 export default function SettingsScreen() {
   const { t } = useT();
   const settings = useStore((s) => s.settings);
+  const libraryLoading = useStore((s) => s.discoverLibraryStatus === "loading");
   const setSettings = useStore((s) => s.setSettings);
   const fileRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<Pending>(null);
@@ -45,6 +46,7 @@ export default function SettingsScreen() {
   };
 
   const exportProgress = () => {
+    if (libraryLoading) return;
     const json = useStore.getState().exportState();
     const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
     const a = document.createElement("a");
@@ -170,7 +172,7 @@ export default function SettingsScreen() {
 
       <Card title={t("settings.data")} note={t("settings.dataNote")}>
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="px-btn" onClick={exportProgress} data-testid="export">
+          <button type="button" className="px-btn" onClick={exportProgress} disabled={libraryLoading} data-testid="export">
             {t("settings.export")}
           </button>
           <button

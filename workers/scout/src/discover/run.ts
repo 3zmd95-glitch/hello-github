@@ -20,6 +20,7 @@ import {
 import { creatorsOf, labelCards } from "./label";
 import { planSearch } from "./plan";
 import { matchTerms } from "./terms";
+import { DISCOVER_QUALITY_VERSION } from "./types";
 import type {
   DiscoverRequest,
   DiscoverResponse,
@@ -70,9 +71,8 @@ export interface RunDeps {
 export async function requestHash(req: DiscoverRequest): Promise<string> {
   const term = req.term && req.term !== matchTerms(req.q).best?.id ? req.term : "";
   const canonical = JSON.stringify({
-    // 6: real post dates and the Posted filter by them, English-first plans (2026-10-07); a kept answer from before
-    // has neither.
-    version: 6,
+    // 7: category searches require craft evidence; older cached hits bypassed the shared quality gate.
+    version: DISCOVER_QUALITY_VERSION,
     mode: req.mode ?? "keyword",
     ...(req.aiPlan ? { aiPlan: req.aiPlan } : {}),
     q: req.q.trim().toLowerCase().replace(/\s+/g, " "),
@@ -84,6 +84,8 @@ export async function requestHash(req: DiscoverRequest): Promise<string> {
     editing: !!req.editing,
     timeRange: req.timeRange ?? "",
     ytLength: req.ytLength ?? "",
+    // Relevance is the existing default: retain its cache keys, isolate only the new retrieval order.
+    ...(req.ytOrder === "viewCount" ? { ytOrder: req.ytOrder } : {}),
     platforms: [...(req.platforms ?? ["tt", "ig", "yt"])].sort(),
     queries: (req.queries ?? []).map((q) => [
       q.platform,
@@ -148,7 +150,10 @@ export async function keptAnswer(
   if (!cached) return null;
   try {
     const kept = JSON.parse(cached) as DiscoverResponse;
-    // Only complete answers are kept (an entry from before the flag lacks it).
+    // A frontend deployed before this Worker may have written an older answer under a newer key.
+    // The producer's marker is required; never upgrade an old result merely by reading it.
+    if (!kept || kept.qualityVersion !== DISCOVER_QUALITY_VERSION || kept.complete !== true)
+      return null;
     return { ...kept, cost: { tavily: 0, youtubeSearch: 0 }, cached: true, complete: true };
   } catch {
     // A broken entry: search again (the new answer replaces it).
@@ -263,6 +268,7 @@ export async function runDiscover(
           lang: query.lang,
           timeRange: plan.timeRange ?? req.timeRange,
           ytLength: plan.ytLength ?? req.ytLength,
+          ytOrder: req.ytOrder,
         };
         const out = await youtubeCall(env, deps.fetch, call, deps.now, deps.timeoutMs);
         return out.ok ? { query, cards: out.cards } : { query, cards: [], error: out.error };
@@ -299,6 +305,7 @@ export async function runDiscover(
     items.some((item) => !relevanceAware || !item.offTopic) &&
     results.every((r) => !r.error || r.error === "not_configured");
   const answer: DiscoverResponse = {
+    qualityVersion: DISCOVER_QUALITY_VERSION,
     topicKey: plan.topicKey,
     understood: plan.understood,
     alternatives: plan.alternatives,

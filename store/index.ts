@@ -114,7 +114,64 @@ import {
 } from "@/lib/gems";
 import { levelFromXp } from "@/lib/level";
 import { canonicalRefUrl } from "@/lib/research";
+import type { ResearchItem } from "@/lib/research";
+import {
+  InspirationsSchema,
+  InspirationSchema,
+  inspirationKey,
+  saveInspiration,
+  INSPIRATION_NOTE_MAX,
+  type InspirationStage,
+} from "@/lib/inspiration";
 import { rankFromXp } from "@/lib/rank";
+import type { DiscoverItem } from "@/lib/discover";
+import type { AiSelection } from "@/lib/localAi";
+import { DiscoverSemanticResponseSchema, applicableDiscoverSemantic } from "@/lib/discoverSemantic";
+import { applyInstagramEvidence, applyTikTokEvidence } from "@/lib/discoverSources";
+import {
+  CapturedVideoReviewResponseSchema,
+  DiscoverVisualResponseSchema,
+  DISCOVER_VISUAL_TTL_MS,
+  applicableDiscoverVisual,
+  canonicalDiscoverVisualUrl,
+  discoverVisualSourceMatches,
+} from "@/lib/discoverVisual";
+import { canonicalNativeVideoUrl } from "@/lib/nativeVideoCapture";
+import {
+  DiscoverCandidatesSchema,
+  DiscoverFeedbackListSchema,
+  accumulateCategoryCandidates,
+  changeDiscoverFeedback,
+  restoreDiscoverFeedback,
+  localDiscoverCandidateFallback,
+  mergeDiscoverCandidates,
+  discoverPostKey,
+  type DiscoverCandidate,
+  type DiscoverFeedbackInput,
+  type DiscoverFeedbackUndo,
+} from "@/lib/discoverFeed";
+import {
+  createDiscoverLibrary,
+  indexedDiscoverLibrary,
+  type DiscoverLibraryStatus,
+} from "@/lib/discoverLibrary";
+import {
+  EditFormatSchema,
+  FollowedFormatsSchema,
+  formatIdentity,
+  type EditFormat,
+} from "@/lib/editFormats";
+import {
+  FormatObservationsSchema,
+  upsertFormatObservation,
+  type FormatObservationInput,
+} from "@/lib/formatObservations";
+import {
+  FormatQueueSchema,
+  addFormatCandidates as addFormatCandidatesToQueue,
+  removeFormatCandidate as removeFormatCandidateFromQueue,
+} from "@/lib/formatQueue";
+import type { FormatVerificationTarget } from "@/lib/formatVerification";
 import { seasonState, type SeasonState } from "@/lib/season";
 import {
   FREEZE_TOTAL_CAP,
@@ -173,6 +230,15 @@ export const PersistedStateSchema = z.object({
   reviews: ReviewsSchema,
   /** Scout v0 (1.13): references the owner attached to a skill, by skill id. */
   savedRefs: z.record(z.string(), z.array(RefSchema)).default({}),
+  inspirations: InspirationsSchema,
+  followedFormats: FollowedFormatsSchema,
+  formatObservations: FormatObservationsSchema,
+  formatQueue: FormatQueueSchema,
+  discoverCandidates: DiscoverCandidatesSchema,
+  /** A reset/import fence: failed durable writes must not resurrect a previous library on reload. */
+  discoverLibraryEpoch: z.string().max(200).default(""),
+  discoverLibraryPendingReplacement: z.boolean().default(false),
+  discoverFeedback: DiscoverFeedbackListSchema,
   /** Scout v0 (1.13): last topics typed on /discover, most recent first, capped at 8. */
   recentTopics: z.array(z.string()).default([]),
   /** 📝 One Markdown note per skill, by skill id (the Research quest's home). */
@@ -327,7 +393,56 @@ export interface PostedResult {
   quest: CompleteResult | null;
 }
 
+export interface DiscoverVisualApplyGuard {
+  epoch: string;
+  genreId: string;
+  url: string;
+  selection: AiSelection;
+  /** The active caller's abort/selection/navigation generation; never persisted. */
+  isCurrent(): boolean;
+}
+export type DiscoverVisualApplyResult = "applied" | "unchanged" | "stale" | "invalid";
+export interface DiscoverSemanticApplyGuard {
+  epoch: string;
+  genreId: string;
+  urls: string[];
+  selection: AiSelection;
+  isCurrent(): boolean;
+}
+
 export interface StoreActions {
+  applyCapturedVideoReviewResult(
+    response: unknown,
+    guard: DiscoverVisualApplyGuard,
+    now?: Date,
+  ): DiscoverVisualApplyResult;
+  applyDiscoverSemanticResult(
+    response: unknown,
+    guard: DiscoverSemanticApplyGuard,
+    now?: Date,
+  ): DiscoverVisualApplyResult;
+  accumulateDiscoverCandidates(
+    items: readonly DiscoverItem[],
+    options: { genreId: string; manuallyAdded?: true; now?: Date },
+  ): void;
+  applyDiscoverVisualResult(
+    response: unknown,
+    guard: DiscoverVisualApplyGuard,
+    now?: Date,
+  ): DiscoverVisualApplyResult;
+  setDiscoverFeedback(input: DiscoverFeedbackInput, now?: Date): DiscoverFeedbackUndo | undefined;
+  undoDiscoverFeedback(undo: DiscoverFeedbackUndo): void;
+  clearDiscoverFeedback(): void;
+  followFormat(format: EditFormat, now?: Date): void;
+  unfollowFormat(identity: string): void;
+  refreshFollowedFormats(formats: readonly EditFormat[]): void;
+  recordFormatObservation(input: FormatObservationInput, now?: Date): boolean;
+  removeFormatObservation(targetKey: string, url: string): void;
+  addFormatCandidates(target: FormatVerificationTarget, urls: readonly string[]): void;
+  removeFormatCandidate(target: FormatVerificationTarget, url: string): void;
+  saveInspiration(item: ResearchItem, now?: Date): void;
+  updateInspiration(url: string, patch: { note?: string; stage?: InspirationStage }): void;
+  removeInspiration(url: string): void;
   /* 📱 Social world (rounds 16–17). */
   /** Create a post; see NewPostInput for the defaults. Throws (Zod) on an invalid input. */
   addPost(input: NewPostInput, now?: Date): Post;
@@ -481,7 +596,8 @@ export interface StoreActions {
   reset(): void;
 }
 
-export type StoreState = PersistedState & StoreActions;
+export type StoreState = PersistedState &
+  StoreActions & { discoverLibraryStatus: DiscoverLibraryStatus };
 
 const initialData = (): PersistedState => ({
   settings: { ...DEFAULT_SETTINGS, gear: [...DEFAULT_SETTINGS.gear] },
@@ -491,6 +607,14 @@ const initialData = (): PersistedState => ({
   freezesUsedOn: [],
   reviews: [],
   savedRefs: {},
+  inspirations: [],
+  followedFormats: [],
+  formatObservations: [],
+  formatQueue: [],
+  discoverCandidates: [],
+  discoverLibraryEpoch: "",
+  discoverLibraryPendingReplacement: false,
+  discoverFeedback: [],
   recentTopics: [],
   notes: {},
   gemEvents: [],
@@ -541,6 +665,14 @@ const pick = (s: PersistedState): PersistedState => ({
   freezesUsedOn: s.freezesUsedOn,
   reviews: s.reviews,
   savedRefs: s.savedRefs,
+  inspirations: s.inspirations,
+  followedFormats: s.followedFormats,
+  formatObservations: s.formatObservations,
+  formatQueue: s.formatQueue,
+  discoverCandidates: s.discoverCandidates,
+  discoverLibraryEpoch: s.discoverLibraryEpoch,
+  discoverLibraryPendingReplacement: s.discoverLibraryPendingReplacement,
+  discoverFeedback: s.discoverFeedback,
   recentTopics: s.recentTopics,
   notes: s.notes,
   gemEvents: s.gemEvents,
@@ -589,6 +721,40 @@ const safeLocalStorage = (): StateStorage => {
   }
   return memoryStorage();
 };
+
+type LocalPersistedState = Omit<PersistedState, "discoverCandidates"> & {
+  discoverCandidates?: PersistedState["discoverCandidates"];
+};
+let discoveryLibrary: ReturnType<typeof createDiscoverLibrary> | undefined;
+function candidateLibrary() {
+  return (discoveryLibrary ??= createDiscoverLibrary(indexedDiscoverLibrary(), {
+    current: () => useStore.getState().discoverCandidates,
+    epoch: () => useStore.getState().discoverLibraryEpoch,
+    pendingReplacement: () => useStore.getState().discoverLibraryPendingReplacement,
+    apply: (discoverCandidates, epoch) => {
+      if (discoverCandidates !== useStore.getState().discoverCandidates || epoch !== undefined)
+        useStore.setState({
+          discoverCandidates,
+          ...(epoch !== undefined ? { discoverLibraryEpoch: epoch } : {}),
+        });
+    },
+    status: (discoverLibraryStatus) =>
+      useStore.setState({
+        discoverLibraryStatus,
+        ...(discoverLibraryStatus === "ready" ? { discoverLibraryPendingReplacement: false } : {}),
+      }),
+  }));
+}
+function pickLocal(state: StoreState): LocalPersistedState {
+  const { discoverCandidates, ...progress } = pick(state);
+  return discoveryLibrary?.durable()
+    ? progress
+    : { ...progress, discoverCandidates: localDiscoverCandidateFallback(discoverCandidates) };
+}
+/** Wait before exporting or testing a durable reload; this never calls a provider. */
+export function flushDiscoverLibrary(): Promise<void> {
+  return candidateLibrary().flush();
+}
 
 /**
  * One-time shape migration: a save from before `apiKeys` existed had a flat `settings.youtubeApiKey`.
@@ -767,9 +933,10 @@ function settledFocus(s: PersistedState, now: Date): Partial<PersistedState> {
 }
 
 export const useStore = create<StoreState>()(
-  persist<StoreState, [], [], PersistedState>(
+  persist<StoreState, [], [], LocalPersistedState>(
     (set, get) => ({
       ...initialData(),
+      discoverLibraryStatus: "loading",
 
       completeQuest(skillId, quest, proofUrl, now = new Date()) {
         const state = get();
@@ -909,6 +1076,331 @@ export const useStore = create<StoreState>()(
 
       setSettings(partial) {
         set((s) => ({ settings: SettingsSchema.parse({ ...s.settings, ...partial }) }));
+      },
+
+      saveInspiration(item, now = new Date()) {
+        set((s) => ({ inspirations: saveInspiration(s.inspirations, item, now) }));
+      },
+
+      accumulateDiscoverCandidates(items, options) {
+        const current = get().discoverCandidates;
+        const next = accumulateCategoryCandidates(current, items, options);
+        // Cached results and source-enrichment effects can repeat a payload. Keep the same state
+        // identity (and original obtainedAt) until actual candidate content changes.
+        if (current !== next) {
+          set({ discoverCandidates: next });
+          candidateLibrary().changed();
+        }
+      },
+
+      applyDiscoverSemanticResult(response, guard, now = new Date()) {
+        const state = get();
+        if (!guard.isCurrent() || guard.epoch !== state.discoverLibraryEpoch) return "stale";
+        if (!Number.isFinite(now.getTime())) return "invalid";
+        const parsed = DiscoverSemanticResponseSchema.safeParse(response);
+        if (!parsed.success) return "invalid";
+        const result = parsed.data;
+        if (
+          result.selection.provider !== guard.selection.provider ||
+          result.selection.model !== guard.selection.model ||
+          result.selection.effort !== guard.selection.effort ||
+          result.selection.accountId !== guard.selection.accountId
+        )
+          return "invalid";
+        if (result.status !== "assessed") return "unchanged";
+        const key = (url: string) => discoverPostKey("tt", url) ?? discoverPostKey("ig", url);
+        const requested = new Set(guard.urls.map(key).filter(Boolean));
+        if (!requested.size || requested.size > 3) return "invalid";
+        const incoming: DiscoverCandidate[] = [];
+        for (const semantic of result.semantics) {
+          const url = key(semantic.url);
+          if (!url || !requested.has(url) || semantic.genreId !== guard.genreId) return "invalid";
+          const current = state.discoverCandidates.find(
+            (entry) => entry.genreId === guard.genreId && key(entry.item.url) === url,
+          );
+          if (!current) return "stale";
+          if (
+            !applicableDiscoverSemantic(
+              { genreId: guard.genreId, semantic },
+              current.item,
+              now.getTime(),
+            )
+          )
+            return "stale";
+          incoming.push({ ...current, semantic });
+        }
+        if (!guard.isCurrent() || guard.epoch !== get().discoverLibraryEpoch) return "stale";
+        const next = mergeDiscoverCandidates(state.discoverCandidates, incoming);
+        if (next === state.discoverCandidates) return "unchanged";
+        set({ discoverCandidates: next });
+        candidateLibrary().changed();
+        return "applied";
+      },
+
+      applyCapturedVideoReviewResult(response, guard, now = new Date()) {
+        const state = get();
+        if (
+          !guard.isCurrent() ||
+          guard.epoch !== state.discoverLibraryEpoch ||
+          state.discoverLibraryStatus === "loading"
+        )
+          return "stale";
+        const url = canonicalNativeVideoUrl(guard.url);
+        if (!url || !Number.isFinite(now.getTime())) return "invalid";
+        const parsed = CapturedVideoReviewResponseSchema.safeParse(response);
+        if (!parsed.success) return "invalid";
+        const result = parsed.data;
+        if (
+          result.selection.provider !== guard.selection.provider ||
+          result.selection.model !== guard.selection.model ||
+          result.selection.effort !== guard.selection.effort ||
+          result.selection.accountId !== guard.selection.accountId
+        )
+          return "invalid";
+        // A failed check never overwrites an existing judgment or saves uploaded screenshots.
+        if (result.status !== "assessed") return "unchanged";
+        if (
+          canonicalNativeVideoUrl(result.source.url) !== url ||
+          result.visual.url !== url ||
+          result.visual.genreId !== guard.genreId ||
+          result.visual.media.provenance !== "browser-visible-video" ||
+          !result.source.observedAt ||
+          Date.parse(result.source.observedAt) > now.getTime() + 300_000 ||
+          now.getTime() - Date.parse(result.visual.checkedAt) >= DISCOVER_VISUAL_TTL_MS
+        )
+          return "invalid";
+        const current = state.discoverCandidates.find(
+          (entry) =>
+            entry.genreId === guard.genreId &&
+            entry.item.platform === "tt" &&
+            canonicalNativeVideoUrl(entry.item.url) === url,
+        );
+        const item = applyTikTokEvidence(
+          current?.item ?? {
+            platform: "tt",
+            url,
+            handle: "",
+            title: "TikTok",
+            snippet: "",
+            lang: state.settings.lang,
+            section: "example",
+          },
+          result.source,
+        );
+        if (
+          !applicableDiscoverVisual(
+            {
+              genreId: guard.genreId,
+              visual: result.visual,
+              visualObservation: current?.visualObservation,
+            },
+            item,
+            now.getTime(),
+          )
+        )
+          return "stale";
+        if (!guard.isCurrent() || guard.epoch !== get().discoverLibraryEpoch) return "stale";
+        const next = mergeDiscoverCandidates(state.discoverCandidates, [
+          {
+            ...current,
+            genreId: guard.genreId,
+            obtainedAt: current?.obtainedAt ?? now.toISOString(),
+            origin: current?.origin ?? "manual",
+            item,
+            visual: result.visual,
+          },
+        ]);
+        if (next === state.discoverCandidates) return "unchanged";
+        set({ discoverCandidates: next });
+        candidateLibrary().changed();
+        return "applied";
+      },
+
+      applyDiscoverVisualResult(response, guard, now = new Date()) {
+        const state = get();
+        if (!guard.isCurrent() || guard.epoch !== state.discoverLibraryEpoch) return "stale";
+        const url = discoverPostKey("ig", guard.url);
+        if (!url || !Number.isFinite(now.getTime())) return "invalid";
+        const current = state.discoverCandidates.find(
+          (entry) => entry.genreId === guard.genreId && entry.item.url === url,
+        );
+        if (!current) return "stale";
+        const parsed = DiscoverVisualResponseSchema.safeParse(response);
+        if (!parsed.success) return "invalid";
+        const result = parsed.data;
+        if (
+          result.selection.provider !== guard.selection.provider ||
+          result.selection.model !== guard.selection.model ||
+          result.selection.effort !== guard.selection.effort ||
+          result.selection.accountId !== guard.selection.accountId
+        )
+          return "invalid";
+        const observation = result.status === "assessed" ? result.visual : result.observation;
+        if (
+          (result.source && discoverPostKey("ig", result.source.url) !== url) ||
+          (observation &&
+            (observation.genreId !== guard.genreId ||
+              discoverPostKey("ig", observation.url) !== url))
+        )
+          return "invalid";
+        const timestamps = [
+          result.source?.observedAt,
+          observation?.checkedAt,
+          observation?.source.observedAt,
+          observation?.media.observedAt,
+        ].filter((value): value is string => typeof value === "string");
+        if (
+          timestamps.some(
+            (value) =>
+              !Number.isFinite(Date.parse(value)) || Date.parse(value) > now.getTime() + 300_000,
+          )
+        )
+          return "invalid";
+        // Returned metadata is authoritative only through the existing exact-post and time-aware merge.
+        const item = result.source
+          ? applyInstagramEvidence(current.item, result.source)
+          : current.item;
+        if (observation && !discoverVisualSourceMatches(observation, item)) return "stale";
+        if (
+          result.status === "assessed" &&
+          (result.visual.provider !== guard.selection.provider ||
+            result.visual.model !== guard.selection.model ||
+            result.visual.effort !== guard.selection.effort ||
+            // Stored judgments persist, but a newly received stale response must not enter as live evidence.
+            now.getTime() - Date.parse(result.visual.checkedAt) >= DISCOVER_VISUAL_TTL_MS ||
+            !applicableDiscoverVisual(
+              { genreId: guard.genreId, visual: result.visual },
+              item,
+              now.getTime(),
+            ))
+        )
+          return "invalid";
+        // The same request may settle after a synchronous listener reset/import or caller cancellation.
+        if (!guard.isCurrent() || guard.epoch !== get().discoverLibraryEpoch) return "stale";
+        const next = mergeDiscoverCandidates(state.discoverCandidates, [
+          {
+            ...current,
+            item,
+            ...(result.status === "assessed" ? { visual: result.visual } : {}),
+            ...(result.status === "unavailable" && result.observation
+              ? { visualObservation: result.observation }
+              : {}),
+          },
+        ]);
+        if (next === state.discoverCandidates) return "unchanged";
+        set({ discoverCandidates: next });
+        candidateLibrary().changed();
+        return "applied";
+      },
+
+      setDiscoverFeedback(input, now = new Date()) {
+        const current = get().discoverFeedback;
+        const { feedback, undo } = changeDiscoverFeedback(current, input, now);
+        if (JSON.stringify(current) !== JSON.stringify(feedback))
+          set({ discoverFeedback: feedback });
+        return undo;
+      },
+
+      undoDiscoverFeedback(undo) {
+        const current = get().discoverFeedback;
+        const next = restoreDiscoverFeedback(current, undo);
+        if (JSON.stringify(current) !== JSON.stringify(next)) set({ discoverFeedback: next });
+      },
+
+      clearDiscoverFeedback() {
+        if (get().discoverFeedback.length) set({ discoverFeedback: [] });
+      },
+
+      followFormat(format, now = new Date()) {
+        const checked = EditFormatSchema.safeParse(format);
+        if (!checked.success) return;
+        const key = formatIdentity(checked.data);
+        set((s) => {
+          const existing = s.followedFormats.find((entry) => formatIdentity(entry.format) === key);
+          return {
+            followedFormats: [
+              { format: checked.data, followedAt: existing?.followedAt ?? now.toISOString() },
+              ...s.followedFormats.filter((entry) => formatIdentity(entry.format) !== key),
+            ].slice(0, 64),
+          };
+        });
+      },
+
+      unfollowFormat(identity) {
+        set((s) => ({
+          followedFormats: s.followedFormats.filter(
+            (entry) => formatIdentity(entry.format) !== identity,
+          ),
+        }));
+      },
+
+      refreshFollowedFormats(formats) {
+        const checked = formats.flatMap((format) => {
+          const parsed = EditFormatSchema.safeParse(format);
+          return parsed.success ? [parsed.data] : [];
+        });
+        const byKey = new Map(checked.map((format) => [formatIdentity(format), format]));
+        set((s) => {
+          let changed = false;
+          const followedFormats = s.followedFormats.map((entry) => {
+            const next = byKey.get(formatIdentity(entry.format));
+            if (!next || Date.parse(next.lastChecked) <= Date.parse(entry.format.lastChecked))
+              return entry;
+            changed = true;
+            return { ...entry, format: next };
+          });
+          return changed ? { followedFormats } : s;
+        });
+      },
+
+      recordFormatObservation(input, now = new Date()) {
+        const current = get().formatObservations;
+        const next = upsertFormatObservation(current, input, now);
+        if (next === current) return false;
+        set({ formatObservations: [...next] });
+        return true;
+      },
+
+      removeFormatObservation(targetKey, url) {
+        const canonical = canonicalDiscoverVisualUrl(url);
+        if (!canonical) return;
+        const current = get().formatObservations;
+        const next = current.filter((row) => row.target.key !== targetKey || row.url !== canonical);
+        if (next.length !== current.length) set({ formatObservations: next });
+      },
+
+      addFormatCandidates(target, urls) {
+        const current = get().formatQueue;
+        const next = addFormatCandidatesToQueue(current, target, urls);
+        if (next !== current) set({ formatQueue: [...next] });
+      },
+
+      removeFormatCandidate(target, url) {
+        const current = get().formatQueue;
+        const next = removeFormatCandidateFromQueue(current, target, url);
+        if (next !== current) set({ formatQueue: [...next] });
+      },
+
+      updateInspiration(url, patch) {
+        set((s) => ({
+          inspirations: s.inspirations.map((entry) =>
+            inspirationKey(entry.ref) !== canonicalRefUrl(entry.ref.platform, url)
+              ? entry
+              : InspirationSchema.parse({
+                  ...entry,
+                  ...patch,
+                  note: (patch.note ?? entry.note).slice(0, INSPIRATION_NOTE_MAX),
+                }),
+          ),
+        }));
+      },
+
+      removeInspiration(url) {
+        set((s) => ({
+          inspirations: s.inspirations.filter(
+            (entry) => inspirationKey(entry.ref) !== canonicalRefUrl(entry.ref.platform, url),
+          ),
+        }));
       },
 
       // Refs compare by their canonical URL (lib/research canonicalRefUrl), so a post saved as a /reel/ link,
@@ -1495,40 +1987,69 @@ export const useStore = create<StoreState>()(
       },
 
       exportState(now = new Date()) {
+        if (get().discoverLibraryStatus === "loading")
+          throw new Error("Candidate library is still loading");
         const file: ExportFile = {
           app: "3z-prod",
           version: STORE_VERSION,
           exportedAt: now.toISOString(),
-          state: pick(get()),
+          state: {
+            ...pick(get()),
+            discoverLibraryEpoch: "",
+            discoverLibraryPendingReplacement: false,
+          },
         };
         return JSON.stringify(file, null, 2);
       },
 
       importState(json) {
         const file = ExportFileSchema.parse(JSON.parse(json));
-        set({ ...file.state, rewards: ensureBuiltInRewards(file.state.rewards) });
+        set({
+          ...file.state,
+          discoverLibraryEpoch: newId(),
+          discoverLibraryPendingReplacement: true,
+          rewards: ensureBuiltInRewards(file.state.rewards),
+        });
+        candidateLibrary().replace();
       },
 
       reset() {
-        set(initialData());
+        set({
+          ...initialData(),
+          discoverLibraryEpoch: newId(),
+          discoverLibraryPendingReplacement: true,
+        });
+        candidateLibrary().replace();
       },
     }),
     {
       name: STORAGE_KEY,
       version: STORE_VERSION,
       storage: createJSONStorage(safeLocalStorage),
-      partialize: pick,
+      partialize: pickLocal,
       // Screens call hydrateStore() on mount, so server and first client render match.
       skipHydration: true,
+      onRehydrateStorage: () => (_state, error) => {
+        if (!error) void candidateLibrary().rehydrate();
+      },
       merge: (persisted, current) => {
         const parsed = PersistedStateSchema.partial()
           .extend({ settings: SettingsSchema.partial().optional() })
           .safeParse(migrateLegacySettings(persisted));
         if (!parsed.success) return current;
         const p = parsed.data;
+        const changedEpoch =
+          p.discoverLibraryEpoch !== undefined &&
+          p.discoverLibraryEpoch !== current.discoverLibraryEpoch;
         return {
           ...current,
           ...p,
+          discoverCandidates: changedEpoch
+            ? (p.discoverCandidates ?? [])
+            : p.discoverCandidates
+              ? mergeDiscoverCandidates(current.discoverCandidates, p.discoverCandidates)
+              : current.discoverCandidates,
+          ...(changedEpoch ? { discoverLibraryStatus: "loading" as const } : {}),
           settings: { ...current.settings, ...(p.settings ?? {}) },
           rewards: ensureBuiltInRewards(p.rewards ?? current.rewards),
         } as StoreState;
@@ -1571,9 +2092,10 @@ function addBonusFreezes(s: PersistedState, n: number, now: Date): number {
 }
 
 /** Load saved progress from localStorage. Call once on the client (e.g. in a root useEffect). */
-export function hydrateStore(): Promise<void> | void {
+export async function hydrateStore(): Promise<void> {
   followOtherTabs();
-  return useStore.persist.rehydrate();
+  await useStore.persist.rehydrate();
+  await flushDiscoverLibrary();
 }
 
 let followingOtherTabs = false;

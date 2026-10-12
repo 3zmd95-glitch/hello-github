@@ -5,6 +5,8 @@ import { freshState, switchLang } from "./helpers";
 // ideas bank's "skills without a video" list.
 const SKILL_ID = "smart-bins-keywords";
 const STORAGE_KEY = "3z-prod-v1";
+// Keep the Sep 27 analytics seed fresh in scenarios that require an all-clear inbox.
+const FRESH_STUDIO_TIME = new Date("2026-09-28T12:00:00.000Z");
 
 const fitsViewport = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
@@ -34,6 +36,7 @@ async function openSkillSheet(page: Page) {
 test("fresh Studio: empty hero with a calendar CTA, empty week, all-clear inbox", async ({
   page,
 }) => {
+  await page.clock.setFixedTime(FRESH_STUDIO_TIME);
   await freshState(page, "/social/");
   await expect(page.getByTestId("studio-screen")).toBeVisible();
 
@@ -339,11 +342,12 @@ test("RTL and LTR both render the Studio without horizontal scroll", async ({ pa
 test("a post whose X step is due shows a manual inbox row that opens the hub's list", async ({
   page,
 }) => {
+  await page.clock.setFixedTime(FRESH_STUDIO_TIME);
   await freshState(page, "/social/");
   await expect(page.getByTestId("studio-inbox-empty")).toBeVisible();
 
   // Seed a TikTok post with X in its auto-post, planned for 00:00 today (Riyadh): its X step is due.
-  const at = new Date().toISOString();
+  const at = FRESH_STUDIO_TIME.toISOString();
   await page.evaluate(
     ([key, day, now]) => {
       const raw = localStorage.getItem(key);
@@ -379,7 +383,7 @@ test("a post whose X step is due shows a manual inbox row that opens the hub's l
       );
       localStorage.setItem(key, JSON.stringify(saved));
     },
-    [STORAGE_KEY, riyadhToday(), at] as const,
+    [STORAGE_KEY, at.slice(0, 10), at] as const,
   );
   await page.reload();
 
