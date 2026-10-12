@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { useT } from "@/lib/i18n";
 import { getApiKey, useStore } from "@/store";
-import { nativeResultsToItems } from "@/lib/discoverNativeSearch";
+import { NATIVE_MAX_RESULTS, nativeResultsToItems } from "@/lib/discoverNativeSearch";
 import { rankDiscoverItems } from "@/lib/discoverRanking";
 import { discoverFeedbackForItem } from "@/lib/discoverFeed";
 import type { ResearchTab } from "@/lib/research";
@@ -93,6 +93,20 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
     return action !== "less" && action !== "hide-creator";
   });
   const selected = pool.filter((item) => tab === "all" || item.platform === tab);
+  const loaded = items.filter((item) => tab === "all" || item.platform === tab).length;
+  const earlierUnloaded = Object.values(native.snapshot?.platforms ?? {}).some(
+    (platform) => (platform.omittedCount ?? 0) > 0,
+  );
+  const loadMore = () => {
+    if (selected.length > limit) {
+      setLimit((previous) => previous + 24);
+    } else if (native.canMore && connected && !native.busy) {
+      // All received matches are already visible. Include the incoming batch immediately, even
+      // when the bounded window rolls forward without increasing its retained card count.
+      setLimit(NATIVE_MAX_RESULTS * PLATFORMS.length);
+      native.more();
+    }
+  };
   if (!active) return null;
   return (
     <div className="flex min-w-0 flex-col gap-3" data-testid="category-discovery">
@@ -251,6 +265,33 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
           <p className="text-muted text-xs">
             {t(popular ? "feed.popularHelp" : "feed.connectedOrderHelp")}
           </p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            <p className="text-muted" data-testid="native-loaded-summary">
+              {t(popular ? "feed.connectedPopularLoaded" : "feed.connectedLoaded", {
+                shown: Math.min(limit, selected.length),
+                loaded,
+              })}
+            </p>
+            {popular && (
+              <button
+                type="button"
+                className="px-link"
+                data-testid="native-show-all"
+                onClick={() => {
+                  setPopular(false);
+                  setTab("all");
+                  setLimit(24);
+                }}
+              >
+                {t("feed.connectedShowAll")}
+              </button>
+            )}
+          </div>
+          {earlierUnloaded && (
+            <p className="text-muted text-xs" data-testid="native-window-note">
+              {t("feed.connectedWindow")}
+            </p>
+          )}
           {native.snapshot?.cached && (
             <p className="text-muted text-xs">
               {t("feed.connectedCached")} {new Date(native.snapshot.asOf).toLocaleString(lang)}
@@ -314,17 +355,12 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
               />
             ))}
           </ul>
-          {selected.length > limit && (
-            <button type="button" className="px-btn w-fit" onClick={() => setLimit((n) => n + 24)}>
-              {t("feed.connectedShowMore")}
-            </button>
-          )}
-          {native.canMore && (
+          {(selected.length > limit || native.canMore) && (
             <button
               type="button"
               className="px-btn px-btn-green w-fit"
-              disabled={native.busy || !connected}
-              onClick={native.more}
+              disabled={selected.length <= limit && (native.busy || !connected)}
+              onClick={loadMore}
               data-testid="native-search-more"
             >
               {t("feed.connectedMore")}

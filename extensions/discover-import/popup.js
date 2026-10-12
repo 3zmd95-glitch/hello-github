@@ -12,7 +12,7 @@ const nativeCopy = {
   ar: {
     heading: "اربط بحث المنصات بـ Discover",
     privacy:
-      "بموافقتك، Discover يفتح تبويبات بحث في إنستقرام وتيك توك ويوتيوب ويقرأ بطاقات النتائج العامة المحمّلة: الرابط، النص الظاهر، صورة البطاقة والأرقام المعروضة. يبدأ فقط لما تطلب بحث أو نتائج زيادة، وما يقرأ ملفات الارتباط أو يشغّل المقاطع. زر نتائج زيادة يمرّر صفحة البحث مرة واحدة. تبويبات البحث تنقفل بعد ١٥ دقيقة أو لما تلغي البحث أو تبدأ بحث جديد.",
+      "بموافقتك، Discover يفتح تبويبات بحث في إنستقرام وتيك توك ويوتيوب ويعرضها وحدة وحدة عشان تحمل النتائج، وبعدها يرجعك لـ Discover. إذا غيّرت التبويب أو النافذة، يوقف التنقّل التلقائي. يقرأ بطاقات النتائج العامة المحمّلة: الرابط، النص الظاهر، صورة البطاقة والأرقام المعروضة. يبدأ فقط لما تطلب بحث أو نتائج زيادة، وما يقرأ ملفات الارتباط أو يشغّل المقاطع. كل طلب نتائج زيادة يمرّر البحث ويقرأ النتائج حتى ثلاث مرات، ويحتفظ بآخر ٣٠٠ بطاقة من كل منصة. تقدر تطلب زيادة مرة ثانية. تبويبات البحث تنقفل بعد ١٥ دقيقة من آخر بحث أو طلب زيادة، أو لما تلغي البحث أو تبدأ بحث جديد.",
     connect: "اربط Discover",
     connecting: "نجهّز الربط…",
     connected: "فتحنا Discover. اختار تصنيف واطلب بحث المنصات.",
@@ -22,7 +22,7 @@ const nativeCopy = {
   en: {
     heading: "Connect native search to Discover",
     privacy:
-      "With your permission, Discover opens Instagram, TikTok and YouTube search tabs and reads loaded public result cards: links, visible text, card images and displayed counts. It runs only when you request search or more results; it does not read cookies or play videos. More results scrolls the search page once. Search tabs close after 15 minutes, cancellation or a new search.",
+      "With your permission, Discover opens Instagram, TikTok and YouTube search tabs, briefly shows each so results can load, then returns to Discover. Choosing another tab or window stops automatic switching. It reads loaded public result cards: links, visible text, card images and displayed counts. It runs only when you request search or more results; it does not read cookies or play videos. Each More request scrolls and reads up to three times, keeping the latest 300 cards per platform. You can request More again. Search tabs close 15 minutes after the latest search or More request, on cancellation, or on a new search.",
     connect: "Connect Discover",
     connecting: "Connecting…",
     connected: "Opened Discover. Choose a category and request native search.",

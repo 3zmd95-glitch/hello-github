@@ -122,6 +122,31 @@ describe("native helper attachment and messaging", () => {
 });
 
 describe("native payload boundary", () => {
+  it.each([
+    [
+      "https://www.youtube.com/watch?v=Abcdef12345",
+      "https://i.ytimg.com/vi/Abcdef12345/hqdefault.jpg",
+    ],
+    [
+      "https://www.youtube.com/shorts/Abcdef12345",
+      "https://i.ytimg.com/vi/Abcdef12345/hqdefault.jpg",
+    ],
+    ["https://www.youtube.com/watch?v=short", undefined],
+    ["https://private.test/watch?v=Abcdef12345", undefined],
+  ])("derives a missing YouTube poster only from a valid video URL: %s", (url, expected) => {
+    const snapshot = cached();
+    snapshot.platforms = {
+      yt: {
+        status: "done",
+        searchUrl: "https://www.youtube.com/results?search_query=anime",
+        results: [{ platform: "yt", url, title: "Native video", position: 1, observedAt: at() }],
+      },
+    };
+    expect(nativeResultsToItems(snapshot, "en")[0].thumb).toBe(expected);
+    const provided = "https://i.ytimg.com/vi/Abcdef12345/hq720.jpg";
+    snapshot.platforms.yt!.results[0].thumb = provided;
+    expect(nativeResultsToItems(snapshot, "en")[0].thumb).toBe(provided);
+  });
   it("preserves Instagram tiles with no visible title without inventing source text", () => {
     const fromBridge = sanitizeNativeResults("ig", [card({ title: "" })], at());
     const parsed = validateNativeSnapshot(raw(fromBridge));
@@ -204,7 +229,7 @@ describe("native payload boundary", () => {
     expect(snapshot.platforms.ig?.results[0]).not.toHaveProperty("likes");
   });
   it("rejects oversized collections, malformed states, wrong search hosts and unbounded queries", () => {
-    expect(validateNativeSnapshot(raw(Array.from({ length: 91 }, () => card())))).toBeNull();
+    expect(validateNativeSnapshot(raw(Array.from({ length: 301 }, () => card())))).toBeNull();
     expect(validateNativeSnapshot({ ...raw(), hasMore: "yes" })).toBeNull();
     expect(validateNativeSnapshot({ ...raw(), status: "authenticated" })).toBeNull();
     expect(
@@ -229,6 +254,40 @@ describe("native payload boundary", () => {
 });
 
 describe("bounded native category cache", () => {
+  it("accepts and caches a rolling 300-card window without treating omitted cards as results", async () => {
+    const response = raw(
+      Array.from({ length: 300 }, (_, index) =>
+        card({
+          url: `https://www.instagram.com/p/Native${index}/`,
+          position: index + 1,
+        }),
+      ),
+    );
+    const parsed = validateNativeSnapshot({
+      ...response,
+      platforms: { ig: { ...response.platforms.ig, omittedCount: 420 } },
+    });
+    expect(parsed?.platforms.ig?.results).toHaveLength(300);
+    expect(parsed?.platforms.ig?.omittedCount).toBe(420);
+    await writeNativeSearchCache({ ...cached(), ...parsed! });
+    const restored = await readNativeSearchCache("anime");
+    expect(restored?.platforms.ig?.results).toHaveLength(300);
+    expect(restored?.platforms.ig?.omittedCount).toBe(420);
+    expect(restored?.cached).toBe(true);
+    expect(validateNativeSnapshot(raw())?.platforms.ig).not.toHaveProperty("omittedCount");
+  });
+  it.each([-1, 0.5, Number.MAX_SAFE_INTEGER + 1, "30", null])(
+    "rejects invalid omittedCount %s",
+    (omittedCount) => {
+      const response = raw();
+      expect(
+        validateNativeSnapshot({
+          ...response,
+          platforms: { ig: { ...response.platforms.ig, omittedCount } },
+        }),
+      ).toBeNull();
+    },
+  );
   it("keeps the latest twelve distinct categories for seven days with a cached marker", () => {
     const now = Date.now();
     const entries = Array.from({ length: 16 }, (_, index) =>

@@ -15,7 +15,30 @@ Conserve the user's usage. No broad new audits, repeated live model calls, paid 
 - PR70: https://github.com/3zmd95-glitch/hello-github/pull/70 — open, unmerged. Do not merge without the user's request.
 - Worker **e3b5ebf** deployed successfully via **38151982415** (tests and actual Deploy). Screenshot review changes the frontend/localserver only; no new Worker deployment. Check current-head CI once if needed, not old cancelled runs.
 
-## Current checkpoint: combined native searches (supersedes the library-only approach)
+## Current checkpoint — 12 October: commit and push requested
+
+The user requested committing and pushing the latest fix to PR70. Helper **0.3.3** is ready and the user confirmed **Updated**. They subsequently stopped manual Computer Use with Escape, so live0.3.3 continuous-loading and return-to-Discover verification remain unfinished. No further helper Update is needed unless its source changes.
+
+The fix removes the two-request cutoff and quiet-batch exhaustion. Each explicit More seeks30 new cards per platform within three scroll/read cycles and25seconds, retains the latest300/platform with an omittedCount, and renews expiry only on explicit More. One Load more flow reveals received cards before fetching; new batches become visible, counts distinguish shown/loaded and Popular matches, and EN/AR notices explain the rolling window. Original-document polling returns to Discover without new permissions. Saved references remain separate. No paid searches, model assessments or new permissions were used.
+
+Final checks: lint, app/Worker typechecks, **3,908 unit tests in197files**, and production build passed. Helper124tests, client36tests and64translationchecks passed. **438 browser tests passed,8 intentionally skipped,0 failures** on the final full run. Two test-only corrections were needed: pin Studio fixture time so dated seed analytics do not become stale, and stub the local Instagram-preview endpoint plus await both Worker lookups. The prior full browser run had437passed/8skipped/1preview-test race; focused phone/desktop preview tests now pass. No product Studio or preview behavior changed. Logs: Temp `discover-native-final-push-gates.log` and `discover-native-final-browser-push.log`.
+
+The managed export is already copied to localhost:3000; both Discover HTML files have SHA256 `71C0F5C1C83CED98EB572BB52FE7C164D862A8BD10BCC5DEDB3247F09D3C00C9`. Preserve the running server and Saved3. See planning/tools/32-native-search-feed.md for implementation evidence.
+
+Earlier actual Chrome0.3.1 Coffee grew from **68 (IG24/TT15/YT29)** to **104 (48/27/29)** after More, with Saved3 intact. This proves growth in that sample, not0.3.3 completion or native-quality coverage. Temp proofs: `discover-native-031-coffee-2026-10-12.png` and `discover-native-031-coffee-more-2026-10-12.png`. YouTube thumbnails were visibly verified earlier. Anime had a YouTube retrieval failure; do not describe it as absence of videos.
+
+Remaining work: live0.3.3 loading/return checks when browser work resumes; cached-session continuation; retaining successful platform cards on a failed refresh; the complete live genre/platform matrix; and audiovisual editing quality plus current repeated effect/audio adoption. The overall goal remains incomplete; do not claim private recommendation-algorithm parity or optimal trend quality. Older checkpoints below are historical and their pending Update requests are superseded.
+## Previous continuation: thumbnail verified; native foreground loading pending
+
+**STOPPED at the user's explicit request.** Current changes are saved but uncommitted/unpushed. Helper0.3.1 is ready with22 focused lifecycle tests, relevant lint and TypeScript passed; YouTube client focused tests/build/live Chrome check passed. The new full gate run and browser suite were interrupted on request, so do not report those runs as passing. Logs: Temp `discover-native-031-gates.log` and `discover-native-031-browser.log`. A single Update request is pending; do not assume it was completed. No further work until the user resumes. Existing localhost:3000 server is preserved.
+
+User has 10% usage left and wants focused fixes. They used Chrome's global **Update**, which reloads unpacked extensions; do not ask them to repeat that completed step for the old source. Fresh Coffee returned **31 (Instagram3/TikTok20/YouTube8)**. More completed without the previous false timeout, but returned the same counts and exhausted. This verifies the no-growth correction, not adequate coverage. Background rendering remains the measured supply bottleneck.
+
+The app now derives a missing YouTube thumbnail from the validated video ID using the existing exact-video poster convention. Production build copied to localhost:3000. **Actual Chrome verified cached Coffee YouTube thumbnails visibly load**, Saved3 retained. Proof: Temp `discover-native-youtube-fixed-2026-10-11.png`. No paid search or AI assessment ran.
+
+Helper **0.3.1** is being finalized to briefly activate its own search tabs sequentially, then return to Discover. It never focuses another OS window; user tab/window changes stop automatic switching. Existing permissions only. This new source needs one new user **Update** after final checks; browser policy explicitly blocks automating chrome://extensions through any control method. Fresh result growth with0.3.1 is **not yet verified**. Preserve honest separation between native search results and Popular recently. Full live category/relevance/trend-adoption coverage is still incomplete.
+
+## Previous checkpoint: combined native searches (supersedes the library-only approach)
 
 The category screen now has a connected native result feed using the existing optional Chrome helper, alongside the checked reference library. The old library counts were not platform coverage. User approved persistent native-search access to all three sites, manually reloaded version 0.3.0, and the popup successfully opened the localhost connection. Actual Chrome displays **Chrome connected**. Do not repeat installation or ask for the same host permissions.
 

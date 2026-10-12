@@ -193,6 +193,27 @@ describe("native category search lifecycle", () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(native.pollNativeSearch).toHaveBeenCalledOnce();
   });
+  it("keeps repeated explicit continuation available beyond two batches and at the retained-window bound", async () => {
+    const window = job("job-anime");
+    const seed = window.platforms.ig!.results[0];
+    window.platforms.ig!.results = Array.from({ length: 300 }, (_, index) => ({
+      ...seed,
+      url: `https://www.instagram.com/p/Window${index}/`,
+      position: index + 1,
+    }));
+    vi.mocked(native.pollNativeSearch).mockResolvedValue(window);
+    await render();
+    await search();
+    for (let index = 0; index < 4; index++) {
+      expect(state.canMore).toBe(true);
+      await act(async () => {
+        state.more();
+      });
+    }
+    expect(native.moreNativeSearch).toHaveBeenCalledTimes(4);
+    expect(state.snapshot?.platforms.ig?.results).toHaveLength(300);
+    expect(state.canMore).toBe(true);
+  });
   it("consumes a helper connection even while no category is active", async () => {
     props = { genre: anime, active: false };
     await render();

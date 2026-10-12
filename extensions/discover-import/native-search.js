@@ -2,6 +2,7 @@ import { collectNativeDiscoverCards } from "./native-capture.js";
 import {
   NATIVE_ORIGINS,
   nativeSearchUrl,
+  nativePostIdentity,
   parseNativeRequest,
   sanitizeNativeResults,
   sameNativeSearchPage,
@@ -12,6 +13,7 @@ const STORAGE_KEY = "discoverNativeJobsV1";
 const ALARM_PREFIX = "discover-native-expiry:";
 const TTL_MS = 15 * 60 * 1000;
 const MAX_JOBS = 3;
+const RESTORE_POLL_MS = 15000;
 
 /** API injection makes tab ownership, cancellation and permission boundaries testable. */
 export function createNativeSearchService(api, options = {}) {
@@ -19,6 +21,7 @@ export function createNativeSearchService(api, options = {}) {
   const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   const id = options.id || (() => crypto.randomUUID());
   const jobs = new Map();
+  const focusRequests = new Map();
   let mutationQueue = Promise.resolve();
   let persistenceQueue = Promise.resolve();
 
@@ -37,13 +40,7 @@ export function createNativeSearchService(api, options = {}) {
       platforms: job.platforms,
       hasMore:
         job.status === "complete" &&
-        job.moreCount < 2 &&
-        Object.entries(job.platforms).some(
-          ([platform, state]) =>
-            Number.isInteger(job.tabs[platform]) &&
-            state.results.length < 90 &&
-            !job.exhausted?.[platform],
-        ),
+        Object.keys(job.platforms).some((platform) => Number.isInteger(job.tabs[platform])),
     });
   }
   function sameOwner(job, sender) {
@@ -54,6 +51,131 @@ export function createNativeSearchService(api, options = {}) {
   }
   function live(job) {
     return jobs.get(job.id) === job && job.status === "running" && job.expiresAt > now();
+  }
+  function discardFocus(jobId, expected = focusRequests.get(jobId)) {
+    if (!expected || focusRequests.get(jobId) !== expected) return;
+    expected.allowed = false;
+    clearTimeout(expected.restoreTimer);
+    focusRequests.delete(jobId);
+  }
+  async function beginFocus(job) {
+    if (!api.tabs.query || !api.tabs.update || !api.windows?.getLastFocused) return null;
+    try {
+      const owner = await api.tabs.get(job.ownerTabId);
+      const [selected] = await api.tabs.query({ active: true, lastFocusedWindow: true });
+      const window = await api.windows.getLastFocused();
+      const focus = {
+        windowId: owner.windowId,
+        expectedTabId: job.ownerTabId,
+        platform: null,
+        allowed:
+          live(job) &&
+          window.focused &&
+          window.id === owner.windowId &&
+          selected?.id === job.ownerTabId,
+      };
+      focusRequests.set(job.id, focus);
+      return focus;
+    } catch {
+      return null;
+    }
+  }
+  async function canSwitchFocus(job, focus, context = null, allowCompleted = false) {
+    const eligible = () =>
+      live(job) ||
+      (allowCompleted &&
+        jobs.get(job.id) === job &&
+        job.status === "complete" &&
+        job.expiresAt > now() &&
+        focus?.pendingUntil > now());
+    if (context?.active === false || !focus?.allowed || !eligible()) return false;
+    const [selected] = await api.tabs.query({ active: true, lastFocusedWindow: true });
+    if (context?.active === false) return false;
+    const window = await api.windows.getLastFocused();
+    if (context?.active === false) return false;
+    if (
+      !focus.allowed ||
+      !eligible() ||
+      !window.focused ||
+      window.id !== focus.windowId ||
+      selected?.windowId !== focus.windowId ||
+      selected.id !== focus.expectedTabId ||
+      (focus.platform &&
+        !sameNativeSearchPage(
+          focus.platform,
+          selected.url,
+          job.platforms[focus.platform].searchUrl,
+        ))
+    ) {
+      focus.allowed = false;
+      return false;
+    }
+    return true;
+  }
+  async function focusOwnedTab(job, platform, focus, context) {
+    try {
+      if (!context.active || !(await canSwitchFocus(job, focus, context)) || !context.active)
+        return;
+      const tab = await api.tabs.get(job.tabs[platform]);
+      if (
+        !context.active ||
+        !focus.allowed ||
+        !live(job) ||
+        tab.windowId !== focus.windowId ||
+        (!sameNativeSearchPage(platform, tab.url, job.platforms[platform].searchUrl) &&
+          !sameNativeSearchPage(platform, tab.pendingUrl, job.platforms[platform].searchUrl))
+      )
+        return;
+      focus.expectedTabId = tab.id;
+      focus.platform = platform;
+      await api.tabs.update(tab.id, { active: true });
+    } catch {
+      if (context.active && focus) focus.allowed = false;
+    }
+  }
+  async function restoreDiscover(job, focus, ownerSender = null) {
+    let pending = false;
+    try {
+      // A fresh browser-authenticated owner poll can verify the original
+      // Discover document when Chrome withholds localhost's tabs.Tab.url.
+      const authenticatedPoll =
+        !!ownerSender &&
+        !!job.ownerDocumentId &&
+        trustedDiscoverSender(ownerSender) &&
+        sameOwner(job, ownerSender) &&
+        ownerSender.documentId === job.ownerDocumentId;
+      if (ownerSender && !authenticatedPoll) return;
+      if (
+        !Object.values(job.tabs).includes(focus?.expectedTabId) ||
+        !(await canSwitchFocus(job, focus, null, authenticatedPoll))
+      )
+        return;
+      const owner = await api.tabs.get(job.ownerTabId);
+      const isDiscover = (url) =>
+        trustedDiscoverSender({ url, tab: { id: job.ownerTabId }, frameId: 0 });
+      if (
+        owner.windowId !== focus.windowId ||
+        owner.status === "loading" ||
+        (owner.url !== undefined && !isDiscover(owner.url)) ||
+        (owner.pendingUrl && !isDiscover(owner.pendingUrl)) ||
+        !(await canSwitchFocus(job, focus, null, authenticatedPoll))
+      )
+        return;
+      if (owner.url === undefined && !authenticatedPoll) {
+        if (!job.ownerDocumentId) return;
+        focus.pendingUntil = now() + RESTORE_POLL_MS;
+        focus.restoreTimer = setTimeout(() => discardFocus(job.id, focus), RESTORE_POLL_MS);
+        pending = true;
+        return;
+      }
+      focus.expectedTabId = job.ownerTabId;
+      focus.platform = null;
+      await api.tabs.update(job.ownerTabId, { active: true });
+    } catch {
+      /* A closed or changed owner tab is never recreated. */
+    } finally {
+      if (!pending) discardFocus(job.id, focus);
+    }
   }
   async function closeOwnedTab(job, platform) {
     const tabId = job.tabs[platform];
@@ -72,6 +194,7 @@ export function createNativeSearchService(api, options = {}) {
     }
   }
   async function cancel(job) {
+    discardFocus(job.id);
     job.status = "cancelled";
     await Promise.all(Object.keys(job.tabs).map((platform) => closeOwnedTab(job, platform)));
     await persist();
@@ -101,7 +224,14 @@ export function createNativeSearchService(api, options = {}) {
       )
         continue;
       jobs.set(job.id, job);
-      job.exhausted ||= {};
+      job.cursors ||= {};
+      for (const [platform, state] of Object.entries(job.platforms)) {
+        state.omittedCount =
+          Number.isSafeInteger(state.omittedCount) && state.omittedCount >= 0
+            ? state.omittedCount
+            : 0;
+        job.cursors[platform] ||= state.results.at(-1)?.url || null;
+      }
       // A suspended/restarted worker cannot resume an unbounded background task.
       // Preserve collected cards and let a later explicit More request retry.
       if (job.status === "running") {
@@ -121,12 +251,16 @@ export function createNativeSearchService(api, options = {}) {
   async function collectPlatform(job, platform, more, context) {
     const active = () => context.active && live(job);
     const state = job.platforms[platform];
-    const previous = state.results;
-    const target = Math.min(90, 30 * (job.moreCount + 1));
+    const seen = new Map(
+      state.results.map((result) => [nativePostIdentity(platform, result.url), result.url]),
+    );
+    const target = 30;
+    let added = 0;
     const started = now();
     let scroll = more;
-    let lastCount = previous.length;
     let lastGrowthAt = started;
+    let lastScrollAt = started;
+    let scrolls = 0;
     let collectedOnce = false;
     try {
       if (!Number.isInteger(job.tabs[platform])) {
@@ -135,7 +269,13 @@ export function createNativeSearchService(api, options = {}) {
           state.error = "source-tab-closed";
           return;
         }
-        const tab = await api.tabs.create({ url: state.searchUrl, active: false });
+        const tab = await api.tabs.create({
+          url: state.searchUrl,
+          active: false,
+          ...(Number.isInteger(context.focus?.windowId)
+            ? { windowId: context.focus.windowId }
+            : {}),
+        });
         if (!Number.isInteger(tab.id)) throw new Error("tab-open-failed");
         job.tabs[platform] = tab.id;
         if (!active()) {
@@ -144,6 +284,7 @@ export function createNativeSearchService(api, options = {}) {
         }
         await persist();
       }
+      await focusOwnedTab(job, platform, context.focus, context);
       for (let attempt = 0; attempt < 25 && now() - started < 25000 && active(); attempt++) {
         const tab = await api.tabs.get(job.tabs[platform]);
         if (!active()) return;
@@ -159,10 +300,22 @@ export function createNativeSearchService(api, options = {}) {
         const [injection] = await api.scripting.executeScript({
           target: { tabId: job.tabs[platform] },
           func: collectNativeDiscoverCards,
-          args: [platform, state.searchUrl, target, scroll],
+          args: [
+            platform,
+            state.searchUrl,
+            more ? target - added : target,
+            scroll,
+            ...(more
+              ? [{ knownUrls: [...seen.values()], lastUrl: job.cursors[platform] || null }]
+              : []),
+          ],
         });
         if (!active()) return;
         const wasScroll = scroll;
+        if (wasScroll) {
+          scrolls++;
+          lastScrollAt = now();
+        }
         scroll = false;
         const collected = injection?.result;
         if (collected?.status === "needs-attention" || collected?.status === "error") {
@@ -176,33 +329,44 @@ export function createNativeSearchService(api, options = {}) {
         }
         if (!collected || !Array.isArray(collected.results)) throw new Error("read-failed");
         collectedOnce = true;
+        context.collectedOnce = true;
         const fresh = sanitizeNativeResults(
           platform,
           collected.results,
           new Date(now()).toISOString(),
         );
-        const byUrl = new Map(previous.map((result) => [result.url, result]));
-        // Keep earlier pages even when a site virtualizes/removes those DOM cards.
-        for (const result of state.results) byUrl.set(result.url, result);
-        for (const result of fresh) byUrl.set(result.url, result);
-        state.results = [...byUrl.values()]
-          .slice(0, target)
+        const byUrl = new Map(
+          state.results.map((result) => [nativePostIdentity(platform, result.url), result]),
+        );
+        for (const result of fresh) {
+          const key = nativePostIdentity(platform, result.url);
+          if (seen.has(key)) {
+            if (byUrl.has(key)) byUrl.set(key, result);
+            continue;
+          }
+          seen.set(key, result.url);
+          byUrl.set(key, result);
+          job.cursors[platform] = result.url;
+          added++;
+          lastGrowthAt = now();
+          if (added >= target) break;
+        }
+        const all = [...byUrl.values()];
+        const dropped = Math.max(0, all.length - 300);
+        state.omittedCount = Math.min(Number.MAX_SAFE_INTEGER, (state.omittedCount || 0) + dropped);
+        state.results = all
+          .slice(dropped)
           .map((result, position) => ({ ...result, position: position + 1 }));
-        if (state.results.length > lastCount) lastGrowthAt = now();
-        lastCount = state.results.length;
         await persist();
         // Initial native grids often hydrate a small first row, then render
         // the remaining cards later. Keep reading without scrolling until the
         // grid has had eight seconds and four seconds without new cards.
-        const settled = more
-          ? now() - started >= 4000 && now() - lastGrowthAt >= 4000
-          : now() - started >= 8000 && now() - lastGrowthAt >= 4000;
-        if (
-          !wasScroll &&
-          (state.results.length >= target ||
-            ((more || state.results.length > previous.length) && settled))
-        )
-          break;
+        if (added >= target) break;
+        if (more && !wasScroll && now() - Math.max(lastScrollAt, lastGrowthAt) >= 4000) {
+          if (scrolls >= 3) break;
+          scroll = true;
+        }
+        if (!more && added > 0 && now() - started >= 8000 && now() - lastGrowthAt >= 4000) break;
         await sleep(1000);
       }
       if (active()) {
@@ -212,8 +376,6 @@ export function createNativeSearchService(api, options = {}) {
           return;
         }
         state.status = state.results.length ? "done" : "empty";
-        if (more && state.results.length <= previous.length) job.exhausted[platform] = true;
-        if (!more && !state.results.length) job.exhausted[platform] = true;
         delete state.error;
       }
     } catch {
@@ -224,28 +386,36 @@ export function createNativeSearchService(api, options = {}) {
     }
   }
   async function run(job, more) {
-    await Promise.all(
-      Object.keys(job.platforms).map(async (platform) => {
-        const context = { active: true };
-        let timer;
-        const timeout = new Promise((resolve) => {
-          timer = setTimeout(() => {
-            context.active = false;
-            if (live(job)) {
+    const focus = await beginFocus(job);
+    for (const platform of Object.keys(job.platforms)) {
+      if (!live(job)) break;
+      const context = { active: true, focus };
+      let timer;
+      const timeout = new Promise((resolve) => {
+        timer = setTimeout(() => {
+          context.active = false;
+          if (live(job)) {
+            if (context.collectedOnce) {
+              job.platforms[platform].status = job.platforms[platform].results.length
+                ? "done"
+                : "empty";
+              delete job.platforms[platform].error;
+            } else {
               job.platforms[platform].status = "error";
               job.platforms[platform].error = "search-timeout";
             }
-            resolve();
-          }, 25000);
-        });
-        try {
-          await Promise.race([collectPlatform(job, platform, more, context), timeout]);
-        } finally {
-          context.active = false;
-          clearTimeout(timer);
-        }
-      }),
-    );
+          }
+          resolve();
+        }, 25000);
+      });
+      try {
+        await Promise.race([collectPlatform(job, platform, more, context), timeout]);
+      } finally {
+        context.active = false;
+        clearTimeout(timer);
+      }
+    }
+    await restoreDiscover(job, focus);
     if (live(job)) job.status = "complete";
     await persist();
   }
@@ -282,13 +452,17 @@ export function createNativeSearchService(api, options = {}) {
         ownerDocumentId: sender.documentId || null,
         expiresAt: now() + TTL_MS,
         status: "running",
-        moreCount: 0,
-        exhausted: {},
+        cursors: {},
         tabs: {},
         platforms: Object.fromEntries(
           Object.entries(request.queries).map(([platform, query]) => [
             platform,
-            { status: "loading", results: [], searchUrl: nativeSearchUrl(platform, query) },
+            {
+              status: "loading",
+              results: [],
+              omittedCount: 0,
+              searchUrl: nativeSearchUrl(platform, query),
+            },
           ]),
         ),
       };
@@ -302,12 +476,18 @@ export function createNativeSearchService(api, options = {}) {
     }
     const job = jobs.get(request.jobId);
     if (!job || !sameOwner(job, sender)) return { ok: false, error: "job-not-found" };
-    if (request.type === "poll") return publicJob(job);
+    if (request.type === "poll") {
+      const focus = focusRequests.get(job.id);
+      if (job.status === "complete" && focus?.pendingUntil)
+        await restoreDiscover(job, focus, sender);
+      return publicJob(job);
+    }
     if (request.type === "cancel") return cancel(job);
     if (job.status === "running") return publicJob(job);
     if (job.status === "cancelled") return { ok: false, error: "job-not-found" };
-    if (job.moreCount >= 2) return { ok: false, error: "limit-reached" };
-    job.moreCount++;
+    discardFocus(job.id);
+    job.expiresAt = now() + TTL_MS;
+    await api.alarms.create(`${ALARM_PREFIX}${job.id}`, { when: job.expiresAt });
     job.status = "running";
     for (const state of Object.values(job.platforms)) {
       state.status = "loading";
@@ -347,5 +527,15 @@ export function createNativeSearchService(api, options = {}) {
     }
     await persist();
   }
-  return { handle, onAlarm, onTabRemoved, ready };
+  function onTabActivated(info) {
+    for (const focus of focusRequests.values()) {
+      if (info.windowId !== focus.windowId || info.tabId !== focus.expectedTabId)
+        focus.allowed = false;
+    }
+  }
+  function onWindowFocusChanged(windowId) {
+    for (const focus of focusRequests.values())
+      if (windowId !== focus.windowId) focus.allowed = false;
+  }
+  return { handle, onAlarm, onTabRemoved, onTabActivated, onWindowFocusChanged, ready };
 }

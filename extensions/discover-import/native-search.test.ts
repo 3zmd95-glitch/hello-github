@@ -200,16 +200,57 @@ it("retains delayed Instagram rows and waits four seconds after the latest new c
   expect(calls.every(([call]) => call.args[3] === false)).toBe(true);
 });
 
-it("explicit more scrolls only once each time, merges virtualized cards and stops at90", async () => {
+it("accepts four successive More requests and adds thirty virtualized cards per request", async () => {
   await service.handle(request, sender);
   await complete();
+  for (let page = 1; page <= 4; page++) {
+    api.scripting.executeScript.mockResolvedValue([
+      { result: { status: "done", results: cards(30, page * 30) } },
+    ]);
+    expect(
+      await service.handle({ version: 1, type: "more", jobId: "job-1" }, sender),
+    ).toMatchObject({ status: "running" });
+    expect(await complete()).toMatchObject({
+      hasMore: true,
+      platforms: {
+        ig: {
+          omittedCount: 0,
+          results: expect.arrayContaining([
+            expect.objectContaining({
+              url: `https://www.instagram.com/reel/Post${page * 30 + 29}/`,
+            }),
+          ]),
+        },
+      },
+    });
+  }
+  const calls = api.scripting.executeScript.mock.calls as unknown as [
+    { args: [string, string, number, boolean] },
+  ][];
+  expect(calls.filter(([call]) => call.args[3])).toHaveLength(4);
+  expect(api.tabs.create).toHaveBeenCalledTimes(1);
+});
+
+it("keeps quiet native pages retryable after at most three scroll/read cycles", async () => {
+  await service.handle(request, sender);
+  expect(await complete()).toMatchObject({ hasMore: true });
+  const moreStarted = timestamp;
+  await service.handle({ version: 1, type: "more", jobId: "job-1" }, sender);
+  expect(await complete()).toMatchObject({
+    hasMore: true,
+    platforms: { ig: { status: "done", results: expect.any(Array) } },
+  });
+  expect(timestamp - moreStarted).toBe(14000);
+  const calls = api.scripting.executeScript.mock.calls as unknown as [
+    { args: [string, string, number, boolean] },
+  ][];
+  expect(calls.filter(([call]) => call.args[3])).toHaveLength(3);
   api.scripting.executeScript.mockResolvedValue([
     { result: { status: "done", results: cards(30, 30) } },
   ]);
-  expect(await service.handle({ version: 1, type: "more", jobId: "job-1" }, sender)).toMatchObject({
-    status: "running",
-  });
+  await service.handle({ version: 1, type: "more", jobId: "job-1" }, sender);
   expect(await complete()).toMatchObject({
+    hasMore: true,
     platforms: {
       ig: {
         results: expect.arrayContaining([
@@ -218,36 +259,86 @@ it("explicit more scrolls only once each time, merges virtualized cards and stop
       },
     },
   });
+});
+
+it("retains the latest300 cards while continuing beyond a full window and counting omitted cards", async () => {
+  await service.handle(request, sender);
+  await complete();
+  for (let page = 1; page <= 12; page++) {
+    api.scripting.executeScript.mockResolvedValue([
+      { result: { status: "done", results: cards(30, page * 30) } },
+    ]);
+    await service.handle({ version: 1, type: "more", jobId: "job-1" }, sender);
+    await complete();
+  }
+  const snapshot = (await poll()) as {
+    hasMore: boolean;
+    platforms: { ig: { results: { url: string; position: number }[]; omittedCount: number } };
+  };
+  expect(snapshot.hasMore).toBe(true);
+  expect(snapshot.platforms.ig.results).toHaveLength(300);
+  expect(snapshot.platforms.ig.omittedCount).toBe(90);
+  expect(snapshot.platforms.ig.results[0]).toMatchObject({
+    url: "https://www.instagram.com/reel/Post90/",
+    position: 1,
+  });
+  expect(snapshot.platforms.ig.results.at(-1)).toMatchObject({
+    url: "https://www.instagram.com/reel/Post389/",
+    position: 300,
+  });
+  const calls = api.scripting.executeScript.mock.calls as unknown as [
+    { args: [string, string, number, boolean, { knownUrls: string[]; lastUrl: string }] },
+  ][];
+  const last = calls.at(-1)![0].args;
+  expect(last[2]).toBe(30);
+  expect(last[4].knownUrls).toHaveLength(300);
+  expect(last[4].lastUrl).toBe("https://www.instagram.com/reel/Post359/");
+
+  let finish!: (value: { result: { status: string; results: ReturnType<typeof cards> } }[]) => void;
+  api.scripting.executeScript
+    .mockResolvedValueOnce([{ result: { status: "done", results: cards(10, 390) } }])
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+  await service.handle({ version: 1, type: "more", jobId: "job-1" }, sender);
+  await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+  const progress = (await poll()) as typeof snapshot & { status: string };
+  expect(progress.status).toBe("running");
+  expect(progress.platforms.ig.results).toHaveLength(300);
+  expect(progress.platforms.ig.omittedCount).toBe(100);
+  expect(progress.platforms.ig.results.at(-1)?.url).toBe("https://www.instagram.com/reel/Post399/");
+  finish([{ result: { status: "done", results: cards(20, 400) } }]);
+  const next = (await complete()) as typeof snapshot;
+  expect(next.platforms.ig.results).toHaveLength(300);
+  expect(next.platforms.ig.omittedCount).toBe(120);
+  expect(next.platforms.ig.results.at(-1)?.url).toBe("https://www.instagram.com/reel/Post419/");
+});
+
+it("renews the source-tab expiry only when the user explicitly requests More", async () => {
+  const originalExpiry = timestamp + 15 * 60 * 1000;
+  await service.handle(request, sender);
+  await complete();
+  timestamp += 14 * 60 * 1000;
+  await poll();
+  expect(api.alarms.create).toHaveBeenLastCalledWith("discover-native-expiry:job-1", {
+    when: originalExpiry,
+  });
+  const renewedExpiry = timestamp + 15 * 60 * 1000;
   api.scripting.executeScript.mockResolvedValue([
-    { result: { status: "done", results: cards(30, 60) } },
+    { result: { status: "done", results: cards(30, 30) } },
   ]);
   await service.handle({ version: 1, type: "more", jobId: "job-1" }, sender);
   await complete();
-  expect(await service.handle({ version: 1, type: "more", jobId: "job-1" }, sender)).toEqual({
-    ok: false,
-    error: "limit-reached",
+  expect(api.alarms.create).toHaveBeenLastCalledWith("discover-native-expiry:job-1", {
+    when: renewedExpiry,
   });
-  const calls = api.scripting.executeScript.mock.calls as unknown as [
-    { args: [string, string, number, boolean] },
-  ][];
-  expect(calls.filter(([call]) => call.args[3])).toHaveLength(2);
-  expect(api.tabs.create).toHaveBeenCalledTimes(1);
-});
-
-it("reports hasMore false when an explicit more request finds no new cards", async () => {
-  await service.handle(request, sender);
-  expect(await complete()).toMatchObject({ hasMore: true });
-  const moreStarted = timestamp;
-  await service.handle({ version: 1, type: "more", jobId: "job-1" }, sender);
-  expect(await complete()).toMatchObject({
-    hasMore: false,
-    platforms: { ig: { status: "done", results: expect.any(Array) } },
-  });
-  expect(timestamp - moreStarted).toBe(4000);
-  const calls = api.scripting.executeScript.mock.calls as unknown as [
-    { args: [string, string, number, boolean] },
-  ][];
-  expect(calls.filter(([call]) => call.args[3])).toHaveLength(1);
+  timestamp += 2 * 60 * 1000;
+  await service.onAlarm({ name: "discover-native-expiry:job-1" });
+  expect(await poll()).toMatchObject({ status: "complete", hasMore: true });
+  expect(api.tabs.remove).not.toHaveBeenCalled();
 });
 
 it("cancellation and a new job clean owned tabs without touching the app or unrelated tabs", async () => {
@@ -354,6 +445,243 @@ it("ends a stalled browser injection after25 seconds and ignores its late reply"
     finish([{ result: { status: "done", results: cards() } }]);
     await vi.advanceTimersByTimeAsync(1);
     expect(await poll()).toMatchObject({ platforms: { ig: { results: [] } } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+function focusControls() {
+  let activeTabId = 7;
+  let activeWindowId = 1;
+  tabs.set(7, { id: 7, url: sender.url, status: "complete" });
+  Object.assign(tabs.get(7)!, { windowId: 1 });
+  api.tabs.create.mockImplementation(async (options) => {
+    const tab = { id: ++tabCounter, url: options.url, status: "complete", windowId: 1 };
+    tabs.set(tab.id, tab);
+    return tab;
+  });
+  const update = vi.fn(async (tabId: number) => {
+    activeTabId = tabId;
+    service.onTabActivated({ tabId, windowId: 1 });
+    return tabs.get(tabId);
+  });
+  Object.assign(api.tabs, {
+    query: vi.fn(async () => [
+      { ...tabs.get(activeTabId), id: activeTabId, windowId: activeWindowId },
+    ]),
+    update,
+  });
+  Object.assign(api, {
+    windows: { getLastFocused: vi.fn(async () => ({ id: activeWindowId, focused: true })) },
+  });
+  return {
+    update,
+    leave(kind: string) {
+      activeTabId = 999;
+      if (kind === "window") {
+        activeWindowId = 2;
+        service.onWindowFocusChanged(2);
+      } else service.onTabActivated({ tabId: 999, windowId: 1 });
+    },
+  };
+}
+
+function nativeBatch(platform: string) {
+  return cards().map((card, index) => ({
+    ...card,
+    platform,
+    url:
+      platform === "ig"
+        ? card.url
+        : platform === "tt"
+          ? `https://www.tiktok.com/@editor/video/${BigInt("1234567890123456000") + BigInt(index)}`
+          : `https://www.youtube.com/watch?v=${String(index).padStart(11, "0")}`,
+  }));
+}
+
+it("activates each owned native search once within the owner window, then restores Discover", async () => {
+  const focus = focusControls();
+  api.scripting.executeScript.mockImplementation(async (...args: unknown[]) => [
+    { result: { status: "done", results: nativeBatch((args[0] as { args: string[] }).args[0]) } },
+  ]);
+  await service.handle({ ...request, queries: { ig: "anime", tt: "anime", yt: "anime" } }, sender);
+  await complete();
+  expect(focus.update.mock.calls.map(([id]) => id)).toEqual([101, 102, 103, 7]);
+  expect(api.tabs.create).toHaveBeenCalledWith(
+    expect.objectContaining({ active: false, windowId: 1 }),
+  );
+});
+
+it.each(["tab", "window"])(
+  "stops all remaining automatic activation and restoration when the user chooses another %s",
+  async (kind) => {
+    const focus = focusControls();
+    let reads = 0;
+    api.scripting.executeScript.mockImplementation(async (...args: unknown[]) => {
+      if (++reads === 1) focus.leave(kind);
+      return [
+        {
+          result: { status: "done", results: nativeBatch((args[0] as { args: string[] }).args[0]) },
+        },
+      ];
+    });
+    await service.handle(
+      { ...request, queries: { ig: "anime", tt: "anime", yt: "anime" } },
+      sender,
+    );
+    await complete();
+    expect(focus.update.mock.calls.map(([id]) => id)).toEqual([101]);
+  },
+);
+
+it("never restores or activates remaining tabs after cancellation during focused collection", async () => {
+  const focus = focusControls();
+  let finish!: (value: { result: { status: string; results: ReturnType<typeof cards> } }[]) => void;
+  api.scripting.executeScript.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await service.handle({ ...request, queries: { ig: "anime", yt: "anime" } }, sender);
+  await vi.waitFor(() => expect(api.scripting.executeScript).toHaveBeenCalledTimes(1));
+  await service.handle({ version: 1, type: "cancel", jobId: "job-1" }, sender);
+  finish([{ result: { status: "done", results: cards() } }]);
+  await poll();
+  expect(focus.update.mock.calls.map(([id]) => id)).toEqual([101]);
+  expect(api.tabs.create).toHaveBeenCalledTimes(1);
+});
+
+it.each(["http://localhost:3000/settings/", "https://example.com/"])(
+  "does not restore the owner tab when its known current URL has changed (%s)",
+  async (url) => {
+    const focus = focusControls();
+    api.scripting.executeScript.mockImplementationOnce(async () => {
+      Object.assign(tabs.get(7)!, { url });
+      return [{ result: { status: "done", results: cards() } }];
+    });
+    await service.handle(request, sender);
+    await complete();
+    expect(focus.update.mock.calls.map(([id]) => id)).toEqual([101]);
+  },
+);
+
+async function completedWithWithheldOwnerUrl() {
+  const focus = focusControls();
+  api.scripting.executeScript.mockImplementationOnce(async () => {
+    Object.assign(tabs.get(7)!, { url: undefined });
+    return [{ result: { status: "done", results: cards() } }];
+  });
+  await service.handle(request, sender);
+  // Observe storage completion without sending the authenticated owner poll.
+  await vi.waitFor(() =>
+    expect(stored.discoverNativeJobsV1).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "job-1", status: "complete" })]),
+    ),
+  );
+  expect(focus.update.mock.calls.map(([id]) => id)).toEqual([101]);
+  return focus;
+}
+
+it("restores a URL-withheld owner only on a fresh poll from its original Discover document", async () => {
+  const focus = await completedWithWithheldOwnerUrl();
+  expect(await poll()).toMatchObject({ status: "complete" });
+  expect(focus.update.mock.calls.map(([id]) => id)).toEqual([101, 7]);
+  await poll();
+  expect(focus.update.mock.calls.map(([id]) => id)).toEqual([101, 7]);
+});
+
+it("rejects a new document, other tab and wrong URL before a pending restoration", async () => {
+  const focus = await completedWithWithheldOwnerUrl();
+  expect(await poll("job-1", { ...sender, documentId: "replacement-document" })).toEqual({
+    ok: false,
+    error: "job-not-found",
+  });
+  expect(await poll("job-1", { ...sender, tab: { id: 8 } })).toEqual({
+    ok: false,
+    error: "job-not-found",
+  });
+  expect(await poll("job-1", { ...sender, url: "http://localhost:3000/settings/" })).toEqual({
+    ok: false,
+    error: "forbidden",
+  });
+  expect(focus.update.mock.calls.map(([id]) => id)).toEqual([101]);
+  await poll();
+  expect(focus.update.mock.calls.map(([id]) => id)).toEqual([101, 7]);
+});
+
+it.each(["tab", "window"])(
+  "never restores after the user switches %s while awaiting the owner poll",
+  async (kind) => {
+    const focus = await completedWithWithheldOwnerUrl();
+    focus.leave(kind);
+    await poll();
+    expect(focus.update.mock.calls.map(([id]) => id)).toEqual([101]);
+  },
+);
+
+it.each(["cancel", "new-search"])("discards pending restoration on %s", async (action) => {
+  const focus = await completedWithWithheldOwnerUrl();
+  if (action === "cancel")
+    await service.handle({ version: 1, type: "cancel", jobId: "job-1" }, sender);
+  else {
+    await service.handle({ ...request, requestId: "new-request" }, sender);
+    await complete("job-2");
+  }
+  await poll();
+  expect(focus.update.mock.calls.map(([id]) => id)).toEqual([101]);
+});
+
+it("expires pending restoration after fifteen seconds", async () => {
+  vi.useFakeTimers();
+  try {
+    const focus = focusControls();
+    api.scripting.executeScript.mockImplementationOnce(async () => {
+      Object.assign(tabs.get(7)!, { url: undefined });
+      return [{ result: { status: "done", results: cards() } }];
+    });
+    await service.handle(request, sender);
+    await vi.advanceTimersByTimeAsync(1);
+    timestamp += 15001;
+    await vi.advanceTimersByTimeAsync(15001);
+    expect(await poll()).toMatchObject({ status: "complete" });
+    expect(focus.update.mock.calls.map(([id]) => id)).toEqual([101]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("ignores a late focus lookup from a timed-out platform while the next platform is running", async () => {
+  vi.useFakeTimers();
+  try {
+    const focus = focusControls();
+    let finishOldLookup!: (tab: { id: number; url: string; status: string }) => void;
+    let finishNextRead!: (
+      value: { result: { status: string; results: ReturnType<typeof cards> } }[],
+    ) => void;
+    api.tabs.get.mockImplementation(async (tabId) => {
+      if (tabId === 101)
+        return new Promise((resolve) => {
+          finishOldLookup = resolve;
+        });
+      return tabs.get(tabId)!;
+    });
+    api.scripting.executeScript.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishNextRead = resolve;
+        }),
+    );
+    await service.handle({ ...request, queries: { ig: "anime", yt: "anime" } }, sender);
+    await vi.advanceTimersByTimeAsync(25001);
+    expect(focus.update.mock.calls.map(([id]) => id)).toEqual([102]);
+    finishOldLookup(tabs.get(101)!);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(focus.update.mock.calls.map(([id]) => id)).toEqual([102]);
+    finishNextRead([{ result: { status: "done", results: nativeBatch("yt") } }]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await poll()).toMatchObject({ status: "complete" });
+    expect(focus.update.mock.calls.map(([id]) => id)).toEqual([102, 7]);
   } finally {
     vi.useRealTimers();
   }

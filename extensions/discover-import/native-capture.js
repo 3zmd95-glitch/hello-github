@@ -2,7 +2,13 @@
  * Reads rendered public cards only. Never reads script JSON, hidden application
  * state, cookies, video sources, screenshots, or the account's other tabs.
  */
-export function collectNativeDiscoverCards(platform, expectedUrl, limit = 30, scrollOnce = false) {
+export function collectNativeDiscoverCards(
+  platform,
+  expectedUrl,
+  limit = 30,
+  scrollOnce = false,
+  progress = {},
+) {
   const source = new URL(window.location.href);
   const hosts = { ig: "www.instagram.com", tt: "www.tiktok.com", yt: "www.youtube.com" };
   let expected;
@@ -107,10 +113,15 @@ export function collectNativeDiscoverCards(platform, expectedUrl, limit = 30, sc
     }
     return parts.join(" ").replace(/\s+/g, " ").trim();
   }
+  function identity(url) {
+    const parsed = new URL(url);
+    return platform === "yt" && parsed.pathname === "/watch"
+      ? parsed.searchParams.get("v")
+      : parsed.pathname.split("/").filter(Boolean).at(-1);
+  }
   const results = [];
   const seen = new Set();
   const observedAt = new Date().toISOString();
-  let scrollTarget = null;
   function nearestScrollPane(anchor) {
     for (let node = anchor.parentElement; node; node = node.parentElement) {
       if (node === document.scrollingElement || node === document.documentElement) break;
@@ -126,10 +137,33 @@ export function collectNativeDiscoverCards(platform, expectedUrl, limit = 30, sc
     }
     return null;
   }
+  const candidates = [];
   for (const anchor of document.querySelectorAll("a[href]")) {
     const url = canonical(anchor.getAttribute("href"));
-    if (!url || seen.has(url) || !rendered(anchor)) continue;
-    if (scrollOnce && !scrollTarget) scrollTarget = nearestScrollPane(anchor);
+    if (!url || seen.has(identity(url)) || !rendered(anchor)) continue;
+    seen.add(identity(url));
+    candidates.push({ anchor, url, key: identity(url) });
+  }
+  const known = new Set(
+    (Array.isArray(progress.knownUrls) ? progress.knownUrls.slice(0, 600) : [])
+      .map(canonical)
+      .filter(Boolean)
+      .map(identity),
+  );
+  const previousUrl = canonical(progress.lastUrl);
+  const previousKey = previousUrl ? identity(previousUrl) : null;
+  let boundary = previousKey
+    ? candidates.findIndex((candidate) => candidate.key === previousKey)
+    : -1;
+  // A virtualized list can remove the exact last card while leaving other
+  // already-read cards. Resume after the latest retained overlap when possible.
+  if (previousKey && boundary < 0) {
+    for (let index = 0; index < candidates.length; index++)
+      if (known.has(candidates[index].key)) boundary = index;
+  }
+  let lastResult = null;
+  for (const { anchor, url, key } of candidates.slice(boundary + 1)) {
+    if (known.has(key)) continue;
     const selector =
       platform === "yt"
         ? "ytd-video-renderer,ytd-reel-item-renderer,ytm-shorts-lockup-view-model,ytd-rich-item-renderer"
@@ -195,20 +229,32 @@ export function collectNativeDiscoverCards(platform, expectedUrl, limit = 30, sc
     );
     const displayedStats = renderedText(stats).slice(0, 200);
     if (displayedStats) item.displayedStats = displayedStats;
-    seen.add(url);
     results.push(item);
+    lastResult = { anchor, url };
     if (results.length >= cap) break;
   }
-  // Only explicit More scrolls. Search results can live inside an app-owned
-  // scroll pane rather than the document. Move one viewport-sized step on the
-  // nearest visible scrollable ancestor of a validated public result, once.
-  if (scrollOnce) {
-    if (scrollTarget) scrollTarget.scrollTop += Math.min(scrollTarget.clientHeight * 0.9, 1000);
-    else
+  // Advance to the collected boundary, not the same first viewport on every
+  // More request. The caller permits at most three such read/scroll cycles.
+  const end = lastResult || candidates.at(-1);
+  if (scrollOnce && end) {
+    const scrollTarget = nearestScrollPane(end.anchor);
+    const bottom = end.anchor.getBoundingClientRect().bottom;
+    if (scrollTarget) {
+      const viewport = scrollTarget.clientHeight;
+      const delta = Math.max(
+        viewport * 0.9,
+        bottom - scrollTarget.getBoundingClientRect().top - viewport * 0.1,
+      );
+      scrollTarget.scrollTop += delta;
+    } else
       window.scrollBy({
-        top: Math.max(1, Math.min(window.innerHeight * 0.9, 1000)),
+        top: Math.max(1, window.innerHeight * 0.9, bottom - window.innerHeight * 0.1),
         behavior: "instant",
       });
   }
-  return { status: results.length ? "done" : "empty", results };
+  return {
+    status: results.length ? "done" : "empty",
+    results,
+    lastUrl: lastResult?.url || previousUrl || null,
+  };
 }

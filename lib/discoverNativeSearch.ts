@@ -29,6 +29,8 @@ export interface NativePlatformSnapshot {
   status: "loading" | "done" | "empty" | "needs-attention" | "error";
   results: NativeResult[];
   searchUrl: string;
+  /** Earlier loaded cards removed from the bounded browsing window; not platform supply. */
+  omittedCount?: number;
   error?: string;
 }
 export interface NativeJobSnapshot {
@@ -44,7 +46,7 @@ export interface NativeSearchSnapshot extends NativeJobSnapshot {
   asOf: string;
 }
 
-export const NATIVE_MAX_RESULTS = 90;
+export const NATIVE_MAX_RESULTS = 300;
 export const NATIVE_CACHE_CATEGORIES = 12;
 export const NATIVE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const NATIVE_HELPER_STORAGE_KEY = "3z-prod-native-helper-id";
@@ -218,7 +220,11 @@ export function validateNativeSnapshot(
       !isObject(raw) ||
       !["loading", "done", "empty", "needs-attention", "error"].includes(String(raw.status)) ||
       !Array.isArray(raw.results) ||
-      raw.results.length > NATIVE_MAX_RESULTS
+      raw.results.length > NATIVE_MAX_RESULTS ||
+      (raw.omittedCount !== undefined &&
+        (typeof raw.omittedCount !== "number" ||
+          !Number.isSafeInteger(raw.omittedCount) ||
+          raw.omittedCount < 0))
     )
       return null;
     const nativeSearchUrl = searchUrl(platform, raw.searchUrl);
@@ -236,6 +242,7 @@ export function validateNativeSnapshot(
       status: raw.status as NativePlatformSnapshot["status"],
       results,
       searchUrl: nativeSearchUrl,
+      ...(typeof raw.omittedCount === "number" ? { omittedCount: raw.omittedCount } : {}),
       ...(text(raw.error, 200) ? { error: raw.error } : {}),
     };
   }
@@ -401,18 +408,26 @@ export function nativeResultsToItems(
       return result ? [result] : [];
     }),
   ).flat();
-  return interleaved.map((result) => ({
-    platform: result.platform,
-    url: result.url,
-    title: result.title || (lang === "ar" ? "نتيجة من بحث المنصة" : "Native search result"),
-    handle: result.handle ?? "",
-    snippet: result.displayedStats
-      ? `${lang === "ar" ? "ظاهر في نتائج البحث" : "Shown in native search"}: ${result.displayedStats}`
-      : "",
-    ...(result.thumb ? { thumb: result.thumb } : {}),
-    lang,
-    section: "example",
-  }));
+  return interleaved.map((result): DiscoverItem => {
+    const youtubeUrl = result.platform === "yt" ? canonicalNativeUrl("yt", result.url) : null;
+    const youtubeId = youtubeUrl?.match(/\?v=([\w-]{11})$/)?.[1];
+    // Reuse the exact-video poster used by Discover references; native DOM images may be lazy loaded.
+    const thumb =
+      thumbnail(result.platform, result.thumb) ??
+      (youtubeId ? `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg` : undefined);
+    return {
+      platform: result.platform,
+      url: result.url,
+      title: result.title || (lang === "ar" ? "نتيجة من بحث المنصة" : "Native search result"),
+      handle: result.handle ?? "",
+      snippet: result.displayedStats
+        ? `${lang === "ar" ? "ظاهر في نتائج البحث" : "Shown in native search"}: ${result.displayedStats}`
+        : "",
+      ...(thumb ? { thumb } : {}),
+      lang,
+      section: "example",
+    };
+  });
 }
 
 let cacheStore: UseStore | undefined;

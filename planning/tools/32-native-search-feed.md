@@ -20,6 +20,28 @@ Existing visible-link selection and the separately approved video-image pilot re
 
 ## Validation
 
+### Continuous loading correction — 12 October, helper0.3.3
+
+Real0.3.1 Chrome Coffee retrieval reached68 cards (Instagram24/TikTok15/YouTube29), then an explicit More reached104 (48/27/29). Saved3 remained. Proof: Temp `discover-native-031-coffee-2026-10-12.png` and `discover-native-031-coffee-more-2026-10-12.png`. Maximized viewport differs from the preceding31-card sample, so do not claim an isolated causal benchmark. Anime then showed24/12/0 with a YouTube read failure; this is incomplete platform retrieval, not absence of YouTube videos.
+
+The user's filtering complaint exposed two separate restrictions: two More requests/90 records per platform, plus a24-card display window behind a different reveal button. A quiet More request also permanently set exhaustion. Normal native order had no popularity admission gate; Popular recently applies separate evidence checks.
+
+Helper0.3.3 removes request-count stopping and false quiet exhaustion. Each explicit action seeks30 new canonical posts per platform, with at most three scroll/read cycles and the existing25-second deadline. It advances toward the last collected rendered boundary, handles virtualized overlap, and skips known-prefix cards. It retains the latest300 cards per platform, with `omittedCount` reporting older cards unloaded; subsequent requests keep advancing. The15-minute expiry renews only on explicit More. No new permission, private endpoint, background retrieval or AI upload. Original-document polling fixes return-to-Discover when Chrome withholds the owner tab URL, with bounded focus retention and existing user-interruption safeguards.
+
+The app provides one Load more flow: reveal received matches, then retrieve; newly fetched cards become visible automatically. Counts distinguish shown/loaded and Popular matches, with a return-to-all control and English/Arabic window notice. This is a bounded browsing window, not a claim that platform supply ends at300. Saved references are independent.
+
+Focused validation:124 helper tests across8 files;36 client/hook/component tests;64 translation checks. Final lint, app/Worker typechecks,3,908 unit tests and production build passed. Final full browser suite passed438tests with8intentional skips and0failures after isolating the Instagram-preview fixture from the local network and pinning Studio fixture time. Logs: Temp discover-native-final-push-gates.log and discover-native-final-browser-push.log. Export copied to localhost:3000, matching Discover HTML SHA256 `71C0F5C1C83CED98EB572BB52FE7C164D862A8BD10BCC5DEDB3247F09D3C00C9`. User confirmed Updated0.3.3, then stopped manual Computer Use with Escape; live continuous-loading/return verification remains unfinished. No repeat Update needed. The user subsequently requested commit/push to PR70. Remaining: cached-session continuation, preserving prior successful platform cards on a failed refresh, complete live genre matrix, and grounded visual/recent-trend evaluation.
+
+### Helper 0.3.1 continuation
+
+The user's Chrome **Update** reloaded the preceding unpacked helper corrections. Fresh Coffee returned31 cards (Instagram3/TikTok20/YouTube8); More completed without the false timeout but did not grow. This confirms that background rendering still restricts supply. The app now reuses Discover's existing validated YouTube-ID poster fallback for live and cached native cards. A new production build is served at localhost:3000; actual Chrome verified the cached Coffee YouTube previews, Saved3 intact. Proof: Temp `discover-native-youtube-fixed-2026-10-11.png`.
+
+Helper0.3.1 runs platforms sequentially and briefly activates each owned search tab in the originating window, with the existing25-second platform deadline. User tab/window changes permanently stop switching for that request. Late work after a platform timeout cannot activate a tab; cancellation cannot restore over a newer job. Returning to Discover requires the owned source still active and an unchanged Discover owner URL; if Chrome withholds that URL, restoration is conservatively skipped. No OS-window focusing, new permissions, private APIs or automatic AI uploads. Popup scope copy is updated in English and Arabic. Twenty-two targeted lifecycle tests passed, including tab/window interruption, changed owner and delayed timeout races.
+
+This is a **new** source update requiring one further manual Chrome Update. Its live result growth and return behavior are still pending. No paid searches or model assessments ran. The previous live all-category relevance/trend-adoption gap remains.
+
+### Previous 0.3.0 evidence
+
 User explicitly approved all three optional site grants, manually reloaded helper 0.3.0, and completed the connection. Actual Chrome displayed Chrome connected on localhost:3000. Saved references remained 3; no paid queries or model assessments ran.
 
 - Initial live Anime: 40 cards (Instagram 6, TikTok 22, YouTube 12). A fresh native search returned 34 (6/12/16); native ordering and supply can change between requests.

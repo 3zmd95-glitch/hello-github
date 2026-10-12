@@ -811,6 +811,10 @@ test("AI unavailable and daily limit are honest, with a working keyword recovery
 test("Instagram cards load missing previews and keep a playable fallback when unavailable", async ({
   page,
 }) => {
+  // Exercise the Worker fallback without depending on this computer's Instagram connection.
+  await page.route("**/api/local-ai/instagram-preview?*", (route) =>
+    route.fulfill({ status: 503, json: { error: "unavailable" } }),
+  );
   const posts = ["previewReady", "previewUnavailable"].map((id, n) =>
     item(40 + n, {
       platform: "ig",
@@ -869,9 +873,9 @@ test("Instagram cards load missing previews and keep a playable fallback when un
   );
   await expect(missing.getByTestId("result-play")).toBeVisible();
   // Reviewed format cards can request their own previews independently of these search results.
-  expect(lookups.filter((url) => posts.some((post) => post.url === url)).sort()).toEqual(
-    posts.map((p) => p.url).sort(),
-  );
+  await expect
+    .poll(() => lookups.filter((url) => posts.some((post) => post.url === url)).sort())
+    .toEqual(posts.map((p) => p.url).sort());
   expect(await fitsViewport(page)).toBe(true);
 });
 

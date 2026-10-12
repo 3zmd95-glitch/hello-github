@@ -136,10 +136,11 @@ export function sanitizeNativeResults(platform, results, observedAt) {
   if (!Array.isArray(results)) return [];
   const seen = new Set();
   const clean = [];
-  for (const result of results.slice(0, 180)) {
+  for (const result of results.slice(0, 600)) {
     const url = canonicalNativePost(platform, result?.url);
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
+    const key = nativePostIdentity(platform, url);
+    if (!url || seen.has(key)) continue;
+    seen.add(key);
     const text = (value, limit) =>
       typeof value === "string"
         ? value
@@ -173,7 +174,14 @@ export function sanitizeNativeResults(platform, results, observedAt) {
       /* A card can have no thumbnail. */
     }
     clean.push(item);
-    if (clean.length === 90) break;
+    if (clean.length === 300) break;
   }
   return clean;
+}
+
+export function nativePostIdentity(platform, href) {
+  const canonical = canonicalNativePost(platform, href);
+  if (!canonical) return null;
+  const url = new URL(canonical);
+  return `${platform}:${platform === "yt" && url.pathname === "/watch" ? url.searchParams.get("v") : url.pathname.split("/").filter(Boolean).at(-1)}`;
 }

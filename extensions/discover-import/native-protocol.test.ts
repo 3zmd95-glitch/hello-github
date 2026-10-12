@@ -75,6 +75,29 @@ describe("native connector sender and request boundaries", () => {
 });
 
 describe("returned card sanitization", () => {
+  it("bounds rolling snapshots at300 cards and deduplicates canonical post identities", () => {
+    const cards = Array.from({ length: 320 }, (_, index) => ({
+      url: `https://www.instagram.com/reel/Post${index}/`,
+    }));
+    const result = sanitizeNativeResults(
+      "ig",
+      [{ url: "https://www.instagram.com/p/Post0/" }, ...cards],
+      "now",
+    );
+    expect(result).toHaveLength(300);
+    expect(result[1].url).toBe("https://www.instagram.com/reel/Post1/");
+    expect(result.at(-1)?.position).toBe(300);
+    expect(
+      sanitizeNativeResults(
+        "yt",
+        [
+          { url: "https://www.youtube.com/shorts/abcdefghijk" },
+          { url: "https://www.youtube.com/watch?v=abcdefghijk" },
+        ],
+        "now",
+      ),
+    ).toHaveLength(1);
+  });
   it("accepts harmless native URL normalization but never a different or ambiguous query", () => {
     const expected = nativeSearchUrl("ig", "anime edit");
     expect(

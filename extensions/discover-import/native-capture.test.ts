@@ -108,6 +108,58 @@ it("caps initial collection at30, deduplicates tracking variants and scrolls onl
   expect(scrollBy).toHaveBeenCalledExactlyOnceWith({ top: 720, behavior: "instant" });
 });
 
+it("scans beyond more than90 known cards and skips the old trimmed prefix using the last result boundary", () => {
+  fixture(
+    Array.from(
+      { length: 160 },
+      (_, index) => `<a href="/reel/Post${index}/">Post ${index}</a>`,
+    ).join(""),
+  );
+  const result = collectNativeDiscoverCards("ig", igSearch, 30, false, {
+    knownUrls: Array.from(
+      { length: 100 },
+      (_, index) => `https://www.instagram.com/reel/Post${index + 20}/`,
+    ),
+    lastUrl: "https://www.instagram.com/reel/Post119/",
+  });
+  expect(result.results).toHaveLength(30);
+  expect(result.results[0].url).toBe("https://www.instagram.com/reel/Post120/");
+  expect(result.results.at(-1)!.url).toBe("https://www.instagram.com/reel/Post149/");
+  expect(result.lastUrl).toBe("https://www.instagram.com/reel/Post149/");
+  expect(scrollBy).not.toHaveBeenCalled();
+});
+
+it("continues when virtualization removes the previous boundary and all older cards", () => {
+  fixture(
+    Array.from({ length: 35 }, (_, index) => `<a href="/reel/Post${index + 150}/">Next</a>`).join(
+      "",
+    ),
+  );
+  const result = collectNativeDiscoverCards("ig", igSearch, 30, false, {
+    knownUrls: Array.from(
+      { length: 150 },
+      (_, index) => `https://www.instagram.com/reel/Post${index}/`,
+    ),
+    lastUrl: "https://www.instagram.com/reel/Post149/",
+  });
+  expect(result.results).toHaveLength(30);
+  expect(result.results[0].url).toBe("https://www.instagram.com/reel/Post150/");
+  expect(result.lastUrl).toBe("https://www.instagram.com/reel/Post179/");
+});
+
+it("deduplicates alternate public paths for the same Instagram post", () => {
+  fixture(
+    '<a href="/p/Same123/">Post</a><a href="/reel/Same123/">Reel</a><a href="/reel/New123/">New</a>',
+  );
+  const result = collectNativeDiscoverCards("ig", igSearch, 30, false, {
+    knownUrls: ["https://www.instagram.com/reel/Same123/"],
+    lastUrl: "https://www.instagram.com/reel/Same123/",
+  });
+  expect(result.results.map((item) => item.url)).toEqual([
+    "https://www.instagram.com/reel/New123/",
+  ]);
+});
+
 function scrollDimensions(id: string, height: number, contentHeight: number) {
   const element = document.getElementById(id)!;
   Object.defineProperties(element, {
@@ -116,6 +168,36 @@ function scrollDimensions(id: string, height: number, contentHeight: number) {
   });
   return element;
 }
+
+it("advances the nested pane to the latest collected result boundary rather than the old first viewport", () => {
+  fixture(
+    `<section id="results-pane" style="overflow-y:auto">${Array.from({ length: 100 }, (_, index) => `<a href="/reel/Post${index}/">Post ${index}</a>`).join("")}</section>`,
+  );
+  const pane = scrollDimensions("results-pane", 500, 12000);
+  for (const [index, anchor] of [...pane.querySelectorAll("a")].entries()) {
+    anchor.getBoundingClientRect = () => ({
+      top: index * 100,
+      bottom: (index + 1) * 100,
+      left: 0,
+      right: 100,
+      width: 100,
+      height: 100,
+      x: 0,
+      y: index * 100,
+      toJSON() {},
+    });
+  }
+  const result = collectNativeDiscoverCards("ig", igSearch, 30, true, {
+    knownUrls: Array.from(
+      { length: 60 },
+      (_, index) => `https://www.instagram.com/reel/Post${index}/`,
+    ),
+    lastUrl: "https://www.instagram.com/reel/Post59/",
+  });
+  expect(result.lastUrl).toBe("https://www.instagram.com/reel/Post89/");
+  expect(pane.scrollTop).toBe(8950);
+  expect(scrollBy).not.toHaveBeenCalled();
+});
 
 it("scrolls only the nearest visible results pane once on More and never on initial collection", () => {
   fixture(
