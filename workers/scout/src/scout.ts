@@ -28,6 +28,8 @@
  *                           UTC day; "0" since the TikTok tab reads TikTok's Discovery API, 2026-10-07)
  *   POST /tiktokads/connect → TikTok for Business's authorization page for the category pages' TikTok trends;
  *   GET  /oauth/tiktokads/callback (no bearer), GET /tiktokads/status (tiktokads.ts)
+ *   GET  /tiktokads/account/connect, /oauth/tiktokads/account/callback/ (no bearer), /tiktokads/account/status,
+ *        /tiktokads/music → TikTok's trending songs with a TikTok account token (tiktokAccount.ts)
  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
  *   /mcp, /authorize, /token, /register → served by index.ts (OAuth + MCP): the Claude connector
  *                           (discover/mcp.ts, discover/auth.ts)
@@ -58,6 +60,7 @@ import { handleGo } from "./social/replies";
 import { handleOAuthCallback, handleSocial, healthSocial } from "./social/routes";
 import type { SocialEnv } from "./social/store";
 import { handleTikTokAds, handleTikTokAdsCallback, type TikTokAdsEnv } from "./tiktokads";
+import { handleTikTokAccount, handleTikTokAccountCallback } from "./tiktokAccount";
 import { musicProbe } from "./tiktokMusicProbe";
 import { handleTrends, healthTrends } from "./trends/routes";
 import { TAVILY_URL } from "./trends/tavily";
@@ -510,6 +513,10 @@ export async function handle(
   if (pathname === "/oauth/tiktokads/callback" && req.method === "GET") {
     return handleTikTokAdsCallback(req, env, { fetch: deps.fetch, now: deps.now });
   }
+  // TikTok asks account redirect URLs to end with "/"; both spellings are served.
+  if (/^\/oauth\/tiktokads\/account\/callback\/?$/.test(pathname) && req.method === "GET") {
+    return handleTikTokAccountCallback(req, env, { fetch: deps.fetch, now: deps.now });
+  }
   const callback = pathname.match(/^\/oauth\/([a-z]+)\/callback$/);
   if (callback && req.method === "GET") {
     return handleOAuthCallback(req, env, callback[1], { fetch: deps.fetch, now: deps.now });
@@ -570,6 +577,11 @@ export async function handle(
     const out = await musicProbe(req, env, doFetch, deps.now?.() ?? new Date());
     return json(out.body, out.status, cors);
   }
+  const tiktokAccount = await handleTikTokAccount(req, env, cors, {
+    fetch: deps.fetch,
+    now: deps.now,
+  });
+  if (tiktokAccount) return tiktokAccount;
   const tiktokAds = await handleTikTokAds(req, env, cors, { now: deps.now });
   if (tiktokAds) return tiktokAds;
   const trends = await handleTrends(req, env, cors, { fetch: deps.fetch, now: deps.now });

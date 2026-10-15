@@ -13,6 +13,8 @@
  *                                        is a plain 400 { error: "state_invalid" }
  *   GET  /tiktokads/status               → { connected, advertisers } (Bearer; never the token)
  *   GET  /tiktokads/music-probe          → tiktokMusicProbe.ts (Bearer; read-only), routed in scout.ts
+ *   /tiktokads/account/*, /tiktokads/music → tiktokAccount.ts: the same app authorized by a TikTok *account*, for
+ *                                        the Commercial Music Library's trending songs
  *
  * KV (`SOCIAL_KV`): `tiktokads:state:<nonce>` { returnTo, createdAt } for 10 minutes, deleted when the callback takes it;
  * `tiktokads:token` the token, sealed as the social tokens are (social/crypto.ts, keyed on SCOUT_TOKEN: rotating it asks
@@ -59,7 +61,7 @@ export interface AdsToken {
   connectedAt: string;
 }
 
-function app(env: TikTokAdsEnv): { id: string; secret: string } | null {
+export function app(env: TikTokAdsEnv): { id: string; secret: string } | null {
   const id = env.TIKTOK_ADS_APP_ID?.trim();
   const secret = env.TIKTOK_ADS_SECRET?.trim();
   return id && secret ? { id, secret } : null;
@@ -110,26 +112,30 @@ export async function handleTikTokAds(
   return json({ url: url.toString() }, 200, cors);
 }
 
-/** Reads and deletes a state: a nonce is good exactly once. */
-async function takeState(
-  kv: KVNamespace,
-  nonce: string,
-): Promise<{ returnTo: string; createdAt: string } | null> {
-  const text = nonce ? await kv.get(keys.state(nonce), "text") : null;
+/** Reads and deletes a KV value: a state nonce is good exactly once. null when absent or not JSON. */
+export async function takeOnce(kv: KVNamespace, key: string): Promise<unknown> {
+  const text = await kv.get(key, "text");
   if (!text) return null;
-  await kv.delete(keys.state(nonce));
+  await kv.delete(key);
   try {
-    const s: unknown = JSON.parse(text);
-    return isRecord(s) && typeof s.returnTo === "string" && typeof s.createdAt === "string"
-      ? { returnTo: s.returnTo, createdAt: s.createdAt }
-      : null;
+    return JSON.parse(text) as unknown;
   } catch {
     return null;
   }
 }
 
+async function takeState(
+  kv: KVNamespace,
+  nonce: string,
+): Promise<{ returnTo: string; createdAt: string } | null> {
+  const s = nonce ? await takeOnce(kv, keys.state(nonce)) : null;
+  return isRecord(s) && typeof s.returnTo === "string" && typeof s.createdAt === "string"
+    ? { returnTo: s.returnTo, createdAt: s.createdAt }
+    : null;
+}
+
 /** `text` with none of `secrets` in it. */
-const hide = (text: string, secrets: string[]) =>
+export const hide = (text: string, secrets: string[]) =>
   secrets.reduce((t, s) => t.split(s).join("…"), text);
 
 /** `GET /oauth/tiktokads/callback?auth_code&state` (TikTok may say `code`): the owner's browser, no bearer. */
