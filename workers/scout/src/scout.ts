@@ -58,6 +58,7 @@ import { handleGo } from "./social/replies";
 import { handleOAuthCallback, handleSocial, healthSocial } from "./social/routes";
 import type { SocialEnv } from "./social/store";
 import { handleTikTokAds, handleTikTokAdsCallback, type TikTokAdsEnv } from "./tiktokads";
+import { musicProbe } from "./tiktokMusicProbe";
 import { handleTrends, healthTrends } from "./trends/routes";
 import { TAVILY_URL } from "./trends/tavily";
 import type { TrendsEnv } from "./trends/types";
@@ -565,6 +566,10 @@ export async function handle(
   if (creator) return creator;
   const social = await handleSocial(req, env, cors, { fetch: deps.fetch, now: deps.now });
   if (social) return social;
+  if (pathname === "/tiktokads/music-probe" && req.method === "GET") {
+    const out = await musicProbe(req, env, doFetch, deps.now?.() ?? new Date());
+    return json(out.body, out.status, cors);
+  }
   const tiktokAds = await handleTikTokAds(req, env, cors, { now: deps.now });
   if (tiktokAds) return tiktokAds;
   const trends = await handleTrends(req, env, cors, { fetch: deps.fetch, now: deps.now });
