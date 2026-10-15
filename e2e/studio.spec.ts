@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { SOCIAL_SEED_DAY } from "../data/social-seed";
 import { freshState, switchLang } from "./helpers";
 
 // The tier-2 DaVinci skill the mastery and map specs use; first in the seed, so it always shows up in the
@@ -9,14 +10,18 @@ const STORAGE_KEY = "3z-prod-v1";
 const fitsViewport = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
-/** Today's Riyadh day key, the way lib/streak computes it. */
-const riyadhToday = (): string =>
+/** Today's Riyadh day key, the way lib/streak computes it (`now`: a pinned browser clock's time). */
+const riyadhToday = (now = new Date()): string =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Riyadh",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date());
+  }).format(now);
+
+/** Noon in Riyadh 4 days after the Social Analytics seed (Beacons, Sep 27 2026): the inbox's stale-numbers row
+ * (14 days) shows from 2 weeks after the seed, so the all-clear inbox tests pin the browser clock here. */
+const SEED_WEEK = new Date(Date.parse(`${SOCIAL_SEED_DAY}T12:00:00+03:00`) + 4 * 86_400_000);
 
 /** Open the DaVinci skill's sheet from the Skills screen. */
 async function openSkillSheet(page: Page) {
@@ -34,6 +39,7 @@ async function openSkillSheet(page: Page) {
 test("fresh Studio: empty hero with a calendar CTA, empty week, all-clear inbox", async ({
   page,
 }) => {
+  await page.clock.setFixedTime(SEED_WEEK);
   await freshState(page, "/social/");
   await expect(page.getByTestId("studio-screen")).toBeVisible();
 
@@ -339,11 +345,12 @@ test("RTL and LTR both render the Studio without horizontal scroll", async ({ pa
 test("a post whose X step is due shows a manual inbox row that opens the hub's list", async ({
   page,
 }) => {
+  await page.clock.setFixedTime(SEED_WEEK);
   await freshState(page, "/social/");
   await expect(page.getByTestId("studio-inbox-empty")).toBeVisible();
 
   // Seed a TikTok post with X in its auto-post, planned for 00:00 today (Riyadh): its X step is due.
-  const at = new Date().toISOString();
+  const at = SEED_WEEK.toISOString();
   await page.evaluate(
     ([key, day, now]) => {
       const raw = localStorage.getItem(key);
@@ -379,7 +386,7 @@ test("a post whose X step is due shows a manual inbox row that opens the hub's l
       );
       localStorage.setItem(key, JSON.stringify(saved));
     },
-    [STORAGE_KEY, riyadhToday(), at] as const,
+    [STORAGE_KEY, riyadhToday(SEED_WEEK), at] as const,
   );
   await page.reload();
 
