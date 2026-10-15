@@ -12,6 +12,7 @@
  *                                        Bearer: the one-time state is the credential; a missing, wrong or used state
  *                                        is a plain 400 { error: "state_invalid" }
  *   GET  /tiktokads/status               → { connected, advertisers } (Bearer; never the token)
+ *   GET  /tiktokads/music-probe          → tiktokMusicProbe.ts (Bearer; read-only), routed in scout.ts
  *
  * KV (`SOCIAL_KV`): `tiktokads:state:<nonce>` { returnTo, createdAt } for 10 minutes, deleted when the callback takes it;
  * `tiktokads:token` the token, sealed as the social tokens are (social/crypto.ts, keyed on SCOUT_TOKEN: rotating it asks
