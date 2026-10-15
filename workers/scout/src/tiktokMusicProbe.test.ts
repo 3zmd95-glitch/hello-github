@@ -146,6 +146,59 @@ describe("GET /tiktokads/music-probe", () => {
     expect(attempts[2]).toMatchObject({ status: 0, code: null });
   });
 
+  it("with a TikTok account connected, adds the chart asked with its token and open_id (alone without an advertiser)", async () => {
+    const account = await encryptJson(SCOUT, {
+      access_token: "fake-account-access",
+      refresh_token: "r",
+      open_id: "open-123",
+      expires_at: "2026-10-16T00:00:00.000Z",
+      refresh_expires_at: "2027-10-15T00:00:00.000Z",
+      connectedAt: "2026-10-15T10:00:00.000Z",
+    });
+    const both = (ads: string | null) =>
+      ({
+        get: vi.fn(async (key: string) =>
+          key === "tiktokads:token" ? ads : key === "tiktokads:account" ? account : null,
+        ),
+        put: vi.fn(),
+        delete: vi.fn(),
+      }) as unknown as KVNamespace;
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      json({ code: 0, message: "OK open-123", data: { list: [TRACK] } }),
+    );
+    const res = await probe(env(both(TOKEN)), fetch);
+    const text = await res.text();
+    expect(text).not.toContain("open-123");
+    expect(text).not.toContain("fake-account-access");
+    const { attempts } = JSON.parse(text) as { attempts: Record<string, unknown>[] };
+    expect(attempts.map((a) => a.name)).toEqual([
+      "cml_trending_list",
+      "trending_list_MUSIC",
+      "trending_list_SONG",
+      "trending_list_HASHTAG_MUSIC",
+      "cml_trending_list_account",
+    ]);
+    expect(attempts[4]).toMatchObject({
+      params: { business_id: "<open_id>", genre: "ALL" },
+      code: 0,
+      count: 1,
+      message: "OK …",
+    });
+    const [url, init] = fetch.mock.calls[4];
+    expect(new URL(String(url)).searchParams.get("business_id")).toBe("open-123");
+    expect((init?.headers as Record<string, string>)["Access-Token"]).toBe("fake-account-access");
+    expect((fetch.mock.calls[0][1]?.headers as Record<string, string>)["Access-Token"]).toBe(
+      ACCESS,
+    );
+
+    fetch.mockClear();
+    const alone = await (
+      await probe(env(both(null)), fetch)
+    ).json<{ attempts: { name: string }[] }>();
+    expect(alone.attempts.map((a) => a.name)).toEqual(["cml_trending_list_account"]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("not connected (no token, one sealed with another SCOUT_TOKEN): 409 not_connected, nothing asked", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
     const other = await encryptJson("another", { access_token: ACCESS, advertiser_ids: ["adv1"] });

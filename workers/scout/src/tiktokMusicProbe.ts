@@ -10,23 +10,29 @@
  * - `/discovery/trending_list/` (id=1825119032526849): "Currently, we only support `HASHTAG`". Attempts 2 and 3 ask
  *   the undocumented `MUSIC` and `SONG` once each, to see it live.
  * - Attempt 4 is documented and works with our token: the popular hashtags of the `MUSIC` industry (song names often).
- * 4 calls, in parallel, one KV read. Every failure is data, never a throw. The token is never in the answer.
+ * - Attempt 5, `cml_trending_list_account`, only when a TikTok account is connected (tiktokAccount.ts): the same chart
+ *   with the account token and `business_id` = its open_id, as the docs ask. The stored token as it is: the probe
+ *   never renews it (an expired one shows TikTok's answer).
+ * 4–5 calls, in parallel, two KV reads. Every failure is data, never a throw. No token or id is in the answer.
  */
 
 import { CALL_TIMEOUT_MS } from "./discover/fetchers";
 import { isRecord } from "./effects/ai";
 import { getJson, withParams, type Reply } from "./categories/top";
 import { TT_TRENDING_URL } from "./categories/tiktok";
-import { readAdsToken, type TikTokAdsEnv } from "./tiktokads";
+import { hide, readAdsToken, type TikTokAdsEnv } from "./tiktokads";
+import { readAccountToken, TT_CML_TRENDING_URL } from "./tiktokAccount";
 
-export const TT_CML_TRENDING_URL =
-  "https://business-api.tiktok.com/open_api/v1.3/discovery/cml/trending_list/";
+export { TT_CML_TRENDING_URL };
+
 const COUNTRIES = ["SA", "US"];
 const RANGES: Record<string, string> = { "7": "7DAY", "30": "30DAY" };
 const ITEMS = 10;
 const MESSAGE_MAX = 200;
 /** Stands in for the advertiser id in the answer's params. */
 const ADVERTISER = "<advertiser_id>";
+/** Stands in for the TikTok account's open_id. */
+const OPEN_ID = "<open_id>";
 
 const str = (x: unknown) =>
   typeof x === "string" ? x : typeof x === "number" ? String(x) : undefined;
@@ -60,7 +66,7 @@ function attempt(
   endpoint: string,
   params: Record<string, string>,
   r: Reply,
-  token: string,
+  secrets: string[],
 ) {
   const body = isRecord(r.body) ? r.body : {};
   const data = isRecord(body.data) ? body.data : {};
@@ -72,9 +78,7 @@ function attempt(
     status: r.status,
     code: typeof body.code === "number" ? body.code : null,
     message:
-      typeof body.message === "string"
-        ? body.message.split(token).join("…").slice(0, MESSAGE_MAX)
-        : null,
+      typeof body.message === "string" ? hide(body.message, secrets).slice(0, MESSAGE_MAX) : null,
     count: list.length,
     items: list.slice(0, ITEMS).map(item),
   };
@@ -93,56 +97,71 @@ export async function musicProbe(
   if (!COUNTRIES.includes(country) || !dateRange)
     return { status: 400, body: { error: "bad_request" } };
   const fetchedAt = now.toISOString();
-  let token;
+  let token, account;
   try {
-    token = await readAdsToken(env);
+    [token, account] = await Promise.all([readAdsToken(env), readAccountToken(env)]);
   } catch {
     return { status: 502, body: { error: "upstream", fetchedAt } };
   }
   const advertiser = token?.advertiser_ids[0];
-  if (!token || !advertiser) return { status: 409, body: { error: "not_connected", fetchedAt } };
+  if (!advertiser && !account) return { status: 409, body: { error: "not_connected", fetchedAt } };
 
-  const plan: { name: string; url: string; params: Record<string, string> }[] = [
-    {
-      name: "cml_trending_list",
+  const plan: { name: string; url: string; params: Record<string, string> }[] = !advertiser
+    ? []
+    : [
+        {
+          name: "cml_trending_list",
+          url: TT_CML_TRENDING_URL,
+          params: {
+            business_id: ADVERTISER,
+            genre: "ALL",
+            country_code: country,
+            date_range: dateRange,
+          },
+        },
+        ...["MUSIC", "SONG"].map((type) => ({
+          name: `trending_list_${type}`,
+          url: TT_TRENDING_URL,
+          params: {
+            advertiser_id: ADVERTISER,
+            discovery_type: type,
+            country_code: country,
+            date_range: dateRange,
+          },
+        })),
+        {
+          name: "trending_list_HASHTAG_MUSIC",
+          url: TT_TRENDING_URL,
+          params: {
+            advertiser_id: ADVERTISER,
+            discovery_type: "HASHTAG",
+            category_name: "MUSIC",
+            country_code: country,
+            date_range: dateRange,
+          },
+        },
+      ];
+  if (account)
+    plan.push({
+      name: "cml_trending_list_account",
       url: TT_CML_TRENDING_URL,
-      params: {
-        business_id: ADVERTISER,
-        genre: "ALL",
-        country_code: country,
-        date_range: dateRange,
-      },
-    },
-    ...["MUSIC", "SONG"].map((type) => ({
-      name: `trending_list_${type}`,
-      url: TT_TRENDING_URL,
-      params: {
-        advertiser_id: ADVERTISER,
-        discovery_type: type,
-        country_code: country,
-        date_range: dateRange,
-      },
-    })),
-    {
-      name: "trending_list_HASHTAG_MUSIC",
-      url: TT_TRENDING_URL,
-      params: {
-        advertiser_id: ADVERTISER,
-        discovery_type: "HASHTAG",
-        category_name: "MUSIC",
-        country_code: country,
-        date_range: dateRange,
-      },
-    },
-  ];
-  const headers = { Accept: "application/json", "Access-Token": token.access_token };
+      params: { business_id: OPEN_ID, genre: "ALL", country_code: country, date_range: dateRange },
+    });
+  const secrets = [token?.access_token, account?.access_token, account?.open_id].filter(
+    (s): s is string => !!s,
+  );
   const attempts = await Promise.all(
     plan.map(async (p) => {
       const real = Object.fromEntries(
-        Object.entries(p.params).map(([k, v]) => [k, v === ADVERTISER ? advertiser : v]),
+        Object.entries(p.params).map(([k, v]) => [
+          k,
+          v === ADVERTISER ? advertiser! : v === OPEN_ID ? account!.open_id : v,
+        ]),
       );
+      const access = p.params.business_id === OPEN_ID ? account!.access_token : token!.access_token;
+      const headers = { Accept: "application/json", "Access-Token": access };
       const r = await getJson(doFetch, withParams(p.url, real), headers, timeoutMs);
-      return attempt(p.name, p.url, p.params, r, token.access_token);
+      return attempt(p.name, p.url, p.params, r, secrets);
     }),
   );
   return { status: 200, body: { country, dateRange, fetchedAt, attempts } };
