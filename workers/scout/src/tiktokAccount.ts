@@ -295,6 +295,10 @@ export async function handleTikTokAccount(
   url.searchParams.set("response_type", "code");
   url.searchParams.set("redirect_uri", `${origin}${ACCOUNT_CALLBACK_PATH}`);
   url.searchParams.set("state", nonce);
+  // A browser fetch with the bearer cannot follow a 302 into TikTok, so the dashboard asks for the link as JSON.
+  const u = new URL(req.url);
+  if (u.searchParams.get("format") === "json" || req.headers.get("Accept")?.includes("application/json"))
+    return json({ url: url.toString() }, 200, cors);
   return new Response(null, {
     status: 302,
     headers: { Location: url.toString(), ...Object.fromEntries(cors) },

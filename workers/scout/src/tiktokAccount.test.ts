@@ -129,6 +129,34 @@ describe("GET /tiktokads/account/connect", () => {
     expect(JSON.parse(kept.value)).toEqual({ createdAt: NOW.toISOString() });
   });
 
+  it("answers 200 { url } instead of redirecting for ?format=json and Accept: application/json", async () => {
+    const ORIGIN = "https://3zmd95-glitch.github.io";
+    for (const path of ["/tiktokads/account/connect?format=json", "/tiktokads/account/connect"]) {
+      const kv = fakeKV();
+      const res = await handle(
+        new Request(`${BASE}${path}`, {
+          headers: {
+            Authorization: `Bearer ${SCOUT}`,
+            Origin: ORIGIN,
+            ...(path.includes("format") ? {} : { Accept: "application/json" }),
+          },
+        }),
+        makeEnv(kv),
+        undefined,
+        { now: () => NOW },
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Location")).toBeNull();
+      expect(res.headers.get("Content-Type")).toContain("application/json");
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(ORIGIN);
+      const u = new URL(((await res.json()) as { url: string }).url);
+      expect(`${u.origin}${u.pathname}`).toBe(TT_ACCOUNT_AUTH_URL);
+      expect(u.searchParams.get("redirect_uri")).toBe(CALLBACK);
+      const state = u.searchParams.get("state")!;
+      expect(kv.store.get(`tiktokads:account-state:${state}`)!.ttl).toBe(600);
+    }
+  });
+
   it("needs the bearer and the app's secret", async () => {
     const kv = fakeKV();
     expect((await connect(makeEnv(kv), null)).status).toBe(401);
