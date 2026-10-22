@@ -78,7 +78,7 @@ export default function ThreadView({ conversation }: { conversation: InboxConver
       )}
       {thread && (
         <ol className="flex flex-col gap-3">
-          {[...thread.messages].reverse().map((m) => (
+          {thread.messages.map((m) => (
             <Bubble key={m.id} m={m} />
           ))}
         </ol>

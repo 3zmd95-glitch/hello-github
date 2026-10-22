@@ -66,8 +66,8 @@ const message = (id: string, at: string, sentBy: "peer" | "owner" | "auto", text
 });
 const THREAD = {
   conversation: conv(),
-  // The Worker answers the newest first.
-  messages: [message("m-2", T1, "auto", "أهلين"), message("m-1", T0, "peer", "هلا")],
+  // Each thread page comes oldest first; its `next` pages toward older messages (workers/scout/README.md).
+  messages: [message("m-1", T0, "peer", "هلا"), message("m-2", T1, "auto", "أهلين")],
   more: false,
   next: null,
   window: { open: true, closesAt: null },
@@ -275,9 +275,11 @@ describe("InboxScreen", () => {
     useStore.setState({ inboxSeen: {} });
     await mount();
     expect(all("inbox-new")).toHaveLength(0);
+    // ...and the oldest of them is where history ends (for the rows a "load more" brings later).
     expect(useStore.getState().inboxSeen).toEqual({
       "instagram:conversation:c1": T1,
       "instagram:post:m1": T0,
+      "inbox:firstRead": T0,
     });
 
     routes["GET /social/inbox/conversations"] = {
@@ -347,9 +349,15 @@ describe("InboxScreen", () => {
     const old = Object.fromEntries(
       Array.from({ length: 500 }, (_, i) => [`instagram:conversation:gone-${i}`, T0]),
     );
-    useStore.setState({ inboxSeen: { ...old, "instagram:conversation:c1": T0 } });
+    useStore.setState({
+      inboxSeen: { ...old, "instagram:conversation:c1": T0, "inbox:firstRead": T0 },
+    });
     await mount();
-    expect(useStore.getState().inboxSeen).toEqual({ "instagram:conversation:c1": T0 });
+    // Where history ends is kept too.
+    expect(useStore.getState().inboxSeen).toEqual({
+      "instagram:conversation:c1": T0,
+      "inbox:firstRead": T0,
+    });
 
     // At or under the cap nothing is dropped.
     resetInbox();
@@ -433,6 +441,69 @@ describe("InboxScreen", () => {
     expect(ids("inbox-post-row")).toEqual(["m1", "m0"]);
     expect(q("inbox-more-conversations")).toBeNull();
     expect(q("inbox-more-posts")).toBeNull();
+  });
+
+  it("rows a load-more brings from before the first read are history: seen on arrival", async () => {
+    useStore.setState({ inboxSeen: {} });
+    const OLD = "2026-10-21T10:00:00.000Z";
+    serve({
+      "GET /social/inbox/conversations": {
+        body: { conversations: [conv()], more: true, next: "cur1" },
+      },
+      "GET /social/inbox/conversations?before=cur1": {
+        body: {
+          conversations: [conv({ id: "c0", peerId: "p0", updatedAt: OLD })],
+          more: false,
+          next: null,
+        },
+      },
+      "GET /social/inbox/posts": { body: { posts: [POST], more: true, next: "pcur1" } },
+      "GET /social/inbox/posts?before=pcur1": {
+        body: { posts: [{ ...POST, id: "m0", postedAt: OLD }], more: false, next: null },
+      },
+    });
+    await mount();
+    expect(useStore.getState().inboxSeen["inbox:firstRead"]).toBe(T0);
+    act(() => q("inbox-more-conversations")!.click());
+    await settle();
+    act(() => q("inbox-more-posts")!.click());
+    await settle();
+    expect(ids("inbox-conversation")).toEqual(["c1", "c0"]);
+    expect(ids("inbox-post-row")).toEqual(["m1", "m0"]);
+    expect(all("inbox-new")).toHaveLength(0);
+    expect(useStore.getState().inboxSeen["instagram:conversation:c0"]).toBe(OLD);
+    expect(useStore.getState().inboxSeen["instagram:post:m0"]).toBe(OLD);
+  });
+
+  it("a load-more row newer than the first read keeps the usual rule", async () => {
+    // The first read (at T0) found nothing; c1 (T1) came after it, c0 before it.
+    useStore.setState({ inboxSeen: { "inbox:firstRead": T0 } });
+    serve({
+      "GET /social/inbox/conversations": {
+        body: {
+          conversations: [conv({ id: "c3", peerId: "p3", updatedAt: T2 })],
+          more: true,
+          next: "cur1",
+        },
+      },
+      "GET /social/inbox/conversations?before=cur1": {
+        body: {
+          conversations: [
+            conv(),
+            conv({ id: "c0", peerId: "p0", updatedAt: "2026-10-22T09:00:00.000Z" }),
+          ],
+          more: false,
+          next: null,
+        },
+      },
+    });
+    await mount();
+    act(() => q("inbox-more-conversations")!.click());
+    await settle();
+    const withChip = all("inbox-conversation")
+      .filter((r) => q("inbox-new", r))
+      .map((r) => r.getAttribute("data-id"));
+    expect(withChip).toEqual(["c3", "c1"]);
   });
 
   it("loads a thread's older messages with the Worker's cursor, on top", async () => {

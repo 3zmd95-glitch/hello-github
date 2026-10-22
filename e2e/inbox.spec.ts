@@ -516,12 +516,9 @@ test("Load older asks for the next page with the Worker's own cursor and adds it
   expect(await fitsViewport(page)).toBe(true);
 });
 
-// Task 6 defect, found while writing this spec: the Worker answers every thread page OLDEST first and `next` pages
-// toward OLDER messages (workers/scout/README.md, "Global inbox"), but ThreadView reverses the page and useThread
-// appends an older page after the loaded ones (both assume newest first), so a thread reads newest-first and a
-// second page lands in the middle. Expected to fail until those two are fixed; then delete the `test.fail` line.
+// The Worker answers every thread page oldest first, and `next` pages toward older messages
+// (workers/scout/README.md, "Global inbox").
 test("a thread reads oldest to newest, and older messages land above", async ({ page }) => {
-  test.fail(true, "Task 6: ThreadView/useThread take the Worker's thread pages for newest-first");
   const fake = await stubWorker(page);
   fake.threadOlder = THREAD_OLDER;
   await freshState(page, "/settings/");

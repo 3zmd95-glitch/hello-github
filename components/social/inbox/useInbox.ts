@@ -48,7 +48,11 @@ const REFRESH_WAIT_MS = 3_000;
 const SEEN_CAP = 500;
 /** A webhook's conversation id before the reader learns the real thread id: "peer:" + the sender's id. */
 const PROVISIONAL = "peer:";
-/** Kept by a first read that found nothing, so the next read is not taken for the first one. */
+/**
+ * Where history ends, written by the very first read: the oldest item it found (or, finding nothing, its own
+ * time). It also keeps the next read from being taken for the first one, and a "load more" row from before it
+ * is history, seen on arrival.
+ */
 const FIRST_READ_KEY = "inbox:firstRead";
 
 const IDLE: InboxState = {
@@ -156,7 +160,8 @@ function markLoaded(conversations: InboxConversation[], posts: InboxPost[]): voi
   if (Object.keys(seen).length === 0) {
     const items = [...conversations.map(conversationSeen), ...posts.map(postSeen)];
     for (const { key, at } of items) store.markInboxSeen(key, at);
-    if (items.length === 0) store.markInboxSeen(FIRST_READ_KEY, new Date().toISOString());
+    const oldest = items.map((i) => i.at).sort()[0];
+    store.markInboxSeen(FIRST_READ_KEY, oldest ?? new Date().toISOString());
     return;
   }
   for (const c of conversations) {
@@ -202,13 +207,21 @@ export function loadInbox({ quiet = false }: { quiet?: boolean } = {}): Promise<
     });
     const store = useStore.getState();
     if (Object.keys(store.inboxSeen).length > SEEN_CAP)
-      store.pruneInboxSeen(
-        [...conversations.map(conversationSeen), ...posts.map(postSeen)].map((i) => i.key),
-      );
+      store.pruneInboxSeen([
+        FIRST_READ_KEY,
+        ...[...conversations.map(conversationSeen), ...posts.map(postSeen)].map((i) => i.key),
+      ]);
   })().finally(() => {
     inflight = null;
   });
   return inflight;
+}
+
+/** Rows a "load more" brings from before the first read are history: seen on arrival, never "new". */
+function markHistory(items: { key: string; at: string }[]): void {
+  const store = useStore.getState();
+  const end = store.inboxSeen[FIRST_READ_KEY];
+  if (end) for (const { key, at } of items) if (at <= end) store.markInboxSeen(key, at);
 }
 
 export async function loadMoreConversations(): Promise<void> {
@@ -220,6 +233,7 @@ export async function loadMoreConversations(): Promise<void> {
   if (!r.ok) return fail(r.error);
   extended.conversations = true;
   next.conversations = r.next;
+  markHistory(r.conversations.map(conversationSeen));
   set({
     conversations: byPeer([...state.conversations, ...r.conversations]),
     moreConversations: r.more && !!r.next,
@@ -236,6 +250,7 @@ export async function loadMorePosts(): Promise<void> {
   if (!r.ok) return fail(r.error);
   extended.posts = true;
   next.posts = r.next;
+  markHistory(r.posts.map(postSeen));
   set({ posts: byPost([...state.posts, ...r.posts]), morePosts: r.more && !!r.next, busy: false });
 }
 
@@ -302,7 +317,7 @@ export function useInboxPoll(enabled: boolean): void {
 type Page = { more: boolean; next: string | null };
 export type ThreadData = {
   conversation: InboxConversation;
-  /** Newest first, as the Worker answers; the view turns them around. */
+  /** Oldest first, as the Worker answers each page; an older page goes in front. */
   messages: InboxMessage[];
   window: { open: boolean; closesAt: string | null };
 } & Page;
@@ -381,7 +396,7 @@ function usePaged<T extends Page>(
 
 const olderMessages = (have: ThreadData, page: ThreadData): ThreadData => ({
   ...have,
-  messages: [...have.messages, ...page.messages],
+  messages: [...page.messages, ...have.messages],
   more: page.more,
   next: page.next,
 });
