@@ -979,7 +979,7 @@ git commit -m "Inbox step C: client, schemas, seen marks and copy"
 export interface InboxState { overview: InboxOverview | null; conversations: InboxConversation[]; posts: InboxPost[]; moreConversations: boolean; morePosts: boolean;
   loadedAt: number | null; busy: boolean; error: InboxError | null }
 export function useInbox(): InboxState & { configured: boolean };
-export async function loadInbox(opts?: { quiet?: boolean }): Promise<void>;   // overview + first pages (3 calls)
+export async function loadInbox(opts?: { quiet?: boolean; now?: Date }): Promise<void>; // overview + first pages (3 calls); `now` = the first-read boundary (test hook)
 export async function loadMoreConversations(): Promise<void>; export async function loadMorePosts(): Promise<void>;
 export async function refreshInbox(): Promise<void>;                         // POST refresh, then loadInbox after 3 s
 export function useInboxPoll(enabled: boolean): void;                        // setInterval INBOX_POLL_MS while document.visibilityState === "visible"; one load on visibilitychange

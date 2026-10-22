@@ -127,3 +127,18 @@ Retention runs on each reader tick: drop conversations beyond 200, posts beyond 
 AI reply suggestions, quick replies, photos / link buttons, YouTube and Threads, likes / pins / bulk actions, WhatsApp
 (the ONUS/Hatif project), TikTok DMs and TikTok auto DMs (Business accounts only), message search, assigning
 conversations.
+
+## Build decisions (Oct 23, 2026, steps A–E built on `claude/global-inbox`)
+
+Settled while building, where the code and the text above differ the code follows these:
+
+- **Paging**: every list answers `{ items, more, next }` with an opaque keyset cursor `next` = `"<ts>|<id>"` (ties broken by id); the dashboard passes it back as `?before=`. Timestamps are ISO `Z` everywhere.
+- **Reader budget per off-grid tick**: ≤ 48 subrequests in the worst case (Graph + KV + Durable Object calls), pinned by tests; retention runs hourly, not per tick; comments are requested with `hidden`.
+- **"New" marks**: the moment of the dashboard's first read of the inbox (`inbox:firstRead`) is the history boundary; everything older is shown read, paged history is marked seen as it loads.
+- **A message's `sentBy` is fixed on first sight** (`COALESCE(existing, new)`): the dashboard writes its own DM row and the auto-reply poll logs its send before the reader can see the message, so the reader's later guess never relabels them.
+- **Sends** (Worker): exactly one Graph call per send after all checks (text, limit, window, stored target, `ours` for delete); a Graph refusal is recorded `refused` and answered with Meta's code; a network throw, a 3xx/5xx, or an answer without an id is recorded `unconfirmed` and answered `502 { error: "upstream", detail: "unconfirmed" }`. A store fault after Instagram accepted is only logged (never a second send). Hide and delete write no `sends` row; deleting a comment also drops its stored replies; a reply to a reply is stored under the top-level comment (Instagram nests it there).
+- **Sends** (dashboard): a `network` failure, a non-JSON answer (a Cloudflare edge page) or a 2xx with an unexpected body also reads as unconfirmed — the text stays and the copy says to check the thread before sending again; identical text to the same target while a send is in flight joins that request (one tab). One reply box per comment; Reply / Reply privately switch its mode without losing the draft. No reply controls on TikTok rows until step G; no "Reply privately" on our own comments.
+- **Counter copy**: "About {n} left" (bytes for DMs and private replies, characters for comments) — no unit, because Arabic letters cost two bytes.
+- **Wipe**: "Delete stored messages" clears the store; while Instagram stays connected the reader refills the latest page within a minute, and the dialog says so. The legal pages carry the date of their last text change.
+- **Webhooks**: `GET/POST /webhooks/instagram` sit before the bearer check (Meta's HMAC-SHA256 of the raw body is the credential, constant-time compare, `401` counted in `webhook:rejected`). Own echoes, own comments, non-`comments` fields and read/reaction events are skipped — the reader brings our own rows in with the right marks. Inbox route ids accept `peer:<id>` and are percent-decoded. A placeholder post is written only when the post is unknown; the next media read fills it.
+- **TikTok**: DMs and auto-DMs need a Business account and Meta-style review — ruled out while @3z.prod stays Personal; comments (read, reply, hide, delete) wait for the Accounts API scope, steps F/G in a later plan.
