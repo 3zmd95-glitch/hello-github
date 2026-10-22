@@ -7,9 +7,12 @@
  *   POST /webhooks/instagram   a signed event: `X-Hub-Signature-256: sha256=<HMAC-SHA256 of the raw body, META_APP_SECRET>`
  *
  * Neither route carries the bearer (Meta cannot send one): the signature is the credential, so scout.ts serves them
- * before its bearer check. A forged event answers `401` and bumps the store's `webhook:rejected` counter. A signed event
- * becomes one `ingest` (all entries together) and `200 { received }`; a store fault answers `500` so Meta delivers the
- * event again. No KV is touched, and the logs carry counts only, never a body or a secret.
+ * before its bearer check. A request without the header is refused untouched (no body read, no store call); a body
+ * over MAX_BODY is `413`; a wrong signature answers `401` and bumps the store's `webhook:rejected` counter. A signed
+ * event becomes one `ingest` (all entries together) and `200 { received }`; a store fault answers `500` so Meta delivers
+ * the event again, while a payload this file cannot read answers `200 { received: 0 }` (a retry would never fix it, and
+ * a run of failures can make Meta disable the subscription). No KV is touched, and the logs carry counts only, never a
+ * body or a secret.
  *
  * Provisional ids. A webhook names the person (`sender.id`), not the thread, so its conversation is `peer:<sender id>`;
  * the reader's next tick stores the real thread and the dashboard merges the two rows by `peerId` (useInbox.ts).
@@ -31,8 +34,10 @@ import type { SocialEnv } from "./store";
 import { safeEqual } from "../scout";
 
 const PATH = "/webhooks/instagram";
-/** The store's count of events refused for a bad or missing signature. */
+/** The store's count of events refused for a wrong signature. */
 const REJECTED_KEY = "webhook:rejected";
+/** Instagram's events are a few kilobytes; a body over 1 MB is refused before any crypto. */
+export const MAX_BODY = 1_048_576;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -56,42 +61,66 @@ async function signatureOf(secret: string, raw: ArrayBuffer): Promise<string> {
 /** Instagram sends `+0000` offsets and epoch numbers; the store compares `Z` strings (inboxDb.ts retain). */
 const iso = (ms: number) => new Date(ms).toISOString();
 
-/** The parts of Instagram's webhook payload this file reads; everything is optional because the payload is data. */
+/** The parts of Instagram's webhook payload this file reads; every level may be missing or null because it is data. */
+type Id = string | number;
 interface Payload {
   object?: string;
-  entry?: {
-    id?: string;
-    time?: number;
-    messaging?: {
-      sender?: { id?: string };
-      timestamp?: number;
-      message?: {
-        mid?: string;
-        text?: string;
-        is_unsupported?: boolean;
-        attachments?: unknown[];
-      };
-    }[];
-    changes?: {
-      field?: string;
-      value?: {
-        id?: string;
-        text?: string;
-        from?: { id?: string; username?: string };
-        media?: { id?: string };
-        parent_id?: string;
-        timestamp?: number | string;
-      };
-    }[];
-  }[];
+  entry?:
+    | ({
+        id?: Id;
+        time?: number;
+        messaging?:
+          | ({
+              sender?: { id?: Id };
+              timestamp?: number;
+              message?: {
+                mid?: Id;
+                text?: unknown;
+                is_unsupported?: boolean;
+                attachments?: unknown[];
+              };
+            } | null)[]
+          | null;
+        changes?:
+          | ({
+              field?: string;
+              value?: {
+                id?: Id;
+                text?: unknown;
+                from?: { id?: Id; username?: unknown };
+                media?: { id?: Id };
+                parent_id?: Id;
+                timestamp?: number | string;
+              } | null;
+            } | null)[]
+          | null;
+      } | null)[]
+    | null;
+}
+
+/** An id as the text we compare and store: Meta sends strings, a number is read as its digits, anything else is none. */
+const idOf = (v: unknown): string =>
+  typeof v === "string" || typeof v === "number" ? String(v) : "";
+const strOf = (v: unknown): string => (typeof v === "string" ? v : "");
+const listOf = <T>(v: T[] | null | undefined): T[] => (Array.isArray(v) ? v : []);
+
+/**
+ * An event's time as epoch ms: now when it has none (or an unreadable one), null when it is a number no date can hold
+ * (the event is then skipped, since the store compares dates as text).
+ */
+function whenOf(v: string | number | undefined, now: Date): number | null {
+  const ms = toMs(v);
+  if (Number.isNaN(ms)) return now.getTime();
+  return Number.isFinite(new Date(ms).getTime()) ? ms : null;
 }
 
 /**
  * The rows of a webhook payload: a person's message and its provisional conversation, a comment and a placeholder post
  * for the post it is under (the caller drops the placeholders of posts the store knows; the reader's next media read
  * fills the rest). Our own echoes and comments, the read / reaction / postback / referral events, a message with nothing
- * to show and every field but `comments` are skipped (the reader brings in what we sent, with the right `sentBy`).
- * `readAt` stays unset: only the reader's reads say how fresh the page is.
+ * to show, an event with an impossible time and every field but `comments` are skipped (the reader brings in what we
+ * sent, with the right `sentBy`). `readAt` stays unset: only the reader's reads say how fresh the page is. It reads
+ * whatever shape the payload has and may still throw (a date near the edge of what a Date holds); the caller catches.
  */
 export function webhookToBatch(payload: unknown, now: Date): IngestBatch {
   const p = (payload ?? {}) as Payload;
@@ -99,27 +128,29 @@ export function webhookToBatch(payload: unknown, now: Date): IngestBatch {
   const messages: MessageRow[] = [];
   const posts = new Map<string, PostRow>();
   const comments: CommentRow[] = [];
-  for (const entry of Array.isArray(p.entry) ? p.entry : []) {
-    for (const ev of entry.messaging ?? []) {
-      const m = ev.message;
-      const sender = ev.sender?.id;
-      if (!m?.mid || !sender || sender === entry.id) continue;
+  for (const entry of listOf(p.entry)) {
+    const owner = idOf(entry?.id);
+    for (const ev of listOf(entry?.messaging)) {
+      const m = ev?.message;
+      const mid = idOf(m?.mid);
+      const sender = idOf(ev?.sender?.id);
+      if (!m || !mid || !sender || sender === owner) continue;
       const kind = m.is_unsupported
         ? "unsupported"
         : typeof m.text === "string"
           ? "text"
-          : m.attachments?.length
+          : listOf(m.attachments).length
             ? "share"
             : null;
-      if (!kind) continue;
-      const ms = toMs(ev.timestamp ?? entry.time);
-      const at = iso(Number.isFinite(ms) ? ms : now.getTime());
-      const text = kind === "text" ? clipLog(m.text) : "";
+      const ms = whenOf(ev?.timestamp ?? entry?.time, now);
+      if (!kind || ms === null) continue;
+      const at = iso(ms);
+      const text = kind === "text" ? clipLog(strOf(m.text)) : "";
       const convId = `peer:${sender}`;
       messages.push({
         platform: "instagram",
         convId,
-        id: m.mid,
+        id: mid,
         at,
         fromPeer: true,
         text,
@@ -140,27 +171,31 @@ export function webhookToBatch(payload: unknown, now: Date): IngestBatch {
           answeredBy: null,
         });
     }
-    for (const change of entry.changes ?? []) {
-      const c = change.value;
-      if (change.field !== "comments" || !c?.id || !c.media?.id || c.from?.id === entry.id)
-        continue;
-      const ms = toMs(c.timestamp ?? entry.time);
+    for (const change of listOf(entry?.changes)) {
+      const c = change?.value;
+      const id = idOf(c?.id);
+      const postId = idOf(c?.media?.id);
+      const fromId = idOf(c?.from?.id);
+      if (change?.field !== "comments" || !c || !id || !postId) continue;
+      if (fromId && fromId === owner) continue;
+      const ms = whenOf(c.timestamp ?? entry?.time, now);
+      if (ms === null) continue;
       comments.push({
         platform: "instagram",
-        postId: c.media.id,
-        id: c.id,
-        parentId: c.parent_id ?? null,
-        at: iso(Number.isFinite(ms) ? ms : now.getTime()),
-        author: c.from?.username ?? "",
-        authorId: c.from?.id ?? null,
-        text: clipLog(c.text),
+        postId,
+        id,
+        parentId: idOf(c.parent_id) || null,
+        at: iso(ms),
+        author: strOf(c.from?.username),
+        authorId: fromId || null,
+        text: clipLog(strOf(c.text)),
         hidden: false,
         ours: false,
         sentBy: null,
       });
-      posts.set(c.media.id, {
+      posts.set(postId, {
         platform: "instagram",
-        id: c.media.id,
+        id: postId,
         caption: "",
         permalink: "",
         thumbUrl: null,
@@ -216,14 +251,16 @@ export async function handleWebhooks(
   }
   if (req.method !== "POST") return null;
 
+  // Nothing is read, hashed or stored for a body that is too big or carries no signature at all.
+  if (Number(req.headers.get("Content-Length")) > MAX_BODY)
+    return json({ error: "bad_request" }, 413);
+  const given = req.headers.get("X-Hub-Signature-256");
+  if (given === null) return json({ error: "bad_signature" }, 401);
+
   const api = deps.api ?? inboxApi(env);
   const raw = await req.arrayBuffer();
-  const given = req.headers.get("X-Hub-Signature-256");
-  if (
-    !env.META_APP_SECRET ||
-    !given ||
-    !safeEqual(given, await signatureOf(env.META_APP_SECRET, raw))
-  ) {
+  if (raw.byteLength > MAX_BODY) return json({ error: "bad_request" }, 413);
+  if (!env.META_APP_SECRET || !safeEqual(given, await signatureOf(env.META_APP_SECRET, raw))) {
     const rejected = await countRejection(api);
     console.log(JSON.stringify({ webhook: "instagram", rejected }));
     return json({ error: "bad_signature" }, 401);
@@ -238,22 +275,41 @@ export async function handleWebhooks(
   if (payload?.object !== "instagram") return json({ received: 0 });
   if (!api) return json({ error: "not_available" }, 503);
 
+  const entries = Array.isArray(payload.entry) ? payload.entry.length : 0;
+  let batch: IngestBatch;
   try {
-    const batch = webhookToBatch(payload, deps.now?.() ?? new Date());
-    const messages = batch.messages?.length ?? 0;
-    const comments = batch.comments?.length ?? 0;
-    if (messages + comments) {
-      // The reader's media read replaces a post row, so a placeholder goes only where the store has no such post.
-      // ponytail: check, then write; a post the reader stores in between is overwritten by its placeholder until the
-      // next media read. An ingest that keeps a stored post would close the gap.
-      const unknown: PostRow[] = [];
-      for (const post of batch.posts ?? [])
-        if (!(await api.comments("instagram", post.id, { limit: 1 }))) unknown.push(post);
-      await api.ingest({ ...batch, posts: unknown });
-    }
-    const entries = Array.isArray(payload.entry) ? payload.entry.length : 0;
-    console.log(JSON.stringify({ webhook: "instagram", entries, messages, comments }));
-    return json({ received: messages + comments });
+    batch = webhookToBatch(payload, deps.now?.() ?? new Date());
+  } catch {
+    // Signed by Meta but unreadable: answered as received, since sending it again changes nothing.
+    console.log(JSON.stringify({ webhook: "instagram", entries, error: "unreadable" }));
+    return json({ received: 0 });
+  }
+
+  try {
+    const messages = batch.messages ?? [];
+    // A redelivered comment is not written again: the store may hold it hidden (or answered), and an upsert would undo that.
+    const comments: CommentRow[] = [];
+    for (const c of batch.comments ?? [])
+      if (!(await api.comment("instagram", c.id))) comments.push(c);
+    // The reader's media read replaces a post row, so a placeholder goes only where the store has no such post.
+    // ponytail: check, then write; a post the reader stores in between is overwritten by its placeholder until the
+    // next media read. An ingest that keeps a stored post would close the gap.
+    const posts: PostRow[] = [];
+    const wanted = new Set(comments.map((c) => c.postId));
+    for (const post of batch.posts ?? [])
+      if (wanted.has(post.id) && !(await api.comments("instagram", post.id, { limit: 1 })))
+        posts.push(post);
+    if (messages.length + comments.length)
+      await api.ingest({ conversations: batch.conversations, messages, posts, comments });
+    console.log(
+      JSON.stringify({
+        webhook: "instagram",
+        entries,
+        messages: messages.length,
+        comments: comments.length,
+      }),
+    );
+    return json({ received: messages.length + comments.length });
   } catch {
     // The error itself stays out of the log: a store error may quote what it was writing.
     console.log(JSON.stringify({ webhook: "instagram", error: "upstream" }));

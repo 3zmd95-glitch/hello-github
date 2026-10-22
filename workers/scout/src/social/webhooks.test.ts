@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { handle, type Env } from "../scout";
 import { InboxDb, type InboxApi, type PostRow, type Sql } from "./inboxDb";
 import { clipLog } from "./replyCore";
-import { webhookToBatch } from "./webhooks";
+import { MAX_BODY, webhookToBatch } from "./webhooks";
 
 const SECRET = "app-secret";
 const VERIFY = "verify-me";
@@ -371,16 +371,29 @@ describe.skipIf(!available)("Instagram webhooks", () => {
       expect((await api.overview()).counts).toEqual({ conversations: 0, posts: 0, comments: 0 });
     });
 
-    it("answers 401 to a missing or malformed signature header", async () => {
+    it("answers 401 to an empty or malformed signature header and counts it as a wrong signature", async () => {
       const api = freshDb();
       const payload = hook({ messaging: [dm("p1", "mid.1", { text: "hi" })] });
       const body = JSON.stringify(payload);
 
-      expect((await send(signed(payload, null), makeEnv(), api)).status).toBe(401);
       expect((await send(signed(payload, ""), makeEnv(), api)).status).toBe(401);
       // The digest without its "sha256=" prefix is not the header Meta sends.
       expect((await send(signed(payload, sign(body).slice(7)), makeEnv(), api)).status).toBe(401);
-      expect(await rejected(api)).toBe("3");
+      expect(await rejected(api)).toBe("2");
+    });
+
+    it("answers 401 to a request without the header and does not touch the store (nothing to count)", async () => {
+      const api = freshDb();
+      const calls = [vi.spyOn(api, "getMeta"), vi.spyOn(api, "setMeta"), vi.spyOn(api, "ingest")];
+      const payload = hook({ messaging: [dm("p1", "mid.1", { text: "hi" })] });
+
+      const res = await send(signed(payload, null), makeEnv(), api);
+
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "bad_signature" });
+      for (const call of calls) expect(call).not.toHaveBeenCalled();
+      expect(log).not.toHaveBeenCalled();
+      expect(await rejected(api)).toBeNull();
     });
 
     it("answers 401 to everything while META_APP_SECRET is not set, even a signature made with an empty secret", async () => {
@@ -461,6 +474,186 @@ describe.skipIf(!available)("Instagram webhooks", () => {
     });
   });
 
+  describe("POST /webhooks/instagram: odd payloads, redeliveries and big bodies", () => {
+    const counts = async (api: InboxApi) => (await api.overview()).counts;
+    const nothing = { conversations: 0, posts: 0, comments: 0 };
+    const ok0 = async (res: Response) => {
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ received: 0 });
+    };
+
+    it("answers received 0 to a payload of odd shape (null entries, lists that are objects), never an error", async () => {
+      const api = freshDb();
+      for (const entry of [
+        [null],
+        "nope",
+        [{ id: IG, messaging: [null] }],
+        [{ id: IG, messaging: {} }],
+        [{ id: IG, messaging: [{ sender: null, message: null }] }],
+        [{ id: IG, changes: [null, { field: "comments", value: null }, { field: "comments" }] }],
+      ])
+        await ok0(await send(signed({ object: "instagram", entry }), makeEnv(), api));
+      expect(await counts(api)).toEqual(nothing);
+    });
+
+    it("skips an event whose time no date can hold and a message whose text is not a string", async () => {
+      const api = freshDb();
+      const body = hook({
+        messaging: [dm("p1", "mid.far", { text: "x" }, 1e17), dm("p1", "mid.num", { text: 5 })],
+        changes: [commentChange(comment("c1", { timestamp: 1e17 }))],
+      });
+
+      await ok0(await send(signed(body), makeEnv(), api));
+
+      expect(await counts(api)).toEqual(nothing);
+    });
+
+    it("answers received 0 when the mapping itself throws, and the log carries counts only", async () => {
+      // The last millisecond a Date holds: the event can be dated, its 24-hour window cannot.
+      const edge = 8.64e15 - 1000;
+      const api = freshDb();
+      const body = hook({ messaging: [dm("p1", "mid.edge", { text: "private words" }, edge)] });
+
+      await ok0(await send(signed(body), makeEnv(), api));
+
+      expect(await counts(api)).toEqual(nothing);
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      expect(lines.map((l) => JSON.parse(l))).toEqual([
+        { webhook: "instagram", entries: 1, error: "unreadable" },
+      ]);
+      expect(lines.join(" ")).not.toContain("private words");
+    });
+
+    it("compares ids as text: a numeric entry id still recognises our echo and our comment", async () => {
+      const api = freshDb();
+      const body = {
+        object: "instagram",
+        entry: [
+          {
+            id: 123,
+            time: T0,
+            messaging: [
+              { sender: { id: "123" }, timestamp: T0, message: { mid: "mid.echo", text: "ours" } },
+              { sender: { id: 456 }, timestamp: T0, message: { mid: "mid.p", text: "hi" } },
+            ],
+            changes: [
+              commentChange(comment("c-own", { from: { id: 123, username: "3z.prod" } })),
+              commentChange(comment("c2", { from: { id: 789, username: "ali" } })),
+            ],
+          },
+        ],
+      };
+
+      const res = await send(signed(body), makeEnv(), api);
+
+      expect(await res.json()).toEqual({ received: 2 });
+      expect(await api.thread("instagram", "peer:123", {})).toBeNull();
+      expect((await api.thread("instagram", "peer:456", {}))?.conversation.peerId).toBe("456");
+      expect(await api.comment("instagram", "c-own")).toBeNull();
+      expect(await api.comment("instagram", "c2")).toMatchObject({
+        authorId: "789",
+        author: "ali",
+      });
+    });
+
+    it("does not write a redelivered comment again: a hidden comment stays hidden and keeps its author", async () => {
+      const api = freshDb();
+      await api.ingest({
+        posts: [post("p1")],
+        comments: [
+          {
+            platform: "instagram",
+            postId: "p1",
+            id: "c1",
+            parentId: null,
+            at: "2026-10-22T09:00:00.000Z",
+            author: "ali",
+            authorId: "u1",
+            text: "original",
+            hidden: true,
+            ours: false,
+            sentBy: null,
+          },
+        ],
+      });
+      const ingest = vi.spyOn(api, "ingest");
+      const again = comment("c1", { text: "edited", from: { id: "u9", username: "someone" } });
+
+      await ok0(await send(signed(hook({ changes: [commentChange(again)] })), makeEnv(), api));
+
+      expect(ingest).not.toHaveBeenCalled();
+      expect(await api.comment("instagram", "c1")).toMatchObject({
+        hidden: true,
+        text: "original",
+        author: "ali",
+        authorId: "u1",
+      });
+
+      // A known and a new comment in one request: only the new one is written and counted.
+      const mixed = hook({ changes: [commentChange(again), commentChange(comment("c2"))] });
+      const res = await send(signed(mixed), makeEnv(), api);
+      expect(await res.json()).toEqual({ received: 1 });
+      expect(ingest).toHaveBeenCalledTimes(1);
+      expect(await api.comment("instagram", "c1")).toMatchObject({ hidden: true });
+      expect(await api.comment("instagram", "c2")).toMatchObject({ hidden: false });
+    });
+
+    it("takes a redelivered message in again without doubling it (messages upsert, so it counts as received)", async () => {
+      const api = freshDb();
+      const body = hook({ messaging: [dm("p1", "mid.1", { text: "hi" })] });
+
+      for (let i = 0; i < 2; i++) {
+        const res = await send(signed(body), makeEnv(), api);
+        expect(await res.json()).toEqual({ received: 1 });
+      }
+
+      expect((await api.thread("instagram", "peer:p1", {}))?.messages.items).toHaveLength(1);
+      expect((await counts(api)).conversations).toBe(1);
+    });
+
+    it("verifies the raw bytes: a pretty-printed body signed as sent is stored, one signed as compact JSON is refused", async () => {
+      const api = freshDb();
+      const payload = hook({ messaging: [dm("p1", "mid.1", { text: "hi" })] });
+      const pretty = JSON.stringify(payload, null, 2);
+
+      const stored = await send(signed(pretty), makeEnv(), api);
+      expect(stored.status).toBe(200);
+      expect(await stored.json()).toEqual({ received: 1 });
+      expect((await api.thread("instagram", "peer:p1", {}))?.messages.items).toHaveLength(1);
+
+      const reserialised = await send(
+        signed(pretty, sign(JSON.stringify(payload))),
+        makeEnv(),
+        api,
+      );
+      expect(reserialised.status).toBe(401);
+    });
+
+    it("refuses a body over 1 MB before any crypto: by its Content-Length and by the bytes read", async () => {
+      const api = freshDb();
+      const hmac = vi.spyOn(crypto.subtle, "sign");
+      const declared = new Request(`${BASE}/webhooks/instagram`, {
+        method: "POST",
+        body: "{}",
+        headers: { "Content-Length": String(MAX_BODY + 1), "X-Hub-Signature-256": "sha256=00" },
+      });
+
+      const first = await send(declared, makeEnv(), api);
+      expect(first.status).toBe(413);
+      expect(await first.json()).toEqual({ error: "bad_request" });
+
+      // Even a correctly signed body is refused once it is over the cap.
+      const second = await send(signed("x".repeat(MAX_BODY + 1)), makeEnv(), api);
+      expect(second.status).toBe(413);
+      expect(await second.json()).toEqual({ error: "bad_request" });
+
+      expect(hmac).not.toHaveBeenCalled();
+      expect(await api.getMeta("webhook:rejected")).toBeNull();
+      // Exactly the cap is read and checked (it is not JSON, so it stops at 400).
+      expect((await send(signed("x".repeat(MAX_BODY)), makeEnv(), api)).status).toBe(400);
+    });
+  });
+
   describe("webhookToBatch", () => {
     it("builds the rows without touching readAt", () => {
       const batch = webhookToBatch(hook({ messaging: [dm("p1", "mid.1", { text: "hi" })] }), NOW);
@@ -477,6 +670,7 @@ describe.skipIf(!available)("Instagram webhooks", () => {
         {},
         { object: "instagram" },
         { object: "instagram", entry: 5 },
+        { object: "instagram", entry: [null] },
       ])
         expect(webhookToBatch(bad, NOW)).toEqual({
           conversations: [],
