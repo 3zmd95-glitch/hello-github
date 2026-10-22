@@ -8,12 +8,18 @@ import {
   inboxCall,
   inboxComments,
   inboxConversations,
+  inboxDelete,
   inboxErrorKey,
+  inboxHide,
   inboxOverview,
   inboxPosts,
+  inboxPrivate,
   inboxRefresh,
+  inboxReply,
+  inboxSend,
   inboxThread,
   inboxWipe,
+  isUnconfirmed,
   seenKey,
   unreadCount,
   utf8Bytes,
@@ -267,6 +273,114 @@ describe("refresh and wipe", () => {
   });
 });
 
+describe("sends", () => {
+  const sent = { ...message, id: "mid.1", fromPeer: false, sentBy: "owner" };
+  const reply = {
+    ...comment,
+    id: "r1",
+    parentId: "k1",
+    author: "3z.prod",
+    ours: true,
+    sentBy: "owner",
+  };
+
+  it("inboxSend posts the text as JSON to the conversation and reads the stored message", async () => {
+    const fetchMock = answer({ message: sent });
+    const r = await inboxSend(CONFIG, "peer:9", "هلا");
+    expect(r).toEqual({ ok: true, message: sent });
+    const { url, init } = calledWith(fetchMock);
+    expect(url).toBe("https://scout.test/social/inbox/conversations/peer%3A9/send");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(JSON.stringify({ text: "هلا" }));
+    const headers = new Headers(init.headers);
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(headers.get("Authorization")).toBe("Bearer tok");
+  });
+
+  it("inboxReply posts under the comment and reads the reply row", async () => {
+    const fetchMock = answer({ reply });
+    expect(await inboxReply(CONFIG, "instagram", "k1", "حياك")).toEqual({ ok: true, reply });
+    const { url, init } = calledWith(fetchMock);
+    expect(url).toBe("https://scout.test/social/inbox/comments/instagram/k1/reply");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(JSON.stringify({ text: "حياك" }));
+  });
+
+  it("inboxPrivate answers the comment by DM and reads the message id", async () => {
+    const fetchMock = answer({ message: { id: "mid.2" } });
+    expect(await inboxPrivate(CONFIG, "k1", "الرابط عالخاص")).toEqual({
+      ok: true,
+      message: { id: "mid.2" },
+    });
+    const { url, init } = calledWith(fetchMock);
+    expect(url).toBe("https://scout.test/social/inbox/comments/instagram/k1/private");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(JSON.stringify({ text: "الرابط عالخاص" }));
+  });
+
+  it("inboxHide sends the wanted state, inboxDelete sends no body", async () => {
+    let fetchMock = answer({ ok: true });
+    expect(await inboxHide(CONFIG, "instagram", "k1", true)).toEqual({ ok: true });
+    let { url, init } = calledWith(fetchMock);
+    expect(url).toBe("https://scout.test/social/inbox/comments/instagram/k1/hide");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(JSON.stringify({ hidden: true }));
+
+    fetchMock = answer({ ok: true });
+    expect(await inboxDelete(CONFIG, "instagram", "k1")).toEqual({ ok: true });
+    ({ url, init } = calledWith(fetchMock));
+    expect(url).toBe("https://scout.test/social/inbox/comments/instagram/k1");
+    expect(init.method).toBe("DELETE");
+    expect(init.body).toBeUndefined();
+  });
+
+  it("sends nothing without a Worker", async () => {
+    const fetchMock = answer({});
+    const none = { ok: false, error: { type: "unconfigured" } };
+    expect(await inboxSend(null, "c1", "x")).toEqual(none);
+    expect(await inboxReply(null, "instagram", "k1", "x")).toEqual(none);
+    expect(await inboxPrivate(null, "k1", "x")).toEqual(none);
+    expect(await inboxHide(null, "instagram", "k1", true)).toEqual(none);
+    expect(await inboxDelete(null, "instagram", "k1")).toEqual(none);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("maps a closed window (409) to window_closed", async () => {
+    answer({ error: "window_closed" }, 409);
+    expect(await inboxSend(CONFIG, "c1", "x")).toEqual({
+      ok: false,
+      error: { type: "window_closed", detail: undefined },
+    });
+  });
+
+  it("keeps too_long, no_permission and the platform's own words", async () => {
+    answer({ error: "too_long" }, 400);
+    expect(await inboxReply(CONFIG, "instagram", "k1", "x")).toEqual({
+      ok: false,
+      error: { type: "too_long", detail: undefined },
+    });
+    answer({ error: "no_permission" }, 403);
+    expect(await inboxDelete(CONFIG, "instagram", "k1")).toEqual({
+      ok: false,
+      error: { type: "no_permission", detail: undefined },
+    });
+    answer({ error: "rejected", detail: "Cannot reply" }, 502);
+    expect(await inboxPrivate(CONFIG, "k1", "x")).toEqual({
+      ok: false,
+      error: { type: "rejected", detail: "Cannot reply" },
+    });
+  });
+
+  it("tells an unconfirmed send (it may have gone out) from a failed one", async () => {
+    answer({ error: "upstream", detail: "unconfirmed" }, 502);
+    const r = await inboxSend(CONFIG, "c1", "x");
+    expect(r).toEqual({ ok: false, error: { type: "upstream", detail: "unconfirmed" } });
+    expect(!r.ok && isUnconfirmed(r.error)).toBe(true);
+    expect(isUnconfirmed({ type: "upstream" })).toBe(false);
+    expect(isUnconfirmed({ type: "rejected", detail: "unconfirmed" })).toBe(false);
+  });
+});
+
 describe("errors", () => {
   it("keeps the code and detail of a refused answer", async () => {
     answer({ error: "rejected", detail: "x" }, 502);
@@ -364,7 +478,7 @@ describe("helpers", () => {
       ["token_expired", "inbox.tokenExpired"],
       ["window_closed", "inbox.window.closed"],
       ["upstream", "inbox.err.upstream"],
-      ["too_long", "inbox.err.upstream"],
+      ["too_long", "inbox.tooLong"],
       ["bad_request", "inbox.err.upstream"],
     ];
     for (const [type, key] of cases) expect(inboxErrorKey({ type }), type).toBe(key);

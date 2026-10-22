@@ -8,9 +8,10 @@ import type {
 } from "../lib/domain";
 import { freshState, switchLang } from "./helpers";
 
-// 📥 The Inbox page (read only), against a fake Scout Worker at https://scout.test stubbed with page.route (same
-// pattern as autoreplies.spec.ts): the conversation and the post it lists, the "new" chip and the seen marks the
-// store keeps, the tabs, Refresh, "Load older", and what the page does without a Worker.
+// 📥 The Inbox page, against a fake Scout Worker at https://scout.test stubbed with page.route (same pattern as
+// autoreplies.spec.ts): the conversation and the post it lists, the "new" chip and the seen marks the store keeps,
+// the tabs, Refresh, "Load older", what the page does without a Worker, and the sends (a DM, a comment's replies,
+// hide and delete), whose stubbed POST bodies the cases assert.
 const WORKER = "https://scout.test";
 const TOKEN = "fake-scout-token";
 const STORAGE_KEY = "3z-prod-v1";
@@ -143,6 +144,8 @@ interface Call {
   method: string;
   path: string;
   before: string | null;
+  /** The JSON a POST sent (a send's `{ text }`, a hide's `{ hidden }`); null for a call without one. */
+  body: unknown;
 }
 
 interface Fake {
@@ -154,6 +157,12 @@ interface Fake {
   /** The thread's first page, and the page behind `THREAD_NEXT`. */
   thread: InboxMessage[];
   threadOlder: InboxMessage[];
+  /** Whether Instagram still lets the owner reply to the thread (the 24-hour window). */
+  windowOpen: boolean;
+  /** The post's comments, newest first; a hide, a delete and a reply change them as the Worker's store would. */
+  comments: InboxComment[];
+  /** A refusal every send is answered with, until it is cleared. */
+  sendError: { status: number; body: unknown } | null;
 }
 
 /** The calls the page made to one route. */
@@ -167,7 +176,12 @@ async function stubWorker(page: Page): Promise<Fake> {
     older: [],
     thread: THREAD,
     threadOlder: [],
+    windowOpen: true,
+    comments: COMMENTS,
+    sendError: null,
   };
+  /** What the Worker stores of a send: the text clipped to 120 characters for its log (workers/scout). */
+  const clip = (text: unknown) => String(text).slice(0, 120);
   await page.route(`${WORKER}/**`, async (route) => {
     const req = route.request();
     const url = new URL(req.url());
@@ -180,7 +194,8 @@ async function stubWorker(page: Page): Promise<Fake> {
       });
     if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS });
     const before = url.searchParams.get("before");
-    fake.requests.push({ method: req.method(), path: url.pathname, before });
+    const body = req.method() === "POST" && req.postData() ? req.postDataJSON() : null;
+    fake.requests.push({ method: req.method(), path: url.pathname, before, body });
     if (req.headers()["authorization"] !== `Bearer ${TOKEN}`)
       return json({ error: "unauthorized" }, 401);
     if (url.pathname === "/health") {
@@ -238,7 +253,7 @@ async function stubWorker(page: Page): Promise<Fake> {
       });
     }
     if (url.pathname === "/social/inbox/conversations/t1" && req.method() === "GET") {
-      const window = { open: true, closesAt: SARA.windowClosesAt };
+      const window = { open: fake.windowOpen, closesAt: SARA.windowClosesAt };
       if (before === THREAD_NEXT)
         return json({
           conversation: SARA,
@@ -260,7 +275,54 @@ async function stubWorker(page: Page): Promise<Fake> {
       return json({ posts: [POST], more: false, next: null });
     }
     if (url.pathname === "/social/inbox/posts/instagram/m1/comments" && req.method() === "GET") {
-      return json({ post: POST, comments: COMMENTS, more: false, next: null });
+      return json({ post: POST, comments: fake.comments, more: false, next: null });
+    }
+
+    // The sends (workers/scout/README.md, "Global inbox"): what the Worker keeps changes what the page reads next.
+    if (req.method() === "POST" && url.pathname === "/social/inbox/conversations/t1/send") {
+      if (fake.sendError) return json(fake.sendError.body, fake.sendError.status);
+      const sent = message(
+        `mid.${fake.thread.length + 1}`,
+        "2026-10-22T09:30:00.000Z",
+        "owner",
+        clip((body as { text: unknown }).text),
+      );
+      fake.thread = [...fake.thread, sent];
+      return json({ message: sent });
+    }
+    const act = url.pathname.match(
+      /^\/social\/inbox\/comments\/instagram\/([^/]+?)(?:\/(reply|private|hide))?$/,
+    );
+    if (act) {
+      const [, id, verb] = act;
+      const target = fake.comments.find((c) => c.id === id);
+      if (fake.sendError && req.method() !== "DELETE") {
+        return json(fake.sendError.body, fake.sendError.status);
+      }
+      if (!target) return json({ error: "not_found" }, 404);
+      if (req.method() === "DELETE" && !verb) {
+        if (!target.ours) return json({ error: "no_permission" }, 403);
+        fake.comments = fake.comments.filter((c) => c.id !== id);
+        return json({ ok: true });
+      }
+      if (req.method() === "POST" && verb === "hide") {
+        const { hidden } = body as { hidden: boolean };
+        fake.comments = fake.comments.map((c) => (c.id === id ? { ...c, hidden } : c));
+        return json({ ok: true });
+      }
+      if (req.method() === "POST" && verb === "reply") {
+        // A reply to a reply is stored under the top-level comment.
+        const row = comment(`r${fake.comments.length}`, "2026-10-22T09:40:00.000Z", {
+          parentId: target.parentId ?? id,
+          author: "3z.prod",
+          text: clip((body as { text: unknown }).text),
+          ours: true,
+          sentBy: "owner",
+        });
+        fake.comments = [row, ...fake.comments];
+        return json({ reply: row });
+      }
+      if (req.method() === "POST" && verb === "private") return json({ message: { id: "mid.p1" } });
     }
     return json({ error: "bad_request" }, 400);
   });
@@ -536,6 +598,215 @@ test("a thread reads oldest to newest, and older messages land above", async ({ 
   await thread.getByTestId("inbox-load-older").click();
   await expect(bubbles).toHaveCount(3);
   expect(await ids()).toEqual(["m-0", "m-1", "m-2"]);
+});
+
+/* ---------- sending: the DM box, a comment's replies, hide and delete ---------- */
+
+/** Opens Sara's thread from the list. */
+async function openThread(page: Page) {
+  await page.goto("/social/inbox/");
+  await page.getByTestId("inbox-conversation").click();
+  const thread = page.getByTestId("inbox-thread");
+  await expect(thread.getByTestId("inbox-message")).toHaveCount(2);
+  return thread;
+}
+
+/** Opens the post's comments from the list. */
+async function openComments(page: Page) {
+  await page.goto("/social/inbox/");
+  await page.getByTestId("inbox-post-row").click();
+  const sheet = page.getByTestId("inbox-post");
+  await expect(sheet.getByTestId("inbox-comment")).toHaveCount(3);
+  return sheet;
+}
+
+/** The controls of one comment: Reply, Reply privately, the ⋯ menu and the boxes they open. */
+const actionsOf = (sheet: ReturnType<Page["locator"]>, id: string) =>
+  sheet.locator(`[data-testid="inbox-comment-actions"][data-id="${id}"]`);
+
+test("a DM is sent as typed, counted in bytes, and the thread reads again with it", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  const thread = await openThread(page);
+
+  // Instagram still lets us reply, until the time the Worker says.
+  await expect(thread.getByTestId("inbox-reply-window")).toContainText("تقدر ترد لين");
+  const text = thread.getByTestId("inbox-reply-text");
+  const send = thread.getByTestId("inbox-reply-send");
+  await expect(send).toBeDisabled();
+  await text.fill("هلا والله"); // 8 Arabic letters (2 bytes each) and a space: 17 bytes
+  await expect(thread.getByTestId("inbox-reply-left")).toHaveText("باقي تقريباً 983 حرف");
+  await expect(send).toBeEnabled();
+  await send.click();
+
+  await expect(thread.getByTestId("inbox-reply-result")).toHaveText("انرسل");
+  await expect(thread.getByTestId("inbox-reply-result")).toHaveAttribute("role", "status");
+  await expect(text).toHaveValue("");
+  const sent = calls(fake, "POST", "/social/inbox/conversations/t1/send");
+  expect(sent.map((c) => c.body)).toEqual([{ text: "هلا والله" }]);
+  // The thread was read again, and the new line is the owner's (never spliced in from the send's answer).
+  const bubbles = thread.getByTestId("inbox-message");
+  await expect(bubbles).toHaveCount(3);
+  await expect(bubbles.last()).toHaveAttribute("data-from", "owner");
+  await expect(bubbles.last()).toContainText("هلا والله");
+  expect(calls(fake, "GET", "/social/inbox/conversations/t1")).toHaveLength(2);
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("a closed reply window turns the DM box off and says why", async ({ page }) => {
+  const fake = await stubWorker(page);
+  fake.windowOpen = false;
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  const thread = await openThread(page);
+
+  await expect(thread.getByTestId("inbox-reply-reason")).toHaveText(
+    "إنستقرام ما يسمح بالرد الحين؛ لازم الشخص يكتب لك أول",
+  );
+  await expect(thread.getByTestId("inbox-reply-window")).toHaveCount(0);
+  await expect(thread.getByTestId("inbox-reply-text")).toBeDisabled();
+  await expect(thread.getByTestId("inbox-reply-send")).toBeDisabled();
+  expect(calls(fake, "POST", "/social/inbox/conversations/t1/send")).toHaveLength(0);
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("the counter counts a DM in bytes: 4-byte emoji refuse before the characters do", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  const thread = await openThread(page);
+  const text = thread.getByTestId("inbox-reply-text");
+  const left = thread.getByTestId("inbox-reply-left");
+  const send = thread.getByTestId("inbox-reply-send");
+
+  // 251 emoji are 251 letters to the eye but 1,004 bytes: over Instagram's 1,000-byte limit.
+  await text.fill("🎬".repeat(251));
+  await expect(left).toHaveText("النص أطول من الحد المسموح");
+  await expect(left).toHaveClass(/text-danger/);
+  await expect(send).toBeDisabled();
+
+  // 250 are exactly 1,000 bytes: nothing left, in red, and still allowed.
+  await text.fill("🎬".repeat(250));
+  await expect(left).toHaveText("باقي تقريباً 0 حرف");
+  await expect(left).toHaveClass(/text-danger/);
+  await expect(send).toBeEnabled();
+  expect(calls(fake, "POST", "/social/inbox/conversations/t1/send")).toHaveLength(0);
+});
+
+test("a send that may have gone out keeps the text and says so", async ({ page }) => {
+  const fake = await stubWorker(page);
+  fake.sendError = { status: 502, body: { error: "upstream", detail: "unconfirmed" } };
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  const thread = await openThread(page);
+
+  await thread.getByTestId("inbox-reply-text").fill("هلا والله");
+  await thread.getByTestId("inbox-reply-send").click();
+  const result = thread.getByTestId("inbox-reply-result");
+  await expect(result).toHaveText("ما تأكد الإرسال؛ شيّك في التطبيق");
+  await expect(result).toHaveAttribute("role", "status");
+  await expect(thread.getByTestId("inbox-reply-text")).toHaveValue("هلا والله");
+  await expect(thread.getByTestId("inbox-reply-send")).toBeEnabled();
+  expect(calls(fake, "POST", "/social/inbox/conversations/t1/send")).toHaveLength(1);
+  // Nothing was stored, so the thread is as it was.
+  await expect(thread.getByTestId("inbox-message")).toHaveCount(2);
+});
+
+test("a comment is answered in public and in private, and hidden then shown again", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  const sheet = await openComments(page);
+  const nora = actionsOf(sheet, "c1");
+
+  // A public reply, under the comment, with the box counting characters.
+  await nora.getByTestId("inbox-reply-toggle").click();
+  const reply = nora.getByTestId("inbox-comment-reply-text");
+  await reply.fill("حياك الله");
+  await expect(nora.getByTestId("inbox-comment-reply-left")).toHaveText("باقي تقريباً 2191 حرف");
+  await nora.getByTestId("inbox-comment-reply-send").click();
+  await expect(nora.getByTestId("inbox-comment-reply-result")).toHaveText("انرسل");
+  await expect(sheet.getByTestId("inbox-comment")).toHaveCount(4);
+  const ours = sheet.locator('[data-reply-to="c1"] [data-testid="inbox-comment"]');
+  await expect(ours).toHaveCount(2);
+  await expect(ours.first()).toContainText("أرسلته لك على الخاص");
+  await expect(ours.last()).toContainText("حياك الله");
+  await expect(ours.last()).toContainText("أنت");
+  expect(
+    calls(fake, "POST", "/social/inbox/comments/instagram/c1/reply").map((c) => c.body),
+  ).toEqual([{ text: "حياك الله" }]);
+
+  // A private reply replaces the public box: one at a time.
+  await nora.getByTestId("inbox-private-toggle").click();
+  await expect(nora.getByTestId("inbox-comment-reply")).toHaveCount(0);
+  await nora.getByTestId("inbox-comment-private-text").fill("هذا اللت");
+  await nora.getByTestId("inbox-comment-private-send").click();
+  await expect(nora.getByTestId("inbox-comment-private-result")).toHaveText("انرسل");
+  expect(
+    calls(fake, "POST", "/social/inbox/comments/instagram/c1/private").map((c) => c.body),
+  ).toEqual([{ text: "هذا اللت" }]);
+
+  // Hide it: the view reads again and shows it hidden, and the menu now offers to show it.
+  const comment1 = sheet.locator('[data-testid="inbox-comment"][data-id="c1"]');
+  await expect(comment1).toHaveAttribute("data-hidden", "false");
+  await nora.getByTestId("inbox-comment-menu").click();
+  await expect(nora.getByTestId("inbox-comment-hide")).toHaveText("إخفاء");
+  await nora.getByTestId("inbox-comment-hide").click();
+  await expect(comment1).toHaveAttribute("data-hidden", "true");
+  expect(
+    calls(fake, "POST", "/social/inbox/comments/instagram/c1/hide").map((c) => c.body),
+  ).toEqual([{ hidden: true }]);
+  await nora.getByTestId("inbox-comment-menu").click();
+  await expect(nora.getByTestId("inbox-comment-hide")).toHaveText("إظهار");
+  await nora.getByTestId("inbox-comment-hide").click();
+  await expect(comment1).toHaveAttribute("data-hidden", "false");
+  expect(
+    calls(fake, "POST", "/social/inbox/comments/instagram/c1/hide").map((c) => c.body),
+  ).toEqual([{ hidden: true }, { hidden: false }]);
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("Delete is offered on our own reply only, behind a confirmation", async ({ page }) => {
+  const fake = await stubWorker(page);
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  const sheet = await openComments(page);
+
+  // Someone else's comment: the menu has Hide and no Delete; and no private reply to ourselves on ours.
+  const nora = actionsOf(sheet, "c1");
+  await nora.getByTestId("inbox-comment-menu").click();
+  await expect(nora.getByTestId("inbox-comment-hide")).toBeVisible();
+  await expect(nora.getByTestId("inbox-comment-delete")).toHaveCount(0);
+  await expect(nora.getByTestId("inbox-private-toggle")).toBeVisible();
+  const mine = actionsOf(sheet, "c2");
+  await expect(mine.getByTestId("inbox-private-toggle")).toHaveCount(0);
+  await mine.getByTestId("inbox-comment-menu").click();
+  await expect(mine.getByTestId("inbox-comment-delete")).toBeVisible();
+
+  // Cancel asks nothing of the Worker.
+  await mine.getByTestId("inbox-comment-delete").click();
+  const dialog = page.getByTestId("confirm-dialog");
+  await expect(dialog).toContainText("نحذف هذا الرد من إنستقرام؟ ما ينرجع.");
+  await page.getByTestId("confirm-cancel").click();
+  await expect(dialog).toHaveCount(0);
+  expect(calls(fake, "DELETE", "/social/inbox/comments/instagram/c2")).toHaveLength(0);
+  await expect(sheet.getByTestId("inbox-comment")).toHaveCount(3);
+
+  // Confirm deletes it, and the view reads again without it.
+  await mine.getByTestId("inbox-comment-menu").click();
+  await mine.getByTestId("inbox-comment-delete").click();
+  await page.getByTestId("confirm-ok").click();
+  await expect(sheet.getByTestId("inbox-comment")).toHaveCount(2);
+  await expect(sheet.locator('[data-testid="inbox-comment"][data-id="c2"]')).toHaveCount(0);
+  expect(calls(fake, "DELETE", "/social/inbox/comments/instagram/c2")).toHaveLength(1);
+  expect(await fitsViewport(page)).toBe(true);
 });
 
 test("without a Worker the page sends you to Settings and asks the Worker for nothing", async ({

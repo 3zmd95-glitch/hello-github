@@ -66,7 +66,11 @@ const CommentsAnswer = z.object({
   ...page,
 });
 const RefreshAnswer = z.object({ scanRequestedAt: z.string() });
-const WipeAnswer = z.object({ ok: z.literal(true) });
+const OkAnswer = z.object({ ok: z.literal(true) });
+/** What the Worker answers a send with: the stored row (a DM, a public reply) or just the id (a private reply). */
+const SendAnswer = z.object({ message: InboxMessageSchema });
+const ReplyAnswer = z.object({ reply: InboxCommentSchema });
+const PrivateAnswer = z.object({ message: z.object({ id: z.string() }) });
 
 /* ---------- call ---------- */
 
@@ -182,7 +186,67 @@ export const inboxRefresh = (
 
 /** `DELETE /social/inbox`: empties the Worker's store (the owner's "wipe" in Settings). */
 export const inboxWipe = (config: ScoutConfig | null): Promise<InboxResult<{ ok: true }>> =>
-  inboxCall(config, "", WipeAnswer, { method: "DELETE" });
+  inboxCall(config, "", OkAnswer, { method: "DELETE" });
+
+/* ---------- sends (Instagram only; the Worker has no idempotency guard: callers lock while one is pending) ---------- */
+
+const post = (body: object): RequestInit => ({
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
+const commentPath = (platform: InboxPlatform, id: string) =>
+  `/comments/${platform}/${encodeURIComponent(id)}`;
+
+/**
+ * `POST /social/inbox/conversations/:id/send`: a DM to the person. The answer's text is clipped for the log, so the
+ * thread is read again after a send rather than spliced from it.
+ */
+export const inboxSend = (
+  config: ScoutConfig | null,
+  id: string,
+  text: string,
+): Promise<InboxResult<{ message: InboxMessage }>> =>
+  inboxCall(config, `/conversations/${encodeURIComponent(id)}/send`, SendAnswer, post({ text }));
+
+/** `POST /social/inbox/comments/:platform/:id/reply`: a public reply under a comment. */
+export const inboxReply = (
+  config: ScoutConfig | null,
+  platform: InboxPlatform,
+  commentId: string,
+  text: string,
+): Promise<InboxResult<{ reply: InboxComment }>> =>
+  inboxCall(config, `${commentPath(platform, commentId)}/reply`, ReplyAnswer, post({ text }));
+
+/** `POST /social/inbox/comments/instagram/:id/private`: a DM to the commenter, by the comment. */
+export const inboxPrivate = (
+  config: ScoutConfig | null,
+  commentId: string,
+  text: string,
+): Promise<InboxResult<{ message: { id: string } }>> =>
+  inboxCall(
+    config,
+    `${commentPath("instagram", commentId)}/private`,
+    PrivateAnswer,
+    post({ text }),
+  );
+
+/** `POST /social/inbox/comments/:platform/:id/hide`: hides (`true`) or shows (`false`) a comment. */
+export const inboxHide = (
+  config: ScoutConfig | null,
+  platform: InboxPlatform,
+  commentId: string,
+  hidden: boolean,
+): Promise<InboxResult<{ ok: true }>> =>
+  inboxCall(config, `${commentPath(platform, commentId)}/hide`, OkAnswer, post({ hidden }));
+
+/** `DELETE /social/inbox/comments/:platform/:id`: deletes the owner's own comment (another's is `no_permission`). */
+export const inboxDelete = (
+  config: ScoutConfig | null,
+  platform: InboxPlatform,
+  commentId: string,
+): Promise<InboxResult<{ ok: true }>> =>
+  inboxCall(config, commentPath(platform, commentId), OkAnswer, { method: "DELETE" });
 
 /* ---------- helpers ---------- */
 
@@ -198,11 +262,16 @@ const ERROR_KEYS: Partial<Record<InboxError["type"], MessageKey>> = {
   unconfigured: "inbox.needWorker",
   token_expired: "inbox.tokenExpired",
   window_closed: "inbox.window.closed",
+  too_long: "inbox.tooLong",
 };
 
 /** The copy for a failed call; any other code (the Worker names it) reads as the platform's problem. */
 export const inboxErrorKey = (error: InboxError): MessageKey =>
   (Object.hasOwn(ERROR_KEYS, error.type) && ERROR_KEYS[error.type]) || "inbox.err.upstream";
+
+/** A send the platform may have taken even though no answer came: the owner checks the app before sending again. */
+export const isUnconfirmed = (error: InboxError): boolean =>
+  error.type === "upstream" && error.detail === "unconfirmed";
 
 /** A text's length in UTF-8 bytes: Instagram's DM limit counts these. */
 export const utf8Bytes = (s: string): number => new TextEncoder().encode(s).length;

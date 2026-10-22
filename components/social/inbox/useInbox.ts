@@ -89,7 +89,8 @@ function subscribe(listener: () => void): () => void {
 const getState = () => state;
 const getServerState = () => IDLE;
 
-function currentConfig(): ScoutConfig | null {
+/** The Worker from Settings (null: none yet); the send boxes call lib/inbox with it. */
+export function currentConfig(): ScoutConfig | null {
   const k = useStore.getState().settings.apiKeys;
   return scoutConfig(k.scoutUrl, k.scoutToken);
 }

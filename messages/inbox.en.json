@@ -42,6 +42,7 @@
   "inbox.hidden": "Hidden",
   "inbox.delete": "Delete",
   "inbox.deleteConfirm": "Delete this reply from Instagram? It can't be undone.",
+  "inbox.options": "Options",
   "inbox.send": "Send",
   "inbox.sending": "Sending…",
   "inbox.sent": "Sent",

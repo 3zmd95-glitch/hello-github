@@ -228,7 +228,15 @@ function Row({
  * first hands focus to the ⋯ button, so it does not drop to <body> with the hidden item (an editor sheet opened by the
  * pick gives focus back to that button when it closes).
  */
-function RowMenu({ label, children }: { label: string; children: ReactNode }) {
+export function RowMenu({
+  label,
+  children,
+  testId = "autoreply-menu",
+}: {
+  label: string;
+  children: ReactNode;
+  testId?: string;
+}) {
   const ref = useRef<HTMLDetailsElement>(null);
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -256,7 +264,7 @@ function RowMenu({ label, children }: { label: string; children: ReactNode }) {
         if (e.key === "Escape" && e.currentTarget.open) shut(e.currentTarget);
       }}
     >
-      <summary aria-label={label} data-testid="autoreply-menu">
+      <summary aria-label={label} data-testid={testId}>
         <Ellipsis size={18} strokeWidth={2} aria-hidden />
       </summary>
       <div className="ar-pop">{children}</div>

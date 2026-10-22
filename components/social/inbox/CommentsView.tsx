@@ -1,11 +1,26 @@
 "use client";
 
+import { Eye, EyeOff, Trash2 } from "lucide-react";
+import { useState } from "react";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Chip from "@/components/ui/ios/Chip";
 import type { InboxComment, InboxPost } from "@/lib/domain";
-import { inboxErrorKey } from "@/lib/inbox";
+import {
+  DM_TEXT_BYTES,
+  IG_COMMENT_MAX,
+  inboxDelete,
+  inboxErrorKey,
+  inboxHide,
+  inboxPrivate,
+  inboxReply,
+  type InboxError,
+  type InboxResult,
+} from "@/lib/inbox";
 import { useT } from "@/lib/i18n";
+import { RowMenu } from "../replies/RulesTable";
 import { formatInstant } from "../calendar/dates";
-import { useComments } from "./useInbox";
+import ReplyBox from "./ReplyBox";
+import { currentConfig, useComments } from "./useInbox";
 
 function CommentLine({ c }: { c: InboxComment }) {
   const { t, lang } = useT();
@@ -33,12 +48,132 @@ function CommentLine({ c }: { c: InboxComment }) {
 }
 
 /**
+ * What the owner can do with one comment: reply, reply privately (a DM by the comment; not on our own), hide or show
+ * it, and delete it when it is ours. One box at a time; every success reads the comments again (`onChanged`).
+ * TikTok has no sends yet, so its comments get no controls.
+ */
+function CommentActions({ c, onChanged }: { c: InboxComment; onChanged: () => void }) {
+  const { t } = useT();
+  const [box, setBox] = useState<"reply" | "private" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [failed, setFailed] = useState<InboxError | null>(null);
+  if (c.platform !== "instagram") return null;
+
+  const toggle = (which: "reply" | "private") => setBox(box === which ? null : which);
+  const act = async (call: () => Promise<InboxResult<unknown>>) => {
+    setBusy(true);
+    setFailed(null);
+    const r = await call();
+    setBusy(false);
+    if (r.ok) onChanged();
+    else setFailed(r.error);
+  };
+
+  return (
+    <div className="flex flex-col gap-2" data-testid="inbox-comment-actions" data-id={c.id}>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="px-btn px-btn-ghost px-btn-sm"
+          aria-expanded={box === "reply"}
+          onClick={() => toggle("reply")}
+          data-testid="inbox-reply-toggle"
+        >
+          {t("inbox.reply")}
+        </button>
+        {!c.ours && (
+          <button
+            type="button"
+            className="px-btn px-btn-ghost px-btn-sm"
+            aria-expanded={box === "private"}
+            onClick={() => toggle("private")}
+            data-testid="inbox-private-toggle"
+          >
+            {t("inbox.replyPrivately")}
+          </button>
+        )}
+        <span className="ms-auto">
+          <RowMenu label={`${t("inbox.options")} · @${c.author}`} testId="inbox-comment-menu">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void act(() => inboxHide(currentConfig(), c.platform, c.id, !c.hidden))
+              }
+              data-testid="inbox-comment-hide"
+            >
+              {c.hidden ? t("inbox.unhide") : t("inbox.hide")}
+              {c.hidden ? (
+                <Eye size={17} strokeWidth={1.75} aria-hidden />
+              ) : (
+                <EyeOff size={17} strokeWidth={1.75} aria-hidden />
+              )}
+            </button>
+            {c.ours && (
+              <button
+                type="button"
+                className="text-danger"
+                disabled={busy}
+                onClick={() => setAsking(true)}
+                data-testid="inbox-comment-delete"
+              >
+                {t("inbox.delete")}
+                <Trash2 size={17} strokeWidth={1.75} aria-hidden />
+              </button>
+            )}
+          </RowMenu>
+        </span>
+      </div>
+      {box === "reply" && (
+        <ReplyBox
+          kind="comment"
+          platform={c.platform}
+          limit={{ chars: IG_COMMENT_MAX }}
+          onSend={(text) => inboxReply(currentConfig(), c.platform, c.id, text)}
+          onSent={onChanged}
+          testId="inbox-comment-reply"
+        />
+      )}
+      {box === "private" && (
+        <ReplyBox
+          kind="private"
+          platform={c.platform}
+          limit={{ bytes: DM_TEXT_BYTES }}
+          onSend={(text) => inboxPrivate(currentConfig(), c.id, text)}
+          onSent={onChanged}
+          testId="inbox-comment-private"
+        />
+      )}
+      {failed && (
+        <p role="alert" className="text-danger text-[13px]" data-testid="inbox-comment-error">
+          {t(inboxErrorKey(failed), { detail: failed.detail ?? "" })}
+        </p>
+      )}
+      {asking && (
+        <ConfirmDialog
+          title={t("inbox.delete")}
+          body={t("inbox.deleteConfirm")}
+          confirmLabel={t("inbox.delete")}
+          danger
+          onCancel={() => setAsking(false)}
+          onConfirm={() => {
+            setAsking(false);
+            void act(() => inboxDelete(currentConfig(), c.platform, c.id));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
  * One post's comments, newest first, each reply under its comment (oldest reply first, as in the app); a reply
  * whose comment is not loaded stands on its own. Hidden ones are dimmed.
  */
 export default function CommentsView({ post }: { post: InboxPost }) {
   const { t } = useT();
-  const { data, busy, error, loadMore } = useComments(post.platform, post.id);
+  const { data, busy, error, loadMore, reload } = useComments(post.platform, post.id);
   const comments = data?.comments ?? [];
   const ids = new Set(comments.map((c) => c.id));
   const roots = comments.filter((c) => !c.parentId || !ids.has(c.parentId));
@@ -73,16 +208,17 @@ export default function CommentsView({ post }: { post: InboxPost }) {
           return (
             <li key={c.id} className="flex flex-col gap-2">
               <CommentLine c={c} />
+              <CommentActions c={c} onChanged={reload} />
               {under.length > 0 && (
                 <ul className="border-hair ms-4 flex flex-col gap-2 border-s ps-3">
                   {under.map((r) => (
                     <li key={r.id} data-reply-to={c.id}>
                       <CommentLine c={r} />
+                      <CommentActions c={r} onChanged={reload} />
                     </li>
                   ))}
                 </ul>
               )}
-              {/* Task 9: the comment ReplyBox (reply, reply privately, hide) mounts here. */}
             </li>
           );
         })}
