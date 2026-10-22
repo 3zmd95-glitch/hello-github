@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { handle, type Env } from "../scout";
 import { runTick } from "./cron";
 import { toMs } from "./inbox";
+import { INBOX_OFFGRID_REPLIES_BUDGET } from "./inboxReader";
 import { mergeJob, type JobInput, type PublishJob } from "./publish";
 import { MAX_RETRIES } from "./replyCore";
 import {
@@ -26,6 +27,7 @@ import {
   type PollDeps,
   type PollState,
 } from "./replies";
+import * as repliesModule from "./replies";
 import { keys, Store } from "./store";
 import type { SocialPlatform, TokenSet } from "./types";
 
@@ -2031,6 +2033,22 @@ describe("cron tick", () => {
     // the test env has no INBOX_STORE binding, so the reader is called and skips
     expect(r).toMatchObject({ replies: { sent: ["c1"] }, inbox: { skipped: "no_store" } });
     expect(r).not.toHaveProperty("publish");
+  });
+
+  it("gives the replies poll fewer Graph calls off the grid, where the inbox reader runs after it", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    const poll = vi.spyOn(repliesModule, "pollReplies");
+    const fetchMock = mockFetch(igRoutes().routes);
+    await runTick(env, tickAt("09:01"), { fetch: fetchMock, now: NOW });
+    expect(poll).toHaveBeenLastCalledWith(
+      env,
+      expect.objectContaining({ budget: INBOX_OFFGRID_REPLIES_BUDGET, fiveMinuteTick: false }),
+    );
+    await runTick(env, tickAt("09:05"), { fetch: fetchMock, now: NOW });
+    expect(poll.mock.lastCall?.[1]).not.toHaveProperty("budget");
+    poll.mockRestore();
   });
 
   it("the write guard's slow mode skips the off-grid minutes only", async () => {

@@ -1,10 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { InboxDb, type PostRow, type Sql } from "./inboxDb";
-import { INBOX_READ_BUDGET, readInboxTick, toBatch } from "./inboxReader";
+import { InboxDb, type InboxApi, type PostRow, type Sql } from "./inboxDb";
+import {
+  INBOX_OFFGRID_REPLIES_BUDGET,
+  INBOX_READ_BUDGET,
+  READER_DO_CALLS_MAX,
+  READER_GRAPH_CALLS_MAX,
+  READER_KV_CALLS,
+  REPLIES_KV_CALLS_MAX,
+  readInboxTick,
+  toBatch,
+} from "./inboxReader";
 import { Store, type SocialEnv } from "./store";
 import type { TokenSet } from "./types";
 
-// cron.ts reaches inboxStore.ts, which imports `cloudflare:workers` (workerd only); see vitest.config.ts.
+// cron.ts reaches inboxStore.ts, which imports `cloudflare:workers` (workerd only); see vitest.cloudflare-stub.ts.
 
 /* ---------- fakes (copied from replies.test.ts and inboxDb.test.ts) ---------- */
 
@@ -12,13 +21,15 @@ const TOKEN = "s3cret-token";
 const NOW = new Date("2026-10-22T12:00:00Z");
 const IG = "graph.instagram.com/v21.0";
 
-type FakeKV = KVNamespace & { store: Map<string, string> };
+type FakeKV = KVNamespace & { store: Map<string, string>; reads: number };
 
 function fakeKV(): FakeKV {
   const store = new Map<string, string>();
   const kv = {
     store,
+    reads: 0,
     async get(key: string) {
+      kv.reads += 1;
       return store.get(key) ?? null;
     },
     async put(key: string, value: string) {
@@ -91,6 +102,17 @@ function mockFetch(routes: Record<string, Handler>) {
     });
   return Object.assign(fn, { calls });
 }
+
+/** The reader's one meta row (inboxReader.ts): the tick counter, the rotation's cursor and the last refresh served. */
+const seedState = (
+  api: InboxApi,
+  state: { tick?: number; postCursor?: number; lastScan?: string },
+) => api.setMeta("ig:state", JSON.stringify(state));
+const readState = async (api: InboxApi) => JSON.parse((await api.getMeta("ig:state")) ?? "null");
+
+/** The URL of the first call whose path ends with `path`. */
+const urlOf = (fetch: ReturnType<typeof mockFetch>, path: string) =>
+  new URL(String(fetch.mock.calls.find(([u]) => new URL(String(u)).pathname.endsWith(path))![0]));
 
 /** n stored posts, p0 the newest. */
 const storedPosts = (n: number): PostRow[] =>
@@ -175,6 +197,22 @@ describe("toBatch", () => {
   });
 });
 
+/* ---------- the call budget ---------- */
+
+describe("the 50-subrequest budget", () => {
+  it("fits the replies poll and the reader of one off-grid tick into a Worker invocation's 50", () => {
+    // Worst case of each side: its Graph calls, its KV operations, and the reader's Durable Object calls.
+    expect(
+      INBOX_OFFGRID_REPLIES_BUDGET +
+        REPLIES_KV_CALLS_MAX +
+        READER_GRAPH_CALLS_MAX +
+        READER_KV_CALLS +
+        READER_DO_CALLS_MAX,
+    ).toBeLessThanOrEqual(50);
+    expect(READER_GRAPH_CALLS_MAX).toBeLessThanOrEqual(INBOX_READ_BUDGET);
+  });
+});
+
 /* ---------- readInboxTick ---------- */
 
 describe.skipIf(!available)("readInboxTick", () => {
@@ -255,13 +293,23 @@ describe.skipIf(!available)("readInboxTick", () => {
       }),
     });
     const r = await readInboxTick(env, { fetch, now: () => NOW, api });
-    expect(r).toMatchObject({ calls: 4, conversations: 1, posts: 1, comments: 2 });
+    expect(r).toMatchObject({ calls: 4, conversations: 1, posts: 1, comments: 2, skipped: 0 });
+    expect(r).not.toHaveProperty("error");
     expect(fetch.calls()).toEqual([
       `GET ${IG}/me`,
       `GET ${IG}/17841/conversations`,
       `GET ${IG}/17841/media`,
       `GET ${IG}/p1/comments`,
     ]);
+    // what is asked of Instagram: the page sizes, the platform, and the hidden flag on comments and their replies
+    const conversations = urlOf(fetch, "/17841/conversations").searchParams;
+    expect(conversations.get("platform")).toBe("instagram");
+    expect(conversations.get("limit")).toBe("20");
+    expect(conversations.get("fields")).toContain("messages.limit(20){");
+    expect(urlOf(fetch, "/17841/media").searchParams.get("limit")).toBe("50");
+    const commentFields = urlOf(fetch, "/p1/comments").searchParams.get("fields");
+    expect(commentFields).toContain("timestamp,hidden,replies{");
+    expect(commentFields).toContain("timestamp,hidden}");
     const t = (await api.thread("instagram", "t1", {}))!;
     expect(t.conversation).toMatchObject({
       peerId: "9",
@@ -304,7 +352,7 @@ describe.skipIf(!available)("readInboxTick", () => {
     // tick counter 1, so the first tick does not refresh media
     const posts = storedPosts(12);
     await api.ingest({ posts });
-    await api.setMeta("ig:tick", "1");
+    await seedState(api, { tick: 1 });
     const routes: Record<string, Handler> = {
       [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
       [`GET ${IG}/17841/conversations`]: () => ({ data: [] }),
@@ -333,16 +381,14 @@ describe.skipIf(!available)("readInboxTick", () => {
     const three = await tick();
     expect(three.commented).toEqual(["p10", "p11", "p0", "p1", "p2"]);
     expect(three.media).toBe(0);
-    expect(await api.getMeta("ig:tick")).toBe("4");
-    expect(await api.getMeta("ig:postCursor")).toBe("3");
+    expect(await readState(api)).toEqual({ tick: 4, postCursor: 3, lastScan: "" });
 
-    await api.setMeta("ig:tick", "10");
+    await seedState(api, { ...(await readState(api)), tick: 10 });
     const ten = await tick();
     expect(ten.media).toBe(1);
     expect(ten.commented).toEqual(["p3", "p4", "p5", "p6", "p7"]);
     expect(ten.r).toMatchObject({ calls: 8 });
-    expect(INBOX_READ_BUDGET).toBeGreaterThanOrEqual(8);
-    expect(await api.getMeta("ig:tick")).toBe("11");
+    expect(await readState(api)).toMatchObject({ tick: 11, postCursor: 8 });
   });
 
   it("a refresh stamp newer than the last scan reads the newest five posts once and keeps the rotation", async () => {
@@ -351,8 +397,7 @@ describe.skipIf(!available)("readInboxTick", () => {
     const api = freshDb();
     const posts = storedPosts(12);
     await api.ingest({ posts });
-    await api.setMeta("ig:tick", "1");
-    await api.setMeta("ig:postCursor", "7");
+    await seedState(api, { tick: 1, postCursor: 7 });
     env.SOCIAL_KV.store.set("inbox:scan", "2026-10-22T11:59:30.000Z");
     const routes: Record<string, Handler> = {
       [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
@@ -368,20 +413,58 @@ describe.skipIf(!available)("readInboxTick", () => {
 
     await readInboxTick(env, { fetch, now: () => NOW, api });
     expect(commented(0)).toEqual(["p0", "p1", "p2", "p3", "p4"]);
-    expect(await api.getMeta("ig:postCursor")).toBe("7");
-    expect(await api.getMeta("ig:lastScan")).toBe("2026-10-22T11:59:30.000Z");
+    expect(await readState(api)).toEqual({
+      tick: 2,
+      postCursor: 7,
+      lastScan: "2026-10-22T11:59:30.000Z",
+    });
 
     const seen = fetch.calls().length;
     await readInboxTick(env, { fetch, now: () => NOW, api });
     expect(commented(seen)).toEqual(["p7", "p8", "p9", "p10", "p11"]);
   });
 
-  it("skips a post Instagram refuses, still ingests the rest, and moves the rotation on", async () => {
+  it("calls /me only when the replies poll has not cached the account id", async () => {
+    const env = makeEnv();
+    await connect(env);
+    const api = freshDb();
+    env.SOCIAL_KV.store.set("replies:state", JSON.stringify({ sent: {}, igUserId: "17841" }));
+    await seedState(api, { tick: 1 });
+    const fetch = mockFetch({ [`GET ${IG}/17841/conversations`]: () => ({ data: [] }) });
+    const r = await readInboxTick(env, { fetch, now: () => NOW, api });
+    expect(r).toMatchObject({ calls: 1, skipped: 0 });
+    expect(r).not.toHaveProperty("error");
+    expect(fetch.calls()).toEqual([`GET ${IG}/17841/conversations`]);
+  });
+
+  it("drops old rows hourly: retain runs on tick 0 and tick 60, not in between", async () => {
+    const env = makeEnv();
+    await connect(env);
+    const api = freshDb();
+    const retain = vi.spyOn(api, "retain");
+    const fetch = mockFetch({
+      [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
+      [`GET ${IG}/17841/conversations`]: () => ({ data: [] }),
+      [`GET ${IG}/17841/media`]: () => ({ data: [] }),
+    });
+    const run = () => readInboxTick(env, { fetch, now: () => NOW, api });
+    await run(); // tick 0
+    expect(retain).toHaveBeenCalledTimes(1);
+    expect(retain).toHaveBeenLastCalledWith(NOW.toISOString());
+    await run(); // tick 1
+    expect(retain).toHaveBeenCalledTimes(1);
+    await seedState(api, { tick: 60 });
+    await run();
+    expect(retain).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips a post Instagram refuses, says so, still ingests the rest, and moves the rotation on", async () => {
     const env = makeEnv();
     await connect(env);
     const api = freshDb();
     await api.ingest({ posts: storedPosts(2) });
-    await api.setMeta("ig:tick", "1");
+    await seedState(api, { tick: 1 });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const fetch = mockFetch({
       [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
       [`GET ${IG}/17841/conversations`]: () => ({
@@ -395,12 +478,45 @@ describe.skipIf(!available)("readInboxTick", () => {
       }),
     });
     const r = await readInboxTick(env, { fetch, now: () => NOW, api });
-    expect(r).toEqual({ calls: 4, conversations: 1, posts: 0, comments: 1 });
-    expect(await api.getMeta("ig:tick")).toBe("2");
+    expect(r).toEqual({ calls: 4, conversations: 1, posts: 0, comments: 1, skipped: 1 });
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(log.mock.calls[0][0]))).toMatchObject({
+      inbox: "comments",
+      post: "p0",
+      error: "rejected",
+      detail: expect.stringContaining("Unsupported get request"),
+    });
+    log.mockRestore();
+    expect(await readState(api)).toMatchObject({ tick: 2 });
     expect((await api.comments("instagram", "p1", {}))!.comments.items).toHaveLength(1);
   });
 
-  it("reports a failing Graph call without moving the rotation or the read time", async () => {
+  it("reports an error when Instagram refuses every post of the tick", async () => {
+    const env = makeEnv();
+    await connect(env);
+    const api = freshDb();
+    await api.ingest({ posts: storedPosts(2) });
+    await seedState(api, { tick: 1 });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const gone = () =>
+      json({ error: { message: "Unsupported get request", code: 100, error_subcode: 33 } }, 400);
+    const fetch = mockFetch({
+      [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
+      [`GET ${IG}/17841/conversations`]: () => ({
+        data: [{ id: "t1", updated_time: "2026-10-22T11:58:00+0000" }],
+      }),
+      [`GET ${IG}/p0/comments`]: gone,
+      [`GET ${IG}/p1/comments`]: gone,
+    });
+    const r = await readInboxTick(env, { fetch, now: () => NOW, api });
+    expect(r).toMatchObject({ conversations: 1, comments: 0, skipped: 2, error: "rejected" });
+    expect(log).toHaveBeenCalledTimes(2);
+    log.mockRestore();
+    expect(await api.thread("instagram", "t1", {})).not.toBeNull();
+    expect(await readState(api)).toMatchObject({ tick: 2 });
+  });
+
+  it("reports a failing Graph call with Instagram's words, without moving the rotation or the read time", async () => {
     const env = makeEnv();
     await connect(env);
     const api = freshDb();
@@ -409,8 +525,82 @@ describe.skipIf(!available)("readInboxTick", () => {
       [`GET ${IG}/17841/conversations`]: () => json({ error: { message: "boom", code: 2 } }, 500),
     });
     const r = await readInboxTick(env, { fetch, now: () => NOW, api });
-    expect(r).toEqual({ calls: 2, conversations: 0, posts: 0, comments: 0, error: "upstream" });
-    expect(await api.getMeta("ig:tick")).toBeNull();
+    expect(r).toEqual({
+      calls: 2,
+      conversations: 0,
+      posts: 0,
+      comments: 0,
+      skipped: 0,
+      error: "upstream",
+      detail: expect.stringContaining("boom"),
+    });
+    expect(await api.getMeta("ig:state")).toBeNull();
     expect(await api.getMeta("lastReadAt:instagram")).toBeNull();
+  });
+
+  it("keeps the conversations a failing comments call would have stalled, and retries the same posts", async () => {
+    const env = makeEnv();
+    await connect(env);
+    const api = freshDb();
+    await api.ingest({ posts: storedPosts(2) });
+    await seedState(api, { tick: 1, postCursor: 1 });
+    const fetch = mockFetch({
+      [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
+      [`GET ${IG}/17841/conversations`]: () => ({
+        data: [{ id: "t1", updated_time: "2026-10-22T11:58:00+0000" }],
+      }),
+      [`GET ${IG}/p1/comments`]: () => json({ error: { message: "boom", code: 2 } }, 500),
+    });
+    const r = await readInboxTick(env, { fetch, now: () => NOW, api });
+    expect(r).toMatchObject({ conversations: 1, comments: 0, error: "upstream" });
+    expect(await api.thread("instagram", "t1", {})).not.toBeNull();
+    expect(await api.getMeta("lastReadAt:instagram")).toBe(NOW.toISOString());
+    expect(await readState(api)).toEqual({ tick: 1, postCursor: 1 }); // not advanced
+  });
+
+  it("a worst-case tick makes the Graph, KV and Durable Object calls the budget counts", async () => {
+    const env = makeEnv();
+    await connect(env);
+    env.SOCIAL_KV.reads = 0;
+    const store = freshDb();
+    const doCalls: string[] = [];
+    // every InboxApi method the reader calls is one Durable Object call in production
+    const api = new Proxy(store, {
+      get(target, prop) {
+        const v = Reflect.get(target, prop, target);
+        if (typeof v !== "function") return v;
+        return (...args: unknown[]) => {
+          doCalls.push(String(prop));
+          return v.apply(target, args);
+        };
+      },
+    });
+    // tick 0: the media list and the hourly retain both run, and five posts are read for comments
+    const fetch = mockFetch({
+      [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
+      [`GET ${IG}/17841/conversations`]: () => ({
+        data: [{ id: "t1", updated_time: "2026-10-22T11:58:00+0000" }],
+      }),
+      [`GET ${IG}/17841/media`]: () => ({
+        data: storedPosts(5).map((p) => ({ id: p.id, timestamp: p.postedAt })),
+      }),
+      ...Object.fromEntries(
+        storedPosts(5).map((p) => [`GET ${IG}/${p.id}/comments`, () => ({ data: [] })]),
+      ),
+    });
+    const r = await readInboxTick(env, { fetch, now: () => NOW, api });
+    expect(r).not.toHaveProperty("error");
+    expect(fetch.calls()).toHaveLength(READER_GRAPH_CALLS_MAX);
+    expect(env.SOCIAL_KV.reads).toBe(READER_KV_CALLS);
+    expect(doCalls).toEqual([
+      "getMeta",
+      "ingest", // the conversations
+      "ingest", // the media list
+      "posts",
+      "ingest", // the comments
+      "setMeta",
+      "retain",
+    ]);
+    expect(doCalls).toHaveLength(READER_DO_CALLS_MAX);
   });
 });

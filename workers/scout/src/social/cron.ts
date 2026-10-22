@@ -19,7 +19,7 @@ import type { EffectsEnv } from "../effects/sources";
 import { utcDay } from "../trends/kv";
 import { runTrends, summarize, type TrendsRunSummary } from "../trends/run";
 import type { TrendKind, TrendsEnv } from "../trends/types";
-import { readInboxTick, type InboxReadResult } from "./inboxReader";
+import { INBOX_OFFGRID_REPLIES_BUDGET, readInboxTick, type InboxReadResult } from "./inboxReader";
 import { runDue, type RunResult } from "./publish";
 import { pollReplies, type PollResult } from "./replies";
 import type { SocialEnv } from "./store";
@@ -86,9 +86,15 @@ export async function runTick(
 ): Promise<TickResult> {
   const now = deps.now ?? new Date(scheduledTime);
   // Off the five-minute grid only the replies and the inbox reader run (every sync, effects, category and trend slot
-  // sits on the grid). The reader's own budget (12 Graph calls) fits beside the replies' 30 subrequests.
+  // sits on the grid). The tick must stay inside the 50 subrequests of an invocation: the replies poll gets 26 Graph
+  // calls here (plus up to 6 KV), the reader up to 8 Graph + 3 KV + 7 Durable Object calls (inboxReader.ts).
   if (new Date(scheduledTime).getUTCMinutes() % 5 !== 0) {
-    const replies = await pollReplies(env, { fetch: deps.fetch, now, fiveMinuteTick: false });
+    const replies = await pollReplies(env, {
+      fetch: deps.fetch,
+      now,
+      fiveMinuteTick: false,
+      budget: INBOX_OFFGRID_REPLIES_BUDGET,
+    });
     const inbox = await readInboxTick(env, { fetch: deps.fetch, now: () => now });
     return { replies, inbox };
   }

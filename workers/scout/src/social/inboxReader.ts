@@ -1,10 +1,17 @@
 /**
  * Step B of the global inbox (planning/tools/51-global-inbox.md): the reader that fills the InboxStore from the Instagram
- * Graph API. It runs on the cron's off-grid minutes, after the replies poll (which spends up to 30 subrequests of the 50),
- * so it makes at most INBOX_READ_BUDGET Graph calls: the account id, one page of conversations, the comments of
- * POSTS_PER_TICK stored posts (a rotation: `ig:postCursor` is the index into the stored posts, newest first) and, every
- * MEDIA_REFRESH_TICKS ticks (`ig:tick`), the media list. A refresh from the dashboard (KV `inbox:scan`, written by
- * `POST /social/inbox/refresh`) reads the newest posts' comments once, whatever the cursor says.
+ * Graph API. It runs on the cron's off-grid minutes, after the replies poll. Per tick it reads the account id (unless the
+ * replies poll cached it), one page of conversations, the comments of POSTS_PER_TICK stored posts (a rotation: the
+ * cursor is the index into the stored posts, newest first) and, every MEDIA_REFRESH_TICKS ticks, the media list. A
+ * refresh from the dashboard (KV `inbox:scan`, written by `POST /social/inbox/refresh`) reads the newest posts' comments
+ * once, whatever the cursor says. The tick counter, the cursor and the last refresh served live in one meta row.
+ *
+ * Subrequests. A Worker invocation on the free plan may make 50, KV and Durable Object calls included:
+ *   replies poll  <= 26 Graph (INBOX_OFFGRID_REPLIES_BUDGET, set by cron.ts) + <= 6 KV
+ *   this reader   <= 8 Graph (the id, conversations, media, 5 comments) + 3 KV (tokens, replies:state, inbox:scan)
+ *                 + <= 7 Durable Object calls (getMeta, ingest conversations, ingest posts, posts, ingest comments,
+ *                 setMeta, and retain once an hour)
+ *   26 + 6 + 8 + 3 + 7 = 50. inboxReader.test.ts pins that sum and measures the reader's side of it.
  */
 
 import { Budget, fetchJson, withQuery, type Http } from "./http";
@@ -25,12 +32,24 @@ import { igUserIdOf, type PollState } from "./replies";
 import { LOG_TEXT_CLIP, graph, toReplyCode } from "./replyCore";
 import { Store, type SocialEnv } from "./store";
 
-/** Graph calls one tick may make. Its worst tick (media refresh) makes 8; the replies poll leaves room for 12. */
+/** A hard stop on the Graph calls of one tick (the worst tick makes READER_GRAPH_CALLS_MAX; a fault must not make more). */
 export const INBOX_READ_BUDGET = 12;
 export const POSTS_PER_TICK = 5;
 export const MEDIA_REFRESH_TICKS = 10;
 /** The old rows are dropped hourly: `retain` scans whole tables. */
 const RETAIN_TICKS = 60;
+/** The Graph calls the replies poll may make on an off-grid tick (30 on its own), leaving the rest of the 50 to the reader. */
+export const INBOX_OFFGRID_REPLIES_BUDGET = 26;
+/** KV operations of one replies poll: its automations, its state, the tokens, its two state writes, a token refresh. */
+export const REPLIES_KV_CALLS_MAX = 6;
+/** The reader's worst tick: the account id, conversations, media (every tenth tick) and the comments of the rotation. */
+export const READER_GRAPH_CALLS_MAX = 1 + 1 + 1 + POSTS_PER_TICK;
+/** The tokens, `replies:state` and `inbox:scan`. */
+export const READER_KV_CALLS = 3;
+/** getMeta, ingest (conversations), ingest (posts), posts, ingest (comments), setMeta, and the hourly retain. */
+export const READER_DO_CALLS_MAX = 7;
+/** The reader's one meta row: `{ tick, postCursor, lastScan }` as JSON. */
+const STATE_KEY = "ig:state";
 
 const CONVERSATIONS_FIELDS =
   "id,updated_time,participants{id,username},messages.limit(20){id,created_time,from,message,story,is_unsupported}";
@@ -40,7 +59,36 @@ const COMMENT_FIELDS =
 
 export type InboxReadResult =
   | { skipped: "no_store" | "not_connected" | "no_permission" | "token_expired" }
-  | { calls: number; conversations: number; posts: number; comments: number; error?: string };
+  | {
+      calls: number;
+      conversations: number;
+      posts: number;
+      comments: number;
+      /** Posts whose comments Instagram refused (a deleted post): logged, skipped, the rotation moves on. */
+      skipped: number;
+      error?: string;
+      detail?: string;
+    };
+
+/** The tick counter, the rotation's cursor and the newest refresh (`inbox:scan`) already served. */
+interface ReaderState {
+  tick: number;
+  postCursor: number;
+  lastScan: string;
+}
+
+function parseState(raw: string | null): ReaderState {
+  try {
+    const v = JSON.parse(raw ?? "");
+    return {
+      tick: Number(v.tick) || 0,
+      postCursor: Number(v.postCursor) || 0,
+      lastScan: typeof v.lastScan === "string" ? v.lastScan : "",
+    };
+  } catch {
+    return { tick: 0, postCursor: 0, lastScan: "" };
+  }
+}
 
 interface IgMessage {
   id: string;
@@ -187,6 +235,8 @@ export async function readInboxTick(
   const budget = new Budget(INBOX_READ_BUDGET);
   const http: Http = { fetch: deps.fetch ?? fetch, budget };
   const calls = () => INBOX_READ_BUDGET - budget.left;
+  // What the result says even when the tick stops half way: what was ingested so far.
+  const done = { conversations: 0, posts: 0, comments: 0, skipped: 0 };
   try {
     const store = Store.from(env);
     const tokens = store ? await store.getTokens("instagram") : null;
@@ -203,16 +253,30 @@ export async function readInboxTick(
         what,
       );
 
-    const igUserId = await igUserIdOf(http, token);
-    const repliesState = { sent: {}, ...(await store.getRepliesState<Pick<PollState, "sent">>()) };
-    const tick = Number(await api.getMeta("ig:tick")) || 0;
+    const state = parseState(await api.getMeta(STATE_KEY));
+    const repliesState = {
+      sent: {},
+      ...(await store.getRepliesState<Pick<PollState, "sent" | "igUserId">>()),
+    };
+    // The replies poll caches the account id; `/me` is only for an account it has not polled yet.
+    const igUserId = repliesState.igUserId || (await igUserIdOf(http, token));
     const convs = await get<{ data?: IgConversation[] }>(
       `${igUserId}/conversations`,
       { platform: "instagram", limit: 20, fields: CONVERSATIONS_FIELDS },
       "conversations",
     );
+    // The conversations go in first: a failing media or comments call below never stalls the DMs.
+    const threads = toBatch(
+      { conversations: convs.data ?? [], media: [], comments: [] },
+      igUserId,
+      repliesState,
+      now,
+    );
+    await api.ingest(threads);
+    done.conversations = threads.conversations!.length;
+
     let media: IgMedia[] = [];
-    if (tick % MEDIA_REFRESH_TICKS === 0) {
+    if (state.tick % MEDIA_REFRESH_TICKS === 0) {
       const page = await get<{ data?: IgMedia[] }>(
         `${igUserId}/media`,
         { fields: MEDIA_FIELDS, limit: 50 },
@@ -223,20 +287,21 @@ export async function readInboxTick(
         posts: toBatch({ conversations: [], media, comments: [] }, igUserId, repliesState, now)
           .posts,
       });
+      done.posts = media.length;
     }
 
     // The rotation: the next POSTS_PER_TICK stored posts, or the newest ones after a refresh.
     const stored = (await api.posts({ platform: "instagram", limit: 50 })).items;
+    const size = Math.max(stored.length, 1);
     const scan = (await env.SOCIAL_KV?.get("inbox:scan")) ?? "";
-    const forced = !!scan && scan > ((await api.getMeta("ig:lastScan")) ?? "");
-    const cursor = forced
-      ? 0
-      : (Number(await api.getMeta("ig:postCursor")) || 0) % Math.max(stored.length, 1);
+    const forced = scan > state.lastScan;
+    const cursor = forced ? 0 : state.postCursor % size;
     const targets = Array.from(
       { length: Math.min(POSTS_PER_TICK, stored.length) },
       (_, i) => stored[(cursor + i) % stored.length],
     );
     const comments: { postId: string; rows: IgComment[] }[] = [];
+    let refusal: string | undefined;
     for (const p of targets) {
       try {
         const page = await get<{ data?: IgComment[] }>(
@@ -247,33 +312,33 @@ export async function readInboxTick(
         comments.push({ postId: p.id, rows: page.data ?? [] });
       } catch (e) {
         // A post Instagram refuses (deleted since the last media read) must not stall the rotation on it.
-        if (toReplyCode(e).code !== "rejected") throw e;
+        const { code, detail } = toReplyCode(e);
+        if (code !== "rejected") throw e;
+        done.skipped += 1;
+        refusal = detail;
+        console.log(JSON.stringify({ inbox: "comments", post: p.id, error: code, detail }));
       }
     }
+    const rows = toBatch({ conversations: [], media: [], comments }, igUserId, repliesState, now);
+    await api.ingest({ comments: rows.comments });
+    done.comments = rows.comments!.length;
 
-    const batch = toBatch(
-      { conversations: convs.data ?? [], media: [], comments },
-      igUserId,
-      repliesState,
-      now,
-    );
-    await api.ingest(batch);
-    await api.setMeta("ig:tick", String(tick + 1));
     // A refresh leaves the rotation where it was (so pressing it often cannot starve the older posts).
-    if (forced) await api.setMeta("ig:lastScan", scan);
-    else
-      await api.setMeta(
-        "ig:postCursor",
-        String((cursor + targets.length) % Math.max(stored.length, 1)),
-      );
-    if (tick % RETAIN_TICKS === 0) await api.retain(now.toISOString());
+    const next: ReaderState = {
+      tick: state.tick + 1,
+      postCursor: forced ? state.postCursor : (cursor + targets.length) % size,
+      lastScan: forced ? scan : state.lastScan,
+    };
+    await api.setMeta(STATE_KEY, JSON.stringify(next));
+    if (state.tick % RETAIN_TICKS === 0) await api.retain(now.toISOString());
+    const refusedAll = targets.length > 0 && done.skipped === targets.length;
     return {
       calls: calls(),
-      conversations: batch.conversations!.length,
-      posts: media.length,
-      comments: batch.comments!.length,
+      ...done,
+      ...(refusedAll ? { error: "rejected", detail: refusal?.slice(0, 200) } : {}),
     };
   } catch (e) {
-    return { calls: calls(), conversations: 0, posts: 0, comments: 0, error: toReplyCode(e).code };
+    const { code, detail } = toReplyCode(e);
+    return { calls: calls(), ...done, error: code, detail: detail?.slice(0, 200) };
   }
 }
