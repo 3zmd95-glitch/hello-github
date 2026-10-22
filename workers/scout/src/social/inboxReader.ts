@@ -7,11 +7,12 @@
  * once, whatever the cursor says. The tick counter, the cursor and the last refresh served live in one meta row.
  *
  * Subrequests. A Worker invocation on the free plan may make 50, KV and Durable Object calls included:
- *   replies poll  <= 26 Graph (INBOX_OFFGRID_REPLIES_BUDGET, set by cron.ts) + <= 6 KV
+ *   replies poll  <= 24 Graph (INBOX_OFFGRID_REPLIES_BUDGET, set by cron.ts) + <= 6 KV
  *   this reader   <= 8 Graph (the id, conversations, media, 5 comments) + 3 KV (tokens, replies:state, inbox:scan)
  *                 + <= 7 Durable Object calls (getMeta, ingest conversations, ingest posts, posts, ingest comments,
  *                 setMeta, and retain once an hour)
- *   26 + 6 + 8 + 3 + 7 = 50. inboxReader.test.ts pins that sum and measures the reader's side of it.
+ *   24 + 6 + 8 + 3 + 7 = 48, which leaves SUBREQUEST_HEADROOM (2) of the 50 for Store.write's one retry (a second KV
+ *   put). inboxReader.test.ts pins that sum and measures the reader's side of it.
  */
 
 import { Budget, fetchJson, withQuery, type Http } from "./http";
@@ -38,8 +39,10 @@ export const POSTS_PER_TICK = 5;
 export const MEDIA_REFRESH_TICKS = 10;
 /** The old rows are dropped hourly: `retain` scans whole tables. */
 const RETAIN_TICKS = 60;
-/** The Graph calls the replies poll may make on an off-grid tick (30 on its own), leaving the rest of the 50 to the reader. */
-export const INBOX_OFFGRID_REPLIES_BUDGET = 26;
+/** The Graph calls the replies poll may make on an off-grid tick (30 on its own), leaving the reader its share of the 50. */
+export const INBOX_OFFGRID_REPLIES_BUDGET = 24;
+/** Subrequests of the 50 kept free: `Store.write` retries a failed KV put once, a second put the counts below omit. */
+export const SUBREQUEST_HEADROOM = 2;
 /** KV operations of one replies poll: its automations, its state, the tokens, its two state writes, a token refresh. */
 export const REPLIES_KV_CALLS_MAX = 6;
 /** The reader's worst tick: the account id, conversations, media (every tenth tick) and the comments of the rotation. */

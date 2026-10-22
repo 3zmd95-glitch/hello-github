@@ -86,8 +86,9 @@ export async function runTick(
 ): Promise<TickResult> {
   const now = deps.now ?? new Date(scheduledTime);
   // Off the five-minute grid only the replies and the inbox reader run (every sync, effects, category and trend slot
-  // sits on the grid). The tick must stay inside the 50 subrequests of an invocation: the replies poll gets 26 Graph
-  // calls here (plus up to 6 KV), the reader up to 8 Graph + 3 KV + 7 Durable Object calls (inboxReader.ts).
+  // sits on the grid). The tick must stay inside the 50 subrequests of an invocation: the replies poll gets 24 Graph
+  // calls here (plus up to 6 KV), the reader up to 8 Graph + 3 KV + 7 Durable Object calls, and 2 stay free for a KV
+  // retry (inboxReader.ts).
   if (new Date(scheduledTime).getUTCMinutes() % 5 !== 0) {
     const replies = await pollReplies(env, {
       fetch: deps.fetch,

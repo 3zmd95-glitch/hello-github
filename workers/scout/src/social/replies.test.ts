@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { handle, type Env } from "../scout";
 import { runTick } from "./cron";
 import { toMs } from "./inbox";
-import { INBOX_OFFGRID_REPLIES_BUDGET } from "./inboxReader";
 import { mergeJob, type JobInput, type PublishJob } from "./publish";
 import { MAX_RETRIES } from "./replyCore";
 import {
@@ -2044,7 +2043,7 @@ describe("cron tick", () => {
     await runTick(env, tickAt("09:01"), { fetch: fetchMock, now: NOW });
     expect(poll).toHaveBeenLastCalledWith(
       env,
-      expect.objectContaining({ budget: INBOX_OFFGRID_REPLIES_BUDGET, fiveMinuteTick: false }),
+      expect.objectContaining({ budget: 24, fiveMinuteTick: false }),
     );
     await runTick(env, tickAt("09:05"), { fetch: fetchMock, now: NOW });
     expect(poll.mock.lastCall?.[1]).not.toHaveProperty("budget");

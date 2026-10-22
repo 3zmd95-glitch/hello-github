@@ -7,6 +7,7 @@ import {
   READER_GRAPH_CALLS_MAX,
   READER_KV_CALLS,
   REPLIES_KV_CALLS_MAX,
+  SUBREQUEST_HEADROOM,
   readInboxTick,
   toBatch,
 } from "./inboxReader";
@@ -200,7 +201,7 @@ describe("toBatch", () => {
 /* ---------- the call budget ---------- */
 
 describe("the 50-subrequest budget", () => {
-  it("fits the replies poll and the reader of one off-grid tick into a Worker invocation's 50", () => {
+  it("fits the replies poll and the reader of one off-grid tick into a Worker invocation's 50, minus the headroom", () => {
     // Worst case of each side: its Graph calls, its KV operations, and the reader's Durable Object calls.
     expect(
       INBOX_OFFGRID_REPLIES_BUDGET +
@@ -208,7 +209,8 @@ describe("the 50-subrequest budget", () => {
         READER_GRAPH_CALLS_MAX +
         READER_KV_CALLS +
         READER_DO_CALLS_MAX,
-    ).toBeLessThanOrEqual(50);
+    ).toBeLessThanOrEqual(50 - SUBREQUEST_HEADROOM);
+    expect(SUBREQUEST_HEADROOM).toBe(2);
     expect(READER_GRAPH_CALLS_MAX).toBeLessThanOrEqual(INBOX_READ_BUDGET);
   });
 });
