@@ -7,7 +7,6 @@ import {
   Languages,
   MessageCircle,
   Rocket,
-  Search,
   Settings,
   Volume2,
 } from "lucide-react";
@@ -64,9 +63,9 @@ const icon = { size: 22, strokeWidth: 1.75, "aria-hidden": true } as const;
 
 /**
  * Social "More" (tools/18 §6, mockup More), as grouped lists: the two "soon" sections; the sections that are not in
- * the phone tab bar with the Discover shortcut (edit genres and search live there; a Training route, so it opens in
- * the Training shell); quick settings (Social keeps language and sound here, not in its top bar, round 35) with all
- * settings; the way back to Training. Row titles are the tab bar's and the sidebar's own words (`nav.*`).
+ * the phone tab bar; quick settings (Social keeps language and sound here, not in its top bar, round 35) with Social's
+ * own settings page (tools/20); the way back to Training, the one link that leaves Social. Row titles are the tab
+ * bar's and the sidebar's own words (`nav.*`).
  */
 function SocialMore() {
   const { t, lang } = useT();
@@ -110,13 +109,6 @@ function SocialMore() {
             chevron
             testId="more-replies"
           />
-          <ListRow
-            href="/discover"
-            icon={<Search {...icon} />}
-            title={t("nav.discover")}
-            chevron
-            testId="more-discover"
-          />
         </ListGroup>
         <ListGroup header={t("more.quick")}>
           <ListRow
@@ -151,7 +143,7 @@ function SocialMore() {
             }
           />
           <ListRow
-            href="/settings"
+            href="/social/settings"
             icon={<Settings {...icon} />}
             iconTone="fill"
             title={t("nav.settings")}
