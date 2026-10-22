@@ -28,7 +28,11 @@ sheet; pieces of its UI may be lifted file by file where they fit (approach 3, d
   - **Comments** — our posts, newest first: thumbnail, first caption line, "12 comments · 3 new". Open a post: its
     comments newest first, each with **Reply** (public), and on Instagram **Reply privately** (one DM per comment within
     7 days). A small menu per comment: **Hide** (Instagram, TikTok) and **Delete** (our own replies only).
-- In **All**, every item carries its platform badge; TikTok has no DM API, so its Messages section says so in one line.
+- In **All**, every item carries its platform badge. TikTok's Messages section is one line, "TikTok DMs are not
+  available for Personal accounts", with an **Open TikTok messages** link to `https://www.tiktok.com/messages`
+  (owner, Oct 22: TikTok's Business Messaging API serves Business accounts only, after a developer data-security
+  review; @3z.prod stays Personal for the music, so no TikTok DM reading or auto DMs; no browser automation either, it
+  breaks TikTok's rules and risks the account).
 - "New" counts are per device (`inboxSeen` in the store: the last opened time per conversation / post), like drafts.
 - States: Worker not configured → Settings link; platform not connected or permission missing → one line with the
   connect button ("Allow auto-replies" already grants the Instagram permissions; "Connect TikTok comments" after
@@ -111,6 +115,7 @@ Retention runs on each reader tick: drop conversations beyond 200, posts beyond 
 | D | Sending: DM, public reply, private reply, hide, delete; limits; lock; unconfirmed state | Worker + component tests; e2e; then the **live test** (a friend DMs and comments; the owner replies from the dashboard). |
 | E | Webhooks: Instagram verify + signed `POST` → store; TikTok `POST` → store; reader stays as backup | Tests with signed fixtures; then the owner's App Review (steps below). |
 | F | TikTok comments: account connect button, video list, comments, reply, hide, delete | After the scope approval; live test on @3z.prod. |
+| G | **TikTok auto comment replies** (owner, Oct 22: "lets build the comment for tiktok"): the Auto replies screen gains a TikTok tab; a rule = videos (one or any) + keywords + the public reply text (TikTok comments hold no clickable links, so the default reply points to the bio link); the reader (then the comment webhook) answers matching comments through `/business/comment/reply/create/`; at most 20 replies an hour and one per comment, so it never reads as spam; log, stats and "Check now" as on Instagram; no DMs | Worker tests with a fake Business API; e2e on the screen; live test: a friend comments «لت» on a TikTok video. |
 
 ## Owner's paperwork (after step D works)
 
@@ -120,4 +125,5 @@ Retention runs on each reader tick: drop conversations beyond 200, posts beyond 
 ## Out of scope (this round)
 
 AI reply suggestions, quick replies, photos / link buttons, YouTube and Threads, likes / pins / bulk actions, WhatsApp
-(the ONUS/Hatif project), TikTok DMs (no API), message search, assigning conversations.
+(the ONUS/Hatif project), TikTok DMs and TikTok auto DMs (Business accounts only), message search, assigning
+conversations.
