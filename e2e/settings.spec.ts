@@ -2,6 +2,16 @@ import fs from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { freshState } from "./helpers";
 
+test("Training settings keep their own cards and have no accounts card (tools/20)", async ({ page }) => {
+  await freshState(page, "/settings/");
+  await expect(page.locator("html")).toHaveAttribute("data-world", "training");
+  await expect(page.getByTestId("accounts-card")).toHaveCount(0);
+  await expect(page.getByTestId("apikey-youtube")).toBeVisible();
+  await expect(page.getByTestId("apikey-scoutUrl")).toBeVisible();
+  await expect(page.getByTestId("gear-list")).toBeVisible();
+  await expect(page.getByTestId("export")).toBeVisible();
+});
+
 test("unchecking a gear item locks the skills that need it", async ({ page }) => {
   await freshState(page, "/settings/");
 

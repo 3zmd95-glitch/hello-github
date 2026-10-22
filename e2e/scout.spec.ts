@@ -1179,7 +1179,7 @@ test("/discover/?genre=cars opens with the Cars chip pressed and the genre's sea
   await connectWorker(page);
   const picked = page.locator('[data-testid^="genre-"][aria-pressed="true"]');
 
-  // The link the radar's genre chips open (lib/genres discoverGenreHref), loaded directly.
+  // Discover's own deep link (lib/genres discoverGenreHref), loaded directly.
   await page.goto("/discover/?genre=cars");
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "true");
   await expect(picked).toHaveCount(1);

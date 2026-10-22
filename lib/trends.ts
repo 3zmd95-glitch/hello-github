@@ -18,8 +18,8 @@ import { addDays, daysBetween } from "./streak";
  * diacritics, the idea text a trend becomes, and the Saudi moments calendar (upcoming events and their trend
  * rows). Round 31 adds the edit genres: rows the Worker's keyword scan tagged with a genre id, the filter
  * that reads them (Discover's "most viewed this week" strip; the radar itself filters by language and
- * platform only, Discover is the one place for genres), the name a row's genre chip shows and the Discover
- * link it opens, and the ⭐ rule that does not count a genre's own search words. A row's volume is shown in
+ * platform only, Discover is the one place for genres), the name a row's genre chip shows (a plain chip since
+ * tools/20), and the ⭐ rule that does not count a genre's own search words. A row's volume is shown in
  * its source's unit (`volumeLabelKey`: a YouTube view count is never called searches). Pure functions only;
  * the store keeps the feed and lib/trendsClient talks to the Worker.
  */

@@ -128,6 +128,14 @@ test("Social stays Social: Settings opens /social/settings in the Social look, a
   for (const href of ["/discover/", "/settings/"]) {
     await expect(nav.locator(`a[href="${href}"]`)).toHaveCount(0);
   }
+  // No Social page links to a Training route, in its menu or in its content.
+  for (const path of SOCIAL_PATHS) {
+    await page.goto(path);
+    await expect(page.locator("main h1").first()).toBeVisible();
+    await expect(page.locator('a[href^="/discover"], a[href^="/settings"]')).toHaveCount(0);
+  }
+  await page.goto("/social/growth/");
+  await expect(page.getByTestId("growth-screen")).toBeVisible();
   if (isMobile) {
     await nav.locator('a[href="/social/more/"]').click();
     await expect(page.getByTestId("more-discover")).toHaveCount(0);

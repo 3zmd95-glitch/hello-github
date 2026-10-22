@@ -11,8 +11,6 @@ import { freshState, switchLang } from "./helpers";
 const WORKER = "https://scout.test";
 const TOKEN = "fake-scout-token";
 
-/** Discover, with or without the `?genre=` of the link that opened it (Discover takes it off the address). */
-
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Authorization, Content-Type",
@@ -613,7 +611,7 @@ test("without a Worker the radar still shows the moments and the manual links, a
   await expect(page.getByTestId("trends-need-worker")).toBeVisible();
   await expect(page.getByTestId("trends-need-worker-link")).toHaveAttribute(
     "href",
-    /\/settings\/?$/,
+    "/social/settings/",
   );
   await expect(page.getByTestId("trends-refresh")).toBeDisabled();
   await expect(page.getByTestId("trend-row")).toHaveCount(0);

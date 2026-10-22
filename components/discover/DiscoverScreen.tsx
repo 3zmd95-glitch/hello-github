@@ -9,8 +9,8 @@ import { useGenreLink, useTikTokReturn } from "./useGenreLink";
  * shared research panel (tabs, filters, thumbnails), with "attach to skill" on every card. Round 31: the
  * panel's edit-genre row (cars, food, anime…) searches a genre on its own or together with the topic, its
  * "Most popular" sort puts the most viewed / liked first, and a picked genre shows the Trend Radar's "most
- * viewed this week" above the results. Discover is the one place for genres: `/discover/?genre=<id>` (the
- * radar's genre chips) opens it with that genre on. Back from TikTok for Business (a category page's "Connect TikTok
+ * viewed this week" above the results. Discover is the one place for genres: `/discover/?genre=<id>` opens it
+ * with that genre on. Back from TikTok for Business (a category page's "Connect TikTok
  * trends"), a line says whether TikTok connected.
  */
 export default function DiscoverScreen() {

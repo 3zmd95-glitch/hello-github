@@ -9,8 +9,8 @@ import TrendRadar from "./TrendRadar";
 // 🎬 The radar and the edit genres (round 31), rendered for real in jsdom: no Worker is configured, so nothing
 // is fetched and the radar shows the feed the store already holds (as it does after a reload). Discover is the
 // one place for genres: the radar has no genre select and filters by language tab and platform chip only, a
-// row's genre chip is a link that opens Discover on that genre, and the ⭐ is never given for a genre's own
-// search words.
+// row's genre chip is a plain chip (Discover is a Training route, tools/20), and the ⭐ is never given for a
+// genre's own search words.
 
 const SEEN_AT = new Date().toISOString();
 

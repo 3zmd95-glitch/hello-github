@@ -376,9 +376,15 @@ test("without a Worker the tab says where to set it up and the form has no netwo
   await page.getByTestId("post-card").first().locator("button").first().click();
   await page.getByTestId("post-tab-autopost").click();
   await expect(page.getByTestId("autopost-need-worker")).toBeVisible();
+  // The way to the Worker is Social's own settings page (tools/20).
+  await expect(page.getByTestId("autopost-need-worker").locator("a")).toHaveAttribute(
+    "href",
+    "/social/settings/#accounts",
+  );
   await expect(page.getByTestId("autopost-schedule")).toBeDisabled();
   await page.goto("/social/automations/");
   await expect(page.getByTestId("autopost-empty")).toBeVisible();
+  await expect(page.locator('main a[href="/social/settings/#accounts"]')).toHaveCount(1);
 });
 
 test("a job sent from another device shows in the hub with its networks and can be canceled", async ({

@@ -57,7 +57,7 @@ describe("Social navigation", () => {
     });
   });
 
-  it("lists 💬 Auto replies in the Social desktop sidebar, before the last three", () => {
+  it("lists 💬 Auto replies in the Social desktop sidebar", () => {
     expect(SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/replies")).toEqual({
       href: "/social/replies",
       icon: "💬",

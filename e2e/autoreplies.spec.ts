@@ -520,6 +520,8 @@ test("a link without https:// gets our own message, and nothing is saved", async
 test("without a Worker the screen says where to set it up", async ({ page }) => {
   await freshState(page, "/social/replies/");
   await expect(page.getByTestId("autoreplies-need-worker")).toBeVisible();
+  // The way to the Worker is Social's own settings page (tools/20).
+  await expect(page.locator('main a[href="/social/settings/#accounts"]')).toHaveCount(1);
   await expect(page.getByTestId("autoreplies-new")).toHaveCount(0);
   await page.goto("/social/more/");
   await expect(page.getByTestId("more-replies")).toHaveAttribute("href", /\/social\/replies\/?$/);
