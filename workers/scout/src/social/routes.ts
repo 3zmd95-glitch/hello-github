@@ -26,6 +26,7 @@
 import { isAllowedReturnTo } from "../origins";
 import { pkceChallenge, randomToken } from "./crypto";
 import { Budget } from "./http";
+import { handleInboxProbe, PROBE_CALLS } from "./inboxProbe";
 import { credentials, isConfigured, PROVIDERS, redirectUri } from "./oauth";
 import { handlePublish } from "./publish";
 import { handleReplies } from "./replies";
@@ -175,6 +176,20 @@ export async function handleSocial(
       json: (body, status) => json(body, status, cors),
       fail: (error) => fail(error, cors),
     });
+  }
+  if (action === "inbox") {
+    const r = await handleInboxProbe(
+      req,
+      socialPath(pathname).slice(1),
+      store,
+      now,
+      { fetch: deps.fetch ?? fetch, budget: new Budget(PROBE_CALLS) },
+      {
+        json: (body, status) => json(body, status ?? 200, cors),
+        fail: (error) => fail(error, cors),
+      },
+    );
+    if (r) return r;
   }
   if (action === "publish") {
     return handlePublish(req, env, socialPath(pathname).slice(1), store, now, deps.fetch, {

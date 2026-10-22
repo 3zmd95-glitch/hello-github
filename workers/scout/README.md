@@ -397,6 +397,8 @@ Reads merge the three; an idle tick writes nothing.
 | `POST /social/replies/poll`     |                                                                                                                                         | `{ scanRequested: true, …the GET shape }`: "Check now" stamps `scanRequestedAt` in `replies:doc`; the next tick reads every watched post                           |
 | `DELETE /social/replies/:id`    |                                                                                                                                         | `{ ok: true }` (its counters go with the next poll)                                                                                                                |
 
+Temporary read-only probe for the global inbox (step A of `planning/tools/51-global-inbox.md`; removed in step B): `GET /social/inbox/probe` → `{ igUserId, conversations[5], posts[3] with comments[10], calls }`, text clipped to 120 characters, no token, no KV write, at most 6 Graph calls. Errors: `409 { error: "not_connected" | "token_expired" }`, `403 { error: "no_permission" }` (Instagram connected without reply scopes), `502 { error, detail }` when Instagram refuses.
+
 Validation: `id` is `[A-Za-z0-9_-]{1,100}` (not `poll`, `settings` or `default`); `trigger` is `comment` (default)
 or `message` (a message rule keeps no post, no public replies and no display fields); `postId` is
 `[0-9A-Za-z_-]{1,64}`, or null/omitted for any post; `permalink` (≤ 300), `title` (≤ 120) and `thumbUrl` (https)
