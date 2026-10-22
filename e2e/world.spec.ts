@@ -11,6 +11,7 @@ const SOCIAL_PATHS = [
   "/social/automations/",
   "/social/replies/",
   "/social/more/",
+  "/social/settings/",
 ];
 
 /** Computed border radius (px) of the first `.px-card`, or iOS `Card` (the Studio has only those). */
@@ -49,7 +50,7 @@ test("the world switch moves from 🎮 Training to 📱 Social and restyles the 
   await expect(tabbar.locator('a[href="/social/more/"]')).toHaveCount(1);
   await expect(tabbar.locator('a[href="/skills/"]')).toHaveCount(0);
   await expect(tabbar.locator('a[href="/"]')).toHaveCount(0);
-  // 🔎 Discover is a Training tab: Social reaches it from More and the sidebar, never from its tab bar.
+  // 🔎 Discover is a Training tab: Social has no link to it (tools/20).
   await expect(tabbar.locator('a[href="/discover/"]')).toHaveCount(0);
 
   // iOS look: rounded cards and Vazirmatn.
@@ -105,81 +106,63 @@ test("Social More lists the rest of the world and the way back to Training", asy
     "more-business",
     "more-automations",
     "more-replies",
-    "more-discover",
     "more-settings",
   ]) {
     await expect(page.getByTestId(id)).toBeVisible();
   }
-  await expect(page.getByTestId("more-discover")).toHaveAttribute("href", "/discover/");
+  await expect(page.getByTestId("more-discover")).toHaveCount(0);
+  await expect(page.getByTestId("more-settings")).toHaveAttribute("href", "/social/settings/");
   await expect(page.getByTestId("more-training")).toHaveAttribute("href", "/");
   await page.getByTestId("more-website").click();
   await expect(page.getByTestId("website-screen")).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-world", "social");
 });
 
-test("Social More opens 🔎 Discover in the Training world, and the switch returns to Social's More", async ({
+test("Social stays Social: Settings opens /social/settings in the Social look, and nothing links to Training routes", async ({
   page,
   isMobile,
 }) => {
   await freshState(page, "/social/growth/");
   await expect(page.getByTestId("growth-screen")).toBeVisible();
-
-  // More is a phone tab; on desktop the same page opens from the sidebar.
   const nav = page.getByTestId(isMobile ? "tabbar" : "sidenav");
-  await nav.locator('a[href="/social/more/"]').click();
-  await expect(page).toHaveURL(/\/social\/more\/$/);
-  await page.getByTestId("more-discover").click();
-
-  // Discover is a Training route and the world comes from the URL: the Training shell, Discover active.
-  await expect(page).toHaveURL(/\/discover\/$/);
-  await expect(page.locator("html")).toHaveAttribute("data-world", "training");
-  await expect(page.getByTestId("world-training")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("discover-topic")).toBeVisible();
-  await expect(nav.locator('a[href="/discover/"]')).toHaveAttribute("aria-current", "page");
-  await expect(nav.locator('a[href="/social/more/"]')).toHaveCount(0);
-
-  // Discover was not remembered as a Social route: the switch returns to the last real one (More).
-  await page.getByTestId("world-social").click();
-  await expect(page).toHaveURL(/\/social\/more\/$/);
+  for (const href of ["/discover/", "/settings/"]) {
+    await expect(nav.locator(`a[href="${href}"]`)).toHaveCount(0);
+  }
+  if (isMobile) {
+    await nav.locator('a[href="/social/more/"]').click();
+    await expect(page.getByTestId("more-discover")).toHaveCount(0);
+    await expect(page.locator('main a[href="/discover/"], main a[href="/settings/"]')).toHaveCount(0);
+    await page.getByTestId("more-settings").click();
+  } else {
+    await nav.locator('a[href="/social/settings/"]').click();
+  }
+  await expect(page).toHaveURL(/\/social\/settings\/$/);
   await expect(page.locator("html")).toHaveAttribute("data-world", "social");
-  await expect(page.getByTestId("more-discover")).toBeVisible();
-});
+  await expect(page.getByTestId("social-settings")).toBeVisible();
+  await expect(page.getByTestId("world-social")).toHaveAttribute("aria-pressed", "true");
+  // Social's cards only: the Worker rows and the accounts card, no YouTube key, gear or avatar.
+  await expect(page.locator("#api-keys")).toHaveCount(1);
+  await expect(page.locator("#accounts")).toHaveCount(1);
+  await expect(page.getByTestId("apikey-scoutUrl")).toBeVisible();
+  await expect(page.getByTestId("apikey-youtube")).toHaveCount(0);
+  await expect(page.getByTestId("gear-list")).toHaveCount(0);
+  await expect(page.getByTestId("export")).toBeVisible();
+  await expect(page.locator("main").getByTestId("lang-en")).toBeVisible();
+  if (!isMobile) {
+    await expect(nav.locator('a[href="/social/settings/"]')).toHaveAttribute("aria-current", "page");
+    await expect(nav.locator('[aria-current="page"]')).toHaveCount(1);
+  }
 
-test("desktop: the Social sidebar opens 🔎 Discover in the Training world, and the switch returns to the last Social route", async ({
-  page,
-  isMobile,
-}) => {
-  test.skip(isMobile, "the sidebar is desktop only");
-  await freshState(page, "/social/growth/");
-  await expect(page.getByTestId("growth-screen")).toBeVisible();
-
-  const sidenav = page.getByTestId("sidenav");
-  const discover = sidenav.locator('a[href="/discover/"]');
-  await expect(discover).toHaveCount(1);
-  await expect(discover).toBeVisible();
-  // Inside Social the shortcut is never the active item: Growth is, and only Growth.
-  await expect(discover).not.toHaveAttribute("aria-current", "page");
-  await expect(sidenav.locator('[aria-current="page"]')).toHaveCount(1);
-  await expect(sidenav.locator('a[href="/social/growth/"]')).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
-
-  await discover.click();
-  await expect(page).toHaveURL(/\/discover\/$/);
+  // The gear in the top bar goes to the same page, and the world switch remembers it as a Social route.
+  await page.goto("/social/");
+  await page.getByTestId("social-top-settings").click();
+  await expect(page).toHaveURL(/\/social\/settings\/$/);
+  await page.getByTestId("world-training").click();
+  await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("html")).toHaveAttribute("data-world", "training");
-  await expect(page.getByTestId("world-training")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("discover-topic")).toBeVisible();
-  // The sidebar is the Training one now, with Discover as its active item.
-  await expect(discover).toHaveAttribute("aria-current", "page");
-  await expect(sidenav.locator('a[href="/skills/"]')).toHaveCount(1);
-  await expect(sidenav.locator('a[href="/social/growth/"]')).toHaveCount(0);
-
-  // Discover was not remembered as a Social route: the switch returns to Growth.
   await page.getByTestId("world-social").click();
-  await expect(page).toHaveURL(/\/social\/growth\/$/);
-  await expect(page.locator("html")).toHaveAttribute("data-world", "social");
-  await expect(page.getByTestId("growth-screen")).toBeVisible();
+  await expect(page).toHaveURL(/\/social\/settings\/$/);
+  await expect(page.getByTestId("social-settings")).toBeVisible();
 });
 
 test("RTL / LTR toggle works inside Social", async ({ page }) => {

@@ -183,7 +183,7 @@ async function stubWorker(page: Page): Promise<Fake> {
 
 /** Settings → API keys: the Worker URL and token; "Test" pulls the status and the data. */
 async function connectWorker(page: Page): Promise<void> {
-  await page.goto("/settings/");
+  await page.goto("/social/settings/");
   await page.getByTestId("apikey-scoutUrl-input").fill(WORKER);
   await page.getByTestId("apikey-scoutUrl-input").press("Enter");
   await expect(page.getByTestId("apikey-scoutUrl-status")).toHaveText("محفوظ");
@@ -197,7 +197,7 @@ test("allow auto-replies in Settings, build the LUT automation, test it, read se
   isMobile,
 }) => {
   const fake = await stubWorker(page);
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   await connectWorker(page);
 
   // Settings: Instagram offers "Allow auto-replies"; the other rows do not.
@@ -327,7 +327,7 @@ test("a DM rule has no post or public replies, and the counter stops a DM that i
 }) => {
   const fake = await stubWorker(page);
   fake.status.instagram = { ...fake.status.instagram, canReply: true };
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   await connectWorker(page);
   await page.goto("/social/replies/");
   await page.getByTestId("autoreplies-new").click();
@@ -378,7 +378,7 @@ test("Edit far down a long list opens the editor sheet at its own top and leaves
       stats: { sends: 0, publicReplies: 0, failures: 0, clicks: 0 },
     });
   }
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   await connectWorker(page);
   await page.goto("/social/replies/");
   const last = page.locator('[data-testid="autoreply-row"][data-id="dm-11"]:visible');
@@ -405,7 +405,7 @@ test("a keyword chip's ✕ is 40px wide and never reaches a neighbouring chip, b
 }) => {
   const fake = await stubWorker(page);
   fake.status.instagram = { ...fake.status.instagram, canReply: true };
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   await connectWorker(page);
   await page.goto("/social/replies/");
   await page.getByTestId("autoreplies-new").click();
@@ -466,7 +466,7 @@ test("a rule on a post this browser has not synced keeps it: checked first in th
     createdAt: "2026-09-01T09:00:00.000Z",
     stats: { sends: 0, publicReplies: 0, failures: 0, clicks: 0 },
   });
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   await connectWorker(page);
   await page.goto("/social/replies/");
   const row = page.locator('[data-testid="autoreply-row"][data-id="old"]:visible');
@@ -502,7 +502,7 @@ test("a rule on a post this browser has not synced keeps it: checked first in th
 test("a link without https:// gets our own message, and nothing is saved", async ({ page }) => {
   const fake = await stubWorker(page);
   fake.status.instagram = { ...fake.status.instagram, canReply: true };
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   await connectWorker(page);
   await page.goto("/social/replies/");
   await page.getByTestId("autoreplies-new").click();
@@ -528,7 +528,7 @@ test("without a Worker the screen says where to set it up", async ({ page }) => 
 test("pause all, and the default reply with its size check", async ({ page }) => {
   const fake = await stubWorker(page);
   fake.status.instagram = { ...fake.status.instagram, canReply: true };
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   await connectWorker(page);
   await page.goto("/social/replies/");
   const status = page.getByTestId("autoreplies-can-reply");
@@ -583,7 +583,7 @@ test("each rule's switch and ⋯ menu say which rule they belong to", async ({ p
       stats: { sends: 0, publicReplies: 0, failures: 0, clicks: 0 },
     });
   }
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   await connectWorker(page);
   await page.goto("/social/replies/");
   await expect(page.locator('[data-testid="autoreply-row"]:visible')).toHaveCount(2);
@@ -609,7 +609,7 @@ test("the account card shows the poll's last error in Instagram's words", async 
   const words =
     "conversations: messages came without created_time/from — the field expansion was not returned";
   fake.extra = { lastError: "upstream", lastErrorDetail: words };
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   await connectWorker(page);
   await page.goto("/social/replies/");
   await expect(page.getByTestId("autoreplies-last-error")).toHaveText("فيه مشكلة عند إنستقرام");
@@ -636,7 +636,7 @@ test("the log shows Instagram's words for every failure, not only refusals", asy
       },
     ],
   };
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   await connectWorker(page);
   await page.goto("/social/replies/");
   await page.getByTestId("autoreplies-log").locator("summary").click();
@@ -650,7 +650,7 @@ test("the DM card keeps what was typed for a comment: switching back restores th
 }) => {
   const fake = await stubWorker(page);
   fake.status.instagram = { ...fake.status.instagram, canReply: true };
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   await connectWorker(page);
   await page.goto("/social/replies/");
   await page.getByTestId("autoreplies-new").click();

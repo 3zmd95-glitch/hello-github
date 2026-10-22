@@ -140,7 +140,7 @@ async function stubWorker(page: Page | BrowserContext): Promise<Fake> {
 }
 
 async function connectWorker(page: Page): Promise<void> {
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   await page.getByTestId("apikey-scoutUrl-input").fill(WORKER);
   await page.getByTestId("apikey-scoutUrl-input").press("Enter");
   await expect(page.getByTestId("apikey-scoutUrl-status")).toHaveText("محفوظ");
