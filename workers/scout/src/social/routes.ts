@@ -26,7 +26,8 @@
 import { isAllowedReturnTo } from "../origins";
 import { pkceChallenge, randomToken } from "./crypto";
 import { Budget } from "./http";
-import { handleInboxProbe, PROBE_CALLS } from "./inboxProbe";
+import type { InboxApi } from "./inboxDb";
+import { handleInbox, INBOX_ROUTE_BUDGET } from "./inboxRoutes";
 import { credentials, isConfigured, PROVIDERS, redirectUri } from "./oauth";
 import { handlePublish } from "./publish";
 import { handleReplies } from "./replies";
@@ -52,6 +53,8 @@ export interface SocialDeps {
   fetch?: typeof fetch;
   /** Test seam for "now". */
   now?: () => Date;
+  /** Test seam for the inbox store; production uses the INBOX_STORE Durable Object. */
+  inboxApi?: InboxApi;
 }
 
 /** Outbound calls left for the first sync after the code exchange (which itself takes up to two). */
@@ -66,6 +69,7 @@ const STATUS: Record<SocialErrorCode, number> = {
   upstream: 502,
   rate_limited: 429,
   bad_request: 400,
+  not_available: 503,
 };
 
 function json(body: unknown, status: number, cors: Headers): Response {
@@ -178,18 +182,19 @@ export async function handleSocial(
     });
   }
   if (action === "inbox") {
-    const r = await handleInboxProbe(
+    return handleInbox(
       req,
+      env,
       socialPath(pathname).slice(1),
       store,
       now,
-      { fetch: deps.fetch ?? fetch, budget: new Budget(PROBE_CALLS) },
+      { fetch: deps.fetch ?? fetch, budget: new Budget(INBOX_ROUTE_BUDGET) },
       {
         json: (body, status) => json(body, status ?? 200, cors),
         fail: (error) => fail(error, cors),
       },
+      { api: deps.inboxApi },
     );
-    if (r) return r;
   }
   if (action === "publish") {
     return handlePublish(req, env, socialPath(pathname).slice(1), store, now, deps.fetch, {

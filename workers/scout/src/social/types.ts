@@ -22,7 +22,8 @@ export type SocialErrorCode =
   | "token_expired"
   | "upstream"
   | "rate_limited"
-  | "bad_request";
+  | "bad_request"
+  | "not_available";
 
 /** A typed failure the platform modules throw; `sync.ts` turns it into `status.lastError`. */
 export class SocialError extends Error {

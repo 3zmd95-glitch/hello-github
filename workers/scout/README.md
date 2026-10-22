@@ -162,8 +162,9 @@ computes averages and engagement from the post rows itself.
 
 Error codes (JSON `{ error }` on the API, `reason=` on the callback redirect): `not_configured` (503, client
 id/secret or KV missing), `not_connected` (409), `state_invalid` (400), `exchange_failed` (502),
-`token_expired` (409, the owner has to reconnect), `upstream` (502), `rate_limited` (429), `bad_request` (400).
-The callback additionally uses `reason=access_denied` when the owner cancelled at the provider.
+`token_expired` (409, the owner has to reconnect), `upstream` (502), `rate_limited` (429), `bad_request` (400),
+`not_available` (503, the inbox store binding is missing). The callback additionally uses `reason=access_denied` when
+the owner cancelled at the provider.
 
 ### What each platform gives
 
@@ -397,8 +398,6 @@ Reads merge the three; an idle tick writes nothing.
 | `POST /social/replies/poll`     |                                                                                                                                         | `{ scanRequested: true, …the GET shape }`: "Check now" stamps `scanRequestedAt` in `replies:doc`; the next tick reads every watched post                           |
 | `DELETE /social/replies/:id`    |                                                                                                                                         | `{ ok: true }` (its counters go with the next poll)                                                                                                                |
 
-Temporary read-only probe for the global inbox (step A of `planning/tools/51-global-inbox.md`; removed in step B): `GET /social/inbox/probe` → `{ igUserId, conversations[5], posts[3] with comments[10], calls }`, text clipped to 120 characters, no token, no KV write, at most 6 Graph calls. Errors: `409 { error: "not_connected" | "token_expired" }`, `403 { error: "no_permission" }` (Instagram connected without reply scopes), `502 { error, detail }` when Instagram refuses.
-
 Validation: `id` is `[A-Za-z0-9_-]{1,100}` (not `poll`, `settings` or `default`); `trigger` is `comment` (default)
 or `message` (a message rule keeps no post, no public replies and no display fields); `postId` is
 `[0-9A-Za-z_-]{1,64}`, or null/omitted for any post; `permalink` (≤ 300), `title` (≤ 120) and `thumbUrl` (https)
@@ -422,6 +421,26 @@ window). `skipped` on the poll result: `none`, `not_connected`, `no_permission`,
 `paused`, `guard`. Log entries carry `kind` (`comment`, `message`, `story`, `default`) and, for DMs, `messageId`.
 Clicks: `GET /go/:id/:n` redirects only to an owner-saved https link, counts one tap per visitor per link per minute
 (Cache API) and at most `CLICK_WRITES_PER_DAY` (200) a day, and always redirects.
+
+## Global inbox
+
+Plan: `planning/tools/51-global-inbox.md`. Code: `src/social/inboxRoutes.ts` (these routes), `inboxReader.ts` (the
+every-minute reader that fills the store from Instagram) and `inboxStore.ts` (the `INBOX_STORE` Durable Object). The
+routes read the store, ask for a rescan and empty it. All of them need the bearer. Without the `INBOX_STORE` binding every one answers `503 { error: "not_available" }`.
+
+| Route                                                    | Response                                                                                                                                                                                                     |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /social/inbox`                                      | `{ platforms: { instagram, tiktok }, counts }`; a platform is `{ connected, canReply, tokenExpired, lastReadAt, newestAt }` (TikTok: never connected here), `counts` is `{ conversations, posts, comments }` |
+| `GET /social/inbox/conversations?platform=&before=`      | `{ conversations, more, next }`, newest first                                                                                                                                                                |
+| `GET /social/inbox/conversations/:id?before=`            | `{ conversation, messages, more, next, window: { open, closesAt } }`, messages oldest first; `404 { error: "not_found" }`                                                                                    |
+| `GET /social/inbox/posts?platform=&before=`              | `{ posts, more, next }`, newest first                                                                                                                                                                        |
+| `GET /social/inbox/posts/:platform/:id/comments?before=` | `{ post, comments, more, next }`, newest first; `404 { error: "not_found" }`                                                                                                                                 |
+| `POST /social/inbox/refresh`                             | `{ scanRequestedAt }`: writes KV `inbox:scan` (1 hour), the next reader tick reads the newest posts' comments once                                                                                           |
+| `DELETE /social/inbox`                                   | `{ ok: true }`: empties the store; the reader refills it                                                                                                                                                     |
+
+`platform` is `all` (default), `instagram` or `tiktok`, else `400 { error: "bad_request" }`. Ids are `[A-Za-z0-9_=-]{1,256}`; `:platform` is
+`instagram` or `tiktok`. Lists are paged 20 at a time: when `more` is true, send `next` back as `before` to get the following page (the cursor is
+opaque, pass it unchanged). `window.open` is whether the 24-hour reply window of the thread is still open now (`closesAt` is null when unknown).
 
 ## Trend Radar
 

@@ -56,6 +56,7 @@ import {
   type TavilyHit,
 } from "./normalize";
 import { allowedOrigins, DEFAULT_ALLOWED_ORIGINS } from "./origins";
+import type { InboxApi } from "./social/inboxDb";
 import { handleGo } from "./social/replies";
 import { handleOAuthCallback, handleSocial, healthSocial } from "./social/routes";
 import type { SocialEnv } from "./social/store";
@@ -102,6 +103,8 @@ export interface Deps {
   oembedTimeoutMs?: number;
   /** "Now" for the social routes (day keys, token expiry). */
   now?: () => Date;
+  /** Test seam for the global inbox store (production uses the INBOX_STORE Durable Object). */
+  inboxApi?: InboxApi;
 }
 
 const MAX_RESULTS_CAP = 20;
@@ -571,7 +574,11 @@ export async function handle(
     waitUntil: ctx ? (task) => ctx.waitUntil(task) : undefined,
   });
   if (creator) return creator;
-  const social = await handleSocial(req, env, cors, { fetch: deps.fetch, now: deps.now });
+  const social = await handleSocial(req, env, cors, {
+    fetch: deps.fetch,
+    now: deps.now,
+    inboxApi: deps.inboxApi,
+  });
   if (social) return social;
   if (pathname === "/tiktokads/music-probe" && req.method === "GET") {
     const out = await musicProbe(req, env, doFetch, deps.now?.() ?? new Date());
