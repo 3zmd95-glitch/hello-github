@@ -165,6 +165,7 @@ describe("GET /social/inbox/probe", () => {
             id: "c1",
             text: "لت",
             username: "ali",
+            from: { id: "5", username: "ali" },
             timestamp: "2026-10-21T10:00:00+0000",
             replies: { data: [{ id: "c1r" }] },
           },
@@ -179,12 +180,13 @@ describe("GET /social/inbox/probe", () => {
     const body = (await res.json()) as ProbeReply;
     expect(body.igUserId).toBe("17841");
     expect(body.conversations[0]).toMatchObject({ id: "t1", peer: "sara" });
-    expect(body.conversations[0].messages[0]).toMatchObject({ from: "them" });
+    expect(body.conversations[0].messages[0]).toMatchObject({ from: "them", fromId: "9" });
     expect(body.conversations[0].messages[0].text).toHaveLength(120);
     expect(body.posts[0]).toMatchObject({ id: "p1", commentCount: 2 });
     expect(body.posts[0].comments[0]).toMatchObject({
       id: "c1",
       author: "ali",
+      from: { id: "5" },
       text: "لت",
       replies: 1,
     });
@@ -213,5 +215,45 @@ describe("GET /social/inbox/probe", () => {
     });
     expect(r2.status).toBe(403);
     expect(await r2.json()).toEqual({ error: "no_permission" });
+  });
+
+  it("falls back to the sender's username, keeps a missing sender null, and reads at most 3 posts", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram", { accessToken: "t", canReply: true });
+    const post = (id: string) => ({ id, timestamp: "2026-10-20T10:00:00+0000" });
+    const comment = (id: string, extra: object) => ({
+      id,
+      text: "hi",
+      timestamp: "2026-10-21T10:00:00+0000",
+      ...extra,
+    });
+    const fetch = mockFetch({
+      [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
+      [`GET ${IG}/17841/conversations`]: () => ({ data: [] }),
+      // a platform that ignores limit=3 and answers 5 posts
+      [`GET ${IG}/17841/media`]: () => ({ data: ["p1", "p2", "p3", "p4", "p5"].map(post) }),
+      [`GET ${IG}/p1/comments`]: () => ({
+        data: [
+          comment("c1", { from: { id: "5", username: "noor" } }),
+          comment("c2", { username: "ali" }),
+        ],
+      }),
+      [`GET ${IG}/p2/comments`]: () => ({ data: [] }),
+      [`GET ${IG}/p3/comments`]: () => ({ data: [] }),
+    });
+    const res = await handle(req("/social/inbox/probe"), env, undefined, {
+      fetch,
+      now: () => NOW,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as ProbeReply;
+    expect(body.posts.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+    expect(body.calls).toBe(6);
+    expect(fetch.calls()).toHaveLength(6);
+    expect(body.posts[0].comments[0]).toMatchObject({
+      author: "noor",
+      from: { id: "5", username: "noor" },
+    });
+    expect(body.posts[0].comments[1]).toMatchObject({ author: "ali", from: null });
   });
 });

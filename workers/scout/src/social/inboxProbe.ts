@@ -19,13 +19,20 @@ export interface ProbeReply {
     id: string;
     peer: string;
     updatedAt: string;
-    messages: { from: "them" | "us"; text: string; at: string }[];
+    messages: { from: "them" | "us"; fromId: string | null; text: string; at: string }[];
   }[];
   posts: {
     id: string;
     caption: string;
     commentCount: number;
-    comments: { id: string; author: string; text: string; at: string; replies: number }[];
+    comments: {
+      id: string;
+      author: string;
+      from: { id: string; username?: string } | null;
+      text: string;
+      at: string;
+      replies: number;
+    }[];
   }[];
   calls: number;
 }
@@ -53,6 +60,7 @@ type Comment = {
   id: string;
   text?: string;
   username?: string;
+  from?: { id: string; username?: string };
   timestamp: string;
   replies?: { data: { id: string }[] };
 };
@@ -102,7 +110,8 @@ export async function handleInboxProbe(
       "media",
     );
     const posts: ProbeReply["posts"] = [];
-    for (const m of media.data ?? []) {
+    // Bounded here too: a platform that ignores `limit=3` must not push the probe past its call budget.
+    for (const m of (media.data ?? []).slice(0, 3)) {
       const c = await get<{ data?: Comment[] } & MetaError>(
         q(`${IG_API}/${m.id}/comments`, {
           fields: "id,text,username,from,timestamp,replies{id}",
@@ -117,7 +126,8 @@ export async function handleInboxProbe(
         commentCount: m.comments_count ?? 0,
         comments: (c.data ?? []).map((x) => ({
           id: x.id,
-          author: x.username ?? "",
+          author: x.username ?? x.from?.username ?? "",
+          from: x.from ?? null,
           text: clip(x.text),
           at: x.timestamp,
           replies: x.replies?.data.length ?? 0,
@@ -132,6 +142,7 @@ export async function handleInboxProbe(
         peer: t.participants?.data.find((p) => p.id !== igUserId)?.username ?? "",
         messages: (t.messages?.data ?? []).map((m) => ({
           from: m.from?.id === igUserId ? "us" : "them",
+          fromId: m.from?.id ?? null,
           text: clip(m.message),
           at: m.created_time,
         })),
