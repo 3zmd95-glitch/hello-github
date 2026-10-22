@@ -10,6 +10,8 @@
   "inbox.refresh": "Refresh now",
   "inbox.lastRead": "Updated {ago}",
   "inbox.unread": "{n} new",
+  "inbox.new": "New",
+  "inbox.loading": "Loading your inbox…",
   "inbox.empty.messages": "No messages yet.",
   "inbox.empty.comments": "No comments yet.",
   "inbox.needWorker": "The inbox needs the Scout Worker running and an Instagram account connected in Settings.",

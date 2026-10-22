@@ -2050,6 +2050,29 @@ describe("🗂 global inbox (seen marks and tab)", () => {
     expect(S().inboxSeen).toEqual({ "instagram:post:m9": B });
   });
 
+  it("pruneInboxSeen keeps only the listed keys, and ignores anything but strings", () => {
+    S().markInboxSeen("instagram:conversation:c1", A);
+    S().markInboxSeen("instagram:conversation:c2", A);
+    S().markInboxSeen("instagram:post:m9", B);
+    S().pruneInboxSeen([
+      "instagram:post:m9",
+      5 as never,
+      null as never,
+      "instagram:conversation:c1",
+    ]);
+    expect(S().inboxSeen).toEqual({ "instagram:conversation:c1": A, "instagram:post:m9": B });
+
+    const before = S().inboxSeen;
+    S().pruneInboxSeen(["instagram:conversation:c1", "instagram:post:m9", "never-seen"]);
+    expect(S().inboxSeen).toBe(before); // nothing to drop: untouched
+    S().pruneInboxSeen("instagram:post:m9" as never);
+    S().pruneInboxSeen(undefined as never);
+    expect(S().inboxSeen).toBe(before);
+
+    S().pruneInboxSeen([]);
+    expect(S().inboxSeen).toEqual({});
+  });
+
   it("setInboxTab switches the tab", () => {
     S().setInboxTab("tiktok");
     expect(S().inboxTab).toBe("tiktok");

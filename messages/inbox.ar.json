@@ -10,6 +10,8 @@
   "inbox.refresh": "حدّث الحين",
   "inbox.lastRead": "آخر تحديث {ago}",
   "inbox.unread": "{n} جديد",
+  "inbox.new": "جديد",
+  "inbox.loading": "نجيب الرسائل…",
   "inbox.empty.messages": "ما فيه رسائل لسا.",
   "inbox.empty.comments": "ما فيه تعليقات لسا.",
   "inbox.needWorker": "الرسائل تحتاج الوركر شغّال وحساب إنستقرام مربوط من الإعدادات.",

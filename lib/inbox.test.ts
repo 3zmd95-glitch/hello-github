@@ -8,6 +8,7 @@ import {
   inboxCall,
   inboxComments,
   inboxConversations,
+  inboxErrorKey,
   inboxOverview,
   inboxPosts,
   inboxRefresh,
@@ -16,6 +17,7 @@ import {
   seenKey,
   unreadCount,
   utf8Bytes,
+  type InboxError,
 } from "./inbox";
 
 const CONFIG = { url: "https://scout.test", token: "tok" };
@@ -346,5 +348,27 @@ describe("helpers", () => {
     expect(unreadCount(items, seen)).toBe(2);
     expect(unreadCount([], seen)).toBe(0);
     expect(unreadCount(items, {})).toBe(4);
+  });
+
+  it("inboxErrorKey names every error, and anything else as the platform's problem", () => {
+    const cases: [InboxError["type"], string][] = [
+      ["auth", "inbox.err.auth"],
+      ["not_found", "inbox.err.notFound"],
+      ["rejected", "inbox.err.rejected"],
+      ["no_permission", "inbox.err.noPermission"],
+      ["not_eligible", "inbox.err.notEligible"],
+      ["rate_limited", "inbox.err.rateLimited"],
+      ["network", "inbox.err.network"],
+      ["not_available", "inbox.notAvailable"],
+      ["unconfigured", "inbox.needWorker"],
+      ["upstream", "inbox.err.upstream"],
+      ["token_expired", "inbox.err.upstream"],
+      ["window_closed", "inbox.err.upstream"],
+      ["bad_request", "inbox.err.upstream"],
+    ];
+    for (const [type, key] of cases) expect(inboxErrorKey({ type }), type).toBe(key);
+    // The Worker's body names the code: an unknown one (or one that is an Object method) is still upstream.
+    expect(inboxErrorKey({ type: "brand_new" as InboxError["type"] })).toBe("inbox.err.upstream");
+    expect(inboxErrorKey({ type: "toString" as InboxError["type"] })).toBe("inbox.err.upstream");
   });
 });

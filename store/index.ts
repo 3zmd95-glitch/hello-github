@@ -445,6 +445,8 @@ export interface StoreActions {
   /* 🗂 Global inbox. */
   /** Mark a conversation or post opened at `at` (ISO). Keeps the later time: an older open never lowers the mark. No-op for an empty key or an `at` that is not a date. */
   markInboxSeen(key: string, at: string): void;
+  /** Keep only the seen marks of these keys (the loaded lists), so the map never grows without bound. Anything but a string in `keep` is ignored; not an array is a no-op. */
+  pruneInboxSeen(keep: string[]): void;
   /** No-op for anything but a known tab. */
   setInboxTab(tab: "all" | "instagram" | "tiktok"): void;
 
@@ -1516,6 +1518,14 @@ export const useStore = create<StoreState>()(
         const seen = get().inboxSeen;
         if (seen[key] && seen[key] >= at) return;
         set({ inboxSeen: { ...seen, [key]: at } });
+      },
+
+      pruneInboxSeen(keep) {
+        if (!Array.isArray(keep)) return;
+        const want = new Set(keep.filter((k) => typeof k === "string"));
+        const seen = get().inboxSeen;
+        const kept = Object.entries(seen).filter(([k]) => want.has(k));
+        if (kept.length < Object.keys(seen).length) set({ inboxSeen: Object.fromEntries(kept) });
       },
 
       setInboxTab(tab) {

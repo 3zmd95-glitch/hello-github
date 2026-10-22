@@ -12,6 +12,7 @@ import {
   type InboxPlatform,
   type InboxPost,
 } from "./domain";
+import type { MessageKey } from "./i18n";
 import type { ScoutConfig } from "./scoutClient";
 import type { SocialSyncErrorType } from "./socialSync";
 
@@ -184,6 +185,22 @@ export const inboxWipe = (config: ScoutConfig | null): Promise<InboxResult<{ ok:
   inboxCall(config, "", WipeAnswer, { method: "DELETE" });
 
 /* ---------- helpers ---------- */
+
+const ERROR_KEYS: Partial<Record<InboxError["type"], MessageKey>> = {
+  auth: "inbox.err.auth",
+  not_found: "inbox.err.notFound",
+  rejected: "inbox.err.rejected",
+  no_permission: "inbox.err.noPermission",
+  not_eligible: "inbox.err.notEligible",
+  rate_limited: "inbox.err.rateLimited",
+  network: "inbox.err.network",
+  not_available: "inbox.notAvailable",
+  unconfigured: "inbox.needWorker",
+};
+
+/** The copy for a failed call; any other code (the Worker names it) reads as the platform's problem. */
+export const inboxErrorKey = (error: InboxError): MessageKey =>
+  (Object.hasOwn(ERROR_KEYS, error.type) && ERROR_KEYS[error.type]) || "inbox.err.upstream";
 
 /** A text's length in UTF-8 bytes: Instagram's DM limit counts these. */
 export const utf8Bytes = (s: string): number => new TextEncoder().encode(s).length;
