@@ -5,14 +5,9 @@ import Link from "next/link";
 import { fmtCount } from "@/components/social/growth/format";
 import PlatformBadge from "@/components/ui/ios/PlatformBadge";
 import type { TrendItem } from "@/lib/domain";
-import { useT } from "@/lib/i18n";
+import { useT, withoutEmoji } from "@/lib/i18n";
 import { sourceLabel, volumeLabelKey, volumeUnit } from "@/lib/trends";
 import TrendActions, { calendarPlatformOf, type PlannedPost } from "./TrendActions";
-
-/** A label's leading emoji ("🚗 سيارات" → "سيارات"), for the Social chips; a label of emoji only stays as it is. */
-const LEADING_EMOJI =
-  /^(?:(?:\p{Extended_Pictographic}|\p{Emoji_Presentation})(?:\uFE0F|\u200D(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}))*\s*)+/u;
-const withoutEmoji = (label: string): string => label.replace(LEADING_EMOJI, "") || label;
 
 /**
  * One radar row (round 30, planning/tools/08-trends.md), an iOS list row (tools/18 §6): the platform badge (a

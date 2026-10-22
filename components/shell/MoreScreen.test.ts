@@ -6,8 +6,8 @@ import { useStore } from "@/store";
 import MoreScreen from "./MoreScreen";
 import type { World } from "./useWorld";
 
-// ☰ The "More" page of each world, rendered for real in jsdom. Round 31b: Social's list gets the 🔎 Discover
-// shortcut (Discover is the one place for edit genres); e2e/world.spec.ts follows the link in a browser.
+// ☰ The "More" page of each world, rendered for real in jsdom. Since tools/20 every Social row is a Social route
+// (Settings is /social/settings, no Discover shortcut); e2e/world.spec.ts follows the links in a browser.
 // Round 35 (iOS look): Social's language and sound controls live in More's quick settings, not the top bar, and
 // Social's More is grouped lists whose rows use the tab bar's words (tools/18 §6).
 

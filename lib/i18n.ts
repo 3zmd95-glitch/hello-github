@@ -159,6 +159,15 @@ export function useT(): I18n {
   return { lang, dir: dirFor(lang), t, L };
 }
 
+/** A label's leading emoji ("🚗 سيارات" → "سيارات"), for the Social chips; a label of emoji only stays as it is. */
+const LEADING_EMOJI =
+  /^(?:(?:\p{Extended_Pictographic}|\p{Emoji_Presentation})(?:\uFE0F|\u200D(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}))*\s*)+/u;
+
+/** `label` without its leading emoji: Social chrome (titles, buttons, chips) carries none (tools/18 §7). */
+export function withoutEmoji(label: string): string {
+  return label.replace(LEADING_EMOJI, "") || label;
+}
+
 /** Keep <html lang dir> in sync with the chosen language. Mount once (the app shell does). */
 export function useDocumentLang(): void {
   const lang = useStore((s) => s.settings.lang);
