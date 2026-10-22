@@ -23,7 +23,13 @@ export type SocialErrorCode =
   | "upstream"
   | "rate_limited"
   | "bad_request"
-  | "not_available";
+  | "not_available"
+  // The inbox send routes (replyCore.ts ReplyErrorCode): the ones the codes above do not already say.
+  | "no_permission"
+  | "rejected"
+  | "not_eligible"
+  | "window_closed"
+  | "too_long";
 
 /** A typed failure the platform modules throw; `sync.ts` turns it into `status.lastError`. */
 export class SocialError extends Error {

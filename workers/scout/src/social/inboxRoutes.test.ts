@@ -7,9 +7,11 @@ import {
   type ConversationRow,
   type MessageRow,
   type PostRow,
+  type SendRow,
   type Sql,
 } from "./inboxDb";
 import { REFRESH_RETRY_MS } from "./inboxRoutes";
+import { DM_TEXT_BYTES, IG_COMMENT_MAX } from "./replyCore";
 import { Store } from "./store";
 import type { SocialPlatform, TokenSet } from "./types";
 
@@ -628,6 +630,17 @@ describe.skipIf(!available)("/social/inbox routes", () => {
       ["/social/inbox/conversations/bad%20id", "GET"],
       ["/social/inbox/posts/youtube/p1/comments", "GET"],
       ["/social/inbox/nothing", "GET"],
+      ["/social/inbox/conversations/t1", "POST"],
+      ["/social/inbox/conversations/t1/send", "GET"],
+      ["/social/inbox/conversations/t1/send", "DELETE"],
+      ["/social/inbox/conversations/bad%20id/send", "POST"],
+      ["/social/inbox/comments/instagram/c1/reply", "GET"],
+      ["/social/inbox/comments/instagram/c1/reply", "DELETE"],
+      ["/social/inbox/comments/instagram/c1/nope", "POST"],
+      ["/social/inbox/comments/instagram/c1", "POST"],
+      ["/social/inbox/comments/tiktok/c1/reply", "POST"],
+      ["/social/inbox/comments/tiktok/c1", "DELETE"],
+      ["/social/inbox/comments/instagram/bad%20id", "DELETE"],
     ] as const) {
       const res = await handle(req(path, { method }), env, undefined, deps);
       expect(res.status, `${method} ${path}`).toBe(404);
@@ -644,5 +657,576 @@ describe.skipIf(!available)("/social/inbox routes", () => {
       depsOf(freshDb()),
     );
     expect(res.status).toBe(401);
+  });
+});
+
+/* ---------- the send routes: DM, public reply, private reply, hide, delete ---------- */
+
+const GRAPH = "graph.instagram.com/v21.0";
+const DM_URL = `POST ${GRAPH}/178/messages`;
+const ME_URL = `GET ${GRAPH}/me`;
+/** Their window closes an hour after NOW; `t2` closed an hour before; `t3` has no known window. */
+const OPEN_UNTIL = "2026-10-22T13:00:00.000Z";
+const CLOSED_AT = "2026-10-22T11:00:00.000Z";
+const SENT_AT = NOW.toISOString();
+
+/** A fixed Graph answer, a fresh Response per call. */
+const ans =
+  (body: unknown, status = 200): Handler =>
+  () =>
+    json(body, status);
+const sentBody = (init: RequestInit | undefined) => JSON.parse(String(init?.body));
+const posted = (path: string, json: unknown) => req(path, { method: "POST", json });
+
+/**
+ * A connected account (token "instagram-token", account id 178, handle 3z.prod), an open conversation t1 with peer 9,
+ * a closed one t2 and one without a window t3, and post p1 with comment c1 (theirs) and c2 (ours, a reply to c1).
+ * `graph` answers the send calls; `/me` always answers. KV writes made while connecting are forgotten.
+ */
+async function sendWorld(graph: Record<string, Handler | object> = {}) {
+  const sql = nodeSql()!;
+  const api = new InboxDb(sql);
+  const env = makeEnv();
+  await connect(env, "instagram");
+  env.SOCIAL_KV.written.length = 0;
+  await api.ingest({
+    conversations: [
+      { ...conv("t1", "2026-10-22T11:30:00.000Z"), peerId: "9", windowClosesAt: OPEN_UNTIL },
+      { ...conv("t2", "2026-10-22T09:00:00.000Z"), peerId: "8", windowClosesAt: CLOSED_AT },
+      { ...conv("t3", "2026-10-22T08:00:00.000Z"), peerId: "7" },
+    ],
+    posts: [
+      {
+        platform: "instagram",
+        id: "p1",
+        permalink: "",
+        thumbUrl: null,
+        caption: "LUT",
+        postedAt: "2026-10-20T00:00:00.000Z",
+        commentCount: 2,
+      },
+    ],
+    comments: [
+      {
+        platform: "instagram",
+        postId: "p1",
+        id: "c1",
+        parentId: null,
+        at: "2026-10-21T00:00:00.000Z",
+        author: "ali",
+        authorId: "55",
+        text: "لت",
+        hidden: false,
+        ours: false,
+        sentBy: null,
+      },
+      {
+        platform: "instagram",
+        postId: "p1",
+        id: "c2",
+        parentId: "c1",
+        at: "2026-10-21T01:00:00.000Z",
+        author: "3z.prod",
+        authorId: "178",
+        text: "هلا",
+        hidden: false,
+        ours: true,
+        sentBy: "owner",
+      },
+    ],
+  });
+  const answers = { [ME_URL]: { user_id: "178", username: "3z.prod" }, ...graph };
+  const fetch = mockFetch(
+    Object.fromEntries(
+      Object.entries(answers).map(([key, v]) => [
+        key,
+        typeof v === "function" ? (v as Handler) : ans(v),
+      ]),
+    ),
+  );
+  const deps = { fetch, now: () => NOW, inboxApi: api };
+  return {
+    api,
+    env,
+    fetch,
+    call: (request: Request) => handle(request, env, undefined, deps),
+    sends: () => sql.all<SendRow>("SELECT * FROM sends ORDER BY seq"),
+    comment: (id: string) => api.comment("instagram", id),
+    thread: (id: string) => api.thread("instagram", id, {}),
+  };
+}
+
+describe.skipIf(!available)("/social/inbox send routes", () => {
+  it("sends a DM to the conversation's person and stores it as the owner's last message", async () => {
+    let seen: RequestInit | undefined;
+    const w = await sendWorld({
+      [DM_URL]: (_url, init) => {
+        seen = init;
+        return { recipient_id: "9", message_id: "mid.1" };
+      },
+    });
+
+    const res = await w.call(posted("/social/inbox/conversations/t1/send", { text: "  hi  " }));
+
+    expect(res.status).toBe(200);
+    const message: MessageRow = {
+      platform: "instagram",
+      convId: "t1",
+      id: "mid.1",
+      at: SENT_AT,
+      fromPeer: false,
+      text: "hi",
+      kind: "text",
+      sentBy: "owner",
+    };
+    expect(await res.json()).toEqual({ message });
+    expect(sentBody(seen)).toEqual({ recipient: { id: "9" }, message: { text: "hi" } });
+    expect(seen?.headers).toMatchObject({ Authorization: "Bearer instagram-token" });
+    expect(w.fetch.calls()).toEqual([ME_URL, DM_URL]);
+
+    const stored = await w.thread("t1");
+    expect(stored?.messages.items).toEqual([message]);
+    expect(stored?.conversation).toMatchObject({
+      peerId: "9",
+      lastText: "hi",
+      lastFrom: "owner",
+      updatedAt: SENT_AT,
+      windowClosesAt: OPEN_UNTIL,
+    });
+    expect(w.sends()).toEqual([
+      {
+        seq: 1,
+        platform: "instagram",
+        kind: "dm",
+        targetId: "t1",
+        text: "hi",
+        at: SENT_AT,
+        state: "sent",
+        platformId: "mid.1",
+        detail: null,
+      },
+    ]);
+  });
+
+  it("answers window_closed without a call when the window is closed, unknown or closes right now", async () => {
+    const w = await sendWorld();
+    await w.api.ingest({
+      conversations: [{ ...conv("t4", "2026-10-22T08:00:00.000Z"), windowClosesAt: SENT_AT }],
+    });
+    for (const id of ["t2", "t3", "t4"]) {
+      const res = await w.call(posted(`/social/inbox/conversations/${id}/send`, { text: "hi" }));
+      expect(res.status, id).toBe(409);
+      expect(await res.json(), id).toEqual({ error: "window_closed" });
+    }
+    expect(w.fetch.calls()).toEqual([]);
+    expect(w.sends()).toEqual([]);
+  });
+
+  it("answers too_long without a call: a DM and a private reply count UTF-8 bytes, a public reply characters", async () => {
+    const w = await sendWorld();
+    const arabic = "ل".repeat(DM_TEXT_BYTES / 2 + 1); // 501 letters, 1,002 bytes
+    for (const [path, text] of [
+      ["/social/inbox/conversations/t1/send", "a".repeat(DM_TEXT_BYTES + 1)],
+      ["/social/inbox/conversations/t1/send", arabic],
+      ["/social/inbox/comments/instagram/c1/private", "a".repeat(DM_TEXT_BYTES + 1)],
+      ["/social/inbox/comments/instagram/c1/private", arabic],
+      ["/social/inbox/comments/instagram/c1/reply", "a".repeat(IG_COMMENT_MAX + 1)],
+    ]) {
+      const res = await w.call(posted(path, { text }));
+      expect(res.status, `${path} ${text.length}`).toBe(400);
+      expect(await res.json()).toEqual({ error: "too_long" });
+    }
+    expect(w.fetch.calls()).toEqual([]);
+    expect(w.sends()).toEqual([]);
+  });
+
+  it("accepts the limits themselves: 1,000 bytes of DM, and 2,200 characters of public reply", async () => {
+    const w = await sendWorld({
+      [DM_URL]: { message_id: "mid.2" },
+      [`POST ${GRAPH}/c1/replies`]: { id: "r1" },
+    });
+    const dm = await w.call(
+      posted("/social/inbox/conversations/t1/send", { text: "ل".repeat(DM_TEXT_BYTES / 2) }),
+    );
+    expect(dm.status).toBe(200);
+    const reply = await w.call(
+      posted("/social/inbox/comments/instagram/c1/reply", { text: "a".repeat(IG_COMMENT_MAX) }),
+    );
+    expect(reply.status).toBe(200);
+  });
+
+  it("answers bad_request without a call for a blank, missing or malformed text and a hide without hidden", async () => {
+    const w = await sendWorld();
+    const bad = async (path: string, init: { json?: unknown; body?: string }) => {
+      const res = await w.call(req(path, { method: "POST", ...init }));
+      expect(res.status, path).toBe(400);
+      expect(await res.json()).toEqual({ error: "bad_request" });
+    };
+    for (const path of [
+      "/social/inbox/conversations/t1/send",
+      "/social/inbox/comments/instagram/c1/reply",
+      "/social/inbox/comments/instagram/c1/private",
+    ]) {
+      await bad(path, { json: { text: " \n " } });
+      await bad(path, { json: {} });
+      await bad(path, { json: { text: 5 } });
+      await bad(path, { body: "{not json" });
+      await bad(path, {});
+    }
+    await bad("/social/inbox/comments/instagram/c1/hide", { json: {} });
+    await bad("/social/inbox/comments/instagram/c1/hide", { json: { hidden: "true" } });
+    expect(w.fetch.calls()).toEqual([]);
+  });
+
+  it("answers not_found without a call for a conversation or comment the store does not hold", async () => {
+    const w = await sendWorld();
+    for (const [path, method, body] of [
+      ["/social/inbox/conversations/nope/send", "POST", { text: "hi" }],
+      ["/social/inbox/comments/instagram/nope/reply", "POST", { text: "hi" }],
+      ["/social/inbox/comments/instagram/nope/private", "POST", { text: "hi" }],
+      ["/social/inbox/comments/instagram/nope/hide", "POST", { hidden: true }],
+      ["/social/inbox/comments/instagram/nope", "DELETE", undefined],
+    ] as const) {
+      const res = await w.call(req(path, { method, json: body }));
+      expect(res.status, `${method} ${path}`).toBe(404);
+      expect(await res.json()).toEqual({ error: "not_found" });
+    }
+    expect(w.fetch.calls()).toEqual([]);
+  });
+
+  it("replies publicly under a comment with a form body and stores the reply under its post", async () => {
+    let seen: RequestInit | undefined;
+    const w = await sendWorld({
+      [`POST ${GRAPH}/c1/replies`]: (_url, init) => {
+        seen = init;
+        return { id: "r1" };
+      },
+    });
+
+    const res = await w.call(
+      posted("/social/inbox/comments/instagram/c1/reply", { text: " شكرا " }),
+    );
+
+    expect(res.status).toBe(200);
+    const reply: CommentRow = {
+      platform: "instagram",
+      postId: "p1",
+      id: "r1",
+      parentId: "c1",
+      at: SENT_AT,
+      author: "3z.prod",
+      authorId: "178",
+      text: "شكرا",
+      hidden: false,
+      ours: true,
+      sentBy: "owner",
+    };
+    expect(await res.json()).toEqual({ reply });
+    expect(seen?.headers).toMatchObject({ "Content-Type": "application/x-www-form-urlencoded" });
+    expect(Object.fromEntries(new URLSearchParams(String(seen?.body)))).toEqual({
+      message: "شكرا",
+      access_token: "instagram-token",
+    });
+    expect(w.fetch.calls()).toEqual([ME_URL, `POST ${GRAPH}/c1/replies`]);
+    expect(await w.comment("r1")).toEqual(reply);
+    expect(w.sends()).toMatchObject([
+      { kind: "reply", targetId: "c1", text: "شكرا", state: "sent", platformId: "r1" },
+    ]);
+  });
+
+  it("answers a comment privately by its id, stores nothing but the send, and says only the message id", async () => {
+    let seen: RequestInit | undefined;
+    const w = await sendWorld({
+      [DM_URL]: (_url, init) => {
+        seen = init;
+        return { recipient_id: "55", message_id: "mid.p" };
+      },
+    });
+
+    const res = await w.call(posted("/social/inbox/comments/instagram/c1/private", { text: "hi" }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ message: { id: "mid.p" } });
+    expect(sentBody(seen)).toEqual({ recipient: { comment_id: "c1" }, message: { text: "hi" } });
+    expect((await w.api.overview()).counts).toEqual({ conversations: 3, posts: 1, comments: 2 });
+    expect(w.sends()).toMatchObject([
+      { kind: "private", targetId: "c1", text: "hi", state: "sent", platformId: "mid.p" },
+    ]);
+  });
+
+  it("hides and unhides a comment through the query and mirrors it in the store", async () => {
+    const seen: URL[] = [];
+    const w = await sendWorld({
+      [`POST ${GRAPH}/c1`]: (url) => {
+        seen.push(url);
+        return { success: true };
+      },
+    });
+
+    const hide = await w.call(posted("/social/inbox/comments/instagram/c1/hide", { hidden: true }));
+    expect(hide.status).toBe(200);
+    expect(await hide.json()).toEqual({ ok: true });
+    expect((await w.comment("c1"))?.hidden).toBe(true);
+
+    const show = await w.call(
+      posted("/social/inbox/comments/instagram/c1/hide", { hidden: false }),
+    );
+    expect(await show.json()).toEqual({ ok: true });
+    expect((await w.comment("c1"))?.hidden).toBe(false);
+
+    expect(seen.map((u) => Object.fromEntries(u.searchParams))).toEqual([
+      { hide: "true", access_token: "instagram-token" },
+      { hide: "false", access_token: "instagram-token" },
+    ]);
+    // Hiding is not a send, and it needs no account id.
+    expect(w.fetch.calls()).toEqual([`POST ${GRAPH}/c1`, `POST ${GRAPH}/c1`]);
+    expect(w.sends()).toEqual([]);
+  });
+
+  it("deletes only the owner's own comment; someone else's is no_permission without a call", async () => {
+    const seen: URL[] = [];
+    const w = await sendWorld({
+      [`DELETE ${GRAPH}/c2`]: (url) => {
+        seen.push(url);
+        return { success: true };
+      },
+    });
+
+    const theirs = await w.call(req("/social/inbox/comments/instagram/c1", { method: "DELETE" }));
+    expect(theirs.status).toBe(403);
+    expect(await theirs.json()).toEqual({ error: "no_permission" });
+    expect(w.fetch.calls()).toEqual([]);
+    expect(await w.comment("c1")).not.toBeNull();
+
+    const ours = await w.call(req("/social/inbox/comments/instagram/c2", { method: "DELETE" }));
+    expect(ours.status).toBe(200);
+    expect(await ours.json()).toEqual({ ok: true });
+    expect(seen.map((u) => Object.fromEntries(u.searchParams))).toEqual([
+      { access_token: "instagram-token" },
+    ]);
+    expect(w.fetch.calls()).toEqual([`DELETE ${GRAPH}/c2`]);
+    expect(await w.comment("c2")).toBeNull();
+    expect(await w.comment("c1")).not.toBeNull();
+  });
+
+  it("reads Meta's closed-window refusal of a DM as window_closed and records it refused", async () => {
+    const w = await sendWorld({
+      [DM_URL]: ans(
+        { error: { message: "Outside the window", code: 10, error_subcode: 2534022 } },
+        400,
+      ),
+    });
+
+    const res = await w.call(posted("/social/inbox/conversations/t1/send", { text: "hi" }));
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: "window_closed",
+      detail: "Outside the window [10/2534022]",
+    });
+    expect(w.sends()).toMatchObject([
+      {
+        kind: "dm",
+        targetId: "t1",
+        state: "refused",
+        platformId: null,
+        detail: "Outside the window [10/2534022]",
+      },
+    ]);
+    // Nothing was sent, so the thread keeps what it had.
+    expect((await w.thread("t1"))?.messages.items).toEqual([]);
+    expect((await w.thread("t1"))?.conversation.lastFrom).toBe("peer");
+  });
+
+  it("keeps not_eligible for a private reply's closed window and for its own refusal", async () => {
+    for (const [error, detail] of [
+      [{ message: "Too late", code: 10, error_subcode: 2534022 }, "Too late [10/2534022]"],
+      [{ message: "Invalid", code: 100, error_subcode: 2534025 }, "Invalid [100/2534025]"],
+    ] as const) {
+      const w = await sendWorld({ [DM_URL]: ans({ error }, 400) });
+      const res = await w.call(
+        posted("/social/inbox/comments/instagram/c1/private", { text: "hi" }),
+      );
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: "not_eligible", detail });
+      expect(w.sends()).toMatchObject([{ kind: "private", state: "refused", detail }]);
+    }
+  });
+
+  it("answers Meta's other refusals with their code and Meta's words", async () => {
+    const w = await sendWorld({
+      [`POST ${GRAPH}/c1/replies`]: ans({ error: { message: "denied", code: 10 } }, 403),
+      [`POST ${GRAPH}/c1`]: ans({ error: { message: "slow down", code: 4 } }, 400),
+      [`DELETE ${GRAPH}/c2`]: ans({ error: { message: "Cannot delete", code: 100 } }, 400),
+    });
+
+    const reply = await w.call(posted("/social/inbox/comments/instagram/c1/reply", { text: "hi" }));
+    expect(reply.status).toBe(403);
+    expect(await reply.json()).toEqual({ error: "no_permission", detail: "denied [10]" });
+    expect(w.sends()).toMatchObject([{ kind: "reply", state: "refused", detail: "denied [10]" }]);
+
+    const hide = await w.call(posted("/social/inbox/comments/instagram/c1/hide", { hidden: true }));
+    expect(hide.status).toBe(429);
+    expect(await hide.json()).toEqual({ error: "rate_limited", detail: "slow down [4]" });
+    expect((await w.comment("c1"))?.hidden).toBe(false);
+
+    const del = await w.call(req("/social/inbox/comments/instagram/c2", { method: "DELETE" }));
+    expect(del.status).toBe(502);
+    expect(await del.json()).toEqual({ error: "rejected", detail: "Cannot delete [100]" });
+    expect(await w.comment("c2")).not.toBeNull();
+    // Hide and delete are not sends: only the reply has a send row.
+    expect(w.sends()).toHaveLength(1);
+  });
+
+  it("scrubs the access token from the words it records and answers", async () => {
+    const w = await sendWorld({
+      [DM_URL]: ans({ error: { message: "Bad token instagram-token here", code: 190 } }, 400),
+    });
+
+    const res = await w.call(posted("/social/inbox/conversations/t1/send", { text: "hi" }));
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "token_expired", detail: "Bad token … here [190]" });
+    expect(JSON.stringify(w.sends())).not.toContain("instagram-token");
+  });
+
+  it("keeps a long detail to 200 characters", async () => {
+    const w = await sendWorld({
+      [DM_URL]: ans({ error: { message: "x".repeat(500), code: 100 } }, 400),
+    });
+    const res = await w.call(posted("/social/inbox/conversations/t1/send", { text: "hi" }));
+    const { detail } = (await res.json()) as { detail: string };
+    expect(detail).toHaveLength(200);
+    expect(w.sends()[0].detail).toBe(detail);
+  });
+
+  it("answers upstream/unconfirmed and records the send unconfirmed when the call throws", async () => {
+    const w = await sendWorld({
+      [DM_URL]: () => {
+        throw new TypeError("network lost");
+      },
+    });
+
+    const res = await w.call(posted("/social/inbox/conversations/t1/send", { text: "hi" }));
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "upstream", detail: "unconfirmed" });
+    expect(w.sends()).toMatchObject([
+      { kind: "dm", targetId: "t1", text: "hi", state: "unconfirmed", platformId: null },
+    ]);
+    expect((await w.thread("t1"))?.messages.items).toEqual([]);
+  });
+
+  it("answers unconfirmed when Meta says 200 but names no message, reply or success", async () => {
+    const w = await sendWorld({
+      [DM_URL]: { recipient_id: "9" },
+      [`POST ${GRAPH}/c1/replies`]: {},
+      [`POST ${GRAPH}/c1`]: { success: false },
+      [`DELETE ${GRAPH}/c2`]: {},
+    });
+    const unconfirmed = async (request: Request) => {
+      const res = await w.call(request);
+      expect(res.status, request.url).toBe(502);
+      expect(await res.json()).toEqual({ error: "upstream", detail: "unconfirmed" });
+    };
+
+    await unconfirmed(posted("/social/inbox/conversations/t1/send", { text: "hi" }));
+    await unconfirmed(posted("/social/inbox/comments/instagram/c1/reply", { text: "hi" }));
+    await unconfirmed(posted("/social/inbox/comments/instagram/c1/hide", { hidden: true }));
+    await unconfirmed(req("/social/inbox/comments/instagram/c2", { method: "DELETE" }));
+
+    expect(w.sends().map((s) => [s.kind, s.state])).toEqual([
+      ["dm", "unconfirmed"],
+      ["reply", "unconfirmed"],
+    ]);
+    // Nothing is stored as sent, hidden or deleted.
+    expect((await w.thread("t1"))?.messages.items).toEqual([]);
+    expect((await w.comment("c1"))?.hidden).toBe(false);
+    expect(await w.comment("c2")).not.toBeNull();
+    expect((await w.api.overview()).counts.comments).toBe(2);
+  });
+
+  it("still answers the send when the store fails after Instagram took it, so it is not sent twice", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const w = await sendWorld({ [DM_URL]: { recipient_id: "9", message_id: "mid.1" } });
+      const failing = Object.create(w.api, {
+        ingest: { value: async () => Promise.reject(new Error("object reset")) },
+        recordSend: { value: async () => Promise.reject(new Error("object reset")) },
+      });
+      const res = await handle(
+        posted("/social/inbox/conversations/t1/send", { text: "hi" }),
+        w.env,
+        undefined,
+        { fetch: w.fetch, now: () => NOW, inboxApi: failing },
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ message: { id: "mid.1", text: "hi" } });
+      expect(log).toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("refuses without a call when Instagram is not connected, its token has lapsed or it cannot reply", async () => {
+    const expectRefused = async (env: Env, status: number, error: string) => {
+      const api = freshDb();
+      await api.ingest({
+        conversations: [{ ...conv("t1", "2026-10-22T11:30:00.000Z"), windowClosesAt: OPEN_UNTIL }],
+      });
+      const fetch = mockFetch({});
+      const res = await handle(
+        posted("/social/inbox/conversations/t1/send", { text: "hi" }),
+        env,
+        undefined,
+        { fetch, now: () => NOW, inboxApi: api },
+      );
+      expect(res.status, error).toBe(status);
+      expect(await res.json()).toEqual({ error });
+      expect(fetch.calls()).toEqual([]);
+    };
+    await expectRefused(makeEnv(), 409, "not_connected");
+    const lapsed = makeEnv();
+    await connect(lapsed, "instagram", { expiresAt: "2026-10-21T00:00:00Z" });
+    await expectRefused(lapsed, 409, "token_expired");
+    const readOnly = makeEnv();
+    await connect(readOnly, "instagram", { canReply: false });
+    await expectRefused(readOnly, 403, "no_permission");
+  });
+
+  it("spends at most two Graph calls on a send (the account id and the send) and never writes KV", async () => {
+    const graph = {
+      [DM_URL]: { message_id: "mid.1" },
+      [`POST ${GRAPH}/c1/replies`]: { id: "r1" },
+      [`POST ${GRAPH}/c1`]: { success: true },
+      [`DELETE ${GRAPH}/c2`]: { success: true },
+    };
+    for (const [request, calls] of [
+      [posted("/social/inbox/conversations/t1/send", { text: "hi" }), 2],
+      [posted("/social/inbox/comments/instagram/c1/reply", { text: "hi" }), 2],
+      [posted("/social/inbox/comments/instagram/c1/private", { text: "hi" }), 2],
+      [posted("/social/inbox/comments/instagram/c1/hide", { hidden: true }), 1],
+      [req("/social/inbox/comments/instagram/c2", { method: "DELETE" }), 1],
+    ] as const) {
+      const w = await sendWorld(graph);
+      const res = await w.call(request);
+      expect(res.status, request.url).toBe(200);
+      expect(w.fetch.mock.calls, request.url).toHaveLength(calls);
+      expect(w.env.SOCIAL_KV.written, request.url).toEqual([]);
+    }
+  });
+
+  it("answers not_available without the store binding, sends included", async () => {
+    const env = makeEnv();
+    const fetch = mockFetch({});
+    const res = await handle(
+      posted("/social/inbox/conversations/t1/send", { text: "hi" }),
+      env,
+      undefined,
+      { fetch, now: () => NOW },
+    );
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "not_available" });
+    expect(fetch.calls()).toEqual([]);
   });
 });

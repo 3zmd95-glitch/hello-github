@@ -400,6 +400,25 @@ describe.skipIf(!available)("InboxDb", () => {
     expect(most.more).toBe(true);
     expect((await db.conversations({ limit: Number.NaN })).items).toHaveLength(PAGE);
   });
+  it("reads one stored comment by its own id, null for an unknown one", async () => {
+    const db = new InboxDb(nodeSql()!);
+    await db.ingest({
+      posts: [post("p1", "2026-10-20T00:00:00.000Z")],
+      comments: [
+        comment("p1", "c1", "2026-10-21T00:00:00.000Z", { hidden: true, ours: true }),
+        comment("p1", "c2", "2026-10-21T00:01:00.000Z"),
+      ],
+    });
+    expect(await db.comment("instagram", "c1")).toMatchObject({
+      id: "c1",
+      postId: "p1",
+      hidden: true,
+      ours: true,
+    });
+    expect(await db.comment("instagram", "c2")).toMatchObject({ hidden: false, ours: false });
+    expect(await db.comment("instagram", "nope")).toBeNull();
+    expect(await db.comment("tiktok", "c1")).toBeNull();
+  });
   it("unhides a comment and reports each platform's newest conversation", async () => {
     const db = new InboxDb(nodeSql()!);
     expect((await db.overview()).platforms).toEqual({

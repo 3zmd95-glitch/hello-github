@@ -70,6 +70,11 @@ const STATUS: Record<SocialErrorCode, number> = {
   rate_limited: 429,
   bad_request: 400,
   not_available: 503,
+  no_permission: 403,
+  rejected: 502,
+  not_eligible: 409,
+  window_closed: 409,
+  too_long: 400,
 };
 
 function json(body: unknown, status: number, cors: Headers): Response {
@@ -78,7 +83,8 @@ function json(body: unknown, status: number, cors: Headers): Response {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-const fail = (error: SocialErrorCode, cors: Headers) => json({ error }, STATUS[error], cors);
+const fail = (error: SocialErrorCode, cors: Headers, detail?: string) =>
+  json(detail === undefined ? { error } : { error, detail }, STATUS[error], cors);
 
 /** `health.social`. */
 export function healthSocial(env: SocialEnv): {
@@ -191,7 +197,7 @@ export async function handleSocial(
       { fetch: deps.fetch ?? fetch, budget: new Budget(INBOX_ROUTE_BUDGET) },
       {
         json: (body, status) => json(body, status ?? 200, cors),
-        fail: (error) => fail(error, cors),
+        fail: (error, detail) => fail(error, cors, detail),
       },
       { api: deps.inboxApi },
     );

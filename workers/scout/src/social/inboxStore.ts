@@ -37,6 +37,9 @@ export class InboxStore extends DurableObject<unknown> implements InboxApi {
   comments(p: InboxPlatform, id: string, q: Parameters<InboxApi["comments"]>[2]) {
     return this.db.comments(p, id, q);
   }
+  comment(p: InboxPlatform, id: string) {
+    return this.db.comment(p, id);
+  }
   recordSend(r: SendRow) {
     return this.db.recordSend(r);
   }

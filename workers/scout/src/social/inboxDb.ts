@@ -107,6 +107,8 @@ export interface InboxApi {
     postId: string,
     q: { before?: string; limit?: number },
   ): Promise<{ post: PostRow; comments: Page<CommentRow> } | null>;
+  /** One stored comment by its own id (the send routes check it before they call Instagram), or null. */
+  comment(platform: InboxPlatform, id: string): Promise<CommentRow | null>;
   recordSend(row: SendRow): Promise<void>;
   setHidden(platform: InboxPlatform, commentId: string, hidden: boolean): Promise<void>;
   deleteComment(platform: InboxPlatform, commentId: string): Promise<void>;
@@ -343,6 +345,13 @@ export class InboxDb implements InboxApi {
         items: page.items.map((c) => ({ ...c, hidden: bool(c.hidden), ours: bool(c.ours) })),
       },
     };
+  }
+
+  async comment(platform: InboxPlatform, id: string): Promise<CommentRow | null> {
+    const row = this.sql.all<
+      Omit<CommentRow, "hidden" | "ours"> & { hidden: number; ours: number }
+    >(`SELECT * FROM comments WHERE platform=? AND id=?`, platform, id)[0];
+    return row ? { ...row, hidden: bool(row.hidden), ours: bool(row.ours) } : null;
   }
 
   async recordSend(r: SendRow): Promise<void> {

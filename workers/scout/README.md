@@ -426,23 +426,38 @@ Clicks: `GET /go/:id/:n` redirects only to an owner-saved https link, counts one
 
 Plan: `planning/tools/51-global-inbox.md`. Code: `src/social/inboxRoutes.ts` (these routes), `inboxReader.ts` (the
 every-minute reader that fills the store from Instagram) and `inboxStore.ts` (the `INBOX_STORE` Durable Object). The
-routes read the store, ask for a rescan and empty it. All of them need the bearer. Without the `INBOX_STORE` binding every one answers `503 { error: "not_available" }`.
+routes read the store, ask for a rescan, empty it, and send DMs and comment replies. All of them need the bearer. Without the `INBOX_STORE` binding every one answers `503 { error: "not_available" }`.
 
-| Route                                                    | Response                                                                                                                                                                                                     |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /social/inbox`                                      | `{ platforms: { instagram, tiktok }, counts }`; a platform is `{ connected, canReply, tokenExpired, lastReadAt, newestAt }` (TikTok: never connected here), `counts` is `{ conversations, posts, comments }` |
-| `GET /social/inbox/conversations?platform=&before=`      | `{ conversations, more, next }`, newest first                                                                                                                                                                |
-| `GET /social/inbox/conversations/:id?before=`            | `{ conversation, messages, more, next, window: { open, closesAt } }`, messages oldest first; `404 { error: "not_found" }`                                                                                    |
-| `GET /social/inbox/posts?platform=&before=`              | `{ posts, more, next }`, newest first                                                                                                                                                                        |
-| `GET /social/inbox/posts/:platform/:id/comments?before=` | `{ post, comments, more, next }`, newest first; `404 { error: "not_found" }`                                                                                                                                 |
-| `POST /social/inbox/refresh`                             | `{ scanRequestedAt }`: writes KV `inbox:scan` (1 hour), the next reader tick reads the newest posts' comments once                                                                                           |
-| `DELETE /social/inbox`                                   | `{ ok: true }`: empties the store; the reader refills it                                                                                                                                                     |
+| Route                                                    | Response                                                                                                                                                                                                               |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /social/inbox`                                      | `{ platforms: { instagram, tiktok }, counts }`; a platform is `{ connected, canReply, tokenExpired, lastReadAt, newestAt }` (TikTok: never connected here), `counts` is `{ conversations, posts, comments }`           |
+| `GET /social/inbox/conversations?platform=&before=`      | `{ conversations, more, next }`, newest first                                                                                                                                                                          |
+| `GET /social/inbox/conversations/:id?before=`            | `{ conversation, messages, more, next, window: { open, closesAt } }`, messages oldest first; `404 { error: "not_found" }`                                                                                              |
+| `GET /social/inbox/posts?platform=&before=`              | `{ posts, more, next }`, newest first                                                                                                                                                                                  |
+| `GET /social/inbox/posts/:platform/:id/comments?before=` | `{ post, comments, more, next }`, newest first; `404 { error: "not_found" }`                                                                                                                                           |
+| `POST /social/inbox/refresh`                             | `{ scanRequestedAt }`: writes KV `inbox:scan` (1 hour), the next reader tick reads the newest posts' comments once                                                                                                     |
+| `DELETE /social/inbox`                                   | `{ ok: true }`: empties the store; the reader refills it                                                                                                                                                               |
+| `POST /social/inbox/conversations/:id/send`              | Body `{ text }`. A DM to the person of a stored conversation: `{ message }`, the stored message (`sentBy: "owner"`). `409 { error: "window_closed" }` when the 24-hour window is closed or unknown (no Instagram call) |
+| `POST /social/inbox/comments/instagram/:id/reply`        | Body `{ text }`. A public reply under a stored comment: `{ reply }`, the stored comment row (`ours: true`, `parentId` the comment)                                                                                     |
+| `POST /social/inbox/comments/instagram/:id/private`      | Body `{ text }`. A private reply to a stored comment (a DM by the comment): `{ message: { id } }`                                                                                                                      |
+| `POST /social/inbox/comments/instagram/:id/hide`         | Body `{ hidden: boolean }`. Hides or unhides a stored comment: `{ ok: true }`                                                                                                                                          |
+| `DELETE /social/inbox/comments/instagram/:id`            | `{ ok: true }`. Only the owner's own comment (`ours`); another person's is `403 { error: "no_permission" }` with no Instagram call                                                                                     |
 
 `platform` is `all` (default), `instagram` or `tiktok`, else `400 { error: "bad_request" }`. Ids are `[A-Za-z0-9_=-]{1,256}`; `:platform` is
 `instagram` or `tiktok`. Lists are paged 20 at a time: when `more` is true, send `next` back as `before` to get the following page (the cursor is
 opaque, pass it unchanged). `window.open` is whether the 24-hour reply window of the thread is still open now (`closesAt` is null when unknown).
 A thread's `next` pages toward older messages, while each page is returned oldest first. A store or KV failure answers
 `502 { error: "upstream" }`; `POST /social/inbox/refresh` first retries a refused KV write once after 1.1 seconds.
+
+Sends (Instagram only). The text is trimmed; a blank text, a body that is not JSON, or a hide without a boolean `hidden` is `400 { error: "bad_request" }`.
+A DM and a private reply take at most 1,000 UTF-8 bytes (about 500 Arabic letters) and a public reply 2,200 characters, else `400 { error: "too_long" }`.
+Instagram is asked last, and only for what the store holds: an unknown conversation or comment is `404 { error: "not_found" }`; a DM needs its 24-hour window open (`409 window_closed`);
+no connection, a lapsed token and a connection without the reply permission are `409 not_connected`, `409 token_expired` and `403 no_permission`.
+Each send makes one Graph call with the Instagram token, plus `GET /me` for the account id (DM, public reply, private reply), and writes no KV.
+A refusal by Meta answers `{ error, detail }` with Meta's own words (200 characters at most, never the token) and the DM, public reply or private reply is logged `refused` in the store's `sends` table:
+`no_permission` 403, `rejected` 502, `not_eligible` 409, `token_expired` 409, `rate_limited` 429, `upstream` 502, and `window_closed` 409 for a DM that Meta refuses outside the messaging window (a private reply keeps `not_eligible`).
+A network failure, or a 200 that names no message, reply or success, answers `502 { error: "upstream", detail: "unconfirmed" }` and is logged `unconfirmed`: look at the thread before sending again.
+Hide and delete leave no `sends` row. If the store fails after Instagram took a send, the answer is still the success (the reader brings the message in on its next read).
 
 ## Trend Radar
 

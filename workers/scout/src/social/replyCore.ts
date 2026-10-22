@@ -15,6 +15,8 @@ import { SocialError } from "./types";
 
 /** Instagram: a text message "must be UTF-8 and be a 1000 bytes or less" (about 500 Arabic letters). */
 export const DM_TEXT_BYTES = 1000;
+/** Instagram: a comment, and so a public reply, is at most 2,200 characters. */
+export const IG_COMMENT_MAX = 2200;
 /** Existing saved-rule text limit when links are present, kept in sync with the dashboard. */
 export const TEMPLATE_TEXT_MAX = 640;
 /** A generic card's title limit; UTF-16 length is deliberately conservative for emoji. */
@@ -142,7 +144,11 @@ export type ReplyErrorCode =
   | "rejected"
   | "upstream"
   /** Instagram takes no private reply to this comment: too old, already answered, deleted, or blocked. */
-  | "not_eligible";
+  | "not_eligible"
+  /** The person's 24-hour messaging window is closed (only a DM send reads a closed window this way). */
+  | "window_closed"
+  /** The text is longer than Instagram takes (the inbox send routes check it before any call). */
+  | "too_long";
 
 /** A failure as the poll records it: the code, and the platform's words. */
 export interface ReplyFailure {
@@ -154,6 +160,8 @@ export class ReplyError extends Error {
   constructor(
     readonly code: ReplyErrorCode,
     detail?: string,
+    /** Meta said it is outside the messaging window: a DM send reads that as window_closed (toReplyCode). */
+    readonly outsideWindow = false,
   ) {
     super(detail ?? code);
     this.name = "ReplyError";
@@ -192,7 +200,7 @@ export function graph<T extends MetaError>(reply: JsonReply<T>, what: string): T
   if (err?.code === 10) {
     const sub = err.error_subcode;
     if (sub !== undefined && WINDOW_SUBCODES.has(sub)) {
-      throw new ReplyError("not_eligible", said(`${what}: outside the messaging window`));
+      throw new ReplyError("not_eligible", said(`${what}: outside the messaging window`), true);
     }
     if (sub === undefined || APP_PERMISSION_SUBCODES.has(sub)) {
       throw new ReplyError("no_permission", said(`${what}: permission denied`));
@@ -214,14 +222,22 @@ export function graph<T extends MetaError>(reply: JsonReply<T>, what: string): T
   }
 }
 
-export function toReplyCode(e: unknown): {
+/**
+ * A failure as the polls record it. A DM send passes `{ dm: true }`: for it, Meta's closed messaging window is
+ * window_closed (the owner can wait for the person to write again) rather than not_eligible, which stays what the
+ * auto replies' polls and a private reply read.
+ */
+export function toReplyCode(
+  e: unknown,
+  ctx: { dm?: boolean } = {},
+): {
   code: ReplyErrorCode;
   detail?: string;
   transient: boolean;
 } {
   if (e instanceof ReplyError) {
     return {
-      code: e.code,
+      code: ctx.dm && e.outsideWindow ? "window_closed" : e.code,
       detail: e.message,
       transient: e.code === "upstream" || e.code === "rate_limited",
     };
