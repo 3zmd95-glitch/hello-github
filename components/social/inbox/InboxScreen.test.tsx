@@ -16,6 +16,9 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/social/inbox/" }));
 
 const T0 = "2026-10-22T10:00:00.000Z";
 const T1 = "2026-10-22T11:00:00.000Z";
+const T2 = "2026-10-22T12:00:00.000Z";
+/** A mark from an earlier visit: with it, a load is not the very first read (which takes everything as seen). */
+const EARLIER = { "instagram:post:earlier": T0 };
 
 type PlatformState = InboxOverview["platforms"]["instagram"];
 const platform = (over: Partial<PlatformState> = {}): PlatformState => ({
@@ -70,11 +73,26 @@ const THREAD = {
   window: { open: true, closesAt: null },
 };
 
+const comment = (id: string, at: string, over: Record<string, unknown> = {}) => ({
+  platform: "instagram",
+  postId: "m1",
+  id,
+  parentId: null,
+  at,
+  author: "noura",
+  authorId: null,
+  text: id,
+  hidden: false,
+  ours: false,
+  sentBy: null,
+  ...over,
+});
+
 type Answer = { status?: number; body: unknown };
 let routes: Record<string, Answer>;
 let fetchMock: ReturnType<typeof vi.fn>;
 
-/** The fake Worker: "METHOD /path" → answer (the path without the Worker's origin). */
+/** The fake Worker: "METHOD /path?query" or else "METHOD /path" → answer (no Worker origin). */
 function serve(over: Record<string, Answer> = {}) {
   routes = {
     "GET /social/inbox": { body: overview() },
@@ -86,10 +104,9 @@ function serve(over: Record<string, Answer> = {}) {
     ...over,
   };
   fetchMock = vi.fn(async (url: string, init: RequestInit = {}) => {
-    const a = routes[`${init.method ?? "GET"} ${new URL(url).pathname}`] ?? {
-      status: 404,
-      body: {},
-    };
+    const u = new URL(url);
+    const route = `${init.method ?? "GET"} ${u.pathname}`;
+    const a = routes[route + u.search] ?? routes[route] ?? { status: 404, body: {} };
     const status = a.status ?? 200;
     return { ok: status < 400, status, json: async () => a.body } as Response;
   });
@@ -101,6 +118,20 @@ const calls = () =>
     ([url, init]) =>
       `${(init as RequestInit | undefined)?.method ?? "GET"} ${new URL(url as string).pathname}`,
   );
+
+/** Every request with its query string. */
+const urls = () =>
+  fetchMock.mock.calls.map(([url, init]) => {
+    const u = new URL(url as string);
+    return `${(init as RequestInit | undefined)?.method ?? "GET"} ${u.pathname}${u.search}`;
+  });
+const ids = (testId: string, within: ParentNode = document) =>
+  all(testId, within).map((el) => el.getAttribute("data-id"));
+/** What the poll does when the page comes back into view: one quiet read. */
+async function comeBack() {
+  document.dispatchEvent(new Event("visibilitychange"));
+  await settle();
+}
 
 function configure(on = true) {
   const s = useStore.getState();
@@ -160,7 +191,7 @@ beforeEach(() => {
     get: () => visibility,
   });
   resetInbox();
-  useStore.setState({ inboxSeen: {}, inboxTab: "all" });
+  useStore.setState({ inboxSeen: EARLIER, inboxTab: "all" });
   useStore.getState().setSettings({ lang: "ar" });
   configure();
   serve();
@@ -240,6 +271,58 @@ describe("InboxScreen", () => {
     expect(q("inbox-new", all("inbox-conversation")[0])).toBeNull();
   });
 
+  it("takes everything on the very first read as history: no chips, one mark per item; news then shows", async () => {
+    useStore.setState({ inboxSeen: {} });
+    await mount();
+    expect(all("inbox-new")).toHaveLength(0);
+    expect(useStore.getState().inboxSeen).toEqual({
+      "instagram:conversation:c1": T1,
+      "instagram:post:m1": T0,
+    });
+
+    routes["GET /social/inbox/conversations"] = {
+      body: {
+        conversations: [conv({ id: "c2", peerId: "p2", updatedAt: T2 }), conv()],
+        more: false,
+        next: null,
+      },
+    };
+    await comeBack();
+    expect(all("inbox-new")).toHaveLength(1);
+    expect(q("inbox-new", all("inbox-conversation")[0])).not.toBeNull();
+  });
+
+  it("a first read that finds nothing still counts as the first: what arrives next is new", async () => {
+    useStore.setState({ inboxSeen: {} });
+    serve({
+      "GET /social/inbox/conversations": { body: { conversations: [], more: false, next: null } },
+      "GET /social/inbox/posts": { body: { posts: [], more: false, next: null } },
+    });
+    await mount();
+    expect(q("inbox-empty-messages")).not.toBeNull();
+    expect(Object.keys(useStore.getState().inboxSeen)).toHaveLength(1);
+
+    routes["GET /social/inbox/conversations"] = {
+      body: { conversations: [conv()], more: false, next: null },
+    };
+    await comeBack();
+    expect(all("inbox-new")).toHaveLength(1);
+  });
+
+  it("an opened provisional row stays read when the real conversation arrives with the same time", async () => {
+    useStore.setState({ inboxSeen: { "instagram:conversation:peer:p1": T1 } });
+    serve({
+      "GET /social/inbox/conversations": {
+        body: { conversations: [conv({ id: "peer:p1" }), conv()], more: false, next: null },
+      },
+    });
+    await mount();
+    expect(ids("inbox-conversation")).toEqual(["c1"]);
+    expect(q("inbox-new", all("inbox-conversation")[0])).toBeNull();
+    // The mark is carried over to the real id (so pruning the provisional one loses nothing).
+    expect(useStore.getState().inboxSeen["instagram:conversation:c1"]).toBe(T1);
+  });
+
   it("shows one person once: a provisional conversation and the real one merge, the newest wins", async () => {
     serve({
       "GET /social/inbox/conversations": {
@@ -276,6 +359,105 @@ describe("InboxScreen", () => {
     expect(useStore.getState().inboxSeen).toEqual({ "instagram:conversation:gone-1": T0 });
   });
 
+  it("opens a post's comments in a sheet: marks it seen, nests replies, dims hidden ones", async () => {
+    serve({
+      "GET /social/inbox/posts/instagram/m1/comments": {
+        body: {
+          post: POST,
+          comments: [
+            comment("k3", T2, { parentId: "k1", author: "3z", ours: true, sentBy: "owner" }),
+            comment("k2", T1, { hidden: true, text: "سبام" }),
+            comment("k1", T0, { text: "وش البرنامج؟" }),
+          ],
+          more: false,
+          next: null,
+        },
+      },
+    });
+    await mount();
+    act(() => all("inbox-post-row")[0].click());
+    expect(useStore.getState().inboxSeen["instagram:post:m1"]).toBe(T0);
+    await settle();
+    expect(calls()).toContain("GET /social/inbox/posts/instagram/m1/comments");
+    const sheet = q("inbox-post")!;
+    expect(sheet.getAttribute("role")).toBe("dialog");
+    // Newest comment first; the reply under its comment.
+    expect(ids("inbox-comment", sheet)).toEqual(["k2", "k1", "k3"]);
+    const parent = sheet.querySelector<HTMLElement>('[data-testid="inbox-comment"][data-id="k1"]')!;
+    const reply = sheet.querySelector('[data-reply-to="k1"]')!;
+    expect(parent.closest("li")!.contains(reply)).toBe(true);
+    expect(ids("inbox-comment", reply)).toEqual(["k3"]);
+    const hidden = sheet.querySelector<HTMLElement>('[data-testid="inbox-comment"][data-id="k2"]')!;
+    expect(hidden.getAttribute("data-hidden")).toBe("true");
+    expect(hidden.className).toContain("opacity-50");
+    expect(hidden.textContent).toContain("مخفي");
+    expect(parent.className).not.toContain("opacity-50");
+    expect(q("inbox-open-post", sheet)!.getAttribute("href")).toBe(POST.permalink);
+  });
+
+  it("loads older conversations and posts with the Worker's cursor, and a poll keeps them", async () => {
+    const older = conv({ id: "c0", peerId: "p0", peerName: "ريم", updatedAt: T0 });
+    const olderPost = { ...POST, id: "m0", postedAt: "2026-10-21T10:00:00.000Z" };
+    serve({
+      "GET /social/inbox/conversations": {
+        body: { conversations: [conv()], more: true, next: "cur1" },
+      },
+      "GET /social/inbox/conversations?before=cur1": {
+        body: { conversations: [older], more: false, next: null },
+      },
+      "GET /social/inbox/posts": { body: { posts: [POST], more: true, next: "pcur1" } },
+      "GET /social/inbox/posts?before=pcur1": {
+        body: { posts: [olderPost], more: false, next: null },
+      },
+    });
+    await mount();
+    expect(ids("inbox-conversation")).toEqual(["c1"]);
+    expect(ids("inbox-post-row")).toEqual(["m1"]);
+
+    act(() => q("inbox-more-conversations")!.click());
+    await settle();
+    expect(urls()).toContain("GET /social/inbox/conversations?before=cur1");
+    expect(ids("inbox-conversation")).toEqual(["c1", "c0"]);
+    expect(q("inbox-more-conversations")).toBeNull();
+
+    act(() => q("inbox-more-posts")!.click());
+    await settle();
+    expect(urls()).toContain("GET /social/inbox/posts?before=pcur1");
+    expect(ids("inbox-post-row")).toEqual(["m1", "m0"]);
+    expect(q("inbox-more-posts")).toBeNull();
+
+    // The poll reads the first pages again; the older ones stay, and no "load more" comes back.
+    await comeBack();
+    expect(urls().filter((u) => u === "GET /social/inbox/conversations")).toHaveLength(2);
+    expect(ids("inbox-conversation")).toEqual(["c1", "c0"]);
+    expect(ids("inbox-post-row")).toEqual(["m1", "m0"]);
+    expect(q("inbox-more-conversations")).toBeNull();
+    expect(q("inbox-more-posts")).toBeNull();
+  });
+
+  it("loads a thread's older messages with the Worker's cursor, on top", async () => {
+    serve({
+      "GET /social/inbox/conversations/c1": { body: { ...THREAD, more: true, next: "t1" } },
+      "GET /social/inbox/conversations/c1?before=t1": {
+        body: {
+          ...THREAD,
+          messages: [message("m-0", "2026-10-22T09:00:00.000Z", "peer", "السلام")],
+          more: false,
+          next: null,
+        },
+      },
+    });
+    await mount();
+    act(() => all("inbox-conversation")[0].click());
+    await settle();
+    const sheet = q("inbox-thread")!;
+    act(() => q("inbox-load-older", sheet)!.click());
+    await settle();
+    expect(urls()).toContain("GET /social/inbox/conversations/c1?before=t1");
+    expect(ids("inbox-message", sheet)).toEqual(["m-0", "m-1", "m-2"]);
+    expect(q("inbox-load-older", sheet)).toBeNull();
+  });
+
   it("the TikTok tab says DMs stay in the app, links them, and says comments come later", async () => {
     await mount();
     act(() => q("inbox-tab-tiktok")!.click());
@@ -300,8 +482,13 @@ describe("InboxScreen", () => {
     });
     await mount();
     expect(q("inbox-need-ig")!.textContent).toBe("اربط إنستقرام من الإعدادات أول.");
+    expect(q("inbox-connect-error")).toBeNull();
     act(() => q("inbox-connect")!.click());
     await settle();
+    // The Worker refused: the page stays and says why.
+    const alert = q("inbox-connect-error")!;
+    expect(alert.getAttribute("role")).toBe("alert");
+    expect(alert.textContent).toBe("طلب غلط للـ Worker. حدّث الصفحة وجرّب.");
     const i = calls().indexOf("POST /social/connect/instagram");
     expect(i).toBeGreaterThan(-1);
     const init = fetchMock.mock.calls[i][1] as RequestInit;
@@ -314,6 +501,15 @@ describe("InboxScreen", () => {
     expect(q("inbox-need-permission")).not.toBeNull();
     expect(q("inbox-allow")!.textContent).toBe("اسمح بالرسائل");
     expect(q("inbox-need-ig")).toBeNull();
+  });
+
+  it("asks to connect again when the Instagram link expired", async () => {
+    serve({ "GET /social/inbox": { body: overview({ tokenExpired: true }) } });
+    await mount();
+    expect(q("inbox-token-expired")!.textContent).toBe(
+      "انتهى ربط إنستقرام؛ اربطه من جديد من الإعدادات.",
+    );
+    expect(q("inbox-connect")!.textContent).toBe("أعد الربط");
   });
 
   it("says the Worker has no inbox yet when it answers not_available, and shows no lists", async () => {
@@ -359,30 +555,35 @@ describe("InboxScreen", () => {
     expect(q("inbox-tab")).toBeNull();
   });
 
-  it("polls only while the page is visible, reads again when it comes back, and only reads", async () => {
+  it("polls only while the page is visible, with a fresh timer when it comes back, and only reads", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const advance = async (ms: number) => {
+      act(() => vi.advanceTimersByTime(ms));
+      await settle();
+    };
     await mount();
     expect(fetchMock).toHaveBeenCalledTimes(3);
-
-    visibility = "hidden";
-    act(() => vi.advanceTimersByTime(INBOX_POLL_MS * 2));
-    document.dispatchEvent(new Event("visibilitychange"));
-    await settle();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-
-    visibility = "visible";
-    act(() => vi.advanceTimersByTime(INBOX_POLL_MS));
-    await settle();
+    await advance(INBOX_POLL_MS);
     expect(fetchMock).toHaveBeenCalledTimes(6);
 
-    document.dispatchEvent(new Event("visibilitychange"));
-    await settle();
-    expect(fetchMock).toHaveBeenCalledTimes(9);
+    visibility = "hidden";
+    await comeBack(); // the event fires on hiding too: the timer stops, nothing is read
+    await advance(INBOX_POLL_MS * 3 + INBOX_POLL_MS / 2);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+
+    visibility = "visible";
+    await comeBack();
+    expect(fetchMock).toHaveBeenCalledTimes(9); // one read at once
+    await advance(INBOX_POLL_MS - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(9); // the old timer's phase is gone
+    await advance(1);
+    expect(fetchMock).toHaveBeenCalledTimes(12);
     expect(calls().every((c) => c.startsWith("GET "))).toBe(true);
 
     act(() => root.unmount());
-    act(() => vi.advanceTimersByTime(INBOX_POLL_MS * 2));
-    expect(fetchMock).toHaveBeenCalledTimes(9);
+    await comeBack();
+    await advance(INBOX_POLL_MS * 2);
+    expect(fetchMock).toHaveBeenCalledTimes(12);
     root = createRoot(host); // afterEach unmounts again
   });
 });

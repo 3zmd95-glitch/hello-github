@@ -46,6 +46,10 @@ export interface InboxState {
 const REFRESH_WAIT_MS = 3_000;
 /** Past this many seen marks, a load drops the marks of items it no longer lists. */
 const SEEN_CAP = 500;
+/** A webhook's conversation id before the reader learns the real thread id: "peer:" + the sender's id. */
+const PROVISIONAL = "peer:";
+/** Kept by a first read that found nothing, so the next read is not taken for the first one. */
+const FIRST_READ_KEY = "inbox:firstRead";
 
 const IDLE: InboxState = {
   overview: null,
@@ -89,13 +93,19 @@ function currentConfig(): ScoutConfig | null {
 const fail = (error: InboxError) => set({ busy: false, error });
 const newestFirst = (a: string, b: string) => (a < b ? 1 : a > b ? -1 : 0);
 
-/** One row per person: a webhook's provisional `peer:` conversation and the real one merge, the newest wins. */
+const provisional = (c: InboxConversation) => c.id.startsWith(PROVISIONAL);
+
+/**
+ * One row per person: a webhook's provisional `peer:` conversation and the real one merge, the newest wins
+ * (the real one on a tie).
+ */
 function byPeer(list: InboxConversation[]): InboxConversation[] {
   const best = new Map<string, InboxConversation>();
   for (const c of list) {
     const k = `${c.platform}:${c.peerId}`;
     const had = best.get(k);
-    if (!had || c.updatedAt > had.updatedAt) best.set(k, c);
+    const tieGoesReal = had?.updatedAt === c.updatedAt && provisional(had) && !provisional(c);
+    if (!had || c.updatedAt > had.updatedAt || tieGoesReal) best.set(k, c);
   }
   return [...best.values()].sort((a, b) => newestFirst(a.updatedAt, b.updatedAt));
 }
@@ -117,13 +127,43 @@ export const postSeen = (p: InboxPost) => ({
   key: seenKey(p.platform, "post", p.id),
   at: p.postedAt,
 });
+/** The provisional `peer:` key of a conversation's person. */
+const provisionalKey = (c: InboxConversation) =>
+  seenKey(c.platform, "conversation", PROVISIONAL + c.peerId);
 export const isUnread = (item: { key: string; at: string }, seen: Record<string, string>) =>
   unreadCount([item], seen) > 0;
+/** Unread unless opened since its last message, under its own id or as the person's provisional row. */
+export function conversationUnread(c: InboxConversation, seen: Record<string, string>): boolean {
+  const { key, at } = conversationSeen(c);
+  const mark = [seen[key], seen[provisionalKey(c)]].filter(Boolean).sort().pop();
+  return isUnread({ key, at }, mark ? { [key]: mark } : {});
+}
 /** Unread conversations plus new posts: the Studio row's number. */
 export const inboxUnread = (
   s: Pick<InboxState, "conversations" | "posts">,
   seen: Record<string, string>,
-) => unreadCount([...s.conversations.map(conversationSeen), ...s.posts.map(postSeen)], seen);
+) =>
+  s.conversations.filter((c) => conversationUnread(c, seen)).length +
+  unreadCount(s.posts.map(postSeen), seen);
+
+/**
+ * Seen marks a load writes before anything is shown: on the very first read everything already there is
+ * history, not news; afterwards a real conversation inherits the mark its provisional row got.
+ */
+function markLoaded(conversations: InboxConversation[], posts: InboxPost[]): void {
+  const store = useStore.getState();
+  const seen = store.inboxSeen;
+  if (Object.keys(seen).length === 0) {
+    const items = [...conversations.map(conversationSeen), ...posts.map(postSeen)];
+    for (const { key, at } of items) store.markInboxSeen(key, at);
+    if (items.length === 0) store.markInboxSeen(FIRST_READ_KEY, new Date().toISOString());
+    return;
+  }
+  for (const c of conversations) {
+    const mark = seen[provisionalKey(c)];
+    if (mark && !provisional(c)) store.markInboxSeen(conversationSeen(c).key, mark);
+  }
+}
 
 /**
  * Overview + the first page of conversations and of posts (3 reads); concurrent callers share them. `quiet`
@@ -149,6 +189,7 @@ export function loadInbox({ quiet = false }: { quiet?: boolean } = {}): Promise<
     const posts = byPost(extended.posts ? [...p.posts, ...state.posts] : p.posts);
     if (!extended.conversations) next.conversations = c.next;
     if (!extended.posts) next.posts = p.next;
+    markLoaded(conversations, posts);
     set({
       overview: o.overview,
       conversations,
@@ -228,18 +269,30 @@ export function useInbox(): InboxState & { configured: boolean } {
   return { ...s, configured };
 }
 
-/** Reads again every INBOX_POLL_MS while the page is visible, and once when it comes back into view. */
+/**
+ * Reads again every INBOX_POLL_MS while the page is visible: hidden, the timer stops; back in view, one read
+ * at once and a fresh timer from there.
+ */
 export function useInboxPoll(enabled: boolean): void {
   useEffect(() => {
     if (!enabled) return;
-    const tick = () => {
+    let id = 0;
+    const read = () => {
       if (document.visibilityState === "visible") void loadInbox({ quiet: true });
     };
-    const id = window.setInterval(tick, INBOX_POLL_MS);
-    document.addEventListener("visibilitychange", tick);
+    const start = () => {
+      if (document.visibilityState === "visible") id = window.setInterval(read, INBOX_POLL_MS);
+    };
+    const onVisibility = () => {
+      window.clearInterval(id);
+      read();
+      start();
+    };
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       window.clearInterval(id);
-      document.removeEventListener("visibilitychange", tick);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [enabled]);
 }

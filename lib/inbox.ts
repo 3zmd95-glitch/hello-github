@@ -196,6 +196,8 @@ const ERROR_KEYS: Partial<Record<InboxError["type"], MessageKey>> = {
   network: "inbox.err.network",
   not_available: "inbox.notAvailable",
   unconfigured: "inbox.needWorker",
+  token_expired: "inbox.tokenExpired",
+  window_closed: "inbox.window.closed",
 };
 
 /** The copy for a failed call; any other code (the Worker names it) reads as the platform's problem. */

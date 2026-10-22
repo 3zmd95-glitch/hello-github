@@ -6,7 +6,7 @@ import PlatformBadge from "@/components/ui/ios/PlatformBadge";
 import type { InboxConversation } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { useStore } from "@/store";
-import { conversationSeen, isUnread } from "./useInbox";
+import { conversationUnread } from "./useInbox";
 
 /** Who wrote the last line, said before it (the person's own lines need no name). */
 const FROM: Partial<Record<InboxConversation["lastFrom"], MessageKey>> = {
@@ -47,7 +47,7 @@ export default function ConversationList({
               </span>
             }
             trailing={
-              isUnread(conversationSeen(c), seen) && (
+              conversationUnread(c, seen) && (
                 <Chip tone="tint" data-testid="inbox-new">
                   {t("inbox.new")}
                 </Chip>

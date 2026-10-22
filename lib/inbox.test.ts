@@ -361,9 +361,10 @@ describe("helpers", () => {
       ["network", "inbox.err.network"],
       ["not_available", "inbox.notAvailable"],
       ["unconfigured", "inbox.needWorker"],
+      ["token_expired", "inbox.tokenExpired"],
+      ["window_closed", "inbox.window.closed"],
       ["upstream", "inbox.err.upstream"],
-      ["token_expired", "inbox.err.upstream"],
-      ["window_closed", "inbox.err.upstream"],
+      ["too_long", "inbox.err.upstream"],
       ["bad_request", "inbox.err.upstream"],
     ];
     for (const [type, key] of cases) expect(inboxErrorKey({ type }), type).toBe(key);

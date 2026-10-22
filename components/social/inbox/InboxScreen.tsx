@@ -86,6 +86,8 @@ export default function InboxScreen() {
   const markSeen = useStore((s) => s.markInboxSeen);
   const { busy: accountBusy, connect } = useSocialSync();
   const [open, setOpen] = useState<Open>(null);
+  /** Why the last connect / reconnect failed (the page stays: a success leaves for the platform). */
+  const [connectError, setConnectError] = useState<MessageKey | null>(null);
 
   useEffect(() => {
     if (configured) void loadInbox();
@@ -182,13 +184,26 @@ export default function InboxScreen() {
                   type="button"
                   className="px-btn px-btn-sm ms-auto"
                   disabled={accountBusy}
-                  onClick={() => void connect("instagram", true, true)}
+                  onClick={() =>
+                    void connect("instagram", true, true).then((r) =>
+                      setConnectError(r.ok ? null : r.error),
+                    )
+                  }
                   data-testid={ACCOUNT[need].buttonId}
                 >
                   {t(ACCOUNT[need].button)}
                 </button>
               </div>
             </div>
+          )}
+          {need && tab !== "tiktok" && connectError && (
+            <p
+              role="alert"
+              className="text-danger px-4 text-[13px]"
+              data-testid="inbox-connect-error"
+            >
+              {t(connectError)}
+            </p>
           )}
           {error && (
             <p role="alert" className="text-danger px-4 text-[13px]" data-testid="inbox-error">
