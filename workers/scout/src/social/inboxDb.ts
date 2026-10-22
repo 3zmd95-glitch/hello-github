@@ -5,6 +5,7 @@ export const RETAIN_CONVERSATIONS = 200;
 export const RETAIN_POSTS = 50;
 export const RETAIN_DAYS = 30;
 export const PAGE = 20;
+const MAX_PAGE = 100;
 
 export type InboxPlatform = "instagram" | "tiktok";
 export interface ConversationRow {
@@ -71,15 +72,22 @@ export interface Overview {
   platforms: Record<InboxPlatform, { lastReadAt: string | null; newestAt: string | null }>;
   counts: { conversations: number; posts: number; comments: number };
 }
+/** One page of a list. `next` is the cursor of the following page (null when `more` is false). */
 export interface Page<T> {
   items: T[];
   more: boolean;
+  next: string | null;
 }
 /** The two SQL calls the layer needs: `all` runs any statement with binds, `run` executes the schema script. */
 export interface Sql {
   all<T = Record<string, unknown>>(query: string, ...binds: (string | number | null)[]): T[];
   run(ddl: string): void;
 }
+/**
+ * The inbox store. Every list (conversations, thread, posts, comments) is newest first with a stable cursor and a
+ * `limit` clamped to 1-100 (default PAGE). before: the previous page's next cursor ("<timestamp>|<id>"); a plain
+ * timestamp is accepted too and means strictly older than it.
+ */
 export interface InboxApi {
   ingest(batch: IngestBatch): Promise<void>;
   overview(): Promise<Overview>;
@@ -126,6 +134,29 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);`;
 
 const bool = (v: unknown) => v === 1 || v === true;
 
+/** A caller's page size, kept between 1 and MAX_PAGE (NaN falls back to PAGE). */
+function pageSize(limit: number | undefined): number {
+  const n = Math.floor(limit ?? PAGE);
+  return Number.isNaN(n) ? PAGE : Math.min(MAX_PAGE, Math.max(1, n));
+}
+
+/**
+ * `before` as the pair (timestamp, id) the queries compare with. A cursor is "<ts>|<id>", split at the last `|`; a
+ * plain timestamp has no `|` and gets id "", which with `ORDER BY ts DESC, id DESC` means strictly older than ts.
+ */
+function cursorOf(before: string | undefined): [string | null, string | null] {
+  if (!before) return [null, null];
+  const i = before.lastIndexOf("|");
+  return i < 0 ? [before, ""] : [before.slice(0, i), before.slice(i + 1)];
+}
+
+/** Rows fetched with `limit + 1`: the extra one only says there is a next page, whose cursor is the last kept row's. */
+function pageOf<T>(rows: T[], limit: number, cursor: (row: T) => string): Page<T> {
+  if (rows.length <= limit) return { items: rows, more: false, next: null };
+  const items = rows.slice(0, limit);
+  return { items, more: true, next: cursor(items[items.length - 1]) };
+}
+
 export class InboxDb implements InboxApi {
   constructor(private readonly sql: Sql) {
     sql.run(DDL);
@@ -147,9 +178,12 @@ export class InboxDb implements InboxApi {
         c.windowClosesAt,
         c.answeredBy,
       );
+    // A message the auto reply sent stays "auto" when a later read of the thread says "owner".
     for (const m of b.messages ?? [])
       this.sql.all(
-        `INSERT OR REPLACE INTO messages VALUES (?,?,?,?,?,?,?,?)`,
+        `INSERT INTO messages VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(platform,id) DO UPDATE SET at=excluded.at, text=excluded.text,
+        kind=excluded.kind, fromPeer=excluded.fromPeer,
+        sentBy=CASE WHEN messages.sentBy='auto' THEN 'auto' ELSE excluded.sentBy END`,
         m.platform,
         m.convId,
         m.id,
@@ -210,27 +244,24 @@ export class InboxDb implements InboxApi {
     };
   }
 
-  private page<T>(rows: T[], limit: number): Page<T> {
-    return rows.length > limit
-      ? { items: rows.slice(0, limit), more: true }
-      : { items: rows, more: false };
-  }
-
   async conversations(q: {
     platform?: InboxPlatform;
     before?: string;
     limit?: number;
   }): Promise<Page<ConversationRow>> {
-    const limit = q.limit ?? PAGE;
+    const limit = pageSize(q.limit);
+    const [ts, id] = cursorOf(q.before);
     const rows = this.sql.all<ConversationRow>(
-      `SELECT * FROM conversations WHERE (? IS NULL OR platform=?) AND (? IS NULL OR updatedAt<?) ORDER BY updatedAt DESC LIMIT ?`,
+      `SELECT * FROM conversations WHERE (? IS NULL OR platform=?) AND (? IS NULL OR (updatedAt, id) < (?, ?))
+       ORDER BY updatedAt DESC, id DESC LIMIT ?`,
       q.platform ?? null,
       q.platform ?? null,
-      q.before ?? null,
-      q.before ?? null,
+      ts,
+      ts,
+      id,
       limit + 1,
     );
-    return this.page(rows, limit);
+    return pageOf(rows, limit, (c) => `${c.updatedAt}|${c.id}`);
   }
 
   async thread(platform: InboxPlatform, id: string, q: { before?: string; limit?: number }) {
@@ -240,20 +271,24 @@ export class InboxDb implements InboxApi {
       id,
     )[0];
     if (!conversation) return null;
-    const limit = q.limit ?? PAGE;
+    const limit = pageSize(q.limit);
+    const [ts, mid] = cursorOf(q.before);
     const rows = this.sql.all<Omit<MessageRow, "fromPeer"> & { fromPeer: number }>(
-      `SELECT * FROM messages WHERE platform=? AND convId=? AND (? IS NULL OR at<?) ORDER BY at DESC LIMIT ?`,
+      `SELECT * FROM messages WHERE platform=? AND convId=? AND (? IS NULL OR (at, id) < (?, ?))
+       ORDER BY at DESC, id DESC LIMIT ?`,
       platform,
       id,
-      q.before ?? null,
-      q.before ?? null,
+      ts,
+      ts,
+      mid,
       limit + 1,
     );
-    const page = this.page(rows, limit);
+    // Taken newest first (so `next` is the cursor of the oldest message returned), shown oldest first.
+    const page = pageOf(rows, limit, (m) => `${m.at}|${m.id}`);
     return {
       conversation,
       messages: {
-        more: page.more,
+        ...page,
         items: page.items.reverse().map((m) => ({ ...m, fromPeer: bool(m.fromPeer) })),
       },
     };
@@ -264,18 +299,19 @@ export class InboxDb implements InboxApi {
     before?: string;
     limit?: number;
   }): Promise<Page<PostRow>> {
-    const limit = q.limit ?? PAGE;
-    return this.page(
-      this.sql.all<PostRow>(
-        `SELECT * FROM posts WHERE (? IS NULL OR platform=?) AND (? IS NULL OR postedAt<?) ORDER BY postedAt DESC LIMIT ?`,
-        q.platform ?? null,
-        q.platform ?? null,
-        q.before ?? null,
-        q.before ?? null,
-        limit + 1,
-      ),
-      limit,
+    const limit = pageSize(q.limit);
+    const [ts, id] = cursorOf(q.before);
+    const rows = this.sql.all<PostRow>(
+      `SELECT * FROM posts WHERE (? IS NULL OR platform=?) AND (? IS NULL OR (postedAt, id) < (?, ?))
+       ORDER BY postedAt DESC, id DESC LIMIT ?`,
+      q.platform ?? null,
+      q.platform ?? null,
+      ts,
+      ts,
+      id,
+      limit + 1,
     );
+    return pageOf(rows, limit, (p) => `${p.postedAt}|${p.id}`);
   }
 
   async comments(platform: InboxPlatform, postId: string, q: { before?: string; limit?: number }) {
@@ -285,22 +321,25 @@ export class InboxDb implements InboxApi {
       postId,
     )[0];
     if (!post) return null;
-    const limit = q.limit ?? PAGE;
+    const limit = pageSize(q.limit);
+    const [ts, id] = cursorOf(q.before);
     const rows = this.sql.all<
       Omit<CommentRow, "hidden" | "ours"> & { hidden: number; ours: number }
     >(
-      `SELECT * FROM comments WHERE platform=? AND postId=? AND (? IS NULL OR at<?) ORDER BY at DESC LIMIT ?`,
+      `SELECT * FROM comments WHERE platform=? AND postId=? AND (? IS NULL OR (at, id) < (?, ?))
+       ORDER BY at DESC, id DESC LIMIT ?`,
       platform,
       postId,
-      q.before ?? null,
-      q.before ?? null,
+      ts,
+      ts,
+      id,
       limit + 1,
     );
-    const page = this.page(rows, limit);
+    const page = pageOf(rows, limit, (c) => `${c.at}|${c.id}`);
     return {
       post,
       comments: {
-        more: page.more,
+        ...page,
         items: page.items.map((c) => ({ ...c, hidden: bool(c.hidden), ours: bool(c.ours) })),
       },
     };
@@ -331,22 +370,33 @@ export class InboxDb implements InboxApi {
     this.sql.all(`DELETE FROM comments WHERE platform=? AND id=?`, platform, id);
   }
 
+  /**
+   * Keeps the newest 200 conversations and 50 posts and drops what is older than 30 days: conversations by their last
+   * activity, messages, comments and sends by their own date, posts by their date unless one of their comments is
+   * still inside the 30 days. Messages of a dropped conversation and comments of a dropped post go with it.
+   * `dropped` counts conversations, posts and comments. Cursors and cutoffs compare ISO-8601 UTC strings ending in
+   * `Z`, so every writer must normalise timestamps.
+   */
   async retain(nowIso: string): Promise<{ dropped: number }> {
     const cutoff = new Date(new Date(nowIso).getTime() - RETAIN_DAYS * 86_400_000).toISOString();
     const before = (await this.overview()).counts;
     this.sql.all(
-      `DELETE FROM conversations WHERE updatedAt<? OR (platform, id) NOT IN (SELECT platform, id FROM conversations ORDER BY updatedAt DESC LIMIT ?)`,
+      `DELETE FROM conversations WHERE updatedAt<? OR (platform, id) NOT IN (SELECT platform, id FROM conversations ORDER BY updatedAt DESC, id DESC LIMIT ?)`,
       cutoff,
       RETAIN_CONVERSATIONS,
     );
+    this.sql.all(`DELETE FROM messages WHERE at<?`, cutoff);
     this.sql.all(
       `DELETE FROM messages WHERE NOT EXISTS (SELECT 1 FROM conversations c WHERE c.platform=messages.platform AND c.id=messages.convId)`,
     );
     this.sql.all(
-      `DELETE FROM posts WHERE postedAt<? OR (platform, id) NOT IN (SELECT platform, id FROM posts ORDER BY postedAt DESC LIMIT ?)`,
-      cutoff,
+      `DELETE FROM posts WHERE (platform, id) NOT IN (SELECT platform, id FROM posts ORDER BY postedAt DESC, id DESC LIMIT ?)
+       OR (postedAt<? AND NOT EXISTS (SELECT 1 FROM comments c WHERE c.platform=posts.platform AND c.postId=posts.id AND c.at>=?))`,
       RETAIN_POSTS,
+      cutoff,
+      cutoff,
     );
+    this.sql.all(`DELETE FROM comments WHERE at<?`, cutoff);
     this.sql.all(
       `DELETE FROM comments WHERE NOT EXISTS (SELECT 1 FROM posts p WHERE p.platform=comments.platform AND p.id=comments.postId)`,
     );
