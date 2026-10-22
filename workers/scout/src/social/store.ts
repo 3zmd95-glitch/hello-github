@@ -38,6 +38,8 @@ export interface SocialEnv {
   /** Meta app: the Instagram API with Instagram Login's "Instagram app ID" / secret. */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
+  /** The string the owner types in Meta's webhook setup; Meta sends it back on the GET handshake (webhooks.ts). */
+  META_VERIFY_TOKEN?: string;
   /** The same Meta app's Threads use case has its own "Threads app ID" / secret; falls back to META_*. */
   THREADS_APP_ID?: string;
   THREADS_APP_SECRET?: string;

@@ -60,6 +60,7 @@ import type { InboxApi } from "./social/inboxDb";
 import { handleGo } from "./social/replies";
 import { handleOAuthCallback, handleSocial, healthSocial } from "./social/routes";
 import type { SocialEnv } from "./social/store";
+import { handleWebhooks } from "./social/webhooks";
 import { handleTikTokAds, handleTikTokAdsCallback, type TikTokAdsEnv } from "./tiktokads";
 import { handleTikTokAccount, handleTikTokAccountCallback } from "./tiktokAccount";
 import { musicProbe } from "./tiktokMusicProbe";
@@ -531,6 +532,10 @@ export async function handle(
     const cache = deps.cache === undefined ? defaultCache() : deps.cache;
     return handleGo(req, env, go[1], Number(go[2]), deps.now?.(), cache);
   }
+
+  // Meta's webhooks (the verify handshake, signed events) carry no bearer either: the signature is the credential.
+  const hook = await handleWebhooks(req, env, { now: deps.now, api: deps.inboxApi });
+  if (hook) return hook;
 
   const token = checkToken(req, env);
 

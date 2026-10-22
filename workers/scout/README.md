@@ -332,7 +332,8 @@ read failed is read again next tick), skips its own comments, comments older tha
 automation was switched on and comments already answered, matches the rest (specific-post automations before "any
 post"), takes a short lock (`POLL_LOCK_MS`, 4 min) so two overlapping polls never answer the same comment or
 message, and answers at most `REPLY_CAP` (8) a tick, comments and DMs together, comments first, oldest first. A post
-with matching comments left over (cap, budget, stop) is read again next tick.
+with matching comments left over (cap, budget, stop) is read again next tick. The global inbox's webhooks now land at
+`/webhooks/instagram` (see [Global inbox](#global-inbox)); the auto-replies still poll.
 
 **Order per comment.** First the private reply, `POST /{ig-user-id}/messages { recipient: { comment_id }, message }`
 (one per comment, within 7 days): plain text, or a button template when the rule has buttons (the Send API below).
@@ -426,7 +427,7 @@ Clicks: `GET /go/:id/:n` redirects only to an owner-saved https link, counts one
 
 Plan: `planning/tools/51-global-inbox.md`. Code: `src/social/inboxRoutes.ts` (these routes), `inboxReader.ts` (the
 every-minute reader that fills the store from Instagram) and `inboxStore.ts` (the `INBOX_STORE` Durable Object). The
-routes read the store, ask for a rescan, empty it, and send DMs and comment replies. All of them need the bearer. Without the `INBOX_STORE` binding every one answers `503 { error: "not_available" }`.
+routes read the store, ask for a rescan, empty it, and send DMs and comment replies. All of them need the bearer, except the two webhook routes below, which Meta calls. Without the `INBOX_STORE` binding every one answers `503 { error: "not_available" }`.
 
 | Route                                                    | Response                                                                                                                                                                                                               |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -443,8 +444,8 @@ routes read the store, ask for a rescan, empty it, and send DMs and comment repl
 | `POST /social/inbox/comments/instagram/:id/hide`         | Body `{ hidden: boolean }`. Hides or unhides a stored comment: `{ ok: true }`                                                                                                                                          |
 | `DELETE /social/inbox/comments/instagram/:id`            | `{ ok: true }`. Only the owner's own comment (`ours`); another person's is `403 { error: "no_permission" }` with no Instagram call                                                                                     |
 
-`platform` is `all` (default), `instagram` or `tiktok`, else `400 { error: "bad_request" }`. Ids are `[A-Za-z0-9_=-]{1,256}`; `:platform` is
-`instagram` or `tiktok`. Lists are paged 20 at a time: when `more` is true, send `next` back as `before` to get the following page (the cursor is
+`platform` is `all` (default), `instagram` or `tiktok`, else `400 { error: "bad_request" }`. Ids are `[A-Za-z0-9_=:.-]{1,256}` once their percent-escapes are decoded
+(the dashboard sends `peer:123` as `peer%3A123`); `:platform` is `instagram` or `tiktok`. Lists are paged 20 at a time: when `more` is true, send `next` back as `before` to get the following page (the cursor is
 opaque, pass it unchanged). `window.open` is whether the 24-hour reply window of the thread is still open now (`closesAt` is null when unknown).
 A thread's `next` pages toward older messages, while each page is returned oldest first. A store or KV failure answers
 `502 { error: "upstream" }`; `POST /social/inbox/refresh` first retries a refused KV write once after 1.1 seconds.
@@ -458,6 +459,21 @@ A refusal by Meta answers `{ error, detail }` with Meta's own words (200 charact
 `no_permission` 403, `rejected` 502, `not_eligible` 409, `token_expired` 409, `rate_limited` 429, and `window_closed` 409 for a DM that Meta refuses outside the messaging window (a private reply keeps `not_eligible`).
 A network failure, a Graph 5xx or other unreadable answer, or a 200 that names no message, reply or success, may have gone out, so it answers `502 { error: "upstream", detail: "unconfirmed" }` and is logged `unconfirmed`: look at the thread before sending again.
 Hide and delete leave no `sends` row. A store fault is only logged and never changes the answer: a send Instagram took is still answered as sent (the reader brings the message in on its next read), and a refusal or `unconfirmed` is still answered as such. A public reply to a reply is stored under the top-level comment; deleting a comment also drops its stored replies.
+
+### Instagram webhooks
+
+Code: `src/social/webhooks.ts`. Meta pushes each new DM and comment here, so the inbox shows them within seconds instead of at the reader's next tick. The reader keeps running either way and brings in what the webhooks cannot: the threads' real ids, the owner's own sends and the posts. Neither route takes the bearer: Meta's signature is the credential, so they are served before the bearer check.
+
+| Route | Response |
+| ----- | -------- |
+| `GET /webhooks/instagram?hub.mode=subscribe&hub.verify_token=…&hub.challenge=…` | The verify handshake: `200` with the challenge as plain text when the token is `META_VERIFY_TOKEN`, else `403` (always `403` while the secret is not set) |
+| `POST /webhooks/instagram` | An event with `X-Hub-Signature-256: sha256=<HMAC-SHA256 of the raw body, key META_APP_SECRET>`. `200 { received }` (stored messages + comments; `0` for an object that is not `instagram`), `401 { error: "bad_signature" }` for a wrong or missing signature or no `META_APP_SECRET`, `500 { error: "upstream" }` when the store fails (Meta then delivers the event again), `503 { error: "not_available" }` without the `INBOX_STORE` binding |
+
+Secrets (Cloudflare → Workers & Pages → 3z-scout → Settings → Variables and Secrets → Add → Secret): `META_APP_SECRET` (already set for the connector) signs the events; `META_VERIFY_TOKEN`, any long random string the owner invents, answers the handshake.
+
+What a signed event stores, in one `ingest` per request (no KV): a `messaging` event from a person becomes the message (`sentBy: "peer"`) and a provisional conversation `peer:<sender id>` whose window closes 24 hours after the message; the reader's next tick stores the real thread and the dashboard merges the two rows by person. A `comments` change becomes a comment under its post, with an empty placeholder post when the store does not know the post (the reader's next media read fills it). Skipped, and still answered `200`: the account's own echoes and comments (the reader brings those in with the right `sentBy`), read / reaction / postback / referral events, a message with neither text nor attachments, and every field but `comments`. A rejected event bumps the store's `webhook:rejected` counter. The logs carry counts only (`entries`, `messages`, `comments`, `rejected`), never a body or a secret.
+
+Meta dashboard (developers.facebook.com → the app → Instagram → API setup with Instagram login → Configure webhooks): callback URL `https://3z-scout.3zmd95.workers.dev/webhooks/instagram`, verify token = `META_VERIFY_TOKEN`, then Verify and save, and subscribe the `messages` and `comments` fields (object `instagram`). Meta delivers real events only to an app that is Live with Advanced Access, so until App Review approves `instagram_business_manage_messages` and `instagram_business_manage_comments` (with the inbox screencast) and the app is published, the reader's every-minute read keeps the page fresh and the webhooks stay quiet.
 
 ## Trend Radar
 

@@ -374,6 +374,50 @@ describe.skipIf(!available)("/social/inbox routes", () => {
     expect(await noPost.json()).toEqual({ error: "not_found" });
   });
 
+  it("opens a webhook's provisional thread: the id of a `peer:` conversation has a colon", async () => {
+    const env = makeEnv();
+    const api = freshDb();
+    await api.ingest({
+      conversations: [{ ...conv("peer:p1", "2026-10-22T10:00:00.000Z"), peerId: "p1" }],
+      messages: [
+        {
+          platform: "instagram",
+          convId: "peer:p1",
+          id: "mid.1",
+          at: "2026-10-22T10:00:00.000Z",
+          fromPeer: true,
+          text: "hi",
+          kind: "text",
+          sentBy: "peer",
+        },
+      ],
+    });
+
+    // As typed, and as the dashboard writes it (encodeURIComponent turns the colon into %3A).
+    for (const id of ["peer:p1", encodeURIComponent("peer:p1")]) {
+      const res = await handle(
+        req(`/social/inbox/conversations/${id}`),
+        env,
+        undefined,
+        depsOf(api),
+      );
+
+      expect(res.status, id).toBe(200);
+      expect(await res.json(), id).toMatchObject({
+        conversation: { id: "peer:p1", peerId: "p1" },
+        messages: [{ id: "mid.1", text: "hi" }],
+      });
+    }
+    // A broken escape is no id.
+    const bad = await handle(
+      req("/social/inbox/conversations/peer%3"),
+      env,
+      undefined,
+      depsOf(api),
+    );
+    expect(bad.status).toBe(404);
+  });
+
   it("hands the cursor through opaque: next of one page is before of the next", async () => {
     const env = makeEnv();
     const api = freshDb();
@@ -826,6 +870,31 @@ describe.skipIf(!available)("/social/inbox send routes", () => {
         platformId: "mid.1",
         detail: null,
       },
+    ]);
+  });
+
+  it("sends a DM in a webhook's provisional conversation to its person, not to its id", async () => {
+    let seen: RequestInit | undefined;
+    const w = await sendWorld({
+      [DM_URL]: (_url, init) => {
+        seen = init;
+        return { recipient_id: "9", message_id: "mid.p" };
+      },
+    });
+    await w.api.ingest({
+      conversations: [
+        { ...conv("peer:9", "2026-10-22T11:30:00.000Z"), peerId: "9", windowClosesAt: OPEN_UNTIL },
+      ],
+    });
+
+    const res = await w.call(
+      posted(`/social/inbox/conversations/${encodeURIComponent("peer:9")}/send`, { text: "hi" }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(sentBody(seen)).toEqual({ recipient: { id: "9" }, message: { text: "hi" } });
+    expect((await w.thread("peer:9"))?.messages.items).toMatchObject([
+      { id: "mid.p", convId: "peer:9", sentBy: "owner" },
     ]);
   });
 

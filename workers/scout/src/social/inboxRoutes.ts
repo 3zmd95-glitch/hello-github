@@ -50,20 +50,30 @@ export interface InboxReply {
   fail: (error: SocialErrorCode, detail?: string) => Response;
 }
 
-const ID = /^[A-Za-z0-9_=-]{1,256}$/;
+// The colon and dot let a webhook's provisional `peer:<id>` conversation (webhooks.ts) be opened and answered.
+const ID = /^[A-Za-z0-9_=:.-]{1,256}$/;
+
+/** A path segment as the dashboard's encodeURIComponent wrote it ("peer%3Ap1" is "peer:p1"); a bad escape stays and fails ID. */
+const decoded = (segment: string): string => {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+};
 
 /** `?platform=`: absent or `all` means both; anything but a platform is "bad". */
 const platformOf = (v: string | null): InboxPlatform | undefined | "bad" =>
   v === null || v === "all" ? undefined : v === "instagram" || v === "tiktok" ? v : "bad";
 
 /**
- * Answers a `/social/inbox/*` request (`rest` is the path after "inbox"), or returns null when it is not one of
+ * Answers a `/social/inbox/*` request (`segments` is the path after "inbox"), or returns null when it is not one of
  * ours. `deps.api` is the store; production leaves it out and the Durable Object's stub is used.
  */
 export async function handleInbox(
   req: Request,
   env: SocialEnv,
-  rest: string[],
+  segments: string[],
   store: Store | null,
   now: Date,
   http: Http,
@@ -77,6 +87,7 @@ export async function handleInbox(
 
   const url = new URL(req.url);
   const before = url.searchParams.get("before") ?? undefined;
+  const rest = segments.map(decoded);
   const [a, b, c, d] = rest;
 
   try {

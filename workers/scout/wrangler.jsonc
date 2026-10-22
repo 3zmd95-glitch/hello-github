@@ -4,7 +4,8 @@
 // Secrets (set by the deploy workflow with `wrangler secret put`, never committed): TAVILY_API_KEY,
 // SCOUT_TOKEN, META_APP_ID, META_APP_SECRET, THREADS_APP_ID, THREADS_APP_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, TIKTOK_CLIENT_KEY,
 // TIKTOK_CLIENT_SECRET, YOUTUBE_API_KEY. TIKTOK_ADS_SECRET (the TikTok for Business app's secret: the category pages'
-// TikTok trends) and BRAVE_API_KEY (optional, the category pages' TikTok and Instagram tabs; off, BRAVE_DAILY "0") are
+// TikTok trends), BRAVE_API_KEY (optional, the category pages' TikTok and Instagram tabs; off, BRAVE_DAILY "0") and
+// META_VERIFY_TOKEN (any long random string: the Instagram webhook's verify handshake, src/social/webhooks.ts) are
 // added by the owner in Cloudflare (Workers & Pages → 3z-scout → Settings → Variables and Secrets → Add → Secret).
 {
   "$schema": "node_modules/wrangler/config-schema.json",
