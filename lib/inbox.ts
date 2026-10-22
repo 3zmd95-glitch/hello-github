@@ -75,7 +75,7 @@ const PrivateAnswer = z.object({ message: z.object({ id: z.string() }) });
 
 /* ---------- call ---------- */
 
-async function errorFrom(res: Response): Promise<InboxError> {
+async function errorFrom(res: Response): Promise<InboxError | null> {
   if (res.status === 401) return { type: "auth" };
   if (res.status === 429) return { type: "rate_limited" };
   try {
@@ -86,7 +86,7 @@ async function errorFrom(res: Response): Promise<InboxError> {
       detail: typeof body.detail === "string" ? body.detail : undefined,
     };
   } catch {
-    return { type: "upstream" }; // Not JSON (a Cloudflare error page).
+    return null; // Not JSON (a Cloudflare error page): the Worker never answered.
   }
 }
 
@@ -94,7 +94,8 @@ async function errorFrom(res: Response): Promise<InboxError> {
  * One authenticated Worker call, its answer checked against `schema`. Exported for the send routes. `sends` marks a
  * call that puts a message out (a DM, a reply): once the request may have left, no answer we can read is not "failed"
  * but unconfirmed (a network error, or a 2xx whose body is not the expected one), so the screen keeps the text and
- * tells the owner to check before sending again. A refused answer (non-2xx) is the Worker's word and stays as it is.
+ * tells the owner to check before sending again. A refused JSON answer (non-2xx) is the Worker's word and stays as it is;
+ * a non-JSON one (an edge error page) never came from the Worker, so it is unconfirmed too.
  */
 export async function inboxCall<S extends z.ZodType<object>>(
   config: ScoutConfig | null,
@@ -117,7 +118,10 @@ export async function inboxCall<S extends z.ZodType<object>>(
   } catch {
     return unreadable("network");
   }
-  if (!res.ok) return { ok: false, error: await errorFrom(res) };
+  if (!res.ok) {
+    const error = await errorFrom(res);
+    return error ? { ok: false, error } : unreadable("upstream");
+  }
   let body: unknown;
   try {
     body = await res.json();
@@ -298,7 +302,7 @@ const ERROR_KEYS: Partial<Record<InboxError["type"], MessageKey>> = {
 export const inboxErrorKey = (error: InboxError): MessageKey =>
   (Object.hasOwn(ERROR_KEYS, error.type) && ERROR_KEYS[error.type]) || "inbox.err.upstream";
 
-/** A send the platform may have taken even though no answer came: the owner checks the app before sending again. */
+/** A send the platform may have taken even though no answer came: the owner checks the thread before sending again. */
 export const isUnconfirmed = (error: InboxError): boolean =>
   error.type === "upstream" && error.detail === "unconfirmed";
 

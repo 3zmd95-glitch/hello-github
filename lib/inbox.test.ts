@@ -407,6 +407,12 @@ describe("sends", () => {
       vi.fn<typeof fetch>(async () => new Response("<html>ok</html>", { status: 200 })),
     );
     expect(await inboxSend(CONFIG, "c1", "x")).toEqual(unconfirmed); // 2xx, not JSON
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => new Response("<html>502</html>", { status: 502 })),
+    );
+    expect(await inboxSend(CONFIG, "c1", "x")).toEqual(unconfirmed); // an edge page, not the Worker
+    expect(await inboxOverview(CONFIG)).toEqual({ ok: false, error: { type: "upstream" } }); // a read: plain
   });
 
   it("keeps a plain refusal of a send as the Worker said it (nothing was sent)", async () => {
