@@ -6,7 +6,9 @@ import { useSocialSync } from "@/components/social/useSocialSync";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import type { SocialConnectionStatus } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
+import { inboxErrorKey, inboxWipe } from "@/lib/inbox";
 import { reconnectInDays, reconnectMessageKey } from "@/lib/publish";
+import { scoutConfig } from "@/lib/scoutClient";
 import { PLATFORM_META } from "@/lib/social";
 import {
   SOCIAL_PLATFORMS,
@@ -28,8 +30,9 @@ type Pending = { kind: "disconnect"; platform: SocialPlatform } | { kind: "seed"
  * 🔗 Connected accounts: one row per platform the Scout Worker can connect (TikTok, Instagram, YouTube,
  * Threads) with its state, Connect / Reconnect / Disconnect, "Allow posting" (reconnect with the publishing
  * scopes for auto-posting), a "reconnect in N days" line before a Meta token runs out (round 30, A6), a
- * global "Sync now" with the last pull time, a short explainer, and, while the Beacons seed rows are still
- * stored, a button to remove them. Without the Worker URL and token it points at the API keys card above.
+ * global "Sync now" with the last pull time, a short explainer, a "Delete stored messages" button (asks first, then
+ * empties the Worker's 30-day inbox store), and, while the Beacons seed rows are still stored, a button to remove
+ * them. Without the Worker URL and token it points at the API keys card above.
  */
 export default function ConnectedAccountsCard() {
   const { t, lang } = useT();
@@ -38,8 +41,10 @@ export default function ConnectedAccountsCard() {
     useSocialSync({ auto: true });
   const seed = useStore(hasBeaconsSeed);
   const removeBeaconsSeed = useStore((s) => s.removeBeaconsSeed);
+  const apiKeys = useStore((s) => s.settings.apiKeys);
   const [pending, setPending] = useState<Pending>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [wipe, setWipe] = useState<"idle" | "asking" | "busy">("idle");
 
   const onSync = async () => {
     setNotice(null);
@@ -67,13 +72,27 @@ export default function ConnectedAccountsCard() {
     setPending(null);
   };
 
+  /** `DELETE /social/inbox` once the owner said yes; a toast says how it went. */
+  const wipeInbox = async () => {
+    setWipe("busy");
+    const r = await inboxWipe(scoutConfig(apiKeys.scoutUrl, apiKeys.scoutToken));
+    setWipe("idle");
+    if (r.ok) toast("notice", { icon: "🗑️", name: t("inbox.settings.wiped") });
+    else
+      toast("notice", { icon: "⚠️", tone: "warn", sound: null, name: t(inboxErrorKey(r.error)) });
+  };
+
   const pendingPlatform = pending?.kind === "disconnect" ? pending.platform : null;
 
   return (
     <Card id="accounts" title={t("settings.accounts.title")}>
       <div className="flex flex-col gap-3" data-testid="accounts-card">
         {!configured ? (
-          <p className="text-ink-2 text-sm" data-testid="accounts-need-worker">
+          <p
+            className="text-ink-2 text-sm"
+            id="accounts-need-worker"
+            data-testid="accounts-need-worker"
+          >
             {t("settings.accounts.needWorker")}{" "}
             <a href="#api-keys" className="px-link">
               {t("settings.accounts.needWorkerLink")}
@@ -153,6 +172,19 @@ export default function ConnectedAccountsCard() {
 
         <p className="text-muted text-xs">{t("settings.accounts.explainer")}</p>
 
+        <div>
+          <button
+            type="button"
+            className="px-btn px-btn-danger px-btn-sm"
+            onClick={() => setWipe("asking")}
+            disabled={!configured || wipe === "busy"}
+            aria-describedby={configured ? undefined : "accounts-need-worker"}
+            data-testid="accounts-wipe-inbox"
+          >
+            {t("inbox.settings.wipe")}
+          </button>
+        </div>
+
         {seed && (
           <div className="px-inset flex flex-wrap items-center gap-2" data-testid="accounts-seed">
             <span className="text-ink-2 min-w-[200px] flex-1 text-xs">
@@ -194,6 +226,16 @@ export default function ConnectedAccountsCard() {
           danger
           onConfirm={confirm}
           onCancel={() => setPending(null)}
+        />
+      )}
+      {wipe === "asking" && (
+        <ConfirmDialog
+          title={t("inbox.settings.wipe")}
+          body={t("inbox.settings.wipeConfirm")}
+          confirmLabel={t("inbox.settings.wipe")}
+          danger
+          onConfirm={() => void wipeInbox()}
+          onCancel={() => setWipe("idle")}
         />
       )}
     </Card>
