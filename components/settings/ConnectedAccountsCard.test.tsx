@@ -84,6 +84,9 @@ describe("ConnectedAccountsCard's Delete stored messages", () => {
     const dialog = byId("confirm-dialog")!;
     expect(dialog.textContent).toContain("احذف الرسائل المخزنة");
     expect(dialog.textContent).toContain("رسائلك وتعليقاتك في إنستقرام نفسه ما تنحذف");
+    // The store refills while Instagram stays connected: the dialog says so.
+    expect(dialog.textContent).toContain("الوركر يرجع يقراها بعد دقيقة");
+    expect(dialog.textContent).toContain("افصل إنستقرام أول");
     act(() => byId("confirm-cancel")!.click());
     expect(byId("confirm-dialog")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -122,7 +125,22 @@ describe("ConnectedAccountsCard's Delete stored messages", () => {
     expect(spy.toast).toHaveBeenCalledTimes(1);
     const [, payload] = spy.toast.mock.calls[0] as [string, { name: string; tone?: string }];
     expect(payload.tone).toBe("warn");
-    expect(payload.name).not.toBe("انحذفت الرسائل المخزنة");
-    expect(payload.name.length).toBeGreaterThan(0);
+    // A 401 is `auth` (lib/inbox errorFrom): the copy is inbox.err.auth, word for word.
+    expect(payload.name).toBe("رمز الوركر غلط أو انتهى؛ تأكد منه في الإعدادات.");
+  });
+
+  it("two confirms in a row, before the first answer, send one DELETE", async () => {
+    configure(true);
+    serve();
+    mount();
+    act(() => byId("accounts-wipe-inbox")!.click());
+    const ok = byId("confirm-ok")!;
+    act(() => {
+      ok.click();
+      ok.click();
+    });
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(spy.toast).toHaveBeenCalledTimes(1);
   });
 });

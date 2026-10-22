@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useSocialSync } from "@/components/social/useSocialSync";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
@@ -24,7 +24,8 @@ import Card from "./Card";
 const SETUP_DOC_URL =
   "https://github.com/3zmd95-glitch/hello-github/blob/main/planning/tools/06-social-analytics-apis.md";
 
-type Pending = { kind: "disconnect"; platform: SocialPlatform } | { kind: "seed" } | null;
+type Pending =
+  { kind: "disconnect"; platform: SocialPlatform } | { kind: "seed" } | { kind: "wipe" } | null;
 
 /**
  * 🔗 Connected accounts: one row per platform the Scout Worker can connect (TikTok, Instagram, YouTube,
@@ -44,7 +45,9 @@ export default function ConnectedAccountsCard() {
   const apiKeys = useStore((s) => s.settings.apiKeys);
   const [pending, setPending] = useState<Pending>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [wipe, setWipe] = useState<"idle" | "asking" | "busy">("idle");
+  const [wiping, setWiping] = useState(false);
+  /** Set the moment a wipe starts: two confirms in a row (a double tap) send one DELETE. */
+  const wipeLock = useRef(false);
 
   const onSync = async () => {
     setNotice(null);
@@ -61,25 +64,38 @@ export default function ConnectedAccountsCard() {
     if (r.synced.length) toast("notice", { icon: "🔄", name: t("social.toast.synced") });
   };
 
+  /** `DELETE /social/inbox` once the owner said yes; a toast says how it went. */
+  const wipeInbox = async () => {
+    if (wipeLock.current) return;
+    wipeLock.current = true;
+    setWiping(true);
+    try {
+      const r = await inboxWipe(scoutConfig(apiKeys.scoutUrl, apiKeys.scoutToken));
+      if (r.ok) toast("notice", { icon: "🗑️", name: t("inbox.settings.wiped") });
+      else
+        toast("notice", {
+          icon: "⚠️",
+          tone: "warn",
+          sound: null,
+          name: t(inboxErrorKey(r.error)),
+        });
+    } finally {
+      wipeLock.current = false;
+      setWiping(false);
+    }
+  };
+
   const confirm = () => {
     if (!pending) return;
     if (pending.kind === "seed") {
       removeBeaconsSeed();
       setNotice(t("settings.accounts.removeSeedOk"));
+    } else if (pending.kind === "wipe") {
+      void wipeInbox();
     } else {
       void disconnect(pending.platform);
     }
     setPending(null);
-  };
-
-  /** `DELETE /social/inbox` once the owner said yes; a toast says how it went. */
-  const wipeInbox = async () => {
-    setWipe("busy");
-    const r = await inboxWipe(scoutConfig(apiKeys.scoutUrl, apiKeys.scoutToken));
-    setWipe("idle");
-    if (r.ok) toast("notice", { icon: "🗑️", name: t("inbox.settings.wiped") });
-    else
-      toast("notice", { icon: "⚠️", tone: "warn", sound: null, name: t(inboxErrorKey(r.error)) });
   };
 
   const pendingPlatform = pending?.kind === "disconnect" ? pending.platform : null;
@@ -176,8 +192,8 @@ export default function ConnectedAccountsCard() {
           <button
             type="button"
             className="px-btn px-btn-danger px-btn-sm"
-            onClick={() => setWipe("asking")}
-            disabled={!configured || wipe === "busy"}
+            onClick={() => setPending({ kind: "wipe" })}
+            disabled={!configured || wiping}
             aria-describedby={configured ? undefined : "accounts-need-worker"}
             data-testid="accounts-wipe-inbox"
           >
@@ -205,37 +221,33 @@ export default function ConnectedAccountsCard() {
       {pending && (
         <ConfirmDialog
           title={
-            pending.kind === "seed"
-              ? t("settings.accounts.removeSeedTitle")
-              : t("settings.accounts.disconnectTitle", {
-                  platform: PLATFORM_META[pending.platform].name[lang],
-                })
+            pending.kind === "wipe"
+              ? t("inbox.settings.wipe")
+              : pending.kind === "seed"
+                ? t("settings.accounts.removeSeedTitle")
+                : t("settings.accounts.disconnectTitle", {
+                    platform: PLATFORM_META[pending.platform].name[lang],
+                  })
           }
           body={
-            pending.kind === "seed"
-              ? t("settings.accounts.removeSeedBody")
-              : t("settings.accounts.disconnectBody", {
-                  platform: pendingPlatform ? PLATFORM_META[pendingPlatform].name[lang] : "",
-                })
+            pending.kind === "wipe"
+              ? t("inbox.settings.wipeConfirm")
+              : pending.kind === "seed"
+                ? t("settings.accounts.removeSeedBody")
+                : t("settings.accounts.disconnectBody", {
+                    platform: pendingPlatform ? PLATFORM_META[pendingPlatform].name[lang] : "",
+                  })
           }
           confirmLabel={
-            pending.kind === "seed"
-              ? t("settings.accounts.removeSeed")
-              : t("settings.accounts.disconnect")
+            pending.kind === "wipe"
+              ? t("inbox.settings.wipe")
+              : pending.kind === "seed"
+                ? t("settings.accounts.removeSeed")
+                : t("settings.accounts.disconnect")
           }
           danger
           onConfirm={confirm}
           onCancel={() => setPending(null)}
-        />
-      )}
-      {wipe === "asking" && (
-        <ConfirmDialog
-          title={t("inbox.settings.wipe")}
-          body={t("inbox.settings.wipeConfirm")}
-          confirmLabel={t("inbox.settings.wipe")}
-          danger
-          onConfirm={() => void wipeInbox()}
-          onCancel={() => setWipe("idle")}
         />
       )}
     </Card>

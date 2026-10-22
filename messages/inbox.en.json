@@ -60,6 +60,6 @@
   "inbox.err.network": "Couldn't reach the Worker; check your connection.",
   "inbox.studio.row": "{n} new messages and comments",
   "inbox.settings.wipe": "Delete stored messages",
-  "inbox.settings.wipeConfirm": "Delete our stored copy of the messages and comments on the Worker? The messages and comments on Instagram itself aren't deleted.",
+  "inbox.settings.wipeConfirm": "Delete our stored copy of the messages and comments on the Worker? The messages and comments on Instagram itself aren't deleted, and while Instagram stays connected the Worker reads the latest ones again within a minute; disconnect Instagram first to keep them out.",
   "inbox.settings.wiped": "Stored messages deleted"
 }
