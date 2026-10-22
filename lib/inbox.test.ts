@@ -417,6 +417,68 @@ describe("sends", () => {
     });
   });
 
+  /** A fake Worker that holds every answer until `open()`, counting what it was asked. */
+  function held() {
+    let open!: () => void;
+    const gate = new Promise<void>((r) => (open = r));
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      await gate;
+      return new Response(JSON.stringify({ message: sent }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const bodies = () => fetchMock.mock.calls.map(([, init]) => (init as RequestInit).body);
+    return { fetchMock, open, bodies };
+  }
+
+  it("joins an identical send that is still in flight instead of repeating it", async () => {
+    const { fetchMock, open } = held();
+    const first = inboxSend(CONFIG, "c1", "هلا");
+    const second = inboxSend(CONFIG, "c1", "هلا"); // a double tap, a remount: the same promise
+    expect(second).toBe(first);
+    open();
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toEqual({ ok: true, message: sent });
+    expect(b).toBe(a);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not join a send of other text, to another target, or of another kind", async () => {
+    const { fetchMock, open, bodies } = held();
+    const calls = [
+      inboxSend(CONFIG, "c1", "a"),
+      inboxSend(CONFIG, "c1", "b"), // other text
+      inboxSend(CONFIG, "c2", "a"), // other conversation
+      inboxReply(CONFIG, "instagram", "k1", "a"),
+      inboxPrivate(CONFIG, "k1", "a"), // same comment and text as the reply, another kind
+      inboxReply(CONFIG, "instagram", "k2", "a"),
+    ];
+    open();
+    await Promise.all(calls);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(bodies().slice(0, 2)).toEqual([
+      JSON.stringify({ text: "a" }),
+      JSON.stringify({ text: "b" }),
+    ]);
+  });
+
+  it("sends the same text again once the first has settled, whether it went through or not", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      if (fetchMock.mock.calls.length === 1) throw new TypeError("Failed to fetch");
+      return new Response(JSON.stringify({ message: sent }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await inboxSend(CONFIG, "c1", "x")).toEqual(unconfirmed);
+    expect(await inboxSend(CONFIG, "c1", "x")).toEqual({ ok: true, message: sent });
+    expect(await inboxSend(CONFIG, "c1", "x")).toEqual({ ok: true, message: sent });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("leaves hide, delete and the reads on their usual mapping", async () => {
     vi.stubGlobal(
       "fetch",

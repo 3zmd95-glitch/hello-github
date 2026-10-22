@@ -22,6 +22,7 @@ import type { SocialSyncErrorType } from "./socialSync";
  * time. Same shape as lib/socialSync: bearer token from Settings (`scoutConfig`), nothing throws, failures are
  * a typed `{ ok: false, error }`. Unlike socialSync the body's `error` and `detail` are kept for every refused
  * answer: the inbox codes (`window_closed`, `rejected`...) are the screens' business, not a fixed key table.
+ * The sends dedupe by target and text while in flight (the Worker has no idempotency guard).
  */
 
 /** Instagram's DM text limit, in UTF-8 bytes (not letters: an Arabic letter is two). */
@@ -205,13 +206,29 @@ const post = (body: object): RequestInit => ({
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body),
 });
-/** A call that puts a message out (see `inboxCall`'s `sends`). */
-const sendText = <S extends z.ZodType<object>>(
+/** The sends on their way, by route (it names the kind and the target) and text. */
+const inflight = new Map<string, Promise<InboxResult<object>>>();
+
+/**
+ * A call that puts a message out (see `inboxCall`'s `sends`). One identical to a send still in flight (same route,
+ * so same kind and target, and same text) joins it and gets the same promise: a double tap, a box that unmounted and
+ * mounted again, or a switch between conversations cannot make the Worker send twice. The entry goes when it settles.
+ */
+function sendText<S extends z.ZodType<object>>(
   config: ScoutConfig | null,
   path: string,
   schema: S,
   text: string,
-) => inboxCall(config, path, schema, post({ text }), true);
+): Promise<InboxResult<z.infer<S>>> {
+  const key = `${path}:${text}`; // an id is URI-encoded, so it holds no ":"
+  const joined = inflight.get(key);
+  if (joined) return joined as Promise<InboxResult<z.infer<S>>>;
+  const call = inboxCall(config, path, schema, post({ text }), true).finally(() => {
+    inflight.delete(key);
+  });
+  inflight.set(key, call);
+  return call;
+}
 const commentPath = (platform: InboxPlatform, id: string) =>
   `/comments/${platform}/${encodeURIComponent(id)}`;
 
