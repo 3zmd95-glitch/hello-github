@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { handle, type Env } from "../scout";
-import { InboxDb, PAGE, type ConversationRow, type Sql } from "./inboxDb";
+import {
+  InboxDb,
+  PAGE,
+  type CommentRow,
+  type ConversationRow,
+  type MessageRow,
+  type PostRow,
+  type Sql,
+} from "./inboxDb";
+import { REFRESH_RETRY_MS } from "./inboxRoutes";
 import { Store } from "./store";
 import type { SocialPlatform, TokenSet } from "./types";
 
@@ -140,6 +149,66 @@ const depsOf = (api?: InboxDb, now: Date = NOW) => ({
   now: () => now,
   inboxApi: api,
 });
+
+/** The first `failures` KV writes throw as Cloudflare does (429); `attempts` counts every put. */
+function flakyPuts(kv: FakeKV, failures: number): { attempts: number } {
+  const state = { attempts: 0 };
+  const put = kv.put.bind(kv);
+  kv.put = async (key: string, value: string) => {
+    state.attempts += 1;
+    if (state.attempts <= failures) throw new Error("KV PUT failed: 429 Too Many Requests");
+    return put(key, value);
+  };
+  return state;
+}
+
+const minute = (i: number) => new Date(Date.UTC(2026, 9, 21, 0, i)).toISOString();
+const pad = (prefix: string, i: number) => `${prefix}${String(i).padStart(2, "0")}`;
+const ids = (rows: unknown) => (rows as { id: string }[]).map((r) => r.id);
+
+type Listed = { more: boolean; next: string | null } & Record<string, unknown>;
+const getJson = async (env: Env, deps: ReturnType<typeof depsOf>, path: string) =>
+  (await (await handle(req(path), env, undefined, deps)).json()) as Listed;
+
+/** One thread of PAGE + 1 messages, PAGE + 1 posts and PAGE + 1 comments on post p00, all one minute apart. */
+async function pagedStore() {
+  const api = freshDb();
+  const each = Array.from({ length: PAGE + 1 }, (_, i) => i);
+  const messages: MessageRow[] = each.map((i) => ({
+    platform: "instagram",
+    convId: "t1",
+    id: pad("m", i),
+    at: minute(i),
+    fromPeer: true,
+    text: pad("m", i),
+    kind: "text",
+    sentBy: "peer",
+  }));
+  const posts: PostRow[] = each.map((i) => ({
+    platform: "instagram",
+    id: pad("p", i),
+    permalink: "",
+    thumbUrl: null,
+    caption: pad("p", i),
+    postedAt: minute(i),
+    commentCount: 0,
+  }));
+  const comments: CommentRow[] = each.map((i) => ({
+    platform: "instagram",
+    postId: "p00",
+    id: pad("c", i),
+    parentId: null,
+    at: minute(i),
+    author: "ali",
+    authorId: null,
+    text: pad("c", i),
+    hidden: false,
+    ours: false,
+    sentBy: null,
+  }));
+  await api.ingest({ conversations: [conv("t1", minute(0))], messages, posts, comments });
+  return { env: makeEnv(), deps: depsOf(api) };
+}
 
 /* ---------- /social/inbox/* ---------- */
 
@@ -351,6 +420,7 @@ describe.skipIf(!available)("/social/inbox routes", () => {
     expect(env.SOCIAL_KV.store.get("inbox:scan")).toBe("2026-10-22T12:00:00.000Z");
 
     await api.ingest({
+      conversations: [conv("t1", "2026-10-22T10:00:00.000Z")],
       posts: [
         {
           platform: "instagram",
@@ -359,14 +429,156 @@ describe.skipIf(!available)("/social/inbox routes", () => {
           thumbUrl: null,
           caption: "",
           postedAt: "2026-10-20T00:00:00.000Z",
-          commentCount: 0,
+          commentCount: 1,
         },
       ],
+      comments: [
+        {
+          platform: "instagram",
+          postId: "p1",
+          id: "c1",
+          parentId: null,
+          at: "2026-10-21T00:00:00.000Z",
+          author: "ali",
+          authorId: null,
+          text: "hi",
+          hidden: false,
+          ours: false,
+          sentBy: null,
+        },
+      ],
+      readAt: { platform: "instagram", at: "2026-10-22T11:59:00.000Z" },
     });
+    const before = await api.overview();
+    expect(before.counts).toEqual({ conversations: 1, posts: 1, comments: 1 });
+    expect(before.platforms.instagram.lastReadAt).toBe("2026-10-22T11:59:00.000Z");
+
     const wipe = await handle(req("/social/inbox", { method: "DELETE" }), env, undefined, deps);
     expect(wipe.status).toBe(200);
     expect(await wipe.json()).toEqual({ ok: true });
-    expect((await api.overview()).counts.posts).toBe(0);
+    const after = await api.overview();
+    expect(after.counts).toEqual({ conversations: 0, posts: 0, comments: 0 });
+    expect(after.platforms.instagram.lastReadAt).toBeNull();
+  });
+
+  it("retries a refused inbox:scan write once, after REFRESH_RETRY_MS", async () => {
+    vi.useFakeTimers();
+    try {
+      const env = makeEnv();
+      const puts = flakyPuts(env.SOCIAL_KV, 1);
+      let settled = false;
+      const pending = handle(
+        req("/social/inbox/refresh", { method: "POST" }),
+        env,
+        undefined,
+        depsOf(freshDb()),
+      ).finally(() => (settled = true));
+
+      await vi.advanceTimersByTimeAsync(REFRESH_RETRY_MS - 1);
+      expect(puts.attempts).toBe(1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+
+      const res = await pending;
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ scanRequestedAt: "2026-10-22T12:00:00.000Z" });
+      expect(puts.attempts).toBe(2);
+      expect(env.SOCIAL_KV.written).toEqual(["inbox:scan"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers upstream when the retried inbox:scan write is refused too", async () => {
+    vi.useFakeTimers();
+    try {
+      const env = makeEnv();
+      const puts = flakyPuts(env.SOCIAL_KV, 2);
+      const pending = handle(
+        req("/social/inbox/refresh", { method: "POST" }),
+        env,
+        undefined,
+        depsOf(freshDb()),
+      );
+      await vi.advanceTimersByTimeAsync(REFRESH_RETRY_MS);
+
+      const res = await pending;
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({ error: "upstream" });
+      expect(puts.attempts).toBe(2);
+      expect(env.SOCIAL_KV.written).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers upstream, as JSON with the CORS headers, when the store or the KV throws", async () => {
+    const env = makeEnv();
+    const api = freshDb();
+    vi.spyOn(api, "overview").mockRejectedValue(new Error("storage unavailable"));
+    const storeDown = await handle(req("/social/inbox"), env, undefined, depsOf(api));
+    expect(storeDown.status).toBe(502);
+    expect(storeDown.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+    expect(storeDown.headers.get("Access-Control-Allow-Origin")).toBe(APP);
+    expect(await storeDown.json()).toEqual({ error: "upstream" });
+
+    // The token read (KV) failing is the same answer.
+    const kvEnv = makeEnv();
+    kvEnv.SOCIAL_KV.get = (async () => {
+      throw new Error("KV GET failed");
+    }) as never;
+    const kvDown = await handle(req("/social/inbox"), kvEnv, undefined, depsOf(freshDb()));
+    expect(kvDown.status).toBe(502);
+    expect(kvDown.headers.get("Access-Control-Allow-Origin")).toBe(APP);
+    expect(await kvDown.json()).toEqual({ error: "upstream" });
+  });
+
+  it("pages a thread with its cursor: next reaches older messages, each page is oldest first", async () => {
+    const { env, deps } = await pagedStore();
+    const path = "/social/inbox/conversations/t1";
+
+    const first = await getJson(env, deps, path);
+    expect(ids(first.messages)).toEqual(Array.from({ length: PAGE }, (_, k) => pad("m", k + 1)));
+    expect(first.more).toBe(true);
+    expect(first.next).toBe(`${minute(1)}|${pad("m", 1)}`);
+
+    const second = await getJson(env, deps, `${path}?before=${encodeURIComponent(first.next!)}`);
+    expect(ids(second.messages)).toEqual([pad("m", 0)]);
+    expect(second.more).toBe(false);
+    expect(second.next).toBeNull();
+  });
+
+  it("pages posts with their cursor, newest first", async () => {
+    const { env, deps } = await pagedStore();
+
+    const first = await getJson(env, deps, "/social/inbox/posts");
+    expect(ids(first.posts)).toEqual(Array.from({ length: PAGE }, (_, k) => pad("p", PAGE - k)));
+    expect(first.more).toBe(true);
+    expect(first.next).toBe(`${minute(1)}|${pad("p", 1)}`);
+
+    const second = await getJson(
+      env,
+      deps,
+      `/social/inbox/posts?before=${encodeURIComponent(first.next!)}`,
+    );
+    expect(ids(second.posts)).toEqual([pad("p", 0)]);
+    expect(second.more).toBe(false);
+    expect(second.next).toBeNull();
+  });
+
+  it("pages a post's comments with their cursor, newest first", async () => {
+    const { env, deps } = await pagedStore();
+    const path = "/social/inbox/posts/instagram/p00/comments";
+
+    const first = await getJson(env, deps, path);
+    expect(ids(first.comments)).toEqual(Array.from({ length: PAGE }, (_, k) => pad("c", PAGE - k)));
+    expect(first.more).toBe(true);
+    expect(first.next).toBe(`${minute(1)}|${pad("c", 1)}`);
+
+    const second = await getJson(env, deps, `${path}?before=${encodeURIComponent(first.next!)}`);
+    expect(ids(second.comments)).toEqual([pad("c", 0)]);
+    expect(second.more).toBe(false);
+    expect(second.next).toBeNull();
   });
 
   it("answers not_available without the binding and bad_request for a bad platform", async () => {

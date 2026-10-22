@@ -441,6 +441,8 @@ routes read the store, ask for a rescan and empty it. All of them need the beare
 `platform` is `all` (default), `instagram` or `tiktok`, else `400 { error: "bad_request" }`. Ids are `[A-Za-z0-9_=-]{1,256}`; `:platform` is
 `instagram` or `tiktok`. Lists are paged 20 at a time: when `more` is true, send `next` back as `before` to get the following page (the cursor is
 opaque, pass it unchanged). `window.open` is whether the 24-hour reply window of the thread is still open now (`closesAt` is null when unknown).
+A thread's `next` pages toward older messages, while each page is returned oldest first. A store or KV failure answers
+`502 { error: "upstream" }`; `POST /social/inbox/refresh` first retries a refused KV write once after 1.1 seconds.
 
 ## Trend Radar
 
