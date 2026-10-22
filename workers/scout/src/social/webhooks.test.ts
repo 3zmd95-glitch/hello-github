@@ -676,7 +676,7 @@ describe.skipIf(!available)("Instagram webhooks", () => {
       expect(reserialised.status).toBe(401);
     });
 
-    it("refuses a body over 1 MB before any crypto: by its Content-Length and by the bytes read", async () => {
+    it("refuses a body over 1 MB before any crypto: by its Content-Length, or by its size once read", async () => {
       const api = freshDb();
       const hmac = vi.spyOn(crypto.subtle, "sign");
       const declared = new Request(`${BASE}/webhooks/instagram`, {
