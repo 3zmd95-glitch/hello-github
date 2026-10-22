@@ -180,12 +180,13 @@ export class InboxDb implements InboxApi {
         c.windowClosesAt,
         c.answeredBy,
       );
-    // A message the auto reply sent stays "auto" when a later read of the thread says "owner".
+    // A message keeps the sentBy it first got: the dashboard's send ("owner") and the auto replies ("auto") are
+    // written before the reader sees the message, and the reader's later reading of it never overrides them.
     for (const m of b.messages ?? [])
       this.sql.all(
         `INSERT INTO messages VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(platform,id) DO UPDATE SET at=excluded.at, text=excluded.text,
         kind=excluded.kind, fromPeer=excluded.fromPeer,
-        sentBy=CASE WHEN messages.sentBy='auto' THEN 'auto' ELSE excluded.sentBy END`,
+        sentBy=COALESCE(messages.sentBy, excluded.sentBy)`,
         m.platform,
         m.convId,
         m.id,
@@ -376,7 +377,13 @@ export class InboxDb implements InboxApi {
     );
   }
   async deleteComment(platform: InboxPlatform, id: string) {
-    this.sql.all(`DELETE FROM comments WHERE platform=? AND id=?`, platform, id);
+    // Instagram removes a comment's replies with it.
+    this.sql.all(
+      `DELETE FROM comments WHERE platform=? AND (id=? OR parentId=?)`,
+      platform,
+      id,
+      id,
+    );
   }
 
   /**

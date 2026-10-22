@@ -756,6 +756,27 @@ async function sendWorld(graph: Record<string, Handler | object> = {}) {
   };
 }
 
+type SendWorld = Awaited<ReturnType<typeof sendWorld>>;
+
+/** Sends through the world with the store's writes failing as after a Durable Object reset; `logged` counts the faults. */
+async function sendWithStoreDown(w: SendWorld, request: Request) {
+  const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  try {
+    const down = Object.create(w.api, {
+      ingest: { value: async () => Promise.reject(new Error("object reset")) },
+      recordSend: { value: async () => Promise.reject(new Error("object reset")) },
+    });
+    const res = await handle(request, w.env, undefined, {
+      fetch: w.fetch,
+      now: () => NOW,
+      inboxApi: down,
+    });
+    return { res, logged: log.mock.calls.length };
+  } finally {
+    log.mockRestore();
+  }
+}
+
 describe.skipIf(!available)("/social/inbox send routes", () => {
   it("sends a DM to the conversation's person and stores it as the owner's last message", async () => {
     let seen: RequestInit | undefined;
@@ -1163,9 +1184,146 @@ describe.skipIf(!available)("/social/inbox send routes", () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ message: { id: "mid.1", text: "hi" } });
       expect(log).toHaveBeenCalled();
+      expect(w.fetch.calls()).toEqual([ME_URL, DM_URL]);
     } finally {
       log.mockRestore();
     }
+  });
+
+  it("still answers Meta's refusal when the store fails to record it", async () => {
+    const w = await sendWorld({
+      [DM_URL]: ans(
+        { error: { message: "Outside the window", code: 10, error_subcode: 2534022 } },
+        400,
+      ),
+    });
+
+    const { res, logged } = await sendWithStoreDown(
+      w,
+      posted("/social/inbox/conversations/t1/send", { text: "hi" }),
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: "window_closed",
+      detail: "Outside the window [10/2534022]",
+    });
+    expect(logged).toBe(1);
+  });
+
+  it("still answers unconfirmed when the store fails to record that", async () => {
+    const w = await sendWorld({
+      [DM_URL]: () => {
+        throw new TypeError("network lost");
+      },
+    });
+
+    const { res, logged } = await sendWithStoreDown(
+      w,
+      posted("/social/inbox/conversations/t1/send", { text: "hi" }),
+    );
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "upstream", detail: "unconfirmed" });
+    expect(logged).toBe(1);
+  });
+
+  it("reads a Graph 5xx or an unreadable answer as unconfirmed, not refused: the DM may have gone out", async () => {
+    for (const [answer, detail] of [
+      [ans({ error: { message: "boom", code: 1 } }, 500), "boom [1]"],
+      [() => new Response("<html>bad gateway</html>", { status: 200 }), "dm: 200"],
+      [
+        () => new Response(null, { status: 302, headers: { Location: "https://x.example" } }),
+        "dm: 302",
+      ],
+    ] as const) {
+      const w = await sendWorld({ [DM_URL]: answer });
+
+      const res = await w.call(posted("/social/inbox/conversations/t1/send", { text: "hi" }));
+
+      expect(res.status, detail).toBe(502);
+      expect(await res.json()).toEqual({ error: "upstream", detail: "unconfirmed" });
+      expect(w.sends(), detail).toMatchObject([
+        { kind: "dm", targetId: "t1", state: "unconfirmed", platformId: null, detail },
+      ]);
+      expect((await w.thread("t1"))?.messages.items).toEqual([]);
+    }
+  });
+
+  it("stores a reply to a reply under the top-level comment, where Instagram puts it", async () => {
+    const w = await sendWorld({ [`POST ${GRAPH}/c2/replies`]: { id: "r2" } });
+
+    const res = await w.call(posted("/social/inbox/comments/instagram/c2/reply", { text: "hi" }));
+
+    expect(await res.json()).toMatchObject({ reply: { id: "r2", postId: "p1", parentId: "c1" } });
+    expect((await w.comment("r2"))?.parentId).toBe("c1");
+  });
+
+  it("answers not_eligible without a call for a conversation whose person is unknown", async () => {
+    const w = await sendWorld();
+    await w.api.ingest({
+      conversations: [
+        { ...conv("t5", "2026-10-22T08:00:00.000Z"), peerId: "", windowClosesAt: OPEN_UNTIL },
+      ],
+    });
+
+    const res = await w.call(posted("/social/inbox/conversations/t5/send", { text: "hi" }));
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "not_eligible" });
+    expect(w.fetch.calls()).toEqual([]);
+    expect(w.sends()).toEqual([]);
+  });
+
+  it("builds the DM's conversation row on what the reader stored while the DM was going out", async () => {
+    const sendWhileReaderIngests = async (reader: Partial<ConversationRow>) => {
+      const live: { w?: SendWorld } = {};
+      const w = await sendWorld({
+        [DM_URL]: async () => {
+          await live.w?.api.ingest({
+            conversations: [
+              {
+                ...conv("t1", "2026-10-22T11:45:00.000Z"),
+                peerId: "9",
+                windowClosesAt: OPEN_UNTIL,
+                ...reader,
+              },
+            ],
+          });
+          return { recipient_id: "9", message_id: "mid.1" };
+        },
+      });
+      live.w = w;
+      const res = await w.call(posted("/social/inbox/conversations/t1/send", { text: "hi" }));
+      expect(res.status).toBe(200);
+      return w.thread("t1");
+    };
+
+    // The reader renamed the person and moved the window: the send keeps both and adds its last message.
+    const renamed = await sendWhileReaderIngests({
+      peerName: "sara",
+      windowClosesAt: "2026-10-22T14:00:00.000Z",
+    });
+    expect(renamed?.conversation).toMatchObject({
+      peerName: "sara",
+      windowClosesAt: "2026-10-22T14:00:00.000Z",
+      lastText: "hi",
+      lastFrom: "owner",
+      updatedAt: SENT_AT,
+    });
+
+    // The reader already saw something newer than the send: that conversation row stays, the message is added.
+    const newer = await sendWhileReaderIngests({
+      updatedAt: "2026-10-22T12:00:05.000Z",
+      lastText: "thanks!",
+      lastFrom: "peer",
+    });
+    expect(newer?.conversation).toMatchObject({
+      updatedAt: "2026-10-22T12:00:05.000Z",
+      lastText: "thanks!",
+      lastFrom: "peer",
+    });
+    expect(newer?.messages.items.map((m) => m.id)).toEqual(["mid.1"]);
   });
 
   it("refuses without a call when Instagram is not connected, its token has lapsed or it cannot reply", async () => {

@@ -272,29 +272,78 @@ describe.skipIf(!available)("InboxDb", () => {
     const T = "2026-10-22T10:00:00.000Z";
     await db.ingest({
       conversations: [{ ...conv("a", T), answeredBy: "auto" }],
-      messages: [
-        msg("m1", T, { fromPeer: false, sentBy: "auto" }),
-        msg("m2", T, { fromPeer: false, sentBy: "owner" }),
-      ],
+      messages: [msg("m1", T, { fromPeer: false, sentBy: "auto" })],
       posts: [post("p1", T)],
       comments: [comment("p1", "c1", T, { sentBy: "auto" })],
     });
     await db.ingest({
       conversations: [conv("a", T)],
-      messages: [
-        msg("m1", T, { fromPeer: false, sentBy: "owner", text: "edited" }),
-        msg("m2", T, { fromPeer: false, sentBy: "auto" }),
-      ],
+      messages: [msg("m1", T, { fromPeer: false, sentBy: "owner", text: "edited" })],
       comments: [comment("p1", "c1", T, { sentBy: null, text: "edited" })],
     });
     const t = await db.thread("instagram", "a", {});
     expect(t?.conversation.answeredBy).toBe("auto");
     expect(t?.messages.items.map((m) => [m.id, m.sentBy, m.text])).toEqual([
       ["m1", "auto", "edited"],
-      ["m2", "auto", "m2"],
     ]);
     const c = await db.comments("instagram", "p1", {});
     expect(c?.comments.items[0]).toMatchObject({ sentBy: "auto", text: "edited" });
+  });
+  it("keeps the owner's mark on a message the dashboard sent, whatever a later read says", async () => {
+    const db = new InboxDb(nodeSql()!);
+    const T = "2026-10-22T10:00:00.000Z";
+    // The dashboard's send is stored first; the reader then reads the same message id back.
+    await db.ingest({
+      conversations: [conv("a", T)],
+      messages: [
+        msg("m1", T, { fromPeer: false, sentBy: "owner", text: "hi" }),
+        msg("m2", T, { fromPeer: false, sentBy: "owner" }),
+      ],
+    });
+    await db.ingest({
+      conversations: [conv("a", T)],
+      messages: [
+        msg("m1", T, { fromPeer: false, sentBy: "auto", text: "hi there" }),
+        msg("m2", T, { fromPeer: false, sentBy: "owner" }),
+      ],
+    });
+    const t = await db.thread("instagram", "a", {});
+    // One row each, still the owner's; the reader only refreshes what Instagram can correct.
+    expect(t?.messages.items.map((m) => [m.id, m.sentBy, m.text])).toEqual([
+      ["m1", "owner", "hi there"],
+      ["m2", "owner", "m2"],
+    ]);
+  });
+  it("deletes a comment together with its replies, and nothing else", async () => {
+    const db = new InboxDb(nodeSql()!);
+    const T = "2026-10-22T10:00:00.000Z";
+    await db.ingest({
+      posts: [post("p1", T), post("p2", T), { ...post("p1", T), platform: "tiktok" }],
+      comments: [
+        comment("p1", "c1", T),
+        comment("p1", "r1", T, { parentId: "c1" }),
+        comment("p1", "r2", T, { parentId: "c1" }),
+        comment("p1", "c2", T),
+        comment("p1", "r3", T, { parentId: "c2" }),
+        comment("p2", "c3", T),
+        { ...comment("p1", "t1", T, { parentId: "c1" }), platform: "tiktok" },
+      ],
+    });
+    await db.deleteComment("instagram", "c1");
+    const left = await db.comments("instagram", "p1", {});
+    expect(left?.comments.items.map((c) => c.id).sort()).toEqual(["c2", "r3"]);
+    expect((await db.comments("instagram", "p2", {}))?.comments.items.map((c) => c.id)).toEqual([
+      "c3",
+    ]);
+    // The other platform's rows with the same ids are not ours to remove.
+    expect((await db.comments("tiktok", "p1", {}))?.comments.items.map((c) => c.id)).toEqual([
+      "t1",
+    ]);
+    // A reply goes alone.
+    await db.deleteComment("instagram", "r3");
+    expect((await db.comments("instagram", "p1", {}))?.comments.items.map((c) => c.id)).toEqual([
+      "c2",
+    ]);
   });
   it("lists comments newest first and posts per platform, both through next", async () => {
     const db = new InboxDb(nodeSql()!);

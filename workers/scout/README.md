@@ -451,13 +451,13 @@ A thread's `next` pages toward older messages, while each page is returned oldes
 
 Sends (Instagram only). The text is trimmed; a blank text, a body that is not JSON, or a hide without a boolean `hidden` is `400 { error: "bad_request" }`.
 A DM and a private reply take at most 1,000 UTF-8 bytes (about 500 Arabic letters) and a public reply 2,200 characters, else `400 { error: "too_long" }`.
-Instagram is asked last, and only for what the store holds: an unknown conversation or comment is `404 { error: "not_found" }`; a DM needs its 24-hour window open (`409 window_closed`);
+Instagram is asked last, and only for what the store holds: an unknown conversation or comment is `404 { error: "not_found" }`; a DM needs its 24-hour window open (`409 window_closed`) and a known person (`409 not_eligible`);
 no connection, a lapsed token and a connection without the reply permission are `409 not_connected`, `409 token_expired` and `403 no_permission`.
 Each send makes one Graph call with the Instagram token, plus `GET /me` for the account id (DM, public reply, private reply), and writes no KV.
 A refusal by Meta answers `{ error, detail }` with Meta's own words (200 characters at most, never the token) and the DM, public reply or private reply is logged `refused` in the store's `sends` table:
-`no_permission` 403, `rejected` 502, `not_eligible` 409, `token_expired` 409, `rate_limited` 429, `upstream` 502, and `window_closed` 409 for a DM that Meta refuses outside the messaging window (a private reply keeps `not_eligible`).
-A network failure, or a 200 that names no message, reply or success, answers `502 { error: "upstream", detail: "unconfirmed" }` and is logged `unconfirmed`: look at the thread before sending again.
-Hide and delete leave no `sends` row. If the store fails after Instagram took a send, the answer is still the success (the reader brings the message in on its next read).
+`no_permission` 403, `rejected` 502, `not_eligible` 409, `token_expired` 409, `rate_limited` 429, and `window_closed` 409 for a DM that Meta refuses outside the messaging window (a private reply keeps `not_eligible`).
+A network failure, a Graph 5xx or other unreadable answer, or a 200 that names no message, reply or success, may have gone out, so it answers `502 { error: "upstream", detail: "unconfirmed" }` and is logged `unconfirmed`: look at the thread before sending again.
+Hide and delete leave no `sends` row. A store fault is only logged and never changes the answer: a send Instagram took is still answered as sent (the reader brings the message in on its next read), and a refusal or `unconfirmed` is still answered as such. A public reply to a reply is stored under the top-level comment; deleting a comment also drops its stored replies.
 
 ## Trend Radar
 

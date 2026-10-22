@@ -28,8 +28,8 @@ import { igUserIdOf } from "./replies";
 import {
   DM_TEXT_BYTES,
   IG_COMMENT_MAX,
-  LOG_TEXT_CLIP,
   ReplyError,
+  clipLog,
   graph,
   sendReply,
   toReplyCode,
@@ -185,7 +185,10 @@ function sendOf(method: string, rest: string[]): Send | null {
 
 /** Instagram's words in a send row and an answer: no token, at most this long. */
 const SAID_MAX = 200;
-const clip = (s: string) => s.slice(0, LOG_TEXT_CLIP);
+
+/** A store write that failed after the send: the answer is what Instagram said, so the fault is only logged. */
+const logStoreFault = (act: Send["act"], id: string, e: unknown) =>
+  console.log(JSON.stringify({ inbox: "send", act, id, error: String(e) }));
 
 async function sendToInstagram(
   { act, id }: Send,
@@ -203,7 +206,8 @@ async function sendToInstagram(
   if (kind && !text) return reply.fail("bad_request");
   if (act === "hide" && typeof body?.hidden !== "boolean") return reply.fail("bad_request");
   // A private reply is a DM by transport, so it has a DM's size limit.
-  if (act === "reply" ? text.length > IG_COMMENT_MAX : kind && utf8Bytes(text) > DM_TEXT_BYTES)
+  if (act === "reply" && text.length > IG_COMMENT_MAX) return reply.fail("too_long");
+  if ((act === "dm" || act === "private") && utf8Bytes(text) > DM_TEXT_BYTES)
     return reply.fail("too_long");
 
   // What the store holds: Instagram is not asked about what the store already refuses.
@@ -213,6 +217,7 @@ async function sendToInstagram(
   if (!conversation && !comment) return reply.json({ error: "not_found" }, 404);
   if (conversation && !(conversation.windowClosesAt && conversation.windowClosesAt > at))
     return reply.fail("window_closed");
+  if (conversation && !conversation.peerId) return reply.fail("not_eligible"); // nobody to send to
   if (act === "delete" && !comment?.ours) return reply.fail("no_permission");
 
   const tokens = await store.getTokens("instagram");
@@ -269,11 +274,21 @@ async function sendToInstagram(
     );
     return done.success === true ? id : undefined;
   };
+  /** A store write whose failure is logged, never answered: it must not hide what Instagram said. */
+  const guard = async (work: () => Promise<unknown> | undefined) => {
+    try {
+      await work();
+    } catch (e) {
+      logStoreFault(act, id, e);
+    }
+  };
   /** Hide and delete are not sends: the sends table has no row for them. */
   const record = (row: Pick<SendRow, "state" | "platformId" | "detail">) =>
-    kind
-      ? api.recordSend({ platform: "instagram", kind, targetId: id, text, at, ...row })
-      : undefined;
+    guard(() =>
+      kind
+        ? api.recordSend({ platform: "instagram", kind, targetId: id, text, at, ...row })
+        : undefined,
+    );
 
   let platformId: string | undefined;
   let unconfirmed = "no id in the answer";
@@ -281,11 +296,12 @@ async function sendToInstagram(
     platformId = await call();
   } catch (e) {
     const failure = said(e);
-    if (e instanceof ReplyError) {
+    // Meta refused: it did not send. Anything else (a thrown fetch, a 5xx or unreadable answer) may have landed.
+    if (e instanceof ReplyError && e.code !== "upstream") {
       await record({ state: "refused", platformId: null, detail: failure.detail ?? null });
       return reply.fail(failure.code, failure.detail);
     }
-    unconfirmed = failure.detail ?? unconfirmed; // the call may or may not have landed
+    unconfirmed = failure.detail ?? unconfirmed;
   }
   if (!platformId) {
     await record({ state: "unconfirmed", platformId: null, detail: unconfirmed });
@@ -302,28 +318,34 @@ async function sendToInstagram(
       id: platformId,
       at,
       fromPeer: false,
-      text: clip(text),
+      text: clipLog(text),
       kind: "text",
       sentBy: "owner",
     };
     answer = { message };
-    write = () =>
-      api.ingest({
+    write = async () => {
+      // The reader may have ingested the conversation since the checks above: build on its row, and leave the
+      // conversation alone when it already shows something newer than this send.
+      const latest =
+        (await api.thread("instagram", id, { limit: 1 }))?.conversation ?? conversation;
+      await api.ingest({
         messages: [message],
-        conversations: [
-          { ...conversation, updatedAt: at, lastText: message.text, lastFrom: "owner" },
-        ],
+        conversations:
+          latest.updatedAt > at
+            ? []
+            : [{ ...latest, updatedAt: at, lastText: message.text, lastFrom: "owner" }],
       });
+    };
   } else if (act === "reply" && comment) {
     const row: CommentRow = {
       platform: "instagram",
       postId: comment.postId,
       id: platformId,
-      parentId: id,
+      parentId: comment.parentId ?? id, // Instagram attaches a reply to a reply to the top-level comment
       at,
       author: owner ?? "",
       authorId: igUserId,
-      text: clip(text),
+      text: clipLog(text),
       hidden: false,
       ours: true,
       sentBy: "owner",
@@ -337,13 +359,6 @@ async function sendToInstagram(
   } else if (act === "delete") {
     write = () => api.deleteComment("instagram", id);
   }
-  const stored = await Promise.allSettled([
-    record({ state: "sent", platformId, detail: null }),
-    write?.(),
-  ]);
-  for (const s of stored) {
-    if (s.status === "rejected")
-      console.log(JSON.stringify({ inbox: "send", act, id, error: String(s.reason) }));
-  }
+  await Promise.all([record({ state: "sent", platformId, detail: null }), guard(() => write?.())]);
   return reply.json(answer);
 }

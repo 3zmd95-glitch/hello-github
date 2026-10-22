@@ -263,6 +263,8 @@ export const TICK_STOPPERS: ReadonlySet<ReplyErrorCode> = new Set<ReplyErrorCode
 ]);
 /** Log entries keep this much of the comment or message. */
 export const LOG_TEXT_CLIP = 120;
+/** A comment or message as the logs and the inbox store keep it: at most LOG_TEXT_CLIP characters. */
+export const clipLog = (s: string | undefined): string => (s ?? "").slice(0, LOG_TEXT_CLIP);
 
 /* ---------- sending ---------- */
 

@@ -30,7 +30,7 @@ import { IG_API } from "./instagram";
 import type { MetaError } from "./meta";
 import { isExpired } from "./oauth";
 import { igUserIdOf, type PollState } from "./replies";
-import { LOG_TEXT_CLIP, graph, toReplyCode } from "./replyCore";
+import { clipLog, graph, toReplyCode } from "./replyCore";
 import { Store, type SocialEnv } from "./store";
 
 /** A hard stop on the Graph calls of one tick (the worst tick makes READER_GRAPH_CALLS_MAX; a fault must not make more). */
@@ -126,7 +126,6 @@ interface IgComment {
   replies?: { data: IgComment[] };
 }
 
-const clip = (s: string | undefined) => (s ?? "").slice(0, LOG_TEXT_CLIP);
 /** Instagram sends `+0000` offsets; the store compares `Z` strings (inboxDb.ts retain). */
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -168,7 +167,7 @@ export function toBatch(
           id: m.id,
           at: iso(ms),
           fromPeer,
-          text: clip(m.message),
+          text: clipLog(m.message),
           kind,
           sentBy,
         };
@@ -195,7 +194,7 @@ export function toBatch(
     id: m.id,
     permalink: m.permalink ?? "",
     thumbUrl: m.thumbnail_url ?? m.media_url ?? null,
-    caption: clip(m.caption),
+    caption: clipLog(m.caption),
     postedAt: iso(toMs(m.timestamp)),
     commentCount: m.comments_count ?? 0,
   }));
@@ -210,7 +209,7 @@ export function toBatch(
       at: iso(toMs(c.timestamp)),
       author: c.username ?? "",
       authorId: c.from?.id ?? null,
-      text: clip(c.text),
+      text: clipLog(c.text),
       hidden: !!c.hidden,
       ours,
       sentBy: ours ? "owner" : null,
