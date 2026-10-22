@@ -74,6 +74,7 @@ async function errorFrom(res: Response): Promise<InboxError> {
   if (res.status === 429) return { type: "rate_limited" };
   try {
     const body = (await res.json()) as { error?: unknown; detail?: unknown };
+    if (body.error === "origin" || body.error === "unauthorized") return { type: "auth" };
     return {
       type: typeof body.error === "string" ? (body.error as InboxError["type"]) : "upstream",
       detail: typeof body.detail === "string" ? body.detail : undefined,
@@ -83,8 +84,8 @@ async function errorFrom(res: Response): Promise<InboxError> {
   }
 }
 
-/** One authenticated Worker call, its answer checked against `schema`. */
-async function inboxCall<S extends z.ZodType<object>>(
+/** One authenticated Worker call, its answer checked against `schema`. Exported for the send routes. */
+export async function inboxCall<S extends z.ZodType<object>>(
   config: ScoutConfig | null,
   path: string,
   schema: S,
@@ -95,7 +96,7 @@ async function inboxCall<S extends z.ZodType<object>>(
   try {
     res = await fetch(`${config.url}/social/inbox${path}`, {
       ...init,
-      headers: { Authorization: `Bearer ${config.token}` },
+      headers: { ...init.headers, Authorization: `Bearer ${config.token}` },
     });
   } catch {
     return { ok: false, error: { type: "network" } };

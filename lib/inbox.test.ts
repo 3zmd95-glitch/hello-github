@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import {
   DM_TEXT_BYTES,
   IG_COMMENT_MAX,
   INBOX_POLL_MS,
   TT_COMMENT_MAX,
+  inboxCall,
   inboxComments,
   inboxConversations,
   inboxOverview,
@@ -203,12 +205,42 @@ describe("reads", () => {
     });
   });
 
+  it("reads a message kind a newer Worker adds as unsupported", async () => {
+    answer({
+      conversation,
+      messages: [{ ...message, kind: "sticker" }, message],
+      more: false,
+      next: null,
+      window: { open: false, closesAt: null },
+    });
+    const res = await inboxThread(CONFIG, "c1", {});
+    expect(res.ok && res.messages.map((m) => m.kind)).toEqual(["unsupported", "text"]);
+  });
+
   it("refuses a conversation whose lastFrom is unknown", async () => {
     answer({ conversations: [{ ...conversation, lastFrom: "bot" }], more: false, next: null });
     expect(await inboxConversations(CONFIG, {})).toEqual({
       ok: false,
       error: { type: "upstream" },
     });
+  });
+});
+
+describe("inboxCall", () => {
+  it("keeps the caller's headers beside the bearer token", async () => {
+    const fetchMock = answer({ ok: true });
+    const schema = z.object({ ok: z.literal(true) });
+    await inboxCall(CONFIG, "/send", schema, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer other" },
+      body: "{}",
+    });
+    const { url, init } = calledWith(fetchMock);
+    expect(url).toBe("https://scout.test/social/inbox/send");
+    expect(init.method).toBe("POST");
+    const headers = new Headers(init.headers);
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(headers.get("Authorization")).toBe("Bearer tok");
   });
 });
 
@@ -249,6 +281,13 @@ describe("errors", () => {
         ok: false,
         error: { type: code, detail: undefined },
       });
+    }
+  });
+
+  it("maps the Worker codes origin and unauthorized to auth, as socialSync does", async () => {
+    for (const code of ["origin", "unauthorized"]) {
+      answer({ error: code, detail: "ignored" }, 403);
+      expect(await inboxOverview(CONFIG)).toEqual({ ok: false, error: { type: "auth" } });
     }
   });
 

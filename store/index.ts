@@ -162,6 +162,9 @@ const ReviewsSchema = z
     }),
   );
 
+/** The inbox screen's platform tab. */
+const InboxTabSchema = z.enum(["all", "instagram", "tiktok"]);
+
 /** Persisted (and exported) part of the state. */
 export const PersistedStateSchema = z.object({
   settings: SettingsSchema,
@@ -225,8 +228,7 @@ export const PersistedStateSchema = z.object({
   /* 🗂 Global inbox (planning/tools/51-global-inbox.md). */
   /** When each conversation or post was last opened (ISO), by lib/inbox seenKey; unread = newer than this. */
   inboxSeen: z.record(z.string(), z.string()).default({}),
-  /** The inbox screen's platform tab. */
-  inboxTab: z.enum(["all", "instagram", "tiktok"]).default("all"),
+  inboxTab: InboxTabSchema.default("all"),
 });
 export type PersistedState = z.infer<typeof PersistedStateSchema>;
 
@@ -441,8 +443,9 @@ export interface StoreActions {
   removeCustomGenre(id: string): void;
 
   /* 🗂 Global inbox. */
-  /** Mark a conversation or post opened at `at` (ISO). Keeps the later time: an older open never lowers the mark. */
+  /** Mark a conversation or post opened at `at` (ISO). Keeps the later time: an older open never lowers the mark. No-op for an empty key or an `at` that is not a date. */
   markInboxSeen(key: string, at: string): void;
+  /** No-op for anything but a known tab. */
   setInboxTab(tab: "all" | "instagram" | "tiktok"): void;
 
   completeQuest(skillId: string, quest: QuestType, proofUrl?: string, now?: Date): CompleteResult;
@@ -1509,13 +1512,15 @@ export const useStore = create<StoreState>()(
       },
 
       markInboxSeen(key, at) {
+        if (!key || Number.isNaN(Date.parse(at))) return;
         const seen = get().inboxSeen;
         if (seen[key] && seen[key] >= at) return;
         set({ inboxSeen: { ...seen, [key]: at } });
       },
 
       setInboxTab(tab) {
-        set({ inboxTab: tab });
+        const parsed = InboxTabSchema.safeParse(tab);
+        if (parsed.success) set({ inboxTab: parsed.data });
       },
 
       exportState(now = new Date()) {

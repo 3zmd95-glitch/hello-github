@@ -615,7 +615,8 @@ export const InboxMessageSchema = z.object({
   at: z.string(),
   fromPeer: z.boolean(),
   text: z.string(),
-  kind: z.enum(["text", "story", "share", "unsupported"]),
+  /** A kind a newer Worker adds reads as "unsupported" instead of failing the whole page. */
+  kind: z.enum(["text", "story", "share", "unsupported"]).catch("unsupported"),
   sentBy: z.enum(["peer", "owner", "auto"]),
 });
 export type InboxMessage = z.infer<typeof InboxMessageSchema>;

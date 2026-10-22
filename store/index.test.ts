@@ -2036,11 +2036,33 @@ describe("🗂 global inbox (seen marks and tab)", () => {
     expect(Object.keys(S().inboxSeen)).toEqual(["instagram:conversation:c1", "instagram:post:m9"]);
   });
 
+  it("markInboxSeen ignores an empty key or a time that is not a date", () => {
+    S().markInboxSeen("instagram:post:m9", A);
+    const before = S().inboxSeen;
+    S().markInboxSeen("instagram:post:m9", "undefined");
+    S().markInboxSeen("instagram:post:m9", "");
+    S().markInboxSeen("instagram:post:new", "undefined");
+    S().markInboxSeen("instagram:post:new", "");
+    S().markInboxSeen("", A);
+    expect(S().inboxSeen).toBe(before);
+    expect(S().inboxSeen).toEqual({ "instagram:post:m9": A });
+    S().markInboxSeen("instagram:post:m9", B); // a valid later time still wins
+    expect(S().inboxSeen).toEqual({ "instagram:post:m9": B });
+  });
+
   it("setInboxTab switches the tab", () => {
     S().setInboxTab("tiktok");
     expect(S().inboxTab).toBe("tiktok");
     S().setInboxTab("all");
     expect(S().inboxTab).toBe("all");
+  });
+
+  it("setInboxTab ignores a tab that does not exist", () => {
+    S().setInboxTab("tiktok");
+    S().setInboxTab("threads" as never);
+    S().setInboxTab(undefined as never);
+    S().setInboxTab("" as never);
+    expect(S().inboxTab).toBe("tiktok");
   });
 
   it("persists to localStorage, rehydrates, and the reset clears it", async () => {
