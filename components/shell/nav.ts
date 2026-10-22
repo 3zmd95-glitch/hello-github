@@ -4,12 +4,14 @@ import {
   Clapperboard,
   Ellipsis,
   Globe,
+  Inbox,
   Lightbulb,
   MessageCircle,
   Rocket,
   Search,
   Settings,
   TrendingUp,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import type { MessageKey } from "@/lib/i18n";
@@ -45,7 +47,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
 
 /**
  * Social-world navigation (round 16). Phones: Studio · Calendar · Growth · Ideas · More;
- * Website and Business ("soon"), 💬 Auto replies (round 34), Auto-posting (the Automations route), the
+ * Website (the local article CMS), Business (the media kit and brand deals, packet DT-5), 💬 Auto replies (round 34), 📥 Inbox (packet DT-6A), Auto-posting (the Automations route), the
  * 🔎 Discover shortcut (round 31b) and Settings live in the desktop sidebar and behind More.
  *
  * Discover and Settings are Training routes, and the world comes from the URL: they open in the Training
@@ -62,7 +64,6 @@ export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
     icon: "🌐",
     lucide: Globe,
     label: "nav.website",
-    soon: true,
     desktopOnly: true,
   },
   {
@@ -70,7 +71,6 @@ export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
     icon: "💼",
     lucide: Briefcase,
     label: "nav.business",
-    soon: true,
     desktopOnly: true,
   },
   {
@@ -78,6 +78,20 @@ export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
     icon: "💬",
     lucide: MessageCircle,
     label: "nav.replies",
+    desktopOnly: true,
+  },
+  {
+    href: "/social/inbox",
+    icon: "📥",
+    lucide: Inbox,
+    label: "nav.inbox",
+    desktopOnly: true,
+  },
+  {
+    href: "/social/workflows",
+    icon: "🔁",
+    lucide: Workflow,
+    label: "nav.workflows",
     desktopOnly: true,
   },
   {

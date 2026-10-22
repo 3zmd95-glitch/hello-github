@@ -1,6 +1,6 @@
 "use client";
 
-import { Settings } from "lucide-react";
+import { Settings, Zap } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -19,6 +19,7 @@ import { isSocialPlatform, socialErrorType, socialSyncErrorMessageKey } from "@/
 import { setMuted } from "@/lib/sound";
 import { hydrateStore, useStore } from "@/store";
 import { activeHref, NAV_BY_WORLD, type NavItem } from "./nav";
+import { QuickActionsProvider, useQuickActions } from "./QuickActions";
 import { rememberSocialPath, useWorld, type World } from "./useWorld";
 import WorldSwitch from "./WorldSwitch";
 
@@ -63,19 +64,21 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <SocialSyncAgent />
       <VideoPlayerProvider>
         <SkillSheetProvider>
-          <div className="flex min-h-dvh flex-col">
-            <TopBar />
-            <div className="mx-auto flex w-full max-w-[1180px] flex-1 md:gap-6 md:px-6">
-              <SideNav />
-              <main
-                id="main"
-                className="pb-safe-tabbar flex min-w-0 flex-1 flex-col gap-4 px-4 pt-4 md:px-0 md:pt-6 md:pb-12"
-              >
-                {children}
-              </main>
+          <QuickActionsProvider>
+            <div className="flex min-h-dvh flex-col">
+              <TopBar />
+              <div className="mx-auto flex w-full max-w-[1180px] flex-1 md:gap-6 md:px-6">
+                <SideNav />
+                <main
+                  id="main"
+                  className="pb-safe-tabbar flex min-w-0 flex-1 flex-col gap-4 px-4 pt-4 md:px-0 md:pt-6 md:pb-12"
+                >
+                  {children}
+                </main>
+              </div>
+              <TabBar />
             </div>
-            <TabBar />
-          </div>
+          </QuickActionsProvider>
         </SkillSheetProvider>
       </VideoPlayerProvider>
     </CelebrationProvider>
@@ -189,6 +192,7 @@ function TopBar() {
  */
 function SocialTop() {
   const { t } = useT();
+  const { open } = useQuickActions();
   const title = useChrome((s) => s.title);
   return (
     <header className="ios-top pt-safe" data-testid="social-top">
@@ -204,6 +208,16 @@ function SocialTop() {
           {title}
         </div>
         <div className="ios-top-end flex flex-1 items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={open}
+            aria-label={t("quick.open")}
+            title={t("quick.open")}
+            className="ios-icbtn glass"
+            data-testid="quick-launch"
+          >
+            <Zap size={20} strokeWidth={1.75} aria-hidden />
+          </button>
           <Link
             href="/settings"
             aria-label={t("top.settings")}
@@ -225,6 +239,7 @@ function TrainingTopBar() {
   const pixel = world === "training";
   const sound = useStore((s) => s.settings.sound);
   const setSettings = useStore((s) => s.setSettings);
+  const { open } = useQuickActions();
   return (
     <header
       className={`pt-safe border-edge bg-panel sticky top-0 z-30 ${pixel ? "border-b-[3px]" : "border-b"}`}
@@ -242,6 +257,16 @@ function TrainingTopBar() {
         </Link>
         <WorldSwitch />
         <div className="ms-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={open}
+            aria-label={t("quick.open")}
+            title={t("quick.open")}
+            className="px-btn px-btn-ghost px-btn-sm w-9 px-0"
+            data-testid="quick-launch"
+          >
+            <Zap size={18} strokeWidth={2} aria-hidden />
+          </button>
           <div
             role="group"
             aria-label={t("top.lang")}

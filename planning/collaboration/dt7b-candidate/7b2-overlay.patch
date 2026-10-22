@@ -1,0 +1,1837 @@
+# DT-7B-2 overlay — Worker deltas only (18 Oct 2026, local, uncommitted, unactivated).
+# From the frozen DT-7B-R1 Worker files (tsconfig.json 79abac83…, vitest.config.ts dad9c286…, README.md b5a76722…,
+# workflowCoordinator.ts a8c12024… + test 3728113a…, workflowRoutes.ts 4d785984… + test 02f3c516…; snapshot-verified
+# before editing) to the DT-7B-2 files: 7 modified + 3 new (workflowRun.ts, workflowRun.test.ts,
+# workflowRun.runtime.test.ts); the Worker tree becomes 192 files. Applies with `patch -p1 --binary` from the repo root on
+# top of the DT-7B-R1 candidate tree (`git apply` converts CRLF here). 7b-overlay.patch and 7b-r1-overlay.patch stay
+# the historical 3C → DT-7B → DT-7B-R1 deltas.
+diff -ruN a/workers/scout/README.md b/workers/scout/README.md
+--- a/workers/scout/README.md	2026-10-18 00:08:40.243978600 +0300
++++ b/workers/scout/README.md	2026-10-18 00:53:34.470344100 +0300
+@@ -723,9 +723,10 @@
+ 
+ ## Cloud workflow foundation (DT-7B, local, unactivated)
+ 
+-The durable store a later packet will use to run dashboard workflows in the cloud (planning/tools/38-cloud-workflows.md).
+-**Local only:** the `WORKFLOW_COORDINATOR` binding and its `v5-workflows` migration exist in `wrangler.jsonc` but were
+-never provisioned or deployed; no cron, no browser wiring, no executor. Nothing here publishes, sends or calls out.
++The durable store that runs dashboard workflows in the cloud (planning/tools/38-cloud-workflows.md), with one bounded,
++draft-only run/resume route (DT-7B-2). **Local only:** the `WORKFLOW_COORDINATOR` binding and its `v5-workflows`
++migration exist in `wrangler.jsonc` but were never provisioned or deployed; no cron, no browser wiring, no schedule.
++Nothing here publishes, sends or calls out.
+ 
+ - **Authority**: one SQLite Durable Object (`src/social/workflowCoordinator.ts`), always the server-selected name
+   `workflows|owner`. `GET /social/workflows/authority` → `{ ownerKey }` (`wfo_` + 32 hex, minted once in durable
+@@ -750,19 +751,37 @@
+   draft outputs) or `{ state: "absent" }` / `{ state: "pruned", payloadDigest, prunedAt }`. `POST …/:id/cancel`
+   (pending only; running `409`), `POST …/:id/ack { ownerKey, receiptVersion }` (exact terminal version only; future /
+   not terminal `409`, absent `404`, pruned `410`; stores firstAckAt once; never bumps the feed).
++- **Run (DT-7B-2)**: `POST /social/workflows/occurrences/:id/run { ownerKey }` (exactly that body, no query string)
++  runs a first execution or resumes one. Inside the object the coordinator builds each next pending step with the
++  dashboard's own draft builders (`src/social/workflowRun.ts` → `lib/workflows.ts` `buildOutput`, resolved through the
++  Worker tsconfig `paths` `@/* → ../../*`; nothing copied): the stored body only, `executionAt` as the builder clock, the
++  captured planner context (pre-week completions, target-week manual rows and zero-minute tombstones, gear, edition)
++  plus the earlier plan outputs of the same occurrence in action order. Ids `wf:<occurrenceId>:<actionId>`; builder
++  errors keep their codes; a plan step whose context is missing or of another week fails `context-stale` (fail-fast);
++  a record outside the draft allowlist fails `invalid` (never truncated). Each step is committed through the existing
++  step compare-and-set; one call commits at most 5 steps and tolerates 3 raced (stale) commits, then answers
++  `{ ownerKey, occurrence, committed, stopped }` with `stopped` = `terminal` | `paused` (the pause gate refused the
++  first step) | `limit` | `contention` (recoverable: call again). Absent `404`, pruned `410`. No request field, header
++  or parameter can choose a builder, output, snapshot, clock or retry policy; the test-only `drainOne` stays test-only.
++  Parity with the app holds only for identical builder/catalog pins
++  (`planning/collaboration/dt7b-candidate/7b2-builder-pins.sha256`). Bundle: +~0.95 MB raw / +~190 KB gzip (the
++  catalogue). Verified in workerd by `src/social/workflowRun.runtime.test.ts`.
+ - **Change feed**: `GET /social/workflows/changes?ownerKey=&after=&limit≤50` → `{ items, nextAfter, more }` ordered by
+   change sequence; an older row changing later comes back after the cursor.
+ - **Retention**: terminal rows are purged at min(finished + 180 days, first ack + 90 days), or finished + 180 days
+   unacknowledged, into a permanent tombstone; pending/running never.
+ - **Strictness**: 32 KiB streaming request budget (`413 too_large`), exact keys and query strings, missing binding
+-  `503 not_configured` (`detail: "workflow-store"`). No route runs a step or a builder. Answers are complete,
++  `503 not_configured` (`detail: "workflow-store"`). Only `run` executes, with the fixed server builder; no route
++  commits a caller's step or output. Answers are complete,
+   request-bound proof (DT-7B-R1): a receipt's whole body is re-checked with the admission rules at its own admission
+   time, its payload digest and every output's record digest recomputed, its identity, state, steps and outputs must
+   agree with the coordinator's transitions; feed items have typed, linked steps/outputs and recomputed draft digests
+   (no body, so no body/target binding: the full receipt stays the authority); register/update/pause/resume/
+-  unregister/cancel/ack success must match the request; refusals must be the operation's own errors with typed,
+-  bound extras. Anything else is `503 receipt_unavailable`, nothing echoed, no further call. Verified in workerd by
+-  `src/social/workflowCoordinator.runtime.test.ts`.
++  unregister/cancel/ack success must match the request; a run answer must carry a valid full receipt, an integer
++  `committed` (0–5, at most the resolved steps) and a `stopped` that agrees with it; refusals must be the
++  operation's own errors with typed, bound extras. Anything else is `503 receipt_unavailable`, nothing echoed, no
++  further call. Verified in workerd by `src/social/workflowCoordinator.runtime.test.ts` and
++  `src/social/workflowRun.runtime.test.ts`.
+ - **Follow-up before activation**: one purge removes every due terminal row in one transaction (an independent probe:
+   601 rows, 2,421 SQL calls, no failure). Bounded maintenance is still to do; no per-call purge bound is claimed.
+ 
+diff -ruN a/workers/scout/src/social/workflowCoordinator.test.ts b/workers/scout/src/social/workflowCoordinator.test.ts
+--- a/workers/scout/src/social/workflowCoordinator.test.ts	2026-10-17 23:59:07.460919400 +0300
++++ b/workers/scout/src/social/workflowCoordinator.test.ts	2026-10-18 00:51:20.682057100 +0300
+@@ -1,5 +1,6 @@
+ import { DatabaseSync } from "node:sqlite";
+-import { describe, expect, it } from "vitest";
++import { describe, expect, it, vi } from "vitest";
++import { previewRun, workflowOutputId } from "@/lib/workflows";
+ import {
+   ACK_RETENTION_MS,
+   drainOne,
+@@ -7,10 +8,13 @@
+   OPEN_MAX,
+   purgeAt,
+   REGISTRATIONS_MAX,
++  RUN_COMMITS_MAX,
++  RUN_STALE_MAX,
+   WorkflowCoordinator,
+   type StepBuilder,
+ } from "./workflowCoordinator";
+ import { canonicalJson, sha256Hex, weekOf } from "./workflowProtocol";
++import { runStep } from "./workflowRun";
+ 
+ // ⚙️ DT-7B workflow coordinator (planning/tools/38-cloud-workflows.md) over a real SQLite engine (node:sqlite, the
+ // dialect of a SQLite-backed Durable Object). A fresh coordinator per call over one database is a restart between
+@@ -1121,3 +1125,280 @@
+     ).toBe("pending");
+   });
+ });
++
++/* ---------- DT-7B-2: the run op drives the REAL adapter (lib/workflows buildOutput) inside the coordinator ---------- */
++
++describe("DT-7B-2 run: the fixed server builder inside the object, bounded, CAS-committed", () => {
++  const runOf = (h: ReturnType<typeof harness>, owner: string, id = "m1", now = T0) =>
++    h.call({ op: "run", ownerKey: owner, occurrenceId: id, now });
++  const statusOf = async (h: ReturnType<typeof harness>, owner: string, id = "m1") =>
++    (await h.call({ op: "status", ownerKey: owner, occurrenceId: id, now: T0 })).occurrence as A;
++  const seq = (h: ReturnType<typeof harness>) =>
++    Number(rows(h.db, "SELECT value FROM meta WHERE key = 'change_seq'")[0].value);
++  /** The app's own dry run (lib/workflows previewRun) over the stored body, ids mapped to the occurrence. */
++  const expected = (b: A) => {
++    const pc = b.plannerContext;
++    const { outputs } = previewRun(
++      { ...b.snapshot } as never,
++      b.input,
++      {
++        completions: pc?.completions ?? [],
++        planItems: pc?.planItems ?? [],
++        settings: pc?.settings ?? { gear: [], davinciEdition: "free" },
++      } as never,
++      new Date(b.executionAt),
++    );
++    return outputs.flatMap((s) =>
++      s.ok
++        ? [canonicalJson({ ...s.record, id: workflowOutputId(b.occurrenceId, s.actionId) })]
++        : [],
++    );
++  };
++  /** One step committed outside `run` with the adapter's own output (a crash/restart between steps). */
++  const commitOne = async (h: ReturnType<typeof harness>, owner: string, id = "m1") => {
++    const o = await statusOf(h, owner, id);
++    const idx = o.steps.findIndex((s: A) => s.status === "pending");
++    const output = await runStep({
++      body: o.body,
++      idx,
++      action: o.body.snapshot.actions[idx],
++      prior: o.outputs,
++    });
++    return h.call({
++      op: "commitStep",
++      ownerKey: owner,
++      occurrenceId: id,
++      idx,
++      receiptVersion: o.receiptVersion,
++      payloadDigest: o.payloadDigest,
++      output,
++      now: T0,
++    });
++  };
++
++  it("one call builds every step with the real builders and finishes: outputs byte-equal to previewRun", async () => {
++    const { h, owner, b } = await setup({ actions: [I("a1"), P("p1"), S("s1"), P("p2")] });
++    const r = await runOf(h, owner);
++    expect(Object.keys(r).sort()).toEqual(["committed", "occurrence", "ownerKey", "stopped"]);
++    expect(r).toMatchObject({
++      ownerKey: owner,
++      committed: 4,
++      stopped: "terminal",
++      occurrence: { state: "done", receiptVersion: 6, changeSeq: 6 },
++    });
++    expect(r.occurrence.outputs.map((x: A) => canonicalJson(x.record))).toEqual(expected(b));
++    expect(r.occurrence.outputs.map((x: A) => x.outputId)).toEqual([
++      "wf:m1:a1",
++      "wf:m1:p1",
++      "wf:m1:s1",
++      "wf:m1:p2",
++    ]);
++    // Stored bytes are the builder record's canonical JSON, digests recomputed.
++    for (const x of rows(h.db, "SELECT record_json, digest FROM outputs ORDER BY output_id"))
++      expect(x.digest).toBe(await sha256Hex(x.record_json));
++    expect(r.occurrence.outputs[1].record.week).toBe(b.plannerContext.targetWeek);
++  });
++
++  it("terminal replay and lost answers: the same receipt, committed 0, no sequence or output change", async () => {
++    const { h, owner } = await setup({ actions: [I("a1"), S("s1")] });
++    const first = await runOf(h, owner);
++    const before = rows(h.db, "SELECT * FROM outputs ORDER BY output_id");
++    const s = seq(h);
++    for (const now of [T0, T0 + DAY]) {
++      const again = await runOf(h, owner, "m1", now);
++      expect(again).toEqual({ ...first, committed: 0 });
++    }
++    expect(seq(h)).toBe(s);
++    expect(rows(h.db, "SELECT * FROM outputs ORDER BY output_id")).toEqual(before);
++  });
++
++  it("restart between steps and before finish: committed outputs are adopted, never rebuilt or overwritten", async () => {
++    const { h, owner, b } = await setup({ actions: [I("a1"), P("p1"), I("a2")] });
++    expect((await commitOne(h, owner)).committed).toBe(true);
++    const held = rows(h.db, "SELECT * FROM outputs WHERE output_id = 'wf:m1:a1'")[0];
++    // A fresh object per call (harness) = a restart; the run resumes at the next pending step.
++    const r = await runOf(h, owner, "m1", T0 + 60_000);
++    expect(r).toMatchObject({ committed: 2, stopped: "terminal", occurrence: { state: "done" } });
++    expect(rows(h.db, "SELECT * FROM outputs WHERE output_id = 'wf:m1:a1'")[0]).toEqual(held);
++    expect(r.occurrence.outputs.map((x: A) => canonicalJson(x.record))).toEqual(expected(b));
++    // Every step committed, the finish lost: run only finishes.
++    const two = await setup({ actions: [I("a1"), I("a2")], id: "m2" });
++    await commitOne(two.h, two.owner, "m2");
++    await commitOne(two.h, two.owner, "m2");
++    const fin = await runOf(two.h, two.owner, "m2");
++    expect(fin).toMatchObject({ committed: 0, stopped: "terminal", occurrence: { state: "done" } });
++    expect(fin.occurrence.receiptVersion).toBe(4);
++  });
++
++  it("fail-fast through the real builders: [idea, unknown-skill plan, post] → partial; [no-skill plan, idea] → failed", async () => {
++    const one = await setup({
++      actions: [I("a1"), { ...P("p1"), skillId: "no-such-skill" }, S("s1")],
++    });
++    const a = await runOf(one.h, one.owner);
++    expect(a).toMatchObject({
++      committed: 2,
++      stopped: "terminal",
++      occurrence: { state: "partial" },
++    });
++    expect(a.occurrence.steps.map((s: A) => [s.status, s.error ?? null])).toEqual([
++      ["done", null],
++      ["failed", "unknown-skill"],
++      ["skipped", null],
++    ]);
++    expect(a.occurrence.outputs.map((x: A) => canonicalJson(x.record))).toEqual(
++      expected(one.b).slice(0, 1),
++    );
++    const { skillId: _drop, ...plain } = P("p1");
++    void _drop;
++    const two = await setup({ actions: [plain, I("a1")] });
++    const f = await runOf(two.h, two.owner);
++    expect(f).toMatchObject({ committed: 1, stopped: "terminal", occurrence: { state: "failed" } });
++    expect(f.occurrence.steps.map((s: A) => [s.status, s.error ?? null])).toEqual([
++      ["failed", "no-skill"],
++      ["skipped", null],
++    ]);
++    expect(rows(two.h.db, "SELECT COUNT(*) AS n FROM outputs")[0].n).toBe(0);
++  });
++
++  it("pause blocks the first step atomically; resume runs it; a running occurrence finishes while paused", async () => {
++    const { h, owner } = await setup({ actions: [I("a1"), I("a2")] });
++    const ctl = (op: string) =>
++      h.call({
++        op,
++        ownerKey: owner,
++        workflowId: "w1",
++        registrationEpoch: 1,
++        expectedRevision: 1,
++        now: T0,
++      });
++    await ctl("pause");
++    const pending = await statusOf(h, owner);
++    const s = seq(h);
++    expect(await runOf(h, owner)).toEqual({
++      ownerKey: owner,
++      occurrence: pending,
++      committed: 0,
++      stopped: "paused",
++    });
++    expect(seq(h)).toBe(s);
++    await ctl("resume");
++    expect((await commitOne(h, owner)).committed).toBe(true);
++    await ctl("pause");
++    expect(await runOf(h, owner)).toMatchObject({
++      committed: 1,
++      stopped: "terminal",
++      occurrence: { state: "done" },
++    });
++  });
++
++  it("pending cancellation wins: a cancelled occurrence is answered terminal with zero outputs", async () => {
++    const { h, owner } = await setup({ actions: [I("a1"), I("a2")] });
++    await h.call({ op: "cancel", ownerKey: owner, occurrenceId: "m1", now: T0 });
++    const r = await runOf(h, owner);
++    expect(r).toMatchObject({
++      committed: 0,
++      stopped: "terminal",
++      occurrence: { state: "cancelled" },
++    });
++    expect(r.occurrence.outputs).toEqual([]);
++    expect(rows(h.db, "SELECT COUNT(*) AS n FROM outputs")[0].n).toBe(0);
++  });
++
++  it("concurrent runs: each step committed exactly once; one terminal row; commits sum to the action count", async () => {
++    const { h, owner, b } = await setup({ actions: [I("a1"), P("p1"), I("a2"), S("s1"), P("p2")] });
++    const all = await Promise.all([runOf(h, owner), runOf(h, owner), runOf(h, owner)]);
++    const end = await statusOf(h, owner);
++    expect(end).toMatchObject({ state: "done", receiptVersion: 7 });
++    expect(all.reduce((n, r) => n + r.committed, 0)).toBe(5);
++    for (const r of all) {
++      expect(["terminal", "contention"]).toContain(r.stopped);
++      if (r.stopped === "terminal") expect(r.occurrence).toEqual(end);
++    }
++    expect(end.outputs.map((x: A) => canonicalJson(x.record))).toEqual(expected(b));
++    expect(rows(h.db, "SELECT COUNT(*) AS n FROM outputs")[0].n).toBe(5);
++  });
++
++  it("stale-contention budget: three raced answers stop with the current state; fewer still finish; never spins", async () => {
++    // A genuine concurrent writer: while the run awaits an output digest (between its read and its transaction),
++    // another caller commits that same step through the public commitStep. The run's commit is then stale.
++    const raced = async (races: number) => {
++      const { h, owner } = await setup({ actions: [I("a1"), I("a2"), I("a3"), I("a4"), I("a5")] });
++      const real = crypto.subtle.digest.bind(crypto.subtle);
++      let left = races;
++      let inside = false;
++      const spy = vi.spyOn(crypto.subtle, "digest").mockImplementation(async (alg, data) => {
++        if (left > 0 && !inside) {
++          left--;
++          inside = true;
++          try {
++            expect((await commitOne(h, owner)).committed).toBe(true);
++          } finally {
++            inside = false;
++          }
++        }
++        return real(alg, data);
++      });
++      try {
++        return { h, owner, r: await runOf(h, owner) };
++      } finally {
++        spy.mockRestore();
++      }
++    };
++    const { h, owner, r } = await raced(RUN_STALE_MAX);
++    expect(r).toMatchObject({ committed: 0, stopped: "contention" });
++    expect(r.occurrence).toEqual(await statusOf(h, owner));
++    expect(r.occurrence).toMatchObject({ state: "running", receiptVersion: 1 + RUN_STALE_MAX });
++    // Recoverable: the next call finishes the rest.
++    expect(await runOf(h, owner)).toMatchObject({
++      committed: 5 - RUN_STALE_MAX,
++      stopped: "terminal",
++      occurrence: { state: "done" },
++    });
++    const fewer = await raced(RUN_STALE_MAX - 1);
++    expect(fewer.r).toMatchObject({
++      committed: 5 - (RUN_STALE_MAX - 1),
++      stopped: "terminal",
++      occurrence: { state: "done" },
++    });
++    expect(RUN_COMMITS_MAX).toBe(5);
++  });
++
++  it("strict call: only op/ownerKey/occurrenceId/now; no builder, output, snapshot, clock, retry or toggle; typed refusals", async () => {
++    const { h, owner } = await setup({ actions: [I("a1")] });
++    const s = seq(h);
++    for (const extra of [
++      { builder: "test" },
++      { output: { record: {} } },
++      { body: {} },
++      { executionAt: AT },
++      { clock: T0 },
++      { retries: 9 },
++      { enabled: true },
++      { idx: 0 },
++    ])
++      expect(
++        await h.call({ op: "run", ownerKey: owner, occurrenceId: "m1", now: T0, ...extra }),
++      ).toEqual({
++        error: "bad_request",
++      });
++    expect(await h.call({ op: "run", ownerKey: owner, now: T0 })).toEqual({ error: "bad_request" });
++    expect(await runOf(h, owner, "a:b")).toEqual({ error: "bad_request" });
++    expect(await runOf(h, "wfo_" + "1".repeat(32))).toEqual({ error: "authority_mismatch" });
++    expect(seq(h)).toBe(s);
++    expect((await statusOf(h, owner)).state).toBe("pending");
++    expect(await runOf(h, owner, "never")).toEqual({ error: "absent", occurrenceId: "never" });
++  });
++
++  it("a pruned occurrence answers pruned; nothing is rebuilt", async () => {
++    const { h, owner } = await setup({ actions: [I("a1")] });
++    const done = (await runOf(h, owner)).occurrence;
++    const late = Date.parse(done.finishedAt) + 181 * DAY;
++    expect(await runOf(h, owner, "m1", late)).toEqual({
++      error: "pruned",
++      occurrenceId: "m1",
++      payloadDigest: done.payloadDigest,
++      prunedAt: new Date(late).toISOString(),
++    });
++    expect(rows(h.db, "SELECT COUNT(*) AS n FROM outputs")[0].n).toBe(0);
++  });
++});
+diff -ruN a/workers/scout/src/social/workflowCoordinator.ts b/workers/scout/src/social/workflowCoordinator.ts
+--- a/workers/scout/src/social/workflowCoordinator.ts	2026-10-17 23:59:59.667969100 +0300
++++ b/workers/scout/src/social/workflowCoordinator.ts	2026-10-18 00:49:54.493414900 +0300
+@@ -50,9 +50,18 @@
+  *               Worker clock, `now`); repeats never move it. Ack bumps neither receipt_version nor change_seq.
+  *   retention   terminal rows are purged at min(finished + 180 d, first ack + 90 d) when acknowledged, else
+  *               finished + 180 d, into a permanent tombstone; nonterminal rows never. At most once per PURGE_EVERY_MS.
++ *   run         (DT-7B-2) the one executor path: `{ op, ownerKey, occurrenceId, now }` exactly (any other key, e.g. a
++ *               builder, output, snapshot, clock, retry or toggle, is bad_request). Inside this object it loops: read
++ *               the row, build the next pending step with the statically imported fixed builder (workflowRun.ts
++ *               `runStep`: the dashboard's real lib/workflows buildOutput) from the stored immutable body, commit it
++ *               through commitStep with the observed receipt version + payload digest, finish when nothing is
++ *               pending. Bounded: at most RUN_COMMITS_MAX committed steps and RUN_STALE_MAX stale (raced) commits per
++ *               call, then it stops with the current receipt. Answer `{ ownerKey, occurrence, committed, stopped }`,
++ *               stopped = terminal | paused (the pause gate refused the first step) | limit | contention. It never
++ *               spins, never marks success on contention and never acknowledges; absent / pruned as elsewhere.
+  *
+  * `drainOne` (an executor loop over a caller-injected builder) is exported for tests only: no route or cron calls it,
+- * and no env, header or body enables it. The real executor (the dashboard's pure builders) is validation pending.
++ * and no env, header or body enables it or selects a builder for `run`.
+  *
+  * Plain class with `fetch` (no `cloudflare:workers` import), so index.ts can export it while plain-Node tests import
+  * index.ts. The caller passes `now` (the routes: the Worker clock).
+@@ -62,6 +71,7 @@
+   canonicalJson,
+   checkBody,
+   DIGEST_RE,
++  exactKeys,
+   fits,
+   isCount,
+   isObj,
+@@ -76,6 +86,7 @@
+   type OccurrenceBody,
+   type WorkflowActionBody,
+ } from "./workflowProtocol";
++import { runStep } from "./workflowRun";
+ 
+ /** The one object of this single-owner dashboard (server-selected). */
+ export const WORKFLOW_OBJECT = "workflows|owner";
+@@ -88,6 +99,13 @@
+ export const FINISH_RETENTION_MS = 180 * 86_400_000;
+ export const ACK_RETENTION_MS = 90 * 86_400_000;
+ export const PURGE_EVERY_MS = 3_600_000;
++/**
++ * DT-7B-2: committed steps per `run` call. An occurrence has at most ACTIONS_MAX = 5 steps and the finish follows
++ * the last one, so `limit` is a defensive bound that a real body does not reach.
++ */
++export const RUN_COMMITS_MAX = 5;
++/** DT-7B-2: stale (raced) step commits one `run` call tolerates before it stops with `contention`. */
++export const RUN_STALE_MAX = 3;
+ 
+ export type OccurrenceState = "pending" | "running" | "done" | "partial" | "failed" | "cancelled";
+ const TERMINAL = "('done','partial','failed','cancelled')";
+@@ -338,6 +356,11 @@
+         return this.finish(c.occurrenceId, now);
+       case "commitStep":
+         return this.commitStep(c, now);
++      case "run":
++        // DT-7B-2: exactly these keys; nothing in the call can choose a builder, output, snapshot or clock.
++        if (!exactKeys(c, ["op", "ownerKey", "occurrenceId", "now"]) || !isId(c.occurrenceId))
++          return { error: "bad_request" };
++        return this.run(c.occurrenceId, now);
+       default:
+         return { error: "bad_request" };
+     }
+@@ -925,6 +948,57 @@
+     });
+   }
+ 
++  /**
++   * DT-7B-2: drive one occurrence with the fixed server builder, each step through the step-CAS above (the pause
++   * gate, fail-fast, adoption and versioning are commitStep's own). The builder clock is the body's executionAt;
++   * `now` (the Worker clock) stamps commits and the finish.
++   */
++  private async run(id: string, now: number): Promise<Obj> {
++    let committed = 0;
++    let stale = 0;
++    for (;;) {
++      const row = this.occurrenceRow(id);
++      if (!row) return this.missing(id);
++      const o = this.receipt(row);
++      const stop = (stopped: string) => ({
++        ownerKey: this.ownerKey,
++        occurrence: o,
++        committed,
++        stopped,
++      });
++      if (isTerminal(o.state)) return stop("terminal");
++      if (stale >= RUN_STALE_MAX) return stop("contention");
++      const next = o.steps.find((s) => s.status === "pending");
++      if (!next) {
++        // Nothing pending: finish (synchronous, no interleaving since the read); the next pass answers it.
++        if ("error" in this.finish(id, now)) stale++;
++        continue;
++      }
++      if (committed >= RUN_COMMITS_MAX) return stop("limit");
++      const output = await runStep({
++        body: o.body,
++        idx: next.idx,
++        action: o.body.snapshot.actions[next.idx],
++        prior: o.outputs,
++      });
++      const r = await this.commitStep(
++        {
++          occurrenceId: id,
++          idx: next.idx,
++          receiptVersion: o.receiptVersion,
++          payloadDigest: o.payloadDigest,
++          output,
++        },
++        now,
++      );
++      if (r.committed === true) committed++;
++      else if (r.error === "stale") stale++;
++      else if (r.error === "paused")
++        return { ownerKey: this.ownerKey, occurrence: r.occurrence, committed, stopped: "paused" };
++      else return r;
++    }
++  }
++
+   /* ---------- retention ---------- */
+ 
+   /** Terminal rows past their deadline become permanent tombstones; at most once per PURGE_EVERY_MS. */
+diff -ruN a/workers/scout/src/social/workflowRoutes.test.ts b/workers/scout/src/social/workflowRoutes.test.ts
+--- a/workers/scout/src/social/workflowRoutes.test.ts	2026-10-18 00:05:31.815954500 +0300
++++ b/workers/scout/src/social/workflowRoutes.test.ts	2026-10-18 00:49:00.502520700 +0300
+@@ -223,7 +223,8 @@
+     });
+   });
+ 
+-  it("no public route runs a step, a finish or a builder; unknown paths are not ours", async () => {
++  // DT-7B-2: `run` (its own describe below) executes with the fixed server builder; nothing commits a caller's step.
++  it("no public route commits a caller step/finish or selects a builder; unknown paths are not ours", async () => {
+     const { env, owner } = await ready();
+     await post(env, "/social/workflows/occurrences", await envelope(body(owner)));
+     const calls = nsOf(env).calls.length;
+@@ -631,7 +632,7 @@
+     },
+   };
+ };
+-/** The fixed object straight (test-only; no route runs a step or a finish). */
++/** The fixed object straight (test-only commits of a chosen step; only `run` executes through a route). */
+ const direct = (env: Env) => {
+   const ns = nsOf(env);
+   const stub = ns.get(ns.idFromName(WORKFLOW_OBJECT));
+@@ -1187,3 +1188,186 @@
+     });
+   });
+ });
++
++/* ---------- DT-7B-2: POST /social/workflows/occurrences/:id/run ---------- */
++
++describe("DT-7B-2 run route: one authenticated draft-only run/resume, strict request, validated answer", () => {
++  const runPath = (id = "m1") => `/social/workflows/occurrences/${id}/run`;
++
++  it("runs the real builders through the fixed object: the answer is the coordinator's, the call is exactly op/ownerKey/id/now", async () => {
++    const { env, owner } = await ready();
++    await post(
++      env,
++      "/social/workflows/occurrences",
++      await envelope(body(owner, { actions: [I("a1"), P("p1"), S("s1")] })),
++    );
++    const r = await post(env, runPath(), { ownerKey: owner });
++    expect(r.status).toBe(200);
++    expect(Object.keys(r.body).sort()).toEqual(["committed", "occurrence", "ownerKey", "stopped"]);
++    expect(r.body).toMatchObject({ ownerKey: owner, committed: 3, stopped: "terminal" });
++    expect(r.body.occurrence.state).toBe("done");
++    expect(r.body.occurrence.outputs.map((o: A) => o.outputId)).toEqual([
++      "wf:m1:a1",
++      "wf:m1:p1",
++      "wf:m1:s1",
++    ]);
++    const last = nsOf(env).calls.at(-1)!;
++    expect(last).toEqual({ op: "run", ownerKey: owner, occurrenceId: "m1", now: T });
++    expect(new Set(nsOf(env).names)).toEqual(new Set([WORKFLOW_OBJECT]));
++    // Resume after completion: the same receipt, nothing committed; status agrees.
++    const again = await post(env, runPath(), { ownerKey: owner });
++    expect(again.body).toEqual({ ...r.body, committed: 0 });
++    expect(
++      (await run(env, `/social/workflows/occurrences/m1?ownerKey=${owner}`)).body.occurrence,
++    ).toEqual(r.body.occurrence);
++  });
++
++  it("paused, absent, pruned and another authority are typed; the pause answer is the pending receipt", async () => {
++    const { env, owner } = await ready();
++    await post(env, "/social/workflows/registrations/w1/pause", {
++      ownerKey: owner,
++      registrationEpoch: 1,
++      expectedRevision: 1,
++    });
++    await post(env, "/social/workflows/occurrences", await envelope(body(owner)));
++    const p = await post(env, runPath(), { ownerKey: owner });
++    expect(p).toMatchObject({
++      status: 200,
++      body: {
++        committed: 0,
++        stopped: "paused",
++        occurrence: { state: "pending", receiptVersion: 1 },
++      },
++    });
++    expect(await post(env, runPath("never"), { ownerKey: owner })).toMatchObject({
++      status: 404,
++      body: { error: "absent", ownerKey: owner, occurrenceId: "never" },
++    });
++    expect(await post(env, runPath(), { ownerKey: "wfo_" + "1".repeat(32) })).toMatchObject({
++      status: 409,
++      body: { error: "authority_mismatch" },
++    });
++    // A tombstoned occurrence: 410 pruned.
++    const later = new Date(T + 400 * 86_400_000);
++    await post(env, "/social/workflows/registrations/w1/resume", {
++      ownerKey: owner,
++      registrationEpoch: 1,
++      expectedRevision: 1,
++    });
++    await post(env, runPath(), { ownerKey: owner });
++    const gone = await post(env, runPath(), { ownerKey: owner }, {}, later);
++    expect(gone.status).toBe(410);
++    expect(gone.body).toMatchObject({ error: "pruned", ownerKey: owner, occurrenceId: "m1" });
++  });
++
++  it("unauthenticated, cross-origin, extra-field, query-toggle, wrong-method and bad-id invocations never reach the object", async () => {
++    const { env, owner } = await ready();
++    await post(env, "/social/workflows/occurrences", await envelope(body(owner)));
++    const before = nsOf(env).calls.length;
++    for (const init of [{ auth: null }, { auth: "wrong" }, { origin: "https://evil.example" }]) {
++      const r = await post(env, runPath(), { ownerKey: owner }, init);
++      expect([401, 403]).toContain(r.status);
++      expect(r.raw).not.toContain(owner);
++    }
++    for (const extra of [
++      { builder: "test" },
++      { output: { record: {} } },
++      { body: body(owner) },
++      { now: T },
++      { executionAt: AT },
++      { retries: 3 },
++      { enabled: true },
++    ])
++      expect((await post(env, runPath(), { ownerKey: owner, ...extra })).status).toBe(400);
++    expect((await post(env, runPath(), {})).status).toBe(400);
++    expect((await post(env, runPath(), { ownerKey: "nope" })).status).toBe(400);
++    expect((await post(env, `${runPath()}?builder=test`, { ownerKey: owner })).status).toBe(400);
++    expect((await run(env, runPath())).status).toBe(405);
++    expect((await post(env, runPath("a:b"), { ownerKey: owner })).body.error).toBe(
++      "unsupported_id",
++    );
++    expect((await post(env, `${runPath()}/again`, { ownerKey: owner })).status).toBe(404);
++    expect(
++      (await post(env, runPath(), { ownerKey: owner }, { headers: { "X-Test-Builder": "1" } })).body
++        .occurrence.outputs[0].record.text,
++    ).toBe("idea");
++    // Only that last (valid) call reached the object.
++    expect(nsOf(env).calls.length).toBe(before + 1);
++  });
++
++  it("malformed, mixed or contradictory run answers → 503 receipt_unavailable, no echo, no further call", async () => {
++    const { env, owner } = await controls();
++    const call = direct(env);
++    const read = async (id: string) =>
++      (await call({ op: "status", ownerKey: owner, occurrenceId: id, now: T })).occurrence as A;
++    const [pend, run1, done] = [await read("pend"), await read("run1"), await read("done")];
++    const ok = (occurrence: A, committed: number, stopped: string) => ({
++      ownerKey: owner,
++      occurrence,
++      committed,
++      stopped,
++    });
++    const leaked = clone(done);
++    leaked.outputs[0].record.token = "CANARY";
++    leaked.outputs[0].digest = await sha256Hex(canonicalJson(leaked.outputs[0].record));
++    leaked.steps[0].outputDigest = leaked.outputs[0].digest;
++    const cases: [string, A | ((a: A) => unknown)][] = [
++      ["done", { ...ok(done, 3, "terminal"), extra: "CANARY" }],
++      ["done", { ...ok(done, 3, "terminal"), ownerKey: "wfo_" + "1".repeat(32) }],
++      ["done", ok(done, -1, "terminal")],
++      ["done", ok(done, 6, "terminal")],
++      ["done", ok(done, 1.5, "terminal")],
++      ["done", { ...ok(done, 3, "terminal"), committed: "3" }],
++      ["done", ok(done, 3, "finished")],
++      ["done", ok(done, 3, "contention")],
++      ["done", ok(done, 5, "limit")],
++      ["done", ok(done, 0, "paused")],
++      ["run1", ok(run1, 1, "terminal")],
++      ["run1", ok(run1, 0, "paused")],
++      ["run1", ok(run1, 2, "contention")], // more commits than resolved steps
++      ["run1", ok(run1, 4, "limit")],
++      ["pend", ok(pend, 1, "paused")],
++      ["pend", ok(pend, 0, "terminal")],
++      ["done", ok(pend, 0, "paused")], // another occurrence's receipt
++      ["done", ok(leaked, 3, "terminal")],
++      ["done", (a) => ((a.occurrence.outputs[0].record.text = "CANARY"), a)],
++      ["done", (a) => ({ error: "absent", occurrenceId: "done", occurrence: (a as A).occurrence })],
++      ["done", () => ({ error: "absent", occurrenceId: "other" })],
++      ["done", () => ({ error: "stale", occurrenceId: "done" })],
++      ["done", () => ({ error: "paused", occurrenceId: "done" })],
++      ["done", () => ({ error: "running", occurrenceId: "done" })],
++      ["done", () => ({ error: "steps_pending" })],
++      ["done", () => ({ ownerKey: owner, occurrence: done, committed: 0 })],
++    ];
++    for (const [id, t] of cases)
++      await refused(
++        env,
++        (_c, a) => (typeof t === "function" ? t(a) : clone(t)),
++        () => post(env, runPath(id), { ownerKey: owner }),
++      );
++  });
++
++  it("legitimate bounded stops pass: limit (5 commits, nonterminal) and contention (nonterminal) with valid receipts", async () => {
++    const { env, owner } = await ready();
++    const five = [I("a1"), I("a2"), I("a3"), I("a4"), I("a5")];
++    await post(
++      env,
++      "/social/workflows/occurrences",
++      await envelope(body(owner, { actions: five })),
++    );
++    for (let n = 0; n < 5; n++) await commit(env, owner, "m1");
++    const call = direct(env);
++    const allDone = (await call({ op: "status", ownerKey: owner, occurrenceId: "m1", now: T }))
++      .occurrence;
++    expect(allDone).toMatchObject({ state: "running", receiptVersion: 6 });
++    const pass = async (committed: number, stopped: string) => {
++      nsOf(env).tamper = () => ({ ownerKey: owner, occurrence: allDone, committed, stopped });
++      const r = await post(env, runPath(), { ownerKey: owner });
++      nsOf(env).tamper = undefined;
++      expect(r).toMatchObject({ status: 200, body: { committed, stopped } });
++    };
++    await pass(5, "limit");
++    await pass(0, "contention");
++    await pass(3, "contention");
++  });
++});
+diff -ruN a/workers/scout/src/social/workflowRoutes.ts b/workers/scout/src/social/workflowRoutes.ts
+--- a/workers/scout/src/social/workflowRoutes.ts	2026-10-18 00:05:35.186144700 +0300
++++ b/workers/scout/src/social/workflowRoutes.ts	2026-10-18 00:49:30.132601100 +0300
+@@ -12,11 +12,14 @@
+  *   GET  /social/workflows/occurrences/:id?ownerKey=                   → full receipt | absent | pruned
+  *   POST /social/workflows/occurrences/:id/cancel { ownerKey }
+  *   POST /social/workflows/occurrences/:id/ack    { ownerKey, receiptVersion }
++ *   POST /social/workflows/occurrences/:id/run    { ownerKey }   (DT-7B-2: run or resume, no query string)
+  *   GET  /social/workflows/changes?ownerKey=&after=&limit=             → { ownerKey, items, nextAfter, more }
+  *
+  * Requests: a 32 KiB streaming budget (413 too_large before any coordinator call), exact key sets, strict query
+- * strings (no unknown or repeated parameter), ids `^[A-Za-z0-9_-]{1,64}$` (else unsupported_id). No route runs a
+- * step, a finish or a builder, and nothing here reads a header or field that could enable one.
++ * strings (no unknown or repeated parameter), ids `^[A-Za-z0-9_-]{1,64}$` (else unsupported_id). Only `run` executes
++ * anything: it names the occurrence and the ownerKey, nothing else; the coordinator's fixed server builder (the
++ * dashboard's real draft builders) does the work. No route commits a caller's step, output or finish, and nothing
++ * here reads a header, field or parameter that could choose a builder, output, snapshot, clock or retry policy.
+  * Answers (DT-7B-R1: complete, request-bound proof): every success echoes the ownerKey and the addressed id and is
+  * checked against the coordinator's own semantics —
+  *   receipt    the whole immutable body re-checked with the admission validator at its own admission time
+@@ -24,7 +27,11 @@
+  *              state/step/output table below, every output an exact allowlisted draft with its digest recomputed;
+  *   feed item  every step and output typed and linked, the same state table, draft digests recomputed. A feed item
+  *              has no body, so it proves no body/target binding: the full status receipt stays the authority;
+- *   mutation   bound to the request (epoch, revision, digest, paused flag, state, cancel/ack outcome).
++ *   mutation   bound to the request (epoch, revision, digest, paused flag, state, cancel/ack outcome);
++ *   run        (DT-7B-2) `{ ownerKey, occurrence, committed, stopped }` exactly: the full receipt above, committed an
++ *              integer 0..RUN_COMMITS_MAX and at most the resolved (done/failed) steps, stopped terminal exactly
++ *              when the receipt is terminal, paused only on a pending receipt with nothing committed, limit only
++ *              with RUN_COMMITS_MAX commits.
+  * Coordinator refusals pass only as the operation's own errors with typed, request-bound extras (the ownerKey added
+  * once the coordinator has accepted it). Anything else — an error mixed with proof, another ownerKey, another
+  * occurrence, a malformed or contradictory receipt, page or refusal — is 503 receipt_unavailable, with no part of the
+@@ -38,6 +45,7 @@
+   WORKFLOW_OBJECT,
+   CHANGES_LIMIT_MAX,
+   EPOCHS_MAX,
++  RUN_COMMITS_MAX,
+ } from "./workflowCoordinator";
+ import {
+   ACTION_KINDS,
+@@ -140,6 +148,7 @@
+   | "status"
+   | "cancel"
+   | "ack"
++  | "run"
+   | "changes";
+ 
+ /** DT-7B-R1: the errors each coordinator operation can answer (workflowCoordinator.ts `call` and its op). */
+@@ -168,7 +177,10 @@
+   changes: ["bad_request", "authority_mismatch"],
+   cancel: ["bad_request", "authority_mismatch", "pruned", "absent", "running"],
+   ack: ["bad_request", "authority_mismatch", "pruned", "absent", "not_terminal", "future_version"],
++  run: ["bad_request", "authority_mismatch", "pruned", "absent"],
+ };
++/** DT-7B-2: why a `run` call stopped (workflowCoordinator.ts `run`). */
++const RUN_STOPS: readonly unknown[] = ["terminal", "paused", "limit", "contention"];
+ 
+ function kindOf(rest: string[]): { kind: Kind; id?: string } | null {
+   const [family, id, verb, extra] = rest;
+@@ -185,7 +197,7 @@
+   if (family === "occurrences") {
+     if (id === undefined) return { kind: "submit" };
+     if (verb === undefined) return { kind: "status", id };
+-    return verb === "cancel" || verb === "ack" ? { kind: verb, id } : null;
++    return verb === "cancel" || verb === "ack" || verb === "run" ? { kind: verb, id } : null;
+   }
+   return null;
+ }
+@@ -201,6 +213,7 @@
+   submit: ["body", "payloadDigest"],
+   cancel: ["ownerKey"],
+   ack: ["ownerKey", "receiptVersion"],
++  run: ["ownerKey"],
+ };
+ /** Exact query parameters of each GET (required, optional). */
+ const QUERY: Partial<Record<Kind, [readonly string[], readonly string[]]>> = {
+@@ -858,6 +871,35 @@
+         owner,
+       );
+     }
++    if (kind === "run") {
++      // DT-7B-2: the id and the ownerKey only — no query parameter either.
++      need(url.search === "");
++      const x = await coordinate(ns, { op: "run", ownerKey: owner, occurrenceId: id, now: now() });
++      return await answer(
++        x,
++        async (y) => {
++          const o = y.occurrence as Obj | undefined;
++          const state = o?.state as string;
++          const c = y.committed as number;
++          return (
++            exactKeys(y, ["ownerKey", "occurrence", "committed", "stopped"]) &&
++            y.ownerKey === owner &&
++            Number.isSafeInteger(c) &&
++            c >= 0 &&
++            c <= RUN_COMMITS_MAX &&
++            RUN_STOPS.includes(y.stopped) &&
++            (y.stopped === "terminal") === TERMINAL.has(state) &&
++            (y.stopped !== "paused" || (state === "pending" && c === 0)) &&
++            (y.stopped !== "limit" || c === RUN_COMMITS_MAX) &&
++            (await receiptProof(o, owner, id!)) &&
++            // Each commit resolved exactly one step (done or failed; a fail-fast skip is part of it).
++            c <=
++              (o!.steps as Obj[]).filter((s) => s.status === "done" || s.status === "failed").length
++          );
++        },
++        owner,
++      );
++    }
+     // changes
+     need(fits(input.after, INT_RE) && (input.limit === undefined || fits(input.limit, INT_RE)));
+     const after = Number(input.after);
+diff -ruN a/workers/scout/src/social/workflowRun.runtime.test.ts b/workers/scout/src/social/workflowRun.runtime.test.ts
+--- a/workers/scout/src/social/workflowRun.runtime.test.ts	1970-01-01 03:00:00.000000000 +0300
++++ b/workers/scout/src/social/workflowRun.runtime.test.ts	2026-10-18 00:55:26.364845500 +0300
+@@ -0,0 +1,575 @@
++import { mkdtempSync, rmSync } from "node:fs";
++import { createRequire } from "node:module";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { fileURLToPath } from "node:url";
++import { afterAll, beforeAll, describe, expect, it } from "vitest";
++import { skills } from "@/data";
++import { buildOutput, previewRun, workflowOutputId } from "@/lib/workflows";
++import { dayKey, weekKey } from "@/lib/streak";
++import { buildWeekPlan } from "@/lib/weekPlan";
++import { WORKFLOW_OBJECT } from "./workflowCoordinator";
++import { canonicalJson, sha256Hex } from "./workflowProtocol";
++
++// ⚙️ DT-7B-2 runtime proof (planning/tools/38-cloud-workflows.md): the REAL adapter (workflowRun.ts → lib/workflows
++// buildOutput, bundled from src/index.ts with the Worker's `@/*` resolver) executes INSIDE workerd, through the real
++// router (bearer, origin, routes.ts, workflowRoutes.ts) → the WORKFLOW_COORDINATOR binding (wrangler.jsonc, migration
++// "v5-workflows") → SQLite persisted on disk across runtime restarts. Every expected record is computed here, on the
++// Node host, by the app's own previewRun/buildOutput; the workerd outputs must be byte-equal. Every outbound request is
++// refused and recorded: none is expected (zero external effects). Direct object calls only register with a chosen
++// clock and, for restart cases, commit a step with the host-built record (a crash between steps).
++
++const requireRuntime = createRequire(import.meta.resolve("wrangler/package.json"));
++const { Miniflare, convertV4MiniflareOptions } = requireRuntime("miniflare");
++const { build } = requireRuntime("esbuild");
++
++const ROOT = fileURLToPath(new URL("../..", import.meta.url));
++const TOKEN = "runtime-scout-token";
++const APP = "https://3zmd95-glitch.github.io";
++const DIG = "e".repeat(64);
++const REG = Date.parse("2026-10-01T00:00:00.000Z");
++const AT = "2026-10-17T09:00:00.000Z"; // Saturday 12:00 Riyadh
++const SKILL = "iphone-log-prores";
++
++type A = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
++
++let script = "";
++let durableObjects: Record<string, { className: string; useSQLite: boolean }> = {};
++const dirs: string[] = [];
++const outbound: string[] = [];
++
++beforeAll(async () => {
++  const wrangler = await import("wrangler");
++  const config = wrangler.unstable_readConfig({ config: join(ROOT, "wrangler.jsonc") });
++  const sqlite = wrangler.unstable_getDurableObjectClassNameToUseSQLiteMap(config.migrations);
++  expect(config.durable_objects.bindings.at(-1)).toEqual({
++    name: "WORKFLOW_COORDINATOR",
++    class_name: "WorkflowCoordinator",
++  });
++  expect(config.migrations.at(-1)).toEqual({
++    tag: "v5-workflows",
++    new_sqlite_classes: ["WorkflowCoordinator"],
++  });
++  durableObjects = Object.fromEntries(
++    config.durable_objects.bindings.map((b: { name: string; class_name: string }) => [
++      b.name,
++      { className: b.class_name, useSQLite: sqlite.get(b.class_name) === true },
++    ]),
++  );
++  // The same bundling as the other runtime tests: no extra resolver option; tsconfig paths resolve `@/…`.
++  const { outputFiles } = await build({
++    entryPoints: [join(ROOT, "src/index.ts")],
++    bundle: true,
++    format: "esm",
++    platform: "browser",
++    conditions: ["workerd", "worker", "browser"],
++    external: ["cloudflare:*", "node:*"],
++    write: false,
++    logLevel: "silent",
++  });
++  script = outputFiles[0].text;
++}, 120_000);
++
++afterAll(() => {
++  for (const d of dirs) rmSync(d, { recursive: true, force: true });
++  expect(outbound).toEqual([]);
++});
++
++function runtime(persist: string) {
++  return new Miniflare(
++    convertV4MiniflareOptions({
++      modules: true,
++      compatibilityDate: "2026-09-01",
++      script,
++      durableObjects,
++      resourcePersistencePath: persist,
++      kvNamespaces: ["SOCIAL_KV"],
++      bindings: { SCOUT_TOKEN: TOKEN, ALLOWED_ORIGINS: APP },
++      outboundService: async (request: Request) => {
++        outbound.push(`${request.method} ${request.url}`);
++        return new Response("blocked", { status: 599 });
++      },
++    }),
++  );
++}
++type MF = ReturnType<typeof runtime>;
++const freshDir = () => {
++  const d = mkdtempSync(join(tmpdir(), "workflow-run-"));
++  dirs.push(d);
++  return d;
++};
++
++async function api(
++  mf: MF,
++  method: string,
++  path: string,
++  json?: unknown,
++  headers: Record<string, string> = { Authorization: `Bearer ${TOKEN}` },
++) {
++  const res = await mf.dispatchFetch(`https://scout.test/social/workflows/${path}`, {
++    method,
++    headers,
++    ...(json === undefined ? {} : { body: JSON.stringify(json) }),
++  });
++  const text = await res.text();
++  return { status: res.status as number, body: (text ? JSON.parse(text) : null) as A, raw: text };
++}
++async function direct(mf: MF) {
++  const ns = await mf.getDurableObjectNamespace("WORKFLOW_COORDINATOR");
++  const stub = ns.get(ns.idFromName(WORKFLOW_OBJECT));
++  return async (c: A): Promise<A> =>
++    (await (
++      await stub.fetch("https://workflow-coordinator/", { method: "POST", body: JSON.stringify(c) })
++    ).json()) as A;
++}
++
++const t = (en: string, ar = "") => ({ ar, en });
++const I = (id: string, text = t("Idea: {title} ({date})", "فكرة: {title}")) => ({
++  id,
++  kind: "idea",
++  text,
++});
++const S = (id: string, platform = "tiktok") => ({
++  id,
++  kind: "post",
++  platform,
++  title: t("{title}", "{title} بالعربي"),
++  caption: t("{summary} /{slug}", "{summary} — {slug}"),
++  offsetDays: 1,
++});
++const P = (id: string, o: A = {}) => ({
++  id,
++  kind: "plan",
++  quest: "produce",
++  minutes: 60,
++  day: "lightest",
++  skillId: SKILL,
++  ...o,
++});
++
++function body(
++  owner: string,
++  id: string,
++  actions: A[],
++  o: { at?: string; lang?: string; ctx?: A } = {},
++): A {
++  const at = o.at ?? AT;
++  const day = dayKey(new Date(at));
++  return {
++    occurrenceId: id,
++    ownerKey: owner,
++    workflowId: "w1",
++    kind: "article-ready",
++    registrationEpoch: 1,
++    revision: 1,
++    snapshot: { name: t("Flow"), trigger: { kind: "article-ready" }, actions },
++    plannerContext: actions.some((a) => a.kind === "plan")
++      ? {
++          targetWeek: weekKey(day),
++          completions: [],
++          planItems: [],
++          settings: { gear: ["phone"], davinciEdition: "free" },
++          contextAt: at,
++          ...o.ctx,
++        }
++      : null,
++    input: {
++      articleId: "art1",
++      title: t("Log footage", "تصوير لوق"),
++      summary: t("Shoot flat, grade later", "صوّر مسطح ولوّن بعدين"),
++      slug: "log-footage",
++      skillId: SKILL,
++      lang: o.lang ?? "en",
++      day,
++    },
++    executionAt: at,
++  };
++}
++const submit = async (mf: MF, b: A) => {
++  const r = await api(mf, "POST", "occurrences", {
++    body: b,
++    payloadDigest: await sha256Hex(canonicalJson(b)),
++  });
++  expect(r.status).toBe(201);
++  return r.body.occurrence as A;
++};
++const runOf = (mf: MF, owner: string, id: string) =>
++  api(mf, "POST", `occurrences/${id}/run`, { ownerKey: owner });
++const statusOf = async (mf: MF, owner: string, id: string) =>
++  (await api(mf, "GET", `occurrences/${id}?ownerKey=${owner}`)).body.occurrence as A;
++
++/** The app's own records for this body on the Node host (previewRun, ids mapped), as canonical bytes. */
++function host(b: A): (string | null)[] {
++  const pc = b.plannerContext;
++  const { outputs } = previewRun(
++    { ...b.snapshot } as never,
++    b.input,
++    {
++      completions: pc?.completions ?? [],
++      planItems: pc?.planItems ?? [],
++      settings: pc?.settings ?? { gear: [], davinciEdition: "free" },
++    } as never,
++    new Date(b.executionAt),
++  );
++  return outputs.map((s) =>
++    s.ok ? canonicalJson({ ...s.record, id: workflowOutputId(b.occurrenceId, s.actionId) }) : null,
++  );
++}
++const stored = (o: A) => o.outputs.map((x: A) => canonicalJson(x.record));
++const built = (b: A) => host(b).filter((x): x is string => x !== null);
++
++/** Authority + a registration opened at REG (a chosen clock, straight on the object), so fixed executionAt values admit. */
++async function ready(mf: MF) {
++  const owner = (await api(mf, "GET", "authority")).body.ownerKey as string;
++  const reg = await (
++    await direct(mf)
++  )({
++    op: "register",
++    ownerKey: owner,
++    workflowId: "w1",
++    expectedEpoch: 0,
++    revision: 1,
++    workflowDigest: DIG,
++    now: REG,
++  });
++  expect(reg.created).toBe(true);
++  return owner;
++}
++/** A crash between steps: the next pending step committed with the HOST-built record, then the runtime disposed. */
++async function commitHost(mf: MF, owner: string, id: string) {
++  const call = await direct(mf);
++  const o = (await call({ op: "status", ownerKey: owner, occurrenceId: id, now: Date.now() }))
++    .occurrence;
++  const idx = o.steps.findIndex((s: A) => s.status === "pending");
++  const folded = o.outputs.filter((x: A) => x.kind === "plan").map((x: A) => x.record);
++  const out = buildOutput(
++    id,
++    o.body.snapshot.actions[idx],
++    o.body.input,
++    {
++      completions: o.body.plannerContext?.completions ?? [],
++      planItems: [...(o.body.plannerContext?.planItems ?? []), ...folded],
++      settings: o.body.plannerContext?.settings ?? {},
++    } as never,
++    new Date(o.body.executionAt),
++  );
++  expect(out.ok).toBe(true);
++  const r = await call({
++    op: "commitStep",
++    ownerKey: owner,
++    occurrenceId: id,
++    idx,
++    receiptVersion: o.receiptVersion,
++    payloadDigest: o.payloadDigest,
++    output: { record: out.ok ? out.record : null },
++    now: Date.now(),
++  });
++  expect(r.committed).toBe(true);
++}
++
++describe("DT-7B-2: the real shared builders run inside workerd through POST /social/workflows/occurrences/:id/run", () => {
++  it("the bundle carries the builders and the catalog; idea/post/plan, EN/AR, overlays/history and Riyadh rollover are byte-equal to the host", async () => {
++    expect(script).toContain("function buildOutput(");
++    expect(script).toContain("function lightestDay(");
++    expect(script).toContain(`"${SKILL}"`);
++    const mf = runtime(freshDir());
++    try {
++      const owner = await ready(mf);
++      const week = weekKey(dayKey(new Date(AT)));
++      const settings = { gear: ["phone", "mic"], davinciEdition: "studio" };
++      const derived = buildWeekPlan({
++        skills,
++        completions: [],
++        settings: settings as never,
++        weekStart: week,
++      }).items;
++      const ctx = {
++        completions: [{ skillId: SKILL, quest: "research", at: "2026-10-03T08:00:00.000Z" }],
++        planItems: [
++          {
++            id: derived[0].id,
++            week,
++            day: derived[0].day,
++            skillId: derived[0].skillId,
++            quest: derived[0].quest,
++            minutes: 0,
++            by: "rules",
++          },
++          {
++            id: `${week}:me:${SKILL}:train`,
++            week,
++            day: 3,
++            skillId: SKILL,
++            quest: "train",
++            minutes: 90,
++            by: "me",
++          },
++        ],
++        settings,
++      };
++      const bodies = [
++        body(owner, "ar-en", [I("i1"), S("s1"), P("p1"), P("p2", { minutes: 120 })], { ctx }),
++        body(owner, "ar-ar", [I("i1"), I("i2", t("Only English {slug}")), S("s1", "youtube")], {
++          lang: "ar",
++        }),
++        body(owner, "ar-fri", [I("i1"), S("s1", "x"), P("p1")], { at: "2026-10-16T20:59:59.999Z" }),
++        body(owner, "ar-sat", [I("i1"), S("s1", "x"), P("p1")], { at: "2026-10-16T21:00:00.000Z" }),
++      ];
++      for (const b of bodies) {
++        await submit(mf, b);
++        const r = await runOf(mf, owner, b.occurrenceId);
++        expect(r.status).toBe(200);
++        expect(r.body).toMatchObject({
++          ownerKey: owner,
++          committed: b.snapshot.actions.length,
++          stopped: "terminal",
++          occurrence: { state: "done" },
++        });
++        expect(stored(r.body.occurrence)).toEqual(built(b));
++        expect(r.body.occurrence.outputs.map((x: A) => x.outputId)).toEqual(
++          b.snapshot.actions.map((a: A) => `wf:${b.occurrenceId}:${a.id}`),
++        );
++      }
++      // Rollover: each in its own Riyadh day and planner week (computed inside workerd).
++      const fri = await statusOf(mf, owner, "ar-fri");
++      const sat = await statusOf(mf, owner, "ar-sat");
++      expect([fri.outputs[2].record.week, sat.outputs[2].record.week]).toEqual([
++        "2026-10-10",
++        "2026-10-17",
++      ]);
++      expect([fri.outputs[1].record.plannedDay, sat.outputs[1].record.plannedDay]).toEqual([
++        "2026-10-17",
++        "2026-10-18",
++      ]);
++      // Receipts and the feed still validate through the routes.
++      const feed = await api(mf, "GET", `changes?ownerKey=${owner}&after=0`);
++      expect(feed.status).toBe(200);
++      expect(feed.body.items.map((i: A) => `${i.occurrenceId}:${i.state}`)).toEqual(
++        bodies.map((b) => `${b.occurrenceId}:done`),
++      );
++      expect(outbound).toEqual([]);
++    } finally {
++      await mf.dispose();
++    }
++  }, 120_000);
++
++  it("fail-fast with the builder's codes inside workerd: unknown skill → partial, earlier output kept, later skipped", async () => {
++    const mf = runtime(freshDir());
++    try {
++      const owner = await ready(mf);
++      const b = body(owner, "ar-ff", [I("i1"), P("p1", { skillId: "no-such-skill" }), S("s1")]);
++      await submit(mf, b);
++      const r = await runOf(mf, owner, "ar-ff");
++      expect(r.body).toMatchObject({
++        committed: 2,
++        stopped: "terminal",
++        occurrence: { state: "partial" },
++      });
++      expect(r.body.occurrence.steps.map((s: A) => [s.status, s.error ?? null])).toEqual([
++        ["done", null],
++        ["failed", "unknown-skill"],
++        ["skipped", null],
++      ]);
++      expect(host(b)).toEqual([stored(r.body.occurrence)[0], null, null]);
++    } finally {
++      await mf.dispose();
++    }
++  }, 120_000);
++
++  it("concurrent resumes, a lost answer and terminal replay: each step once, one terminal row, nothing rewritten", async () => {
++    const dir = freshDir();
++    let mf = runtime(dir);
++    let owner = "";
++    let end: A;
++    const b = (o: string) => body(o, "ar-cc", [I("i1"), P("p1"), I("i2"), S("s1"), P("p2")]);
++    try {
++      owner = await ready(mf);
++      await submit(mf, b(owner));
++      const all = await Promise.all([1, 2, 3].map(() => runOf(mf, owner, "ar-cc")));
++      end = await statusOf(mf, owner, "ar-cc");
++      expect(end).toMatchObject({ state: "done", receiptVersion: 7 });
++      expect(all.reduce((n, r) => n + r.body.committed, 0)).toBe(5);
++      for (const r of all) {
++        expect(r.status).toBe(200);
++        expect(["terminal", "contention"]).toContain(r.body.stopped);
++        if (r.body.stopped === "terminal") expect(r.body.occurrence).toEqual(end);
++      }
++      expect(stored(end)).toEqual(built(b(owner)));
++    } finally {
++      await mf.dispose();
++    }
++    mf = runtime(dir);
++    try {
++      // After a restart the answer that may have been lost is replayed: the same row, nothing committed or bumped.
++      const again = await runOf(mf, owner, "ar-cc");
++      expect(again.body).toEqual({
++        ownerKey: owner,
++        occurrence: end!,
++        committed: 0,
++        stopped: "terminal",
++      });
++      const feed = await api(mf, "GET", `changes?ownerKey=${owner}&after=0`);
++      expect(feed.body.items).toHaveLength(1);
++      expect(feed.body.items[0].changeSeq).toBe(end!.changeSeq);
++    } finally {
++      await mf.dispose();
++    }
++  }, 120_000);
++
++  it("restart before the first step, between steps and before finish: committed outputs adopted, the rest built in workerd, byte-equal", async () => {
++    const dir = freshDir();
++    let mf = runtime(dir);
++    let owner = "";
++    let first: A;
++    const mid = (o: string) => body(o, "ar-mid", [I("i1"), P("p1"), P("p2")]);
++    const fin = (o: string) => body(o, "ar-fin", [I("i1"), S("s1")]);
++    const zero = (o: string) => body(o, "ar-zero", [P("p1"), I("i1")]);
++    try {
++      owner = await ready(mf);
++      await submit(mf, mid(owner));
++      await commitHost(mf, owner, "ar-mid");
++      first = (await statusOf(mf, owner, "ar-mid")).outputs[0];
++      await submit(mf, fin(owner));
++      await commitHost(mf, owner, "ar-fin");
++      await commitHost(mf, owner, "ar-fin");
++      await submit(mf, zero(owner));
++    } finally {
++      await mf.dispose();
++    }
++    mf = runtime(dir);
++    try {
++      const r = await runOf(mf, owner, "ar-mid");
++      expect(r.body).toMatchObject({
++        committed: 2,
++        stopped: "terminal",
++        occurrence: { state: "done" },
++      });
++      expect(r.body.occurrence.outputs[0]).toEqual(first!);
++      expect(stored(r.body.occurrence)).toEqual(built(mid(owner)));
++      const f = await runOf(mf, owner, "ar-fin");
++      expect(f.body).toMatchObject({
++        committed: 0,
++        stopped: "terminal",
++        occurrence: { state: "done", receiptVersion: 4 },
++      });
++      expect(stored(f.body.occurrence)).toEqual(built(fin(owner)));
++      // Pending before the restart: resumed at idx 0, one output per action.
++      const z = await runOf(mf, owner, "ar-zero");
++      expect(z.body).toMatchObject({
++        committed: 2,
++        stopped: "terminal",
++        occurrence: { state: "done" },
++      });
++      expect(stored(z.body.occurrence)).toEqual(built(zero(owner)));
++    } finally {
++      await mf.dispose();
++    }
++  }, 120_000);
++
++  it("pause gates the first step (also after unregister); resume runs it; running work finishes while paused; cancel races stay consistent", async () => {
++    const mf = runtime(freshDir());
++    try {
++      const owner = await ready(mf);
++      const ctl = (verb: string) =>
++        api(mf, "POST", `registrations/w1/${verb}`, {
++          ownerKey: owner,
++          registrationEpoch: 1,
++          expectedRevision: 1,
++        });
++      await ctl("pause");
++      await submit(mf, body(owner, "ar-p", [I("i1"), I("i2")]));
++      const paused = await runOf(mf, owner, "ar-p");
++      expect(paused.body).toMatchObject({
++        committed: 0,
++        stopped: "paused",
++        occurrence: { state: "pending", receiptVersion: 1 },
++      });
++      await ctl("unregister");
++      expect((await runOf(mf, owner, "ar-p")).body.stopped).toBe("paused");
++      await ctl("resume");
++      expect((await runOf(mf, owner, "ar-p")).body).toMatchObject({
++        committed: 2,
++        stopped: "terminal",
++        occurrence: { state: "done" },
++      });
++      // Running work (a step already committed) finishes while paused.
++      await submit(mf, body(owner, "ar-r", [I("i1"), S("s1")]));
++      await commitHost(mf, owner, "ar-r");
++      await ctl("pause");
++      expect((await runOf(mf, owner, "ar-r")).body).toMatchObject({
++        committed: 1,
++        stopped: "terminal",
++        occurrence: { state: "done" },
++      });
++      await ctl("resume");
++      // Cancel racing a run: cancelled with zero outputs, or done with every output — never both.
++      await submit(mf, body(owner, "ar-c", [I("i1"), I("i2")]));
++      const [c, r] = await Promise.all([
++        api(mf, "POST", "occurrences/ar-c/cancel", { ownerKey: owner }),
++        runOf(mf, owner, "ar-c"),
++      ]);
++      expect(r.status).toBe(200);
++      const end = await statusOf(mf, owner, "ar-c");
++      expect(r.body.occurrence).toEqual(end);
++      if (end.state === "cancelled") {
++        expect(end.outputs).toEqual([]);
++        expect(r.body.committed).toBe(0);
++        expect(c.body.cancelled).toBe(true);
++      } else {
++        expect(end.state).toBe("done");
++        expect(end.outputs).toHaveLength(2);
++        expect([200, 409]).toContain(c.status);
++      }
++    } finally {
++      await mf.dispose();
++    }
++  }, 120_000);
++
++  it("unauthenticated, cross-origin and extra-field invocations are refused with zero mutation", async () => {
++    const mf = runtime(freshDir());
++    try {
++      const owner = await ready(mf);
++      await submit(mf, body(owner, "ar-x", [I("i1")]));
++      const path = "occurrences/ar-x/run";
++      expect((await api(mf, "POST", path, { ownerKey: owner }, {})).status).toBe(401);
++      expect(
++        (await api(mf, "POST", path, { ownerKey: owner }, { Authorization: "Bearer wrong" }))
++          .status,
++      ).toBe(401);
++      const evil = await api(
++        mf,
++        "POST",
++        path,
++        { ownerKey: owner },
++        {
++          Authorization: `Bearer ${TOKEN}`,
++          Origin: "https://evil.example",
++        },
++      );
++      expect(evil.status).toBe(403);
++      expect(evil.raw).not.toContain(owner);
++      for (const extra of [{ builder: "test" }, { output: { record: {} } }, { now: 1 }])
++        expect((await api(mf, "POST", path, { ownerKey: owner, ...extra })).status).toBe(400);
++      expect((await api(mf, "POST", `${path}?builder=test`, { ownerKey: owner })).status).toBe(400);
++      expect(await statusOf(mf, owner, "ar-x")).toMatchObject({
++        state: "pending",
++        receiptVersion: 1,
++      });
++      // The allowed origin with the bearer runs it.
++      const ok = await api(
++        mf,
++        "POST",
++        path,
++        { ownerKey: owner },
++        {
++          Authorization: `Bearer ${TOKEN}`,
++          Origin: APP,
++        },
++      );
++      expect(ok.body).toMatchObject({ committed: 1, stopped: "terminal" });
++      expect(outbound).toEqual([]);
++    } finally {
++      await mf.dispose();
++    }
++  }, 120_000);
++});
+diff -ruN a/workers/scout/src/social/workflowRun.test.ts b/workers/scout/src/social/workflowRun.test.ts
+--- a/workers/scout/src/social/workflowRun.test.ts	1970-01-01 03:00:00.000000000 +0300
++++ b/workers/scout/src/social/workflowRun.test.ts	2026-10-18 00:49:00.191789700 +0300
+@@ -0,0 +1,348 @@
++import { describe, expect, it } from "vitest";
++import { skills } from "@/data";
++import { buildOutput, previewRun, workflowOutputId, type PlanContext } from "@/lib/workflows";
++import { dayKey, weekKey } from "@/lib/streak";
++import { buildWeekPlan } from "@/lib/weekPlan";
++import type { Workflow, WorkflowAction, WorkflowInput } from "@/lib/domain";
++import type { WorkflowOutput } from "./workflowCoordinator";
++import { canonicalJson, checkBody, type OccurrenceBody } from "./workflowProtocol";
++import { runStep } from "./workflowRun";
++
++// ⚙️ DT-7B-2 adapter parity (planning/tools/38-cloud-workflows.md): `runStep` — the fixed server builder — against
++// the REAL shared builders of lib/workflows.ts (`previewRun`, `buildOutput`), imported through the Worker's resolver
++// (tsconfig paths + vitest alias). Every expected record is computed here by the app's own code; the comparison is
++// the canonical JSON bytes the coordinator stores. Parity holds only for identical builder/catalog pins
++// (planning/collaboration/dt7b-candidate/7b2-builder-pins.sha256): no cross-version equivalence is claimed.
++
++type A = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
++type Step = { actionId: string; error?: string; skipped?: true; record?: A };
++
++const OWNER = "wfo_" + "a".repeat(32);
++const SKILL = "iphone-log-prores";
++const AT = "2026-10-17T09:00:00.000Z"; // Saturday 12:00 Riyadh, the first day of week 2026-10-17
++
++const t = (en: string, ar = "") => ({ ar, en });
++const idea = (id: string, text = t("Idea: {title} ({date})", "فكرة: {title}"), platform?: string) =>
++  ({ id, kind: "idea", text, ...(platform ? { platform } : {}) }) as A;
++const post = (id: string, platform = "tiktok", offsetDays = 1) =>
++  ({
++    id,
++    kind: "post",
++    platform,
++    title: t("{title}", "{title} بالعربي"),
++    caption: t("{summary} /{slug}", "{summary} — {slug}"),
++    offsetDays,
++  }) as A;
++const plan = (id: string, o: A = {}) =>
++  ({ id, kind: "plan", quest: "produce", minutes: 30, day: "lightest", skillId: SKILL, ...o }) as A;
++const noSkill = (a: A) => {
++  delete a.skillId;
++  return a;
++};
++
++interface Opts {
++  id?: string;
++  article?: boolean;
++  lang?: "ar" | "en";
++  at?: string;
++  ctx?: A;
++  skillId?: string | null;
++}
++/** A body in the shape the coordinator stores (admission is checked by `admitted`). */
++function occ(actions: A[], o: Opts = {}): OccurrenceBody {
++  const at = o.at ?? AT;
++  const day = dayKey(new Date(at));
++  const article = o.article ?? true;
++  const id = o.id ?? (article ? "ar-o1" : "m1");
++  const hasPlan = actions.some((a) => a.kind === "plan");
++  const b = {
++    occurrenceId: id,
++    ownerKey: OWNER,
++    workflowId: "w1",
++    kind: article ? "article-ready" : "manual",
++    registrationEpoch: 1,
++    revision: 1,
++    snapshot: {
++      name: t("Flow"),
++      trigger: { kind: article ? "article-ready" : "manual" },
++      actions,
++    },
++    plannerContext: hasPlan
++      ? {
++          targetWeek: weekKey(day),
++          completions: [],
++          planItems: [],
++          settings: { gear: ["phone"], davinciEdition: "free" },
++          contextAt: at,
++          ...o.ctx,
++        }
++      : null,
++    input: article
++      ? {
++          articleId: "art1",
++          title: t("Log footage", "تصوير لوق"),
++          summary: t("Shoot flat, grade later", "صوّر مسطح ولوّن بعدين"),
++          slug: "log-footage",
++          ...(o.skillId === null ? {} : { skillId: o.skillId ?? SKILL }),
++          lang: o.lang ?? "en",
++          day,
++        }
++      : { title: t(""), summary: t(""), slug: "", lang: o.lang ?? "en", day },
++    executionAt: at,
++  };
++  return b as unknown as OccurrenceBody;
++}
++const admitted = (b: OccurrenceBody) => {
++  expect(checkBody(b, Date.parse(b.executionAt))).toMatchObject({ ok: true });
++  return b;
++};
++const codes = (steps: Step[]) => steps.map((s) => s.error ?? (s.skipped ? "skipped" : "done"));
++
++/** The coordinator's fold over the adapter: outputs round-trip through the stored canonical JSON; fail-fast. */
++async function adapterRun(b: OccurrenceBody, prior: WorkflowOutput[] = []): Promise<Step[]> {
++  const out: Step[] = [];
++  let failed = false;
++  for (const [idx, action] of b.snapshot.actions.entries()) {
++    if (failed) {
++      out.push({ actionId: action.id, skipped: true });
++      continue;
++    }
++    const r = await runStep({ body: b, idx, action, prior });
++    if ("error" in r) {
++      failed = true;
++      out.push({ actionId: action.id, error: r.error });
++      continue;
++    }
++    const stored = JSON.parse(canonicalJson(r.record)) as A;
++    prior = [
++      ...prior,
++      { outputId: stored.id, actionId: action.id, kind: action.kind, digest: "", record: stored },
++    ];
++    out.push({ actionId: action.id, record: r.record as A });
++  }
++  return out;
++}
++
++/** The app's own dry run over the same snapshot, input, context and clock, ids mapped to this occurrence. */
++function appRun(b: OccurrenceBody): Step[] {
++  const pc = b.plannerContext;
++  const ctx = {
++    completions: pc?.completions ?? [],
++    planItems: pc?.planItems ?? [],
++    settings: pc?.settings ?? { gear: [], davinciEdition: "free" },
++  } as unknown as PlanContext;
++  const workflow = { ...b.snapshot } as unknown as Workflow;
++  const { outputs } = previewRun(workflow, b.input as WorkflowInput, ctx, new Date(b.executionAt));
++  return outputs.map((s): Step => {
++    if ("skipped" in s) return { actionId: s.actionId, skipped: true };
++    if (!s.ok) return { actionId: s.actionId, error: s.error };
++    return {
++      actionId: s.actionId,
++      record: { ...s.record, id: workflowOutputId(b.occurrenceId, s.actionId) },
++    };
++  });
++}
++
++const bytes = (steps: Step[]) =>
++  steps.map((s) => (s.record ? { ...s, record: canonicalJson(s.record) } : s));
++
++async function parity(b: OccurrenceBody) {
++  const got = await adapterRun(b);
++  expect(bytes(got)).toEqual(bytes(appRun(b)));
++  return got;
++}
++
++const direct = (b: OccurrenceBody, idx: number, ctx: A) =>
++  buildOutput(
++    b.occurrenceId,
++    b.snapshot.actions[idx] as unknown as WorkflowAction,
++    b.input as WorkflowInput,
++    ctx as PlanContext,
++    new Date(b.executionAt),
++  );
++
++describe("runStep: byte parity with the real shared builders", () => {
++  it("idea, post and plan in English: records byte-equal to previewRun and buildOutput, ids wf:<occ>:<action>", async () => {
++    const b = admitted(occ([idea("i1", undefined, "instagram"), post("p1"), plan("q1")]));
++    const got = await parity(b);
++    expect(got.map((s) => s.record?.id)).toEqual(["wf:ar-o1:i1", "wf:ar-o1:p1", "wf:ar-o1:q1"]);
++    // The direct builder call with this occurrence's id and the fixed executionAt clock.
++    const ctx = { completions: [], planItems: [], settings: b.plannerContext!.settings };
++    for (const idx of [0, 1, 2]) {
++      const d = direct(b, idx, ctx);
++      expect(d.ok && canonicalJson(d.record)).toBe(canonicalJson(got[idx].record));
++    }
++    expect(got[0].record).toMatchObject({ text: "Idea: Log footage (2026-10-17)", createdAt: AT });
++    expect(got[1].record).toMatchObject({ plannedDay: "2026-10-18", createdAt: AT, updatedAt: AT });
++    expect(got[2].record).toMatchObject({ week: "2026-10-17", by: "me", skillId: SKILL });
++    // Matrix row 29: lib/publish `publishJobId` is a pure function of the post id, and the id is the local
++    // executor's own `workflowOutputId`, so today's mapping is unchanged (lib/publish is not imported here: it pulls
++    // the app store into the Worker type graph).
++    expect(got[1].record!.id).toBe(workflowOutputId("ar-o1", "p1"));
++  });
++
++  it("Arabic input: Arabic templates, English fallback for an empty Arabic template", async () => {
++    const b = admitted(
++      occ([idea("i1"), idea("i2", t("Only English {slug}")), post("p1", "youtube", 3)], {
++        lang: "ar",
++      }),
++    );
++    const got = await parity(b);
++    expect(got[0].record!.text).toBe("فكرة: تصوير لوق");
++    expect(got[1].record!.text).toBe("Only English log-footage");
++    expect(got[2].record!.title).toBe("تصوير لوق بالعربي");
++  });
++
++  it("Riyadh date rollover: Friday 23:59:59.999 and Saturday 00:00 build in their own day and week", async () => {
++    const actions = () => [idea("i1"), post("p1", "x", 1), plan("q1")];
++    const fri = admitted(occ(actions(), { at: "2026-10-16T20:59:59.999Z" }));
++    const sat = admitted(occ(actions(), { at: "2026-10-16T21:00:00.000Z" }));
++    expect([fri.input.day, sat.input.day]).toEqual(["2026-10-16", "2026-10-17"]);
++    const [f, s] = [await parity(fri), await parity(sat)];
++    expect(f[0].record!.text).toContain("(2026-10-16)");
++    expect(s[0].record!.text).toContain("(2026-10-17)");
++    expect([f[1].record!.plannedDay, s[1].record!.plannedDay]).toEqual([
++      "2026-10-17",
++      "2026-10-18",
++    ]);
++    expect([f[2].record!.week, s[2].record!.week]).toEqual(["2026-10-10", "2026-10-17"]);
++  });
++
++  it("ordered lightest-day plans: each step folds the earlier plan outputs of this occurrence, in action order", async () => {
++    const actions = [1, 2, 3, 4, 5].map((n) => plan(`q${n}`, { minutes: 120 }));
++    const b = admitted(occ(actions));
++    const got = await parity(b);
++    const days = got.map((s) => s.record!.day as number);
++    // Without the fold step 2 would pick step 1's day again; with it the load moves.
++    const unfolded = direct(b, 1, {
++      completions: [],
++      planItems: [],
++      settings: b.plannerContext!.settings,
++    });
++    expect(unfolded.ok && unfolded.kind === "plan" && unfolded.record.day).toBe(days[0]);
++    expect(days[1]).not.toBe(days[0]);
++    expect(new Set(days).size).toBeGreaterThan(2);
++    // Plan outputs of another occurrence (or of a later action) are never folded.
++    const alone = admitted(occ([plan("q1", { minutes: 120 })]));
++    const foreign: WorkflowOutput[] = [
++      {
++        outputId: "wf:other:q1",
++        actionId: "q1",
++        kind: "plan",
++        digest: "",
++        record: { ...got[0].record!, id: "wf:other:q1" },
++      },
++      {
++        outputId: "wf:ar-o1:q2",
++        actionId: "q2",
++        kind: "plan",
++        digest: "",
++        record: { ...got[1].record! },
++      },
++    ];
++    expect(bytes(await adapterRun(alone, foreign))).toEqual(bytes(appRun(alone)));
++  });
++
++  it("overlays and history: pre-week completions, target-week manual rows, zero-minute tombstones, gear and edition", async () => {
++    const week = "2026-10-17";
++    const settings = { gear: ["phone", "mic"], davinciEdition: "studio" };
++    const derived = buildWeekPlan({
++      skills,
++      completions: [],
++      settings: settings as never,
++      weekStart: week,
++    }).items;
++    expect(derived.length).toBeGreaterThan(1);
++    const row = (
++      id: string,
++      day: number,
++      skillId: string,
++      quest: string,
++      minutes: number,
++      by: string,
++    ) => ({
++      id,
++      week,
++      day,
++      skillId,
++      quest,
++      minutes,
++      by,
++    });
++    const ctx = {
++      completions: [
++        { skillId: SKILL, quest: "research", at: "2026-10-03T08:00:00.000Z" },
++        { skillId: "handheld-no-gimbal", quest: "train", at: "2026-10-16T20:00:00.000Z" },
++      ],
++      planItems: [
++        // A zero-minute tombstone hiding a derived row, and two of the owner's own rows.
++        row(derived[0].id, derived[0].day, derived[0].skillId, derived[0].quest, 0, "rules"),
++        row(`${week}:me:${SKILL}:train`, 3, SKILL, "train", 90, "me"),
++        row(`${week}:me:phone-180-shutter:produce`, 4, "phone-180-shutter", "produce", 60, "me"),
++      ],
++      settings,
++    };
++    const actions = () => [
++      plan("q1", { minutes: 60 }),
++      plan("q2", { day: 2 }),
++      plan("q3", { minutes: 90 }),
++    ];
++    const got = await parity(admitted(occ(actions(), { ctx })));
++    expect(got[1].record!.day).toBe(2);
++    // The context matters: the same actions without history/overlays build other rows.
++    expect(bytes(await adapterRun(admitted(occ(actions()))))).not.toEqual(bytes(got));
++    // The other edition and no gear: still byte-equal to the app.
++    await parity(
++      admitted(occ(actions(), { ctx: { ...ctx, settings: { gear: [], davinciEdition: "free" } } })),
++    );
++  });
++
++  it("missing and unknown skills keep the builder's codes; fail-fast keeps earlier outputs and skips the rest", async () => {
++    const missing = admitted(occ([idea("i1"), noSkill(plan("q1")), post("p1")], { skillId: null }));
++    expect(codes(await parity(missing))).toEqual(["done", "no-skill", "skipped"]);
++    const unknown = admitted(occ([plan("q1", { skillId: "no-such-skill" }), idea("i1")]));
++    expect(codes(await parity(unknown))).toEqual(["unknown-skill", "skipped"]);
++    // A manual run captures no article, so an implicit plan skill is missing; empty text keeps its code too.
++    const manual = admitted(occ([noSkill(plan("q1"))], { article: false }));
++    expect(codes(await parity(manual))).toEqual(["no-skill"]);
++    const empty = admitted(occ([idea("i1", t("")), idea("i2")], { article: false }));
++    expect(codes(await parity(empty))).toEqual(["empty-text", "skipped"]);
++  });
++
++  it("stale plan context fails fast with the protocol's context-stale: earlier outputs survive, later steps skip", async () => {
++    // Admission refuses such a body today (targetWeek = weekOf(day)); the adapter still never builds an old week.
++    const stale = occ([idea("i1"), plan("q1"), post("p1")], { ctx: { targetWeek: "2026-10-10" } });
++    expect(checkBody(stale, Date.parse(AT))).toEqual({ ok: false, error: "bad_request" });
++    const got = await adapterRun(stale);
++    expect(codes(got)).toEqual(["done", "context-stale", "skipped"]);
++    expect(canonicalJson(got[0].record)).toBe(canonicalJson(appRun(stale)[0].record));
++    const first = await adapterRun(
++      occ([plan("q1"), idea("i1")], { ctx: { targetWeek: "2026-10-24" } }),
++    );
++    expect(first).toEqual([
++      { actionId: "q1", error: "context-stale" },
++      { actionId: "i1", skipped: true },
++    ]);
++    // A plan step without any captured context is stale too (never an empty planner).
++    const none = { ...occ([plan("q1")]), plannerContext: null } as OccurrenceBody;
++    expect(await adapterRun(none)).toEqual([{ actionId: "q1", error: "context-stale" }]);
++  });
++
++  it("a builder record outside the draft allowlist is never stored or truncated: the step fails invalid", async () => {
++    const b = occ([idea("i1", t("{summary}{summary}{summary}")), idea("i2")]);
++    b.input.summary = t("x".repeat(2_000));
++    admitted(b);
++    expect((appRun(b)[0].record!.text as string).length).toBe(6_000);
++    expect(await adapterRun(b)).toEqual([
++      { actionId: "i1", error: "invalid" },
++      { actionId: "i2", skipped: true },
++    ]);
++  });
++
++  it("the builder clock is the immutable executionAt, never the wall clock", async () => {
++    const b = admitted(occ([idea("i1"), post("p1")]));
++    const [x, y] = [await adapterRun(b), await adapterRun(b)];
++    expect(bytes(x)).toEqual(bytes(y));
++    expect([x[0].record!.createdAt, x[1].record!.updatedAt]).toEqual([AT, AT]);
++  });
++});
+diff -ruN a/workers/scout/src/social/workflowRun.ts b/workers/scout/src/social/workflowRun.ts
+--- a/workers/scout/src/social/workflowRun.ts	1970-01-01 03:00:00.000000000 +0300
++++ b/workers/scout/src/social/workflowRun.ts	2026-10-18 00:49:00.126045000 +0300
+@@ -0,0 +1,57 @@
++/**
++ * ⚙️ The fixed server step builder (packet DT-7B-2, planning/tools/38-cloud-workflows.md): one occurrence step built
++ * by the dashboard's REAL shared draft builder, `buildOutput` from lib/workflows.ts (imported through the Worker's
++ * `@/*` resolver; no copied or forked logic). The coordinator's `run` op imports it statically; nothing selects it
++ * per request.
++ *
++ *   inputs        the stored immutable body only: the action snapshot, the input, `new Date(executionAt)` as the
++ *                 builder clock, and the captured planner context projected exactly — pre-week completions,
++ *                 target-week planner rows (manual rows and zero-minute tombstones), gear and DaVinci edition —
++ *                 plus the plan outputs of THIS occurrence's earlier steps folded in action order (as `previewRun`).
++ *   ids           the builder's own `wf:<occurrenceId>:<actionId>` (`workflowOutputId`).
++ *   errors        the builder's codes unchanged (`empty-text`, `no-skill`, `unknown-skill`, `invalid`); a plan step
++ *                 whose captured context is missing or of another week than the input day fails `context-stale`
++ *                 (fail-fast in the coordinator: earlier outputs kept, later steps skipped).
++ *   records       the builder's record as is; one outside the draft allowlist (e.g. a template that expands past
++ *                 the output text bound) fails the step `invalid` — never truncated, never widened.
++ *
++ * Pure: no storage, no network, no wall clock. Parity holds only for identical builder/catalog pins (release gate:
++ * planning/collaboration/dt7b-candidate/7b2-builder-pins.sha256); no cross-version equivalence is claimed.
++ */
++
++import { buildOutput, type PlanContext } from "@/lib/workflows";
++import { weekKey } from "@/lib/streak";
++import type { WorkflowAction, WorkflowInput } from "@/lib/domain";
++import type { StepBuilder } from "./workflowCoordinator";
++import { outputIdOf, validOutput } from "./workflowProtocol";
++
++export const runStep: StepBuilder = ({ body, idx, action, prior }) => {
++  const pc = body.plannerContext;
++  if (action.kind === "plan" && (!pc || pc.targetWeek !== weekKey(body.input.day)))
++    return { error: "context-stale" };
++  // Earlier plan outputs of this occurrence only, in action order (the builder's planner sees the rows before it).
++  const folded = body.snapshot.actions.slice(0, idx).flatMap((a) => {
++    const o = prior.find(
++      (p) =>
++        p.actionId === a.id &&
++        p.kind === "plan" &&
++        p.outputId === outputIdOf(body.occurrenceId, a.id),
++    );
++    return a.kind === "plan" && o ? [o.record] : [];
++  });
++  // Idea and post steps never read the planner (a body without a plan step carries no context).
++  const ctx = {
++    completions: pc ? pc.completions : [],
++    planItems: [...(pc ? pc.planItems : []), ...folded],
++    settings: pc ? { gear: pc.settings.gear, davinciEdition: pc.settings.davinciEdition } : {},
++  } as unknown as PlanContext;
++  const out = buildOutput(
++    body.occurrenceId,
++    action as unknown as WorkflowAction,
++    body.input as unknown as WorkflowInput,
++    ctx,
++    new Date(body.executionAt),
++  );
++  if (!out.ok) return { error: out.error };
++  return validOutput(out.record, body, idx) ? { record: out.record } : { error: "invalid" };
++};
+diff -ruN a/workers/scout/tsconfig.json b/workers/scout/tsconfig.json
+--- a/workers/scout/tsconfig.json	2026-10-07 21:00:42.855581200 +0300
++++ b/workers/scout/tsconfig.json	2026-10-18 00:38:08.918715700 +0300
+@@ -10,7 +10,9 @@
+     "skipLibCheck": true,
+     "isolatedModules": true,
+     "esModuleInterop": true,
+-    "forceConsistentCasingInFileNames": true
++    "forceConsistentCasingInFileNames": true,
++    "resolveJsonModule": true,
++    "paths": { "@/*": ["../../*"] }
+   },
+   "include": ["src/**/*.ts", "vitest.config.ts"]
+ }
+diff -ruN a/workers/scout/vitest.config.ts b/workers/scout/vitest.config.ts
+--- a/workers/scout/vitest.config.ts	2026-10-07 21:00:42.855581200 +0300
++++ b/workers/scout/vitest.config.ts	2026-10-18 00:38:11.929813200 +0300
+@@ -1,7 +1,10 @@
++import { fileURLToPath } from "node:url";
+ import { defineConfig } from "vitest/config";
+ 
+ // Plain Node unit tests: the handler is called directly with a fake env and a mocked `fetch`.
++// DT-7B-2: `@/…` resolves to the repo root, as in the Worker tsconfig `paths` (the shared draft builders).
+ export default defineConfig({
++  resolve: { alias: { "@": fileURLToPath(new URL("../..", import.meta.url)) } },
+   test: {
+     environment: "node",
+     include: ["src/**/*.test.ts"],

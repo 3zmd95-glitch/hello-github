@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { freshState } from "./helpers";
+import { freshState, seedState } from "./helpers";
 
 test("the week plan renders within budget, ticks an item, and opens the skill sheet", async ({
   page,
@@ -133,4 +133,96 @@ test("manual edits: remove an item, add one from the backlog, keep both over a r
   await expect(page.getByTestId("plan-by-me")).toHaveCount(0);
   await expect(page.getByTestId("plan-edited")).toHaveCount(0);
   expect(Number(await budget.getAttribute("data-minutes"))).toBe(minutes0);
+});
+
+/** Saturday (Riyadh) that starts the week of `date`, as a day key. */
+function saturdayOf(date: Date): string {
+  const key = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh" }).format(date);
+  const day = new Date(`${key}T00:00:00Z`);
+  day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 1) % 7));
+  return day.toISOString().slice(0, 10);
+}
+
+test("a workflow run's planner link opens the run's own (previous) week, with a way back (DT-4)", async ({
+  page,
+}) => {
+  const thisWeek = saturdayOf(new Date());
+  const prior = new Date(`${thisWeek}T00:00:00Z`);
+  prior.setUTCDate(prior.getUTCDate() - 7);
+  const priorWeek = prior.toISOString().slice(0, 10);
+  const at = `${priorWeek}T09:00:00.000Z`;
+  const action = {
+    id: "q1",
+    kind: "plan",
+    quest: "produce",
+    skillId: "smart-bins-keywords",
+    minutes: 30,
+    day: 3,
+  };
+  const workflow = {
+    id: "wf-a",
+    name: { ar: "يومي", en: "Daily" },
+    trigger: { kind: "manual" },
+    actions: [action],
+    enabled: true,
+    revision: 1,
+    commitId: "wf-a-1",
+    createdAt: at,
+    updatedAt: at,
+  };
+  await seedState(page, "/social/workflows/#w=wf-a", {
+    workflows: [workflow],
+    workflowRuns: [
+      {
+        id: "run-1",
+        workflowId: "wf-a",
+        kind: "manual",
+        status: "done",
+        attempt: 1,
+        commitId: "run-1-done",
+        startedAt: at,
+        updatedAt: at,
+        finishedAt: at,
+        snapshot: {
+          workflow,
+          input: {
+            title: { ar: "", en: "" },
+            summary: { ar: "", en: "" },
+            slug: "",
+            lang: "ar",
+            day: priorWeek,
+          },
+        },
+        steps: [
+          { actionId: "q1", status: "done", outputKind: "plan", outputId: "wf:run-1:q1", at },
+        ],
+      },
+    ],
+    planItems: [
+      {
+        id: "wf:run-1:q1",
+        week: priorWeek,
+        day: 3,
+        skillId: "smart-bins-keywords",
+        quest: "produce",
+        minutes: 30,
+        by: "me",
+      },
+    ],
+  });
+  await page.locator('[data-testid="workflows-output-link"][data-kind="plan"]').click();
+  await expect(page).toHaveURL(new RegExp(`/planner/#week=${priorWeek}$`));
+  await expect(page.getByTestId("planner-screen")).toHaveAttribute("data-week", priorWeek);
+  await expect(page.getByTestId("plan-week-viewing")).toBeVisible();
+  const row = page.locator('[data-testid="plan-item"][data-id="wf:run-1:q1"]');
+  await expect(row).toHaveAttribute("data-manual", "true");
+  await expect(row.getByTestId("plan-by-me")).toBeVisible();
+
+  await page.getByTestId("plan-week-return").click();
+  await expect(page.getByTestId("plan-week-viewing")).toHaveCount(0);
+  await expect(page.getByTestId("planner-screen")).toHaveAttribute("data-week", thisWeek);
+  await expect(row).toHaveCount(0);
+  await page.goto("/planner/");
+  await expect(page.getByTestId("planner-screen")).toHaveAttribute("data-week", thisWeek);
+  await expect(page.getByTestId("plan-week-viewing")).toHaveCount(0);
 });

@@ -66,6 +66,41 @@ export function genreQuery(genre: Genre, lang: Lang, topic?: string): string {
   return squash(base ? `${base} ${main}` : main);
 }
 
+// 13 Oct audit: the broad first query collides on these (Black Coffee the musician, survival/lifehack titles, decant ads).
+const NATIVE_SPECIFIC_GENRES = ["camping", "perfume"];
+const NATIVE_PREVIOUS_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
+  coffee: ["coffee edit", "cafe cinematic b-roll"],
+  camping: ["camping edit"],
+  perfume: ["perfume edit"],
+};
+
+/** Native-only defaults; keyword search retains the original genre query. */
+export function nativeCategoryQuery(genre: Genre): string {
+  // Verified in native Instagram: the longer cafe/b-roll phrase returned no results.
+  if (genre.id === "coffee") return "coffee cinematic";
+  const specific = NATIVE_SPECIFIC_GENRES.includes(genre.id)
+    ? squash(genre.queries.en[1] ?? "")
+    : "";
+  return specific || genre.queries.en[0];
+}
+
+/** Only exact, uniform former built-ins migrate; custom, mixed and partial searches survive. */
+export function isLegacyNativeCategoryQuery(
+  genre: Genre,
+  queries: Readonly<Partial<Record<"ig" | "tt" | "yt", string>>>,
+): boolean {
+  if (Object.keys(queries).length !== 3) return false;
+  return (
+    NATIVE_PREVIOUS_DEFAULTS[genre.id]?.some(
+      (query) =>
+        query !== nativeCategoryQuery(genre) &&
+        queries.ig === query &&
+        queries.tt === query &&
+        queries.yt === query,
+    ) ?? false
+  );
+}
+
 /** The genre's Instagram hashtag slug (no "#"), when it has one (custom genres have none). */
 export function genreHashtag(genre: Genre): string | undefined {
   return genre.hashtags[0];

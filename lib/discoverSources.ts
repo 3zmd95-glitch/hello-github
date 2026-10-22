@@ -43,6 +43,28 @@ export const TikTokSourceSchema = z.object({
       );
     })
     .optional(),
+  music: z
+    .object({
+      title: z.string().min(1).max(500),
+      artist: z.string().max(200).optional(),
+      url: z
+        .string()
+        .url()
+        .refine((value) => {
+          const u = new URL(value);
+          return (
+            u.protocol === "https:" &&
+            u.hostname === "www.tiktok.com" &&
+            !u.port &&
+            !u.username &&
+            !u.password &&
+            !u.search &&
+            /^\/music\/[^/]+-\d{1,25}$/.test(u.pathname)
+          );
+        }),
+      original: z.literal(true).optional(),
+    })
+    .optional(),
 });
 
 export async function localTikTokSource(
@@ -118,6 +140,7 @@ export function applyTikTokEvidence(item: DiscoverItem, source: TikTokSource | n
       ...(source.likes !== undefined ? { likes: source.likes } : {}),
       ...(source.views !== undefined ? { views: source.views } : {}),
       ...(source.published ? { published: source.published } : {}),
+      ...(source.music ? { sound: { ...source.music, platform: "tt" as const } } : {}),
     },
   };
 }
@@ -169,6 +192,7 @@ export function applyInstagramEvidence(
       author: source.author,
       ...(published ? { published } : {}),
       ...(source.likes !== undefined ? { likes: source.likes } : {}),
+      ...(source.audio?.title ? { sound: { ...source.audio, platform: "ig" as const } } : {}),
     },
   };
 }

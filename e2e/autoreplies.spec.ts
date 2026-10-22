@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { freshState } from "./helpers";
+import { freshState, seedState } from "./helpers";
 
 // 💬 Auto replies: "Allow auto-replies" in Settings, the builder, the tester, sends/clicks, on/off and delete,
 // against a fake Scout Worker at https://scout.test stubbed with page.route (same pattern as autopost.spec.ts).
@@ -684,4 +684,100 @@ test("desktop: 💬 Auto replies is in the Social sidebar", async ({ page, isMob
   await link.click();
   await expect(page).toHaveURL(/\/social\/replies\/$/);
   await expect(page.getByTestId("autoreplies-screen")).toBeVisible();
+});
+
+// DT-6B-2C-2-R1: log entries as the real Worker writes them (pollReplies → publicDoc) when a DM was deliberately not
+// sent: the message was already answered, the person took the chat over, or the sender could not be proven.
+const SKIPPED_LOG = [
+  ["d0", "already_claimed", "2026-09-29T09:05:00.000Z"],
+  ["d1", "takeover", "2026-09-29T09:04:00.000Z"],
+  ["new", "unavailable", "2026-09-29T09:03:00.000Z"],
+].map(([messageId, detail, at]) => ({
+  at,
+  kind: "message",
+  automationId: "cam",
+  messageId,
+  ...(messageId === "new" ? {} : { username: "user0" }),
+  text: "كاميرا",
+  publicReply: "skipped",
+  dm: "skipped",
+  detail,
+}));
+
+test("a skipped DM is its own neutral log outcome; the list, settings and Check now still work (EN desktop, AR phone)", async ({
+  page,
+  isMobile,
+}) => {
+  const lang = isMobile ? "ar" : "en";
+  const fake = await stubWorker(page);
+  fake.status.instagram = { ...fake.status.instagram, canReply: true };
+  fake.automations.set("cam", {
+    id: "cam",
+    enabled: true,
+    postId: null,
+    keywords: ["كاميرا"],
+    match: "contains",
+    trigger: "message",
+    publicReplies: [],
+    followButton: false,
+    dmText: "أصور بالآيفون",
+    buttons: [],
+    createdAt: "2026-09-28T09:00:00.000Z",
+    stats: { sends: 0, publicReplies: 0, failures: 0, clicks: 0 },
+  });
+  fake.extra = {
+    log: [
+      ...SKIPPED_LOG,
+      {
+        at: "2026-09-29T09:02:00.000Z",
+        kind: "message",
+        automationId: "cam",
+        messageId: "d2",
+        username: "sara",
+        text: "كاميرا",
+        publicReply: "skipped",
+        dm: "failed",
+        error: "upstream",
+        detail: "unknown-delivery",
+      },
+    ],
+  };
+  await seedState(page, "/social/replies/", {
+    settings: { lang, apiKeys: { scoutUrl: WORKER, scoutToken: TOKEN } },
+  });
+
+  // The list reads the document with skipped entries.
+  await expect(page.locator('[data-testid="autoreply-row"]:visible')).toHaveCount(1);
+  await page.getByTestId("autoreplies-log").locator("summary").click();
+  const rows = page.getByTestId("autoreplies-log-row");
+  await expect(rows).toHaveCount(4);
+  const skipped = lang === "en" ? "DM skipped" : "تخطّينا الخاص";
+  const failed = lang === "en" ? "DM failed" : "الخاص ما راح";
+  for (const [i, detail] of ["already_claimed", "takeover", "unavailable"].entries()) {
+    const row = rows.nth(i);
+    await expect(row).toHaveAttribute("data-dm", "skipped");
+    const status = row.locator("> div").nth(1);
+    await expect(status).toContainText(skipped);
+    await expect(status).toContainText(detail);
+    await expect(status).not.toContainText(failed);
+    await expect(status).toHaveClass(/text-muted/);
+    await expect(status).not.toHaveClass(/text-danger/);
+  }
+  await expect(rows.nth(3)).toHaveAttribute("data-dm", "failed");
+  await expect(rows.nth(3).locator("> div").nth(1)).toHaveClass(/text-danger/);
+
+  // "Check now" and the settings answer with that document too.
+  await page.getByTestId("autoreplies-check").click();
+  await expect.poll(() => fake.polls).toBe(1);
+  await expect(page.getByTestId("toast")).toHaveText(
+    lang === "en"
+      ? "Check requested; replies go out within a minute."
+      : "طلبنا فحص؛ الردود تطلع خلال دقيقة.",
+  );
+  await page.getByTestId("autoreplies-pause").click();
+  await expect.poll(() => fake.settings.at(-1)).toEqual({ paused: true });
+  await expect(page.getByTestId("autoreplies-can-reply")).toHaveAttribute("data-status", "paused");
+  await expect(rows).toHaveCount(4);
+  await expect(page.getByTestId("autoreplies-error")).toHaveCount(0);
+  expect(await fitsViewport(page)).toBe(true);
 });

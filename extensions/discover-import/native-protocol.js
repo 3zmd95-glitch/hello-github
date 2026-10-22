@@ -36,7 +36,9 @@ export function parseNativeRequest(value) {
   }
   if (
     value.type !== "search" ||
-    keys !== "queries,requestId,type,version" ||
+    // `deep` (the explicit Deep search button) is optional; absent means a quiet search.
+    (keys !== "queries,requestId,type,version" &&
+      !(keys === "deep,queries,requestId,type,version" && typeof value.deep === "boolean")) ||
     !identifier(value.requestId) ||
     !plainObject(value.queries)
   )
@@ -59,6 +61,8 @@ export function parseNativeRequest(value) {
     type: "search",
     requestId: value.requestId,
     queries: Object.fromEntries(queries.map(([key, query]) => [key, query.trim()])),
+    // undefined (absent) or the validated boolean; the helper treats anything but true as quiet.
+    deep: value.deep,
   };
 }
 

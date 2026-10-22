@@ -94,6 +94,71 @@ it("reports a rendered login challenge and does not scroll or collect", () => {
   expect(scrollBy).not.toHaveBeenCalled();
 });
 
+const ttErrorSurface = (attrs = "") =>
+  `<div ${attrs}><h2>Something went wrong</h2><p>Sorry, something wrong with the server, please try again.</p><button>Try again</button></div>`;
+const ttCard = (id: string, caption: string) =>
+  `<div data-e2e="search_top-item"><a href="/@editor/video/${id}"><img src="https://cdn.example/${id}.jpg" alt="" /></a><h3 data-e2e="search-card-video-caption">${caption}</h3></div>`;
+
+it("reports TikTok's rendered server-error screen as a failed read, not an empty search", () => {
+  source(ttSearch);
+  fixture(`<nav><a href="/foryou">For You</a></nav><main>${ttErrorSurface()}</main>`);
+  expect(collectNativeDiscoverCards("tt", ttSearch, 30, true)).toEqual({
+    status: "error",
+    results: [],
+    error: "search-service-error",
+  });
+  expect(scrollBy).not.toHaveBeenCalled();
+});
+
+it("does not treat hidden error markup, card captions, no-results or loading pages as a source error", () => {
+  source(ttSearch);
+  fixture(`<main>${ttErrorSurface('style="display:none"')}</main>`);
+  expect(collectNativeDiscoverCards("tt", ttSearch)).toMatchObject({
+    status: "empty",
+    results: [],
+  });
+  fixture(`<main>${ttErrorSurface("hidden")}</main>`);
+  expect(collectNativeDiscoverCards("tt", ttSearch).status).toBe("empty");
+  // An ordinary caption saying the same words is a card, never an error.
+  fixture(
+    `<main>${ttCard("7000000000000000001", "Something went wrong with my edit")}<button>Try again</button></main>`,
+  );
+  const grid = collectNativeDiscoverCards("tt", ttSearch);
+  expect(grid.status).toBe("done");
+  expect(grid.results).toMatchObject([
+    {
+      url: "https://www.tiktok.com/@editor/video/7000000000000000001",
+      title: "Something went wrong with my edit",
+    },
+  ]);
+  // Even the error markup beside real cards leaves the cards collected.
+  fixture(`<main>${ttErrorSurface()}${ttCard("7000000000000000002", "Real caption")}</main>`);
+  expect(collectNativeDiscoverCards("tt", ttSearch).status).toBe("done");
+  fixture("<main><h2>No results found</h2><p>Try different keywords.</p></main>");
+  expect(collectNativeDiscoverCards("tt", ttSearch)).toMatchObject({
+    status: "empty",
+    results: [],
+  });
+  fixture("<main><div>Loading</div></main>");
+  expect(collectNativeDiscoverCards("tt", ttSearch)).toMatchObject({
+    status: "empty",
+    results: [],
+  });
+  // A heading without a retry control is not a strong error signal either.
+  fixture("<main><h2>Something went wrong</h2></main>");
+  expect(collectNativeDiscoverCards("tt", ttSearch).status).toBe("empty");
+});
+
+it("keeps login/challenge ahead of the source-error check", () => {
+  source(ttSearch);
+  fixture(`<main>${ttErrorSurface()}<input type="password" /></main>`);
+  expect(collectNativeDiscoverCards("tt", ttSearch)).toEqual({
+    status: "needs-attention",
+    results: [],
+    error: "login-or-challenge",
+  });
+});
+
 it("caps initial collection at30, deduplicates tracking variants and scrolls only on explicit more", () => {
   fixture(
     Array.from(
@@ -158,6 +223,92 @@ it("deduplicates alternate public paths for the same Instagram post", () => {
   expect(result.results.map((item) => item.url)).toEqual([
     "https://www.instagram.com/reel/New123/",
   ]);
+  expect(result.order).toEqual(["Same123", "New123"]);
+});
+
+it("recovers a late-hydrated card between known cards, returns DOM order and ends on the last card", () => {
+  fixture(
+    ["PostA", "PostB", "PostC", "PostD"].map((id) => `<a href="/reel/${id}/">${id}</a>`).join(""),
+  );
+  const progress = {
+    knownUrls: ["https://www.instagram.com/reel/PostA/", "https://www.instagram.com/reel/PostC/"],
+    lastUrl: "https://www.instagram.com/reel/PostC/",
+  };
+  const result = collectNativeDiscoverCards("ig", igSearch, 30, false, progress);
+  expect(result.results.map((item) => item.url)).toEqual([
+    "https://www.instagram.com/reel/PostB/",
+    "https://www.instagram.com/reel/PostD/",
+  ]);
+  expect(result.lastUrl).toBe("https://www.instagram.com/reel/PostD/");
+  expect(result.order).toEqual(["PostA", "PostB", "PostC", "PostD"]);
+  expect(scrollBy).not.toHaveBeenCalled();
+  collectNativeDiscoverCards("ig", igSearch, 30, true, progress);
+  expect(scrollBy).toHaveBeenCalledTimes(1);
+});
+
+const reel = (id: string) => `https://www.instagram.com/reel/${id}/`;
+const reelLinks = (ids: string[]) => ids.map((id) => `<a href="/reel/${id}/">${id}</a>`).join("");
+const urls = (result: { results: { url: string }[] }) => result.results.map((item) => item.url);
+
+it("recovers a never-trimmed late first card when the helper passed every read card", () => {
+  fixture(reelLinks(["LateFirst", "PostA", "PostC", "PostD"]));
+  const known = { knownUrls: [reel("PostA"), reel("PostC")], lastUrl: reel("PostC") };
+  const result = collectNativeDiscoverCards("ig", igSearch, 30, false, {
+    ...known,
+    knownTotal: 2,
+    omitted: 0,
+  });
+  expect(urls(result)).toEqual([reel("LateFirst"), reel("PostD")]);
+  expect(result.lastUrl).toBe(reel("PostD"));
+  expect(result.order).toEqual(["LateFirst", "PostA", "PostC", "PostD"]);
+  // Trimmed (or unknown) bookkeeping keeps skipping the possibly old prefix.
+  for (const context of [{ knownTotal: 3, omitted: 0 }, { knownTotal: 2, omitted: 1 }, {}]) {
+    const trimmed = collectNativeDiscoverCards("ig", igSearch, 30, false, {
+      ...known,
+      ...context,
+    });
+    expect(urls(trimmed)).toEqual([reel("PostD")]);
+    expect(trimmed.lastUrl).toBe(reel("PostD"));
+  }
+  // Virtualization with complete bookkeeping still reads from the top of the grid.
+  fixture(reelLinks(["PostE", "PostF"]));
+  expect(
+    urls(
+      collectNativeDiscoverCards("ig", igSearch, 30, false, {
+        ...known,
+        knownTotal: 2,
+        omitted: 0,
+      }),
+    ),
+  ).toEqual([reel("PostE"), reel("PostF")]);
+});
+
+it("returns ordering evidence around the known and new cards after a long rendered prefix", () => {
+  const old = Array.from({ length: 600 }, (_, index) => `Old${index}`);
+  fixture(reelLinks([...old, "PostA", "LateB", "PostC", "PostD"]));
+  const result = collectNativeDiscoverCards("ig", igSearch, 30, false, {
+    knownUrls: [reel("PostA"), reel("PostC")],
+    lastUrl: reel("PostC"),
+    knownTotal: 302,
+    omitted: 600,
+  });
+  expect(urls(result)).toEqual([reel("LateB"), reel("PostD")]);
+  expect(result.order).toEqual([...old.slice(590), "PostA", "LateB", "PostC", "PostD"]);
+});
+
+it("bounds ordering evidence to600 keys on a1,000-card grid, keeping both ends of the span", () => {
+  const ids = Array.from({ length: 1000 }, (_, index) => `Post${index}`);
+  fixture(reelLinks(ids));
+  const result = collectNativeDiscoverCards("ig", igSearch, 30, false, {
+    knownUrls: ids.slice(0, 600).map(reel),
+    lastUrl: reel("Post599"),
+    knownTotal: 600,
+    omitted: 0,
+  });
+  expect(urls(result)).toEqual(ids.slice(600, 630).map(reel));
+  expect(result.order).toHaveLength(600);
+  expect(result.order).toEqual([...ids.slice(0, 300), ...ids.slice(340, 640)]);
+  expect(collectNativeDiscoverCards("ig", igSearch, 90).order!.length).toBeLessThanOrEqual(600);
 });
 
 function scrollDimensions(id: string, height: number, contentHeight: number) {
@@ -308,4 +459,60 @@ it("excludes unrelated container text and rejects credentials, private links, cr
     { title: "Second" },
   ]);
   expect(collectNativeDiscoverCards("ig", igSearch).results[0]).not.toHaveProperty("thumb");
+});
+
+const igNoResults = (attrs = "") =>
+  `<div ${attrs}><span>No results</span><span>We couldn’t find anything for "clone effect davinci resolve".</span></div>`;
+const noResults = { status: "empty", results: [], order: [], lastUrl: null, noResults: true };
+
+it("reports each platform's rendered No results screen without cards as a genuinely empty search", () => {
+  fixture(`<nav><a href="/explore/">Explore</a></nav><main>${igNoResults()}</main>`);
+  expect(collectNativeDiscoverCards("ig", igSearch, 30, true)).toEqual(noResults);
+  source(ttSearch);
+  fixture("<main><h2>No results found</h2><p>Try different keywords.</p></main>");
+  expect(collectNativeDiscoverCards("tt", ttSearch)).toEqual(noResults);
+  fixture("<main><p>Couldn't find this search</p></main>");
+  expect(collectNativeDiscoverCards("tt", ttSearch)).toEqual(noResults);
+  source(ytSearch);
+  fixture(
+    "<ytd-app><main><div>No results found</div><div>Try different keywords or remove search filters</div></main></ytd-app>",
+  );
+  expect(collectNativeDiscoverCards("yt", ytSearch)).toEqual(noResults);
+});
+
+it("never reads hidden, partial or in-card No results text as a No results screen", () => {
+  fixture(`<main>${igNoResults('style="display:none"')}</main>`);
+  expect(collectNativeDiscoverCards("ig", igSearch)).not.toHaveProperty("noResults");
+  fixture(`<main>${igNoResults("hidden")}</main>`);
+  expect(collectNativeDiscoverCards("ig", igSearch)).not.toHaveProperty("noResults");
+  // Instagram needs both lines; "No results" alone is not its screen.
+  fixture("<main><span>No results</span></main>");
+  expect(collectNativeDiscoverCards("ig", igSearch)).not.toHaveProperty("noResults");
+  // A link saying it is not the page saying it.
+  fixture(`<main><a href="/explore/">${igNoResults()}</a></main>`);
+  expect(collectNativeDiscoverCards("ig", igSearch)).not.toHaveProperty("noResults");
+  // An ordinary caption saying the same words is a card.
+  source(ttSearch);
+  fixture(`<main>${ttCard("7000000000000000003", "no results found with this effect")}</main>`);
+  const grid = collectNativeDiscoverCards("tt", ttSearch);
+  expect(grid).toMatchObject({
+    status: "done",
+    results: [{ title: "no results found with this effect" }],
+  });
+  expect(grid).not.toHaveProperty("noResults");
+});
+
+it("keeps the source-error and login checks ahead of the No results screen", () => {
+  source(ttSearch);
+  fixture(`<main>${ttErrorSurface()}<h2>No results found</h2></main>`);
+  expect(collectNativeDiscoverCards("tt", ttSearch)).toEqual({
+    status: "error",
+    results: [],
+    error: "search-service-error",
+  });
+  fixture('<main><h2>No results found</h2><input type="password" /></main>');
+  expect(collectNativeDiscoverCards("tt", ttSearch)).toMatchObject({
+    status: "needs-attention",
+    error: "login-or-challenge",
+  });
 });

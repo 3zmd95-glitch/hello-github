@@ -192,6 +192,23 @@ export const DEFAULT_AVATAR: Avatar = {
   pants: "navy",
 };
 
+/**
+ * Discover preferences: "mine" shows only DaVinci Resolve and CapCut content (the owner's editors) and hides
+ * other editing apps; "all" shows everything. Saves from before held `hiddenEditors` (After Effects by
+ * default): an empty list (he had turned hiding off) becomes "all", anything else "mine".
+ */
+export const DiscoverSettingsSchema = z.preprocess(
+  (raw) =>
+    raw && typeof raw === "object" && !("editorScope" in raw) && "hiddenEditors" in raw
+      ? {
+          editorScope:
+            Array.isArray(raw.hiddenEditors) && raw.hiddenEditors.length === 0 ? "all" : "mine",
+        }
+      : raw,
+  z.object({ editorScope: z.enum(["mine", "all"]).default("mine") }),
+);
+export type DiscoverSettings = z.infer<typeof DiscoverSettingsSchema>;
+
 export const SettingsSchema = z.object({
   lang: LangSchema,
   sound: z.boolean(),
@@ -200,6 +217,7 @@ export const SettingsSchema = z.object({
   davinciEdition: z.enum(["studio", "free"]),
   apiKeys: ApiKeysSchema.default({}),
   avatar: AvatarSchema.default(DEFAULT_AVATAR),
+  discover: DiscoverSettingsSchema.default({ editorScope: "mine" }),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -470,6 +488,8 @@ export const AutoPostSchema = z.object({
   tiktokCompletedAt: z.string().optional(),
   tiktokPermalink: z.string().optional(),
   sentAt: z.string().optional(),
+  /** DT-5-R2: digest of the job body this browser last sent (`payloadHash`), recorded with `sentAt`. */
+  sentHash: z.string().optional(),
   results: z.partialRecord(PlatformSchema, AutoPostResultSchema).default({}),
   /** When the results were last read from the Worker. */
   checkedAt: z.string().optional(),
@@ -551,7 +571,8 @@ export const AutoReplyLogSchema = z.object({
   username: z.string().optional(),
   text: z.string().default(""),
   publicReply: z.enum(["sent", "skipped", "failed"]),
-  dm: z.enum(["sent", "failed"]),
+  /** "skipped": deliberately not sent (already answered, the chat is held by a person, or the sender is unproven). */
+  dm: z.enum(["sent", "failed", "skipped"]),
   error: z.string().optional(),
   detail: z.string().optional(),
 });
@@ -620,7 +641,7 @@ export type Post = z.infer<typeof PostSchema>;
 export type PostInput = z.input<typeof PostSchema>;
 
 /** Where an idea came from: an audience ask, a trend, a skill without a video, or the owner's own head. */
-export const IDEA_SOURCES = ["audience", "trend", "skill", "me"] as const;
+export const IDEA_SOURCES = ["audience", "trend", "skill", "me", "workflow"] as const;
 export const IdeaSourceSchema = z.enum(IDEA_SOURCES);
 export type IdeaSource = z.infer<typeof IdeaSourceSchema>;
 
@@ -978,3 +999,250 @@ export const NoteSchema = z.object({
   updatedAt: z.string(),
 });
 export type Note = z.infer<typeof NoteSchema>;
+
+/* ---------- 🌐 Website CMS articles (packet DT-3, planning/tools/33-website-cms.md) ---------- */
+
+/** Honest local states only: nothing here is public until a website is connected. */
+export const ARTICLE_STATUSES = ["draft", "ready", "archived"] as const;
+export const ArticleStatusSchema = z.enum(ARTICLE_STATUSES);
+export type ArticleStatus = z.infer<typeof ArticleStatusSchema>;
+
+/** Longest body kept per language: guards localStorage. */
+export const ARTICLE_MAX_CHARS = 60_000;
+
+/** One bilingual article. Empty fields are allowed while drafting; lib/articles articleIssues gates "ready". */
+export const ArticleSchema = z.object({
+  id: z.string().min(1),
+  title: z.object({ ar: z.string().max(200), en: z.string().max(200) }),
+  summary: z
+    .object({ ar: z.string().max(400), en: z.string().max(400) })
+    .default({ ar: "", en: "" }),
+  body: z.object({ ar: z.string().max(ARTICLE_MAX_CHARS), en: z.string().max(ARTICLE_MAX_CHARS) }),
+  /** ASCII slug; "" while drafting. */
+  slug: z.string().max(80),
+  category: z.string().max(40).default(""),
+  tags: z.array(z.string().min(1).max(30)).max(12).default([]),
+  /** https only (validated by articleIssues), never a device `img:<id>`. */
+  coverUrl: z.string().max(500).default(""),
+  skillId: z.string().min(1).optional(),
+  status: ArticleStatusSchema.default("draft"),
+  /** Display/ordering counter, bumped by every committed change. */
+  revision: z.number().int().min(1).default(1),
+  /** Opaque identity of the last commit (fresh on every content or status change): stale saves compare it. */
+  commitId: z.string().min(1),
+  createdAt: z.iso.datetime({ offset: true }),
+  updatedAt: z.iso.datetime({ offset: true }),
+  archivedAt: z.iso.datetime({ offset: true }).optional(),
+});
+export type Article = z.infer<typeof ArticleSchema>;
+
+/* ---------- ⚙️ Workflows (packet DT-4, planning/tools/34-workflows.md) ---------- */
+
+/** Bilingual template text; placeholders {title} {summary} {slug} {date} (lib/workflows). */
+export const WorkflowTextSchema = z.object({ ar: z.string().max(500), en: z.string().max(500) });
+export type WorkflowText = z.infer<typeof WorkflowTextSchema>;
+
+/** What starts a run: the owner's Run now, or an article's successful draft → ready commit. */
+export const WorkflowTriggerSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("manual") }),
+  z.object({ kind: z.literal("article-ready") }),
+]);
+export type WorkflowTrigger = z.infer<typeof WorkflowTriggerSchema>;
+
+/** One step: a local idea, a calendar post (stage "idea"), or a planner row. Nothing is posted or sent. */
+export const WorkflowActionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    id: z.string().min(1),
+    kind: z.literal("idea"),
+    text: WorkflowTextSchema,
+    platform: PlatformSchema.optional(),
+  }),
+  z.object({
+    id: z.string().min(1),
+    kind: z.literal("post"),
+    platform: PlatformSchema,
+    title: WorkflowTextSchema,
+    caption: WorkflowTextSchema,
+    offsetDays: z.number().int().min(0).max(30).default(1),
+  }),
+  z.object({
+    id: z.string().min(1),
+    kind: z.literal("plan"),
+    quest: QuestTypeSchema,
+    /** Else the article's skill. */
+    skillId: z.string().min(1).optional(),
+    minutes: z.number().int().min(5).max(120).default(30),
+    /** 0 = Saturday … 6 = Friday, or the least loaded day of the overlaid week. */
+    day: z.union([z.number().int().min(0).max(6), z.literal("lightest")]).default("lightest"),
+  }),
+]);
+export type WorkflowAction = z.infer<typeof WorkflowActionSchema>;
+export type WorkflowActionKind = WorkflowAction["kind"];
+
+export const WorkflowSchema = z.object({
+  id: z.string().min(1),
+  name: z.object({ ar: z.string().max(80), en: z.string().max(80) }),
+  trigger: WorkflowTriggerSchema,
+  /** 1–5 to run; a draft may be saved with issues (lib/workflows workflowIssues). */
+  actions: z
+    .array(WorkflowActionSchema)
+    .max(5)
+    // Output ids are wf:<runId>:<actionId>: two actions with one id would collide (Amendment B).
+    .refine((list) => new Set(list.map((a) => a.id)).size === list.length, "action-duplicate-id"),
+  enabled: z.boolean().default(true),
+  revision: z.number().int().min(1).default(1),
+  /** Fresh on every committed change: stale saves compare it. */
+  commitId: z.string().min(1),
+  createdAt: z.iso.datetime({ offset: true }),
+  updatedAt: z.iso.datetime({ offset: true }),
+});
+export type Workflow = z.infer<typeof WorkflowSchema>;
+
+/** What a run captured when it was queued: later edits to the workflow or the article never change it. */
+export const WorkflowInputSchema = z.object({
+  articleId: z.string().min(1).optional(),
+  title: z.object({ ar: z.string(), en: z.string() }),
+  summary: z.object({ ar: z.string(), en: z.string() }),
+  slug: z.string(),
+  skillId: z.string().min(1).optional(),
+  lang: LangSchema,
+  day: z.string().regex(DAY_KEY_RE),
+});
+export type WorkflowInput = z.infer<typeof WorkflowInputSchema>;
+
+/** One step's receipt; `outputId` is the deterministic `wf:<runId>:<actionId>`. */
+export const WorkflowStepSchema = z.object({
+  actionId: z.string().min(1),
+  status: z.enum(["pending", "done", "failed", "skipped"]),
+  outputKind: z.enum(["idea", "post", "plan"]).optional(),
+  outputId: z.string().min(1).optional(),
+  error: z.string().max(300).optional(),
+  at: z.iso.datetime({ offset: true }).optional(),
+});
+export type WorkflowStep = z.infer<typeof WorkflowStepSchema>;
+
+export const WorkflowRunSchema = z.object({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  kind: z.enum(["manual", "article-ready"]),
+  status: z.enum(["queued", "running", "done", "partial", "failed"]),
+  attempt: z.number().int().min(1).default(1),
+  /** Fresh on every run mutation (queue, each step, retry): the read-back proves this exact receipt. */
+  commitId: z.string().min(1),
+  startedAt: z.iso.datetime({ offset: true }),
+  updatedAt: z.iso.datetime({ offset: true }),
+  finishedAt: z.iso.datetime({ offset: true }).optional(),
+  /** The workflow as captured; duplicate action ids are not refused here (one tampered run must not make the
+   whole save unreadable): the executor fails such a run before any output. */
+  snapshot: z.object({
+    workflow: WorkflowSchema.extend({ actions: z.array(WorkflowActionSchema).max(5) }),
+    input: WorkflowInputSchema,
+  }),
+  steps: z.array(WorkflowStepSchema),
+});
+export type WorkflowRun = z.infer<typeof WorkflowRunSchema>;
+export type WorkflowRunStatus = WorkflowRun["status"];
+
+/* ---------- 💼 Business Kit (packet DT-5, planning/tools/35-business-kit.md) ---------- */
+
+/** Bilingual owner text with a length cap; empty while drafting. */
+const Bi = (max: number) => z.object({ ar: z.string().max(max), en: z.string().max(max) });
+const EMPTY_BI = { ar: "", en: "" };
+
+export const KIT_DELIVERABLES = ["post", "story", "reel", "video"] as const;
+export type KitDeliverable = (typeof KIT_DELIVERABLES)[number];
+
+/**
+ * The owner's media kit: their own words, services, rate card and past work. Metrics are never stored here: they are
+ * read from Growth with their provenance (lib/businessKit kitMetrics). The estimator holds the owner's assumptions
+ * only; it is never exported. Local only until the website is connected (DT-8).
+ */
+export const BusinessKitSchema = z.object({
+  tagline: Bi(120).default(EMPTY_BI),
+  bio: Bi(600).default(EMPTY_BI),
+  contact: z
+    .object({
+      email: z.string().max(120).default(""),
+      website: z.string().max(200).default(""),
+      location: Bi(80).default(EMPTY_BI),
+    })
+    .default({ email: "", website: "", location: EMPTY_BI }),
+  services: z
+    .array(z.object({ id: z.string().min(1), name: Bi(80), desc: Bi(240).default(EMPTY_BI) }))
+    .max(8)
+    .default([]),
+  rateCard: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        deliverable: Bi(80),
+        platform: PlatformSchema.optional(),
+        /** The owner's own price; null = "ask me". */
+        priceSar: z.number().int().min(0).nullable().default(null),
+        note: Bi(160).default(EMPTY_BI),
+      }),
+    )
+    .max(12)
+    .default([]),
+  pastWork: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        title: Bi(120),
+        url: z.string().max(300).default(""),
+        platform: PlatformSchema.optional(),
+        day: z.string().regex(DAY_KEY_RE).optional(),
+      }),
+    )
+    .max(12)
+    .default([]),
+  /** Platforms the kit shows; empty = every platform with Growth data. */
+  featuredPlatforms: z.array(PlatformSchema).default([]),
+  /** The owner's own pricing assumptions (never a market rate, never exported). */
+  estimator: z
+    .object({
+      sarPerThousandFollowers: z.number().min(0).default(15),
+      engagementMultiplier: z.number().min(0).default(1),
+      deliverable: z
+        .record(z.enum(KIT_DELIVERABLES), z.number().min(0))
+        .default({ post: 1, story: 0.5, reel: 1.5, video: 2 }),
+    })
+    .default({
+      sarPerThousandFollowers: 15,
+      engagementMultiplier: 1,
+      deliverable: { post: 1, story: 0.5, reel: 1.5, video: 2 },
+    }),
+  revision: z.number().int().min(1).default(1),
+  /** Fresh on every committed change: stale saves compare it. */
+  commitId: z.string().min(1),
+  updatedAt: z.iso.datetime({ offset: true }),
+});
+export type BusinessKit = z.infer<typeof BusinessKitSchema>;
+
+/** A brand deal's pipeline, in order; `lost` keeps the history (deals are never deleted). */
+export const DEAL_STAGES = [
+  "lead",
+  "talking",
+  "offer",
+  "agreed",
+  "delivered",
+  "paid",
+  "lost",
+] as const;
+export type DealStage = (typeof DEAL_STAGES)[number];
+
+export const BrandDealSchema = z.object({
+  id: z.string().min(1),
+  brand: z.string().trim().min(1).max(120),
+  contact: z.string().max(200).default(""),
+  stage: z.enum(DEAL_STAGES).default("lead"),
+  deliverable: z.string().max(200).default(""),
+  valueSar: z.number().int().min(0).nullable().default(null),
+  notes: z.string().max(1000).default(""),
+  /** DT-5-R1: the owner's editable reply draft (local only, never sent). */
+  replyDraft: z.string().max(2000).default(""),
+  createdAt: z.iso.datetime({ offset: true }),
+  updatedAt: z.iso.datetime({ offset: true }),
+  commitId: z.string().min(1),
+});
+export type BrandDeal = z.infer<typeof BrandDealSchema>;

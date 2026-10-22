@@ -15,8 +15,24 @@ import { handle, type Env } from "./scout";
 import { runTick, TICK_CRON } from "./social/cron";
 import { runScheduled } from "./social/sync";
 
-// Worker entry. Keep this module's exports to the default handler only: workerd treats every named export of
-// the main module as an entrypoint and refuses to start on anything else.
+export { InstagramDmCoordinator } from "./social/instagramDmCoordinator";
+export { InstagramPublicSendCoordinator } from "./social/instagramPublicSendCoordinator";
+export { SendCoordinator } from "./social/sendCoordinator";
+export { ThreadsSendCoordinator } from "./social/threadsSendCoordinator";
+export { WorkflowCoordinator } from "./social/workflowCoordinator";
+
+// Worker entry. Keep this module's exports to the default handler and the five Durable Object classes above: workerd
+// treats every named export of the main module as an entrypoint and refuses to start on anything else (a helper or a
+// constant). A Durable Object class is a legitimate entrypoint; SendCoordinator (social/sendCoordinator.ts, packet
+// DT-6B-2A) is the wrangler.jsonc SEND_COORDINATOR binding's class, proven in workerd by
+// social/sendCoordinator.runtime.test.ts, ThreadsSendCoordinator (social/threadsSendCoordinator.ts, packet
+// DT-6B-2B-1) is the THREADS_SEND_COORDINATOR binding's class, proven by social/threadsSendCoordinator.runtime.test.ts,
+// and InstagramPublicSendCoordinator (social/instagramPublicSendCoordinator.ts, packet DT-6B-2C-1) is the
+// INSTAGRAM_PUBLIC_SEND_COORDINATOR binding's class, proven by social/instagramPublicSendCoordinator.runtime.test.ts,
+// and InstagramDmCoordinator (social/instagramDmCoordinator.ts, packet DT-6B-2C-2) is the INSTAGRAM_DM_COORDINATOR
+// binding's class, proven by social/instagramDmCoordinator.runtime.test.ts, and WorkflowCoordinator
+// (social/workflowCoordinator.ts, packet DT-7B) is the WORKFLOW_COORDINATOR binding's class (local, unactivated),
+// proven by social/workflowCoordinator.runtime.test.ts. Add no other named export here.
 //
 // Claude connector (round 33, planning/tools/13-discover-search-v2.md): only the connector's own paths
 // (`isOAuthPath`: /mcp, /authorize, /token, /register, /.well-known/oauth-*) go through OAuthProvider, and only with

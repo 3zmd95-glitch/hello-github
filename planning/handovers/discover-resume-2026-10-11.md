@@ -1,5 +1,11 @@
 # Discover handover — 11 October 2026
 
+**13 October update:** The latest checkpoint and unfinished infinite-scroll work are
+in [the shared task](../collaboration/current-task.md). The user has assigned Fable 5.1
+planning, Opus 5.5/Sonnet 5.5 implementation and Codex review; follow
+[the collaboration workflow](../collaboration/workflow.md). Older checkpoints below
+remain historical; they do not establish completion of the newer uncommitted changes.
+
 Read this first. Older chronological notes are preserved in [history](discover-resume-2026-10-11-history.md); do not load that entire file unless needed. Detailed design and measured evidence live in planning/tools/24 through50.
 
 ## Objective and constraints

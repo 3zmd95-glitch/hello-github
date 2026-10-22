@@ -1,7 +1,11 @@
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { handle, type Env } from "../scout";
 import { runTick } from "./cron";
 import { toMs } from "./inbox";
+import { instagramSendHandler } from "./inboxSendInstagram";
+import { InstagramDmCoordinator } from "./instagramDmCoordinator";
+import { InstagramPublicSendCoordinator } from "./instagramPublicSendCoordinator";
 import { mergeJob, type JobInput, type PublishJob } from "./publish";
 import { MAX_RETRIES } from "./replyCore";
 import {
@@ -89,8 +93,72 @@ function failingWrites(kv: FakeKV, key: string): void {
   };
 }
 
+function sqliteStorage(db: DatabaseSync) {
+  return {
+    sql: {
+      exec(query: string, ...bindings: (string | number | null)[]) {
+        const st = db.prepare(query);
+        if (/^s*SELECT|RETURNING/i.test(query)) {
+          const rows = st.all(...bindings);
+          return { toArray: () => rows, rowsWritten: 0 };
+        }
+        return { toArray: () => [], rowsWritten: Number(st.run(...bindings).changes) };
+      },
+    },
+    transactionSync<T>(fn: () => T): T {
+      db.exec("BEGIN");
+      try {
+        const v = fn();
+        db.exec("COMMIT");
+        return v;
+      } catch (e) {
+        db.exec("ROLLBACK");
+        throw e;
+      }
+    },
+  };
+}
+
+/**
+ * DT-6B-2C-1: the public reply is claimed in the InstagramPublicSendCoordinator first. Every env gets the real class
+ * over node:sqlite (one database per object name, a new instance per call); `failing` makes calls fail as an outage.
+ * DT-6B-2C-2: the same harness serves the InstagramDmCoordinator (the DM authority) when given that class.
+ */
+function fakeCoordinator(
+  Coordinator: new (ctx: never) => {
+    fetch(r: Request): Promise<Response>;
+  } = InstagramPublicSendCoordinator,
+) {
+  const dbs = new Map<string, DatabaseSync>();
+  const ns = {
+    names: [] as string[],
+    ops: [] as string[],
+    failing: new Set<string>(),
+    idFromName: (name: string) => name,
+    get: (id: string) => ({
+      fetch: async (url: string, init: RequestInit) => {
+        ns.names.push(id);
+        const call = JSON.parse(String(init.body)) as { op: string };
+        ns.ops.push(call.op);
+        if (ns.failing.has(call.op) || ns.failing.has("*")) throw new Error("storage down");
+        if (!dbs.has(id)) dbs.set(id, new DatabaseSync(":memory:"));
+        const c = new Coordinator({
+          storage: sqliteStorage(dbs.get(id)!),
+        } as never);
+        return c.fetch(new Request(url, init));
+      },
+    }),
+  };
+  return ns;
+}
+
 function makeEnv(kv: FakeKV = fakeKV()): Env & { SOCIAL_KV: FakeKV } {
   return {
+    INSTAGRAM_PUBLIC_SEND_COORDINATOR: fakeCoordinator() as unknown as DurableObjectNamespace,
+    // DT-6B-2C-2: rule/default DMs claim the durable DM authority first; without it they fail closed.
+    INSTAGRAM_DM_COORDINATOR: fakeCoordinator(
+      InstagramDmCoordinator,
+    ) as unknown as DurableObjectNamespace,
     SCOUT_TOKEN: TOKEN,
     ALLOWED_ORIGINS: APP,
     SOCIAL_KV: kv,
@@ -220,7 +288,12 @@ function igRoutes(over: Record<string, Handler> = {}, comments = [comment("c1", 
     [`GET ${IG}/m1/comments`]: () => ({ data: comments }),
     [`GET ${IG}/m2/comments`]: () => ({ data: [] }),
     [`POST ${IG}/c1/replies`]: () => ({ id: "r1" }),
-    [`POST ${IG}/17841/messages`]: () => ({ recipient_id: "u1", message_id: "mid1" }),
+    // DT-6B-2C-2: a conversation DM counts as sent only with its own recipient_id; private replies keep "u1".
+    [`POST ${IG}/17841/messages`]: (_u, init) => ({
+      recipient_id:
+        (JSON.parse(String(init?.body)) as { recipient: { id?: string } }).recipient.id ?? "u1",
+      message_id: "mid1",
+    }),
     ...over,
   };
   return { routes, counts };
@@ -264,14 +337,18 @@ const camRule = (over: Partial<AutomationInput> = {}) =>
     buttons: [{ title: "أدواتي", url: "https://3zprod.com/gear" }],
     ...over,
   });
-/** The mocks of a DM poll: /me, the conversations, and the Send API (which records what it got). */
+/**
+ * The mocks of a DM poll: /me, the conversations, and the Send API (which records what it got). DT-6B-2C-2: the Send
+ * API answers the recipient it was sent to (a DM counts as sent only with exactly that recipient_id).
+ */
 function dmRoutes(conversations: unknown[], sent: unknown[] = []): Record<string, Handler> {
   return {
     [`GET ${IG}/me`]: () => ({ user_id: 17841, username: "3z.prod" }),
     [`GET ${IG}/17841/conversations`]: () => ({ data: conversations }),
     [`POST ${IG}/17841/messages`]: (_u, init) => {
-      sent.push(JSON.parse(String(init?.body)));
-      return { recipient_id: "p1", message_id: `out${sent.length}` };
+      const body = JSON.parse(String(init?.body)) as { recipient: { id: string } };
+      sent.push(body);
+      return { recipient_id: body.recipient.id, message_id: `out${sent.length}` };
     },
   };
 }
@@ -1375,13 +1452,14 @@ describe("pollReplies", () => {
       [`POST ${IG}/17841/messages`]: (_u, init) => {
         n += 1;
         const to = JSON.parse(String(init?.body)).recipient;
-        return { recipient_id: to.comment_id ? "igsid-c1" : "igsid-p1", message_id: `out${n}` };
+        // DT-6B-2C-2: a conversation DM is proven only by the conversation's own recipient id (p1).
+        return { recipient_id: to.comment_id ? "igsid-c1" : to.id, message_id: `out${n}` };
       },
     });
     await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
     expect((await stateOf(env)).sent).toEqual({
       out1: { to: "igsid-c1", at: NOW.toISOString() },
-      out2: { to: "igsid-p1", at: NOW.toISOString() },
+      out2: { to: "p1", at: NOW.toISOString() },
     });
   });
 
@@ -1604,7 +1682,8 @@ describe("pollReplies: DMs and story replies", () => {
     expect(next.sent).toEqual(["d8", "d9"]);
   });
 
-  it("a refusal is final for its message; a glitch is retried on the next poll", async () => {
+  it("a refusal is final for its message; a 5xx after the claim is unknown delivery, final and never re-sent", async () => {
+    // DT-6B-2C-2 (deliberate change): the 5xx used to be retried; once claimed, a message is never sent again.
     const env = makeEnv();
     await connect(env, "instagram");
     await seed(env, [camRule()], SINCE);
@@ -1634,9 +1713,20 @@ describe("pollReplies: DMs and story replies", () => {
     expect(r.failed).toEqual(["d1", "d2"]);
     const state = await stateOf(env);
     expect(state.convos.t1).toEqual({ seenAt: msgAt(1) });
-    expect(state.convos.t2).toBeUndefined();
-    expect(state.retries.d2).toBe(1);
+    expect(state.convos.t2).toEqual({ seenAt: msgAt(1) });
+    expect(state.retries).toEqual({});
     expect(state.log.map((e) => e.error)).toEqual(["upstream", "not_eligible"]);
+    expect(state.log[0]).toMatchObject({
+      messageId: "d2",
+      dm: "failed",
+      detail: "unknown-delivery",
+    });
+    expect(state.stats.cam).toMatchObject({ sends: 0, failures: 1 });
+    // A later poll that sees both messages again (positions lost) sends nothing: both are claimed.
+    await Store.from(env)!.putRepliesState({ ...state, convos: {}, lockUntil: undefined });
+    await pollReplies(env, { fetch: mockFetch(routes), now: tick(1) });
+    expect(n).toBe(2);
+    expect((await stateOf(env)).log[0]).toMatchObject({ dm: "skipped", detail: "already_claimed" });
   });
 
   it("a conversations read that fails leaves the comments alone and is the poll's error until a read works", async () => {
@@ -1764,7 +1854,8 @@ describe("pollReplies: DMs and story replies", () => {
     expect(env.SOCIAL_KV.writes).toBe(writes);
   });
 
-  it("a DM refused for permission stops the poll, and is given up on after MAX_RETRIES tries", async () => {
+  it("a DM refused for permission stops the poll and, once claimed, is final: never sent again", async () => {
+    // DT-6B-2C-2 (deliberate change): it used to be re-sent up to MAX_RETRIES times; a claimed message is not.
     const env = makeEnv();
     await connect(env, "instagram");
     await seed(env, [camRule()], { ...SINCE, igUserId: "17841", ownerUsername: "3z.prod" });
@@ -1779,17 +1870,19 @@ describe("pollReplies: DMs and story replies", () => {
     await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
     expect((await stateOf(env)).lastError).toBe("no_permission");
     for (let i = 1; i < 5; i++) await pollReplies(env, { fetch: mockFetch(routes), now: tick(i) });
-    expect(sends).toBe(MAX_RETRIES);
+    expect(sends).toBe(1);
     const state = await stateOf(env);
     expect(state.retries).toEqual({});
     expect(state.convos.t1).toEqual({ seenAt: msgAt(1) });
-    expect(state.log.map((e) => e.error)).toEqual(["no_permission", "no_permission", "no_permission"]);
+    expect(state.log.map((e) => e.error)).toEqual(["no_permission"]);
   });
 
-  it("retries a DM glitch on the next polls and gives up after MAX_RETRIES tries", async () => {
+  it("retries a DM whose claim store glitched (nothing claimed) and gives up after MAX_RETRIES tries", async () => {
+    // DT-6B-2C-2: the retry rule now applies before a claim only (here: the DM authority is unreadable); no POST.
     const env = makeEnv();
     await connect(env, "instagram");
     await seed(env, [camRule()], SINCE);
+    (env.INSTAGRAM_DM_COORDINATOR as unknown as { failing: Set<string> }).failing.add("*");
     let sends = 0;
     const routes = {
       ...dmRoutes([convo("t1", [dm("d1", "كاميرا")])]),
@@ -1801,20 +1894,30 @@ describe("pollReplies: DMs and story replies", () => {
     const poll = (i: number) => pollReplies(env, { fetch: mockFetch(routes), now: tick(i) });
     await poll(0);
     expect((await stateOf(env)).retries).toEqual({ d1: 1 });
+    expect((await stateOf(env)).log[0]).toMatchObject({
+      dm: "failed",
+      error: "not_configured",
+      detail: "dm-claim-store",
+    });
     await poll(1);
     await poll(2);
     const state = await stateOf(env);
     expect(state.retries).toEqual({});
     expect(state.convos.t1).toEqual({ seenAt: msgAt(1) });
     await poll(3);
-    expect(sends).toBe(MAX_RETRIES);
+    expect(state.log).toHaveLength(MAX_RETRIES);
+    expect(sends).toBe(0);
   });
 
   it("a DM that fails for good leaves no retry count behind", async () => {
     const env = makeEnv();
     await connect(env, "instagram");
     await seed(env, [camRule()], SINCE);
-    let answer = () => json({ error: { message: "boom" } }, 500);
+    // DT-6B-2C-2: the first failure is now a pre-claim one (an unreadable DM authority), the only kind retried.
+    const store = env.INSTAGRAM_DM_COORDINATOR as unknown as { failing: Set<string> };
+    store.failing.add("*");
+    const answer = () =>
+      json({ error: { message: "outside window", code: 10, error_subcode: 2534022 } }, 400);
     const routes = {
       ...dmRoutes([convo("t1", [dm("d1", "كاميرا")])]),
       [`POST ${IG}/17841/messages`]: () => answer(),
@@ -1822,8 +1925,7 @@ describe("pollReplies: DMs and story replies", () => {
     await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
     expect((await stateOf(env)).retries).toEqual({ d1: 1 });
     // The retry is refused for good (outside the window): final, and its count goes with it.
-    answer = () =>
-      json({ error: { message: "outside window", code: 10, error_subcode: 2534022 } }, 400);
+    store.failing.clear();
     await pollReplies(env, { fetch: mockFetch(routes), now: tick(1) });
     const state = await stateOf(env);
     expect(state.retries).toEqual({});
@@ -1835,6 +1937,9 @@ describe("pollReplies: DMs and story replies", () => {
     await connect(env, "instagram");
     await seed(env, [camRule()], SINCE);
     const d1 = dm("d1", "كاميرا");
+    // DT-6B-2C-2: a pre-claim failure (an unreadable DM authority) is the one that leaves a retry count.
+    const store = env.INSTAGRAM_DM_COORDINATOR as unknown as { failing: Set<string> };
+    store.failing.add("*");
     await pollReplies(env, {
       fetch: mockFetch({
         ...dmRoutes([convo("t1", [d1])]),
@@ -1843,6 +1948,7 @@ describe("pollReplies: DMs and story replies", () => {
       now: NOW,
     });
     expect((await stateOf(env)).retries).toEqual({ d1: 1 });
+    store.failing.clear();
     // The owner answers by hand before the next poll: d1 is left alone, and its count goes.
     const byHand = convo("t1", [dm("h1", "هلا والله", { from: ME, created_time: msgAt(0) }), d1]);
     await pollReplies(env, { fetch: mockFetch(dmRoutes([byHand])), now: tick(1) });
@@ -2127,3 +2233,1140 @@ describe("GET /go/:id/:n", () => {
 // The stored automation never carries counters; the view does.
 const _typeCheck: (a: Automation) => AutomationView = (a) => ({ ...a, stats: { sends: 0, publicReplies: 0, failures: 0, clicks: 0 } });
 void _typeCheck;
+
+/* ---------- DT-6B-2C-1: the shared public-reply effect ---------- */
+
+describe("pollReplies: the public reply claims the shared (account, comment) effect first", () => {
+  type Coord = ReturnType<typeof fakeCoordinator>;
+  const coordOf = (env: Env) => env.INSTAGRAM_PUBLIC_SEND_COORDINATOR as unknown as Coord;
+  const coordinate = async (env: Env, call: Record<string, unknown>) => {
+    const ns = env.INSTAGRAM_PUBLIC_SEND_COORDINATOR!;
+    const res = await ns.get(ns.idFromName("instagram|17841")).fetch("https://c/", {
+      method: "POST",
+      body: JSON.stringify({ now: NOW.getTime(), ...call }),
+    });
+    return (await res.json()) as Record<string, unknown>;
+  };
+  const effectOf = (env: Env, commentId = "c1") =>
+    coordinate(env, { op: "getEffect", account: "17841", commentId });
+  const publicPosts = (f: ReturnType<typeof mockFetch>) =>
+    f.calls().filter((c) => c === `POST ${IG}/c1/replies`);
+  /** The manual route with an injected eligibility (production stays closed). */
+  const manual = (env: Env, f: typeof fetch, path: string, b: unknown) =>
+    instagramSendHandler({ fetch: f, now: () => NOW, eligibility: () => ({ ok: true }) })(
+      new Request(`${BASE}/social/inbox/instagram/send${path}`, {
+        method: "POST",
+        body: JSON.stringify(b),
+      }),
+      path.split("/").filter(Boolean),
+      { store: Store.from(env), coordinator: env.INSTAGRAM_PUBLIC_SEND_COORDINATOR },
+      { json: (body, status) => json(body, status) },
+    ).then(
+      async (r) => (await r!.json()) as { intent?: Record<string, unknown> & { digest: string } },
+    );
+  const prepareManual = (env: Env, f: typeof fetch, operationId = "op-manual-01") =>
+    manual(env, f, "/prepare", {
+      operationId,
+      account: "17841",
+      mediaId: "m1",
+      commentId: "c1",
+      text: "Thanks!",
+      draftRevision: "rev-1",
+    });
+
+  it("claims as auto:<rule> before the one POST and records the provider reply id; the DM went first", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    const f = mockFetch(igRoutes({}, [comment("c1", "لت")]).routes);
+    const r = await pollReplies(env, { fetch: f, now: NOW });
+    expect(r.sent).toEqual(["c1"]);
+    expect(f.calls().slice(-2)).toEqual([`POST ${IG}/17841/messages`, `POST ${IG}/c1/replies`]);
+    expect(coordOf(env).ops).toEqual(["claimAuto", "settle"]);
+    expect(coordOf(env).names).toEqual(["instagram|17841", "instagram|17841"]);
+    expect(await effectOf(env)).toMatchObject({
+      effect: { actor: "auto:lut", state: "sent", providerReplyId: "r1" },
+    });
+  });
+
+  it("manual first: the poll still sends its DM, skips the public reply as already_claimed, posts nothing public", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    const f = mockFetch(igRoutes({}, [comment("c1", "لت")]).routes);
+    const prepared = await prepareManual(env, f);
+    const confirmed = await manual(env, f, "/confirm", {
+      operationId: "op-manual-01",
+      digest: prepared.intent!.digest,
+      account: "17841",
+    });
+    expect(confirmed.intent!.state).toBe("sent");
+    expect(publicPosts(f)).toHaveLength(1);
+    const r = await pollReplies(env, { fetch: f, now: NOW });
+    expect(r.sent).toEqual(["c1"]);
+    expect(publicPosts(f)).toHaveLength(1);
+    const state = await stateOf(env);
+    expect(state.log[0]).toMatchObject({
+      dm: "sent",
+      publicReply: "skipped",
+      detail: "already_claimed",
+    });
+    expect(state.log[0].error).toBeUndefined();
+    expect(state.handled).toHaveProperty("c1");
+    expect(state.stats.lut).toMatchObject({ sends: 1, publicReplies: 0 });
+    expect(await effectOf(env)).toMatchObject({
+      effect: { actor: "manual:op-manual-01", state: "sent" },
+    });
+  });
+
+  it("poll first: a manual confirm on the same comment is already_claimed and posts nothing", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    const f = mockFetch(igRoutes({}, [comment("c1", "لت")]).routes);
+    const prepared = await prepareManual(env, f);
+    await pollReplies(env, { fetch: f, now: NOW });
+    expect(publicPosts(f)).toHaveLength(1);
+    const confirmed = await manual(env, f, "/confirm", {
+      operationId: "op-manual-01",
+      digest: prepared.intent!.digest,
+      account: "17841",
+    });
+    expect(confirmed.intent).toMatchObject({
+      state: "already_claimed",
+      failureDetail: "automatic",
+    });
+    expect(publicPosts(f)).toHaveLength(1);
+  });
+
+  it("duplicate poll ticks (a lost result re-answers the comment) claim the public reply once", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    const f = mockFetch(igRoutes({}, [comment("c1", "لت")]).routes);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      // The first tick's result is never saved, so the next tick does not know c1 was answered.
+      const put = env.SOCIAL_KV.put.bind(env.SOCIAL_KV);
+      let lockWritten = false;
+      env.SOCIAL_KV.put = async (k: string, v: string) => {
+        if (k === keys.repliesState) {
+          if (lockWritten) throw new Error("KV PUT failed: 429 Too Many Requests");
+          lockWritten = true;
+        }
+        return put(k, v);
+      };
+      await pollReplies(env, { fetch: f, now: NOW });
+      env.SOCIAL_KV.put = put;
+      await env.SOCIAL_KV.delete(keys.repliesState);
+      await pollReplies(env, { fetch: f, now: tick(1) });
+    } finally {
+      log.mockRestore();
+    }
+    // This slice does not deduplicate the DM (that is C2 work); the public reply went out once.
+    expect(f.calls().filter((c) => c === `POST ${IG}/17841/messages`)).toHaveLength(2);
+    expect(publicPosts(f)).toHaveLength(1);
+    expect((await stateOf(env)).log[0]).toMatchObject({
+      publicReply: "skipped",
+      detail: "already_claimed",
+    });
+    expect(coordOf(env).ops.filter((o) => o === "claimAuto")).toHaveLength(2);
+  });
+
+  it("a missing coordinator fails the public reply closed: explicit log, zero public POST, no fallback", async () => {
+    const env = { ...makeEnv(), INSTAGRAM_PUBLIC_SEND_COORDINATOR: undefined };
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    const f = mockFetch(igRoutes({}, [comment("c1", "لت")]).routes);
+    const r = await pollReplies(env, { fetch: f, now: NOW });
+    expect(r.sent).toEqual(["c1"]);
+    expect(publicPosts(f)).toEqual([]);
+    const state = await stateOf(env);
+    expect(state.log[0]).toMatchObject({
+      dm: "sent",
+      publicReply: "failed",
+      error: "not_configured",
+      detail: "public-claim-store",
+    });
+    expect(state.handled).toHaveProperty("c1");
+    expect(state.stats.lut).toMatchObject({ sends: 1, publicReplies: 0 });
+    // Not retried on a later read either.
+    await checkThenPoll(env, { fetch: f, now: tick(1) });
+    expect(publicPosts(f)).toEqual([]);
+  });
+
+  it("an unreadable coordinator (or an injected claim that throws) fails closed the same way", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    coordOf(env).failing.add("claimAuto");
+    const f = mockFetch(igRoutes({}, [comment("c1", "لت")]).routes);
+    await pollReplies(env, { fetch: f, now: NOW });
+    expect(publicPosts(f)).toEqual([]);
+    expect((await stateOf(env)).log[0]).toMatchObject({
+      publicReply: "failed",
+      error: "not_configured",
+      detail: "public-claim-store",
+    });
+
+    const env2 = makeEnv();
+    await connect(env2, "instagram");
+    await seed(env2, [input()]);
+    const f2 = mockFetch(igRoutes({}, [comment("c1", "لت")]).routes);
+    const publicClaim = {
+      claimAuto: async () => {
+        throw new Error("down");
+      },
+      settle: async () => undefined,
+    };
+    await pollReplies(env2, { fetch: f2, now: NOW, publicClaim });
+    expect(publicPosts(f2)).toEqual([]);
+    expect((await stateOf(env2)).log[0]).toMatchObject({ detail: "public-claim-store" });
+    expect(coordOf(env2).ops).toEqual([]);
+  });
+
+  it("uncertain delivery (5xx, malformed) settles unknown, is logged as unknown-delivery and never retried", async () => {
+    for (const answer of [
+      () => json({ error: { message: "nope", code: 1 } }, 500),
+      () => ({ success: true }),
+    ]) {
+      const env = makeEnv();
+      await connect(env, "instagram");
+      await seed(env, [input()]);
+      const f = mockFetch(
+        igRoutes({ [`POST ${IG}/c1/replies`]: answer }, [comment("c1", "لت")]).routes,
+      );
+      await pollReplies(env, { fetch: f, now: NOW });
+      const state = await stateOf(env);
+      expect(state.log[0]).toMatchObject({
+        dm: "sent",
+        publicReply: "failed",
+        error: "upstream",
+        detail: "unknown-delivery",
+      });
+      expect(state.stats.lut.publicReplies).toBe(0);
+      expect(await effectOf(env)).toMatchObject({ effect: { state: "unknown" } });
+      await checkThenPoll(env, { fetch: f, now: tick(1) });
+      expect(publicPosts(f)).toHaveLength(1);
+    }
+  });
+
+  it("a known refusal keeps Meta's mapping (an expired token stops the tick) and settles rejected", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    const f = mockFetch(
+      igRoutes(
+        {
+          [`POST ${IG}/c1/replies`]: () =>
+            json({ error: { message: "Invalid OAuth", code: 190 } }, 400),
+        },
+        [comment("c1", "لت")],
+      ).routes,
+    );
+    await pollReplies(env, { fetch: f, now: NOW });
+    const state = await stateOf(env);
+    expect(state.log[0]).toMatchObject({
+      dm: "sent",
+      publicReply: "failed",
+      error: "token_expired",
+      detail: "Invalid OAuth [190]",
+    });
+    expect(state.lastError).toBe("token_expired");
+    expect(await effectOf(env)).toMatchObject({
+      effect: { state: "rejected", failureCode: "meta_190" },
+    });
+  });
+
+  it("a sent reply whose receipt cannot be written is not counted as sent, and is never posted again", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    coordOf(env).failing.add("settle");
+    const f = mockFetch(igRoutes({}, [comment("c1", "لت")]).routes);
+    await pollReplies(env, { fetch: f, now: NOW });
+    const state = await stateOf(env);
+    expect(state.log[0]).toMatchObject({ publicReply: "failed", detail: "unknown-delivery" });
+    expect(state.stats.lut.publicReplies).toBe(0);
+    coordOf(env).failing.clear();
+    expect(await effectOf(env)).toMatchObject({ effect: { state: "claimed" } });
+    expect(publicPosts(f)).toHaveLength(1);
+  });
+
+  it("the exact filled text is posted: {username} becomes @handle, nothing else changes", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ publicReplies: ["تم {username} ✅"] })]);
+    let said = "";
+    const f = mockFetch(
+      igRoutes(
+        {
+          [`POST ${IG}/c1/replies`]: (_u, init) => {
+            said = new URLSearchParams(String(init?.body)).get("message") ?? "";
+            return { id: "r1" };
+          },
+        },
+        [comment("c1", "لت")],
+      ).routes,
+    );
+    await pollReplies(env, { fetch: f, now: NOW });
+    expect(said).toBe("تم @fan_c1 ✅");
+  });
+
+  it("rules without a public reply and a failed DM never touch the coordinator", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ publicReplies: [] })]);
+    await pollReplies(env, {
+      fetch: mockFetch(igRoutes({}, [comment("c1", "لت")]).routes),
+      now: NOW,
+    });
+    const env2 = makeEnv();
+    await connect(env2, "instagram");
+    await seed(env2, [input()]);
+    const dmFails = igRoutes(
+      { [`POST ${IG}/17841/messages`]: () => json({ error: { message: "x", code: 1 } }, 500) },
+      [comment("c1", "لت")],
+    );
+    await pollReplies(env2, { fetch: mockFetch(dmFails.routes), now: NOW });
+    expect([...coordOf(env).ops, ...coordOf(env2).ops]).toEqual([]);
+  });
+});
+/* ---------- DT-6B-2C-1-R1: proof binding, one destination, typed refusals, scrubbing ---------- */
+
+describe("pollReplies: the public branch trusts only bound coordinator proof and scrubbed words", () => {
+  type Coord = ReturnType<typeof fakeCoordinator>;
+  const coordOf = (env: Env) => env.INSTAGRAM_PUBLIC_SEND_COORDINATOR as unknown as Coord;
+  const publicPosts = (f: ReturnType<typeof mockFetch>) =>
+    f.calls().filter((c) => c === `POST ${IG}/c1/replies`);
+  const effectOf = async (env: Env) => {
+    const ns = env.INSTAGRAM_PUBLIC_SEND_COORDINATOR!;
+    const res = await ns.get(ns.idFromName("instagram|17841")).fetch("https://c/", {
+      method: "POST",
+      body: JSON.stringify({
+        now: NOW.getTime(),
+        op: "getEffect",
+        account: "17841",
+        commentId: "c1",
+      }),
+    });
+    return (await res.json()) as Record<string, unknown>;
+  };
+  /** Replaces the coordinator's answer to one `op`; every call body is kept in `calls`. */
+  const intercept = (env: Env, op: string, answer?: unknown) => {
+    const ns = coordOf(env);
+    const get = ns.get;
+    const calls: Record<string, unknown>[] = [];
+    ns.get = (id: string) => {
+      const stub = get(id);
+      return {
+        fetch: async (url: string, init: RequestInit) => {
+          const call = JSON.parse(String(init.body)) as Record<string, unknown>;
+          if (call.op !== op) return stub.fetch(url, init);
+          calls.push(call);
+          return answer === undefined ? stub.fetch(url, init) : json(answer);
+        },
+      };
+    };
+    return calls;
+  };
+  const setup = async (over: Record<string, Handler> = {}, tokens: Partial<TokenSet> = {}) => {
+    const env = makeEnv();
+    await connect(env, "instagram", tokens);
+    await seed(env, [input()]);
+    const f = mockFetch(igRoutes(over, [comment("c1", "لت")]).routes);
+    return { env, f };
+  };
+
+  for (const [name, claim] of [
+    ["claimed without proof", { claimed: true }],
+    [
+      "another account's claim",
+      {
+        claimed: true,
+        effect: {
+          account: "foreign",
+          commentId: "elsewhere",
+          actor: "auto:other",
+          state: "claimed",
+          claimedAt: NOW.toISOString(),
+          receiptVersion: 1,
+        },
+      },
+    ],
+  ] as const)
+    it(`${name} never authorizes the public POST`, async () => {
+      const { env, f } = await setup();
+      intercept(env, "claimAuto", claim);
+      await pollReplies(env, { fetch: f, now: NOW });
+      expect(publicPosts(f)).toEqual([]);
+      expect(coordOf(env).ops).not.toContain("settle");
+      expect((await stateOf(env)).log[0]).toMatchObject({
+        dm: "sent",
+        publicReply: "failed",
+        error: "not_configured",
+        detail: "public-claim-store",
+      });
+    });
+
+  for (const [name, settle] of [
+    ["an empty object", {}],
+    ["an array", []],
+    [
+      "a still-claimed effect",
+      {
+        settled: false,
+        effect: {
+          account: "17841",
+          commentId: "c1",
+          actor: "auto:lut",
+          state: "claimed",
+          claimedAt: NOW.toISOString(),
+          receiptVersion: 1,
+        },
+      },
+    ],
+    [
+      "another target's sent effect",
+      {
+        settled: true,
+        effect: {
+          account: "foreign",
+          commentId: "elsewhere",
+          actor: "manual:other",
+          state: "sent",
+          providerReplyId: "wrong",
+          claimedAt: NOW.toISOString(),
+          settledAt: NOW.toISOString(),
+          receiptVersion: 2,
+        },
+      },
+    ],
+  ] as const)
+    it(`${name} as the receipt keeps the delivery unknown and is not counted`, async () => {
+      const { env, f } = await setup();
+      intercept(env, "settle", settle);
+      await pollReplies(env, { fetch: f, now: NOW });
+      const state = await stateOf(env);
+      expect(publicPosts(f)).toHaveLength(1);
+      expect(state.handled).toHaveProperty("c1");
+      expect(state.stats.lut.publicReplies).toBe(0);
+      expect(state.log[0]).toMatchObject({ publicReply: "failed", detail: "unknown-delivery" });
+    });
+
+  it("a 307 from the public POST is unknown delivery: one POST, nothing followed, not counted", async () => {
+    const { env, f } = await setup({
+      [`POST ${IG}/c1/replies`]: () =>
+        new Response(null, { status: 307, headers: { Location: "https://elsewhere.invalid/" } }),
+    });
+    await pollReplies(env, { fetch: f, now: NOW });
+    const state = await stateOf(env);
+    expect(publicPosts(f)).toHaveLength(1);
+    expect(state.log[0]).toMatchObject({ publicReply: "failed", detail: "unknown-delivery" });
+    expect(await effectOf(env)).toMatchObject({
+      effect: { state: "unknown", unknownReason: "redirect" },
+    });
+  });
+
+  it("a 400 with an untyped error body is unknown delivery, never a mapped refusal", async () => {
+    const { env, f } = await setup({ [`POST ${IG}/c1/replies`]: () => json({ error: {} }, 400) });
+    await pollReplies(env, { fetch: f, now: NOW });
+    const state = await stateOf(env);
+    expect(state.log[0]).toMatchObject({
+      publicReply: "failed",
+      error: "upstream",
+      detail: "unknown-delivery",
+    });
+    expect(await effectOf(env)).toMatchObject({
+      effect: { state: "unknown", unknownReason: "malformed" },
+    });
+  });
+
+  it("a refusal echoing the token and the seal stays scrubbed in the log, the tick error and the receipt", async () => {
+    const token = "fixture-provider-token-123";
+    const secret = "fixture-seal-secret-456-0123456789abcdef";
+    const { env, f } = await setup(
+      {
+        [`POST ${IG}/c1/replies`]: () =>
+          json({ error: { code: 190, message: `refused ${token} and ${secret}` } }, 400),
+      },
+      { accessToken: token },
+    );
+    (env as Env & { INBOX_SEAL_SECRET?: string }).INBOX_SEAL_SECRET = secret;
+    const settles = intercept(env, "settle");
+    await pollReplies(env, { fetch: f, now: NOW });
+    const state = await stateOf(env);
+    // Meta's mapping and stop policy are unchanged.
+    expect(state.log[0]).toMatchObject({ publicReply: "failed", error: "token_expired" });
+    expect(state.lastError).toBe("token_expired");
+    for (const said of [JSON.stringify(state), JSON.stringify(settles)]) {
+      expect(said).not.toContain(token);
+      expect(said).not.toContain(secret);
+    }
+    expect(state.log[0].detail).toBe("refused [token] and [secret] [190]");
+    expect(await effectOf(env)).toMatchObject({
+      effect: { state: "rejected", failureCode: "meta_190" },
+    });
+  });
+});
+
+describe("pollReplies: an answer carrying an error is never claim or receipt proof (DT-6B-2C-1-R2)", () => {
+  type Coord = ReturnType<typeof fakeCoordinator>;
+  const coordOf = (env: Env) => env.INSTAGRAM_PUBLIC_SEND_COORDINATOR as unknown as Coord;
+  const publicPosts = (f: ReturnType<typeof mockFetch>) =>
+    f.calls().filter((c) => c === `POST ${IG}/c1/replies`);
+  const row = {
+    account: "17841",
+    commentId: "c1",
+    actor: "auto:lut",
+    claimedAt: NOW.toISOString(),
+  };
+  /** Answers one `op` with `answer` instead of the coordinator (nothing is written for that call). */
+  const intercept = (env: Env, op: string, answer: unknown) => {
+    const ns = coordOf(env);
+    const get = ns.get;
+    ns.get = (id: string) => {
+      const stub = get(id);
+      return {
+        fetch: async (url: string, init: RequestInit) =>
+          (JSON.parse(String(init.body)) as { op: string }).op === op
+            ? json(answer)
+            : stub.fetch(url, init),
+      };
+    };
+  };
+  const setup = async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    return { env, f: mockFetch(igRoutes({}, [comment("c1", "لت")]).routes) };
+  };
+
+  it("an error beside a matching claimed effect stops before the public POST", async () => {
+    const { env, f } = await setup();
+    intercept(env, "claimAuto", {
+      error: "conflict",
+      claimed: true,
+      effect: { ...row, state: "claimed", receiptVersion: 1 },
+    });
+    await pollReplies(env, { fetch: f, now: NOW });
+    expect(publicPosts(f)).toEqual([]);
+    expect(coordOf(env).ops).not.toContain("settle");
+    expect((await stateOf(env)).log[0]).toMatchObject({
+      dm: "sent",
+      publicReply: "failed",
+      error: "not_configured",
+      detail: "public-claim-store",
+    });
+  });
+
+  it("an error beside a matching sent effect keeps the delivery unknown and uncounted", async () => {
+    const { env, f } = await setup();
+    intercept(env, "settle", {
+      error: "conflict",
+      settled: true,
+      effect: {
+        ...row,
+        state: "sent",
+        providerReplyId: "r1",
+        settledAt: NOW.toISOString(),
+        receiptVersion: 2,
+      },
+    });
+    await pollReplies(env, { fetch: f, now: NOW });
+    const state = await stateOf(env);
+    expect(publicPosts(f)).toHaveLength(1);
+    expect(state.stats.lut.publicReplies).toBe(0);
+    expect(state.log[0]).toMatchObject({ publicReply: "failed", detail: "unknown-delivery" });
+  });
+});
+
+/* ---------- DT-6B-2C-2: rule/default DMs claim the durable DM authority ---------- */
+
+describe("pollReplies: rule and default DMs go through the InstagramDmCoordinator (DT-6B-2C-2)", () => {
+  type DmNs = { names: string[]; ops: string[]; failing: Set<string> };
+  const dmNs = (env: Env) => env.INSTAGRAM_DM_COORDINATOR as unknown as DmNs;
+  const dmPosts = (f: ReturnType<typeof mockFetch>, path = `${IG}/17841/messages`) =>
+    f.calls().filter((c) => c === `POST ${path}`);
+
+  it("a fresh /me every tick the DMs run (cached account or not), one GET when the poll fetched it already", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    const first = mockFetch(dmRoutes([convo("t1", [dm("d1", "كاميرا")])]));
+    await pollReplies(env, { fetch: first, now: NOW });
+    expect(first.calls().filter((c) => c === `GET ${IG}/me`)).toHaveLength(1);
+    expect((await stateOf(env)).igUserId).toBe("17841");
+    const next = mockFetch(dmRoutes([convo("t2", [dm("d2", "كاميرا", { from: { id: "p2" } })])]));
+    await pollReplies(env, { fetch: next, now: tick(1) });
+    expect(next.calls().slice(0, 2)).toEqual([`GET ${IG}/me`, `GET ${IG}/17841/conversations`]);
+    // The coordinator object is the fresh account's; the OAuth user id ("178") is never used.
+    expect(new Set(dmNs(env).names)).toEqual(new Set(["instagram-dm|17841"]));
+    expect(dmNs(env).ops).toEqual(["claim", "settle", "claim", "settle"]);
+  });
+
+  it("the account comes from /me, not the cached poll state: a reconnect to another account reads and sends as it", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], { ...SINCE, igUserId: "17841", ownerUsername: "3z.prod" });
+    const f = mockFetch({
+      [`GET ${IG}/me`]: () => ({ user_id: 99999, username: "3z.prod" }),
+      [`GET ${IG}/99999/conversations`]: () => ({ data: [convo("t1", [dm("d1", "كاميرا")])] }),
+      [`POST ${IG}/99999/messages`]: (_u, init) => {
+        const body = JSON.parse(String(init?.body)) as { recipient: { id: string } };
+        return { recipient_id: body.recipient.id, message_id: "m9" };
+      },
+    });
+    const r = await pollReplies(env, { fetch: f, now: NOW });
+    expect(r.sent).toEqual(["d1"]);
+    expect(f.calls()).not.toContain(`GET ${IG}/17841/conversations`);
+    expect(new Set(dmNs(env).names)).toEqual(new Set(["instagram-dm|99999"]));
+  });
+
+  it("a /me that fails or has no user_id is a failed conversations read: comments still answered, no DM claimed", async () => {
+    for (const me of [
+      () => json({ error: { message: "boom", code: 2 } }, 500),
+      () => ({ username: "3z.prod" }),
+    ]) {
+      const env = makeEnv();
+      await connect(env, "instagram");
+      await seed(env, [input({ publicReplies: [] }), camRule()], {
+        ...SINCE,
+        igUserId: "17841",
+        ownerUsername: "3z.prod",
+      });
+      const { routes } = igRoutes({
+        [`GET ${IG}/me`]: me,
+        [`GET ${IG}/17841/conversations`]: () => ({ data: [convo("t1", [dm("d1", "كاميرا")])] }),
+      });
+      const f = mockFetch(routes);
+      const r = await pollReplies(env, { fetch: f, now: NOW });
+      expect(r.sent).toEqual(["c1"]);
+      expect(r.error).toBe("upstream");
+      expect(f.calls()).not.toContain(`GET ${IG}/17841/conversations`);
+      expect(dmNs(env).ops).toEqual([]);
+    }
+  });
+
+  it("no binding: the rule DM fails closed (not_configured, dm-claim-store), zero DM POST; comment private replies unchanged", async () => {
+    const env = makeEnv();
+    delete (env as { INSTAGRAM_DM_COORDINATOR?: unknown }).INSTAGRAM_DM_COORDINATOR;
+    await connect(env, "instagram");
+    await seed(env, [input({ publicReplies: [] }), camRule()], SINCE);
+    const { routes } = igRoutes({
+      [`GET ${IG}/17841/conversations`]: () => ({ data: [convo("t1", [dm("d1", "كاميرا")])] }),
+    });
+    const sentBodies: { recipient: Record<string, string> }[] = [];
+    const base = routes[`POST ${IG}/17841/messages`];
+    routes[`POST ${IG}/17841/messages`] = (u, init) => {
+      sentBodies.push(JSON.parse(String(init?.body)));
+      return base(u, init);
+    };
+    const r = await pollReplies(env, { fetch: mockFetch(routes), now: NOW });
+    expect(r.sent).toEqual(["c1"]);
+    expect(r.failed).toEqual(["d1"]);
+    // The only DM POST is the comment's private reply (comment_id, replyCore).
+    expect(sentBodies.map((b) => Object.keys(b.recipient))).toEqual([["comment_id"]]);
+    const state = await stateOf(env);
+    expect(state.log[0]).toMatchObject({
+      kind: "message",
+      dm: "failed",
+      error: "not_configured",
+      detail: "dm-claim-store",
+    });
+    expect(state.retries).toEqual({ d1: 1 });
+    expect(state).toMatchObject({ lastError: "upstream", lastErrorDetail: "dm-claim-store" });
+  });
+
+  it("a duplicate poll (a lost result re-reads the message) is already_claimed: one POST, no second count", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    const before = await stateOf(env);
+    const f = mockFetch(dmRoutes([convo("t1", [dm("d1", "كاميرا")])]));
+    await pollReplies(env, { fetch: f, now: NOW });
+    // The first poll's result never reached KV: the next tick starts from the old state.
+    await Store.from(env)!.putRepliesState(before);
+    const again = await pollReplies(env, { fetch: f, now: tick(1) });
+    expect(again.sent).toEqual([]);
+    expect(dmPosts(f)).toHaveLength(1);
+    const state = await stateOf(env);
+    expect(state.log[0]).toMatchObject({
+      messageId: "d1",
+      dm: "skipped",
+      detail: "already_claimed",
+    });
+    expect(state.stats.cam).toMatchObject({ sends: 0, failures: 0 });
+  });
+
+  it("the default reply's day is held by the coordinator: a lost display time never sends it twice", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [], SINCE);
+    const store = Store.from(env)!;
+    await store.putReplies({
+      ...(await configOf(env)),
+      defaultReply: {
+        enabled: true,
+        text: "وصلت رسالتك",
+        enabledAt: SINCE.inboxSince,
+        updatedAt: SINCE.inboxSince,
+      },
+    });
+    const sent: unknown[] = [];
+    await pollReplies(env, {
+      fetch: mockFetch(dmRoutes([convo("t1", [dm("d1", "هلا")])], sent)),
+      now: NOW,
+    });
+    expect(sent).toHaveLength(1);
+    const lost = await stateOf(env);
+    await store.putRepliesState({ ...lost, defaultSentAt: {} });
+    const r = await pollReplies(env, {
+      fetch: mockFetch(
+        dmRoutes(
+          [convo("t1", [dm("d2", "وينك", { created_time: msgAt(0) }), dm("d1", "هلا")])],
+          sent,
+        ),
+      ),
+      now: tick(1),
+    });
+    expect(r.sent).toEqual([]);
+    expect(sent).toHaveLength(1);
+    expect((await stateOf(env)).log).toHaveLength(1);
+  });
+
+  it("a reconnect between the poll's capture and the claim: no claim, no POST, the next poll sends", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    const store = Store.from(env)!;
+    const routes = dmRoutes([convo("t1", [dm("d1", "كاميرا")])]);
+    const read = routes[`GET ${IG}/17841/conversations`];
+    routes[`GET ${IG}/17841/conversations`] = async (u, init) => {
+      // The owner reconnects while the poll runs (a new connection stamp).
+      await store.putStatus("instagram", { connectedAt: tick(1).toISOString(), handle: "3z.prod" });
+      return read(u, init);
+    };
+    const f = mockFetch(routes);
+    const r = await pollReplies(env, { fetch: f, now: NOW });
+    expect(r.sent).toEqual([]);
+    expect(dmPosts(f)).toEqual([]);
+    expect(dmNs(env).ops).toEqual([]);
+    const state = await stateOf(env);
+    expect(state.log[0]).toMatchObject({ dm: "failed", error: "upstream", detail: "reconnected" });
+    expect(state.retries).toEqual({});
+    expect(state.convos.t1).toBeUndefined();
+    routes[`GET ${IG}/17841/conversations`] = read;
+    expect((await pollReplies(env, { fetch: mockFetch(routes), now: tick(1) })).sent).toEqual([
+      "d1",
+    ]);
+  });
+
+  it("the fresh clock decides: a token that expires before the claim stops the DMs with nothing claimed", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram", {
+      expiresAt: new Date(NOW.getTime() + 5 * 60_000).toISOString(),
+    });
+    await seed(env, [camRule()], SINCE);
+    const f = mockFetch(dmRoutes([convo("t1", [dm("d1", "كاميرا")])]));
+    const r = await pollReplies(env, {
+      fetch: f,
+      now: NOW,
+      clock: () => new Date(NOW.getTime() + 10 * 60_000),
+    });
+    expect(r.sent).toEqual([]);
+    expect(await stateOf(env)).toMatchObject({ lastError: "token_expired", retries: {} });
+    expect(dmPosts(f)).toEqual([]);
+    expect(dmNs(env).ops).toEqual([]);
+  });
+
+  it("budget: each DM reserves its claim, POST and receipt; what does not fit waits for the next tick", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], { ...SINCE, igUserId: "17841", ownerUsername: "3z.prod" });
+    const convos = [0, 1].map((i) =>
+      convo(`t${i}`, [dm(`d${i}`, "كاميرا", { from: { id: `p${i}` } })]),
+    );
+    // /me + conversations = 2, then one DM = 3; the second DM would need 3 more.
+    const r = await pollReplies(env, { fetch: mockFetch(dmRoutes(convos)), now: NOW, budget: 7 });
+    expect(r.sent).toEqual(["d0"]);
+    expect(dmNs(env).ops).toEqual(["claim", "settle"]);
+    expect((await stateOf(env)).convos.t1).toBeUndefined();
+    const next = await pollReplies(env, { fetch: mockFetch(dmRoutes(convos)), now: tick(1) });
+    expect(next.sent).toEqual(["d1"]);
+  });
+
+  it("paused: nothing is read, claimed or sent", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    const store = Store.from(env)!;
+    await store.putReplies({ ...(await configOf(env)), paused: true });
+    const f = mockFetch(dmRoutes([convo("t1", [dm("d1", "كاميرا")])]));
+    expect(await pollReplies(env, { fetch: f, now: NOW })).toMatchObject({ skipped: "paused" });
+    expect(f.calls()).toEqual([]);
+    expect(dmNs(env).ops).toEqual([]);
+  });
+
+  it("comments first (private reply, then the claimed public reply), then the DMs; only DMs touch the DM authority", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input(), camRule()], SINCE);
+    const { routes } = igRoutes({
+      [`GET ${IG}/17841/conversations`]: () => ({ data: [convo("t1", [dm("d1", "كاميرا")])] }),
+    });
+    const f = mockFetch(routes);
+    const r = await pollReplies(env, { fetch: f, now: NOW });
+    expect(r.sent).toEqual(["c1", "d1"]);
+    expect(f.calls().filter((c) => c.startsWith("POST"))).toEqual([
+      `POST ${IG}/17841/messages`,
+      `POST ${IG}/c1/replies`,
+      `POST ${IG}/17841/messages`,
+    ]);
+    expect(dmNs(env).ops).toEqual(["claim", "settle"]);
+  });
+});
+
+/* ---------- DT-6B-2C-2-R1 ---------- */
+
+describe("pollReplies: the DM repairs through the real poll (DT-6B-2C-2-R1)", () => {
+  type DmNs = { ops: string[]; failing: Set<string> };
+  const dmNs = (env: Env) => env.INSTAGRAM_DM_COORDINATOR as unknown as DmNs;
+  const convos = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      convo(`t${i}`, [dm(`d${i}`, "كاميرا", { from: { id: `p${i}` } })]),
+    );
+  const posts = (f: ReturnType<typeof mockFetch>) =>
+    f.calls().filter((c) => c === `POST ${IG}/17841/messages`).length;
+
+  it("2C2-4: lost receipts after provider success never pass the shared cap; the rest wait, none replayed", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    dmNs(env).failing.add("settle");
+    const f = mockFetch(dmRoutes(convos(12)));
+    const r = await pollReplies(env, { fetch: f, now: NOW });
+    expect(posts(f)).toBe(REPLY_CAP);
+    expect(r.sent).toEqual([]);
+    const state = await stateOf(env);
+    expect(state.log.filter((e) => e.detail === "unknown-delivery")).toHaveLength(REPLY_CAP);
+    expect(state.convos.t8).toBeUndefined();
+    dmNs(env).failing.clear();
+    const g = mockFetch(dmRoutes(convos(12)));
+    const next = await pollReplies(env, { fetch: g, now: tick(1) });
+    expect(next.sent).toEqual(["d8", "d9", "d10", "d11"]);
+    expect(posts(g)).toBe(4);
+  });
+
+  it("2C2-4: a comment's private DM plus conversation DMs with lost receipts stay within the cap", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ publicReplies: [] }), camRule()], SINCE);
+    dmNs(env).failing.add("settle");
+    const { routes } = igRoutes({
+      [`GET ${IG}/17841/conversations`]: () => ({ data: convos(12) }),
+    });
+    const f = mockFetch(routes);
+    const r = await pollReplies(env, { fetch: f, now: NOW });
+    expect(r.sent).toEqual(["c1"]);
+    expect(posts(f)).toBe(REPLY_CAP);
+  });
+
+  it("2C2-3: a fresh message from another sender (or none) in a conversation is never answered to its first person", async () => {
+    for (const from of [{ id: "personB" }, undefined]) {
+      const env = makeEnv();
+      await connect(env, "instagram");
+      await seed(env, [camRule()], SINCE);
+      const older = dm("old", "hello", { created_time: msgAt(120), from: { id: "personA" } });
+      const fresh = dm("new", "كاميرا", { from });
+      const f = mockFetch(dmRoutes([convo("mixed", [fresh, older])]));
+      const r = await pollReplies(env, { fetch: f, now: NOW });
+      expect(r.sent).toEqual([]);
+      expect(posts(f)).toBe(0);
+      expect(dmNs(env).ops).toEqual([]);
+      expect((await stateOf(env)).log[0]).toMatchObject({
+        messageId: "new",
+        dm: "skipped",
+        detail: "unavailable",
+      });
+    }
+  });
+
+  it("2C2-1: the skipped outcome reaches the dashboard document as it is", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    const before = await stateOf(env);
+    const f = mockFetch(dmRoutes([convo("t1", [dm("d1", "كاميرا")])]));
+    await pollReplies(env, { fetch: f, now: NOW });
+    await Store.from(env)!.putRepliesState(before);
+    await pollReplies(env, { fetch: f, now: tick(1) });
+    const res = await handle(req("/social/replies"), env, undefined, { now: () => tick(1) });
+    const body = (await res.json()) as { log: Record<string, unknown>[] };
+    expect(body.log[0]).toMatchObject({
+      messageId: "d1",
+      dm: "skipped",
+      detail: "already_claimed",
+    });
+  });
+});
+
+describe("pollReplies: a partly handled conversation keeps its unhandled messages (DT-6B-2C-2-R2)", () => {
+  type DmNs = { ops: string[]; failing: Set<string> };
+  const dmNs = (env: Env) => env.INSTAGRAM_DM_COORDINATOR as unknown as DmNs;
+  const T = msgAt(1);
+  const beforeT = new Date(Date.parse(T) - 1).toISOString();
+  const singles = Array.from({ length: 5 }, (_, i) =>
+    convo(`t${i}`, [dm(`d${i}`, "كاميرا", { from: { id: `p${i}` } })]),
+  );
+  /** One conversation whose messages all share the time T (or come one second apart). */
+  const group = (n: number, sameTime = true) =>
+    convo(
+      "five",
+      Array.from({ length: n }, (_, i) =>
+        dm(`s${i}`, "كاميرا", {
+          from: { id: "pS" },
+          ...(sameTime ? {} : { created_time: msgAt(1 + (n - i) / 60) }),
+        }),
+      ),
+    );
+  const posts = (f: ReturnType<typeof mockFetch>) =>
+    f.calls().filter((c) => c === `POST ${IG}/17841/messages`).length;
+  const claims = (env: Env) => dmNs(env).ops.filter((o) => o === "claim").length;
+  const ready = async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    return env;
+  };
+
+  it("the cap splits five same-time messages (uncertain or proven): two new POSTs next poll, none on the third", async () => {
+    for (const lost of [true, false]) {
+      const env = await ready();
+      if (lost) dmNs(env).failing.add("settle");
+      const f = mockFetch(dmRoutes([...singles, group(5)]));
+      const first = await pollReplies(env, { fetch: f, now: NOW });
+      expect(posts(f)).toBe(REPLY_CAP);
+      expect(first.sent).toEqual(lost ? [] : ["d0", "d1", "d2", "d3", "d4", "s0", "s1", "s2"]);
+      expect((await stateOf(env)).convos.five).toEqual({ seenAt: beforeT });
+      dmNs(env).failing.clear();
+      const second = await pollReplies(env, { fetch: f, now: tick(1) });
+      expect(second.sent).toEqual(["s3", "s4"]);
+      expect(posts(f)).toBe(REPLY_CAP + 2);
+      const state = await stateOf(env);
+      expect(state.convos.five).toEqual({ seenAt: T });
+      expect(
+        state.log.filter((e) => e.detail === "already_claimed").map((e) => e.messageId),
+      ).toEqual(["s2", "s1", "s0"]);
+      const claimed = claims(env);
+      const third = await pollReplies(env, { fetch: f, now: tick(2) });
+      expect(third.sent).toEqual([]);
+      expect(posts(f)).toBe(REPLY_CAP + 2);
+      expect(claims(env)).toBe(claimed);
+    }
+  });
+
+  it("a budget stop inside the group: the rest follows next poll, each message posted once", async () => {
+    const env = await ready();
+    const f = mockFetch(dmRoutes([group(5)]));
+    // /me + conversations = 2, then three DMs of three calls each.
+    const first = await pollReplies(env, { fetch: f, now: NOW, budget: 2 + 9 });
+    expect(first.sent).toEqual(["s0", "s1", "s2"]);
+    expect((await stateOf(env)).convos.five).toEqual({ seenAt: beforeT });
+    const second = await pollReplies(env, { fetch: f, now: tick(1) });
+    expect(second.sent).toEqual(["s3", "s4"]);
+    expect(await pollReplies(env, { fetch: f, now: tick(2) })).toMatchObject({ sent: [] });
+    expect(posts(f)).toBe(5);
+  });
+
+  it("a pre-claim retry inside the group: the retried message and the rest follow next poll, once", async () => {
+    const env = await ready();
+    const routes = dmRoutes([group(3)]);
+    const send = routes[`POST ${IG}/17841/messages`];
+    // After the first DM's claim the DM authority cannot be read: nothing more is claimed this tick.
+    routes[`POST ${IG}/17841/messages`] = (u, init) => {
+      dmNs(env).failing.add("claim");
+      return send(u, init);
+    };
+    const f = mockFetch(routes);
+    const first = await pollReplies(env, { fetch: f, now: NOW });
+    expect(first.sent).toEqual(["s0"]);
+    let state = await stateOf(env);
+    expect(state.retries).toEqual({ s1: 1 });
+    expect(state.convos.five).toEqual({ seenAt: beforeT });
+    routes[`POST ${IG}/17841/messages`] = send;
+    dmNs(env).failing.clear();
+    const second = await pollReplies(env, { fetch: f, now: tick(1) });
+    expect(second.sent).toEqual(["s1", "s2"]);
+    state = await stateOf(env);
+    expect(state.retries).toEqual({});
+    expect(state.convos.five).toEqual({ seenAt: T });
+    expect(await pollReplies(env, { fetch: f, now: tick(2) })).toMatchObject({ sent: [] });
+    expect(posts(f)).toBe(3);
+  });
+
+  it("the first poll answers nothing and the next never replays the history it stamped", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()]);
+    const f = mockFetch(dmRoutes([group(5)]));
+    expect((await pollReplies(env, { fetch: f, now: NOW })).sent).toEqual([]);
+    expect((await pollReplies(env, { fetch: f, now: tick(1) })).sent).toEqual([]);
+    expect(posts(f)).toBe(0);
+    expect(claims(env)).toBe(0);
+  });
+
+  it("distinct times: the capped conversation resumes its last two without reading the others again", async () => {
+    const env = await ready();
+    dmNs(env).failing.add("settle");
+    const f = mockFetch(dmRoutes([...singles, group(5, false)]));
+    await pollReplies(env, { fetch: f, now: NOW });
+    expect((await stateOf(env)).convos.five).toEqual({ seenAt: msgAt(1 + 3 / 60) });
+    dmNs(env).failing.clear();
+    expect((await pollReplies(env, { fetch: f, now: tick(1) })).sent).toEqual(["s3", "s4"]);
+    expect(posts(f)).toBe(REPLY_CAP + 2);
+    expect(claims(env)).toBe(REPLY_CAP + 2);
+  });
+});
+
+describe("pollReplies: an exhausted pre-claim retry stays given up (DT-6B-2C-2-C1)", () => {
+  type DmNs = {
+    ops: string[];
+    failing: Set<string>;
+    get: (id: string) => { fetch: (url: string, init: RequestInit) => Promise<Response> };
+  };
+  const dmNs = (env: Env) => env.INSTAGRAM_DM_COORDINATOR as unknown as DmNs;
+  const T = msgAt(1);
+  const beforeT = new Date(Date.parse(T) - 1).toISOString();
+  const posts = (f: ReturnType<typeof mockFetch>) =>
+    f.calls().filter((c) => c === `POST ${IG}/17841/messages`).length;
+  /**
+   * Only the claims of `first` cannot reach the DM authority while `fault.on`; every other key works. `ids` lists the
+   * conversation's messages in order (`first` included), all at the time T or, with `distinct`, `first` a minute older.
+   */
+  const outage = async (ids = ["first", "second"], distinct = false) => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()], SINCE);
+    const ns = dmNs(env);
+    const attempts: string[] = [];
+    const fault = { on: true };
+    const get = ns.get;
+    ns.get = (id) => {
+      const stub = get(id);
+      return {
+        fetch: async (url, init) => {
+          const call = JSON.parse(String(init.body)) as { op: string; inboundMessageId?: string };
+          if (call.op === "claim") {
+            attempts.push(call.inboundMessageId ?? "");
+            if (fault.on && call.inboundMessageId === "first") throw new Error("first key down");
+          }
+          return stub.fetch(url, init);
+        },
+      };
+    };
+    const messages = ids.map((id) =>
+      dm(id, "كاميرا", {
+        from: { id: "pS" },
+        created_time: distinct && id === "first" ? msgAt(2) : T,
+      }),
+    );
+    const f = mockFetch(dmRoutes([convo("two", messages)]));
+    return { env, f, attempts, fault };
+  };
+  const tries = (attempts: string[], id: string) => attempts.filter((a) => a === id).length;
+
+  it("equal times, a persistent first-key outage: three attempts, then the successor is sent once and never again", async () => {
+    const o = await outage();
+    const seen: { retries: unknown; givenUp: unknown; convo: unknown; sent: string[] }[] = [];
+    for (let n = 0; n < 6; n++) {
+      const r = await pollReplies(o.env, { fetch: o.f, now: tick(n) });
+      const s = await stateOf(o.env);
+      seen.push({ retries: s.retries, givenUp: s.givenUp, convo: s.convos.two, sent: r.sent });
+    }
+    expect(seen).toEqual([
+      { retries: { first: 1 }, givenUp: {}, convo: undefined, sent: [] },
+      { retries: { first: 2 }, givenUp: {}, convo: undefined, sent: [] },
+      { retries: {}, givenUp: { first: T }, convo: { seenAt: beforeT }, sent: [] },
+      // The fourth poll: the given-up message is passed without a claim; the successor goes; the mark leaves.
+      { retries: {}, givenUp: {}, convo: { seenAt: T }, sent: ["second"] },
+      { retries: {}, givenUp: {}, convo: { seenAt: T }, sent: [] },
+      { retries: {}, givenUp: {}, convo: { seenAt: T }, sent: [] },
+    ]);
+    expect(tries(o.attempts, "first")).toBe(MAX_RETRIES);
+    expect(tries(o.attempts, "second")).toBe(1);
+    expect(posts(o.f)).toBe(1);
+    const log = (await stateOf(o.env)).log;
+    expect(log.filter((e) => e.messageId === "first").map((e) => e.detail)).toEqual([
+      "dm-claim-store",
+      "dm-claim-store",
+      "dm-claim-store",
+    ]);
+    expect(log.filter((e) => e.messageId === "second").map((e) => e.dm)).toEqual(["sent"]);
+  });
+
+  it("distinct times: three attempts, the mark leaves at once, the successor is sent once", async () => {
+    const o = await outage(["first", "second"], true);
+    for (let n = 0; n < 5; n++) await pollReplies(o.env, { fetch: o.f, now: tick(n) });
+    expect(tries(o.attempts, "first")).toBe(MAX_RETRIES);
+    expect(tries(o.attempts, "second")).toBe(1);
+    expect(posts(o.f)).toBe(1);
+    const s = await stateOf(o.env);
+    expect(s.givenUp).toEqual({});
+    expect(s.convos.two).toEqual({ seenAt: T });
+  });
+
+  it("restored before the third failure: both same-time messages are sent once, nothing is given up or replayed", async () => {
+    const o = await outage();
+    await pollReplies(o.env, { fetch: o.f, now: tick(0) });
+    await pollReplies(o.env, { fetch: o.f, now: tick(1) });
+    o.fault.on = false;
+    const third = await pollReplies(o.env, { fetch: o.f, now: tick(2) });
+    expect(third.sent).toEqual(["first", "second"]);
+    const s = await stateOf(o.env);
+    expect(s.retries).toEqual({});
+    expect(s.givenUp).toEqual({});
+    const attempts = o.attempts.length;
+    expect((await pollReplies(o.env, { fetch: o.f, now: tick(3) })).sent).toEqual([]);
+    expect(o.attempts).toHaveLength(attempts);
+    expect(posts(o.f)).toBe(2);
+  });
+
+  it("a budget stop right after the given-up message: the next valid one waits, then each follows once", async () => {
+    const o = await outage(["first", "s1", "s2"]);
+    for (let n = 0; n < MAX_RETRIES; n++) await pollReplies(o.env, { fetch: o.f, now: tick(n) });
+    expect((await stateOf(o.env)).givenUp).toEqual({ first: T });
+    // /me + conversations = 2, then one DM of three calls: s1 goes, s2 waits, the position stays before T.
+    const fourth = await pollReplies(o.env, { fetch: o.f, now: tick(3), budget: 2 + 3 });
+    expect(fourth.sent).toEqual(["s1"]);
+    let s = await stateOf(o.env);
+    expect(s.givenUp).toEqual({ first: T });
+    expect(s.convos.two).toEqual({ seenAt: beforeT });
+    expect((await pollReplies(o.env, { fetch: o.f, now: tick(4) })).sent).toEqual(["s2"]);
+    s = await stateOf(o.env);
+    expect(s.givenUp).toEqual({});
+    expect(s.convos.two).toEqual({ seenAt: T });
+    expect((await pollReplies(o.env, { fetch: o.f, now: tick(5) })).sent).toEqual([]);
+    expect(tries(o.attempts, "first")).toBe(MAX_RETRIES);
+    expect(posts(o.f)).toBe(2);
+  });
+
+  it("marks older than the window leave at the poll's start; a saved state from before the mark loads", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [camRule()]);
+    const legacy: Partial<PollState> = { ...emptyState(), ...SINCE };
+    delete legacy.givenUp;
+    await Store.from(env)!.putRepliesState(legacy);
+    const f = mockFetch(dmRoutes([convo("t1", [dm("d1", "كاميرا")])]));
+    expect((await pollReplies(env, { fetch: f, now: NOW })).sent).toEqual(["d1"]);
+    expect((await stateOf(env)).givenUp).toEqual({});
+    const old = new Date(NOW.getTime() - 25 * 3_600_000).toISOString();
+    const recent = new Date(NOW.getTime() - 3_600_000).toISOString();
+    const state = await stateOf(env);
+    await Store.from(env)!.putRepliesState({ ...state, givenUp: { old, recent } });
+    const g = mockFetch(dmRoutes([convo("t2", [dm("d2", "كاميرا", { from: { id: "p2" } })])]));
+    expect((await pollReplies(env, { fetch: g, now: tick(1) })).sent).toEqual(["d2"]);
+    expect((await stateOf(env)).givenUp).toEqual({ recent });
+  });
+});

@@ -144,25 +144,71 @@ export function collectNativeDiscoverCards(
     seen.add(identity(url));
     candidates.push({ anchor, url, key: identity(url) });
   }
-  const known = new Set(
-    (Array.isArray(progress.knownUrls) ? progress.knownUrls.slice(0, 600) : [])
-      .map(canonical)
-      .filter(Boolean)
-      .map(identity),
-  );
+  // The platform's own rendered search-failure screen (heading + retry control,
+  // no cards) is a failed read, not a genuinely empty search. Rendered text only,
+  // scoped to the results region; never matches text inside cards or links.
+  if (!candidates.length) {
+    const region = document.querySelector("main") || document;
+    const heading = [...region.querySelectorAll('h1,h2,h3,[role="heading"]')].some(
+      (node) =>
+        !node.closest("a") &&
+        /something went wrong|wrong with the server|try again later|couldn't load/i.test(
+          renderedText(node),
+        ),
+    );
+    const retry = [...region.querySelectorAll('button,[role="button"],a[href]')].some((node) =>
+      /^(try again|retry|reload)$/i.test(renderedText(node)),
+    );
+    if (heading && retry) return { status: "error", results: [], error: "search-service-error" };
+    // The platform's own rendered "No results" screen: a genuinely empty search,
+    // reported at once. Short rendered text outside links/cards only.
+    const shown = (pattern) => {
+      const walker = document.createTreeWalker(region, NodeFilter.SHOW_TEXT);
+      for (let next; (next = walker.nextNode());) {
+        const text = (next.textContent || "").replace(/\s+/g, " ").trim();
+        const parent = next.parentElement;
+        if (
+          text.length <= 200 &&
+          pattern.test(text) &&
+          parent &&
+          !parent.closest("a,article,script,style,noscript,template") &&
+          rendered(parent)
+        )
+          return true;
+      }
+      return false;
+    };
+    const noResults =
+      platform === "ig"
+        ? shown(/^no results\.?$/i) && shown(/we couldn['’]t find anything/i)
+        : shown(platform === "tt" ? /no results found|couldn['’]t find/i : /no results found/i);
+    if (noResults) return { status: "empty", results: [], order: [], lastUrl: null, noResults };
+  }
+  const knownUrls = Array.isArray(progress.knownUrls) ? progress.knownUrls.slice(0, 600) : [];
+  const known = new Set(knownUrls.map(canonical).filter(Boolean).map(identity));
   const previousUrl = canonical(progress.lastUrl);
   const previousKey = previousUrl ? identity(previousUrl) : null;
-  let boundary = previousKey
-    ? candidates.findIndex((candidate) => candidate.key === previousKey)
-    : -1;
-  // A virtualized list can remove the exact last card while leaving other
-  // already-read cards. Resume after the latest retained overlap when possible.
-  if (previousKey && boundary < 0) {
-    for (let index = 0; index < candidates.length; index++)
-      if (known.has(candidates[index].key)) boundary = index;
-  }
+  const isKnown = (candidate) => known.has(candidate.key) || candidate.key === previousKey;
+  const firstKnown = candidates.findIndex(isKnown);
+  // The helper says whether it passed every card it ever read: nothing omitted
+  // from its rolling window and its whole read set fits the known list. Then an
+  // unknown card anywhere, even before the first read card (a late-hydrated top
+  // tile), is new. Otherwise (or when an older helper sends no bookkeeping)
+  // cards before the first read card may be the old trimmed prefix and are
+  // skipped; every unknown card after it is new, including one hydrated late
+  // between read cards. If virtualization removed every read card, start at
+  // the top of what is rendered.
+  const complete =
+    Number.isSafeInteger(progress.knownTotal) &&
+    progress.knownTotal >= 0 &&
+    progress.knownTotal <= knownUrls.length &&
+    progress.omitted === 0;
+  const boundary = complete ? -1 : firstKnown;
   let lastResult = null;
-  for (const { anchor, url, key } of candidates.slice(boundary + 1)) {
+  let firstCollected = -1;
+  let lastCollected = -1;
+  for (let index = boundary + 1; index < candidates.length; index++) {
+    const { anchor, url, key } = candidates[index];
     if (known.has(key)) continue;
     const selector =
       platform === "yt"
@@ -231,10 +277,12 @@ export function collectNativeDiscoverCards(
     if (displayedStats) item.displayedStats = displayedStats;
     results.push(item);
     lastResult = { anchor, url };
+    if (firstCollected < 0) firstCollected = index;
+    lastCollected = index;
     if (results.length >= cap) break;
   }
   // Advance to the collected boundary, not the same first viewport on every
-  // More request. The caller permits at most three such read/scroll cycles.
+  // read. The caller permits at most four such read/scroll cycles per request.
   const end = lastResult || candidates.at(-1);
   if (scrollOnce && end) {
     const scrollTarget = nearestScrollPane(end.anchor);
@@ -252,9 +300,20 @@ export function collectNativeDiscoverCards(
         behavior: "instant",
       });
   }
+  // Observed native order around the read and new cards (not the grid head), so
+  // callers can place cards deep in a long grid: from the first read/collected
+  // card to the last one, 10 cards of overlap each side, at most 600 keys
+  // (leading and trailing halves of a longer span).
+  const lastKnown = candidates.findLastIndex(isKnown);
+  const marks = [firstKnown, firstCollected, lastKnown, lastCollected].filter((at) => at >= 0);
+  let span = marks.length
+    ? candidates.slice(Math.max(0, Math.min(...marks) - 10), Math.max(...marks) + 11)
+    : [];
+  if (span.length > 600) span = [...span.slice(0, 300), ...span.slice(-300)];
   return {
     status: results.length ? "done" : "empty",
     results,
+    order: span.map((candidate) => candidate.key),
     lastUrl: lastResult?.url || previousUrl || null,
   };
 }

@@ -4,15 +4,17 @@ import {
   Briefcase,
   Gamepad2,
   Globe,
+  Inbox,
   Languages,
   MessageCircle,
   Rocket,
   Search,
   Settings,
   Volume2,
+  Workflow,
+  Wrench,
 } from "lucide-react";
 import Link from "next/link";
-import Chip from "@/components/ui/ios/Chip";
 import { ListGroup, ListRow } from "@/components/ui/ios/List";
 import PageHeader from "@/components/ui/ios/PageHeader";
 import Segmented from "@/components/ui/ios/Segmented";
@@ -28,6 +30,7 @@ const TRAINING_LINKS: readonly { href: string; label: MessageKey; testId: string
   { href: "/review", label: "morePage.review", testId: "more-review" },
   { href: "/rewards", label: "morePage.rewards", testId: "more-rewards" },
   { href: "/discover", label: "morePage.discover", testId: "more-discover" },
+  { href: "/tools", label: "morePage.tools", testId: "more-tools" },
   { href: "/settings", label: "morePage.settings", testId: "more-settings" },
 ];
 
@@ -63,16 +66,15 @@ export default function MoreScreen({ world = "training" }: { world?: World }) {
 const icon = { size: 22, strokeWidth: 1.75, "aria-hidden": true } as const;
 
 /**
- * Social "More" (tools/18 §6, mockup More), as grouped lists: the two "soon" sections; the sections that are not in
+ * Social "More" (tools/18 §6, mockup More), as grouped lists: Website and Business; the sections that are not in
  * the phone tab bar with the Discover shortcut (edit genres and search live there; a Training route, so it opens in
- * the Training shell); quick settings (Social keeps language and sound here, not in its top bar, round 35) with all
+ * the Training shell) and the Tools hub (packet DT-1, also a Training route); quick settings (Social keeps language and sound here, not in its top bar, round 35) with all
  * settings; the way back to Training. Row titles are the tab bar's and the sidebar's own words (`nav.*`).
  */
 function SocialMore() {
   const { t, lang } = useT();
   const sound = useStore((s) => s.settings.sound);
   const setSettings = useStore((s) => s.setSettings);
-  const soon = <Chip>{t("nav.soon")}</Chip>;
   return (
     <>
       <PageHeader title={t("social.more.title")} sub={t("social.more.sub")} />
@@ -81,17 +83,15 @@ function SocialMore() {
           <ListRow
             href="/social/website"
             icon={<Globe {...icon} />}
-            iconTone="fill"
             title={t("nav.website")}
-            trailing={soon}
+            chevron
             testId="more-website"
           />
           <ListRow
             href="/social/business"
             icon={<Briefcase {...icon} />}
-            iconTone="fill"
             title={t("nav.business")}
-            trailing={soon}
+            chevron
             testId="more-business"
           />
         </ListGroup>
@@ -104,6 +104,13 @@ function SocialMore() {
             testId="more-automations"
           />
           <ListRow
+            href="/social/workflows"
+            icon={<Workflow {...icon} />}
+            title={t("nav.workflows")}
+            chevron
+            testId="more-workflows"
+          />
+          <ListRow
             href="/social/replies"
             icon={<MessageCircle {...icon} />}
             title={t("nav.replies")}
@@ -111,11 +118,25 @@ function SocialMore() {
             testId="more-replies"
           />
           <ListRow
+            href="/social/inbox"
+            icon={<Inbox {...icon} />}
+            title={t("nav.inbox")}
+            chevron
+            testId="more-inbox"
+          />
+          <ListRow
             href="/discover"
             icon={<Search {...icon} />}
             title={t("nav.discover")}
             chevron
             testId="more-discover"
+          />
+          <ListRow
+            href="/tools"
+            icon={<Wrench {...icon} />}
+            title={t("nav.tools")}
+            chevron
+            testId="more-tools"
           />
         </ListGroup>
         <ListGroup header={t("more.quick")}>

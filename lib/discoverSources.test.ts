@@ -184,4 +184,52 @@ describe("source-bound category evidence", () => {
     expect(enriched.published).toBeUndefined();
     expect(enriched.evidence?.published).toBeUndefined();
   });
+  it("carries the post's own sound into evidence for both Instagram and TikTok", async () => {
+    const { TikTokSourceSchema } = await import("./discoverSources");
+    const ig = applyInstagramEvidence(item, {
+      ...source,
+      audio: {
+        title: "Espresso",
+        artist: "Sabrina Carpenter",
+        url: "https://www.instagram.com/reels/audio/123456789/",
+      },
+    });
+    expect(ig.evidence?.sound).toEqual({
+      title: "Espresso",
+      artist: "Sabrina Carpenter",
+      url: "https://www.instagram.com/reels/audio/123456789/",
+      platform: "ig",
+    });
+    expect(applyInstagramEvidence(item, source).evidence?.sound).toBeUndefined();
+    const ttUrl = "https://www.tiktok.com/@editor/video/7555977965763398943";
+    const music = {
+      title: "original sound",
+      artist: "Editor",
+      url: "https://www.tiktok.com/music/original-sound-7555977965763398000",
+      original: true as const,
+    };
+    const tt = applyTikTokEvidence(
+      { ...item, platform: "tt", url: ttUrl },
+      {
+        status: "available",
+        url: ttUrl,
+        observedAt: "2026-10-09T16:00:00Z",
+        provenance: "tiktok-public-page",
+        caption: "car edit",
+        author: "editor",
+        music,
+      },
+    );
+    expect(tt.evidence?.sound).toEqual({ ...music, platform: "tt" });
+    const parse = (value: unknown) =>
+      TikTokSourceSchema.safeParse({
+        status: "available",
+        url: ttUrl,
+        observedAt: "2026-10-09T16:00:00Z",
+        provenance: "tiktok-public-page",
+        music: value,
+      });
+    expect(parse(music).data?.music).toEqual(music);
+    expect(parse({ ...music, url: "https://attacker.test/music/x-1" }).success).toBe(false);
+  });
 });

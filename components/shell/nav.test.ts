@@ -1,4 +1,4 @@
-import { MessageCircle, Search } from "lucide-react";
+import { Inbox, MessageCircle, Search, Workflow } from "lucide-react";
 import { describe, expect, it } from "vitest";
 import { activeHref, NAV_BY_WORLD, NAV_ITEMS, normalizePath, SOCIAL_NAV_ITEMS } from "./nav";
 import { worldOf } from "./useWorld";
@@ -19,6 +19,8 @@ const SOCIAL_PATHS = [
   "/social/business/",
   "/social/automations/",
   "/social/replies/",
+  "/social/inbox/",
+  "/social/workflows/",
 ];
 
 describe("normalizePath", () => {
@@ -64,6 +66,42 @@ describe("Social navigation", () => {
       desktopOnly: true,
     });
     expect(activeHref(SOCIAL_NAV_ITEMS, "/social/replies/")).toBe("/social/replies");
+  });
+
+  it("lists 📥 Inbox (packet DT-6A) in the desktop sidebar, built, right after Auto replies", () => {
+    expect(SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/inbox")).toEqual({
+      href: "/social/inbox",
+      icon: "📥",
+      lucide: Inbox,
+      label: "nav.inbox",
+      desktopOnly: true,
+    });
+    const hrefs = SOCIAL_NAV_ITEMS.map((i) => i.href);
+    expect(hrefs.indexOf("/social/inbox")).toBe(hrefs.indexOf("/social/replies") + 1);
+    expect(activeHref(SOCIAL_NAV_ITEMS, "/social/inbox/")).toBe("/social/inbox");
+  });
+
+  it("shows Website (packet DT-3) and Business (packet DT-5) as built", () => {
+    const website = SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/website")!;
+    expect(website.soon).toBeUndefined();
+    expect(website.desktopOnly).toBe(true);
+    const business = SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/business")!;
+    expect(business.soon).toBeUndefined();
+    expect(business.desktopOnly).toBe(true);
+    expect(SOCIAL_NAV_ITEMS.some((i) => i.soon)).toBe(false);
+  });
+
+  it("lists Workflows (packet DT-4) in the desktop sidebar, built, before Auto-posting", () => {
+    expect(SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/workflows")).toEqual({
+      href: "/social/workflows",
+      icon: "🔁",
+      lucide: Workflow,
+      label: "nav.workflows",
+      desktopOnly: true,
+    });
+    const hrefs = SOCIAL_NAV_ITEMS.map((i) => i.href);
+    expect(hrefs.indexOf("/social/workflows")).toBe(hrefs.indexOf("/social/automations") - 1);
+    expect(activeHref(SOCIAL_NAV_ITEMS, "/social/workflows/")).toBe("/social/workflows");
   });
 
   it("keeps the phone tab bar at the five Social tabs", () => {

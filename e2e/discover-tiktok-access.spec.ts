@@ -211,10 +211,11 @@ test("native TikTok retrieval is explicit, bypasses search credits, and preserve
   const state = await setup(page);
   expect(state.acquisitions).toEqual([]);
   await page.getByTestId("browse-tab-tt").click();
-  const count = await page.getByTestId("feed-count").textContent();
+  const cards = page.getByTestId("category-feed").getByTestId("feed-card");
+  const count = await cards.count();
   await page.getByTestId("category-refresh-run").click();
   await expect(page.getByTestId("category-refresh-result")).toContainText("Returned: 0");
-  await expect(page.getByTestId("feed-count")).toHaveText(count!);
+  await expect(cards).toHaveCount(count);
   await expect(page.getByTestId("category-refresh-run")).toBeDisabled();
   expect(state.acquisitions).toEqual(["anime"]);
   expect(state.forbidden).toEqual([]);

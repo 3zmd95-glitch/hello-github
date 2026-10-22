@@ -5,12 +5,15 @@ import {
   NATIVE_CACHE_TTL_MS,
   NATIVE_HELPER_STORAGE_KEY,
   attachNativeHelper,
+  appendNativeSearchSnapshot,
   canonicalNativeUrl,
   initializeNativeHelper,
   nativeHelperStatus,
   nativeResultsToItems,
+  moreNativeSearch,
   pollNativeSearch,
   readNativeSearchCache,
+  retainFailedNativePlatforms,
   startNativeSearch,
   validNativeCache,
   validateNativeQueries,
@@ -110,6 +113,19 @@ describe("native helper attachment and messaging", () => {
     await vi.advanceTimersByTimeAsync(8000);
     expect(await result).toBe("timeout");
   });
+  it("sends deep only for an explicit Deep search, so a quiet search stays valid for older helpers", async () => {
+    attachNativeHelper(id);
+    const sendMessage = vi.fn((_id, _message, callback) => callback({ ok: true, jobId: "job-1" }));
+    vi.stubGlobal("chrome", { runtime: { sendMessage } });
+    await startNativeSearch({ ig: "anime" }, "request-1");
+    await startNativeSearch({ ig: "anime" }, "request-2", { deep: false });
+    await startNativeSearch({ ig: "anime" }, "request-3", { deep: true });
+    expect(sendMessage.mock.calls.map(([, message]) => message)).toEqual([
+      { version: 1, type: "search", requestId: "request-1", queries: { ig: "anime" } },
+      { version: 1, type: "search", requestId: "request-2", queries: { ig: "anime" } },
+      { version: 1, type: "search", requestId: "request-3", queries: { ig: "anime" }, deep: true },
+    ]);
+  });
   it("rejects mismatched poll jobs", async () => {
     attachNativeHelper(id);
     vi.stubGlobal("chrome", {
@@ -118,6 +134,18 @@ describe("native helper attachment and messaging", () => {
     await expect(pollNativeSearch("different-job")).rejects.toMatchObject({
       code: "invalid-response",
     });
+  });
+  it("distinguishes an expired owned job from a generic helper failure", async () => {
+    attachNativeHelper(id);
+    const sendMessage = vi.fn((_id, _message, callback) =>
+      callback({ ok: false, error: "job-not-found" }),
+    );
+    vi.stubGlobal("chrome", { runtime: { sendMessage } });
+    await expect(moreNativeSearch("expired-job")).rejects.toMatchObject({ code: "expired" });
+    sendMessage.mockImplementation((_id, _message, callback) =>
+      callback({ ok: false, error: "internal-error" }),
+    );
+    await expect(moreNativeSearch("expired-job")).rejects.toMatchObject({ code: "unavailable" });
   });
 });
 
@@ -242,6 +270,38 @@ describe("native payload boundary", () => {
     expect(validateNativeQueries({ ig: "  " })).toBeNull();
     expect(validateNativeQueries({ ig: "anime", cookie: "secret" })).toBeNull();
   });
+  it("keeps the helper's short Deep search skip reason and nothing else from its diagnostics", () => {
+    expect(
+      validateNativeSnapshot({ ...raw(), diagnostics: { deepSkipped: "window-not-focused" } }),
+    ).toMatchObject({ deepSkipped: "window-not-focused" });
+    expect(validateNativeSnapshot(raw())).not.toHaveProperty("deepSkipped");
+    for (const deepSkipped of [true, "", "x".repeat(41), "<b>window</b>"])
+      expect(validateNativeSnapshot({ ...raw(), diagnostics: { deepSkipped } })).not.toHaveProperty(
+        "deepSkipped",
+      );
+    expect(
+      validateNativeSnapshot({ ...raw(), diagnostics: { focus: { skipReason: "quiet" } } }),
+    ).not.toHaveProperty("diagnostics");
+  });
+  it("keeps the helper's No results marker only on an empty platform, and a timeout as a failed read", () => {
+    const platform = (extra: Record<string, unknown>) =>
+      validateNativeSnapshot({
+        ...raw(),
+        platforms: { ig: { ...raw().platforms.ig, results: [], ...extra } },
+      })?.platforms.ig;
+    expect(platform({ status: "empty", noResults: true })).toMatchObject({
+      status: "empty",
+      noResults: true,
+    });
+    expect(platform({ status: "empty" })).not.toHaveProperty("noResults");
+    expect(platform({ status: "empty", noResults: "yes" })).not.toHaveProperty("noResults");
+    expect(platform({ status: "error", noResults: true })).not.toHaveProperty("noResults");
+    expect(platform({ status: "error", error: "search-timeout" })).toMatchObject({
+      status: "error",
+      error: "search-timeout",
+    });
+    expect(platform({ status: "error", error: "timeout" })).toMatchObject({ error: "timeout" });
+  });
   it.each([
     "data:image/png;base64,abc",
     "blob:https://instagram.com/image",
@@ -254,6 +314,245 @@ describe("native payload boundary", () => {
 });
 
 describe("bounded native category cache", () => {
+  it("keeps a saved Deep search's mode and nothing else in its place", () => {
+    expect(validNativeCache([{ ...cached(), deep: true }])[0].deep).toBe(true);
+    expect(validNativeCache([{ ...cached(), deep: "yes" }])[0]).not.toHaveProperty("deep");
+    expect(validNativeCache([cached()])[0]).not.toHaveProperty("deep");
+  });
+  it("appends resumed cards in platform order, deduplicates aliases, and retains the original age", async () => {
+    const oldTime = new Date(Date.now() - 3600000).toISOString();
+    const previous = cached("anime", oldTime);
+    previous.platforms.ig!.results[0].observedAt = oldTime;
+    const next = cached();
+    next.jobId = "resumed-job";
+    next.platforms.ig!.results = [
+      { ...next.platforms.ig!.results[0], url: "https://www.instagram.com/p/NewNative/" },
+    ];
+    const merged = appendNativeSearchSnapshot(previous, next);
+    expect(merged.platforms.ig!.results.map((result) => result.url)).toEqual([
+      "https://www.instagram.com/p/Native123/",
+      "https://www.instagram.com/p/NewNative/",
+    ]);
+    expect(merged.platforms.ig!.results[0].observedAt).toBe(oldTime);
+    expect(merged.platforms.ig!.staleAsOf).toBe(oldTime);
+    expect(merged.platforms.ig!.results.map((result) => result.position)).toEqual([1, 2]);
+    await writeNativeSearchCache(merged);
+    expect((await readNativeSearchCache("anime"))?.platforms.ig!.staleAsOf).toBe(oldTime);
+
+    next.platforms.ig!.results.unshift({
+      ...previous.platforms.ig!.results[0],
+      url: "https://www.instagram.com/reel/Native123/",
+      title: "Reobserved",
+      observedAt: at(),
+    });
+    const refreshed = appendNativeSearchSnapshot(previous, next);
+    expect(refreshed.platforms.ig!.results).toHaveLength(2);
+    expect(refreshed.platforms.ig!.results[0].title).toBe("Reobserved");
+    expect(refreshed.platforms.ig!.staleAsOf).toBeUndefined();
+    expect(appendNativeSearchSnapshot(previous, { ...next, queries: { ig: "travel" } })).toEqual({
+      ...next,
+      queries: { ig: "travel" },
+    });
+    expect(appendNativeSearchSnapshot(previous, { ...next, genreId: "travel" })).toEqual({
+      ...next,
+      genreId: "travel",
+    });
+  });
+  it("places resumed cards in the fresh native order and anchors retained-only cards", () => {
+    const seed = cached().platforms.ig!.results[0];
+    const rows = (ids: string[], path = "p") =>
+      ids.map((id, index) => ({
+        ...seed,
+        url: `https://www.instagram.com/${path}/${id}/`,
+        title: id,
+        position: index + 1,
+      }));
+    const ids = (snapshot: NativeSearchSnapshot) =>
+      snapshot.platforms.ig!.results.map((result) => result.url.split("/").at(-2));
+    const previous = cached();
+    previous.platforms.ig!.results = rows(["PostA", "PostC"]);
+    const next = cached();
+    next.platforms.ig!.results = rows(["PostA", "PostB", "PostC", "PostD"]);
+    const merged = appendNativeSearchSnapshot(previous, next);
+    expect(ids(merged)).toEqual(["PostA", "PostB", "PostC", "PostD"]);
+    expect(merged.platforms.ig!.results.map((result) => result.position)).toEqual([1, 2, 3, 4]);
+    expect(merged.platforms.ig!.staleAsOf).toBeUndefined();
+
+    previous.platforms.ig!.results = rows(["PostA", "PostX", "PostC"]);
+    // A duplicate alias of A in the fresh snapshot is the same card.
+    next.platforms.ig!.results = [
+      ...rows(["PostA"], "reel"),
+      ...rows(["PostA", "PostB", "PostC", "PostD"]),
+    ];
+    const anchored = appendNativeSearchSnapshot(previous, next);
+    expect(ids(anchored)).toEqual(["PostA", "PostX", "PostB", "PostC", "PostD"]);
+    expect(anchored.platforms.ig!.staleAsOf).toBe(previous.asOf);
+    expect(appendNativeSearchSnapshot(previous, { ...next, genreId: "travel" })).toEqual({
+      ...next,
+      genreId: "travel",
+    });
+  });
+  it("rolls resumed windows without counting the same helper omissions or poll twice", () => {
+    const previous = cached();
+    const seed = previous.platforms.ig!.results[0];
+    const rows = Array.from({ length: 330 }, (_, index) => ({
+      ...seed,
+      url: `https://www.instagram.com/p/Window${index}/`,
+      position: index + 1,
+    }));
+    previous.platforms.ig!.results = rows.slice(0, 300);
+    const next = cached();
+    next.platforms.ig!.results = rows.slice(30);
+    next.platforms.ig!.omittedCount = 30;
+    const result = appendNativeSearchSnapshot(previous, next);
+    expect(result.platforms.ig!.results).toHaveLength(300);
+    expect(result.platforms.ig!.omittedCount).toBe(30);
+    expect(result.platforms.ig!.results[0].url).toBe(rows[30].url);
+    expect(appendNativeSearchSnapshot(result, next).platforms.ig!.omittedCount).toBe(30);
+    previous.platforms.ig!.omittedCount = 90;
+    expect(appendNativeSearchSnapshot(previous, next).platforms.ig!.omittedCount).toBe(120);
+  });
+  it("retains only failed same-category/platform queries, and persists honest stale metadata", async () => {
+    const previous = cached();
+    previous.asOf = new Date(Date.now() - 3600000).toISOString();
+    const next = cached();
+    next.platforms.ig = {
+      ...next.platforms.ig!,
+      status: "error",
+      results: [],
+      error: "read-failed",
+    };
+    const fallback = retainFailedNativePlatforms(previous, next);
+    expect(fallback.platforms.ig).toMatchObject({
+      status: "error",
+      staleAsOf: previous.asOf,
+      results: previous.platforms.ig!.results,
+    });
+    await writeNativeSearchCache(fallback);
+    expect((await readNativeSearchCache("anime"))?.platforms.ig?.staleAsOf).toBe(previous.asOf);
+    expect(
+      validateNativeSnapshot({ ...fallback, ok: true })?.platforms.ig?.staleAsOf,
+    ).toBeUndefined();
+    expect(
+      retainFailedNativePlatforms(previous, { ...next, genreId: "travel" }).platforms.ig?.results,
+    ).toEqual([]);
+    expect(
+      retainFailedNativePlatforms(previous, { ...next, queries: { ig: "another query" } }).platforms
+        .ig?.results,
+    ).toEqual([]);
+    next.platforms.ig!.status = "empty";
+    expect(retainFailedNativePlatforms(previous, next).platforms.ig?.results).toEqual([]);
+    next.platforms.ig!.status = "needs-attention";
+    expect(retainFailedNativePlatforms(previous, next).platforms.ig?.results).toEqual(
+      previous.platforms.ig!.results,
+    );
+    next.platforms.ig!.results = [
+      { ...previous.platforms.ig!.results[0], url: "https://www.instagram.com/p/FreshNative/" },
+    ];
+    expect(retainFailedNativePlatforms(previous, next).platforms.ig?.results).toEqual(
+      next.platforms.ig!.results,
+    );
+  });
+  it("keeps cached TikTok cards when a same-query refresh hits the source-error screen, then an explicit retry replaces them", () => {
+    const tiktok = (count: number, start = 0, status = "done", error?: string) => ({
+      status,
+      ...(error ? { error } : {}),
+      searchUrl: "https://www.tiktok.com/search?q=perfume",
+      results: Array.from({ length: count }, (_, i) =>
+        card({
+          platform: "tt",
+          url: `https://www.tiktok.com/@editor/video/70000000000000${String(start + i).padStart(5, "0")}`,
+          title: `TikTok ${start + i}`,
+          handle: "@editor",
+          thumb: "https://p16.tiktokcdn.com/thumb.jpg",
+          position: start + i + 1,
+        }),
+      ),
+    });
+    const snapshot = (platform: unknown, asOf: string): NativeSearchSnapshot => ({
+      ...validateNativeSnapshot({
+        ok: true,
+        jobId: "job-1",
+        status: "complete",
+        hasMore: false,
+        platforms: { tt: platform },
+      })!,
+      genreId: "perfume",
+      asOf,
+      queries: { tt: "perfume" },
+      cached: false,
+    });
+    const previous = snapshot(tiktok(3), new Date(Date.now() - 3600000).toISOString());
+    expect(previous.platforms.tt?.results).toHaveLength(3);
+    const failed = snapshot(tiktok(0, 0, "error", "read-failed"), at());
+    expect(failed.platforms.tt).toMatchObject({ status: "error", results: [] });
+    const retained = retainFailedNativePlatforms(previous, failed);
+    expect(retained.platforms.tt).toMatchObject({
+      status: "error",
+      error: "read-failed",
+      staleAsOf: previous.asOf,
+    });
+    expect(retained.platforms.tt?.results).toEqual(previous.platforms.tt!.results);
+    // The later successful explicit retry replaces them and drops the stale label.
+    const fresh = snapshot(tiktok(5, 10), at());
+    const replaced = retainFailedNativePlatforms(retained, fresh);
+    expect(replaced.platforms.tt?.status).toBe("done");
+    expect(replaced.platforms.tt?.results).toEqual(fresh.platforms.tt!.results);
+    expect(replaced.platforms.tt?.results).toHaveLength(5);
+    expect(replaced.platforms.tt?.staleAsOf).toBeUndefined();
+  });
+  it("retains cards received while a platform was still loading when the identical refresh fails", () => {
+    const previous = cached();
+    previous.asOf = new Date(Date.now() - 3600000).toISOString();
+    previous.platforms.ig!.status = "loading";
+    const answer = (status: "error" | "needs-attention" | "empty") => {
+      const next = cached();
+      next.platforms.ig = { ...next.platforms.ig!, status, results: [], error: "read-failed" };
+      return next;
+    };
+    for (const status of ["error", "needs-attention"] as const)
+      expect(retainFailedNativePlatforms(previous, answer(status)).platforms.ig).toMatchObject({
+        status,
+        staleAsOf: previous.asOf,
+        results: previous.platforms.ig!.results,
+      });
+    const otherQuery = { ...answer("error"), queries: { ig: "another query" } };
+    expect(retainFailedNativePlatforms(previous, otherQuery).platforms.ig?.results).toEqual([]);
+    const emptySource = retainFailedNativePlatforms(previous, answer("empty")).platforms.ig;
+    expect(emptySource?.results).toEqual([]);
+    expect(emptySource?.staleAsOf).toBeUndefined();
+    previous.platforms.ig!.results = [];
+    const nothing = retainFailedNativePlatforms(previous, answer("error")).platforms.ig;
+    expect(nothing?.results).toEqual([]);
+    expect(nothing?.staleAsOf).toBeUndefined();
+  });
+  it("restores a cached loading platform honestly: received cards are done, an unfinished read is an error", async () => {
+    const staleAsOf = new Date(Date.now() - 3600000).toISOString();
+    const saved = cached();
+    saved.status = "running";
+    saved.queries = { ig: "anime", tt: "anime" };
+    saved.platforms.ig = { ...saved.platforms.ig!, status: "loading", staleAsOf };
+    saved.platforms.tt = {
+      status: "loading",
+      results: [],
+      searchUrl: "https://www.tiktok.com/search?q=anime",
+    };
+    const [restored] = validNativeCache([saved]);
+    expect(restored.platforms.ig).toMatchObject({
+      status: "done",
+      results: saved.platforms.ig.results,
+      staleAsOf,
+    });
+    expect(restored.platforms.tt).toMatchObject({ status: "error", results: [] });
+    await writeNativeSearchCache(saved);
+    const reopened = await readNativeSearchCache("anime");
+    expect(reopened?.platforms.ig).toMatchObject({
+      status: "done",
+      results: saved.platforms.ig.results,
+      staleAsOf,
+    });
+    expect(reopened?.platforms.tt?.status).toBe("error");
+  });
   it("accepts and caches a rolling 300-card window without treating omitted cards as results", async () => {
     const response = raw(
       Array.from({ length: 300 }, (_, index) =>
@@ -306,6 +605,25 @@ describe("bounded native category cache", () => {
       entries.slice(0, 12).map((entry) => entry.genreId),
     );
     expect(result.every((entry) => entry.cached)).toBe(true);
+  });
+  it("keeps the Search tab's one entry beside twelve categories: a keyword search never evicts one", async () => {
+    for (let i = 0; i < 12; i++) await writeNativeSearchCache(cached(`category-${i}`));
+    await writeNativeSearchCache(cached("search"));
+    await writeNativeSearchCache(cached("search"));
+    expect(persistence.value).toHaveLength(13);
+    for (let i = 0; i < 12; i++)
+      expect(await readNativeSearchCache(`category-${i}`)).not.toBeNull();
+    expect(await readNativeSearchCache("search")).not.toBeNull();
+  });
+  it("keeps the CapCut and DaVinci Resolve search entries beside twelve categories too", async () => {
+    for (let i = 0; i < 12; i++) await writeNativeSearchCache(cached(`category-${i}`));
+    for (const scope of ["search", "search-capcut", "search-davinci"])
+      await writeNativeSearchCache(cached(scope));
+    expect(persistence.value).toHaveLength(15);
+    for (let i = 0; i < 12; i++)
+      expect(await readNativeSearchCache(`category-${i}`)).not.toBeNull();
+    for (const scope of ["search", "search-capcut", "search-davinci"])
+      expect(await readNativeSearchCache(scope)).not.toBeNull();
   });
   it("persists in the separate store and gracefully tolerates unavailable storage", async () => {
     for (let i = 0; i < 15; i++) await writeNativeSearchCache(cached(`category-${i}`));

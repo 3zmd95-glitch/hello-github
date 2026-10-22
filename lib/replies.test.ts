@@ -380,3 +380,101 @@ describe("repliesSettings", () => {
     });
   });
 });
+
+/* ---------- DT-6B-2C-2-R1 ---------- */
+
+describe("the Worker's skipped DM outcome (DT-6B-2C-2-R1)", () => {
+  // Documents the real Worker produced (pollReplies, then publicDoc): a duplicate poll of an answered message and a
+  // conversation held by a person. Captured from the independent DT-6B-2C-2 poll review.
+  const automation = {
+    id: "cam",
+    enabled: true,
+    postId: null,
+    keywords: ["كاميرا"],
+    match: "contains",
+    trigger: "message",
+    publicReplies: [],
+    followButton: false,
+    dmText: "أصور بالآيفون",
+    buttons: [],
+    createdAt: "2026-09-28T09:00:00.000Z",
+    updatedAt: "2026-09-28T09:00:00.000Z",
+    enabledAt: "2026-09-28T09:00:00.000Z",
+    stats: { sends: 0, publicReplies: 0, failures: 0, clicks: 0 },
+  };
+  const wire = (at: string, detail: string) => ({
+    automations: [automation],
+    log: [
+      {
+        at,
+        kind: "message",
+        automationId: "cam",
+        messageId: "d0",
+        username: "user0",
+        text: "كاميرا",
+        publicReply: "skipped",
+        dm: "skipped",
+        detail,
+      },
+    ],
+    paused: false,
+    origin: "https://3z-scout.example.workers.dev",
+    igUserId: "17841",
+    ownerUsername: "3z.prod",
+    lastPollAt: at,
+  });
+  const DUPLICATE = wire("2026-09-29T09:05:00.000Z", "already_claimed");
+  const TAKEOVER = wire("2026-09-29T09:00:00.000Z", "takeover");
+  // A fresh message whose sender is not the conversation's one customer (DT-6B-2C-2-R1's own poll run): no username.
+  const UNAVAILABLE = {
+    ...wire("2026-09-29T09:00:00.000Z", "unavailable"),
+    log: [
+      {
+        at: "2026-09-29T09:00:00.000Z",
+        kind: "message",
+        automationId: "cam",
+        messageId: "new",
+        text: "كاميرا",
+        publicReply: "skipped",
+        dm: "skipped",
+        detail: "unavailable",
+      },
+    ],
+  };
+
+  it("parses a skipped DM as its own third outcome: not failed, not dropped", () => {
+    for (const [doc, detail] of [
+      [DUPLICATE, "already_claimed"],
+      [TAKEOVER, "takeover"],
+      [UNAVAILABLE, "unavailable"],
+    ] as const) {
+      const parsed = parseRepliesDoc(doc);
+      expect(parsed).not.toBeNull();
+      expect(parsed!.automations.map((a) => a.id)).toEqual(["cam"]);
+      expect(parsed!.log).toEqual([
+        expect.objectContaining({ dm: "skipped", detail, publicReply: "skipped" }),
+      ]);
+    }
+  });
+
+  it("still refuses a DM outcome it does not know", () => {
+    expect(
+      parseRepliesDoc({ ...DUPLICATE, log: [{ ...DUPLICATE.log[0], dm: "maybe" }] }),
+    ).toBeNull();
+  });
+
+  it("the list, the settings and 'Check now' all read a document with skipped entries", async () => {
+    const list = await repliesList(CONFIG, { fetchImpl: replying(DUPLICATE) });
+    expect(list).toMatchObject({ ok: true, doc: { log: [{ dm: "skipped" }] } });
+    const settings = await repliesSettings(
+      CONFIG,
+      { paused: true },
+      { fetchImpl: replying({ ...TAKEOVER, paused: true }) },
+    );
+    expect(settings).toMatchObject({ ok: true, doc: { paused: true, log: [{ dm: "skipped" }] } });
+    const poll = await repliesPoll(CONFIG, {
+      fetchImpl: replying({ scanRequested: true, ...DUPLICATE }),
+    });
+    expect(poll).toMatchObject({ ok: true, doc: { log: [{ detail: "already_claimed" }] } });
+  });
+});

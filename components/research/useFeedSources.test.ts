@@ -249,6 +249,44 @@ describe("optional official YouTube evidence batch", () => {
     expect(bridges.instagram).not.toHaveBeenCalled();
     expect(bridges.tiktok).not.toHaveBeenCalled();
   });
+  it("keeps same-key YouTube evidence for overlapping URLs while a grown batch is in flight and drops it on a key change", async () => {
+    const finishers: ((response: Response) => void)[] = [];
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
+      () =>
+        new Promise<Response>((resolve) => {
+          finishers.push(resolve);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const first = yt();
+    const added: DiscoverItem = {
+      ...card("yt", 2),
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    };
+    await render([first], true, "configured-key");
+    await act(async () => finishers[0](new Response(JSON.stringify({ items: [apiVideo()] }))));
+    const enriched = latest.items[0];
+    expect(enriched.evidence?.source).toBe("youtube-api");
+    await render([first, added], true, "configured-key");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(new URL(fetchMock.mock.calls[1][0]).searchParams.get("id")).toBe("dQw4w9WgXcQ");
+    expect(latest.checking).toBe(true);
+    expect(latest.items[0]).toEqual(enriched);
+    expect(latest.items[1]).toEqual(added);
+    await act(async () =>
+      finishers[1](new Response(JSON.stringify({ items: [apiVideo("dQw4w9WgXcQ")] }))),
+    );
+    expect(latest.items[0]).toEqual(enriched);
+    expect(latest.items[1].evidence?.source).toBe("youtube-api");
+    expect(latest.checking).toBe(false);
+    await render([first, added], true, "other-key");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(latest.items).toEqual([first, added]);
+    await render([first, added], false, "configured-key");
+    expect(latest.items).toEqual([first, added]);
+    await act(async () => finishers[2](new Response(JSON.stringify({ items: [] }))));
+    expect(latest.items).toEqual([first, added]);
+  });
   it("aborts a disabled batch and ignores its late result without hidden requests", async () => {
     let finish!: (response: Response) => void;
     const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
@@ -444,7 +482,7 @@ describe("bounded public category-source queue", () => {
       added.map((item) => sourceKey(item.url)),
     );
     await drain(true);
-    expect(bridges.instagram).toHaveBeenCalledTimes(36);
+    expect(bridges.instagram).toHaveBeenCalledTimes(20);
     expect(
       latest.items
         .filter((item) => added.some((add) => add.url === item.url))
@@ -462,7 +500,7 @@ describe("bounded public category-source queue", () => {
       added.map((item) => sourceKey(item.url)),
     );
     await drain();
-    expect(bridges.instagram).toHaveBeenCalledTimes(36);
+    expect(bridges.instagram).toHaveBeenCalledTimes(20);
   });
   it("reads each canonical post once despite duplicate reel/p aliases", async () => {
     const original = card("ig", 1);
@@ -497,6 +535,109 @@ describe("bounded public category-source queue", () => {
     expect(latest.checking).toBe(false);
     expect(maxInFlight).toBe(2);
   });
+  it("keeps completed Instagram and TikTok evidence for unchanged canonical URLs when the membership grows", async () => {
+    const first = (["ig", "tt"] as const).flatMap((p) =>
+      Array.from({ length: 4 }, (_, i) => card(p, i)),
+    );
+    await render(first);
+    await drain();
+    expect(reads).toHaveLength(8);
+    const enriched = latest.items;
+    for (const item of enriched) {
+      expect(item.evidence?.observedAt).toBe(CHECKED);
+      expect(item.evidence?.caption).toBe(
+        `Actual anime beat sync ${canonicalRefUrl(item.platform, item.url)}`,
+      );
+      expect(item.handle).toBe("actualcreator");
+      expect(item.evidence?.likes).toBe(item.platform === "ig" ? 5 : 10);
+    }
+    const added = (["ig", "tt"] as const).flatMap((p) =>
+      Array.from({ length: 40 }, (_, i) => card(p, 100 + i)),
+    );
+    await render([...first, ...added]);
+    expect(latest.checking).toBe(true);
+    expect(reads).toHaveLength(10);
+    for (const prior of enriched)
+      expect(latest.items.find((item) => item.url === prior.url)).toEqual(prior);
+    await drain();
+    const later = reads.slice(8);
+    expect(later.filter((read) => read.platform === "ig")).toHaveLength(18);
+    expect(later.filter((read) => read.platform === "tt")).toHaveLength(18);
+    const firstUrls = first.map((item) => canonicalRefUrl(item.platform, item.url));
+    expect(later.some((read) => firstUrls.includes(read.url))).toBe(false);
+    for (const url of firstUrls) expect(reads.filter((read) => read.url === url)).toHaveLength(1);
+    for (const prior of enriched)
+      expect(latest.items.find((item) => item.url === prior.url)).toEqual(prior);
+    expect(latest.items.filter((item) => item.evidence)).toHaveLength(8 + 36);
+    expect(latest.remaining).toBe(80 - 36);
+    expect(latest.checking).toBe(false);
+    expect(maxInFlight).toBe(2);
+  });
+  it("retains nothing from a previous run when the membership is unrelated", async () => {
+    const first = [card("ig", 1), card("ig", 2), card("tt", 3), card("tt", 4)];
+    await render(first);
+    await drain();
+    expect(latest.items.every((item) => item.evidence)).toBe(true);
+    const other = [card("ig", 501), card("ig", 502), card("tt", 503), card("tt", 504)];
+    await render(other);
+    expect(latest.items).toEqual(other);
+    expect(latest.checking).toBe(true);
+    await drain();
+    expect(latest.items.every((item) => item.evidence)).toBe(true);
+    await render(first);
+    expect(latest.items).toEqual(first);
+    await drain();
+    for (const item of first)
+      expect(
+        reads.filter((read) => read.url === canonicalRefUrl(item.platform, item.url)),
+      ).toHaveLength(2);
+    expect(reads).toHaveLength(12);
+  });
+  it("never lands a late response from a cancelled run in the grown membership or counts it as read", async () => {
+    const first = Array.from({ length: 4 }, (_, i) => card("ig", i));
+    await render(first);
+    const [done, late] = reads;
+    await resolveBatch([done]);
+    const third = reads[2];
+    const kept = latest.items.find((item) => sourceKey(item.url) === done.url)!;
+    expect(kept.evidence?.observedAt).toBe(CHECKED);
+    await render([...first, card("ig", 900)]);
+    expect(late.signal?.aborted).toBe(true);
+    expect(third.signal?.aborted).toBe(true);
+    expect(latest.items.find((item) => sourceKey(item.url) === done.url)).toEqual(kept);
+    await resolveBatch(
+      [late],
+      [{ ...(source(late) as InstagramSource), description: "Late cancelled read", likes: 999 }],
+    );
+    expect(latest.items.find((item) => sourceKey(item.url) === late.url)?.evidence).toBeUndefined();
+    expect(latest.remaining).toBe(4);
+    await drain();
+    expect(reads.filter((read) => read.url === done.url)).toHaveLength(1);
+    expect(latest.items.every((item) => item.evidence?.likes === 5)).toBe(true);
+    expect(
+      latest.items.find((item) => sourceKey(item.url) === late.url)?.evidence?.caption,
+    ).not.toBe("Late cancelled read");
+    expect(latest.remaining).toBe(0);
+    expect(maxInFlight).toBe(2);
+  });
+  it("retains and fetches nothing while inactive, then reads normally when active again", async () => {
+    const items = [card("ig", 1), card("ig", 2), card("tt", 3), card("tt", 4)];
+    await render(items);
+    await drain();
+    expect(latest.items.every((item) => item.evidence)).toBe(true);
+    await render(items, false);
+    expect(latest.items).toEqual(items);
+    expect(latest.checking).toBe(false);
+    expect(latest.remaining).toBe(0);
+    expect(reads).toHaveLength(4);
+    await render(items);
+    expect(latest.items).toEqual(items);
+    expect(reads).toHaveLength(6);
+    await drain();
+    expect(reads).toHaveLength(8);
+    expect(latest.items.every((item) => item.evidence)).toBe(true);
+    expect(latest.checking).toBe(false);
+  });
   it("settles a 500-candidate pool while persisted corrections do not loop or saturate reads", async () => {
     const items = Array.from({ length: 500 }, (_, i) => card(i % 2 ? "ig" : "tt", i));
     await render(items);
@@ -525,5 +666,94 @@ describe("bounded public category-source queue", () => {
     await drain(false, true);
     expect(latest.checking).toBe(false);
     expect(latest.items).toEqual(items);
+  });
+});
+
+describe("display-order source scheduling", () => {
+  const ttUrl = (item: DiscoverItem) => canonicalRefUrl("tt", item.url);
+  /** An Anime-like native feed: IG/TT interleaved, 44 TikTok cards, the first one sorting last lexically. */
+  function nativeFeed(stats: (index: number) => DiscoverItem["stats"] = () => ({ likes: 1000 })) {
+    const tiktok = Array.from({ length: 44 }, (_, i) => ({
+      ...card("tt", i + 1),
+      stats: stats(i),
+    }));
+    tiktok[0] = {
+      ...tiktok[0],
+      handle: "@zzzfirst",
+      url: "https://www.tiktok.com/@zzzfirst/video/7699999999999999999",
+    };
+    const instagram = Array.from({ length: 4 }, (_, i) => ({ ...card("ig", i), stats: stats(0) }));
+    const items = tiktok.flatMap((tt, i) => (instagram[i] ? [instagram[i], tt] : [tt]));
+    return { tiktok, items };
+  }
+  it("checks the first displayed TikTok card in the first batch even when its URL sorts last", async () => {
+    const { tiktok, items } = nativeFeed();
+    expect(tiktok.map(ttUrl).sort().at(-1)).toBe(ttUrl(tiktok[0]));
+    await render(items);
+    expect(reads).toHaveLength(2);
+    await drain();
+    expect(reads.filter((read) => read.platform === "tt").map((read) => read.url)).toEqual(
+      tiktok.slice(0, 18).map(ttUrl),
+    );
+    expect(reads).toHaveLength(4 + 18);
+    expect(maxInFlight).toBe(2);
+    expect(latest.items).toHaveLength(items.length);
+    expect(latest.items.map((item) => item.platform)).toEqual(items.map((item) => item.platform));
+    expect(latest.items[1].evidence?.source).toBe("tiktok-public-page");
+    expect(latest.items[1].evidence?.caption).toBe(`Actual anime beat sync ${ttUrl(tiktok[0])}`);
+    expect(latest.remaining).toBe(26);
+    expect(latest.checking).toBe(false);
+  });
+  it("orders unread cards by display position, not by indexed engagement score", async () => {
+    // The first displayed card has no indexed count; every later card shows a large one.
+    const { tiktok, items } = nativeFeed((index) => (index === 0 ? undefined : { likes: 900000 }));
+    await render(items);
+    await drain();
+    expect(reads.filter((read) => read.platform === "tt").map((read) => read.url)).toEqual(
+      tiktok.slice(0, 18).map(ttUrl),
+    );
+    expect(latest.items[1].evidence?.source).toBe("tiktok-public-page");
+  });
+  it("continues with the next eighteen TikTok cards in display order on an explicit action", async () => {
+    const { tiktok, items } = nativeFeed();
+    await render(items);
+    await drain();
+    const firstBatch = reads.length;
+    expect(latest.remaining).toBe(26);
+    await act(async () => {
+      latest.checkRemaining();
+      latest.checkRemaining();
+    });
+    await drain();
+    expect(reads.slice(firstBatch).map((read) => read.url)).toEqual(
+      tiktok.slice(18, 36).map(ttUrl),
+    );
+    expect(latest.items[2 * 4 + (36 - 4) - 1].evidence?.source).toBe("tiktok-public-page");
+    expect(latest.remaining).toBe(8);
+    expect(maxInFlight).toBe(2);
+    expect(latest.checking).toBe(false);
+  });
+  it("keeps unread-first, then oldest-observation-first ordering ahead of display position", async () => {
+    const observed = (item: DiscoverItem, observedAt: string): DiscoverItem => ({
+      ...item,
+      evidence: { source: "indexed-excerpt", observedAt },
+    });
+    const items = Array.from({ length: 20 }, (_, i) =>
+      i < 16
+        ? observed(card("tt", i), CHECKED)
+        : i < 18
+          ? observed(card("tt", i), "2026-09-01T00:00:00Z")
+          : card("tt", i),
+    );
+    await render(items);
+    await drain();
+    expect(reads.map((read) => read.url)).toEqual(
+      [18, 19, 16, 17, ...Array.from({ length: 14 }, (_, i) => i)].map((i) => ttUrl(items[i])),
+    );
+    expect(maxInFlight).toBe(2);
+    expect(latest.remaining).toBe(2);
+    await act(async () => latest.checkRemaining());
+    await drain();
+    expect(reads.slice(18).map((read) => read.url)).toEqual([14, 15].map((i) => ttUrl(items[i])));
   });
 });

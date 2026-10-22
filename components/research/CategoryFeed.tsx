@@ -88,9 +88,6 @@ export default function CategoryFeed(props: CategoryFeedProps) {
         <h2 className="text-lg" id={`${id}-title`}>
           {props.heading ?? t("feed.title", { genre: props.genre })}
         </h2>
-        <p className="text-muted text-xs" data-testid="feed-count">
-          {t("feed.count", { n: items.length })}
-        </p>
       </div>
       <div
         role="group"
@@ -382,7 +379,7 @@ function FeedCards(props: CategoryFeedProps) {
           onClick={() => setShown((n) => n + PAGE_SIZE)}
           data-testid="feed-show-more"
         >
-          {t("feed.showMore", { n: Math.min(PAGE_SIZE, props.items.length - shown) })}
+          {t("feed.showMore")}
         </button>
       )}
     </>

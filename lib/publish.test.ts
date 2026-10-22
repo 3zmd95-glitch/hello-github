@@ -6,10 +6,15 @@ import {
   type Post,
   type SocialStatusMap,
 } from "./domain";
+import { sha256Hex } from "./digest";
 import {
   autoPostActive,
   autoPostOf,
   autoPostSummary,
+  jobClaim,
+  jobOwnership,
+  ownsJob,
+  takenJobIds,
   buildJob,
   canPublishTo,
   canAutoMarkPosted,
@@ -26,9 +31,14 @@ import {
   manualComposeUrl,
   parseJob,
   parseJobs,
+  parseJobsStrict,
+  payloadHash,
   pendingManualPlatforms,
+  PUBLISH_ID_RE,
   publishCancel,
+  publishJobId,
   publishList,
+  publishListStrict,
   publishProblems,
   publishRun,
   publishSchedule,
@@ -766,5 +776,218 @@ describe("Worker calls", () => {
       error: { type: "bad_request", status: 400 },
     });
     expect(await publishList(null)).toEqual({ ok: false, error: { type: "unconfigured" } });
+  });
+});
+
+describe("publishJobId (DT-5: workflow posts through AutoPost, Amendment A)", () => {
+  const sent = (id: string, jobId?: string) =>
+    post({ id, autoPost: auto({ sentAt: AT, ...(jobId !== undefined ? { jobId } : {}) }) });
+
+  it("maps a workflow output id to a stable id the Worker accepts on every route", () => {
+    // Copied from the deployed Worker's validator (workers/scout/src/social/publish.ts ID_RE).
+    expect(PUBLISH_ID_RE.source).toBe("^[A-Za-z0-9_-]{1,100}$");
+    const a1 = publishJobId({ id: "wf:run:a1" });
+    expect(a1).toMatch(PUBLISH_ID_RE);
+    // j-<sanitized ≤ 40>-<first 24 hex of SHA-256 of the raw id>
+    expect(a1).toBe(`j-wf-run-a1-${sha256Hex("wf:run:a1").slice(0, 24)}`);
+    expect(publishJobId({ id: "wf:run:a1" })).toBe(a1);
+    expect(publishJobId({ id: "wf:run:a2" })).not.toBe(a1);
+    // The run / cancel path segment needs no escaping, so the Worker's path check sees the same id.
+    expect(encodeURIComponent(a1)).toBe(a1);
+  });
+
+  it("gives Codex's FNV-1a collision pair different ids", () => {
+    // From %TEMP%/dashboard-publish-id-plan-probe-2026-10-16.json (both mapped to j-wf-run----------04591cb8).
+    const first = "wf:run:厨蠆孒萡妟箸嫓胤";
+    const second = "wf:run:昜僎觢洼屡溆嶿琕";
+    const a = publishJobId({ id: first });
+    const b = publishJobId({ id: second });
+    expect(a).not.toBe(b);
+    expect(a).not.toBe("j-wf-run----------04591cb8");
+    expect(a).toMatch(PUBLISH_ID_RE);
+    expect(b).toMatch(PUBLISH_ID_RE);
+  });
+
+  it("keeps safe ids and reuses a remembered job id only when the Worker would accept it", () => {
+    expect(publishJobId({ id: "p1" })).toBe("p1");
+    expect(publishJobId({ id: "3f2a-uuid_like" })).toBe("3f2a-uuid_like");
+    expect(publishJobId({ id: "wf:run:a1", autoPost: auto({ jobId: "remembered-1" }) })).toBe(
+      "remembered-1",
+    );
+    // Empty, colon or over-long remembered values (an import may carry them) fall through to the mapping.
+    const mapped = publishJobId({ id: "wf:run:a1" });
+    for (const jobId of ["", "wf:old:remembered", "x".repeat(101)])
+      expect(publishJobId({ id: "wf:run:a1", autoPost: auto({ jobId }) }), jobId).toBe(mapped);
+    // Long ids fit in 100 characters; the sanitized part keeps at most 40.
+    const long = publishJobId({ id: `wf:${"x".repeat(300)}:a1` });
+    expect(long).toMatch(PUBLISH_ID_RE);
+    expect(long.length).toBe(2 + 40 + 1 + 24);
+    expect(publishJobId({ id: "x".repeat(101) })).toMatch(PUBLISH_ID_RE);
+  });
+
+  it("suffixes -2, -3… when another local post already holds the candidate id", () => {
+    const mapped = publishJobId({ id: "wf:run:a1" });
+    expect(publishJobId({ id: "wf:run:a1" }, new Set([mapped]))).toBe(`${mapped}-2`);
+    expect(publishJobId({ id: "wf:run:a1" }, new Set([mapped, `${mapped}-2`]))).toBe(`${mapped}-3`);
+    expect(publishJobId({ id: "p1" }, new Set(["p1"]))).toBe("p1-2");
+    const hundred = "y".repeat(100);
+    expect(publishJobId({ id: hundred }, new Set([hundred]))).toBe(`${"y".repeat(98)}-2`);
+    // takenJobIds: other posts' valid remembered job ids and safe ids, never the post's own.
+    const posts = [
+      sent("wf:run:a1", mapped),
+      sent("p2", "wf:bad"),
+      post({ id: "wf:run:b1" }),
+      post({ id: "p1" }),
+    ];
+    expect([...takenJobIds(posts, "p1")].sort()).toEqual([mapped, "p2"].sort());
+  });
+
+  it("buildJob sends the mapped id (the remembered job id first, then the taken-set suffix)", () => {
+    const wf = post({ id: "wf:run-1:p1" });
+    expect(buildJob(wf, auto(), AT).id).toBe(publishJobId(wf));
+    const remembered = post({ id: "wf:run-1:p1", autoPost: auto({ jobId: "kept-1" }) });
+    expect(buildJob(remembered, auto(), AT).id).toBe("kept-1");
+    expect(buildJob(post(), auto(), AT).id).toBe("p1");
+    expect(buildJob(post(), auto(), AT, new Set(["p1"])).id).toBe("p1-2");
+  });
+
+  it("a post owns a job by its remembered id, or by its safe id when it remembers none", () => {
+    const mapped = publishJobId({ id: "wf:run:a1" });
+    const wf = sent("wf:run:a1", mapped);
+    // A safe post id equal to the workflow post's generated id, sent under its own suffixed job id.
+    const twin = sent(mapped, `${mapped}-2`);
+    const legacy = sent("p1");
+    expect(ownsJob(wf, mapped)).toBe(true);
+    expect(ownsJob(twin, mapped)).toBe(false);
+    expect(ownsJob(twin, `${mapped}-2`)).toBe(true);
+    expect(ownsJob(legacy, "p1")).toBe(true);
+    expect(ownsJob(sent("wf:run:a1"), mapped)).toBe(false);
+    const jobs = [
+      { id: mapped, scheduledAt: AT, results: {} },
+      { id: `${mapped}-2`, scheduledAt: AT, results: {} },
+      { id: "phone-1", scheduledAt: AT, results: {} },
+    ];
+    expect(remoteJobs(jobs, [twin, wf]).map((j) => j.id)).toEqual(["phone-1"]);
+    expect(remoteJobs(jobs, [twin]).map((j) => j.id)).toEqual([mapped, "phone-1"]);
+  });
+});
+
+describe("jobOwnership (Amendment B, DT-5-R1 R1: one ownership decision for every send, run and cancel)", () => {
+  it("uses the remembered id, else a legacy safe id; never allocates; blocks a shared claim", () => {
+    const withJob = (id: string, jobId?: string) =>
+      post({ id, autoPost: auto({ sentAt: AT, ...(jobId ? { jobId } : {}) }) });
+    const a = withJob("wf:run:a1", "C-2");
+    expect(jobOwnership(a, [a])).toEqual({ ok: true, jobId: "C-2" });
+    expect(jobOwnership(withJob("p1"), [])).toEqual({ ok: true, jobId: "p1" });
+    expect(jobOwnership(withJob("wf:run:a1"), [])).toEqual({ ok: false, reason: "unallocated" });
+    // Another post remembers the same id, or its own id equals it: blocked, never a new suffix.
+    expect(jobOwnership(a, [a, withJob("wf:run:b1", "C-2")])).toEqual({
+      ok: false,
+      reason: "ambiguous",
+    });
+    expect(jobOwnership(a, [a, post({ id: "C-2" })])).toEqual({ ok: false, reason: "ambiguous" });
+  });
+});
+
+describe("DT-5-R1: receipts need exactly one owner (R3)", () => {
+  const withJob = (id: string, jobId?: string, sent = true) =>
+    post({ id, autoPost: auto({ ...(sent ? { sentAt: AT } : {}), ...(jobId ? { jobId } : {}) }) });
+  const job = (id: string) => ({ id, scheduledAt: AT, results: {} });
+
+  it("jobClaim: one remembered owner, a conflict for two, a legacy safe id only when nobody remembers it", () => {
+    const a = withJob("wf:a", "J");
+    const b = withJob("wf:b", "J");
+    expect(jobClaim("J", [a])).toEqual({ owner: a });
+    // Order does not matter: both claimants, never the first.
+    expect(jobClaim("J", [a, b])).toEqual({ conflict: [a, b] });
+    expect(jobClaim("J", [b, a])).toEqual({ conflict: [b, a] });
+    const legacy = withJob("p1");
+    expect(jobClaim("p1", [legacy])).toEqual({ owner: legacy });
+    // A remembered owner wins over a safe-id alias (that alias never takes it).
+    const owner = withJob("wf:c", "p1");
+    expect(jobClaim("p1", [legacy, owner])).toEqual({ owner });
+    // A post never sent does not own a job by its id.
+    expect(jobClaim("p9", [withJob("p9", undefined, false)])).toBeNull();
+    expect(jobClaim("nobody", [a, b])).toBeNull();
+  });
+
+  it("remoteJobs keeps an ambiguous job visible instead of hiding it", () => {
+    const a = withJob("wf:a", "J");
+    const b = withJob("wf:b", "J");
+    expect(remoteJobs([job("J")], [a, b]).map((j) => j.id)).toEqual(["J"]);
+    expect(remoteJobs([job("J")], [a]).map((j) => j.id)).toEqual([]);
+    // An unconfirmed allocation (no sentAt) is followed: the hub lists it as "allocated, not confirmed".
+    expect(remoteJobs([job("K")], [withJob("wf:k", "K", false)])).toEqual([]);
+  });
+});
+
+describe("DT-5-R2 R1-D: a strict job list for destructive decisions", () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: "job-1",
+    scheduledAt: AT,
+    targets: { instagram: { caption: "c", state: "queued", attempts: 0 } },
+    ...over,
+  });
+
+  it("accepts only a { jobs: Array } envelope whose every row is complete", () => {
+    expect(parseJobsStrict({ jobs: [] })).toEqual({ ok: true, jobs: [] });
+    expect(parseJobsStrict({ jobs: [row()] })).toEqual({
+      ok: true,
+      jobs: parseJobs({ jobs: [row()] }),
+    });
+    for (const body of [
+      {},
+      null,
+      [],
+      "jobs",
+      { jobs: {} },
+      { jobs: [{ id: "job-1" }] },
+      { jobs: [row(), { id: "job-2" }] },
+      { jobs: [row({ id: "bad id" })] },
+      { jobs: [row({ scheduledAt: "not a date" })] },
+      { jobs: [row({ targets: [] })] },
+      { jobs: [row({ targets: {} })] },
+      { jobs: [row({ targets: { instagram: { state: "exploded" } } })] },
+      { jobs: [row({ targets: { myspace: { state: "queued" } } })] },
+    ])
+      expect(parseJobsStrict(body)).toEqual({ ok: false, reason: "malformed" });
+    // The tolerant display parser is unchanged: it still drops what it cannot read.
+    expect(parseJobs({ jobs: [{ id: "job-1" }] })).toEqual([]);
+    expect(parseJobs({})).toEqual([]);
+  });
+
+  it("publishListStrict reports a malformed 200 as a failure, never as an empty list", async () => {
+    const reply = (body: unknown) =>
+      vi.fn<typeof fetch>(
+        async () =>
+          new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+      );
+    expect(await publishListStrict(CONFIG, { fetchImpl: reply({}) })).toMatchObject({ ok: false });
+    expect(
+      await publishListStrict(CONFIG, { fetchImpl: reply({ jobs: [{ id: "job-1" }] }) }),
+    ).toMatchObject({ ok: false });
+    expect(await publishListStrict(CONFIG, { fetchImpl: reply({ jobs: [row()] }) })).toEqual({
+      ok: true,
+      jobs: parseJobs({ jobs: [row()] }),
+    });
+    expect(await publishListStrict(null)).toEqual({ ok: false, error: { type: "unconfigured" } });
+  });
+});
+
+describe("DT-5-R2 R1-B: the digest of the payload actually sent", () => {
+  it("covers the whole job; without its time it ignores only scheduledAt", () => {
+    const job = buildJob(post(), auto(), AT);
+    expect(payloadHash(job, true)).toBe(sha256Hex(JSON.stringify(job)));
+    expect(payloadHash(job, true)).not.toBe(
+      payloadHash({ ...job, scheduledAt: "2026-01-01T00:00:00.000Z" }, true),
+    );
+    expect(payloadHash(job, false)).toBe(
+      payloadHash({ ...job, scheduledAt: "2026-01-01T00:00:00.000Z" }, false),
+    );
+    const other = buildJob(post({ caption: "Another caption" }), auto(), AT);
+    expect(payloadHash(other, false)).not.toBe(payloadHash(job, false));
   });
 });

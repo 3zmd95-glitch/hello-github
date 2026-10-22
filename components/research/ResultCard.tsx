@@ -3,20 +3,34 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useVideoPlayer, type PlayableItem } from "@/components/player/VideoPlayerContext";
 import type { RefPlatform } from "@/lib/domain";
+import { ReferencePlatformGlyph } from "@/lib/platformIcons";
 import { canEmbed } from "@/lib/embed";
 import { useT } from "@/lib/i18n";
-import { localInstagramPreview } from "@/lib/localAi";
+import { isLocalAiHost, localInstagramPreview } from "@/lib/localAi";
 import { compactCount, headlineStat, type ResearchItem } from "@/lib/research";
 import { scoutOembed, type ScoutConfig, type Stats } from "@/lib/scoutClient";
 import { useScoutConfig } from "./useScout";
 
-/** Platform glyph and label used on chips, tabs and placeholder tiles. */
-export const PLATFORM_META: Record<RefPlatform, { glyph: string; label: string; chip: string }> = {
-  yt: { glyph: "▶", label: "YouTube", chip: "bg-[#5a2029] text-[#ffb3aa]" },
-  tt: { glyph: "♪", label: "TikTok", chip: "bg-[#173a4f] text-[#a9e0ff]" },
-  ig: { glyph: "📷", label: "Instagram", chip: "bg-[#57331a] text-[#ffc996]" },
-  web: { glyph: "📄", label: "Web", chip: "bg-panel-3 text-ink" },
-};
+/** Reuse the shared Simple Icons brand marks; visible names label controls, SVGs are decorative. */
+export const PLATFORM_META: Record<RefPlatform, { glyph: ReactNode; label: string; chip: string }> =
+  {
+    yt: {
+      glyph: <ReferencePlatformGlyph platform="yt" />,
+      label: "YouTube",
+      chip: "bg-[#5a2029] text-[#ffb3aa]",
+    },
+    tt: {
+      glyph: <ReferencePlatformGlyph platform="tt" />,
+      label: "TikTok",
+      chip: "bg-[#173a4f] text-[#a9e0ff]",
+    },
+    ig: {
+      glyph: <ReferencePlatformGlyph platform="ig" />,
+      label: "Instagram",
+      chip: "bg-[#57331a] text-[#ffc996]",
+    },
+    web: { glyph: "📄", label: "Web", chip: "bg-panel-3 text-ink" },
+  };
 
 /** TikTok / Instagram are vertical video platforms: 9:16 posters. YouTube and web links are 16:9. */
 const isVertical = (p: RefPlatform) => p === "tt" || p === "ig";
@@ -36,15 +50,21 @@ export const PREVIEW_RETRY_MS = 5 * 60_000;
  * showing it; a miss is forgotten after {@link PREVIEW_RETRY_MS}. TikTok also supplies captions for cards titled only
  * by their handle. Instagram asks this computer's local server first (its own connection, which Instagram answers;
  * it turned away about 4 in 10 of the Cloudflare Worker's reads), the Worker when there is none or it finds nothing.
+ * That local lookup needs no Worker, so an Instagram card on this computer asks it with no Scout configuration too.
  */
 const freshPosts = new Map<string, Promise<FreshPost>>();
-function freshPost(config: ScoutConfig, url: string, platform: RefPlatform): Promise<FreshPost> {
-  const key = `${config.url}|${config.token}|${url}`;
+function freshPost(
+  config: ScoutConfig | null,
+  url: string,
+  platform: RefPlatform,
+): Promise<FreshPost> {
+  const key = `${config ? `${config.url}|${config.token}` : "local"}|${url}`;
   const known = freshPosts.get(key);
   if (known) return known;
   const p = (async (): Promise<FreshPost> => {
     const local = platform === "ig" ? await localInstagramPreview(url) : null;
     if (local) return { thumb: local };
+    if (!config) return {};
     const r = await scoutOembed(config, url);
     return r.ok ? { thumb: r.data.thumb || undefined, title: r.data.title || undefined } : {};
   })();
@@ -74,13 +94,15 @@ function useThumb(item: ResearchItem): { thumb?: string; title: string; onError:
   const generic =
     item.platform === "tt" && (item.title === item.handle || /^#[^\s#]+$/u.test(item.title));
   const title = (generic && mine?.title) || item.title;
+  // Instagram's local-server lookup needs no Worker; TikTok and the Worker fallback do.
+  const canLook = !!config || (item.platform === "ig" && isLocalAiHost());
   const onError = () => {
     if (!thumb) return;
     setFailed((f) => [...f, thumb]);
     if (
       !["tt", "ig"].includes(item.platform) ||
       !canEmbed(item.platform, item.url) ||
-      !config ||
+      !canLook ||
       renewed
     )
       return;
@@ -95,7 +117,7 @@ function useThumb(item: ResearchItem): { thumb?: string; title: string; onError:
       !["tt", "ig"].includes(item.platform) ||
       !canEmbed(item.platform, item.url) ||
       (item.thumb && !generic) ||
-      !config
+      !canLook
     )
       return;
     let alive = true;
@@ -115,7 +137,7 @@ function useThumb(item: ResearchItem): { thumb?: string; title: string; onError:
       alive = false;
       clearTimeout(again);
     };
-  }, [config, generic, item.platform, item.thumb, item.url]);
+  }, [canLook, config, generic, item.platform, item.thumb, item.url]);
   return { thumb, title, onError };
 }
 

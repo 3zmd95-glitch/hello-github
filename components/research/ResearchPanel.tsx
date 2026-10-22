@@ -1,6 +1,10 @@
 "use client";
 
-import { nativeHelperId } from "@/lib/discoverNativeSearch";
+import {
+  NATIVE_HELPER_EVENT,
+  nativeHelperId,
+  type NativeConnection,
+} from "@/lib/discoverNativeSearch";
 
 import Link from "next/link";
 import {
@@ -10,6 +14,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
@@ -40,6 +45,7 @@ import { rankDiscoverItems, type DiscoverFeedMode } from "@/lib/discoverRanking"
 import type { Lang, Skill } from "@/lib/domain";
 import { discoverPrompts } from "@/lib/discoverPrompts";
 import type { EditFormat } from "@/lib/editFormats";
+import { dropHiddenEditors, editorSearches, hiddenEditorsFor } from "@/lib/editorFilter";
 import { applyFormatSources } from "@/lib/formatSources";
 import { allGenres, GENRES } from "@/lib/genres";
 import { useT, type MessageKey } from "@/lib/i18n";
@@ -85,6 +91,8 @@ import DiscoverSections from "./DiscoverSections";
 import AiConnectionControls from "./AiConnectionControls";
 import CategoryPage from "./CategoryPage";
 import ForYouFeed from "./ForYouFeed";
+import TrendingSounds, { useRecordSounds } from "./TrendingSounds";
+import NativeKeywordResults from "./NativeKeywordResults";
 import PasteLinkForm from "./PasteLinkForm";
 import PicksSection from "./PicksSection";
 import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
@@ -118,6 +126,7 @@ import type { CategoryFeedProps, FeedFeedbackAction } from "./CategoryFeed";
 export const RESEARCH_TAB_KEY = "3z-research-tab";
 const YT_MAX = 10;
 const SETTINGS_HREF = "/settings/#api-keys";
+const NO_EDITORS: readonly string[] = [];
 
 function readTab(): ResearchTab {
   try {
@@ -126,6 +135,16 @@ function readTab(): ResearchTab {
   } catch {
     return "all";
   }
+}
+
+/** The connected helper's id: read after hydration and on (dis)connection, never from the server. */
+function subscribeHelper(change: () => void): () => void {
+  window.addEventListener(NATIVE_HELPER_EVENT, change);
+  window.addEventListener("storage", change);
+  return () => {
+    window.removeEventListener(NATIVE_HELPER_EVENT, change);
+    window.removeEventListener("storage", change);
+  };
 }
 
 function writeTab(tab: ResearchTab): void {
@@ -142,7 +161,12 @@ const TAB_LABEL: Record<ResearchTab, MessageKey> = {
   tt: "research.tabTt",
   ig: "research.tabIg",
 };
-const TAB_GLYPH: Record<ResearchTab, string> = { all: "◆", yt: "▶", tt: "♪", ig: "📷" };
+const TAB_GLYPH: Record<ResearchTab, ReactNode> = {
+  all: "◆",
+  yt: PLATFORM_META.yt.glyph,
+  tt: PLATFORM_META.tt.glyph,
+  ig: PLATFORM_META.ig.glyph,
+};
 
 /** The platforms behind the tabs, in the All tab's order. */
 const PLATFORMS = ["yt", "tt", "ig"] as const;
@@ -281,6 +305,8 @@ export default function ResearchPanel({
   const customGenres = useStore((s) => s.customGenres);
   const discoverCandidates = useStore((s) => s.discoverCandidates);
   const discoverFeedback = useStore((s) => s.discoverFeedback);
+  const editorScope = useStore((s) => s.settings.discover.editorScope);
+  const setEditorScope = useStore((s) => s.setEditorScope);
   const accumulateDiscoverCandidates = useStore((s) => s.accumulateDiscoverCandidates);
   const setDiscoverFeedback = useStore((s) => s.setDiscoverFeedback);
   const undoDiscoverFeedback = useStore((s) => s.undoDiscoverFeedback);
@@ -301,6 +327,20 @@ export default function ResearchPanel({
     format: EditFormat;
   } | null>(null);
   const [forceAt, setForceAt] = useState(-1);
+  const helperId = useSyncExternalStore(subscribeHelper, nativeHelperId, () => null);
+  const [nativeConnection, setNativeConnection] = useState<NativeConnection>("checking");
+  // The web index (Tavily / YouTube API) for this query, asked for by the owner while native leads.
+  const [webIndexFor, setWebIndexFor] = useState<string | null>(null);
+  // Each native keyword section's helper job, by cache scope: busy now, and the search key it last ran.
+  const [nativeJobs, setNativeJobs] = useState<Record<string, { busy: boolean; ran: string }>>({});
+  const onNativeBusy = useCallback((scope: string, busy: boolean, searchKey: string) => {
+    setNativeJobs((jobs) => {
+      const ran = busy ? searchKey : (jobs[scope]?.ran ?? "");
+      return jobs[scope]?.busy === busy && jobs[scope]?.ran === ran
+        ? jobs
+        : { ...jobs, [scope]: { busy, ran } };
+    });
+  }, []);
 
   /* ---------- the query ---------- */
 
@@ -363,6 +403,25 @@ export default function ResearchPanel({
   const tag = researchHashtag(base, skill ? skill.name.en : base, genre);
   // "Search" press counter: pressing it again after an error asks again (a cached success costs nothing).
   const [attempt, setAttempt] = useState(0);
+  // Packet 22: only the separate Deep search button marks its attempt deep (the helper may open the apps'
+  // tabs for a moment); Search, chips, retries and every other search stay quiet.
+  const [deepAttempt, setDeepAttempt] = useState(-1);
+  // Native first (owner goal, packet 20): with the Chrome helper connected, a typed keyword search shows what
+  // Instagram, TikTok and YouTube themselves show, and the paid web index waits until the owner asks for it.
+  // No helper or no permission: today's web search, unchanged. Format, saved, skill and AI searches keep theirs.
+  const nativeKeyword =
+    !skill &&
+    !!helperId &&
+    submittedMode === "keyword" &&
+    !!base.trim() &&
+    !savedOnly &&
+    !activeFormat;
+  // Owner's editors (packet 21): CapCut then DaVinci Resolve sections, or one plain search under "all".
+  const keywordSearches = useMemo(() => editorSearches(base, editorScope), [base, editorScope]);
+  const webHeld =
+    nativeKeyword &&
+    (nativeConnection === "checking" || nativeConnection === "connected") &&
+    webIndexFor !== q;
   const aiSearchBlocked = searchMode === "ai" && aiChoice.provider !== "builtin" && !aiChoice.model;
   const hasDraftTopic = Boolean((draft ?? base).trim());
 
@@ -399,6 +458,13 @@ export default function ResearchPanel({
     commit((draft ?? base).trim());
     setAttempt((a) => a + 1);
   };
+  const deepSearch = () => {
+    if (aiSearchBlocked) return;
+    commit((draft ?? base).trim());
+    setDeepAttempt(attempt + 1);
+    setAttempt(attempt + 1);
+  };
+  const showDeepSearch = !skill && !!helperId && searchMode === "keyword";
 
   /**
    * A genre chip is a search: what's typed but not submitted becomes the topic first, then the genre goes
@@ -513,7 +579,7 @@ export default function ResearchPanel({
   const hasYt = !!ytKey;
   const searchLang: Lang = arFirst ? "ar" : queryLang;
   const timeRange = recency === "any" ? undefined : recency;
-  const live = !savedOnly && q.length > 0;
+  const live = !savedOnly && q.length > 0 && !webHeld;
   const videoDuration = youtubeDurationFor(length);
   const publishedAfter = publishedAfterFor(recency, now);
   // "Most popular" asks YouTube for the most viewed first; otherwise nothing is sent (same request as before).
@@ -551,7 +617,7 @@ export default function ResearchPanel({
   const pickOn = `${genre?.id ?? ""}|${base}`;
   const discoverReq = useMemo(
     () =>
-      v2 && !savedOnly && !showPage && !(isCategoryFeed && categoryEntry.skipSearch)
+      v2 && !savedOnly && !showPage && !webHeld && !(isCategoryFeed && categoryEntry.skipSearch)
         ? discoverRequestFrom({
             mode: submittedMode === "ai" ? "ai" : undefined,
             subscription: submittedAi,
@@ -569,6 +635,7 @@ export default function ResearchPanel({
       v2,
       savedOnly,
       showPage,
+      webHeld,
       isCategoryFeed,
       categoryEntry.skipSearch,
       base,
@@ -614,6 +681,7 @@ export default function ResearchPanel({
     if (active && isCategoryFeed && genre && feedSources.items.length)
       accumulateDiscoverCandidates(feedSources.items, { genreId: genre.id });
   }, [active, isCategoryFeed, genre, feedSources.items, accumulateDiscoverCandidates]);
+  useRecordSounds(feedSources.items, genre?.id ?? "", active && isCategoryFeed && !!genre);
   const feedContext = useMemo(
     () =>
       Object.fromEntries(
@@ -666,6 +734,13 @@ export default function ResearchPanel({
       }),
     [feedSources.items, genre?.id, feedNow, discoverFeedback, savedInterests, feedContext],
   );
+  // The owner's hidden editors (Discover only; a skill sheet has no toggle for it): dropped before ranking
+  // output is sectioned or counted, and reported in one quiet line, never silently.
+  const hideEditors = skill ? NO_EDITORS : hiddenEditorsFor(editorScope);
+  const feedHidden = useMemo(
+    () => dropHiddenEditors(isCategoryFeed ? feedRank.items : [], hideEditors),
+    [isCategoryFeed, feedRank.items, hideEditors],
+  );
   const feedAnswer = useMemo<DiscoverAnswer | undefined>(() => {
     if (!isCategoryFeed || !genre) return undefined;
     return {
@@ -681,9 +756,9 @@ export default function ResearchPanel({
             cached: true,
             complete: false,
           }),
-      items: feedRank.items,
+      items: [...feedHidden.items],
     };
-  }, [isCategoryFeed, genre, rawDisc, feedRank.items]);
+  }, [isCategoryFeed, genre, rawDisc, feedHidden.items]);
   const findMoreEdits = async (refill = false) => {
     if (!isCategoryFeed || !genre || !scoutCfg || refreshBusy || feedAbort.current) return;
     const scope = feedScope;
@@ -746,7 +821,7 @@ export default function ResearchPanel({
     [rawDisc, activeFormat, formatSources.sources],
   );
   // A format search keeps its specific audio + visual identity even when an older Worker returns broad music results.
-  const disc = useMemo(
+  const checkedDisc = useMemo(
     () =>
       rawDisc.status === "ok" && sourceChecked
         ? {
@@ -756,6 +831,19 @@ export default function ResearchPanel({
         : rawDisc,
     [rawDisc, sourceChecked],
   );
+  const keywordHidden = useMemo(
+    () =>
+      dropHiddenEditors(checkedDisc.status === "ok" ? checkedDisc.answer.items : [], hideEditors),
+    [checkedDisc, hideEditors],
+  );
+  const disc = useMemo(
+    () =>
+      checkedDisc.status === "ok" && keywordHidden.count
+        ? { ...checkedDisc, answer: { ...checkedDisc.answer, items: [...keywordHidden.items] } }
+        : checkedDisc,
+    [checkedDisc, keywordHidden],
+  );
+  const hiddenLine = feedAnswer ? feedHidden : keywordHidden;
   // Claude's picks (free: a KV read), asked when v2 opens and again at each search attempt.
   const picks = useDiscoverPicks(v2 ? scoutCfg : null, attempt);
   // Category admission already considered source/semantic proof. Indexed offTopic flags must not
@@ -1072,8 +1160,8 @@ export default function ResearchPanel({
 
   /* ---------- notes, hints, errors ---------- */
 
-  const scoutHint = !savedOnly && !scoutCfg && tab !== "yt" && (!!q || !!skill);
-  const ytHint = !savedOnly && !hasYt && !scoutCfg && (tab === "all" || tab === "yt");
+  const scoutHint = !savedOnly && !webHeld && !scoutCfg && tab !== "yt" && (!!q || !!skill);
+  const ytHint = !savedOnly && !webHeld && !hasYt && !scoutCfg && (tab === "all" || tab === "yt");
   const ytViaScout =
     !savedOnly && !ytApi && scoutYt.status === "ok" && (tab === "yt" || (tab === "all" && ytDown));
   const lenNote =
@@ -1308,7 +1396,7 @@ export default function ResearchPanel({
                   enterKeyHint="search"
                   autoComplete="off"
                   dir="auto"
-                  className="px-input flex-1"
+                  className="px-input min-w-0 flex-1"
                   placeholder={skill ? defaultName : t("discover.topicPh")}
                   aria-label={t("research.topicLabel")}
                   value={draft ?? base}
@@ -1325,7 +1413,18 @@ export default function ResearchPanel({
               >
                 {t(searchMode === "ai" ? "search.aiSearch" : "research.searchBtn")}
               </button>
+              {showDeepSearch && (
+                <button
+                  type="button"
+                  className="px-btn px-btn-ghost shrink-0 self-start"
+                  onClick={deepSearch}
+                  data-testid="discover-deep-search"
+                >
+                  {t("search.deepSearch")}
+                </button>
+              )}
             </div>
+            {showDeepSearch && <p className="text-ink-2 text-xs">{t("search.deepSearchHint")}</p>}
             {!skill && v2 && searchMode === "ai" && !genre && (
               <div className="flex flex-wrap items-center gap-1.5" data-testid="discover-prompts">
                 <span className="text-muted text-xs">{t("search.trySpecific")}</span>
@@ -1399,6 +1498,17 @@ export default function ResearchPanel({
                         </option>
                       ))}
                   </select>
+                )}
+                {!skill && v2 && (
+                  <label className="text-ink-2 flex items-center gap-1.5 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={editorScope === "mine"}
+                      onChange={(e) => setEditorScope(e.target.checked ? "mine" : "all")}
+                      data-testid="discover-editor-scope"
+                    />
+                    <span>{t("discover.editorScope")}</span>
+                  </label>
                 )}
                 {hint && (
                   <button
@@ -1496,6 +1606,7 @@ export default function ResearchPanel({
       </div>
       <div hidden={organized && !browsing}>
         <div className="flex min-w-0 flex-col gap-6" data-testid="discover-browse">
+          {organized && browsing && showBrowse && <TrendingSounds renderAction={renderAction} />}
           {organized && browsing && showBrowse && (
             <ForYouFeed
               genres={genres}
@@ -1668,13 +1779,55 @@ export default function ResearchPanel({
             />
           )}
 
+          {!skill &&
+            helperId &&
+            keywordSearches.map((search, index) => {
+              // The helper serves one job at a time: the DaVinci Resolve section starts after the CapCut
+              // job for this search has finished (or failed), and no section loads more while the other's
+              // job runs. ponytail: busy state arrives one render late, so two sentinels firing in the same
+              // frame could still overlap; the helper itself caps parallel jobs.
+              const first = keywordSearches[0];
+              const firstJob = nativeJobs[first.scope];
+              const firstDone =
+                index === 0 || (firstJob?.ran === attempt + "|" + first.query && !firstJob.busy);
+              const otherBusy = keywordSearches.some(
+                (other) => other.scope !== search.scope && nativeJobs[other.scope]?.busy,
+              );
+              return (
+                <NativeKeywordResults
+                  key={index}
+                  query={search.query}
+                  igQuery={search.igQuery}
+                  scope={search.scope}
+                  heading={search.heading}
+                  attempt={attempt}
+                  deep={deepAttempt === attempt}
+                  active={active && !browsing && nativeKeyword}
+                  canStart={firstDone && !otherBusy}
+                  onBusy={onNativeBusy}
+                  onOpenInspiration={onOpenInspiration}
+                  onConnection={index === 0 ? setNativeConnection : undefined}
+                />
+              );
+            })}
+          {webHeld && nativeConnection === "connected" && (
+            <button
+              type="button"
+              className="px-btn px-btn-ghost px-btn-sm w-fit"
+              onClick={() => setWebIndexFor(q)}
+              data-testid="discover-web-index"
+            >
+              {t("search.webIndex")}
+            </button>
+          )}
+
           {/* ---------- platform tabs ---------- */}
           <div
             role="tablist"
             aria-label={t("research.tabs")}
             className="grid grid-cols-4 gap-1.5"
             onKeyDown={onTabKey}
-            hidden={showPage}
+            hidden={showPage || webHeld}
           >
             {RESEARCH_TABS.map((tb, i) => {
               const active = tb === tab;
@@ -1719,7 +1872,7 @@ export default function ResearchPanel({
           <div className="flex items-center gap-2" hidden={showPage}>
             <button
               type="button"
-              hidden={isCategoryFeed}
+              hidden={isCategoryFeed || webHeld}
               className={`px-btn px-btn-ghost px-btn-sm ${organized ? "" : "md:hidden"}`}
               aria-expanded={filtersOpen}
               aria-controls={`${ids}-filters`}
@@ -1752,7 +1905,7 @@ export default function ResearchPanel({
           <div
             id={`${ids}-filters`}
             className={`${filtersOpen ? "flex" : "hidden"} flex-col gap-2.5 ${organized ? "" : "md:flex"} md:flex-row md:flex-wrap md:items-end md:gap-x-5`}
-            hidden={showPage || isCategoryFeed}
+            hidden={showPage || isCategoryFeed || webHeld}
             data-testid="filters"
           >
             <ChipGroup label={t("research.recency")}>
@@ -1997,6 +2150,11 @@ export default function ResearchPanel({
             )}
             {/* Also on an empty tab: the understood line, "Not this?" and why a platform failed stay above the
             empty box. A new search starts with its off-topic posts hidden and its sections closed. */}
+            {v2 && !savedOnly && hiddenLine.count > 0 && (
+              <p className="text-muted text-xs" data-testid="discover-hidden-editors">
+                {t("discover.hiddenEditors", { count: hiddenLine.count })}
+              </p>
+            )}
             {v2 && !savedOnly && (disc.status === "ok" || feedAnswer) && (
               <DiscoverSections
                 key={feedAnswer ? `feed-${genre?.id}` : disc.status === "ok" ? disc.key : ""}

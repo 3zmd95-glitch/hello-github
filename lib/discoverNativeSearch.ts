@@ -7,7 +7,13 @@ import type { Lang } from "./domain";
 export type NativeQueries = Partial<Record<DiscoverPlatform, string>>;
 export type NativeConnection = "checking" | "connected" | "missing" | "permission";
 export type NativeSearchErrorCode =
-  "missing" | "permission" | "timeout" | "invalid-response" | "invalid-query" | "unavailable";
+  | "missing"
+  | "permission"
+  | "timeout"
+  | "invalid-response"
+  | "invalid-query"
+  | "unavailable"
+  | "expired";
 export class NativeSearchError extends Error {
   constructor(public readonly code: NativeSearchErrorCode) {
     super(code);
@@ -31,23 +37,136 @@ export interface NativePlatformSnapshot {
   searchUrl: string;
   /** Earlier loaded cards removed from the bounded browsing window; not platform supply. */
   omittedCount?: number;
+  /** App-owned fallback metadata: these cards came from an earlier successful search. */
+  staleAsOf?: string;
   error?: string;
+  /** Empty because the platform rendered its own "No results" screen for this exact query. */
+  noResults?: true;
 }
 export interface NativeJobSnapshot {
   jobId: string;
   status: "running" | "complete" | "cancelled";
   platforms: Partial<Record<DiscoverPlatform, NativePlatformSnapshot>>;
   hasMore: boolean;
+  /** A Deep search ran the normal budget because Discover was not in front (the helper's reason). */
+  deepSkipped?: string;
 }
 export interface NativeSearchSnapshot extends NativeJobSnapshot {
   genreId: string;
   queries: NativeQueries;
   cached: boolean;
   asOf: string;
+  /** Set when the explicit Deep search ran it (the helper may show its tabs); absent = quiet. */
+  deep?: true;
+}
+
+/** A failed read must not erase the last successful batch for this exact category/platform query. */
+export function retainFailedNativePlatforms(
+  previous: NativeSearchSnapshot | null,
+  next: NativeSearchSnapshot,
+): NativeSearchSnapshot {
+  if (!previous || previous.genreId !== next.genreId) return next;
+  const platforms = { ...next.platforms };
+  for (const platform of ["ig", "tt", "yt"] as const) {
+    const current = platforms[platform];
+    const prior = previous.platforms[platform];
+    if (
+      !current ||
+      !prior ||
+      !next.queries[platform] ||
+      next.queries[platform] !== previous.queries[platform] ||
+      !["error", "needs-attention"].includes(current.status) ||
+      current.results.length ||
+      !prior.results.length ||
+      // Cards kept or cached while More was still loading were received too.
+      (!["done", "loading"].includes(prior.status) && !prior.staleAsOf)
+    )
+      continue;
+    platforms[platform] = {
+      ...current,
+      results: prior.results,
+      omittedCount: prior.omittedCount,
+      staleAsOf: prior.staleAsOf ?? previous.asOf,
+    };
+  }
+  return { ...next, platforms };
+}
+
+/** The fresh native order is authoritative for cards it shows. A retained card it
+ * no longer shows stays right after its nearest preceding shown card (or first).
+ * Same rule as the helper's merge in extensions/discover-import/native-search.js. */
+function observedOrder<T>(byKey: Map<string, T>, order: string[]): T[] {
+  const rank = new Map<string, number>();
+  for (const key of order) if (!rank.has(key)) rank.set(key, rank.size);
+  const trailing = new Map<string | null, string[]>([[null, []]]);
+  let anchor: string | null = null;
+  for (const key of byKey.keys()) {
+    if (rank.has(key)) trailing.set((anchor = key), []);
+    else trailing.get(anchor)!.push(key);
+  }
+  const shown = [...trailing.keys()].filter((key): key is string => key !== null);
+  shown.sort((a, b) => rank.get(a)! - rank.get(b)!);
+  return [null, ...shown]
+    .flatMap((key) => (key === null ? [] : [key]).concat(trailing.get(key)!))
+    .map((key) => byKey.get(key)!);
+}
+
+/** Continue an exact saved search without claiming its retained cards were observed again. */
+export function appendNativeSearchSnapshot(
+  previous: NativeSearchSnapshot | null,
+  next: NativeSearchSnapshot,
+): NativeSearchSnapshot {
+  if (
+    !previous ||
+    previous.genreId !== next.genreId ||
+    Object.keys(previous.queries).length !== Object.keys(next.queries).length ||
+    Object.entries(next.queries).some(
+      ([platform, query]) => previous.queries[platform as DiscoverPlatform] !== query,
+    )
+  )
+    return next;
+  const platforms = { ...next.platforms };
+  for (const platform of PLATFORMS) {
+    const prior = previous.platforms[platform];
+    const current = platforms[platform];
+    if (!prior || !current) continue;
+    const key = (result: NativeResult) => canonicalNativeUrl(platform, result.url) ?? result.url;
+    const combined = new Map(prior.results.map((result) => [key(result), result]));
+    const refreshed = new Set(current.results.map(key));
+    for (const result of current.results) combined.set(key(result), result);
+    const dropped = Math.max(0, combined.size - NATIVE_MAX_RESULTS);
+    const results = observedOrder(combined, [...refreshed])
+      .slice(dropped)
+      .map((result, index) => ({
+        ...result,
+        position: index + 1,
+      }));
+    const staleAsOf = results.some((result) => !refreshed.has(key(result)))
+      ? (prior.staleAsOf ?? previous.asOf)
+      : undefined;
+    platforms[platform] = {
+      ...current,
+      results,
+      omittedCount: Math.min(
+        Number.MAX_SAFE_INTEGER,
+        Math.max((prior.omittedCount ?? 0) + dropped, current.omittedCount ?? 0),
+      ),
+      ...(staleAsOf ? { staleAsOf } : {}),
+    };
+  }
+  return { ...next, platforms };
 }
 
 export const NATIVE_MAX_RESULTS = 300;
 export const NATIVE_CACHE_CATEGORIES = 12;
+/** The Search tab's keyword results: cache entries kept beside the categories, never evicting one. */
+export const NATIVE_SEARCH_SCOPE = "search";
+/** The Search tab's CapCut and DaVinci Resolve sections (owner's editors), also beside the categories. */
+export const NATIVE_EDITOR_SCOPES = { capcut: "search-capcut", davinci: "search-davinci" } as const;
+const SEARCH_SCOPES = new Set<string>([
+  NATIVE_SEARCH_SCOPE,
+  ...Object.values(NATIVE_EDITOR_SCOPES),
+]);
 export const NATIVE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const NATIVE_HELPER_STORAGE_KEY = "3z-prod-native-helper-id";
 export const NATIVE_HELPER_EVENT = "3z-native-helper-change";
@@ -244,14 +363,19 @@ export function validateNativeSnapshot(
       searchUrl: nativeSearchUrl,
       ...(typeof raw.omittedCount === "number" ? { omittedCount: raw.omittedCount } : {}),
       ...(text(raw.error, 200) ? { error: raw.error } : {}),
+      ...(raw.status === "empty" && raw.noResults === true ? { noResults: true as const } : {}),
     };
   }
   if (typeof value.hasMore !== "boolean") return null;
+  const deepSkipped = isObject(value.diagnostics) ? value.diagnostics.deepSkipped : undefined;
   return {
     jobId: value.jobId,
     status: value.status as NativeJobSnapshot["status"],
     platforms,
     hasMore: value.hasMore,
+    ...(typeof deepSkipped === "string" && /^[a-z-]{1,40}$/.test(deepSkipped)
+      ? { deepSkipped }
+      : {}),
   };
 }
 
@@ -305,9 +429,11 @@ export function initializeNativeHelper(): string | null {
 function helperError(value: unknown): NativeSearchError {
   const error = isObject(value) ? value.error : undefined;
   return new NativeSearchError(
-    typeof error === "string" && /permission|not.connected|access.denied|forbidden/i.test(error)
-      ? "permission"
-      : "unavailable",
+    error === "job-not-found"
+      ? "expired"
+      : typeof error === "string" && /permission|not.connected|access.denied|forbidden/i.test(error)
+        ? "permission"
+        : "unavailable",
   );
 }
 function send(message: unknown, helperId = nativeHelperId()): Promise<unknown> {
@@ -364,13 +490,21 @@ export async function nativeHelperStatus(): Promise<Exclude<NativeConnection, "c
       : "missing";
   }
 }
+/** A quiet search (the normal Search button) sends no `deep` field, so helpers before 0.3.7 still accept it. */
 export async function startNativeSearch(
   queries: NativeQueries,
   requestId: string,
+  { deep = false }: { deep?: boolean } = {},
 ): Promise<string> {
   const valid = validateNativeQueries(queries);
   if (!valid || !jobIdValid(requestId)) throw new NativeSearchError("invalid-query");
-  const value = await send({ version: 1, type: "search", requestId, queries: valid });
+  const value = await send({
+    version: 1,
+    type: "search",
+    requestId,
+    queries: valid,
+    ...(deep ? { deep: true } : {}),
+  });
   if (!isObject(value) || value.ok !== true || !jobIdValid(value.jobId))
     throw new NativeSearchError("invalid-response");
   return value.jobId;
@@ -435,6 +569,7 @@ const cacheDb = () => (cacheStore ??= createStore("3z-prod-native-search", "cate
 export function validNativeCache(value: unknown, now = Date.now()): NativeSearchSnapshot[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
+  let categories = 0;
   return value
     .slice(0, 100)
     .flatMap((entry) => {
@@ -447,15 +582,34 @@ export function validNativeCache(value: unknown, now = Date.now()): NativeSearch
       const queries = validateNativeQueries(entry.queries);
       const snapshot = validateNativeSnapshot({ ...entry, ok: true }, undefined, now);
       if (!queries || !snapshot) return [];
-      return [{ ...snapshot, genreId: entry.genreId, queries, cached: true, asOf: entry.asOf }];
+      if (isObject(entry.platforms))
+        for (const platform of PLATFORMS) {
+          const raw = entry.platforms[platform];
+          const restored = snapshot.platforms[platform];
+          if (!restored) continue;
+          // A cache written mid-read is idle once reopened: received cards are done; an empty unfinished read failed.
+          if (restored.status === "loading")
+            restored.status = restored.results.length ? "done" : "error";
+          // The bridge cannot supply this marker; only persisted app fallbacks restore it.
+          if (isObject(raw) && recentDate(raw.staleAsOf, now)) restored.staleAsOf = raw.staleAsOf;
+        }
+      return [
+        {
+          ...snapshot,
+          genreId: entry.genreId,
+          queries,
+          cached: true,
+          asOf: entry.asOf,
+          ...(entry.deep === true ? { deep: true as const } : {}),
+        },
+      ];
     })
     .sort((a, b) => Date.parse(b.asOf) - Date.parse(a.asOf))
     .filter((entry) => {
       if (seen.has(entry.genreId)) return false;
       seen.add(entry.genreId);
-      return true;
-    })
-    .slice(0, NATIVE_CACHE_CATEGORIES);
+      return SEARCH_SCOPES.has(entry.genreId) || categories++ < NATIVE_CACHE_CATEGORIES;
+    });
 }
 async function cacheTimeout<T>(promise: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;

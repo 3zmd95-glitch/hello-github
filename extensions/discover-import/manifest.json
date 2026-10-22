@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Discover — review visible results",
-  "version": "0.3.3",
+  "version": "0.4.3",
   "description": "Review visible links and TikTok screenshots, or optionally connect Discover to public native search cards on request.",
   "permissions": ["activeTab", "scripting", "storage", "alarms"],
   "optional_host_permissions": [

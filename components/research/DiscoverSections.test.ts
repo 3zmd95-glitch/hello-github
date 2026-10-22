@@ -335,7 +335,7 @@ describe("Discover v2 in the research panel", () => {
       "https://www.youtube.com/channel/UC1",
       "https://www.youtube.com/channel/UC2",
     ]);
-    expect(chips.map((a) => a.textContent)).toEqual(["▶Cinecom2 مقطع", "▶Cinecomمقطع واحد"]);
+    expect(chips.map((a) => a.textContent)).toEqual(["Cinecom2 مقطع", "Cinecomمقطع واحد"]);
     expect(errors.mock.calls.flat().join(" ")).not.toContain("same key");
     errors.mockRestore();
   });

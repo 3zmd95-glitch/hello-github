@@ -19,10 +19,12 @@ import type { ResearchTab } from "@/lib/research";
 import { scoutErrorMessageKey, type ScoutError } from "@/lib/scoutClient";
 import { getApiKey, useStore } from "@/store";
 import CategoryFeed, { type FeedFeedbackAction } from "./CategoryFeed";
+import { ReferencePlatformGlyph } from "@/lib/platformIcons";
 import SaveInspirationButton from "./SaveInspirationButton";
 import { useScoutConfig } from "./useScout";
 import { useDiscoverQuery, useDiscoverUsage } from "./useDiscover";
 import { useFeedSources } from "./useFeedSources";
+import { useRecordSounds } from "./TrendingSounds";
 import { useCategoryEntry } from "./useCategoryEntry";
 import { useExpansionDiagnostics } from "./useExpansionDiagnostics";
 import DiscoverUsageLine from "./DiscoverUsageLine";
@@ -115,6 +117,7 @@ export default function BrowseCategoryFeed({
   }, [active, query, genre.id, accumulate, record, clear]);
   const pool = useMemo(() => categoryCandidates(candidates, genre.id), [candidates, genre.id]);
   const sources = useFeedSources(pool, active && !entry.loading, youtubeKey);
+  useRecordSounds(sources.items, genre.id, active && !entry.loading);
   const visualContext = useMemo(
     () =>
       Object.fromEntries(
@@ -290,7 +293,8 @@ export default function BrowseCategoryFeed({
               rank.items.filter((item) => platform === "all" || item.platform === platform).length
             }
           >
-            <span className="text-xs">
+            <span className="inline-flex min-h-8 flex-col items-center justify-center gap-1 text-xs">
+              {platform !== "all" && <ReferencePlatformGlyph platform={platform} />}
               {platform === "all"
                 ? t("research.tabAll")
                 : platform === "ig"

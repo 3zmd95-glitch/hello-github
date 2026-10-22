@@ -1,0 +1,394 @@
+# DT-6B-3C overlay — Worker deltas only (17 Oct 2026, local, uncommitted).
+# NOT part of the DT-6B-3A eight-target import: allowlist.patch stays the historical 3A/3A-R1 provenance.
+# From the pre-3C working files (LF; rebuilt in writer scratch and matched to the pre-edit sha256 snapshot) to the
+# current candidate. Applies with `patch -p1` to those pre-3C files. Comment-only: instagramDmCoordinator.ts, tiktokMusicProbe.ts.
+--- a/workers/scout/README.md
++++ b/workers/scout/README.md
+@@ -681,8 +681,12 @@ DMs, comment-private DMs, a global takeover, implicit takeover on Send or Send o
+ | `POST /social/inbox/instagram/dm/control/:handle/takeover` | `{ account, expectedRevision }` | control view or `409 conflict` with the current conversation and the handle's own target (`control`) |
+ | `POST /social/inbox/instagram/dm/control/:handle/resume` | `{ account, expectedRevision }` | the same |
+ 
+-- **Text** is canonicalized once (trim, NFC, 1–1,000 code points, `DM_TEXT_MAX`, local policy; lone surrogates
+-  refused as `400 text_invalid`) and returned in `intent.text`. The POST body is
++- **Text** is canonicalized once (trim, NFC, trim; at most 1,000 UTF-8 bytes of the canonical `message.text`,
++  `DM_TEXT_BYTES_MAX`, Meta's documented limit since DT-6B-3C; empty text and lone surrogates refused as
++  `400 text_invalid`, never truncated) and returned in `intent.text`. A still-`prepared` intent stored under the earlier
++  1,000-code-point policy whose text is over the byte bound is refused by Confirm with `400 text_invalid` before any
++  token read, GET, claim or POST (a guaranteed pre-claim refusal; never rewritten or cancelled); status, cancel and a
++  repeated Confirm past `prepared` answer older intents as they stand. The POST body is
+   `{"recipient":{"id":…},"message":{"text":<intent.text>}}`, byte for byte; `intent.digest` is its SHA-256.
+ - **Ownership** (raw ids are selectors only): `/me?fields=user_id,username` must equal `account` (never the OAuth
+   `tokens.userId`); `/{account}/conversations?platform=instagram&fields=id&limit=20` must list the conversation;
+--- a/workers/scout/src/social/inboxSendInstagramDm.test.ts
++++ b/workers/scout/src/social/inboxSendInstagramDm.test.ts
+@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
+ import { DatabaseSync } from "node:sqlite";
+ import { afterEach, describe, expect, it, vi } from "vitest";
+ import { handle, type Env } from "../scout";
+-import { DM_TEXT_MAX, instagramDmHandler, type EligibilityCheck } from "./inboxSendInstagramDm";
++import {
++  DM_TEXT_BYTES_MAX,
++  instagramDmHandler,
++  type EligibilityCheck,
++} from "./inboxSendInstagramDm";
+ import { CONTROL_ROWS_MAX, InstagramDmCoordinator, type DmCall } from "./instagramDmCoordinator";
+ import { Store } from "./store";
+ import type { TokenSet } from "./types";
+@@ -516,17 +520,26 @@ describe("Instagram DMs: prepare canonicalizes once, proves the target in ≤ 3
+     expect(intent.reviewExpiresAt).toBe(new Date(NOW.getTime() + 4 * MIN).toISOString());
+   });
+ 
+-  it("text bounds: empty, whitespace-only, over 1000 code points and lone surrogates are text_invalid", async () => {
++  it("text bounds: empty, whitespace-only, over 1000 UTF-8 bytes and lone surrogates are text_invalid", async () => {
+     const env = makeEnv();
+     await connect(env);
+     const f = instagram();
+-    expect(DM_TEXT_MAX).toBe(1000);
+-    for (const text of ["", "   \r\n ", "a".repeat(1001), "𝒜".repeat(1001), "bad \ud800 half", 7]) {
++    expect(DM_TEXT_BYTES_MAX).toBe(1000);
++    // DT-6B-3C: 1000 supplementary characters are 4000 UTF-8 bytes, so they are over the bound now too.
++    for (const text of [
++      "",
++      "   \r\n ",
++      "a".repeat(1001),
++      "𝒜".repeat(1001),
++      "𝒜".repeat(1000),
++      "bad \ud800 half",
++      7,
++    ]) {
+       const res = await prepare(env, f, newOp(), { text });
+       expect(await body(res)).toEqual({ error: "text_invalid" });
+     }
+-    // 1000 supplementary characters (2000 UTF-16 units) are within the code point bound.
+-    expect((await intentOf(await prepare(env, f, newOp(), { text: "𝒜".repeat(1000) }))).state).toBe(
++    // 250 supplementary characters (500 UTF-16 units) are exactly 1000 UTF-8 bytes.
++    expect((await intentOf(await prepare(env, f, newOp(), { text: "𝒜".repeat(250) }))).state).toBe(
+       "prepared",
+     );
+     expect(f.posts()).toEqual([]);
+@@ -1554,3 +1567,235 @@ describe("DT-6B-2C-3-R1: control status needs the complete handle and complete c
+     expect((await read()).body).toMatchObject({ inFlightTotal: 1 });
+   });
+ });
++
++/* ---------- DT-6B-3C: 1000 UTF-8 bytes of the canonical message.text ---------- */
++
++const bytesOf = (s: string) => new TextEncoder().encode(s).length;
++/** The DM send generation of the `connect` fixture (`ig-dm-gen|account|connectedAt`). */
++const SEND_GEN = sha(`ig-dm-gen|${ME}|2026-10-01T08:00:00.000Z`).slice(0, 32);
++
++const MIXED = "ab" + "ب".repeat(249) + "€" + "😀".repeat(124) + "!";
++const ESCAPED = "a" + '"\\\n'.repeat(332) + "bcd";
++/** [name, raw text, the canonical text (null: text_invalid), its exact UTF-8 bytes]. */
++const BOUNDARY: [string, string, string | null, number?][] = [
++  ["ASCII 1000 bytes", "a".repeat(1000), "a".repeat(1000), 1000],
++  ["ASCII 1001 bytes", "a".repeat(1001), null],
++  ["Arabic 500 two-byte letters", "ب".repeat(500), "ب".repeat(500), 1000],
++  ["Arabic 501 two-byte letters", "ب".repeat(501), null],
++  ["emoji 250 four-byte code points", "😀".repeat(250), "😀".repeat(250), 1000],
++  ["emoji 251 four-byte code points", "😀".repeat(251), null],
++  ["mixed scripts at 1000 bytes", MIXED, MIXED, 1000],
++  ["mixed scripts at 1001 bytes", MIXED + "a", null],
++  ["NFC reduces 1500 raw bytes to 1000", "é".repeat(500), "é".repeat(500), 1000],
++  ["NFC still over by one", "é".repeat(500) + "a", null],
++  ["outer whitespace is not counted", " \n\t" + "a".repeat(1000) + " \r\n", "a".repeat(1000), 1000],
++  ["interior newlines and JSON-escaped characters count once", ESCAPED, ESCAPED, 1000],
++  ["interior escapes over by one", ESCAPED + "e", null],
++  ["a lone high surrogate", "a".repeat(10) + "\ud800", null],
++  ["a lone low surrogate", "\udc00" + "a".repeat(10), null],
++];
++
++/** A prepared intent written straight into the coordinator, as the code-point policy admitted it: never via Prepare. */
++async function seedLegacy(env: TestEnv, text: string) {
++  const operationId = newOp();
++  const got = await direct(env, {
++    op: "prepareIntent",
++    input: {
++      operationId,
++      account: ME,
++      generation: SEND_GEN,
++      conversationId: CONV,
++      recipientId: PERSON,
++      inboundMessageId: IN1,
++      inboundAt: NOW.getTime() - 5 * MIN,
++      text,
++      digest: sha(exactBody(text)),
++      draftRevision: "rev-legacy",
++      reviewExpiresAt: NOW.getTime() + 10 * MIN,
++    },
++  });
++  const intent = got.intent as Intent;
++  expect(intent).toMatchObject({ state: "prepared", text, digest: sha(exactBody(text)) });
++  return { op: operationId, intent };
++}
++
++/** Status, cancel and confirm with no store, no gate and no provider: the durable handle only. */
++function offline(env: TestEnv, clock = NOW) {
++  const noProvider = vi.fn<typeof fetch>(async () => {
++    throw new Error("no provider call expected");
++  });
++  const h = instagramDmHandler({
++    fetch: noProvider,
++    now: () => clock,
++    eligibility: () => {
++      throw new Error("no gate expected");
++    },
++  });
++  const run = async (path: string, init: RequestInit = {}) => {
++    const r = req(`${DM}${path}`, init);
++    const rest = new URL(r.url).pathname.split("/").filter(Boolean).slice(4);
++    const deps = { store: null, seal: SEAL, coordinator: env.INSTAGRAM_DM_COORDINATOR };
++    return (await h(r, rest, deps, { json: (b, s) => json(b, s) }))!;
++  };
++  const postJson = (path: string, b: unknown) =>
++    run(path, { method: "POST", body: JSON.stringify(b) });
++  return {
++    noProvider,
++    status: (op: string) => run(`/send/${op}?account=${ME}`),
++    cancel: (op: string) => postJson(`/send/${op}/cancel`, { account: ME }),
++    confirm: (op: string, digest: string) =>
++      postJson("/send/confirm", { operationId: op, digest, account: ME }),
++  };
++}
++
++describe("DT-6B-3C: a new manual DM is at most 1000 UTF-8 bytes of the canonical message.text", () => {
++  for (const [name, raw, canonical, bytes] of BOUNDARY)
++    it(`Prepare: ${name}`, async () => {
++      const env = makeEnv();
++      await connect(env);
++      const f = instagram();
++      const res = await prepare(env, f, newOp(), { text: raw });
++      if (canonical === null) {
++        // Refused before any ownership GET or coordinator call: zero effects, nothing truncated or stored.
++        expect(res.status).toBe(400);
++        expect(await body(res)).toEqual({ error: "text_invalid" });
++        expect(f.calls()).toEqual([]);
++        expect(coordOf(env).ops).toEqual([]);
++        expect(env.SOCIAL_KV.writes).toBe(0);
++        return;
++      }
++      const intent = await intentOf(res);
++      expect(intent.state).toBe("prepared");
++      // Exactly the canonical text: never cut, split or replaced.
++      expect(intent.text).toBe(canonical);
++      expect(bytesOf(intent.text)).toBe(bytes);
++      expect(intent.digest).toBe(sha(exactBody(canonical)));
++      expect(f.posts()).toEqual([]);
++    });
++
++  it("a valid boundary text is confirmed as exactly its reviewed bytes: one claim, one POST, the same digest", async () => {
++    for (const text of ["ب".repeat(500), "😀".repeat(250), ESCAPED]) {
++      const env = makeEnv();
++      await connect(env);
++      const f = instagram();
++      const { op, intent } = await prepared(env, f, { text });
++      f.mockClear();
++      const done = await intentOf(await confirm(env, f, op, intent.digest));
++      expect(done).toMatchObject({ state: "sent", text, digest: intent.digest });
++      const posts = f.posts();
++      expect(posts).toHaveLength(1);
++      expect(posts[0].init.body).toBe(exactBody(text));
++      expect(sha(String(posts[0].init.body))).toBe(intent.digest);
++      const wire = JSON.parse(String(posts[0].init.body)) as { message: { text: string } };
++      expect(bytesOf(wire.message.text)).toBe(1000);
++      expect(coordOf(env).ops.filter((o) => o === "claimConfirm")).toHaveLength(1);
++    }
++  });
++
++  it("an oversized Prepare has zero effects: no GET, no coordinator, no KV write, no intent", async () => {
++    const env = makeEnv();
++    await connect(env);
++    const f = instagram();
++    const op = newOp();
++    for (const text of ["ب".repeat(501), "😀".repeat(251), "a".repeat(1001)])
++      expect(await body(await prepare(env, f, op, { text }))).toEqual({ error: "text_invalid" });
++    expect(f.calls()).toEqual([]);
++    expect(coordOf(env).ops).toEqual([]);
++    expect(env.SOCIAL_KV.writes).toBe(0);
++    expect(await body(await status(env, f, op))).toEqual({ error: "not_found" });
++  });
++
++  it("a directly seeded legacy prepared intent over the bound is refused by Confirm before any GET, claim or POST", async () => {
++    const env = makeEnv();
++    await connect(env);
++    const f = instagram();
++    const text = "ب".repeat(501);
++    const { op, intent } = await seedLegacy(env, text);
++    coordOf(env).ops.length = 0;
++    const res = await confirm(env, f, op, intent.digest);
++    expect(res.status).toBe(400);
++    expect(await body(res)).toEqual({ error: "text_invalid" });
++    expect(f.calls()).toEqual([]);
++    expect(coordOf(env).ops).toEqual(["getIntent"]);
++    // Nothing rewritten or cancelled: the same prepared intent, text and digest.
++    expect(await intentOf(await status(env, f, op))).toEqual(intent);
++    // Also with no store at all (no token read): the same guaranteed pre-claim refusal.
++    const o = offline(env);
++    expect(await body(await o.confirm(op, intent.digest))).toEqual({ error: "text_invalid" });
++    expect(o.noProvider).not.toHaveBeenCalled();
++    // A changed digest is still a conflict first; the owner can still cancel it.
++    expect(await body(await confirm(env, f, op, "e".repeat(64)))).toEqual({ error: "conflict" });
++    expect((await intentOf(await cancel(env, f, op))).state).toBe("cancelled");
++    expect(f.calls()).toEqual([]);
++    expect(coordOf(env).ops).not.toContain("claimConfirm");
++  });
++
++  const LEGACY = ["ب".repeat(501), "😀".repeat(1000)];
++  const STATES = [
++    "prepared",
++    "dispatching",
++    "sent",
++    "rejected",
++    "unknown",
++    "already_claimed",
++    "cancelled",
++    "expired",
++  ];
++  for (const text of LEGACY)
++    for (const state of STATES)
++      it(`an old ${bytesOf(text)}-byte ${state} receipt: offline Status, Cancel and repeated Confirm keep its proof`, async () => {
++        const env = makeEnv();
++        const { op, intent } = await seedLegacy(env, text);
++        const at = NOW.getTime() + MIN;
++        if (state === "already_claimed") await autoClaim(env);
++        if (["dispatching", "sent", "rejected", "unknown", "already_claimed"].includes(state))
++          await direct(env, {
++            op: "claimConfirm",
++            account: ME,
++            operationId: op,
++            digest: intent.digest,
++            now: at,
++          });
++        const outcome =
++          state === "sent"
++            ? { state, providerMessageId: "mid-legacy-1" }
++            : state === "rejected"
++              ? { state, code: "meta_10" }
++              : state === "unknown"
++                ? { state, reason: "timeout" }
++                : null;
++        if (outcome)
++          await direct(env, {
++            op: "settleManual",
++            account: ME,
++            operationId: op,
++            outcome,
++            now: at + 1000,
++          });
++        if (state === "cancelled")
++          await direct(env, { op: "cancelIntent", account: ME, operationId: op });
++        const o = offline(
++          env,
++          state === "expired" ? new Date(NOW.getTime() + 2 * 86_400_000) : NOW,
++        );
++        coordOf(env).ops.length = 0;
++        const before = await intentOf(await o.status(op));
++        expect(before).toMatchObject({ state, text, digest: intent.digest, operationId: op });
++        expect(sha(exactBody(before.text))).toBe(before.digest);
++        const confirmed = await o.confirm(op, intent.digest);
++        if (state === "prepared") {
++          // Today's limit refuses a new send of the old text before any claim; the intent stays as it was.
++          expect(await body(confirmed)).toEqual({ error: "text_invalid" });
++          expect(await intentOf(await o.status(op))).toEqual(before);
++          expect((await intentOf(await o.cancel(op))).state).toBe("cancelled");
++        } else {
++          // Status only: the stored proof is answered unchanged, never dispatched again or erased.
++          expect(await intentOf(confirmed)).toEqual(before);
++          expect(await intentOf(await o.cancel(op))).toEqual(before);
++          expect(await intentOf(await o.status(op))).toEqual(before);
++        }
++        expect(o.noProvider).not.toHaveBeenCalled();
++        expect(coordOf(env).ops).not.toContain("claimConfirm");
++        expect(coordOf(env).ops).not.toContain("settleManual");
++      });
++});
+--- a/workers/scout/src/social/inboxSendInstagramDm.ts
++++ b/workers/scout/src/social/inboxSendInstagramDm.ts
+@@ -24,8 +24,13 @@
+  * (status, cancel, a repeated confirm of an operation past `prepared`, control status/takeover/resume of an existing
+  * handle) needs only the bearer and the durable handle: no token, grant, inbox row or provider call.
+  *
+- * Text. Canonicalized ONCE before review: trim, Unicode NFC, 1..DM_TEXT_MAX code points (local policy), no lone
+- * surrogates. The canonical text is stored, returned for review, and the POST body is
++ * Text. Canonicalized ONCE before review: trim, Unicode NFC, trim, no lone surrogates, and (DT-6B-3C) at most
++ * DM_TEXT_BYTES_MAX UTF-8 bytes of that canonical message.text (Meta's documented limit; not the JSON envelope, the
++ * recipient or escaping). Never truncated, split, replaced or normalized again after review. Intents stored under the
++ * earlier 1000-code-point policy stay readable as they are (status, cancel, a repeated confirm past `prepared`); only a
++ * still-`prepared` one whose stored text is over the bound or not canonical is refused by Confirm with `text_invalid`,
++ * a guaranteed pre-claim refusal (no token read, GET, claim or POST), never rewritten or cancelled by itself.
++ * The canonical text is stored, returned for review, and the POST body is
+  * `{"recipient":{"id":…},"message":{"text":<stored text>}}` built from the stored intent; its SHA-256 is the intent's
+  * digest and the effect's payload digest. The automatic serialization (instagramDmSend `bodyOf`) is untouched.
+  *
+@@ -48,7 +53,7 @@
+  * `reconnected`), a fresh clock (`token_expired`), and nothing awaited before the coordinator call.
+  *
+  * Confirm: durable state first (anything past `prepared` is answered as it stands, also with the gate closed), the
+- * digest, the token, the gate, the generation (`stale` after a reconnect), the chain again over the STORED target
++ * digest, the stored text against today's rule (`text_invalid`, DT-6B-3C), the token, the gate, the generation (`stale` after a reconnect), the chain again over the STORED target
+  * (fields in the request other than operationId/digest/account are ignored), the stored bytes re-hashed, the fence,
+  * then ONE `claimConfirm` (InstagramDmCoordinator: the automation's own effect with actor `manual:<operationId>`;
+  * expired/already_claimed claim nothing), then ONE `dispatchClaimed` POST (instagramDmSend) and ONE `settleManual`.
+@@ -92,8 +97,8 @@ import { graph } from "./replyCore";
+ import type { Store } from "./store";
+ import type { TokenSet } from "./types";
+ 
+-/** The longest reviewed DM text in Unicode code points, after canonicalization. Local policy, not a provider limit. */
+-export const DM_TEXT_MAX = 1000;
++/** The longest reviewed DM message.text in UTF-8 bytes, after canonicalization (Meta's documented 1,000-byte limit). */
++export const DM_TEXT_BYTES_MAX = 1000;
+ 
+ const OP_RE = /^[A-Za-z0-9_-]{8,64}$/;
+ const REVISION_RE = /^[A-Za-z0-9_-]{1,64}$/;
+@@ -179,12 +184,12 @@ const generationOf = async (account: string, stamp: string) =>
+ export const manualBody = (recipientId: string, text: string) =>
+   JSON.stringify({ recipient: { id: recipientId }, message: { text } });
+ 
+-/** Trim + NFC, once; null when empty, too long, or not well-formed Unicode. */
++/** Trim + NFC + trim, once; null when empty, over DM_TEXT_BYTES_MAX UTF-8 bytes, or not well-formed Unicode. */
+ export function canonicalText(v: unknown): string | null {
+   if (typeof v !== "string") return null;
+   const t = v.trim().normalize("NFC").trim();
+   if (!t || t.normalize("NFC") !== t || /\p{Cs}/u.test(t)) return null;
+-  return Array.from(t).length <= DM_TEXT_MAX ? t : null;
++  return enc.encode(t).length <= DM_TEXT_BYTES_MAX ? t : null;
+ }
+ 
+ async function readBody(req: Request): Promise<Obj | null> {
+@@ -672,6 +677,9 @@ export function instagramDmHandler(
+         // Anything past `prepared` (dispatching, settled, already claimed, cancelled, expired) as it stands.
+         if (got.intent.state !== "prepared") return answer(got, mine);
+         if (got.intent.digest !== digest) return fail("conflict");
++        // DT-6B-3C: a still-prepared intent is sent only when its stored text meets today's rule (an older one may
++        // exceed 1000 UTF-8 bytes): refused before any token read, GET, claim or POST, and left as it is.
++        if (canonicalText(got.intent.text) !== got.intent.text) return fail("text_invalid");
+         stored = got.intent;
+       }
+ 
+--- a/workers/scout/src/social/instagramDmCoordinator.ts
++++ b/workers/scout/src/social/instagramDmCoordinator.ts
+@@ -82,7 +82,10 @@ const MESSAGE_ID_RE = /^[\x21-\x7e]{1,512}$/;
+ const OP_RE = /^[A-Za-z0-9_-]{8,64}$/;
+ const REVISION_RE = /^[A-Za-z0-9_-]{1,64}$/;
+ const HANDLE_RE = /^[0-9a-f]{32}$/;
+-/** Stored text is bounded here too (the route bounds it to 1000 code points). */
++/**
++ * Stored text is bounded here too, in UTF-16 units: a storage cap only, never send eligibility (the route admits new
++ * text up to 1000 UTF-8 bytes; intents stored under the earlier 1000-code-point policy stay readable).
++ */
+ const TEXT_CHARS_MAX = 4000;
+ 
+ export type DmEffectState = "claimed" | "sent" | "rejected" | "unknown";
+--- a/workers/scout/src/tiktokMusicProbe.ts
++++ b/workers/scout/src/tiktokMusicProbe.ts
+@@ -13,7 +13,9 @@
+  * - Attempt 5, `cml_trending_list_account`, only when a TikTok account is connected (tiktokAccount.ts): the same chart
+  *   with the account token and `business_id` = its open_id, as the docs ask. The stored token as it is: the probe
+  *   never renews it (an expired one shows TikTok's answer).
+- * 4–5 calls, in parallel, two KV reads. Every failure is data, never a throw. No token or id is in the answer.
++ * 4–5 calls, in parallel; two KV reads without a connected account, three when one is connected (also when only the
++ * account is connected, because the advertiser read still occurs). Every failure is data, never a throw. No token or
++ * id is in the answer.
+  */
+ 
+ import { CALL_TIMEOUT_MS } from "./discover/fetchers";

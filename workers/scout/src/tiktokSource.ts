@@ -11,6 +11,8 @@ export interface TikTokSource {
   views?: number;
   published?: string;
   thumbnailUrl?: string;
+  /** The video's sound as the same page names it; `url` only links to it (never read). */
+  music?: { title: string; artist?: string; url: string; original?: true };
 }
 
 export function tiktokPostUrl(input: string): string | null {
@@ -40,6 +42,25 @@ const count = (v: unknown): number | undefined => {
   const n = typeof v === "number" ? v : typeof v === "string" && /^\d+$/.test(v) ? Number(v) : NaN;
   return Number.isSafeInteger(n) && n >= 0 ? n : undefined;
 };
+
+const clean = (v: unknown, max: number) =>
+  typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "";
+
+/** The same video-detail JSON's music: a typed numeric id and a visible title, else nothing. */
+function musicOf(music: unknown): TikTokSource["music"] {
+  if (!music || typeof music !== "object") return;
+  const { id, title, authorName, original } = music as Record<string, unknown>;
+  const name = clean(title, 500);
+  if (typeof id !== "string" || !/^\d{1,25}$/.test(id) || !name) return;
+  const slug = name.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "") || "sound";
+  const artist = clean(authorName, 200);
+  return {
+    title: name,
+    ...(artist ? { artist } : {}),
+    url: `https://www.tiktok.com/music/${encodeURIComponent(slug)}-${id}`,
+    ...(original === true ? { original: true as const } : {}),
+  };
+}
 
 /** Only the public page's inert, typed video-detail JSON. No script evaluation or private API. */
 export async function readTikTokSource(response: Response, input: string): Promise<TikTokSource> {
@@ -115,6 +136,7 @@ export async function readTikTokSource(response: Response, input: string): Promi
     } catch {
       /* A missing or unrelated poster never prevents reading the post. */
     }
+    const music = musicOf(item.music);
     const published =
       seconds && seconds > 1262304000 && seconds * 1000 <= Date.now()
         ? new Date(seconds * 1000).toISOString()
@@ -130,6 +152,7 @@ export async function readTikTokSource(response: Response, input: string): Promi
       ...(views !== undefined ? { views } : {}),
       ...(published ? { published } : {}),
       ...(thumbnailUrl ? { thumbnailUrl } : {}),
+      ...(music ? { music } : {}),
     };
   } catch {
     return unknown(post);

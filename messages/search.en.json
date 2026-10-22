@@ -148,5 +148,11 @@
   "search.topTikTokNotConnected": "Connect TikTok to include its discovery matches.",
   "search.topTikTokUnavailable": "TikTok discovery is unavailable right now. Try again later.",
   "search.topTikTokNotScanned": "TikTok is connected. Scan this category to collect matching edits.",
-  "search.topRequestFailed": "Couldn't refresh this platform right now."
+  "search.topRequestFailed": "Couldn't refresh this platform right now.",
+  "discover.editorScope": "Only DaVinci Resolve & CapCut (hide other editing apps)",
+  "discover.hiddenEditors": "{count} hidden · other editing apps",
+  "search.nativeTitle": "From Instagram, TikTok and YouTube",
+  "search.webIndex": "Also search the web index (uses credits)",
+  "search.deepSearch": "Open and show source tabs",
+  "search.deepSearchHint": "This button opens and shows Instagram, TikTok and YouTube tabs to load more videos. Scrolling will not show them again automatically."
 }

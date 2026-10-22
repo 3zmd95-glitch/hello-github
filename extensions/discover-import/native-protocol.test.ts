@@ -62,6 +62,13 @@ describe("native connector sender and request boundaries", () => {
       expect(parseNativeRequest({ ...value, extra: true })).toBeNull();
     }
   });
+  it("accepts an optional boolean deep flag on search requests only", () => {
+    expect(parseNativeRequest({ ...search, deep: true })).toEqual({ ...search, deep: true });
+    expect(parseNativeRequest({ ...search, deep: false })).toEqual({ ...search, deep: false });
+    for (const deep of ["true", 1, null, {}, undefined])
+      expect(parseNativeRequest({ ...search, deep })).toBeNull();
+    expect(parseNativeRequest({ version: 1, type: "more", jobId: "job-1", deep: true })).toBeNull();
+  });
   it("encodes query values into fixed native public search routes", () => {
     expect(nativeSearchUrl("ig", "anime edit&x=1")).toBe(
       "https://www.instagram.com/explore/search/keyword/?q=anime%20edit%26x%3D1",

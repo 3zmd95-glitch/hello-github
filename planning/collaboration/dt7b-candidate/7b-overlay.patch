@@ -1,0 +1,4748 @@
+# DT-7B overlay — Worker deltas only (17 Oct 2026, local, uncommitted, unactivated).
+# From the accepted DT-6B-3C Worker tree (planning/collaboration/dt6b3a-candidate/worker-manifest.sha256, 182 files;
+# the five pre-edit files were snapshot-matched, routes.ts/store.ts rebuilt by reversing the additive edits and matched)
+# to the current DT-7B candidate (189 files). 9 modified + 7 new files. Applies with `patch -p1` from the repo root.
+diff -ruN a/workers/scout/README.md b/workers/scout/README.md
+--- a/workers/scout/README.md	2026-10-17 23:24:12.351648800 +0300
++++ b/workers/scout/README.md	2026-10-17 23:24:12.375928800 +0300
+@@ -721,6 +721,39 @@
+   `detail: "kv"` for new work only. Local configuration only; verified in workerd by
+   `src/social/instagramDmCoordinator.runtime.test.ts`.
+ 
++## Cloud workflow foundation (DT-7B, local, unactivated)
++
++The durable store a later packet will use to run dashboard workflows in the cloud (planning/tools/38-cloud-workflows.md).
++**Local only:** the `WORKFLOW_COORDINATOR` binding and its `v5-workflows` migration exist in `wrangler.jsonc` but were
++never provisioned or deployed; no cron, no browser wiring, no executor. Nothing here publishes, sends or calls out.
++
++- **Authority**: one SQLite Durable Object (`src/social/workflowCoordinator.ts`), always the server-selected name
++  `workflows|owner`. `GET /social/workflows/authority` → `{ ownerKey }` (`wfo_` + 32 hex, minted once in durable
++  meta, stable across restarts and deployments). Every other route names the ownerKey; another one →
++  `409 authority_mismatch`, nothing changes. Bearer and origin as for every `/social/*` route.
++- **Registrations**: `POST /social/workflows/registrations` `{ ownerKey, workflowId, expectedEpoch, revision,
++  workflowDigest }` (expectedEpoch 0 = first, N = re-register after epoch N was unregistered; a lost answer replays
++  without a new epoch); `POST …/registrations/:id` (update) and `…/:id/{pause,resume,unregister}` with
++  `{ ownerKey, registrationEpoch, expectedRevision, … }` — a compare-and-set on epoch + revision (`409 conflict` with the
++  current registration). Pause is a retained flag that gates the first step of pending work of every epoch; unregister
++  never cancels or moves existing work; closed epochs keep their cutoff (later occurrences `409 not_registered`).
++- **Occurrences**: `POST /social/workflows/occurrences { body, payloadDigest }` — the immutable snapshot (exact
++  allowlisted fields, ids `^[A-Za-z0-9_-]{1,64}$`, ≤ 16 KiB, planner context ≤ 8 KiB). The server recomputes the sha256
++  of the canonical JSON (`400 digest_mismatch` otherwise). `201` new, `200 created: false` for the same id + digest,
++  `409 conflict` for the same id with other content, `409 pruned` for a retired id, `409 capacity` at 500 open.
++  `GET …/occurrences/:id?ownerKey=` → the full receipt (exact body incl. executionAt, digest, receiptVersion, steps,
++  draft outputs) or `{ state: "absent" }` / `{ state: "pruned", payloadDigest, prunedAt }`. `POST …/:id/cancel`
++  (pending only; running `409`), `POST …/:id/ack { ownerKey, receiptVersion }` (exact terminal version only; future /
++  not terminal `409`, absent `404`, pruned `410`; stores firstAckAt once; never bumps the feed).
++- **Change feed**: `GET /social/workflows/changes?ownerKey=&after=&limit≤50` → `{ items, nextAfter, more }` ordered by
++  change sequence; an older row changing later comes back after the cursor.
++- **Retention**: terminal rows are purged at min(finished + 180 days, first ack + 90 days), or finished + 180 days
++  unacknowledged, into a permanent tombstone; pending/running never.
++- **Strictness**: 32 KiB streaming request budget (`413 too_large`), exact keys and query strings, typed answers
++  checked against the request (a mixed or foreign answer is `503 receipt_unavailable`), missing binding `503
++  not_configured` (`detail: "workflow-store"`). No route runs a step or a builder. Verified in workerd by
++  `src/social/workflowCoordinator.runtime.test.ts`.
++
+ ## Trend Radar
+ 
+ Code: `src/trends/` (`run.ts` the job and the source registry, `routes.ts` HTTP, `kv.ts` the keys, one module
+diff -ruN a/workers/scout/src/index.ts b/workers/scout/src/index.ts
+--- a/workers/scout/src/index.ts	2026-10-17 23:24:12.453620800 +0300
++++ b/workers/scout/src/index.ts	2026-10-17 23:24:12.475627500 +0300
+@@ -19,8 +19,9 @@
+ export { InstagramPublicSendCoordinator } from "./social/instagramPublicSendCoordinator";
+ export { SendCoordinator } from "./social/sendCoordinator";
+ export { ThreadsSendCoordinator } from "./social/threadsSendCoordinator";
++export { WorkflowCoordinator } from "./social/workflowCoordinator";
+ 
+-// Worker entry. Keep this module's exports to the default handler and the four Durable Object classes above: workerd
++// Worker entry. Keep this module's exports to the default handler and the five Durable Object classes above: workerd
+ // treats every named export of the main module as an entrypoint and refuses to start on anything else (a helper or a
+ // constant). A Durable Object class is a legitimate entrypoint; SendCoordinator (social/sendCoordinator.ts, packet
+ // DT-6B-2A) is the wrangler.jsonc SEND_COORDINATOR binding's class, proven in workerd by
+@@ -29,7 +30,9 @@
+ // and InstagramPublicSendCoordinator (social/instagramPublicSendCoordinator.ts, packet DT-6B-2C-1) is the
+ // INSTAGRAM_PUBLIC_SEND_COORDINATOR binding's class, proven by social/instagramPublicSendCoordinator.runtime.test.ts,
+ // and InstagramDmCoordinator (social/instagramDmCoordinator.ts, packet DT-6B-2C-2) is the INSTAGRAM_DM_COORDINATOR
+-// binding's class, proven by social/instagramDmCoordinator.runtime.test.ts. Add no other named export here.
++// binding's class, proven by social/instagramDmCoordinator.runtime.test.ts, and WorkflowCoordinator
++// (social/workflowCoordinator.ts, packet DT-7B) is the WORKFLOW_COORDINATOR binding's class (local, unactivated),
++// proven by social/workflowCoordinator.runtime.test.ts. Add no other named export here.
+ //
+ // Claude connector (round 33, planning/tools/13-discover-search-v2.md): only the connector's own paths
+ // (`isOAuthPath`: /mcp, /authorize, /token, /register, /.well-known/oauth-*) go through OAuthProvider, and only with
+diff -ruN a/workers/scout/src/social/instagramDmCoordinator.runtime.test.ts b/workers/scout/src/social/instagramDmCoordinator.runtime.test.ts
+--- a/workers/scout/src/social/instagramDmCoordinator.runtime.test.ts	2026-10-17 23:24:12.745375400 +0300
++++ b/workers/scout/src/social/instagramDmCoordinator.runtime.test.ts	2026-10-17 23:24:12.769646400 +0300
+@@ -51,6 +51,7 @@
+ export { InstagramPublicSendCoordinator } from "./src/social/instagramPublicSendCoordinator";
+ export { SendCoordinator } from "./src/social/sendCoordinator";
+ export { ThreadsSendCoordinator } from "./src/social/threadsSendCoordinator";
++export { WorkflowCoordinator } from "./src/social/workflowCoordinator";
+ 
+ function failable(ns, ops) {
+   const bad = new Set((ops || "").split(",").filter(Boolean));
+@@ -113,12 +114,14 @@
+     { name: "THREADS_SEND_COORDINATOR", class_name: "ThreadsSendCoordinator" },
+     { name: "INSTAGRAM_PUBLIC_SEND_COORDINATOR", class_name: "InstagramPublicSendCoordinator" },
+     { name: "INSTAGRAM_DM_COORDINATOR", class_name: "InstagramDmCoordinator" },
++    { name: "WORKFLOW_COORDINATOR", class_name: "WorkflowCoordinator" },
+   ]);
+   expect(config.migrations).toEqual([
+     { tag: "v1-send", new_sqlite_classes: ["SendCoordinator"] },
+     { tag: "v2-threads-send", new_sqlite_classes: ["ThreadsSendCoordinator"] },
+     { tag: "v3-instagram-public-send", new_sqlite_classes: ["InstagramPublicSendCoordinator"] },
+     { tag: "v4-instagram-dm", new_sqlite_classes: ["InstagramDmCoordinator"] },
++    { tag: "v5-workflows", new_sqlite_classes: ["WorkflowCoordinator"] },
+   ]);
+   expect(sqlite.get("InstagramDmCoordinator")).toBe(true);
+   durableObjects = Object.fromEntries(
+@@ -719,6 +722,7 @@
+ export { InstagramPublicSendCoordinator } from "./src/social/instagramPublicSendCoordinator";
+ export { SendCoordinator } from "./src/social/sendCoordinator";
+ export { ThreadsSendCoordinator } from "./src/social/threadsSendCoordinator";
++export { WorkflowCoordinator } from "./src/social/workflowCoordinator";
+ 
+ function failable(ns, ops) {
+   const bad = new Set((ops || "").split(",").filter(Boolean));
+diff -ruN a/workers/scout/src/social/instagramPublicSendCoordinator.runtime.test.ts b/workers/scout/src/social/instagramPublicSendCoordinator.runtime.test.ts
+--- a/workers/scout/src/social/instagramPublicSendCoordinator.runtime.test.ts	2026-10-17 23:24:12.700714600 +0300
++++ b/workers/scout/src/social/instagramPublicSendCoordinator.runtime.test.ts	2026-10-17 23:24:12.723355300 +0300
+@@ -50,6 +50,7 @@
+ export { InstagramPublicSendCoordinator } from "./src/social/instagramPublicSendCoordinator";
+ export { SendCoordinator } from "./src/social/sendCoordinator";
+ export { ThreadsSendCoordinator } from "./src/social/threadsSendCoordinator";
++export { WorkflowCoordinator } from "./src/social/workflowCoordinator";
+ 
+ function failable(ns, ops) {
+   const bad = new Set((ops || "").split(",").filter(Boolean));
+@@ -126,12 +127,14 @@
+     { name: "THREADS_SEND_COORDINATOR", class_name: "ThreadsSendCoordinator" },
+     { name: "INSTAGRAM_PUBLIC_SEND_COORDINATOR", class_name: "InstagramPublicSendCoordinator" },
+     { name: "INSTAGRAM_DM_COORDINATOR", class_name: "InstagramDmCoordinator" },
++    { name: "WORKFLOW_COORDINATOR", class_name: "WorkflowCoordinator" },
+   ]);
+   expect(config.migrations).toEqual([
+     { tag: "v1-send", new_sqlite_classes: ["SendCoordinator"] },
+     { tag: "v2-threads-send", new_sqlite_classes: ["ThreadsSendCoordinator"] },
+     { tag: "v3-instagram-public-send", new_sqlite_classes: ["InstagramPublicSendCoordinator"] },
+     { tag: "v4-instagram-dm", new_sqlite_classes: ["InstagramDmCoordinator"] },
++    { tag: "v5-workflows", new_sqlite_classes: ["WorkflowCoordinator"] },
+   ]);
+   expect(sqlite.get("InstagramPublicSendCoordinator")).toBe(true);
+   durableObjects = Object.fromEntries(
+diff -ruN a/workers/scout/src/social/routes.ts b/workers/scout/src/social/routes.ts
+--- a/workers/scout/src/social/routes.ts	2026-10-17 23:24:12.497189400 +0300
++++ b/workers/scout/src/social/routes.ts	2026-10-17 23:24:12.519835000 +0300
+@@ -28,6 +28,10 @@
+  *          POST …/dm/control/register, GET …/dm/control/:handle, POST …/dm/control/:handle/{takeover,resume}
+  *                                                    → reviewed existing-conversation DMs + takeover/resume, gate
+  *                                                      closed (inboxSendInstagramDm.ts)
++ *   GET    /social/workflows/authority, POST …/registrations[/:id[/{pause,resume,unregister}]],
++ *          POST …/occurrences, GET …/occurrences/:id, POST …/occurrences/:id/{cancel,ack}, GET …/changes
++ *                                                    → the local cloud-workflow foundation, unactivated (DT-7B,
++ *                                                      workflowRoutes.ts; no route runs a step)
+  *
+  * `POST /social/connect/:platform` takes `publish: true` (posting scopes) and, for Instagram, `replies: true`
+  * (comment + message scopes on top of the posting ones).
+@@ -52,6 +56,7 @@
+ import { FETCH_BUDGET, syncAll, syncPlatform } from "./sync";
+ import { DAY_KEY_RE } from "./time";
+ import { publishingCapabilities, queryCreatorInfo } from "./tiktok";
++import { handleWorkflows } from "./workflowRoutes";
+ import {
+   isSocialPlatform,
+   SOCIAL_PLATFORMS,
+@@ -257,6 +262,14 @@
+       json: (body, status) => json(body, status, cors),
+     });
+   }
++  // DT-7B: the cloud-workflow foundation (WORKFLOW_COORDINATOR, one server-selected object); local, unactivated.
++  if (action === "workflows")
++    return handleWorkflows(
++      req,
++      socialPath(pathname).slice(1),
++      { coordinator: env.WORKFLOW_COORDINATOR, now: deps.now ?? (() => new Date()) },
++      { json: (body, status) => json(body, status, cors) },
++    );
+   if (action === "publish") {
+     return handlePublish(req, env, socialPath(pathname).slice(1), store, now, deps.fetch, {
+       json: (body, code) => json(body, code, cors),
+diff -ruN a/workers/scout/src/social/sendCoordinator.runtime.test.ts b/workers/scout/src/social/sendCoordinator.runtime.test.ts
+--- a/workers/scout/src/social/sendCoordinator.runtime.test.ts	2026-10-17 23:24:12.592272600 +0300
++++ b/workers/scout/src/social/sendCoordinator.runtime.test.ts	2026-10-17 23:24:12.617463500 +0300
+@@ -45,12 +45,14 @@
+     { name: "THREADS_SEND_COORDINATOR", class_name: "ThreadsSendCoordinator" },
+     { name: "INSTAGRAM_PUBLIC_SEND_COORDINATOR", class_name: "InstagramPublicSendCoordinator" },
+     { name: "INSTAGRAM_DM_COORDINATOR", class_name: "InstagramDmCoordinator" },
++    { name: "WORKFLOW_COORDINATOR", class_name: "WorkflowCoordinator" },
+   ]);
+   expect(config.migrations).toEqual([
+     { tag: "v1-send", new_sqlite_classes: ["SendCoordinator"] },
+     { tag: "v2-threads-send", new_sqlite_classes: ["ThreadsSendCoordinator"] },
+     { tag: "v3-instagram-public-send", new_sqlite_classes: ["InstagramPublicSendCoordinator"] },
+     { tag: "v4-instagram-dm", new_sqlite_classes: ["InstagramDmCoordinator"] },
++    { tag: "v5-workflows", new_sqlite_classes: ["WorkflowCoordinator"] },
+   ]);
+   expect(sqlite.get("SendCoordinator")).toBe(true);
+   durableObjects = Object.fromEntries(
+diff -ruN a/workers/scout/src/social/store.ts b/workers/scout/src/social/store.ts
+--- a/workers/scout/src/social/store.ts	2026-10-17 23:24:12.543592300 +0300
++++ b/workers/scout/src/social/store.ts	2026-10-17 23:24:12.567117100 +0300
+@@ -40,6 +40,8 @@
+   INSTAGRAM_PUBLIC_SEND_COORDINATOR?: DurableObjectNamespace;
+   /** The existing-conversation Instagram DM authority of the automation (instagramDmCoordinator.ts, DT-6B-2C-2). */
+   INSTAGRAM_DM_COORDINATOR?: DurableObjectNamespace;
++  /** The cloud-workflow foundation's one durable authority (workflowCoordinator.ts, DT-7B; local, unactivated). */
++  WORKFLOW_COORDINATOR?: DurableObjectNamespace;
+   ALLOWED_ORIGINS?: string;
+   SOCIAL_KV?: KVNamespace;
+   /** Meta app: the Instagram API with Instagram Login's "Instagram app ID" / secret. */
+diff -ruN a/workers/scout/src/social/threadsSendCoordinator.runtime.test.ts b/workers/scout/src/social/threadsSendCoordinator.runtime.test.ts
+--- a/workers/scout/src/social/threadsSendCoordinator.runtime.test.ts	2026-10-17 23:24:12.646609600 +0300
++++ b/workers/scout/src/social/threadsSendCoordinator.runtime.test.ts	2026-10-17 23:24:12.673992400 +0300
+@@ -48,6 +48,7 @@
+ export { InstagramPublicSendCoordinator } from "./src/social/instagramPublicSendCoordinator";
+ export { SendCoordinator } from "./src/social/sendCoordinator";
+ export { ThreadsSendCoordinator } from "./src/social/threadsSendCoordinator";
++export { WorkflowCoordinator } from "./src/social/workflowCoordinator";
+ 
+ function failable(ns, ops) {
+   const bad = new Set((ops || "").split(",").filter(Boolean));
+@@ -114,12 +115,14 @@
+     { name: "THREADS_SEND_COORDINATOR", class_name: "ThreadsSendCoordinator" },
+     { name: "INSTAGRAM_PUBLIC_SEND_COORDINATOR", class_name: "InstagramPublicSendCoordinator" },
+     { name: "INSTAGRAM_DM_COORDINATOR", class_name: "InstagramDmCoordinator" },
++    { name: "WORKFLOW_COORDINATOR", class_name: "WorkflowCoordinator" },
+   ]);
+   expect(config.migrations).toEqual([
+     { tag: "v1-send", new_sqlite_classes: ["SendCoordinator"] },
+     { tag: "v2-threads-send", new_sqlite_classes: ["ThreadsSendCoordinator"] },
+     { tag: "v3-instagram-public-send", new_sqlite_classes: ["InstagramPublicSendCoordinator"] },
+     { tag: "v4-instagram-dm", new_sqlite_classes: ["InstagramDmCoordinator"] },
++    { tag: "v5-workflows", new_sqlite_classes: ["WorkflowCoordinator"] },
+   ]);
+   expect(sqlite.get("SendCoordinator")).toBe(true);
+   expect(sqlite.get("ThreadsSendCoordinator")).toBe(true);
+diff -ruN a/workers/scout/src/social/workflowCoordinator.runtime.test.ts b/workers/scout/src/social/workflowCoordinator.runtime.test.ts
+--- a/workers/scout/src/social/workflowCoordinator.runtime.test.ts	1970-01-01 03:00:00.000000000 +0300
++++ b/workers/scout/src/social/workflowCoordinator.runtime.test.ts	2026-10-17 23:24:12.887821300 +0300
+@@ -0,0 +1,494 @@
++import { mkdtempSync, rmSync } from "node:fs";
++import { createRequire } from "node:module";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { fileURLToPath } from "node:url";
++import { afterAll, beforeAll, describe, expect, it } from "vitest";
++import { drainOne, PURGE_EVERY_MS, WORKFLOW_OBJECT, type StepBuilder } from "./workflowCoordinator";
++import { canonicalJson, sha256Hex } from "./workflowProtocol";
++import { riyadhDay } from "./time";
++
++// ⚙️ DT-7B runtime proof (planning/tools/38-cloud-workflows.md) in workerd, through the Miniflare that ships with our
++// pinned Wrangler (no new dependency). The real entry (src/index.ts) is bundled; the five Durable Object classes,
++// bindings and SQLite migrations (incl. WORKFLOW_COORDINATOR / "v5-workflows") come from wrangler.jsonc. Storage is
++// on disk and outlives a runtime restart. Every outbound request is refused and recorded: none is expected.
++//
++// Public calls go through the real routes (bearer, origin, routes.ts). The executor has no route: the TEST-ONLY
++// deterministic builder drives `drainOne` straight on the binding's fixed object, proving the store's transactions
++// (the real executor is validation pending). Clock-dependent purges call the object directly with a chosen `now`.
++
++const requireRuntime = createRequire(import.meta.resolve("wrangler/package.json"));
++const { Miniflare, convertV4MiniflareOptions } = requireRuntime("miniflare");
++const { build } = requireRuntime("esbuild");
++
++const ROOT = fileURLToPath(new URL("../..", import.meta.url));
++const TOKEN = "runtime-scout-token";
++const DIG = "e".repeat(64);
++const DAY = 86_400_000;
++
++type A = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
++
++let script = "";
++let durableObjects: Record<string, { className: string; useSQLite: boolean }> = {};
++const dirs: string[] = [];
++const outbound: string[] = [];
++
++beforeAll(async () => {
++  const wrangler = await import("wrangler");
++  const config = wrangler.unstable_readConfig({ config: join(ROOT, "wrangler.jsonc") });
++  const sqlite = wrangler.unstable_getDurableObjectClassNameToUseSQLiteMap(config.migrations);
++  expect(config.durable_objects.bindings).toEqual([
++    { name: "SEND_COORDINATOR", class_name: "SendCoordinator" },
++    { name: "THREADS_SEND_COORDINATOR", class_name: "ThreadsSendCoordinator" },
++    { name: "INSTAGRAM_PUBLIC_SEND_COORDINATOR", class_name: "InstagramPublicSendCoordinator" },
++    { name: "INSTAGRAM_DM_COORDINATOR", class_name: "InstagramDmCoordinator" },
++    { name: "WORKFLOW_COORDINATOR", class_name: "WorkflowCoordinator" },
++  ]);
++  expect(config.migrations).toEqual([
++    { tag: "v1-send", new_sqlite_classes: ["SendCoordinator"] },
++    { tag: "v2-threads-send", new_sqlite_classes: ["ThreadsSendCoordinator"] },
++    { tag: "v3-instagram-public-send", new_sqlite_classes: ["InstagramPublicSendCoordinator"] },
++    { tag: "v4-instagram-dm", new_sqlite_classes: ["InstagramDmCoordinator"] },
++    { tag: "v5-workflows", new_sqlite_classes: ["WorkflowCoordinator"] },
++  ]);
++  expect(sqlite.get("WorkflowCoordinator")).toBe(true);
++  durableObjects = Object.fromEntries(
++    config.durable_objects.bindings.map((b: { name: string; class_name: string }) => [
++      b.name,
++      { className: b.class_name, useSQLite: sqlite.get(b.class_name) === true },
++    ]),
++  );
++  const { outputFiles } = await build({
++    entryPoints: [join(ROOT, "src/index.ts")],
++    bundle: true,
++    format: "esm",
++    platform: "browser",
++    conditions: ["workerd", "worker", "browser"],
++    external: ["cloudflare:*", "node:*"],
++    write: false,
++    logLevel: "silent",
++  });
++  script = outputFiles[0].text;
++}, 120_000);
++
++afterAll(() => {
++  for (const d of dirs) rmSync(d, { recursive: true, force: true });
++  expect(outbound).toEqual([]);
++});
++
++function runtime(persist: string) {
++  return new Miniflare(
++    convertV4MiniflareOptions({
++      modules: true,
++      compatibilityDate: "2026-09-01",
++      script,
++      durableObjects,
++      resourcePersistencePath: persist,
++      kvNamespaces: ["SOCIAL_KV"],
++      bindings: { SCOUT_TOKEN: TOKEN },
++      // Every outbound request is intercepted and refused; this test cannot contact anything.
++      outboundService: async (request: Request) => {
++        outbound.push(`${request.method} ${request.url}`);
++        return new Response("blocked", { status: 599 });
++      },
++    }),
++  );
++}
++type MF = ReturnType<typeof runtime>;
++
++const freshDir = () => {
++  const d = mkdtempSync(join(tmpdir(), "workflow-coordinator-"));
++  dirs.push(d);
++  return d;
++};
++
++/** The real router with the bearer (no Origin header: a server-side caller). */
++async function api(mf: MF, method: string, path: string, json?: unknown) {
++  const res = await mf.dispatchFetch(`https://scout.test/social/workflows/${path}`, {
++    method,
++    headers: { Authorization: `Bearer ${TOKEN}` },
++    ...(json === undefined ? {} : { body: JSON.stringify(json) }),
++  });
++  return { status: res.status as number, body: (await res.json()) as A };
++}
++
++/** The binding's fixed object, straight (the executor and clock-controlled calls only). */
++async function direct(mf: MF) {
++  const ns = await mf.getDurableObjectNamespace("WORKFLOW_COORDINATOR");
++  const stub = ns.get(ns.idFromName(WORKFLOW_OBJECT));
++  return async (c: A): Promise<A> =>
++    (await (
++      await stub.fetch("https://workflow-coordinator/", { method: "POST", body: JSON.stringify(c) })
++    ).json()) as A;
++}
++
++const idea = (id: string) => ({ id, kind: "idea", text: { ar: "", en: `idea ${id}` } });
++function body(owner: string, id: string, actions: A[] = [idea("a1")]): A {
++  // executionAt a minute ago on the real clock (the routes read the Worker clock).
++  const at = new Date(Date.now() - 60_000).toISOString();
++  return {
++    occurrenceId: id,
++    ownerKey: owner,
++    workflowId: "w1",
++    kind: "manual",
++    registrationEpoch: 1,
++    revision: 1,
++    snapshot: { name: { ar: "", en: "Flow" }, trigger: { kind: "manual" }, actions },
++    plannerContext: null,
++    input: {
++      title: { ar: "", en: "" },
++      summary: { ar: "", en: "" },
++      slug: "",
++      lang: "en",
++      day: riyadhDay(at),
++    },
++    executionAt: at,
++  };
++}
++const submit = async (mf: MF, b: A) =>
++  api(mf, "POST", "occurrences", { body: b, payloadDigest: await sha256Hex(canonicalJson(b)) });
++
++/** TEST-ONLY deterministic builder. */
++const testBuilder: StepBuilder = ({ body: b, action }) => ({
++  record: {
++    id: `wf:${b.occurrenceId}:${action.id}`,
++    text: `idea ${action.id}`,
++    source: "workflow",
++    createdAt: b.executionAt,
++  },
++});
++const drain = async (mf: MF, owner: string, id: string) =>
++  (await drainOne(await direct(mf), owner, id, testBuilder, () => Date.now())) as A;
++
++async function ready(mf: MF) {
++  const owner = (await api(mf, "GET", "authority")).body.ownerKey as string;
++  const r = await api(mf, "POST", "registrations", {
++    ownerKey: owner,
++    workflowId: "w1",
++    expectedEpoch: 0,
++    revision: 1,
++    workflowDigest: DIG,
++  });
++  expect(r.status).toBe(200);
++  return owner;
++}
++
++describe("WorkflowCoordinator in workerd (real index export, wrangler binding + v5-workflows)", () => {
++  it("restart persistence: ownerKey, registration and occurrences survive; lost answers never duplicate", async () => {
++    const dir = freshDir();
++    let mf = runtime(dir);
++    let owner: string;
++    let first: A;
++    try {
++      owner = await ready(mf);
++      expect(owner).toMatch(/^wfo_[0-9a-f]{32}$/);
++      const b = body(owner, "m1");
++      first = await submit(mf, b);
++      expect(first).toMatchObject({
++        status: 201,
++        body: { created: true, occurrence: { receiptVersion: 1, changeSeq: 1 } },
++      });
++      // The lost answer: resend.
++      expect(await submit(mf, b)).toMatchObject({ status: 200, body: { created: false } });
++    } finally {
++      await mf.dispose();
++    }
++    mf = runtime(dir);
++    try {
++      expect((await api(mf, "GET", "authority")).body.ownerKey).toBe(owner!);
++      const s = await api(mf, "GET", `occurrences/m1?ownerKey=${owner!}`);
++      expect(s.body.occurrence).toEqual(first!.body.occurrence);
++      // A lost register answer replayed after the restart: same epoch.
++      const again = await api(mf, "POST", "registrations", {
++        ownerKey: owner!,
++        workflowId: "w1",
++        expectedEpoch: 0,
++        revision: 1,
++        workflowDigest: DIG,
++      });
++      expect(again.body).toMatchObject({ created: false, registration: { registrationEpoch: 1 } });
++    } finally {
++      await mf.dispose();
++    }
++    const other = runtime(freshDir());
++    try {
++      expect((await api(other, "GET", "authority")).body.ownerKey).not.toBe(owner!);
++    } finally {
++      await other.dispose();
++    }
++  }, 120_000);
++
++  it("concurrent step/finish/cancel races: one commit per step, one terminal proof, unchanged after restart", async () => {
++    const dir = freshDir();
++    let mf = runtime(dir);
++    let owner: string;
++    let proof: A;
++    try {
++      owner = await ready(mf);
++      await submit(mf, body(owner, "o1", [idea("a1"), idea("a2"), idea("a3")]));
++      const [x, y, z] = await Promise.all([
++        drain(mf, owner, "o1"),
++        drain(mf, owner, "o1"),
++        drain(mf, owner, "o1"),
++      ]);
++      expect(x.occurrence).toEqual(y.occurrence);
++      expect(y.occurrence).toEqual(z.occurrence);
++      expect(x.occurrence).toMatchObject({ state: "done", receiptVersion: 5, changeSeq: 5 });
++      expect(x.occurrence.outputs.map((o: A) => o.outputId)).toEqual([
++        "wf:o1:a1",
++        "wf:o1:a2",
++        "wf:o1:a3",
++      ]);
++      proof = x.occurrence;
++
++      // Two finishes racing on a fully stepped row: one finishes, the other answers the same terminal row.
++      await submit(mf, body(owner, "o2"));
++      const call = await direct(mf);
++      const st = (
++        await call({ op: "status", ownerKey: owner, occurrenceId: "o2", now: Date.now() })
++      ).occurrence;
++      await call({
++        op: "commitStep",
++        ownerKey: owner,
++        occurrenceId: "o2",
++        idx: 0,
++        receiptVersion: 1,
++        payloadDigest: st.payloadDigest,
++        output: await testBuilder({
++          body: st.body,
++          idx: 0,
++          action: st.body.snapshot.actions[0],
++          prior: [],
++        }),
++        now: Date.now(),
++      });
++      const fins = await Promise.all(
++        [1, 2, 3].map(() =>
++          call({ op: "finish", ownerKey: owner, occurrenceId: "o2", now: Date.now() }),
++        ),
++      );
++      expect(fins.filter((f) => f.finished === true)).toHaveLength(1);
++      expect(new Set(fins.map((f) => JSON.stringify(f.occurrence))).size).toBe(1);
++
++      // Cancel racing a drain: either cancelled with zero outputs, or done with every output — never both.
++      await submit(mf, body(owner, "o3", [idea("a1"), idea("a2")]));
++      const [c, d] = await Promise.all([
++        api(mf, "POST", "occurrences/o3/cancel", { ownerKey: owner }),
++        drain(mf, owner, "o3"),
++      ]);
++      const end = (await api(mf, "GET", `occurrences/o3?ownerKey=${owner}`)).body.occurrence;
++      if (end.state === "cancelled") {
++        expect(end.outputs).toEqual([]);
++        expect(c.body.cancelled).toBe(true);
++      } else {
++        expect(end.state).toBe("done");
++        expect(end.outputs).toHaveLength(2);
++        expect([409, 200]).toContain(c.status);
++        if (c.status === 200) expect(c.body.cancelled).toBe(false);
++      }
++      expect(d.occurrence ?? d).toBeDefined();
++    } finally {
++      await mf.dispose();
++    }
++    mf = runtime(dir);
++    try {
++      // The completed proof is unchanged after a restart and a stale executor.
++      const call = await direct(mf);
++      const late = await call({
++        op: "commitStep",
++        ownerKey: owner!,
++        occurrenceId: "o1",
++        idx: 0,
++        receiptVersion: 1,
++        payloadDigest: proof!.payloadDigest,
++        output: { error: "invalid" },
++        now: Date.now(),
++      });
++      expect(late.error).toBe("stale");
++      expect((await api(mf, "GET", `occurrences/o1?ownerKey=${owner!}`)).body.occurrence).toEqual(
++        proof!,
++      );
++    } finally {
++      await mf.dispose();
++    }
++  }, 120_000);
++
++  it("pause gates the first step of pending work; resume releases it; unregister keeps it cloud-owned", async () => {
++    const mf = runtime(freshDir());
++    try {
++      const owner = await ready(mf);
++      await api(mf, "POST", "registrations/w1/pause", {
++        ownerKey: owner,
++        registrationEpoch: 1,
++        expectedRevision: 1,
++      });
++      expect((await submit(mf, body(owner, "p1"))).body.occurrence.state).toBe("pending");
++      expect(await drain(mf, owner, "p1")).toMatchObject({
++        error: "paused",
++        occurrence: { state: "pending", receiptVersion: 1 },
++      });
++      await api(mf, "POST", "registrations/w1/unregister", {
++        ownerKey: owner,
++        registrationEpoch: 1,
++        expectedRevision: 1,
++      });
++      expect((await drain(mf, owner, "p1")).error).toBe("paused");
++      await api(mf, "POST", "registrations/w1/resume", {
++        ownerKey: owner,
++        registrationEpoch: 1,
++        expectedRevision: 1,
++      });
++      expect((await drain(mf, owner, "p1")).occurrence.state).toBe("done");
++    } finally {
++      await mf.dispose();
++    }
++  }, 120_000);
++
++  it("feed pagination: old rows finishing later come back after the cursor, across a restart", async () => {
++    const dir = freshDir();
++    let mf = runtime(dir);
++    let owner: string;
++    let cursor: number;
++    const seen: string[] = [];
++    try {
++      owner = await ready(mf);
++      for (let n = 0; n < 55; n++) await submit(mf, body(owner, `r${n}`));
++      const p1 = await api(mf, "GET", `changes?ownerKey=${owner}&after=0&limit=50`);
++      expect(p1.body).toMatchObject({ nextAfter: 50, more: true });
++      seen.push(...p1.body.items.map((i: A) => `${i.occurrenceId}:${i.state}`));
++      await drain(mf, owner, "r0");
++      await drain(mf, owner, "r7");
++      cursor = p1.body.nextAfter;
++    } finally {
++      await mf.dispose();
++    }
++    mf = runtime(dir);
++    try {
++      for (;;) {
++        const p = await api(mf, "GET", `changes?ownerKey=${owner!}&after=${cursor!}&limit=4`);
++        seen.push(...p.body.items.map((i: A) => `${i.occurrenceId}:${i.state}`));
++        cursor = p.body.nextAfter;
++        if (!p.body.more) break;
++      }
++      expect(seen.slice(50)).toEqual([
++        "r50:pending",
++        "r51:pending",
++        "r52:pending",
++        "r53:pending",
++        "r54:pending",
++        "r0:done",
++        "r7:done",
++      ]);
++      expect(seen.filter((s) => s.endsWith(":pending"))).toHaveLength(55);
++      expect((await api(mf, "GET", `changes?ownerKey=${owner!}&after=${cursor!}`)).body).toEqual({
++        ownerKey: owner!,
++        items: [],
++        nextAfter: cursor!,
++        more: false,
++      });
++    } finally {
++      await mf.dispose();
++    }
++  }, 120_000);
++
++  it("ack (exact terminal, firstAckAt kept across restart, no feed echo) and the tombstoned purge", async () => {
++    const dir = freshDir();
++    let mf = runtime(dir);
++    let owner: string;
++    let done: A;
++    let ack: A;
++    try {
++      owner = await ready(mf);
++      await submit(mf, body(owner, "k1"));
++      await submit(mf, body(owner, "keep"));
++      done = (await drain(mf, owner, "k1")).occurrence;
++      const feed = await api(mf, "GET", `changes?ownerKey=${owner}&after=0`);
++      expect(
++        (
++          await api(mf, "POST", "occurrences/k1/ack", {
++            ownerKey: owner,
++            receiptVersion: done.receiptVersion + 1,
++          })
++        ).status,
++      ).toBe(409);
++      expect(
++        (await api(mf, "POST", "occurrences/keep/ack", { ownerKey: owner, receiptVersion: 1 })).body
++          .error,
++      ).toBe("not_terminal");
++      ack = (
++        await api(mf, "POST", "occurrences/k1/ack", {
++          ownerKey: owner,
++          receiptVersion: done.receiptVersion,
++        })
++      ).body;
++      expect(ack).toMatchObject({ acknowledged: true, ackedVersion: done.receiptVersion });
++      expect((await api(mf, "GET", `changes?ownerKey=${owner}&after=0`)).body).toEqual(feed.body);
++    } finally {
++      await mf.dispose();
++    }
++    mf = runtime(dir);
++    try {
++      const again = (
++        await api(mf, "POST", "occurrences/k1/ack", {
++          ownerKey: owner!,
++          receiptVersion: done!.receiptVersion,
++        })
++      ).body;
++      expect(again.firstAckAt).toBe(ack!.firstAckAt);
++      const deadline = Date.parse(ack!.purgeAt);
++      expect(deadline).toBe(
++        Math.min(Date.parse(done!.finishedAt) + 180 * DAY, Date.parse(ack!.firstAckAt) + 90 * DAY),
++      );
++      const call = await direct(mf);
++      expect(
++        (await call({ op: "status", ownerKey: owner!, occurrenceId: "k1", now: deadline - 1 }))
++          .occurrence.state,
++      ).toBe("done");
++      const gone = await call({
++        op: "status",
++        ownerKey: owner!,
++        occurrenceId: "k1",
++        now: deadline + PURGE_EVERY_MS,
++      });
++      expect(gone).toEqual({
++        ownerKey: owner!,
++        occurrenceId: "k1",
++        state: "pruned",
++        payloadDigest: done!.payloadDigest,
++        prunedAt: new Date(deadline + PURGE_EVERY_MS).toISOString(),
++      });
++      // Nonterminal work is never purged.
++      expect(
++        (
++          await call({
++            op: "status",
++            ownerKey: owner!,
++            occurrenceId: "keep",
++            now: deadline + 1000 * DAY,
++          })
++        ).occurrence.state,
++      ).toBe("pending");
++    } finally {
++      await mf.dispose();
++    }
++    mf = runtime(dir);
++    try {
++      // The tombstone is permanent: status, resubmit and ack after another restart.
++      expect((await api(mf, "GET", `occurrences/k1?ownerKey=${owner!}`)).body.state).toBe("pruned");
++      expect((await submit(mf, done!.body)).body).toMatchObject({
++        error: "pruned",
++        occurrenceId: "k1",
++      });
++      expect(
++        (
++          await api(mf, "POST", "occurrences/k1/ack", {
++            ownerKey: owner!,
++            receiptVersion: done!.receiptVersion,
++          })
++        ).status,
++      ).toBe(410);
++    } finally {
++      await mf.dispose();
++    }
++  }, 120_000);
++});
+diff -ruN a/workers/scout/src/social/workflowCoordinator.test.ts b/workers/scout/src/social/workflowCoordinator.test.ts
+--- a/workers/scout/src/social/workflowCoordinator.test.ts	1970-01-01 03:00:00.000000000 +0300
++++ b/workers/scout/src/social/workflowCoordinator.test.ts	2026-10-17 23:24:12.863919500 +0300
+@@ -0,0 +1,1028 @@
++import { DatabaseSync } from "node:sqlite";
++import { describe, expect, it } from "vitest";
++import {
++  ACK_RETENTION_MS,
++  drainOne,
++  FINISH_RETENTION_MS,
++  OPEN_MAX,
++  purgeAt,
++  REGISTRATIONS_MAX,
++  WorkflowCoordinator,
++  type StepBuilder,
++} from "./workflowCoordinator";
++import { canonicalJson, sha256Hex, weekOf } from "./workflowProtocol";
++
++// ⚙️ DT-7B workflow coordinator (planning/tools/38-cloud-workflows.md) over a real SQLite engine (node:sqlite, the
++// dialect of a SQLite-backed Durable Object). A fresh coordinator per call over one database is a restart between
++// every step. The builder here is TEST-ONLY and deterministic (the real executor is validation pending: the existing
++// pure builders do not resolve under the Worker's pinned toolchain); it proves the store's atomic step transactions,
++// never a functioning cloud runner. The workerd proof is workflowCoordinator.runtime.test.ts.
++
++type A = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
++
++function sqliteStorage(db: DatabaseSync) {
++  return {
++    sql: {
++      exec(query: string, ...bindings: (string | number | null)[]) {
++        const st = db.prepare(query);
++        if (/^\s*SELECT|RETURNING/i.test(query)) {
++          const rows = st.all(...bindings);
++          return { toArray: () => rows };
++        }
++        st.run(...bindings);
++        return { toArray: () => [] };
++      },
++    },
++    transactionSync<T>(fn: () => T): T {
++      db.exec("BEGIN");
++      try {
++        const v = fn();
++        db.exec("COMMIT");
++        return v;
++      } catch (e) {
++        db.exec("ROLLBACK");
++        throw e;
++      }
++    },
++  };
++}
++
++const T0 = Date.parse("2026-10-17T09:05:00.000Z");
++const DAY = 86_400_000;
++const AT = "2026-10-17T09:00:00.000Z";
++
++function harness(db = new DatabaseSync(":memory:")) {
++  const storage = sqliteStorage(db);
++  const call = async (c: A): Promise<A> => {
++    const co = new WorkflowCoordinator({ storage } as never);
++    const res = await co.fetch(
++      new Request("https://workflow-coordinator/", { method: "POST", body: JSON.stringify(c) }),
++    );
++    return (await res.json()) as A;
++  };
++  return { db, call };
++}
++
++const ownerOf = async (h: ReturnType<typeof harness>) =>
++  (await h.call({ op: "authority", now: T0 })).ownerKey as string;
++
++const I = (id: string) => ({ id, kind: "idea", text: { ar: "", en: `idea ${id}` } });
++const S = (id: string) => ({
++  id,
++  kind: "post",
++  platform: "tiktok",
++  title: { ar: "", en: `post ${id}` },
++  caption: { ar: "", en: "" },
++  offsetDays: 1,
++});
++const P = (id: string) => ({
++  id,
++  kind: "plan",
++  quest: "produce",
++  skillId: "iphone-log-prores",
++  minutes: 30,
++  day: "lightest",
++});
++
++interface BodyOpts {
++  id?: string;
++  wf?: string;
++  epoch?: number;
++  rev?: number;
++  actions?: A[];
++  at?: string;
++}
++function body(owner: string, o: BodyOpts = {}): A {
++  const at = o.at ?? AT;
++  const day = new Date(Date.parse(at) + 3 * 3_600_000).toISOString().slice(0, 10);
++  const actions = o.actions ?? [I("a1")];
++  const plan = actions.some((a) => a.kind === "plan");
++  return {
++    occurrenceId: o.id ?? "m1",
++    ownerKey: owner,
++    workflowId: o.wf ?? "w1",
++    kind: "manual",
++    registrationEpoch: o.epoch ?? 1,
++    revision: o.rev ?? 1,
++    snapshot: { name: { ar: "", en: "Flow" }, trigger: { kind: "manual" }, actions },
++    plannerContext: plan
++      ? {
++          targetWeek: weekOf(day),
++          completions: [],
++          planItems: [],
++          settings: { gear: ["phone"], davinciEdition: "free" },
++          contextAt: at,
++        }
++      : null,
++    input: { title: { ar: "", en: "" }, summary: { ar: "", en: "" }, slug: "", lang: "en", day },
++    executionAt: at,
++  };
++}
++const digestOf = (b: A) => sha256Hex(canonicalJson(b));
++const DIG = "e".repeat(64);
++
++/** The TEST-ONLY deterministic builder; `stale` action ids fail with context-stale (a scheduled stale snapshot). */
++const testBuilder =
++  (stale: Set<string> = new Set()): StepBuilder =>
++  ({ body: b, action }) => {
++    const id = `wf:${b.occurrenceId}:${action.id}`;
++    const at = b.executionAt;
++    if (stale.has(action.id)) return { error: "context-stale" };
++    if (action.kind === "idea")
++      return { record: { id, text: `idea ${action.id}`, source: "workflow", createdAt: at } };
++    if (action.kind === "post")
++      return {
++        record: {
++          id,
++          platform: action.platform,
++          title: `post ${action.id}`,
++          caption: "",
++          hashtags: [],
++          stage: "idea",
++          plannedDay: b.input.day,
++          plannedTime: null,
++          script: { hook: "", beats: ["", "", ""], cta: "" },
++          shots: [],
++          createdAt: at,
++          updatedAt: at,
++        },
++      };
++    return {
++      record: {
++        id,
++        week: b.plannerContext!.targetWeek,
++        day: 0,
++        skillId: action.skillId ?? b.input.skillId!,
++        quest: action.quest,
++        minutes: action.minutes,
++        by: "me",
++      },
++    };
++  };
++
++async function setup(o: { actions?: A[]; id?: string } = {}) {
++  const h = harness();
++  const owner = await ownerOf(h);
++  const reg = await h.call({
++    op: "register",
++    ownerKey: owner,
++    workflowId: "w1",
++    expectedEpoch: 0,
++    revision: 1,
++    workflowDigest: DIG,
++    now: T0,
++  });
++  const b = body(owner, { actions: o.actions, id: o.id });
++  const sub = await h.call({ op: "submit", body: b, payloadDigest: await digestOf(b), now: T0 });
++  return { h, owner, reg, b, sub };
++}
++
++const drain = async (
++  h: ReturnType<typeof harness>,
++  owner: string,
++  id: string,
++  build = testBuilder(),
++  now = T0,
++) =>
++  (await drainOne(
++    (c) => h.call(c),
++    owner,
++    id,
++    build,
++    () => now,
++  )) as A;
++
++const rows = (db: DatabaseSync, q: string) => db.prepare(q).all() as A[];
++
++describe("authority", () => {
++  it("ownerKey: minted once in durable meta, stable across restarts; another storage = another authority", async () => {
++    const h = harness();
++    const k1 = await ownerOf(h);
++    expect(k1).toMatch(/^wfo_[0-9a-f]{32}$/);
++    expect(await ownerOf(h)).toBe(k1);
++    expect(await ownerOf(harness(h.db))).toBe(k1);
++    expect(await ownerOf(harness())).not.toBe(k1);
++  });
++
++  it("a mismatched ownerKey is refused on every operation with zero mutation", async () => {
++    const { h, owner, b } = await setup();
++    const other = "wfo_" + "9".repeat(32);
++    const before = rows(h.db, "SELECT * FROM occurrences");
++    for (const c of [
++      { op: "register", workflowId: "w2", expectedEpoch: 0, revision: 1, workflowDigest: DIG },
++      { op: "pause", workflowId: "w1", registrationEpoch: 1, expectedRevision: 1 },
++      { op: "status", occurrenceId: "m1" },
++      { op: "cancel", occurrenceId: "m1" },
++      { op: "ack", occurrenceId: "m1", receiptVersion: 1 },
++      { op: "changes", after: 0, limit: 10 },
++    ])
++      expect(await h.call({ ...c, ownerKey: other, now: T0 })).toEqual({
++        error: "authority_mismatch",
++      });
++    const foreign = { ...body(other, { id: "m2" }) };
++    expect(
++      await h.call({
++        op: "submit",
++        body: foreign,
++        payloadDigest: await digestOf(foreign),
++        now: T0,
++      }),
++    ).toEqual({ error: "authority_mismatch" });
++    expect(rows(h.db, "SELECT * FROM occurrences")).toEqual(before);
++    expect(rows(h.db, "SELECT workflow_id FROM registrations")).toEqual([{ workflow_id: "w1" }]);
++    expect(b.ownerKey).toBe(owner);
++  });
++});
++
++describe("registrations: idempotent register, epoch+revision CAS, closed-epoch cutoffs", () => {
++  const reg = (h: ReturnType<typeof harness>, owner: string, over: A) =>
++    h.call({
++      op: "register",
++      ownerKey: owner,
++      workflowId: "w1",
++      revision: 1,
++      workflowDigest: DIG,
++      now: T0,
++      ...over,
++    });
++
++  it("lost register / re-register answers never mint another epoch", async () => {
++    const h = harness();
++    const owner = await ownerOf(h);
++    const r1 = await reg(h, owner, { expectedEpoch: 0 });
++    expect(r1).toMatchObject({
++      created: true,
++      registration: { registrationEpoch: 1, state: "active", paused: false },
++    });
++    expect(await reg(h, owner, { expectedEpoch: 0 })).toMatchObject({
++      created: false,
++      registration: { registrationEpoch: 1 },
++    });
++    const un = await h.call({
++      op: "unregister",
++      ownerKey: owner,
++      workflowId: "w1",
++      registrationEpoch: 1,
++      expectedRevision: 1,
++      now: T0 + 1000,
++    });
++    expect(un).toMatchObject({ changed: true, registration: { state: "unregistered" } });
++    expect(un.registration.epochs).toEqual([
++      {
++        epoch: 1,
++        openedAt: new Date(T0).toISOString(),
++        closedAt: new Date(T0 + 1000).toISOString(),
++      },
++    ]);
++    const r2 = await reg(h, owner, { expectedEpoch: 1, now: T0 + 2000 });
++    expect(r2).toMatchObject({
++      created: true,
++      registration: { registrationEpoch: 2, state: "active" },
++    });
++    expect(await reg(h, owner, { expectedEpoch: 1, now: T0 + 3000 })).toMatchObject({
++      created: false,
++      registration: { registrationEpoch: 2 },
++    });
++    // A delayed first-registration replay cannot open a third epoch.
++    expect(await reg(h, owner, { expectedEpoch: 0 })).toMatchObject({ error: "conflict" });
++    expect(rows(h.db, "SELECT epoch FROM registration_epochs ORDER BY epoch")).toEqual([
++      { epoch: 1 },
++      { epoch: 2 },
++    ]);
++  });
++
++  it("revision/epoch ABA: a delayed pre-unregister update or pause cannot touch the re-registration", async () => {
++    const h = harness();
++    const owner = await ownerOf(h);
++    await reg(h, owner, { expectedEpoch: 0 });
++    await h.call({
++      op: "unregister",
++      ownerKey: owner,
++      workflowId: "w1",
++      registrationEpoch: 1,
++      expectedRevision: 1,
++      now: T0,
++    });
++    await reg(h, owner, { expectedEpoch: 1 });
++    const stale = await h.call({
++      op: "update",
++      ownerKey: owner,
++      workflowId: "w1",
++      registrationEpoch: 1,
++      expectedRevision: 1,
++      revision: 2,
++      workflowDigest: "f".repeat(64),
++      now: T0,
++    });
++    expect(stale).toMatchObject({
++      error: "conflict",
++      registration: { registrationEpoch: 2, revision: 1 },
++    });
++    expect(
++      await h.call({
++        op: "pause",
++        ownerKey: owner,
++        workflowId: "w1",
++        registrationEpoch: 1,
++        expectedRevision: 1,
++        now: T0,
++      }),
++    ).toMatchObject({ error: "conflict" });
++    // Stale expected revision (matrix 6), then the right CAS, then its lost-answer replay.
++    expect(
++      await h.call({
++        op: "update",
++        ownerKey: owner,
++        workflowId: "w1",
++        registrationEpoch: 2,
++        expectedRevision: 0,
++        revision: 2,
++        workflowDigest: DIG,
++        now: T0,
++      }),
++    ).toMatchObject({ error: "conflict", registration: { revision: 1 } });
++    const ok = {
++      op: "update",
++      ownerKey: owner,
++      workflowId: "w1",
++      registrationEpoch: 2,
++      expectedRevision: 1,
++      revision: 2,
++      workflowDigest: DIG,
++      now: T0,
++    };
++    expect(await h.call(ok)).toMatchObject({ changed: true, registration: { revision: 2 } });
++    expect(await h.call(ok)).toMatchObject({ changed: false, registration: { revision: 2 } });
++    expect(await h.call({ ...ok, revision: 1 })).toMatchObject({ error: "conflict" });
++    expect(
++      await h.call({
++        op: "update",
++        ownerKey: owner,
++        workflowId: "w9",
++        registrationEpoch: 1,
++        expectedRevision: 1,
++        revision: 2,
++        workflowDigest: DIG,
++        now: T0,
++      }),
++    ).toEqual({ error: "not_registered", workflowId: "w9" });
++  });
++
++  it("admission: unknown epochs refused; closed epochs admit only executionAt ≤ cutoff, also after re-registration", async () => {
++    const h = harness();
++    const owner = await ownerOf(h);
++    const cut = Date.parse("2026-10-17T10:00:00.000Z");
++    await reg(h, owner, { expectedEpoch: 0 });
++    await h.call({
++      op: "unregister",
++      ownerKey: owner,
++      workflowId: "w1",
++      registrationEpoch: 1,
++      expectedRevision: 1,
++      now: cut,
++    });
++    await reg(h, owner, { expectedEpoch: 1, now: cut + 60_000 });
++    const now = cut + 3_600_000;
++    const submit = async (o: BodyOpts) => {
++      const b = body(owner, o);
++      return h.call({ op: "submit", body: b, payloadDigest: await digestOf(b), now });
++    };
++    expect(await submit({ id: "e1a", epoch: 1, at: "2026-10-17T10:00:00.000Z" })).toMatchObject({
++      created: true,
++    });
++    expect(await submit({ id: "e1b", epoch: 1, at: "2026-10-17T10:00:00.001Z" })).toEqual({
++      error: "not_registered",
++      workflowId: "w1",
++    });
++    expect(await submit({ id: "e3", epoch: 3, at: "2026-10-17T10:30:00.000Z" })).toEqual({
++      error: "unknown_epoch",
++      workflowId: "w1",
++    });
++    expect(await submit({ id: "e2", epoch: 2, at: "2026-10-17T10:30:00.000Z" })).toMatchObject({
++      created: true,
++    });
++    expect(await submit({ id: "e2r", epoch: 2, rev: 2, at: "2026-10-17T10:30:00.000Z" })).toEqual({
++      error: "registration_behind",
++      workflowId: "w1",
++    });
++    expect(await submit({ id: "nw", wf: "w7", at: "2026-10-17T10:30:00.000Z" })).toEqual({
++      error: "not_registered",
++      workflowId: "w7",
++    });
++  });
++
++  it("at most REGISTRATIONS_MAX workflows", async () => {
++    const h = harness();
++    const owner = await ownerOf(h);
++    for (let n = 0; n < REGISTRATIONS_MAX; n++)
++      expect(await reg(h, owner, { workflowId: `w${n}`, expectedEpoch: 0 })).toMatchObject({
++        created: true,
++      });
++    expect(await reg(h, owner, { workflowId: "wx", expectedEpoch: 0 })).toEqual({
++      error: "capacity",
++    });
++  });
++});
++
++describe("immutable occurrences", () => {
++  it("same id + same digest → existing row, no seq bump; another digest → conflict, row unchanged (matrix 1, 2)", async () => {
++    const { h, owner, b, sub } = await setup();
++    expect(sub).toMatchObject({
++      created: true,
++      occurrence: { state: "pending", receiptVersion: 1, changeSeq: 1 },
++    });
++    expect(sub.occurrence.body).toEqual(b);
++    expect(sub.occurrence.payloadDigest).toBe(await digestOf(b));
++    const again = await h.call({
++      op: "submit",
++      body: b,
++      payloadDigest: await digestOf(b),
++      now: T0 + 5000,
++    });
++    expect(again).toEqual({ ...sub, created: false });
++    const changed = { ...b, snapshot: { ...b.snapshot, actions: [I("zz")] } };
++    expect(
++      await h.call({
++        op: "submit",
++        body: changed,
++        payloadDigest: await digestOf(changed),
++        now: T0,
++      }),
++    ).toEqual({ error: "conflict", occurrenceId: "m1" });
++    expect(
++      (await h.call({ op: "status", ownerKey: owner, occurrenceId: "m1", now: T0 })).occurrence,
++    ).toEqual(sub.occurrence);
++  });
++
++  it("the server recomputes the digest: an asserted digest of other content is refused", async () => {
++    const { h, owner } = await setup();
++    const b = body(owner, { id: "m2" });
++    const other = body(owner, { id: "m2", actions: [I("b1")] });
++    expect(
++      await h.call({ op: "submit", body: b, payloadDigest: await digestOf(other), now: T0 }),
++    ).toEqual({ error: "digest_mismatch" });
++    expect(await h.call({ op: "status", ownerKey: owner, occurrenceId: "m2", now: T0 })).toEqual({
++      ownerKey: owner,
++      occurrenceId: "m2",
++      state: "absent",
++    });
++  });
++
++  it("privacy canaries and malformed bodies are refused and never stored (matrix 25)", async () => {
++    const { h, owner } = await setup();
++    const canary = { ...body(owner, { id: "m3" }), inbox: [{ text: "secret DM" }] };
++    expect(
++      await h.call({ op: "submit", body: canary, payloadDigest: await digestOf(canary), now: T0 }),
++    ).toEqual({ error: "bad_request" });
++    const colon = body(owner, { id: "m:3" });
++    expect(
++      await h.call({ op: "submit", body: colon, payloadDigest: await digestOf(colon), now: T0 }),
++    ).toEqual({ error: "unsupported_id" });
++    expect(JSON.stringify(rows(h.db, "SELECT * FROM occurrences"))).not.toContain("secret DM");
++  });
++
++  it("delayed old revision after the registration CAS keeps its own snapshot (matrix 5)", async () => {
++    const { h, owner } = await setup();
++    await h.call({
++      op: "update",
++      ownerKey: owner,
++      workflowId: "w1",
++      registrationEpoch: 1,
++      expectedRevision: 1,
++      revision: 2,
++      workflowDigest: "f".repeat(64),
++      now: T0,
++    });
++    const old = body(owner, { id: "old", rev: 1, actions: [I("r1")] });
++    const sub = await h.call({
++      op: "submit",
++      body: old,
++      payloadDigest: await digestOf(old),
++      now: T0,
++    });
++    expect(sub).toMatchObject({ created: true, occurrence: { revision: 1 } });
++    const done = await drain(h, owner, "old");
++    expect(done.occurrence.state).toBe("done");
++    expect(done.occurrence.body).toEqual(old);
++    expect(done.occurrence.outputs.map((o: A) => o.outputId)).toEqual(["wf:old:r1"]);
++  });
++
++  it("capacity: 500 non-terminal occurrences → capacity, none evicted; a resend of an existing one still answers", async () => {
++    const { h, owner, b } = await setup();
++    for (let n = 1; n < OPEN_MAX; n++) {
++      const x = body(owner, { id: `c${n}` });
++      expect(
++        (await h.call({ op: "submit", body: x, payloadDigest: await digestOf(x), now: T0 }))
++          .created,
++      ).toBe(true);
++    }
++    const over = body(owner, { id: "over" });
++    expect(
++      await h.call({ op: "submit", body: over, payloadDigest: await digestOf(over), now: T0 }),
++    ).toEqual({ error: "capacity" });
++    expect(
++      (await h.call({ op: "submit", body: b, payloadDigest: await digestOf(b), now: T0 })).created,
++    ).toBe(false);
++    expect(rows(h.db, "SELECT COUNT(*) AS n FROM occurrences")[0].n).toBe(OPEN_MAX);
++    // A finished one frees a slot.
++    await drain(h, owner, "m1");
++    expect(
++      (await h.call({ op: "submit", body: over, payloadDigest: await digestOf(over), now: T0 }))
++        .created,
++    ).toBe(true);
++  }, 60_000);
++
++  it("pre-existing storage is never assumed empty: rows, tombstones and the sequence continue (matrix 31)", async () => {
++    const { h, owner } = await setup();
++    h.db.exec("UPDATE meta SET value = '1000' WHERE key = 'change_seq'");
++    h.db.exec(
++      "INSERT INTO tombstones (occurrence_id, payload_digest, pruned_at) VALUES ('gone', '" +
++        "a".repeat(64) +
++        "', 1)",
++    );
++    const before = rows(h.db, "SELECT * FROM occurrences");
++    const b = body(owner, { id: "m9" });
++    expect(
++      (await h.call({ op: "submit", body: b, payloadDigest: await digestOf(b), now: T0 }))
++        .occurrence.changeSeq,
++    ).toBe(1001);
++    expect(rows(h.db, "SELECT * FROM occurrences WHERE occurrence_id = 'm1'")).toEqual(before);
++    const g = body(owner, { id: "gone" });
++    expect(
++      await h.call({ op: "submit", body: g, payloadDigest: await digestOf(g), now: T0 }),
++    ).toEqual({
++      error: "pruned",
++      occurrenceId: "gone",
++      payloadDigest: "a".repeat(64),
++      prunedAt: new Date(1).toISOString(),
++    });
++  });
++});
++
++describe("transactional steps (test-only builder)", () => {
++  it("drain: one output per action, monotonic receipt versions and change sequences", async () => {
++    const { h, owner } = await setup({ actions: [I("a1"), P("p1"), S("s1")] });
++    const done = await drain(h, owner, "m1");
++    const o = done.occurrence;
++    expect(o.state).toBe("done");
++    expect(o.receiptVersion).toBe(5); // submit 1, three steps, finish
++    expect(o.changeSeq).toBe(5);
++    expect(o.steps.map((s: A) => s.status)).toEqual(["done", "done", "done"]);
++    expect(o.outputs.map((x: A) => [x.outputId, x.kind])).toEqual([
++      ["wf:m1:a1", "idea"],
++      ["wf:m1:p1", "plan"],
++      ["wf:m1:s1", "post"],
++    ]);
++    for (const x of o.outputs) expect(x.digest).toBe(await sha256Hex(canonicalJson(x.record)));
++    expect(o.startedAt).toBeDefined();
++    expect(o.finishedAt).toBeDefined();
++  });
++
++  it("a step needs the next pending index, all prior steps done, the current version and the captured digest", async () => {
++    const { h, owner, sub } = await setup({ actions: [I("a1"), I("a2")] });
++    const o = sub.occurrence;
++    const rec = (id: string) => ({
++      record: { id: `wf:m1:${id}`, text: "x", source: "workflow", createdAt: AT },
++    });
++    const step = (idx: number, out: A, v = o.receiptVersion, d = o.payloadDigest) =>
++      h.call({
++        op: "commitStep",
++        ownerKey: owner,
++        occurrenceId: "m1",
++        idx,
++        receiptVersion: v,
++        payloadDigest: d,
++        output: out,
++        now: T0,
++      });
++    expect((await step(1, rec("a2"))).error).toBe("stale");
++    expect((await step(0, rec("a1"), 1, "0".repeat(64))).error).toBe("stale");
++    expect((await step(0, rec("a2"))).error).toBe("bad_request"); // another action's id
++    expect((await step(0, { record: { ...rec("a1").record, token: "x" } })).error).toBe(
++      "bad_request",
++    );
++    expect((await step(0, { error: "output-conflict" })).error).toBe("bad_request"); // the store's own code
++    const s0 = await step(0, rec("a1"));
++    expect(s0).toMatchObject({
++      committed: true,
++      occurrence: { state: "running", receiptVersion: 2 },
++    });
++    // The lost answer: the same commit again is stale and the caller adopts the stored row.
++    const lost = await step(0, rec("a1"));
++    expect(lost.error).toBe("stale");
++    expect(lost.occurrence).toEqual(s0.occurrence);
++    expect(
++      (await h.call({ op: "finish", ownerKey: owner, occurrenceId: "m1", now: T0 })).error,
++    ).toBe("steps_pending");
++  });
++
++  it("an existing output with another tuple/digest fails the step (output-conflict) and skips the rest (matrix 13)", async () => {
++    const { h, owner } = await setup({ actions: [I("a1"), I("a2"), I("a3")] });
++    h.db.exec(
++      `INSERT INTO outputs (output_id, occurrence_id, action_id, kind, record_json, digest, created_at)
++       VALUES ('wf:m1:a2', 'm1', 'a2', 'idea', '{}', '${"c".repeat(64)}', 1)`,
++    );
++    const done = await drain(h, owner, "m1");
++    expect(done.occurrence.state).toBe("partial");
++    expect(done.occurrence.steps.map((s: A) => [s.status, s.error ?? null])).toEqual([
++      ["done", null],
++      ["failed", "output-conflict"],
++      ["skipped", null],
++    ]);
++    expect(rows(h.db, "SELECT digest FROM outputs WHERE output_id = 'wf:m1:a2'")[0].digest).toBe(
++      "c".repeat(64),
++    );
++  });
++
++  it("an identical existing output is adopted, never rebuilt (matrix 10)", async () => {
++    const { h, owner } = await setup({ actions: [I("a1")] });
++    const record = { id: "wf:m1:a1", text: "idea a1", source: "workflow", createdAt: AT };
++    const d = await sha256Hex(canonicalJson(record));
++    h.db.exec(
++      `INSERT INTO outputs (output_id, occurrence_id, action_id, kind, record_json, digest, created_at)
++       VALUES ('wf:m1:a1', 'm1', 'a1', 'idea', '${JSON.stringify(record)}', '${d}', 1)`,
++    );
++    const done = await drain(h, owner, "m1");
++    expect(done.occurrence.state).toBe("done");
++    expect(done.occurrence.steps[0]).toMatchObject({ status: "done", outputDigest: d });
++  });
++
++  it("fail-fast: [idea, stale plan, post] keeps the idea, skips the post → partial", async () => {
++    const { h, owner } = await setup({ actions: [I("a1"), P("p1"), S("s1")] });
++    const done = await drain(h, owner, "m1", testBuilder(new Set(["p1"])));
++    expect(done.occurrence.state).toBe("partial");
++    expect(done.occurrence.steps.map((s: A) => [s.status, s.error ?? null])).toEqual([
++      ["done", null],
++      ["failed", "context-stale"],
++      ["skipped", null],
++    ]);
++    expect(done.occurrence.outputs.map((x: A) => x.outputId)).toEqual(["wf:m1:a1"]);
++  });
++
++  it("fail-fast: [stale plan, idea] produces no idea → failed", async () => {
++    const { h, owner } = await setup({ actions: [P("p1"), I("a1")] });
++    const done = await drain(h, owner, "m1", testBuilder(new Set(["p1"])));
++    expect(done.occurrence.state).toBe("failed");
++    expect(done.occurrence.steps.map((s: A) => s.status)).toEqual(["failed", "skipped"]);
++    expect(done.occurrence.outputs).toEqual([]);
++    expect(rows(h.db, "SELECT COUNT(*) AS n FROM outputs")[0].n).toBe(0);
++  });
++
++  it("two concurrent drains: each step committed once; the terminal row is identical (matrix 11, 12)", async () => {
++    const { h, owner } = await setup({ actions: [I("a1"), I("a2"), I("a3")] });
++    const [x, y] = await Promise.all([drain(h, owner, "m1"), drain(h, owner, "m1")]);
++    expect(x.occurrence).toEqual(y.occurrence);
++    expect(x.occurrence.state).toBe("done");
++    expect(x.occurrence.receiptVersion).toBe(5);
++    expect(rows(h.db, "SELECT COUNT(*) AS n FROM outputs")[0].n).toBe(3);
++    // A stale executor after finish changes nothing.
++    const late = await h.call({
++      op: "commitStep",
++      ownerKey: owner,
++      occurrenceId: "m1",
++      idx: 2,
++      receiptVersion: 3,
++      payloadDigest: x.occurrence.payloadDigest,
++      output: { error: "invalid" },
++      now: T0,
++    });
++    expect(late.error).toBe("stale");
++    expect(
++      await h.call({ op: "finish", ownerKey: owner, occurrenceId: "m1", now: T0 + DAY }),
++    ).toEqual({ ownerKey: owner, occurrence: x.occurrence, finished: false });
++  });
++});
++
++describe("pause, resume, unregister", () => {
++  const ctl = (h: ReturnType<typeof harness>, owner: string, op: string, epoch = 1, rev = 1) =>
++    h.call({
++      op,
++      ownerKey: owner,
++      workflowId: "w1",
++      registrationEpoch: epoch,
++      expectedRevision: rev,
++      now: T0,
++    });
++
++  it("paused: submit stays pending, the first step is refused in its transaction; resume releases it", async () => {
++    const { h, owner, b } = await setup({ id: "m0" });
++    expect(await ctl(h, owner, "pause")).toMatchObject({
++      changed: true,
++      registration: { paused: true },
++    });
++    const p = body(owner, { id: "m1" });
++    expect(
++      (await h.call({ op: "submit", body: p, payloadDigest: await digestOf(p), now: T0 }))
++        .occurrence.state,
++    ).toBe("pending");
++    const r = await drain(h, owner, "m1");
++    expect(r).toMatchObject({
++      error: "paused",
++      occurrence: { state: "pending", receiptVersion: 1 },
++    });
++    expect((await drain(h, owner, "m0")).error).toBe("paused");
++    expect(b.occurrenceId).toBe("m0");
++    await ctl(h, owner, "resume");
++    expect((await drain(h, owner, "m1")).occurrence.state).toBe("done");
++  });
++
++  it("an already running occurrence finishes while paused", async () => {
++    const { h, owner, sub } = await setup({ actions: [I("a1"), I("a2")] });
++    const o = sub.occurrence;
++    await h.call({
++      op: "commitStep",
++      ownerKey: owner,
++      occurrenceId: "m1",
++      idx: 0,
++      receiptVersion: 1,
++      payloadDigest: o.payloadDigest,
++      output: testBuilder()({
++        body: o.body,
++        idx: 0,
++        action: o.body.snapshot.actions[0],
++        prior: [],
++      }),
++      now: T0,
++    });
++    await ctl(h, owner, "pause");
++    expect((await drain(h, owner, "m1")).occurrence.state).toBe("done");
++  });
++
++  it("unregister neither cancels nor moves pending work (matrix 8); the retained pause gates old epochs after re-register", async () => {
++    const { h, owner } = await setup();
++    await ctl(h, owner, "pause");
++    expect(await ctl(h, owner, "unregister")).toMatchObject({
++      registration: { state: "unregistered", paused: true },
++    });
++    expect(
++      (await h.call({ op: "status", ownerKey: owner, occurrenceId: "m1", now: T0 })).occurrence
++        .state,
++    ).toBe("pending");
++    const re = await h.call({
++      op: "register",
++      ownerKey: owner,
++      workflowId: "w1",
++      expectedEpoch: 1,
++      revision: 1,
++      workflowDigest: DIG,
++      now: T0 + 1,
++    });
++    expect(re.registration).toMatchObject({ registrationEpoch: 2, paused: true });
++    expect((await drain(h, owner, "m1")).error).toBe("paused"); // delayed epoch-1 work
++    await ctl(h, owner, "resume", 2);
++    expect((await drain(h, owner, "m1")).occurrence.state).toBe("done");
++  });
++});
++
++describe("cancel", () => {
++  it("pending (also paused) → cancelled with a seq bump and no outputs; running → running (matrix 15, 16)", async () => {
++    const { h, owner } = await setup({ actions: [I("a1"), I("a2")] });
++    const b2 = body(owner, { id: "m2", actions: [I("a1"), I("a2")] });
++    await h.call({ op: "submit", body: b2, payloadDigest: await digestOf(b2), now: T0 });
++    const c = await h.call({ op: "cancel", ownerKey: owner, occurrenceId: "m1", now: T0 });
++    expect(c).toMatchObject({
++      cancelled: true,
++      occurrence: { state: "cancelled", receiptVersion: 2, changeSeq: 3, outputs: [] },
++    });
++    expect(c.occurrence.steps.map((s: A) => s.status)).toEqual(["skipped", "skipped"]);
++    expect(await h.call({ op: "cancel", ownerKey: owner, occurrenceId: "m1", now: T0 })).toEqual({
++      ...c,
++      cancelled: false,
++    });
++    const s = (await h.call({ op: "status", ownerKey: owner, occurrenceId: "m2", now: T0 }))
++      .occurrence;
++    await h.call({
++      op: "commitStep",
++      ownerKey: owner,
++      occurrenceId: "m2",
++      idx: 0,
++      receiptVersion: 1,
++      payloadDigest: s.payloadDigest,
++      output: { record: { id: "wf:m2:a1", text: "x", source: "workflow", createdAt: AT } },
++      now: T0,
++    });
++    expect(await h.call({ op: "cancel", ownerKey: owner, occurrenceId: "m2", now: T0 })).toEqual({
++      error: "running",
++      occurrenceId: "m2",
++    });
++    expect(await h.call({ op: "cancel", ownerKey: owner, occurrenceId: "nope", now: T0 })).toEqual({
++      error: "absent",
++      occurrenceId: "nope",
++    });
++  });
++});
++
++describe("latest-receipt change feed", () => {
++  it("O1 created first, O2 finishes first, O1 later: O1 comes back after the cursor (matrix 17)", async () => {
++    const { h, owner } = await setup({ id: "o1" });
++    const b2 = body(owner, { id: "o2" });
++    await h.call({ op: "submit", body: b2, payloadDigest: await digestOf(b2), now: T0 });
++    await drain(h, owner, "o2");
++    const p1 = await h.call({ op: "changes", ownerKey: owner, after: 0, limit: 50, now: T0 });
++    expect(p1.items.map((i: A) => [i.occurrenceId, i.state])).toEqual([
++      ["o1", "pending"],
++      ["o2", "done"],
++    ]);
++    expect(p1.items[1].outputs.map((o: A) => o.outputId)).toEqual(["wf:o2:a1"]);
++    expect(p1.items[0].outputs).toBeUndefined();
++    await drain(h, owner, "o1");
++    const p2 = await h.call({
++      op: "changes",
++      ownerKey: owner,
++      after: p1.nextAfter,
++      limit: 50,
++      now: T0,
++    });
++    expect(p2.items.map((i: A) => [i.occurrenceId, i.state])).toEqual([["o1", "done"]]);
++    expect(p2.items[0].changeSeq).toBeGreaterThan(p1.nextAfter);
++    expect(p2.more).toBe(false);
++  });
++
++  it("120 rows, limit 50: 3 pages, equal timestamps ordered by seq, none missed or duplicated (matrix 18, 19)", async () => {
++    const { h, owner } = await setup({ id: "r0" });
++    for (let n = 1; n < 120; n++) {
++      const x = body(owner, { id: `r${n}` });
++      await h.call({ op: "submit", body: x, payloadDigest: await digestOf(x), now: T0 });
++    }
++    const seen: string[] = [];
++    let after = 0;
++    const pages: A[] = [];
++    for (;;) {
++      const p = await h.call({ op: "changes", ownerKey: owner, after, limit: 50, now: T0 });
++      pages.push(p);
++      seen.push(...p.items.map((i: A) => i.occurrenceId));
++      expect(p.nextAfter).toBe(p.items.length ? p.items.at(-1).changeSeq : after);
++      after = p.nextAfter;
++      if (!p.more) break;
++    }
++    expect(pages.map((p) => p.items.length)).toEqual([50, 50, 20]);
++    expect(seen).toEqual(Array.from({ length: 120 }, (_, n) => `r${n}`));
++    const empty = await h.call({ op: "changes", ownerKey: owner, after, limit: 50, now: T0 });
++    expect(empty).toEqual({ ownerKey: owner, items: [], nextAfter: after, more: false });
++  });
++
++  it("a row mutated between pages appears on a later page with its new seq (matrix 20)", async () => {
++    const { h, owner } = await setup({ id: "q0" });
++    for (const id of ["q1", "q2", "q3"]) {
++      const x = body(owner, { id });
++      await h.call({ op: "submit", body: x, payloadDigest: await digestOf(x), now: T0 });
++    }
++    const p1 = await h.call({ op: "changes", ownerKey: owner, after: 0, limit: 2, now: T0 });
++    expect(p1.items.map((i: A) => i.occurrenceId)).toEqual(["q0", "q1"]);
++    expect(p1.more).toBe(true);
++    await h.call({ op: "cancel", ownerKey: owner, occurrenceId: "q0", now: T0 });
++    const p2 = await h.call({
++      op: "changes",
++      ownerKey: owner,
++      after: p1.nextAfter,
++      limit: 2,
++      now: T0,
++    });
++    const p3 = await h.call({
++      op: "changes",
++      ownerKey: owner,
++      after: p2.nextAfter,
++      limit: 2,
++      now: T0,
++    });
++    expect([...p2.items, ...p3.items].map((i: A) => [i.occurrenceId, i.state])).toEqual([
++      ["q2", "pending"],
++      ["q3", "pending"],
++      ["q0", "cancelled"],
++    ]);
++    expect(await h.call({ op: "changes", ownerKey: owner, after: 0, limit: 51, now: T0 })).toEqual({
++      error: "bad_request",
++    });
++  });
++});
++
++describe("acknowledgement and retention", () => {
++  it("only the exact current terminal version acknowledges; firstAckAt never moves; ack never bumps the feed", async () => {
++    const { h, owner } = await setup();
++    const ack = (v: number, now = T0) =>
++      h.call({ op: "ack", ownerKey: owner, occurrenceId: "m1", receiptVersion: v, now });
++    expect(await ack(1)).toEqual({
++      error: "not_terminal",
++      occurrenceId: "m1",
++      state: "pending",
++      receiptVersion: 1,
++    });
++    const done = (await drain(h, owner, "m1")).occurrence;
++    const v = done.receiptVersion;
++    expect(await ack(v + 1)).toEqual({
++      error: "future_version",
++      occurrenceId: "m1",
++      receiptVersion: v,
++    });
++    const before = await h.call({ op: "changes", ownerKey: owner, after: 0, limit: 50, now: T0 });
++    const t1 = T0 + 10_000;
++    const a1 = await ack(v, t1);
++    expect(a1).toEqual({
++      ownerKey: owner,
++      occurrenceId: "m1",
++      acknowledged: true,
++      receiptVersion: v,
++      ackedVersion: v,
++      firstAckAt: new Date(t1).toISOString(),
++      purgeAt: new Date(purgeAt(Date.parse(done.finishedAt), t1)).toISOString(),
++    });
++    // Identical repeat (also after a restart): same proof, firstAckAt unchanged.
++    expect(
++      await harness(h.db).call({
++        op: "ack",
++        ownerKey: owner,
++        occurrenceId: "m1",
++        receiptVersion: v,
++        now: t1 + DAY,
++      }),
++    ).toEqual(a1);
++    // Lower: a no-op that proves nothing new.
++    expect(await ack(1, t1 + 2 * DAY)).toEqual({ ...a1, acknowledged: false });
++    expect(await h.call({ op: "changes", ownerKey: owner, after: 0, limit: 50, now: T0 })).toEqual(
++      before,
++    );
++    expect(
++      await h.call({ op: "ack", ownerKey: owner, occurrenceId: "zz", receiptVersion: 1, now: T0 }),
++    ).toEqual({ error: "absent", occurrenceId: "zz" });
++  });
++
++  it("purgeAt: min(finished + 180 d, firstAck + 90 d) when acknowledged, else finished + 180 d", () => {
++    const f = T0;
++    expect(FINISH_RETENTION_MS).toBe(180 * DAY);
++    expect(ACK_RETENTION_MS).toBe(90 * DAY);
++    expect(purgeAt(f, null)).toBe(f + 180 * DAY);
++    expect(purgeAt(f, f + DAY)).toBe(f + 91 * DAY);
++    expect(purgeAt(f, f + 120 * DAY)).toBe(f + 180 * DAY);
++  });
++
++  /** A finished occurrence (acknowledged at `ackAfter` ms after finishing, when given), then one probe at `probe`. */
++  async function retained(ackAfter: number | null, probe: (finished: number) => number) {
++    const { h, owner } = await setup();
++    const done = (await drain(h, owner, "m1")).occurrence;
++    const finished = Date.parse(done.finishedAt);
++    if (ackAfter !== null)
++      await h.call({
++        op: "ack",
++        ownerKey: owner,
++        occurrenceId: "m1",
++        receiptVersion: done.receiptVersion,
++        now: finished + ackAfter,
++      });
++    const s = await h.call({
++      op: "status",
++      ownerKey: owner,
++      occurrenceId: "m1",
++      now: probe(finished),
++    });
++    return { h, owner, done, s };
++  }
++
++  it("retention boundaries: kept 1 ms before the deadline, tombstoned at it (unacknowledged, early ack, late ack)", async () => {
++    for (const [ack, deadline] of [
++      [null, 180 * DAY],
++      [DAY, 91 * DAY],
++      [120 * DAY, 180 * DAY],
++    ] as const) {
++      const kept = await retained(ack, (f) => f + deadline - 1);
++      expect(kept.s.occurrence.state).toBe("done");
++      const gone = await retained(ack, (f) => f + deadline);
++      expect(gone.s).toEqual({
++        ownerKey: gone.owner,
++        occurrenceId: "m1",
++        state: "pruned",
++        payloadDigest: gone.done.payloadDigest,
++        prunedAt: new Date(Date.parse(gone.done.finishedAt) + deadline).toISOString(),
++      });
++      expect(rows(gone.h.db, "SELECT COUNT(*) AS n FROM outputs")[0].n).toBe(0);
++      expect(rows(gone.h.db, "SELECT COUNT(*) AS n FROM steps")[0].n).toBe(0);
++    }
++  });
++
++  it("tombstones are permanent: resubmit, ack and cancel of a pruned id answer pruned; nonterminal work is never purged", async () => {
++    const { h, owner, done } = await retained(null, (f) => f + 181 * DAY);
++    const late = T0 + 400 * DAY;
++    const b = body(owner);
++    expect(
++      await h.call({ op: "submit", body: b, payloadDigest: await digestOf(b), now: late }),
++    ).toMatchObject({ error: "pruned", occurrenceId: "m1", payloadDigest: done.payloadDigest });
++    expect(
++      await h.call({
++        op: "ack",
++        ownerKey: owner,
++        occurrenceId: "m1",
++        receiptVersion: done.receiptVersion,
++        now: late,
++      }),
++    ).toMatchObject({ error: "pruned" });
++    expect(
++      await h.call({ op: "cancel", ownerKey: owner, occurrenceId: "m1", now: late }),
++    ).toMatchObject({ error: "pruned" });
++    // Pending work, 1000 days on: still there.
++    const p = body(owner, { id: "p1", at: "2026-10-17T09:00:00.000Z" });
++    await h.call({ op: "submit", body: p, payloadDigest: await digestOf(p), now: T0 });
++    expect(
++      (await h.call({ op: "status", ownerKey: owner, occurrenceId: "p1", now: T0 + 1000 * DAY }))
++        .occurrence.state,
++    ).toBe("pending");
++  });
++});
+diff -ruN a/workers/scout/src/social/workflowCoordinator.ts b/workers/scout/src/social/workflowCoordinator.ts
+--- a/workers/scout/src/social/workflowCoordinator.ts	1970-01-01 03:00:00.000000000 +0300
++++ b/workers/scout/src/social/workflowCoordinator.ts	2026-10-17 23:24:12.839895900 +0300
+@@ -0,0 +1,998 @@
++/**
++ * ⚙️ WorkflowCoordinator (packet DT-7B, planning/tools/38-cloud-workflows.md): the durable authority of cloud workflow
++ * occurrences, a SQLite-backed Durable Object (wrangler.jsonc binding WORKFLOW_COORDINATOR, migration
++ * "v5-workflows"). ONE object for this single-owner dashboard, named WORKFLOW_OBJECT by the server: never chosen from a
++ * caller's ownerKey or bearer. Local only: not provisioned, not activated, no cron, no browser wiring.
++ *
++ *   meta                  owner_key (`wfo_` + 32 hex, minted once: INSERT OR IGNORE, so it survives restarts and code
++ *                         deployments and changes only with new storage), change_seq (monotonic), purged_at
++ *   registrations         one row per workflow: current epoch, revision (the owner's workflow revision), digest,
++ *                         state active | unregistered, and the retained `paused` flag
++ *   registration_epochs   every epoch ever opened, with opened_at and the closed_at cutoff (kept forever)
++ *   occurrences           the immutable accepted body (canonical JSON), its server-computed payload digest, state
++ *                         pending | running | done | partial | failed | cancelled, receipt_version, change_seq,
++ *                         first_ack_at / acked_version
++ *   steps, outputs        one step per action; allowlisted draft outputs `wf:<occurrenceId>:<actionId>`
++ *   missed                bounded schedule intervals (created now, unused until DT-7D)
++ *   tombstones            purged occurrence ids with their digest: permanent, never reusable
++ *
++ * Binding rules (DT-7B decisions 1–6):
++ *   authority   every call but `authority` names the ownerKey; another key → authority_mismatch, nothing changes.
++ *   register    CAS on (epoch, revision). `register` carries expectedEpoch: 0 = first registration, N = re-register
++ *               after epoch N was unregistered; a replay of an applied register (same revision + digest, epoch
++ *               expectedEpoch + 1) answers the row unchanged, so a lost answer never mints another epoch. update /
++ *               pause / resume / unregister name the epoch and expected revision: a delayed call for a closed epoch
++ *               cannot touch a re-registration at the same revision.
++ *   admission   the body's (workflowId, epoch, revision, executionAt): no registration → not_registered; an epoch never
++ *               opened → unknown_epoch; a revision above that epoch's last revision → registration_behind (open) or
++ *               not_registered (closed); a closed epoch admits only executionAt ≤ its closed_at cutoff. The body is
++ *               stored exactly as accepted and is never rebound to a newer registration.
++ *   pause       the workflow row's retained `paused` flag gates EVERY epoch of that workflow (delayed old-epoch work
++ *               included). It is checked in the same transaction as the first pending → running step; a running
++ *               occurrence finishes. Only pause/resume change it; unregister and re-register keep it. Unregister
++ *               neither cancels nor moves existing cloud work.
++ *   steps       commitStep is ONE transaction: the captured payload digest and receipt version still current, state
++ *               pending | running, idx = the next pending index, every earlier step done, (pending) not paused. A
++ *               builder error fails the step and skips every later step (fail-fast). An existing output is adopted
++ *               only for the identical (occurrence, action, kind, digest), else the step fails `output-conflict`.
++ *               The output digest (async) is computed before the transaction; the transaction rechecks everything.
++ *               finish refuses while a step is pending: done (all done) | partial (a step done, then a failure) |
++ *               failed (none done); a terminal row is answered unchanged. cancel: pending only (no step done).
++ *   feed        every transition sets change_seq = ++meta.change_seq. `changes(after, limit ≤ 50)`: rows with
++ *               change_seq > after in order; nextAfter = the last returned seq (or `after` when none); more = a row
++ *               beyond it existed. A latest-receipt feed: intermediate states may coalesce; a later change of an older
++ *               row always gets a higher seq.
++ *   ack         only the exact current terminal receipt version: a future one is refused, a lower one is a no-op, a
++ *               nonterminal / absent / pruned row has its own answer. The first valid ack stores first_ack_at (the
++ *               Worker clock, `now`); repeats never move it. Ack bumps neither receipt_version nor change_seq.
++ *   retention   terminal rows are purged at min(finished + 180 d, first ack + 90 d) when acknowledged, else
++ *               finished + 180 d, into a permanent tombstone; nonterminal rows never. At most once per PURGE_EVERY_MS.
++ *
++ * `drainOne` (an executor loop over a caller-injected builder) is exported for tests only: no route or cron calls it,
++ * and no env, header or body enables it. The real executor (the dashboard's pure builders) is validation pending.
++ *
++ * Plain class with `fetch` (no `cloudflare:workers` import), so index.ts can export it while plain-Node tests import
++ * index.ts. The caller passes `now` (the routes: the Worker clock).
++ */
++
++import {
++  canonicalJson,
++  checkBody,
++  DIGEST_RE,
++  fits,
++  isCount,
++  isObj,
++  isVersion,
++  OWNER_KEY_RE,
++  payloadDigestOf,
++  sha256Hex,
++  STEP_ERRORS,
++  validOutput,
++  WF_ID_RE,
++  type Obj,
++  type OccurrenceBody,
++  type WorkflowActionBody,
++} from "./workflowProtocol";
++
++/** The one object of this single-owner dashboard (server-selected). */
++export const WORKFLOW_OBJECT = "workflows|owner";
++/** Non-terminal (pending + running) occurrences at most. */
++export const OPEN_MAX = 500;
++export const REGISTRATIONS_MAX = 20;
++/** Epochs one workflow may open (re-registrations). */
++export const EPOCHS_MAX = 50;
++export const CHANGES_LIMIT_MAX = 50;
++export const FINISH_RETENTION_MS = 180 * 86_400_000;
++export const ACK_RETENTION_MS = 90 * 86_400_000;
++export const PURGE_EVERY_MS = 3_600_000;
++
++export type OccurrenceState = "pending" | "running" | "done" | "partial" | "failed" | "cancelled";
++const TERMINAL = "('done','partial','failed','cancelled')";
++const isTerminal = (s: unknown) =>
++  s === "done" || s === "partial" || s === "failed" || s === "cancelled";
++
++/** The purge deadline of a terminal occurrence (decision 1). */
++export const purgeAt = (finishedAt: number, firstAckAt: number | null) =>
++  firstAckAt === null
++    ? finishedAt + FINISH_RETENTION_MS
++    : Math.min(finishedAt + FINISH_RETENTION_MS, firstAckAt + ACK_RETENTION_MS);
++
++export interface WorkflowStep {
++  idx: number;
++  actionId: string;
++  kind: string;
++  status: "pending" | "done" | "failed" | "skipped";
++  outputId?: string;
++  outputDigest?: string;
++  error?: string;
++  at?: string;
++}
++export interface WorkflowOutput {
++  outputId: string;
++  actionId: string;
++  kind: string;
++  digest: string;
++  record: Obj;
++}
++export interface OccurrenceReceipt {
++  occurrenceId: string;
++  workflowId: string;
++  kind: string;
++  registrationEpoch: number;
++  revision: number;
++  body: OccurrenceBody;
++  payloadDigest: string;
++  state: OccurrenceState;
++  receiptVersion: number;
++  changeSeq: number;
++  createdAt: string;
++  updatedAt: string;
++  startedAt?: string;
++  finishedAt?: string;
++  firstAckAt?: string;
++  ackedVersion: number;
++  purgeAt?: string;
++  steps: WorkflowStep[];
++  outputs: WorkflowOutput[];
++}
++
++export type StepBuilder = (ctx: {
++  body: OccurrenceBody;
++  idx: number;
++  action: WorkflowActionBody;
++  prior: WorkflowOutput[];
++}) => { record: unknown } | { error: string } | Promise<{ record: unknown } | { error: string }>;
++
++type Row = Record<string, string | number | null>;
++interface SqlLike {
++  exec(query: string, ...bindings: (string | number | null)[]): { toArray(): unknown[] };
++}
++interface StorageLike {
++  sql: SqlLike;
++  transactionSync<T>(fn: () => T): T;
++}
++
++const SCHEMA = `
++CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
++CREATE TABLE IF NOT EXISTS registrations (
++  workflow_id TEXT PRIMARY KEY,
++  epoch INTEGER NOT NULL,
++  revision INTEGER NOT NULL,
++  workflow_digest TEXT NOT NULL,
++  state TEXT NOT NULL,
++  paused INTEGER NOT NULL,
++  updated_at INTEGER NOT NULL
++);
++CREATE TABLE IF NOT EXISTS registration_epochs (
++  workflow_id TEXT NOT NULL,
++  epoch INTEGER NOT NULL,
++  revision INTEGER NOT NULL,
++  opened_at INTEGER NOT NULL,
++  closed_at INTEGER,
++  PRIMARY KEY (workflow_id, epoch)
++);
++CREATE TABLE IF NOT EXISTS occurrences (
++  occurrence_id TEXT PRIMARY KEY,
++  workflow_id TEXT NOT NULL,
++  kind TEXT NOT NULL,
++  registration_epoch INTEGER NOT NULL,
++  revision INTEGER NOT NULL,
++  body_json TEXT NOT NULL,
++  payload_digest TEXT NOT NULL,
++  state TEXT NOT NULL,
++  receipt_version INTEGER NOT NULL,
++  change_seq INTEGER NOT NULL UNIQUE,
++  created_at INTEGER NOT NULL,
++  updated_at INTEGER NOT NULL,
++  started_at INTEGER,
++  finished_at INTEGER,
++  first_ack_at INTEGER,
++  acked_version INTEGER NOT NULL DEFAULT 0
++);
++CREATE INDEX IF NOT EXISTS occurrences_state ON occurrences (state);
++CREATE TABLE IF NOT EXISTS steps (
++  occurrence_id TEXT NOT NULL,
++  idx INTEGER NOT NULL,
++  action_id TEXT NOT NULL,
++  kind TEXT NOT NULL,
++  status TEXT NOT NULL,
++  output_id TEXT,
++  output_digest TEXT,
++  error TEXT,
++  at INTEGER,
++  PRIMARY KEY (occurrence_id, idx)
++);
++CREATE TABLE IF NOT EXISTS outputs (
++  output_id TEXT PRIMARY KEY,
++  occurrence_id TEXT NOT NULL,
++  action_id TEXT NOT NULL,
++  kind TEXT NOT NULL,
++  record_json TEXT NOT NULL,
++  digest TEXT NOT NULL,
++  created_at INTEGER NOT NULL
++);
++CREATE TABLE IF NOT EXISTS missed (
++  workflow_id TEXT NOT NULL,
++  from_slot INTEGER NOT NULL,
++  to_slot INTEGER NOT NULL,
++  count INTEGER NOT NULL,
++  PRIMARY KEY (workflow_id, from_slot)
++);
++CREATE TABLE IF NOT EXISTS tombstones (
++  occurrence_id TEXT PRIMARY KEY,
++  payload_digest TEXT NOT NULL,
++  pruned_at INTEGER NOT NULL
++)
++`;
++
++const iso = (ms: unknown) => new Date(Number(ms)).toISOString();
++const at = (k: string, v: unknown) => (v === null || v === undefined ? {} : { [k]: iso(v) });
++const isId = (v: unknown): v is string => fits(v, WF_ID_RE);
++const isDigest = (v: unknown): v is string => fits(v, DIGEST_RE);
++
++function newOwnerKey(): string {
++  const b = crypto.getRandomValues(new Uint8Array(16));
++  return "wfo_" + Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
++}
++
++export class WorkflowCoordinator {
++  private readonly storage: StorageLike;
++  private readonly ownerKey: string;
++
++  constructor(ctx: DurableObjectState) {
++    this.storage = ctx.storage as unknown as StorageLike;
++    for (const statement of SCHEMA.split(";").map((s) => s.trim()))
++      if (statement) this.storage.sql.exec(statement);
++    // Minted once: a later constructor's random key is ignored.
++    this.sql("INSERT OR IGNORE INTO meta (key, value) VALUES ('owner_key', ?)", newOwnerKey());
++    this.sql("INSERT OR IGNORE INTO meta (key, value) VALUES ('change_seq', '0')");
++    this.ownerKey = this.meta("owner_key")!;
++  }
++
++  async fetch(req: Request): Promise<Response> {
++    let call: unknown;
++    try {
++      call = await req.json();
++    } catch {
++      return Response.json({ error: "bad_request" });
++    }
++    return Response.json(await this.call(call));
++  }
++
++  /** Async preparation (digests) outside any transaction, then the synchronous, transactional part. */
++  async call(input: unknown): Promise<Obj> {
++    if (!isObj(input) || !Number.isSafeInteger(input.now) || typeof input.op !== "string")
++      return { error: "bad_request" };
++    const c = input;
++    const now = c.now as number;
++    if (c.op === "authority") return { ownerKey: this.ownerKey };
++    if (c.op === "submit") {
++      const chk = checkBody(c.body, now);
++      if (!chk.ok) return { error: chk.error };
++      if (chk.body.ownerKey !== this.ownerKey) return { error: "authority_mismatch" };
++      if (!isDigest(c.payloadDigest)) return { error: "bad_request" };
++      const digest = await payloadDigestOf(chk.body);
++      if (c.payloadDigest !== digest) return { error: "digest_mismatch" };
++      this.purge(now);
++      return this.submit(chk.body, digest, now);
++    }
++    if (!fits(c.ownerKey, OWNER_KEY_RE)) return { error: "bad_request" };
++    if (c.ownerKey !== this.ownerKey) return { error: "authority_mismatch" };
++    this.purge(now);
++    switch (c.op) {
++      case "register":
++        if (
++          !isId(c.workflowId) ||
++          !isCount(c.expectedEpoch) ||
++          !isVersion(c.revision) ||
++          !isDigest(c.workflowDigest)
++        )
++          return { error: "bad_request" };
++        return this.register(c.workflowId, c.expectedEpoch, c.revision, c.workflowDigest, now);
++      case "update":
++        if (
++          !isId(c.workflowId) ||
++          !isVersion(c.registrationEpoch) ||
++          !isCount(c.expectedRevision) ||
++          !isVersion(c.revision) ||
++          !isDigest(c.workflowDigest)
++        )
++          return { error: "bad_request" };
++        return this.update(
++          c.workflowId,
++          c.registrationEpoch,
++          c.expectedRevision,
++          c.revision,
++          c.workflowDigest,
++          now,
++        );
++      case "pause":
++      case "resume":
++      case "unregister":
++        if (!isId(c.workflowId) || !isVersion(c.registrationEpoch) || !isCount(c.expectedRevision))
++          return { error: "bad_request" };
++        return this.control(c.op, c.workflowId, c.registrationEpoch, c.expectedRevision, now);
++      case "status":
++        if (!isId(c.occurrenceId)) return { error: "bad_request" };
++        return this.status(c.occurrenceId);
++      case "changes":
++        if (
++          !isCount(c.after) ||
++          !Number.isSafeInteger(c.limit) ||
++          (c.limit as number) < 1 ||
++          (c.limit as number) > CHANGES_LIMIT_MAX
++        )
++          return { error: "bad_request" };
++        return this.changes(c.after, c.limit as number);
++      case "cancel":
++        if (!isId(c.occurrenceId)) return { error: "bad_request" };
++        return this.cancel(c.occurrenceId, now);
++      case "ack":
++        if (!isId(c.occurrenceId) || !isVersion(c.receiptVersion)) return { error: "bad_request" };
++        return this.ack(c.occurrenceId, c.receiptVersion, now);
++      case "finish":
++        if (!isId(c.occurrenceId)) return { error: "bad_request" };
++        return this.finish(c.occurrenceId, now);
++      case "commitStep":
++        return this.commitStep(c, now);
++      default:
++        return { error: "bad_request" };
++    }
++  }
++
++  private sql(query: string, ...bindings: (string | number | null)[]) {
++    return this.storage.sql.exec(query, ...bindings);
++  }
++  private one(query: string, ...bindings: (string | number | null)[]): Row | undefined {
++    return this.sql(query, ...bindings).toArray()[0] as Row | undefined;
++  }
++  private meta(key: string): string | undefined {
++    const r = this.one("SELECT value FROM meta WHERE key = ?", key);
++    return r ? String(r.value) : undefined;
++  }
++  /** The next change sequence; the caller holds the transaction. */
++  private nextSeq(): number {
++    const r = this.one(
++      "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'change_seq' RETURNING value",
++    )!;
++    return Number(r.value);
++  }
++  private occurrenceRow(id: string) {
++    return this.one("SELECT * FROM occurrences WHERE occurrence_id = ?", id);
++  }
++  private tombstone(id: string) {
++    return this.one("SELECT * FROM tombstones WHERE occurrence_id = ?", id);
++  }
++  private prunedAnswer(t: Row) {
++    return {
++      occurrenceId: String(t.occurrence_id),
++      payloadDigest: String(t.payload_digest),
++      prunedAt: iso(t.pruned_at),
++    };
++  }
++
++  /* ---------- registrations ---------- */
++
++  private registration(workflowId: string): Obj | null {
++    const r = this.one("SELECT * FROM registrations WHERE workflow_id = ?", workflowId);
++    if (!r) return null;
++    const epochs = (
++      this.sql(
++        "SELECT * FROM registration_epochs WHERE workflow_id = ? ORDER BY epoch",
++        workflowId,
++      ).toArray() as Row[]
++    ).map((e) => ({
++      epoch: Number(e.epoch),
++      openedAt: iso(e.opened_at),
++      ...at("closedAt", e.closed_at),
++    }));
++    return {
++      workflowId,
++      registrationEpoch: Number(r.epoch),
++      revision: Number(r.revision),
++      workflowDigest: String(r.workflow_digest),
++      state: String(r.state),
++      paused: Number(r.paused) === 1,
++      updatedAt: iso(r.updated_at),
++      epochs,
++    };
++  }
++
++  private register(
++    workflowId: string,
++    expectedEpoch: number,
++    revision: number,
++    digest: string,
++    now: number,
++  ): Obj {
++    return this.storage.transactionSync((): Obj => {
++      const r = this.one("SELECT * FROM registrations WHERE workflow_id = ?", workflowId);
++      const open = (epoch: number) =>
++        this.sql(
++          "INSERT INTO registration_epochs (workflow_id, epoch, revision, opened_at) VALUES (?, ?, ?, ?)",
++          workflowId,
++          epoch,
++          revision,
++          now,
++        );
++      if (!r) {
++        if (expectedEpoch !== 0) return { error: "conflict", registration: null };
++        const n = this.one("SELECT COUNT(*) AS n FROM registrations")!;
++        if (Number(n.n) >= REGISTRATIONS_MAX) return { error: "capacity" };
++        this.sql(
++          `INSERT INTO registrations (workflow_id, epoch, revision, workflow_digest, state, paused, updated_at)
++           VALUES (?, 1, ?, ?, 'active', 0, ?)`,
++          workflowId,
++          revision,
++          digest,
++          now,
++        );
++        open(1);
++        return {
++          ownerKey: this.ownerKey,
++          registration: this.registration(workflowId),
++          created: true,
++        };
++      }
++      const epoch = Number(r.epoch);
++      if (r.state === "unregistered" && epoch === expectedEpoch) {
++        if (epoch >= EPOCHS_MAX) return { error: "capacity" };
++        // The retained pause flag is kept (decision 2).
++        this.sql(
++          `UPDATE registrations SET epoch = ?, revision = ?, workflow_digest = ?, state = 'active', updated_at = ?
++           WHERE workflow_id = ?`,
++          epoch + 1,
++          revision,
++          digest,
++          now,
++          workflowId,
++        );
++        open(epoch + 1);
++        return {
++          ownerKey: this.ownerKey,
++          registration: this.registration(workflowId),
++          created: true,
++        };
++      }
++      // The replay of an applied register (a lost answer): unchanged, no new epoch.
++      if (
++        r.state === "active" &&
++        epoch === expectedEpoch + 1 &&
++        Number(r.revision) === revision &&
++        r.workflow_digest === digest
++      )
++        return {
++          ownerKey: this.ownerKey,
++          registration: this.registration(workflowId),
++          created: false,
++        };
++      return { error: "conflict", registration: this.registration(workflowId) };
++    });
++  }
++
++  private update(
++    workflowId: string,
++    epoch: number,
++    expected: number,
++    revision: number,
++    digest: string,
++    now: number,
++  ): Obj {
++    return this.storage.transactionSync((): Obj => {
++      const r = this.one("SELECT * FROM registrations WHERE workflow_id = ?", workflowId);
++      if (!r) return { error: "not_registered", workflowId };
++      const current = r.state === "active" && Number(r.epoch) === epoch;
++      if (current && Number(r.revision) === revision && r.workflow_digest === digest)
++        return {
++          ownerKey: this.ownerKey,
++          registration: this.registration(workflowId),
++          changed: false,
++        };
++      if (!current || Number(r.revision) !== expected || revision <= expected)
++        return { error: "conflict", registration: this.registration(workflowId) };
++      this.sql(
++        "UPDATE registrations SET revision = ?, workflow_digest = ?, updated_at = ? WHERE workflow_id = ?",
++        revision,
++        digest,
++        now,
++        workflowId,
++      );
++      this.sql(
++        "UPDATE registration_epochs SET revision = ? WHERE workflow_id = ? AND epoch = ?",
++        revision,
++        workflowId,
++        epoch,
++      );
++      return {
++        ownerKey: this.ownerKey,
++        registration: this.registration(workflowId),
++        changed: true,
++      };
++    });
++  }
++
++  private control(
++    op: "pause" | "resume" | "unregister",
++    workflowId: string,
++    epoch: number,
++    expected: number,
++    now: number,
++  ): Obj {
++    return this.storage.transactionSync((): Obj => {
++      const r = this.one("SELECT * FROM registrations WHERE workflow_id = ?", workflowId);
++      if (!r) return { error: "not_registered", workflowId };
++      if (Number(r.epoch) !== epoch || Number(r.revision) !== expected)
++        return { error: "conflict", registration: this.registration(workflowId) };
++      let changed = false;
++      if (op === "unregister") {
++        if (r.state === "active") {
++          this.sql(
++            "UPDATE registrations SET state = 'unregistered', updated_at = ? WHERE workflow_id = ?",
++            now,
++            workflowId,
++          );
++          this.sql(
++            "UPDATE registration_epochs SET closed_at = ? WHERE workflow_id = ? AND epoch = ?",
++            now,
++            workflowId,
++            epoch,
++          );
++          changed = true;
++        }
++      } else {
++        const paused = op === "pause" ? 1 : 0;
++        if (Number(r.paused) !== paused) {
++          this.sql(
++            "UPDATE registrations SET paused = ?, updated_at = ? WHERE workflow_id = ?",
++            paused,
++            now,
++            workflowId,
++          );
++          changed = true;
++        }
++      }
++      return { ownerKey: this.ownerKey, registration: this.registration(workflowId), changed };
++    });
++  }
++
++  /* ---------- occurrences ---------- */
++
++  private receipt(r: Row): OccurrenceReceipt {
++    const id = String(r.occurrence_id);
++    const stepRows = this.sql(
++      "SELECT * FROM steps WHERE occurrence_id = ? ORDER BY idx",
++      id,
++    ).toArray() as Row[];
++    const steps = stepRows.map(
++      (s) =>
++        ({
++          idx: Number(s.idx),
++          actionId: String(s.action_id),
++          kind: String(s.kind),
++          status: String(s.status),
++          ...(s.output_id === null ? {} : { outputId: String(s.output_id) }),
++          ...(s.output_digest === null ? {} : { outputDigest: String(s.output_digest) }),
++          ...(s.error === null ? {} : { error: String(s.error) }),
++          ...at("at", s.at),
++        }) as WorkflowStep,
++    );
++    const outputs: WorkflowOutput[] = [];
++    for (const s of stepRows) {
++      if (s.status !== "done" || s.output_id === null) continue;
++      const o = this.one("SELECT * FROM outputs WHERE output_id = ?", String(s.output_id));
++      if (o)
++        outputs.push({
++          outputId: String(o.output_id),
++          actionId: String(o.action_id),
++          kind: String(o.kind),
++          digest: String(o.digest),
++          record: JSON.parse(String(o.record_json)) as Obj,
++        });
++    }
++    const terminal = isTerminal(r.state);
++    const firstAck = r.first_ack_at === null ? null : Number(r.first_ack_at);
++    return {
++      occurrenceId: id,
++      workflowId: String(r.workflow_id),
++      kind: String(r.kind),
++      registrationEpoch: Number(r.registration_epoch),
++      revision: Number(r.revision),
++      body: JSON.parse(String(r.body_json)) as OccurrenceBody,
++      payloadDigest: String(r.payload_digest),
++      state: r.state as OccurrenceState,
++      receiptVersion: Number(r.receipt_version),
++      changeSeq: Number(r.change_seq),
++      createdAt: iso(r.created_at),
++      updatedAt: iso(r.updated_at),
++      ...at("startedAt", r.started_at),
++      ...at("finishedAt", r.finished_at),
++      ...at("firstAckAt", r.first_ack_at),
++      ackedVersion: Number(r.acked_version),
++      ...(terminal ? { purgeAt: iso(purgeAt(Number(r.finished_at), firstAck)) } : {}),
++      steps,
++      outputs,
++    };
++  }
++
++  private answer(id: string, more: Obj = {}): Obj {
++    return { ownerKey: this.ownerKey, occurrence: this.receipt(this.occurrenceRow(id)!), ...more };
++  }
++
++  private submit(body: OccurrenceBody, digest: string, now: number): Obj {
++    return this.storage.transactionSync((): Obj => {
++      const id = body.occurrenceId;
++      const t = this.tombstone(id);
++      if (t) return { error: "pruned", ...this.prunedAnswer(t) };
++      const existing = this.occurrenceRow(id);
++      if (existing)
++        return existing.payload_digest === digest
++          ? this.answer(id, { created: false })
++          : { error: "conflict", occurrenceId: id };
++      const workflowId = body.workflowId;
++      const reg = this.one("SELECT * FROM registrations WHERE workflow_id = ?", workflowId);
++      if (!reg) return { error: "not_registered", workflowId };
++      const ep = this.one(
++        "SELECT * FROM registration_epochs WHERE workflow_id = ? AND epoch = ?",
++        workflowId,
++        body.registrationEpoch,
++      );
++      if (!ep) return { error: "unknown_epoch", workflowId };
++      if (ep.closed_at === null) {
++        if (body.revision > Number(ep.revision))
++          return { error: "registration_behind", workflowId };
++      } else if (
++        body.revision > Number(ep.revision) ||
++        Date.parse(body.executionAt) > Number(ep.closed_at)
++      )
++        return { error: "not_registered", workflowId };
++      const open = this.one(
++        "SELECT COUNT(*) AS n FROM occurrences WHERE state IN ('pending','running')",
++      )!;
++      if (Number(open.n) >= OPEN_MAX) return { error: "capacity" };
++      this.sql(
++        `INSERT INTO occurrences (occurrence_id, workflow_id, kind, registration_epoch, revision, body_json,
++           payload_digest, state, receipt_version, change_seq, created_at, updated_at)
++         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 1, ?, ?, ?)`,
++        id,
++        workflowId,
++        body.kind,
++        body.registrationEpoch,
++        body.revision,
++        canonicalJson(body),
++        digest,
++        this.nextSeq(),
++        now,
++        now,
++      );
++      body.snapshot.actions.forEach((a, idx) =>
++        this.sql(
++          "INSERT INTO steps (occurrence_id, idx, action_id, kind, status) VALUES (?, ?, ?, ?, 'pending')",
++          id,
++          idx,
++          a.id,
++          a.kind,
++        ),
++      );
++      return this.answer(id, { created: true });
++    });
++  }
++
++  private status(id: string): Obj {
++    if (this.occurrenceRow(id)) return this.answer(id);
++    const t = this.tombstone(id);
++    return t
++      ? { ownerKey: this.ownerKey, state: "pruned", ...this.prunedAnswer(t) }
++      : { ownerKey: this.ownerKey, occurrenceId: id, state: "absent" };
++  }
++
++  private changes(after: number, limit: number): Obj {
++    const rows = this.sql(
++      "SELECT * FROM occurrences WHERE change_seq > ? ORDER BY change_seq LIMIT ?",
++      after,
++      limit + 1,
++    ).toArray() as Row[];
++    const items = rows.slice(0, limit).map((r) => {
++      const o = this.receipt(r);
++      return {
++        occurrenceId: o.occurrenceId,
++        workflowId: o.workflowId,
++        changeSeq: o.changeSeq,
++        state: o.state,
++        receiptVersion: o.receiptVersion,
++        payloadDigest: o.payloadDigest,
++        steps: o.steps,
++        ...(isTerminal(o.state) ? { outputs: o.outputs } : {}),
++      };
++    });
++    return {
++      ownerKey: this.ownerKey,
++      items,
++      nextAfter: items.length ? items[items.length - 1].changeSeq : after,
++      more: rows.length > limit,
++    };
++  }
++
++  /** absent | pruned refusals for an occurrence-addressed mutation. */
++  private missing(id: string): Obj {
++    const t = this.tombstone(id);
++    return t ? { error: "pruned", ...this.prunedAnswer(t) } : { error: "absent", occurrenceId: id };
++  }
++
++  private cancel(id: string, now: number): Obj {
++    return this.storage.transactionSync((): Obj => {
++      const r = this.occurrenceRow(id);
++      if (!r) return this.missing(id);
++      if (r.state === "running") return { error: "running", occurrenceId: id };
++      if (r.state !== "pending") return this.answer(id, { cancelled: false });
++      // Pending means no step is done (the first committed step makes it running).
++      this.sql(
++        "UPDATE steps SET status = 'skipped' WHERE occurrence_id = ? AND status = 'pending'",
++        id,
++      );
++      this.sql(
++        `UPDATE occurrences SET state = 'cancelled', finished_at = ?, updated_at = ?,
++           receipt_version = receipt_version + 1, change_seq = ?
++         WHERE occurrence_id = ? AND state = 'pending'`,
++        now,
++        now,
++        this.nextSeq(),
++        id,
++      );
++      return this.answer(id, { cancelled: true });
++    });
++  }
++
++  private ack(id: string, version: number, now: number): Obj {
++    return this.storage.transactionSync((): Obj => {
++      const r = this.occurrenceRow(id);
++      if (!r) return this.missing(id);
++      const current = Number(r.receipt_version);
++      if (!isTerminal(r.state))
++        return { error: "not_terminal", occurrenceId: id, state: r.state, receiptVersion: current };
++      if (version > current)
++        return { error: "future_version", occurrenceId: id, receiptVersion: current };
++      const acknowledged = version === current;
++      // Only the first exact terminal ack sets the clock; nothing here bumps the version or the feed.
++      if (acknowledged && r.first_ack_at === null)
++        this.sql(
++          "UPDATE occurrences SET first_ack_at = ?, acked_version = ? WHERE occurrence_id = ?",
++          now,
++          current,
++          id,
++        );
++      const o = this.occurrenceRow(id)!;
++      return {
++        ownerKey: this.ownerKey,
++        occurrenceId: id,
++        acknowledged,
++        receiptVersion: current,
++        ackedVersion: Number(o.acked_version),
++        ...at("firstAckAt", o.first_ack_at),
++        purgeAt: iso(
++          purgeAt(Number(o.finished_at), o.first_ack_at === null ? null : Number(o.first_ack_at)),
++        ),
++      };
++    });
++  }
++
++  private finish(id: string, now: number): Obj {
++    return this.storage.transactionSync((): Obj => {
++      const r = this.occurrenceRow(id);
++      if (!r) return this.missing(id);
++      if (isTerminal(r.state)) return this.answer(id, { finished: false });
++      const n = (status: string) =>
++        Number(
++          this.one(
++            "SELECT COUNT(*) AS n FROM steps WHERE occurrence_id = ? AND status = ?",
++            id,
++            status,
++          )!.n,
++        );
++      if (n("pending") > 0) return { error: "steps_pending", ...this.answer(id) };
++      const state = n("failed") === 0 ? "done" : n("done") > 0 ? "partial" : "failed";
++      this.sql(
++        `UPDATE occurrences SET state = ?, finished_at = ?, updated_at = ?, receipt_version = receipt_version + 1,
++           change_seq = ?
++         WHERE occurrence_id = ?`,
++        state,
++        now,
++        now,
++        this.nextSeq(),
++        id,
++      );
++      return this.answer(id, { finished: true });
++    });
++  }
++
++  private async commitStep(c: Obj, now: number): Promise<Obj> {
++    const id = c.occurrenceId;
++    const idx = c.idx;
++    const out = c.output;
++    if (
++      !isId(id) ||
++      !Number.isSafeInteger(idx) ||
++      (idx as number) < 0 ||
++      !isVersion(c.receiptVersion) ||
++      !isDigest(c.payloadDigest) ||
++      !isObj(out)
++    )
++      return { error: "bad_request" };
++    const row = this.occurrenceRow(id);
++    if (!row) return this.missing(id);
++    const body = JSON.parse(String(row.body_json)) as OccurrenceBody;
++    const action = body.snapshot.actions[idx as number];
++    if (!action) return { error: "bad_request" };
++    let built: { record: Obj; digest: string } | { error: string };
++    if (Object.keys(out).length === 1 && (STEP_ERRORS as readonly unknown[]).includes(out.error))
++      built = { error: out.error as string };
++    else if (Object.keys(out).length === 1 && validOutput(out.record, body, idx as number))
++      // Async, outside the transaction; the transaction below rechecks version, digest and next step.
++      built = { record: out.record as Obj, digest: await sha256Hex(canonicalJson(out.record)) };
++    else return { error: "bad_request" };
++    return this.storage.transactionSync((): Obj => {
++      const r = this.occurrenceRow(id);
++      if (!r) return this.missing(id);
++      const stale = () => ({ error: "stale", ...this.answer(id) });
++      if (
++        r.payload_digest !== c.payloadDigest ||
++        Number(r.receipt_version) !== c.receiptVersion ||
++        (r.state !== "pending" && r.state !== "running")
++      )
++        return stale();
++      const next = this.one(
++        "SELECT MIN(idx) AS i FROM steps WHERE occurrence_id = ? AND status = 'pending'",
++        id,
++      )!;
++      const notDone = this.one(
++        "SELECT COUNT(*) AS n FROM steps WHERE occurrence_id = ? AND idx < ? AND status != 'done'",
++        id,
++        idx as number,
++      )!;
++      if (next.i === null || Number(next.i) !== idx || Number(notDone.n) !== 0) return stale();
++      if (r.state === "pending") {
++        const reg = this.one(
++          "SELECT paused FROM registrations WHERE workflow_id = ?",
++          String(r.workflow_id),
++        );
++        if (!reg || Number(reg.paused) === 1) return { error: "paused", ...this.answer(id) };
++      }
++      const fail = (error: string) => {
++        this.sql(
++          "UPDATE steps SET status = 'failed', error = ?, at = ? WHERE occurrence_id = ? AND idx = ?",
++          error,
++          now,
++          id,
++          idx as number,
++        );
++        // Fail-fast (decision 3): every later step is skipped; earlier outputs stay.
++        this.sql(
++          "UPDATE steps SET status = 'skipped' WHERE occurrence_id = ? AND idx > ? AND status = 'pending'",
++          id,
++          idx as number,
++        );
++      };
++      if ("error" in built) fail(built.error);
++      else {
++        const outputId = String(built.record.id);
++        const held = this.one("SELECT * FROM outputs WHERE output_id = ?", outputId);
++        const same =
++          held &&
++          held.occurrence_id === id &&
++          held.action_id === action.id &&
++          held.kind === action.kind &&
++          held.digest === built.digest;
++        if (held && !same) fail("output-conflict");
++        else {
++          if (!held)
++            this.sql(
++              `INSERT INTO outputs (output_id, occurrence_id, action_id, kind, record_json, digest, created_at)
++               VALUES (?, ?, ?, ?, ?, ?, ?)`,
++              outputId,
++              id,
++              action.id,
++              action.kind,
++              canonicalJson(built.record),
++              built.digest,
++              now,
++            );
++          this.sql(
++            `UPDATE steps SET status = 'done', output_id = ?, output_digest = ?, at = ?
++             WHERE occurrence_id = ? AND idx = ? AND status = 'pending'`,
++            outputId,
++            built.digest,
++            now,
++            id,
++            idx as number,
++          );
++        }
++      }
++      this.sql(
++        `UPDATE occurrences SET state = 'running', started_at = COALESCE(started_at, ?), updated_at = ?,
++           receipt_version = receipt_version + 1, change_seq = ?
++         WHERE occurrence_id = ?`,
++        now,
++        now,
++        this.nextSeq(),
++        id,
++      );
++      return this.answer(id, { committed: true });
++    });
++  }
++
++  /* ---------- retention ---------- */
++
++  /** Terminal rows past their deadline become permanent tombstones; at most once per PURGE_EVERY_MS. */
++  private purge(now: number) {
++    const last = this.meta("purged_at");
++    if (last !== undefined && now >= Number(last) && now - Number(last) < PURGE_EVERY_MS) return;
++    this.storage.transactionSync(() => {
++      this.sql(
++        "INSERT INTO meta (key, value) VALUES ('purged_at', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
++        String(now),
++      );
++      const due = this.sql(
++        `SELECT occurrence_id, payload_digest FROM occurrences
++         WHERE state IN ${TERMINAL} AND (CASE WHEN first_ack_at IS NULL THEN finished_at + ?
++           ELSE MIN(finished_at + ?, first_ack_at + ?) END) <= ?`,
++        FINISH_RETENTION_MS,
++        FINISH_RETENTION_MS,
++        ACK_RETENTION_MS,
++        now,
++      ).toArray() as Row[];
++      for (const r of due) {
++        const id = String(r.occurrence_id);
++        this.sql(
++          "INSERT OR IGNORE INTO tombstones (occurrence_id, payload_digest, pruned_at) VALUES (?, ?, ?)",
++          id,
++          String(r.payload_digest),
++          now,
++        );
++        this.sql("DELETE FROM outputs WHERE occurrence_id = ?", id);
++        this.sql("DELETE FROM steps WHERE occurrence_id = ?", id);
++        this.sql("DELETE FROM occurrences WHERE occurrence_id = ?", id);
++      }
++    });
++  }
++}
++
++/**
++ * TEST-ONLY executor loop: drives one occurrence through `call` (a coordinator transport) with an injected builder,
++ * re-reading after every stale answer, until it is terminal or paused. No production path calls it.
++ */
++export async function drainOne(
++  call: (c: Obj) => Promise<Obj>,
++  ownerKey: string,
++  occurrenceId: string,
++  build: StepBuilder,
++  now: () => number,
++): Promise<Obj> {
++  for (let guard = 0; guard < 50; guard++) {
++    const s = await call({ op: "status", ownerKey, occurrenceId, now: now() });
++    const o = s.occurrence as OccurrenceReceipt | undefined;
++    if (!o || isTerminal(o.state)) return s;
++    const next = o.steps.find((x) => x.status === "pending");
++    if (!next) {
++      const f = await call({ op: "finish", ownerKey, occurrenceId, now: now() });
++      if (!("error" in f)) return { ownerKey: f.ownerKey, occurrence: f.occurrence };
++      continue;
++    }
++    const output = await build({
++      body: o.body,
++      idx: next.idx,
++      action: o.body.snapshot.actions[next.idx],
++      prior: o.outputs,
++    });
++    const r = await call({
++      op: "commitStep",
++      ownerKey,
++      occurrenceId,
++      idx: next.idx,
++      receiptVersion: o.receiptVersion,
++      payloadDigest: o.payloadDigest,
++      output,
++      now: now(),
++    });
++    if (r.error === "paused" || r.error === "bad_request") return r;
++  }
++  return { error: "stale" };
++}
+diff -ruN a/workers/scout/src/social/workflowProtocol.test.ts b/workers/scout/src/social/workflowProtocol.test.ts
+--- a/workers/scout/src/social/workflowProtocol.test.ts	1970-01-01 03:00:00.000000000 +0300
++++ b/workers/scout/src/social/workflowProtocol.test.ts	2026-10-17 23:24:12.816531700 +0300
+@@ -0,0 +1,330 @@
++import { describe, expect, it } from "vitest";
++import {
++  BODY_BYTES_MAX,
++  canonicalJson,
++  checkBody,
++  CONTEXT_BYTES_MAX,
++  payloadDigestOf,
++  sha256Hex,
++  validOutput,
++  weekOf,
++  type OccurrenceBody,
++} from "./workflowProtocol";
++
++// ⚙️ DT-7B protocol (planning/tools/38-cloud-workflows.md): strict occurrence bodies, the canonical JSON and its
++// published digest vectors (computed independently with Node's crypto over the hand-written canonical strings), and
++// the allowlisted draft outputs.
++
++const OWNER = "wfo_0123456789abcdef0123456789abcdef";
++const NOW = Date.parse("2026-10-17T09:05:00.000Z");
++
++/** Vector 1: a manual run with one idea (no planner context). */
++const vector1 = (): Record<string, unknown> => ({
++  occurrenceId: "m1",
++  ownerKey: OWNER,
++  workflowId: "w1",
++  kind: "manual",
++  registrationEpoch: 1,
++  revision: 3,
++  snapshot: {
++    name: { ar: "سير", en: "Flow" },
++    trigger: { kind: "manual" },
++    actions: [{ id: "a1", kind: "idea", text: { ar: "", en: "Idea for {date}" } }],
++  },
++  plannerContext: null,
++  input: {
++    title: { ar: "", en: "" },
++    summary: { ar: "", en: "" },
++    slug: "",
++    lang: "en",
++    day: "2026-10-17",
++  },
++  executionAt: "2026-10-17T09:00:00.000Z",
++});
++const CANON1 =
++  '{"executionAt":"2026-10-17T09:00:00.000Z","input":{"day":"2026-10-17","lang":"en","slug":"","summary":{"ar":"","en":""},"title":{"ar":"","en":""}},"kind":"manual","occurrenceId":"m1","ownerKey":"wfo_0123456789abcdef0123456789abcdef","plannerContext":null,"registrationEpoch":1,"revision":3,"snapshot":{"actions":[{"id":"a1","kind":"idea","text":{"ar":"","en":"Idea for {date}"}}],"name":{"ar":"سير","en":"Flow"},"trigger":{"kind":"manual"}},"workflowId":"w1"}';
++const DIGEST1 = "7d59f9da6b98153f4fbc6b64d5012c30e961af6270c70e872963f92d57b88af1";
++
++/** Vector 2: an article-ready run with a plan step (planner context) and a post. */
++const vector2 = (): Record<string, unknown> => ({
++  occurrenceId: "ar-x1",
++  ownerKey: OWNER,
++  workflowId: "w2",
++  kind: "article-ready",
++  registrationEpoch: 2,
++  revision: 5,
++  snapshot: {
++    name: { ar: "جاهز", en: "Ready" },
++    trigger: { kind: "article-ready" },
++    actions: [
++      { id: "p1", kind: "plan", quest: "produce", minutes: 30, day: "lightest" },
++      {
++        id: "s1",
++        kind: "post",
++        platform: "tiktok",
++        title: { ar: "", en: "{title}" },
++        caption: { ar: "", en: "{summary}" },
++        offsetDays: 1,
++      },
++    ],
++  },
++  plannerContext: {
++    targetWeek: "2026-10-17",
++    completions: [{ skillId: "iphone-log-prores", quest: "train", at: "2026-10-10T08:00:00.000Z" }],
++    planItems: [
++      {
++        id: "pi1",
++        week: "2026-10-17",
++        day: 2,
++        skillId: "iphone-log-prores",
++        quest: "produce",
++        minutes: 0,
++        by: "me",
++      },
++    ],
++    settings: { gear: ["phone"], davinciEdition: "free" },
++    contextAt: "2026-10-17T09:00:00.000Z",
++  },
++  input: {
++    articleId: "art1",
++    title: { ar: "", en: "Log on iPhone" },
++    summary: { ar: "", en: "Why log" },
++    slug: "log-iphone",
++    skillId: "iphone-log-prores",
++    lang: "en",
++    day: "2026-10-17",
++  },
++  executionAt: "2026-10-17T09:00:00.000Z",
++});
++const DIGEST2 = "a5eb743dcb9dbcb44f848cd7a8b9694be74fc5e8b5a54dd1002e396d869e242b";
++
++type Mut = (b: Record<string, any>) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
++const withBody = (base: () => Record<string, unknown>, mut: Mut) => {
++  const b = base();
++  mut(b);
++  return b;
++};
++const refused = (b: unknown, error = "bad_request") =>
++  expect(checkBody(b, NOW)).toEqual({ ok: false, error });
++
++describe("canonical JSON and the published digest vectors", () => {
++  it("vector 1: canonical string and digest are fixed; key order never changes them", async () => {
++    const chk = checkBody(vector1(), NOW);
++    expect(chk.ok).toBe(true);
++    const body = (chk as { body: OccurrenceBody }).body;
++    expect(canonicalJson(body)).toBe(CANON1);
++    expect(await payloadDigestOf(body)).toBe(DIGEST1);
++    // Reversed key order at every level: the same canonical bytes and digest.
++    const reversed = JSON.parse(JSON.stringify(vector1()), function (this: unknown, _k, v) {
++      return v && typeof v === "object" && !Array.isArray(v)
++        ? Object.fromEntries(Object.entries(v).reverse())
++        : v;
++    });
++    expect(canonicalJson(reversed)).toBe(CANON1);
++    expect(await sha256Hex(canonicalJson(reversed))).toBe(DIGEST1);
++  });
++
++  it("vector 2: planner context + post; the digest is not part of the body", async () => {
++    const chk = checkBody(vector2(), NOW);
++    expect(chk.ok).toBe(true);
++    expect(await payloadDigestOf((chk as { body: OccurrenceBody }).body)).toBe(DIGEST2);
++    refused(withBody(vector2, (b) => (b.payloadDigest = DIGEST2)));
++  });
++
++  it("any content change changes the digest (an asserted digest is never proof of other content)", async () => {
++    const changed = withBody(vector1, (b) => (b.snapshot.actions[0].text.en = "Idea for {title}"));
++    expect(await sha256Hex(canonicalJson(changed))).not.toBe(DIGEST1);
++  });
++
++  it("refuses non-integer numbers and unsupported values", () => {
++    expect(() => canonicalJson(1.5)).toThrow();
++    expect(() => canonicalJson({ a: () => 1 })).toThrow();
++    expect(canonicalJson({ b: [1, "x", null, true], a: { d: 1, c: 2 } })).toBe(
++      '{"a":{"c":2,"d":1},"b":[1,"x",null,true]}',
++    );
++  });
++
++  it("weekOf: the Saturday that starts the planner week (Friday 23:59 Riyadh stays in its week)", () => {
++    expect(weekOf("2026-10-17")).toBe("2026-10-17"); // Saturday
++    expect(weekOf("2026-10-23")).toBe("2026-10-17"); // Friday
++    expect(weekOf("2026-10-24")).toBe("2026-10-24");
++    // Friday 23:59 Riyadh = 20:59Z: day 2026-10-23, week 2026-10-17 (matrix 27).
++    const fri = withBody(vector1, (b) => {
++      b.executionAt = "2026-10-23T20:59:00.000Z";
++      b.input.day = "2026-10-23";
++    });
++    expect(checkBody(fri, Date.parse("2026-10-23T21:00:00.000Z")).ok).toBe(true);
++  });
++});
++
++describe("strict occurrence bodies", () => {
++  it("unknown fields anywhere are refused (privacy canaries: ideas, articles, inbox, tokens)", () => {
++    refused(withBody(vector1, (b) => (b.ideas = [{ text: "private" }])));
++    refused(withBody(vector1, (b) => (b.input.article = { body: "draft" })));
++    refused(withBody(vector1, (b) => (b.snapshot.inbox = [])));
++    refused(withBody(vector1, (b) => (b.snapshot.actions[0].accessToken = "IGQV-canary")));
++    refused(withBody(vector2, (b) => (b.plannerContext.completions[0].proofUrl = "https://x")));
++    refused(withBody(vector2, (b) => (b.plannerContext.settings.lang = "ar")));
++    refused(withBody(vector2, (b) => (b.plannerContext.planItems[0].note = "x")));
++  });
++
++  it("ids: a colon or other alphabet is unsupported_id; lengths bounded", () => {
++    refused(
++      withBody(vector1, (b) => (b.occurrenceId = "a:b")),
++      "unsupported_id",
++    );
++    refused(
++      withBody(vector1, (b) => (b.snapshot.actions[0].id = "b:c")),
++      "unsupported_id",
++    );
++    refused(
++      withBody(vector1, (b) => (b.workflowId = "w".repeat(65))),
++      "unsupported_id",
++    );
++    refused(
++      withBody(vector2, (b) => (b.input.articleId = "art 1")),
++      "unsupported_id",
++    );
++    refused(withBody(vector1, (b) => (b.workflowId = 7)));
++  });
++
++  it("actions: 1–5, unique ids, supported kinds and bounds", () => {
++    refused(withBody(vector1, (b) => (b.snapshot.actions = [])));
++    refused(
++      withBody(vector1, (b) => {
++        const a = b.snapshot.actions[0];
++        b.snapshot.actions = [a, { ...a }];
++      }),
++    );
++    refused(
++      withBody(vector1, (b) => {
++        const a = b.snapshot.actions[0];
++        b.snapshot.actions = [1, 2, 3, 4, 5, 6].map((n) => ({ ...a, id: `a${n}` }));
++      }),
++    );
++    refused(withBody(vector1, (b) => (b.snapshot.actions[0].kind = "publish")));
++    refused(withBody(vector1, (b) => (b.snapshot.actions[0].text.en = "x".repeat(501))));
++    refused(withBody(vector2, (b) => (b.snapshot.actions[0].minutes = 4)));
++    refused(withBody(vector2, (b) => (b.snapshot.actions[1].offsetDays = 31)));
++    refused(withBody(vector2, (b) => (b.snapshot.actions[1].platform = "facebook")));
++    refused(withBody(vector2, (b) => delete b.snapshot.actions[1].offsetDays));
++  });
++
++  it("authority, trigger/input consistency and timestamps", () => {
++    refused(withBody(vector1, (b) => (b.ownerKey = "wfo_short")));
++    refused(withBody(vector1, (b) => (b.snapshot.trigger.kind = "article-ready")));
++    refused(withBody(vector1, (b) => (b.kind = "scheduled")));
++    // Manual: no article, no skill, empty texts; prefixes ar-/sc- are not manual.
++    refused(withBody(vector1, (b) => (b.input.articleId = "art1")));
++    refused(withBody(vector1, (b) => (b.input.title.en = "x")));
++    refused(withBody(vector1, (b) => (b.occurrenceId = "ar-m1")));
++    refused(withBody(vector1, (b) => (b.occurrenceId = "sc-m1")));
++    // Article-ready: `ar-` id and an article.
++    refused(withBody(vector2, (b) => (b.occurrenceId = "x1")));
++    refused(withBody(vector2, (b) => delete b.input.articleId));
++    // The day is the Riyadh day of executionAt; executionAt canonical, not in the future beyond skew.
++    refused(withBody(vector1, (b) => (b.input.day = "2026-10-16")));
++    refused(withBody(vector1, (b) => (b.executionAt = "2026-10-17T09:00:00Z")));
++    refused(withBody(vector1, (b) => (b.executionAt = "2026-10-17T12:00:00.000Z")));
++    refused(withBody(vector1, (b) => (b.input.day = "2026-02-30")));
++    refused(withBody(vector1, (b) => (b.registrationEpoch = 0)));
++    refused(withBody(vector1, (b) => (b.revision = 1.5)));
++  });
++
++  it("planner context: present exactly with a plan step, the target week, history before it, bounded", () => {
++    refused(withBody(vector1, (b) => (b.plannerContext = vector2().plannerContext)));
++    refused(withBody(vector2, (b) => (b.plannerContext = null)));
++    refused(withBody(vector2, (b) => (b.plannerContext.targetWeek = "2026-10-10")));
++    // A completion inside the target week is not history.
++    refused(
++      withBody(vector2, (b) => (b.plannerContext.completions[0].at = "2026-10-17T08:00:00.000Z")),
++    );
++    refused(withBody(vector2, (b) => (b.plannerContext.planItems[0].week = "2026-10-10")));
++    refused(withBody(vector2, (b) => (b.plannerContext.contextAt = "2026-10-17T09:00:01.000Z")));
++    refused(withBody(vector2, (b) => (b.plannerContext.settings.gear = ["phone", "phone"])));
++    const items = Array.from({ length: 90 }, (_, n) => ({
++      ...(vector2().plannerContext as { planItems: object[] }).planItems[0],
++      id: `wf:run-${n}:action-${n}-${"x".repeat(40)}`,
++    }));
++    const big = withBody(vector2, (b) => (b.plannerContext.planItems = items));
++    expect(canonicalJson(big.plannerContext).length).toBeGreaterThan(CONTEXT_BYTES_MAX);
++    refused(big, "too_large");
++  });
++
++  it("whole body ≤ 16 KiB (too_large, never truncated)", () => {
++    const big = withBody(vector2, (b) => {
++      b.input.title = { ar: "ع".repeat(2000), en: "x".repeat(2000) };
++      b.input.summary = { ar: "ع".repeat(2000), en: "x".repeat(2000) };
++      for (const n of [1, 2, 3])
++        b.snapshot.actions.push({
++          id: `i${n}`,
++          kind: "idea",
++          text: { ar: "ع".repeat(500), en: "x".repeat(500) },
++        });
++    });
++    expect(new TextEncoder().encode(canonicalJson(big)).length).toBeGreaterThan(BODY_BYTES_MAX);
++    refused(big, "too_large");
++    refused(withBody(vector1, (b) => (b.snapshot.name.en = "\ud800")));
++  });
++});
++
++describe("allowlisted draft outputs", () => {
++  const body1 = checkBody(vector1(), NOW) as { body: OccurrenceBody };
++  const body2 = checkBody(vector2(), NOW) as { body: OccurrenceBody };
++  const idea = {
++    id: "wf:m1:a1",
++    text: "Idea for 2026-10-17",
++    source: "workflow",
++    createdAt: "2026-10-17T09:00:00.000Z",
++  };
++  const plan = {
++    id: "wf:ar-x1:p1",
++    week: "2026-10-17",
++    day: 3,
++    skillId: "iphone-log-prores",
++    quest: "produce",
++    minutes: 30,
++    by: "me",
++  };
++  const post = {
++    id: "wf:ar-x1:s1",
++    platform: "tiktok",
++    title: "Log on iPhone",
++    caption: "Why log",
++    hashtags: ["#iphone"],
++    stage: "idea",
++    plannedDay: "2026-10-18",
++    plannedTime: null,
++    skillId: "iphone-log-prores",
++    script: { hook: "", beats: ["", "", ""], cta: "" },
++    shots: [],
++    createdAt: "2026-10-17T09:00:00.000Z",
++    updatedAt: "2026-10-17T09:00:00.000Z",
++  };
++
++  it("accepts exactly the drafts of the body's actions", () => {
++    expect(validOutput(idea, body1.body, 0)).toBe(true);
++    expect(validOutput(plan, body2.body, 0)).toBe(true);
++    expect(validOutput(post, body2.body, 1)).toBe(true);
++  });
++
++  it("refuses another id, kind, week, publication fields or unknown fields", () => {
++    expect(validOutput({ ...idea, id: "wf:m1:a2" }, body1.body, 0)).toBe(false);
++    expect(validOutput({ ...idea, source: "me" }, body1.body, 0)).toBe(false);
++    expect(validOutput({ ...idea, token: "x" }, body1.body, 0)).toBe(false);
++    expect(validOutput(idea, body1.body, 1)).toBe(false);
++    expect(validOutput({ ...plan, week: "2026-10-10" }, body2.body, 0)).toBe(false);
++    expect(validOutput({ ...plan, by: "rules" }, body2.body, 0)).toBe(false);
++    expect(validOutput({ ...plan, minutes: 45 }, body2.body, 0)).toBe(false);
++    expect(validOutput({ ...post, stage: "scheduled" }, body2.body, 1)).toBe(false);
++    expect(validOutput({ ...post, plannedTime: "09:00" }, body2.body, 1)).toBe(false);
++    expect(validOutput({ ...post, autoPost: { platforms: ["tiktok"] } }, body2.body, 1)).toBe(
++      false,
++    );
++    expect(validOutput({ ...post, postedUrl: "https://x" }, body2.body, 1)).toBe(false);
++    expect(validOutput({ ...post, platform: "youtube" }, body2.body, 1)).toBe(false);
++    expect(
++      validOutput({ ...post, script: { hook: "x", beats: ["", "", ""], cta: "" } }, body2.body, 1),
++    ).toBe(false);
++  });
++});
+diff -ruN a/workers/scout/src/social/workflowProtocol.ts b/workers/scout/src/social/workflowProtocol.ts
+--- a/workers/scout/src/social/workflowProtocol.ts	1970-01-01 03:00:00.000000000 +0300
++++ b/workers/scout/src/social/workflowProtocol.ts	2026-10-17 23:24:12.794489800 +0300
+@@ -0,0 +1,406 @@
++/**
++ * ⚙️ Cloud workflow protocol (packet DT-7B, planning/tools/38-cloud-workflows.md): the bounded, strict schemas of the
++ * workflow foundation, shared by workflowCoordinator.ts (the authority) and workflowRoutes.ts (the HTTP surface).
++ *
++ *   occurrence body   the immutable, owner-built execution snapshot one occurrence runs: exactly the allowlisted
++ *                     fields below (an unknown field anywhere is refused, never dropped), ids `^[A-Za-z0-9_-]{1,64}$`
++ *                     (no colon: `wf:<occurrenceId>:<actionId>` stays unambiguous), unique action ids, trigger/input/
++ *                     context/target-week consistency and canonical ISO timestamps. ≤ 16 KiB canonical, its planner
++ *                     context ≤ 8 KiB (`too_large`, never truncated).
++ *   payload digest    sha256 (hex) of the canonical JSON of that body; the digest is NOT part of the body. Canonical
++ *                     JSON = keys sorted by UTF-16 code units at every level, no whitespace, arrays in order, strings
++ *                     as JSON.stringify writes them, integers only. The server always recomputes it; an asserted
++ *                     digest that differs is refused (`digest_mismatch`). Test vectors: workflowProtocol.test.ts.
++ *   output records    allowlisted drafts only: an idea (`source: "workflow"`), a post at `stage: "idea"` with an
++ *                     empty script, no shots, no time and no auto-post, or a planner row (`by: "me"`) of the body's
++ *                     target week; id `wf:<occurrenceId>:<actionId>`. Nothing here publishes, sends or calls out.
++ *
++ * Pure: no storage, no network, no clock (the caller passes `now`).
++ */
++
++import { addDays, DAY_KEY_RE, riyadhDay } from "./time";
++
++export const WF_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
++/** The non-secret server authority id, minted once in the coordinator's durable meta. */
++export const OWNER_KEY_RE = /^wfo_[0-9a-f]{32}$/;
++export const DIGEST_RE = /^[0-9a-f]{64}$/;
++/** Catalogue skill ids (lower-case slugs). */
++const SKILL_ID_RE = /^[a-z0-9][a-z0-9-]{0,79}$/;
++/** Planner row ids: the owner's own ids and earlier workflow outputs (`wf:<run>:<action>`). */
++const PLAN_ITEM_ID_RE = /^[A-Za-z0-9_:-]{1,140}$/;
++
++export const BODY_BYTES_MAX = 16_384;
++export const CONTEXT_BYTES_MAX = 8_192;
++/** The streaming request budget of every workflow route. */
++export const REQUEST_BYTES_MAX = 32_768;
++export const ACTIONS_MAX = 5;
++const NAME_MAX = 80;
++const TEMPLATE_MAX = 500;
++const INPUT_TEXT_MAX = 2_000;
++const SLUG_MAX = 200;
++const COMPLETIONS_MAX = 200;
++const PLAN_ITEMS_MAX = 100;
++const OUTPUT_TEXT_MAX = 4_000;
++const HASHTAGS_MAX = 30;
++const HASHTAG_MAX = 100;
++/** Clock skew tolerated between the owner's device (executionAt) and the Worker. */
++export const SKEW_MS = 10 * 60_000;
++/** No workflow ran before this. */
++const EPOCH_MIN_MS = Date.parse("2020-01-01T00:00:00.000Z");
++
++export const PLATFORMS = ["tiktok", "instagram", "youtube", "threads", "x", "snapchat"] as const;
++export const QUESTS = ["research", "train", "produce", "article"] as const;
++const GEAR = ["phone", "any", "camera", "gimbal", "lights", "mic"] as const;
++export const OCCURRENCE_KINDS = ["manual", "article-ready"] as const;
++export const ACTION_KINDS = ["idea", "post", "plan"] as const;
++/** What an injected builder may report for a failed step (the store adds `output-conflict` itself). */
++export const STEP_ERRORS = [
++  "empty-text",
++  "no-skill",
++  "unknown-skill",
++  "invalid",
++  "context-stale",
++] as const;
++
++export type Obj = Record<string, unknown>;
++export type LText = { ar: string; en: string };
++export type ActionKind = (typeof ACTION_KINDS)[number];
++
++export type WorkflowActionBody =
++  | { id: string; kind: "idea"; text: LText; platform?: string }
++  | { id: string; kind: "post"; platform: string; title: LText; caption: LText; offsetDays: number }
++  | {
++      id: string;
++      kind: "plan";
++      quest: string;
++      skillId?: string;
++      minutes: number;
++      day: number | "lightest";
++    };
++
++export interface PlannerContext {
++  targetWeek: string;
++  completions: { skillId: string; quest: string; at: string }[];
++  planItems: {
++    id: string;
++    week: string;
++    day: number;
++    skillId: string;
++    quest: string;
++    minutes: number;
++    by: string;
++  }[];
++  settings: { gear: string[]; davinciEdition: string };
++  contextAt: string;
++}
++
++export interface OccurrenceBody {
++  occurrenceId: string;
++  ownerKey: string;
++  workflowId: string;
++  kind: (typeof OCCURRENCE_KINDS)[number];
++  registrationEpoch: number;
++  revision: number;
++  snapshot: { name: LText; trigger: { kind: string }; actions: WorkflowActionBody[] };
++  plannerContext: PlannerContext | null;
++  input: {
++    articleId?: string;
++    title: LText;
++    summary: LText;
++    slug: string;
++    skillId?: string;
++    lang: string;
++    day: string;
++  };
++  executionAt: string;
++}
++
++export const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
++export const isVersion = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 1;
++export const isCount = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
++export const fits = (v: unknown, re: RegExp): v is string => typeof v === "string" && re.test(v);
++/** A canonical `toISOString()` instant (the only timestamp form this protocol carries). */
++export const isIso = (v: unknown): v is string =>
++  typeof v === "string" && Number.isFinite(Date.parse(v)) && new Date(v).toISOString() === v;
++/** A real calendar day key. */
++export const isDay = (v: unknown): v is string =>
++  typeof v === "string" && DAY_KEY_RE.test(v) && addDays(v, 0) === v;
++const isText = (v: unknown, max: number, min = 0): v is string =>
++  typeof v === "string" && v.length >= min && v.length <= max && !/\p{Cs}/u.test(v);
++const isLText = (v: unknown, max: number): v is LText =>
++  isObj(v) && exactKeys(v, ["ar", "en"]) && isText(v.ar, max) && isText(v.en, max);
++const oneOf = (v: unknown, list: readonly string[]): v is string =>
++  typeof v === "string" && list.includes(v);
++const intIn = (v: unknown, lo: number, hi: number): v is number =>
++  Number.isSafeInteger(v) && (v as number) >= lo && (v as number) <= hi;
++
++/** Every required key present, nothing outside required + optional. */
++export function exactKeys(o: Obj, required: readonly string[], optional: readonly string[] = []) {
++  const keys = Object.keys(o);
++  return (
++    required.every((k) => k in o) && keys.every((k) => required.includes(k) || optional.includes(k))
++  );
++}
++
++/** The Saturday that starts the planner week of a day key (the dashboard's `weekKey`). */
++export function weekOf(day: string): string {
++  const dow = new Date(`${day}T00:00:00Z`).getUTCDay(); // 0 Sunday … 6 Saturday
++  return addDays(day, -((dow + 1) % 7));
++}
++
++/** The canonical JSON of a protocol value (see the header). Throws on anything outside the protocol's types. */
++export function canonicalJson(v: unknown): string {
++  if (v === null || typeof v === "boolean") return JSON.stringify(v);
++  if (typeof v === "string") return JSON.stringify(v);
++  if (typeof v === "number") {
++    if (!Number.isSafeInteger(v)) throw new TypeError("non-integer");
++    return String(v);
++  }
++  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
++  if (isObj(v))
++    return `{${Object.keys(v)
++      .filter((k) => v[k] !== undefined)
++      .sort()
++      .map((k) => `${JSON.stringify(k)}:${canonicalJson(v[k])}`)
++      .join(",")}}`;
++  throw new TypeError("unsupported");
++}
++
++const enc = new TextEncoder();
++export const byteLength = (s: string) => enc.encode(s).length;
++
++export async function sha256Hex(text: string): Promise<string> {
++  const d = await crypto.subtle.digest("SHA-256", enc.encode(text));
++  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
++}
++
++/** The payload digest of an occurrence body (the server's own computation, never the caller's claim). */
++export const payloadDigestOf = (body: OccurrenceBody) => sha256Hex(canonicalJson(body));
++
++export type BodyError = "bad_request" | "unsupported_id" | "too_large";
++export type BodyCheck = { ok: true; body: OccurrenceBody } | { ok: false; error: BodyError };
++
++class Refuse extends Error {
++  constructor(readonly code: BodyError) {
++    super(code);
++  }
++}
++const need = (ok: boolean) => {
++  if (!ok) throw new Refuse("bad_request");
++};
++/** A string id: the wrong alphabet (a colon, a space…) is `unsupported_id`, anything else `bad_request`. */
++const needId = (v: unknown) => {
++  need(typeof v === "string");
++  if (!WF_ID_RE.test(v as string)) throw new Refuse("unsupported_id");
++};
++
++function checkAction(a: unknown): WorkflowActionBody {
++  need(isObj(a));
++  const x = a as Obj;
++  needId(x.id);
++  if (x.kind === "idea") {
++    need(exactKeys(x, ["id", "kind", "text"], ["platform"]));
++    need(isLText(x.text, TEMPLATE_MAX));
++    need(x.platform === undefined || oneOf(x.platform, PLATFORMS));
++  } else if (x.kind === "post") {
++    need(exactKeys(x, ["id", "kind", "platform", "title", "caption", "offsetDays"]));
++    need(oneOf(x.platform, PLATFORMS));
++    need(isLText(x.title, TEMPLATE_MAX) && isLText(x.caption, TEMPLATE_MAX));
++    need(intIn(x.offsetDays, 0, 30));
++  } else if (x.kind === "plan") {
++    need(exactKeys(x, ["id", "kind", "quest", "minutes", "day"], ["skillId"]));
++    need(oneOf(x.quest, QUESTS));
++    need(x.skillId === undefined || fits(x.skillId, SKILL_ID_RE));
++    need(intIn(x.minutes, 5, 120));
++    need(x.day === "lightest" || intIn(x.day, 0, 6));
++  } else need(false);
++  return x as unknown as WorkflowActionBody;
++}
++
++function checkContext(c: unknown, day: string, executionAt: string): PlannerContext {
++  need(isObj(c));
++  const x = c as Obj;
++  need(exactKeys(x, ["targetWeek", "completions", "planItems", "settings", "contextAt"]));
++  // The week the builders read is the occurrence day's week, nothing else.
++  need(isDay(x.targetWeek) && x.targetWeek === weekOf(day));
++  need(isIso(x.contextAt) && Date.parse(x.contextAt as string) <= Date.parse(executionAt));
++  need(Array.isArray(x.completions) && x.completions.length <= COMPLETIONS_MAX);
++  for (const q of x.completions as unknown[]) {
++    need(isObj(q) && exactKeys(q, ["skillId", "quest", "at"]));
++    const y = q as Obj;
++    need(fits(y.skillId, SKILL_ID_RE) && oneOf(y.quest, QUESTS) && isIso(y.at));
++    // Only the history before the target week (what buildWeekPlan reads).
++    need(riyadhDay(y.at as string) < (x.targetWeek as string));
++  }
++  need(Array.isArray(x.planItems) && x.planItems.length <= PLAN_ITEMS_MAX);
++  const ids = new Set<string>();
++  for (const p of x.planItems as unknown[]) {
++    need(isObj(p) && exactKeys(p, ["id", "week", "day", "skillId", "quest", "minutes", "by"]));
++    const y = p as Obj;
++    need(fits(y.id, PLAN_ITEM_ID_RE) && !ids.has(y.id as string));
++    ids.add(y.id as string);
++    // Only rows of the target week, minutes-0 tombstones included.
++    need(y.week === x.targetWeek && intIn(y.day, 0, 6) && fits(y.skillId, SKILL_ID_RE));
++    need(oneOf(y.quest, QUESTS) && intIn(y.minutes, 0, 1_440) && oneOf(y.by, ["rules", "me"]));
++  }
++  need(isObj(x.settings) && exactKeys(x.settings as Obj, ["gear", "davinciEdition"]));
++  const s = x.settings as Obj;
++  need(Array.isArray(s.gear) && s.gear.length <= GEAR.length);
++  need((s.gear as unknown[]).every((g) => oneOf(g, GEAR)));
++  need(new Set(s.gear as unknown[]).size === (s.gear as unknown[]).length);
++  need(oneOf(s.davinciEdition, ["studio", "free"]));
++  return x as unknown as PlannerContext;
++}
++
++function checkBodyOrThrow(raw: unknown, nowMs: number): OccurrenceBody {
++  need(isObj(raw));
++  const b = raw as Obj;
++  need(
++    exactKeys(b, [
++      "occurrenceId",
++      "ownerKey",
++      "workflowId",
++      "kind",
++      "registrationEpoch",
++      "revision",
++      "snapshot",
++      "plannerContext",
++      "input",
++      "executionAt",
++    ]),
++  );
++  needId(b.occurrenceId);
++  needId(b.workflowId);
++  need(fits(b.ownerKey, OWNER_KEY_RE));
++  need(oneOf(b.kind, OCCURRENCE_KINDS));
++  need(isVersion(b.registrationEpoch) && isVersion(b.revision));
++  // Prefixes: `ar-` article-ready, `sc-` reserved for scheduled occurrences (DT-7D, never submitted).
++  const id = b.occurrenceId as string;
++  need(b.kind === "article-ready" ? id.startsWith("ar-") : !/^(ar|sc)-/.test(id));
++  need(isIso(b.executionAt));
++  const at = Date.parse(b.executionAt as string);
++  need(at >= EPOCH_MIN_MS && at <= nowMs + SKEW_MS);
++
++  need(isObj(b.snapshot) && exactKeys(b.snapshot as Obj, ["name", "trigger", "actions"]));
++  const snap = b.snapshot as Obj;
++  need(isLText(snap.name, NAME_MAX));
++  need(isObj(snap.trigger) && exactKeys(snap.trigger as Obj, ["kind"]));
++  need((snap.trigger as Obj).kind === b.kind);
++  need(Array.isArray(snap.actions));
++  const list = snap.actions as unknown[];
++  need(list.length >= 1 && list.length <= ACTIONS_MAX);
++  const actions = list.map(checkAction);
++  need(new Set(actions.map((a) => a.id)).size === actions.length);
++
++  need(isObj(b.input));
++  const i = b.input as Obj;
++  need(
++    exactKeys(i, ["title", "summary", "slug", "lang", "day"], ["articleId", "skillId"]) &&
++      isLText(i.title, INPUT_TEXT_MAX) &&
++      isLText(i.summary, INPUT_TEXT_MAX) &&
++      isText(i.slug, SLUG_MAX) &&
++      oneOf(i.lang, ["ar", "en"]) &&
++      isDay(i.day),
++  );
++  if (i.articleId !== undefined) needId(i.articleId);
++  need(i.skillId === undefined || fits(i.skillId, SKILL_ID_RE));
++  // The day is the Riyadh day of the triggering commit.
++  need(i.day === riyadhDay(at));
++  if (b.kind === "article-ready") need(i.articleId !== undefined);
++  else {
++    // A manual run captures no article (lib/workflows manualInput).
++    const t = i.title as LText;
++    const s = i.summary as LText;
++    need(i.articleId === undefined && i.skillId === undefined && i.slug === "");
++    need(!t.ar && !t.en && !s.ar && !s.en);
++  }
++
++  const hasPlan = actions.some((a) => a.kind === "plan");
++  if (hasPlan) {
++    const ctx = checkContext(b.plannerContext, i.day as string, b.executionAt as string);
++    if (byteLength(canonicalJson(ctx)) > CONTEXT_BYTES_MAX) throw new Refuse("too_large");
++  } else need(b.plannerContext === null);
++
++  const body = b as unknown as OccurrenceBody;
++  if (byteLength(canonicalJson(body)) > BODY_BYTES_MAX) throw new Refuse("too_large");
++  return body;
++}
++
++/** The strict body check: the accepted body is exactly the caller's object (nothing dropped, nothing added). */
++export function checkBody(raw: unknown, nowMs: number): BodyCheck {
++  try {
++    return { ok: true, body: checkBodyOrThrow(raw, nowMs) };
++  } catch (e) {
++    if (e instanceof Refuse) return { ok: false, error: e.code };
++    return { ok: false, error: "bad_request" };
++  }
++}
++
++export const outputIdOf = (occurrenceId: string, actionId: string) =>
++  `wf:${occurrenceId}:${actionId}`;
++
++const EMPTY_SCRIPT = { hook: "", beats: ["", "", ""], cta: "" };
++
++/** An allowlisted draft record for this body's action, or false. */
++export function validOutput(record: unknown, body: OccurrenceBody, idx: number): boolean {
++  const action = body.snapshot.actions[idx];
++  if (!action || !isObj(record)) return false;
++  const r = record;
++  if (r.id !== outputIdOf(body.occurrenceId, action.id)) return false;
++  const skill = (v: unknown) => v === undefined || fits(v, SKILL_ID_RE);
++  if (action.kind === "idea")
++    return (
++      exactKeys(r, ["id", "text", "source", "createdAt"], ["skillId", "platform"]) &&
++      isText(r.text, OUTPUT_TEXT_MAX, 1) &&
++      r.source === "workflow" &&
++      skill(r.skillId) &&
++      (r.platform === undefined || oneOf(r.platform, PLATFORMS)) &&
++      isIso(r.createdAt)
++    );
++  if (action.kind === "post")
++    return (
++      exactKeys(
++        r,
++        [
++          "id",
++          "platform",
++          "title",
++          "caption",
++          "hashtags",
++          "stage",
++          "plannedDay",
++          "plannedTime",
++          "script",
++          "shots",
++          "createdAt",
++          "updatedAt",
++        ],
++        ["skillId"],
++      ) &&
++      r.platform === action.platform &&
++      isText(r.title, OUTPUT_TEXT_MAX, 1) &&
++      isText(r.caption, OUTPUT_TEXT_MAX) &&
++      Array.isArray(r.hashtags) &&
++      r.hashtags.length <= HASHTAGS_MAX &&
++      r.hashtags.every((h) => isText(h, HASHTAG_MAX, 1)) &&
++      r.stage === "idea" &&
++      (r.plannedDay === null || isDay(r.plannedDay)) &&
++      r.plannedTime === null &&
++      canonicalJson(r.script) === canonicalJson(EMPTY_SCRIPT) &&
++      Array.isArray(r.shots) &&
++      r.shots.length === 0 &&
++      skill(r.skillId) &&
++      isIso(r.createdAt) &&
++      isIso(r.updatedAt)
++    );
++  return (
++    exactKeys(r, ["id", "week", "day", "skillId", "quest", "minutes", "by"]) &&
++    body.plannerContext !== null &&
++    r.week === body.plannerContext.targetWeek &&
++    intIn(r.day, 0, 6) &&
++    fits(r.skillId, SKILL_ID_RE) &&
++    r.quest === action.quest &&
++    r.minutes === action.minutes &&
++    r.by === "me"
++  );
++}
+diff -ruN a/workers/scout/src/social/workflowRoutes.test.ts b/workers/scout/src/social/workflowRoutes.test.ts
+--- a/workers/scout/src/social/workflowRoutes.test.ts	1970-01-01 03:00:00.000000000 +0300
++++ b/workers/scout/src/social/workflowRoutes.test.ts	2026-10-17 23:24:12.933973900 +0300
+@@ -0,0 +1,570 @@
++import { DatabaseSync } from "node:sqlite";
++import { describe, expect, it } from "vitest";
++import { handle, type Env } from "../scout";
++import { drainOne, WORKFLOW_OBJECT, WorkflowCoordinator } from "./workflowCoordinator";
++import { canonicalJson, REQUEST_BYTES_MAX, sha256Hex, weekOf } from "./workflowProtocol";
++
++// ⚙️ DT-7B workflow routes (planning/tools/38-cloud-workflows.md) through the REAL router (scout.ts bearer + origin,
++// routes.ts dispatch) over a coordinator on node:sqlite. The fake namespace records every name and call: the object
++// is always the fixed server-selected WORKFLOW_OBJECT, and refusals before the coordinator make zero calls.
++
++type A = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
++
++const TOKEN = "route-scout-token";
++const APP = "https://3zmd95-glitch.github.io";
++const BASE = "https://scout.test";
++const NOW = new Date("2026-10-17T09:05:00.000Z");
++const AT = "2026-10-17T09:00:00.000Z";
++const DIG = "e".repeat(64);
++
++function sqliteStorage(db: DatabaseSync) {
++  return {
++    sql: {
++      exec(query: string, ...bindings: (string | number | null)[]) {
++        const st = db.prepare(query);
++        if (/^\s*SELECT|RETURNING/i.test(query)) {
++          const rows = st.all(...bindings);
++          return { toArray: () => rows };
++        }
++        st.run(...bindings);
++        return { toArray: () => [] };
++      },
++    },
++    transactionSync<T>(fn: () => T): T {
++      db.exec("BEGIN");
++      try {
++        const v = fn();
++        db.exec("COMMIT");
++        return v;
++      } catch (e) {
++        db.exec("ROLLBACK");
++        throw e;
++      }
++    },
++  };
++}
++
++interface Fake {
++  db: DatabaseSync;
++  names: string[];
++  calls: A[];
++  tamper?: (call: A, answer: A) => unknown;
++  down?: boolean;
++  idFromName(name: string): string;
++  get(id: string): { fetch(url: string, init: RequestInit): Promise<Response> };
++}
++
++function fakeNamespace(): Fake {
++  const ns: Fake = {
++    db: new DatabaseSync(":memory:"),
++    names: [],
++    calls: [],
++    idFromName(name) {
++      ns.names.push(name);
++      return name;
++    },
++    get: () => ({
++      async fetch(url, init) {
++        const call = JSON.parse(String(init.body)) as A;
++        ns.calls.push(call);
++        if (ns.down) throw new Error("storage down");
++        const c = new WorkflowCoordinator({ storage: sqliteStorage(ns.db) } as never);
++        const res = await c.fetch(new Request(url, init));
++        if (!ns.tamper) return res;
++        return Response.json(ns.tamper(call, (await res.json()) as A));
++      },
++    }),
++  };
++  return ns;
++}
++
++const makeEnv = (ns: Fake | null = fakeNamespace()): Env => ({
++  SCOUT_TOKEN: TOKEN,
++  ALLOWED_ORIGINS: APP,
++  ...(ns ? { WORKFLOW_COORDINATOR: ns as unknown as DurableObjectNamespace } : {}),
++});
++const nsOf = (env: Env) => env.WORKFLOW_COORDINATOR as unknown as Fake;
++
++function req(
++  path: string,
++  init: RequestInit & { auth?: string | null; origin?: string | null } = {},
++) {
++  const { auth = TOKEN, origin = APP, ...rest } = init;
++  const headers = new Headers(rest.headers);
++  if (auth !== null) headers.set("Authorization", `Bearer ${auth}`);
++  if (origin !== null) headers.set("Origin", origin);
++  return new Request(`${BASE}${path}`, { ...rest, headers });
++}
++const run = async (env: Env, path: string, init: Parameters<typeof req>[1] = {}, now = NOW) => {
++  const res = await handle(req(path, init), env, undefined, { now: () => now });
++  const text = await res.text();
++  return { status: res.status, body: (text ? JSON.parse(text) : null) as A, raw: text };
++};
++const post = (
++  env: Env,
++  path: string,
++  json: unknown,
++  init: Parameters<typeof req>[1] = {},
++  now = NOW,
++) => run(env, path, { method: "POST", body: JSON.stringify(json), ...init }, now);
++
++function body(owner: string, o: { id?: string; actions?: A[] } = {}): A {
++  const actions = o.actions ?? [{ id: "a1", kind: "idea", text: { ar: "", en: "idea" } }];
++  return {
++    occurrenceId: o.id ?? "m1",
++    ownerKey: owner,
++    workflowId: "w1",
++    kind: "manual",
++    registrationEpoch: 1,
++    revision: 1,
++    snapshot: { name: { ar: "", en: "Flow" }, trigger: { kind: "manual" }, actions },
++    plannerContext: actions.some((a) => a.kind === "plan")
++      ? {
++          targetWeek: weekOf("2026-10-17"),
++          completions: [],
++          planItems: [],
++          settings: { gear: [], davinciEdition: "free" },
++          contextAt: AT,
++        }
++      : null,
++    input: {
++      title: { ar: "", en: "" },
++      summary: { ar: "", en: "" },
++      slug: "",
++      lang: "en",
++      day: "2026-10-17",
++    },
++    executionAt: AT,
++  };
++}
++const envelope = async (b: A) => ({ body: b, payloadDigest: await sha256Hex(canonicalJson(b)) });
++
++async function ready(env = makeEnv()) {
++  const owner = (await run(env, "/social/workflows/authority")).body.ownerKey as string;
++  const r = await post(env, "/social/workflows/registrations", {
++    ownerKey: owner,
++    workflowId: "w1",
++    expectedEpoch: 0,
++    revision: 1,
++    workflowDigest: DIG,
++  });
++  expect(r.status).toBe(200);
++  return { env, owner };
++}
++
++const builder = ({ body: b, action }: A) => ({
++  record: {
++    id: `wf:${b.occurrenceId}:${action.id}`,
++    text: "idea",
++    source: "workflow",
++    createdAt: b.executionAt,
++  },
++});
++/** The test-only executor straight on the coordinator (no route exists for it). */
++const drain = async (env: Env, owner: string, id: string): Promise<A> => {
++  const ns = nsOf(env);
++  const stub = ns.get(ns.idFromName(WORKFLOW_OBJECT));
++  return drainOne(
++    async (c) =>
++      (await (
++        await stub.fetch("https://c/", { method: "POST", body: JSON.stringify(c) })
++      ).json()) as A,
++    owner,
++    id,
++    builder as never,
++    () => NOW.getTime(),
++  );
++};
++const count = (env: Env, q: string) => (nsOf(env).db.prepare(q).get() as A).n as number;
++
++describe("bearer, origin and wiring", () => {
++  it("no bearer, a wrong bearer or a foreign origin: refused before the coordinator, zero mutation", async () => {
++    const { env, owner } = await ready();
++    const before = nsOf(env).calls.length;
++    const sub = await envelope(body(owner));
++    for (const init of [{ auth: null }, { auth: "wrong" }, { origin: "https://evil.example" }]) {
++      const r = await post(env, "/social/workflows/occurrences", sub, init);
++      expect([401, 403]).toContain(r.status);
++      expect(r.raw).not.toContain(owner);
++      expect(
++        (await run(env, `/social/workflows/changes?ownerKey=${owner}&after=0`, init)).status,
++      ).not.toBe(200);
++    }
++    expect(nsOf(env).calls.length).toBe(before);
++    expect(count(env, "SELECT COUNT(*) AS n FROM occurrences")).toBe(0);
++  });
++
++  it("the object is always the fixed server name, whatever ownerKey the caller sends", async () => {
++    const { env, owner } = await ready();
++    await run(env, `/social/workflows/occurrences/m1?ownerKey=${"wfo_" + "1".repeat(32)}`);
++    await run(env, `/social/workflows/occurrences/m1?ownerKey=${owner}`);
++    expect(new Set(nsOf(env).names)).toEqual(new Set([WORKFLOW_OBJECT]));
++  });
++
++  it("no binding → 503 not_configured; a transport failure → 503 receipt_unavailable", async () => {
++    const off = makeEnv(null);
++    expect(await run(off, "/social/workflows/authority")).toMatchObject({
++      status: 503,
++      body: { error: "not_configured", detail: "workflow-store" },
++    });
++    const { env, owner } = await ready();
++    nsOf(env).down = true;
++    expect(await run(env, `/social/workflows/occurrences/m1?ownerKey=${owner}`)).toMatchObject({
++      status: 503,
++      body: { error: "receipt_unavailable" },
++    });
++  });
++
++  it("no public route runs a step, a finish or a builder; unknown paths are not ours", async () => {
++    const { env, owner } = await ready();
++    await post(env, "/social/workflows/occurrences", await envelope(body(owner)));
++    const calls = nsOf(env).calls.length;
++    for (const p of [
++      "/social/workflows/occurrences/m1/step",
++      "/social/workflows/occurrences/m1/finish",
++      "/social/workflows/run",
++      "/social/workflows/occurrences/m1/commitStep",
++    ])
++      expect((await post(env, p, { ownerKey: owner, output: { record: {} } })).status).toBe(404);
++    expect(nsOf(env).calls.length).toBe(calls);
++    // A builder/output in the submit envelope or a test header changes nothing.
++    const sub = await envelope(body(owner, { id: "m2" }));
++    expect(
++      (await post(env, "/social/workflows/occurrences", { ...sub, builder: "test" })).status,
++    ).toBe(400);
++    const h = await post(env, "/social/workflows/occurrences", sub, {
++      headers: { "X-Test-Builder": "1" },
++    });
++    expect(h.body.occurrence.state).toBe("pending");
++    expect(nsOf(env).calls.some((c) => c.op === "commitStep" || c.op === "finish")).toBe(false);
++  });
++
++  it("wrong methods → 405; PUT is not used (CORS allows GET, POST, DELETE)", async () => {
++    const env = makeEnv();
++    expect((await post(env, "/social/workflows/authority", {})).status).toBe(405);
++    expect((await run(env, "/social/workflows/occurrences")).status).toBe(405);
++    expect(
++      (await run(env, "/social/workflows/registrations/w1", { method: "PUT", body: "{}" })).status,
++    ).toBe(405);
++  });
++});
++
++describe("strict requests", () => {
++  it("submit: 201 then 200 created:false; a changed body 409; asserted digest of other content 400", async () => {
++    const { env, owner } = await ready();
++    const b = body(owner);
++    const r1 = await post(env, "/social/workflows/occurrences", await envelope(b));
++    expect(r1.status).toBe(201);
++    expect(r1.body).toMatchObject({
++      ownerKey: owner,
++      created: true,
++      occurrence: { occurrenceId: "m1", state: "pending" },
++    });
++    expect(r1.body.occurrence.body).toEqual(b);
++    const r2 = await post(env, "/social/workflows/occurrences", await envelope(b));
++    expect(r2).toMatchObject({ status: 200, body: { created: false } });
++    const changed = body(owner, {
++      actions: [{ id: "a9", kind: "idea", text: { ar: "", en: "x" } }],
++    });
++    expect(await post(env, "/social/workflows/occurrences", await envelope(changed))).toMatchObject(
++      {
++        status: 409,
++        body: { error: "conflict", ownerKey: owner, occurrenceId: "m1" },
++      },
++    );
++    const lie = {
++      body: body(owner, { id: "m3" }),
++      payloadDigest: (await envelope(b)).payloadDigest,
++    };
++    expect(await post(env, "/social/workflows/occurrences", lie)).toMatchObject({
++      status: 400,
++      body: { error: "digest_mismatch" },
++    });
++  });
++
++  it("malformed, unknown fields, unsupported ids, another authority, oversized streams", async () => {
++    const { env, owner } = await ready();
++    const sub = await envelope(body(owner));
++    const calls = nsOf(env).calls.length;
++    expect(
++      (await run(env, "/social/workflows/occurrences", { method: "POST", body: "{nope" })).body,
++    ).toEqual({ error: "bad_request" });
++    expect((await post(env, "/social/workflows/occurrences", [sub])).body).toEqual({
++      error: "bad_request",
++    });
++    expect((await post(env, "/social/workflows/occurrences", { body: sub.body })).body).toEqual({
++      error: "bad_request",
++    });
++    // Over the 32 KiB streaming budget: 413 before the coordinator.
++    const huge = JSON.stringify({ ...sub, pad: "x".repeat(REQUEST_BYTES_MAX) });
++    expect(
++      await run(env, "/social/workflows/occurrences", { method: "POST", body: huge }),
++    ).toMatchObject({ status: 413, body: { error: "too_large" } });
++    expect(nsOf(env).calls.length).toBe(calls);
++    // The coordinator's own checks.
++    expect(
++      (await post(env, "/social/workflows/occurrences", await envelope(body(owner, { id: "m:1" }))))
++        .body,
++    ).toEqual({ error: "unsupported_id" });
++    const canary = { ...body(owner, { id: "m4" }), articles: [{ body: "PRIVATE-ARTICLE" }] };
++    const c = await post(env, "/social/workflows/occurrences", await envelope(canary));
++    expect(c).toMatchObject({ status: 400, body: { error: "bad_request" } });
++    expect(c.raw).not.toContain("PRIVATE-ARTICLE");
++    const foreign = await envelope(body("wfo_" + "2".repeat(32), { id: "m5" }));
++    expect(await post(env, "/social/workflows/occurrences", foreign)).toMatchObject({
++      status: 409,
++      body: { error: "authority_mismatch" },
++    });
++    expect(JSON.stringify(nsOf(env).db.prepare("SELECT * FROM occurrences").all())).not.toContain(
++      "PRIVATE-ARTICLE",
++    );
++    // Path ids and queries.
++    expect((await run(env, `/social/workflows/occurrences/a:b?ownerKey=${owner}`)).body).toEqual({
++      error: "unsupported_id",
++    });
++    expect((await run(env, `/social/workflows/occurrences/m1?ownerKey=${owner}&x=1`)).body).toEqual(
++      { error: "bad_request" },
++    );
++    expect(
++      (await run(env, `/social/workflows/occurrences/m1?ownerKey=${owner}&ownerKey=${owner}`)).body,
++    ).toEqual({ error: "bad_request" });
++    expect((await run(env, "/social/workflows/occurrences/m1")).body).toEqual({
++      error: "bad_request",
++    });
++    expect(
++      (await run(env, `/social/workflows/changes?ownerKey=${owner}&after=0&limit=51`)).body,
++    ).toEqual({ error: "bad_request" });
++    expect((await run(env, `/social/workflows/changes?ownerKey=${owner}&after=-1`)).body).toEqual({
++      error: "bad_request",
++    });
++  });
++
++  it("registrations: update by POST with epoch+revision CAS, pause/resume/unregister, typed conflicts", async () => {
++    const { env, owner } = await ready();
++    const up = {
++      ownerKey: owner,
++      registrationEpoch: 1,
++      expectedRevision: 1,
++      revision: 2,
++      workflowDigest: DIG,
++    };
++    expect(await post(env, "/social/workflows/registrations/w1", up)).toMatchObject({
++      status: 200,
++      body: { ownerKey: owner, changed: true, registration: { workflowId: "w1", revision: 2 } },
++    });
++    expect(
++      await post(env, "/social/workflows/registrations/w1", {
++        ...up,
++        expectedRevision: 0,
++        revision: 3,
++      }),
++    ).toMatchObject({
++      status: 409,
++      body: { error: "conflict", ownerKey: owner, registration: { revision: 2 } },
++    });
++    expect(
++      await post(env, "/social/workflows/registrations/w1/pause", {
++        ownerKey: owner,
++        registrationEpoch: 1,
++        expectedRevision: 2,
++      }),
++    ).toMatchObject({ status: 200, body: { registration: { paused: true } } });
++    expect(
++      await post(env, "/social/workflows/registrations/w9/resume", {
++        ownerKey: owner,
++        registrationEpoch: 1,
++        expectedRevision: 2,
++      }),
++    ).toMatchObject({
++      status: 409,
++      body: { error: "not_registered", ownerKey: owner, workflowId: "w9" },
++    });
++    expect(
++      (
++        await post(env, "/social/workflows/registrations/w1/pause", {
++          ownerKey: owner,
++          registrationEpoch: 1,
++          expectedRevision: 2,
++          extra: 1,
++        })
++      ).body,
++    ).toEqual({ error: "bad_request" });
++    expect(
++      (
++        await post(env, "/social/workflows/registrations", {
++          ownerKey: owner,
++          workflowId: "w:1",
++          expectedEpoch: 0,
++          revision: 1,
++          workflowDigest: DIG,
++        })
++      ).body,
++    ).toEqual({ error: "unsupported_id" });
++  });
++});
++
++describe("status, feed, cancel, ack", () => {
++  it("status: full row with the immutable body and executionAt, absent and pruned are distinct and authority-bound", async () => {
++    const { env, owner } = await ready();
++    const b = body(owner);
++    await post(env, "/social/workflows/occurrences", await envelope(b));
++    const s = await run(env, `/social/workflows/occurrences/m1?ownerKey=${owner}`);
++    expect(s.status).toBe(200);
++    expect(s.body.ownerKey).toBe(owner);
++    expect(s.body.occurrence).toMatchObject({
++      occurrenceId: "m1",
++      body: { executionAt: AT },
++      receiptVersion: 1,
++      payloadDigest: (await envelope(b)).payloadDigest,
++    });
++    expect((await run(env, `/social/workflows/occurrences/zz?ownerKey=${owner}`)).body).toEqual({
++      ownerKey: owner,
++      occurrenceId: "zz",
++      state: "absent",
++    });
++    nsOf(env).db.exec(`INSERT INTO tombstones VALUES ('old', '${"a".repeat(64)}', 0)`);
++    expect((await run(env, `/social/workflows/occurrences/old?ownerKey=${owner}`)).body).toEqual({
++      ownerKey: owner,
++      occurrenceId: "old",
++      state: "pruned",
++      payloadDigest: "a".repeat(64),
++      prunedAt: new Date(0).toISOString(),
++    });
++    expect(
++      await run(env, `/social/workflows/occurrences/m1?ownerKey=${"wfo_" + "3".repeat(32)}`),
++    ).toMatchObject({ status: 409, body: { error: "authority_mismatch" } });
++  });
++
++  it("feed pages via the route; cancel pending / running; ack exact, future, nonterminal, absent, pruned", async () => {
++    const { env, owner } = await ready();
++    for (const id of ["m1", "m2", "m3"])
++      await post(env, "/social/workflows/occurrences", await envelope(body(owner, { id })));
++    const p1 = await run(env, `/social/workflows/changes?ownerKey=${owner}&after=0&limit=2`);
++    expect(p1.body).toMatchObject({ ownerKey: owner, nextAfter: 2, more: true });
++    expect(p1.body.items.map((i: A) => i.occurrenceId)).toEqual(["m1", "m2"]);
++    const p2 = await run(env, `/social/workflows/changes?ownerKey=${owner}&after=2`);
++    expect(p2.body).toMatchObject({ nextAfter: 3, more: false });
++    expect(
++      await post(env, "/social/workflows/occurrences/m3/cancel", { ownerKey: owner }),
++    ).toMatchObject({ status: 200, body: { cancelled: true, occurrence: { state: "cancelled" } } });
++    expect(
++      await post(env, "/social/workflows/occurrences/m1/ack", {
++        ownerKey: owner,
++        receiptVersion: 1,
++      }),
++    ).toMatchObject({
++      status: 409,
++      body: { error: "not_terminal", ownerKey: owner, occurrenceId: "m1", state: "pending" },
++    });
++    const done = await drain(env, owner, "m1");
++    const v = done.occurrence.receiptVersion;
++    expect(
++      await post(env, "/social/workflows/occurrences/m1/ack", {
++        ownerKey: owner,
++        receiptVersion: v + 1,
++      }),
++    ).toMatchObject({ status: 409, body: { error: "future_version", receiptVersion: v } });
++    const a = await post(env, "/social/workflows/occurrences/m1/ack", {
++      ownerKey: owner,
++      receiptVersion: v,
++    });
++    expect(a).toMatchObject({
++      status: 200,
++      body: {
++        ownerKey: owner,
++        occurrenceId: "m1",
++        acknowledged: true,
++        ackedVersion: v,
++        firstAckAt: NOW.toISOString(),
++      },
++    });
++    expect(
++      await post(env, "/social/workflows/occurrences/zz/ack", {
++        ownerKey: owner,
++        receiptVersion: 1,
++      }),
++    ).toMatchObject({
++      status: 404,
++      body: { error: "absent", ownerKey: owner, occurrenceId: "zz" },
++    });
++    nsOf(env).db.exec(`INSERT INTO tombstones VALUES ('old', '${"a".repeat(64)}', 0)`);
++    expect(
++      await post(env, "/social/workflows/occurrences/old/ack", {
++        ownerKey: owner,
++        receiptVersion: 1,
++      }),
++    ).toMatchObject({ status: 410, body: { error: "pruned", occurrenceId: "old" } });
++    // Running → 409 running.
++    await post(
++      env,
++      "/social/workflows/occurrences",
++      await envelope(
++        body(owner, {
++          id: "m4",
++          actions: [
++            { id: "a1", kind: "idea", text: { ar: "", en: "x" } },
++            { id: "a2", kind: "idea", text: { ar: "", en: "y" } },
++          ],
++        }),
++      ),
++    );
++    const ns = nsOf(env);
++    const st = (await run(env, `/social/workflows/occurrences/m4?ownerKey=${owner}`)).body
++      .occurrence;
++    await ns.get(ns.idFromName(WORKFLOW_OBJECT)).fetch("https://c/", {
++      method: "POST",
++      body: JSON.stringify({
++        op: "commitStep",
++        ownerKey: owner,
++        occurrenceId: "m4",
++        idx: 0,
++        receiptVersion: 1,
++        payloadDigest: st.payloadDigest,
++        output: builder({ body: st.body, action: st.body.snapshot.actions[0] }),
++        now: NOW.getTime(),
++      }),
++    });
++    expect(
++      await post(env, "/social/workflows/occurrences/m4/cancel", { ownerKey: owner }),
++    ).toMatchObject({ status: 409, body: { error: "running", occurrenceId: "m4" } });
++  });
++});
++
++describe("strict typed answers (mixed envelopes and foreign proof refused)", () => {
++  it("a coordinator answer mixing error and proof, another ownerKey or another occurrence → 503", async () => {
++    const { env, owner } = await ready();
++    await post(env, "/social/workflows/occurrences", await envelope(body(owner)));
++    const ns = nsOf(env);
++    const status = () => run(env, `/social/workflows/occurrences/m1?ownerKey=${owner}`);
++    for (const tamper of [
++      (_c: A, a: A) => ({ ...a, error: "conflict" }),
++      (_c: A, a: A) => ({ ...a, ownerKey: "wfo_" + "4".repeat(32) }),
++      (_c: A, a: A) => ({ ...a, occurrence: { ...a.occurrence, occurrenceId: "m2" } }),
++      (_c: A, a: A) => ({ ...a, occurrence: { ...a.occurrence, receiptVersion: 0 } }),
++      (_c: A, a: A) => ({ ...a, occurrence: { ...a.occurrence, extra: true } }),
++      (_c: A, a: A) => ({
++        ...a,
++        occurrence: {
++          ...a.occurrence,
++          body: { ...a.occurrence.body, ownerKey: "wfo_" + "5".repeat(32) },
++        },
++      }),
++      () => ({ error: "conflict", occurrence: {} }),
++      () => ({ error: "teapot" }),
++      () => [],
++    ]) {
++      ns.tamper = tamper;
++      expect(await status()).toMatchObject({ status: 503, body: { error: "receipt_unavailable" } });
++    }
++    ns.tamper = (_c, a) => ({ ...a, items: [{ occurrenceId: "m1" }] });
++    expect((await run(env, `/social/workflows/changes?ownerKey=${owner}&after=0`)).status).toBe(
++      503,
++    );
++    ns.tamper = (_c, a) => ({ ...a, nextAfter: 99 });
++    expect((await run(env, `/social/workflows/changes?ownerKey=${owner}&after=0`)).status).toBe(
++      503,
++    );
++    ns.tamper = undefined;
++    expect((await status()).status).toBe(200);
++  });
++});
+diff -ruN a/workers/scout/src/social/workflowRoutes.ts b/workers/scout/src/social/workflowRoutes.ts
+--- a/workers/scout/src/social/workflowRoutes.ts	1970-01-01 03:00:00.000000000 +0300
++++ b/workers/scout/src/social/workflowRoutes.ts	2026-10-17 23:24:12.909883800 +0300
+@@ -0,0 +1,648 @@
++/**
++ * ⚙️ Cloud workflow routes (packet DT-7B, planning/tools/38-cloud-workflows.md): the authenticated surface of the
++ * WorkflowCoordinator. scout.ts has already checked the origin and the bearer (as for every /social/* route).
++ *
++ *   GET  /social/workflows/authority                                   → { ownerKey }
++ *   POST /social/workflows/registrations          { ownerKey, workflowId, expectedEpoch, revision, workflowDigest }
++ *   POST /social/workflows/registrations/:id      { ownerKey, registrationEpoch, expectedRevision, revision,
++ *                                                   workflowDigest }   (the update; POST, since the Worker's CORS
++ *                                                   answer allows GET, POST, DELETE only)
++ *   POST /social/workflows/registrations/:id/{pause,resume,unregister} { ownerKey, registrationEpoch, expectedRevision }
++ *   POST /social/workflows/occurrences            { body, payloadDigest }   (the ownerKey is inside the body)
++ *   GET  /social/workflows/occurrences/:id?ownerKey=                   → full receipt | absent | pruned
++ *   POST /social/workflows/occurrences/:id/cancel { ownerKey }
++ *   POST /social/workflows/occurrences/:id/ack    { ownerKey, receiptVersion }
++ *   GET  /social/workflows/changes?ownerKey=&after=&limit=             → { ownerKey, items, nextAfter, more }
++ *
++ * Requests: a 32 KiB streaming budget (413 too_large before any coordinator call), exact key sets, strict query
++ * strings (no unknown or repeated parameter), ids `^[A-Za-z0-9_-]{1,64}$` (else unsupported_id). No route runs a
++ * step, a finish or a builder, and nothing here reads a header or field that could enable one.
++ * Answers: every success echoes the ownerKey and the addressed id, and is checked against a strict typed shape;
++ * coordinator refusals pass only as pure envelopes of their known fields (the ownerKey added once the coordinator
++ * has accepted it). Anything else — an error mixed with proof, another ownerKey, another occurrence, a malformed
++ * receipt or page — is 503 receipt_unavailable. The object is always WORKFLOW_OBJECT (server-selected).
++ */
++
++import { readCapped } from "./instagramPublicSend";
++import { type OccurrenceReceipt, WORKFLOW_OBJECT, CHANGES_LIMIT_MAX } from "./workflowCoordinator";
++import {
++  canonicalJson,
++  DIGEST_RE,
++  exactKeys,
++  fits,
++  isCount,
++  isIso,
++  isObj,
++  isVersion,
++  OWNER_KEY_RE,
++  REQUEST_BYTES_MAX,
++  validOutput,
++  WF_ID_RE,
++  type Obj,
++  type OccurrenceBody,
++} from "./workflowProtocol";
++
++export interface WorkflowReply {
++  json(body: unknown, status: number): Response;
++}
++
++export type WorkflowError =
++  | "bad_request"
++  | "unsupported_id"
++  | "too_large"
++  | "digest_mismatch"
++  | "authority_mismatch"
++  | "conflict"
++  | "not_registered"
++  | "unknown_epoch"
++  | "registration_behind"
++  | "capacity"
++  | "pruned"
++  | "absent"
++  | "running"
++  | "not_terminal"
++  | "future_version"
++  | "not_configured"
++  | "receipt_unavailable"
++  | "method_not_allowed";
++
++const STATUS: Record<WorkflowError, number> = {
++  bad_request: 400,
++  unsupported_id: 400,
++  too_large: 413,
++  digest_mismatch: 400,
++  authority_mismatch: 409,
++  conflict: 409,
++  not_registered: 409,
++  unknown_epoch: 409,
++  registration_behind: 409,
++  capacity: 409,
++  pruned: 409,
++  absent: 404,
++  running: 409,
++  not_terminal: 409,
++  future_version: 409,
++  not_configured: 503,
++  receipt_unavailable: 503,
++  method_not_allowed: 405,
++};
++
++/** Coordinator refusals: their exact extra fields. Errors before the authority check carry nothing more. */
++const PURE = new Set(["bad_request", "unsupported_id", "too_large", "authority_mismatch"]);
++const REFUSAL_FIELDS: Record<string, readonly string[]> = {
++  bad_request: [],
++  unsupported_id: [],
++  too_large: [],
++  authority_mismatch: [],
++  digest_mismatch: [],
++  capacity: [],
++  conflict: [],
++  not_registered: ["workflowId"],
++  unknown_epoch: ["workflowId"],
++  registration_behind: ["workflowId"],
++  pruned: ["occurrenceId", "payloadDigest", "prunedAt"],
++  absent: ["occurrenceId"],
++  running: ["occurrenceId"],
++  not_terminal: ["occurrenceId", "state", "receiptVersion"],
++  future_version: ["occurrenceId", "receiptVersion"],
++};
++
++type Kind =
++  | "authority"
++  | "register"
++  | "update"
++  | "pause"
++  | "resume"
++  | "unregister"
++  | "submit"
++  | "status"
++  | "cancel"
++  | "ack"
++  | "changes";
++
++function kindOf(rest: string[]): { kind: Kind; id?: string } | null {
++  const [family, id, verb, extra] = rest;
++  if (extra !== undefined) return null;
++  if (family === "authority" && id === undefined) return { kind: "authority" };
++  if (family === "changes" && id === undefined) return { kind: "changes" };
++  if (family === "registrations") {
++    if (id === undefined) return { kind: "register" };
++    if (verb === undefined) return { kind: "update", id };
++    return verb === "pause" || verb === "resume" || verb === "unregister"
++      ? { kind: verb, id }
++      : null;
++  }
++  if (family === "occurrences") {
++    if (id === undefined) return { kind: "submit" };
++    if (verb === undefined) return { kind: "status", id };
++    return verb === "cancel" || verb === "ack" ? { kind: verb, id } : null;
++  }
++  return null;
++}
++
++const GET: ReadonlySet<Kind> = new Set(["authority", "status", "changes"]);
++/** Exact request keys of each POST. */
++const KEYS: Partial<Record<Kind, readonly string[]>> = {
++  register: ["ownerKey", "workflowId", "expectedEpoch", "revision", "workflowDigest"],
++  update: ["ownerKey", "registrationEpoch", "expectedRevision", "revision", "workflowDigest"],
++  pause: ["ownerKey", "registrationEpoch", "expectedRevision"],
++  resume: ["ownerKey", "registrationEpoch", "expectedRevision"],
++  unregister: ["ownerKey", "registrationEpoch", "expectedRevision"],
++  submit: ["body", "payloadDigest"],
++  cancel: ["ownerKey"],
++  ack: ["ownerKey", "receiptVersion"],
++};
++/** Exact query parameters of each GET (required, optional). */
++const QUERY: Partial<Record<Kind, [readonly string[], readonly string[]]>> = {
++  authority: [[], []],
++  status: [["ownerKey"], []],
++  changes: [["ownerKey", "after"], ["limit"]],
++};
++
++class Refused extends Error {
++  constructor(readonly code: WorkflowError) {
++    super(code);
++  }
++}
++
++async function readBody(req: Request): Promise<Obj> {
++  let text: string | null;
++  try {
++    text = await readCapped(req.body, REQUEST_BYTES_MAX);
++  } catch {
++    throw new Refused("bad_request");
++  }
++  if (text === null) throw new Refused("too_large");
++  try {
++    const v = JSON.parse(text) as unknown;
++    if (isObj(v)) return v;
++  } catch {
++    /* refused below */
++  }
++  throw new Refused("bad_request");
++}
++
++function readQuery(url: URL, required: readonly string[], optional: readonly string[]): Obj {
++  const out: Obj = {};
++  for (const [k, v] of url.searchParams) {
++    if ((!required.includes(k) && !optional.includes(k)) || k in out)
++      throw new Refused("bad_request");
++    out[k] = v;
++  }
++  if (!required.every((k) => k in out)) throw new Refused("bad_request");
++  return out;
++}
++
++const INT_RE = /^(0|[1-9]\d{0,14})$/;
++const need = (ok: boolean) => {
++  if (!ok) throw new Refused("bad_request");
++};
++const needId = (v: unknown) => {
++  need(typeof v === "string");
++  if (!WF_ID_RE.test(v as string)) throw new Refused("unsupported_id");
++};
++const isOwner = (v: unknown): v is string => fits(v, OWNER_KEY_RE);
++const isDigest = (v: unknown): v is string => fits(v, DIGEST_RE);
++
++/* ---------- answer shapes ---------- */
++
++const STATES = new Set(["pending", "running", "done", "partial", "failed", "cancelled"]);
++const TERMINAL = new Set(["done", "partial", "failed", "cancelled"]);
++const STEP_STATUS = new Set(["pending", "done", "failed", "skipped"]);
++
++function validRegistration(r: unknown, workflowId: string): boolean {
++  if (!isObj(r)) return false;
++  return (
++    exactKeys(r, [
++      "workflowId",
++      "registrationEpoch",
++      "revision",
++      "workflowDigest",
++      "state",
++      "paused",
++      "updatedAt",
++      "epochs",
++    ]) &&
++    r.workflowId === workflowId &&
++    isVersion(r.registrationEpoch) &&
++    isVersion(r.revision) &&
++    isDigest(r.workflowDigest) &&
++    (r.state === "active" || r.state === "unregistered") &&
++    typeof r.paused === "boolean" &&
++    isIso(r.updatedAt) &&
++    Array.isArray(r.epochs) &&
++    r.epochs.length === r.registrationEpoch &&
++    r.epochs.every(
++      (e: unknown, n: number) =>
++        isObj(e) &&
++        exactKeys(e, ["epoch", "openedAt"], ["closedAt"]) &&
++        e.epoch === n + 1 &&
++        isIso(e.openedAt) &&
++        (e.closedAt === undefined || isIso(e.closedAt)),
++    )
++  );
++}
++
++function validSteps(steps: unknown, body: OccurrenceBody): boolean {
++  return (
++    Array.isArray(steps) &&
++    steps.length === body.snapshot.actions.length &&
++    steps.every((s: unknown, idx: number) => {
++      if (!isObj(s)) return false;
++      const a = body.snapshot.actions[idx];
++      if (
++        !exactKeys(
++          s,
++          ["idx", "actionId", "kind", "status"],
++          ["outputId", "outputDigest", "error", "at"],
++        ) ||
++        s.idx !== idx ||
++        s.actionId !== a.id ||
++        s.kind !== a.kind ||
++        !STEP_STATUS.has(s.status as string) ||
++        (s.at !== undefined && !isIso(s.at))
++      )
++        return false;
++      if (s.status === "done")
++        return (
++          s.outputId === `wf:${body.occurrenceId}:${a.id}` &&
++          isDigest(s.outputDigest) &&
++          s.error === undefined
++        );
++      if (s.status === "failed") return typeof s.error === "string" && s.outputId === undefined;
++      return s.outputId === undefined && s.outputDigest === undefined && s.error === undefined;
++    })
++  );
++}
++
++function validOutputs(outputs: unknown, steps: Obj[], body: OccurrenceBody): boolean {
++  const done = steps.filter((s) => s.status === "done");
++  return (
++    Array.isArray(outputs) &&
++    outputs.length === done.length &&
++    outputs.every((o: unknown, n: number) => {
++      const s = done[n];
++      return (
++        isObj(o) &&
++        exactKeys(o, ["outputId", "actionId", "kind", "digest", "record"]) &&
++        o.outputId === s.outputId &&
++        o.actionId === s.actionId &&
++        o.kind === s.kind &&
++        o.digest === s.outputDigest &&
++        validOutput(o.record, body, s.idx as number)
++      );
++    })
++  );
++}
++
++/** A full receipt of `occurrenceId` under `ownerKey`, with its exact step/output proof. */
++export function validReceipt(
++  o: unknown,
++  ownerKey: string,
++  occurrenceId: string,
++): o is OccurrenceReceipt {
++  if (!isObj(o)) return false;
++  const terminal = TERMINAL.has(o.state as string);
++  if (
++    !exactKeys(
++      o,
++      [
++        "occurrenceId",
++        "workflowId",
++        "kind",
++        "registrationEpoch",
++        "revision",
++        "body",
++        "payloadDigest",
++        "state",
++        "receiptVersion",
++        "changeSeq",
++        "createdAt",
++        "updatedAt",
++        "ackedVersion",
++        "steps",
++        "outputs",
++      ],
++      ["startedAt", "finishedAt", "firstAckAt", "purgeAt"],
++    ) ||
++    o.occurrenceId !== occurrenceId ||
++    !STATES.has(o.state as string) ||
++    !isVersion(o.receiptVersion) ||
++    !isVersion(o.changeSeq) ||
++    !isDigest(o.payloadDigest) ||
++    !isIso(o.createdAt) ||
++    !isIso(o.updatedAt) ||
++    !isCount(o.ackedVersion) ||
++    (o.ackedVersion as number) > (o.receiptVersion as number) ||
++    (o.startedAt !== undefined && !isIso(o.startedAt)) ||
++    (o.firstAckAt !== undefined && !isIso(o.firstAckAt)) ||
++    terminal !== (isIso(o.finishedAt) && isIso(o.purgeAt)) ||
++    (!terminal &&
++      (o.finishedAt !== undefined || o.purgeAt !== undefined || o.firstAckAt !== undefined))
++  )
++    return false;
++  const b = o.body;
++  if (
++    !isObj(b) ||
++    b.ownerKey !== ownerKey ||
++    b.occurrenceId !== occurrenceId ||
++    b.workflowId !== o.workflowId ||
++    b.kind !== o.kind ||
++    b.registrationEpoch !== o.registrationEpoch ||
++    b.revision !== o.revision ||
++    !isIso(b.executionAt) ||
++    !isObj(b.snapshot) ||
++    !Array.isArray((b.snapshot as Obj).actions)
++  )
++    return false;
++  const body = b as unknown as OccurrenceBody;
++  try {
++    return validSteps(o.steps, body) && validOutputs(o.outputs, o.steps as Obj[], body);
++  } catch {
++    return false;
++  }
++}
++
++function validFeed(x: Obj, ownerKey: string, after: number, limit: number): boolean {
++  if (!exactKeys(x, ["ownerKey", "items", "nextAfter", "more"]) || x.ownerKey !== ownerKey)
++    return false;
++  if (!Array.isArray(x.items) || x.items.length > limit || typeof x.more !== "boolean")
++    return false;
++  let seq = after;
++  for (const i of x.items as unknown[]) {
++    if (
++      !isObj(i) ||
++      !exactKeys(
++        i,
++        [
++          "occurrenceId",
++          "workflowId",
++          "changeSeq",
++          "state",
++          "receiptVersion",
++          "payloadDigest",
++          "steps",
++        ],
++        ["outputs"],
++      ) ||
++      !fits(i.occurrenceId, WF_ID_RE) ||
++      !fits(i.workflowId, WF_ID_RE) ||
++      !isVersion(i.changeSeq) ||
++      (i.changeSeq as number) <= seq ||
++      !STATES.has(i.state as string) ||
++      !isVersion(i.receiptVersion) ||
++      !isDigest(i.payloadDigest) ||
++      !Array.isArray(i.steps) ||
++      TERMINAL.has(i.state as string) !== Array.isArray(i.outputs)
++    )
++      return false;
++    seq = i.changeSeq as number;
++  }
++  // The precise cursor rule: the last returned seq, or `after` itself when nothing was returned.
++  return x.nextAfter === seq && (x.items.length > 0 || x.more === false);
++}
++
++/* ---------- the handler ---------- */
++
++async function coordinate(ns: DurableObjectNamespace, call: Obj): Promise<Obj> {
++  try {
++    const stub = ns.get(ns.idFromName(WORKFLOW_OBJECT));
++    const res = await stub.fetch("https://workflow-coordinator/", {
++      method: "POST",
++      body: JSON.stringify(call),
++    });
++    if (!res.ok) throw new Refused("receipt_unavailable");
++    const v = (await res.json()) as unknown;
++    if (!isObj(v)) throw new Refused("receipt_unavailable");
++    return v;
++  } catch {
++    throw new Refused("receipt_unavailable");
++  }
++}
++
++/** `/social/workflows/*`; `rest` is the path after "workflows". Answers null when the path is not ours. */
++export async function handleWorkflows(
++  req: Request,
++  rest: string[],
++  deps: { coordinator: DurableObjectNamespace | undefined; now: () => Date },
++  reply: WorkflowReply,
++): Promise<Response | null> {
++  const route = kindOf(rest);
++  if (!route) return null;
++  const { kind, id } = route;
++  const fail = (error: WorkflowError, more: Obj = {}) =>
++    reply.json({ error, ...more }, STATUS[error]);
++  if (req.method !== (GET.has(kind) ? "GET" : "POST")) return fail("method_not_allowed");
++  if (!deps.coordinator) return fail("not_configured", { detail: "workflow-store" });
++  const ns = deps.coordinator;
++  const now = () => deps.now().getTime();
++
++  try {
++    if (id !== undefined) needId(id);
++    const url = new URL(req.url);
++    let input: Obj;
++    if (GET.has(kind)) {
++      const [required, optional] = QUERY[kind]!;
++      input = readQuery(url, required, optional);
++    } else {
++      input = await readBody(req);
++      need(exactKeys(input, KEYS[kind]!));
++    }
++
++    // The submitted ids (submit/register), bound into refusals and receipts.
++    let bodyId: string | undefined;
++    let bodyWorkflow: string | undefined;
++    /** A coordinator answer: a pure known refusal (bound to this request) or the validated success. */
++    const answer = (x: Obj, ok: (x: Obj) => boolean, owner: string, status = 200) => {
++      if ("error" in x) {
++        const e = x.error;
++        const fields = typeof e === "string" ? REFUSAL_FIELDS[e] : undefined;
++        if (!fields) return fail("receipt_unavailable");
++        const extra = Object.keys(x).filter((k) => k !== "error");
++        // conflict carries the addressed id or the current registration; every other refusal its exact fields.
++        const conflictKeys = kind === "submit" ? ["occurrenceId"] : ["registration"];
++        const allowed = e === "conflict" ? conflictKeys : fields;
++        if (!extra.every((k) => allowed.includes(k)) || !allowed.every((k) => k in x))
++          return fail("receipt_unavailable");
++        if (x.occurrenceId !== undefined && x.occurrenceId !== (id ?? bodyId))
++          return fail("receipt_unavailable");
++        if (x.workflowId !== undefined && x.workflowId !== (id ?? bodyWorkflow))
++          return fail("receipt_unavailable");
++        if (
++          x.registration !== undefined &&
++          x.registration !== null &&
++          !validRegistration(x.registration, (id ?? bodyWorkflow) as string)
++        )
++          return fail("receipt_unavailable");
++        const code = e as WorkflowError;
++        const { error: _e, ...rest } = x;
++        void _e;
++        if (PURE.has(code)) return fail(code);
++        // A pruned id answers 410 on cancel/ack (its row is gone), 409 on submit (never reusable).
++        const status = code === "pruned" && kind !== "submit" ? 410 : STATUS[code];
++        return reply.json({ error: code, ownerKey: owner, ...rest }, status);
++      }
++      return ok(x) ? reply.json(x, status) : fail("receipt_unavailable");
++    };
++
++    if (kind === "authority") {
++      const x = await coordinate(ns, { op: "authority", now: now() });
++      return exactKeys(x, ["ownerKey"]) && isOwner(x.ownerKey)
++        ? reply.json(x, 200)
++        : fail("receipt_unavailable");
++    }
++
++    if (kind === "submit") {
++      need(isObj(input.body) && isDigest(input.payloadDigest));
++      const b = input.body as Obj;
++      if (typeof b.occurrenceId === "string") bodyId = b.occurrenceId;
++      if (typeof b.workflowId === "string") bodyWorkflow = b.workflowId;
++      const owner = typeof b.ownerKey === "string" ? b.ownerKey : "";
++      const x = await coordinate(ns, {
++        op: "submit",
++        body: b,
++        payloadDigest: input.payloadDigest,
++        now: now(),
++      });
++      const created = x.created === true;
++      return answer(
++        x,
++        (y) =>
++          exactKeys(y, ["ownerKey", "occurrence", "created"]) &&
++          y.ownerKey === owner &&
++          typeof y.created === "boolean" &&
++          validReceipt(y.occurrence, owner, bodyId!) &&
++          // The exact accepted body and the digest the caller computed.
++          canonicalJson((y.occurrence as unknown as Obj).body) === canonicalJson(b) &&
++          (y.occurrence as unknown as Obj).payloadDigest === input.payloadDigest,
++        owner,
++        created ? 201 : 200,
++      );
++    }
++
++    // Every other route names the authority it expects.
++    need(isOwner(input.ownerKey));
++    const owner = input.ownerKey as string;
++
++    if (kind === "register") {
++      needId(input.workflowId);
++      need(
++        isCount(input.expectedEpoch) && isVersion(input.revision) && isDigest(input.workflowDigest),
++      );
++      bodyWorkflow = input.workflowId as string;
++      const x = await coordinate(ns, { op: "register", ...input, now: now() });
++      return answer(
++        x,
++        (y) =>
++          exactKeys(y, ["ownerKey", "registration", "created"]) &&
++          y.ownerKey === owner &&
++          typeof y.created === "boolean" &&
++          validRegistration(y.registration, bodyWorkflow!),
++        owner,
++      );
++    }
++    if (kind === "update" || kind === "pause" || kind === "resume" || kind === "unregister") {
++      need(isVersion(input.registrationEpoch) && isCount(input.expectedRevision));
++      if (kind === "update") need(isVersion(input.revision) && isDigest(input.workflowDigest));
++      const x = await coordinate(ns, { op: kind, ...input, workflowId: id, now: now() });
++      return answer(
++        x,
++        (y) =>
++          exactKeys(y, ["ownerKey", "registration", "changed"]) &&
++          y.ownerKey === owner &&
++          typeof y.changed === "boolean" &&
++          validRegistration(y.registration, id!),
++        owner,
++      );
++    }
++    if (kind === "status") {
++      const x = await coordinate(ns, {
++        op: "status",
++        ownerKey: owner,
++        occurrenceId: id,
++        now: now(),
++      });
++      return answer(
++        x,
++        (y) =>
++          y.ownerKey === owner &&
++          (exactKeys(y, ["ownerKey", "occurrence"])
++            ? validReceipt(y.occurrence, owner, id!)
++            : y.state === "absent"
++              ? exactKeys(y, ["ownerKey", "occurrenceId", "state"]) && y.occurrenceId === id
++              : y.state === "pruned" &&
++                exactKeys(y, ["ownerKey", "occurrenceId", "state", "payloadDigest", "prunedAt"]) &&
++                y.occurrenceId === id &&
++                isDigest(y.payloadDigest) &&
++                isIso(y.prunedAt)),
++        owner,
++      );
++    }
++    if (kind === "cancel") {
++      const x = await coordinate(ns, {
++        op: "cancel",
++        ownerKey: owner,
++        occurrenceId: id,
++        now: now(),
++      });
++      return answer(
++        x,
++        (y) =>
++          exactKeys(y, ["ownerKey", "occurrence", "cancelled"]) &&
++          y.ownerKey === owner &&
++          typeof y.cancelled === "boolean" &&
++          validReceipt(y.occurrence, owner, id!),
++        owner,
++      );
++    }
++    if (kind === "ack") {
++      need(isVersion(input.receiptVersion));
++      const v = input.receiptVersion as number;
++      const x = await coordinate(ns, {
++        op: "ack",
++        ownerKey: owner,
++        occurrenceId: id,
++        receiptVersion: v,
++        now: now(),
++      });
++      return answer(
++        x,
++        (y) =>
++          exactKeys(
++            y,
++            [
++              "ownerKey",
++              "occurrenceId",
++              "acknowledged",
++              "receiptVersion",
++              "ackedVersion",
++              "purgeAt",
++            ],
++            ["firstAckAt"],
++          ) &&
++          y.ownerKey === owner &&
++          y.occurrenceId === id &&
++          typeof y.acknowledged === "boolean" &&
++          isVersion(y.receiptVersion) &&
++          isCount(y.ackedVersion) &&
++          isIso(y.purgeAt) &&
++          (y.firstAckAt === undefined || isIso(y.firstAckAt)) &&
++          // Proof only for the exact version asked; a lower one proves nothing new.
++          (y.acknowledged
++            ? y.receiptVersion === v && y.ackedVersion === v && isIso(y.firstAckAt)
++            : v < (y.receiptVersion as number)),
++        owner,
++      );
++    }
++    // changes
++    need(fits(input.after, INT_RE) && (input.limit === undefined || fits(input.limit, INT_RE)));
++    const after = Number(input.after);
++    const limit = input.limit === undefined ? CHANGES_LIMIT_MAX : Number(input.limit);
++    need(Number.isSafeInteger(after) && limit >= 1 && limit <= CHANGES_LIMIT_MAX);
++    const x = await coordinate(ns, { op: "changes", ownerKey: owner, after, limit, now: now() });
++    return answer(x, (y) => validFeed(y, owner, after, limit), owner);
++  } catch (e) {
++    if (e instanceof Refused) return fail(e.code);
++    return fail("receipt_unavailable");
++  }
++}
+diff -ruN a/workers/scout/wrangler.jsonc b/workers/scout/wrangler.jsonc
+--- a/workers/scout/wrangler.jsonc	2026-10-17 23:24:12.406713500 +0300
++++ b/workers/scout/wrangler.jsonc	2026-10-17 23:24:12.429531300 +0300
+@@ -73,6 +73,9 @@
+         "class_name": "InstagramPublicSendCoordinator",
+       },
+       { "name": "INSTAGRAM_DM_COORDINATOR", "class_name": "InstagramDmCoordinator" },
++      // DT-7B (src/social/workflowCoordinator.ts): the cloud-workflow foundation, one server-selected object. Local
++      // only, unactivated: never provisioned or deployed, no cron, no browser wiring.
++      { "name": "WORKFLOW_COORDINATOR", "class_name": "WorkflowCoordinator" },
+     ],
+   },
+   "migrations": [
+@@ -80,6 +83,7 @@
+     { "tag": "v2-threads-send", "new_sqlite_classes": ["ThreadsSendCoordinator"] },
+     { "tag": "v3-instagram-public-send", "new_sqlite_classes": ["InstagramPublicSendCoordinator"] },
+     { "tag": "v4-instagram-dm", "new_sqlite_classes": ["InstagramDmCoordinator"] },
++    { "tag": "v5-workflows", "new_sqlite_classes": ["WorkflowCoordinator"] },
+   ],
+   // One trigger every minute: the auto replies poll Instagram comments and DMs. On the five-minute grid the
+   // auto-post queue publishes what is due (the replies poll after it when it moved nothing), the

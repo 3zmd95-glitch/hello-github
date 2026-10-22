@@ -31,6 +31,7 @@ import {
   captionFor,
   canPublishTo,
   jobActive,
+  jobClaim,
   manualComposeUrl,
   pendingManualPlatforms,
   needsTikTokFinish,
@@ -43,6 +44,7 @@ import {
 import { PLATFORM_META } from "@/lib/social";
 import { accountState, isSocialPlatform, SOCIAL_PLATFORMS } from "@/lib/socialSync";
 import { useStore } from "@/store";
+import { JobNotice } from "./calendar/AutoPostTab";
 import { formatInstant } from "./calendar/dates";
 import TikTokFinishCard from "./calendar/TikTokFinishCard";
 import { calendarPostHref } from "./studio/platform";
@@ -81,6 +83,8 @@ export default function AutoPostScreen() {
   const mark = useCallback((id: string, url: string) => void markPosted(id, url), [markPosted]);
 
   const sent = posts.filter((p) => p.autoPost?.sentAt);
+  // DT-5-R1 R4: allocated ids the Worker never confirmed (lost create reply): listed until confirmed or discarded.
+  const unconfirmed = posts.filter((p) => p.autoPost?.jobId && !p.autoPost.sentAt);
   const upcoming = sent
     .filter((p) => autoPostActive(p.autoPost))
     .sort((a, b) => (at(a) < at(b) ? -1 : 1));
@@ -236,6 +240,19 @@ export default function AutoPostScreen() {
           upcoming.map((p) => <JobRow key={p.id} post={p} />)
         )}
       </ListGroup>
+
+      {unconfirmed.length > 0 && (
+        <Group header={t("publish.unconfirmed.title")} testId="autopost-unconfirmed-list">
+          {unconfirmed.map((p) => (
+            <li key={p.id} className="ios-row ap-row" data-post={p.id}>
+              <QueueHead post={p} />
+              <div className="ap-sub">
+                <JobNotice post={p} />
+              </div>
+            </li>
+          ))}
+        </Group>
+      )}
 
       {manual.length > 0 && (
         <Group
@@ -419,6 +436,10 @@ function JobRow({ post }: { post: Post }) {
  */
 function RemoteJobRow({ job }: { job: WorkerJob }) {
   const { t, lang } = useT();
+  const posts = useStore((s) => s.posts);
+  // DT-5-R1 R3: a job two local posts remember stays here, with its claimants named; nothing is marked posted.
+  const claim = jobClaim(job.id, posts);
+  const claimants = claim && "conflict" in claim ? claim.conflict : null;
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<MessageKey | null>(null);
@@ -474,6 +495,18 @@ function RemoteJobRow({ job }: { job: WorkerJob }) {
         </button>
       </div>
       <NetworkStates platforms={platforms} results={job.results} />
+      {claimants && (
+        <p
+          className="ap-sub text-danger text-[13px] font-semibold"
+          role="alert"
+          data-testid="autopost-remote-conflict"
+        >
+          {t("publish.conflict", {
+            n: claimants.length,
+            names: claimants.map((p) => p.title).join(" · "),
+          })}
+        </p>
+      )}
       {job.results.tiktok?.inbox && job.results.tiktok.state === "published" && (
         <p className="ap-sub text-[13px] font-semibold">
           {t("publish.tt.finishSteps")}{" "}

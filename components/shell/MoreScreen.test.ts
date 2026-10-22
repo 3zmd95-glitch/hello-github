@@ -56,11 +56,24 @@ describe("Social More", () => {
       "more-website",
       "more-business",
       "more-automations",
+      "more-workflows",
       "more-replies",
+      "more-inbox",
       "more-discover",
+      "more-tools",
       "more-settings",
       "more-training",
     ]);
+  });
+
+  it("links the Tools hub to /tools with the tab bar's word, in both languages", () => {
+    mount("social");
+    const tools = entry("more-tools")!;
+    expect(tools.getAttribute("href")).toMatch(/^\/tools\/?$/);
+    expect(tools.textContent).toBe("الأدوات");
+    expect(tools.querySelector(".ios-chip")).toBeNull();
+    mount("social", "en");
+    expect(entry("more-tools")!.textContent).toBe("Tools");
   });
 
   it("links Discover to /discover with the name it has in Training, in both languages", () => {
@@ -68,9 +81,16 @@ describe("Social More", () => {
     const discover = entry("more-discover")!;
     expect(discover.getAttribute("href")).toMatch(/^\/discover\/?$/);
     expect(discover.textContent).toBe("اكتشف");
-    // Discover is built: no "soon" chip on it (Website and Business keep theirs).
+    // Discover is built: no "soon" chip on it. Website (packet DT-3) and Business (packet DT-5) are built too.
     expect(discover.querySelector(".ios-chip")).toBeNull();
-    expect(entry("more-website")!.querySelector(".ios-chip")!.textContent).toBe("قريب");
+    expect(entry("more-website")!.querySelector(".ios-chip")).toBeNull();
+    expect(entry("more-business")!.querySelector(".ios-chip")).toBeNull();
+    expect(entry("more-business")!.getAttribute("href")).toMatch(/^\/social\/business\/?$/);
+    expect(entry("more-business")!.textContent).toBe("البزنس");
+    // Inbox (packet DT-6A) is built: after Auto replies, no "soon" chip, opens /social/inbox.
+    expect(entry("more-inbox")!.querySelector(".ios-chip")).toBeNull();
+    expect(entry("more-inbox")!.getAttribute("href")).toMatch(/^\/social\/inbox\/?$/);
+    expect(entry("more-inbox")!.textContent).toBe("صندوق المحادثات");
 
     mount("social", "en");
     expect(entry("more-discover")!.textContent).toBe("Discover");
@@ -80,6 +100,11 @@ describe("Social More", () => {
     mount("social");
     expect(entry("more-replies")!.textContent).toBe("الردود التلقائية");
     expect(entry("more-automations")!.textContent).toBe("النشر التلقائي");
+    // Workflows (packet DT-4): built, after Auto-posting, no "soon" chip.
+    const workflows = entry("more-workflows")!;
+    expect(workflows.getAttribute("href")).toMatch(/^\/social\/workflows\/?$/);
+    expect(workflows.textContent).toBe("الخطوات التلقائية");
+    expect(workflows.querySelector(".ios-chip")).toBeNull();
     expect(entry("more-settings")!.textContent).toBe("الإعدادات");
     const training = entry("more-training")!;
     expect(training.getAttribute("href")).toBe("/");
@@ -135,9 +160,11 @@ describe("Training More", () => {
       "more-review",
       "more-rewards",
       "more-discover",
+      "more-tools",
       "more-settings",
     ]);
     expect(entry("more-discover")!.getAttribute("href")).toMatch(/^\/discover\/?$/);
+    expect(entry("more-tools")!.getAttribute("href")).toMatch(/^\/tools\/?$/);
     // Training keeps language and sound in its top bar.
     expect(host.querySelector("section")).toBeNull();
     expect(entry("lang-en")).toBeNull();

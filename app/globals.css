@@ -3847,3 +3847,43 @@
 html {
   scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 4rem);
 }
+
+/*
+ * 💼 Business Kit print (packet DT-5): on a page that holds a print root (the media kit preview), printing shows only
+ * that root; the shell (top bars, tab bar, side nav) and the editor are hidden. Other pages print as before.
+ */
+@media print {
+  /* DT-5-R1 R7: everything that is neither the print root, inside it, nor one of its ancestors leaves the layout
+     (display, not visibility: hidden boxes kept their height and printed blank pages). */
+  body:has([data-print-root])
+    *:not([data-print-root]):not([data-print-root] *):not(:has([data-print-root])) {
+    display: none !important;
+  }
+  /* The root's ancestors (html and body included) collapse to plain blocks around it, so the page is as tall as the
+     kit and nothing else. */
+  html:has([data-print-root]),
+  body:has([data-print-root]),
+  body:has([data-print-root]) :has([data-print-root]) {
+    display: block !important;
+    position: static !important;
+    inset: auto !important;
+    width: auto !important;
+    max-width: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    overflow: visible !important;
+    transform: none !important;
+    box-shadow: none !important;
+    background: #fff !important;
+  }
+  body:has([data-print-root]) [data-print-root] {
+    position: static;
+    margin: 0;
+    box-shadow: none;
+    border: 0;
+  }
+}

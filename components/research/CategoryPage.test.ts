@@ -837,9 +837,9 @@ describe("the 🏆 top videos per platform (§6)", () => {
     expect(list.getAttribute("aria-label")).toBe("Study examples by platform");
     // TikTok's count comes with its list (Brave's, asked when the tab opens).
     expect(tabs().map((b) => [b.dataset.platform, b.textContent, b.dataset.count])).toEqual([
-      ["ig", "📷14Instagram", "14"],
-      ["tt", "♪TikTok", ""],
-      ["yt", "▶30YouTube", "30"],
+      ["ig", "14Instagram", "14"],
+      ["tt", "TikTok", ""],
+      ["yt", "30YouTube", "30"],
     ]);
     expect(tab("ig").getAttribute("aria-selected")).toBe("true");
     expect(tab("ig").tabIndex).toBe(0);
@@ -1032,7 +1032,7 @@ describe("the 🏆 top videos per platform (§6)", () => {
     page = docOf({ top: TOP });
     await mount("ar");
     expect($("category-top")!.querySelector("h3")!.textContent).toBe("مونتاج تتعلّم منه · سيارات");
-    expect(tabs().map((b) => b.textContent)).toEqual(["📷14Instagram", "♪TikTok", "▶30YouTube"]);
+    expect(tabs().map((b) => b.textContent)).toEqual(["14Instagram", "TikTok", "30YouTube"]);
     const title = items()[0].querySelector('[data-testid="result-title"]')!;
     expect(title.textContent).toBe("Top car edit 1");
     expect(title.getAttribute("dir")).toBe("auto");

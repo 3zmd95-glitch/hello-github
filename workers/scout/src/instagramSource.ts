@@ -168,6 +168,8 @@ export async function readInstagramSource(res: Response, post: string): Promise<
   if (!completed || conflictingPost || mediaPost !== post) return empty;
   description = description.trim();
   audioLabel = audioLabel.replace(/\s+/g, " ").trim();
+  // Without a sound the same header slot shows the author's follower count.
+  if (!musicUrl && /^[\d.,]+\s*[KMB]?\s+followers?$/i.test(audioLabel)) audioLabel = "";
   if (!description && !thumbnailUrl && !audioLabel) return empty;
   const separator = audioLabel.indexOf(" · ");
   const audio = audioLabel

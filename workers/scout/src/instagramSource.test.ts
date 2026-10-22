@@ -221,4 +221,11 @@ describe("authentic Instagram public source metadata", () => {
       vi.useRealTimers();
     }
   });
+  it("never reads the header's follower count as the post's sound (live 15 Oct: most embeds show it)", async () => {
+    for (const label of ["4,488 followers", "1.2M followers", "12K followers", "1 follower"]) {
+      const result = await readInstagramSource(html(embed("DdP6LgrT_aD", "caption", label)), POST);
+      expect(result.status).toBe("available");
+      expect(result.audio).toBeUndefined();
+    }
+  });
 });

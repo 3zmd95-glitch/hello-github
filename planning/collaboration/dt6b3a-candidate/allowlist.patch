@@ -1,0 +1,2268 @@
+--- a/workers/scout/README.md
++++ b/workers/scout/README.md
+@@ -23,7 +23,7 @@
+ ## Endpoints
+ 
+ Every request except `OPTIONS`, `GET /health`, the OAuth callbacks (`/oauth/:platform/callback`,
+-`/oauth/tiktokads/callback`), `GET /go/:id/:n` and the Claude connector's
++`/oauth/tiktokads/callback`, `/oauth/tiktokads/account/callback/`), `GET /go/:id/:n` and the Claude connector's
+ routes (`/mcp` takes its own OAuth access token; `/authorize`, `/token`, `/register` and `/.well-known/oauth-*` are the
+ login flow) needs `Authorization: Bearer <SCOUT_TOKEN>`.
+ Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
+@@ -47,6 +47,11 @@
+ | `POST /tiktokads/connect` | Body `{ returnTo }` (an address on `ALLOWED_ORIGINS`, else `400 { error: "bad_request" }`) → `{ url }`: TikTok for Business's authorization page (`https://business-api.tiktok.com/portal/auth?app_id=…&state=…&redirect_uri=…`) for the owner's app "ONUS Content Planner" (scope Discovery), whose token reads the category pages' TikTok trends (`src/tiktokads.ts`). A one-time random state is kept 10 minutes (KV `tiktokads:state:<nonce>`). Without `TIKTOK_ADS_APP_ID` or `TIKTOK_ADS_SECRET`: `409 { error: "not_configured" }`. Kept apart from the social connector: another app and another token. |
+ | `GET /oauth/tiktokads/callback` | No bearer (TikTok sends the owner's browser here; routed before the social `/oauth/:platform/callback`): takes the state once (missing, wrong or used: `400 { error: "state_invalid" }`), exchanges `auth_code` (or `code`; valid 1 hour, once) at `POST https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/` with the JSON body `{ app_id, secret, auth_code, return_advertiser_ids: true }` (any `code` but 0 fails), keeps `{ access_token, advertiser_ids, scope, connectedAt }` in KV `tiktokads:token`, and answers `302` to `returnTo` with `?tiktokads=connected`, or `?tiktokads_error=<reason>` (`state_invalid` past its 10 minutes, `no_code`, `not_configured`, `exchange_failed`, `no_advertiser`). The long-term token does not expire. The token, the secret and the code are never logged or echoed (a failed exchange logs TikTok's code and message without them). |
+ | `GET /tiktokads/status` | `{ connected, advertisers }`: whether a token is kept (one sealed with another `SCOUT_TOKEN` reads as not connected) and for how many advertisers. Never the token. |
++| `GET /tiktokads/music-probe` | `?country=SA\|US` (default US) `&range=7\|30` (default 7; anything else `400 { error: "bad_request" }`) → `{ country, dateRange, fetchedAt, attempts }`: a **read-only** live check of what TikTok's Discovery API answers about trending music with the stored token (`src/tiktokMusicProbe.ts`; no KV write, ≤ 3 KV reads: the advertiser token, the account connection and its kept renewal; 4 parallel calls, 12 s each). Attempts: `cml_trending_list` (`GET /open_api/v1.3/discovery/cml/trending_list/`, TikTok's documented music endpoint: up to 100 Commercial Music Library tracks; its docs ask a TikTok *account* token and `business_id` = that account's `open_id`, so with our advertiser token it is asked with the advertiser id and may fail), `trending_list_MUSIC` and `trending_list_SONG` (`/discovery/trending_list/` with an undocumented `discovery_type`: the docs say only `HASHTAG`), and `trending_list_HASHTAG_MUSIC` (documented: the popular hashtags of the `MUSIC` industry), plus `cml_trending_list_account` when a TikTok account is connected (`/tiktokads/account/*`: the chart with the account token and `business_id` = its open_id, shown as `<open_id>`; the current token (a renewal kept for this connection included) as it is, never renewed here). Without an advertiser token but with an account, only that one. Each `{ name, endpoint, params (the advertiser id shown as `<advertiser_id>`), status (0: no answer), code, message, count, items }`, `items` the first 10 `{ rank, title, artist, id, genres, rankChange, posts, views, previewUrl, thumbnailUrl, trendingClipId, fullClipId, history (last 7 days), keys }`. Neither connected: `409 { error: "not_connected" }`; KV unreadable: `502 { error: "upstream" }`. Never a token or the open_id. |
++| `GET /tiktokads/account/connect` | `302` to TikTok's **TikTok account holder** authorization page (`https://www.tiktok.com/v2/auth/authorize/?client_key=<TIKTOK_ADS_APP_ID>&scope=user.info.basic&response_type=code&redirect_uri=…/oauth/tiktokads/account/callback/&state=…`) for the same app. Needed because TikTok's song chart answers only a TikTok *account* token (the advertiser token gets code 40105). A one-time random state is kept 10 minutes (KV `tiktokads:account-state:<nonce>`). Bearer like every route, so the owner opens the `Location` that someone with the token fetched (`curl -s -o /dev/null -w "%{redirect_url}" -H "Authorization: Bearer …" …/tiktokads/account/connect`), within 10 minutes. With `?format=json` (or `Accept: application/json`) it answers `200 { url }` (the same link and stored state, with CORS) instead of the `302`, because a browser `fetch` carrying the bearer cannot follow a redirect into TikTok; the dashboard reads `url` and opens it. Without `TIKTOK_ADS_APP_ID` or `TIKTOK_ADS_SECRET`: `409 { error: "not_configured" }`. Docs: business-api.tiktok.com/portal/docs?id=1738083939371009 (the redirect URL must be registered in the app and end with `/`). |
++| `GET /oauth/tiktokads/account/callback/` | No bearer (TikTok sends the owner's browser here; the path without the trailing `/` is served too): takes the account state once, exchanges `auth_code` (or `code`; valid 10 minutes, once) at `POST https://business-api.tiktok.com/open_api/v1.3/tt_user/oauth2/token/` `{ client_id, client_secret, grant_type: "authorization_code", auth_code, redirect_uri }` (docs id=1738084387220481), keeps `{ v: 2, connection, token: { access_token, refresh_token, open_id, expires_at, refresh_expires_at, scope, connectedAt } }` sealed in KV `tiktokads:account` (`connection` a new random 128-bit hex id every time, a same-account reconnect too; only this callback writes that key), and answers a small Arabic/English HTML page: connected (200), or `state_invalid`, `no_code`, `not_configured`, `exchange_failed <code>: <message>` (400). The access token lasts 1 day, the refresh token 1 year. Tokens, the secret and the code are never logged or shown. |
++| `GET /tiktokads/account/status` | `{ connected: false }` or `{ connected: true, openId (masked: first 4 and last 2 characters), scope, expiresAt, refreshExpiresAt }`. Never a token. |
++| `GET /tiktokads/music` | `?country=SA\|US` (default US) `&range=1\|7\|30\|90` (days, default 7) `&genre=` (TikTok's genre value, e.g. `ARABIC_POP`, `POP`, `HIP_HOP/RAP`; default `ALL`; upper-cased, `[A-Z0-9_&/-]{1,40}`; anything else `400 { error: "bad_request" }`) → `{ fetchedAt, country, range, genre, items: [{ rank, title, artist, id, previewUrl, thumbnail, trend: [{ date, rank }] }] }`: TikTok's Commercial Music Library chart (up to 100 business-licensed tracks; `GET /open_api/v1.3/discovery/cml/trending_list/` with the account token in `Access-Token` and `business_id` = its open_id; docs id=1825119063013505). Kept 6 hours per (country, range, genre) in KV `tiktokads:music:<country>:<range>:<genre>`; a kept answer is served as it is, `fetchedAt` included. An access token within 5 minutes of its end is renewed first (`POST …/tt_user/oauth2/refresh_token/`) and kept sealed under the connection it started from (`tiktokads:account-refresh:<connection>`, never `tiktokads:account`): at most 2 calls. After a renewal the connection is read again; if the owner connected again meanwhile: `409 { error: "account_changed" }`, no chart asked with the old account, nothing kept (ask again). A chart already asked before the owner connected again is still answered and kept (it is the country's chart, not the account's). Not connected: `409 { error: "not_connected" }`; refresh token over (also a renewed one ending within a minute): `409 { error: "reconnect" }`; renewal refused: `502 { error: "refresh_failed", status, code, message }`, also with `status: 0, code: null` and `message: "account_mismatch"` (TikTok renewed another `open_id`; not kept or used) or `"storage_failed"` (the renewal could not be kept; not used); TikTok's error or no answer: `502 { error: "tiktok", status (0: no answer), code, message }` (never kept); a success whose `data.list` is not an array (missing, `null`, an object): `502 { error: "upstream", detail: "malformed_list" }` (never kept; an empty array is a real empty chart and is kept); KV unreadable: `502 { error: "upstream" }`. Never a token. |
+ | `/mcp`, `/authorize`, `/token`, `/register`, `/.well-known/oauth-*` | The Claude connector, see [Claude connector (MCP)](#claude-connector-mcp). |
+ 
+ ### `POST /search` options
+@@ -248,6 +253,10 @@
+ | `category:attempts:<id>:<day>` | that category's spending runs that UTC day, forced ones included (at most 3; the scan stops there), 2-day TTL |
+ | `brave:count:<day>`     | Brave Search requests that UTC day (the `BRAVE_DAILY` cap of `GET /categories/:id/top/:platform`; best-effort, as Discover's YouTube counter): reserved before a tab's first request (3, or what is left) and corrected after when fewer or more were made, so two overlapping opens over-count rather than under-count. 2-day TTL. The only Brave-related key: Brave's results are never written. None is written while Brave is off (`BRAVE_DAILY` "0" since 2026-10-07) |
+ | `tiktokads:token`       | the owner's TikTok for Business token (`src/tiktokads.ts`): `v1.<iv>.<ciphertext>`, AES-256-GCM of `{ access_token, advertiser_ids, scope, connectedAt }`, sealed as `tokens:<platform>` is (rotating `SCOUT_TOKEN` asks for a new connect). Written by `/oauth/tiktokads/callback`; read by every category scan (1 KV read) and `GET /tiktokads/status`. No TTL: the long-term token does not expire |
++| `tiktokads:account`     | the owner's TikTok *account* connection (`src/tiktokAccount.ts`), sealed as `tiktokads:token` is: `{ v: 2, connection, token: { access_token, refresh_token, open_id, expires_at, refresh_expires_at, scope, connectedAt } }`, `connection` a random 128-bit hex id per completed connect. Written **only** by `/oauth/tiktokads/account/callback/`. A record from before (the bare sealed token) reads as connection `legacy` and is never rewritten by a renewal; the next connect replaces it. No TTL (the refresh token lasts 1 year) |
++| `tiktokads:account-refresh:<connection>` | a renewed account token, sealed: `{ connection, token }`. Written by `/tiktokads/music` when it renews the 1-day access token, under the connection id read **before** asking TikTok (`legacy` for a legacy record). Read (status, music, music probe) only while `tiktokads:account` still names that connection and the same `open_id`, so a renewal still in flight when the owner connects again lands under the old id and can never replace the new connection. KV `expiration` = the renewed refresh token's end, at most 1 year: a stale one (old credentials, sealed) stays until then, nothing else deletes it. Limits: KV is eventually consistent, so for a short while another location may still read the previous connection (switching accounts is not linearizable); two requests renewing the *same* connection at the same moment may still race on TikTok's refresh token (rare: one daily caller) |
++| `tiktokads:account-state:<nonce>` | `{ createdAt }` of a `GET /tiktokads/account/connect`, 10-minute TTL, deleted when the callback takes it |
++| `tiktokads:music:<country>:<range>:<genre>` | a `GET /tiktokads/music` answer, 6-hour TTL |
+ | `tiktokads:state:<nonce>` | `{ returnTo, createdAt }` of a `POST /tiktokads/connect`, 10-minute TTL, deleted when the callback takes it (a state is good once) |
+ | `mcp:claude-client`     | in `OAUTH_KV`, not `SOCIAL_KV`: the id of the one shared client every `POST /register` gets; written when it is created |
+ 
+@@ -909,7 +918,7 @@
+ | `DISCOVER_YT_CAP`                           | Var (`wrangler.jsonc`)  | YouTube `search.list` calls `POST /discover` and the Claude connector may spend a UTC day (the Trend Radar keeps its own 18, Trending effects 6, the category top lists 4: 94 of the 100 in all). Default 66 (70 until the category top lists came, 2026-10-07); blank means the default. |
+ | `BRAVE_API_KEY`                             | Worker secret, optional | Brave Search API key for the category pages' TikTok and Instagram tabs (`GET /categories/:id/top/:platform`); never logged or echoed. Unused while Brave is off (`BRAVE_DAILY` "0" since 2026-10-07); without it the tabs show the stored lists alone, and say nothing about Brave. The owner adds it himself: Cloudflare → **Workers & Pages → 3z-scout → Settings → Variables and Secrets → Add → Secret**, name `BRAVE_API_KEY`, the key from api-dashboard.search.brave.com. It is not a repository secret: the deploy workflow keeps it as it is. Brave's terms forbid storing its results, so nothing it answers is written anywhere. Brave's $5 monthly credit asks for Brave to be attributed: the page credits it in words ("Powered by Brave Search", linking to brave.com/search/api) under its results; Brave's logo is not added (downloading it needs the owner's OK). |
+ | `BRAVE_DAILY`                               | Var (`wrangler.jsonc`)  | Brave requests a UTC day (KV `brave:count:<day>`). Default 40; "0" turns Brave off (the tabs answer `no_key`, as without the key); blank means the default. **"0" in `wrangler.jsonc` since 2026-10-07**: Brave's index held TikTok topic pages, not videos, and the TikTok tab reads TikTok's Discovery API instead. A chosen tab makes 1–3 requests; Brave's $5 monthly credit covers about 1,000 requests, then $5 per 1,000. |
+-| `TIKTOK_ADS_APP_ID`                         | Var (`wrangler.jsonc`)  | The owner's TikTok for Business app "ONUS Content Planner" (scope Discovery): `7693488727766597653`. Public. Its redirect URI, registered in the app: `https://3z-scout.3zmd95.workers.dev/oauth/tiktokads/callback`. |
++| `TIKTOK_ADS_APP_ID`                         | Var (`wrangler.jsonc`)  | The owner's TikTok for Business app "ONUS Content Planner" (scope Discovery): `7693488727766597653`. Public. Its redirect URI, registered in the app: `https://3z-scout.3zmd95.workers.dev/oauth/tiktokads/callback`. For the song chart (`/tiktokads/music`) the app also needs the **TikTok Accounts** permission (My Apps → App detail → Authorization → Scope of permission) and the **TikTok account holder redirect URL** `https://3z-scout.3zmd95.workers.dev/oauth/tiktokads/account/callback/` (Basic Information; with the trailing `/`), then one connect through `GET /tiktokads/account/connect`. |
+ | `TIKTOK_ADS_SECRET`                         | Worker secret           | That app's secret, for `/oauth/tiktokads/callback`'s code exchange; never logged or echoed. Without it `POST /tiktokads/connect` answers `409 not_configured`. The owner adds it himself: Cloudflare → **Workers & Pages → 3z-scout → Settings → Variables and Secrets → Add → Secret**, name `TIKTOK_ADS_SECRET`, the value from the app's page in TikTok for Business (ads.tiktok.com/marketing_api/apps). Not a repository secret: the deploy workflow keeps it as it is. Then, on a category page's TikTok tab, **Connect TikTok trends** once. |
+ | `TIKTOK_DISCOVERY_COUNTRY`                  | Var (`wrangler.jsonc`)  | The country of the category pages' TikTok trends (TikTok's `country_code`): `US` (English first, global). Blank or anything but a 2-letter code means US. |
+ | `MCP_DAILY_LOOKUPS`                         | Var (`wrangler.jsonc`)  | Tavily lookups the Claude connector (Part B of `planning/tools/13-discover-search-v2.md`) may spend a Riyadh day; `GET /discover/usage` reports it. Default 60; blank means the default.                                                                                 |
+--- a/workers/scout/src/scout.ts
++++ b/workers/scout/src/scout.ts
+@@ -28,6 +28,8 @@
+  *                           UTC day; "0" since the TikTok tab reads TikTok's Discovery API, 2026-10-07)
+  *   POST /tiktokads/connect → TikTok for Business's authorization page for the category pages' TikTok trends;
+  *   GET  /oauth/tiktokads/callback (no bearer), GET /tiktokads/status (tiktokads.ts)
++ *   GET  /tiktokads/account/connect, /oauth/tiktokads/account/callback/ (no bearer), /tiktokads/account/status,
++ *        /tiktokads/music → TikTok's trending songs with a TikTok account token (tiktokAccount.ts)
+  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
+  *   /mcp, /authorize, /token, /register → served by index.ts (OAuth + MCP): the Claude connector
+  *                           (discover/mcp.ts, discover/auth.ts)
+@@ -58,6 +60,8 @@
+ import { handleOAuthCallback, handleSocial, healthSocial } from "./social/routes";
+ import type { SocialEnv } from "./social/store";
+ import { handleTikTokAds, handleTikTokAdsCallback, type TikTokAdsEnv } from "./tiktokads";
++import { handleTikTokAccount, handleTikTokAccountCallback } from "./tiktokAccount";
++import { musicProbe } from "./tiktokMusicProbe";
+ import { handleTrends, healthTrends } from "./trends/routes";
+ import { TAVILY_URL } from "./trends/tavily";
+ import type { TrendsEnv } from "./trends/types";
+@@ -509,6 +513,10 @@
+   if (pathname === "/oauth/tiktokads/callback" && req.method === "GET") {
+     return handleTikTokAdsCallback(req, env, { fetch: deps.fetch, now: deps.now });
+   }
++  // TikTok asks account redirect URLs to end with "/"; both spellings are served.
++  if (/^\/oauth\/tiktokads\/account\/callback\/?$/.test(pathname) && req.method === "GET") {
++    return handleTikTokAccountCallback(req, env, { fetch: deps.fetch, now: deps.now });
++  }
+   const callback = pathname.match(/^\/oauth\/([a-z]+)\/callback$/);
+   if (callback && req.method === "GET") {
+     return handleOAuthCallback(req, env, callback[1], { fetch: deps.fetch, now: deps.now });
+@@ -565,6 +573,15 @@
+   if (creator) return creator;
+   const social = await handleSocial(req, env, cors, { fetch: deps.fetch, now: deps.now });
+   if (social) return social;
++  if (pathname === "/tiktokads/music-probe" && req.method === "GET") {
++    const out = await musicProbe(req, env, doFetch, deps.now?.() ?? new Date());
++    return json(out.body, out.status, cors);
++  }
++  const tiktokAccount = await handleTikTokAccount(req, env, cors, {
++    fetch: deps.fetch,
++    now: deps.now,
++  });
++  if (tiktokAccount) return tiktokAccount;
+   const tiktokAds = await handleTikTokAds(req, env, cors, { now: deps.now });
+   if (tiktokAds) return tiktokAds;
+   const trends = await handleTrends(req, env, cors, { fetch: deps.fetch, now: deps.now });
+--- a/workers/scout/src/tiktokads.ts
++++ b/workers/scout/src/tiktokads.ts
+@@ -12,6 +12,9 @@
+  *                                        Bearer: the one-time state is the credential; a missing, wrong or used state
+  *                                        is a plain 400 { error: "state_invalid" }
+  *   GET  /tiktokads/status               → { connected, advertisers } (Bearer; never the token)
++ *   GET  /tiktokads/music-probe          → tiktokMusicProbe.ts (Bearer; read-only), routed in scout.ts
++ *   /tiktokads/account/*, /tiktokads/music → tiktokAccount.ts: the same app authorized by a TikTok *account*, for
++ *                                        the Commercial Music Library's trending songs
+  *
+  * KV (`SOCIAL_KV`): `tiktokads:state:<nonce>` { returnTo, createdAt } for 10 minutes, deleted when the callback takes it;
+  * `tiktokads:token` the token, sealed as the social tokens are (social/crypto.ts, keyed on SCOUT_TOKEN: rotating it asks
+@@ -58,7 +61,7 @@
+   connectedAt: string;
+ }
+ 
+-function app(env: TikTokAdsEnv): { id: string; secret: string } | null {
++export function app(env: TikTokAdsEnv): { id: string; secret: string } | null {
+   const id = env.TIKTOK_ADS_APP_ID?.trim();
+   const secret = env.TIKTOK_ADS_SECRET?.trim();
+   return id && secret ? { id, secret } : null;
+@@ -109,26 +112,30 @@
+   return json({ url: url.toString() }, 200, cors);
+ }
+ 
+-/** Reads and deletes a state: a nonce is good exactly once. */
+-async function takeState(
+-  kv: KVNamespace,
+-  nonce: string,
+-): Promise<{ returnTo: string; createdAt: string } | null> {
+-  const text = nonce ? await kv.get(keys.state(nonce), "text") : null;
++/** Reads and deletes a KV value: a state nonce is good exactly once. null when absent or not JSON. */
++export async function takeOnce(kv: KVNamespace, key: string): Promise<unknown> {
++  const text = await kv.get(key, "text");
+   if (!text) return null;
+-  await kv.delete(keys.state(nonce));
++  await kv.delete(key);
+   try {
+-    const s: unknown = JSON.parse(text);
+-    return isRecord(s) && typeof s.returnTo === "string" && typeof s.createdAt === "string"
+-      ? { returnTo: s.returnTo, createdAt: s.createdAt }
+-      : null;
++    return JSON.parse(text) as unknown;
+   } catch {
+     return null;
+   }
+ }
+ 
++async function takeState(
++  kv: KVNamespace,
++  nonce: string,
++): Promise<{ returnTo: string; createdAt: string } | null> {
++  const s = nonce ? await takeOnce(kv, keys.state(nonce)) : null;
++  return isRecord(s) && typeof s.returnTo === "string" && typeof s.createdAt === "string"
++    ? { returnTo: s.returnTo, createdAt: s.createdAt }
++    : null;
++}
++
+ /** `text` with none of `secrets` in it. */
+-const hide = (text: string, secrets: string[]) =>
++export const hide = (text: string, secrets: string[]) =>
+   secrets.reduce((t, s) => t.split(s).join("…"), text);
+ 
+ /** `GET /oauth/tiktokads/callback?auth_code&state` (TikTok may say `code`): the owner's browser, no bearer. */
+--- /dev/null
++++ b/workers/scout/src/tiktokAccount.ts
+@@ -0,0 +1,463 @@
++/**
++ * TikTok's trending songs (Commercial Music Library) for 3z Prod. TikTok's Discovery API answers its track endpoints
++ * only to a TikTok *account* token, not to the advertiser token tiktokads.ts keeps (live: code 40105, 2026-10-15). So
++ * the owner authorizes the same app "ONUS Content Planner" once more, as a TikTok account holder (tt_user OAuth).
++ *
++ * TikTok's docs (business-api.tiktok.com/portal/docs, checked 2026-10-15):
++ * - Account authorization, id=1738083939371009: the "TikTok account holder authorization URL"
++ *   (https://www.tiktok.com/v2/auth/authorize?...) with an optional `state`; the account holder redirect URL is
++ *   registered in My Apps and must be absolute https and end with "/"; `auth_code` is good 10 minutes, once.
++ * - Tokens, id=1738084387220481: POST /tt_user/oauth2/token/ { client_id, client_secret, grant_type:
++ *   "authorization_code", auth_code, redirect_uri } → { access_token (1 day), refresh_token (1 year), open_id, scope,
++ *   expires_in, refresh_token_expires_in }; POST /tt_user/oauth2/refresh_token/ { client_id, client_secret,
++ *   grant_type: "refresh_token", refresh_token } renews it.
++ * - Songs, id=1825119063013505: GET /discovery/cml/trending_list/, header Access-Token, `business_id` = open_id,
++ *   `genre` (ALL), `country_code`, `date_range` 1DAY|7DAY|30DAY|90DAY; up to 100 tracks.
++ *
++ *   GET /tiktokads/account/connect       → 302 to TikTok's account authorization page (Bearer); 409 not_configured
++ *   GET /oauth/tiktokads/account/callback/ → a small HTML page: connected, or the reason (no bearer: the one-time
++ *                                        state is the credential)
++ *   GET /tiktokads/account/status        → { connected, openId (masked), scope, expiresAt, refreshExpiresAt }
++ *   GET /tiktokads/music?country=SA|US&range=1|7|30|90&genre= → the chart, normalized, kept 6 hours a query
++ *
++ * KV (`SOCIAL_KV`): `tiktokads:account-state:<nonce>` { createdAt } 10 minutes; `tiktokads:account` the connection,
++ * sealed as `tiktokads:token` is: `{ v: 2, connection, token }`, written only by the callback, with a fresh random id
++ * per connection (a bare sealed token from before is read as connection "legacy" and never rewritten);
++ * `tiktokads:account-refresh:<connection>` `{ connection, token }` sealed, a renewed token, expiring with its refresh
++ * token (≤ 1 year); `tiktokads:music:<country>:<range>:<genre>` the answer, 6 hours. Tokens, the secret and the auth
++ * code are never logged or echoed.
++ *
++ * A renewal is keyed by the connection it started from, so one still in flight when the owner reconnects lands under
++ * the old id and is never read again: it cannot replace the new connection. KV is eventually consistent, so another
++ * location may still see the previous connection for a while; that switch is not linearizable.
++ */
++
++import { CALL_TIMEOUT_MS } from "./discover/fetchers";
++import { isRecord } from "./effects/ai";
++import { json } from "./effects/routes";
++import { getJson, withParams } from "./categories/top";
++import { decryptJson, encryptJson, randomToken } from "./social/crypto";
++import { STATE_TTL_S } from "./social/store";
++import { app, hide, takeOnce, type TikTokAdsEnv } from "./tiktokads";
++
++export const TT_ACCOUNT_AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/";
++const API = "https://business-api.tiktok.com/open_api/v1.3";
++export const TT_USER_TOKEN_URL = `${API}/tt_user/oauth2/token/`;
++export const TT_USER_REFRESH_URL = `${API}/tt_user/oauth2/refresh_token/`;
++export const TT_CML_TRENDING_URL = `${API}/discovery/cml/trending_list/`;
++/** Must be registered in the app as a "TikTok account holder redirect URL" (with the trailing slash). */
++export const ACCOUNT_CALLBACK_PATH = "/oauth/tiktokads/account/callback/";
++/** The baseline account scope; the CML chart asks no other. */
++const SCOPE = "user.info.basic";
++const MUSIC_TTL_S = 6 * 3600;
++/** Renew this long before the 1-day access token runs out. */
++const RENEW_EARLY_MS = 5 * 60_000;
++const MESSAGE_MAX = 200;
++const COUNTRIES = ["SA", "US"];
++const RANGES = ["1", "7", "30", "90"];
++const GENRE = /^[A-Z0-9_&/-]{1,40}$/;
++
++/** KV refuses an expiration closer than this. */
++const KV_MIN_EXPIRY_MS = 60_000;
++const YEAR_MS = 365 * 86400_000;
++const LEGACY = "legacy";
++const CONNECTION = /^[0-9a-f]{32}$/;
++
++const keys = {
++  token: "tiktokads:account",
++  refresh: (connection: string) => `tiktokads:account-refresh:${connection}`,
++  state: (nonce: string) => `tiktokads:account-state:${nonce}`,
++  music: (country: string, range: string, genre: string) =>
++    `tiktokads:music:${country}:${range}:${genre}`,
++};
++
++/** The account token: inside `tiktokads:account` (`token`) and a renewal's `tiktokads:account-refresh:<connection>`. */
++export interface AccountToken {
++  access_token: string;
++  refresh_token: string;
++  open_id: string;
++  expires_at: string;
++  refresh_expires_at: string;
++  scope?: string;
++  connectedAt: string;
++}
++
++const str = (x: unknown) => (typeof x === "string" ? x : typeof x === "number" ? String(x) : null);
++const num = (x: unknown) => {
++  const n = typeof x === "string" && x !== "" ? Number(x) : x;
++  return typeof n === "number" && Number.isFinite(n) ? n : null;
++};
++const nonEmpty = (x: unknown): x is string => typeof x === "string" && x !== "";
++
++const isToken = (t: unknown): t is AccountToken =>
++  isRecord(t) && nonEmpty(t.access_token) && nonEmpty(t.open_id);
++
++type Connection = { connection: string; token: AccountToken };
++
++async function unseal(env: TikTokAdsEnv, key: string): Promise<unknown> {
++  const blob = await env.SOCIAL_KV!.get(key, "text");
++  return blob ? decryptJson<unknown>(env.SCOUT_TOKEN!, blob) : null;
++}
++
++/** The connection the callback wrote (`{ v: 2, connection, token }`, or a bare legacy token); null when malformed. */
++async function readConnection(env: TikTokAdsEnv): Promise<Connection | null> {
++  if (!env.SOCIAL_KV || !env.SCOUT_TOKEN) return null;
++  const r = await unseal(env, keys.token);
++  if (!isRecord(r)) return null;
++  const c = r.v === undefined ? { connection: LEGACY, token: r } : r.v === 2 ? r : null;
++  return c &&
++    typeof c.connection === "string" &&
++    (c.connection === LEGACY || CONNECTION.test(c.connection)) &&
++    isToken(c.token)
++    ? { connection: c.connection, token: c.token }
++    : null;
++}
++
++/** The connection, with its renewal when one was kept for this very connection and account. */
++async function resolveAccount(env: TikTokAdsEnv): Promise<Connection | null> {
++  const c = await readConnection(env);
++  if (!c) return null;
++  const r = await unseal(env, keys.refresh(c.connection));
++  return isRecord(r) &&
++    r.connection === c.connection &&
++    isToken(r.token) &&
++    r.token.open_id === c.token.open_id
++    ? { connection: c.connection, token: r.token }
++    : c;
++}
++
++/** The current token; null when there is none or it was sealed with another SCOUT_TOKEN. A KV error throws. */
++export async function readAccountToken(env: TikTokAdsEnv): Promise<AccountToken | null> {
++  return (await resolveAccount(env))?.token ?? null;
++}
++
++/** A connection id: 128 random bits, hex. */
++const newConnection = () =>
++  [...crypto.getRandomValues(new Uint8Array(16))]
++    .map((b) => b.toString(16).padStart(2, "0"))
++    .join("");
++
++type Said = { status: number; code: number | null; message: string | null };
++
++/** POSTs `body` to a tt_user token endpoint: the token from TikTok's `data`, or what TikTok said. */
++async function tokenCall(
++  doFetch: typeof fetch,
++  url: string,
++  body: Record<string, string>,
++  now: Date,
++  connectedAt: string,
++): Promise<{ token: AccountToken } | Said> {
++  let status = 0;
++  let out: unknown = null;
++  try {
++    const res = await doFetch(url, {
++      method: "POST",
++      headers: { "Content-Type": "application/json", Accept: "application/json" },
++      body: JSON.stringify(body),
++    });
++    status = res.status;
++    out = await res.json().catch(() => null);
++  } catch {
++    // No answer: status 0.
++  }
++  const said = isRecord(out) ? out : {};
++  const d = said.code === 0 && isRecord(said.data) ? said.data : {};
++  const at = (s: unknown) => new Date(now.getTime() + (num(s) ?? 0) * 1000).toISOString();
++  if (nonEmpty(d.access_token) && nonEmpty(d.refresh_token) && nonEmpty(d.open_id))
++    return {
++      token: {
++        access_token: d.access_token,
++        refresh_token: d.refresh_token,
++        open_id: d.open_id,
++        expires_at: at(d.expires_in),
++        refresh_expires_at: at(d.refresh_token_expires_in),
++        ...(typeof d.scope === "string" ? { scope: d.scope } : {}),
++        connectedAt,
++      },
++    };
++  return {
++    status,
++    code: typeof said.code === "number" ? said.code : null,
++    message:
++      typeof said.message === "string"
++        ? hide(
++            said.message,
++            [body.client_secret, body.auth_code, body.refresh_token].filter(nonEmpty),
++          ).slice(0, MESSAGE_MAX)
++        : null,
++  };
++}
++
++/**
++ * The account token, renewed when it runs out within 5 minutes. A renewal is kept sealed under the connection it
++ * started from (never in `tiktokads:account`), so it cannot replace a connection the callback made meanwhile;
++ * `renewed` tells the caller to check that the connection is still current.
++ * ponytail: two requests renewing the same connection at the same moment may race on the refresh token; one daily
++ * caller makes it rare.
++ */
++async function freshAccountToken(
++  env: TikTokAdsEnv,
++  doFetch: typeof fetch,
++  now: Date,
++): Promise<
++  | { token: AccountToken; connection: string; renewed: boolean }
++  | { error: "not_connected" | "reconnect" }
++  | ({ error: "refresh_failed" } & Said)
++> {
++  const current = await resolveAccount(env);
++  if (!current) return { error: "not_connected" };
++  const { connection, token } = current;
++  if (Date.parse(token.expires_at) - now.getTime() > RENEW_EARLY_MS)
++    return { token, connection, renewed: false };
++  const creds = app(env);
++  if (!creds || !(Date.parse(token.refresh_expires_at) > now.getTime()))
++    return { error: "reconnect" };
++  const out = await tokenCall(
++    doFetch,
++    TT_USER_REFRESH_URL,
++    {
++      client_id: creds.id,
++      client_secret: creds.secret,
++      grant_type: "refresh_token",
++      refresh_token: token.refresh_token,
++    },
++    now,
++    token.connectedAt,
++  );
++  if (!("token" in out)) return { error: "refresh_failed", ...out };
++  // A renewal belongs to the account it renewed; one naming another account is neither kept nor used.
++  if (out.token.open_id !== token.open_id)
++    return { error: "refresh_failed", status: 0, code: null, message: "account_mismatch" };
++  // The key lives as long as the renewed refresh token, a year at most; one ending within KV's minimum is no renewal.
++  const until = Math.min(Date.parse(out.token.refresh_expires_at), now.getTime() + YEAR_MS);
++  if (!(until - now.getTime() >= KV_MIN_EXPIRY_MS)) return { error: "reconnect" };
++  try {
++    await env.SOCIAL_KV!.put(
++      keys.refresh(connection),
++      await encryptJson(env.SCOUT_TOKEN!, { connection, token: out.token }),
++      { expiration: Math.floor(until / 1000) },
++    );
++  } catch {
++    return { error: "refresh_failed", status: 0, code: null, message: "storage_failed" };
++  }
++  return { token: out.token, connection, renewed: true };
++}
++
++/** One chart track as 3z Prod shows it. */
++function track(x: unknown) {
++  const t = isRecord(x) ? x : {};
++  const history = Array.isArray(t.trending_history) ? t.trending_history : [];
++  return {
++    rank: num(t.rank_position),
++    title: str(t.commercial_music_name),
++    artist: str(t.artist),
++    id: str(t.commercial_music_id),
++    previewUrl: str(t.preview_url),
++    thumbnail: str(t.thumbnail_url),
++    trend: history
++      .filter(isRecord)
++      .map((h) => ({ date: str(h.date), rank: num(h.rank_position_daily) })),
++  };
++}
++
++/**
++ * GET /tiktokads/music: 1 KV read when kept; else ≤4 KV reads (cache, connection, renewal, the connection again after
++ * a renewal), ≤2 calls (renewal + chart), ≤2 KV writes.
++ */
++async function music(req: Request, env: TikTokAdsEnv, doFetch: typeof fetch, now: Date) {
++  const q = new URL(req.url).searchParams;
++  const country = (q.get("country") ?? "US").toUpperCase();
++  const range = q.get("range") ?? "7";
++  const genre = (q.get("genre") || "ALL").toUpperCase();
++  if (!COUNTRIES.includes(country) || !RANGES.includes(range) || !GENRE.test(genre))
++    return { status: 400, body: { error: "bad_request" } };
++  const fetchedAt = now.toISOString();
++  const kv = env.SOCIAL_KV;
++  if (!kv || !env.SCOUT_TOKEN) return { status: 409, body: { error: "not_connected", fetchedAt } };
++  const key = keys.music(country, range, genre);
++  let fresh;
++  let current;
++  try {
++    const kept = await kv.get(key, "text");
++    if (kept) return { status: 200, body: JSON.parse(kept) as unknown };
++    fresh = await freshAccountToken(env, doFetch, now);
++    // A renewal took a while: the owner may have connected again meanwhile. Never chart with an obsolete account.
++    if ("token" in fresh && fresh.renewed) current = await readConnection(env);
++  } catch {
++    return { status: 502, body: { error: "upstream", fetchedAt } };
++  }
++  if (!("token" in fresh)) {
++    const { error, ...said } = fresh;
++    return { status: error === "refresh_failed" ? 502 : 409, body: { error, fetchedAt, ...said } };
++  }
++  if (fresh.renewed && current?.connection !== fresh.connection)
++    return {
++      status: 409,
++      body: { error: current ? "account_changed" : "not_connected", fetchedAt },
++    };
++  const { token } = fresh;
++  const r = await getJson(
++    doFetch,
++    withParams(TT_CML_TRENDING_URL, {
++      business_id: token.open_id,
++      genre,
++      country_code: country,
++      date_range: `${range}DAY`,
++    }),
++    { Accept: "application/json", "Access-Token": token.access_token },
++    CALL_TIMEOUT_MS,
++  );
++  const body = isRecord(r.body) ? r.body : {};
++  const data = isRecord(body.data) ? body.data : null;
++  if (body.code !== 0 || !data)
++    return {
++      status: 502,
++      body: {
++        error: "tiktok",
++        fetchedAt,
++        status: r.status,
++        code: typeof body.code === "number" ? body.code : null,
++        message:
++          typeof body.message === "string"
++            ? hide(body.message, [token.access_token, token.open_id]).slice(0, MESSAGE_MAX)
++            : null,
++      },
++    };
++  // A success without an actual list is a broken answer, not an empty chart: never kept.
++  if (!Array.isArray(data.list))
++    return { status: 502, body: { error: "upstream", fetchedAt, detail: "malformed_list" } };
++  const answer = { fetchedAt, country, range, genre, items: data.list.map(track) };
++  // A cache that can't be written never fails the answer.
++  await kv.put(key, JSON.stringify(answer), { expirationTtl: MUSIC_TTL_S }).catch(() => undefined);
++  return { status: 200, body: answer };
++}
++
++/** `/tiktokads/account/*` and `/tiktokads/music` (the bearer already checked), or null when not ours. */
++export async function handleTikTokAccount(
++  req: Request,
++  env: TikTokAdsEnv,
++  cors: Headers,
++  deps: { fetch?: typeof fetch; now?: () => Date } = {},
++): Promise<Response | null> {
++  if (req.method !== "GET") return null;
++  const { pathname, origin } = new URL(req.url);
++  const now = deps.now?.() ?? new Date();
++  if (pathname === "/tiktokads/music") {
++    const out = await music(req, env, deps.fetch ?? fetch, now);
++    return json(out.body, out.status, cors);
++  }
++  if (pathname === "/tiktokads/account/status") {
++    const t = await readAccountToken(env);
++    return json(
++      t
++        ? {
++            connected: true,
++            openId: `${t.open_id.slice(0, 4)}…${t.open_id.slice(-2)}`,
++            scope: t.scope ?? null,
++            expiresAt: t.expires_at,
++            refreshExpiresAt: t.refresh_expires_at,
++          }
++        : { connected: false },
++      200,
++      cors,
++    );
++  }
++  if (pathname !== "/tiktokads/account/connect") return null;
++  const creds = app(env);
++  if (!creds || !env.SOCIAL_KV || !env.SCOUT_TOKEN)
++    return json({ error: "not_configured" }, 409, cors);
++  const nonce = randomToken(32);
++  await env.SOCIAL_KV.put(keys.state(nonce), JSON.stringify({ createdAt: now.toISOString() }), {
++    expirationTtl: STATE_TTL_S,
++  });
++  const url = new URL(TT_ACCOUNT_AUTH_URL);
++  url.searchParams.set("client_key", creds.id);
++  url.searchParams.set("scope", SCOPE);
++  url.searchParams.set("response_type", "code");
++  url.searchParams.set("redirect_uri", `${origin}${ACCOUNT_CALLBACK_PATH}`);
++  url.searchParams.set("state", nonce);
++  // A browser fetch with the bearer cannot follow a 302 into TikTok, so the dashboard asks for the link as JSON.
++  const u = new URL(req.url);
++  if (
++    u.searchParams.get("format") === "json" ||
++    req.headers.get("Accept")?.includes("application/json")
++  )
++    return json({ url: url.toString() }, 200, cors);
++  return new Response(null, {
++    status: 302,
++    headers: { Location: url.toString(), ...Object.fromEntries(cors) },
++  });
++}
++
++const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
++
++function page(ok: boolean, detail = "") {
++  const head = ok
++    ? "تم ربط حساب تيك توك ✓ · TikTok account connected"
++    : "ما زبط ربط تيك توك · Connecting TikTok failed";
++  const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
++<meta name="viewport" content="width=device-width,initial-scale=1"><title>3z Prod · TikTok</title>
++<style>body{font:16px system-ui,sans-serif;background:#111;color:#eee;max-width:28rem;margin:3rem auto;padding:0 1rem}
++code{color:#ffd54f}</style></head><body><h1>${head}</h1>
++<p>${ok ? "تقدر تسكّر الصفحة · You can close this page." : `<code>${esc(detail)}</code>`}</p></body></html>`;
++  return new Response(html, {
++    status: ok ? 200 : 400,
++    headers: {
++      "Content-Type": "text/html; charset=utf-8",
++      "Cache-Control": "no-store",
++      "X-Frame-Options": "DENY",
++      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
++    },
++  });
++}
++
++/** `GET /oauth/tiktokads/account/callback/?auth_code&state` (TikTok may say `code`): the owner's browser, no bearer. */
++export async function handleTikTokAccountCallback(
++  req: Request,
++  env: TikTokAdsEnv,
++  deps: { fetch?: typeof fetch; now?: () => Date } = {},
++): Promise<Response> {
++  const kv = env.SOCIAL_KV;
++  if (!kv) return page(false, "not_configured");
++  const u = new URL(req.url);
++  const nonce = u.searchParams.get("state") ?? "";
++  const state = nonce ? await takeOnce(kv, keys.state(nonce)) : null;
++  const now = deps.now?.() ?? new Date();
++  // KV's TTL is not exact: a state over its 10 minutes is refused here too.
++  if (
++    !isRecord(state) ||
++    typeof state.createdAt !== "string" ||
++    !(now.getTime() - Date.parse(state.createdAt) <= STATE_TTL_S * 1000)
++  )
++    return page(false, "state_invalid");
++  const code = u.searchParams.get("auth_code") || u.searchParams.get("code");
++  if (!code) return page(false, "no_code");
++  const creds = app(env);
++  if (!creds || !env.SCOUT_TOKEN) return page(false, "not_configured");
++  const out = await tokenCall(
++    deps.fetch ?? fetch,
++    TT_USER_TOKEN_URL,
++    {
++      client_id: creds.id,
++      client_secret: creds.secret,
++      grant_type: "authorization_code",
++      auth_code: code,
++      redirect_uri: `${u.origin}${ACCOUNT_CALLBACK_PATH}`,
++    },
++    now,
++    now.toISOString(),
++  );
++  if (!("token" in out)) {
++    // tokenCall already stripped the secret and the code from TikTok's message.
++    console.log(JSON.stringify({ tiktokads_account: { exchange: "failed", ...out } }));
++    return page(false, `exchange_failed ${out.code ?? out.status}: ${out.message ?? ""}`);
++  }
++  // Only a completed connection replaces the reference, always with a new id (a same-account reconnect too).
++  // Earlier renewals stay under their own ids until their TTL.
++  const connection = newConnection();
++  await kv.put(
++    keys.token,
++    await encryptJson(env.SCOUT_TOKEN, { v: 2, connection, token: out.token }),
++  );
++  return page(true);
++}
+--- /dev/null
++++ b/workers/scout/src/tiktokAccount.test.ts
+@@ -0,0 +1,1076 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { handle, type Env } from "./scout";
++import { decryptJson, encryptJson } from "./social/crypto";
++import {
++  readAccountToken,
++  TT_ACCOUNT_AUTH_URL,
++  TT_CML_TRENDING_URL,
++  TT_USER_REFRESH_URL,
++  TT_USER_TOKEN_URL,
++  type AccountToken,
++} from "./tiktokAccount";
++import { musicProbe } from "./tiktokMusicProbe";
++
++// The TikTok account authorization (tt_user) of the owner's TikTok for Business app and the Commercial Music
++// Library's trending songs, through the Worker's router. Every value here is fake.
++
++const SCOUT = "scout-token";
++const BASE = "https://3z-scout.example.workers.dev";
++const NOW = new Date("2026-10-15T14:00:00Z");
++const APP_ID = "7693488727766597653";
++const SECRET = "fake-ads-secret";
++const ACCESS = "fake-account-access";
++const REFRESH = "fake-account-refresh";
++const OPEN_ID = "-000openid-abcdef";
++const CALLBACK = `${BASE}/oauth/tiktokads/account/callback/`;
++
++type Entry = { value: string; ttl?: number; expiration?: number };
++function fakeKV() {
++  const store = new Map<string, Entry>();
++  return {
++    store,
++    get: vi.fn(async (key: string) => store.get(key)?.value ?? null),
++    put: vi.fn(
++      async (
++        key: string,
++        value: string,
++        opts?: { expirationTtl?: number; expiration?: number },
++      ) => {
++        store.set(key, { value, ttl: opts?.expirationTtl, expiration: opts?.expiration });
++      },
++    ),
++    delete: vi.fn(async (key: string) => {
++      store.delete(key);
++    }),
++  };
++}
++type FakeKV = ReturnType<typeof fakeKV>;
++
++const makeEnv = (kv: FakeKV = fakeKV(), extra: Partial<Env> = {}): Env => ({
++  SCOUT_TOKEN: SCOUT,
++  SOCIAL_KV: kv as unknown as KVNamespace,
++  TIKTOK_ADS_APP_ID: APP_ID,
++  TIKTOK_ADS_SECRET: SECRET,
++  ...extra,
++});
++
++const json = (body: unknown, status = 200) =>
++  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
++const TOKEN_OK = {
++  code: 0,
++  message: "OK",
++  data: {
++    access_token: ACCESS,
++    refresh_token: REFRESH,
++    open_id: OPEN_ID,
++    expires_in: 86400,
++    refresh_token_expires_in: 31536000,
++    scope: "user.info.basic",
++    token_type: "Bearer",
++  },
++};
++
++const get = (
++  env: Env,
++  path: string,
++  fetch?: typeof globalThis.fetch,
++  token: string | null = SCOUT,
++) =>
++  handle(
++    new Request(`${BASE}${path}`, {
++      headers: token ? { Authorization: `Bearer ${token}` } : {},
++    }),
++    env,
++    undefined,
++    { fetch, now: () => NOW },
++  );
++const connect = (env: Env, token: string | null = SCOUT) =>
++  get(env, "/tiktokads/account/connect", undefined, token);
++/** TikTok sending the owner's browser back: no bearer. */
++const callback = (env: Env, query: string, fetch: typeof globalThis.fetch, now = NOW) =>
++  handle(new Request(`${CALLBACK}?${query}`), env, undefined, { fetch, now: () => now });
++
++async function stateOf(env: Env): Promise<string> {
++  const res = await connect(env);
++  return new URL(res.headers.get("Location")!).searchParams.get("state")!;
++}
++
++/** A stored account token, sealed, expiring `expiresIn` ms after NOW. */
++async function storeToken(kv: FakeKV, expiresIn = 3600_000, refreshIn = 300 * 86400_000) {
++  const t: AccountToken = {
++    access_token: ACCESS,
++    refresh_token: REFRESH,
++    open_id: OPEN_ID,
++    expires_at: new Date(NOW.getTime() + expiresIn).toISOString(),
++    refresh_expires_at: new Date(NOW.getTime() + refreshIn).toISOString(),
++    scope: "user.info.basic",
++    connectedAt: "2026-10-15T10:00:00.000Z",
++  };
++  kv.store.set("tiktokads:account", { value: await encryptJson(SCOUT, t) });
++}
++
++let logs: unknown[][];
++beforeEach(() => {
++  logs = [];
++  for (const level of ["log", "error", "warn"] as const)
++    vi.spyOn(console, level).mockImplementation((...args) => void logs.push(args));
++});
++afterEach(() => vi.restoreAllMocks());
++
++describe("GET /tiktokads/account/connect", () => {
++  it("302s to TikTok's account authorization page and keeps a one-time state for 10 minutes", async () => {
++    const kv = fakeKV();
++    const res = await connect(makeEnv(kv));
++    expect(res.status).toBe(302);
++    const u = new URL(res.headers.get("Location")!);
++    expect(`${u.origin}${u.pathname}`).toBe(TT_ACCOUNT_AUTH_URL);
++    expect(TT_ACCOUNT_AUTH_URL).toBe("https://www.tiktok.com/v2/auth/authorize/");
++    expect(u.searchParams.get("client_key")).toBe(APP_ID);
++    expect(u.searchParams.get("response_type")).toBe("code");
++    expect(u.searchParams.get("scope")).toBe("user.info.basic");
++    // TikTok asks account redirect URLs to end with "/".
++    expect(u.searchParams.get("redirect_uri")).toBe(CALLBACK);
++    const state = u.searchParams.get("state")!;
++    expect(state).toMatch(/^[A-Za-z0-9_-]{40,}$/);
++    const kept = kv.store.get(`tiktokads:account-state:${state}`)!;
++    expect(kept.ttl).toBe(600);
++    expect(JSON.parse(kept.value)).toEqual({ createdAt: NOW.toISOString() });
++  });
++
++  it("answers 200 { url } instead of redirecting for ?format=json and Accept: application/json", async () => {
++    const ORIGIN = "https://3zmd95-glitch.github.io";
++    for (const path of ["/tiktokads/account/connect?format=json", "/tiktokads/account/connect"]) {
++      const kv = fakeKV();
++      const res = await handle(
++        new Request(`${BASE}${path}`, {
++          headers: {
++            Authorization: `Bearer ${SCOUT}`,
++            Origin: ORIGIN,
++            ...(path.includes("format") ? {} : { Accept: "application/json" }),
++          },
++        }),
++        makeEnv(kv),
++        undefined,
++        { now: () => NOW },
++      );
++      expect(res.status).toBe(200);
++      expect(res.headers.get("Location")).toBeNull();
++      expect(res.headers.get("Content-Type")).toContain("application/json");
++      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(ORIGIN);
++      const u = new URL(((await res.json()) as { url: string }).url);
++      expect(`${u.origin}${u.pathname}`).toBe(TT_ACCOUNT_AUTH_URL);
++      expect(u.searchParams.get("redirect_uri")).toBe(CALLBACK);
++      const state = u.searchParams.get("state")!;
++      expect(kv.store.get(`tiktokads:account-state:${state}`)!.ttl).toBe(600);
++    }
++  });
++
++  it("needs the bearer and the app's secret", async () => {
++    const kv = fakeKV();
++    expect((await connect(makeEnv(kv), null)).status).toBe(401);
++    expect((await connect(makeEnv(kv), "wrong")).status).toBe(401);
++    const res = await connect(makeEnv(kv, { TIKTOK_ADS_SECRET: undefined }));
++    expect(res.status).toBe(409);
++    expect(await res.json()).toEqual({ error: "not_configured" });
++    expect(kv.put).not.toHaveBeenCalled();
++  });
++});
++
++describe("GET /oauth/tiktokads/account/callback/", () => {
++  it("exchanges the auth code once at /tt_user/oauth2/token/, keeps the token sealed and says connected", async () => {
++    const kv = fakeKV();
++    const env = makeEnv(kv);
++    const state = await stateOf(env);
++    const fetch = vi.fn<typeof globalThis.fetch>(async () => json(TOKEN_OK));
++    const res = await callback(env, `auth_code=the-code&state=${state}`, fetch);
++    expect(res.status).toBe(200);
++    expect(res.headers.get("Content-Type")).toContain("text/html");
++    const page = await res.text();
++    expect(page).toContain("connected");
++    expect(page).not.toContain(ACCESS);
++    expect(page).not.toContain(OPEN_ID);
++
++    expect(fetch).toHaveBeenCalledTimes(1);
++    const [url, init] = fetch.mock.calls[0];
++    expect(url).toBe(TT_USER_TOKEN_URL);
++    expect(TT_USER_TOKEN_URL).toBe(
++      "https://business-api.tiktok.com/open_api/v1.3/tt_user/oauth2/token/",
++    );
++    expect(init?.method).toBe("POST");
++    expect(JSON.parse(String(init?.body))).toEqual({
++      client_id: APP_ID,
++      client_secret: SECRET,
++      grant_type: "authorization_code",
++      auth_code: "the-code",
++      redirect_uri: CALLBACK,
++    });
++    const blob = kv.store.get("tiktokads:account")!.value;
++    expect(blob).not.toContain(ACCESS);
++    // DT-6B-3A-R1: the callback alone writes the connection reference, a fresh connection id around the token.
++    expect(await decryptJson(SCOUT, blob)).toEqual({
++      v: 2,
++      connection: expect.stringMatching(/^[0-9a-f]{32}$/),
++      token: {
++        access_token: ACCESS,
++        refresh_token: REFRESH,
++        open_id: OPEN_ID,
++        expires_at: "2026-10-16T14:00:00.000Z",
++        refresh_expires_at: "2027-10-15T14:00:00.000Z",
++        scope: "user.info.basic",
++        connectedAt: NOW.toISOString(),
++      },
++    });
++    // The state is used up.
++    const again = await callback(env, `auth_code=the-code&state=${state}`, fetch);
++    expect(again.status).toBe(400);
++    expect(fetch).toHaveBeenCalledTimes(1);
++  });
++
++  it("takes `code` too, and the path without the trailing slash", async () => {
++    const env = makeEnv();
++    const state = await stateOf(env);
++    const fetch = vi.fn<typeof globalThis.fetch>(async () => json(TOKEN_OK));
++    const res = await handle(
++      new Request(`${BASE}/oauth/tiktokads/account/callback?code=c2&state=${state}`),
++      env,
++      undefined,
++      { fetch, now: () => NOW },
++    );
++    expect(res.status).toBe(200);
++    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).auth_code).toBe("c2");
++  });
++
++  it("refuses a missing, wrong, stale or advertiser state: nothing exchanged", async () => {
++    const kv = fakeKV();
++    const env = makeEnv(kv);
++    const fetch = vi.fn<typeof globalThis.fetch>(async () => json(TOKEN_OK));
++    expect((await callback(env, "auth_code=c", fetch)).status).toBe(400);
++    expect((await callback(env, "auth_code=c&state=nope", fetch)).status).toBe(400);
++    kv.store.set("tiktokads:state:adv", {
++      value: JSON.stringify({ returnTo: "https://x", createdAt: NOW.toISOString() }),
++    });
++    expect((await callback(env, "auth_code=c&state=adv", fetch)).status).toBe(400);
++    const state = await stateOf(env);
++    const late = new Date(NOW.getTime() + 11 * 60_000);
++    expect((await callback(env, `auth_code=c&state=${state}`, fetch, late)).status).toBe(400);
++    expect(fetch).not.toHaveBeenCalled();
++    expect(kv.store.has("tiktokads:account")).toBe(false);
++  });
++
++  it("a refusal from TikTok or no code says so; never the secret or the code in logs or page", async () => {
++    const kv = fakeKV();
++    const env = makeEnv(kv);
++    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
++      json({ code: 40001, message: `bad ${SECRET} the-code` }),
++    );
++    const res = await callback(env, `auth_code=the-code&state=${await stateOf(env)}`, fetch);
++    expect(res.status).toBe(400);
++    const page = await res.text();
++    expect(page).toContain("exchange_failed");
++    expect(page).toContain("40001");
++    const all = page + JSON.stringify(logs);
++    expect(all).not.toContain(SECRET);
++    expect(all).not.toContain("the-code");
++    const none = await callback(env, `state=${await stateOf(env)}`, fetch);
++    expect(await none.text()).toContain("no_code");
++    expect(kv.store.has("tiktokads:account")).toBe(false);
++  });
++});
++
++describe("GET /tiktokads/account/status", () => {
++  it("says connected, the open_id masked, the scope and expiry; never a token", async () => {
++    const kv = fakeKV();
++    const env = makeEnv(kv);
++    expect(await (await get(env, "/tiktokads/account/status")).json()).toEqual({
++      connected: false,
++    });
++    await storeToken(kv);
++    const res = await get(env, "/tiktokads/account/status");
++    const text = await res.text();
++    expect(text).not.toContain(ACCESS);
++    expect(text).not.toContain(REFRESH);
++    expect(text).not.toContain(OPEN_ID);
++    expect(JSON.parse(text)).toEqual({
++      connected: true,
++      openId: "-000…ef",
++      scope: "user.info.basic",
++      expiresAt: "2026-10-15T15:00:00.000Z",
++      refreshExpiresAt: "2027-08-11T14:00:00.000Z",
++    });
++    expect((await get(env, "/tiktokads/account/status", undefined, null)).status).toBe(401);
++  });
++});
++
++const TRACK = {
++  commercial_music_id: "777",
++  commercial_music_name: "Song A",
++  artist: "Artist A",
++  rank_position: "1",
++  duration: 60,
++  preview_url: "https://p16.example/preview.mp3",
++  thumbnail_url: "https://p16.example/t.jpg",
++  trending_history: [
++    { date: "2026-10-13", rank_position_daily: "3" },
++    { date: "2026-10-14", rank_position_daily: 1 },
++  ],
++};
++
++describe("GET /tiktokads/music", () => {
++  it("reads the CML chart with the account token and open_id, normalizes it and keeps it 6 hours", async () => {
++    const kv = fakeKV();
++    await storeToken(kv);
++    const env = makeEnv(kv);
++    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
++      json({ code: 0, message: "OK", data: { list: [TRACK, { rank_position: 2 }] } }),
++    );
++    const res = await get(env, "/tiktokads/music?country=sa&range=30&genre=arabic_pop", fetch);
++    expect(res.status).toBe(200);
++    const text = await res.text();
++    expect(text).not.toContain(ACCESS);
++    expect(JSON.parse(text)).toEqual({
++      fetchedAt: NOW.toISOString(),
++      country: "SA",
++      range: "30",
++      genre: "ARABIC_POP",
++      items: [
++        {
++          rank: 1,
++          title: "Song A",
++          artist: "Artist A",
++          id: "777",
++          previewUrl: "https://p16.example/preview.mp3",
++          thumbnail: "https://p16.example/t.jpg",
++          trend: [
++            { date: "2026-10-13", rank: 3 },
++            { date: "2026-10-14", rank: 1 },
++          ],
++        },
++        {
++          rank: 2,
++          title: null,
++          artist: null,
++          id: null,
++          previewUrl: null,
++          thumbnail: null,
++          trend: [],
++        },
++      ],
++    });
++    expect(fetch).toHaveBeenCalledTimes(1);
++    const [url, init] = fetch.mock.calls[0];
++    const u = new URL(String(url));
++    expect(`${u.origin}${u.pathname}`).toBe(TT_CML_TRENDING_URL);
++    expect(Object.fromEntries(u.searchParams)).toEqual({
++      business_id: OPEN_ID,
++      genre: "ARABIC_POP",
++      country_code: "SA",
++      date_range: "30DAY",
++    });
++    expect((init?.headers as Record<string, string>)["Access-Token"]).toBe(ACCESS);
++    const cached = kv.store.get("tiktokads:music:SA:30:ARABIC_POP")!;
++    expect(cached.ttl).toBe(21600);
++
++    // Asked again: the kept answer, nothing fetched.
++    const again = await get(env, "/tiktokads/music?country=SA&range=30&genre=ARABIC_POP", fetch);
++    expect(await again.json()).toEqual(JSON.parse(text));
++    expect(fetch).toHaveBeenCalledTimes(1);
++  });
++
++  it("defaults to US, 7 days and ALL; refuses other values", async () => {
++    const kv = fakeKV();
++    await storeToken(kv);
++    const env = makeEnv(kv);
++    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
++      json({ code: 0, message: "OK", data: { list: [] } }),
++    );
++    const res = await get(env, "/tiktokads/music", fetch);
++    expect(await res.json()).toMatchObject({ country: "US", range: "7", genre: "ALL", items: [] });
++    expect(new URL(String(fetch.mock.calls[0][0])).searchParams.get("date_range")).toBe("7DAY");
++    for (const q of ["?country=GB", "?range=14", "?genre=a%20b", `?genre=${"A".repeat(41)}`])
++      expect((await get(env, `/tiktokads/music${q}`, fetch)).status).toBe(400);
++    expect((await get(env, "/tiktokads/music", fetch, null)).status).toBe(401);
++    expect(fetch).toHaveBeenCalledTimes(1);
++  });
++
++  it("a TikTok error or no answer is data (502 with its code and message), never kept", async () => {
++    const kv = fakeKV();
++    await storeToken(kv);
++    const env = makeEnv(kv);
++    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
++      json({ code: 40105, message: `Access token ${ACCESS} is incorrect` }),
++    );
++    const res = await get(env, "/tiktokads/music", fetch);
++    expect(res.status).toBe(502);
++    expect(await res.json()).toEqual({
++      error: "tiktok",
++      fetchedAt: NOW.toISOString(),
++      status: 200,
++      code: 40105,
++      message: "Access token … is incorrect",
++    });
++    const down = vi.fn<typeof globalThis.fetch>(async () => {
++      throw new Error("network");
++    });
++    expect(await (await get(env, "/tiktokads/music", down)).json()).toMatchObject({
++      error: "tiktok",
++      status: 0,
++      code: null,
++    });
++    expect([...kv.store.keys()].some((k) => k.startsWith("tiktokads:music:"))).toBe(false);
++  });
++
++  it("not connected: 409 not_connected, nothing asked", async () => {
++    const fetch = vi.fn<typeof globalThis.fetch>();
++    const res = await get(makeEnv(), "/tiktokads/music", fetch);
++    expect(res.status).toBe(409);
++    expect(await res.json()).toMatchObject({ error: "not_connected" });
++    expect(fetch).not.toHaveBeenCalled();
++  });
++
++  it("renews an expiring token first, keeps the new one sealed, then reads the chart (2 calls)", async () => {
++    const kv = fakeKV();
++    await storeToken(kv, 60_000);
++    const before = kv.store.get("tiktokads:account")!.value;
++    const env = makeEnv(kv);
++    const fetch = vi.fn<typeof globalThis.fetch>(async (input) =>
++      String(input) === TT_USER_REFRESH_URL
++        ? json({
++            ...TOKEN_OK,
++            data: { ...TOKEN_OK.data, access_token: "new-access", refresh_token: "new-refresh" },
++          })
++        : json({ code: 0, message: "OK", data: { list: [TRACK] } }),
++    );
++    const res = await get(env, "/tiktokads/music", fetch);
++    expect(res.status).toBe(200);
++    expect(fetch).toHaveBeenCalledTimes(2);
++    expect(TT_USER_REFRESH_URL).toBe(
++      "https://business-api.tiktok.com/open_api/v1.3/tt_user/oauth2/refresh_token/",
++    );
++    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({
++      client_id: APP_ID,
++      client_secret: SECRET,
++      grant_type: "refresh_token",
++      refresh_token: REFRESH,
++    });
++    expect((fetch.mock.calls[1][1]?.headers as Record<string, string>)["Access-Token"]).toBe(
++      "new-access",
++    );
++    // DT-6B-3A-R1: the renewal lands sealed under its own connection's refresh key (a legacy record's is
++    // "legacy"), bounded by the renewed refresh token; the connection reference itself is never rewritten.
++    expect(kv.store.get("tiktokads:account")!.value).toBe(before);
++    const kept = kv.store.get("tiktokads:account-refresh:legacy")!;
++    expect(kept.value).not.toContain("new-access");
++    expect(kept.expiration).toBe(Date.parse("2027-10-15T14:00:00.000Z") / 1000);
++    const { connection, token: t } = (await decryptJson<{
++      connection: string;
++      token: AccountToken;
++    }>(SCOUT, kept.value))!;
++    expect(connection).toBe("legacy");
++    expect(t).toMatchObject({
++      access_token: "new-access",
++      refresh_token: "new-refresh",
++      expires_at: "2026-10-16T14:00:00.000Z",
++      connectedAt: "2026-10-15T10:00:00.000Z",
++    });
++    expect(await readAccountToken(env)).toMatchObject({ access_token: "new-access" });
++  });
++
++  it("a failed renewal is data (502 refresh_failed); a dead refresh token asks to reconnect (409)", async () => {
++    const kv = fakeKV();
++    await storeToken(kv, -1000);
++    const env = makeEnv(kv);
++    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
++      json({ code: 40104, message: `bad ${REFRESH}` }),
++    );
++    const res = await get(env, "/tiktokads/music", fetch);
++    expect(res.status).toBe(502);
++    expect(await res.json()).toEqual({
++      error: "refresh_failed",
++      fetchedAt: NOW.toISOString(),
++      status: 200,
++      code: 40104,
++      message: "bad …",
++    });
++    expect(fetch).toHaveBeenCalledTimes(1);
++
++    await storeToken(kv, -1000, -1000);
++    const dead = await get(env, "/tiktokads/music", fetch);
++    expect(dead.status).toBe(409);
++    expect(await dead.json()).toMatchObject({ error: "reconnect" });
++    expect(fetch).toHaveBeenCalledTimes(1);
++  });
++});
++
++// DT-6B-3A-R1. The callback alone writes `tiktokads:account` ({ v: 2, connection, token }; a bare sealed token is a
++// legacy record, connection "legacy"); a renewal writes only `tiktokads:account-refresh:<its connection>`, read back
++// only while the reference still names that connection and the same open_id.
++const REF = "tiktokads:account";
++const refreshKey = (connection: string) => `tiktokads:account-refresh:${connection}`;
++const CONN = "0123456789abcdef0123456789abcdef";
++const CHANGED = { error: "account_changed", fetchedAt: NOW.toISOString() };
++
++function accountToken(over: Partial<AccountToken> = {}, expiresIn = -1000): AccountToken {
++  return {
++    access_token: "old-access",
++    refresh_token: "old-refresh",
++    open_id: OPEN_ID,
++    expires_at: new Date(NOW.getTime() + expiresIn).toISOString(),
++    refresh_expires_at: new Date(NOW.getTime() + 300 * 86400_000).toISOString(),
++    scope: "user.info.basic",
++    connectedAt: "2026-10-15T10:00:00.000Z",
++    ...over,
++  };
++}
++const seal = (value: unknown) => encryptJson(SCOUT, value);
++async function storeV2(kv: FakeKV, token = accountToken(), connection = CONN) {
++  kv.store.set(REF, { value: await seal({ v: 2, connection, token }) });
++}
++async function storeLegacy(kv: FakeKV, token = accountToken()) {
++  kv.store.set(REF, { value: await seal(token) });
++}
++const refOf = async (kv: FakeKV) =>
++  (await decryptJson<{ v: number; connection: string; token: AccountToken }>(
++    SCOUT,
++    kv.store.get(REF)!.value,
++  ))!;
++const overlayOf = async (kv: FakeKV, connection: string) =>
++  (await decryptJson<{ connection: string; token: AccountToken }>(
++    SCOUT,
++    kv.store.get(refreshKey(connection))!.value,
++  ))!;
++const musicKeys = (kv: FakeKV) =>
++  [...kv.store.keys()].filter((k) => k.startsWith("tiktokads:music:"));
++const tokenReply = (access: string, openId = OPEN_ID, extra: Record<string, unknown> = {}) =>
++  json({
++    ...TOKEN_OK,
++    data: {
++      ...TOKEN_OK.data,
++      access_token: access,
++      refresh_token: `${access}-refresh`,
++      open_id: openId,
++      ...extra,
++    },
++  });
++const chart = (list: unknown = [TRACK]) => json({ code: 0, message: "OK", data: { list } });
++function deferred<T>() {
++  let resolve!: (v: T) => void;
++  const promise = new Promise<T>((r) => (resolve = r));
++  return { promise, resolve };
++}
++/** A fake TikTok: the refresh answers `refresh()` (hold it with a deferred), the code exchange `exchange()`. */
++function transport(refresh: () => Promise<Response> | Response, exchange = () => json(TOKEN_OK)) {
++  return vi.fn<typeof globalThis.fetch>(async (input) => {
++    const u = String(input);
++    if (u === TT_USER_REFRESH_URL) return refresh();
++    if (u === TT_USER_TOKEN_URL) return exchange();
++    if (u.startsWith(TT_CML_TRENDING_URL)) return chart();
++    throw new Error(`unexpected ${u}`);
++  });
++}
++const urls = (f: ReturnType<typeof transport>) =>
++  f.mock.calls.map(([u]) => String(u).split("?")[0]);
++const accessOf = (f: ReturnType<typeof transport>, i: number) =>
++  (f.mock.calls.at(i)![1]?.headers as Record<string, string>)["Access-Token"];
++/** Connect and complete the callback for the account `exchange()` answers; the callback must say connected. */
++async function reconnect(env: Env, f: typeof globalThis.fetch) {
++  const res = await callback(env, `auth_code=c&state=${await stateOf(env)}`, f);
++  expect(res.status).toBe(200);
++}
++/** A refresh that waits for `release` after saying it was asked. */
++function held() {
++  const entered = deferred<void>();
++  const release = deferred<Response>();
++  return { entered, release, refresh: () => (entered.resolve(), release.promise) };
++}
++
++describe("DT-6B-3A-R1: a renewal never replaces a newer connection", () => {
++  it("realistic race: A's renewal (same open_id) held past B's completed callback cannot replace B or chart", async () => {
++    const kv = fakeKV();
++    await storeLegacy(kv, accountToken({ open_id: "old-account" }));
++    const env = makeEnv(kv);
++    const h = held();
++    const f = transport(h.refresh, () => tokenReply("new-access", "new-account"));
++    const pending = get(env, "/tiktokads/music", f);
++    await h.entered.promise;
++    await reconnect(env, f);
++    const ref = await refOf(kv);
++    expect(ref).toMatchObject({
++      v: 2,
++      token: { open_id: "new-account", access_token: "new-access" },
++    });
++
++    h.release.resolve(tokenReply("old-renewed", "old-account"));
++    const res = await pending;
++    expect(res.status).toBe(409);
++    expect(await res.json()).toEqual(CHANGED);
++    // No chart with the obsolete credentials, nothing cached; B stays the connection everywhere.
++    expect(urls(f)).toEqual([TT_USER_REFRESH_URL, TT_USER_TOKEN_URL]);
++    expect(musicKeys(kv)).toEqual([]);
++    expect(await refOf(kv)).toEqual(ref);
++    expect(await readAccountToken(env)).toMatchObject({
++      open_id: "new-account",
++      access_token: "new-access",
++    });
++    // A's renewal landed, sealed, under A's own (legacy) key, which the v2 reference never reads.
++    expect(kv.store.get(refreshKey("legacy"))!.value).not.toContain("old-renewed");
++    expect((await overlayOf(kv, "legacy")).token.open_id).toBe("old-account");
++    const status = await (await get(env, "/tiktokads/account/status")).json();
++    expect(status).toMatchObject({ connected: true, openId: "new-…nt" });
++    // B's next chart: B's credentials, no renewal.
++    const next = await get(env, "/tiktokads/music?range=30", f);
++    expect(next.status).toBe(200);
++    expect(urls(f).at(-1)).toBe(TT_CML_TRENDING_URL);
++    expect(accessOf(f, -1)).toBe("new-access");
++  });
++
++  it("control: a renewal that completes before the reconnect charts A, then B is the connection", async () => {
++    const kv = fakeKV();
++    await storeLegacy(kv, accountToken({ open_id: "old-account" }));
++    const env = makeEnv(kv);
++    const f = transport(
++      () => tokenReply("old-renewed", "old-account"),
++      () => tokenReply("new-access", "new-account"),
++    );
++    const res = await get(env, "/tiktokads/music", f);
++    expect(res.status).toBe(200);
++    expect(accessOf(f, 1)).toBe("old-renewed");
++    expect(await readAccountToken(env)).toMatchObject({ access_token: "old-renewed" });
++    await reconnect(env, f);
++    expect(await readAccountToken(env)).toMatchObject({
++      open_id: "new-account",
++      access_token: "new-access",
++    });
++  });
++
++  it("held while sealing the renewal (TikTok already answered) as the callback completes: still B", async () => {
++    const kv = fakeKV();
++    await storeV2(kv, accountToken({ open_id: "old-account" }));
++    const env = makeEnv(kv);
++    const f = transport(
++      () => tokenReply("old-renewed", "old-account"),
++      () => tokenReply("new-access", "new-account"),
++    );
++    const subtle = crypto.subtle;
++    const encrypt = subtle.encrypt.bind(subtle);
++    const sealing = deferred<void>();
++    const go = deferred<void>();
++    let hold = true;
++    vi.spyOn(subtle, "encrypt").mockImplementation(
++      async (...args: Parameters<SubtleCrypto["encrypt"]>) => {
++        if (hold) {
++          hold = false; // only the renewal's seal waits; the callback's passes
++          sealing.resolve();
++          await go.promise;
++        }
++        return encrypt(...args);
++      },
++    );
++    const pending = get(env, "/tiktokads/music", f);
++    await sealing.promise;
++    await reconnect(env, f);
++    go.resolve();
++    const res = await pending;
++    expect(res.status).toBe(409);
++    expect(await res.json()).toEqual(CHANGED);
++    expect(urls(f)).toEqual([TT_USER_REFRESH_URL, TT_USER_TOKEN_URL]);
++    expect(await readAccountToken(env)).toMatchObject({ open_id: "new-account" });
++    expect((await overlayOf(kv, CONN)).token.access_token).toBe("old-renewed");
++    expect(musicKeys(kv)).toEqual([]);
++  });
++
++  it("held at the sealed renewal's KV write as the callback completes: still B", async () => {
++    const kv = fakeKV();
++    await storeV2(kv, accountToken({ open_id: "old-account" }));
++    const env = makeEnv(kv);
++    const put = kv.put.getMockImplementation()!;
++    const writing = deferred<void>();
++    const go = deferred<void>();
++    kv.put.mockImplementation(async (key, value, opts) => {
++      if (key === refreshKey(CONN)) {
++        writing.resolve();
++        await go.promise;
++      }
++      return put(key, value, opts);
++    });
++    const f = transport(
++      () => tokenReply("old-renewed", "old-account"),
++      () => tokenReply("new-access", "new-account"),
++    );
++    const pending = get(env, "/tiktokads/music", f);
++    await writing.promise;
++    await reconnect(env, f);
++    go.resolve();
++    expect(await (await pending).json()).toEqual(CHANGED);
++    expect(await readAccountToken(env)).toMatchObject({ open_id: "new-account" });
++    expect(musicKeys(kv)).toEqual([]);
++  });
++
++  it("same account reconnected: a fresh connection id, so its stale renewal (same open_id) is not read", async () => {
++    const kv = fakeKV();
++    await storeV2(kv);
++    const env = makeEnv(kv);
++    const h = held();
++    const f = transport(h.refresh);
++    const pending = get(env, "/tiktokads/music", f);
++    await h.entered.promise;
++    await reconnect(env, f); // TOKEN_OK: the same OPEN_ID, access ACCESS
++    const first = (await refOf(kv)).connection;
++    expect(first).toMatch(/^[0-9a-f]{32}$/);
++    expect(first).not.toBe(CONN);
++    h.release.resolve(tokenReply("stale-renewed"));
++    expect(await (await pending).json()).toEqual(CHANGED);
++    expect((await overlayOf(kv, CONN)).token).toMatchObject({
++      open_id: OPEN_ID,
++      access_token: "stale-renewed",
++    });
++    expect(await readAccountToken(env)).toMatchObject({ open_id: OPEN_ID, access_token: ACCESS });
++    // Every callback mints its own id, also back to back for the same account.
++    await reconnect(env, f);
++    const second = (await refOf(kv)).connection;
++    expect(second).toMatch(/^[0-9a-f]{32}$/);
++    expect(second).not.toBe(first);
++  });
++
++  it("legacy record: renewed while legacy, the callback moves to v2, a stale legacy renewal is ignored", async () => {
++    const kv = fakeKV();
++    const legacy = accountToken();
++    await storeLegacy(kv, legacy);
++    const before = kv.store.get(REF)!.value;
++    const env = makeEnv(kv);
++    expect(await readAccountToken(env)).toEqual(legacy);
++    // 1. Renewed while legacy: kept under ":legacy", the bare record untouched, status shows the renewal.
++    const f1 = transport(() => tokenReply("legacy-renewed"));
++    expect((await get(env, "/tiktokads/music", f1)).status).toBe(200);
++    expect(kv.store.get(REF)!.value).toBe(before);
++    expect(await overlayOf(kv, "legacy")).toMatchObject({
++      connection: "legacy",
++      token: { access_token: "legacy-renewed", connectedAt: legacy.connectedAt },
++    });
++    expect(await (await get(env, "/tiktokads/account/status")).json()).toMatchObject({
++      expiresAt: "2026-10-16T14:00:00.000Z",
++    });
++    // 2. The renewed token about to end too: a second legacy renewal starts, held past a callback.
++    kv.store.set(refreshKey("legacy"), {
++      value: await seal({
++        connection: "legacy",
++        token: accountToken({ access_token: "legacy-renewed" }),
++      }),
++    });
++    const h = held();
++    const f2 = transport(h.refresh, () => tokenReply("new-access", "new-account"));
++    const pending = get(env, "/tiktokads/music?range=30", f2);
++    await h.entered.promise;
++    expect(JSON.parse(String(f2.mock.calls[0][1]?.body)).refresh_token).toBe("old-refresh");
++    await reconnect(env, f2);
++    expect(await refOf(kv)).toMatchObject({ v: 2, token: { open_id: "new-account" } });
++    h.release.resolve(tokenReply("stale-legacy"));
++    expect(await (await pending).json()).toEqual(CHANGED);
++    expect((await overlayOf(kv, "legacy")).token.access_token).toBe("stale-legacy");
++    expect(await readAccountToken(env)).toMatchObject({
++      open_id: "new-account",
++      access_token: "new-access",
++    });
++  });
++
++  it("current v2 connection: a normal renewal is kept under its id (bounded) and reused without renewing", async () => {
++    const kv = fakeKV();
++    await storeV2(kv);
++    const before = kv.store.get(REF)!.value;
++    const env = makeEnv(kv);
++    const f = transport(() => tokenReply("renewed"));
++    const res = await get(env, "/tiktokads/music", f);
++    expect(res.status).toBe(200);
++    expect(accessOf(f, 1)).toBe("renewed");
++    expect(JSON.parse(String(f.mock.calls[0][1]?.body)).refresh_token).toBe("old-refresh");
++    expect(kv.store.get(REF)!.value).toBe(before);
++    const kept = kv.store.get(refreshKey(CONN))!;
++    expect(kept.expiration).toBe(Date.parse("2027-10-15T14:00:00.000Z") / 1000);
++    expect(kept.ttl).toBeUndefined();
++    expect(await overlayOf(kv, CONN)).toEqual({
++      connection: CONN,
++      token: {
++        access_token: "renewed",
++        refresh_token: "renewed-refresh",
++        open_id: OPEN_ID,
++        expires_at: "2026-10-16T14:00:00.000Z",
++        refresh_expires_at: "2027-10-15T14:00:00.000Z",
++        scope: "user.info.basic",
++        connectedAt: "2026-10-15T10:00:00.000Z",
++      },
++    });
++    const again = await get(env, "/tiktokads/music?range=30", f);
++    expect(again.status).toBe(200);
++    expect(f).toHaveBeenCalledTimes(3);
++    expect(accessOf(f, 2)).toBe("renewed");
++    // The key's expiry never passes a year, whatever TikTok says of the renewed refresh token.
++    const kv2 = fakeKV();
++    await storeV2(kv2);
++    const long = transport(() =>
++      tokenReply("renewed", OPEN_ID, { refresh_token_expires_in: 3 * 31536000 }),
++    );
++    expect((await get(makeEnv(kv2), "/tiktokads/music", long)).status).toBe(200);
++    expect(kv2.store.get(refreshKey(CONN))!.expiration).toBe(
++      Math.floor((NOW.getTime() + 365 * 86400_000) / 1000),
++    );
++  });
++
++  it("a renewal naming another account is neither kept nor used: 502 refresh_failed account_mismatch", async () => {
++    const kv = fakeKV();
++    await storeV2(kv);
++    const env = makeEnv(kv);
++    const f = transport(() => tokenReply("someone-access", "someone-else"));
++    const res = await get(env, "/tiktokads/music", f);
++    expect(res.status).toBe(502);
++    expect(await res.json()).toEqual({
++      error: "refresh_failed",
++      fetchedAt: NOW.toISOString(),
++      status: 0,
++      code: null,
++      message: "account_mismatch",
++    });
++    expect(urls(f)).toEqual([TT_USER_REFRESH_URL]);
++    expect(kv.store.has(refreshKey(CONN))).toBe(false);
++    expect(musicKeys(kv)).toEqual([]);
++    expect(await readAccountToken(env)).toMatchObject({ access_token: "old-access" });
++  });
++
++  it("a renewal that cannot be kept fails honestly: 502 refresh_failed, no chart, no cache, reference intact", async () => {
++    const kv = fakeKV();
++    await storeV2(kv);
++    const before = kv.store.get(REF)!.value;
++    const put = kv.put.getMockImplementation()!;
++    kv.put.mockImplementation(async (key, value, opts) => {
++      if (key.startsWith("tiktokads:account-refresh:")) throw new Error("kv down");
++      return put(key, value, opts);
++    });
++    const env = makeEnv(kv);
++    const f = transport(() => tokenReply("renewed"));
++    const res = await get(env, "/tiktokads/music", f);
++    expect(res.status).toBe(502);
++    const text = await res.text();
++    expect(JSON.parse(text)).toEqual({
++      error: "refresh_failed",
++      fetchedAt: NOW.toISOString(),
++      status: 0,
++      code: null,
++      message: "storage_failed",
++    });
++    expect(text).not.toContain("renewed");
++    expect(JSON.stringify(logs)).not.toContain("renewed");
++    expect(urls(f)).toEqual([TT_USER_REFRESH_URL]);
++    expect(musicKeys(kv)).toEqual([]);
++    expect(kv.store.get(REF)!.value).toBe(before);
++  });
++
++  it("a renewed refresh token already ending (under KV's 60-second minimum) asks to reconnect, keeps nothing", async () => {
++    const kv = fakeKV();
++    await storeV2(kv);
++    const env = makeEnv(kv);
++    const f = transport(() => tokenReply("renewed", OPEN_ID, { refresh_token_expires_in: 30 }));
++    const res = await get(env, "/tiktokads/music", f);
++    expect(res.status).toBe(409);
++    expect(await res.json()).toEqual({ error: "reconnect", fetchedAt: NOW.toISOString() });
++    expect(urls(f)).toEqual([TT_USER_REFRESH_URL]);
++    expect(kv.store.has(refreshKey(CONN))).toBe(false);
++    expect(musicKeys(kv)).toEqual([]);
++  });
++
++  it("the reference gone after the renewal: 409 not_connected, no chart", async () => {
++    const kv = fakeKV();
++    await storeV2(kv);
++    const env = makeEnv(kv);
++    const h = held();
++    const f = transport(h.refresh);
++    const pending = get(env, "/tiktokads/music", f);
++    await h.entered.promise;
++    kv.store.delete(REF);
++    h.release.resolve(tokenReply("renewed"));
++    const res = await pending;
++    expect(res.status).toBe(409);
++    expect(await res.json()).toEqual({ error: "not_connected", fetchedAt: NOW.toISOString() });
++    expect(urls(f)).toEqual([TT_USER_REFRESH_URL]);
++  });
++
++  it("a refresh record is used only for the same connection and open_id; a malformed one falls back", async () => {
++    const fresh = accountToken({ access_token: "ref-access" }, 3600_000);
++    const cases: [string, unknown, string][] = [
++      ["matching", { connection: CONN, token: { ...fresh, access_token: "overlay" } }, "overlay"],
++      ["other connection", { connection: "f".repeat(32), token: fresh }, "ref-access"],
++      ["other open_id", { connection: CONN, token: { ...fresh, open_id: "x" } }, "ref-access"],
++      ["no token", { connection: CONN }, "ref-access"],
++      ["empty access", { connection: CONN, token: { ...fresh, access_token: "" } }, "ref-access"],
++      ["not an object", "nope", "ref-access"],
++    ];
++    for (const [name, value, access] of cases) {
++      const kv = fakeKV();
++      await storeV2(kv, fresh);
++      kv.store.set(refreshKey(CONN), { value: await seal(value) });
++      expect((await readAccountToken(makeEnv(kv)))?.access_token, name).toBe(access);
++    }
++    const kv = fakeKV();
++    await storeV2(kv, fresh);
++    kv.store.set(refreshKey(CONN), { value: "v1.garbage.garbage" });
++    expect((await readAccountToken(makeEnv(kv)))?.access_token).toBe("ref-access");
++    kv.store.set(refreshKey(CONN), {
++      value: await encryptJson("another", { connection: CONN, token: fresh }),
++    });
++    expect((await readAccountToken(makeEnv(kv)))?.access_token).toBe("ref-access");
++  });
++
++  it("a malformed or foreign reference reads as not connected: status false, music 409, nothing asked", async () => {
++    const token = accountToken({}, 3600_000);
++    const blobs = [
++      await seal({ v: 2, connection: "not-hex", token }),
++      await seal({ v: 2, token }),
++      await seal({ v: 2, connection: CONN }),
++      await seal({ v: 2, connection: CONN, token: { ...token, open_id: "" } }),
++      await seal({ v: 3, connection: CONN, token }),
++      await seal("text"),
++      await encryptJson("another", { v: 2, connection: CONN, token }),
++      "garbage",
++    ];
++    const f = vi.fn<typeof globalThis.fetch>();
++    for (const value of blobs) {
++      const kv = fakeKV();
++      kv.store.set(REF, { value });
++      const env = makeEnv(kv);
++      expect(await (await get(env, "/tiktokads/account/status")).json()).toEqual({
++        connected: false,
++      });
++      const res = await get(env, "/tiktokads/music", f);
++      expect(res.status).toBe(409);
++      expect(await res.json()).toMatchObject({ error: "not_connected" });
++    }
++    expect(f).not.toHaveBeenCalled();
++  });
++
++  it("a KV read error stays 502 upstream, nothing asked", async () => {
++    const kv = fakeKV();
++    await storeV2(kv);
++    kv.get.mockImplementation(async (key: string) => {
++      if (key === refreshKey(CONN)) throw new Error("kv down");
++      return kv.store.get(key)?.value ?? null;
++    });
++    const f = vi.fn<typeof globalThis.fetch>();
++    const res = await get(makeEnv(kv), "/tiktokads/music", f);
++    expect(res.status).toBe(502);
++    expect(await res.json()).toEqual({ error: "upstream", fetchedAt: NOW.toISOString() });
++    expect(f).not.toHaveBeenCalled();
++  });
++
++  it("status and the music probe read legacy, v2 and renewed records alike; the probe writes and renews nothing", async () => {
++    const shape = {
++      connected: true,
++      openId: "-000…ef",
++      scope: "user.info.basic",
++      refreshExpiresAt: "2027-08-11T14:00:00.000Z",
++    };
++    const legacy = fakeKV();
++    await storeLegacy(legacy, accountToken({}, 3600_000));
++    const v2 = fakeKV();
++    await storeV2(v2, accountToken({}, 3600_000));
++    const renewed = fakeKV();
++    await storeV2(renewed);
++    renewed.store.set(refreshKey(CONN), {
++      value: await seal({
++        connection: CONN,
++        token: accountToken({ access_token: "renewed" }, 86400_000),
++      }),
++    });
++    for (const [kv, expiresAt, access] of [
++      [legacy, "2026-10-15T15:00:00.000Z", "old-access"],
++      [v2, "2026-10-15T15:00:00.000Z", "old-access"],
++      [renewed, "2026-10-16T14:00:00.000Z", "renewed"],
++    ] as const) {
++      const env = makeEnv(kv);
++      expect(await (await get(env, "/tiktokads/account/status")).json()).toEqual({
++        ...shape,
++        expiresAt,
++      });
++      const f = vi.fn<typeof globalThis.fetch>(async () => chart());
++      kv.put.mockClear();
++      const probe = await musicProbe(new Request(`${BASE}/tiktokads/music-probe`), env, f, NOW);
++      expect(probe.status).toBe(200);
++      expect((probe.body.attempts as { name: string }[]).map((a) => a.name)).toEqual([
++        "cml_trending_list_account",
++      ]);
++      expect(f).toHaveBeenCalledTimes(1);
++      expect((f.mock.calls[0][1]?.headers as Record<string, string>)["Access-Token"]).toBe(access);
++      expect(JSON.stringify(probe.body)).not.toContain(OPEN_ID);
++      expect(kv.put).not.toHaveBeenCalled();
++      expect(kv.delete).not.toHaveBeenCalled();
++    }
++  });
++});
++
++describe("DT-6B-3A-R1: only an actual list is a chart", () => {
++  for (const [name, data] of [
++    ["missing", {}],
++    ["null", { list: null }],
++    ["an object", { list: { unexpected: "shape" } }],
++    ["a string", { list: "[]" }],
++  ] as const)
++    it(`a list that is ${name}: 502 upstream malformed_list, no chart cached`, async () => {
++      const kv = fakeKV();
++      await storeToken(kv);
++      const env = makeEnv(kv);
++      const f = vi.fn<typeof globalThis.fetch>(async () => json({ code: 0, message: "OK", data }));
++      const res = await get(env, "/tiktokads/music", f);
++      expect(res.status).toBe(502);
++      expect(await res.json()).toEqual({
++        error: "upstream",
++        fetchedAt: NOW.toISOString(),
++        detail: "malformed_list",
++      });
++      expect(kv.put).not.toHaveBeenCalled();
++      expect(musicKeys(kv)).toEqual([]);
++      // Nothing false was kept: the next request asks TikTok again.
++      await get(env, "/tiktokads/music", f);
++      expect(f).toHaveBeenCalledTimes(2);
++    });
++
++  it("an empty array is a real empty chart, kept 6 hours and served from the cache", async () => {
++    const kv = fakeKV();
++    await storeToken(kv);
++    const env = makeEnv(kv);
++    const f = vi.fn<typeof globalThis.fetch>(async () => chart([]));
++    const res = await get(env, "/tiktokads/music?country=SA", f);
++    expect(res.status).toBe(200);
++    const body = await res.json();
++    expect(body).toEqual({
++      fetchedAt: NOW.toISOString(),
++      country: "SA",
++      range: "7",
++      genre: "ALL",
++      items: [],
++    });
++    expect(kv.store.get("tiktokads:music:SA:7:ALL")!.ttl).toBe(21600);
++    expect(await (await get(env, "/tiktokads/music?country=SA", f)).json()).toEqual(body);
++    expect(f).toHaveBeenCalledTimes(1);
++  });
++
++  it("rows keep TikTok's order (no re-sorting); each query has its own cache entry", async () => {
++    const kv = fakeKV();
++    await storeToken(kv);
++    const env = makeEnv(kv);
++    const rows = [
++      { commercial_music_id: "c", rank_position: 3 },
++      { commercial_music_id: "a", rank_position: 1 },
++      { commercial_music_id: "b", rank_position: 2 },
++    ];
++    const f = vi.fn<typeof globalThis.fetch>(async (input) =>
++      chart(
++        new URL(String(input)).searchParams.get("country_code") === "US" ? rows : rows.slice(0, 1),
++      ),
++    );
++    type Chart = { items: { id: string }[] };
++    const us = await (await get(env, "/tiktokads/music?country=US&range=1", f)).json<Chart>();
++    expect(us.items.map((i) => i.id)).toEqual(["c", "a", "b"]);
++    const sa = await (await get(env, "/tiktokads/music?country=SA&range=1", f)).json<Chart>();
++    expect(sa.items.map((i) => i.id)).toEqual(["c"]);
++    expect(musicKeys(kv).sort()).toEqual(["tiktokads:music:SA:1:ALL", "tiktokads:music:US:1:ALL"]);
++    expect(f).toHaveBeenCalledTimes(2);
++    expect(await (await get(env, "/tiktokads/music?country=US&range=1", f)).json()).toEqual(us);
++    expect(f).toHaveBeenCalledTimes(2);
++  });
++});
+--- /dev/null
++++ b/workers/scout/src/tiktokMusicProbe.ts
+@@ -0,0 +1,168 @@
++/**
++ * `GET /tiktokads/music-probe?country=SA|US&range=7|30` (Bearer): a read-only live check of what TikTok's Discovery API
++ * answers about trending music with the owner's TikTok for Business token (tiktokads.ts). It writes nothing.
++ *
++ * TikTok's docs (checked 2026-10-15 at business-api.tiktok.com/portal/docs):
++ * - Music lives at `/discovery/cml/trending_list/` (id=1825119063013505): up to 100 Commercial Music Library tracks,
++ *   `business_id` + `genre` (ALL) + `country_code` + `date_range` (1DAY|7DAY|30DAY|90DAY). It asks a TikTok *account*
++ *   token (`/tt_user/oauth2/token/`, `business_id` = its `open_id`), not the advertiser token we keep, so attempt 1 is
++ *   expected to fail; its code and message say how.
++ * - `/discovery/trending_list/` (id=1825119032526849): "Currently, we only support `HASHTAG`". Attempts 2 and 3 ask
++ *   the undocumented `MUSIC` and `SONG` once each, to see it live.
++ * - Attempt 4 is documented and works with our token: the popular hashtags of the `MUSIC` industry (song names often).
++ * - Attempt 5, `cml_trending_list_account`, only when a TikTok account is connected (tiktokAccount.ts): the same chart
++ *   with the account token and `business_id` = its open_id, as the docs ask. The stored token as it is: the probe
++ *   never renews it (an expired one shows TikTok's answer).
++ * 4–5 calls, in parallel, two KV reads. Every failure is data, never a throw. No token or id is in the answer.
++ */
++
++import { CALL_TIMEOUT_MS } from "./discover/fetchers";
++import { isRecord } from "./effects/ai";
++import { getJson, withParams, type Reply } from "./categories/top";
++import { TT_TRENDING_URL } from "./categories/tiktok";
++import { hide, readAdsToken, type TikTokAdsEnv } from "./tiktokads";
++import { readAccountToken, TT_CML_TRENDING_URL } from "./tiktokAccount";
++
++export { TT_CML_TRENDING_URL };
++
++const COUNTRIES = ["SA", "US"];
++const RANGES: Record<string, string> = { "7": "7DAY", "30": "30DAY" };
++const ITEMS = 10;
++const MESSAGE_MAX = 200;
++/** Stands in for the advertiser id in the answer's params. */
++const ADVERTISER = "<advertiser_id>";
++/** Stands in for the TikTok account's open_id. */
++const OPEN_ID = "<open_id>";
++
++const str = (x: unknown) =>
++  typeof x === "string" ? x : typeof x === "number" ? String(x) : undefined;
++
++/** One item, track or hashtag, as the probe shows it; `keys` tells an unknown shape. */
++function item(x: unknown): Record<string, unknown> {
++  if (!isRecord(x)) return { raw: typeof x };
++  const history = Array.isArray(x.trending_history) ? x.trending_history : undefined;
++  const clip = (c: unknown) => (isRecord(c) ? str(c.song_clip_id) : undefined);
++  return {
++    rank: str(x.rank_position),
++    title: str(x.commercial_music_name ?? x.hashtag_name ?? x.title ?? x.name),
++    artist: str(x.artist),
++    id: str(x.commercial_music_id ?? x.hashtag_id ?? x.id),
++    genres: Array.isArray(x.genres) ? x.genres : undefined,
++    rankChange: x.rank_change,
++    posts: x.posts,
++    views: x.views,
++    previewUrl: str(x.preview_url),
++    thumbnailUrl: str(x.thumbnail_url),
++    trendingClipId: clip(x.trending_song_clip),
++    fullClipId: clip(x.full_duration_song_clip),
++    // The last 7 days of the up-to-30 TikTok sends.
++    history: history?.slice(-7),
++    keys: Object.keys(x).slice(0, 20),
++  };
++}
++
++function attempt(
++  name: string,
++  endpoint: string,
++  params: Record<string, string>,
++  r: Reply,
++  secrets: string[],
++) {
++  const body = isRecord(r.body) ? r.body : {};
++  const data = isRecord(body.data) ? body.data : {};
++  const list = Array.isArray(data.list) ? data.list : [];
++  return {
++    name,
++    endpoint,
++    params,
++    status: r.status,
++    code: typeof body.code === "number" ? body.code : null,
++    message:
++      typeof body.message === "string" ? hide(body.message, secrets).slice(0, MESSAGE_MAX) : null,
++    count: list.length,
++    items: list.slice(0, ITEMS).map(item),
++  };
++}
++
++export async function musicProbe(
++  req: Request,
++  env: TikTokAdsEnv,
++  doFetch: typeof fetch,
++  now: Date,
++  timeoutMs = CALL_TIMEOUT_MS,
++): Promise<{ status: number; body: Record<string, unknown> }> {
++  const q = new URL(req.url).searchParams;
++  const country = (q.get("country") ?? "US").toUpperCase();
++  const dateRange = RANGES[q.get("range") ?? "7"];
++  if (!COUNTRIES.includes(country) || !dateRange)
++    return { status: 400, body: { error: "bad_request" } };
++  const fetchedAt = now.toISOString();
++  let token, account;
++  try {
++    [token, account] = await Promise.all([readAdsToken(env), readAccountToken(env)]);
++  } catch {
++    return { status: 502, body: { error: "upstream", fetchedAt } };
++  }
++  const advertiser = token?.advertiser_ids[0];
++  if (!advertiser && !account) return { status: 409, body: { error: "not_connected", fetchedAt } };
++
++  const plan: { name: string; url: string; params: Record<string, string> }[] = !advertiser
++    ? []
++    : [
++        {
++          name: "cml_trending_list",
++          url: TT_CML_TRENDING_URL,
++          params: {
++            business_id: ADVERTISER,
++            genre: "ALL",
++            country_code: country,
++            date_range: dateRange,
++          },
++        },
++        ...["MUSIC", "SONG"].map((type) => ({
++          name: `trending_list_${type}`,
++          url: TT_TRENDING_URL,
++          params: {
++            advertiser_id: ADVERTISER,
++            discovery_type: type,
++            country_code: country,
++            date_range: dateRange,
++          },
++        })),
++        {
++          name: "trending_list_HASHTAG_MUSIC",
++          url: TT_TRENDING_URL,
++          params: {
++            advertiser_id: ADVERTISER,
++            discovery_type: "HASHTAG",
++            category_name: "MUSIC",
++            country_code: country,
++            date_range: dateRange,
++          },
++        },
++      ];
++  if (account)
++    plan.push({
++      name: "cml_trending_list_account",
++      url: TT_CML_TRENDING_URL,
++      params: { business_id: OPEN_ID, genre: "ALL", country_code: country, date_range: dateRange },
++    });
++  const secrets = [token?.access_token, account?.access_token, account?.open_id].filter(
++    (s): s is string => !!s,
++  );
++  const attempts = await Promise.all(
++    plan.map(async (p) => {
++      const real = Object.fromEntries(
++        Object.entries(p.params).map(([k, v]) => [
++          k,
++          v === ADVERTISER ? advertiser! : v === OPEN_ID ? account!.open_id : v,
++        ]),
++      );
++      const access = p.params.business_id === OPEN_ID ? account!.access_token : token!.access_token;
++      const headers = { Accept: "application/json", "Access-Token": access };
++      const r = await getJson(doFetch, withParams(p.url, real), headers, timeoutMs);
++      return attempt(p.name, p.url, p.params, r, secrets);
++    }),
++  );
++  return { status: 200, body: { country, dateRange, fetchedAt, attempts } };
++}
+--- /dev/null
++++ b/workers/scout/src/tiktokMusicProbe.test.ts
+@@ -0,0 +1,221 @@
++import { describe, expect, it, vi } from "vitest";
++import { handle, type Env } from "./scout";
++import { encryptJson } from "./social/crypto";
++import { TT_CML_TRENDING_URL } from "./tiktokMusicProbe";
++
++// GET /tiktokads/music-probe through the Worker's router. Every value here is fake.
++
++const SCOUT = "scout-token";
++const ACCESS = "fake-access-token";
++const BASE = "https://3z-scout.example.workers.dev";
++const NOW = new Date("2026-10-15T13:40:00Z");
++const TOKEN = await encryptJson(SCOUT, {
++  access_token: ACCESS,
++  advertiser_ids: ["adv1"],
++  connectedAt: "2026-10-07T09:00:00.000Z",
++});
++
++const kv = (token: string | null = TOKEN) => {
++  const put = vi.fn();
++  return {
++    put,
++    kv: {
++      get: vi.fn(async (key: string) => (key === "tiktokads:token" ? token : null)),
++      put,
++      delete: vi.fn(),
++    } as unknown as KVNamespace,
++  };
++};
++const env = (k = kv().kv): Env => ({ SCOUT_TOKEN: SCOUT, SOCIAL_KV: k });
++const json = (body: unknown, status = 200) =>
++  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
++
++const probe = (e: Env, fetch: typeof globalThis.fetch, query = "", token: string | null = SCOUT) =>
++  handle(
++    new Request(`${BASE}/tiktokads/music-probe${query}`, {
++      headers: token ? { Authorization: `Bearer ${token}` } : {},
++    }),
++    e,
++    undefined,
++    { fetch, now: () => NOW },
++  );
++
++const TRACK = {
++  commercial_music_id: "777",
++  commercial_music_name: "Song A",
++  artist: "Artist A",
++  rank_position: "1",
++  genres: ["Pop"],
++  preview_url: "https://p16.example/preview.mp3",
++  trending_history: Array.from({ length: 10 }, (_, i) => ({
++    date: `2026-10-0${i}`,
++    rank_position_daily: "1",
++  })),
++  trending_song_clip: {
++    song_clip_id: "888",
++    duration: 30,
++    preview_url: "https://p16.example/c.mp3",
++  },
++};
++
++describe("GET /tiktokads/music-probe", () => {
++  it("asks the 4 attempts with the stored token, shows each answer, writes nothing and never echoes the token", async () => {
++    const k = kv();
++    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
++      const u = new URL(String(input));
++      if (u.href.startsWith(TT_CML_TRENDING_URL))
++        return json({ code: 0, message: "OK", data: { list: Array(12).fill(TRACK) } });
++      const type = u.searchParams.get("discovery_type");
++      if (type === "HASHTAG")
++        return json({
++          code: 0,
++          message: "OK",
++          data: { list: [{ hashtag_id: 5, hashtag_name: "newsong", rank_position: "2" }] },
++        });
++      return json({ code: 40002, message: `discovery_type invalid ${ACCESS}` });
++    });
++    const res = await probe(env(k.kv), fetch, "?country=sa&range=30");
++    expect(res.status).toBe(200);
++    const text = await res.text();
++    expect(text).not.toContain(ACCESS);
++    expect(text).not.toContain("adv1");
++    const body = JSON.parse(text);
++    expect(body).toMatchObject({ country: "SA", dateRange: "30DAY", fetchedAt: NOW.toISOString() });
++    expect(fetch).toHaveBeenCalledTimes(4);
++    for (const [, init] of fetch.mock.calls)
++      expect((init?.headers as Record<string, string>)["Access-Token"]).toBe(ACCESS);
++    const urls = fetch.mock.calls.map(([u]) => new URL(String(u)));
++    expect(urls[0].searchParams.get("business_id")).toBe("adv1");
++    expect(
++      urls.every(
++        (u) =>
++          u.searchParams.get("country_code") === "SA" &&
++          u.searchParams.get("date_range") === "30DAY",
++      ),
++    ).toBe(true);
++    expect(urls.slice(1).map((u) => u.searchParams.get("discovery_type"))).toEqual([
++      "MUSIC",
++      "SONG",
++      "HASHTAG",
++    ]);
++    expect(urls[3].searchParams.get("category_name")).toBe("MUSIC");
++
++    const [cml, music, song, tags] = body.attempts;
++    expect(cml).toMatchObject({ name: "cml_trending_list", status: 200, code: 0, count: 12 });
++    expect(cml.params.business_id).toBe("<advertiser_id>");
++    expect(cml.items).toHaveLength(10);
++    expect(cml.items[0]).toMatchObject({
++      rank: "1",
++      title: "Song A",
++      artist: "Artist A",
++      id: "777",
++      trendingClipId: "888",
++      previewUrl: "https://p16.example/preview.mp3",
++    });
++    expect(cml.items[0].history).toHaveLength(7);
++    expect(music).toMatchObject({
++      code: 40002,
++      count: 0,
++      items: [],
++      message: "discovery_type invalid …",
++    });
++    expect(song.name).toBe("trending_list_SONG");
++    expect(tags.items[0]).toMatchObject({ title: "newsong", id: "5", rank: "2" });
++    expect(k.put).not.toHaveBeenCalled();
++  });
++
++  it("a TikTok failure or no answer is data: its code, message or HTTP status", async () => {
++    let n = 0;
++    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
++      n++;
++      if (n === 1)
++        return json({ code: 40105, message: "Access token is incorrect or has been revoked." });
++      if (n === 2) return new Response("down", { status: 503 });
++      throw new Error("network");
++    });
++    const res = await probe(env(), fetch);
++    expect(res.status).toBe(200);
++    const { attempts, dateRange, country } = await res.json<{
++      attempts: Record<string, unknown>[];
++      dateRange: string;
++      country: string;
++    }>();
++    expect([country, dateRange]).toEqual(["US", "7DAY"]);
++    expect(attempts[0]).toMatchObject({ status: 200, code: 40105, count: 0 });
++    expect(attempts[1]).toMatchObject({ status: 503, code: null, message: null });
++    expect(attempts[2]).toMatchObject({ status: 0, code: null });
++  });
++
++  it("with a TikTok account connected, adds the chart asked with its token and open_id (alone without an advertiser)", async () => {
++    const account = await encryptJson(SCOUT, {
++      access_token: "fake-account-access",
++      refresh_token: "r",
++      open_id: "open-123",
++      expires_at: "2026-10-16T00:00:00.000Z",
++      refresh_expires_at: "2027-10-15T00:00:00.000Z",
++      connectedAt: "2026-10-15T10:00:00.000Z",
++    });
++    const both = (ads: string | null) =>
++      ({
++        get: vi.fn(async (key: string) =>
++          key === "tiktokads:token" ? ads : key === "tiktokads:account" ? account : null,
++        ),
++        put: vi.fn(),
++        delete: vi.fn(),
++      }) as unknown as KVNamespace;
++    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
++      json({ code: 0, message: "OK open-123", data: { list: [TRACK] } }),
++    );
++    const res = await probe(env(both(TOKEN)), fetch);
++    const text = await res.text();
++    expect(text).not.toContain("open-123");
++    expect(text).not.toContain("fake-account-access");
++    const { attempts } = JSON.parse(text) as { attempts: Record<string, unknown>[] };
++    expect(attempts.map((a) => a.name)).toEqual([
++      "cml_trending_list",
++      "trending_list_MUSIC",
++      "trending_list_SONG",
++      "trending_list_HASHTAG_MUSIC",
++      "cml_trending_list_account",
++    ]);
++    expect(attempts[4]).toMatchObject({
++      params: { business_id: "<open_id>", genre: "ALL" },
++      code: 0,
++      count: 1,
++      message: "OK …",
++    });
++    const [url, init] = fetch.mock.calls[4];
++    expect(new URL(String(url)).searchParams.get("business_id")).toBe("open-123");
++    expect((init?.headers as Record<string, string>)["Access-Token"]).toBe("fake-account-access");
++    expect((fetch.mock.calls[0][1]?.headers as Record<string, string>)["Access-Token"]).toBe(
++      ACCESS,
++    );
++
++    fetch.mockClear();
++    const alone = await (
++      await probe(env(both(null)), fetch)
++    ).json<{ attempts: { name: string }[] }>();
++    expect(alone.attempts.map((a) => a.name)).toEqual(["cml_trending_list_account"]);
++    expect(fetch).toHaveBeenCalledTimes(1);
++  });
++
++  it("not connected (no token, one sealed with another SCOUT_TOKEN): 409 not_connected, nothing asked", async () => {
++    const fetch = vi.fn<typeof globalThis.fetch>();
++    const other = await encryptJson("another", { access_token: ACCESS, advertiser_ids: ["adv1"] });
++    for (const k of [kv(null), kv(other)]) {
++      const res = await probe(env(k.kv), fetch);
++      expect(res.status).toBe(409);
++      expect(await res.json()).toMatchObject({ error: "not_connected" });
++    }
++    expect(fetch).not.toHaveBeenCalled();
++  });
++
++  it("needs the bearer, and only SA|US and 7|30", async () => {
++    const fetch = vi.fn<typeof globalThis.fetch>();
++    expect((await probe(env(), fetch, "", null)).status).toBe(401);
++    expect((await probe(env(), fetch, "", "wrong")).status).toBe(401);
++    expect((await probe(env(), fetch, "?country=GB")).status).toBe(400);
++    expect((await probe(env(), fetch, "?range=90")).status).toBe(400);
++    expect(fetch).not.toHaveBeenCalled();
++  });
++});
+--- a/workers/scout/src/scout.test.ts
++++ b/workers/scout/src/scout.test.ts
+@@ -1230,3 +1230,171 @@
+     ]);
+   });
+ });
++
++describe("mixed router: TikTok account/music beside the accepted routes (DT-6B-3A)", () => {
++  // Fake KV and fake transport only: no provider, KV namespace or Durable Object is reached.
++  const NOW = new Date("2026-10-17T12:00:00Z");
++  const HANDLE = "0123456789abcdef0123456789abcdef";
++  function kvFake() {
++    const m = new Map<string, string>();
++    return {
++      m,
++      get: vi.fn(async (k: string) => m.get(k) ?? null),
++      put: vi.fn(async (k: string, v: string) => void m.set(k, v)),
++      delete: vi.fn(async (k: string) => void m.delete(k)),
++    };
++  }
++  const tiktokEnv = (kv = kvFake()): Env => ({
++    ...ENV,
++    SOCIAL_KV: kv as unknown as KVNamespace,
++    TIKTOK_ADS_APP_ID: "app-id-test",
++    TIKTOK_ADS_SECRET: "app-secret-test",
++  });
++  const run = (r: Request, env: Env, f = fakeFetch(() => jsonResponse({}, 500))) =>
++    handle(r, env, undefined, { fetch: f, now: () => NOW });
++  const post = (path: string, body: unknown, token?: string | null) =>
++    req(path, { method: "POST", token, body: JSON.stringify(body) });
++
++  it("refuses every protected route of both families without the bearer: zero upstream calls, zero KV writes", async () => {
++    const kv = kvFake();
++    const f = fakeFetch(() => jsonResponse({}));
++    const protectedRoutes = [
++      req("/tiktokads/account/connect", { token: null }),
++      req("/tiktokads/account/connect?format=json", { token: null }),
++      req("/tiktokads/account/status", { token: null }),
++      req("/tiktokads/music", { token: null }),
++      req("/tiktokads/music-probe", { token: null }),
++      req("/tiktokads/status", { token: null }),
++      post("/tiktokads/connect", { returnTo: APP }, null),
++      req("/discover/picks", { token: null }),
++      req(`/social/inbox/instagram/dm/control/${HANDLE}?account=1`, { token: null }),
++      post("/social/inbox/instagram/dm/control/register", { account: "1" }, null),
++      post("/social/inbox/threads/send/prepare", {}, null),
++      post("/social/inbox/instagram/send/prepare", {}, null),
++      req("/social/inbox/youtube/send/op-0001?account=1", { token: null }),
++      req("/tiktokads/account/status", { token: "wrong" }),
++    ];
++    for (const r of protectedRoutes) {
++      const res = await run(r, tiktokEnv(kv), f);
++      expect([r.url, res.status]).toEqual([r.url, 401]);
++      expect(await res.json()).toEqual({ error: "unauthorized" });
++    }
++    expect(f).not.toHaveBeenCalled();
++    expect(kv.put).not.toHaveBeenCalled();
++  });
++
++  it("one router serves both families: JSON connect stays JSON, the ordinary connect still redirects, old ads/discovery and inbox routes still route", async () => {
++    const kv = kvFake();
++    const env = tiktokEnv(kv);
++    const f = fakeFetch(() => jsonResponse({}, 500));
++
++    const redirect = await run(req("/tiktokads/account/connect"), env, f);
++    expect(redirect.status).toBe(302);
++    expect(redirect.headers.get("Location")).toMatch(
++      /^https:\/\/www\.tiktok\.com\/v2\/auth\/authorize\/\?/,
++    );
++    const asJson = await run(req("/tiktokads/account/connect?format=json"), env, f);
++    expect(asJson.status).toBe(200);
++    expect(asJson.headers.get("Location")).toBeNull();
++    expect(asJson.headers.get("Content-Type")).toContain("application/json");
++    expect(asJson.headers.get("Access-Control-Allow-Origin")).toBe(APP);
++    expect(await asJson.json()).toEqual({
++      url: expect.stringMatching(/^https:\/\/www\.tiktok\.com\/v2\/auth\/authorize\/\?/),
++    });
++    expect(await (await run(req("/tiktokads/account/status"), env, f)).json()).toEqual({
++      connected: false,
++    });
++    const music = await run(req("/tiktokads/music"), env, f);
++    expect([music.status, await music.json()]).toEqual([
++      409,
++      { error: "not_connected", fetchedAt: NOW.toISOString() },
++    ]);
++    const probe = await run(req("/tiktokads/music-probe"), env, f);
++    expect([probe.status, await probe.json()]).toEqual([
++      409,
++      { error: "not_connected", fetchedAt: NOW.toISOString() },
++    ]);
++
++    // The advertiser (Discovery) connect and status, and Discover, as before.
++    const adsConnect = await run(post("/tiktokads/connect", { returnTo: `${APP}/x` }), env, f);
++    expect(adsConnect.status).toBe(200);
++    expect(((await adsConnect.json()) as { url: string }).url).toMatch(
++      /^https:\/\/business-api\.tiktok\.com\/portal\/auth\?/,
++    );
++    expect(await (await run(req("/tiktokads/status"), env, f)).json()).toEqual({
++      connected: false,
++      advertisers: 0,
++    });
++    const picks = await run(req("/discover/picks"), env, f);
++    expect(picks.status).toBe(200);
++    expect(await picks.json()).toHaveProperty("picks");
++
++    // Accepted inbox status/recovery routes still reach their own handlers (no binding here: their not_configured).
++    for (const [r, detail] of [
++      [req(`/social/inbox/instagram/dm/control/${HANDLE}?account=1`), "dm-claim-store"],
++      [req("/social/inbox/instagram/dm/send/op-0001?account=1"), "dm-claim-store"],
++      [req("/social/inbox/threads/send/op-0001?account=1"), "seal"],
++    ] as [Request, string][]) {
++      const res = await run(r, env, f);
++      expect([r.url, res.status, await res.json()]).toEqual([
++        r.url,
++        503,
++        { error: "not_configured", detail },
++      ]);
++    }
++    expect(f).not.toHaveBeenCalled();
++  });
++
++  it("the account callback keeps both spellings, needs no bearer and takes its state once", async () => {
++    const kv = kvFake();
++    const env = tiktokEnv(kv);
++    const exchange = fakeFetch(() =>
++      jsonResponse({
++        code: 0,
++        message: "OK",
++        data: {
++          access_token: "fake-access",
++          refresh_token: "fake-refresh",
++          open_id: "fake-open-id",
++          expires_in: 86400,
++          refresh_token_expires_in: 31536000,
++          scope: "user.info.basic",
++        },
++      }),
++    );
++    const stateOf = async () =>
++      new URL(
++        (await run(req("/tiktokads/account/connect"), env, exchange)).headers.get("Location")!,
++      ).searchParams.get("state")!;
++    for (const path of [
++      "/oauth/tiktokads/account/callback/",
++      "/oauth/tiktokads/account/callback",
++    ]) {
++      const state = await stateOf();
++      const cb = (s: string) =>
++        run(req(`${path}?auth_code=c&state=${s}`, { token: null, origin: null }), env, exchange);
++      const first = await cb(state);
++      expect([path, first.status]).toEqual([path, 200]);
++      expect(first.headers.get("Content-Type")).toContain("text/html");
++      const replay = await cb(state);
++      expect([path, replay.status]).toEqual([path, 400]);
++      expect(await replay.text()).toContain("state_invalid");
++    }
++    expect(exchange).toHaveBeenCalledTimes(2);
++    // An advertiser state is not an account state, and the social callback keeps its own route.
++    kv.m.set(
++      "tiktokads:state:adv",
++      JSON.stringify({ returnTo: APP, createdAt: NOW.toISOString() }),
++    );
++    const adv = await run(
++      req("/oauth/tiktokads/account/callback/?auth_code=c&state=adv", { token: null }),
++      env,
++      exchange,
++    );
++    expect(adv.status).toBe(400);
++    const social = await run(req("/oauth/instagram/callback?code=c&state=x", { token: null }), env);
++    // The social callback answers JSON (the account callback a small HTML page).
++    expect([social.status, await social.json()]).toEqual([400, { error: "state_invalid" }]);
++    expect(exchange).toHaveBeenCalledTimes(2);
++  });
++});

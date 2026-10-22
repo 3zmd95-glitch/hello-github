@@ -45,6 +45,18 @@ export interface DiscoverSourceEvidence {
   caption?: string;
   author?: string;
   availability?: "available" | "unavailable";
+  /** The sound the post's own public page names (Instagram embed / TikTok page), never inferred. */
+  sound?: DiscoverSound;
+}
+
+export interface DiscoverSound {
+  title: string;
+  artist?: string;
+  /** The platform's own sound page (a link for the owner; Discover never reads it). */
+  url?: string;
+  platform: "ig" | "tt";
+  /** TikTok marks the poster's own uploaded audio. */
+  original?: true;
 }
 
 export interface DiscoverItem {

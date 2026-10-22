@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getSkill, skills } from "@/data";
 import { clearDiscoverCache, type DiscoverAlternative, type DiscoverItem } from "@/lib/discover";
+import { NATIVE_HELPER_STORAGE_KEY } from "@/lib/discoverNativeSearch";
 import { discoverPrompts } from "@/lib/discoverPrompts";
 import type { TrendItemInput, TrendsFeedInput } from "@/lib/domain";
 import type { DiscoverSemantic } from "@/lib/discoverSemantic";
@@ -80,6 +81,7 @@ let trendsCalls: string[];
 let discoverV2: boolean;
 let discoverAsked: Record<string, unknown>[];
 let discoverAlternatives: DiscoverAlternative[];
+let discoverItems: Record<string, unknown>[];
 let localPlans: Record<string, unknown>[];
 /** What the fake Worker's `GET /effects/trending` answers; null = no such route (a 404). */
 let effectsDoc: unknown;
@@ -188,7 +190,7 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
           ? { provider: body.aiPlan.provider, model: body.aiPlan.model, effort: body.aiPlan.effort }
           : {}),
       },
-      items: [],
+      items: discoverItems,
       creators: [],
       alternatives: discoverAlternatives,
       platforms: { yt: { ok: true }, tt: { ok: true }, ig: { ok: true } },
@@ -326,6 +328,7 @@ beforeEach(() => {
   discoverV2 = false;
   discoverAsked = [];
   discoverAlternatives = [];
+  discoverItems = [];
   localPlans = [];
   effectsDoc = null;
   effectsAsked = 0;
@@ -1546,5 +1549,326 @@ describe("Discover category searches and optional study guides", () => {
     expect($("category-page")).toBeNull();
     expect(categoryCalls).toEqual([]);
     expect(discoverAsked.at(-1)).toMatchObject({ genreQuery: { en: "car edit" } });
+  });
+});
+
+describe("ResearchPanel hidden editors", () => {
+  const post = (n: number, title: string, over: Record<string, unknown> = {}) => ({
+    platform: "tt",
+    handle: `@edit${n}`,
+    title,
+    snippet: "",
+    url: `https://www.tiktok.com/@edit${n}/video/${n}`,
+    lang: "en",
+    section: "example",
+    ...over,
+  });
+  const MIXED = [
+    post(1, "Car edit with CapCut"),
+    post(2, "After Effects car tutorial", { section: "tutorial" }),
+    post(3, "DaVinci glow effect"),
+    post(4, "Smooth car edit #aftereffects"),
+    post(5, "Speed ramp transition"),
+  ];
+  beforeEach(() => useStore.getState().setEditorScope("mine"));
+
+  it("hides other editing apps' keyword results by default, says how many, and keeps the rest", async () => {
+    discoverItems = MIXED;
+    await mount({ v2: true, lang: "en", tab: "all" });
+    await submit("car edit");
+    expect(titles().sort()).toEqual([
+      "Car edit with CapCut",
+      "DaVinci glow effect",
+      "Speed ramp transition",
+    ]);
+    expect($("tab-all")!.getAttribute("data-count")).toBe("3");
+    expect($("tab-tt")!.getAttribute("data-count")).toBe("3");
+    expect($("discover-hidden-editors")!.textContent).toBe("2 hidden · other editing apps");
+    expect($<HTMLInputElement>("discover-editor-scope")!.checked).toBe(true);
+    expect($("discover-editor-scope")!.closest("label")!.textContent).toBe(
+      "Only DaVinci Resolve & CapCut (hide other editing apps)",
+    );
+  });
+
+  it("turning the box off brings every result back and removes the line", async () => {
+    discoverItems = MIXED;
+    await mount({ v2: true, lang: "en", tab: "all" });
+    await submit("car edit");
+    await click("discover-editor-scope");
+    expect(useStore.getState().settings.discover.editorScope).toBe("all");
+    expect(titles()).toHaveLength(5);
+    expect($("tab-all")!.getAttribute("data-count")).toBe("5");
+    expect($("discover-hidden-editors")).toBeNull();
+    await click("discover-editor-scope");
+    expect(useStore.getState().settings.discover.editorScope).toBe("mine");
+    expect(titles()).toHaveLength(3);
+  });
+
+  it("shows no line when nothing matches", async () => {
+    discoverItems = [post(1, "Car edit with CapCut")];
+    await mount({ v2: true, lang: "en", tab: "all" });
+    await submit("car edit");
+    expect(titles()).toEqual(["Car edit with CapCut"]);
+    expect($("discover-hidden-editors")).toBeNull();
+  });
+});
+
+describe("ResearchPanel native-first keyword search", () => {
+  const at = () => new Date().toISOString();
+  const nativeCard = (
+    platform: "ig" | "tt" | "yt",
+    n: number,
+    title = `${platform} native ${n}`,
+  ) => ({
+    platform,
+    url:
+      platform === "ig"
+        ? `https://www.instagram.com/p/Match${n}cut/`
+        : platform === "tt"
+          ? `https://www.tiktok.com/@matchcut/video/76900000000000000${n}`
+          : `https://www.youtube.com/watch?v=matchcut00${n}`,
+    title,
+    position: n,
+    observedAt: at(),
+  });
+  const SEARCH_URLS = {
+    ig: "https://www.instagram.com/explore/search/keyword/?q=match%20cut",
+    tt: "https://www.tiktok.com/search?q=match%20cut",
+    yt: "https://www.youtube.com/results?search_query=match%20cut",
+  };
+  let helperMessages: { type: string; queries?: unknown }[];
+  /** Searches and finished polls, in the order the helper saw them. */
+  let helperLog: string[];
+  /** A fake installed Chrome helper answering the app's public messages (nothing leaves jsdom).
+   * Each job answers "running" to its first `runningPolls` polls (the app polls again after 1 s). */
+  function connectHelper(connected = true, runningPolls = 0) {
+    helperMessages = [];
+    helperLog = [];
+    const polls: Record<string, number> = {};
+    let jobs = 0;
+    localStorage.setItem(NATIVE_HELPER_STORAGE_KEY, "abcdefghijklmnopabcdefghijklmnop");
+    const answer = (message: { type: string; jobId?: string; queries?: { ig: string } }) => {
+      if (message.type === "status") return { ok: true, version: 1, connected };
+      if (message.type === "search") {
+        helperLog.push(`search ${message.queries!.ig}`);
+        return { ok: true, jobId: `keyword-job-${++jobs}` };
+      }
+      if (message.type === "poll") {
+        polls[message.jobId!] = (polls[message.jobId!] ?? 0) + 1;
+        if (polls[message.jobId!] <= runningPolls)
+          return {
+            ok: true,
+            jobId: message.jobId,
+            status: "running",
+            hasMore: false,
+            platforms: {},
+          };
+        helperLog.push(`complete ${message.jobId}`);
+      }
+      const platforms = {
+        ig: { status: "done", searchUrl: SEARCH_URLS.ig, results: [nativeCard("ig", 1)] },
+        tt: {
+          status: "done",
+          searchUrl: SEARCH_URLS.tt,
+          results: [
+            nativeCard("tt", 1),
+            nativeCard("tt", 2, "Match cut After Effects tutorial"),
+            nativeCard("tt", 3),
+          ],
+        },
+        yt: { status: "done", searchUrl: SEARCH_URLS.yt, results: [nativeCard("yt", 1)] },
+      };
+      return {
+        ok: true,
+        jobId: message.jobId,
+        status: message.type === "cancel" ? "cancelled" : "complete",
+        hasMore: false,
+        platforms: message.type === "cancel" ? {} : platforms,
+      };
+    };
+    vi.stubGlobal("chrome", {
+      runtime: {
+        sendMessage: (
+          _id: string,
+          message: { type: string; jobId?: string },
+          reply: (value: unknown) => void,
+        ) => {
+          helperMessages.push(message);
+          setTimeout(() => reply(answer(message)), 0);
+        },
+      },
+    });
+  }
+  const nativeCards = () => all("native-keyword-card");
+  const WEB_POST = { ...RESULTS[0], title: "Web index match cut", lang: "en", section: "example" };
+
+  const searched = () =>
+    helperMessages.filter((message) => message.type === "search").map((message) => message.queries);
+  const everywhere = (query: string) => ({ ig: query, tt: query, yt: query });
+  // Instagram finds nothing for "... davinci resolve"; TikTok and YouTube keep the full name.
+  const DAVINCI = {
+    ig: "clone effect davinci",
+    tt: "clone effect davinci resolve",
+    yt: "clone effect davinci resolve",
+  };
+  const headings = () =>
+    all("native-keyword-results").map((section) => section.querySelector("h2")!.textContent);
+  const pollWait = () => act(() => new Promise((resolve) => setTimeout(resolve, 1100)));
+  beforeEach(() => useStore.getState().setEditorScope("mine"));
+
+  it("searches CapCut, then DaVinci Resolve once that job is done, in two sections, with no credits", async () => {
+    connectHelper(true, 1);
+    discoverItems = [WEB_POST];
+    await mount({ v2: true, lang: "en", tab: "all" });
+    await submit("clone effect");
+    await settle();
+    // The helper runs one job at a time: DaVinci Resolve waits while the CapCut job is running.
+    expect(searched()).toEqual([everywhere("clone effect capcut")]);
+    await pollWait();
+    await settle();
+    expect(searched()).toEqual([everywhere("clone effect capcut"), DAVINCI]);
+    await pollWait();
+    await settle();
+    expect(helperLog).toEqual([
+      "search clone effect capcut",
+      "complete keyword-job-1",
+      "search clone effect davinci",
+      "complete keyword-job-2",
+    ]);
+    expect(headings()).toEqual(["CapCut", "DaVinci Resolve"]);
+    expect(discoverAsked).toEqual([]);
+    expect(asked).toEqual([]);
+    expect($("research-empty")).toBeNull();
+    // Native interleaved order (ig, tt, yt, then each app's next card) per section; After Effects hidden.
+    expect(nativeCards().map((card) => card.dataset.platform)).toEqual([
+      ...["ig", "tt", "yt", "tt"],
+      ...["ig", "tt", "yt", "tt"],
+    ]);
+    expect(nativeCards().some((card) => card.textContent?.includes("After Effects"))).toBe(false);
+    expect(all("native-keyword-hidden-editors").map((line) => line.textContent)).toEqual([
+      "1 hidden · other editing apps",
+      "1 hidden · other editing apps",
+    ]);
+  });
+
+  it("Search runs both editor sections quietly; Deep search beside it runs the same query deep", async () => {
+    connectHelper();
+    await mount({ v2: true, lang: "en", tab: "all" });
+    const deep = $<HTMLButtonElement>("discover-deep-search")!;
+    expect(deep.textContent).toBe("Open and show source tabs");
+    expect(deep.type).toBe("button");
+    expect(host.textContent).toContain(
+      "This button opens and shows Instagram, TikTok and YouTube tabs to load more videos. Scrolling will not show them again automatically.",
+    );
+    const modes = () =>
+      helperMessages
+        .filter((message) => message.type === "search")
+        .map((message) => [
+          (message.queries as { ig: string }).ig,
+          (message as { deep?: boolean }).deep,
+        ]);
+    await submit("clone effect");
+    await settle();
+    await settle();
+    expect(modes()).toEqual([
+      ["clone effect capcut", undefined],
+      ["clone effect davinci", undefined],
+    ]);
+    await click("discover-deep-search");
+    await settle();
+    await settle();
+    expect(modes().slice(2)).toEqual([
+      ["clone effect capcut", true],
+      ["clone effect davinci", true],
+    ]);
+    expect(headings()).toEqual(["CapCut", "DaVinci Resolve"]);
+    await submit("clone effect");
+    await settle();
+    await settle();
+    expect(modes().slice(4)).toEqual([
+      ["clone effect capcut", undefined],
+      ["clone effect davinci", undefined],
+    ]);
+  });
+
+  it("keeps typed DaVinci Resolve words, shortened to DaVinci only for Instagram", async () => {
+    connectHelper();
+    await mount({ v2: true, lang: "en", tab: "all" });
+    await submit("speed ramp davinci resolve");
+    await settle();
+    await settle();
+    expect(searched()).toEqual([
+      {
+        ig: "speed ramp davinci",
+        tt: "speed ramp davinci resolve",
+        yt: "speed ramp davinci resolve",
+      },
+    ]);
+    expect(headings()).toEqual(["DaVinci Resolve"]);
+    await submit("glow davinci");
+    await settle();
+    await settle();
+    expect(searched().at(-1)).toEqual(everywhere("glow davinci"));
+  });
+
+  it("runs one search when the typed text already names CapCut", async () => {
+    connectHelper();
+    await mount({ v2: true, lang: "en", tab: "all" });
+    await submit("clone effect capcut");
+    await settle();
+    await settle();
+    expect(searched()).toEqual([everywhere("clone effect capcut")]);
+    expect(headings()).toEqual(["CapCut"]);
+  });
+
+  it("runs today's single plain search with every editing app when the box is off", async () => {
+    useStore.getState().setEditorScope("all");
+    connectHelper();
+    await mount({ v2: true, lang: "en", tab: "all" });
+    expect($<HTMLInputElement>("discover-editor-scope")!.checked).toBe(false);
+    await submit("clone effect");
+    await settle();
+    await settle();
+    expect(searched()).toEqual([everywhere("clone effect")]);
+    expect(headings()).toEqual(["From Instagram, TikTok and YouTube"]);
+    expect(nativeCards().some((card) => card.textContent?.includes("After Effects"))).toBe(true);
+    expect($("native-keyword-hidden-editors")).toBeNull();
+  });
+
+  it("runs the web index only when asked, below the native results", async () => {
+    connectHelper();
+    discoverItems = [WEB_POST];
+    await mount({ v2: true, lang: "en", tab: "all" });
+    await submit("match cut");
+    await settle();
+    expect(discoverAsked).toHaveLength(0);
+    await click("discover-web-index");
+    expect(discoverAsked).toHaveLength(1);
+    expect(discoverAsked[0]).toMatchObject({ q: "match cut" });
+    expect(titles()).toContain("Web index match cut");
+    expect(nativeCards().length).toBeGreaterThan(0);
+    expect($("discover-web-index")).toBeNull();
+  });
+
+  it("keeps today's web search when the helper has no permission", async () => {
+    connectHelper(false);
+    discoverItems = [WEB_POST];
+    await mount({ v2: true, lang: "en", tab: "all" });
+    await submit("match cut");
+    await settle();
+    expect(helperMessages.some((message) => message.type === "search")).toBe(false);
+    expect(discoverAsked).toHaveLength(1);
+    expect($("native-keyword-results")).toBeNull();
+    expect($("discover-web-index")).toBeNull();
+  });
+
+  it("keeps today's web search when no helper is installed", async () => {
+    discoverItems = [WEB_POST];
+    await mount({ v2: true, lang: "en", tab: "all" });
+    await submit("match cut");
+    await settle();
+    expect(discoverAsked).toHaveLength(1);
+    expect($("native-keyword-results")).toBeNull();
+    expect($("discover-web-index")).toBeNull();
   });
 });

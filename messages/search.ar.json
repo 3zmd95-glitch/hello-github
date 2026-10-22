@@ -148,5 +148,11 @@
   "search.topTikTokNotConnected": "اربط تيك توك عشان تضيف نتائج الاستكشاف منه.",
   "search.topTikTokUnavailable": "استكشاف تيك توك مو متاح الحين. جرّب بعد شوي.",
   "search.topTikTokNotScanned": "تيك توك مربوط. افحص هالتصنيف عشان تجمع مونتاج مطابق.",
-  "search.topRequestFailed": "ما قدرت أحدّث هالمنصة الحين."
+  "search.topRequestFailed": "ما قدرت أحدّث هالمنصة الحين.",
+  "discover.editorScope": "بس DaVinci Resolve و CapCut (خبّي برامج المونتاج الثانية)",
+  "discover.hiddenEditors": "{count} مخفي · برامج مونتاج ثانية",
+  "search.nativeTitle": "من انستقرام وتيك توك ويوتيوب",
+  "search.webIndex": "دوّر كمان في فهرس الويب (يصرف رصيد)",
+  "search.deepSearch": "افتح واعرض تبويبات المصادر",
+  "search.deepSearchHint": "هذا الزر يفتح ويعرض تبويبات انستقرام وتيك توك ويوتيوب لجلب مقاطع أكثر. التمرير ما راح يعرضها مرة ثانية تلقائياً."
 }

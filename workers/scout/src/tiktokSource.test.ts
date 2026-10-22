@@ -100,4 +100,58 @@ describe("public TikTok source evidence", () => {
       );
     }
   });
+  it("carries the same page's music as sound evidence, with a link to the sound, never a forged one", async () => {
+    const music = {
+      id: "7137219749716527918",
+      title: " original  sound ",
+      authorName: "Blurrr App Official",
+      original: true,
+    };
+    const source = await readTikTokSource(
+      html(markup({ statusCode: 0, itemInfo: { itemStruct: { ...item, music } } })),
+      url,
+    );
+    expect(source.music).toEqual({
+      title: "original sound",
+      artist: "Blurrr App Official",
+      url: "https://www.tiktok.com/music/original-sound-7137219749716527918",
+      original: true,
+    });
+    const song = await readTikTokSource(
+      html(
+        markup({
+          statusCode: 0,
+          itemInfo: {
+            itemStruct: {
+              ...item,
+              music: {
+                id: "6800000000000000001",
+                title: "Espresso",
+                authorName: "Sabrina Carpenter",
+              },
+            },
+          },
+        }),
+      ),
+      url,
+    );
+    expect(song.music).toEqual({
+      title: "Espresso",
+      artist: "Sabrina Carpenter",
+      url: "https://www.tiktok.com/music/Espresso-6800000000000000001",
+    });
+    for (const bad of [
+      { ...music, id: "../../evil" },
+      { ...music, title: "" },
+      { ...music, title: 42 },
+      "music",
+    ]) {
+      const read = await readTikTokSource(
+        html(markup({ statusCode: 0, itemInfo: { itemStruct: { ...item, music: bad } } })),
+        url,
+      );
+      expect(read.status).toBe("available");
+      expect(read.music).toBeUndefined();
+    }
+  });
 });

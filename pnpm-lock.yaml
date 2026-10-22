@@ -20,6 +20,9 @@ importers:
       lucide-react:
         specifier: 1.52.0
         version: 1.52.0(@types/react@19.3.0)(react@19.2.8)
+      mdast-util-from-markdown:
+        specifier: ^2.0.3
+        version: 2.0.3
       next:
         specifier: 16.3.6
         version: 16.3.6(@babel/core@7.29.7)(@playwright/test@1.63.0)(@types/node@22.20.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

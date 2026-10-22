@@ -8,6 +8,7 @@ import {
   type SocialConnectionStatus,
   type SocialStatusMap,
 } from "./domain";
+import { sha256Hex } from "./digest";
 import { bestTime, PLATFORM_META } from "./social";
 import type { ScoutConfig } from "./scoutClient";
 import {
@@ -349,8 +350,101 @@ export interface JobInput {
   >;
 }
 
+/**
+ * The ids the deployed Worker accepts, for the POST body and the run / cancel path segment alike. Copied from
+ * `workers/scout/src/social/publish.ts` (`ID_RE`, validator line 86; path check in `handlePublish`).
+ */
+export const PUBLISH_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
+
+type JobIdPost = Pick<Post, "id"> & { autoPost?: Pick<AutoPost, "jobId"> };
+
+/** The remembered job id when the Worker would accept it (an import may carry empty, colon or long values). */
+export function rememberedJobId(post: JobIdPost): string | undefined {
+  const id = post.autoPost?.jobId;
+  return id && PUBLISH_ID_RE.test(id) ? id : undefined;
+}
+
+/**
+ * The Worker job id of a post (DT-5 bridge fix + Amendments A/B): workflow outputs keep their `wf:<runId>:<actionId>`
+ * post id, which the Worker refuses. A valid remembered `autoPost.jobId` (the allocation, saved before the create
+ * request) always wins; else the post id when the Worker accepts it as is; else `j-<post id with every other character
+ * as "-", at most 40>-<first 24 hex digits of SHA-256 of the post id>`. A new candidate that another local post
+ * already holds (`taken`, see {@link takenJobIds}) gets `-2`, `-3`… until free, still ≤ 100 characters.
+ */
+export function publishJobId(post: JobIdPost, taken: ReadonlySet<string> = new Set()): string {
+  const remembered = rememberedJobId(post);
+  if (remembered) return remembered;
+  const candidate = PUBLISH_ID_RE.test(post.id)
+    ? post.id
+    : `j-${post.id.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 40)}-${sha256Hex(post.id).slice(0, 24)}`;
+  if (!taken.has(candidate)) return candidate;
+  for (let n = 2; ; n++) {
+    const suffix = `-${n}`;
+    const next = candidate.slice(0, 100 - suffix.length) + suffix;
+    if (!taken.has(next)) return next;
+  }
+}
+
+/** The job ids other local posts hold: their valid remembered job ids and their Worker-safe post ids. */
+export function takenJobIds(posts: readonly Post[], postId: string): Set<string> {
+  const out = new Set<string>();
+  for (const p of posts) {
+    if (p.id === postId) continue;
+    const remembered = rememberedJobId(p);
+    if (remembered) out.add(remembered);
+    if (PUBLISH_ID_RE.test(p.id)) out.add(p.id);
+  }
+  return out;
+}
+
+/**
+ * Whether a Worker job belongs to this post: its remembered job id, or — only for a post that remembers none (sent
+ * before job ids were kept) — its Worker-safe post id. A safe post id equal to another post's job never takes it.
+ */
+export function ownsJob(post: JobIdPost, jobId: string): boolean {
+  const remembered = rememberedJobId(post);
+  return remembered ? remembered === jobId : PUBLISH_ID_RE.test(post.id) && post.id === jobId;
+}
+
+export type JobOwnership =
+  { ok: true; jobId: string } | { ok: false; reason: "ambiguous" | "unallocated" };
+
+/**
+ * The one ownership decision every schedule, auto-resync, run and cancel makes (Amendment B, DT-5-R1 R1): the post's
+ * remembered id first, else its Worker-safe post id when it remembers none — never a new allocation. `ambiguous` when
+ * another local post also claims that id (its remembered id, or its post id): nothing is sent or deleted.
+ * `unallocated`: no usable id yet (a send allocates one through the store first).
+ */
+export function jobOwnership(post: JobIdPost, posts: readonly Post[]): JobOwnership {
+  const id = rememberedJobId(post) ?? (PUBLISH_ID_RE.test(post.id) ? post.id : undefined);
+  if (!id) return { ok: false, reason: "unallocated" };
+  const claimed = posts.some((p) => p.id !== post.id && (p.id === id || rememberedJobId(p) === id));
+  return claimed ? { ok: false, reason: "ambiguous" } : { ok: true, jobId: id };
+}
+
+/**
+ * Who a Worker job belongs to, for receipts (DT-5-R1 R3): the one post that remembers its id; two or more →
+ * a conflict (nothing is applied or marked posted, the hub lists the claimants); when no post remembers it, the sent
+ * post whose Worker-safe id it is and which remembers none (sent before job ids were kept). Null: nobody.
+ */
+export function jobClaim(
+  jobId: string,
+  posts: readonly Post[],
+): { owner: Post } | { conflict: Post[] } | null {
+  const explicit = posts.filter((p) => rememberedJobId(p) === jobId);
+  if (explicit.length > 1) return { conflict: explicit };
+  if (explicit.length === 1) return { owner: explicit[0] };
+  const legacy = posts.find((p) => p.autoPost?.sentAt && ownsJob(p, jobId));
+  return legacy ? { owner: legacy } : null;
+}
+
 /** The job body; every caption is trimmed to its network's limit so the Worker never refuses it for length. */
-export function buildJob(post: Post, auto: AutoPost, scheduledAt: string): JobInput {
+export function buildJob(
+  post: Post,
+  auto: AutoPost,
+  scheduledAt: string,
+  taken: ReadonlySet<string> = new Set(),
+): JobInput {
   const targets: JobInput["targets"] = {};
   for (const p of auto.platforms) {
     if (!isSocialPlatform(p)) continue;
@@ -390,7 +484,7 @@ export function buildJob(post: Post, auto: AutoPost, scheduledAt: string): JobIn
     }
   }
   return {
-    id: post.id,
+    id: publishJobId(post, taken),
     scheduledAt,
     ...(auto.mediaKind !== "none"
       ? {
@@ -486,15 +580,57 @@ export function parseJob(raw: unknown): WorkerJob | null {
   return { id: j.id, scheduledAt: j.scheduledAt, results, ...(label ? { label } : {}) };
 }
 
+/**
+ * DT-5-R2 (R1-D): the job list as proof for a destructive decision (releasing an allocation). Only a `{ jobs: Array }`
+ * envelope whose every row is complete — a Worker-safe `id`, a parseable `scheduledAt`, and a non-empty `targets`
+ * object of known networks each carrying a valid result — counts; anything else is `malformed` (unknown, never
+ * absent). {@link parseJobs} stays tolerant for display.
+ */
+export function parseJobsStrict(
+  raw: unknown,
+): { ok: true; jobs: WorkerJob[] } | { ok: false; reason: "malformed" } {
+  const malformed = { ok: false, reason: "malformed" } as const;
+  const list = raw && typeof raw === "object" ? (raw as { jobs?: unknown }).jobs : undefined;
+  if (!Array.isArray(list)) return malformed;
+  const jobs: WorkerJob[] = [];
+  for (const j of list as { id?: unknown; scheduledAt?: unknown; targets?: unknown }[]) {
+    const targets = j?.targets;
+    if (
+      typeof j?.id !== "string" ||
+      !PUBLISH_ID_RE.test(j.id) ||
+      typeof j.scheduledAt !== "string" ||
+      !Number.isFinite(Date.parse(j.scheduledAt)) ||
+      !targets ||
+      typeof targets !== "object" ||
+      Array.isArray(targets) ||
+      !Object.keys(targets).length ||
+      !Object.entries(targets).every(
+        ([p, t]) => isSocialPlatform(p) && AutoPostResultSchema.safeParse(t).success,
+      )
+    )
+      return malformed;
+    const job = parseJob(j);
+    if (!job) return malformed;
+    jobs.push(job);
+  }
+  return { ok: true, jobs };
+}
+
+/** DT-5-R2 (R1-B): digest of a job body as sent; without its time (a "now" send) only `scheduledAt` is left out. */
+export function payloadHash(job: JobInput, withTime: boolean): string {
+  return sha256Hex(JSON.stringify(withTime ? job : { ...job, scheduledAt: "" }));
+}
+
 /** The Worker still has work on this job: some network is queued or processing (cancel asks first). */
 export function jobActive(job: WorkerJob): boolean {
   return Object.values(job.results).some((r) => r?.state === "queued" || r?.state === "processing");
 }
 
 /**
- * The Worker's jobs this browser does not follow: no local post sent it (matched by the post id, which is
- * the job id, or by `autoPost.jobId`). A job scheduled from the phone, or from before the browser was
- * cleared, shows in the hub from these so it can still be seen and canceled (A7). Soonest first. The ids in
+ * The Worker's jobs this browser does not follow: no single local post owns it ({@link jobClaim}: the one remembered
+ * `autoPost.jobId` — an unconfirmed allocation too, listed in the hub as such — or the safe post id of a sent post that
+ * remembers none). A job two posts claim stays here as a conflict (DT-5-R1 R3), never hidden. A job scheduled from
+ * the phone, or from before the browser was cleared, shows in the hub from these so it can still be seen and canceled (A7). Soonest first. The ids in
  * `skip` are left out too (jobs just canceled, which a read that started before the cancel still lists).
  */
 export function remoteJobs(
@@ -502,14 +638,12 @@ export function remoteJobs(
   posts: readonly Post[],
   skip: ReadonlySet<string> = new Set(),
 ): WorkerJob[] {
-  const followed = new Set<string>(skip);
-  for (const p of posts) {
-    if (!p.autoPost?.sentAt) continue;
-    followed.add(p.id);
-    if (p.autoPost.jobId) followed.add(p.autoPost.jobId);
-  }
   return jobs
-    .filter((j) => !followed.has(j.id))
+    .filter((j) => {
+      if (skip.has(j.id)) return false;
+      const claim = jobClaim(j.id, posts);
+      return !claim || "conflict" in claim;
+    })
     .sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt));
 }
 
@@ -718,6 +852,18 @@ export async function publishList(
   if (!config) return { ok: false, error: { type: "unconfigured" } };
   const r = await call(config, "/social/publish", {}, opts);
   return r.ok ? { ok: true, jobs: parseJobs(r.data) } : r;
+}
+
+/** `GET /social/publish` for an absence proof (R1-D): a malformed list is a failure, never an empty one. */
+export async function publishListStrict(
+  config: ScoutConfig | null,
+  opts: SocialSyncOpts = {},
+): Promise<SocialResult<{ jobs: WorkerJob[] }>> {
+  if (!config) return { ok: false, error: { type: "unconfigured" } };
+  const r = await call(config, "/social/publish", {}, opts);
+  if (!r.ok) return r;
+  const strict = parseJobsStrict(r.data);
+  return strict.ok ? { ok: true, jobs: strict.jobs } : { ok: false, error: { type: "upstream" } };
 }
 
 /** `POST /social/publish`: add or replace the post's job. */

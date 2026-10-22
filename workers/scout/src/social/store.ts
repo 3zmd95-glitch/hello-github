@@ -30,6 +30,18 @@ import type {
 
 export interface SocialEnv {
   SCOUT_TOKEN?: string;
+  /** Server-only key of the Threads/YouTube inbox receipts and cursors (inboxReadCommon.ts); never the bearer. */
+  INBOX_SEAL_SECRET?: string;
+  /** The reviewed-send claim authority (sendCoordinator.ts, a SQLite Durable Object; wrangler.jsonc SEND_COORDINATOR). */
+  SEND_COORDINATOR?: DurableObjectNamespace;
+  /** The Threads two-stage reply claim authority (threadsSendCoordinator.ts; wrangler.jsonc THREADS_SEND_COORDINATOR). */
+  THREADS_SEND_COORDINATOR?: DurableObjectNamespace;
+  /** The Instagram public-reply claim authority, manual and automatic (instagramPublicSendCoordinator.ts). */
+  INSTAGRAM_PUBLIC_SEND_COORDINATOR?: DurableObjectNamespace;
+  /** The existing-conversation Instagram DM authority of the automation (instagramDmCoordinator.ts, DT-6B-2C-2). */
+  INSTAGRAM_DM_COORDINATOR?: DurableObjectNamespace;
+  /** The cloud-workflow foundation's one durable authority (workflowCoordinator.ts, DT-7B; local, unactivated). */
+  WORKFLOW_COORDINATOR?: DurableObjectNamespace;
   ALLOWED_ORIGINS?: string;
   SOCIAL_KV?: KVNamespace;
   /** Meta app: the Instagram API with Instagram Login's "Instagram app ID" / secret. */

@@ -1,16 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import { useT } from "@/lib/i18n";
 import { getApiKey, useStore } from "@/store";
 import { NATIVE_MAX_RESULTS, nativeResultsToItems } from "@/lib/discoverNativeSearch";
+import { nativeCategoryQuery } from "@/lib/genres";
 import { rankDiscoverItems } from "@/lib/discoverRanking";
 import { discoverFeedbackForItem } from "@/lib/discoverFeed";
-import type { ResearchTab } from "@/lib/research";
+import { dropHiddenEditors, hiddenEditorsFor, mentionsHiddenEditor } from "@/lib/editorFilter";
+import { canonicalRefUrl, type ResearchTab } from "@/lib/research";
 import BrowseCategoryFeed from "./BrowseCategoryFeed";
 import { useNativeSearch } from "./useNativeSearch";
+import { useNativeInfiniteScroll } from "./useNativeInfiniteScroll";
 import { useFeedSources } from "./useFeedSources";
+import { useRecordSounds } from "./TrendingSounds";
 import ResultCard from "./ResultCard";
+import { ReferencePlatformGlyph } from "@/lib/platformIcons";
 import SaveInspirationButton from "./SaveInspirationButton";
 
 const PLATFORMS = ["ig", "tt", "yt"] as const;
@@ -24,12 +29,39 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
   const [view, setView] = useState<"native" | "reviewed">("native");
   const [tab, setTab] = useState<ResearchTab>("all");
   const [popular, setPopular] = useState(false);
-  const [query, setQuery] = useState(genre.queries.en[0]);
+  const defaultQuery = nativeCategoryQuery(genre);
+  const snapshotQueries = native.snapshot?.genreId === genre.id ? native.snapshot.queries : null;
+  const querySourceKey = JSON.stringify(snapshotQueries);
+  const queryValues = Object.values(snapshotQueries ?? {});
+  const activeQuery = queryValues.length
+    ? queryValues.every((value) => value === queryValues[0])
+      ? queryValues[0]
+      : ""
+    : defaultQuery;
+  const [queryDraft, setQueryDraft] = useState({
+    genreId: genre.id,
+    value: activeQuery,
+    sourceKey: querySourceKey,
+    edited: false,
+  });
+  // Cache hydration and category changes may arrive after the input mounts. Follow the
+  // actual query until the user starts a draft; source updates must never erase that draft.
+  if (
+    queryDraft.genreId !== genre.id ||
+    (!queryDraft.edited && queryDraft.sourceKey !== querySourceKey)
+  ) {
+    setQueryDraft({
+      genreId: genre.id,
+      value: activeQuery,
+      sourceKey: querySourceKey,
+      edited: false,
+    });
+  }
+  const query = queryDraft.value;
   const [previousGenre, setPreviousGenre] = useState(genre.id);
   const [limit, setLimit] = useState(24);
   if (genre.id !== previousGenre) {
     setPreviousGenre(genre.id);
-    setQuery(genre.queries.en[0]);
     setPopular(false);
     setTab("all");
     setLimit(24);
@@ -39,8 +71,28 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
   const items = useMemo(() => nativeResultsToItems(native.snapshot, lang), [native.snapshot, lang]);
   const youtubeKey = useStore((s) => getApiKey(s, "youtube"));
   const accumulate = useStore((s) => s.accumulateDiscoverCandidates);
-  const sources = useFeedSources(items, active && showNative, youtubeKey);
   const feedback = useStore((s) => s.discoverFeedback);
+  const hiddenEditors = useStore((s) => hiddenEditorsFor(s.settings.discover.editorScope));
+  // Freeze the visible URL set on user/result changes. Source evidence can re-rank Popular,
+  // but must never recruit another offscreen batch by itself.
+  const sourceSelectionKey = JSON.stringify([
+    active,
+    showNative,
+    genre.id,
+    tab,
+    popular,
+    limit,
+    native.snapshot?.jobId,
+    native.snapshot?.queries,
+    items.map((item) => canonicalRefUrl(item.platform, item.url)),
+    feedback.filter((entry) => entry.action === "less" || entry.action === "hide-creator"),
+    hiddenEditors,
+  ]);
+  const [sourceSelection, setSourceSelection] = useState({ key: "", urls: [] as string[] });
+  const sources = useFeedSources(items, active && showNative, youtubeKey, {
+    selectionKey: sourceSelectionKey,
+    visibleUrls: sourceSelection.key === sourceSelectionKey ? sourceSelection.urls : [],
+  });
   const candidates = useStore((s) => s.discoverCandidates);
   const visual = useMemo(
     () =>
@@ -49,64 +101,91 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
       ),
     [candidates, genre.id],
   );
-  const [now] = useState(() => Date.now());
+  // Use the ranker's current clock on entry and each evidence update. A mount-time clock
+  // would reject later source observations as future timestamps during a long visit.
   const popularItems = useMemo(
     () =>
-      rankDiscoverItems(sources.items, {
-        mode: "popular",
-        genreId: genre.id,
-        feedback,
-        visual,
-        now,
-      }).items,
-    [sources.items, genre.id, feedback, visual, now],
+      popular
+        ? rankDiscoverItems(sources.items, {
+            mode: "popular",
+            genreId: genre.id,
+            feedback,
+            visual,
+          }).items
+        : [],
+    [popular, sources.items, genre.id, feedback, visual],
   );
   useEffect(() => {
     if (active && showNative && sources.items.length)
       accumulate(sources.items, { genreId: genre.id });
   }, [active, showNative, sources.items, genre.id, accumulate]);
-  // Entry into a category is a user action. Re-entering a cached category does not open tabs again.
-  const entered = useRef(new Set<string>());
-  useEffect(() => {
-    if (
-      !active ||
-      view !== "native" ||
-      !connected ||
-      !native.ready ||
-      native.snapshot ||
-      native.busy ||
-      entered.current.has(genre.id)
-    )
-      return;
-    entered.current.add(genre.id);
-    native.search(Object.fromEntries(PLATFORMS.map((platform) => [platform, genre.queries.en[0]])));
-  }, [active, view, connected, genre.id, genre.queries.en, native]);
-  const search = () => {
-    if (!query.trim()) return;
+  useRecordSounds(sources.items, genre.id, active && showNative);
+  // Opening a category only reads its cache. Source tabs require an explicit button.
+  const search = (deep = false) => {
+    if (!connected || native.busy || !query.trim()) return;
+    setQueryDraft((current) => ({ ...current, value: query.trim(), edited: true }));
+    setSourceSelection({ key: sourceSelectionKey, urls: [] });
     setPopular(false);
     setLimit(24);
     setView("native");
-    native.search(Object.fromEntries(PLATFORMS.map((platform) => [platform, query.trim()])));
+    native.search(Object.fromEntries(PLATFORMS.map((platform) => [platform, query.trim()])), {
+      deep,
+    });
   };
-  const pool = (popular ? popularItems : sources.items).filter((item) => {
+  const notDismissed = (item: (typeof items)[number]) => {
     const action = discoverFeedbackForItem(feedback, item, genre.id)?.action;
     return action !== "less" && action !== "hide-creator";
-  });
-  const selected = pool.filter((item) => tab === "all" || item.platform === tab);
-  const loaded = items.filter((item) => tab === "all" || item.platform === tab).length;
-  const earlierUnloaded = Object.values(native.snapshot?.platforms ?? {}).some(
-    (platform) => (platform.omittedCount ?? 0) > 0,
+  };
+  // The owner's hidden editors are dropped next to the feedback exclusions (native order kept).
+  const include = (item: (typeof items)[number]) =>
+    notDismissed(item) && !mentionsHiddenEditor(item, hiddenEditors);
+  const pool = (popular ? popularItems : sources.items).filter(include);
+  const hidden = dropHiddenEditors(
+    (popular ? popularItems : sources.items).filter(
+      (item) => notDismissed(item) && (tab === "all" || item.platform === tab),
+    ),
+    hiddenEditors,
   );
-  const loadMore = () => {
-    if (selected.length > limit) {
-      setLimit((previous) => previous + 24);
-    } else if (native.canMore && connected && !native.busy) {
-      // All received matches are already visible. Include the incoming batch immediately, even
-      // when the bounded window rolls forward without increasing its retained card count.
-      setLimit(NATIVE_MAX_RESULTS * PLATFORMS.length);
-      native.more();
+  const selected = pool.filter((item) => tab === "all" || item.platform === tab);
+  // Popular needs source evidence before a card can qualify. Assess a finite native-order
+  // candidate page, not the already-qualified output, so sparse matches cannot starve new reads.
+  const sourceCandidates = popular
+    ? sources.items.filter((item) => include(item) && (tab === "all" || item.platform === tab))
+    : selected;
+  const loadableCount = sourceCandidates.length;
+  // Adjust before committing effects so the hook never starts work for an obsolete selection.
+  if (sourceSelection.key !== sourceSelectionKey) {
+    setSourceSelection({
+      key: sourceSelectionKey,
+      urls:
+        active && showNative && native.snapshot?.genreId === genre.id
+          ? sourceCandidates.slice(0, limit).map((item) => canonicalRefUrl(item.platform, item.url))
+          : [],
+    });
+  }
+  const loadMore = (origin: "automatic" | "manual") => {
+    if (loadableCount > limit) {
+      setLimit((current) => Math.min(current + 24, loadableCount));
+    } else if (
+      native.canMore &&
+      connected &&
+      !native.busy &&
+      (origin === "manual" || native.canAutoMore)
+    ) {
+      // Native order reveals the incoming batch even when its retained window rolls forward.
+      // Popular advances only one candidate page per request, independent of how many qualify.
+      setLimit((current) => (popular ? current + 24 : NATIVE_MAX_RESULTS * PLATFORMS.length));
+      native.more({ automatic: origin === "automatic" });
     }
   };
+  const { sentinel: infiniteSentinel, manual: manualLoadMore } = useNativeInfiniteScroll({
+    enabled: active && showNative && !popular,
+    scope: JSON.stringify([genre.id, tab, native.snapshot?.queries]),
+    busy: native.busy,
+    progressKey: JSON.stringify(selected.slice(0, limit).map((item) => item.url)),
+    canLoad: !native.error && (loadableCount > limit || (connected && native.canAutoMore)),
+    loadMore,
+  });
   if (!active) return null;
   return (
     <div className="flex min-w-0 flex-col gap-3" data-testid="category-discovery">
@@ -204,7 +283,9 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
               aria-label={t("feed.connectedQuery")}
               value={query}
               maxLength={120}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) =>
+                setQueryDraft((current) => ({ ...current, value: e.target.value, edited: true }))
+              }
             />
             <button
               className="px-btn px-btn-green"
@@ -214,12 +295,22 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
             >
               {t("feed.connectedSearch")}
             </button>
+            <button
+              className="px-btn px-btn-ghost"
+              type="button"
+              disabled={!connected || native.busy || !query.trim()}
+              onClick={() => search(true)}
+              data-testid="native-deep-search"
+            >
+              {t("feed.deepSearch")}
+            </button>
             {native.busy && (
               <button type="button" className="px-btn px-btn-ghost" onClick={native.cancel}>
                 {t("feed.connectedCancel")}
               </button>
             )}
           </form>
+          <p className="text-muted text-xs">{t("feed.deepSearchHint")}</p>
           <div className="grid grid-cols-4 gap-1.5" role="group" aria-label={t("research.tabs")}>
             {(["all", ...PLATFORMS] as const).map((platform) => {
               const count = pool.filter(
@@ -238,8 +329,10 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
                     setLimit(24);
                   }}
                 >
-                  <span>{platform === "all" ? t("research.tabAll") : LABELS[platform]}</span>
-                  <span className="num text-xs">{count}</span>
+                  <span className="inline-flex min-h-8 flex-col items-center justify-center gap-1 text-xs">
+                    {platform !== "all" && <ReferencePlatformGlyph platform={platform} />}
+                    {platform === "all" ? t("research.tabAll") : LABELS[platform]}
+                  </span>
                 </button>
               );
             })}
@@ -266,12 +359,6 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
             {t(popular ? "feed.popularHelp" : "feed.connectedOrderHelp")}
           </p>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-            <p className="text-muted" data-testid="native-loaded-summary">
-              {t(popular ? "feed.connectedPopularLoaded" : "feed.connectedLoaded", {
-                shown: Math.min(limit, selected.length),
-                loaded,
-              })}
-            </p>
             {popular && (
               <button
                 type="button"
@@ -287,11 +374,6 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
               </button>
             )}
           </div>
-          {earlierUnloaded && (
-            <p className="text-muted text-xs" data-testid="native-window-note">
-              {t("feed.connectedWindow")}
-            </p>
-          )}
           {native.snapshot?.cached && (
             <p className="text-muted text-xs">
               {t("feed.connectedCached")} {new Date(native.snapshot.asOf).toLocaleString(lang)}
@@ -302,7 +384,17 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
               {t("feed.connectedLoading")}
             </p>
           )}
+          {!native.busy && popular && sources.checking && (
+            <p role="status" className="text-sm">
+              {t("feed.checking")}
+            </p>
+          )}
           {native.error && <p role="alert">{t("feed.connectedError")}</p>}
+          {native.snapshot?.deepSkipped && (
+            <p className="text-muted text-xs" data-testid="native-deep-skipped">
+              {t("feed.deepSkipped")}
+            </p>
+          )}
           <div
             className="flex flex-wrap gap-x-4 gap-y-1 text-xs"
             data-testid="native-platform-status"
@@ -318,7 +410,7 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  {LABELS[platform]} · {state.results.length} ·{" "}
+                  {LABELS[platform]} ·{" "}
                   {t(
                     state.status === "loading"
                       ? "feed.connectedPlatformLoading"
@@ -326,16 +418,31 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
                         ? "feed.connectedPlatformDone"
                         : state.status === "needs-attention"
                           ? "feed.connectedPlatformAttention"
-                          : state.status === "empty"
-                            ? "feed.connectedPlatformEmpty"
-                            : "feed.connectedPlatformError",
+                          : state.noResults
+                            ? "feed.connectedPlatformNoResults"
+                            : state.status === "empty"
+                              ? "feed.connectedPlatformEmpty"
+                              : "feed.connectedPlatformError",
                   )}{" "}
+                  {state.staleAsOf && (
+                    <span data-testid={`native-stale-${platform}`}>
+                      ·{" "}
+                      {t("feed.connectedPlatformStale", {
+                        time: new Date(state.staleAsOf).toLocaleString(lang),
+                      })}{" "}
+                    </span>
+                  )}
                   ↗
                 </a>
               );
             })}
           </div>
-          {!native.busy && !selected.length && (
+          {hidden.count > 0 && (
+            <p className="text-muted text-xs" data-testid="native-hidden-editors">
+              {t("feed.hiddenEditors", { count: hidden.count })}
+            </p>
+          )}
+          {!native.busy && !sources.checking && !selected.length && (
             <p className="text-ink-2 py-4 text-sm">
               {t(popular ? "feed.connectedNoPopular" : "feed.connectedNoResults")}
             </p>
@@ -355,15 +462,33 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
               />
             ))}
           </ul>
-          {(selected.length > limit || native.canMore) && (
+          <div
+            ref={infiniteSentinel}
+            className="h-px"
+            aria-hidden="true"
+            data-testid="native-scroll-sentinel"
+          />
+          {native.busy && (
+            <p role="status" className="text-muted text-sm" data-testid="native-scroll-loading">
+              {t("feed.connectedLoading")}
+            </p>
+          )}
+          {!popular && (selected.length > limit || native.canMore) && (
+            <p className="text-muted text-xs">{t("feed.connectedScrollMore")}</p>
+          )}
+          {(loadableCount > limit || native.canMore) && (
             <button
               type="button"
               className="px-btn px-btn-green w-fit"
-              disabled={selected.length <= limit && (native.busy || !connected)}
-              onClick={loadMore}
+              disabled={loadableCount <= limit && (native.busy || !connected)}
+              onClick={manualLoadMore}
               data-testid="native-search-more"
             >
-              {t("feed.connectedMore")}
+              {t(
+                loadableCount > limit || native.canAutoMore
+                  ? "feed.connectedMore"
+                  : "feed.openSourcesMore",
+              )}
             </button>
           )}
         </section>

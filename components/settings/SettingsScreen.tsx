@@ -7,7 +7,13 @@ import { useT, type MessageKey } from "@/lib/i18n";
 import { youtubeErrorMessageKey, youtubeSearch } from "@/lib/research";
 import { isValidScoutUrl, scoutConfig, scoutErrorMessageKey, scoutHealth } from "@/lib/scoutClient";
 import { dayKey } from "@/lib/streak";
-import { getApiKey, useStore } from "@/store";
+import {
+  cloudJournalRetained,
+  getApiKey,
+  saveStatus,
+  useStore,
+  type ImportStateResult,
+} from "@/store";
 import pkg from "@/package.json";
 import AvatarCard from "./AvatarCard";
 import Card from "./Card";
@@ -31,14 +37,34 @@ const GEAR_ICON: Record<Exclude<Gear, "any">, string> = {
 
 type Pending = { kind: "import"; json: string } | { kind: "reset" } | null;
 
+/** The honest sentence for a restore that changed nothing (DT-7C-2A adds the cloud journal refusals). */
+const IMPORT_FAILED: Record<Exclude<ImportStateResult, { ok: true }>["reason"], MessageKey> = {
+  "not-persisted": "settings.importNotSaved",
+  "unsupported-save": "settings.importNotSaved",
+  "journal-unreadable": "settings.journalUnreadable",
+  "journal-invalid": "settings.importErr",
+  "journal-conflict": "settings.importJournalRefused",
+  "journal-capacity": "settings.importJournalFull",
+};
+
 export default function SettingsScreen() {
   const { t } = useT();
   const settings = useStore((s) => s.settings);
   const libraryLoading = useStore((s) => s.discoverLibraryStatus === "loading");
   const setSettings = useStore((s) => s.setSettings);
+  /** DT-7C-2A-R1: the latest ordinary save was refused (unreadable storage) or not kept; nothing was overwritten. */
+  const saveFailed = saveStatus((s) => s.failed);
   const fileRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  /**
+   * A restore or reset is on its way (DT-6B-2C-5B-R1, DT-7C-2A): a second Confirm or a Cancel does nothing, and the
+   * dialog stays (its button saying so) until the durable result is known.
+   */
+  const working = useRef(false);
+  const [busy, setBusy] = useState(false);
+  /** Cloud journal entries a reset keeps (null: unreadable), read when the reset dialog opens. */
+  const [retained, setRetained] = useState<number | null>(0);
 
   const toggleGear = (g: Gear) => {
     const has = settings.gear.includes(g);
@@ -66,20 +92,44 @@ export default function SettingsScreen() {
     setPending({ kind: "import", json: await file.text() });
   };
 
-  const confirm = () => {
-    if (!pending) return;
-    if (pending.kind === "reset") {
-      useStore.getState().reset();
-      setNotice({ text: t("settings.resetOk") });
-    } else {
-      try {
-        useStore.getState().importState(pending.json);
-        setNotice({ text: t("settings.importOk") });
-      } catch {
-        setNotice({ text: t("settings.importErr"), error: true });
+  const confirm = async () => {
+    if (!pending || working.current) return;
+    // Both resolve once their write is read back (or refused); the dialog stays until then.
+    working.current = true;
+    setBusy(true);
+    try {
+      if (pending.kind === "reset") {
+        const r = await useStore.getState().reset();
+        setNotice(
+          r.ok
+            ? { text: t(r.retained > 0 ? "settings.resetOkRetained" : "settings.resetOk") }
+            : {
+                text: t(
+                  r.reason === "journal-unreadable"
+                    ? "settings.journalUnreadable"
+                    : "settings.resetNotSaved",
+                ),
+                error: true,
+              },
+        );
+      } else {
+        const r = await useStore.getState().importState(pending.json);
+        setNotice(
+          r.ok
+            ? { text: t("settings.importOk") }
+            : { text: t(IMPORT_FAILED[r.reason]), error: true },
+        );
       }
+    } catch {
+      setNotice({
+        text: t(pending.kind === "reset" ? "settings.resetNotSaved" : "settings.importErr"),
+        error: true,
+      });
+    } finally {
+      working.current = false;
+      setBusy(false);
+      setPending(null);
     }
-    setPending(null);
   };
 
   return (
@@ -87,6 +137,11 @@ export default function SettingsScreen() {
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl">{t("settings.title")}</h1>
         <p className="text-ink-2 text-sm">{t("settings.sub")}</p>
+        {saveFailed && (
+          <p role="alert" data-testid="save-failed" className="text-danger text-sm font-semibold">
+            {t("settings.saveFailed")}
+          </p>
+        )}
       </header>
 
       <AvatarCard />
@@ -170,9 +225,15 @@ export default function SettingsScreen() {
         />
       </Card>
 
-      <Card title={t("settings.data")} note={t("settings.dataNote")}>
+      <Card id="data" title={t("settings.data")} note={t("settings.dataNote")}>
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="px-btn" onClick={exportProgress} disabled={libraryLoading} data-testid="export">
+          <button
+            type="button"
+            className="px-btn"
+            onClick={exportProgress}
+            disabled={libraryLoading}
+            data-testid="export"
+          >
             {t("settings.export")}
           </button>
           <button
@@ -193,7 +254,10 @@ export default function SettingsScreen() {
           <button
             type="button"
             className="px-btn px-btn-danger"
-            onClick={() => setPending({ kind: "reset" })}
+            onClick={() => {
+              setRetained(cloudJournalRetained(useStore.getState()));
+              setPending({ kind: "reset" });
+            }}
             data-testid="reset"
           >
             {t("settings.reset")}
@@ -216,10 +280,23 @@ export default function SettingsScreen() {
       {pending && (
         <ConfirmDialog
           title={pending.kind === "reset" ? t("settings.resetTitle") : t("settings.importTitle")}
-          body={pending.kind === "reset" ? t("settings.resetConfirm") : t("settings.importConfirm")}
+          body={
+            pending.kind === "reset"
+              ? retained === 0
+                ? t("settings.resetConfirm")
+                : `${t("settings.resetConfirm")} ${t("settings.resetRetained")}`
+              : t("settings.importConfirm")
+          }
+          confirmLabel={
+            busy
+              ? t(pending.kind === "reset" ? "settings.resetBusy" : "settings.importBusy")
+              : undefined
+          }
           danger={pending.kind === "reset"}
-          onConfirm={confirm}
-          onCancel={() => setPending(null)}
+          onConfirm={() => void confirm()}
+          onCancel={() => {
+            if (!working.current) setPending(null);
+          }}
         />
       )}
     </>

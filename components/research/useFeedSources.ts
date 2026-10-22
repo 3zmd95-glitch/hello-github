@@ -10,7 +10,6 @@ import {
 import { localInstagramSource, sourceKey, type FormatSources } from "@/lib/formatSources";
 import type { TikTokSource } from "@/workers/scout/src/tiktokSource";
 import { canonicalRefUrl } from "@/lib/research";
-import { discoverEvidence } from "@/lib/discoverRanking";
 import {
   applyYoutubeEvidence,
   fetchYoutubeEvidence,
@@ -21,8 +20,20 @@ const EMPTY_SOURCES: FormatSources = {};
 const EMPTY_TIKTOK: Record<string, TikTokSource | null> = {};
 const urlOf = (item: DiscoverItem) => canonicalRefUrl(item.platform, item.url);
 
-/** Two public reads at a time, eighteen per platform and action. Membership changes prioritize unread sources. */
-export function useFeedSources(items: DiscoverItem[], active: boolean, youtubeKey = "") {
+export interface FeedSourceSelection {
+  /** A user/result selection, never a key derived from enriched evidence. */
+  selectionKey: string;
+  visibleUrls: readonly string[];
+}
+
+/** Two public reads at a time in eighteen/platform batches. A frozen visible selection drains
+ * only that finite set; legacy callers still request one batch per action. */
+export function useFeedSources(
+  items: DiscoverItem[],
+  active: boolean,
+  youtubeKey = "",
+  selection?: FeedSourceSelection,
+) {
   const attempted = useRef(new Map<string, number>());
   // Corrected counts must not abort/reorder their own source queue.
   const scope = JSON.stringify(
@@ -33,6 +44,10 @@ export function useFeedSources(items: DiscoverItem[], active: boolean, youtubeKe
       ? [...new Set(items.filter((item) => item.platform === "yt").map(urlOf))].sort()
       : [],
   );
+  const selectionScope = selection
+    ? JSON.stringify([selection.selectionKey, selection.visibleUrls])
+    : "legacy";
+  const runScope = JSON.stringify([scope, selectionScope]);
   const [youtube, setYoutube] = useState<{ scope: string; key: string; sources: YoutubeSources }>({
     scope: "",
     key: "",
@@ -50,10 +65,11 @@ export function useFeedSources(items: DiscoverItem[], active: boolean, youtubeKe
   }, [youtubeScope, youtubeKey]);
   const [result, setResult] = useState<{
     scope: string;
+    runScope: string;
     sources: FormatSources;
     tiktok: Record<string, TikTokSource | null>;
     pending: boolean;
-  }>({ scope: "", sources: {}, tiktok: {}, pending: false });
+  }>({ scope: "", runScope: "", sources: {}, tiktok: {}, pending: false });
   const [batch, setBatch] = useState(0);
   const currentRun = useRef<{
     scope: string;
@@ -65,13 +81,15 @@ export function useFeedSources(items: DiscoverItem[], active: boolean, youtubeKe
   useEffect(() => {
     const controller = new AbortController();
     const previous = currentRun.current;
-    // Continuations keep completed attempts, including nulls; a new membership starts its own bounded pass.
-    const sources: FormatSources = previous?.scope === scope ? { ...previous.sources } : {};
-    const tiktok: Record<string, TikTokSource | null> =
-      previous?.scope === scope ? { ...previous.tiktok } : {};
+    // Completed attempts (including nulls) carry over as-is for canonical URLs still in the membership.
+    const members = new Set<string>(JSON.parse(scope));
+    const keep = <T>(map: Record<string, T> = {}) =>
+      Object.fromEntries(Object.entries(map).filter(([url]) => members.has(url)));
+    const sources: FormatSources = keep(previous?.sources);
+    const tiktok: Record<string, TikTokSource | null> = keep(previous?.tiktok);
     const run = { scope, busy: false, cancelled: false, sources, tiktok };
     currentRun.current = run;
-    const priorities = new Map(items.map((item) => [urlOf(item), discoverEvidence(item).score]));
+    const requested = selection ? new Set(selection.visibleUrls) : members;
     const platforms = active
       ? ["ig", "tt"].map((platform) =>
           [
@@ -79,55 +97,79 @@ export function useFeedSources(items: DiscoverItem[], active: boolean, youtubeKe
               items.filter((item) => item.platform === platform).map((item) => [urlOf(item), item]),
             ).values(),
           ]
-            .filter((item) => !(urlOf(item) in sources) && !(urlOf(item) in tiktok))
+            .filter(
+              (item) =>
+                requested.has(urlOf(item)) && !(urlOf(item) in sources) && !(urlOf(item) in tiktok),
+            )
+            // Unread first, then oldest observation/attempt. Equal ages keep display order (Map keys keep
+            // first-seen order and the sort is stable): the cards the user sees first are read first.
             .sort(
               (a, b) =>
                 (Date.parse(a.evidence?.observedAt ?? "") || attempted.current.get(urlOf(a)) || 0) -
-                  (Date.parse(b.evidence?.observedAt ?? "") ||
-                    attempted.current.get(urlOf(b)) ||
-                    0) ||
-                (priorities.get(urlOf(b)) ?? 0) - (priorities.get(urlOf(a)) ?? 0) ||
-                urlOf(a).localeCompare(urlOf(b)),
+                (Date.parse(b.evidence?.observedAt ?? "") || attempted.current.get(urlOf(b)) || 0),
             )
-            .slice(0, 18)
+            .slice(0, selection ? undefined : 18)
             .map(urlOf),
         )
       : [];
-    // Both platforms get a first result promptly even when one has eighteen slow public pages.
-    const queue = Array.from({ length: 18 }, (_, index) =>
-      platforms.flatMap((posts) => (posts[index] ? [posts[index]] : [])),
-    ).flat();
-    run.busy = queue.length > 0;
-    let cursor = 0;
+    // Interleave platforms within each bounded batch, then finish only the requested visible set.
+    const batches = Array.from(
+      { length: Math.ceil(Math.max(0, ...platforms.map((posts) => posts.length)) / 18) },
+      (_, batchIndex) =>
+        Array.from({ length: 18 }, (_, index) =>
+          platforms.flatMap((posts) => {
+            const url = posts[batchIndex * 18 + index];
+            return url ? [url] : [];
+          }),
+        ).flat(),
+    );
+    const total = batches.reduce((sum, queue) => sum + queue.length, 0);
+    run.busy = total > 0;
+    // Publish retained evidence now so a grown membership never flashes empty maps.
+    setResult({
+      scope,
+      runScope,
+      sources: { ...sources },
+      tiktok: { ...tiktok },
+      pending: run.busy,
+    });
     let settled = 0;
-    const next = async () => {
-      while (cursor < queue.length && !controller.signal.aborted) {
-        const url = queue[cursor++];
-        if (attempted.current.size >= 500)
-          attempted.current.delete(attempted.current.keys().next().value!);
-        attempted.current.set(url, Date.now());
-        if (new URL(url).hostname.endsWith("tiktok.com"))
-          tiktok[url] = await localTikTokSource(url, controller.signal);
-        else sources[url] = await localInstagramSource(url, controller.signal);
+    const drain = async () => {
+      for (const queue of batches) {
+        let cursor = 0;
+        const next = async () => {
+          while (cursor < queue.length && !controller.signal.aborted) {
+            const url = queue[cursor++];
+            if (attempted.current.size >= 500)
+              attempted.current.delete(attempted.current.keys().next().value!);
+            attempted.current.set(url, Date.now());
+            if (new URL(url).hostname.endsWith("tiktok.com"))
+              tiktok[url] = await localTikTokSource(url, controller.signal);
+            else sources[url] = await localInstagramSource(url, controller.signal);
+            if (controller.signal.aborted) return;
+            settled++;
+            run.busy = settled < total;
+            setResult({
+              scope,
+              runScope,
+              sources: { ...sources },
+              tiktok: { ...tiktok },
+              pending: run.busy,
+            });
+          }
+        };
+        await Promise.all([next(), next()]);
         if (controller.signal.aborted) return;
-        settled++;
-        run.busy = settled < queue.length;
-        setResult({
-          scope,
-          sources: { ...sources },
-          tiktok: { ...tiktok },
-          pending: run.busy,
-        });
       }
     };
-    void Promise.all([next(), next()]);
+    void drain();
     return () => {
       run.cancelled = true;
       controller.abort();
     };
     // Capture current evidence on a membership change or an explicit continuation, never a source rerender.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, batch]);
+  }, [runScope, batch]);
   const sources = result.scope === scope ? result.sources : EMPTY_SOURCES;
   const tiktok = result.scope === scope ? result.tiktok : EMPTY_TIKTOK;
   const enriched = useMemo(
@@ -136,7 +178,8 @@ export function useFeedSources(items: DiscoverItem[], active: boolean, youtubeKe
         item.platform === "yt"
           ? applyYoutubeEvidence(
               item,
-              youtube.scope === youtubeScope && youtube.key === youtubeKey
+              // Same key: overlapping URLs keep their last evidence while a grown batch is in flight.
+              youtubeScope !== "[]" && youtube.key === youtubeKey
                 ? youtube.sources[urlOf(item)]
                 : undefined,
             )
@@ -147,17 +190,18 @@ export function useFeedSources(items: DiscoverItem[], active: boolean, youtubeKe
     [items, sources, tiktok, youtube, youtubeScope, youtubeKey],
   );
   const checking =
-    (scope !== "[]" && (result.scope !== scope || result.pending)) ||
+    (scope !== "[]" && (result.runScope !== runScope || result.pending)) ||
     (youtubeScope !== "[]" && (youtube.scope !== youtubeScope || youtube.key !== youtubeKey));
   const remaining = active
-    ? [...new Set(items.filter((item) => item.platform !== "yt").map(urlOf))].filter(
-        (url) => !(url in sources) && !(url in tiktok),
-      ).length
+    ? [...new Set(items.filter((item) => item.platform !== "yt").map(urlOf))]
+        .filter((url) => !selection || selection.visibleUrls.includes(url))
+        .filter((url) => !(url in sources) && !(url in tiktok)).length
     : 0;
   const checkRemaining = () => {
     const run = currentRun.current;
     if (
       !active ||
+      !!selection ||
       checking ||
       run?.scope !== scope ||
       run.busy ||

@@ -177,5 +177,18 @@
   "publish.photo.preview": "معاينة الصورة {n}",
   "publish.photo.add": "أضف صورة · {n}/35",
   "publish.photo.autoMusic": "دع تيك توك يختار الموسيقى تلقائيًا (هذا ما يختار صوت ترند محدد)",
-  "publish.photo.description": "وصف تيك توك أدناه هو وصف الصور. استخدم الوارد إذا تبغى تختار الصوت بنفسك قبل النشر."
+  "publish.photo.description": "وصف تيك توك أدناه هو وصف الصور. استخدم الوارد إذا تبغى تختار الصوت بنفسك قبل النشر.",
+  "publish.err.ambiguousOwner": "فيه بوست ثاني هنا ماسك نفس المهمة عند الـ Worker، عشان كذا ما أرسلنا ولا شغّلنا ولا ألغينا شي. رتّب البوستات اللي لها نفس المهمة أول.",
+  "publish.jobMissing": "هذا البوست ما له مهمة عند الـ Worker نشغّلها أو نلغيها.",
+  "publish.superseded": "وقّفنا هالإرسال لأن البوست تغيّر أو انلغت مهمته وهو يتحفظ. جرّب مرة ثانية.",
+  "publish.err.allocation": "ما قدرنا نحفظ رقم مهمة هالبوست في هالجهاز، عشان كذا ما أرسلنا شي. جرّب مرة ثانية.",
+  "publish.conflict": "فيه {n} بوستات هنا ماسكة هالمهمة: {names}. ما نعلّم شي إنه انتشر لين يصير لها بوست واحد بس.",
+  "publish.unconfirmed.title": "محجوزة، ما تأكدت",
+  "publish.unconfirmed.note": "أرسلنا المهمة {id} بس رد الـ Worker ما وصل. ممكن تكون شغّالة. حدّث عشان تتأكد قبل أي شي.",
+  "publish.unconfirmed.refresh": "حدّث",
+  "publish.unconfirmed.retry": "أعد الإرسال",
+  "publish.unconfirmed.discard": "شيل الحجز",
+  "publish.unconfirmed.unknown": "ما قدرنا نوصل للـ Worker، فما نعرف إذا المهمة شغّالة ولا لا. خلّينا الحجز زي ما هو.",
+  "publish.unconfirmed.absent": "الـ Worker ما عنده هالمهمة. تقدر ترسلها مرة ثانية أو تشيل الحجز.",
+  "publish.unconfirmed.found": "الـ Worker عنده هالمهمة، عشان كذا ما شلنا الحجز. صارت متابَعة هنا؛ ألغها إذا ما تبغاها."
 }

@@ -71,6 +71,7 @@
   "replies.log.title": "Recent replies",
   "replies.log.dmSent": "DM sent ✓",
   "replies.log.dmFailed": "DM failed",
+  "replies.log.dmSkipped": "DM skipped",
   "replies.log.publicSent": "Replied publicly ✓",
   "replies.log.publicFailed": "Public reply failed",
   "replies.log.kind.comment": "Comment",
