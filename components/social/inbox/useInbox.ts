@@ -49,9 +49,9 @@ const SEEN_CAP = 500;
 /** A webhook's conversation id before the reader learns the real thread id: "peer:" + the sender's id. */
 const PROVISIONAL = "peer:";
 /**
- * Where history ends, written by the very first read: the oldest item it found (or, finding nothing, its own
- * time). It also keeps the next read from being taken for the first one, and a "load more" row from before it
- * is history, seen on arrival.
+ * Where history ends, written by the very first read: the moment that read began, for both lists (an item's own
+ * time would mix the lists' spans). It also keeps the next read from being taken for the first one, and a
+ * "load more" row from before it is history, seen on arrival.
  */
 const FIRST_READ_KEY = "inbox:firstRead";
 
@@ -154,14 +154,13 @@ export const inboxUnread = (
  * Seen marks a load writes before anything is shown: on the very first read everything already there is
  * history, not news; afterwards a real conversation inherits the mark its provisional row got.
  */
-function markLoaded(conversations: InboxConversation[], posts: InboxPost[]): void {
+function markLoaded(conversations: InboxConversation[], posts: InboxPost[], readAt: string): void {
   const store = useStore.getState();
   const seen = store.inboxSeen;
   if (Object.keys(seen).length === 0) {
     const items = [...conversations.map(conversationSeen), ...posts.map(postSeen)];
     for (const { key, at } of items) store.markInboxSeen(key, at);
-    const oldest = items.map((i) => i.at).sort()[0];
-    store.markInboxSeen(FIRST_READ_KEY, oldest ?? new Date().toISOString());
+    store.markInboxSeen(FIRST_READ_KEY, readAt);
     return;
   }
   for (const c of conversations) {
@@ -172,13 +171,17 @@ function markLoaded(conversations: InboxConversation[], posts: InboxPost[]): voi
 
 /**
  * Overview + the first page of conversations and of posts (3 reads); concurrent callers share them. `quiet`
- * (the poll, the Studio) shows no busy state.
+ * (the poll, the Studio) shows no busy state; `now` (tests) is when the read begins.
  */
-export function loadInbox({ quiet = false }: { quiet?: boolean } = {}): Promise<void> {
+export function loadInbox({
+  quiet = false,
+  now,
+}: { quiet?: boolean; now?: Date } = {}): Promise<void> {
   if (inflight) return inflight;
   inflight = (async () => {
     const cfg = currentConfig();
     if (!cfg) return;
+    const readAt = (now ?? new Date()).toISOString();
     if (!quiet) set({ busy: true });
     const [o, c, p] = await Promise.all([
       inboxOverview(cfg),
@@ -194,7 +197,7 @@ export function loadInbox({ quiet = false }: { quiet?: boolean } = {}): Promise<
     const posts = byPost(extended.posts ? [...p.posts, ...state.posts] : p.posts);
     if (!extended.conversations) next.conversations = c.next;
     if (!extended.posts) next.posts = p.next;
-    markLoaded(conversations, posts);
+    markLoaded(conversations, posts, readAt);
     set({
       overview: o.overview,
       conversations,

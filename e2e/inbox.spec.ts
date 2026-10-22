@@ -508,11 +508,13 @@ test("Load older asks for the next page with the Worker's own cursor and adds it
   await expect(rows.nth(1)).toHaveAttribute("data-id", "t0");
   await expect(rows.nth(1)).toContainText("شكراً على المحتوى");
   await expect(more).toHaveCount(0);
+  // This was the very first read, after every fixture time: the older row is history, not news.
+  await expect(rows.nth(1).getByTestId("inbox-new")).toHaveCount(0);
 
-  expect(calls(fake, "GET", "/social/inbox/conversations").map((c) => c.before)).toEqual([
-    null,
-    CONVERSATIONS_NEXT,
-  ]);
+  // The first read had no cursor; the older page used the Worker's (a 15 s poll may add more first-page reads).
+  const befores = () => calls(fake, "GET", "/social/inbox/conversations").map((c) => c.before);
+  expect(befores()[0]).toBeNull();
+  await expect.poll(befores).toContain(CONVERSATIONS_NEXT);
   expect(await fitsViewport(page)).toBe(true);
 });
 

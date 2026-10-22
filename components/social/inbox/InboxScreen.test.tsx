@@ -6,7 +6,7 @@ import type { InboxConversation, InboxOverview, InboxPost } from "@/lib/domain";
 import { INBOX_POLL_MS } from "@/lib/inbox";
 import { useStore } from "@/store";
 import InboxScreen from "./InboxScreen";
-import { resetInbox } from "./useInbox";
+import { loadInbox, resetInbox } from "./useInbox";
 
 // 📥 The Inbox page, rendered for real in jsdom against a fake Worker (`fetch`): the tabs, a conversation and a
 // post, the "new" chip and the seen mark an open sets, the TikTok tab, the account states, and the reads it makes
@@ -17,6 +17,8 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/social/inbox/" }));
 const T0 = "2026-10-22T10:00:00.000Z";
 const T1 = "2026-10-22T11:00:00.000Z";
 const T2 = "2026-10-22T12:00:00.000Z";
+/** When the tests' very first read happens (after every fixture time but T2's later news). */
+const READ = "2026-10-22T13:00:00.000Z";
 /** A mark from an earlier visit: with it, a load is not the very first read (which takes everything as seen). */
 const EARLIER = { "instagram:post:earlier": T0 };
 
@@ -127,6 +129,11 @@ const urls = () =>
   });
 const ids = (testId: string, within: ParentNode = document) =>
   all(testId, within).map((el) => el.getAttribute("data-id"));
+/** The very first read, at READ (the fake Worker's current answers), before the page mounts. */
+const readFirst = () =>
+  act(async () => {
+    await loadInbox({ now: new Date(READ) });
+  });
 /** What the poll does when the page comes back into view: one quiet read. */
 async function comeBack() {
   document.dispatchEvent(new Event("visibilitychange"));
@@ -273,13 +280,14 @@ describe("InboxScreen", () => {
 
   it("takes everything on the very first read as history: no chips, one mark per item; news then shows", async () => {
     useStore.setState({ inboxSeen: {} });
+    await readFirst();
     await mount();
     expect(all("inbox-new")).toHaveLength(0);
-    // ...and the oldest of them is where history ends (for the rows a "load more" brings later).
+    // ...and the read's own time is where history ends (for the rows a "load more" brings later).
     expect(useStore.getState().inboxSeen).toEqual({
       "instagram:conversation:c1": T1,
       "instagram:post:m1": T0,
-      "inbox:firstRead": T0,
+      "inbox:firstRead": READ,
     });
 
     routes["GET /social/inbox/conversations"] = {
@@ -462,8 +470,9 @@ describe("InboxScreen", () => {
         body: { posts: [{ ...POST, id: "m0", postedAt: OLD }], more: false, next: null },
       },
     });
+    await readFirst();
     await mount();
-    expect(useStore.getState().inboxSeen["inbox:firstRead"]).toBe(T0);
+    expect(useStore.getState().inboxSeen["inbox:firstRead"]).toBe(READ);
     act(() => q("inbox-more-conversations")!.click());
     await settle();
     act(() => q("inbox-more-posts")!.click());
@@ -473,6 +482,66 @@ describe("InboxScreen", () => {
     expect(all("inbox-new")).toHaveLength(0);
     expect(useStore.getState().inboxSeen["instagram:conversation:c0"]).toBe(OLD);
     expect(useStore.getState().inboxSeen["instagram:post:m0"]).toBe(OLD);
+  });
+
+  it("history ends at the first read's time, not at an item's: a page-2 row between the lists' oldest is seen", async () => {
+    useStore.setState({ inboxSeen: {} });
+    // The oldest post is older than the oldest conversation; the page-2 conversation lies between them.
+    const OLDEST_POST = "2026-10-20T10:00:00.000Z";
+    const BETWEEN = "2026-10-21T10:00:00.000Z";
+    serve({
+      "GET /social/inbox/conversations": {
+        body: { conversations: [conv()], more: true, next: "cur1" },
+      },
+      "GET /social/inbox/conversations?before=cur1": {
+        body: {
+          conversations: [conv({ id: "c0", peerId: "p0", updatedAt: BETWEEN })],
+          more: false,
+          next: null,
+        },
+      },
+      "GET /social/inbox/posts": {
+        body: { posts: [{ ...POST, postedAt: OLDEST_POST }], more: false, next: null },
+      },
+    });
+    await readFirst();
+    await mount();
+    expect(useStore.getState().inboxSeen["inbox:firstRead"]).toBe(READ);
+    act(() => q("inbox-more-conversations")!.click());
+    await settle();
+    expect(ids("inbox-conversation")).toEqual(["c1", "c0"]);
+    expect(all("inbox-new")).toHaveLength(0);
+    expect(useStore.getState().inboxSeen["instagram:conversation:c0"]).toBe(BETWEEN);
+  });
+
+  it("a page-2 row newer than the first read (it arrived later) is new", async () => {
+    useStore.setState({ inboxSeen: {} });
+    await readFirst(); // sees c1 (T1) only
+    // Later two newer conversations came in: the newest on the first page, the other behind the cursor.
+    const LATE = "2026-10-22T14:00:00.000Z";
+    routes["GET /social/inbox/conversations"] = {
+      body: {
+        conversations: [conv({ id: "c9", peerId: "p9", updatedAt: "2026-10-22T15:00:00.000Z" })],
+        more: true,
+        next: "cur1",
+      },
+    };
+    routes["GET /social/inbox/conversations?before=cur1"] = {
+      body: {
+        conversations: [conv({ id: "c5", peerId: "p5", updatedAt: LATE }), conv()],
+        more: false,
+        next: null,
+      },
+    };
+    await mount();
+    act(() => q("inbox-more-conversations")!.click());
+    await settle();
+    expect(ids("inbox-conversation")).toEqual(["c9", "c5", "c1"]);
+    const withChip = all("inbox-conversation")
+      .filter((r) => q("inbox-new", r))
+      .map((r) => r.getAttribute("data-id"));
+    expect(withChip).toEqual(["c9", "c5"]);
+    expect(useStore.getState().inboxSeen["instagram:conversation:c5"]).toBeUndefined();
   });
 
   it("a load-more row newer than the first read keeps the usual rule", async () => {
