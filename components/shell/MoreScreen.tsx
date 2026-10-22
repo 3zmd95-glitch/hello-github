@@ -62,15 +62,58 @@ export default function MoreScreen({ world = "training" }: { world?: World }) {
 const icon = { size: 22, strokeWidth: 1.75, "aria-hidden": true } as const;
 
 /**
+ * Social's quick settings rows (language segmented, sound switch), shared by More and Social's own Settings page
+ * (tools/20). The same store values as Training's top bar.
+ */
+export function QuickSettingRows() {
+  const { t, lang } = useT();
+  const sound = useStore((s) => s.settings.sound);
+  const setSettings = useStore((s) => s.setSettings);
+  return (
+    <>
+      <ListRow
+        icon={<Languages {...icon} />}
+        iconTone="fill"
+        title={t("settings.lang")}
+        trailing={
+          <Segmented
+            role="radiogroup"
+            label={t("top.lang")}
+            value={lang}
+            onChange={(l) => setSettings({ lang: l })}
+            className="w-[118px]"
+            options={[
+              { value: "ar", label: "عربي", testId: "lang-ar" },
+              { value: "en", label: "EN", testId: "lang-en" },
+            ]}
+          />
+        }
+      />
+      <ListRow
+        icon={<Volume2 {...icon} />}
+        iconTone="fill"
+        title={t("settings.sound")}
+        trailing={
+          <Switch
+            checked={sound}
+            onChange={(v) => setSettings({ sound: v })}
+            label={t("settings.sound")}
+            testId="sound-toggle"
+          />
+        }
+      />
+    </>
+  );
+}
+
+/**
  * Social "More" (tools/18 §6, mockup More), as grouped lists: the two "soon" sections; the sections that are not in
  * the phone tab bar; quick settings (Social keeps language and sound here, not in its top bar, round 35) with Social's
  * own settings page (tools/20); the way back to Training, the one link that leaves Social. Row titles are the tab
  * bar's and the sidebar's own words (`nav.*`).
  */
 function SocialMore() {
-  const { t, lang } = useT();
-  const sound = useStore((s) => s.settings.sound);
-  const setSettings = useStore((s) => s.setSettings);
+  const { t } = useT();
   const soon = <Chip>{t("nav.soon")}</Chip>;
   return (
     <>
@@ -111,37 +154,7 @@ function SocialMore() {
           />
         </ListGroup>
         <ListGroup header={t("more.quick")}>
-          <ListRow
-            icon={<Languages {...icon} />}
-            iconTone="fill"
-            title={t("settings.lang")}
-            trailing={
-              <Segmented
-                role="radiogroup"
-                label={t("top.lang")}
-                value={lang}
-                onChange={(l) => setSettings({ lang: l })}
-                className="w-[118px]"
-                options={[
-                  { value: "ar", label: "عربي", testId: "lang-ar" },
-                  { value: "en", label: "EN", testId: "lang-en" },
-                ]}
-              />
-            }
-          />
-          <ListRow
-            icon={<Volume2 {...icon} />}
-            iconTone="fill"
-            title={t("settings.sound")}
-            trailing={
-              <Switch
-                checked={sound}
-                onChange={(v) => setSettings({ sound: v })}
-                label={t("settings.sound")}
-                testId="sound-toggle"
-              />
-            }
-          />
+          <QuickSettingRows />
           <ListRow
             href="/social/settings"
             icon={<Settings {...icon} />}
