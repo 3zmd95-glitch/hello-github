@@ -54,6 +54,10 @@
     // and swaps the real id in.
     { "binding": "OAUTH_KV", "id": "11111111111111111111111111111111" },
   ],
+  // The global inbox (planning/tools/51-global-inbox.md): one SQLite Durable Object holds the latest conversations,
+  // messages, posts, comments and sends; KV's write budget never sees them.
+  "durable_objects": { "bindings": [{ "name": "INBOX_STORE", "class_name": "InboxStore" }] },
+  "migrations": [{ "tag": "v1-inbox", "new_sqlite_classes": ["InboxStore"] }],
   // One trigger every minute: the auto replies poll Instagram comments and DMs. On the five-minute grid the
   // auto-post queue publishes what is due (the replies poll after it when it moved nothing), the
   // 03:00/03:10/03:20/03:30 UTC ticks (06:00–06:30 Riyadh) run the daily sync of one platform each instead,

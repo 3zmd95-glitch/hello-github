@@ -15,8 +15,10 @@ import { handle, type Env } from "./scout";
 import { runTick, TICK_CRON } from "./social/cron";
 import { runScheduled } from "./social/sync";
 
-// Worker entry. Keep this module's exports to the default handler only: workerd treats every named export of
-// the main module as an entrypoint and refuses to start on anything else.
+export { InboxStore } from "./social/inboxStore";
+
+// Worker entry. Exports: the default handler and the Durable Object classes only (workerd treats every other named
+// export of the main module as an entrypoint and refuses to start).
 //
 // Claude connector (round 33, planning/tools/13-discover-search-v2.md): only the connector's own paths
 // (`isOAuthPath`: /mcp, /authorize, /token, /register, /.well-known/oauth-*) go through OAuthProvider, and only with

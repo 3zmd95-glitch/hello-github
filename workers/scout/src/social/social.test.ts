@@ -8,6 +8,9 @@ import { CRON_PLATFORMS, runScheduled, syncAll, syncPlatform } from "./sync";
 import { addDays, riyadhDay, riyadhIso } from "./time";
 import type { DemographicRow, PostRow, SnapshotRow, TokenSet } from "./types";
 
+// ../index re-exports the InboxStore Durable Object, whose module imports `cloudflare:workers` (workerd only).
+vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
+
 /* ---------- fixtures & fakes ---------- */
 
 const TOKEN = "s3cret-token";

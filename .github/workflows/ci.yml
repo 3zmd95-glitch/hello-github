@@ -37,6 +37,9 @@ jobs:
 
       - name: Test
         run: pnpm test
+        env:
+          # InboxDb's tests run on node:sqlite, behind this flag on Node 22 (drop it once CI is on Node 24+).
+          NODE_OPTIONS: --experimental-sqlite
 
       - name: Build
         run: pnpm build
