@@ -3,7 +3,6 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrendItemInput } from "@/lib/domain";
-import { genreIdFromSearch } from "@/lib/genres";
 import { useStore } from "@/store";
 import TrendRadar from "./TrendRadar";
 
