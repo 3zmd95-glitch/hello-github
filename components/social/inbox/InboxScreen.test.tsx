@@ -411,6 +411,124 @@ describe("InboxScreen", () => {
     expect(q("inbox-open-post", sheet)!.getAttribute("href")).toBe(POST.permalink);
   });
 
+  it("keeps one reply box per comment: switching to a private reply keeps its text and its pending send", async () => {
+    serve({
+      "GET /social/inbox/posts/instagram/m1/comments": {
+        body: {
+          post: POST,
+          comments: [comment("k1", T0, { author: "noura", text: "وين اللت؟" })],
+          more: false,
+          next: null,
+        },
+      },
+      "POST /social/inbox/comments/instagram/k1/reply": {
+        body: { reply: comment("r1", T2, { parentId: "k1", ours: true, sentBy: "owner" }) },
+      },
+    });
+    await mount();
+    act(() => all("inbox-post-row")[0].click());
+    await settle();
+    const sheet = q("inbox-post")!;
+    // The reply goes out when the gate opens: the box is pending until then.
+    let open!: () => void;
+    const gate = new Promise<void>((r) => (open = r));
+    const inner = fetchMock.getMockImplementation() as (url: string, init: RequestInit) => unknown;
+    fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      if (init.method === "POST") await gate;
+      return inner(url, init);
+    });
+
+    act(() => q("inbox-reply-toggle", sheet)!.click());
+    const text = q("inbox-comment-reply-text", sheet) as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(text); // opened from a toggle: it takes focus
+    expect(text.getAttribute("aria-label")).toBe("رد @noura");
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(text, "حياك الله");
+      text.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => q("inbox-comment-reply-send", sheet)!.click());
+    expect((q("inbox-comment-reply-send", sheet) as HTMLButtonElement).disabled).toBe(true);
+
+    // Reply privately: the same box, now a private reply; its text and its lock stay.
+    act(() => q("inbox-private-toggle", sheet)!.click());
+    expect(q("inbox-comment-reply-text", sheet)).toBeNull();
+    const priv = q("inbox-comment-private-text", sheet) as HTMLTextAreaElement;
+    expect(priv).toBe(text);
+    expect(priv.value).toBe("حياك الله");
+    expect(priv.getAttribute("aria-label")).toBe("رد على الخاص @noura");
+    const privSend = q("inbox-comment-private-send", sheet) as HTMLButtonElement;
+    expect(privSend.disabled).toBe(true);
+    act(() => privSend.click());
+
+    open();
+    await settle();
+    const posts = urls().filter((u) => u.startsWith("POST "));
+    expect(posts).toEqual(["POST /social/inbox/comments/instagram/k1/reply"]);
+    expect(JSON.parse(fetchMock.mock.calls.find(([, i]) => i?.method === "POST")![1].body)).toEqual(
+      {
+        text: "حياك الله",
+      },
+    );
+    expect(priv.value).toBe(""); // sent: cleared
+    expect((q("inbox-comment-private-send", sheet) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("gives a TikTok comment no reply, private reply or menu", async () => {
+    const tiktok = { ...POST, platform: "tiktok", id: "t9" };
+    serve({
+      "GET /social/inbox/posts": { body: { posts: [tiktok], more: false, next: null } },
+      "GET /social/inbox/posts/tiktok/t9/comments": {
+        body: {
+          post: tiktok,
+          comments: [comment("k1", T0, { platform: "tiktok", postId: "t9" })],
+          more: false,
+          next: null,
+        },
+      },
+    });
+    await mount();
+    act(() => all("inbox-post-row")[0].click());
+    await settle();
+    const sheet = q("inbox-post")!;
+    expect(ids("inbox-comment", sheet)).toEqual(["k1"]);
+    for (const control of [
+      "inbox-comment-actions",
+      "inbox-reply-toggle",
+      "inbox-private-toggle",
+      "inbox-comment-menu",
+    ])
+      expect(q(control, sheet), control).toBeNull();
+  });
+
+  it("gives an Instagram comment its Reply, Reply privately and menu, and our own no private reply", async () => {
+    serve({
+      "GET /social/inbox/posts/instagram/m1/comments": {
+        body: {
+          post: POST,
+          comments: [
+            comment("k2", T1, { parentId: "k1", author: "3z", ours: true, sentBy: "owner" }),
+            comment("k1", T0),
+          ],
+          more: false,
+          next: null,
+        },
+      },
+    });
+    await mount();
+    act(() => all("inbox-post-row")[0].click());
+    await settle();
+    const sheet = q("inbox-post")!;
+    const actions = (id: string) =>
+      sheet.querySelector<HTMLElement>(`[data-testid="inbox-comment-actions"][data-id="${id}"]`)!;
+    for (const id of ["k1", "k2"]) {
+      expect(q("inbox-reply-toggle", actions(id)), id).not.toBeNull();
+      expect(q("inbox-comment-menu", actions(id)), id).not.toBeNull();
+    }
+    expect(q("inbox-private-toggle", actions("k1"))).not.toBeNull();
+    expect(q("inbox-private-toggle", actions("k2"))).toBeNull();
+  });
+
   it("loads older conversations and posts with the Worker's cursor, and a poll keeps them", async () => {
     const older = conv({ id: "c0", peerId: "p0", peerName: "ريم", updatedAt: T0 });
     const olderPost = { ...POST, id: "m0", postedAt: "2026-10-21T10:00:00.000Z" };

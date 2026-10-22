@@ -7,7 +7,7 @@ import { useStore } from "@/store";
 import ReplyBox from "./ReplyBox";
 
 // The send box under a thread or a comment: the live counter (bytes for a DM, characters for a comment), Send
-// locked while a request is pending (the Worker has no idempotency guard), and the three kinds of result line.
+// locked while a request is pending (the Worker has no idempotency guard), and the kinds of result line.
 
 type Props = Parameters<typeof ReplyBox>[0];
 
@@ -28,22 +28,27 @@ afterEach(() => {
 });
 
 const ok: InboxResult<unknown> = { ok: true };
-function render(over: Partial<Props> = {}) {
-  const props: Props = {
+function props(over: Partial<Props> = {}): Props {
+  return {
     kind: "dm",
-    platform: "instagram",
     limit: { bytes: 10 },
     onSend: vi.fn(async () => ok),
     testId: "box",
     ...over,
   };
-  act(() => root.render(<ReplyBox {...props} />));
-  return props;
+}
+function render(over: Partial<Props> = {}) {
+  const p = props(over);
+  act(() => root.render(<ReplyBox {...p} />));
+  return p;
 }
 
 const q = (id: string) => host.querySelector<HTMLElement>(`[data-testid="box-${id}"]`);
 const textarea = () => q("text") as HTMLTextAreaElement;
 const send = () => q("send") as HTMLButtonElement;
+/** The result lines are always in the page: a polite status and an alert, empty when idle. */
+const line = (role: "status" | "alert") =>
+  q("result")!.querySelector<HTMLElement>(`[role="${role}"]`)!;
 const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
 const type = (text: string) =>
   act(() => {
@@ -66,27 +71,27 @@ function deferred() {
 describe("ReplyBox counter", () => {
   it("counts a DM in UTF-8 bytes: an Arabic letter is two, an emoji four", () => {
     render({ limit: { bytes: 10 } });
-    expect(q("left")!.textContent).toBe("About 10 characters left");
+    expect(q("left")!.textContent).toBe("About 10 left");
     type("لت"); // two letters, four bytes
-    expect(q("left")!.textContent).toBe("About 6 characters left");
+    expect(q("left")!.textContent).toBe("About 6 left");
     type("🎬"); // one picture, four bytes
-    expect(q("left")!.textContent).toBe("About 6 characters left");
+    expect(q("left")!.textContent).toBe("About 6 left");
     type("abc");
-    expect(q("left")!.textContent).toBe("About 7 characters left");
+    expect(q("left")!.textContent).toBe("About 7 left");
   });
 
   it("counts a comment in characters", () => {
     render({ kind: "comment", limit: { chars: 5 } });
     type("لت");
-    expect(q("left")!.textContent).toBe("About 3 characters left");
+    expect(q("left")!.textContent).toBe("About 3 left");
     type("🎬"); // two UTF-16 units, as the Worker's text.length counts it
-    expect(q("left")!.textContent).toBe("About 3 characters left");
+    expect(q("left")!.textContent).toBe("About 3 left");
   });
 
   it("counts the text that is sent: surrounding spaces are trimmed", () => {
     render({ limit: { bytes: 10 } });
     type("   hi   ");
-    expect(q("left")!.textContent).toBe("About 8 characters left");
+    expect(q("left")!.textContent).toBe("About 8 left");
   });
 
   it("turns red at zero and refuses past the limit", () => {
@@ -95,7 +100,7 @@ describe("ReplyBox counter", () => {
     expect(q("left")!.className).not.toContain("text-danger");
     expect(send().disabled).toBe(false);
     type("لت"); // exactly 4 bytes: zero left, still allowed
-    expect(q("left")!.textContent).toBe("About 0 characters left");
+    expect(q("left")!.textContent).toBe("About 0 left");
     expect(q("left")!.className).toContain("text-danger");
     expect(send().disabled).toBe(false);
     type("لتا"); // 6 bytes
@@ -105,14 +110,20 @@ describe("ReplyBox counter", () => {
   });
 
   it("keeps Send off while the text is empty or only spaces", () => {
-    const props = render();
+    const p = render();
     expect(send().disabled).toBe(true);
     type("   ");
     expect(send().disabled).toBe(true);
     click();
-    expect(props.onSend).not.toHaveBeenCalled();
+    expect(p.onSend).not.toHaveBeenCalled();
     type("a");
     expect(send().disabled).toBe(false);
+  });
+
+  it("is the textarea's description, so a screen reader hears what is left", () => {
+    render();
+    expect(textarea().getAttribute("aria-describedby")).toBe(q("left")!.id);
+    expect(q("left")!.id).not.toBe("");
   });
 });
 
@@ -137,8 +148,8 @@ describe("ReplyBox sending", () => {
     expect(textarea().value).toBe("");
     expect(textarea().readOnly).toBe(false);
     expect(send().textContent).toBe("Send");
-    expect(q("result")!.textContent).toBe("Sent");
-    expect(q("result")!.getAttribute("role")).toBe("status");
+    expect(line("status").textContent).toBe("Sent");
+    expect(line("alert").textContent).toBe("");
     expect(onSent).toHaveBeenCalledTimes(1);
   });
 
@@ -152,8 +163,10 @@ describe("ReplyBox sending", () => {
     type("hi");
     click();
     await settle();
-    expect(q("result")!.textContent).toBe("Sending wasn't confirmed; check the app");
-    expect(q("result")!.getAttribute("role")).toBe("status");
+    expect(line("status").textContent).toBe(
+      "Sending wasn't confirmed; check the thread before sending again",
+    );
+    expect(line("alert").textContent).toBe("");
     expect(textarea().value).toBe("hi");
     expect(send().disabled).toBe(false);
     expect(onSent).not.toHaveBeenCalled();
@@ -169,8 +182,8 @@ describe("ReplyBox sending", () => {
     type("hi");
     click();
     await settle();
-    expect(q("result")!.textContent).toBe("The platform refused: Cannot reply");
-    expect(q("result")!.getAttribute("role")).toBe("alert");
+    expect(line("alert").textContent).toBe("The platform refused: Cannot reply");
+    expect(line("status").textContent).toBe("");
     expect(textarea().value).toBe("hi");
     expect(onSent).not.toHaveBeenCalled();
   });
@@ -184,10 +197,16 @@ describe("ReplyBox sending", () => {
     type("hi");
     click();
     await settle();
-    expect(q("result")!.textContent).toContain("doesn't allow a reply right now");
+    expect(line("alert").textContent).toContain("doesn't allow a reply right now");
     click();
     await settle();
-    expect(q("result")!.textContent).toBe("Couldn't reach the Worker; check your connection.");
+    expect(line("alert").textContent).toBe("Couldn't reach the Worker; check your connection.");
+  });
+
+  it("has its result lines in the page, empty, before anything is sent", () => {
+    render();
+    expect(line("status").textContent).toBe("");
+    expect(line("alert").textContent).toBe("");
   });
 
   it("clears the result line when the text is edited again", async () => {
@@ -195,20 +214,71 @@ describe("ReplyBox sending", () => {
     type("hi");
     click();
     await settle();
-    expect(q("result")).not.toBeNull();
+    expect(line("status").textContent).toBe("Sent");
     type("hi again");
-    expect(q("result")).toBeNull();
+    expect(line("status").textContent).toBe("");
+  });
+
+  it("keeps its text, its pending send and its result when the parent switches the kind", async () => {
+    const pending = deferred();
+    const first = vi.fn(() => pending.promise);
+    const second = vi.fn(async () => ok);
+    const comment = props({ kind: "comment", limit: { chars: 2200 }, onSend: first });
+    act(() => root.render(<ReplyBox {...comment} />));
+    type("هلا");
+    click();
+    expect(first).toHaveBeenCalledTimes(1);
+
+    // The "Reply privately" toggle: the same box, now a private reply with its own limit and sender.
+    const textBefore = textarea();
+    act(() =>
+      root.render(<ReplyBox {...comment} kind="private" limit={{ bytes: 1000 }} onSend={second} />),
+    );
+    expect(textarea()).toBe(textBefore); // the same element: nothing was unmounted
+    expect(textarea().value).toBe("هلا");
+    expect(send().disabled).toBe(true);
+    expect(send().textContent).toBe("Sending…");
+    click();
+    expect(second).not.toHaveBeenCalled();
+
+    pending.resolve(ok);
+    await settle();
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).not.toHaveBeenCalled();
+    expect(textarea().value).toBe("");
+    expect(line("status").textContent).toBe("Sent");
+  });
+});
+
+describe("ReplyBox name and focus", () => {
+  it("names the textarea for its kind, or as the parent says", () => {
+    render({ kind: "dm" });
+    expect(textarea().getAttribute("aria-label")).toBe("Reply");
+    render({ kind: "private" });
+    expect(textarea().getAttribute("aria-label")).toBe("Reply privately");
+    render({ kind: "comment", label: "Reply @noura" });
+    expect(textarea().getAttribute("aria-label")).toBe("Reply @noura");
+  });
+
+  it("takes focus when asked, and leaves it alone otherwise", () => {
+    render();
+    expect(document.activeElement).not.toBe(textarea());
+    act(() => root.unmount());
+    root = createRoot(host);
+    render({ autoFocus: true });
+    expect(document.activeElement).toBe(textarea());
   });
 });
 
 describe("ReplyBox disabled", () => {
   it("shows why and sends nothing", () => {
-    const props = render({ disabled: true, disabledReason: "Not right now" });
+    const p = render({ disabled: true, disabledReason: "Not right now" });
     expect(q("reason")!.textContent).toBe("Not right now");
     expect(textarea().disabled).toBe(true);
     expect(send().disabled).toBe(true);
+    expect(textarea().getAttribute("aria-describedby")).toContain(q("reason")!.id);
     click();
-    expect(props.onSend).not.toHaveBeenCalled();
+    expect(p.onSend).not.toHaveBeenCalled();
   });
 
   it("shows no reason when it is enabled", () => {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useId, useState } from "react";
-import type { InboxPlatform } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import {
   inboxErrorKey,
@@ -16,12 +15,16 @@ import {
  * is left (bytes for a DM and a private reply, characters for a public reply; red at zero, Send off past it), and
  * Send. The Worker has no idempotency guard, so Send stays locked while a request is pending. It owns its text and
  * its last result: sent clears the text and calls `onSent` (the parent reads again); an unconfirmed send keeps the
- * text, since it may have gone out (the owner checks the app); a refusal keeps it too and says why.
+ * text, since it may have gone out (the owner checks the thread); a refusal keeps it too and says why. The result
+ * lines are always in the page (a polite `status` and an `alert`), so a screen reader announces what fills them.
+ * A parent that switches `kind` (reply or reply privately under one comment) keeps this one instance: the text, the
+ * pending send and the last result stay.
  */
 export default function ReplyBox({
   kind,
-  platform,
   limit,
+  label,
+  autoFocus,
   disabled,
   disabledReason,
   onSend,
@@ -29,8 +32,11 @@ export default function ReplyBox({
   testId,
 }: {
   kind: "dm" | "comment" | "private";
-  platform: InboxPlatform;
   limit: { bytes: number } | { chars: number };
+  /** The textarea's accessible name; the kind's own ("Reply", "Reply privately") when left out. */
+  label?: string;
+  /** Focus the text as the box opens (from a toggle; a thread's box does not take focus on its own). */
+  autoFocus?: boolean;
   disabled?: boolean;
   /** Why the box is off, shown under it. */
   disabledReason?: string;
@@ -40,6 +46,7 @@ export default function ReplyBox({
 }) {
   const { t } = useT();
   const reasonId = useId();
+  const leftId = useId();
   const [text, setText] = useState("");
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<"sent" | InboxError | null>(null);
@@ -53,36 +60,31 @@ export default function ReplyBox({
     if (!canSend) return;
     setPending(true);
     setResult(null);
-    const r = await onSend(clean);
-    setPending(false);
-    if (r.ok) {
-      setText("");
-      setResult("sent");
-      onSent?.();
-    } else setResult(r.error);
+    try {
+      const r = await onSend(clean);
+      if (r.ok) {
+        setText("");
+        setResult("sent");
+        onSent?.();
+      } else setResult(r.error);
+    } finally {
+      setPending(false);
+    }
   };
 
-  const line =
-    result === null
-      ? null
-      : result === "sent"
-        ? { role: "status", text: t("inbox.sent") }
-        : isUnconfirmed(result)
-          ? { role: "status", text: t("inbox.unconfirmed") }
-          : { role: "alert", text: t(inboxErrorKey(result), { detail: result.detail ?? "" }) };
+  // Sent and unconfirmed are news, not refusals: a polite status; only a refusal is an alert.
+  const refused = result && result !== "sent" && !isUnconfirmed(result) ? result : null;
+  const status =
+    result === "sent" ? t("inbox.sent") : result && !refused ? t("inbox.unconfirmed") : "";
 
   return (
-    <div
-      className="flex flex-col gap-2"
-      data-testid={testId}
-      data-kind={kind}
-      data-platform={platform}
-    >
+    <div className="flex flex-col gap-2" data-testid={testId}>
       <textarea
         className="px-input min-h-20"
         dir="auto"
-        aria-label={t(kind === "private" ? "inbox.replyPrivately" : "inbox.reply")}
-        aria-describedby={disabled && disabledReason ? reasonId : undefined}
+        aria-label={label ?? t(kind === "private" ? "inbox.replyPrivately" : "inbox.reply")}
+        aria-describedby={[leftId, disabled && disabledReason ? reasonId : ""].join(" ").trim()}
+        autoFocus={autoFocus}
         value={text}
         disabled={disabled}
         readOnly={pending}
@@ -99,6 +101,7 @@ export default function ReplyBox({
       )}
       <div className="flex items-center justify-between gap-3">
         <span
+          id={leftId}
           className={`text-[13px] tabular-nums ${left <= 0 ? "text-danger" : "text-muted"}`}
           data-testid={`${testId}-left`}
         >
@@ -114,15 +117,14 @@ export default function ReplyBox({
           {pending ? t("inbox.sending") : t("inbox.send")}
         </button>
       </div>
-      {line && (
-        <p
-          role={line.role}
-          className={`text-[13px] ${line.role === "alert" ? "text-danger" : "text-ink-2"}`}
-          data-testid={`${testId}-result`}
-        >
-          {line.text}
+      <div data-testid={`${testId}-result`}>
+        <p role="status" className="text-ink-2 text-[13px]">
+          {status}
         </p>
-      )}
+        <p role="alert" className="text-danger text-[13px]">
+          {refused ? t(inboxErrorKey(refused), { detail: refused.detail ?? "" }) : ""}
+        </p>
+      </div>
     </div>
   );
 }

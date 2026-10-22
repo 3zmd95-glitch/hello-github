@@ -3,6 +3,7 @@
 import { Eye, EyeOff, Trash2 } from "lucide-react";
 import { useState } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import RowMenu from "@/components/ui/RowMenu";
 import Chip from "@/components/ui/ios/Chip";
 import type { InboxComment, InboxPost } from "@/lib/domain";
 import {
@@ -17,7 +18,6 @@ import {
   type InboxResult,
 } from "@/lib/inbox";
 import { useT } from "@/lib/i18n";
-import { RowMenu } from "../replies/RulesTable";
 import { formatInstant } from "../calendar/dates";
 import ReplyBox from "./ReplyBox";
 import { currentConfig, useComments } from "./useInbox";
@@ -49,8 +49,9 @@ function CommentLine({ c }: { c: InboxComment }) {
 
 /**
  * What the owner can do with one comment: reply, reply privately (a DM by the comment; not on our own), hide or show
- * it, and delete it when it is ours. One box at a time; every success reads the comments again (`onChanged`).
- * TikTok has no sends yet, so its comments get no controls.
+ * it, and delete it when it is ours. One box per comment: the two toggles only switch its kind (reply or reply
+ * privately), so the text and a pending send survive the switch; it closes with the active kind's toggle. Every
+ * success reads the comments again (`onChanged`). TikTok has no sends yet, so its comments get no controls.
  */
 function CommentActions({ c, onChanged }: { c: InboxComment; onChanged: () => void }) {
   const { t } = useT();
@@ -60,7 +61,10 @@ function CommentActions({ c, onChanged }: { c: InboxComment; onChanged: () => vo
   const [failed, setFailed] = useState<InboxError | null>(null);
   if (c.platform !== "instagram") return null;
 
-  const toggle = (which: "reply" | "private") => setBox(box === which ? null : which);
+  const toggle = (which: "reply" | "private") => {
+    setFailed(null);
+    setBox(box === which ? null : which);
+  };
   const act = async (call: () => Promise<InboxResult<unknown>>) => {
     setBusy(true);
     setFailed(null);
@@ -125,24 +129,22 @@ function CommentActions({ c, onChanged }: { c: InboxComment; onChanged: () => vo
           </RowMenu>
         </span>
       </div>
-      {box === "reply" && (
+      {box && (
         <ReplyBox
-          kind="comment"
-          platform={c.platform}
-          limit={{ chars: IG_COMMENT_MAX }}
-          onSend={(text) => inboxReply(currentConfig(), c.platform, c.id, text)}
-          onSent={onChanged}
-          testId="inbox-comment-reply"
-        />
-      )}
-      {box === "private" && (
-        <ReplyBox
-          kind="private"
-          platform={c.platform}
-          limit={{ bytes: DM_TEXT_BYTES }}
-          onSend={(text) => inboxPrivate(currentConfig(), c.id, text)}
-          onSent={onChanged}
-          testId="inbox-comment-private"
+          kind={box === "private" ? "private" : "comment"}
+          limit={box === "private" ? { bytes: DM_TEXT_BYTES } : { chars: IG_COMMENT_MAX }}
+          label={`${t(box === "private" ? "inbox.replyPrivately" : "inbox.reply")} @${c.author}`}
+          autoFocus
+          onSend={(text) =>
+            box === "private"
+              ? inboxPrivate(currentConfig(), c.id, text)
+              : inboxReply(currentConfig(), c.platform, c.id, text)
+          }
+          onSent={() => {
+            setFailed(null);
+            onChanged();
+          }}
+          testId={box === "private" ? "inbox-comment-private" : "inbox-comment-reply"}
         />
       )}
       {failed && (

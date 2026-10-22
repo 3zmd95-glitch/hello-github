@@ -638,12 +638,13 @@ test("a DM is sent as typed, counted in bytes, and the thread reads again with i
   const send = thread.getByTestId("inbox-reply-send");
   await expect(send).toBeDisabled();
   await text.fill("هلا والله"); // 8 Arabic letters (2 bytes each) and a space: 17 bytes
-  await expect(thread.getByTestId("inbox-reply-left")).toHaveText("باقي تقريباً 983 حرف");
+  await expect(thread.getByTestId("inbox-reply-left")).toHaveText("باقي تقريباً 983");
   await expect(send).toBeEnabled();
   await send.click();
 
-  await expect(thread.getByTestId("inbox-reply-result")).toHaveText("انرسل");
-  await expect(thread.getByTestId("inbox-reply-result")).toHaveAttribute("role", "status");
+  const status = thread.getByTestId("inbox-reply-result").getByRole("status");
+  await expect(status).toHaveText("انرسل");
+  await expect(thread.getByTestId("inbox-reply-result").getByRole("alert")).toHaveText("");
   await expect(text).toHaveValue("");
   const sent = calls(fake, "POST", "/social/inbox/conversations/t1/send");
   expect(sent.map((c) => c.body)).toEqual([{ text: "هلا والله" }]);
@@ -692,7 +693,7 @@ test("the counter counts a DM in bytes: 4-byte emoji refuse before the character
 
   // 250 are exactly 1,000 bytes: nothing left, in red, and still allowed.
   await text.fill("🎬".repeat(250));
-  await expect(left).toHaveText("باقي تقريباً 0 حرف");
+  await expect(left).toHaveText("باقي تقريباً 0");
   await expect(left).toHaveClass(/text-danger/);
   await expect(send).toBeEnabled();
   expect(calls(fake, "POST", "/social/inbox/conversations/t1/send")).toHaveLength(0);
@@ -708,8 +709,10 @@ test("a send that may have gone out keeps the text and says so", async ({ page }
   await thread.getByTestId("inbox-reply-text").fill("هلا والله");
   await thread.getByTestId("inbox-reply-send").click();
   const result = thread.getByTestId("inbox-reply-result");
-  await expect(result).toHaveText("ما تأكد الإرسال؛ شيّك في التطبيق");
-  await expect(result).toHaveAttribute("role", "status");
+  await expect(result.getByRole("status")).toHaveText(
+    "ما تأكد الإرسال؛ شيّك المحادثة قبل ما ترسل مرة ثانية",
+  );
+  await expect(result.getByRole("alert")).toHaveText("");
   await expect(thread.getByTestId("inbox-reply-text")).toHaveValue("هلا والله");
   await expect(thread.getByTestId("inbox-reply-send")).toBeEnabled();
   expect(calls(fake, "POST", "/social/inbox/conversations/t1/send")).toHaveLength(1);
@@ -730,9 +733,11 @@ test("a comment is answered in public and in private, and hidden then shown agai
   await nora.getByTestId("inbox-reply-toggle").click();
   const reply = nora.getByTestId("inbox-comment-reply-text");
   await reply.fill("حياك الله");
-  await expect(nora.getByTestId("inbox-comment-reply-left")).toHaveText("باقي تقريباً 2191 حرف");
+  await expect(nora.getByTestId("inbox-comment-reply-left")).toHaveText("باقي تقريباً 2191");
   await nora.getByTestId("inbox-comment-reply-send").click();
-  await expect(nora.getByTestId("inbox-comment-reply-result")).toHaveText("انرسل");
+  await expect(nora.getByTestId("inbox-comment-reply-result").getByRole("status")).toHaveText(
+    "انرسل",
+  );
   await expect(sheet.getByTestId("inbox-comment")).toHaveCount(4);
   const ours = sheet.locator('[data-reply-to="c1"] [data-testid="inbox-comment"]');
   await expect(ours).toHaveCount(2);
@@ -743,12 +748,14 @@ test("a comment is answered in public and in private, and hidden then shown agai
     calls(fake, "POST", "/social/inbox/comments/instagram/c1/reply").map((c) => c.body),
   ).toEqual([{ text: "حياك الله" }]);
 
-  // A private reply replaces the public box: one at a time.
+  // A private reply is the same box, switched: one at a time.
   await nora.getByTestId("inbox-private-toggle").click();
   await expect(nora.getByTestId("inbox-comment-reply")).toHaveCount(0);
   await nora.getByTestId("inbox-comment-private-text").fill("هذا اللت");
   await nora.getByTestId("inbox-comment-private-send").click();
-  await expect(nora.getByTestId("inbox-comment-private-result")).toHaveText("انرسل");
+  await expect(nora.getByTestId("inbox-comment-private-result").getByRole("status")).toHaveText(
+    "انرسل",
+  );
   expect(
     calls(fake, "POST", "/social/inbox/comments/instagram/c1/private").map((c) => c.body),
   ).toEqual([{ text: "هذا اللت" }]);
@@ -806,6 +813,33 @@ test("Delete is offered on our own reply only, behind a confirmation", async ({ 
   await expect(sheet.getByTestId("inbox-comment")).toHaveCount(2);
   await expect(sheet.locator('[data-testid="inbox-comment"][data-id="c2"]')).toHaveCount(0);
   expect(calls(fake, "DELETE", "/social/inbox/comments/instagram/c2")).toHaveLength(1);
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("a refused hide shows the reason under the comment and leaves it as it was", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  fake.sendError = { status: 403, body: { error: "no_permission" } };
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  const sheet = await openComments(page);
+  const nora = actionsOf(sheet, "c1");
+
+  await nora.getByTestId("inbox-comment-menu").click();
+  await nora.getByTestId("inbox-comment-hide").click();
+  const error = nora.getByTestId("inbox-comment-error");
+  await expect(error).toHaveText("ما عندنا إذن الرد؛ اضغط «اسمح بالرسائل».");
+  await expect(error).toHaveAttribute("role", "alert");
+  expect(calls(fake, "POST", "/social/inbox/comments/instagram/c1/hide")).toHaveLength(1);
+  await expect(sheet.locator('[data-testid="inbox-comment"][data-id="c1"]')).toHaveAttribute(
+    "data-hidden",
+    "false",
+  );
+
+  // Opening a box clears the old refusal.
+  await nora.getByTestId("inbox-reply-toggle").click();
+  await expect(error).toHaveCount(0);
   expect(await fitsViewport(page)).toBe(true);
 });
 

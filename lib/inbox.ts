@@ -89,14 +89,24 @@ async function errorFrom(res: Response): Promise<InboxError> {
   }
 }
 
-/** One authenticated Worker call, its answer checked against `schema`. Exported for the send routes. */
+/**
+ * One authenticated Worker call, its answer checked against `schema`. Exported for the send routes. `sends` marks a
+ * call that puts a message out (a DM, a reply): once the request may have left, no answer we can read is not "failed"
+ * but unconfirmed (a network error, or a 2xx whose body is not the expected one), so the screen keeps the text and
+ * tells the owner to check before sending again. A refused answer (non-2xx) is the Worker's word and stays as it is.
+ */
 export async function inboxCall<S extends z.ZodType<object>>(
   config: ScoutConfig | null,
   path: string,
   schema: S,
   init: RequestInit = {},
+  sends = false,
 ): Promise<InboxResult<z.infer<S>>> {
   if (!config) return { ok: false, error: { type: "unconfigured" } };
+  const unreadable = (type: InboxError["type"]): InboxResult<never> => ({
+    ok: false,
+    error: sends ? { type: "upstream", detail: "unconfirmed" } : { type },
+  });
   let res: Response;
   try {
     res = await fetch(`${config.url}/social/inbox${path}`, {
@@ -104,17 +114,17 @@ export async function inboxCall<S extends z.ZodType<object>>(
       headers: { ...init.headers, Authorization: `Bearer ${config.token}` },
     });
   } catch {
-    return { ok: false, error: { type: "network" } };
+    return unreadable("network");
   }
   if (!res.ok) return { ok: false, error: await errorFrom(res) };
   let body: unknown;
   try {
     body = await res.json();
   } catch {
-    return { ok: false, error: { type: "upstream" } };
+    return unreadable("upstream");
   }
   const parsed = schema.safeParse(body);
-  return parsed.success ? { ok: true, ...parsed.data } : { ok: false, error: { type: "upstream" } };
+  return parsed.success ? { ok: true, ...parsed.data } : unreadable("upstream");
 }
 
 /** `?platform=&before=`: `all` and a missing cursor are left out; `before` is the Worker's opaque cursor. */
@@ -195,6 +205,13 @@ const post = (body: object): RequestInit => ({
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body),
 });
+/** A call that puts a message out (see `inboxCall`'s `sends`). */
+const sendText = <S extends z.ZodType<object>>(
+  config: ScoutConfig | null,
+  path: string,
+  schema: S,
+  text: string,
+) => inboxCall(config, path, schema, post({ text }), true);
 const commentPath = (platform: InboxPlatform, id: string) =>
   `/comments/${platform}/${encodeURIComponent(id)}`;
 
@@ -207,7 +224,7 @@ export const inboxSend = (
   id: string,
   text: string,
 ): Promise<InboxResult<{ message: InboxMessage }>> =>
-  inboxCall(config, `/conversations/${encodeURIComponent(id)}/send`, SendAnswer, post({ text }));
+  sendText(config, `/conversations/${encodeURIComponent(id)}/send`, SendAnswer, text);
 
 /** `POST /social/inbox/comments/:platform/:id/reply`: a public reply under a comment. */
 export const inboxReply = (
@@ -216,7 +233,7 @@ export const inboxReply = (
   commentId: string,
   text: string,
 ): Promise<InboxResult<{ reply: InboxComment }>> =>
-  inboxCall(config, `${commentPath(platform, commentId)}/reply`, ReplyAnswer, post({ text }));
+  sendText(config, `${commentPath(platform, commentId)}/reply`, ReplyAnswer, text);
 
 /** `POST /social/inbox/comments/instagram/:id/private`: a DM to the commenter, by the comment. */
 export const inboxPrivate = (
@@ -224,12 +241,7 @@ export const inboxPrivate = (
   commentId: string,
   text: string,
 ): Promise<InboxResult<{ message: { id: string } }>> =>
-  inboxCall(
-    config,
-    `${commentPath("instagram", commentId)}/private`,
-    PrivateAnswer,
-    post({ text }),
-  );
+  sendText(config, `${commentPath("instagram", commentId)}/private`, PrivateAnswer, text);
 
 /** `POST /social/inbox/comments/:platform/:id/hide`: hides (`true`) or shows (`false`) a comment. */
 export const inboxHide = (

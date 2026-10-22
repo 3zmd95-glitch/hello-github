@@ -98,7 +98,6 @@ export default function ThreadView({ conversation }: { conversation: InboxConver
           )}
           <ReplyBox
             kind="dm"
-            platform={conversation.platform}
             limit={{ bytes: DM_TEXT_BYTES }}
             disabled={!thread.window.open}
             disabledReason={t("inbox.window.closed")}

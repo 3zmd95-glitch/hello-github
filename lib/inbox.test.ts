@@ -379,6 +379,60 @@ describe("sends", () => {
     expect(isUnconfirmed({ type: "upstream" })).toBe(false);
     expect(isUnconfirmed({ type: "rejected", detail: "unconfirmed" })).toBe(false);
   });
+
+  const unconfirmed = { ok: false, error: { type: "upstream", detail: "unconfirmed" } };
+
+  it("reads a send whose request may have left but got no answer as unconfirmed", async () => {
+    // fetch threw: the request may have reached the Worker.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+    expect(await inboxSend(CONFIG, "c1", "x")).toEqual(unconfirmed);
+    expect(await inboxReply(CONFIG, "instagram", "k1", "x")).toEqual(unconfirmed);
+    expect(await inboxPrivate(CONFIG, "k1", "x")).toEqual(unconfirmed);
+  });
+
+  it("reads a send answered 2xx with a body that is not the expected one as unconfirmed", async () => {
+    answer({ message: { id: 7 } }); // wrong shape
+    expect(await inboxSend(CONFIG, "c1", "x")).toEqual(unconfirmed);
+    answer({ ok: true }); // the wrong route's answer
+    expect(await inboxReply(CONFIG, "instagram", "k1", "x")).toEqual(unconfirmed);
+    answer({});
+    expect(await inboxPrivate(CONFIG, "k1", "x")).toEqual(unconfirmed);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => new Response("<html>ok</html>", { status: 200 })),
+    );
+    expect(await inboxSend(CONFIG, "c1", "x")).toEqual(unconfirmed); // 2xx, not JSON
+  });
+
+  it("keeps a plain refusal of a send as the Worker said it (nothing was sent)", async () => {
+    answer({ error: "upstream" }, 502); // a store fault before any Instagram call: no detail
+    expect(await inboxSend(CONFIG, "c1", "x")).toEqual({
+      ok: false,
+      error: { type: "upstream", detail: undefined },
+    });
+  });
+
+  it("leaves hide, delete and the reads on their usual mapping", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+    const network = { ok: false, error: { type: "network" } };
+    expect(await inboxHide(CONFIG, "instagram", "k1", true)).toEqual(network);
+    expect(await inboxDelete(CONFIG, "instagram", "k1")).toEqual(network);
+    expect(await inboxOverview(CONFIG)).toEqual(network);
+    answer({ nope: true });
+    const upstream = { ok: false, error: { type: "upstream" } };
+    expect(await inboxHide(CONFIG, "instagram", "k1", true)).toEqual(upstream);
+    expect(await inboxDelete(CONFIG, "instagram", "k1")).toEqual(upstream);
+  });
 });
 
 describe("errors", () => {
