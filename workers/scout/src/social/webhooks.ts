@@ -9,7 +9,7 @@
  * Neither route carries the bearer (Meta cannot send one): the signature is the credential, so scout.ts serves them
  * before its bearer check. A request without the header is refused untouched (no body read, no store call); a body
  * over MAX_BODY is `413`; a wrong signature answers `401` and bumps the store's `webhook:rejected` counter. A signed
- * event becomes one `ingest` (all entries together) and `200 { received }`; a store fault answers `500` so Meta delivers
+ * event becomes one `ingest` (all entries together, at most WEBHOOK_MAX_EVENTS events) and `200 { received }`; a store fault answers `500` so Meta delivers
  * the event again, while a payload this file cannot read answers `200 { received: 0 }` (a retry would never fix it, and
  * a run of failures can make Meta disable the subscription). No KV is touched, and the logs carry counts only, never a
  * body or a secret.
@@ -38,6 +38,12 @@ const PATH = "/webhooks/instagram";
 const REJECTED_KEY = "webhook:rejected";
 /** Instagram's events are a few kilobytes; a body over 1 MB is refused before any crypto. */
 export const MAX_BODY = 1_048_576;
+/**
+ * Events (messages + comment changes, counted after the skips) one request stores; the rest are dropped and counted in
+ * the log, and the reader brings them in within a minute. The store calls of a request are then at most this many comment
+ * lookups, one page of posts and one ingest: 42 of the 50 subrequests a Worker invocation may make.
+ */
+export const WEBHOOK_MAX_EVENTS = 40;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -122,12 +128,24 @@ function whenOf(v: string | number | undefined, now: Date): number | null {
  * sent, with the right `sentBy`). `readAt` stays unset: only the reader's reads say how fresh the page is. It reads
  * whatever shape the payload has and may still throw (a date near the edge of what a Date holds); the caller catches.
  */
-export function webhookToBatch(payload: unknown, now: Date): IngestBatch {
+export function webhookToBatch(
+  payload: unknown,
+  now: Date,
+): IngestBatch & {
+  /** Events read but beyond WEBHOOK_MAX_EVENTS: not in the rows. */ dropped: number;
+} {
   const p = (payload ?? {}) as Payload;
   const conversations = new Map<string, ConversationRow>();
   const messages: MessageRow[] = [];
   const posts = new Map<string, PostRow>();
   const comments: CommentRow[] = [];
+  let dropped = 0;
+  /** True (and counted as dropped) when the request already holds WEBHOOK_MAX_EVENTS events; asked after the skips. */
+  const full = () => {
+    if (messages.length + comments.length < WEBHOOK_MAX_EVENTS) return false;
+    dropped += 1;
+    return true;
+  };
   for (const entry of listOf(p.entry)) {
     const owner = idOf(entry?.id);
     for (const ev of listOf(entry?.messaging)) {
@@ -143,7 +161,7 @@ export function webhookToBatch(payload: unknown, now: Date): IngestBatch {
             ? "share"
             : null;
       const ms = whenOf(ev?.timestamp ?? entry?.time, now);
-      if (!kind || ms === null) continue;
+      if (!kind || ms === null || full()) continue;
       const at = iso(ms);
       const text = kind === "text" ? clipLog(strOf(m.text)) : "";
       const convId = `peer:${sender}`;
@@ -179,7 +197,7 @@ export function webhookToBatch(payload: unknown, now: Date): IngestBatch {
       if (change?.field !== "comments" || !c || !id || !postId) continue;
       if (fromId && fromId === owner) continue;
       const ms = whenOf(c.timestamp ?? entry?.time, now);
-      if (ms === null) continue;
+      if (ms === null || full()) continue;
       comments.push({
         platform: "instagram",
         postId,
@@ -209,6 +227,7 @@ export function webhookToBatch(payload: unknown, now: Date): IngestBatch {
     messages,
     posts: [...posts.values()],
     comments,
+    dropped,
   };
 }
 
@@ -276,7 +295,7 @@ export async function handleWebhooks(
   if (!api) return json({ error: "not_available" }, 503);
 
   const entries = Array.isArray(payload.entry) ? payload.entry.length : 0;
-  let batch: IngestBatch;
+  let batch: ReturnType<typeof webhookToBatch>;
   try {
     batch = webhookToBatch(payload, deps.now?.() ?? new Date());
   } catch {
@@ -291,14 +310,19 @@ export async function handleWebhooks(
     const comments: CommentRow[] = [];
     for (const c of batch.comments ?? [])
       if (!(await api.comment("instagram", c.id))) comments.push(c);
-    // The reader's media read replaces a post row, so a placeholder goes only where the store has no such post.
-    // ponytail: check, then write; a post the reader stores in between is overwritten by its placeholder until the
-    // next media read. An ingest that keeps a stored post would close the gap.
+    // The reader's media read replaces a post row, so a placeholder goes only where the store has no such post: one page
+    // of the newest posts (the store keeps 50, trimmed hourly) tells, instead of a lookup per post.
+    // ponytail: check, then write, and a store past 100 posts would miss an old one; either way the post is overwritten by
+    // its placeholder until the next media read. An ingest that keeps a stored post would close both gaps.
     const posts: PostRow[] = [];
-    const wanted = new Set(comments.map((c) => c.postId));
-    for (const post of batch.posts ?? [])
-      if (wanted.has(post.id) && !(await api.comments("instagram", post.id, { limit: 1 })))
-        posts.push(post);
+    if (comments.length) {
+      const wanted = new Set(comments.map((c) => c.postId));
+      const have = new Set(
+        (await api.posts({ platform: "instagram", limit: 100 })).items.map((p) => p.id),
+      );
+      for (const post of batch.posts ?? [])
+        if (wanted.has(post.id) && !have.has(post.id)) posts.push(post);
+    }
     if (messages.length + comments.length)
       await api.ingest({ conversations: batch.conversations, messages, posts, comments });
     console.log(
@@ -307,6 +331,7 @@ export async function handleWebhooks(
         entries,
         messages: messages.length,
         comments: comments.length,
+        dropped: batch.dropped,
       }),
     );
     return json({ received: messages.length + comments.length });

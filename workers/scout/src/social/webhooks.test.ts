@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { handle, type Env } from "../scout";
 import { InboxDb, type InboxApi, type PostRow, type Sql } from "./inboxDb";
 import { clipLog } from "./replyCore";
-import { MAX_BODY, webhookToBatch } from "./webhooks";
+import { MAX_BODY, WEBHOOK_MAX_EVENTS, webhookToBatch } from "./webhooks";
 
 const SECRET = "app-secret";
 const VERIFY = "verify-me";
@@ -468,7 +468,7 @@ describe.skipIf(!available)("Instagram webhooks", () => {
 
       const lines = log.mock.calls.map((c) => String(c[0]));
       expect(lines.map((l) => JSON.parse(l))).toEqual([
-        { webhook: "instagram", entries: 1, messages: 1, comments: 1 },
+        { webhook: "instagram", entries: 1, messages: 1, comments: 1, dropped: 0 },
         { webhook: "instagram", rejected: 1 },
       ]);
     });
@@ -598,6 +598,53 @@ describe.skipIf(!available)("Instagram webhooks", () => {
       expect(await api.comment("instagram", "c2")).toMatchObject({ hidden: false });
     });
 
+    it("stores the first 40 events of a request and drops the rest, with no error", async () => {
+      expect(WEBHOOK_MAX_EVENTS).toBe(40);
+      const api = freshDb();
+      const body = hook({
+        messaging: Array.from({ length: 45 }, (_, i) => dm(`p${i}`, `mid.${i}`, { text: `m${i}` })),
+      });
+
+      const res = await send(signed(body), makeEnv(), api);
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ received: 40 });
+      expect((await counts(api)).conversations).toBe(40);
+      expect(await api.thread("instagram", "peer:p39", {})).not.toBeNull();
+      expect(await api.thread("instagram", "peer:p40", {})).toBeNull();
+      expect(log.mock.calls.map((c) => JSON.parse(String(c[0])))).toEqual([
+        { webhook: "instagram", entries: 1, messages: 40, comments: 0, dropped: 5 },
+      ]);
+    });
+
+    it("counts events after the skips, and a request of comments makes at most 42 store calls", async () => {
+      const api = freshDb();
+      const calls = (["comment", "comments", "posts", "ingest", "getMeta", "setMeta"] as const).map(
+        (name) => vi.spyOn(api, name),
+      );
+      const changes = Array.from({ length: 45 }, (_, i) =>
+        commentChange(comment(`c${i}`, { media: { id: `p${i}` } })),
+      );
+      // Our own comments and a field we do not read do not count towards the 40.
+      const body = hook({
+        changes: [
+          commentChange(comment("own", { from: { id: IG, username: "3z.prod" } })),
+          commentChange({ id: "m1" }, "mentions"),
+          ...changes,
+        ],
+      });
+
+      const res = await send(signed(body), makeEnv(), api);
+      // 40 lookups of a comment, one page of posts, one ingest: under the 50 subrequests of an invocation.
+      const used = calls.reduce((n, spy) => n + spy.mock.calls.length, 0);
+
+      expect(await res.json()).toEqual({ received: 40 });
+      expect(used).toBeLessThanOrEqual(42);
+      expect((await counts(api)).comments).toBe(40);
+      expect(await api.comment("instagram", "c39")).not.toBeNull();
+      expect(await api.comment("instagram", "c40")).toBeNull();
+    });
+
     it("takes a redelivered message in again without doubling it (messages upsert, so it counts as received)", async () => {
       const api = freshDb();
       const body = hook({ messaging: [dm("p1", "mid.1", { text: "hi" })] });
@@ -677,6 +724,7 @@ describe.skipIf(!available)("Instagram webhooks", () => {
           messages: [],
           posts: [],
           comments: [],
+          dropped: 0,
         });
     });
   });
