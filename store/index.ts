@@ -222,6 +222,11 @@ export const PersistedStateSchema = z.object({
   /* 🎬 Edit genres (round 31). */
   /** Genres the owner added in Settings, in the order added; the built-in ones live in data/genres. */
   customGenres: z.array(CustomGenreSchema).default([]),
+  /* 🗂 Global inbox (planning/tools/51-global-inbox.md). */
+  /** When each conversation or post was last opened (ISO), by lib/inbox seenKey; unread = newer than this. */
+  inboxSeen: z.record(z.string(), z.string()).default({}),
+  /** The inbox screen's platform tab. */
+  inboxTab: z.enum(["all", "instagram", "tiktok"]).default("all"),
 });
 export type PersistedState = z.infer<typeof PersistedStateSchema>;
 
@@ -435,6 +440,11 @@ export interface StoreActions {
   /** Drop an owner genre by id. No-op for an unknown id (built-in genres cannot be removed). */
   removeCustomGenre(id: string): void;
 
+  /* 🗂 Global inbox. */
+  /** Mark a conversation or post opened at `at` (ISO). Keeps the later time: an older open never lowers the mark. */
+  markInboxSeen(key: string, at: string): void;
+  setInboxTab(tab: "all" | "instagram" | "tiktok"): void;
+
   completeQuest(skillId: string, quest: QuestType, proofUrl?: string, now?: Date): CompleteResult;
   uncompleteQuest(skillId: string, quest: QuestType): void;
   addMicroAction(text: LText, now?: Date): MicroResult;
@@ -516,6 +526,8 @@ const initialData = (): PersistedState => ({
   socialSync: { ...EMPTY_SOCIAL_SYNC },
   trends: { ...EMPTY_TRENDS, items: [], sources: [], dismissed: [] },
   customGenres: [],
+  inboxSeen: {},
+  inboxTab: "all",
 });
 
 const newId = (): string =>
@@ -566,6 +578,8 @@ const pick = (s: PersistedState): PersistedState => ({
   socialSync: s.socialSync,
   trends: s.trends,
   customGenres: s.customGenres,
+  inboxSeen: s.inboxSeen,
+  inboxTab: s.inboxTab,
 });
 
 /** Localize without importing lib/i18n (which imports this store). */
@@ -1492,6 +1506,16 @@ export const useStore = create<StoreState>()(
         const s = get();
         if (!s.customGenres.some((g) => g.id === id)) return;
         set({ customGenres: s.customGenres.filter((g) => g.id !== id) });
+      },
+
+      markInboxSeen(key, at) {
+        const seen = get().inboxSeen;
+        if (seen[key] && seen[key] >= at) return;
+        set({ inboxSeen: { ...seen, [key]: at } });
+      },
+
+      setInboxTab(tab) {
+        set({ inboxTab: tab });
       },
 
       exportState(now = new Date()) {
