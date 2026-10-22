@@ -1,14 +1,15 @@
 "use client";
 
 import { formatDayShort } from "@/components/planner/weekLabel";
+import Chip from "@/components/ui/ios/Chip";
 import type { Platform } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { snapshotSource, timeAgo } from "@/lib/socialSync";
 import { useStore } from "@/store";
 
 /**
- * Where a platform's latest numbers came from: live from the connected account (with the last sync time),
- * the seeded Beacons row, a manual / CSV row, or nothing yet. `data-source` carries the value for tests.
+ * Where a platform's latest numbers came from, as a chip: live from the connected account (tinted, with the last
+ * sync time), the seeded Beacons row, a manual / CSV row, or nothing yet. `data-source` carries the value for tests.
  */
 export default function SourceBadge({
   platform,
@@ -33,13 +34,14 @@ export default function SourceBadge({
           ? t("growth.source.manual", { day })
           : t("growth.source.none");
   return (
-    <span
-      className={`src-badge ${className}`}
+    <Chip
+      tone={source === "live" ? "tint" : "default"}
+      className={`max-w-full ${className}`}
       data-testid="source-badge"
       data-source={source}
       data-platform={platform}
     >
-      {text}
-    </span>
+      <span className="min-w-0 truncate">{text}</span>
+    </Chip>
   );
 }

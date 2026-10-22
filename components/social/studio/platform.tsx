@@ -1,58 +1,17 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { ReactNode } from "react";
+import { useWorld } from "@/components/shell/useWorld";
+import { platformStyle } from "@/components/social/calendar/PlatformChip";
 import { PLATFORMS, type Platform } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { PlatformGlyph } from "@/lib/platformIcons";
 import { PLATFORM_META } from "@/lib/social";
-
-/** `--c` set to the platform's brand color, for chips, dots and hero accents. */
-export function platformStyle(platform: Platform): CSSProperties {
-  return { "--c": PLATFORM_META[platform].color } as CSSProperties;
-}
-
-/** Icon + localized platform name as a small chip tinted with the brand color. */
-export function PlatformChip({
-  platform,
-  className = "",
-  testId,
-}: {
-  platform: Platform;
-  className?: string;
-  testId?: string;
-}) {
-  const { L } = useT();
-  const meta = PLATFORM_META[platform];
-  return (
-    <span
-      className={`studio-pchip ${className}`}
-      style={platformStyle(platform)}
-      data-platform={platform}
-      data-testid={testId}
-    >
-      <span aria-hidden>{meta.icon}</span>
-      <span>{L(meta.name)}</span>
-    </span>
-  );
-}
-
-/** A coloured dot with the platform's short label (TT, IG …), for day cells. */
-export function PlatformDot({ platform, title }: { platform: Platform; title?: string }) {
-  return (
-    <span
-      className="studio-pdot num"
-      style={platformStyle(platform)}
-      title={title}
-      aria-label={title}
-      data-platform={platform}
-    >
-      {PLATFORM_META[platform].short}
-    </span>
-  );
-}
 
 /**
  * Five platform buttons in a row. `idPrefix` builds each button's test id (`${idPrefix}-${platform}`).
  * Used wherever the owner picks where a post goes: ideas → post, skill → video, the skill sheet's bridge.
+ * Social draws the brand glyph; the Training skill sheet keeps the platform emoji.
  */
 export function PlatformPicker({
   idPrefix,
@@ -68,6 +27,7 @@ export function PlatformPicker({
   cancelLabel?: string;
 }) {
   const { L } = useT();
+  const social = useWorld() === "social";
   return (
     <div className="flex flex-col gap-2" role="group" aria-label={label}>
       <span className="text-muted text-xs">{label}</span>
@@ -79,12 +39,16 @@ export function PlatformPicker({
               key={p}
               type="button"
               className="studio-pbtn"
-              style={platformStyle(p)}
+              style={platformStyle(p, "--c")}
               onClick={() => onPick(p)}
               data-testid={`${idPrefix}-${p}`}
               data-platform={p}
             >
-              <span aria-hidden>{meta.icon}</span>
+              {social ? (
+                <PlatformGlyph platform={p} size={14} className="shrink-0" />
+              ) : (
+                <span aria-hidden>{meta.icon}</span>
+              )}
               <span>{L(meta.name)}</span>
             </button>
           );
@@ -104,17 +68,36 @@ export function PlatformPicker({
   );
 }
 
-/** "1.2K" / "108.7K" / "1.2M" with Latin digits; below 1000 as is. */
-export function fmtCount(n: number): string {
-  const abs = Math.abs(n);
-  const sign = n < 0 ? "-" : "";
-  if (abs >= 1_000_000) return `${sign}${trim(abs / 1_000_000)}M`;
-  if (abs >= 1_000) return `${sign}${trim(abs / 1_000)}K`;
-  return `${sign}${abs}`;
+/**
+ * A translated line that keeps its `{n}` placeholder (`t(key)` called without `n`), with `n` rendered as an
+ * LTR-isolated `.num`, so a sign or a "K" stays beside its digits inside Arabic text.
+ */
+export function withNum(text: string, n: ReactNode): ReactNode {
+  const [pre, post = ""] = text.split("{n}");
+  return (
+    <>
+      {pre}
+      <span className="num">{n}</span>
+      {post}
+    </>
+  );
 }
 
-const trim = (x: number): string =>
-  x >= 100 ? Math.round(x).toString() : x.toFixed(1).replace(/\.0$/, "");
+/**
+ * A translated line with the post title in a `<bdi>` (`t` keeps a `{name}` placeholder it was not given): the
+ * owner's own text keeps its direction, so a mixed Arabic/English title cannot reorder the sentence around it.
+ */
+export function withName(text: string, name: string | undefined): ReactNode {
+  if (name === undefined) return text;
+  const [pre, post = ""] = text.split("{name}");
+  return (
+    <>
+      {pre}
+      <bdi>{name}</bdi>
+      {post}
+    </>
+  );
+}
 
 /** Link into the calendar agent's screen, opening one post. */
 export function calendarPostHref(postId: string): string {

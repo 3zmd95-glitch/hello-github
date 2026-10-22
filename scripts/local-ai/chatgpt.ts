@@ -37,6 +37,13 @@ const KNOWN_ERRORS = new Set([
   "chatpass_v2_scope_not_authorized",
   "chatpass_v2_invalid_authorization_context",
 ]);
+// Fetch-spec bad ports above 1023 (https://fetch.spec.whatwg.org/#bad-port).
+// Browsers and Node's fetch refuse them, but Windows can assign them to port 0
+// when its dynamic range starts at 1024.
+const BAD_PORTS = new Set([
+  1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669,
+  6679, 6697, 10080,
+]);
 function fail(code: string): never {
   throw new LocalAiProviderError(code);
 }
@@ -79,6 +86,7 @@ interface Options {
   openBrowser?: (url: string) => Promise<void>;
   protection?: Protection;
   now?: () => number;
+  callbackPort?: () => number;
 }
 
 function powershell(script: string, input = ""): Promise<string> {
@@ -164,6 +172,21 @@ async function openSystemBrowser(url: string): Promise<void> {
       code === 0 ? resolve() : reject(new LocalAiProviderError("chatgpt_connection_failed")),
     );
   });
+}
+
+/** Listens on loopback and listens again while the OS picks a bad port. */
+async function listenOnLoopback(server: Server, pickPort = () => 0): Promise<number> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(pickPort(), "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") fail("chatgpt_connection_failed");
+    if (!BAD_PORTS.has(address.port)) return address.port;
+    await new Promise((resolve) => server.close(resolve));
+  }
+  return fail("chatgpt_connection_failed");
 }
 
 function validateCredentials(value: unknown): value is Credentials {
@@ -652,13 +675,8 @@ export function createChatGptProvider(runtimeDir: string, options: Options = {})
     controller.signal.addEventListener("abort", abort, { once: true });
     const timer = setTimeout(() => controller.abort(), 5 * 60_000);
     try {
-      await new Promise<void>((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(0, "127.0.0.1", resolve);
-      });
-      const address = server.address();
-      if (!address || typeof address === "string") fail("chatgpt_connection_failed");
-      const redirect = `http://127.0.0.1:${address.port}/auth/callback`;
+      const port = await listenOnLoopback(server, options.callbackPort);
+      const redirect = `http://127.0.0.1:${port}/auth/callback`;
       const url = new URL(`${ISSUER}/api/accounts/authorize`);
       url.search = new URLSearchParams({
         client_id: saved.clientId ?? "dynamic_agent_client",

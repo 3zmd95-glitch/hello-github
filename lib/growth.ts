@@ -159,6 +159,29 @@ export function series(
     .map(({ day, followers, views30d }) => ({ day, followers, views30d }));
 }
 
+/**
+ * Total followers on each day with a snapshot in the last `days` days (ending at `today`), oldest first: every
+ * platform's latest number on or before that day, summed. For the Studio's growth sparkline.
+ */
+export function followerTrail(
+  snapshots: readonly SocialSnapshot[],
+  days = 30,
+  today: string = dayKey(),
+): { day: string; followers: number }[] {
+  const from = addDays(today, -days);
+  const daysWithData = [
+    ...new Set(snapshots.filter((s) => s.day >= from && s.day <= today).map((s) => s.day)),
+  ].sort();
+  return daysWithData.map((day) => {
+    const upTo = snapshots.filter((s) => s.day <= day);
+    const followers = PLATFORMS.reduce(
+      (sum, p) => sum + (latestSnapshot(upTo, p)?.followers ?? 0),
+      0,
+    );
+    return { day, followers };
+  });
+}
+
 /** The platform with the largest follower gain over `days` days, or null when no platform has a baseline. */
 export function bestPlatform(
   snapshots: readonly SocialSnapshot[],

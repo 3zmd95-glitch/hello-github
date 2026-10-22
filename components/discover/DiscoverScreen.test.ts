@@ -232,3 +232,35 @@ describe("Discover deep link (?genre=<id>)", () => {
     expect(scrolledTo).toEqual([]);
   });
 });
+
+// Back from TikTok for Business (planning/tools/19-category-trends.md §6): the Worker's /oauth/tiktokads/callback sends
+// the owner to the page he tapped "Connect TikTok trends" on, Discover, with ?tiktokads=connected or ?tiktokads_error=.
+describe("back from TikTok for Business (?tiktokads)", () => {
+  const line = () => $("tiktokads-line")!.textContent;
+
+  it("says TikTok is connected, then takes the parameter off the address, keeping the others and the hash", async () => {
+    await open("/discover/?from=radar&tiktokads=connected#top");
+    expect(line()).toBe("انربط تيك توك — تبويب تيك توك يتعبّى مع الفحص الجاي حق هالفئة");
+    expect(address()).toBe("/discover/?from=radar#top");
+    // A reload of the same address says nothing.
+    act(() => root.unmount());
+    root = createRoot(host);
+    act(() => root.render(createElement(DiscoverScreen)));
+    await settle();
+    expect(line()).toBe("");
+  });
+
+  it("says connecting failed for ?tiktokads_error, in English too; the genre link still works beside it", async () => {
+    useStore.getState().setSettings({ lang: "en" });
+    await open("/discover/?genre=cars&tiktokads_error=exchange_failed");
+    expect(line()).toBe("Couldn't connect TikTok — try again in a bit");
+    expect(pressedChips()).toEqual(["genre-cars"]);
+    expect(address()).toBe("/discover/");
+  });
+
+  it("says nothing on a plain Discover address", async () => {
+    await open("/discover/?from=radar");
+    expect(line()).toBe("");
+    expect(address()).toBe("/discover/?from=radar");
+  });
+});

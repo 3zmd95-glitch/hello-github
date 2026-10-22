@@ -7,7 +7,9 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import { CATEGORY_SLOTS } from "../categories/defs";
 import {
+  EFFECTS_SLOT,
   runTick,
   SYNC_SLOTS,
   TICK_CRON,
@@ -2110,16 +2112,21 @@ describe("cron slots", () => {
     expect(trendKindAt(Date.parse("2026-09-28T09:00:00Z"))).toBeUndefined();
   });
 
-  it("every slot sits on the five-minute grid of the one trigger, and trend slots never take a sync slot", () => {
+  it("every slot sits on the five-minute grid of the one trigger, and no two jobs share a slot", () => {
     expect(TICK_CRON).toBe("* * * * *");
-    const slots = [...Object.keys(TREND_SLOTS), WEEKLY_SLOT, ...Object.keys(SYNC_SLOTS)];
+    const slots = [
+      ...Object.keys(TREND_SLOTS),
+      WEEKLY_SLOT,
+      EFFECTS_SLOT,
+      ...CATEGORY_SLOTS,
+      ...Object.keys(SYNC_SLOTS),
+    ];
     for (const slot of slots) {
       expect(slot).toMatch(/^([01]\d|2[0-3]):[0-5]\d$/);
       expect(Number(slot.slice(3)) % 5, slot).toBe(0);
     }
-    for (const slot of [...Object.keys(TREND_SLOTS), WEEKLY_SLOT]) {
-      expect(SYNC_SLOTS[slot], slot).toBeUndefined();
-    }
+    // The trend, weekly, daily effects and category slots never take a sync slot or one another's.
+    expect(new Set(slots).size, slots.join(" ")).toBe(slots.length);
   });
 
   it("an on-grid trend tick (06:05 UTC) runs the radar", async () => {

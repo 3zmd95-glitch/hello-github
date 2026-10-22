@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrendItemInput } from "@/lib/domain";
 import { genreIdFromSearch } from "@/lib/genres";
 import { useStore } from "@/store";
@@ -58,7 +58,8 @@ const radar = () => host.querySelector('[data-testid="ideas-trends"]')!;
 const rowEl = (id: string) =>
   host.querySelector<HTMLElement>(`[data-testid="trend-row"][data-id="${id}"]`)!;
 const chipOf = (el: Element) => el.querySelector<HTMLElement>('[data-testid="trend-genre"]');
-/** The ids of the rows with the ⭐, in list order. */
+const starOf = (el: Element) => el.querySelector<HTMLElement>('[data-testid="trend-star"]');
+/** The ids of the rows with the niche star, in list order. */
 const starred = () =>
   [...host.querySelectorAll('[data-testid="trend-row"][data-star="true"]')].map((r) =>
     r.getAttribute("data-id"),
@@ -94,6 +95,14 @@ function click(testId: string, within: ParentNode = host): void {
 
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  // jsdom has no ResizeObserver (the language tabs are a Segmented, which uses one).
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   const s = useStore.getState();
   s.clearTrends();
   s.setSettings({ lang: "ar", apiKeys: { ...s.settings.apiKeys, scoutUrl: "", scoutToken: "" } });
@@ -107,6 +116,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  vi.unstubAllGlobals();
 });
 
 describe("TrendRadar has no genre filter (Discover is the one place for genres)", () => {
@@ -157,12 +167,43 @@ describe("TrendRadar has no genre filter (Discover is the one place for genres)"
   });
 });
 
+describe("TrendRadar with no feed yet", () => {
+  it("points at the refresh button by its named icon, never a literal {icon}", () => {
+    // With a Worker the radar shows its list; the first pull never answers here, so the feed stays empty.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {})),
+    );
+    const s = useStore.getState();
+    act(() =>
+      s.setSettings({
+        apiKeys: {
+          ...s.settings.apiKeys,
+          scoutUrl: "https://scout.test",
+          scoutToken: "test-token",
+        },
+      }),
+    );
+    for (const [lang, name] of [
+      ["ar", "حدّث الترند"],
+      ["en", "Refresh trends"],
+    ] as const) {
+      act(() => useStore.getState().setSettings({ lang }));
+      const empty = host.querySelector<HTMLElement>('[data-testid="trends-empty"]')!;
+      expect(empty.textContent).not.toContain("{");
+      const icon = empty.querySelector<HTMLElement>('[role="img"]')!;
+      expect(icon.getAttribute("aria-label")).toBe(name);
+      expect(icon.querySelector("svg")).not.toBeNull();
+    }
+  });
+});
+
 describe("TrendRadar niche star on genre rows", () => {
   it("does not star a genre row for its genre's own search words", () => {
     feed([...PLAIN, ...GENRE_ROWS]);
     expect(starred()).toEqual([]);
     expect(rowEl("food-ar").getAttribute("data-star")).toBe("false");
-    expect(rowEl("food-ar").textContent).not.toContain("⭐");
+    expect(starOf(rowEl("food-ar"))).toBeNull();
     // Not starred, so the food row stays where its score puts it.
     expect(rowIds()).toEqual(["plain-ar", "cars-ar", "food-ar", "plain-tt"]);
   });
@@ -188,7 +229,8 @@ describe("TrendRadar niche star on genre rows", () => {
       row({ id: "niche", title: "درس دافنشي", score: 1, ...found("دافنشي") }),
     ]);
     expect(starred()).toEqual(["travel-title", "food-niche", "niche"]);
-    expect(rowEl("travel-title").textContent).toContain("⭐");
+    // The star is an icon with a name: "fits your niche".
+    expect(starOf(rowEl("travel-title"))?.getAttribute("aria-label")).toBe("يناسب مجالك");
     expect(rowIds()).toEqual([
       "travel-title",
       "food-niche",
@@ -296,19 +338,20 @@ describe("TrendRadar volume chip (the number is shown in its source's unit)", ()
 });
 
 describe("TrendRadar genre chip", () => {
+  // Social chips carry no emoji: the chip names the genre without the emoji Discover shows ("🚗 سيارات").
   it("names the genre on every row that has one, under both tabs", () => {
     feed([...PLAIN, ...GENRE_ROWS]);
     expect(chips()).toEqual([
       ["plain-ar", null],
-      ["cars-ar", "🚗 سيارات"],
-      ["food-ar", "🍔 أكل ومطاعم"],
+      ["cars-ar", "سيارات"],
+      ["food-ar", "أكل ومطاعم"],
       ["plain-tt", null],
     ]);
 
     click("trends-tab-en");
     expect(chips()).toEqual([
       ["plain-en", null],
-      ["cars-en", "🚗 سيارات"],
+      ["cars-en", "سيارات"],
       ["drone-en", "drone"],
       ["plain-tt", null],
     ]);
@@ -326,12 +369,12 @@ describe("TrendRadar genre chip", () => {
     expect(chip.tagName).toBe("A");
     expect(chip.classList.contains("px-chip")).toBe(true);
     expect(chip.parentElement).toBe(platform.parentElement);
-    expect(chip.textContent).toBe("🍔 أكل ومطاعم");
+    expect(chip.textContent).toBe("أكل ومطاعم");
     expect(chip.getAttribute("data-genre")).toBe("food");
     // The accessible name says where the chip goes and holds the text the chip shows.
-    expect(chip.getAttribute("aria-label")).toBe("افتح 🍔 أكل ومطاعم في «اكتشف»");
+    expect(chip.getAttribute("aria-label")).toBe("افتح أكل ومطاعم في «اكتشف»");
     expect(chip.getAttribute("aria-label")).toContain(chip.textContent);
-    expect(chip.getAttribute("title")).toBe("افتح 🍔 أكل ومطاعم في «اكتشف»");
+    expect(chip.getAttribute("title")).toBe("افتح أكل ومطاعم في «اكتشف»");
     // It stays in this tab and is nothing but a link: not a button, not part of a form control.
     expect(chip.hasAttribute("target")).toBe(false);
     expect(chip.closest("button, select, label")).toBeNull();
@@ -355,7 +398,7 @@ describe("TrendRadar genre chip", () => {
     expect(chip.hasAttribute("tabindex")).toBe(false);
     expect(chip.tabIndex).toBe(-1);
     expect(chip.closest("a, button, select, label")).toBeNull();
-    expect(chip.getAttribute("title")).toBe("🎬 نوع الإيديت");
+    expect(chip.getAttribute("title")).toBe("نوع الإيديت");
   });
 
   it("follows the owner's custom genres and the UI language", () => {
@@ -374,24 +417,40 @@ describe("TrendRadar genre chip", () => {
     expect(chipOf(rowEl("drift-en"))?.tagName).toBe("SPAN");
 
     act(() => useStore.getState().addCustomGenre("Drift", "drift edit"));
-    expect(chipOf(rowEl("drift-en"))?.textContent).toBe("✨ Drift");
+    expect(chipOf(rowEl("drift-en"))?.textContent).toBe("Drift");
     expect(chipOf(rowEl("drift-en"))?.tagName).toBe("A");
-    expect(chipOf(rowEl("drift-en"))?.getAttribute("aria-label")).toBe("افتح ✨ Drift في «اكتشف»");
+    expect(chipOf(rowEl("drift-en"))?.getAttribute("aria-label")).toBe("افتح Drift في «اكتشف»");
 
     act(() => useStore.getState().setSettings({ lang: "en" }));
     expect(chips()).toEqual([
-      ["cars-en", "🚗 Cars"],
+      ["cars-en", "Cars"],
       ["drone-en", "drone"],
-      ["drift-en", "✨ Drift"],
+      ["drift-en", "Drift"],
     ]);
     expect(links()).toEqual([
       ["cars", "/discover cars"],
       ["drone", null],
       ["custom-drift", "/discover custom-drift"],
     ]);
-    expect(chipOf(rowEl("cars-en"))?.getAttribute("aria-label")).toBe("Open 🚗 Cars in Discover");
-    expect(chipOf(rowEl("drift-en"))?.getAttribute("aria-label")).toBe("Open ✨ Drift in Discover");
-    expect(chipOf(rowEl("drone-en"))?.getAttribute("title")).toBe("🎬 Edit genre");
+    expect(chipOf(rowEl("cars-en"))?.getAttribute("aria-label")).toBe("Open Cars in Discover");
+    expect(chipOf(rowEl("drift-en"))?.getAttribute("aria-label")).toBe("Open Drift in Discover");
+    expect(chipOf(rowEl("drone-en"))?.getAttribute("title")).toBe("Edit genre");
+
+    // A name of emoji only is all the owner gave: the chip keeps it.
+    act(() => useStore.getState().addCustomGenre("🏁", "drift race"));
+    feed([...GENRE_ROWS, row({ id: "flag-en", region: "US", lang: "en", genre: "custom-1f3c1" })]);
+    expect(chipOf(rowEl("flag-en"))?.textContent).toBe("✨ 🏁");
+    act(() => useStore.getState().removeCustomGenre("custom-1f3c1"));
+    feed([
+      ...GENRE_ROWS,
+      row({
+        id: "drift-en",
+        region: "US",
+        lang: "en",
+        genre: "custom-drift",
+        ...found("drift edit"),
+      }),
+    ]);
 
     // Removed in Settings: Discover has no chip for it any more, so the radar's chip is plain again.
     act(() => useStore.getState().removeCustomGenre("custom-drift"));
@@ -408,7 +467,7 @@ describe("TrendRadar genre chip", () => {
 
     const chip = chipOf(rowEl("hajwala"))!;
     expect(chip.tagName).toBe("A");
-    expect(chip.textContent).toBe("✨ هجولة");
+    expect(chip.textContent).toBe("هجولة");
     expect(chip.getAttribute("data-genre")).toBe("custom-هجولة");
     expect(chip.getAttribute("href")).toContain(`genre=${encodeURIComponent("custom-هجولة")}`);
     expect(target(chip)).toBe("/discover custom-هجولة");

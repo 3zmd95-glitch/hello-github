@@ -3,6 +3,7 @@ import type { AudienceAsk, SocialSnapshot } from "./domain";
 import {
   bestPlatform,
   engagementOf,
+  followerTrail,
   latestSnapshot,
   normalizeSnapshot,
   parseNumber,
@@ -110,6 +111,18 @@ describe("snapshots", () => {
     expect(s[0]).toEqual({ day: "2026-08-01", followers: 1000, views30d: 50_000 });
     expect(series(data, "tiktok", 30, "2026-09-27").map((p) => p.day)).toEqual(["2026-09-27"]);
     expect(series(data, "snapchat")).toEqual([]);
+  });
+
+  it("followerTrail sums every platform's latest number on each snapshot day of the window", () => {
+    expect(followerTrail(data, 60, "2026-09-27")).toEqual([
+      { day: "2026-08-01", followers: 1000 + 100 },
+      { day: "2026-08-20", followers: 1200 + 100 },
+      { day: "2026-09-20", followers: 1200 + 90 },
+      { day: "2026-09-27", followers: 1500 + 800 + 90 },
+    ]);
+    // Numbers from before the window carry in; days before it are left out.
+    expect(followerTrail(data, 30, "2026-09-27").map((p) => p.followers)).toEqual([1290, 2390]);
+    expect(followerTrail([], 30, "2026-09-27")).toEqual([]);
   });
 
   it("bestPlatform is the biggest 30-day follower gain among platforms with a baseline", () => {

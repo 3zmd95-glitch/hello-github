@@ -1,7 +1,9 @@
 "use client";
 
-import Link from "next/link";
+import { Check, Clock, Film, Lightbulb, Rocket, TrendingUp, type LucideIcon } from "lucide-react";
 import { useMemo } from "react";
+import Chip from "@/components/ui/ios/Chip";
+import { ListGroup, ListRow } from "@/components/ui/ios/List";
 import { PLATFORMS } from "@/lib/domain";
 import { latestSnapshot } from "@/lib/growth";
 import { useT, type MessageKey, type Vars } from "@/lib/i18n";
@@ -10,7 +12,7 @@ import { PLATFORM_META, overduePosts } from "@/lib/social";
 import { addDays } from "@/lib/streak";
 import { visibleTrends } from "@/lib/trends";
 import { ideasCount, useStore } from "@/store";
-import { calendarPostHref } from "./platform";
+import { calendarPostHref, withName } from "./platform";
 
 /** Numbers older than this many days count as stale for a platform the owner has an account on. */
 const STALE_DAYS = 14;
@@ -25,15 +27,29 @@ interface InboxRow {
   kind: "overdue" | "unscheduled" | "manual" | "ideas" | "trends" | "stale";
   key: MessageKey;
   vars?: Vars;
+  /** A post title inside the line (`{name}`): the owner's own text, isolated so its direction keeps to itself. */
+  name?: string;
   href: string;
 }
+
+/** Row icon per kind (tools/18 §3.6): overdue in warn, stale numbers on the neutral fill, the rest tinted. */
+const ICON: Record<InboxRow["kind"], { icon: LucideIcon; tone?: "warn" | "fill" }> = {
+  overdue: { icon: Clock, tone: "warn" },
+  unscheduled: { icon: Film },
+  manual: { icon: Rocket },
+  ideas: { icon: Lightbulb },
+  trends: { icon: TrendingUp },
+  stale: { icon: TrendingUp, tone: "fill" },
+};
 
 /**
  * Things needing attention, rules-based (no server): overdue posts, edited posts without a day, posts whose
  * X / Snapchat step is due now (round 30 · A6: the owner posts those by hand, one row per post, opening the
  * hub's "Post these yourself" list), ideas waiting in the bank, new trend rows this week, platforms with an
  * account whose numbers are older than two weeks. A post with a due manual row gets no overdue row: the
- * manual row stands in for it, so the post is counted once.
+ * manual row stands in for it, so the post is counted once. A grouped list: one row per item with its icon
+ * and a chevron to where it is handled, or one "all clear" row. A line may take two lines, so the half that says what
+ * to do stays readable.
  */
 export default function InboxCard({ today, now }: { today: string; now: number }) {
   const { t, L, lang } = useT();
@@ -53,7 +69,7 @@ export default function InboxCard({ today, now }: { today: string; now: number }
           id: `overdue:${p.id}`,
           kind: "overdue",
           key: "social.studio.inboxOverdue",
-          vars: { name: p.title },
+          name: p.title,
           href: calendarPostHref(p.id),
         });
     for (const p of posts)
@@ -62,7 +78,7 @@ export default function InboxCard({ today, now }: { today: string; now: number }
           id: `unscheduled:${p.id}`,
           kind: "unscheduled",
           key: "social.studio.inboxUnscheduled",
-          vars: { name: p.title },
+          name: p.title,
           href: calendarPostHref(p.id),
         });
     const list = new Intl.ListFormat(lang === "ar" ? "ar" : "en", { type: "conjunction" });
@@ -71,8 +87,8 @@ export default function InboxCard({ today, now }: { today: string; now: number }
         id: `manual:${p.id}`,
         kind: "manual",
         key: "social.studio.inboxManual",
+        name: p.title,
         vars: {
-          name: p.title,
           platforms: list.format(pendingManualPlatforms(p).map((m) => L(PLATFORM_META[m].name))),
         },
         href: "/social/automations/#manual",
@@ -115,42 +131,45 @@ export default function InboxCard({ today, now }: { today: string; now: number }
   }, [posts, ideas, trends, snapshots, accounts, today, now, L, lang]);
 
   return (
-    <section
-      className="px-card flex flex-col gap-3"
-      data-testid="studio-inbox"
+    <ListGroup
+      header={t("social.studio.inbox")}
+      testId="studio-inbox"
       data-count={rows.length}
-    >
-      <header className="flex items-center justify-between gap-2">
-        <h2 className="text-base">{t("social.studio.inbox")}</h2>
-        {rows.length > 0 && (
-          <span className="px-chip px-chip-gold num" data-testid="studio-inbox-count">
+      trailing={
+        rows.length > 0 && (
+          <Chip tone="warn" className="num" data-testid="studio-inbox-count">
             {rows.length}
-          </span>
-        )}
-      </header>
+          </Chip>
+        )
+      }
+    >
       {rows.length === 0 ? (
-        <p className="text-accent text-sm font-semibold" data-testid="studio-inbox-empty">
-          {t("social.studio.inboxClear")}
-        </p>
+        <ListRow
+          icon={<Check size={22} strokeWidth={1.75} aria-hidden />}
+          title={t("social.studio.inboxClear")}
+          testId="studio-inbox-empty"
+        />
       ) : (
-        <ul className="flex flex-col gap-1.5">
-          {rows.map((r) => (
-            <li key={r.id}>
-              <Link
-                href={r.href}
-                className="px-inset text-ink flex items-center gap-2 text-sm no-underline"
-                data-testid="inbox-row"
-                data-kind={r.kind}
-              >
-                <span className="min-w-0 flex-1">{t(r.key, r.vars)}</span>
-                <span aria-hidden className="text-muted rtl:rotate-180">
-                  ›
+        rows.map((r) => {
+          const { icon: Icon, tone } = ICON[r.kind];
+          return (
+            <ListRow
+              key={r.id}
+              href={r.href}
+              icon={<Icon size={22} strokeWidth={1.75} aria-hidden />}
+              iconTone={tone}
+              title={
+                <span className="line-clamp-2 whitespace-normal">
+                  {withName(t(r.key, r.vars), r.name)}
                 </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+              }
+              chevron
+              testId="inbox-row"
+              data-kind={r.kind}
+            />
+          );
+        })
       )}
-    </section>
+    </ListGroup>
   );
 }

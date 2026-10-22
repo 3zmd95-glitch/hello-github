@@ -1,0 +1,352 @@
+[
+  {
+    "id": "smart-bins-keywords",
+    "en": "Smart Bins + Keywords",
+    "ar": "الـ Smart Bins والكلمات المفتاحية"
+  },
+  {
+    "id": "transcribe-search",
+    "en": "Audio Transcription + Text Search",
+    "ar": "تفريغ الصوت والبحث بالكلام"
+  },
+  {
+    "id": "scene-cut-detection",
+    "en": "Scene Cut Detection",
+    "ar": "تقطيع المشاهد تلقائي (Scene Cut Detection)"
+  },
+  {
+    "id": "source-tape",
+    "en": "Source Tape for fast selects",
+    "ar": "الـ Source Tape للاختيار السريع"
+  },
+  {
+    "id": "cut-smart-edits",
+    "en": "Smart edit buttons: Smart Insert, Ripple Overwrite, Close Up",
+    "ar": "أزرار التعديل الذكية: Smart Insert و Ripple Overwrite و Close Up"
+  },
+  {
+    "id": "boring-detector-smooth-cut",
+    "en": "Boring Detector + Smooth Cut for talking heads",
+    "ar": "الـ Boring Detector والـ Smooth Cut لفيديوهات الكلام"
+  },
+  {
+    "id": "speed-ramp-retime",
+    "en": "Speed Ramps with Retime Curve",
+    "ar": "الـ Speed Ramp بالـ Retime Curve"
+  },
+  {
+    "id": "animated-auto-captions",
+    "en": "Auto Subtitles and Animated Captions",
+    "ar": "ترجمة تلقائية وكابشن متحرك"
+  },
+  {
+    "id": "adjustment-clip-punch-zoom",
+    "en": "Punch-in Zooms and Shake with Adjustment Clips",
+    "ar": "Punch-in Zoom و Shake بالـ Adjustment Clip"
+  },
+  {
+    "id": "fusion-nodes",
+    "en": "Fusion node basics",
+    "ar": "أساسيات نودز Fusion"
+  },
+  {
+    "id": "screen-replace",
+    "en": "Screen replacement with Planar Tracker",
+    "ar": "استبدال شاشة بـ Planar Tracker"
+  },
+  {
+    "id": "follower-titles",
+    "en": "Animated titles with Text+ and Follower",
+    "ar": "تيتلز متحركة بـ Text+ و Follower"
+  },
+  {
+    "id": "cst-log-workflow",
+    "en": "Log to Rec.709 with CST in DaVinci Wide Gamut",
+    "ar": "تحويل اللوق بـ CST وتلوين في DaVinci Wide Gamut"
+  },
+  {
+    "id": "face-relight-window-track",
+    "en": "Relight a face with Power Windows and tracking",
+    "ar": "إضاءة الوجه بـ Power Window و Tracker"
+  },
+  {
+    "id": "shared-nodes-powergrades",
+    "en": "Reusable looks with Shared Nodes and PowerGrades",
+    "ar": "لوك ثابت بـ Shared Nodes و PowerGrades"
+  },
+  {
+    "id": "fair-auto-ducker",
+    "en": "Auto-Duck Music Under Voice with Ducker",
+    "ar": "خفض الموسيقى تلقائيا تحت صوتك بالـ Ducker"
+  },
+  {
+    "id": "fair-loudness-lufs",
+    "en": "Loudness for YouTube and Social (-14 LUFS)",
+    "ar": "ضبط الـ Loudness لليوتيوب والسوشال (-14 LUFS)"
+  },
+  {
+    "id": "fair-voice-chain",
+    "en": "EQ + Compressor Chain for a Pro Voice",
+    "ar": "سلسلة EQ و Compressor لصوت احترافي"
+  },
+  {
+    "id": "youtube-export",
+    "en": "YouTube export settings (the 4K upload trick)",
+    "ar": "إعدادات تصدير يوتيوب (حيلة الـ 4K)"
+  },
+  {
+    "id": "gamma-shift-fix",
+    "en": "Fix washed out exports (gamma shift)",
+    "ar": "حل بهتان الألوان بعد التصدير (Gamma Shift)"
+  },
+  {
+    "id": "render-queue-presets",
+    "en": "Render Queue + custom presets (batch export)",
+    "ar": "الـ Render Queue والبريسيتات: صدّر كل النسخ بضغطة وحدة"
+  },
+  {
+    "id": "magic-mask-remove",
+    "en": "Magic Mask 2 + Object Removal: isolate or erase anything",
+    "ar": "Magic Mask 2 و Object Removal: اعزل أي حاجة أو امسحها"
+  },
+  {
+    "id": "relight-fx",
+    "en": "Relight FX: AI relighting in post",
+    "ar": "Relight FX: إضاءة جديدة بالذكاء الاصطناعي"
+  },
+  {
+    "id": "depth-map-dof",
+    "en": "Depth Map: fake depth of field, fog and depth-based grading",
+    "ar": "Depth Map: عمق ميدان وضباب وتلوين حسب المسافة"
+  },
+  {
+    "id": "face-refinement",
+    "en": "Face Refinement: AI face retouch",
+    "ar": "Face Refinement: تنعيم الوجه بالذكاء الاصطناعي"
+  },
+  {
+    "id": "music-remixer",
+    "en": "Music Remixer: split a song into stems",
+    "ar": "Music Remixer: فصل الأغنية لطبقات"
+  },
+  {
+    "id": "superscale-speedwarp",
+    "en": "SuperScale + Speed Warp: AI upscale and slow motion",
+    "ar": "SuperScale و Speed Warp: جودة وحركة بالذكاء الاصطناعي"
+  },
+  {
+    "id": "project-settings-frame-rate",
+    "en": "New project + timeline frame rate and resolution",
+    "ar": "مشروع جديد وإعدادات الـ Timeline: الـ Frame Rate والـ Resolution"
+  },
+  {
+    "id": "import-bins-relink",
+    "en": "Import, bins and relinking offline media",
+    "ar": "الاستيراد والـ Bins وربط الملفات الضايعة (Relink)"
+  },
+  {
+    "id": "proxies-optimized-media-render-cache",
+    "en": "Proxies, Optimized Media and Render Cache",
+    "ar": "الـ Proxies والـ Optimized Media والـ Render Cache"
+  },
+  {
+    "id": "sync-external-audio",
+    "en": "Sync iPhone video with external audio (Auto Sync Audio)",
+    "ar": "مزامنة فيديو الآيفون مع مايك خارجي (Auto Sync Audio)"
+  },
+  {
+    "id": "vertical-timeline-reframe",
+    "en": "Vertical 9:16 timeline for Reels and reframing",
+    "ar": "Timeline عمودي 9:16 للريلز وإعادة التأطير"
+  },
+  {
+    "id": "cut-in-out-append-assembly",
+    "en": "Fast first assembly: In/Out and Append at End on the Cut page",
+    "ar": "أول تجميع سريع: In/Out و Append at End في صفحة Cut"
+  },
+  {
+    "id": "cut-dual-timeline-trimming",
+    "en": "Trimming in the Dual Timeline: ripple, roll and audio trim",
+    "ar": "التريم في الـ Dual Timeline: Ripple و Roll وتريم الصوت"
+  },
+  {
+    "id": "cut-sync-bin-multicam",
+    "en": "Sync Bin: editing two or more cameras on the Cut page",
+    "ar": "الـ Sync Bin: مونتاج كاميرتين أو أكثر في صفحة Cut"
+  },
+  {
+    "id": "j-and-l-cuts",
+    "en": "J-cuts and L-cuts: audio leads or trails the picture",
+    "ar": "J-cut و L-cut: الصوت يسبق الصورة أو يتأخر عنها"
+  },
+  {
+    "id": "trim-edit-mode-dynamic-trim",
+    "en": "Trim Edit Mode and Dynamic Trim: ripple, roll, slip and slide from the keyboard",
+    "ar": "Trim Edit Mode و Dynamic Trim: Ripple و Roll و Slip و Slide بالكيبورد"
+  },
+  {
+    "id": "transitions-keyboard-dissolve",
+    "en": "Transitions: keyboard Cross Dissolve and the Transitions library",
+    "ar": "الانتقالات: Cross Dissolve بالكيبورد ومكتبة الـ Transitions"
+  },
+  {
+    "id": "textplus-titles-lower-thirds",
+    "en": "Text+ titles and Arabic lower thirds",
+    "ar": "عناوين Text+ والـ Lower Thirds بالعربي"
+  },
+  {
+    "id": "keyframes-transform-animation",
+    "en": "Keyframes and Transform animation in the Inspector",
+    "ar": "الـ Keyframes وحركة الـ Transform في Inspector"
+  },
+  {
+    "id": "compound-clips-nesting",
+    "en": "Compound clips and nesting",
+    "ar": "الـ Compound Clips والتداخل (Nesting)"
+  },
+  {
+    "id": "stabilization-inspector",
+    "en": "Stabilization from the Inspector",
+    "ar": "تثبيت اللقطة (Stabilization) من Inspector"
+  },
+  {
+    "id": "merge-node-composite-basics",
+    "en": "Compositing basics with the Merge node: layer over layer",
+    "ar": "أساسيات التركيب بـ Merge Node: طبقة فوق طبقة"
+  },
+  {
+    "id": "tracker-match-move-text",
+    "en": "Tracker node: make text follow a moving object (Match Move)",
+    "ar": "Tracker node: خلّي النص يلحق شيء يتحرك (Match Move)"
+  },
+  {
+    "id": "mask-patch-paint-cleanup",
+    "en": "Clean-up: masks, the patch trick and the Paint node",
+    "ar": "تنظيف اللقطة: Mask وحيلة الـ Patch و Paint node"
+  },
+  {
+    "id": "primaries-wheels-scopes",
+    "en": "Primaries: Lift, Gamma and Gain wheels and reading the Waveform",
+    "ar": "الـ Primaries: عجلات Lift و Gamma و Gain وقراءة الـ Waveform"
+  },
+  {
+    "id": "curves-custom-hue-vs",
+    "en": "Curves: Custom, Hue vs Hue and Lum vs Sat",
+    "ar": "الـ Curves: Custom و Hue vs Hue و Lum vs Sat"
+  },
+  {
+    "id": "hsl-qualifier-secondary",
+    "en": "HSL Qualifier: isolate one colour and grade it alone (secondaries)",
+    "ar": "الـ HSL Qualifier: تعزل لون وتعدله لحاله (Secondary)"
+  },
+  {
+    "id": "node-tree-serial-parallel-layer",
+    "en": "Node tree: serial, parallel, layer and correction order",
+    "ar": "شجرة النودات: Serial و Parallel و Layer وترتيب التصحيح"
+  },
+  {
+    "id": "luts-apply-install-placement",
+    "en": "LUTs: installing, applying and where they belong in the tree",
+    "ar": "الـ LUTs: التثبيت والتطبيق ومكانها في الشجرة"
+  },
+  {
+    "id": "noise-reduction-temporal-spatial",
+    "en": "Noise Reduction: Temporal and Spatial for night iPhone footage",
+    "ar": "الـ Noise Reduction: Temporal و Spatial للقطات الآيفون الليلية"
+  },
+  {
+    "id": "film-look-creator",
+    "en": "Film Look Creator: grain, halation and vignette in one tool",
+    "ar": "Film Look Creator: Grain و Halation و Vignette بأداة واحدة"
+  },
+  {
+    "id": "color-slice-vectors",
+    "en": "Color Slice: six colour vectors plus a skin slice in simple drags",
+    "ar": "Color Slice: ست ألوان وشريحة جلد بسحبات بسيطة"
+  },
+  {
+    "id": "sky-replacement-magic-mask-alpha",
+    "en": "Sky replacement with Magic Mask and Alpha Output",
+    "ar": "استبدال السما بـ Magic Mask و Alpha Output"
+  },
+  {
+    "id": "fair-levels-normalize-fades",
+    "en": "Audio levels: clip gain, Normalize and fades",
+    "ar": "مستويات الصوت: Clip Gain و Normalize والـ Fades"
+  },
+  {
+    "id": "fair-sound-library-sfx",
+    "en": "Sound Library: ready sound effects for reels",
+    "ar": "الـ Sound Library: مؤثرات صوتية جاهزة للريلز"
+  },
+  {
+    "id": "fair-voice-isolation",
+    "en": "Voice Isolation: remove background noise from your voice with AI",
+    "ar": "Voice Isolation: تشيل ضجيج الخلفية عن صوتك بالذكاء الاصطناعي"
+  },
+  {
+    "id": "fair-dialogue-leveler",
+    "en": "Dialogue Leveler: a steady speech level without a compressor",
+    "ar": "Dialogue Leveler: مستوى ثابت لكلامك بدون Compressor"
+  },
+  {
+    "id": "deliver-codec-bitrate-choice",
+    "en": "Choosing the codec: H.264, H.265, ProRes and bitrate",
+    "ar": "اختيار الكودك: H.264 و H.265 و ProRes والـ Bitrate"
+  },
+  {
+    "id": "deliver-srt-subtitles-burn-in",
+    "en": "SRT subtitles: export a separate file or burn them in",
+    "ar": "ترجمة SRT: تصدير ملف منفصل أو حرقها في الفيديو"
+  },
+  {
+    "id": "deliver-vertical-social-export",
+    "en": "Vertical export for TikTok, Reels and Shorts",
+    "ar": "تصدير عمودي للتيك توك والريلز والشورتس"
+  },
+  {
+    "id": "deliver-hdr-export",
+    "en": "HDR export: from iPhone HLG to YouTube in H.265 10-bit",
+    "ar": "تصدير HDR: من آيفون HLG إلى يوتيوب بـ H.265 10-bit"
+  },
+  {
+    "id": "iphone-lock-exposure-wb",
+    "en": "Lock exposure and white balance on iPhone",
+    "ar": "قفل التعريض وتوازن الأبيض في الآيفون"
+  },
+  {
+    "id": "iphone-log-prores",
+    "en": "Shoot Log/ProRes on iPhone and why",
+    "ar": "التصوير بـ Log و ProRes في الآيفون وليه"
+  },
+  {
+    "id": "handheld-no-gimbal",
+    "en": "Steady handheld without a gimbal",
+    "ar": "لقطات ثابتة باليد بدون جيمبل"
+  },
+  {
+    "id": "phone-180-shutter",
+    "en": "The 180° shutter rule on a phone (frame rate + ND)",
+    "ar": "قاعدة الـ ١٨٠° في الجوال (الفريمات + فلتر ND)"
+  },
+  {
+    "id": "one-light-one-window",
+    "en": "One light, one window: key + fill basics",
+    "ar": "ضوء واحد وشباك واحد: أساسيات الـ Key والـ Fill"
+  },
+  {
+    "id": "soft-vs-hard-harsh-sun",
+    "en": "Soft vs hard light: diffusion in harsh sun",
+    "ar": "الضوء الناعم والقاسي: التنعيم في شمس الظهر"
+  },
+  {
+    "id": "color-temp-mixing",
+    "en": "Color temperature and mixing daylight with your lights",
+    "ar": "حرارة اللون: كيف تخلط ضوء النهار مع إضاءاتك"
+  },
+  {
+    "id": "shot-sizes-headroom",
+    "en": "Shot sizes and headroom",
+    "ar": "أحجام اللقطات ومساحة الرأس"
+  }
+]

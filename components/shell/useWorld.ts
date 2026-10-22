@@ -5,7 +5,7 @@ import { normalizePath } from "./nav";
 
 /**
  * The two worlds of the dashboard (master plan round 16): 🎮 Training keeps the pixel game look,
- * 📱 Social is the cinematic creator studio. The world is derived from the URL alone
+ * 📱 Social is the creator studio in the iOS look. The world is derived from the URL alone
  * (`/social` and everything below it = social), so a static export needs no server logic.
  */
 export type World = "training" | "social";

@@ -46,7 +46,7 @@ test("creator previews, protects edits, applies selected fields and exports prod
   await page.getByTestId("apikey-scoutToken-test").click();
   await expect(page.getByTestId("apikey-scoutToken-status")).toHaveText("اتأكد ✓");
   await page.goto("/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-tiktok").click();
   await page.getByTestId("post-title").fill("Coffee film");
   await page.getByTestId("post-template").uncheck();
@@ -123,7 +123,9 @@ test("creator previews, protects edits, applies selected fields and exports prod
     expect(spoken.join(" ")).toBe([draft.hook, ...draft.beats, draft.cta].join(" "));
   }
   expect(requests).toBe(2);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
-    true,
-  );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
 });

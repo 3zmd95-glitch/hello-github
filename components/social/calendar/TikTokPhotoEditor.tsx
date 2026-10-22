@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowDown, ArrowUp } from "lucide-react";
 import type { AutoPost } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 
@@ -71,7 +72,7 @@ export default function TikTokPhotoEditor({
                 onClick={() => move(index, -1)}
                 aria-label={t("publish.photo.up", { n: index + 1 })}
               >
-                ↑
+                <ArrowUp size={16} strokeWidth={1.75} aria-hidden />
               </button>
               <button
                 className="px-btn px-btn-sm"
@@ -80,7 +81,7 @@ export default function TikTokPhotoEditor({
                 onClick={() => move(index, 1)}
                 aria-label={t("publish.photo.down", { n: index + 1 })}
               >
-                ↓
+                <ArrowDown size={16} strokeWidth={1.75} aria-hidden />
               </button>
               <button
                 className="px-btn px-btn-sm ms-auto"

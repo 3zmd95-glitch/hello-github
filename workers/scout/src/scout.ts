@@ -3,7 +3,9 @@
  *
  *   GET  /health          → { ok: true } ; with a valid token also { tavily: boolean, auth: true }
  *   POST /search          → Tavily search limited to tiktok.com / instagram.com / youtube.com, normalized cards
- *                           (optional `timeRange`; TikTok thumbnails enriched via oEmbed unless `thumbs: false`;
+ *                           (optional `timeRange`, by the posts' real dates as Discover's: TikTok / Instagram ask
+ *                           Tavily a wider window and keep the cards dated inside the asked one, undated ones too;
+ *                           TikTok thumbnails enriched via oEmbed unless `thumbs: false`;
  *                           `stats` on a card when its counts are known: TikTok / Instagram from the page
  *                           text, YouTube from one `videos.list` when YOUTUBE_API_KEY is set)
  *   GET  /oembed?url=     → TikTok / YouTube oEmbed passthrough { title, author, thumb, url }, cached 1 day
@@ -13,6 +15,21 @@
  *   GET  /discover/picks  → Claude's picks for Discover, all or `?topic=` (saved by the connector's save_picks)
  *   GET  /trends          → the Trend Radar feed (trends/routes.ts, round 30, planning/tools/08-trends.md)
  *   POST /trends/run      → refresh the feed now
+ *   GET  /effects/trending → this week's trending editing effects (effects/routes.ts,
+ *                           planning/tools/18-trending-effects.md)
+ *   POST /effects/run     → run the daily effects job now (once per UTC day unless `force: true` or that
+ *                           day's run failed; at most 3 spending runs a UTC day without `force`)
+ *   GET  /categories/:id  → a Discover category's page: this week's trends, the week's lessons and the top videos
+ *                           per platform (categories/routes.ts, planning/tools/19-category-trends.md)
+ *   POST /categories/:id/run → scan that category now (once per UTC day unless `force: true` or that day's run
+ *                           failed; at most 3 spending runs a category a UTC day, forced ones included)
+ *   GET  /categories/:id/top/:platform → a TikTok (`tt`) or Instagram (`ig`) tab's top videos: the stored list and
+ *                           Brave's Search API results beside it, never stored (BRAVE_API_KEY, at most BRAVE_DAILY a
+ *                           UTC day; "0" since the TikTok tab reads TikTok's Discovery API, 2026-10-07)
+ *   POST /tiktokads/connect → TikTok for Business's authorization page for the category pages' TikTok trends;
+ *   GET  /oauth/tiktokads/callback (no bearer), GET /tiktokads/status (tiktokads.ts)
+ *   GET  /tiktokads/account/connect, /oauth/tiktokads/account/callback/ (no bearer), /tiktokads/account/status,
+ *        /tiktokads/music → TikTok's trending songs with a TikTok account token (tiktokAccount.ts)
  *   GET  /go/:id/:n       → 302 to an auto-reply button's link, counting the tap (social/replies.ts)
  *   /mcp, /authorize, /token, /register → served by index.ts (OAuth + MCP): the Claude connector
  *                           (discover/mcp.ts, discover/auth.ts)
@@ -24,8 +41,11 @@
  * handlers (workerd treats every named export as an entrypoint), and the tests need `handle` and helpers.
  */
 
+import { handleCategories } from "./categories/routes";
 import { handleDiscover } from "./discover/routes";
+import { inRange, TAVILY_RANGE } from "./discover/run";
 import { handleCreator } from "./creator/routes";
+import { handleEffects } from "./effects/routes";
 import {
   normalizeHits,
   PLATFORM_DOMAIN,
@@ -39,6 +59,9 @@ import { allowedOrigins, DEFAULT_ALLOWED_ORIGINS } from "./origins";
 import { handleGo } from "./social/replies";
 import { handleOAuthCallback, handleSocial, healthSocial } from "./social/routes";
 import type { SocialEnv } from "./social/store";
+import { handleTikTokAds, handleTikTokAdsCallback, type TikTokAdsEnv } from "./tiktokads";
+import { handleTikTokAccount, handleTikTokAccountCallback } from "./tiktokAccount";
+import { musicProbe } from "./tiktokMusicProbe";
 import { handleTrends, healthTrends } from "./trends/routes";
 import { TAVILY_URL } from "./trends/tavily";
 import type { TrendsEnv } from "./trends/types";
@@ -47,7 +70,7 @@ import { enrichYoutubeStats } from "./youtubeStats";
 export { DEFAULT_ALLOWED_ORIGINS, TAVILY_URL };
 export { enrichYoutubeStats, YT_STATS_MAX, youtubeStatsUrl } from "./youtubeStats";
 
-export interface Env extends SocialEnv, TrendsEnv {
+export interface Env extends SocialEnv, TrendsEnv, TikTokAdsEnv {
   AI?: import("./discover/ai").SearchAiBinding;
   /** Secret: Tavily API key (https://app.tavily.com). */
   TAVILY_API_KEY?: string;
@@ -55,8 +78,13 @@ export interface Env extends SocialEnv, TrendsEnv {
   SCOUT_TOKEN?: string;
   /** Var: comma-separated list of origins allowed to call the Worker from a browser. */
   ALLOWED_ORIGINS?: string;
-  /** Var: YouTube `search.list` calls Discover and the connector may spend a UTC day (default 70). */
+  /** Var: YouTube `search.list` calls Discover and the connector may spend a UTC day (default 66). */
   DISCOVER_YT_CAP?: string;
+  /** Secret, optional: Brave's Search API key for the category pages' TikTok and Instagram tabs (categories/top.ts).
+   * Never logged or echoed. */
+  BRAVE_API_KEY?: string;
+  /** Var: Brave requests a UTC day (default 40). */
+  BRAVE_DAILY?: string;
   /** Var: Tavily lookups the Claude connector may spend a Riyadh day (default 60). */
   MCP_DAILY_LOOKUPS?: string;
   /** Var: "off" makes /health say `discover: false`, so dashboards go back to /search (default on). */
@@ -145,7 +173,7 @@ interface SearchBody {
   platforms: Platform[];
   lang?: "ar" | "en";
   max?: number;
-  /** Tavily `time_range`: only pages published in the last week / month / year. */
+  /** The Posted window: only posts of the last week / month / year (see `handleSearch`). */
   timeRange?: TimeRange;
   /** Enrich results with thumbnails (TikTok via oEmbed). Default true. */
   thumbs: boolean;
@@ -215,7 +243,16 @@ async function handleSearch(
         max_results: Math.min(Math.floor(body.max ?? 10), MAX_RESULTS_CAP),
         search_depth: "basic",
         include_images: true,
-        ...(body.timeRange ? { time_range: body.timeRange } : {}),
+        // The Posted filter by real dates, as Discover's (2026-10-07: Tavily's Instagram "week" held posts from 2023):
+        // TikTok / Instagram ask a wider window, then keep the cards their own ids date inside the asked one (below). A
+        // YouTube card here has no date, so a request with YouTube keeps the asked window.
+        ...(body.timeRange
+          ? {
+              time_range: body.platforms.includes("yt")
+                ? body.timeRange
+                : TAVILY_RANGE[body.timeRange],
+            }
+          : {}),
         // Tavily's `language` steers the results' language (round 30: Arabic searches were English-only).
         ...(body.lang ? { language: body.lang } : {}),
       }),
@@ -237,7 +274,9 @@ async function handleSearch(
   } catch {
     return fail("upstream", 502, cors);
   }
-  const results = normalizeHits(data.results ?? [], body.platforms);
+  const now = new Date();
+  const found = normalizeHits(data.results ?? [], body.platforms, now);
+  const results = inRange(found, body.timeRange, now);
   if (body.thumbs) await enrichThumbs(results, doFetch, cache, ctx, timeoutMs);
   // Not a thumbnail: the counts are asked for with `thumbs: false` too (one call, YouTube cards only).
   await enrichYoutubeStats(results, env, doFetch, timeoutMs);
@@ -470,7 +509,14 @@ export async function handle(
   if (!originAllowed) return fail("origin", 403, cors);
 
   // The OAuth providers send the owner's browser here (top-level navigation, no bearer): the one-time
-  // `state` nonce is the credential.
+  // `state` nonce is the credential. TikTok for Business first: it is not one of the social platforms.
+  if (pathname === "/oauth/tiktokads/callback" && req.method === "GET") {
+    return handleTikTokAdsCallback(req, env, { fetch: deps.fetch, now: deps.now });
+  }
+  // TikTok asks account redirect URLs to end with "/"; both spellings are served.
+  if (/^\/oauth\/tiktokads\/account\/callback\/?$/.test(pathname) && req.method === "GET") {
+    return handleTikTokAccountCallback(req, env, { fetch: deps.fetch, now: deps.now });
+  }
   const callback = pathname.match(/^\/oauth\/([a-z]+)\/callback$/);
   if (callback && req.method === "GET") {
     return handleOAuthCallback(req, env, callback[1], { fetch: deps.fetch, now: deps.now });
@@ -527,7 +573,30 @@ export async function handle(
   if (creator) return creator;
   const social = await handleSocial(req, env, cors, { fetch: deps.fetch, now: deps.now });
   if (social) return social;
+  if (pathname === "/tiktokads/music-probe" && req.method === "GET") {
+    const out = await musicProbe(req, env, doFetch, deps.now?.() ?? new Date());
+    return json(out.body, out.status, cors);
+  }
+  const tiktokAccount = await handleTikTokAccount(req, env, cors, {
+    fetch: deps.fetch,
+    now: deps.now,
+  });
+  if (tiktokAccount) return tiktokAccount;
+  const tiktokAds = await handleTikTokAds(req, env, cors, { now: deps.now });
+  if (tiktokAds) return tiktokAds;
   const trends = await handleTrends(req, env, cors, { fetch: deps.fetch, now: deps.now });
   if (trends) return trends;
+  const effects = await handleEffects(req, env, cors, {
+    fetch: deps.fetch,
+    now: deps.now,
+    waitUntil: ctx ? (task) => ctx.waitUntil(task) : undefined,
+  });
+  if (effects) return effects;
+  const categories = await handleCategories(req, env, cors, {
+    fetch: deps.fetch,
+    now: deps.now,
+    waitUntil: ctx ? (task) => ctx.waitUntil(task) : undefined,
+  });
+  if (categories) return categories;
   return fail("not_found", 404, cors);
 }

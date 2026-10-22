@@ -11,8 +11,10 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { Check, TriangleAlert } from "lucide-react";
 import PixelScene from "@/components/game/PixelScene";
 import { useAvatar } from "@/components/game/useAvatar";
+import { useWorld } from "@/components/shell/useWorld";
 import type { Badge } from "@/lib/badges";
 import type { Loot } from "@/lib/chests";
 import type { LText } from "@/lib/domain";
@@ -77,6 +79,8 @@ export interface CelebrationPayload {
   name?: string;
   /** notice: the icon to show (defaults to ℹ️). */
   icon?: string;
+  /** notice: "warn" for an error or a warning; Social draws its warning icon from this, Training keeps `icon`. */
+  tone?: "warn";
   /** Override the kind's default sound; null = silent. */
   sound?: SoundName | null;
 }
@@ -260,17 +264,30 @@ function smallToast(item: Item, { t, L }: I18n): { icon: string; text: string } 
 
 function SmallToast({ item }: { item: Item }) {
   const i18n = useT();
+  const social = useWorld() === "social";
   const { icon, text } = smallToast(item, i18n);
   return (
     <div className="absolute inset-x-0 top-[calc(env(safe-area-inset-top,0px)+12px)] flex justify-center px-4">
-      <div
-        data-testid="toast"
-        data-kind={item.kind}
-        className="anim-toast border-edge bg-ink shadow-px flex items-center gap-2 rounded-[2px] border-[3px] px-4 py-2 font-extrabold text-[#16202c]"
-      >
-        <span className="anim-pop inline-block">{icon}</span>
-        <span className="num text-lg">{text}</span>
-      </div>
+      {social ? (
+        // 📱 A glass capsule with a line icon; the emoji icon is not shown in Social.
+        <div data-testid="toast" data-kind={item.kind} className="ios-toast glass anim-toast">
+          {item.payload.tone === "warn" ? (
+            <TriangleAlert size={18} strokeWidth={1.75} className="text-warn" aria-hidden />
+          ) : (
+            <Check size={18} strokeWidth={1.75} aria-hidden />
+          )}
+          <span>{text}</span>
+        </div>
+      ) : (
+        <div
+          data-testid="toast"
+          data-kind={item.kind}
+          className="anim-toast border-edge bg-ink shadow-px flex items-center gap-2 rounded-[2px] border-[3px] px-4 py-2 font-extrabold text-[#16202c]"
+        >
+          <span className="anim-pop inline-block">{icon}</span>
+          <span className="num text-lg">{text}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -304,6 +321,7 @@ function BigCelebration({ item, onDone }: { item: Item; onDone: () => void }) {
   const freezesUsedOn = useStore((s) => s.freezesUsedOn);
   const bonusFreezes = useStore((s) => s.bonusFreezes);
   const avatar = useAvatar();
+  const social = useWorld() === "social";
   const rank = useMemo(() => rankFromXp(totalXp({ xpEvents })), [xpEvents]);
   const flame = useMemo(
     () => streak({ completions, microActions, freezesUsedOn, bonusFreezes }).current,
@@ -398,11 +416,24 @@ function BigCelebration({ item, onDone }: { item: Item; onDone: () => void }) {
           />
         </div>
         {emblem && (
-          <div aria-hidden className="anim-pop -mt-9 text-5xl drop-shadow-[3px_3px_0_var(--edge)]">
+          <div
+            aria-hidden
+            className={
+              social
+                ? "anim-pop -mt-9 text-5xl"
+                : "anim-pop -mt-9 text-5xl drop-shadow-[3px_3px_0_var(--edge)]"
+            }
+          >
             {emblem}
           </div>
         )}
-        <div className="font-pixel text-gold text-3xl font-bold [text-shadow:3px_3px_0_var(--edge)]">
+        <div
+          className={
+            social
+              ? "text-gold text-3xl font-semibold"
+              : "font-pixel text-gold text-3xl font-bold [text-shadow:3px_3px_0_var(--edge)]"
+          }
+        >
           {big}
         </div>
         <div className="text-lg font-extrabold">{small}</div>

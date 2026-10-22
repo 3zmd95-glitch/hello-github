@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { createServer } from "node:net";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createChatGptProvider } from "./chatgpt";
@@ -36,6 +37,22 @@ const defaultEvents = () => [
   { type: "response.completed", response: { status: "completed" } },
 ];
 
+/** A Fetch-spec bad port this machine can bind right now. */
+async function freeBadPort() {
+  for (const port of [10080, 6566, 4190, 2049, 1719]) {
+    const probe = createServer();
+    const free = await new Promise<boolean>((resolve) => {
+      probe.once("error", () => resolve(false));
+      probe.listen(port, "127.0.0.1", () => resolve(true));
+    });
+    if (free) {
+      await new Promise((resolve) => probe.close(resolve));
+      return port;
+    }
+  }
+  throw new Error("No Fetch-spec bad port is free on this machine");
+}
+
 async function harness(
   config: {
     scope?: string;
@@ -46,6 +63,7 @@ async function harness(
     issuer?: string;
     expired?: boolean;
     realProtection?: boolean;
+    callbackPort?: () => number;
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "3z-chatgpt-test-"));
@@ -149,6 +167,7 @@ async function harness(
     ...(config.realProtection ? {} : { protection }),
     openBrowser,
     now: () => time,
+    callbackPort: config.callbackPort,
   };
   const provider = createChatGptProvider(directory, options);
   providers.push(provider);
@@ -267,6 +286,14 @@ describe("ChatGPT plan connection", { timeout: 15_000 }, () => {
     const h = await harness();
     await Promise.all([h.provider.connect(), h.provider.connect()]);
     expect(h.openBrowser).toHaveBeenCalledTimes(1);
+  });
+
+  it("listens again when the OS hands out a port browsers refuse", async () => {
+    const bad = await freeBadPort();
+    const callbackPort = vi.fn().mockReturnValueOnce(bad).mockReturnValue(0);
+    const h = await harness({ callbackPort });
+    expect(await h.signedIn()).toMatchObject({ connected: true });
+    expect(callbackPort).toHaveBeenCalledTimes(2);
   });
 
   it.each([

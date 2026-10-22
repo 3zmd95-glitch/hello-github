@@ -46,6 +46,19 @@ export function formatMonth(monthKey: string, lang: Lang): string {
   }).format(dayKeyToDate(`${monthKey}-01`));
 }
 
+/**
+ * Weekday labels of the week strip, Saturday first: one letter in Arabic (س ح ن … as in the mockup and the Studio's
+ * week card), "Sat" in English (one letter repeats there).
+ */
+export function weekdayLetters(lang: Lang): string[] {
+  const fmt = new Intl.DateTimeFormat(locale(lang), {
+    weekday: lang === "ar" ? "narrow" : "short",
+    timeZone: TIME_ZONE,
+  });
+  // 2026-01-03 is a Saturday.
+  return Array.from({ length: 7 }, (_, i) => fmt.format(dayKeyToDate(addDays("2026-01-03", i))));
+}
+
 /** "Saturday 26 Sep" / "السبت 26 سبتمبر". */
 export function formatDayLong(day: string, lang: Lang): string {
   return new Intl.DateTimeFormat(locale(lang), {
@@ -73,13 +86,14 @@ export function formatInstant(iso: string, lang: Lang): string {
 
 /**
  * The calendar's hash contract: `/social/calendar/#post=<postId>` opens that post's popup, `#day=YYYY-MM-DD`
- * focuses a day in the week view; both may be combined with `&`. The Studio home, the Ideas bank and the
- * skill sheet link to posts this way. Static export: read on mount and on `hashchange`, cleared with
- * `history.replaceState` (no router push).
+ * focuses a day in the week view (both may be combined with `&`), `#new` opens the new-post sheet. The Studio home,
+ * the Ideas bank and the skill sheet link here. Static export: read on mount and on `hashchange`; `#new`, `#day=`
+ * and a deep-linked popup are one-shot, cleared with `history.replaceState` (no router push).
  */
 export interface CalendarHash {
   post: string | null;
   day: string | null;
+  newPost: boolean;
 }
 
 export function parseCalendarHash(hash: string): CalendarHash {
@@ -88,6 +102,7 @@ export function parseCalendarHash(hash: string): CalendarHash {
   return {
     post: params.get("post") || null,
     day: day && DAY_KEY_RE.test(day) ? day : null,
+    newPost: params.has("new"),
   };
 }
 

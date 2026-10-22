@@ -88,6 +88,28 @@ export async function localAiStatus(): Promise<LocalAiStatus | null> {
   }
 }
 
+/**
+ * An Instagram post's preview picture read by the local server over this computer's own connection (Instagram turns
+ * away many of the Cloudflare Worker's reads). The picture's URL, "" when the post has none, or null when there is no
+ * local server (the website, a phone) or it did not answer: then the Worker's lookup is the fallback.
+ */
+export async function localInstagramPreview(url: string): Promise<string | null> {
+  if (!isLocalAiHost()) return null;
+  try {
+    const response = await fetch(`/api/local-ai/instagram-preview?url=${encodeURIComponent(url)}`, {
+      headers: { "X-Local-AI": "1" },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { thumb?: unknown };
+    return typeof data?.thumb === "string" && (data.thumb === "" || /^https:\/\//.test(data.thumb))
+      ? data.thumb
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function localAiConnection(
   action: "connect" | "disconnect",
   provider: SubscriptionProvider,

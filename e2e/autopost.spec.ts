@@ -20,7 +20,9 @@ function riyadhDay(): string {
 }
 
 async function fitsViewport(page: Page): Promise<boolean> {
-  return page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  return page.evaluate(
+    () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+  );
 }
 
 interface Job {
@@ -165,7 +167,7 @@ test("schedule API networks from the popup and keep the manual network unfinishe
   // A TikTok post for today with a caption. The "Post to" row offers the post's own platform (locked),
   // Instagram (pre-ticked: it can post by itself) and the manual X / Snapchat (off); X is ticked here.
   await page.goto("/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-tiktok").click();
   await expect(page.getByTestId("post-networks")).toBeVisible();
   await expect(page.getByTestId("post-net-tiktok")).toHaveAttribute("aria-pressed", "true");
@@ -279,7 +281,7 @@ test("long captions are trimmed per network, X only warns, and an edit re-sends 
 
   // A Threads post for today; Instagram comes pre-ticked, X is added by hand.
   await page.goto("/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-threads").click();
   await expect(page.getByTestId("post-net-threads")).toHaveAttribute("data-own", "true");
   await expect(page.getByTestId("post-net-instagram")).toHaveAttribute("aria-pressed", "true");
@@ -329,7 +331,7 @@ test("post now on a post without a day gives it today's day", async ({ page }) =
 
   // Instagram is the only network that can post; the post has no day yet.
   await page.goto("/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-instagram").click();
   await page.getByTestId("post-title").fill("Right away");
   await page.getByTestId("post-day").fill("");
@@ -353,7 +355,7 @@ test("a refused post now leaves a post without a day undated", async ({ page }) 
   await connectWorker(page);
 
   await page.goto("/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-instagram").click();
   await page.getByTestId("post-title").fill("Not yet");
   await page.getByTestId("post-day").fill("");
@@ -375,7 +377,7 @@ test("without a Worker the tab says where to set it up and the form has no netwo
   page,
 }) => {
   await freshState(page, "/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-instagram").click();
   await expect(page.getByTestId("post-networks")).toHaveCount(0);
   await page.getByTestId("post-title").fill("Reel");
@@ -446,7 +448,7 @@ test("a job sent from another device shows in the hub with its networks and can 
     "An older text post",
   );
   // Each row's button names its job, so a screen reader tells the rows apart.
-  await expect(row.getByTestId("autopost-remote-cancel")).toHaveText("❌ إلغاء الجدولة");
+  await expect(row.getByTestId("autopost-remote-cancel")).toHaveText("إلغاء الجدولة");
   await expect(row.getByTestId("autopost-remote-cancel")).toHaveAccessibleName(
     "إلغاء جدولة «Color grade on the phone»",
   );
@@ -552,7 +554,7 @@ test("TikTok inbox completion stays manual until a real post link is confirmed, 
   };
   await connectWorker(page);
   await page.goto("/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-tiktok").click();
   await page.getByTestId("post-net-instagram").click();
   await page.getByTestId("post-title").fill("Keep the trending music");
@@ -615,7 +617,7 @@ test("TikTok direct posting requires creator privacy and explicit music consent"
   };
   await connectWorker(page);
   await page.goto("/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-tiktok").click();
   await page.getByTestId("post-net-instagram").click();
   await page.getByTestId("post-title").fill("Direct only after review");
@@ -657,7 +659,7 @@ test("TikTok photo carousel preserves order and cover before an inbox upload", a
   };
   await connectWorker(page);
   await page.goto("/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-tiktok").click();
   await page.getByTestId("post-net-instagram").click();
   await page.getByTestId("post-title").fill("Photo story");
@@ -698,7 +700,7 @@ test("a job sent from this browser keeps its Worker id and is not listed as anot
   const fake = await stubWorker(page);
   await connectWorker(page);
   await page.goto("/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-instagram").click();
   await page.getByTestId("post-title").fill("Local one");
   await page.getByTestId("post-day").fill(riyadhDay());
@@ -759,7 +761,7 @@ test("a Creator script applied in another tab survives this tab's job polling an
 
   // Tab A sends a job, so its watcher keeps reading the Worker's results (and saving them).
   await page.goto("/social/calendar/");
-  await page.getByTestId("calendar-new").click();
+  await page.locator('[data-testid="calendar-new"]:visible').click();
   await page.getByTestId("post-platform-instagram").click();
   await page.getByTestId("post-title").fill("Inbox test");
   await page.getByTestId("post-day").fill(riyadhDay());
@@ -777,7 +779,7 @@ test("a Creator script applied in another tab survives this tab's job polling an
   // Tab B, opened later, applies a Creator script to a new draft.
   const other = await context.newPage();
   await other.goto("/social/calendar/");
-  await other.getByTestId("calendar-new").click();
+  await other.locator('[data-testid="calendar-new"]:visible').click();
   await other.getByTestId("post-platform-tiktok").click();
   await other.getByTestId("post-title").fill("Coffee film");
   await other.getByTestId("post-template").uncheck();

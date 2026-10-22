@@ -53,7 +53,12 @@ const ANSWER = {
       section: "tutorial",
       stats: { views: 90000 },
     }),
-    item(21, { section: "tutorial", lang: "ar", title: "شرح تأثير فلاش" }),
+    item(21, {
+      section: "tutorial",
+      lang: "ar",
+      title: "شرح تأثير فلاش",
+      published: "2025-05-30T10:00:00.000Z",
+    }),
     item(22, {
       platform: "ig",
       url: "https://www.instagram.com/p/OFF/",
@@ -70,7 +75,196 @@ const ANSWER = {
   complete: false,
 };
 
-async function stubWorker(page: Page, discover: (body: Record<string, unknown>) => unknown) {
+/** The Worker's trending effects (`GET /effects/trending`), 8 (its cap): a dictionary effect, a new one with YouTube up 3×, … */
+const EFFECTS = {
+  status: "ok",
+  ranOn: "2026-10-06",
+  updatedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+  items: [
+    {
+      key: "clone-effect",
+      name: { en: "clone effect", ar: "تأثير الاستنساخ" },
+      what: { en: "You show up twice in one shot", ar: "تطلع مرتين في نفس اللقطة" },
+      termId: "clone-effect",
+      isNew: false,
+      checked: true,
+      creators: 9,
+      posts: 14,
+      platforms: ["ig", "tt"],
+      growth: 1.5,
+      samples: [],
+    },
+    {
+      key: "swagger-trend",
+      name: { en: "swagger trend", ar: "ترند السواقر" },
+      what: { en: "Clone yourself with one hair flip", ar: "تستنسخ نفسك بحركة شعر" },
+      isNew: true,
+      checked: true,
+      creators: 4,
+      posts: 5,
+      platforms: ["tt"],
+      growth: 3,
+      youtube: { newVideos: 12, views7d: 52000, growth: 3 },
+      samples: [],
+    },
+    // Up to the Worker's cap of 8.
+    ...[
+      ["speed-ramp", "speed ramp", "سبيد رامب"],
+      ["first-month-edit", "first month edit", "ايديت أول شهر"],
+      ["mention-trend", "mention trend", "ترند المنشن"],
+      ["reverse-trend", "reverse trend", "ترند العكس"],
+      ["zoom-transition", "zoom transition", "انتقال زوم"],
+      ["gif-sticker-overlay", "gif sticker overlay", "ستيكرات GIF فوق الفيديو"],
+    ].map(([key, en, ar]) => ({
+      key,
+      name: { en, ar },
+      isNew: true,
+      checked: true,
+      creators: 3,
+      posts: 3,
+      platforms: ["tt"],
+      growth: 3,
+      samples: [],
+    })),
+  ],
+};
+
+/** The Worker's Cars page (`GET /categories/cars`, workers/scout/src/categories/routes.ts): 2 styles and one technique
+ * on each shelf, made 30 hours ago. A how-to is three labelled English lines (live fix 2). */
+const technique = (en: string, ar: string, n: number, skillId?: string) => ({
+  name: { en, ar },
+  howTo: {
+    en:
+      `Shoot: Ride beside the car and keep the ${en} centred in the frame.\n` +
+      "Settings: Shutter 1/30 s, 24 mm, gimbal in follow mode.\n" +
+      "Edit: In CapCut smooth the ride with a speed curve.",
+    ar: `صوّر ${ar} على 1/30 من سيارة ماشية، وبعدين نعّمها في المونتاج.`,
+  },
+  ...(skillId ? { skillId } : {}),
+  videos: [
+    {
+      url: `https://www.tiktok.com/@cars/video/${n}01`,
+      title: `${en} example`,
+      platform: "tt",
+      kind: "example",
+      lang: "en",
+    },
+    {
+      url: `https://www.instagram.com/p/CARS${n}/`,
+      title: `${en} reel`,
+      platform: "ig",
+      kind: "example",
+      lang: "en",
+    },
+    {
+      url: `https://www.youtube.com/watch?v=carTutor00${n}`,
+      title: `${en} tutorial`,
+      platform: "yt",
+      kind: "tutorial",
+      lang: "en",
+    },
+  ],
+});
+const CATEGORY_CARS = {
+  status: "ok",
+  updatedAt: new Date(Date.now() - 30 * 3_600_000).toISOString(),
+  items: [
+    {
+      key: "rolling-shot",
+      name: { en: "rolling shot", ar: "لقطة متحركة" },
+      isNew: true,
+      checked: true,
+      creators: 6,
+      posts: 7,
+      platforms: ["ig", "tt"],
+      growth: 3,
+      samples: [],
+    },
+    {
+      key: "speed-ramp",
+      name: { en: "speed ramp", ar: "سبيد رامب" },
+      termId: "speed-ramp",
+      isNew: false,
+      checked: true,
+      creators: 9,
+      posts: 12,
+      platforms: ["tt"],
+      growth: 1.2,
+      samples: [],
+    },
+  ],
+  lessons: {
+    updatedAt: new Date(Date.now() - 30 * 3_600_000).toISOString(),
+    photo: [technique("panning", "بانينق", 1, "phone-180-shutter")],
+    video: [technique("rolling shot", "لقطة متحركة", 2)],
+    edit: [technique("speed ramp", "سبيد رامب", 3, "speed-ramp-retime")],
+  },
+};
+
+/** A top video (§6) of a platform; long titles and handles, to test the phone's width. */
+const topVideo = (platform: "yt" | "tt" | "ig", n: number) => ({
+  url:
+    platform === "yt"
+      ? `https://www.youtube.com/watch?v=carTop${String(n).padStart(5, "0")}`
+      : platform === "tt"
+        ? `https://www.tiktok.com/@carcreator${n}/video/${7_000_000 + n}`
+        : `https://www.instagram.com/p/CarTop${n}`,
+  title: `The most cinematic car edit of the month, number ${n}, rolling shots and speed ramps`,
+  creator: `a_very_long_creator_handle_${n}`,
+  views: (60 - n) * 12_345,
+  ...(platform === "ig" ? {} : { thumbnail: "https://example.com/t.jpg" }),
+});
+/** Brave's TikTok answer (`GET /categories/cars/top/tt`): no stored post, Brave's group of 30, asked when the tab is
+ * chosen. */
+const TOP_TIKTOK = {
+  platform: "tt",
+  scan: [],
+  brave: Array.from({ length: 30 }, (_, i) => topVideo("tt", i + 1)),
+  source: "brave",
+  endpoint: "videos",
+};
+
+/** A full Cars page for the 375 px check: 12 styles, 3 techniques with long names on each shelf, and top videos (50
+ * on YouTube, 14 reels). */
+const CATEGORY_CARS_FULL = {
+  ...CATEGORY_CARS,
+  top: {
+    updatedAt: CATEGORY_CARS.updatedAt,
+    yt: Array.from({ length: 50 }, (_, i) => topVideo("yt", i + 1)),
+    tt: [],
+    ig: Array.from({ length: 14 }, (_, i) => topVideo("ig", i + 1)),
+  },
+  items: Array.from({ length: 12 }, (_, n) => ({
+    ...CATEGORY_CARS.items[0],
+    key: `style-${n}`,
+    name: { en: `cinematic style number ${n}`, ar: `ستايل سينمائي رقم ${n}` },
+  })),
+  lessons: {
+    ...CATEGORY_CARS.lessons,
+    photo: [1, 2, 3].map((n) =>
+      technique(
+        `photo technique with a long name ${n}`,
+        `تقنية تصوير باسم طويل ${n}`,
+        n,
+        "phone-180-shutter",
+      ),
+    ),
+    video: [4, 5, 6].map((n) => technique(`video technique ${n}`, `تقنية فيديو ${n}`, n)),
+    edit: [7, 8, 9].map((n) =>
+      technique(`edit technique ${n}`, `تقنية مونتاج ${n}`, n, "speed-ramp-retime"),
+    ),
+  },
+};
+
+async function stubWorker(
+  page: Page,
+  discover: (body: Record<string, unknown>) => unknown,
+  /** What `GET /categories/cars` answers. */
+  category: unknown = CATEGORY_CARS,
+  /** What the TikTok tab's `GET /categories/cars/top/tt` answers (Brave's group of 30 by default), and what
+   * `POST /tiktokads/connect` answers ({ url }; without it, 409 not_configured). */
+  extra: { topTikTok?: unknown; connect?: (body: Record<string, unknown>) => unknown } = {},
+) {
   const asked: Record<string, unknown>[] = [];
   await page.route(`${WORKER}/**`, async (route) => {
     const req = route.request();
@@ -91,6 +285,25 @@ async function stubWorker(page: Page, discover: (body: Record<string, unknown>) 
           : { ok: true },
       );
     if (!authed) return reply({ error: "unauthorized" }, 401);
+    if (url.pathname === "/effects/trending") return reply(EFFECTS);
+    // Scan again: the run's fresh list.
+    if (url.pathname === "/effects/run" && req.method() === "POST")
+      return reply({ ...EFFECTS, updatedAt: new Date().toISOString() });
+    if (url.pathname === "/categories/cars") return reply(category);
+    // Scan again: the scan's fresh page.
+    if (url.pathname === "/categories/cars/run" && req.method() === "POST")
+      return reply({ ...CATEGORY_CARS, updatedAt: new Date().toISOString() });
+    // A top videos tab (§6): Brave's TikTok list; for Instagram, the stored reels alone, as without Brave's key.
+    if (url.pathname === "/categories/cars/top/tt") return reply(extra.topTikTok ?? TOP_TIKTOK);
+    // "Connect TikTok trends": TikTok for Business's authorization page.
+    if (url.pathname === "/tiktokads/connect" && req.method() === "POST")
+      return extra.connect
+        ? reply(extra.connect(JSON.parse(req.postData() ?? "{}") as Record<string, unknown>))
+        : reply({ error: "not_configured" }, 409);
+    if (url.pathname === "/categories/cars/top/ig") {
+      const ig = (category as { top?: { ig?: unknown[] } }).top?.ig ?? [];
+      return reply({ platform: "ig", scan: ig, brave: [], source: "scan", note: "no_key" });
+    }
     if (url.pathname === "/discover" && req.method() === "POST") {
       const body = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
       asked.push(body);
@@ -502,6 +715,18 @@ test("Discover v2: one search, sections, Not this?, tabs, hidden posts, a failed
   await expect(page.getByTestId("discover-creator")).toHaveCount(1);
   await expect(page.getByTestId("tab-all")).toHaveAttribute("data-count", "10");
   await expect(page.getByTestId("discover-usage")).toContainText("412");
+  // Instagram and TikTok first (the owner, 2026-10-07): the tabs, and on All each section; a card shows its date.
+  expect(
+    await page
+      .locator('[role="tab"][data-testid^="tab-"]')
+      .evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute("data-testid"))),
+  ).toEqual(["tab-all", "tab-ig", "tab-tt", "tab-yt"]);
+  const firstTutorial = page
+    .getByTestId("discover-section-tutorial")
+    .getByTestId("result-card")
+    .first();
+  await expect(firstTutorial).toHaveAttribute("data-platform", "tt");
+  await expect(firstTutorial.getByTestId("result-date")).toHaveText("May 30, 2025");
 
   // Show more opens the rest of a section.
   const examples = page.getByTestId("discover-section-example");
@@ -660,4 +885,289 @@ test("Discover v2: Claude's picks show on the topic and on an empty Discover", a
   await page.getByTestId("discover-alt-camera-flash").click();
   await expect(page.getByTestId("discover-sections")).toHaveAttribute("data-topic", "camera-flash");
   await expect(page.getByTestId("discover-picks")).toHaveCount(0);
+});
+
+test("Discover v2: trending effects chips; a tap searches the effect with the category cleared", async ({
+  page,
+}) => {
+  const asked = await stubWorker(page, () => ANSWER);
+  await connectWorker(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/discover/");
+
+  const row = page.getByTestId("trending-effects");
+  await expect(row).toHaveAttribute("data-state", "list");
+  await expect(row.getByTestId("trending-effect")).toHaveCount(8);
+  const fresh = row.locator('[data-testid="trending-effect"][data-key="swagger-trend"]');
+  await expect(fresh.getByText("جديد", { exact: true })).toBeVisible();
+  await expect(fresh).toContainText("4 صنّاع · ▶ ↑3×");
+  // English first in Arabic too (live fix 1): the English name, the Arabic one in the tooltip.
+  await expect(fresh).toContainText("swagger trend");
+  // The tooltip ends with what "4 creators" means: posted it in the last 7 days (by each post's own date).
+  await expect(fresh).toHaveAttribute(
+    "title",
+    "Clone yourself with one hair flip\nترند السواقر\n4 صنّاع نزّلوه آخر 7 أيام",
+  );
+  // The 8 chips overflow their strip, which scrolls sideways; the 375 px page never does.
+  const strip = row.getByTestId("trending-effect").first().locator("xpath=..");
+  expect(await strip.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // 🔄 Scan again runs the job now, forced past the Worker's once-a-day guard; the new list is "just now".
+  await expect(row).toContainText("تحدّثت قبل 2 س");
+  const scan = page.waitForRequest(
+    (r) => r.url() === `${WORKER}/effects/run` && r.method() === "POST",
+  );
+  await row.getByTestId("trending-rescan").click();
+  expect((await scan).postDataJSON()).toEqual({ force: true });
+  await expect(row).toContainText("تحدّثت الحين");
+  await expect(row.getByTestId("trending-effect")).toHaveCount(8);
+  await expect(row.getByTestId("trending-rescan")).toBeEnabled();
+  expect(await fitsViewport(page)).toBe(true);
+
+  // With a category on, a chip searches the effect alone: the dictionary effect by its English label.
+  await page.getByTestId("genre-coffee").click();
+  await expect.poll(() => asked.length).toBe(1);
+  await row.locator('[data-testid="trending-effect"][data-key="clone-effect"]').click();
+  await expect.poll(() => asked.length).toBe(2);
+  // English, with editing context (live: an Arabic query found beauty serums for "Glow Effect"), and Posted on Week:
+  // the row says "this week".
+  expect(asked[1]).toEqual({ q: "clone effect", lang: "en", editing: true, timeRange: "week" });
+  await expect(page.getByTestId("filter-time-week")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("genre-coffee")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("discover-topic")).toHaveValue("clone effect");
+  await expect(page.getByTestId("discover-recent-topic").first()).toHaveText("clone effect");
+  await expect(page.getByTestId("discover-sections")).toBeVisible();
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("Discover v2: a category with nothing typed opens its page — trends, lessons, Scan again, Search all", async ({
+  page,
+}) => {
+  const asked = await stubWorker(page, () => ANSWER);
+  await connectWorker(page);
+  await page.goto("/discover/");
+
+  // Arabic first: the page replaces the automatic category search.
+  await page.getByTestId("genre-cars").click();
+  const cat = page.getByTestId("category-page");
+  await expect(cat).toHaveAttribute("data-state", "page");
+  await expect(cat.getByRole("heading", { level: 2 })).toHaveText("🚗 سيارات");
+  await expect(cat).toContainText("تحدّثت قبل 1 يوم");
+  await expect(cat.getByTestId("category-style")).toHaveCount(2);
+  await expect(cat.getByTestId("category-shelf")).toHaveCount(3);
+  await expect(cat.getByTestId("category-technique")).toHaveCount(3);
+  await expect(page.getByTestId("research-results")).toBeHidden();
+  expect(asked).toHaveLength(0);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // A technique's skill opens that skill; its videos play in the app's player.
+  const panning = cat.getByTestId("category-technique").first();
+  await expect(panning.getByTestId("category-ai")).toHaveText("✦ AI");
+  // English first in Arabic too (live fix 1): the English name and how-to (left to right, with the ✦ AI badge),
+  // then the Arabic name and how-to as muted lines, right to left.
+  await expect(panning.getByRole("heading", { level: 4 })).toHaveText("panning");
+  await expect(panning.getByTestId("category-name-ar")).toHaveText("بانينق");
+  const howTo = panning.getByTestId("category-ai").locator("..");
+  expect(await howTo.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
+  // Live fix 2: its Shoot, Settings and Edit lines show one under another (the line breaks render).
+  expect((await howTo.innerText()).split("\n")).toEqual([
+    "✦ AIShoot: Ride beside the car and keep the panning centred in the frame.",
+    "Settings: Shutter 1/30 s, 24 mm, gimbal in follow mode.",
+    "Edit: In CapCut smooth the ride with a speed curve.",
+  ]);
+  const howToAr = panning.getByTestId("category-howto-ar");
+  expect(await howToAr.evaluate((p) => p.matches(":dir(rtl)"))).toBe(true);
+  await expect(
+    cat.locator('[data-testid="category-style"][data-key="rolling-shot"]'),
+  ).toContainText("rolling shot");
+  await panning.getByTestId("category-skill").click();
+  await expect(page.getByTestId("skill-sheet")).toBeVisible();
+  await page.getByTestId("sheet-close").click();
+  await panning.locator('[data-testid="category-video"][data-kind="example"]').first().click();
+  await expect(page.getByTestId("player-sheet")).toBeVisible();
+  await page.getByTestId("player-close").click();
+
+  // 🔄 Scan again: forced, and the new page is "just now".
+  const scan = page.waitForRequest(
+    (r) => r.url() === `${WORKER}/categories/cars/run` && r.method() === "POST",
+  );
+  await cat.getByTestId("category-rescan").click();
+  expect((await scan).postDataJSON()).toEqual({ force: true });
+  await expect(cat).toContainText("تحدّثت الحين");
+
+  // A trending style: that style within Cars, in Keywords.
+  await cat.locator('[data-testid="category-style"][data-key="rolling-shot"]').click();
+  await expect.poll(() => asked.length).toBe(1);
+  expect(asked[0]).toEqual({
+    q: "rolling shot",
+    genreQuery: { ar: "ايديت سيارات", en: "car edit" },
+    lang: "en",
+    editing: true,
+    timeRange: "week",
+  });
+  await expect(page.getByTestId("category-page")).toHaveCount(0);
+  await expect(page.getByTestId("discover-sections")).toBeVisible();
+
+  // English: Cars off, the box cleared, Cars again opens the page; "Search all" runs today's category search.
+  await page.getByTestId("lang-en").click();
+  await page.getByTestId("genre-cars").click();
+  await page.getByTestId("discover-topic").fill("");
+  await page.getByTestId("genre-cars").click();
+  await expect(
+    cat.getByRole("heading", { level: 3, name: "🔥 Trending in Cars this week" }),
+  ).toBeVisible();
+  await expect(cat.getByTestId("category-search-all")).toHaveText("Search all Cars videos →");
+  // In English the how-to reads left to right, with no Arabic lines.
+  expect(await howTo.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
+  await expect(cat.getByTestId("category-howto-ar")).toHaveCount(0);
+  await expect(cat.getByTestId("category-name-ar")).toHaveCount(0);
+  await cat.getByTestId("category-search-all").click();
+  // Posted is still on the style's Week: the owner widens it.
+  await expect
+    .poll(() => asked.at(-1))
+    .toEqual({ q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en", timeRange: "week" });
+  await expect(page.getByTestId("category-page")).toHaveCount(0);
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("Discover v2: a full category page at 375 px never scrolls sideways; its chips and shelves do", async ({
+  page,
+}) => {
+  await stubWorker(page, () => ANSWER, CATEGORY_CARS_FULL);
+  await connectWorker(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/discover/");
+  await page.getByTestId("genre-cars").click();
+
+  const cat = page.getByTestId("category-page");
+  await expect(cat.getByTestId("category-style")).toHaveCount(12);
+  await expect(cat.getByTestId("category-technique")).toHaveCount(9);
+  const scrollsSideways = (el: Element) => el.scrollWidth > el.clientWidth;
+  expect(await cat.getByTestId("category-styles").evaluate(scrollsSideways)).toBe(true);
+  const shelves = await cat.getByTestId("category-shelf").all();
+  expect(shelves).toHaveLength(3);
+  for (const shelf of shelves)
+    expect(await shelf.locator("ul").first().evaluate(scrollsSideways)).toBe(true);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // English's longer words never push the page wider either.
+  await page.getByTestId("lang-en").click();
+  await expect(
+    cat.getByRole("heading", { level: 3, name: "🔥 Trending in Cars this week" }),
+  ).toBeVisible();
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikTok loads when chosen, Brave credited, the page never scrolls sideways", async ({
+  page,
+}) => {
+  await stubWorker(page, () => ANSWER, CATEGORY_CARS_FULL);
+  await connectWorker(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/discover/");
+  await page.getByTestId("genre-cars").click();
+
+  const top = page.getByTestId("category-top");
+  await expect(top.getByRole("heading", { level: 3 })).toHaveText("🏆 الأقوى في سيارات");
+  const tabs = top.getByRole("tab");
+  await expect(tabs).toHaveCount(3);
+  // Instagram, TikTok, then YouTube (the owner: "Instagram and tiktok first"), English names in Arabic too. Instagram
+  // is chosen: its 14 stored reels come with the page, 12 at a time; YouTube's 50 wait on their tab.
+  await expect(tabs.nth(0)).toContainText("Instagram");
+  await expect(tabs.nth(1)).toContainText("TikTok");
+  await expect(tabs.nth(2)).toContainText("YouTube");
+  await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true");
+  await expect(tabs.nth(0)).toHaveAttribute("data-count", "14");
+  await expect(tabs.nth(2)).toHaveAttribute("data-count", "50");
+  await expect(top.locator('[data-testid="category-top-item"][data-platform="ig"]')).toHaveCount(
+    12,
+  );
+  // The three tabs sit inside the strip, and the strip inside the page.
+  const strip = top.getByRole("tablist");
+  expect(await strip.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  for (const tab of await tabs.all()) {
+    const box = (await tab.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(375);
+  }
+  expect(await fitsViewport(page)).toBe(true);
+
+  // TikTok (C7): arrowing onto it asks nothing; Enter chooses it and asks Brave once.
+  const ttTab = top.locator('[data-testid="category-top-tab"][data-platform="tt"]');
+  let topAsks = 0;
+  page.on("request", (r) => {
+    if (r.url() === `${WORKER}/categories/cars/top/tt`) topAsks++;
+  });
+  await tabs.nth(0).focus();
+  await page.keyboard.press("ArrowLeft"); // forward, right to left
+  await expect(ttTab).toBeFocused();
+  await expect(ttTab).toHaveAttribute("aria-selected", "false");
+  expect(topAsks).toBe(0);
+  const asked = page.waitForRequest(
+    (r) => r.url() === `${WORKER}/categories/cars/top/tt` && r.method() === "GET",
+  );
+  await page.keyboard.press("Enter");
+  await asked;
+  await expect(ttTab).toHaveAttribute("aria-selected", "true");
+  await expect(ttTab).toHaveAttribute("data-count", "30");
+  // Brave's group, credited under it (C2, C3).
+  await expect(top.getByTestId("category-top-brave")).toHaveText("أكثر من Brave Search");
+  const credit = top.getByTestId("category-top-credit").locator("a");
+  await expect(credit).toHaveText("النتائج من Brave Search");
+  await expect(credit).toHaveAttribute("href", "https://brave.com/search/api/");
+  await expect(credit).toHaveAttribute("target", "_blank");
+  await expect(top.locator('[data-testid="category-top-item"][data-platform="tt"]')).toHaveCount(
+    12,
+  );
+  await top.getByTestId("category-top-more").click();
+  await expect(top.getByTestId("category-top-item")).toHaveCount(24);
+  expect(await fitsViewport(page)).toBe(true);
+
+  // English: the same row, and the page still never scrolls sideways.
+  await page.getByTestId("lang-en").click();
+  await expect(top.getByRole("heading", { level: 3 })).toHaveText("🏆 Top in Cars");
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("Discover v2: an empty TikTok tab connects TikTok trends — TikTok for Business's page, then Discover says TikTok is connected", async ({
+  page,
+  baseURL,
+}) => {
+  const connects: Record<string, unknown>[] = [];
+  const portal = "https://business-api.tiktok.com/portal/auth?app_id=7693488727766597653&state=e2e";
+  await stubWorker(page, () => ANSWER, CATEGORY_CARS_FULL, {
+    // Brave off (§6): the stored TikTok list alone, none yet.
+    topTikTok: { platform: "tt", scan: [], brave: [], source: "scan", note: "no_key" },
+    connect: (body) => {
+      connects.push(body);
+      return { url: portal };
+    },
+  });
+  // TikTok's page and the Worker's /oauth/tiktokads/callback in one step: back to Discover, connected.
+  await page.route("https://business-api.tiktok.com/portal/auth**", (route) =>
+    route.fulfill({
+      status: 302,
+      headers: { location: `${baseURL}/discover/?tiktokads=connected` },
+    }),
+  );
+  await connectWorker(page);
+  await page.goto("/discover/");
+  await page.getByTestId("genre-cars").click();
+
+  const top = page.getByTestId("category-top");
+  await top.locator('[data-testid="category-top-tab"][data-platform="tt"]').click();
+  await expect(top.getByTestId("category-top-line")).toHaveText("لسه ما فيه شي هنا");
+  // Brave is off by choice: nothing about it.
+  await expect(top.getByText("Brave")).toHaveCount(0);
+  const connect = top.getByTestId("category-top-connect");
+  await expect(connect).toHaveText("اربط ترندات تيك توك");
+  await connect.click();
+
+  await expect(page.getByTestId("tiktokads-line")).toHaveText(
+    "انربط تيك توك — تبويب تيك توك يتعبّى مع الفحص الجاي حق هالفئة",
+  );
+  expect(connects).toEqual([{ returnTo: `${baseURL}/discover/` }]);
+  // The address no longer says so, so a reload says nothing.
+  await expect(page).toHaveURL(`${baseURL}/discover/`);
 });

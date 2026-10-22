@@ -310,7 +310,8 @@ async function data(
 
 /* ---------- GET /oauth/:platform/callback (no bearer) ---------- */
 
-function redirectBack(returnTo: string, params: Record<string, string>): Response {
+/** Also TikTok for Business's callback (tiktokads.ts). */
+export function redirectBack(returnTo: string, params: Record<string, string>): Response {
   const u = new URL(returnTo);
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
   return new Response(null, {

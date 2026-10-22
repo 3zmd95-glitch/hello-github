@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -11,9 +12,11 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { useSkillSheet } from "@/components/skills/SkillSheetProvider";
 import { pullTrends } from "@/components/social/trends/useTrends";
 import { getProgram, getSkill, programs } from "@/data";
 import {
+  discoverLang,
   discoverRequestFrom,
   picksFor,
   tabCounts,
@@ -22,7 +25,7 @@ import {
 } from "@/lib/discover";
 import type { Lang, Skill } from "@/lib/domain";
 import { discoverPrompts } from "@/lib/discoverPrompts";
-import { allGenres } from "@/lib/genres";
+import { allGenres, GENRES } from "@/lib/genres";
 import { useT, type MessageKey } from "@/lib/i18n";
 import type { AiChoice, AiSelection } from "@/lib/localAi";
 import {
@@ -64,10 +67,12 @@ import { trendsStale } from "@/lib/trends";
 import { getApiKey, useStore } from "@/store";
 import DiscoverSections from "./DiscoverSections";
 import AiConnectionControls from "./AiConnectionControls";
+import CategoryPage from "./CategoryPage";
 import PasteLinkForm from "./PasteLinkForm";
 import PicksSection from "./PicksSection";
 import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
 import SkillPicker from "./SkillPicker";
+import TrendingEffects from "./TrendingEffects";
 import { useDiscoverPicks, useDiscoverQuery, useDiscoverUsage, useScoutCaps } from "./useDiscover";
 import {
   groupErrors,
@@ -156,7 +161,8 @@ const SORTS: { v: SortMode; label: MessageKey }[] = [
  * first), a card grid with thumbnails and view / like counts, and attach actions. Sources: the YouTube Data
  * API when the owner has a key, the Scout Worker for TikTok / Instagram (and YouTube without a key). With a
  * genre on, a "Most viewed this week" strip above the results shows the Trend Radar's rows of that genre
- * (the feed the store keeps; Discover is the one place for genres).
+ * (the feed the store keeps; Discover is the one place for genres). A built-in category tapped with nothing typed
+ * shows its page (CategoryPage, round 37) in place of the category search.
  */
 export default function ResearchPanel({
   skill,
@@ -190,8 +196,15 @@ export default function ResearchPanel({
   const [length, setLength] = useState<LengthFilter>("any");
   const [savedOnly, setSavedOnly] = useState(false);
   const [arFirst, setArFirst] = useState(false);
+  // A trend chip's search (the 🔥 row, a category's style): English, with editing context (the Worker hides posts that
+  // name no editing besides the effect: live, "Glow Effect" found beauty serums). Any other search turns it off.
+  const [editing, setEditing] = useState(false);
   const [sort, setSort] = useState<SortMode>("relevance");
   const [genreId, setGenreId] = useState<string | null>(null);
+  // 🚗 The built-in category whose page shows (planning/tools/19-category-trends.md §1): set by a category tap with
+  // nothing typed, cleared by any search (`commit`).
+  const [page, setPage] = useState<string | null>(null);
+  const sheet = useSkillSheet();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [pickFor, setPickFor] = useState<ResearchItem | null>(null);
   // Captured once: `publishedAfter` is rounded to the day, so it (and the cache key) stays put.
@@ -224,6 +237,10 @@ export default function ResearchPanel({
   // The edit genres: the built-in ones, then the ones the owner added in Settings.
   const genres = useMemo(() => allGenres(customGenres), [customGenres]);
   const genre = genreId ? genres.find((g) => g.id === genreId) : undefined;
+  // The page stands in for the category search until a search runs; Discover v2 with a Worker only. Saved only shows
+  // the saved posts instead, as it does for a search.
+  const showPage =
+    !skill && v2 && !!scoutCfg && !!genre && page === genre.id && !base && !savedOnly;
   // Topic (or skill name), then the genre's main query in the search language, then the program hint.
   const q = researchQuery(base, queryLang, genre, hintOn ? hint : undefined);
   // Instagram hashtags are Latin slugs: the skill's EN name, or the Discover topic when it's Latin; the
@@ -248,6 +265,17 @@ export default function ResearchPanel({
     }
     setDraft(null);
     setPicked(null);
+    setPage(null);
+    setEditing(false);
+  };
+
+  /** A trend chip's search (spec 18, 2026-10-07): Arabic first off, Posted on Week (the chip says "this week": its tap
+   * shows this week's posts, and the owner can widen it) and editing context; its English name makes it an English
+   * search ({@link discoverLang}). Of that, only the two filters stick to the next search, as the owner left them. */
+  const chipSearch = () => {
+    setArFirst(false);
+    setRecency("week");
+    setEditing(true);
   };
 
   const submit = (e: FormEvent) => {
@@ -263,27 +291,57 @@ export default function ResearchPanel({
    */
   const pickGenre = (id: string | null) => {
     if (aiSearchBlocked) return;
+    setEditing(false);
     setSubmittedMode(searchMode);
     setSubmittedAi(
       aiChoice.provider === "builtin" ? undefined : { ...aiChoice, provider: aiChoice.provider },
     );
+    // A built-in category tapped with nothing typed opens its page instead of searching (spec 19 §1). Typed text still
+    // narrows the search, and an owner-added category still searches.
+    if (
+      id &&
+      id !== genreId &&
+      !skill &&
+      v2 &&
+      scoutCfg &&
+      !(draft ?? base).trim() &&
+      GENRES.some((g) => g.id === id)
+    ) {
+      commit(""); // the box may hold nothing over an old topic
+      setGenreId(id);
+      setPage(id); // after commit, which closes any page
+      return;
+    }
     if (draft !== null) commit(draft.trim());
     setGenreId(id === genreId ? null : id);
     setAttempt((a) => a + 1);
   };
 
+  // A search that closes the category page (Search all, a style) or clears the box (the category-only button) takes
+  // the focused button with it; the element that had focus is kept here for the effect below.
+  const leaving = useRef<Element | null>(null);
+
   const searchGenreOnly = () => {
     if (!genre || aiSearchBlocked) return;
+    leaving.current = document.activeElement;
     commit("");
     setAttempt((a) => a + 1);
   };
+
+  // An older Worker without category pages (or no answer): the category search, as before.
+  const pageUnavailable = useCallback(() => {
+    setPage(null);
+    setAttempt((a) => a + 1);
+  }, []);
 
   // Discover's deep link: the genre handed in goes on once, like a tap on its chip (a search of its own),
   // and its chip is brought into view in the row. The owner's next taps decide from there.
   const [opened, setOpened] = useState<string | null>(null);
   if (openGenre && openGenre !== opened) {
     setOpened(openGenre);
+    setEditing(false);
     setGenreId(openGenre);
+    setPage(null); // the link searches, even over that category's page
     setAttempt((a) => a + 1);
   }
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -291,6 +349,17 @@ export default function ResearchPanel({
     if (!opened) return;
     chipRefs.current.get(opened)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [opened]);
+
+  // Once the search that took the focused button away is on screen: focus goes to the chip of the category it keeps
+  // on (the one that opened the page), a button, so no phone keyboard pops up over the results; the search box if
+  // that chip is missing. Only when that button had focus: a tap on iOS focuses nothing, so nothing moves there.
+  useEffect(() => {
+    const was = leaving.current;
+    leaving.current = null;
+    if (!was || was.isConnected) return;
+    const chip = genre ? chipRefs.current.get(genre.id) : undefined;
+    (chip ?? document.getElementById(`${ids}-topic`))?.focus();
+  });
 
   const pickTab = (next: ResearchTab) => {
     setTab(next);
@@ -340,7 +409,7 @@ export default function ResearchPanel({
   const pickOn = `${genre?.id ?? ""}|${base}`;
   const discoverReq = useMemo(
     () =>
-      v2 && !savedOnly
+      v2 && !savedOnly && !showPage
         ? discoverRequestFrom({
             mode: submittedMode === "ai" ? "ai" : undefined,
             subscription: submittedAi,
@@ -350,11 +419,14 @@ export default function ResearchPanel({
             recency,
             length,
             pick: picked?.on === pickOn ? picked.pick : undefined,
+            arFirst,
+            editing,
           })
         : null,
     [
       v2,
       savedOnly,
+      showPage,
       base,
       genre,
       hintOn,
@@ -365,6 +437,8 @@ export default function ResearchPanel({
       pickOn,
       submittedMode,
       submittedAi,
+      arFirst,
+      editing,
     ],
   );
   const disc = useDiscoverQuery(discoverReq, attempt, forceAt === attempt);
@@ -702,6 +776,7 @@ export default function ResearchPanel({
         <div className={`flex gap-2 ${searchMode === "ai" ? "flex-col sm:flex-row" : ""}`}>
           {searchMode === "ai" && !skill ? (
             <textarea
+              id={`${ids}-topic`}
               rows={3}
               maxLength={600}
               dir="auto"
@@ -720,6 +795,7 @@ export default function ResearchPanel({
             />
           ) : (
             <input
+              id={`${ids}-topic`}
               type="search"
               enterKeyHint="search"
               autoComplete="off"
@@ -781,7 +857,13 @@ export default function ResearchPanel({
             </div>
           )}
           {v2 && searchMode === "keyword" && (
-            <span className="text-muted text-xs">{t("search.bothLangs")}</span>
+            <span className="text-muted text-xs" data-testid="discover-langs">
+              {t(
+                discoverLang(draft ?? base, arFirst) === "ar"
+                  ? "search.bothLangs"
+                  : "search.englishOnly",
+              )}
+            </span>
           )}
           {!skill && (
             <select
@@ -862,6 +944,24 @@ export default function ResearchPanel({
           )}
         </div>
       </form>
+      {/* 🔥 This week's trending effects (Discover v2 only): a chip is a search for the effect, like a recent
+          topic, with the category cleared, and always in Keywords: a tap never spends an AI plan or the owner's
+          ChatGPT / Claude usage. */}
+      {!skill && v2 && scoutCfg && (
+        <TrendingEffects
+          config={scoutCfg}
+          onPick={(query) => {
+            setSearchMode("keyword");
+            setSubmittedMode("keyword");
+            setGenreId(null);
+            setTopic(query);
+            setDraft(null);
+            chipSearch();
+            setAttempt((a) => a + 1);
+            addRecentTopic(query);
+          }}
+        />
+      )}
       {!skill && recentTopics.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-muted text-xs">{t("discover.recent")}</span>
@@ -874,6 +974,7 @@ export default function ResearchPanel({
               onClick={() => {
                 setTopic(rt);
                 setDraft(null);
+                setEditing(false);
                 setAttempt((a) => a + 1);
                 addRecentTopic(rt);
               }}
@@ -980,12 +1081,38 @@ export default function ResearchPanel({
         </div>
       )}
 
+      {showPage && genre && scoutCfg && (
+        <CategoryPage
+          key={genre.id}
+          config={scoutCfg}
+          genre={genre}
+          onPickStyle={(style) => {
+            // That style within the category, in Keywords (never an AI plan or the owner's subscription),
+            // like a 🔥 chip.
+            leaving.current = document.activeElement;
+            setSearchMode("keyword");
+            setSubmittedMode("keyword");
+            setTopic(style);
+            setDraft(null);
+            setPage(null);
+            chipSearch();
+            setAttempt((a) => a + 1);
+            addRecentTopic(style);
+          }}
+          onSearchAll={searchGenreOnly}
+          onOpenSkill={sheet.open}
+          onUnavailable={pageUnavailable}
+          searchBlocked={aiSearchBlocked}
+        />
+      )}
+
       {/* ---------- platform tabs ---------- */}
       <div
         role="tablist"
         aria-label={t("research.tabs")}
         className="grid grid-cols-4 gap-1.5"
         onKeyDown={onTabKey}
+        hidden={showPage}
       >
         {RESEARCH_TABS.map((tb, i) => {
           const active = tb === tab;
@@ -1025,7 +1152,7 @@ export default function ResearchPanel({
       </div>
 
       {/* ---------- filters ---------- */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2" hidden={showPage}>
         <button
           type="button"
           className="px-btn px-btn-ghost px-btn-sm md:hidden"
@@ -1064,6 +1191,7 @@ export default function ResearchPanel({
       <div
         id={`${ids}-filters`}
         className={`${filtersOpen ? "flex" : "hidden"} flex-col gap-2.5 md:flex md:flex-row md:flex-wrap md:items-end md:gap-x-5`}
+        hidden={showPage}
         data-testid="filters"
       >
         <ChipGroup label={t("research.recency")}>
@@ -1177,6 +1305,7 @@ export default function ResearchPanel({
         aria-labelledby={`${ids}-tab-${tab}`}
         aria-busy={loading}
         className="flex flex-col gap-3"
+        hidden={showPage}
         data-testid="research-results"
         data-tab={tab}
       >
@@ -1258,7 +1387,13 @@ export default function ResearchPanel({
         {v2 && !savedOnly && disc.status === "error" && <ScoutErrorLine error={disc.error} />}
         {v2 && !savedOnly && loading && (
           <div className="flex flex-col gap-2" data-testid="discover-loading">
-            <p className="text-muted text-xs">{t("search.searching")}</p>
+            <p className="text-muted text-xs">
+              {t(
+                submittedMode === "keyword" && discoverLang(base, arFirst) !== "ar"
+                  ? "search.searchingEn"
+                  : "search.searching",
+              )}
+            </p>
             <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
               {Array.from({ length: 3 }, (_, i) => (
                 <SkeletonCard key={i} vertical={i % 3 !== 1} />
@@ -1276,6 +1411,7 @@ export default function ResearchPanel({
             tab={tab}
             sort={sort}
             arFirst={arFirst}
+            bothLangs={discoverLang(base, arFirst) === "ar"}
             headingLevel={skill ? "h3" : "h2"}
             renderAction={renderAction}
             onAlternative={onAlternative}

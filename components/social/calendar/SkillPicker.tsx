@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { getProgram, skills } from "@/data";
+import { skills } from "@/data";
 import type { Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 
@@ -52,7 +52,6 @@ export default function SkillPicker({
             <li className="text-muted px-1 text-xs">{t("calendar.form.skillNone")}</li>
           ) : (
             results.map((s) => {
-              const program = getProgram(s.programId);
               return (
                 <li key={s.id} role="option" aria-selected={false}>
                   <button
@@ -62,7 +61,6 @@ export default function SkillPicker({
                     data-testid={`${testId}-option`}
                     data-skill={s.id}
                   >
-                    <span aria-hidden>{program?.icon ?? "🎯"}</span>
                     <span className="min-w-0 flex-1 truncate">{L(s.name)}</span>
                     <span className="text-muted shrink-0 text-xs">{t(`tier.${s.tier}`)}</span>
                   </button>

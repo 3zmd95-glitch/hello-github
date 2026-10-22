@@ -20,7 +20,7 @@ Owner's rule: search GitHub, libraries and Claude skills before building. This f
 | Area | Find | Decision |
 |---|---|---|
 | Site-filtered web search | [Google Custom Search JSON API](https://developers.google.com/custom-search/v1/overview): closed to new customers, ends 2027-01 | Rejected. |
-| Site-filtered web search | [Brave Search API](https://brave.com/search/api/): free tier removed for new users in 2026, card required | Rejected for now. |
+| Site-filtered web search | [Brave Search API](https://brave.com/search/api/): free tier removed for new users in 2026, card required | Rejected for now. **Adopted 2026-10-07** for the category pages' TikTok and Instagram tabs, the owner's choice; called with fetch, no wrapper (`tools/19-category-trends.md` §6). |
 | Site-filtered web search | [Tavily](https://docs.tavily.com/documentation/api-credits): 1,000 credits/month free, no card, `include_domains` | **Adopted** behind the Scout Worker. |
 | Unofficial TikTok APIs | [davidteather/TikTok-Api](https://github.com/davidteather/TikTok-Api) (Python + browser), [szdc/tiktok-api](https://github.com/szdc/tiktok-api) | Rejected: need a headless browser/server, break with platform changes, terms risk. |
 | Scraping (owner suggestion) | [D4Vinci/Scrapling](https://github.com/D4Vinci/Scrapling): Python adaptive scraper with stealth browser fetching, CLI and MCP server | Reference, not adopted for TikTok/Instagram (login walls, anti-bot, terms risk, needs Python + a browser process, cannot run in the static app or on a Worker). Possible later use: extracting written guides for the AI Scout if Tavily's page content is too thin; its MCP server for personal research sessions. |
@@ -119,6 +119,21 @@ Full table in `13-discover-search-v2.md`. Short form:
 | MCP auth | [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider) | **Adopted** (OAuth 2.1 + dynamic registration for Claude's custom connectors) |
 | Creator analysis | Instagram Business Discovery (Facebook Login only) · YouTube Data API · TikTok Research / Display APIs · Meta Content Library | Project 2 / project 2 / rejected (not eligible) / rejected (academic only) |
 | Trends reference | Beacons Discover Trends | Reference for project 3 (data source not public) |
+
+## 2026-10-06 · Social world, iOS 26 look (round 35)
+
+Full table in `18-social-ios-design.md` §9. Short form:
+
+| Area | Find | Decision |
+| --- | --- | --- |
+| Glass effect | [liquid-glass-react](https://github.com/rdev/liquid-glass-react), [simple-liquid-glass](https://github.com/lucaperullo/simple-liquid-glass), [liquid-glass-showcase](https://github.com/aryankholqi/liquid-glass-showcase) | Rejected / reference: SVG-filter refraction is Chromium-only; own `backdrop-filter` recipe adopted |
+| iOS components | 21st.dev segmented control, bottom nav bar, animated tabs, shadcn drawer | Reference patterns, rebuilt in CSS with logical properties |
+| Primitives | shadcn/ui (Base UI), Radix, Konsta UI, Ark UI, Silk | Not adopted this round (Konsta fights our tokens; Silk commercial; shadcn maybe later for menus) |
+| Bottom sheet | [vaul](https://github.com/emilkowalski/vaul) | Adopted in the design, **rejected at execution**: its Radix modal fights the app's stacked overlays (skill popup over the post popup, player, alerts); in-house sheet instead |
+| Icons | [Lucide](https://lucide.dev) · Hugeicons · Phosphor · Tabler · Heroicons | **Lucide adopted** (`lucide-react`, stroke 1.75); SF Symbols not licensed for the web |
+| Brand glyphs | [simple-icons](https://github.com/simple-icons/simple-icons) (CC0) | **Adopted as copied SVG paths**, no package |
+| Motion | [Motion](https://motion.dev) · CSS `linear()` springs · React `<ViewTransition>` | CSS adopted; Motion deferred; ViewTransition a stretch task |
+| Arabic font | Vazirmatn · IBM Plex Sans Arabic · Noto Sans Arabic · Readex Pro · Cairo · Tajawal · Almarai · Rubik | **Vazirmatn adopted** (owner's pick) |
 
 ## How to add to this log
 

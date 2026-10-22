@@ -1,9 +1,15 @@
 "use client";
 
+import { ArrowUpRight, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useSocialSync } from "@/components/social/useSocialSync";
 import { usePublish, type PublishActionResult } from "@/components/social/usePublish";
+import { ListRow } from "@/components/ui/ios/List";
+import PlatformBadge from "@/components/ui/ios/PlatformBadge";
+import Segmented from "@/components/ui/ios/Segmented";
+import Switch from "@/components/ui/ios/Switch";
 import {
   PLATFORMS,
   YOUTUBE_PRIVACY,
@@ -33,10 +39,11 @@ import {
   type Problem,
 } from "@/lib/publish";
 import { PLATFORM_META } from "@/lib/social";
+import { PlatformGlyph } from "@/lib/platformIcons";
 import { isSocialPlatform } from "@/lib/socialSync";
 import { useStore } from "@/store";
 import { formatInstant } from "./dates";
-import { PlatformChip, platformStyle } from "./PlatformChip";
+import { PlatformChip } from "./PlatformChip";
 import TikTokOptions from "./TikTokOptions";
 import TikTokPhotoEditor from "./TikTokPhotoEditor";
 import TikTokFinishCard from "./TikTokFinishCard";
@@ -96,7 +103,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
   const [problems, setProblems] = useState<Problem[]>([]);
   const [notice, setNotice] = useState<MessageKey | null>(null);
   const [open, setOpen] = useState<Platform | null>(null);
-  const [copied, setCopied] = useState<Platform | null>(null);
+  const { toast } = useCelebrate();
 
   const save = (patch: Partial<AutoPost>) => {
     setProblems([]);
@@ -122,13 +129,13 @@ export default function AutoPostTab({ post }: { post: Post }) {
     else if ("problems" in r) setProblems(r.problems);
   };
 
+  /** One silent toast, as on the Automations hub (the Social toast draws its own check). */
   const copy = async (p: Platform) => {
     try {
       await navigator.clipboard.writeText(captionFor(post, auto, p));
-      setCopied(p);
-      setTimeout(() => setCopied(null), 2000);
+      toast("notice", { name: t("publish.hub.copied"), sound: null });
     } catch {
-      setCopied(null);
+      toast("notice", { name: t("calendar.sheet.copyFailed"), tone: "warn", sound: null });
     }
   };
 
@@ -147,8 +154,8 @@ export default function AutoPostTab({ post }: { post: Post }) {
 
       {/* Networks */}
       <section className="flex flex-col gap-1.5">
-        <span className="text-ink-2 text-sm font-bold">{t("publish.networks")}</span>
-        <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2" data-testid="autopost-networks">
+        <span className="text-ink-2 text-[13px] font-semibold">{t("publish.networks")}</span>
+        <ul className="ios-list" data-testid="autopost-networks">
           {PLATFORMS.map((p) => {
             const on = auto.platforms.includes(p);
             const st = isSocialPlatform(p) ? status?.[p] : undefined;
@@ -160,35 +167,36 @@ export default function AutoPostTab({ post }: { post: Post }) {
             else if (!canPublishTo(st, p, auto.tiktokMode)) note = "publish.net.noPermission";
             else note = "publish.net.ready";
             return (
-              <li
+              <ListRow
                 key={p}
-                className="px-inset flex items-center gap-2"
-                style={platformStyle(p)}
+                as="li"
                 data-platform={p}
-              >
-                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={() => toggle(p)}
-                    data-testid={`autopost-net-${p}`}
-                  />
-                  <PlatformChip platform={p} />
-                  <span className="text-muted truncate text-xs" data-testid="autopost-net-note">
-                    {t(note)}
+                iconRaw={<PlatformBadge platform={p} />}
+                title={L(PLATFORM_META[p].name)}
+                sub={<span data-testid="autopost-net-note">{t(note)}</span>}
+                trailing={
+                  <span className="flex shrink-0 items-center gap-2">
+                    {isSocialPlatform(p) &&
+                      st?.connected &&
+                      !canPublishTo(st, p, auto.tiktokMode) && (
+                        <button
+                          type="button"
+                          className="px-btn px-btn-sm"
+                          onClick={() => void connect(p, true)}
+                          data-testid={`autopost-allow-${p}`}
+                        >
+                          {t("publish.allow")}
+                        </button>
+                      )}
+                    <Switch
+                      checked={on}
+                      onChange={() => toggle(p)}
+                      label={L(PLATFORM_META[p].name)}
+                      testId={`autopost-net-${p}`}
+                    />
                   </span>
-                </label>
-                {isSocialPlatform(p) && st?.connected && !canPublishTo(st, p, auto.tiktokMode) && (
-                  <button
-                    type="button"
-                    className="px-btn px-btn-sm shrink-0"
-                    onClick={() => void connect(p, true)}
-                    data-testid={`autopost-allow-${p}`}
-                  >
-                    {t("publish.allow")}
-                  </button>
-                )}
-              </li>
+                }
+              />
             );
           })}
         </ul>
@@ -196,22 +204,20 @@ export default function AutoPostTab({ post }: { post: Post }) {
 
       {/* Media */}
       <section className="flex flex-col gap-1.5">
-        <span className="text-ink-2 text-sm font-bold">{t("publish.media")}</span>
-        <div className="cal-tabs self-start" role="radiogroup" aria-label={t("publish.media")}>
-          {KINDS.map((k) => (
-            <button
-              key={k}
-              type="button"
-              role="radio"
-              className="cal-tab"
-              aria-checked={auto.mediaKind === k}
-              onClick={() => save({ mediaKind: k })}
-              data-testid={`autopost-kind-${k}`}
-            >
-              {t(`publish.kind.${k}`)}
-            </button>
-          ))}
-        </div>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("publish.media")}</span>
+        {/* A long fourth label ("TikTok photo carousel"): a narrow phone wraps it instead of spilling. */}
+        <Segmented
+          role="radiogroup"
+          label={t("publish.media")}
+          className="[&>button]:py-1.5 [&>button]:leading-tight [&>button]:whitespace-normal"
+          value={auto.mediaKind}
+          onChange={(k) => save({ mediaKind: k })}
+          options={KINDS.map((k) => ({
+            value: k,
+            label: t(`publish.kind.${k}`),
+            testId: `autopost-kind-${k}`,
+          }))}
+        />
         {auto.mediaKind === "photo" && <TikTokPhotoEditor auto={auto} save={save} />}
         {auto.mediaKind !== "none" && auto.mediaKind !== "photo" && (
           <>
@@ -260,7 +266,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
       {/* Captions */}
       {auto.platforms.length > 0 && (
         <section className="flex flex-col gap-1.5">
-          <span className="text-ink-2 text-sm font-bold">{t("publish.captions")}</span>
+          <span className="text-ink-2 text-[13px] font-semibold">{t("publish.captions")}</span>
           <p className="text-muted text-xs">
             {defaultCaption(post) ? t("publish.captionsHint") : t("publish.captionsEmpty")}
           </p>
@@ -320,7 +326,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
                       {own && (
                         <button
                           type="button"
-                          className="px-link self-start text-xs"
+                          className="px-link ios-hit mt-2.5 self-start text-xs"
                           onClick={() => {
                             const { [p]: _dropped, ...rest } = auto.captions;
                             void _dropped;
@@ -339,7 +345,12 @@ export default function AutoPostTab({ post }: { post: Post }) {
                   )}
                   {tooLong && (
                     <p className="text-danger text-xs" data-testid={`autopost-warn-${p}`}>
-                      ⚠️{" "}
+                      <TriangleAlert
+                        size={13}
+                        strokeWidth={1.75}
+                        className="me-1 inline align-[-2px]"
+                        aria-hidden
+                      />
                       {t("publish.warn.tooLong", {
                         platform: L(PLATFORM_META[p].name),
                         limit: CAPTION_MAX[p],
@@ -354,7 +365,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
                         onClick={() => void copy(p)}
                         data-testid={`autopost-copy-${p}`}
                       >
-                        {copied === p ? t("calendar.sheet.copied") : t("publish.copy")}
+                        {t("publish.copy")}
                       </button>
                       <a
                         href={manualComposeUrl(p, text) ?? "#"}
@@ -364,6 +375,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
                         data-testid={`autopost-open-${p}`}
                       >
                         {t("publish.openApp", { platform: L(PLATFORM_META[p].name) })}
+                        <ArrowUpRight size={15} strokeWidth={1.75} aria-hidden />
                       </a>
                     </div>
                   )}
@@ -377,7 +389,10 @@ export default function AutoPostTab({ post }: { post: Post }) {
       {/* YouTube + TikTok options */}
       {auto.platforms.includes("youtube") && (
         <section className="flex flex-col gap-1.5" data-testid="autopost-youtube">
-          <span className="text-ink-2 text-sm font-bold">▶️ {t("publish.yt.title")}</span>
+          <span className="text-ink-2 flex items-center gap-1.5 text-[13px] font-semibold">
+            <PlatformGlyph platform="youtube" size={14} className="shrink-0" />
+            {t("publish.yt.title")}
+          </span>
           <input
             type="text"
             className="px-input"
@@ -409,7 +424,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
 
       {/* When */}
       <section className="flex flex-col gap-1.5">
-        <span className="text-ink-2 text-sm font-bold">{t("publish.when")}</span>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("publish.when")}</span>
         <p className="px-inset text-sm" data-testid="autopost-when">
           {at ? t("publish.whenAt", { date: formatInstant(at, lang) }) : t("publish.whenNone")}
         </p>
@@ -418,7 +433,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
       {/* Status per network */}
       {sent && (
         <section className="flex flex-col gap-1.5" data-testid="autopost-status">
-          <span className="text-ink-2 text-sm font-bold">
+          <span className="text-ink-2 text-[13px] font-semibold">
             {t("publish.status")} · {t(`publish.summary.${summary}`)}
           </span>
           <ul className="flex flex-col gap-1.5">
@@ -450,7 +465,12 @@ export default function AutoPostTab({ post }: { post: Post }) {
         >
           {problems.map((pr, i) => (
             <li key={i}>
-              ⚠️{" "}
+              <TriangleAlert
+                size={13}
+                strokeWidth={1.75}
+                className="me-1 inline align-[-2px]"
+                aria-hidden
+              />
               {t(PROBLEM_KEY[pr.code], {
                 platform: pr.platform ? L(PLATFORM_META[pr.platform].name) : "",
               })}
@@ -469,11 +489,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
         </p>
       )}
       {notice && (
-        <p
-          role="status"
-          className="text-accent text-xs font-semibold"
-          data-testid="autopost-notice"
-        >
+        <p role="status" className="text-tint text-xs font-semibold" data-testid="autopost-notice">
           {t(notice)}
         </p>
       )}
@@ -541,10 +557,16 @@ function ResultRow({
           href={result.permalink}
           target="_blank"
           rel="noopener noreferrer"
-          className="px-link text-xs"
+          className="px-link ios-hit text-xs"
           data-testid="autopost-result-link"
         >
           {t("publish.openPost")}
+          <ArrowUpRight
+            size={12}
+            strokeWidth={1.75}
+            className="ms-0.5 inline align-[-1px]"
+            aria-hidden
+          />
         </a>
       )}
       {result?.error && (

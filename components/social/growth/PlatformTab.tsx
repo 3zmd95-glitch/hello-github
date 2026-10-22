@@ -1,8 +1,10 @@
 "use client";
 
+import { ArrowUpRight, Check, PenLine, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useState, type CSSProperties, type FormEvent } from "react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import PlatformBadge from "@/components/ui/ios/PlatformBadge";
 import { formatDayShort } from "@/components/planner/weekLabel";
 import type { PlatformOverview } from "@/lib/analytics";
 import type { Demographic, Platform, Post, PostStage } from "@/lib/domain";
@@ -43,12 +45,15 @@ export default function PlatformTab({
   overview,
   demographics,
   onAddDemographics,
+  animate,
 }: {
   platform: Platform;
   today: string;
   overview: PlatformOverview;
   demographics: readonly Demographic[];
   onAddDemographics: () => void;
+  /** The follower chart draws itself (the screen's first visit). */
+  animate: boolean;
 }) {
   const { t, L, lang } = useT();
   const meta = PLATFORM_META[platform];
@@ -71,7 +76,7 @@ export default function PlatformTab({
       id: "followers",
       label: platform === "youtube" ? t("growth.subscribers") : t("growth.followers"),
       short: "F",
-      color: meta.color,
+      color: `var(--pc-${platform})`,
       points: pts.map((p) => ({ day: p.day, value: p.followers })),
     },
   ];
@@ -121,28 +126,32 @@ export default function PlatformTab({
   const byFollowers = overview.metrics.engagementByFollowers;
 
   return (
-    <div className="flex flex-col gap-4" style={{ "--c": meta.color } as CSSProperties}>
+    <div
+      className="flex flex-col gap-3"
+      style={{ "--c": `var(--pc-${platform})` } as CSSProperties}
+    >
       {/* Overview */}
       <section className="flex flex-col gap-2" data-testid="platform-overview">
-        <h2 className="text-base">{t("growth.overview.title", { platform: name })}</h2>
-        <div className="an-overview">
+        <h2 className="ios-gh text-[13px]">{t("growth.overview.title", { platform: name })}</h2>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
           {overview.rows.map((row) => (
             <div
               key={row.metric}
-              className="px-inset an-kpi"
+              className="ios-stat ios-card flex flex-col"
               data-testid="overview-row"
               data-metric={row.metric}
               data-source={row.source}
               data-value={row.value ?? ""}
             >
-              <span className="text-muted text-xs">{L(row.label)}</span>
-              <b className="gr-value">{fmtMetric(row.value, row.format)}</b>
+              <small>{L(row.label)}</small>
+              <b className="num">{fmtMetric(row.value, row.format)}</b>
               {row.metric === "engagement" && byFollowers !== null ? (
                 <span
-                  className="text-muted text-[0.68rem] leading-tight"
+                  className="text-muted mt-1 text-[11px] leading-tight"
                   data-testid="overview-by-followers"
                 >
-                  {L({ ar: "على المتابعين", en: "by followers" })} {fmtEngagement(byFollowers)}
+                  {L({ ar: "على المتابعين", en: "by followers" })}{" "}
+                  <span className="num">{fmtEngagement(byFollowers)}</span>
                 </span>
               ) : (
                 <SourceHint
@@ -162,14 +171,17 @@ export default function PlatformTab({
       ) : (
         <section className="px-card flex flex-col gap-2" data-testid="demographics-empty">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base">{t("growth.demo.title", { platform: name })}</h2>
+            <h2 className="text-ink-2 text-[13px] font-semibold">
+              {t("growth.demo.title", { platform: name })}
+            </h2>
             <button
               type="button"
               className="px-btn px-btn-ghost px-btn-sm ms-auto"
               onClick={onAddDemographics}
               data-testid="demo-add"
             >
-              ✍️ {t("growth.demo.add")}
+              <PenLine size={16} strokeWidth={1.75} aria-hidden />
+              {t("growth.demo.add")}
             </button>
           </div>
           <p className="text-ink-2 text-sm">{t("growth.demo.empty", { platform: name })}</p>
@@ -191,8 +203,17 @@ export default function PlatformTab({
             {t("growth.ai.cadence.button", { platform: name })}
           </AiButton>
           {cadence && (
-            <p className="px-inset an-ai-card text-sm" data-testid="analytics-cadence-text">
-              {cadenceText}
+            <p
+              className="px-inset flex items-start gap-2 text-sm"
+              data-testid="analytics-cadence-text"
+            >
+              <Sparkles
+                size={16}
+                strokeWidth={1.75}
+                className="text-tint mt-0.5 shrink-0"
+                aria-hidden
+              />
+              <span>{cadenceText}</span>
             </p>
           )}
         </div>
@@ -201,9 +222,7 @@ export default function PlatformTab({
       {/* Account */}
       <section className="px-card flex flex-col gap-3" data-testid="account-card">
         <div className="flex flex-wrap items-center gap-3">
-          <span aria-hidden className="gr-platform-icon">
-            {meta.icon}
-          </span>
+          <PlatformBadge platform={platform} />
           <div className="flex min-w-0 flex-col">
             <h2 className="text-lg">{name}</h2>
             {link ? (
@@ -211,14 +230,12 @@ export default function PlatformTab({
                 href={link}
                 target="_blank"
                 rel="noreferrer noopener"
-                className="num text-ink-2 inline-flex items-center gap-1 text-sm underline-offset-2 hover:underline"
+                className="num ios-hit text-ink-2 inline-flex items-center gap-1 text-sm underline-offset-2 hover:underline"
                 dir="ltr"
                 data-testid="account-link"
               >
                 @{account?.handle}
-                <span aria-hidden className="an-ext">
-                  ↗
-                </span>
+                <ArrowUpRight size={14} strokeWidth={1.75} aria-hidden />
               </a>
             ) : (
               <span className="text-muted text-sm">{t("growth.account.none")}</span>
@@ -266,7 +283,14 @@ export default function PlatformTab({
             disabled={!handle.trim()}
             data-testid="account-save"
           >
-            {saved ? t("growth.account.saved") : t("growth.account.save")}
+            {saved ? (
+              <>
+                <Check size={17} strokeWidth={2} aria-hidden />
+                {t("growth.account.saved")}
+              </>
+            ) : (
+              t("growth.account.save")
+            )}
           </button>
         </form>
       </section>
@@ -274,13 +298,13 @@ export default function PlatformTab({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {/* This week's planned posts */}
         <section className="px-card flex flex-col gap-2" data-testid="planned-posts">
-          <h2 className="text-base">{t("growth.planned.title")}</h2>
+          <h2 className="text-ink-2 text-[13px] font-semibold">{t("growth.planned.title")}</h2>
           {week.length === 0 ? (
             <p className="text-ink-2 text-sm">
               {t("growth.planned.empty")}{" "}
               <Link
                 href="/social/calendar/"
-                className="text-accent underline-offset-2 hover:underline"
+                className="text-tint underline underline-offset-2"
                 data-testid="planned-empty-link"
               >
                 {t("growth.planned.open")}
@@ -309,7 +333,7 @@ export default function PlatformTab({
 
         {/* Latest posted (calendar) + tip */}
         <section className="px-card flex flex-col gap-2" data-testid="posted-posts">
-          <h2 className="text-base">{t("growth.posted.title")}</h2>
+          <h2 className="text-ink-2 text-[13px] font-semibold">{t("growth.posted.title")}</h2>
           {posted.length === 0 ? (
             <p className="text-ink-2 text-sm">{t("growth.posted.empty")}</p>
           ) : (
@@ -329,7 +353,7 @@ export default function PlatformTab({
       {/* Snapshot history */}
       <section className="px-card flex flex-col gap-3" data-testid="snapshot-history">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-base">{t("growth.history.title")}</h2>
+          <h2 className="text-ink-2 text-[13px] font-semibold">{t("growth.history.title")}</h2>
           <span className="text-muted text-xs">
             {t("growth.chart.days90")} · <span className="num">{history.length}</span>
           </span>
@@ -340,6 +364,8 @@ export default function PlatformTab({
           height={150}
           title={t("growth.chart.seriesAria", { what: t("growth.followers"), platform: name })}
           testId="chart-followers"
+          scrub
+          animate={animate}
         />
         {history.length === 0 ? (
           <p className="text-ink-2 text-sm">{t("growth.history.empty")}</p>
@@ -392,7 +418,7 @@ export default function PlatformTab({
                     title={t("growth.history.remove")}
                     data-testid="snapshot-remove"
                   >
-                    ✕
+                    <X size={16} strokeWidth={1.75} aria-hidden />
                   </button>
                 </li>
               );

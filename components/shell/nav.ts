@@ -1,8 +1,24 @@
+import {
+  Briefcase,
+  Calendar,
+  Clapperboard,
+  Ellipsis,
+  Globe,
+  Lightbulb,
+  MessageCircle,
+  Rocket,
+  Search,
+  Settings,
+  TrendingUp,
+  type LucideIcon,
+} from "lucide-react";
 import type { MessageKey } from "@/lib/i18n";
 
 export interface NavItem {
   href: string;
   icon: string;
+  /** Social world: the line icon drawn instead of the emoji (tools/18 §3.6). */
+  lucide?: LucideIcon;
   label: MessageKey;
   /** Not built yet: shown with a "soon" chip (the route exists and explains what will live there). */
   soon?: boolean;
@@ -36,17 +52,43 @@ export const NAV_ITEMS: readonly NavItem[] = [
  * shell, so inside Social they are never the active item and never the remembered "last Social route".
  */
 export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
-  { href: "/social", icon: "🎬", label: "nav.studio" },
-  { href: "/social/calendar", icon: "📅", label: "nav.calendar" },
-  { href: "/social/growth", icon: "📈", label: "nav.growth" },
-  { href: "/social/ideas", icon: "💡", label: "nav.ideas" },
-  { href: "/social/more", icon: "☰", label: "nav.more" },
-  { href: "/social/website", icon: "🌐", label: "nav.website", soon: true, desktopOnly: true },
-  { href: "/social/business", icon: "💼", label: "nav.business", soon: true, desktopOnly: true },
-  { href: "/social/replies", icon: "💬", label: "nav.replies", desktopOnly: true },
-  { href: "/social/automations", icon: "🚀", label: "nav.automations", desktopOnly: true },
-  { href: "/discover", icon: "🔎", label: "nav.discover", desktopOnly: true },
-  { href: "/settings", icon: "⚙️", label: "nav.settings", desktopOnly: true },
+  { href: "/social", icon: "🎬", lucide: Clapperboard, label: "nav.studio" },
+  { href: "/social/calendar", icon: "📅", lucide: Calendar, label: "nav.calendar" },
+  { href: "/social/growth", icon: "📈", lucide: TrendingUp, label: "nav.growth" },
+  { href: "/social/ideas", icon: "💡", lucide: Lightbulb, label: "nav.ideas" },
+  { href: "/social/more", icon: "☰", lucide: Ellipsis, label: "nav.more" },
+  {
+    href: "/social/website",
+    icon: "🌐",
+    lucide: Globe,
+    label: "nav.website",
+    soon: true,
+    desktopOnly: true,
+  },
+  {
+    href: "/social/business",
+    icon: "💼",
+    lucide: Briefcase,
+    label: "nav.business",
+    soon: true,
+    desktopOnly: true,
+  },
+  {
+    href: "/social/replies",
+    icon: "💬",
+    lucide: MessageCircle,
+    label: "nav.replies",
+    desktopOnly: true,
+  },
+  {
+    href: "/social/automations",
+    icon: "🚀",
+    lucide: Rocket,
+    label: "nav.automations",
+    desktopOnly: true,
+  },
+  { href: "/discover", icon: "🔎", lucide: Search, label: "nav.discover", desktopOnly: true },
+  { href: "/settings", icon: "⚙️", lucide: Settings, label: "nav.settings", desktopOnly: true },
 ];
 
 /** Navigation list per world; the shell renders the active world's list in the sidebar and tab bar. */

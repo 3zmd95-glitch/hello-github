@@ -73,6 +73,25 @@ describe("parseDiscoverBody", () => {
     }
   });
 
+  it("takes the search's language and a trend chip's editing flag", () => {
+    expect(parseDiscoverBody({ q: "Glow Effect", lang: "en", editing: true })).toEqual({
+      q: "Glow Effect",
+      lang: "en",
+      editing: true,
+    });
+    expect(parseDiscoverBody({ q: "flash", lang: "ar", editing: false })).toEqual({
+      q: "flash",
+      lang: "ar",
+    });
+    for (const bad of [
+      { q: "x", lang: "fr" },
+      { q: "x", editing: "yes" },
+      // A trend chip's search is a keyword search.
+      { q: "x", mode: "ai", editing: true },
+    ])
+      expect(parseDiscoverBody(bad), JSON.stringify(bad)).toBeNull();
+  });
+
   it("never takes Claude's own queries from an HTTP body (the connector only)", () => {
     expect(
       parseDiscoverBody({
@@ -115,8 +134,8 @@ describe("/discover routes", () => {
     expect(body.topicKey).toBe("flash-transition");
     // Every TikTok query came back empty, so two of them were asked again (retries) — still an answer.
     expect(body.platforms).toEqual({ tt: { ok: true, retried: true } });
-    // The three queries and the two retries a search may spend, no more.
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    // The two English queries and the two retries a search may spend, no more.
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("serves the usage", async () => {

@@ -29,7 +29,7 @@ describe("every built-in edit genre", () => {
   for (const genre of genres.genres) {
     it(`${genre.id}: genre alone requires filming/editing context in either language`, () => {
       for (const q of [genre.name.en, genre.name.ar, ...genre.queries.en, ...genre.queries.ar]) {
-        const plan = planSearch({ q });
+        const plan = planSearch({ q, lang: "ar" });
         expect(selectedGenre({ q })?.id).toBe(genre.id);
         expect(isCategoryOnly({ q })).toBe(true);
         const subject = genreWords({ q })[0];
@@ -229,7 +229,12 @@ describe("category constraints", () => {
   });
 
   it("uses focused bilingual category searches without repeated edit boilerplate", () => {
-    const plan = planSearch({ q: "coffee edit", genreQuery: coffee, program: "DaVinci Resolve" });
+    const plan = planSearch({
+      q: "coffee edit",
+      genreQuery: coffee,
+      program: "DaVinci Resolve",
+      lang: "ar",
+    });
     expect(plan.queries.filter((query) => query.platform === "yt").map((query) => query.q)).toEqual(
       [
         "coffee commercial cinematic b roll",

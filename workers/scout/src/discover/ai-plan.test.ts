@@ -53,7 +53,8 @@ function environment() {
         JSON.stringify({
           results: [
             {
-              url: "https://www.instagram.com/reel/coffee123/",
+              // Posted 2026-10-01 (its shortcode's time): inside the plan's month.
+              url: "https://www.instagram.com/reel/Dd8IYtBSjUr/",
               title: "Coffee match cut tutorial",
               content: "Coffee match cut filmmaking tutorial",
             },
@@ -240,6 +241,14 @@ describe("subscription AI plans", () => {
     expect(plan.requiredGroups?.some((group) => group.includes("coffee"))).toBe(true);
   });
 
+  it("keeps an Arabic tutorials query's category retry: English-first planning leaves AI plans as they were", () => {
+    const plan = searchPlanFromAi(
+      { q: "coffee edit", genreQuery: { ar: "تصوير قهوة" } },
+      { ...PLAN, queries: [{ q: "شرح تصوير القهوة سينمائي", lang: "ar", intent: "tutorials" }] },
+    );
+    expect(plan.queries[0].retryQ).toMatch(/[ء-ي]/);
+  });
+
   it("uses bounded category retries without broadening a detailed AI-only brief", () => {
     const category = searchPlanFromAi({ q: "coffee edit", platforms: ["ig", "yt"] }, PLAN);
     expect(category.queries.find((q) => q.platform === "ig")?.retryQ).toBeTruthy();
@@ -252,6 +261,25 @@ describe("subscription AI plans", () => {
       PLAN,
     );
     expect(detailed.queries.every((q) => q.retryQ === undefined)).toBe(true);
+  });
+
+  it("lets a detailed brief drop only the selected category, never its own idea", () => {
+    const plan = searchPlanFromAi(
+      {
+        q: "Coffee pouring with red studio lighting and slow steam",
+        genreQuery: { en: "coffee edit" },
+      },
+      PLAN,
+    );
+    const key = (g: string[]) => JSON.stringify(g);
+    const category = new Set((plan.categoryGroups ?? []).map(key));
+    // The model's "coffee" concept and the chip's own groups are the category; "match cut" is the idea.
+    expect([...category].some((g) => g.includes("coffee"))).toBe(true);
+    const idea = plan.requiredGroups?.filter((g) => !category.has(key(g))) ?? [];
+    expect(idea).toContainEqual(["match cut", "ماتش كت"]);
+    expect(idea.some((g) => g.includes("coffee"))).toBe(false);
+    // A category-only brief has nothing else to show: it stays strict.
+    expect(searchPlanFromAi({ q: "coffee edit" }, PLAN).categoryGroups).toBeUndefined();
   });
 
   it("preserves custom category wording and the selected built-in category over the topic", () => {

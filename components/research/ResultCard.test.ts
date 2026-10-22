@@ -11,7 +11,7 @@ import type { Lang } from "@/lib/domain";
 import type { ResearchItem } from "@/lib/research";
 import { clearScoutCache } from "@/lib/scoutClient";
 import { useStore } from "@/store";
-import ResultCard from "./ResultCard";
+import ResultCard, { PREVIEW_RETRY_MS } from "./ResultCard";
 
 // ▶ Watch here (round 32), the cards' side: a card that is one post of YouTube, TikTok or Instagram turns
 // its poster into a ▶ button that hands the post to the app's player (a fake one here: the sheet itself is
@@ -110,6 +110,27 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.unstubAllGlobals();
+});
+
+describe("ResultCard: the post date", () => {
+  const year = new Date().getFullYear();
+
+  it("shows when the post went up, in English in both languages, the year only when it is another one", () => {
+    render({ item: { ...TT, published: `${year}-10-03T10:00:00.000Z` } });
+    const time = $("result-date")!;
+    expect(time.tagName).toBe("TIME");
+    expect(time.getAttribute("datetime")).toBe(`${year}-10-03T10:00:00.000Z`);
+    expect(time.textContent).toBe("Oct 3");
+    render({ item: { ...IG, published: "2025-05-30T10:00:00.000Z" } }, { lang: "en" });
+    expect($("result-date")!.textContent).toBe("May 30, 2025");
+  });
+
+  it("shows no date without one, or with one it cannot read", () => {
+    render({ item: TT });
+    expect($("result-date")).toBeNull();
+    render({ item: { ...TT, published: "soon" } });
+    expect($("result-date")).toBeNull();
+  });
 });
 
 describe("ResultCard ▶ (full card)", () => {
@@ -373,6 +394,81 @@ describe("ResultCard ▶ (full card)", () => {
     },
   );
 
+  it("an Instagram card on this computer takes its picture from the local server; the Worker is not asked", async () => {
+    const local = "https://scontent.cdninstagram.com/v/local.jpg";
+    const asked: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const href = String(input);
+        asked.push(href.startsWith("/") ? href.split("?")[0] : new URL(href).pathname);
+        if (href.startsWith("/api/local-ai/instagram-preview")) {
+          expect(new Headers(init?.headers).get("X-Local-AI")).toBe("1");
+          return Response.json({ thumb: local });
+        }
+        return Response.json({
+          title: "",
+          author: "",
+          thumb: `${WORKER}/thumb/worker.png`,
+          url: "",
+        });
+      }),
+    );
+    act(() =>
+      useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
+    );
+    render({ item: { ...IG, thumb: undefined, url: "https://www.instagram.com/p/localFirst1/" } });
+    await settle();
+    expect(asked).toEqual(["/api/local-ai/instagram-preview"]);
+    expect($("result-thumb")!.getAttribute("src")).toBe(local);
+  });
+
+  it("no local picture: the Worker's; none at all: asked again 5 minutes later while the card shows", async () => {
+    const fresh = `${WORKER}/thumb/later.png`;
+    let workerAsks = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const href = String(input);
+        // The local server found nothing (Instagram turned this computer away too).
+        if (href.startsWith("/api/local-ai/instagram-preview")) return Response.json({ thumb: "" });
+        workerAsks += 1;
+        return Response.json({
+          title: "",
+          author: "",
+          thumb: workerAsks > 1 ? fresh : "",
+          url: "",
+        });
+      }),
+    );
+    act(() =>
+      useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
+    );
+    vi.useFakeTimers();
+    try {
+      render({
+        item: { ...IG, thumb: undefined, url: "https://www.instagram.com/p/retryLater1/" },
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      expect(workerAsks).toBe(1);
+      expect($("result-thumb")).toBeNull();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(PREVIEW_RETRY_MS + 1_000);
+      });
+      expect(workerAsks).toBe(2);
+      expect($("result-thumb")!.getAttribute("src")).toBe(fresh);
+      // Once only: no third ask.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(PREVIEW_RETRY_MS * 3);
+      });
+      expect(workerAsks).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a TikTok card titled only by its handle shows the post's caption from the same lookup", async () => {
     // Discover v2 keeps a generic TikTok page title ("TikTok - Make Your Day") as the handle and no longer asks
     // oEmbed inside the search; the card's own lookup brings the caption.
@@ -414,6 +510,43 @@ describe("ResultCard ▶ (full card)", () => {
     await settle();
     expect($("result-title")!.textContent).toBe("Match cut in 10 seconds");
     expect(asked).toHaveLength(1);
+  });
+
+  it("a TikTok trend titled only by its hashtag (a category page's TikTok tab) shows the post's caption and picture", async () => {
+    // TikTok's Discovery API sends no caption: the Worker titles each trending video with its hashtag.
+    const caption = "Night drive in the M4 🌙";
+    const picture = `${WORKER}/thumb/trend.png`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ title: caption, author: "@car.one", thumb: picture, url: "" }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+      ),
+    );
+    act(() =>
+      useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
+    );
+    const item: ResearchItem = {
+      platform: "tt",
+      handle: "@car.one",
+      title: "#carsoftiktok",
+      snippet: "",
+      url: "https://www.tiktok.com/@car.one/video/7300000000000000077",
+    };
+    render({ item });
+    await settle();
+    expect($("result-title")!.textContent).toBe(caption);
+    expect($("result-thumb")!.getAttribute("src")).toBe(picture);
+    // More than the hashtag is a title of its own.
+    render({ item: { ...item, title: "#carsoftiktok night drive" } });
+    await settle();
+    expect($("result-title")!.textContent).toBe("#carsoftiktok night drive");
   });
 });
 

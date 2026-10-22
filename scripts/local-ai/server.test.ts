@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createLocalAiServer } from "./server";
+import { createLocalAiServer, type LocalAiServerOptions } from "./server";
 import { LocalAiProviderError, type LocalAiProvider, type LocalAiProviderStatus } from "./types";
 
 const servers: Server[] = [];
@@ -37,7 +37,10 @@ const body = {
   request: { q: "Find coffee match cuts" },
 };
 
-async function fixture(timeout = 125_000) {
+async function fixture(
+  timeout = 125_000,
+  extra: Pick<LocalAiServerOptions, "previewFetch" | "now"> = {},
+) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "3z-server-test-"));
   directories.push(directory);
   await mkdir(path.join(directory, "discover"));
@@ -62,6 +65,7 @@ async function fixture(timeout = 125_000) {
     rootDir: directory,
     providers: { chatgpt: provider, claude: provider },
     planTimeoutMs: timeout,
+    ...extra,
   });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -267,5 +271,72 @@ describe("local subscription HTTP boundary", () => {
     expect(f.provider.disconnect).toHaveBeenCalledTimes(1);
     await f.post();
     expect(f.provider.plan).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Instagram previews over this computer's connection", () => {
+  const page = (id: string, image: string) =>
+    `<!doctype html><html><head><meta property="og:url" content="https://www.instagram.com/someone/reel/${id}/">` +
+    `<meta property="og:image" content="${image}"></head><body>app</body></html>`;
+  const image = "https://scontent.cdninstagram.com/v/t51/preview.jpg";
+  const ask = (
+    base: string,
+    url: string,
+    headers: Record<string, string> = { "X-Local-AI": "1" },
+  ) => fetch(`${base}/api/local-ai/instagram-preview?url=${encodeURIComponent(url)}`, { headers });
+
+  it("reads a public post's preview picture once, then answers from memory for an hour", async () => {
+    let clock = 1_000_000;
+    const previewFetch = vi.fn(
+      async () =>
+        new Response(page("ABC123", image), {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        }),
+    );
+    const f = await fixture(125_000, { previewFetch, now: () => clock });
+    const r = await ask(f.base, "https://www.instagram.com/reel/ABC123/");
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ thumb: image });
+    // Only the canonical post page, never following a redirect.
+    expect(previewFetch).toHaveBeenCalledWith(
+      "https://www.instagram.com/p/ABC123/",
+      expect.objectContaining({ redirect: "manual" }),
+    );
+    expect(await (await ask(f.base, "https://www.instagram.com/p/ABC123/")).json()).toEqual({
+      thumb: image,
+    });
+    expect(previewFetch).toHaveBeenCalledTimes(1);
+    clock += 3_600_001;
+    await ask(f.base, "https://www.instagram.com/p/ABC123/");
+    expect(previewFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses anything but a post, and a request without the local header", async () => {
+    const previewFetch = vi.fn(async () => new Response("", { status: 500 }));
+    const f = await fixture(125_000, { previewFetch });
+    expect((await ask(f.base, "https://www.instagram.com/someone/")).status).toBe(400);
+    expect((await ask(f.base, "https://evil.example/p/ABC123/")).status).toBe(400);
+    expect((await ask(f.base, "https://www.instagram.com/p/ABC123/", {})).status).toBe(403);
+    expect(previewFetch).not.toHaveBeenCalled();
+  });
+
+  it("a post Instagram turns away (a redirect to log in) has no picture, asked again after 5 minutes", async () => {
+    let clock = 1_000_000;
+    const previewFetch = vi.fn(
+      async () =>
+        new Response(null, {
+          status: 302,
+          headers: { Location: "https://www.instagram.com/accounts/login/" },
+        }),
+    );
+    const f = await fixture(125_000, { previewFetch, now: () => clock });
+    expect(await (await ask(f.base, "https://www.instagram.com/p/XYZ789/")).json()).toEqual({
+      thumb: "",
+    });
+    await ask(f.base, "https://www.instagram.com/p/XYZ789/");
+    expect(previewFetch).toHaveBeenCalledTimes(1);
+    clock += 300_001;
+    await ask(f.base, "https://www.instagram.com/p/XYZ789/");
+    expect(previewFetch).toHaveBeenCalledTimes(2);
   });
 });

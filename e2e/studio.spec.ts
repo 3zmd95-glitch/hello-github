@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
-import { freshState } from "./helpers";
+import { SOCIAL_SEED_DAY } from "../data/social-seed";
+import { freshState, switchLang } from "./helpers";
 
 // The tier-2 DaVinci skill the mastery and map specs use; first in the seed, so it always shows up in the
 // ideas bank's "skills without a video" list.
@@ -7,16 +8,20 @@ const SKILL_ID = "smart-bins-keywords";
 const STORAGE_KEY = "3z-prod-v1";
 
 const fitsViewport = (page: Page) =>
-  page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
-/** Today's Riyadh day key, the way lib/streak computes it. */
-const riyadhToday = (): string =>
+/** Today's Riyadh day key, the way lib/streak computes it (`now`: a pinned browser clock's time). */
+const riyadhToday = (now = new Date()): string =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Riyadh",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date());
+  }).format(now);
+
+/** Noon in Riyadh 4 days after the Social Analytics seed (Beacons, Sep 27 2026): the inbox's stale-numbers row
+ * (14 days) shows from 2 weeks after the seed, so the all-clear inbox tests pin the browser clock here. */
+const SEED_WEEK = new Date(Date.parse(`${SOCIAL_SEED_DAY}T12:00:00+03:00`) + 4 * 86_400_000);
 
 /** Open the DaVinci skill's sheet from the Skills screen. */
 async function openSkillSheet(page: Page) {
@@ -34,12 +39,16 @@ async function openSkillSheet(page: Page) {
 test("fresh Studio: empty hero with a calendar CTA, empty week, all-clear inbox", async ({
   page,
 }) => {
+  await page.clock.setFixedTime(SEED_WEEK);
   await freshState(page, "/social/");
   await expect(page.getByTestId("studio-screen")).toBeVisible();
 
   const hero = page.getByTestId("studio-next");
   await expect(hero).toHaveAttribute("data-empty", "true");
-  await expect(page.getByTestId("studio-next-cta")).toHaveAttribute("href", "/social/calendar/");
+  await expect(page.getByTestId("studio-next-cta")).toHaveAttribute(
+    "href",
+    "/social/calendar/#new",
+  );
   await expect(page.getByTestId("studio-countdown")).toHaveCount(0);
 
   const week = page.getByTestId("studio-week");
@@ -99,6 +108,7 @@ test("ideas bank → calendar → skill sheet → map → Studio hero: the bridg
   ).toHaveCount(0);
 
   // ③ Add an idea of my own and turn it into a TikTok post.
+  await page.getByTestId("idea-new").click();
   await page.getByTestId("idea-text").fill("Grade Log in 60s");
   await page.getByTestId("idea-source-me").click();
   await page.getByTestId("idea-add").click();
@@ -188,6 +198,8 @@ test("ideas bank → calendar → skill sheet → map → Studio hero: the bridg
   await expect(page.getByTestId("ask-row")).toHaveCount(1);
   await page.getByTestId("ask-to-idea").click();
   await expect(page.getByTestId("ask-in-ideas")).toHaveAttribute("href", "/social/ideas/");
+  // The button morphed into the chip, which took its focus.
+  await expect(page.getByTestId("ask-in-ideas")).toBeFocused();
   // …which the inbox now counts as waiting.
   await expect(page.locator('[data-testid="inbox-row"][data-kind="ideas"]')).toHaveAttribute(
     "href",
@@ -211,11 +223,117 @@ test("ideas bank → calendar → skill sheet → map → Studio hero: the bridg
   );
 });
 
+test("first visit: a date eyebrow and the staggered entrance; coming back does not stagger again", async ({
+  page,
+}) => {
+  await freshState(page, "/social/");
+  const screen = page.getByTestId("studio-screen");
+  await expect(screen.locator(".ios-eyebrow")).not.toBeEmpty();
+  await expect(screen.locator(".ios-stagger")).toHaveCount(1);
+  // Away (a client-side navigation) and back: the cards are simply there.
+  await page.getByTestId("studio-week-open").click();
+  await expect(page).toHaveURL(/\/social\/calendar\/$/);
+  await page.goBack();
+  await expect(screen).toBeVisible();
+  await expect(screen.locator(".ios-stagger")).toHaveCount(0);
+  await expect(screen.locator(".ios-eyebrow")).not.toBeEmpty();
+});
+
+test("week cells: one post opens the post, two open the day, an empty day is not a link", async ({
+  page,
+}) => {
+  await freshState(page, "/social/");
+  const week = page.getByTestId("studio-week");
+  // evaluateAll does not wait: let the week render its 7 days first.
+  await expect(week.locator(".studio-wday")).toHaveCount(7);
+  const [one, two, none] = await week
+    .locator(".studio-wday")
+    .evaluateAll((els) => els.map((e) => e.getAttribute("data-day") ?? ""));
+  await page.evaluate(
+    ([key, one, two, now]) => {
+      const raw = localStorage.getItem(key);
+      if (!raw) throw new Error("no saved state");
+      const saved = JSON.parse(raw) as { state: { posts: unknown[] } };
+      const post = (id: string, platform: string, day: string) => ({
+        id,
+        platform,
+        title: id,
+        stage: "script",
+        plannedDay: day,
+        plannedTime: "20:00",
+        createdAt: now,
+        updatedAt: now,
+      });
+      saved.state.posts.push(
+        post("week-one", "tiktok", one),
+        post("week-two-a", "instagram", two),
+        post("week-two-b", "youtube", two),
+      );
+      localStorage.setItem(key, JSON.stringify(saved));
+    },
+    [STORAGE_KEY, one, two, new Date().toISOString()] as const,
+  );
+  await page.reload();
+  await expect(week).toHaveAttribute("data-total", "3");
+  const cell = (day: string) => week.locator(`.studio-wday[data-day="${day}"]`);
+  await expect(cell(one)).toHaveAttribute("href", "/social/calendar/#post=week-one");
+  await expect(cell(two)).toHaveAttribute("href", `/social/calendar/#day=${two}`);
+  await expect(cell(two).getByTestId("studio-week-post")).toHaveCount(2);
+  expect(await cell(none).evaluate((e) => [e.tagName, e.getAttribute("href")])).toEqual([
+    "DIV",
+    null,
+  ]);
+  await expect(cell(none).getByTestId("studio-week-post")).toHaveCount(0);
+});
+
+test("pull to refresh: the page follows the finger, holds while the spinner turns, then springs back with a toast", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "phone", "a touch gesture");
+  await freshState(page, "/social/");
+  await expect(page.getByTestId("studio-screen")).toBeVisible();
+  // The pull is armed once the page's own overscroll bounce is off (usePullToRefresh's effect).
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.style.overscrollBehaviorY))
+    .toBe("none");
+  const main = () =>
+    page.evaluate(() => {
+      const m = document.getElementById("main")!;
+      return { transform: m.style.transform, transition: m.style.transition };
+    });
+  // Real touch events (CDP), from the hero downwards: 200px of finger = 110px of page (resistance 0.55).
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type: "touchStart" | "touchMove" | "touchEnd", y = 0) =>
+    cdp.send("Input.dispatchTouchEvent", {
+      type,
+      touchPoints: type === "touchEnd" ? [] : [{ x: 195, y }],
+    });
+  await touch("touchStart", 260);
+  for (let d = 20; d <= 200; d += 20) await touch("touchMove", 260 + d);
+  // The listeners are passive: the browser does not wait for them, so the last move lands a moment later.
+  await expect.poll(async () => (await main()).transform).toBe("translateY(110px)");
+  // The spinner is portaled to <body>: inside the moving #main it would ride along.
+  expect(
+    await page.getByTestId("studio-ptr").evaluate((e) => e.parentElement === document.body),
+  ).toBe(true);
+
+  // Past 70px: the release holds the page at 56px while the spinner turns; the toast waits for its 1.1s.
+  await touch("touchEnd");
+  const released = Date.now();
+  await expect(page.getByTestId("studio-ptr")).toHaveAttribute("data-spin", "true");
+  expect((await main()).transform).toBe("translateY(56px)");
+  await expect(page.getByTestId("toast")).toContainText("تم التحديث الحين");
+  expect(Date.now() - released).toBeGreaterThanOrEqual(1000);
+  // Sprung back: no inline transform left, and the transition is cleared after it.
+  await expect.poll(main).toEqual({ transform: "", transition: "" });
+  await expect(page.getByTestId("studio-ptr")).toHaveCount(0);
+});
+
 test("RTL and LTR both render the Studio without horizontal scroll", async ({ page }) => {
   await freshState(page, "/social/");
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   expect(await fitsViewport(page)).toBe(true);
-  await page.getByTestId("lang-en").click();
+  await switchLang(page, "en");
   await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
   await expect(page.getByTestId("studio-next")).toContainText("No post planned yet");
   expect(await fitsViewport(page)).toBe(true);
@@ -227,11 +345,12 @@ test("RTL and LTR both render the Studio without horizontal scroll", async ({ pa
 test("a post whose X step is due shows a manual inbox row that opens the hub's list", async ({
   page,
 }) => {
+  await page.clock.setFixedTime(SEED_WEEK);
   await freshState(page, "/social/");
   await expect(page.getByTestId("studio-inbox-empty")).toBeVisible();
 
   // Seed a TikTok post with X in its auto-post, planned for 00:00 today (Riyadh): its X step is due.
-  const at = new Date().toISOString();
+  const at = SEED_WEEK.toISOString();
   await page.evaluate(
     ([key, day, now]) => {
       const raw = localStorage.getItem(key);
@@ -267,7 +386,7 @@ test("a post whose X step is due shows a manual inbox row that opens the hub's l
       );
       localStorage.setItem(key, JSON.stringify(saved));
     },
-    [STORAGE_KEY, riyadhToday(), at] as const,
+    [STORAGE_KEY, riyadhToday(SEED_WEEK), at] as const,
   );
   await page.reload();
 
@@ -284,7 +403,7 @@ test("a post whose X step is due shows a manual inbox row that opens the hub's l
   await expect(page.getByTestId("studio-inbox")).toHaveAttribute("data-count", "1");
   expect(await fitsViewport(page)).toBe(true);
 
-  await page.getByTestId("lang-en").click();
+  await switchLang(page, "en");
   await expect(manual).toContainText("ready for X");
 
   // It lands on the hub's "Post these yourself" list, scrolled into view.

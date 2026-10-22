@@ -13,9 +13,9 @@ const SOCIAL_PATHS = [
   "/social/more/",
 ];
 
-/** Computed border radius (px) of the first `.px-card` on the page. */
+/** Computed border radius (px) of the first `.px-card`, or iOS `Card` (the Studio has only those). */
 async function cardRadius(page: Page): Promise<number> {
-  const card = page.locator(".px-card").first();
+  const card = page.locator(".px-card, .ios-card").first();
   await expect(card).toBeVisible();
   return card.evaluate((el) => parseFloat(getComputedStyle(el).borderRadius));
 }
@@ -52,15 +52,15 @@ test("the world switch moves from 🎮 Training to 📱 Social and restyles the 
   // 🔎 Discover is a Training tab: Social reaches it from More and the sidebar, never from its tab bar.
   await expect(tabbar.locator('a[href="/discover/"]')).toHaveCount(0);
 
-  // Cinematic look: rounded cards and IBM Plex Sans Arabic.
+  // iOS look: rounded cards and Vazirmatn.
   expect(await cardRadius(page)).toBeGreaterThanOrEqual(10);
-  expect(await bodyFont(page)).toContain("IBM Plex Sans Arabic");
+  expect(await bodyFont(page)).toContain("Vazirmatn");
 });
 
 test("switching back to Training returns home with the pixel tokens", async ({ page }) => {
   await freshState(page, "/social/");
   await expect(page.locator("html")).toHaveAttribute("data-world", "social");
-  expect(await bodyFont(page)).toContain("IBM Plex Sans Arabic");
+  expect(await bodyFont(page)).toContain("Vazirmatn");
 
   await page.getByTestId("world-training").click();
   await expect(page).toHaveURL(/\/$/);
@@ -188,23 +188,32 @@ test("RTL / LTR toggle works inside Social", async ({ page }) => {
   await expect(html).toHaveAttribute("dir", "rtl");
   await expect(html).toHaveAttribute("lang", "ar");
 
-  await page.getByTestId("lang-en").click();
+  // Social keeps the language control in More's quick settings (iOS look, round 35): use that one.
+  await page.locator('a[href="/social/more/"]:visible').first().click();
+  await expect(page).toHaveURL(/\/social\/more\/$/);
+  const more = page.locator("main");
+  await more.getByTestId("lang-en").click();
   await expect(html).toHaveAttribute("dir", "ltr");
   await expect(html).toHaveAttribute("lang", "en");
   await expect(html).toHaveAttribute("data-world", "social");
-  await expect(page.getByTestId("world-social")).toContainText("Social");
+  await expect(page.getByTestId("world-social")).toHaveAccessibleName("Social");
+  await expect(more.getByTestId("lang-en")).toHaveAttribute("aria-checked", "true");
 
-  await page.getByTestId("lang-ar").click();
+  await more.getByTestId("lang-ar").click();
   await expect(html).toHaveAttribute("dir", "rtl");
   await expect(html).toHaveAttribute("lang", "ar");
+  await expect(more.getByTestId("lang-ar")).toHaveAttribute("aria-checked", "true");
 });
 
 for (const path of SOCIAL_PATHS) {
   test(`no horizontal scroll on ${path}`, async ({ page }) => {
     await freshState(page, path);
     await expect(page.locator("html")).toHaveAttribute("data-world", "social");
+    // The routes ship only the splash: measure the screen, against the page's own width (on the phone, mobile
+    // emulation grows innerWidth to fit any overflow).
+    await expect(page.locator("main h1").first()).toBeVisible();
     const fits = await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
     );
     expect(fits).toBe(true);
   });

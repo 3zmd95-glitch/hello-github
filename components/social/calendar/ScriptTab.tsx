@@ -1,5 +1,6 @@
 "use client";
 
+import { Check } from "lucide-react";
 import { useState } from "react";
 import type { Post, Script } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
@@ -34,7 +35,7 @@ export default function ScriptTab({ post }: { post: Post }) {
   return (
     <div className="flex flex-col gap-3" data-testid="post-script">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        <b className="num text-accent" data-testid="script-length" data-seconds={seconds}>
+        <b className="num text-tint" data-testid="script-length" data-seconds={seconds}>
           {t("calendar.script.length", { s: seconds, w: words })}
         </b>
         <span className="text-muted">
@@ -68,8 +69,9 @@ export default function ScriptTab({ post }: { post: Post }) {
       />
 
       {bumped && (
-        <p className="text-accent text-xs" data-testid="script-bumped">
-          ✓ {t("calendar.script.autoBump")}
+        <p className="text-tint flex items-center gap-1 text-xs" data-testid="script-bumped">
+          <Check size={14} strokeWidth={2} className="shrink-0" aria-hidden />
+          {t("calendar.script.autoBump")}
         </p>
       )}
       <CreatorAssistant key={post.id} post={post} />
@@ -92,7 +94,7 @@ function Field({
 }) {
   return (
     <label className="flex flex-col gap-1 text-sm" htmlFor={id}>
-      <span className="text-ink-2 font-bold">{label}</span>
+      <span className="text-ink-2 text-[13px] font-semibold">{label}</span>
       <textarea
         id={id}
         rows={2}

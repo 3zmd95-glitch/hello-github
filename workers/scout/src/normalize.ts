@@ -3,6 +3,8 @@
  * they are unit-tested directly.
  */
 
+import { postedAt } from "./postDate";
+
 export type Platform = "tt" | "ig" | "yt";
 export const PLATFORMS: readonly Platform[] = ["tt", "ig", "yt"];
 
@@ -35,7 +37,10 @@ export interface ScoutResult {
    * (scout.ts `enrichYoutubeStats`). Never an empty object.
    */
   stats?: Stats;
-  /** When the page was published, ISO 8601 (Tavily `published_date` parsed, YouTube `publishedAt`). */
+  /**
+   * When the post went up, ISO 8601: TikTok / Instagram from the post's own id (postDate.ts, whatever Tavily sent);
+   * YouTube from the Data API's `publishedAt`, else Tavily's `published_date`.
+   */
   published?: string;
 }
 
@@ -374,6 +379,8 @@ export function parseEngagement(text: string): Stats | undefined {
 export function normalizeHits(
   hits: readonly TavilyHit[],
   platforms: readonly Platform[],
+  /** The run's time: a post id decoding after it (+ 1 day) is a bad decode, no date. */
+  now = new Date(),
 ): ScoutResult[] {
   const wanted = new Set(platforms);
   const seen = new Set<string>();
@@ -415,7 +422,11 @@ export function normalizeHits(
       url,
     };
     if (thumb) result.thumb = thumb;
-    if (typeof hit.published_date === "string") {
+    if (platform !== "yt") {
+      // The post's own id is its date (postDate.ts): Tavily sends none for Instagram, and its windows are unreliable.
+      const posted = postedAt(url, now);
+      if (posted) result.published = posted;
+    } else if (typeof hit.published_date === "string") {
       // Tavily sends RFC 2822 ("Tue, 30 Sep 2026 17:00:00 GMT"); kept as ISO so dates sort as text.
       const t = Date.parse(hit.published_date);
       if (!Number.isNaN(t)) result.published = new Date(t).toISOString();
@@ -489,8 +500,9 @@ export function profileFromUrl(platform: Platform, u: URL): Profile | undefined 
 export function normalizeDiscoverHits(
   hits: readonly TavilyHit[],
   platform: Platform,
+  now = new Date(),
 ): { cards: ScoutResult[]; profiles: Profile[] } {
-  const cards = normalizeHits(hits, [platform]);
+  const cards = normalizeHits(hits, [platform], now);
   const seen = new Set<string>();
   const profiles: Profile[] = [];
   for (const hit of hits) {

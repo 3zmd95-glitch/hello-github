@@ -206,10 +206,11 @@ describe("Discover v2 in the research panel", () => {
   it("one POST /discover for every platform: the sections, the tab counts and the usage", async () => {
     await mount();
     await submit("flash");
-    expect(discovered).toEqual([{ q: "flash" }]);
+    // An English topic asks English only, whatever the dashboard's language (Arabic typing or Arabic first asks Arabic too).
+    expect(discovered).toEqual([{ q: "flash", lang: "en" }]);
     expect(searched).toEqual([]);
 
-    expect($("discover-understood")!.textContent).toContain("فهمتها: انتقال فلاش · عربي + English");
+    expect($("discover-understood")!.textContent).toContain("فهمتها: انتقال فلاش · English بس");
     expect(count("discover-popular")).toBe("1");
     const examples = $("discover-section-example")!;
     expect(examples.getAttribute("data-count")).toBe("8");
@@ -246,6 +247,16 @@ describe("Discover v2 in the research panel", () => {
     expect(discovered).toHaveLength(1);
   });
 
+  it("a card shows its post's date: the answer's `published` reaches the card", async () => {
+    answer = () => ({
+      ...ANSWER,
+      items: [item(1, { published: "2025-05-30T10:00:00.000Z" }), ...ANSWER.items.slice(1)],
+    });
+    await mount();
+    await submit("flash");
+    expect(all("result-date").map((d) => d.textContent)).toEqual(["May 30, 2025"]);
+  });
+
   it("creators: two channels with one name both show (keyed by their page); one post reads as one", async () => {
     const errors = vi.spyOn(console, "error");
     answer = () => ({
@@ -276,15 +287,15 @@ describe("Discover v2 in the research panel", () => {
     await submit("speed ramp");
     await submit("flash");
     await click($("discover-alt-camera-flash"));
-    expect(discovered.at(-1)).toEqual({ q: "flash", term: "camera-flash" });
+    expect(discovered.at(-1)).toEqual({ q: "flash", term: "camera-flash", lang: "en" });
     await click($("discover-alt-exact"));
-    expect(discovered.at(-1)).toEqual({ q: "flash", exact: true });
+    expect(discovered.at(-1)).toEqual({ q: "flash", exact: true, lang: "en" });
     expect($("discover-understood")!.textContent).toContain("أدوّر بالضبط على «flash»");
 
     // A recent topic is another topic: the choice made for "flash" stays with it.
     const recent = all("discover-recent-topic").find((b) => b.textContent === "speed ramp")!;
     await click(recent);
-    expect(discovered.at(-1)).toEqual({ q: "speed ramp" });
+    expect(discovered.at(-1)).toEqual({ q: "speed ramp", lang: "en" });
   });
 
   it("a failed platform keeps its line and Retry on an empty tab; Retry asks again", async () => {
@@ -341,6 +352,20 @@ describe("Discover v2 in the research panel", () => {
     expect($("discover-retry-yt")).toBeNull();
   });
 
+  it("an idea's matches shown outside the category say so; a normal answer has no such line", async () => {
+    answer = (body) =>
+      body.q === "drone reveal"
+        ? { ...COMPLETE, items: COMPLETE.items.map((i) => ({ ...i, outsideCategory: true })) }
+        : COMPLETE;
+    await mount();
+    await submit("flash");
+    expect($("discover-outside-category")).toBeNull();
+    await submit("drone reveal");
+    expect($("discover-outside-category")!.textContent).toBe(
+      "ما لقينا شي يجمع التصنيف مع فكرتك، فهذي اللي تطابق فكرتك بدون التصنيف",
+    );
+  });
+
   it("without Tavily's figure the usage line still shows YouTube's count", async () => {
     usageBody = { ...USAGE, tavily: { error: "not_configured" } };
     await mount();
@@ -363,9 +388,11 @@ describe("Discover v2 in the research panel", () => {
     expect($("discover-sections")).toBeNull();
     expect($("scout-usage")).not.toBeNull();
     expect($("discover-usage")).toBeNull();
-    // Nor does it ask for Claude's picks (a v2 route).
+    // Nor does it ask for Claude's picks or the trending effects (v2 routes).
     const asked = vi.mocked(fetch).mock.calls.map(([input]) => new URL(String(input)).pathname);
     expect(asked).toContain("/search");
     expect(asked).not.toContain("/discover/picks");
+    expect(asked).not.toContain("/effects/trending");
+    expect($("trending-effects")).toBeNull();
   });
 });

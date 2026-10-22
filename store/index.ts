@@ -362,6 +362,8 @@ export interface StoreActions {
   createPostFromSkill(skillId: string, platform: Platform, now?: Date): Post | undefined;
   addIdea(input: NewIdeaInput, now?: Date): Idea;
   removeIdea(id: string): void;
+  /** Star or unstar an idea (the ideas bank's favorites). */
+  toggleIdeaFavorite(id: string): void;
   /**
    * Turn an idea into a post on a platform (title = the idea's text, skillId carried over) and link
    * `usedInPostId`. Idempotent: when the idea already has a live post, that post is returned. Undefined for an
@@ -1295,6 +1297,12 @@ export const useStore = create<StoreState>()(
 
       removeIdea(id) {
         set((s) => ({ ideas: s.ideas.filter((i) => i.id !== id) }));
+      },
+
+      toggleIdeaFavorite(id) {
+        set((s) => ({
+          ideas: s.ideas.map((i) => (i.id === id ? { ...i, favorite: !i.favorite } : i)),
+        }));
       },
 
       useIdea(ideaId, platform, now = new Date()) {

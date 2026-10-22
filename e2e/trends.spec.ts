@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { freshState } from "./helpers";
+import { freshState, switchLang } from "./helpers";
 
 // 📈 Trend Radar (round 30, planning/tools/08-trends.md): the radar in the ideas bank against a fake Scout
 // Worker at https://scout.test stubbed with page.route (same pattern as autopost.spec.ts), plus the
@@ -21,7 +21,9 @@ const CORS = {
 };
 
 async function fitsViewport(page: Page): Promise<boolean> {
-  return page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  return page.evaluate(
+    () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+  );
 }
 
 /**
@@ -254,7 +256,7 @@ test("the radar reads the Worker feed: tabs, chips, save, plan, dismiss, and the
   await expect.poll(() => fake.gets).toBeGreaterThanOrEqual(1);
 
   // Arabic tab by default: the two Google rows and the mixed TikTok hashtag, keyword row (⭐) first.
-  await expect(page.getByTestId("trends-tab-ar")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("trends-tab-ar")).toHaveAttribute("aria-checked", "true");
   const rows = page.getByTestId("trend-row");
   await expect(rows).toHaveCount(3);
   await expect(rows.first()).toHaveAttribute("data-star", "true");
@@ -385,9 +387,9 @@ test("a volume chip says what its number counts: views on a YouTube row, searche
   expect(await fitsViewport(page)).toBe(true);
 
   // English UI: the same units in English, on the same Arabic tab.
-  await page.getByTestId("lang-en").click();
+  await switchLang(page, "en");
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await expect(page.getByTestId("trends-tab-ar")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("trends-tab-ar")).toHaveAttribute("aria-checked", "true");
   await expect(views).toHaveAttribute("data-unit", "views");
   await expect(views).toHaveText("105M views");
   await expect(views).not.toContainText("searches");
@@ -424,8 +426,12 @@ test("genre rows name their genre in a chip that links to Discover, and the rada
   const carsAr = page.locator('[data-testid="trend-row"][data-id="youtube:SA:kw:cars-ar"]');
   await expect(food).toHaveCount(1);
   await expect(food).toHaveAttribute("data-star", "false");
-  await expect(food).not.toContainText("⭐");
+  await expect(food.getByTestId("trend-star")).toHaveCount(0);
   await expect(carsAr).toHaveAttribute("data-star", "true");
+  await expect(carsAr.getByRole("img", { name: "يناسب مجالك" })).toHaveAttribute(
+    "data-testid",
+    "trend-star",
+  );
   await expect(carsAr).toHaveAttribute("data-genre", "cars");
   await expect(page.locator('[data-testid="trend-row"][data-star="true"]')).toHaveCount(2);
   await expect(rows.nth(0)).toHaveAttribute("data-id", "google:SA:مونتاج-الايفون");
@@ -433,12 +439,13 @@ test("genre rows name their genre in a chip that links to Discover, and the rada
   await expect(rows.nth(2)).toHaveAttribute("data-id", "google:SA:حساب-المواطن");
   await expect(rows.nth(3)).toHaveAttribute("data-id", "youtube:SA:kw:food-ar");
 
-  // Every genre row names its genre in a chip; the rows without a genre have none.
+  // Every genre row names its genre in a chip (without the genre's emoji: Social chips carry none); the rows
+  // without a genre have none.
   const carsChip = carsAr.getByTestId("trend-genre");
   const foodChip = food.getByTestId("trend-genre");
   await expect(page.getByTestId("trend-genre")).toHaveCount(2);
-  await expect(carsChip).toHaveText("🚗 سيارات");
-  await expect(foodChip).toHaveText("🍔 أكل ومطاعم");
+  await expect(carsChip).toHaveText("سيارات");
+  await expect(foodChip).toHaveText("أكل ومطاعم");
   await expect(rows.nth(0).getByTestId("trend-genre")).toHaveCount(0);
   await expect(page.locator('[data-testid="trend-row"][data-genre]')).toHaveCount(2);
 
@@ -448,10 +455,10 @@ test("genre rows name their genre in a chip that links to Discover, and the rada
   await expect(foodChip).toHaveAttribute("href", "/discover/?genre=food");
   await expect(foodChip).toHaveAttribute("data-genre", "food");
   await expect(
-    carsAr.getByRole("link", { name: "افتح 🚗 سيارات في «اكتشف»", exact: true }),
+    carsAr.getByRole("link", { name: "افتح سيارات في «اكتشف»", exact: true }),
   ).toHaveAttribute("data-testid", "trend-genre");
   await expect(
-    food.getByRole("link", { name: "افتح 🍔 أكل ومطاعم في «اكتشف»", exact: true }),
+    food.getByRole("link", { name: "افتح أكل ومطاعم في «اكتشف»", exact: true }),
   ).toHaveAttribute("data-testid", "trend-genre");
   // It looks like the row's other chips (not like a blue underlined link) and sits beside them.
   const sameLook = await foodChip.evaluate((el) => {
@@ -488,7 +495,7 @@ test("genre rows name their genre in a chip that links to Discover, and the rada
   const drone = page.locator('[data-testid="trend-row"][data-genre="drone"]');
   await expect(carsEn).toHaveAttribute("data-star", "false");
   await expect(carsEn.getByTestId("trend-source")).toHaveText("بحث YouTube");
-  await expect(carsEn.getByTestId("trend-genre")).toHaveText("🚗 سيارات");
+  await expect(carsEn.getByTestId("trend-genre")).toHaveText("سيارات");
   await expect(carsEn.getByTestId("trend-genre")).toHaveAttribute("href", "/discover/?genre=cars");
   await expect(drone).toHaveAttribute("data-id", "youtube:US:kw:drone-en");
   await expect(drone.getByTestId("trend-genre")).toHaveText("drone");
@@ -599,8 +606,8 @@ test("the genre chip names the owner's custom genre, speaks English when the app
   await expect(page.getByTestId("trends-genre")).toHaveCount(0);
 
   // English tab: the chart row, the car, drift and drone rows, and the mixed hashtag. The drift row's chip
-  // names the owner's genre (✨ and the name they gave it) and links to it; "drift edit" is the genre's own
-  // words, so no star.
+  // names the owner's genre (the name they gave it, without Discover's ✨) and links to it; "drift edit" is
+  // the genre's own words, so no star.
   await page.getByTestId("trends-tab-en").click();
   const rows = page.getByTestId("trend-row");
   await expect(rows).toHaveCount(5);
@@ -608,24 +615,26 @@ test("the genre chip names the owner's custom genre, speaks English when the app
   const driftChip = driftRow.getByTestId("trend-genre");
   await expect(driftRow).toHaveAttribute("data-id", "youtube:US:kw:drift-en");
   await expect(driftRow).toHaveAttribute("data-star", "false");
-  await expect(driftChip).toHaveText("✨ Drift");
+  await expect(driftChip).toHaveText("Drift");
   await expect(driftChip).toHaveAttribute("href", "/discover/?genre=custom-drift");
   await expect(
-    driftRow.getByRole("link", { name: "افتح ✨ Drift في «اكتشف»", exact: true }),
+    driftRow.getByRole("link", { name: "افتح Drift في «اكتشف»", exact: true }),
   ).toHaveAttribute("data-testid", "trend-genre");
 
-  // English UI: the chips and their names speak English; the unknown id stays as it is.
-  await page.getByTestId("lang-en").click();
+  // English UI: the chips and their names speak English; the unknown id stays as it is. In Social the
+  // switch goes through More, and coming back opens the radar on its Arabic tab again: back to English.
+  await switchLang(page, "en");
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await page.getByTestId("trends-tab-en").click();
   await expect(rows).toHaveCount(5);
   const carsEn = page.locator('[data-testid="trend-row"][data-id="youtube:US:kw:cars-en"]');
-  await expect(carsEn.getByTestId("trend-genre")).toHaveText("🚗 Cars");
+  await expect(carsEn.getByTestId("trend-genre")).toHaveText("Cars");
   await expect(
-    carsEn.getByRole("link", { name: "Open 🚗 Cars in Discover", exact: true }),
+    carsEn.getByRole("link", { name: "Open Cars in Discover", exact: true }),
   ).toHaveAttribute("href", "/discover/?genre=cars");
-  await expect(driftChip).toHaveText("✨ Drift");
+  await expect(driftChip).toHaveText("Drift");
   await expect(
-    driftRow.getByRole("link", { name: "Open ✨ Drift in Discover", exact: true }),
+    driftRow.getByRole("link", { name: "Open Drift in Discover", exact: true }),
   ).toHaveAttribute("data-testid", "trend-genre");
   await expect(
     page.locator('[data-testid="trend-row"][data-genre="drone"]').getByTestId("trend-genre"),
@@ -684,7 +693,7 @@ test("without a Worker the radar still shows the moments and the manual links, a
   ).toContainText("انستقرام");
 
   // The rest of the ideas bank is untouched, and nothing scrolls sideways.
-  await expect(page.getByTestId("idea-text")).toBeVisible();
+  await expect(page.getByTestId("idea-new")).toBeVisible();
   await expect(page.getByTestId("ideas-from-skills")).toBeVisible();
   expect(await fitsViewport(page)).toBe(true);
 

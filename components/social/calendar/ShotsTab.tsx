@@ -1,5 +1,6 @@
 "use client";
 
+import { Check, Film, X } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import PxBar from "@/components/ui/PxBar";
 import { SHOT_TYPES, type Post, type ShotType } from "@/lib/domain";
@@ -38,7 +39,7 @@ export default function ShotsTab({ post }: { post: Post }) {
   return (
     <div className="flex flex-col gap-3" data-testid="post-shots">
       <div className="flex items-center gap-3">
-        <span className="text-ink-2 text-sm font-bold">{t("calendar.shots.title")}</span>
+        <span className="text-ink-2 text-[13px] font-semibold">{t("calendar.shots.title")}</span>
         <PxBar
           value={total ? done / total : 0}
           className="flex-1"
@@ -73,14 +74,14 @@ export default function ShotsTab({ post }: { post: Post }) {
             >
               <button
                 type="button"
-                className="flex min-w-0 flex-1 items-center gap-2 text-start"
+                className="ios-hit flex min-w-0 flex-1 items-center gap-2 text-start"
                 aria-pressed={shot.done}
                 aria-label={t("calendar.shots.toggle", { text: shot.text })}
                 onClick={() => toggleShot(post.id, shot.id)}
                 data-testid="shot-toggle"
               >
                 <span className="px-check" data-on={shot.done}>
-                  ✓
+                  <Check size={16} strokeWidth={2.5} aria-hidden />
                 </span>
                 <span className="px-chip shrink-0">{t(`calendar.shotType.${shot.type}`)}</span>
                 <span className={`min-w-0 text-sm ${shot.done ? "text-muted line-through" : ""}`}>
@@ -89,13 +90,13 @@ export default function ShotsTab({ post }: { post: Post }) {
               </button>
               <button
                 type="button"
-                className="text-muted hover:text-danger num shrink-0 px-1 text-lg leading-none"
+                className="ios-icbtn text-muted hover:text-danger -my-1.5 -me-2 shrink-0"
                 onClick={() => removeShot(post.id, shot.id)}
                 aria-label={t("calendar.shots.remove")}
                 title={t("calendar.shots.remove")}
                 data-testid="shot-remove"
               >
-                ×
+                <X size={18} strokeWidth={1.75} aria-hidden />
               </button>
             </li>
           ))}
@@ -107,7 +108,10 @@ export default function ShotsTab({ post }: { post: Post }) {
           className="px-inset flex flex-wrap items-center gap-2 text-sm"
           data-testid="shots-hint"
         >
-          <span>🎬 {t("calendar.shots.allDone")}</span>
+          <span className="inline-flex items-center gap-1">
+            <Film size={15} strokeWidth={1.75} className="shrink-0" aria-hidden />
+            {t("calendar.shots.allDone")}
+          </span>
           <button
             type="button"
             className="px-btn px-btn-sm ms-auto"
@@ -175,7 +179,7 @@ export default function ShotsTab({ post }: { post: Post }) {
                 }
                 data-testid="broll-item"
               >
-                {on ? "✓ " : ""}
+                {on && <Check size={13} strokeWidth={2} aria-hidden />}
                 {L(item)}
               </button>
             );

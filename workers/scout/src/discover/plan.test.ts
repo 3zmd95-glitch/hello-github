@@ -22,9 +22,28 @@ describe("planSearch with a dictionary term", () => {
     ]);
   });
 
-  it("asks 3 queries per platform: examples en, tutorials en, tutorials ar", () => {
-    const q = byId(plan);
-    expect(plan.queries).toHaveLength(9);
+  // English first (the owner, 2026-10-07): an Arabic tutorials query only when the search is Arabic.
+  it("asks 2 queries per platform for an English search: examples en, tutorials en", () => {
+    for (const english of [plan, planSearch({ q: "flash", lang: "en" })]) {
+      expect(english.queries.map((q) => q.id)).toEqual([
+        "tt-examples-en",
+        "tt-tutorials-en",
+        "ig-examples-en",
+        "ig-tutorials-en",
+        "yt-examples-en",
+        "yt-tutorials-en",
+      ]);
+    }
+    expect(byId(plan)["tt-examples-en"]).toMatchObject({
+      q: "flash transition edit",
+      retryQ: "flash transition video",
+    });
+  });
+
+  it("asks 3 queries per platform for an Arabic search: examples en, tutorials en, tutorials ar", () => {
+    const arabic = planSearch({ q: "flash", lang: "ar" });
+    const q = byId(arabic);
+    expect(arabic.queries).toHaveLength(9);
     expect(q["tt-examples-en"]).toMatchObject({
       q: "flash transition edit",
       retryQ: "flash transition video",
@@ -65,6 +84,7 @@ describe("planSearch options", () => {
         q: "speed ramp",
         genreQuery: { en: "car edit", ar: "ايديت سيارات" },
         program: "DaVinci Resolve",
+        lang: "ar",
       }),
     );
     expect(q["tt-examples-en"].q).toBe("speed ramp edit car");
@@ -89,7 +109,7 @@ describe("planSearch options", () => {
   });
 
   it("plans an unknown topic from its words", () => {
-    const plan = planSearch({ q: "bokeh balls" });
+    const plan = planSearch({ q: "bokeh balls", lang: "ar" });
     const q = byId(plan);
     expect(plan.termId).toBeUndefined();
     expect(plan.topicKey).toBe("bokeh ball");
@@ -128,6 +148,14 @@ describe("planSearch options", () => {
     });
   });
 
+  it("a trend chip's search carries the editing cues; exact and plain searches none", () => {
+    expect(planSearch({ q: "Glow Effect", editing: true }).editing).toEqual(
+      expect.arrayContaining(["edit", "effect", "capcut", "after effect", "vn", "alight", "trend"]),
+    );
+    expect(planSearch({ q: "Glow Effect" }).editing).toBeUndefined();
+    expect(planSearch({ q: "Glow Effect", exact: true, editing: true }).editing).toBeUndefined();
+  });
+
   it("plans only the platforms asked for", () => {
     const plan = planSearch({ q: "flash", platforms: ["yt"] });
     expect(new Set(plan.queries.map((q) => q.platform))).toEqual(new Set(["yt"]));
@@ -143,7 +171,7 @@ describe("planSearch options", () => {
       queries: { examples, tutorials },
     });
     // English examples and tutorials ask the same words; the examples retry ("x cut video") is the Arabic query.
-    const x = planSearch({ q: "x cut" }, [
+    const x = planSearch({ q: "x cut", lang: "ar" }, [
       entry(
         "x cut",
         { en: "x cut edit", ar: "ايديت اكس كت" },
@@ -158,7 +186,7 @@ describe("planSearch options", () => {
     }
     // The Arabic retry ("y cut video") is the English examples retry.
     const y = byId(
-      planSearch({ q: "y cut" }, [
+      planSearch({ q: "y cut", lang: "ar" }, [
         entry(
           "y cut",
           { en: "y cut edit", ar: "y cut video" },

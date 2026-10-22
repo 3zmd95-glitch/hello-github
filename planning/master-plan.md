@@ -571,6 +571,103 @@ want our version" → "I dont want anything that will get me banned"):
   behind a follow. **Instant mode** (webhooks) after Business Verification + App Review; the owner is getting a freelance
   document (Meta's acceptance of it is unconfirmed; a commercial registration is the safer fallback).
 
+Brainstorm round 35 (Oct 6, 2026; owner: "you are like the head designer at apple ios system. premium and sleek", "change only
+cinematic", "I want real icons", "dont forget the smooth animation thats the most important thing", "plan with fable first then we
+gonna execute with opus 5.5"): **the Social world gets an iOS 26 look**; the Training pixel world is untouched. Owner picks, one
+question at a time: glass navigation layer + solid content cards (not full Liquid Glass, not classic grouped lists) · light + dark
+following the iPhone (no in-app switch) · real line icons everywhere in Social (Lucide; emoji only inside his own content) · full
+depth, screen by screen (not a skin-only pass, not a ready-made kit) · font **Vazirmatn** (chosen over IBM Plex Sans Arabic after
+seeing both in the mockup) · motion first (springs, title collapse, minimizing tab bar, sheets with two heights, pull to refresh,
+chart scrub, swipe to favorite). Approved mockup: `planning/social-ios-mockup.html` (live copy
+https://claude.ai/artifact/H7TN2Yh1gA3ZkabVpGj28f). Spec: `tools/18-social-ios-design.md`; plan:
+`plans/2026-10-06-social-ios-design.md` (Fable designed and planned; Opus 5.5 executes, one PR per phase). Search before building:
+own CSS glass (libraries need SVG filters WebKit ignores), `lucide-react`, an in-house bottom sheet (`vaul` was rejected at
+execution: its Radix modal fights the app's stacked overlays), simple-icons paths for platform glyphs; Konsta UI, shadcn/Base UI and Motion not adopted this round (`tools/05-found-on-github.md`). The owner briefly
+asked for the public website first ("i want to build the website first not the app… in ios theme"), chose "Portfolio first" pages and
+platform-embedded videos, then stopped it: "Dont do the website now only the social panel". Those website answers are kept in
+`tools/02-website.md` for the day it comes back.
+
+Round 35 shipped (Oct 7, 2026): the Social iOS look went out in eight PRs — 1/8 foundations #52, 2/8 shell #53, 3/8 Studio #55,
+4/8 Calendar and sheets #61, 5/8 Growth #64, 6/8 Ideas and More #65, 7/8 Replies, Automations, Soon #63, 8/8 icons everywhere
+and final polish #68. Owner: "can you make it faster? sub agents" — Phases 5–7 were built in parallel worktrees, one review per
+phase, then a review of the whole restyle fed one last polish round. Open owner checks on the iPhone: the light-mode status bar
+in the installed app, sheets, pull to refresh, chart scrub, Reduce Motion / Transparency.
+
+Round 36 (Oct 6, 2026). The owner shared a clone-effect reel and asked: "does it show in discover page as trendy or our discover
+page needs working?"
+- **Answer: no.** Nothing tracks editing-effect trends. The Trend Radar follows general topics, and "Popular now" only ranks one
+  search. A manual "clone effect" search works, but its Arabic side mixes in biology "الاستنساخ".
+- **Owner's picks for Trending effects:**
+  - catch new effects early;
+  - global first, Instagram and TikTok first;
+  - compact chips at the top of Discover, refreshed every day;
+  - new names cleaned up by the free built-in AI.
+- **The daily job:** 6 Tavily mention searches, then rules plus one AI cleanup, then a YouTube numbers check on the top 6, then
+  the chips.
+- **Cost:** about 180 Tavily credits a month. YouTube use rises to 94 of the 100 searches a day in total.
+- **Rejected:** scraping TikTok Creative Center, which TikTok's rules forbid since April 2026. We link to it instead.
+- **Spec:** `tools/18-trending-effects.md`.
+- **Built** on branch `claude/trending-effects-spec` (PR #41); the live check follows the merge and the Worker deploy.
+- **Live fix, real post dates (Oct 7):** the owner saw "this week" chips resting on May posts and beauty reels under
+  "Glow Effect": "rework if needed. English First. Instagram and tiktok first". Tavily sends no Instagram dates and its
+  "week" is unreliable, and creators were filed under scan days. Each TikTok / Instagram post is now dated by its own id
+  (checked on the owner's reels); creators count on the day they posted; Discover's week asks Tavily for a month and keeps
+  the posts dated inside it; searches are English first, chip taps add an editing check; Instagram and TikTok come first.
+  Branch `claude/trends-real-dates`; `tools/18-trending-effects.md` "Real post dates" and `tools/13` "Live fix".
+
+Round 37 (Oct 6, 2026). The owner asked for Discover's categories to teach: "every category should show me the best
+and the most trendy … I wanna learn from each category how it will benefit me in terms of photography and videography
+and editing".
+- **Owner's picks:** trends, then lessons; every 3 days, with lessons weekly; videos plus a short ✦ AI how-to; his
+  skills linked; layout B (shelves); category scans like Trending effects; English first.
+- **The job:** 4 category slots a day (05:40–05:55 UTC), 6 Tavily credits a scan, lessons 10 credits a category every
+  6 days. A category tapped with nothing typed shows its page instead of the automatic search.
+- **Cost:** about 2,000 Tavily credits a month in all, about $8 over the free plan with pay-as-you-go (the owner turns
+  it on).
+- **Rejected:** scraping-based trend tools (social-trend-agent, trendscope).
+- **Spec:** `tools/19-category-trends.md`. **Plan:** `plans/2026-10-06-category-trends.md`.
+- **Built** on branch `claude/category-trends-spec`; the live check follows the merge and the Worker deploy.
+- **Live fix 1** (Oct 7, branch `claude/category-trends-live-1`). The first real Cars scan had no trends (24 posts:
+  Instagram's week and TikTok gave about 1 a call) and poor lessons: Arabic names in Latin letters, generic how-tos,
+  an unrelated song as a "tutorial", videos not about cars. The owner: "I want everything to be english first",
+  "Plus it doesn't have to be tutorial". Now:
+  - 6 queries over Instagram's month (still 6 credits), and the AI is asked to answer every key;
+  - lesson searches find examples for the subject, keep only videos about the technique, and show a tutorial only
+    when one teaches;
+  - how-tos are concrete for the subject;
+  - English first on the page and the 🔥 row, with Arabic only in Arabic script;
+  - lessons carry a version, so Cars' first lessons refresh at its next scan.
+  Details: `tools/19-category-trends.md` "Live check (2026-10-07)".
+- **Top videos per platform** (Oct 7, branch `claude/category-top-videos`). The owner: "Every category should show at
+  least 50 results in every platform with top tier results"; for TikTok he chose Brave's official Search API (he adds
+  `BRAVE_API_KEY` in Cloudflare himself).
+  - **The page:** "🏆 Top in Cars" after the 🔥 row, with YouTube · TikTok · Instagram tabs, up to 50 videos each, as
+    Discover's result cards.
+  - **YouTube:** its 50 most viewed of the month, 1 `search.list` on each cron scan and a category's first top scan
+    (Scan again keeps the list); Discover's YouTube cap went from 70 to 66.
+  - **Instagram:** the scan's own posts.
+  - **TikTok, and Instagram under 50:** Brave when the tab is chosen, ≤ 40 requests a day (about 1,000 a month in
+    Brave's $5 credit). Brave's results are never stored and are shown as Brave gave them, as their own group "More
+    from Brave Search", with "Powered by Brave Search" under it (its terms and its credit).
+  - **After the live rescan** (35 posts, 1 style at 3 creators): YouTube's videos feed the category trends, and a
+    category style needs 2 creators (Trending effects keeps 3).
+  - **Fix round and live fix 3** (the reviewer's findings; the Food and Anime lessons copied the prompt's coffee
+    example, wrote "high-quality camera" lines, picked car techniques for anime and showed a backpack review): copied
+    and generic how-tos dropped, no car example in the pick prompt, examples must name the category, gpt-oss-120b for
+    the lessons with llama as the fallback, lessons version 4.
+  - Details: `tools/19-category-trends.md` §3, §6 and its live check.
+- **TikTok from TikTok's Discovery API** (Oct 7, branch `claude/category-tiktok-discovery`). Live, Brave's index held
+  TikTok topic pages, not videos (Cars: 60 TikTok links, 0 posts). The owner: "brave is not the answer then we need
+  another solution", then chose "Build it (Recommended)": his approved TikTok for Business app "ONUS Content Planner"
+  (scope Discovery), official and free, with no ban risk.
+  - **Connect once:** the owner adds the secret `TIKTOK_ADS_SECRET` in Cloudflare, then taps "Connect TikTok trends"
+    on an empty TikTok tab, approves in TikTok for Business and lands back on Discover ("TikTok connected").
+  - **Every scan** (free): the category's industry's popular hashtags in the US over 7 days, then their top videos, ≤ 50
+    taken in turns, titled with the hashtag (the card shows the caption).
+  - **Brave off** (`BRAVE_DAILY` "0"); its "once Brave search is connected" line is gone.
+  - **Rejected:** TikTok's official Business API SDK (no new dependencies).
+  - Details: `tools/19-category-trends.md` §6 "TikTok from TikTok's Discovery API".
+
 ## Tech stack (≈ $0/month + domain)
 | Need | Choice | Why |
 |---|---|---|
@@ -583,7 +680,7 @@ want our version" → "I dont want anything that will get me banned"):
 | AI coach | Claude API (Haiku for cheap tasks, Sonnet for weekly plan) + web search tool | Hard cap: app-side budget counter + spend limit in the Anthropic Console |
 | Video | Bunny Stream (~$1–5/mo) | Token-signed playback for paid students only |
 | Payments | Moyasar (mada, Apple Pay, STC Pay) | Switched on when the CR/freelance document is approved; until then products show "Notify me" |
-| Fonts / look | Dark cinematic, green accent from Framer, 3z logo, Arabic font (e.g. IBM Plex Sans Arabic) + Latin pairing | Continuity with the current brand |
+| Fonts / look | Training: cute pixel world (Baloo Bhaijaan 2 + Pixelify Sans). Social (round 35): iOS 26 look, light + dark, Vazirmatn, Lucide icons, green accent from Framer | Two worlds, one brand green; see `tools/18-social-ios-design.md` |
 
 Note: the Supabase free tier pauses after 7 days with no activity. Daily dashboard use plus a cron ping prevents it.
 
