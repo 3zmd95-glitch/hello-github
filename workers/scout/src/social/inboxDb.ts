@@ -180,8 +180,8 @@ export class InboxDb implements InboxApi {
         c.windowClosesAt,
         c.answeredBy,
       );
-    // A message keeps the sentBy it first got: the dashboard's send ("owner") and the auto replies ("auto") are
-    // written before the reader sees the message, and the reader's later reading of it never overrides them.
+    // A message keeps the sentBy it first got: the dashboard writes its own DM row before the reader sees the message,
+    // and the reader marks a message "auto" from the poll's send log on first sight; a later reading never overrides that.
     for (const m of b.messages ?? [])
       this.sql.all(
         `INSERT INTO messages VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(platform,id) DO UPDATE SET at=excluded.at, text=excluded.text,
