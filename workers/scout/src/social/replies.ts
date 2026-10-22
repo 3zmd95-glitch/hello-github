@@ -516,6 +516,19 @@ interface IgMe extends MetaError {
   user_id?: string | number;
   username?: string;
 }
+/** The professional account id (`user_id` of `GET /me`) for callers outside the poll, which also keeps the username. */
+export async function igUserIdOf(http: Http, token: string): Promise<string> {
+  const me = graph(
+    await fetchJson<IgMe>(
+      http,
+      `${IG_API}/me?fields=user_id,username&access_token=${encodeURIComponent(token)}`,
+    ),
+    "me",
+  );
+  if (me.user_id === undefined) throw new ReplyError("upstream", "me: no user_id");
+  return String(me.user_id);
+}
+
 interface IgMedia extends MetaError {
   id?: string;
   comments_count?: number | string;
