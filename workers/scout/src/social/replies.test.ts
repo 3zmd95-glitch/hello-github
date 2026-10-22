@@ -2023,12 +2023,13 @@ describe("cron tick", () => {
     expect(sync).not.toHaveProperty("replies");
   });
 
-  it("polls only the replies on minutes off the five-minute grid", async () => {
+  it("polls only the replies and reads the inbox on minutes off the five-minute grid", async () => {
     const env = makeEnv();
     await connect(env, "instagram");
     await seed(env, [input()]);
     const r = await runTick(env, tickAt("09:01"), { fetch: mockFetch(igRoutes().routes), now: NOW });
-    expect(r).toMatchObject({ replies: { sent: ["c1"] } });
+    // the test env has no INBOX_STORE binding, so the reader is called and skips
+    expect(r).toMatchObject({ replies: { sent: ["c1"] }, inbox: { skipped: "no_store" } });
     expect(r).not.toHaveProperty("publish");
   });
 

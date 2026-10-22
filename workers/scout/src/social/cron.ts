@@ -9,7 +9,7 @@
  * (planning/tools/19-category-trends.md), and the other grid ticks publish what is due. One
  * trigger rather than many also stays inside the free plan's cron limit (five per account). A publish tick
  * that moved nothing also polls the auto replies: the two never share one tick, so each keeps its full
- * budget.
+ * budget. The ticks off the grid also run the inbox reader (inboxReader.ts) after the replies poll.
  */
 
 import { CATEGORY_SLOTS, categoriesForDay } from "../categories/defs";
@@ -19,6 +19,7 @@ import type { EffectsEnv } from "../effects/sources";
 import { utcDay } from "../trends/kv";
 import { runTrends, summarize, type TrendsRunSummary } from "../trends/run";
 import type { TrendKind, TrendsEnv } from "../trends/types";
+import { readInboxTick, type InboxReadResult } from "./inboxReader";
 import { runDue, type RunResult } from "./publish";
 import { pollReplies, type PollResult } from "./replies";
 import type { SocialEnv } from "./store";
@@ -61,7 +62,7 @@ export type TickResult =
   | { trends: TrendsRunSummary }
   | { effects: { status: string; items: number; notes?: string[] } }
   | { category: { id: string; status: string; items: number; notes?: string[] } }
-  | { replies: PollResult };
+  | { replies: PollResult; inbox?: InboxReadResult };
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -84,9 +85,12 @@ export async function runTick(
   deps: SyncDeps = {},
 ): Promise<TickResult> {
   const now = deps.now ?? new Date(scheduledTime);
-  // Off the five-minute grid only the replies run (every sync, effects, category and trend slot sits on the grid).
+  // Off the five-minute grid only the replies and the inbox reader run (every sync, effects, category and trend slot
+  // sits on the grid). The reader's own budget (12 Graph calls) fits beside the replies' 30 subrequests.
   if (new Date(scheduledTime).getUTCMinutes() % 5 !== 0) {
-    return { replies: await pollReplies(env, { fetch: deps.fetch, now, fiveMinuteTick: false }) };
+    const replies = await pollReplies(env, { fetch: deps.fetch, now, fiveMinuteTick: false });
+    const inbox = await readInboxTick(env, { fetch: deps.fetch, now: () => now });
+    return { replies, inbox };
   }
   const platform = SYNC_SLOTS[utcSlot(scheduledTime)];
   if (platform) return { sync: await syncIfConnected(env, platform, deps) };
