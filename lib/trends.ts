@@ -9,7 +9,6 @@ import {
   type TrendRegion,
   type TrendsState,
 } from "./domain";
-import { discoverGenreHref } from "./genres";
 import type { MessageKey } from "./i18n";
 import { addDays, daysBetween } from "./streak";
 
@@ -229,15 +228,6 @@ export function savedTrendIdea(ideas: readonly Idea[], item: TrendItem): Idea | 
 export function trendGenreLabel(id: string, genres: readonly Genre[], lang: Lang): string {
   const genre = genres.find((g) => g.id === id);
   return genre ? `${genre.emoji} ${genre.name[lang]}` : id;
-}
-
-/**
- * Where a row's genre chip goes: Discover opened on that genre (lib/genres' `discoverGenreHref`), the one
- * place for edit genres. Undefined for an id the app does not know: Discover has no chip for it, so the
- * radar's chip stays plain text.
- */
-export function trendGenreHref(id: string, genres: readonly Genre[]): string | undefined {
-  return genres.some((g) => g.id === id) ? discoverGenreHref(id) : undefined;
 }
 
 /* ---------- Saudi moments calendar ---------- */

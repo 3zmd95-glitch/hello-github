@@ -157,7 +157,7 @@ export default function GrowthScreen() {
               )}
             </div>
             <Link
-              href="/settings/#accounts"
+              href="/social/settings/#accounts"
               className="px-btn no-underline"
               data-testid="growth-connect-link"
             >

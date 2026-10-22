@@ -1,7 +1,6 @@
 "use client";
 
 import { Search, Star, X } from "lucide-react";
-import Link from "next/link";
 import { fmtCount } from "@/components/social/growth/format";
 import PlatformBadge from "@/components/ui/ios/PlatformBadge";
 import type { TrendItem } from "@/lib/domain";
@@ -20,17 +19,14 @@ import TrendActions, { calendarPlatformOf, type PlannedPost } from "./TrendActio
  * carries the unit), and a source without a known unit shows no volume. `data-genre` carries the row's edit-genre
  * id (round 31) when the Worker's keyword scan set one, and the row names it in a chip (`genreLabel`: "🚗 سيارات",
  * shown without its emoji: Social chips carry none, the genre's emoji stays Discover's).
- * Discover is the one place for genres, so for a genre the app knows the chip is a link that opens Discover on it
- * (`genreHref`), looking like the row's other chips; its accessible name says where it goes (`trends.genreOpen`)
- * and its tap area reaches a little above and below the chip, which is small for a thumb. An id the app does not
- * know stays a plain chip with the raw id. The row's own text (title, why) takes its own direction and stays
+ * The chip is plain: Discover is a Training route and nothing in Social links out of Social (tools/20). An id the
+ * app does not know shows the raw id. The row's own text (title, why) takes its own direction and stays
  * aligned with the row.
  */
 export default function TrendRow({
   item,
   star,
   genreLabel,
-  genreHref,
   onDismiss,
   onPlanned,
 }: {
@@ -38,8 +34,6 @@ export default function TrendRow({
   star: boolean;
   /** The name of the row's genre (lib/trends `trendGenreLabel`); none for a row without a genre. */
   genreLabel?: string;
-  /** Discover opened on the row's genre (lib/trends `trendGenreHref`); none for a genre the app does not know. */
-  genreHref?: string;
   onDismiss: () => void;
   onPlanned: (post: PlannedPost) => void;
 }) {
@@ -116,28 +110,16 @@ export default function TrendRow({
           <span className="px-chip" data-testid="trend-platform">
             {t(`trends.platform.${item.platform}`)}
           </span>
-          {genre &&
-            (genreHref ? (
-              <Link
-                href={genreHref}
-                className="px-chip ios-hit no-underline"
-                aria-label={t("trends.genreOpen", { genre })}
-                title={t("trends.genreOpen", { genre })}
-                data-testid="trend-genre"
-                data-genre={item.genre}
-              >
-                {genre}
-              </Link>
-            ) : (
-              <span
-                className="px-chip"
-                title={withoutEmoji(t("genres.label"))}
-                data-testid="trend-genre"
-                data-genre={item.genre}
-              >
-                {genre}
-              </span>
-            ))}
+          {genre && (
+            <span
+              className="px-chip"
+              title={withoutEmoji(t("genres.label"))}
+              data-testid="trend-genre"
+              data-genre={item.genre}
+            >
+              {genre}
+            </span>
+          )}
           {item.growthPct !== undefined && item.growthPct > 0 && (
             <span className="px-chip px-chip-t1 num" data-testid="trend-growth">
               {t("trends.growth", { n: fmtCount(Math.round(item.growthPct)) })}

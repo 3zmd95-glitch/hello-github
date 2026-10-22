@@ -136,7 +136,7 @@ export default function AutoRepliesScreen() {
   };
 
   const settingsLink = (
-    <Link href="/settings#accounts" className="px-link">
+    <Link href="/social/settings#accounts" className="px-link">
       {t("replies.needWorkerLink")}
     </Link>
   );
