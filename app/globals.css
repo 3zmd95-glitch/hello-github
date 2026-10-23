@@ -3910,3 +3910,57 @@ html {
     border: 0;
   }
 }
+
+/*
+ * 📄 Media-kit page (planning/tools/09 D2): the sheet brands read. Always a light page whatever the app's scheme: the
+ * light Social tokens are re-declared on the sheet itself, so every token utility inside it (text-ink-2, bg-panel-2…)
+ * resolves light on screen and on paper. A4 through a named page, so other pages keep printing as before; its
+ * container query (`@container`) lays the blocks out by the sheet's own width, which is the page width in print.
+ */
+@page kit {
+  size: A4;
+  margin: 12mm;
+}
+.kit-paper {
+  page: kit;
+  container-type: inline-size;
+  color-scheme: light;
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f2f3f6;
+  --panel-3: #e4e7ec;
+  --fill: #e4e7ec;
+  --edge: rgba(16, 22, 30, 0.1);
+  --hair: rgba(16, 22, 30, 0.1);
+  --ink: #0b0d10;
+  --ink-2: #555d69;
+  --muted: #676f7d;
+  --tint: #0e7443;
+  --tint-bg: rgba(18, 138, 81, 0.12);
+  --gold: #945700;
+  --warn: #945700;
+  --warn-bg: rgba(184, 110, 0, 0.12);
+  --pc-snapchat: #e6c700;
+  --pc-x: #0b0d10;
+  --pc-threads: #0b0d10;
+  background: #ffffff;
+  color: var(--ink);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+@media screen {
+  .kit-paper {
+    width: 100%;
+    max-width: 794px; /* A4 at 96 dpi */
+    margin-inline: auto;
+    padding: 20px;
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+  }
+}
+@media print {
+  .kit-paper {
+    padding: 0;
+    border-radius: 0;
+  }
+}

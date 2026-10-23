@@ -9,8 +9,8 @@ amendments: `planning/collaboration/dashboard-remaining-tools-handoff.md` ("DT-5
 
 - **Media kit tab** — tagline, about, public contact, services (≤ 8), rate card (≤ 12, the owner's own price or
   "ask me"), past work (≤ 12, https links), which platforms to show. Autosaves like the CMS and workflow editors.
-- **Your numbers** — per platform, read from Growth, each with its source line. Nothing is added up.
-- **Price estimator** — the owner's own assumptions, labelled "Estimate from your own assumptions · not a market rate".
+- **Your numbers** — per platform, read from Growth, each with its source line. The media-kit page adds the fresh counts up (stale ones left out; Oct 23 addendum).
+- **Rates tab** — the private calculator `(followers ÷ 1000 × rate + views ÷ 1000 × rate) × deliverable multiplier`; replaced the old estimator on Oct 23 (see the addendum). Never printed or exported.
 - **Preview / Print / Save as PDF / Export JSON** — built from the editor's current draft.
 - **Brand deals tab** — brand, contact, stage (lead → talking → offer → agreed → delivered → paid, or lost),
   deliverable, value, notes. Filter by stage, inline edit. Deals are never deleted; "lost" keeps the history.
@@ -41,19 +41,16 @@ Everything lives on this device (`localStorage`, same store as the rest of the a
     excluded). Engagement counts only posts with views (the Growth average's own denominator);
   - `none` → "No number yet".
 - A snapshot older than 30 days is marked stale. Snapshot `views30d` (0 when unknown) is never shown or exported.
-- No pooled or total figure anywhere (the "All" averages of Growth are not used).
+- Per-platform tiles carry no pooled averages (the "All" averages of Growth are not used); the media-kit page shows one total of the fresh follower counts (Oct 23).
 
-## Estimator (the owner's assumptions)
+## Estimator (history)
 
-`SAR ≈ followers ÷ 1000 × SAR-per-1000 × (1 + engagement weight × engagement% ÷ 100) × deliverable weight`,
-rounded to 50 SAR. Defaults (15 SAR per 1000, weight 1, post 1 / story 0.5 / reel 1.5 / video 2) are placeholders the
-owner edits; the UI shows the full calculation line. One platform at a time, never pooled. Without a follower count
-there is no estimate. The estimator is never exported.
+The engagement-weighted estimator of DT-5 was replaced on Oct 23 by the Rates tab (`lib/rates.ts`): see the addendum below. It stays private and silent while the rates are still the placeholders.
 
 ## Export, print, preview
 
-- `kitProjection` builds the public file field by field (allowlist): kit text, contact, services, rate card, past
-  work, per-platform metrics with provenance. Never deals (contacts, notes, values), the estimator, settings, keys,
+- `kitProjection` builds the public file field by field (allowlist): kit text, contact, services, past work,
+  per-platform metrics with provenance — no rate card since Oct 23 (rates are private). Never deals (contacts, notes, values), the estimator, settings, keys,
   raw snapshots, ids or commit data. Deep-key tests guard this.
 - Preview, Print and Export use the editor's **current draft**. While it is not saved (pending, failed, conflict) the
   page says so and the file name ends in `-unsaved` (`3z-prod-media-kit-<day>-unsaved.json`).
@@ -62,8 +59,8 @@ there is no estimate. The estimator is never exported.
   its ancestors is `display: none`, and the ancestors collapse to plain blocks, so the printed page is exactly as tall
   as the kit (DT-5-R1 R7: `visibility: hidden` kept the editor's height and printed two blank A4 pages).
 - Brand-deal reply draft (DT-5-R1): "Draft reply" on a deal builds a bilingual text (Arabic, then English) from the
-  deal (brand, deliverable, value) and the kit (services; the rate-card price for the deliverable, else the owner's
-  estimator when the deliverable names a kind and a follower snapshot exists, else no price). Editable, Copy, saved on
+  deal (brand, deliverable, value) and the kit (services; the Rates-tab calculator's estimate when the owner has edited the
+  placeholder rates, the deliverable names a kind and a fresh follower snapshot exists, else no price). Editable, Copy, saved on
   the deal (`replyDraft`, ≤ 2000) through the deal's commit; labelled a draft; nothing is sent, no AI. DT-5-R2: a
   Save or Copy acknowledges only in the panel session it started in (closing and reopening the deal starts a new
   one) and only for the text it handled: newer text typed while a save waited stays unsaved, saveable against the
@@ -123,3 +120,47 @@ and the raw run / cancel path segment; zero provider calls.
   DT-5 limit (DT-7).
 - Search-before-building: print-to-PDF uses the browser (a PDF library would add a dependency for no gain); SHA-256 is
   a small pure function because Web Crypto's digest is async and the id is needed synchronously; no new dependency.
+
+## Addendum, Oct 23 2026: media kit page (D2) and rate calculator (D3), both inside the dashboard
+
+Roadmap rows D2 and D3 of `09-metricool-beacons.md`; scout plan `04-money-links.md` (only these two parts: no public site, no
+domain, no email, no store, no click tracking until the owner decides). The scout called Business a placeholder; the code
+already had the kit editor and deals board above, so this adds to them.
+
+- **Media kit page** `/social/business/media-kit/` (`MediaKitScreen` + `MediaKitPaper`, pure numbers in `lib/mediaKit.ts`).
+  A light A4 sheet in Arabic or English (its own switch; the app keeps its language), built only from what the app stores:
+  the saved kit text and contact, `kitMetrics` per platform (followers, engagement, average views, likes, each with its
+  source: snapshot day with its year or "posts sampled"; a dash where missing; stale chip), a followers total that is a
+  plain sum of the saved counts from snapshots no older than 30 days and says "platforms counted n of m" (a stale count
+  stays on its tile, marked old, but is left out of the total and the hero chips), audience from `demographics` (gender, age buckets, top 5 countries,
+  newest day per dimension, nothing dated after today), the 6 newest imported posts (no stories, nothing from the future),
+  services, past work and case studies (https links only) and a Work-with-me card (mailto of the kit's email). Block switches
+  (`businessPrefs.blocks`) and the page name (`businessPrefs.name`, else the first saved handle) live in the store; an empty
+  block is left out and the switch says "nothing to show yet". Brand partners are not a block (no data to read; past work
+  carries the case studies). No photo yet (the pixel avatar is a game look): a monogram stands in.
+- **Rates are private (ruled, scout decision 5a).** No printed or exported kit shows a price. The page's rates block only says
+  "rates on request"; the editor's preview (also a print root) lost its rates block; the JSON export lost its `rateCard`
+  (the file is the future public projection); the editor's second print button is now a link to this page. Tests scan the
+  sheet, the preview and the export for prices. The editor's **Rate card** section stays (marked private): `dealRate` reads
+  it for the deal replies.
+- **Print / PDF.** The sheet is the page's print root (the DT-5 `[data-print-root]` rules hide everything else), re-declares the
+  light tokens on itself so it is white even in the dark look, and uses a named `@page kit { size: A4; margin: 12mm }` so other
+  pages print as before. "Export PDF" is `window.print()`. Checked: `page.pdf({ preferCSSPageSize })` gives 595 × 842 pt.
+- **Search-before-building.** PDF libraries (jsPDF, pdfmake) do not join or reorder Arabic without add-ons, and a Worker PDF
+  (Browser Rendering) is for the public site later; browser print gives correct Arabic at zero cost. Adopted: print CSS.
+- **Rate calculator** (Business › Rates tab, `lib/rates.ts`). `SAR = (followers ÷ 1000 × SAR per 1000 followers + average
+  views ÷ 1000 × SAR per 1000 views) × multiplier`, one platform at a time, rounded to 10 SAR below 500 and 50 SAR above
+  (never 0 for a positive amount). Defaults 15 and 20 SAR per 1000, multipliers reel 1.5, story 0.5, post 1, bundle 2.5
+  (reel + story + post together): placeholders, edited by the owner, labelled "not a market rate", kept in the store
+  (`businessPrefs.rates`, part of backups). No follower count = no quote; missing average views are not guessed (followers only,
+  said on screen). The scout's "followers × average views × deliverable" is read as this sum, not a product (a product of the
+  two would be millions).
+- **One price source.** The old engagement-based estimator is gone from the kit tab. The brand-deal reply draft (`dealRate`)
+  quotes the rate-card row, else the same calculator, but only once the owner has edited at least one assumption: while all
+  numbers are still the placeholders there is no "starting estimate" in the reply (the Rates tab says so). A
+  "bundle/package" deliverable is its own kind; a plain "video" has no kind and gets no estimate. `BusinessKit.estimator`
+  stays in the schema, unread and never edited, so old saves and backups still load.
+- **Not done.** D3: add-ons (paid usage, organic usage, whitelisting, exclusivity, link in bio), a minimum price (floor), the
+  scout's per-platform CPM defaults from the owner's real rates. D2: public URL and domain, the contact form behind "Work with
+  me" (a mailto link stands in), a brand-partners list, a photo (a monogram stands in), publishing a refreshed kit anywhere,
+  a server-made PDF. Safari's support for the named A4 page is unchecked.

@@ -8,23 +8,28 @@ import {
 import { isHttpsUrl } from "./articles";
 import {
   BusinessKitSchema,
+  DEFAULT_RATE_SETTINGS,
   PLATFORMS,
   type BrandDeal,
   type BusinessKit,
-  type KitDeliverable,
   type Platform,
+  type RateDeliverable,
+  type RateSettings,
   type SocialAccount,
   type SocialPostStat,
   type SocialSnapshot,
 } from "./domain";
+import { isStartingRates, rateQuote } from "./rates";
 import { dayKey, daysBetween } from "./streak";
 
 /**
- * 💼 Business Kit (packet DT-5, planning/tools/35-business-kit.md): the media kit's numbers, checks, the owner's
- * price estimator and the public projection. Pure. Every metric is per platform and keeps its own provenance — a
- * saved Growth snapshot with the day it was observed, or the imported posts it was averaged over (count and date
- * range), or missing. Nothing is pooled or totalled, and a snapshot's `views30d` (0 when unknown) is never shown.
- * `snapshotSource()` (lib/socialSync) is not used: it infers "live" and is no evidence for a public claim.
+ * 💼 Business Kit (packet DT-5, planning/tools/35-business-kit.md): the media kit's numbers, checks, the deal reply's
+ * price (rate card, else the rate calculator in lib/rates) and the shareable projection. Pure. Every metric is per
+ * platform and keeps its own provenance: a saved Growth snapshot with the day it was observed, or the imported posts
+ * it was averaged over (count and date range), or missing. Nothing is pooled here (the media-kit page's followers
+ * total is lib/mediaKit) and a snapshot's `views30d` (0 when unknown) is never shown. The projection never carries
+ * prices: the rate card is private. `snapshotSource()` (lib/socialSync) is not used: it infers "live" and is no
+ * evidence for a public claim.
  */
 
 /** A snapshot older than this many days is shown as stale. */
@@ -143,59 +148,6 @@ export function kitIssues(kit: BusinessKit): KitIssue[] {
   return out;
 }
 
-/* ---------- The owner's estimator (assumptions, never a market rate) ---------- */
-
-export interface RateExplain {
-  followers: number;
-  perThousand: number;
-  engagementPct: number | null;
-  /** 1 + multiplier × engagement% / 100 (1 when engagement is unknown). */
-  engagementFactor: number;
-  weight: number;
-  raw: number;
-  /** Rounded to the nearest 50 SAR. */
-  sar: number;
-}
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
-
-/**
- * followers ÷ 1000 × SAR per 1000 × engagement factor × deliverable weight, every factor the owner's own setting.
- * Null without a follower count.
- */
-export function estimateExplain(
-  estimator: BusinessKit["estimator"],
-  followers: number | null,
-  engagementPct: number | null,
-  deliverable: KitDeliverable,
-): RateExplain | null {
-  if (followers === null || !(followers > 0)) return null;
-  const engagementFactor =
-    engagementPct === null ? 1 : 1 + (estimator.engagementMultiplier * engagementPct) / 100;
-  const weight = estimator.deliverable[deliverable];
-  const raw = round2(
-    (followers / 1000) * estimator.sarPerThousandFollowers * engagementFactor * weight,
-  );
-  return {
-    followers,
-    perThousand: estimator.sarPerThousandFollowers,
-    engagementPct,
-    engagementFactor,
-    weight,
-    raw,
-    sar: Math.round(raw / 50) * 50,
-  };
-}
-
-export function estimateRate(
-  estimator: BusinessKit["estimator"],
-  followers: number | null,
-  engagementPct: number | null,
-  deliverable: KitDeliverable,
-): number | null {
-  return estimateExplain(estimator, followers, engagementPct, deliverable)?.sar ?? null;
-}
-
 /* ---------- Public projection ---------- */
 
 /** What the projection reads; anything else a caller passes (deals, settings, keys…) is ignored. */
@@ -218,7 +170,6 @@ export interface KitProjection {
   bio: Bi;
   contact: { email: string; website: string; location: Bi };
   services: { name: Bi; desc: Bi }[];
-  rateCard: { deliverable: Bi; platform?: Platform; priceSar: number | null; note: Bi }[];
   pastWork: { title: Bi; url: string; platform?: Platform; day?: string }[];
   metrics: KitMetric[];
 }
@@ -229,8 +180,9 @@ export function emptyKit(): BusinessKit {
 }
 
 /**
- * The shareable kit, built field by field (an allowlist): the owner's public text, rate card, past work and the
- * per-platform metrics with provenance. Never deals, the estimator, settings, keys, raw snapshots or ids.
+ * The shareable kit, built field by field (an allowlist): the owner's public text, past work and the per-platform
+ * metrics with provenance. Never prices (the rate card is private), deals, the estimator, settings, keys, raw
+ * snapshots or ids.
  */
 export function kitProjection(state: KitSource, now: Now = new Date()): KitProjection {
   const kit = state.businessKit ?? emptyKit();
@@ -248,12 +200,6 @@ export function kitProjection(state: KitSource, now: Now = new Date()): KitProje
       location: bi(kit.contact.location),
     },
     services: kit.services.map((s) => ({ name: bi(s.name), desc: bi(s.desc) })),
-    rateCard: kit.rateCard.map((r) => ({
-      deliverable: bi(r.deliverable),
-      ...(r.platform ? { platform: r.platform } : {}),
-      priceSar: r.priceSar,
-      note: bi(r.note),
-    })),
     pastWork: kit.pastWork.map((w) => ({
       title: bi(w.title),
       url: w.url,
@@ -279,26 +225,27 @@ export function kitFileName(now: Date = new Date(), unsaved = false): string {
 
 /* ---------- Brand-deal reply draft (DT-5-R1: local, editable, never sent) ---------- */
 
-/** A price the draft may quote: the owner's rate-card row for the deliverable, or the estimator's guess. */
+/** A price the draft may quote: the owner's rate-card row for the deliverable, or the rate calculator's guess. */
 export type DealRate = { kind: "card" | "estimate"; sar: number };
 
-/** The estimator's deliverable kinds as a brand writes them (first match wins: a "reel video" is a reel). */
-const KIND_WORDS: readonly [KitDeliverable, RegExp][] = [
+/** The calculator's deliverable kinds as a brand writes them (first match wins: a "reel and story bundle" is one). */
+const KIND_WORDS: readonly [RateDeliverable, RegExp][] = [
+  ["bundle", /bundle|package|باقة|باقه/i],
   ["reel", /reel|ريل/i],
   ["story", /stor(?:y|ies)|ستوري|قصة|قصص/i],
-  ["video", /video|فيديو/i],
   ["post", /post|منشور|بوست/i],
 ];
 
 /**
  * The price for a deal's deliverable: a priced rate-card row whose name (either language) the deliverable mentions;
- * else, when the deliverable names a kind and a saved follower count exists, the owner's estimator. Null otherwise
- * (no number is made up).
+ * else, when the deliverable names a kind and a saved follower count exists, the rate calculator with the owner's
+ * assumptions (`rates`, lib/rates). Null otherwise (no number is made up).
  */
 export function dealRate(
   deal: Pick<BrandDeal, "deliverable">,
   kit: BusinessKit,
   metrics: readonly KitMetric[],
+  rates: RateSettings = DEFAULT_RATE_SETTINGS,
 ): DealRate | null {
   const wanted = deal.deliverable.trim().toLowerCase();
   if (!wanted) return null;
@@ -311,16 +258,18 @@ export function dealRate(
       }),
   );
   if (row?.priceSar != null) return { kind: "card", sar: row.priceSar };
+  // Placeholder numbers are not the owner's price: no estimate until one assumption has been edited.
+  if (isStartingRates(rates)) return null;
   const kind = KIND_WORDS.find(([, re]) => re.test(wanted))?.[0];
   const m = metrics.find((x) => x.followers.source === "snapshot");
   if (!kind || !m || m.followers.source !== "snapshot") return null;
-  const sar = estimateRate(
-    kit.estimator,
+  const quote = rateQuote(
+    rates,
     m.followers.value,
-    m.engagement.source === "none" ? null : m.engagement.value,
+    m.avgViews.source === "none" ? null : m.avgViews.value,
     kind,
   );
-  return sar === null ? null : { kind: "estimate", sar };
+  return quote === null ? null : { kind: "estimate", sar: quote.sar };
 }
 
 /** The reply draft's limit (BrandDealSchema.replyDraft). */

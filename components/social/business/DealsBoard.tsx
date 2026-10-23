@@ -92,7 +92,7 @@ function draftFor(deal: BrandDeal): string {
     new Date(),
     kit.featuredPlatforms.length ? kit.featuredPlatforms : undefined,
   );
-  return dealReplyDraft(deal, kit, dealRate(deal, kit, metrics));
+  return dealReplyDraft(deal, kit, dealRate(deal, kit, metrics, s.businessPrefs.rates));
 }
 
 type Reply = {

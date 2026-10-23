@@ -79,20 +79,6 @@ function Column({ lang, p }: { lang: Lang; p: KitProjection }) {
         </p>
       ))}
 
-      {p.rateCard.length > 0 && <h3 className={h}>{t("business.kit.rates")}</h3>}
-      {p.rateCard.map((r, i) => (
-        <p key={i}>
-          {r.deliverable[lang]}
-          {r.platform && <> · {PLATFORM_META[r.platform].name[lang]}</>}:{" "}
-          <bdi>
-            {r.priceSar === null
-              ? t("business.price.ask")
-              : t("business.price.sar", { n: r.priceSar })}
-          </bdi>
-          {r.note[lang] && <small className="text-ink-2"> · {r.note[lang]}</small>}
-        </p>
-      ))}
-
       {p.pastWork.length > 0 && <h3 className={h}>{t("business.kit.work")}</h3>}
       {p.pastWork.map((w, i) => {
         const title = w.title[lang] || w.title[lang === "ar" ? "en" : "ar"];

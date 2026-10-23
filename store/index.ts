@@ -55,8 +55,11 @@ import {
   WorkflowSchema,
   BrandDealSchema,
   BusinessKitSchema,
+  BusinessPrefsSchema,
+  DEFAULT_BUSINESS_PREFS,
   type BrandDeal,
   type BusinessKit,
+  type BusinessPrefs,
   type DealStage,
   type Article,
   type ArticleStatus,
@@ -1010,6 +1013,10 @@ export const PersistedStateSchema = z.object({
   /** When each conversation or post was last opened (ISO), by lib/inbox seenKey; unread = newer than this. */
   inboxSeen: z.record(z.string(), z.string()).default({}),
   inboxTab: InboxTabSchema.default("all"),
+  /* 💼 Business screen settings that are not the kit's text (planning/tools/09 D2, D3). */
+  /** The media-kit page's name and block switches, and the rate calculator's assumptions (private: never printed or
+   published; the app's backup file includes them). */
+  businessPrefs: BusinessPrefsSchema.default(DEFAULT_BUSINESS_PREFS),
 });
 export type PersistedState = z.infer<typeof PersistedStateSchema>;
 
@@ -1805,6 +1812,8 @@ export interface StoreActions {
   pruneInboxSeen(keep: string[]): void;
   /** No-op for anything but a known tab. */
   setInboxTab(tab: "all" | "instagram" | "tiktok"): void;
+  /** Business: the whole prefs object, validated; false (nothing changes) when it does not parse. */
+  setBusinessPrefs(prefs: BusinessPrefs): boolean;
 
   completeQuest(skillId: string, quest: QuestType, proofUrl?: string, now?: Date): CompleteResult;
   uncompleteQuest(skillId: string, quest: QuestType): void;
@@ -1958,6 +1967,7 @@ const initialData = (): PersistedState => ({
   inboxInstagramDmControls: {},
   inboxSeen: {},
   inboxTab: "all",
+  businessPrefs: DEFAULT_BUSINESS_PREFS,
 });
 
 const newId = (): string =>
@@ -3919,6 +3929,7 @@ const pick = (s: PersistedState): PersistedState => ({
   cloudReconciliation: s.cloudReconciliation,
   inboxSeen: s.inboxSeen,
   inboxTab: s.inboxTab,
+  businessPrefs: s.businessPrefs,
 });
 
 /** Localize without importing lib/i18n (which imports this store). */
@@ -6465,6 +6476,12 @@ export const useStore = create<StoreState>()(
       setInboxTab(tab) {
         const parsed = InboxTabSchema.safeParse(tab);
         if (parsed.success) set({ inboxTab: parsed.data });
+      },
+
+      setBusinessPrefs(prefs) {
+        const parsed = BusinessPrefsSchema.safeParse(prefs);
+        if (parsed.success) set({ businessPrefs: parsed.data });
+        return parsed.success;
       },
 
       exportState(now = new Date()) {

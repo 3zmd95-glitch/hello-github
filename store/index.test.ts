@@ -9,6 +9,7 @@ import { FREEZE_TOTAL_CAP } from "@/lib/streak";
 import { DRILL_XP, MASTERY_BONUS, REVIEW_XP, questXp } from "@/lib/xp";
 import {
   DEFAULT_AVATAR,
+  DEFAULT_BUSINESS_PREFS,
   EMPTY_SCRIPT,
   type Article,
   type Workflow,
@@ -6239,5 +6240,53 @@ describe("🗂 global inbox (seen marks and tab)", () => {
     bad.state.inboxTab = "threads";
     expect(() => S().importState(JSON.stringify(bad))).toThrow();
     expect(S().inboxTab).toBe("instagram");
+  });
+});
+
+describe("💼 business prefs (rate assumptions, kit page name and block switches)", () => {
+  it("starts with the default rates, every block on and no name", () => {
+    expect(S().businessPrefs).toEqual(DEFAULT_BUSINESS_PREFS);
+  });
+
+  it("setBusinessPrefs keeps a valid change and ignores an invalid one", () => {
+    const next = {
+      ...S().businessPrefs,
+      name: "3z Prod",
+      rates: { ...S().businessPrefs.rates, sarPerThousandViews: 35 },
+      blocks: { ...S().businessPrefs.blocks, posts: false },
+    };
+    expect(S().setBusinessPrefs(next)).toBe(true);
+    expect(S().businessPrefs).toEqual(next);
+    const bad = { ...next, rates: { ...next.rates, sarPerThousandViews: -5 } };
+    expect(S().setBusinessPrefs(bad)).toBe(false);
+    expect(S().setBusinessPrefs(undefined as never)).toBe(false);
+    expect(S().businessPrefs).toEqual(next);
+  });
+
+  it("persists, rehydrates, exports, imports and resets", async () => {
+    S().setBusinessPrefs({ ...S().businessPrefs, name: "Saved name" });
+    const raw = localStorage.getItem(STORAGE_KEY)!;
+    expect(JSON.parse(raw).state.businessPrefs.name).toBe("Saved name");
+
+    useStore.setState({ businessPrefs: DEFAULT_BUSINESS_PREFS }); // a fresh page (also persists)
+    localStorage.setItem(STORAGE_KEY, raw);
+    await hydrateStore();
+    expect(S().businessPrefs.name).toBe("Saved name");
+
+    const json = S().exportState();
+    expect(JSON.parse(json).state.businessPrefs.name).toBe("Saved name");
+    await S().reset();
+    expect(S().businessPrefs).toEqual(DEFAULT_BUSINESS_PREFS);
+    await S().importState(json);
+    expect(S().businessPrefs.name).toBe("Saved name");
+  });
+
+  it("hydrates an old save without the field", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { settings: DEFAULT_SETTINGS, completions: [] }, version: 1 }),
+    );
+    await hydrateStore();
+    expect(S().businessPrefs).toEqual(DEFAULT_BUSINESS_PREFS);
   });
 });

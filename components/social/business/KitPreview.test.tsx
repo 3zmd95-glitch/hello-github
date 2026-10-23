@@ -21,15 +21,6 @@ const projection: KitProjection = {
   bio: { ar: "", en: "Editor in Jeddah" },
   contact: { email: "hi@3z.example", website: "https://3z.example", location: { ar: "", en: "" } },
   services: [{ name: { ar: "مونتاج", en: "Editing" }, desc: { ar: "", en: "" } }],
-  rateCard: [
-    {
-      deliverable: { ar: "ريل", en: "Reel" },
-      platform: "instagram",
-      priceSar: 1500,
-      note: { ar: "", en: "" },
-    },
-    { deliverable: { ar: "ستوري", en: "Story" }, priceSar: null, note: { ar: "", en: "" } },
-  ],
   pastWork: [
     { title: { ar: "", en: "Launch ad" }, url: "https://x.example/ad" },
     { title: { ar: "", en: "Old one" }, url: "javascript:alert(1)" },
@@ -85,15 +76,35 @@ describe("KitPreview", () => {
     expect(en.textContent).toContain("From 3 posts · 2026-10-01–2026-10-12");
     expect(en.textContent).toContain("12.4K");
     expect(en.textContent).toContain("@3z.prod");
-    expect(en.textContent).toContain("1500 SAR");
-    expect(en.textContent).toContain("Ask me");
-    expect(ar.textContent).toContain("اسألني");
     // Only https links become links.
     const hrefs = [...en.querySelectorAll("a")].map((a) => a.getAttribute("href"));
     expect(hrefs).toContain("https://x.example/ad");
     expect(hrefs).not.toContain("javascript:alert(1)");
     expect(en.textContent).toContain("Old one");
     expect(el.textContent).not.toContain("Draft, not saved yet");
+  });
+
+  it("never prints a price: the rate card is private, even if a caller hands one over", async () => {
+    const withCard = {
+      ...projection,
+      rateCard: [
+        {
+          deliverable: { ar: "ريل", en: "Reel" },
+          priceSar: 1500,
+          note: { ar: "", en: "" },
+        },
+        { deliverable: { ar: "ستوري", en: "Story" }, priceSar: null, note: { ar: "", en: "" } },
+      ],
+    } as KitProjection;
+    await render();
+    const clean = host.querySelector<HTMLElement>("[data-print-root]")!.textContent;
+    act(() =>
+      root.render(createElement(KitPreview, { projection: withCard, unsaved: false, open: true })),
+    );
+    const el = host.querySelector<HTMLElement>("[data-print-root]")!;
+    expect(el.textContent).toBe(clean);
+    for (const price of ["1500", "1,500", "SAR", "ريال", "Ask me", "اسألني", "Reel", "ريل"])
+      expect(el.textContent).not.toContain(price);
   });
 
   it("says so when it shows a draft that is not saved yet", async () => {
