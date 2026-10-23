@@ -17,7 +17,10 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/social/inbox/" }));
 const T0 = "2026-10-22T10:00:00.000Z";
 const T1 = "2026-10-22T11:00:00.000Z";
 const T2 = "2026-10-22T12:00:00.000Z";
-/** When the tests' very first read happens (after every fixture time but T2's later news). */
+/**
+ * When the tests' very first read happens: after every fixture time, T2 included, so a row at T2 that a later read
+ * brings is new because it has no seen mark yet, not because it is newer than this read.
+ */
 const READ = "2026-10-22T13:00:00.000Z";
 /** A mark from an earlier visit: with it, a load is not the very first read (which takes everything as seen). */
 const EARLIER = { "instagram:post:earlier": T0 };
@@ -149,6 +152,12 @@ function configure(on = true) {
       scoutToken: on ? "t" : "",
     },
   });
+}
+
+/** "Now" is READ (only Date is faked), so the comments' T0–T2 times stay inside Instagram's 7-day private-reply window. */
+function clockAtRead() {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(READ));
 }
 
 let host: HTMLDivElement;
@@ -412,6 +421,7 @@ describe("InboxScreen", () => {
   });
 
   it("keeps one reply box per comment: switching to a private reply keeps its text and its pending send", async () => {
+    clockAtRead();
     serve({
       "GET /social/inbox/posts/instagram/m1/comments": {
         body: {
@@ -501,7 +511,8 @@ describe("InboxScreen", () => {
       expect(q(control, sheet), control).toBeNull();
   });
 
-  it("gives an Instagram comment its Reply, Reply privately and menu, and our own no private reply", async () => {
+  it("gives an Instagram comment its Reply, Reply privately and menu; ours and one over 7 days old no private reply", async () => {
+    clockAtRead();
     serve({
       "GET /social/inbox/posts/instagram/m1/comments": {
         body: {
@@ -509,6 +520,8 @@ describe("InboxScreen", () => {
           comments: [
             comment("k2", T1, { parentId: "k1", author: "3z", ours: true, sentBy: "owner" }),
             comment("k1", T0),
+            // Eight days before READ: Instagram no longer takes a private reply.
+            comment("k0", "2026-10-14T13:00:00.000Z"),
           ],
           more: false,
           next: null,
@@ -521,12 +534,13 @@ describe("InboxScreen", () => {
     const sheet = q("inbox-post")!;
     const actions = (id: string) =>
       sheet.querySelector<HTMLElement>(`[data-testid="inbox-comment-actions"][data-id="${id}"]`)!;
-    for (const id of ["k1", "k2"]) {
+    for (const id of ["k0", "k1", "k2"]) {
       expect(q("inbox-reply-toggle", actions(id)), id).not.toBeNull();
       expect(q("inbox-comment-menu", actions(id)), id).not.toBeNull();
     }
     expect(q("inbox-private-toggle", actions("k1"))).not.toBeNull();
     expect(q("inbox-private-toggle", actions("k2"))).toBeNull();
+    expect(q("inbox-private-toggle", actions("k0"))).toBeNull();
   });
 
   it("loads older conversations and posts with the Worker's cursor, and a poll keeps them", async () => {
@@ -775,6 +789,14 @@ describe("InboxScreen", () => {
     await mount();
     expect(q("inbox-not-available")!.textContent).toContain("الوركر القديم ما فيه الرسائل بعد");
     expect(q("inbox-messages")).toBeNull();
+  });
+
+  it("reads a Worker from before the inbox (a 404 on the overview) as not available yet", async () => {
+    serve({ "GET /social/inbox": { status: 404, body: { error: "not_found" } } });
+    await mount();
+    expect(q("inbox-not-available")!.textContent).toContain("الوركر القديم ما فيه الرسائل بعد");
+    expect(q("inbox-messages")).toBeNull();
+    expect(q("inbox-error")).toBeNull();
   });
 
   it("names any other failure in its own words", async () => {

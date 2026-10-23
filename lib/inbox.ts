@@ -32,6 +32,8 @@ export const IG_COMMENT_MAX = 2200;
 export const TT_COMMENT_MAX = 150;
 /** How often an open thread asks the Worker for news. */
 export const INBOX_POLL_MS = 15_000;
+/** Instagram takes a private reply within this many days of the comment (the Worker refuses later ones too). */
+export const PRIVATE_REPLY_DAYS = 7;
 
 export type InboxError = {
   type:

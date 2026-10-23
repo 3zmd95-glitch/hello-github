@@ -9,6 +9,7 @@ import type { InboxComment, InboxPost } from "@/lib/domain";
 import {
   DM_TEXT_BYTES,
   IG_COMMENT_MAX,
+  PRIVATE_REPLY_DAYS,
   inboxDelete,
   inboxErrorKey,
   inboxHide,
@@ -21,6 +22,10 @@ import { useT } from "@/lib/i18n";
 import { formatInstant } from "../calendar/dates";
 import ReplyBox from "./ReplyBox";
 import { currentConfig, useComments } from "./useInbox";
+
+/** Whether Instagram still takes a private reply to a comment written at `at` (read when the comment renders). */
+const privateReplyOpen = (at: string) =>
+  Date.now() - Date.parse(at) <= PRIVATE_REPLY_DAYS * 86_400_000;
 
 function CommentLine({ c }: { c: InboxComment }) {
   const { t, lang } = useT();
@@ -48,10 +53,11 @@ function CommentLine({ c }: { c: InboxComment }) {
 }
 
 /**
- * What the owner can do with one comment: reply, reply privately (a DM by the comment; not on our own), hide or show
- * it, and delete it when it is ours. One box per comment: the two toggles only switch its kind (reply or reply
- * privately), so the text and a pending send survive the switch; it closes with the active kind's toggle. Every
- * success reads the comments again (`onChanged`). TikTok has no sends yet, so its comments get no controls.
+ * What the owner can do with one comment: reply, reply privately (a DM by the comment; not on our own, and only within
+ * PRIVATE_REPLY_DAYS of it), hide or show it, and delete it when it is ours. One box per comment: the two toggles only
+ * switch its kind (reply or reply privately), so the text and a pending send survive the switch; it closes with the
+ * active kind's toggle. Every success reads the comments again (`onChanged`). TikTok has no sends yet, so its comments
+ * get no controls.
  */
 function CommentActions({ c, onChanged }: { c: InboxComment; onChanged: () => void }) {
   const { t } = useT();
@@ -86,7 +92,7 @@ function CommentActions({ c, onChanged }: { c: InboxComment; onChanged: () => vo
         >
           {t("inbox.reply")}
         </button>
-        {!c.ours && (
+        {!c.ours && privateReplyOpen(c.at) && (
           <button
             type="button"
             className="px-btn px-btn-ghost px-btn-sm"

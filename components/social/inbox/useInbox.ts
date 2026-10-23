@@ -189,7 +189,8 @@ export function loadInbox({
       inboxConversations(cfg, {}),
       inboxPosts(cfg, {}),
     ]);
-    if (!o.ok) return fail(o.error);
+    // The overview's path always exists on an inbox Worker: its 404 is a Worker from before the inbox.
+    if (!o.ok) return fail(o.error.type === "not_found" ? { type: "not_available" } : o.error);
     if (!c.ok) return fail(c.error);
     if (!p.ok) return fail(p.error);
     const conversations = byPeer(

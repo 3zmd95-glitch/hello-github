@@ -136,6 +136,9 @@ const COMMENTS = [
   }),
 ];
 
+/** "Now" for the cases that look at "Reply privately": inside the comments' 7-day window, whatever today is. */
+const COMMENTS_NOW = new Date("2026-10-22T10:00:00.000Z");
+
 /** The cursors the fake hands out as `next`; the page must send them back unchanged as `before`. */
 const CONVERSATIONS_NEXT = "2026-10-22T09:05:00.000Z|t1";
 const THREAD_NEXT = "2026-10-22T09:00:00.000Z|m-1";
@@ -723,6 +726,7 @@ test("a send that may have gone out keeps the text and says so", async ({ page }
 test("a comment is answered in public and in private, and hidden then shown again", async ({
   page,
 }) => {
+  await page.clock.setFixedTime(COMMENTS_NOW);
   const fake = await stubWorker(page);
   await freshState(page, "/settings/");
   await connectWorker(page);
@@ -780,7 +784,29 @@ test("a comment is answered in public and in private, and hidden then shown agai
   expect(await fitsViewport(page)).toBe(true);
 });
 
+test("no private reply is offered on a comment older than 7 days: Instagram would refuse it", async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(COMMENTS_NOW);
+  const fake = await stubWorker(page);
+  fake.comments = [
+    ...COMMENTS,
+    comment("c9", "2026-10-14T09:00:00.000Z", { author: "old_friend", text: "قديم" }),
+  ];
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  await page.goto("/social/inbox/");
+  await page.getByTestId("inbox-post-row").click();
+  const sheet = page.getByTestId("inbox-post");
+  await expect(sheet.getByTestId("inbox-comment")).toHaveCount(4);
+  await expect(actionsOf(sheet, "c1").getByTestId("inbox-private-toggle")).toBeVisible();
+  const old = actionsOf(sheet, "c9");
+  await expect(old.getByTestId("inbox-reply-toggle")).toBeVisible();
+  await expect(old.getByTestId("inbox-private-toggle")).toHaveCount(0);
+});
+
 test("Delete is offered on our own reply only, behind a confirmation", async ({ page }) => {
+  await page.clock.setFixedTime(COMMENTS_NOW);
   const fake = await stubWorker(page);
   await freshState(page, "/settings/");
   await connectWorker(page);
