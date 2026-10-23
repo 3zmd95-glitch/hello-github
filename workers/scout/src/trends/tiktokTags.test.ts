@@ -314,6 +314,40 @@ describe("runTikTokTags", () => {
     expect(out.items.filter((i) => i.region === "US").length).toBeGreaterThan(0);
   });
 
+  it("does not carry a failed region's expired rows forward: they end at their own expiry", async () => {
+    const gone: TrendItem = {
+      id: "tiktok:SA:tag-gone",
+      platform: "tiktok",
+      region: "SA",
+      lang: "ar",
+      title: "#gone",
+      source: SOURCE_LABELS.tiktok,
+      seenAt: "2026-10-18T09:00:00.000Z",
+      expiresAt: "2026-10-20T09:00:00.000Z",
+      tags: [],
+      kind: "hashtag",
+    };
+    const alive: TrendItem = {
+      ...gone,
+      id: "tiktok:SA:tag-alive",
+      expiresAt: "2026-10-24T09:00:00.000Z",
+    };
+    const out = await runTikTokTags(
+      ctx(
+        discovery({
+          lists: (region, industry) =>
+            region === "SA" ? json({ code: 40002, message: "no" }) : ok(DEFAULT_LISTS[industry]),
+        }),
+        { previous: [gone, alive] },
+      ),
+    );
+    expect(
+      rows(out)
+        .filter((i) => i.region === "SA")
+        .map((i) => i.id),
+    ).toEqual([alive.id]);
+  });
+
   it("an empty SA list is a failure of SA, not an empty region", async () => {
     const out = await runTikTokTags(
       ctx(

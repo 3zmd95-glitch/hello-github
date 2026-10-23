@@ -114,12 +114,22 @@ export default function SoundRitual() {
           </p>
           <ul className="flex flex-col gap-1 text-[13px]">
             {last.sounds.map((s) => (
-              <li key={s.id} dir="auto" data-testid="ritual-last-sound">
+              <li
+                key={s.id}
+                dir="auto"
+                className="[text-align:-webkit-match-parent] [text-align:match-parent]"
+                data-testid="ritual-last-sound"
+              >
                 {s.name}
               </li>
             ))}
             {last.formats.map((f) => (
-              <li key={f.id} dir="auto" className="text-ink-2" data-testid="ritual-last-format">
+              <li
+                key={f.id}
+                dir="auto"
+                className="text-ink-2 [text-align:-webkit-match-parent] [text-align:match-parent]"
+                data-testid="ritual-last-format"
+              >
                 {f.name}
               </li>
             ))}

@@ -29,6 +29,7 @@ import { hide, readAdsToken, type AdsToken } from "../tiktokads";
 import {
   DAY_MS,
   fetchText,
+  isExpired,
   isoPlus,
   langForRegion,
   oneLine,
@@ -226,10 +227,10 @@ export async function runTikTokTags(ctx: SourceCtx): Promise<SourceOutput> {
     const tags = mergeLists(lists, region);
     if (!tags.length) {
       if (lists.length) problems.push(`${region}: no hashtags`);
-      // The region's last rows stay until their own expiry.
+      // The region's last rows stay until their own expiry (a fresh row is never expiry-checked by the merge).
       items.push(
         ...(ctx.previous ?? []).filter(
-          (i) => i.source === SOURCE_LABELS.tiktok && i.region === region,
+          (i) => i.source === SOURCE_LABELS.tiktok && i.region === region && !isExpired(i, ctx.now),
         ),
       );
       continue;
