@@ -350,7 +350,10 @@ running transitions on the tab bar, and the Training Today page still has the pi
   `/social/settings`; Discover stays Training-only, so Social has no link to it.
 - Route transitions with React `<ViewTransition>` (Next 16 App Router) once the static-export behavior is verified.
 - Haptics are not available on the web; skip.
-- A manual appearance override (System · Light · Dark) in Settings if the owner asks.
+- ~~A manual appearance override (System · Light · Dark) in Settings if the owner asks.~~ Done 23 Oct 2026 (owner: "make the
+  website light and make it default"): `settings.appearance` = Light (default, also for older saves) · Dark · System, a row in
+  Social's quick settings (More and `/social/settings`); the shell mirrors it onto `<html data-scheme>`, the dark tokens key
+  on that instead of the phone, the boot script sets it before first paint, `theme-color` follows. Training unchanged.
 
 ## 13. Risks
 

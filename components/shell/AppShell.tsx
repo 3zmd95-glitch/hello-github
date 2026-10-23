@@ -12,6 +12,7 @@ import { confirmConnected, pullIfDue, syncSocialNow } from "@/components/social/
 import { useChrome } from "@/components/ui/ios/chrome";
 import { useScrollChrome } from "@/components/ui/ios/useScrollChrome";
 import { applySocialSeed } from "@/data/social-seed";
+import { resolveScheme, SOCIAL_BG } from "@/lib/appearance";
 import { useDocumentLang, useT } from "@/lib/i18n";
 import { scoutConfig } from "@/lib/scoutClient";
 import { PLATFORM_META } from "@/lib/social";
@@ -137,14 +138,36 @@ function SocialSyncAgent() {
   return null;
 }
 
-/** Keep `<html data-world>` in sync with the route and remember the last Social route for the switch. */
+/**
+ * Keep `<html data-world>` and `<html data-scheme>` in sync with the route and the Appearance setting (Social: light
+ * by default, dark, or the phone's scheme; globals.css keys its dark tokens on `data-scheme`), remember the last
+ * Social route for the switch, and point the browser bar's `theme-color` at Social's page color. The Social layout
+ * ships one tag per phone scheme; with Light or Dark chosen both get the chosen color, with System they stay as
+ * shipped (Next re-renders them on navigation, so this runs per route too).
+ */
 function useDocumentWorld(): void {
   const world = useWorld();
   const pathname = usePathname();
+  const appearance = useStore((s) => s.settings.appearance);
   useEffect(() => {
     document.documentElement.dataset.world = world;
     if (world === "social" && pathname) rememberSocialPath(pathname);
   }, [world, pathname]);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const scheme = resolveScheme(appearance, mq.matches);
+      document.documentElement.dataset.scheme = scheme;
+      if (world !== "social") return;
+      for (const m of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+        const own = m.media.includes("dark") ? SOCIAL_BG.dark : SOCIAL_BG.light;
+        m.content = appearance === "system" ? own : SOCIAL_BG[scheme];
+      }
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [appearance, world, pathname]);
 }
 
 function Splash() {

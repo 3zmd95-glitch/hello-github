@@ -195,6 +195,8 @@ export const DEFAULT_AVATAR: Avatar = {
 export const SettingsSchema = z.object({
   lang: LangSchema,
   sound: z.boolean(),
+  /** Social's look: light (the default, also for older saves), dark, or the phone's own scheme (tools/18 §12). */
+  appearance: z.enum(["light", "dark", "system"]).default("light"),
   reminderTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   gear: z.array(GearSchema),
   davinciEdition: z.enum(["studio", "free"]),

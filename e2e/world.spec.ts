@@ -157,6 +157,10 @@ test("Social stays Social: Settings opens /social/settings in the Social look, a
   await expect(page.getByTestId("gear-list")).toHaveCount(0);
   await expect(page.getByTestId("export")).toBeVisible();
   await expect(page.locator("main").getByTestId("lang-en")).toBeVisible();
+  await expect(page.locator("main").getByTestId("appearance-light")).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
   if (!isMobile) {
     await expect(nav.locator('a[href="/social/settings/"]')).toHaveAttribute("aria-current", "page");
     await expect(nav.locator('[aria-current="page"]')).toHaveCount(1);

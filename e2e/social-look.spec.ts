@@ -18,13 +18,27 @@ const SOCIAL_PATHS = [
 // Spec §3.1: --bg per scheme.
 const BG = { light: "rgb(242, 243, 246)", dark: "rgb(11, 13, 16)" } as const;
 
+/** Pick an Appearance on Social's settings page (tools/18 §12): the look no longer follows the phone by default. */
+async function pickAppearance(page: Page, which: "light" | "dark" | "system"): Promise<void> {
+  await page.goto("/social/settings/");
+  const option = page.locator("main").getByTestId(`appearance-${which}`);
+  await option.click();
+  await expect(option).toHaveAttribute("aria-checked", "true");
+}
+
 for (const scheme of ["light", "dark"] as const) {
   test.describe(`${scheme} scheme`, () => {
     test.use({ colorScheme: scheme });
     for (const path of SOCIAL_PATHS) {
       test(`${path} uses the iOS tokens and fits the screen`, async ({ page }) => {
         await freshState(page, path);
+        // Light is the default whatever the phone says; Dark is a choice.
+        if (scheme === "dark") {
+          await pickAppearance(page, "dark");
+          await page.goto(path);
+        }
         await expect(page.locator("html")).toHaveAttribute("data-world", "social");
+        await expect(page.locator("html")).toHaveAttribute("data-scheme", scheme);
         // Routes ship only the splash: wait for the screen so the fit check measures real content.
         await expect(page.locator("main h1").first()).toBeVisible();
         const css = await page.evaluate(() => {
@@ -182,8 +196,9 @@ test("theme-color follows the world and survives client navigation", async ({ pa
         (m) => `${m.getAttribute("media") ?? "all"} ${m.getAttribute("content")}`,
       ),
     );
-  // Social: the page color per scheme (spec §3.1 --bg); Training: the pixel navy of the root layout.
-  const social = ["(prefers-color-scheme: light) #f2f3f6", "(prefers-color-scheme: dark) #0b0d10"];
+  // Social: the page color of the chosen look on both of the layout's tags (Light by default, so both say light;
+  // with System each keeps its own scheme's color); Training: the pixel navy of the root layout.
+  const social = ["(prefers-color-scheme: light) #f2f3f6", "(prefers-color-scheme: dark) #f2f3f6"];
   await expect.poll(colors).toEqual(social);
   await page.locator('a[href="/social/more/"]:visible').first().click();
   await expect(page).toHaveURL(/\/social\/more\/$/);
@@ -194,6 +209,54 @@ test("theme-color follows the world and survives client navigation", async ({ pa
   await page.getByTestId("world-social").click();
   await expect(page.locator("html")).toHaveAttribute("data-world", "social");
   await expect.poll(colors).toEqual(social);
+
+  // Dark: both tags say dark. System: each tag keeps its own scheme's color.
+  await pickAppearance(page, "dark");
+  await expect.poll(colors).toEqual([
+    "(prefers-color-scheme: light) #0b0d10",
+    "(prefers-color-scheme: dark) #0b0d10",
+  ]);
+  await pickAppearance(page, "system");
+  await expect.poll(colors).toEqual([
+    "(prefers-color-scheme: light) #f2f3f6",
+    "(prefers-color-scheme: dark) #0b0d10",
+  ]);
+});
+
+test.describe("a dark phone", () => {
+  test.use({ colorScheme: "dark" });
+  test("Social is light by default; Dark and System are choices that survive a reload", async ({ page }) => {
+    await freshState(page, "/social/");
+    const html = page.locator("html");
+    const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    await expect(html).toHaveAttribute("data-scheme", "light");
+    expect(await bg()).toBe(BG.light);
+    // Training is untouched by the setting: its own dark pixel look, no scheme flip.
+    await page.getByTestId("world-training").click();
+    await expect(html).toHaveAttribute("data-world", "training");
+    await page.getByTestId("world-social").click();
+
+    await pickAppearance(page, "dark");
+    await expect(html).toHaveAttribute("data-scheme", "dark");
+    expect(await bg()).toBe(BG.dark);
+    await page.reload();
+    await expect(page.locator("main h1").first()).toBeVisible();
+    await expect(html).toHaveAttribute("data-scheme", "dark");
+    expect(await bg()).toBe(BG.dark);
+
+    // System follows the phone, live.
+    await pickAppearance(page, "system");
+    await expect(html).toHaveAttribute("data-scheme", "dark");
+    await page.emulateMedia({ colorScheme: "light" });
+    await expect(html).toHaveAttribute("data-scheme", "light");
+    expect(await bg()).toBe(BG.light);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await expect(html).toHaveAttribute("data-scheme", "dark");
+
+    await pickAppearance(page, "light");
+    await expect(html).toHaveAttribute("data-scheme", "light");
+    expect(await bg()).toBe(BG.light);
+  });
 });
 
 // Spec §11: Social's navigation, headings, tabs, buttons and chips carry no emoji. Allowed: the countdown's
