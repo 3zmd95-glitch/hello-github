@@ -44,6 +44,7 @@ import {
   trendId,
 } from "./normalize";
 import { healthTrends, parseRunBody } from "./routes";
+import { TIKTOK_REGIONS, TIKTOK_TAGS_PER_REGION } from "./tiktokTags";
 import { enabledSources, RUN_BUDGET, runTrends, SOURCES } from "./run";
 import {
   ALREADY_SCANNED,
@@ -339,7 +340,7 @@ describe("normalize", () => {
     ]);
   });
 
-  it("merge: replaces the ran sources' rows, keeps the others until expiry, caps at MAX_ITEMS (400)", () => {
+  it("merge: replaces the ran sources' rows, keeps the others until expiry, caps at MAX_ITEMS (450)", () => {
     const old = [
       item({ id: "google:SA:old", score: 10 }),
       item({ id: "youtube:SA:v1", platform: "youtube", source: SOURCE_LABELS.youtube, score: 60 }),
@@ -363,13 +364,13 @@ describe("normalize", () => {
     expect(merged.map((i) => i.id)).toEqual(["google:SA:new", "x:SA:alive", "youtube:SA:v1"]);
     expect("url" in merged[0]).toBe(false);
 
-    expect(MAX_ITEMS).toBe(400);
+    expect(MAX_ITEMS).toBe(450);
     const many = Array.from({ length: MAX_ITEMS + 50 }, (_, i) =>
       item({ id: `google:SA:${i}`, score: i % 100 }),
     );
     const capped = mergeItems([], many, new Set([SOURCE_LABELS.google]), NOW);
     expect(capped).toHaveLength(MAX_ITEMS);
-    // The cut takes the lowest scores: 450 rows hold every score of 0..99 four or five times.
+    // The cut takes the lowest scores: 500 rows hold every score of 0..99 five times.
     expect(Math.min(...capped.map((i) => i.score ?? -1))).toBe(10);
   });
 
@@ -1150,7 +1151,7 @@ describe("youtube search", () => {
     const kv = fakeKV();
     const env = makeEnv(kv, {
       YOUTUBE_API_KEY: "k",
-      TREND_SOURCES: "google,youtube,kworb,x,tavily,events",
+      TREND_SOURCES: "google,youtube,tiktok,kworb,x,tavily,events",
     });
     const all = keywordList(env);
     expect(all).toHaveLength(36);
@@ -1189,11 +1190,14 @@ describe("youtube search", () => {
       ...KWORB_REGIONS.flatMap(({ region }) =>
         full(SOURCE_LABELS.kworb, "tiktok", region, "sound", KWORB_MAX),
       ),
+      ...TIKTOK_REGIONS.flatMap((region) =>
+        full(SOURCE_LABELS.tiktok, "tiktok", region, "tag", TIKTOK_TAGS_PER_REGION),
+      ),
       ...full(SOURCE_LABELS.x, "x", "SA", "tag", X_MAX),
       ...full(SOURCE_LABELS.tavily, "instagram", "SA", "scan", TAVILY_MAX_ITEMS),
       ...moments,
     ];
-    expect(others).toHaveLength(50 + 100 + 60 + 30 + 40 + moments.length);
+    expect(others).toHaveLength(50 + 100 + 60 + 30 + 30 + 40 + moments.length);
     const stored: TrendsFeed = { items: others, fetchedAt: AT, degraded: false, sources: [] };
     await kv.put(trendKeys.latest, JSON.stringify(stored));
 
@@ -1658,7 +1662,7 @@ describe("events", () => {
 
 describe("runTrends", () => {
   it("gates sources on TREND_SOURCES (kworb and x off by default, unknown names ignored)", () => {
-    expect(enabledSources({})).toEqual(["google", "youtube", "tavily", "events"]);
+    expect(enabledSources({})).toEqual(["google", "youtube", "tiktok", "tavily", "events"]);
     expect(enabledSources({ TREND_SOURCES: " x, kworb ,nope,Google" })).toEqual([
       "google",
       "kworb",
@@ -1667,6 +1671,7 @@ describe("runTrends", () => {
     expect(enabledSources({ TREND_SOURCES: "   " })).toEqual([
       "google",
       "youtube",
+      "tiktok",
       "tavily",
       "events",
     ]);
@@ -1677,6 +1682,7 @@ describe("runTrends", () => {
       "fast:trends24.in",
       "fast:3z calendar",
       "daily:YouTube search",
+      "daily:TikTok Discovery",
       "weekly:Tavily scan",
     ]);
     expect(healthTrends({ YOUTUBE_API_KEY: "k", TREND_SOURCES: "events" })).toEqual({
@@ -2104,7 +2110,7 @@ describe("routes", () => {
     const body = (await res.json()) as { trends: unknown };
     expect(body.trends).toEqual({
       youtube: true,
-      sources: ["google", "youtube", "tavily", "events"],
+      sources: ["google", "youtube", "tiktok", "tavily", "events"],
     });
   });
 });

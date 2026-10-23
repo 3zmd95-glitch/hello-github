@@ -25,6 +25,21 @@ export type TrendRegion = (typeof TREND_REGIONS)[number];
 /** Language of the row's title: `mixed` for rows that carry both (events, hashtags). */
 export type TrendLang = "ar" | "en" | "mixed";
 
+/** What a row is, when its source says (scout 02): TikTok Discovery's rows are hashtags. Other rows leave it out. */
+export const TREND_ITEM_KINDS = ["hashtag", "sound", "topic"] as const;
+export type TrendItemKind = (typeof TREND_ITEM_KINDS)[number];
+
+/**
+ * One top video of a hashtag, the live proof under the row: its own link, the creator's handle and the post time
+ * its id carries (postDate.ts), never a date typed by anyone.
+ */
+export interface TrendProof {
+  url: string;
+  creator?: string;
+  /** ISO 8601 (UTC), decoded from the TikTok video id. */
+  postedAt?: string;
+}
+
 /**
  * One row of the radar, as `GET /trends` returns it. Only Google Trends and the YouTube charts are true
  * popularity rankings; `source` is the attribution label the UI always shows.
@@ -45,7 +60,7 @@ export interface TrendItem {
   score?: number;
   growthPct?: number;
   volume?: number;
-  /** "Google Trends" | "YouTube charts" | "YouTube search" | "kworb.net" | "Tavily scan" | "trends24.in" | "3z calendar". */
+  /** "Google Trends" | "YouTube charts" | "YouTube search" | "TikTok Discovery" | "kworb.net" | "Tavily scan" | "trends24.in" | "3z calendar". */
   source: TrendSourceLabel;
   /** One line of context: the first news headline or the search snippet. */
   why?: string;
@@ -60,6 +75,12 @@ export interface TrendItem {
    * main query found (youtubeSearch.ts); rows of a niche keyword and of every other source leave it out.
    */
   genre?: string;
+  /** Hashtag, sound or topic, when the source knows (tiktokTags.ts sets `hashtag`). */
+  kind?: TrendItemKind;
+  /** The window TikTok ranked the row over, in days (7 for the Discovery hashtags). */
+  periodDays?: number;
+  /** Up to 3 top videos of a hashtag with the dates their ids carry (tiktokTags.ts). */
+  proof?: TrendProof[];
 }
 
 /** The attribution labels, exactly as the dashboard shows them (never "trending" for a chart or a scan). */
@@ -67,6 +88,7 @@ export const SOURCE_LABELS = {
   google: "Google Trends",
   youtube: "YouTube charts",
   youtubeSearch: "YouTube search",
+  tiktok: "TikTok Discovery",
   kworb: "kworb.net",
   tavily: "Tavily scan",
   x: "trends24.in",
@@ -101,6 +123,8 @@ export interface TrendsEnv {
   TAVILY_API_KEY?: string;
   /** Secret: a Google Cloud API key restricted to the YouTube Data API v3 (charts + keyword search). */
   YOUTUBE_API_KEY?: string;
+  /** Secret: seals the TikTok for Business token in KV (tiktokads.ts), which the TikTok hashtag source reads. */
+  SCOUT_TOKEN?: string;
   /** Var: comma list of enabled sources (default `DEFAULT_TREND_SOURCES` in run.ts). */
   TREND_SOURCES?: string;
   /**

@@ -86,7 +86,7 @@ export interface TikTokTop {
   diagnostics?: Record<string, unknown>;
 }
 
-type Hashtag = { id: string; name: string; rank: number; here: boolean };
+export type Hashtag = { id: string; name: string; rank: number; here: boolean };
 /** 1: category craft; 2: subject-neutral named craft; 3: category only. All are retrieval leads. */
 type Tier = 1 | 2 | 3;
 type Picked = Hashtag & { tier: Tier };
@@ -123,8 +123,9 @@ function failure(r: Reply, token: string): TikTokTop {
   };
 }
 
-/** A list's hashtags; one without an id or a name is left out (it can't be asked or titled). */
-function parse(list: unknown[], country: string): Hashtag[] {
+/** A list's hashtags; one without an id or a name is left out (it can't be asked or titled). Also read by the Trend
+ * Radar's TikTok source (trends/tiktokTags.ts). */
+export function parse(list: unknown[], country: string): Hashtag[] {
   return list.flatMap((h): Hashtag[] => {
     if (!isRecord(h)) return [];
     const id =
@@ -193,8 +194,12 @@ function pick(
 }
 
 /** One of TikTok's videos as a top video: its share link without the query, kept only when it is an https tiktok.com
- * link to one video with its creator's handle (no `/@/video/<id>` is made up for one without: the player refuses it). */
-function tiktokVideo(x: unknown, hashtag: string): { id: string; video: TopVideo } | undefined {
+ * link to one video with its creator's handle (no `/@/video/<id>` is made up for one without: the player refuses it).
+ * Also read by the Trend Radar's proof strip (trends/tiktokTags.ts). */
+export function tiktokVideo(
+  x: unknown,
+  hashtag: string,
+): { id: string; video: TopVideo } | undefined {
   if (!isRecord(x) || typeof x.share_url !== "string") return undefined;
   let u: URL;
   try {
