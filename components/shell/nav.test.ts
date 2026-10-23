@@ -48,7 +48,7 @@ describe("Social navigation", () => {
   it("links only to Social routes: Settings is /social/settings and there is no Discover shortcut", () => {
     for (const item of SOCIAL_NAV_ITEMS) expect(worldOf(item.href), item.href).toBe("social");
     const hrefs = SOCIAL_NAV_ITEMS.map((i) => i.href);
-    expect(hrefs.slice(-3)).toEqual(["/social/replies", "/social/automations", "/social/settings"]);
+    expect(hrefs.slice(-3)).toEqual(["/social/inbox", "/social/automations", "/social/settings"]);
     expect(SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/settings")).toEqual({
       href: "/social/settings",
       icon: "⚙️",
