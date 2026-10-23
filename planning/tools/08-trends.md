@@ -188,9 +188,54 @@ What landed, and where it differs from the table above:
   stable Snapchat Spotlight URL). Calendar moments cannot be dismissed (they are not store rows). `e2e/trends.spec.ts` passes on both
   projects. The old `ideas.trends` / `ideas.trendsSoon` keys are no longer referenced (cleanup pending).
 
+## Built (Scout 02, Oct 23 2026): TikTok hashtags for SA and US, kind filter, proof videos, the weekly Instagram sounds card
+
+Scout plan: `planning/scouts/2026-10-23-02-trends.md` (lands with PR #84; T1 to T3 and T6 of its build plan). What landed, and where it differs from that plan:
+
+- **Worker (T1 + T2)**: `workers/scout/src/trends/tiktokTags.ts`, a **daily** source (`TREND_SOURCES` key `tiktok`, label
+  "TikTok Discovery", on by default and in `wrangler.jsonc`; it needs a redeploy). With the ONUS Content Planner token the category pages
+  already use (`readAdsToken`): `trending_list` (`discovery_type=HASHTAG`, `date_range=7DAY`) for SPECIAL_EFFECTS, PHOTOGRAPHY and
+  MUSIC in SA and in US (6 calls), merged by TikTok's own `rank_position` (tie: that order, one row per hashtag at its best rank, its
+  industries in `tags`; `rank_position` is per industry list, so ranks tie across the three industries and `score` is our own
+  ordering of the merged list, not a TikTok number), `#fyp`-type tags out (the Tavily stoplist), top 15 a region. Then one `video_list` per region for the first 10
+  hashtags that are top in that country (2 calls): up to 3 videos each as `proof` ({ url, creator, postedAt }), `postedAt` decoded from the
+  video id (`postDate.ts`: the owner's "real post dates, live proof" rule). 8 calls, 1 KV read (the token), no extra KV write; the rows ride
+  the feed's one write on the 21:05 UTC daily slot (27 of the 38 calls with the keyword search; `RUN_BUDGET` untouched). Rows live 2 days.
+  A region whose lists all fail keeps its previous rows and sets `degraded`; one failed list or a failed proof call also sets it; no token is
+  `not_configured` (a setup state). TikTok's words in a status note never carry the token (test). The feed cap went 400 to 450
+  (`MAX_ITEMS`) so 30 more rows never cut the keyword scan's tail. The run's status `error` note reads like "SA 15 (10 with videos); US 15 (9
+  with videos)": that is the live check.
+- **Row fields (additive, no `STORE_VERSION` bump)**: `kind` (`hashtag|sound|topic`), `periodDays` (7), `proof[]` (https links only) in
+  `lib/domain.ts` and `trends/types.ts`. The date a hashtag row shows is the window TikTok ranks over ("last 7 days") plus the dates of its
+  proof videos; TikTok sends no per-hashtag "as of" date that we read.
+- **Dashboard (T3)**: SA hashtags sit in the Arabic tab and US ones in the English tab by the existing rule (`lang` follows the region). A row
+  shows its source ("اكتشاف TikTok" / "TikTok Discovery"), a Hashtag chip, "آخر 7 أيام", and under it the proof strip: each video as a link
+  out with the creator and the date of its id (a video without a date shows none), the newest named. A chip row Hashtags / Sounds / Topics
+  (`lib/trends.ts trendKind`: the row's `kind`, else its source's known kind, else a `#` title is a hashtag; videos have no kind and show
+  under All) sits under the platform chips.
+- **Weekly Instagram sounds card (T6, without the nudge)**: `components/social/trends/SoundRitual.tsx` + `lib/soundRitual.ts` in the radar's
+  side column. He opens Instagram's Trending audio, types the top 3 sounds (and a format), and they are saved as Instagram trend ideas whose
+  text carries the paste day ("🎵 صوت انستقرام · 2026-10-23: name"), so the card shows the last paste, its day and an "old" chip after 7 days
+  with no new stored slice. No Sunday nudge, no notification, no inbox row (the owner's call: card only).
+- **Not built, on purpose**: the kworb.net songs chart (owner undecided; `kworb` stays off), Meta business verification and Instagram hashtag
+  search (T8), TikTok CML sounds (T7, blocked on the Accounts scope), T4 (tap-to-add hashtags in the post sheet) and T5 (YouTube music chart +
+  links), which the build brief left out.
+- **Follow the code**: the scout's T0 live probe was not run (the build session has no Worker bearer). The source therefore reads only fields
+  the category pages already rely on (`hashtag_id`, `hashtag_name`, `rank_position`, `top_country_list`; videos `share_url`, `video_id`)
+  and shows no growth %, volume or rank change: no field name guessed. SA support of `trending_list` is still **unproven**: an empty or
+  refused SA list marks SA failed (note "SA: no hashtags" or the TikTok code), never "no trends".
+- **First data**: the 🔄 button runs the fast sources only, so the TikTok rows arrive with the next 21:05 UTC slot (00:05 Riyadh) or on
+  demand with `POST /trends/run {"kinds":["daily"]}` (a same-day repeat costs no YouTube search: the daily cap answers). Asking for all three
+  kinds at once no longer fits one invocation when TikTok is connected (up to 46 calls): ask for `weekly` apart.
+- **To check once it is live (T0, a minute)**: read `sources` of `GET /trends` after the first run, then compare the top 5 SA hashtags with
+  Creative Center SA in the owner's browser; and open one proof link to see the video and its date.
+
+Tests: `workers/scout/src/trends/tiktokTags.test.ts` (16), `lib/trendsKinds.test.ts`, `lib/soundRitual.test.ts`,
+`components/social/trends/TrendRadarTikTok.test.ts`, and two new cases in `e2e/trends.spec.ts` (phone and desktop).
+
 ## Later (v2)
 
-Threads `keyword_search` public results after the CR (App Review) · TikTok Marketing API `discovery/trending_list` · Instagram hashtag
+Threads `keyword_search` public results after the CR (App Review) · Instagram hashtag
 search after switching to Facebook Login for Business · Apify Creative Center actor behind a flag · Trends MCP · the Claude summary layer
 · "trend fit" scoring against the owner's skills (`Skill.trend` filled from live data, a coach reason on Today when a trend matches a
 skill's program) · push notification for a spiking trend (Sprint 3 Web Push).

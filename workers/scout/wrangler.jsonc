@@ -18,9 +18,10 @@
   "vars": {
     "ALLOWED_ORIGINS": "http://localhost:3000,https://3zmd95-glitch.github.io",
     // Trend Radar sources (src/trends/run.ts SOURCE_KEYS): google, youtube (charts + the daily keyword
-    // search), tavily, events, and the third-party aggregators kworb (TikTok sounds) and x (trends24.in),
-    // which stay off until the owner agrees to read them with attribution.
-    "TREND_SOURCES": "google,youtube,tavily,events",
+    // search), tiktok (TikTok Discovery hashtags for SA and US, daily, needs the TikTok for Business token;
+    // without it the source reports not_configured), tavily, events, and the third-party aggregators kworb
+    // (TikTok sounds) and x (trends24.in), which stay off until the owner agrees to read them with attribution.
+    "TREND_SOURCES": "google,youtube,tiktok,tavily,events",
     // The owner's niche keywords for the daily YouTube search; the same defaults as lib/trends.ts
     // DEFAULT_TREND_KEYWORDS. The search also runs the edit genres of planning/data/genres.json (bundled,
     // src/trends/genres.ts) and spends ≤ 18 search.list calls a day, rotating the keywords by UTC day.

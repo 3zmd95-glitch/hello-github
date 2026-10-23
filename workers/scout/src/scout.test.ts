@@ -128,7 +128,7 @@ describe("auth", () => {
       configured: { instagram: false, threads: false, youtube: false, tiktok: false },
       kv: false,
     };
-    const trends = { youtube: false, sources: ["google", "youtube", "tavily", "events"] };
+    const trends = { youtube: false, sources: ["google", "youtube", "tiktok", "tavily", "events"] };
     const authed = await handle(req("/health"), ENV);
     expect(await authed.json()).toEqual({
       ok: true,

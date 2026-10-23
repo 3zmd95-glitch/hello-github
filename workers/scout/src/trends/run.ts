@@ -8,12 +8,13 @@
  * marked degraded with a `kv` status.
  *
  * Budget: 38 outbound calls per invocation (`RUN_BUDGET`; the rest of the free plan's 50 subrequests go to
- * KV, at most eight: one feed read, at most two feed writes, the search counter on daily runs (one read,
- * the reservation write, at most one refund write) and the weekly stamp on weekly runs (one read, one
- * write)). A fast run spends ≤ 11 (Google 4, YouTube charts 4, kworb 2, trends24 1), the daily run ≤ 19
- * (18 keyword searches and the statistics call, round 31), the weekly scan 8. Every cron tick runs one
- * kind; a manual `POST /trends/run` asking for all three at once adds up to exactly 38, so nothing is
- * left to grow into without raising the budget or splitting that run.
+ * KV, at most nine: one feed read, at most two feed writes, the search counter on daily runs (one read,
+ * the reservation write, at most one refund write), the TikTok token read on daily runs and the weekly
+ * stamp on weekly runs (one read, one write)). A fast run spends ≤ 11 (Google 4, YouTube charts 4, kworb 2,
+ * trends24 1), the daily run ≤ 27 (18 keyword searches and the statistics call, round 31, then TikTok
+ * Discovery 8: six hashtag lists and two proof calls), the weekly scan 8. Every cron tick runs one kind. A
+ * manual `POST /trends/run` asking for all three at once no longer fits (up to 46 calls): with TikTok
+ * connected the weekly scan, last in line, answers `budget` and keeps its rows; ask for `weekly` apart.
  */
 
 import { Budget } from "../social/http";
@@ -23,6 +24,7 @@ import { runKworb } from "./kworb";
 import { readFeed, trendKeys, writeFeed } from "./kv";
 import { mergeItems } from "./normalize";
 import { runTavily } from "./tavily";
+import { runTikTokTags } from "./tiktokTags";
 import {
   SOURCE_LABELS,
   type SourceCtx,
@@ -41,9 +43,17 @@ import { runYoutubeSearch } from "./youtubeSearch";
 export const RUN_BUDGET = 38;
 
 /** The `TREND_SOURCES` keys. kworb and x are off until the owner agrees (README "Trend Radar"). */
-export const SOURCE_KEYS = ["google", "youtube", "kworb", "x", "tavily", "events"] as const;
+export const SOURCE_KEYS = [
+  "google",
+  "youtube",
+  "tiktok",
+  "kworb",
+  "x",
+  "tavily",
+  "events",
+] as const;
 export type SourceKey = (typeof SOURCE_KEYS)[number];
-export const DEFAULT_TREND_SOURCES = "google,youtube,tavily,events";
+export const DEFAULT_TREND_SOURCES = "google,youtube,tiktok,tavily,events";
 
 export interface SourceDef {
   /** The `TREND_SOURCES` gate (`youtube` covers the charts and the daily search). */
@@ -60,6 +70,7 @@ export const SOURCES: readonly SourceDef[] = [
   { key: "x", label: SOURCE_LABELS.x, kind: "fast", run: runX },
   { key: "events", label: SOURCE_LABELS.events, kind: "fast", run: runEvents },
   { key: "youtube", label: SOURCE_LABELS.youtubeSearch, kind: "daily", run: runYoutubeSearch },
+  { key: "tiktok", label: SOURCE_LABELS.tiktok, kind: "daily", run: runTikTokTags },
   { key: "tavily", label: SOURCE_LABELS.tavily, kind: "weekly", run: runTavily },
 ];
 

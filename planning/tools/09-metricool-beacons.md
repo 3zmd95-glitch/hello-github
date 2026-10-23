@@ -42,7 +42,7 @@ Legend: ✅ built and live · 🟡 partly there · ⬜ to do · 🚫 not doing (
 | Competitor tracking | — | ⬜ B1 | YouTube public stats (API key) easy; Instagram needs Business Discovery (check if it works with Instagram Login); TikTok has no public API |
 | Hashtag tracking | — | ⬜ B2 | Our own posts' hashtags × results first |
 | PDF / shareable monthly report | — | ⬜ B3 | Also feeds the media kit (D2) |
-| Trends | Trend Radar | 🟡 | Built in worktree `content-creator-dashboard-9f5258`, not merged yet (`08-trends.md` there) |
+| Trends | Trend Radar | ✅ | Google, YouTube, Tavily scan, calendar, and since Oct 23 TikTok Discovery hashtags for SA (عربي tab) and US (English tab) with a 7-day window and proof videos dated by their ids, a Hashtags / Sounds / Topics filter, and the weekly "paste 3 Instagram sounds" card (no nudge); see `08-trends.md`. Not built: kworb songs chart (owner undecided), Instagram hashtag search (needs business verification), TikTok CML sounds (blocked on the Accounts scope) |
 
 ### Metricool + Beacons: engage
 

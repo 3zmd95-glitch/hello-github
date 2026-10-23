@@ -5,6 +5,7 @@ import {
   type Lang,
   type SaudiEvent,
   type TrendItem,
+  type TrendItemKind,
   type TrendPlatform,
   type TrendRegion,
   type TrendsState,
@@ -101,6 +102,8 @@ export interface TrendFilter {
    * Discover's strip uses it; the radar does not filter by genre.
    */
   genre?: string;
+  /** Hashtags / Sounds / Topics (`trendKind`): rows without a known kind show only when this is left out. */
+  kind?: TrendItemKind;
   /** Free-text search over title + tags (same folding as the keywords). */
   q?: string;
 }
@@ -121,8 +124,35 @@ export function visibleTrends(
     .filter((i) => !filter.platform || i.platform === filter.platform)
     .filter((i) => !filter.lang || i.lang === filter.lang || i.lang === "mixed")
     .filter((i) => !filter.genre || i.genre === filter.genre)
+    .filter((i) => !filter.kind || trendKind(i) === filter.kind)
     .filter((i) => !q || matchesKeywords(i, [q]))
     .sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || b.seenAt.localeCompare(a.seenAt));
+}
+
+/** The kind of a row whose source is known to give one (rows stored before `kind` existed carry none). */
+const KIND_BY_SOURCE: Readonly<Record<string, TrendItemKind>> = {
+  "TikTok Discovery": "hashtag",
+  "kworb.net": "sound",
+  "Google Trends": "topic",
+};
+
+/**
+ * Hashtag, sound or topic: the row's own `kind` when the Worker set one, else what its source gives (TikTok
+ * Discovery hashtags, kworb sounds, Google topics), else "hashtag" for a title that starts with "#" (the Tavily scan and
+ * trends24 write hashtags that way). A YouTube video or a scan's quoted name has none: it shows under "All" only.
+ */
+export function trendKind(
+  item: Pick<TrendItem, "kind" | "source" | "title">,
+): TrendItemKind | undefined {
+  if (item.kind) return item.kind;
+  if (Object.hasOwn(KIND_BY_SOURCE, item.source)) return KIND_BY_SOURCE[item.source];
+  return item.title.startsWith("#") ? "hashtag" : undefined;
+}
+
+/** The latest post time among a hashtag's proof videos (ISO), or undefined without dated proof. */
+export function newestProofAt(item: Pick<TrendItem, "proof">): string | undefined {
+  const times = (item.proof ?? []).flatMap((p) => (p.postedAt ? [p.postedAt] : []));
+  return times.length ? times.reduce((a, b) => (Date.parse(b) > Date.parse(a) ? b : a)) : undefined;
 }
 
 /** True when the feed was never fetched, its time is unreadable, or it is older than `maxAgeHours`. */
@@ -142,6 +172,7 @@ export const SOURCE_KEY: Readonly<Record<string, MessageKey>> = {
   "Google Trends": "trends.source.google",
   "YouTube charts": "trends.source.youtube",
   "YouTube search": "trends.source.youtubeSearch",
+  "TikTok Discovery": "trends.source.tiktok",
   "kworb.net": "trends.source.kworb",
   "Tavily scan": "trends.source.tavily",
   "trends24.in": "trends.source.x",

@@ -2,10 +2,12 @@
 
 import { Search, Star, X } from "lucide-react";
 import { fmtCount } from "@/components/social/growth/format";
+import { formatDate } from "@/components/rewards/formatDate";
 import PlatformBadge from "@/components/ui/ios/PlatformBadge";
 import type { TrendItem } from "@/lib/domain";
 import { useT, withoutEmoji } from "@/lib/i18n";
-import { sourceLabel, volumeLabelKey, volumeUnit } from "@/lib/trends";
+import { timeAgo } from "@/lib/socialSync";
+import { newestProofAt, sourceLabel, volumeLabelKey, volumeUnit } from "@/lib/trends";
 import TrendActions, { calendarPlatformOf, type PlannedPost } from "./TrendActions";
 
 /**
@@ -19,6 +21,10 @@ import TrendActions, { calendarPlatformOf, type PlannedPost } from "./TrendActio
  * carries the unit), and a source without a known unit shows no volume. `data-genre` carries the row's edit-genre
  * id (round 31) when the Worker's keyword scan set one, and the row names it in a chip (`genreLabel`: "🚗 سيارات",
  * shown without its emoji: Social chips carry none, the genre's emoji stays Discover's).
+ * A row the Worker declared a `kind` for (TikTok Discovery's hashtags, scout 02) shows it in a chip, the window its
+ * source ranked it over (`periodDays`: "Last 7 days"), and its proof strip: up to 3 top videos as links out, each
+ * with the date its own id carries (`postedAt`; a video without one shows none, no date is made up) and the newest
+ * one named, so a hashtag is never claimed without something to open and a date to read.
  * The chip is plain: Discover is a Training route and nothing in Social links out of Social (tools/20). An id the
  * app does not know shows the raw id. The row's own text (title, why) takes its own direction and stays
  * aligned with the row.
@@ -37,8 +43,9 @@ export default function TrendRow({
   onDismiss: () => void;
   onPlanned: (post: PlannedPost) => void;
 }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const volumeKey = volumeLabelKey(item);
+  const newest = newestProofAt(item);
   const platform = calendarPlatformOf(item.platform);
   const genre = genreLabel && withoutEmoji(genreLabel);
   return (
@@ -110,6 +117,16 @@ export default function TrendRow({
           <span className="px-chip" data-testid="trend-platform">
             {t(`trends.platform.${item.platform}`)}
           </span>
+          {item.kind === "hashtag" && (
+            <span className="px-chip" data-testid="trend-kind" data-kind={item.kind}>
+              {t("trends.kindOne.hashtag")}
+            </span>
+          )}
+          {item.periodDays !== undefined && (
+            <span className="px-chip" data-testid="trend-period" data-days={item.periodDays}>
+              {t("trends.period", { n: item.periodDays })}
+            </span>
+          )}
           {genre && (
             <span
               className="px-chip"
@@ -131,6 +148,43 @@ export default function TrendRow({
             </span>
           )}
         </div>
+        {item.proof && item.proof.length > 0 && (
+          <div
+            className="mt-3 flex flex-col gap-1.5"
+            data-testid="trend-proof"
+            data-count={item.proof.length}
+          >
+            <p className="text-muted text-xs">
+              {t("trends.proof.title")}
+              {newest && (
+                <span data-testid="trend-proof-newest">
+                  {" · "}
+                  {t("trends.proof.newest", { when: timeAgo(newest, lang) })}
+                </span>
+              )}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {item.proof.map((p) => (
+                <a
+                  key={p.url}
+                  href={p.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group inline-flex min-h-11 items-center"
+                  data-testid="trend-proof-link"
+                  data-posted-at={p.postedAt}
+                >
+                  <span className="px-chip no-underline group-hover:underline">
+                    <bdi dir="ltr">{p.creator ?? "TikTok"}</bdi>
+                    {p.postedAt && (
+                      <span className="num">{` · ${formatDate(p.postedAt, lang)}`}</span>
+                    )}
+                  </span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="mt-2.5">
           <TrendActions item={item} idPrefix="trend" onPlanned={onPlanned} />
         </div>
