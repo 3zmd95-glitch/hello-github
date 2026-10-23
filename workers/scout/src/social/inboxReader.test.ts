@@ -316,6 +316,7 @@ describe.skipIf(!available)("readInboxTick", () => {
     const commentFields = urlOf(fetch, "/p1/comments").searchParams.get("fields");
     expect(commentFields).toContain("timestamp,hidden,replies{");
     expect(commentFields).toContain("timestamp,hidden}");
+    expect(commentFields).toContain("from{id,username}");
     const t = (await api.thread("instagram", "t1", {}))!;
     expect(t.conversation).toMatchObject({
       peerId: "9",
@@ -336,6 +337,50 @@ describe.skipIf(!available)("readInboxTick", () => {
       ours: true,
     });
     expect(await api.getMeta("lastReadAt:instagram")).toBe("2026-10-22T12:00:00.000Z");
+  });
+
+  it("takes a comment's author from from.username when Instagram omits the top-level username", async () => {
+    const env = makeEnv();
+    await connect(env);
+    const api = freshDb();
+    await api.ingest({ posts: storedPosts(1) });
+    await seedState(api, { tick: 1 });
+    const timestamp = "2026-10-21T00:00:00+0000";
+    const fetch = mockFetch({
+      [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
+      [`GET ${IG}/17841/conversations`]: () => ({ data: [] }),
+      [`GET ${IG}/p0/comments`]: () => ({
+        data: [
+          {
+            id: "only-from",
+            text: "a",
+            from: { id: "5", username: "ali" },
+            timestamp,
+            replies: {
+              data: [
+                { id: "reply-from", text: "b", from: { id: "6", username: "sara" }, timestamp },
+              ],
+            },
+          },
+          {
+            id: "top-wins",
+            text: "c",
+            username: "top",
+            from: { id: "7", username: "other" },
+            timestamp,
+          },
+          { id: "neither", text: "d", from: { id: "8" }, timestamp },
+        ],
+      }),
+    });
+    expect(await readInboxTick(env, { fetch, now: () => NOW, api })).toMatchObject({ comments: 4 });
+    const items = (await api.comments("instagram", "p0", {}))!.comments.items;
+    expect(Object.fromEntries(items.map((c) => [c.id, c.author]))).toEqual({
+      "only-from": "ali",
+      "reply-from": "sara",
+      "top-wins": "top",
+      neither: "",
+    });
   });
 
   it("skips without the binding, without a connection, without canReply, and with an expired token", async () => {
