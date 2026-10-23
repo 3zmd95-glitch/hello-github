@@ -144,6 +144,7 @@ export const STORE_VERSION = 1;
 export const DEFAULT_SETTINGS: Settings = {
   lang: "ar",
   sound: true,
+  appearance: "light",
   reminderTime: "20:00",
   gear: ["phone", "lights"],
   davinciEdition: "studio",

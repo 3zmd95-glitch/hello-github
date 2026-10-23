@@ -12,6 +12,7 @@ import { confirmConnected, pullIfDue, syncSocialNow } from "@/components/social/
 import { useChrome } from "@/components/ui/ios/chrome";
 import { useScrollChrome } from "@/components/ui/ios/useScrollChrome";
 import { applySocialSeed } from "@/data/social-seed";
+import { resolveScheme, SOCIAL_BG, TRAINING_BG } from "@/lib/appearance";
 import { useDocumentLang, useT } from "@/lib/i18n";
 import { scoutConfig } from "@/lib/scoutClient";
 import { PLATFORM_META } from "@/lib/social";
@@ -137,14 +138,41 @@ function SocialSyncAgent() {
   return null;
 }
 
-/** Keep `<html data-world>` in sync with the route and remember the last Social route for the switch. */
+/**
+ * Keep `<html data-world>` and `<html data-scheme>` in sync with the route and the Appearance setting (Social: light
+ * by default, dark, or the phone's scheme; globals.css keys its dark tokens on `data-scheme`), remember the last
+ * Social route for the switch, and point the browser bar's `theme-color` (the root layout's one tag) at Social's
+ * page color for the scheme in use, or back at Training's navy. Next may re-render that tag after a client
+ * navigation (later than this effect), so a head observer re-applies the color; it writes only when the content
+ * differs, so it never loops on its own change.
+ */
 function useDocumentWorld(): void {
   const world = useWorld();
   const pathname = usePathname();
+  const appearance = useStore((s) => s.settings.appearance);
   useEffect(() => {
     document.documentElement.dataset.world = world;
     if (world === "social" && pathname) rememberSocialPath(pathname);
   }, [world, pathname]);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const scheme = resolveScheme(appearance, mq.matches);
+      document.documentElement.dataset.scheme = scheme;
+      const want = world === "social" ? SOCIAL_BG[scheme] : TRAINING_BG;
+      for (const m of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+        if (m.content !== want) m.content = want;
+      }
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    const head = new MutationObserver(apply);
+    head.observe(document.head, { childList: true, subtree: true, attributeFilter: ["content"] });
+    return () => {
+      mq.removeEventListener("change", apply);
+      head.disconnect();
+    };
+  }, [appearance, world, pathname]);
 }
 
 function Splash() {

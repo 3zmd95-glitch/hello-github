@@ -9,6 +9,7 @@ import {
   MessageCircle,
   Rocket,
   Settings,
+  SunMoon,
   Volume2,
 } from "lucide-react";
 import Link from "next/link";
@@ -63,15 +64,36 @@ export default function MoreScreen({ world = "training" }: { world?: World }) {
 const icon = { size: 22, strokeWidth: 1.75, "aria-hidden": true } as const;
 
 /**
- * Social's quick settings rows (language segmented, sound switch), shared by More and Social's own Settings page
- * (tools/20). The same store values as Training's top bar.
+ * Social's quick settings rows (appearance segmented, language segmented, sound switch), shared by More and Social's
+ * own Settings page (tools/20). Language and sound are the same store values as Training's top bar; appearance is
+ * Social's own look (light by default, tools/18 §12).
  */
 export function QuickSettingRows() {
   const { t, lang } = useT();
   const sound = useStore((s) => s.settings.sound);
+  const appearance = useStore((s) => s.settings.appearance);
   const setSettings = useStore((s) => s.setSettings);
   return (
     <>
+      <ListRow
+        icon={<SunMoon {...icon} />}
+        iconTone="fill"
+        title={t("settings.appearance")}
+        trailing={
+          <Segmented
+            role="radiogroup"
+            label={t("settings.appearance")}
+            value={appearance}
+            onChange={(a) => setSettings({ appearance: a })}
+            className="w-[196px]"
+            options={[
+              { value: "light", label: t("settings.appearanceLight"), testId: "appearance-light" },
+              { value: "dark", label: t("settings.appearanceDark"), testId: "appearance-dark" },
+              { value: "system", label: t("settings.appearanceSystem"), testId: "appearance-system" },
+            ]}
+          />
+        }
+      />
       <ListRow
         icon={<Languages {...icon} />}
         iconTone="fill"

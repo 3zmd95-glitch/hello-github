@@ -45,7 +45,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
-  useStore.getState().setSettings({ lang: "ar", sound: true });
+  useStore.getState().setSettings({ lang: "ar", sound: true, appearance: "light" });
   vi.unstubAllGlobals();
 });
 
@@ -104,6 +104,15 @@ describe("Social More", () => {
     expect(follows(entry("more-replies")!, quick)).toBeTruthy();
     expect(follows(quick, entry("more-training")!)).toBeTruthy();
     expect(quick.contains(entry("more-settings"))).toBe(true);
+
+    // Appearance (tools/18 §12): light by default; a tap on Dark saves it.
+    expect(entry("appearance-light")!.getAttribute("aria-checked")).toBe("true");
+    expect(entry("appearance-dark")!.getAttribute("role")).toBe("radio");
+    act(() => entry("appearance-dark")!.click());
+    expect(useStore.getState().settings.appearance).toBe("dark");
+    expect(entry("appearance-dark")!.getAttribute("aria-checked")).toBe("true");
+    act(() => entry("appearance-light")!.click());
+    expect(useStore.getState().settings.appearance).toBe("light");
 
     const en = entry("lang-en")!;
     expect(en.getAttribute("role")).toBe("radio");
