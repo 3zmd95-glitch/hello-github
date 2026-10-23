@@ -57,8 +57,8 @@ Legend: ✅ built and live · 🟡 partly there · ⬜ to do · 🚫 not doing (
 | Feature | Ours | Status | Notes |
 | --- | --- | --- | --- |
 | Link in bio with click analytics | — | ⬜ **D1** | Own `/links` page + `/go/[slug]` redirect logging source/device/country (`02-website.md`). Last step: point 3zprod.com at our site |
-| Media kit that updates itself | Business placeholder | ⬜ D2 | Numbers from the Growth data; "Work with me" form |
-| Pricing calculator for brand deals | — | ⬜ D3 | Followers × views × deliverables |
+| Media kit that updates itself | Business › Media kit page (`/social/business/media-kit/`) | 🟡 **D2** built in the dashboard (Oct 23) | Light A4 page from the Growth numbers: hero with total + per-platform followers, Work with me (mailto), About, per-platform tiles with source (dash when missing), audience (gender, age, top countries), recent posts, services, past work, "rates on request"; AR/EN, block switches, "Export PDF" = browser print (tools/35). Not yet: public URL, contact form, brand partners block, photo (wait for the owner's site decisions, scout 04) |
+| Pricing calculator for brand deals | Business › Rates tab | ✅ **D3** built (Oct 23) | Per platform: (followers ÷ 1000 × SAR per 1000 + average views ÷ 1000 × SAR per 1000) × multiplier for reel / story / post / bundle; the owner's own numbers, stored in the app (`businessPrefs.rates`); private, never on the kit; the deal draft reply quotes the same number (tools/35) |
 | Email capture + welcome email | — | ⬜ D4 | 50 contacts to import from Beacons; Resend (`00-foundation.md`) |
 | Store (free LUT, presets) | — | ⬜ D5 | Moyasar checkout (master plan); free downloads first |
 | Audience CRM | — | ⬜ D6 | Contacts from D4/D5 |

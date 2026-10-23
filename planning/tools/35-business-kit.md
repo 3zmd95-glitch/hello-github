@@ -123,3 +123,41 @@ and the raw run / cancel path segment; zero provider calls.
   DT-5 limit (DT-7).
 - Search-before-building: print-to-PDF uses the browser (a PDF library would add a dependency for no gain); SHA-256 is
   a small pure function because Web Crypto's digest is async and the id is needed synchronously; no new dependency.
+
+## Addendum, Oct 23 2026: media kit page (D2) and rate calculator (D3), both inside the dashboard
+
+Roadmap rows D2 and D3 of `09-metricool-beacons.md`; scout plan `04-money-links.md` (only these two parts: no public site, no
+domain, no email, no store, no click tracking until the owner decides). The scout called Business a placeholder; the code
+already had the kit editor and deals board above, so this adds to them.
+
+- **Media kit page** `/social/business/media-kit/` (`MediaKitScreen` + `MediaKitPaper`, pure numbers in `lib/mediaKit.ts`).
+  A light A4 sheet in Arabic or English (its own switch; the app keeps its language), built only from what the app stores:
+  the saved kit text and contact, `kitMetrics` per platform (followers, engagement, average views, likes, each with its
+  source: snapshot day or "posts sampled"; a dash where missing; stale chip), a followers total that is a plain sum of the
+  saved counts and says "platforms counted n of m", audience from `demographics` (gender, age buckets, top 5 countries,
+  newest day per dimension, nothing dated after today), the 6 newest imported posts (no stories, nothing from the future),
+  services, past work and case studies (https links only) and a Work-with-me card (mailto of the kit's email). Block switches
+  (`businessPrefs.blocks`) and the page name (`businessPrefs.name`, else the first saved handle) live in the store; an empty
+  block is left out and the switch says "nothing to show yet". Brand partners are not a block (no data to read; past work
+  carries the case studies). No photo yet (the pixel avatar is a game look): a monogram stands in.
+- **Rates are private.** The page's rates block only says "rates on request" and never prints the owner's rate-card prices
+  or the calculator (tests scan the sheet's text). The kit editor's older **Rate card** section still exists and still prints
+  its rows in the editor's own preview and print: drop it when the owner confirms scout decision 5(a).
+- **Print / PDF.** The sheet is the page's print root (the DT-5 `[data-print-root]` rules hide everything else), re-declares the
+  light tokens on itself so it is white even in the dark look, and uses a named `@page kit { size: A4; margin: 12mm }` so other
+  pages print as before. "Export PDF" is `window.print()`. Checked: `page.pdf({ preferCSSPageSize })` gives 595 × 842 pt.
+- **Search-before-building.** PDF libraries (jsPDF, pdfmake) do not join or reorder Arabic without add-ons, and a Worker PDF
+  (Browser Rendering) is for the public site later; browser print gives correct Arabic at zero cost. Adopted: print CSS.
+- **Rate calculator** (Business › Rates tab, `lib/rates.ts`). `SAR = (followers ÷ 1000 × SAR per 1000 followers + average
+  views ÷ 1000 × SAR per 1000 views) × multiplier`, one platform at a time, rounded to 10 SAR below 500 and 50 SAR above
+  (never 0 for a positive amount). Defaults 15 and 20 SAR per 1000, multipliers reel 1.5, story 0.5, post 1, bundle 2.5
+  (reel + story + post together): placeholders, edited by the owner, labelled "not a market rate", kept in the store
+  (`businessPrefs.rates`, part of backups). No follower count = no quote; missing average views are not guessed (followers only,
+  said on screen). The scout's "followers × average views × deliverable" is read as this sum, not a product (a product of the
+  two would be millions).
+- **One price source.** The old engagement-based estimator is gone from the kit tab. The brand-deal reply draft (`dealRate`)
+  quotes the rate-card row, else the same calculator (a "bundle/package" deliverable is its own kind; a plain "video" has no
+  kind and gets no estimate). `BusinessKit.estimator` stays in the schema, unread and never edited, so old saves and backups
+  still load.
+- **Not done (waits for the owner):** public URL and domain, the contact form behind "Work with me", brand partners list,
+  a photo, a monthly numbers refresh published anywhere.
