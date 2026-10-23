@@ -17,6 +17,7 @@ const SOCIAL_PATHS = [
   "/social/more/",
   "/social/website/",
   "/social/business/",
+  "/social/business/media-kit/",
   "/social/automations/",
   "/social/replies/",
   "/social/settings/",
@@ -42,6 +43,7 @@ describe("activeHref", () => {
     expect(activeHref(NAV_ITEMS, "/nowhere/")).toBeUndefined();
     expect(activeHref(SOCIAL_NAV_ITEMS, "/social/")).toBe("/social");
     expect(activeHref(SOCIAL_NAV_ITEMS, "/social/calendar/oct")).toBe("/social/calendar");
+    expect(activeHref(SOCIAL_NAV_ITEMS, "/social/business/media-kit/")).toBe("/social/business");
   });
 });
 

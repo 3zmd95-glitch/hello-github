@@ -8,6 +8,7 @@ const SOCIAL_PATHS = [
   "/social/ideas/",
   "/social/website/",
   "/social/business/",
+  "/social/business/media-kit/",
   "/social/automations/",
   "/social/replies/",
   "/social/inbox/",
