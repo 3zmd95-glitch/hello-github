@@ -122,6 +122,23 @@ export function captionLimit(auto: AutoPost, platform: Platform): number {
   return platform === "tiktok" && auto.mediaKind === "photo" ? 4000 : CAPTION_MAX[platform];
 }
 
+/** Networks whose API takes a comment under our own post (A4); TikTok has none. */
+export const COMMENT_PLATFORMS: readonly Platform[] = ["instagram", "threads", "youtube"];
+
+/**
+ * The first comment a network will get: what was typed, trimmed to the network's limit, or null when nothing was
+ * typed or the network cannot take one. The networks it goes to are `auto.platforms` that are in
+ * {@link COMMENT_PLATFORMS}.
+ */
+export function firstCommentFor(
+  auto: AutoPost,
+  platform: Platform,
+): { text: string; trimmed: boolean } | null {
+  const typed = auto.firstComment.trim();
+  if (!typed || !COMMENT_PLATFORMS.includes(platform)) return null;
+  return trimCaption(platform, typed);
+}
+
 /**
  * When the job fires: the planned day at the planned time (Riyadh, UTC+3, no DST), or the platform's best time
  * when no time is set. Null without a planned day.
@@ -345,6 +362,8 @@ export interface JobInput {
         photoTitle?: string;
         photoCoverIndex?: number;
         autoAddMusic?: boolean;
+        /** Instagram, Threads, YouTube: posted under the published post (A4). */
+        firstComment?: string;
       }
     >
   >;
@@ -482,6 +501,8 @@ export function buildJob(
     } else {
       targets[p] = { caption };
     }
+    const comment = firstCommentFor(auto, p);
+    if (comment && targets[p]) targets[p].firstComment = comment.text;
   }
   return {
     id: publishJobId(post, taken),
@@ -687,10 +708,24 @@ export function autoPostSummary(auto: AutoPost | undefined): AutoPostSummary {
   return "scheduled";
 }
 
+/**
+ * The Worker still has a first comment to post under a published network of this post (A4): its comment is missing
+ * or still running. The post itself counts as published meanwhile; this only keeps the checking going.
+ */
+export function commentPending(auto: AutoPost | undefined): boolean {
+  return Object.values(auto?.results ?? {}).some(
+    (r) =>
+      r?.state === "published" &&
+      !r.inbox &&
+      !!r.firstComment &&
+      (!r.comment || r.comment.state === "queued" || r.comment.state === "processing"),
+  );
+}
+
 /** The Worker still has work on this post (worth checking back). */
 export function autoPostActive(auto: AutoPost | undefined): boolean {
   const s = autoPostSummary(auto);
-  return s === "scheduled" || s === "publishing";
+  return s === "scheduled" || s === "publishing" || commentPending(auto);
 }
 
 /** A whole post earns completion only when every selected destination is published. */

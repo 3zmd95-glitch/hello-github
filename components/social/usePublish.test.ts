@@ -16,6 +16,7 @@ import {
 import {
   applyJobs,
   refreshPublishJobs,
+  resyncKey,
   useWorkerOnlyJobs,
   usePublish,
   usePublishAutoResync,
@@ -78,6 +79,19 @@ it("applies a whole job read in one save and still marks a finished post posted"
   expect(postById(S(), draft.id)?.autoPost).toBeUndefined();
   expect(markPosted).toHaveBeenCalledTimes(1);
   expect(markPosted).toHaveBeenCalledWith(done.id, link);
+});
+
+it("A4: editing the first comment of a scheduled post changes the key that re-sends its job", () => {
+  const p = S().addPost({ platform: "instagram", title: "Comment" });
+  S().updatePost(p.id, {
+    autoPost: { platforms: ["instagram"], sentAt: "2026-10-06T00:00:00.000Z" },
+  });
+  const before = resyncKey(postById(S(), p.id)!);
+  expect(before).not.toBeNull();
+  S().updatePost(p.id, {
+    autoPost: { ...postById(S(), p.id)!.autoPost!, firstComment: "#match #cut" },
+  });
+  expect(resyncKey(postById(S(), p.id)!)).not.toBe(before);
 });
 
 /* ---------- DT-5: a workflow-generated post through the whole AutoPost lifecycle ---------- */

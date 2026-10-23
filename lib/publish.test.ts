@@ -319,6 +319,104 @@ describe("buildJob", () => {
   });
 });
 
+describe("A4: the first comment", () => {
+  it("buildJob sends it to Instagram, Threads and YouTube only, trimmed to each limit, and nothing when empty", () => {
+    const a = auto({
+      platforms: ["tiktok", "instagram", "threads", "youtube", "x"],
+      firstComment: "  #match #cut  ",
+    });
+    const job = buildJob(post(), a, AT);
+    for (const p of ["instagram", "threads", "youtube"] as const) {
+      expect(job.targets[p]?.firstComment).toBe("#match #cut");
+    }
+    expect("firstComment" in job.targets.tiktok!).toBe(false);
+    // Nothing typed: no field at all, so an existing post's job body (and its digest) stays as it was.
+    const plain = buildJob(post(), auto({ platforms: ["instagram"] }), AT);
+    expect("firstComment" in plain.targets.instagram!).toBe(false);
+    const blank = buildJob(post(), auto({ platforms: ["instagram"], firstComment: "  " }), AT);
+    expect("firstComment" in blank.targets.instagram!).toBe(false);
+    // Threads takes 500 characters, Instagram 2,200.
+    const long = "word ".repeat(300).trim();
+    const both = buildJob(
+      post(),
+      auto({ platforms: ["threads", "instagram"], firstComment: long }),
+      AT,
+    );
+    expect(both.targets.threads?.firstComment?.length).toBeLessThanOrEqual(CAPTION_MAX.threads);
+    expect(both.targets.threads?.firstComment?.endsWith(ELLIPSIS)).toBe(true);
+    expect(both.targets.instagram?.firstComment).toBe(long);
+  });
+
+  it("parseJob keeps the comment's state and the text the Worker holds, and nothing else of it", () => {
+    const job = parseJob({
+      id: "p1",
+      scheduledAt: AT,
+      targets: {
+        instagram: {
+          caption: "c",
+          firstComment: "hi",
+          state: "published",
+          attempts: 0,
+          comment: {
+            caption: "hi",
+            state: "failed",
+            attempts: 4,
+            containerId: "z",
+            error: "no_permission",
+            detail: "Allow auto-replies",
+          },
+        },
+      },
+    });
+    expect(job?.results.instagram).toEqual({
+      state: "published",
+      firstComment: "hi",
+      comment: { state: "failed", error: "no_permission", detail: "Allow auto-replies" },
+    });
+  });
+
+  it("a published post whose comment is still to go is worth checking back; the post stays published", () => {
+    const base = auto({
+      platforms: ["instagram"],
+      sentAt: AT,
+      results: { instagram: { state: "published", firstComment: "hi" } },
+    });
+    expect(autoPostSummary(base)).toBe("published");
+    expect(autoPostActive(base)).toBe(true);
+    for (const state of ["queued", "processing"] as const) {
+      const r = {
+        instagram: { state: "published" as const, firstComment: "hi", comment: { state } },
+      };
+      expect(autoPostActive({ ...base, results: r })).toBe(true);
+    }
+    for (const state of ["published", "failed"] as const) {
+      const r = {
+        instagram: { state: "published" as const, firstComment: "hi", comment: { state } },
+      };
+      expect(autoPostActive({ ...base, results: r })).toBe(false);
+      expect(autoPostSummary({ ...base, results: r })).toBe("published");
+    }
+    // The Worker holds no comment for it (typed after it went out): nothing to wait for.
+    expect(
+      autoPostActive({
+        ...base,
+        firstComment: "later",
+        results: { instagram: { state: "published" } },
+      }),
+    ).toBe(false);
+    // A TikTok inbox upload never has one.
+    expect(
+      autoPostActive(
+        auto({
+          platforms: ["tiktok"],
+          sentAt: AT,
+          results: { tiktok: { state: "published", inbox: true } },
+        }),
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("TikTok personal publishing", () => {
   const creator: TikTokCreator = {
     username: "3z.prod",

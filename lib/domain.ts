@@ -442,6 +442,14 @@ export const TIKTOK_PRIVACY = [
   "SELF_ONLY",
 ] as const;
 
+/** How a first comment under a published post is doing (A4); it never changes the post's own state. */
+export const AutoPostCommentSchema = z.object({
+  state: AutoPostStateSchema,
+  error: z.string().optional(),
+  detail: z.string().optional(),
+});
+export type AutoPostComment = z.infer<typeof AutoPostCommentSchema>;
+
 /** What the Worker last reported for one platform of an auto-post. */
 export const AutoPostResultSchema = z.object({
   state: AutoPostStateSchema,
@@ -455,6 +463,9 @@ export const AutoPostResultSchema = z.object({
   error: z.string().optional(),
   /** The platform's own words about a failure. */
   detail: z.string().optional(),
+  /** The first comment the Worker holds for this network: still to go while `comment` is missing or running. */
+  firstComment: z.string().optional(),
+  comment: AutoPostCommentSchema.optional(),
 });
 export type AutoPostResult = z.infer<typeof AutoPostResultSchema>;
 
@@ -474,6 +485,8 @@ export const AutoPostSchema = z.object({
   photoCoverIndex: z.number().int().min(0).default(0),
   durationSeconds: z.number().positive().optional(),
   captions: z.partialRecord(PlatformSchema, z.string()).default({}),
+  /** A comment posted under the post right after it goes live (Instagram, Threads, YouTube; A4). Empty = none. */
+  firstComment: z.string().default(""),
   youtubeTitle: z.string().default(""),
   youtubePrivacy: z.enum(YOUTUBE_PRIVACY).default("public"),
   tiktokMode: z.enum(["direct", "inbox"]).default("inbox"),
