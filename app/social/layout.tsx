@@ -2,16 +2,12 @@ import type { Viewport } from "next";
 import type { ReactNode } from "react";
 
 /**
- * `<meta name="theme-color">` for every Social route: the Social `--bg` per scheme (the root layout keeps Training's
- * navy). A route-level viewport, so the static HTML paints it from the first frame and Next swaps it on every
- * client navigation between the worlds. `color-scheme` likewise follows the phone here (the root layout's `dark`
- * would paint a dark canvas before the CSS loads on a cold start in light mode).
+ * `color-scheme` for every Social route follows the phone (the root layout's `dark` would paint a dark canvas before
+ * the CSS loads on a cold start in light mode); the Appearance setting then decides what Social draws (globals.css
+ * `data-scheme`). The browser bar's `theme-color` is the root layout's one tag: the shell sets it to Social's page
+ * color (lib/appearance) once mounted.
  */
 export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f2f3f6" },
-    { media: "(prefers-color-scheme: dark)", color: "#0b0d10" },
-  ],
   colorScheme: "light dark",
 };
 

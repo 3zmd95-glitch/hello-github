@@ -188,39 +188,41 @@ test("reduced motion: the tab bar runs no transition or animation, also after a 
   expect(await running()).toBe(0);
 });
 
-test("theme-color follows the world and survives client navigation", async ({ page }) => {
+test("theme-color follows the world, the Appearance setting and client navigation", async ({ page }) => {
   await freshState(page, "/social/");
   const colors = () =>
     page.evaluate(() =>
       [...document.querySelectorAll('meta[name="theme-color"]')].map(
-        (m) => `${m.getAttribute("media") ?? "all"} ${m.getAttribute("content")}`,
+        (m) => (m.getAttribute("media") ?? "all") + " " + m.getAttribute("content"),
       ),
     );
-  // Social: the page color of the chosen look on both of the layout's tags (Light by default, so both say light;
-  // with System each keeps its own scheme's color); Training: the pixel navy of the root layout.
-  const social = ["(prefers-color-scheme: light) #f2f3f6", "(prefers-color-scheme: dark) #f2f3f6"];
-  await expect.poll(colors).toEqual(social);
+  // One tag. Social: the page color of the look in use (Light by default, spec §3.1 --bg); Training: the pixel navy.
+  const light = ["all #f2f3f6"];
+  const dark = ["all #0b0d10"];
+  await expect.poll(colors).toEqual(light);
   await page.locator('a[href="/social/more/"]:visible').first().click();
   await expect(page).toHaveURL(/\/social\/more\/$/);
-  await expect.poll(colors).toEqual(social);
+  await expect.poll(colors).toEqual(light);
   await page.getByTestId("world-training").click();
   await expect(page.locator("html")).toHaveAttribute("data-world", "training");
   await expect.poll(colors).toEqual(["all #0d141d"]);
   await page.getByTestId("world-social").click();
   await expect(page.locator("html")).toHaveAttribute("data-world", "social");
-  await expect.poll(colors).toEqual(social);
+  await expect.poll(colors).toEqual(light);
 
-  // Dark: both tags say dark. System: each tag keeps its own scheme's color.
+  // Dark as chosen; System as the phone says, live; a direct load gets the chosen color once the shell mounts.
   await pickAppearance(page, "dark");
-  await expect.poll(colors).toEqual([
-    "(prefers-color-scheme: light) #0b0d10",
-    "(prefers-color-scheme: dark) #0b0d10",
-  ]);
+  await expect.poll(colors).toEqual(dark);
+  await page.goto("/social/calendar/");
+  await expect(page.locator("main h1").first()).toBeVisible();
+  await expect.poll(colors).toEqual(dark);
   await pickAppearance(page, "system");
-  await expect.poll(colors).toEqual([
-    "(prefers-color-scheme: light) #f2f3f6",
-    "(prefers-color-scheme: dark) #0b0d10",
-  ]);
+  await expect.poll(colors).toEqual(light);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect.poll(colors).toEqual(dark);
+  await page.getByTestId("world-training").click();
+  await expect(page.locator("html")).toHaveAttribute("data-world", "training");
+  await expect.poll(colors).toEqual(["all #0d141d"]);
 });
 
 test.describe("a dark phone", () => {
