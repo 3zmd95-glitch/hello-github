@@ -8,14 +8,19 @@
  *
  * Subrequests. A Worker invocation on the free plan may make 50, KV and Durable Object calls included:
  *   replies poll  <= 24 Graph (INBOX_OFFGRID_REPLIES_BUDGET, set by cron.ts) + <= 6 KV
- *   this reader   <= 8 Graph (the id, conversations, media, 5 comments) + 3 KV (tokens, replies:state, inbox:scan)
+ *   this reader   <= 8 Graph (the id, conversations, 5 comments, and the media list or the webhook subscription,
+ *                 never both in one tick) + 3 KV (tokens, replies:state, inbox:scan)
  *                 + <= 7 Durable Object calls (getMeta, ingest conversations, ingest posts, posts, ingest comments,
  *                 setMeta, and retain once an hour)
  *   24 + 6 + 8 + 3 + 7 = 48, which leaves SUBREQUEST_HEADROOM (2) of the 50 for Store.write's one retry (a second KV
  *   put). inboxReader.test.ts pins that sum and measures the reader's side of it.
+ *
+ * Webhooks. Meta delivers an Instagram account's events only after the app enabled notifications for it, so the
+ * reader does that itself, once per token (WEBHOOK_FIELDS; `ig:state` remembers the token's `issuedAt`): no owner step.
+ * Never on a media tick, which is also the first tick after a connect: the subscription follows a minute later.
  */
 
-import { Budget, fetchJson, withQuery, type Http } from "./http";
+import { Budget, fetchJson, formPost, withQuery, type Http } from "./http";
 import { WINDOW_MS, isOwnSend, toMs } from "./inbox";
 import type {
   CommentRow,
@@ -49,20 +54,26 @@ export const INBOX_OFFGRID_REPLIES_BUDGET = 24;
 export const SUBREQUEST_HEADROOM = 2;
 /** KV operations of one replies poll: its automations, its state, the tokens, its two state writes, a token refresh. */
 export const REPLIES_KV_CALLS_MAX = 6;
-/** The reader's worst tick: the account id, conversations, media (every tenth tick) and the comments of the rotation. */
+/**
+ * The reader's worst tick: the account id, conversations, the comments of the rotation and one of the media list
+ * (every tenth tick) and the webhook subscription (once per token, never on a media tick).
+ */
 export const READER_GRAPH_CALLS_MAX = 1 + 1 + 1 + POSTS_PER_TICK;
 /** The tokens, `replies:state` and `inbox:scan`. */
 export const READER_KV_CALLS = 3;
 /** getMeta, ingest (conversations), ingest (posts), posts, ingest (comments), setMeta, and the hourly retain. */
 export const READER_DO_CALLS_MAX = 7;
-/** The reader's one meta row: `{ tick, postCursor, lastScan }` as JSON. */
+/** The reader's one meta row: `{ tick, postCursor, lastScan, webhooksFor, webhooksAt }` as JSON. */
 const STATE_KEY = "ig:state";
+/** The Instagram webhook fields the app asks Meta to deliver for the connected account. */
+const WEBHOOK_FIELDS = "messages,comments";
 
 const CONVERSATIONS_FIELDS =
   "id,updated_time,participants{id,username},messages.limit(20){id,created_time,from,message,story,is_unsupported}";
 const MEDIA_FIELDS = "id,caption,permalink,timestamp,thumbnail_url,media_url,comments_count";
+/** Instagram omits the top-level `username` in practice: the author is `from.username`, so `from` asks for both. */
 const COMMENT_FIELDS =
-  "id,text,username,from,timestamp,hidden,replies{id,text,username,from,timestamp,hidden}";
+  "id,text,username,from{id,username},timestamp,hidden,replies{id,text,username,from{id,username},timestamp,hidden}";
 
 export type InboxReadResult =
   | { skipped: "no_store" | "not_connected" | "no_permission" | "token_expired" }
@@ -77,11 +88,16 @@ export type InboxReadResult =
       detail?: string;
     };
 
-/** The tick counter, the rotation's cursor and the newest refresh (`inbox:scan`) already served. */
+/**
+ * The tick counter, the rotation's cursor and the newest refresh (`inbox:scan`) already served; and the `issuedAt` of the
+ * token whose webhook notifications are enabled (a reconnect or a token refresh issues a new one, so it is asked again).
+ */
 interface ReaderState {
   tick: number;
   postCursor: number;
   lastScan: string;
+  webhooksFor?: string;
+  webhooksAt?: string;
 }
 
 function parseState(raw: string | null): ReaderState {
@@ -91,6 +107,8 @@ function parseState(raw: string | null): ReaderState {
       tick: Number(v.tick) || 0,
       postCursor: Number(v.postCursor) || 0,
       lastScan: typeof v.lastScan === "string" ? v.lastScan : "",
+      webhooksFor: typeof v.webhooksFor === "string" ? v.webhooksFor : undefined,
+      webhooksAt: typeof v.webhooksAt === "string" ? v.webhooksAt : undefined,
     };
   } catch {
     return { tick: 0, postCursor: 0, lastScan: "" };
@@ -124,7 +142,7 @@ interface IgComment {
   id: string;
   text?: string;
   username?: string;
-  from?: { id: string };
+  from?: { id: string; username?: string };
   timestamp: string;
   hidden?: boolean;
   replies?: { data: IgComment[] };
@@ -211,7 +229,7 @@ export function toBatch(
       id: c.id,
       parentId,
       at: iso(toMs(c.timestamp)),
-      author: c.username ?? "",
+      author: c.username ?? c.from?.username ?? "",
       authorId: c.from?.id ?? null,
       text: clipLog(c.text),
       hidden: !!c.hidden,
@@ -262,6 +280,33 @@ export async function readInboxTick(
       );
 
     const state = parseState(await api.getMeta(STATE_KEY));
+    // Once per token, one budgeted call, never on a media tick (which already makes READER_GRAPH_CALLS_MAX). A failure
+    // only leaves `webhooksFor` unset (the next tick asks again). It is saved with the state below, so a tick that
+    // fails before then asks again too (the call is idempotent).
+    if (state.webhooksFor !== tokens.issuedAt && state.tick % MEDIA_REFRESH_TICKS !== 0) {
+      try {
+        const sub = graph(
+          await fetchJson<MetaError & { success?: boolean }>(
+            http,
+            `${IG_API}/me/subscribed_apps`,
+            formPost({ subscribed_fields: WEBHOOK_FIELDS, access_token: token }),
+          ),
+          "subscribed_apps",
+        );
+        if (sub.success !== true) throw new Error("subscribed_apps: no success");
+        state.webhooksFor = tokens.issuedAt;
+        state.webhooksAt = now.toISOString();
+      } catch (e) {
+        const { code, detail } = toReplyCode(e);
+        console.log(
+          JSON.stringify({
+            inbox: "webhooks",
+            error: code,
+            detail: detail?.replaceAll(token, "…").slice(0, 200),
+          }),
+        );
+      }
+    }
     const repliesState = {
       sent: {},
       ...(await store.getRepliesState<Pick<PollState, "sent" | "igUserId">>()),
@@ -338,6 +383,8 @@ export async function readInboxTick(
       tick: state.tick + 1,
       postCursor: forced ? state.postCursor : (cursor + targets.length) % size,
       lastScan: forced ? scan : state.lastScan,
+      webhooksFor: state.webhooksFor,
+      webhooksAt: state.webhooksAt,
     };
     await api.setMeta(STATE_KEY, JSON.stringify(next));
     const refusedAll = targets.length > 0 && done.skipped === targets.length;

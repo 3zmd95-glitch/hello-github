@@ -1206,6 +1206,30 @@ describe("pollReplies", () => {
     expect(said).toBe("ب");
   });
 
+  it("fills {username} from from.username when Instagram omits the top-level username", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input({ publicReplies: ["هلا {username}"] })]);
+    let said = "";
+    const { routes } = igRoutes(
+      {
+        [`POST ${IG}/c1/replies`]: (_u, init) => {
+          said = new URLSearchParams(String(init?.body)).get("message") ?? "";
+          return { id: "r1" };
+        },
+      },
+      [comment("c1", "لت", { username: undefined, from: { id: "uc1", username: "sara" } })],
+    );
+    const fetchMock = mockFetch(routes);
+    await pollReplies(env, { fetch: fetchMock, now: NOW });
+    expect(said).toBe("هلا @sara");
+    expect((await stateOf(env)).log[0]).toMatchObject({ commentId: "c1", username: "sara" });
+    const asked = fetchMock.mock.calls
+      .map(([u]) => new URL(String(u)))
+      .find((u) => u.pathname.endsWith("/m1/comments"))!;
+    expect(asked.searchParams.get("fields")).toBe("id,text,username,from{id,username},timestamp");
+  });
+
   it("leaves comments to comment rules: a message rule with the same word does not answer them", async () => {
     const env = makeEnv();
     await connect(env, "instagram");
