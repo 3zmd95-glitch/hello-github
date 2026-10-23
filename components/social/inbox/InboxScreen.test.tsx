@@ -927,9 +927,14 @@ describe("InboxScreen layout", () => {
     expect(tile("comments").querySelector("small")!.textContent).toBe("التعليقات");
     expect(number("comments")).toBe("42");
 
-    // The first two follow the tab (TikTok has no conversations); the comments are the Worker's total.
+    // The first two follow the tab: Instagram's own rows are all there is. TikTok has nothing to count, so no tiles.
+    act(() => q("inbox-tab-instagram")!.click());
+    expect([number("new"), number("open"), number("comments")]).toEqual(["1", "1", "42"]);
     act(() => q("inbox-tab-tiktok")!.click());
-    expect([number("new"), number("open"), number("comments")]).toEqual(["0", "0", "42"]);
+    expect(q("inbox-stats")).toBeNull();
+    act(() => q("inbox-tab-all")!.click());
+    expect(q("inbox-stats")).not.toBeNull();
+    expect(number("comments")).toBe("42");
   });
 
   it("shows no tiles while nothing is loaded, nor when the Worker has no inbox", async () => {
@@ -998,6 +1003,41 @@ describe("InboxScreen layout", () => {
     expect(all("inbox-search-none")).toHaveLength(1);
     expect(q("inbox-search-none", q("inbox-messages")!)!.textContent).toBe("ما فيه نتيجة");
     expect(q("inbox-empty-messages")).toBeNull();
+    // Announced to a screen reader when it appears.
+    expect(q("inbox-search-none")!.parentElement!.getAttribute("role")).toBe("status");
+  });
+
+  it("finds Arabic names however the hamza, the vowel marks and the tatweel are written", async () => {
+    serve({
+      "GET /social/inbox/conversations": {
+        body: {
+          conversations: [
+            conv({ id: "c1", peerId: "p1", peerName: "أحمد", lastText: "هلا" }),
+            conv({ id: "c2", peerId: "p2", peerName: "مُحمّد", lastText: "تمام", updatedAt: T0 }),
+            conv({ id: "c3", peerId: "p3", peerName: "خالد", lastText: "شكراً", updatedAt: T0 }),
+          ],
+          more: false,
+          next: null,
+        },
+      },
+    });
+    await mount();
+    typeSearch("احمد");
+    expect(ids("inbox-conversation")).toEqual(["c1"]);
+    typeSearch("محمد");
+    expect(ids("inbox-conversation")).toEqual(["c2"]);
+    typeSearch("أحمد");
+    expect(ids("inbox-conversation")).toEqual(["c1"]);
+  });
+
+  it("keeps the loading rows when something is typed before the first read lands", async () => {
+    fetchMock.mockImplementation(() => new Promise(() => {})); // the first read never lands
+    await mount();
+    typeSearch("zzz");
+    expect(q("inbox-messages")!.textContent).toContain("نجيب الرسائل");
+    expect(q("inbox-comments")!.textContent).toContain("نجيب الرسائل");
+    expect(q("inbox-search-none")).toBeNull();
+    expect(q("inbox-empty-messages")).toBeNull();
   });
 
   it("does not search on the TikTok tab, where there is nothing to narrow", async () => {
@@ -1061,6 +1101,7 @@ describe("InboxScreen layout", () => {
     await settle();
     expect(q("inbox-thread")!.getAttribute("data-side")).toBe("true");
     act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(q("inbox-thread")).toBeNull();
     act(() => all("inbox-post-row")[0].click());
     await settle();
     expect(q("inbox-post")!.getAttribute("data-side")).toBe("true");

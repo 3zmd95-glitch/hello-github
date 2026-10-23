@@ -71,20 +71,25 @@ export default function PostList({
           trailing={
             <>
               {isUnread(postSeen(p), seen) && (
-                <Chip tone="tint" className="md:col-start-4" data-testid="inbox-new">
+                <Chip
+                  tone="tint"
+                  className="md:col-start-4 md:justify-self-end"
+                  data-testid="inbox-new"
+                >
                   {t("inbox.new")}
                 </Chip>
               )}
               <time
                 dateTime={p.postedAt}
-                className="text-muted hidden text-[13px] whitespace-nowrap md:col-start-5 md:block md:min-w-24 md:text-end"
+                className="text-muted hidden text-[13px] whitespace-nowrap md:col-start-5 md:block md:justify-self-end md:text-end"
               >
                 {timeAgo(p.postedAt, lang)}
               </time>
             </>
           }
-          // md+: the title and the count are grid cells of their own (the text wrapper steps aside).
-          className="md:hover:bg-fill md:grid md:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] md:items-center md:gap-4 md:[&>.ios-tx]:contents md:[&>.ios-tx>small]:whitespace-nowrap"
+          // md+: the title and the count are grid cells of their own (the text wrapper steps aside); the count, "new"
+          // and time tracks are fixed, so they line up from row to row and with the Messages list.
+          className="md:hover:bg-fill md:grid md:grid-cols-[auto_minmax(0,1fr)_6rem_4rem_6rem] md:items-center md:gap-4 md:[&>.ios-tx]:contents md:[&>.ios-tx>small]:text-end md:[&>.ios-tx>small]:whitespace-nowrap"
           onClick={() => onOpen(p)}
           testId="inbox-post-row"
           data-id={p.id}

@@ -99,19 +99,23 @@ export default function ConversationList({
             trailing={
               <>
                 {conversationUnread(c, seen) && (
-                  <Chip tone="tint" className="md:col-start-3" data-testid="inbox-new">
+                  <Chip
+                    tone="tint"
+                    className="md:col-start-3 md:justify-self-end"
+                    data-testid="inbox-new"
+                  >
                     {t("inbox.new")}
                   </Chip>
                 )}
                 <time
                   dateTime={c.updatedAt}
-                  className="text-muted hidden text-[13px] whitespace-nowrap md:col-start-4 md:block md:min-w-24 md:text-end"
+                  className="text-muted hidden text-[13px] whitespace-nowrap md:col-start-4 md:block md:justify-self-end md:text-end"
                 >
                   {timeAgo(c.updatedAt, lang)}
                 </time>
               </>
             }
-            className="md:hover:bg-fill md:grid md:grid-cols-[auto_minmax(0,1fr)_auto_auto] md:items-center md:gap-4"
+            className="md:hover:bg-fill md:grid md:grid-cols-[auto_minmax(0,1fr)_4rem_6rem] md:items-center md:gap-4"
             onClick={() => onOpen(c)}
             testId="inbox-conversation"
             data-id={c.id}
@@ -120,11 +124,13 @@ export default function ConversationList({
         );
       })}
       {noMatch && (
-        <EmptyState
-          icon={<Search size={24} strokeWidth={1.75} aria-hidden />}
-          title={t("inbox.search.none")}
-          testId="inbox-search-none"
-        />
+        <div role="status">
+          <EmptyState
+            icon={<Search size={24} strokeWidth={1.75} aria-hidden />}
+            title={t("inbox.search.none")}
+            testId="inbox-search-none"
+          />
+        </div>
       )}
       {loaded && conversations.length === 0 && !noMatch && (
         <ListRow title={t("inbox.empty.messages")} testId="inbox-empty-messages" />

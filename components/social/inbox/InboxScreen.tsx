@@ -11,7 +11,7 @@ import Segmented from "@/components/ui/ios/Segmented";
 import Sheet from "@/components/ui/ios/Sheet";
 import { useFirstVisit } from "@/components/ui/ios/useFirstVisit";
 import type { InboxConversation, InboxOverview, InboxPost } from "@/lib/domain";
-import { inboxErrorKey } from "@/lib/inbox";
+import { inboxErrorKey, searchFold } from "@/lib/inbox";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { timeAgo } from "@/lib/socialSync";
 import { useStore } from "@/store";
@@ -124,10 +124,10 @@ export default function InboxScreen() {
   const loaded = inbox.loadedAt !== null;
   const pick = <T extends { platform: string }>(list: readonly T[]) =>
     tab === "all" ? list : list.filter((x) => x.platform === tab);
-  // The search narrows what is loaded (names, last lines, captions), whatever the case; nothing is asked of the Worker.
-  const needle = query.trim().toLowerCase();
-  const has = (...texts: string[]) =>
-    !needle || texts.some((x) => x.toLowerCase().includes(needle));
+  // The search narrows what is loaded (names, last lines, captions), however they are cased or spelled in Arabic;
+  // nothing is asked of the Worker.
+  const needle = searchFold(query.trim());
+  const has = (...texts: string[]) => !needle || texts.some((x) => searchFold(x).includes(needle));
   const conversations = pick(inbox.conversations).filter((c) => has(c.peerName, c.lastText));
   const posts = pick(inbox.posts).filter((p) => has(p.caption));
   const noMatch = loaded && needle !== "" && conversations.length === 0 && posts.length === 0;
@@ -176,7 +176,8 @@ export default function InboxScreen() {
         }
       />
 
-      {inbox.loadedAt !== null && overview && (
+      {/* No tiles on the TikTok tab: it has no conversations or comments to count. */}
+      {tab !== "tiktok" && inbox.loadedAt !== null && overview && (
         <InboxStats
           conversations={pick(inbox.conversations)}
           seen={seen}
@@ -279,8 +280,9 @@ export default function InboxScreen() {
             ) : (
               (loaded || inbox.busy) && (
                 <>
-                  {/* Searching, a list with no match leaves the page; when neither has one, this card says so. */}
-                  {(!needle || conversations.length > 0 || noMatch) && (
+                  {/* Searching, a list with no match leaves the page; when neither has one, this card says so.
+                      Before the first read lands there is nothing to match: the loading rows stay. */}
+                  {(!needle || !loaded || conversations.length > 0 || noMatch) && (
                     <ConversationList
                       conversations={conversations}
                       loaded={loaded}
@@ -290,7 +292,7 @@ export default function InboxScreen() {
                       onMore={() => void loadMoreConversations()}
                     />
                   )}
-                  {(!needle || posts.length > 0) && (
+                  {(!needle || !loaded || posts.length > 0) && (
                     <PostList
                       posts={posts}
                       loaded={loaded}

@@ -20,6 +20,7 @@ import {
   inboxThread,
   inboxWipe,
   isUnconfirmed,
+  searchFold,
   seenKey,
   unreadCount,
   utf8Bytes,
@@ -561,6 +562,34 @@ describe("helpers", () => {
     expect(utf8Bytes("lut")).toBe(3);
     expect(utf8Bytes("")).toBe(0);
     expect(utf8Bytes("🎬")).toBe(4);
+  });
+
+  // The page's search compares folded texts: both the needle and what it looks through.
+  describe("searchFold", () => {
+    const found = (needle: string, text: string) => searchFold(text).includes(searchFold(needle));
+
+    it("finds an alef with hamza by the plain alef, and a final yeh by the alef maqsura", () => {
+      expect(found("احمد", "أحمد")).toBe(true);
+      expect(found("أحمد", "احمد")).toBe(true);
+      expect(found("إيمان", "ايمان")).toBe(true);
+      expect(found("آية", "اية")).toBe(true);
+      expect(found("مصطفي", "مصطفى")).toBe(true);
+      expect(found("خالد", "أحمد")).toBe(false);
+    });
+
+    it("drops the vowel marks and the tatweel", () => {
+      expect(found("محمد", "مُحمّد")).toBe(true);
+      expect(found("مُحمّد", "محمد")).toBe(true);
+      expect(found("سارة", "ســـارة")).toBe(true);
+      expect(searchFold("مُحَمَّد")).toBe("محمد");
+    });
+
+    it("ignores the case of Latin letters and leaves other letters as they are", () => {
+      expect(searchFold("Noura AL-Harbi")).toBe("noura al-harbi");
+      expect(found("NOURA", "noura")).toBe(true);
+      expect(searchFold("ة ه")).toBe("ة ه");
+      expect(searchFold("")).toBe("");
+    });
   });
 
   it("seenKey joins platform, kind and id", () => {

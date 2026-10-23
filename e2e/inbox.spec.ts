@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import type {
   InboxComment,
   InboxConversation,
@@ -917,6 +917,11 @@ test("wide screen: three tiles, a search that narrows the rows, table rows, the 
   await expect(stat(page, "new")).toHaveText("2");
   await expect(stat(page, "open")).toHaveText("1");
   await expect(stat(page, "comments")).toHaveText("3");
+  // TikTok has nothing to count: no tiles there.
+  await page.getByTestId("inbox-tab-tiktok").click();
+  await expect(page.getByTestId("inbox-stats")).toHaveCount(0);
+  await page.getByTestId("inbox-tab-all").click();
+  await expect(page.getByTestId("inbox-stats")).toBeVisible();
 
   // The rows are table rows in one card: avatar, name and last line, the "new" chip and the time.
   await expect(page.getByTestId("inbox-messages")).toHaveAttribute("data-layout", "table");
@@ -929,6 +934,19 @@ test("wide screen: three tiles, a search that narrows the rows, table rows, the 
   await expect(sara.getByTestId("inbox-new")).toBeVisible();
   await expect(sara.locator("time")).toBeVisible();
   expect(await fitsViewport(page)).toBe(true);
+
+  // The columns line up: the "new" chips and the times sit at the same place in every row, the Comments row
+  // included (its count, chip and time tracks are fixed and end where the Messages tracks do).
+  const left = async (el: Locator) => Math.round((await el.boundingBox())!.x);
+  const post = page.getByTestId("inbox-post-row");
+  const cells = [rows.nth(0), rows.nth(1), post];
+  for (const [name, pick] of [
+    ["new chip", (row: Locator) => row.getByTestId("inbox-new")],
+    ["time", (row: Locator) => row.locator("time")],
+  ] as const) {
+    const where = await Promise.all(cells.map((row) => left(pick(row))));
+    expect(new Set(where).size, `${name}: ${where}`).toBe(1);
+  }
 
   // The search narrows the loaded rows of both lists; Escape clears it; no match says so.
   const search = page.getByTestId("inbox-search");
