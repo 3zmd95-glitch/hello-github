@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useSocialSync } from "@/components/social/useSocialSync";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import type { SocialConnectionStatus } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
+import { inboxErrorKey, inboxWipe } from "@/lib/inbox";
 import { reconnectInDays, reconnectMessageKey } from "@/lib/publish";
+import { scoutConfig } from "@/lib/scoutClient";
 import { PLATFORM_META } from "@/lib/social";
 import {
   SOCIAL_PLATFORMS,
@@ -22,14 +24,17 @@ import Card from "./Card";
 const SETUP_DOC_URL =
   "https://github.com/3zmd95-glitch/hello-github/blob/main/planning/tools/06-social-analytics-apis.md";
 
-type Pending = { kind: "disconnect"; platform: SocialPlatform } | { kind: "seed" } | null;
+type Pending =
+  { kind: "disconnect"; platform: SocialPlatform } | { kind: "seed" } | { kind: "wipe" } | null;
 
 /**
  * 🔗 Connected accounts: one row per platform the Scout Worker can connect (TikTok, Instagram, YouTube,
  * Threads) with its state, Connect / Reconnect / Disconnect, "Allow posting" (reconnect with the publishing
  * scopes for auto-posting), a "reconnect in N days" line before a Meta token runs out (round 30, A6), a
- * global "Sync now" with the last pull time, a short explainer, and, while the Beacons seed rows are still
- * stored, a button to remove them. Without the Worker URL and token it points at the API keys card above.
+ * global "Sync now" with the last pull time, a short explainer, a "Delete stored messages" button (asks first, then
+ * empties the Worker's 30-day inbox store), and, while the Beacons seed rows are still stored, a button to remove
+ * them. Without the Worker URL and token it points at the API keys card above.
+ * Lives in Social's own Settings page (tools/20), so its chips and buttons carry no emoji (tools/18 §7).
  */
 export default function ConnectedAccountsCard() {
   const { t, lang } = useT();
@@ -38,8 +43,12 @@ export default function ConnectedAccountsCard() {
     useSocialSync({ auto: true });
   const seed = useStore(hasBeaconsSeed);
   const removeBeaconsSeed = useStore((s) => s.removeBeaconsSeed);
+  const apiKeys = useStore((s) => s.settings.apiKeys);
   const [pending, setPending] = useState<Pending>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [wiping, setWiping] = useState(false);
+  /** Set the moment a wipe starts: two confirms in a row (a double tap) send one DELETE. */
+  const wipeLock = useRef(false);
 
   const onSync = async () => {
     setNotice(null);
@@ -56,11 +65,34 @@ export default function ConnectedAccountsCard() {
     if (r.synced.length) toast("notice", { icon: "🔄", name: t("social.toast.synced") });
   };
 
+  /** `DELETE /social/inbox` once the owner said yes; a toast says how it went. */
+  const wipeInbox = async () => {
+    if (wipeLock.current) return;
+    wipeLock.current = true;
+    setWiping(true);
+    try {
+      const r = await inboxWipe(scoutConfig(apiKeys.scoutUrl, apiKeys.scoutToken));
+      if (r.ok) toast("notice", { icon: "🗑️", name: t("inbox.settings.wiped") });
+      else
+        toast("notice", {
+          icon: "⚠️",
+          tone: "warn",
+          sound: null,
+          name: t(inboxErrorKey(r.error)),
+        });
+    } finally {
+      wipeLock.current = false;
+      setWiping(false);
+    }
+  };
+
   const confirm = () => {
     if (!pending) return;
     if (pending.kind === "seed") {
       removeBeaconsSeed();
       setNotice(t("settings.accounts.removeSeedOk"));
+    } else if (pending.kind === "wipe") {
+      void wipeInbox();
     } else {
       void disconnect(pending.platform);
     }
@@ -73,7 +105,11 @@ export default function ConnectedAccountsCard() {
     <Card id="accounts" title={t("settings.accounts.title")}>
       <div className="flex flex-col gap-3" data-testid="accounts-card">
         {!configured ? (
-          <p className="text-ink-2 text-sm" data-testid="accounts-need-worker">
+          <p
+            className="text-ink-2 text-sm"
+            id="accounts-need-worker"
+            data-testid="accounts-need-worker"
+          >
             {t("settings.accounts.needWorker")}{" "}
             <a href="#api-keys" className="px-link">
               {t("settings.accounts.needWorkerLink")}
@@ -153,6 +189,19 @@ export default function ConnectedAccountsCard() {
 
         <p className="text-muted text-xs">{t("settings.accounts.explainer")}</p>
 
+        <div>
+          <button
+            type="button"
+            className="px-btn px-btn-danger px-btn-sm"
+            onClick={() => setPending({ kind: "wipe" })}
+            disabled={!configured || wiping}
+            aria-describedby={configured ? undefined : "accounts-need-worker"}
+            data-testid="accounts-wipe-inbox"
+          >
+            {t("inbox.settings.wipe")}
+          </button>
+        </div>
+
         {seed && (
           <div className="px-inset flex flex-wrap items-center gap-2" data-testid="accounts-seed">
             <span className="text-ink-2 min-w-[200px] flex-1 text-xs">
@@ -173,23 +222,29 @@ export default function ConnectedAccountsCard() {
       {pending && (
         <ConfirmDialog
           title={
-            pending.kind === "seed"
-              ? t("settings.accounts.removeSeedTitle")
-              : t("settings.accounts.disconnectTitle", {
-                  platform: PLATFORM_META[pending.platform].name[lang],
-                })
+            pending.kind === "wipe"
+              ? t("inbox.settings.wipe")
+              : pending.kind === "seed"
+                ? t("settings.accounts.removeSeedTitle")
+                : t("settings.accounts.disconnectTitle", {
+                    platform: PLATFORM_META[pending.platform].name[lang],
+                  })
           }
           body={
-            pending.kind === "seed"
-              ? t("settings.accounts.removeSeedBody")
-              : t("settings.accounts.disconnectBody", {
-                  platform: pendingPlatform ? PLATFORM_META[pendingPlatform].name[lang] : "",
-                })
+            pending.kind === "wipe"
+              ? t("inbox.settings.wipeConfirm")
+              : pending.kind === "seed"
+                ? t("settings.accounts.removeSeedBody")
+                : t("settings.accounts.disconnectBody", {
+                    platform: pendingPlatform ? PLATFORM_META[pendingPlatform].name[lang] : "",
+                  })
           }
           confirmLabel={
-            pending.kind === "seed"
-              ? t("settings.accounts.removeSeed")
-              : t("settings.accounts.disconnect")
+            pending.kind === "wipe"
+              ? t("inbox.settings.wipe")
+              : pending.kind === "seed"
+                ? t("settings.accounts.removeSeed")
+                : t("settings.accounts.disconnect")
           }
           danger
           onConfirm={confirm}
@@ -270,7 +325,7 @@ function AccountRow({
           {L(meta.name)}
           {state === "connected" && status?.canPublish && platform !== "tiktok" && (
             <span className="px-chip px-chip-green text-xs" data-testid="account-can-post">
-              ✍️ {t("publish.hub.canPost")}
+              {t("publish.hub.canPost")}
             </span>
           )}
           {state === "connected" && platform === "tiktok" && (
@@ -279,16 +334,16 @@ function AccountRow({
               data-testid="account-tiktok-capabilities"
             >
               {(status?.canUpload ?? status?.canPublish) && (
-                <span className="px-chip px-chip-green">📥 {t("publish.tt.canUpload")}</span>
+                <span className="px-chip px-chip-green">{t("publish.tt.canUpload")}</span>
               )}
               {status?.canDirectPost && (
-                <span className="px-chip px-chip-green">✍️ {t("publish.tt.canDirectPost")}</span>
+                <span className="px-chip px-chip-green">{t("publish.tt.canDirectPost")}</span>
               )}
             </span>
           )}
           {replies && state === "connected" && status?.canReply && (
             <span className="px-chip px-chip-green text-xs" data-testid="account-can-reply">
-              💬 {t("replies.canReply")}
+              {t("replies.canReply")}
             </span>
           )}
         </span>
@@ -356,7 +411,7 @@ function AccountRow({
             disabled={busy}
             data-testid="account-allow-posting"
           >
-            ✍️ {replies && !status?.canReply ? t("replies.allowBoth") : t("publish.allow")}
+            {replies && !status?.canReply ? t("replies.allowBoth") : t("publish.allow")}
           </button>
         )}
         {replies && state === "connected" && status?.canPublish && !status.canReply && (
@@ -367,7 +422,7 @@ function AccountRow({
             disabled={busy}
             data-testid="account-allow-replies"
           >
-            💬 {t("replies.allow")}
+            {t("replies.allow")}
           </button>
         )}
         {(state === "connected" || state === "error") && (

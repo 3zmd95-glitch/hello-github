@@ -4,7 +4,8 @@
 // Secrets (set by the deploy workflow with `wrangler secret put`, never committed): TAVILY_API_KEY,
 // SCOUT_TOKEN, META_APP_ID, META_APP_SECRET, THREADS_APP_ID, THREADS_APP_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, TIKTOK_CLIENT_KEY,
 // TIKTOK_CLIENT_SECRET, YOUTUBE_API_KEY. TIKTOK_ADS_SECRET (the TikTok for Business app's secret: the category pages'
-// TikTok trends) and BRAVE_API_KEY (optional, the category pages' TikTok and Instagram tabs; off, BRAVE_DAILY "0") are
+// TikTok trends), BRAVE_API_KEY (optional, the category pages' TikTok and Instagram tabs; off, BRAVE_DAILY "0") and
+// META_VERIFY_TOKEN (any long random string: the Instagram webhook's verify handshake, src/social/webhooks.ts) are
 // added by the owner in Cloudflare (Workers & Pages → 3z-scout → Settings → Variables and Secrets → Add → Secret).
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -54,37 +55,10 @@
     // and swaps the real id in.
     { "binding": "OAUTH_KV", "id": "11111111111111111111111111111111" },
   ],
-  // Reviewed inbox sends (planning/tools/37-inbox-send.md): the claim authorities are SQLite-backed Durable Objects,
-  // one object per provider|account. SEND_COORDINATOR (DT-6B-2A, src/social/sendCoordinator.ts) is YouTube's one-stage
-  // claim; THREADS_SEND_COORDINATOR (DT-6B-2B-1, src/social/threadsSendCoordinator.ts) is the Threads two-stage
-  // create/publish claim, added by its own migration. INSTAGRAM_PUBLIC_SEND_COORDINATOR (DT-6B-2C-1,
-  // src/social/instagramPublicSendCoordinator.ts) holds the reviewed Instagram intents and the one public-reply effect
-  // per comment that the manual confirm and the automatic acknowledgement share, added by its own migration.
-  // INSTAGRAM_DM_COORDINATOR (DT-6B-2C-2, src/social/instagramDmCoordinator.ts) is the durable authority of the
-  // automation's existing-conversation DMs (one effect per inbound message, the default reply's cooldown, takeover),
-  // added by its own migration. All four are exported by src/index.ts. Local only so far: `wrangler dev` and the runtime tests simulate them; nothing has
-  // been provisioned or deployed.
-  "durable_objects": {
-    "bindings": [
-      { "name": "SEND_COORDINATOR", "class_name": "SendCoordinator" },
-      { "name": "THREADS_SEND_COORDINATOR", "class_name": "ThreadsSendCoordinator" },
-      {
-        "name": "INSTAGRAM_PUBLIC_SEND_COORDINATOR",
-        "class_name": "InstagramPublicSendCoordinator",
-      },
-      { "name": "INSTAGRAM_DM_COORDINATOR", "class_name": "InstagramDmCoordinator" },
-      // DT-7B (src/social/workflowCoordinator.ts): the cloud-workflow foundation, one server-selected object. Local
-      // only, unactivated: never provisioned or deployed, no cron, no browser wiring.
-      { "name": "WORKFLOW_COORDINATOR", "class_name": "WorkflowCoordinator" },
-    ],
-  },
-  "migrations": [
-    { "tag": "v1-send", "new_sqlite_classes": ["SendCoordinator"] },
-    { "tag": "v2-threads-send", "new_sqlite_classes": ["ThreadsSendCoordinator"] },
-    { "tag": "v3-instagram-public-send", "new_sqlite_classes": ["InstagramPublicSendCoordinator"] },
-    { "tag": "v4-instagram-dm", "new_sqlite_classes": ["InstagramDmCoordinator"] },
-    { "tag": "v5-workflows", "new_sqlite_classes": ["WorkflowCoordinator"] },
-  ],
+  // The global inbox (planning/tools/51-global-inbox.md): one SQLite Durable Object holds the latest conversations,
+  // messages, posts, comments and sends; KV's write budget never sees them.
+  "durable_objects": { "bindings": [{ "name": "INBOX_STORE", "class_name": "InboxStore" }] },
+  "migrations": [{ "tag": "v1-inbox", "new_sqlite_classes": ["InboxStore"] }],
   // One trigger every minute: the auto replies poll Instagram comments and DMs. On the five-minute grid the
   // auto-post queue publishes what is due (the replies poll after it when it moved nothing), the
   // 03:00/03:10/03:20/03:30 UTC ticks (06:00–06:30 Riyadh) run the daily sync of one platform each instead,

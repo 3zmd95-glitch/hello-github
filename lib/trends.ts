@@ -9,7 +9,6 @@ import {
   type TrendRegion,
   type TrendsState,
 } from "./domain";
-import { discoverGenreHref } from "./genres";
 import type { MessageKey } from "./i18n";
 import { addDays, daysBetween } from "./streak";
 
@@ -19,8 +18,8 @@ import { addDays, daysBetween } from "./streak";
  * diacritics, the idea text a trend becomes, and the Saudi moments calendar (upcoming events and their trend
  * rows). Round 31 adds the edit genres: rows the Worker's keyword scan tagged with a genre id, the filter
  * that reads them (Discover's "most viewed this week" strip; the radar itself filters by language and
- * platform only, Discover is the one place for genres), the name a row's genre chip shows and the Discover
- * link it opens, and the ⭐ rule that does not count a genre's own search words. A row's volume is shown in
+ * platform only, Discover is the one place for genres), the name a row's genre chip shows (a plain chip since
+ * tools/20), and the ⭐ rule that does not count a genre's own search words. A row's volume is shown in
  * its source's unit (`volumeLabelKey`: a YouTube view count is never called searches). Pure functions only;
  * the store keeps the feed and lib/trendsClient talks to the Worker.
  */
@@ -229,15 +228,6 @@ export function savedTrendIdea(ideas: readonly Idea[], item: TrendItem): Idea | 
 export function trendGenreLabel(id: string, genres: readonly Genre[], lang: Lang): string {
   const genre = genres.find((g) => g.id === id);
   return genre ? `${genre.emoji} ${genre.name[lang]}` : id;
-}
-
-/**
- * Where a row's genre chip goes: Discover opened on that genre (lib/genres' `discoverGenreHref`), the one
- * place for edit genres. Undefined for an id the app does not know: Discover has no chip for it, so the
- * radar's chip stays plain text.
- */
-export function trendGenreHref(id: string, genres: readonly Genre[]): string | undefined {
-  return genres.some((g) => g.id === id) ? discoverGenreHref(id) : undefined;
 }
 
 /* ---------- Saudi moments calendar ---------- */

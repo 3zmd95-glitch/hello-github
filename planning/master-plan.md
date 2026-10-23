@@ -621,6 +621,13 @@ and final polish #68. Owner: "can you make it faster? sub agents" — Phases 5�
 phase, then a review of the whole restyle fed one last polish round. Open owner checks on the iPhone: the light-mode status bar
 in the installed app, sheets, pull to refresh, chart scrub, Reduce Motion / Transparency.
 
+Each world on its own (Oct 23, 2026; owner: "I don't like that the sidebar makes me transition between social and training, I want
+each project separate, each with its own settings"): Social's menu links only to Social routes, Social gets `/social/settings`
+(Worker, connected accounts, language, sound, backup) in the iOS look, Discover stays a Training route with no Social shortcut, the
+Trend Radar's genre chips are plain. The world switch stays as the fast way between the two until they become separate sites.
+Spec `tools/20-per-world-settings.md`. Same day, Social appearance: Light by default (owner: "make the website light and make
+it default") · Dark · System, a row in Social's quick settings; Training keeps its dark pixel look (`tools/18` §12).
+
 Round 36 (Oct 6, 2026). The owner shared a clone-effect reel and asked: "does it show in discover page as trendy or our discover
 page needs working?"
 - **Answer: no.** Nothing tracks editing-effect trends. The Trend Radar follows general topics, and "Popular now" only ranks one

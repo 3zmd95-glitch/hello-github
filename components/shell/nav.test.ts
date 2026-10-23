@@ -1,11 +1,11 @@
-import { Inbox, MessageCircle, Search, Workflow } from "lucide-react";
+import { Inbox, MessageCircle, Settings, Workflow } from "lucide-react";
 import { describe, expect, it } from "vitest";
 import { activeHref, NAV_BY_WORLD, NAV_ITEMS, normalizePath, SOCIAL_NAV_ITEMS } from "./nav";
 import { worldOf } from "./useWorld";
 
-// 🧭 The two navigation lists and the active-item rule. Round 31b adds a 🔎 Discover shortcut to the Social
-// sidebar: Discover is a Training route, so the shortcut stays out of the phone tab bar and is never the
-// active item inside Social (the world, and with it the list, comes from the URL).
+// 🧭 The two navigation lists and the active-item rule. Since tools/20 every Social entry is a Social route
+// (Settings is /social/settings, Discover has no shortcut), so a Social link never opens the Training shell
+// (the world, and with it the list, comes from the URL).
 
 const SOCIAL_PATHS = [
   "/social",
@@ -19,6 +19,7 @@ const SOCIAL_PATHS = [
   "/social/business/",
   "/social/automations/",
   "/social/replies/",
+  "/social/settings/",
   "/social/inbox/",
   "/social/workflows/",
 ];
@@ -45,19 +46,25 @@ describe("activeHref", () => {
 });
 
 describe("Social navigation", () => {
-  it("has one Discover shortcut in the desktop sidebar, between Auto-posting and Settings", () => {
-    const discover = SOCIAL_NAV_ITEMS.filter((i) => i.href === "/discover");
-    expect(discover).toEqual([
-      { href: "/discover", icon: "🔎", lucide: Search, label: "nav.discover", desktopOnly: true },
-    ]);
+  it("links only to Social routes: Settings is /social/settings and there is no Discover shortcut", () => {
+    for (const item of SOCIAL_NAV_ITEMS) expect(worldOf(item.href), item.href).toBe("social");
     const hrefs = SOCIAL_NAV_ITEMS.map((i) => i.href);
-    expect(hrefs.slice(-3)).toEqual(["/social/automations", "/discover", "/settings"]);
-    // The same entry as in Training (one name and one icon for one place).
-    const training = NAV_ITEMS.find((i) => i.href === "/discover");
-    expect(training).toMatchObject({ icon: discover[0].icon, label: discover[0].label });
+    expect(hrefs.slice(-4)).toEqual([
+      "/social/inbox",
+      "/social/workflows",
+      "/social/automations",
+      "/social/settings",
+    ]);
+    expect(SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/settings")).toEqual({
+      href: "/social/settings",
+      icon: "⚙️",
+      lucide: Settings,
+      label: "nav.settings",
+      desktopOnly: true,
+    });
   });
 
-  it("lists 💬 Auto replies in the Social desktop sidebar, before the last three", () => {
+  it("lists 💬 Auto replies in the Social desktop sidebar", () => {
     expect(SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/replies")).toEqual({
       href: "/social/replies",
       icon: "💬",
@@ -115,7 +122,7 @@ describe("Social navigation", () => {
     ]);
   });
 
-  it("never marks Discover or Settings active on a Social route", () => {
+  it("activates a Social item on every Social route", () => {
     for (const path of SOCIAL_PATHS) {
       expect(worldOf(path), path).toBe("social");
       const active = activeHref(NAV_BY_WORLD[worldOf(path)], path);
@@ -124,7 +131,7 @@ describe("Social navigation", () => {
     }
   });
 
-  it("hands Discover to the Training list: the shortcut opens the Training shell", () => {
+  it("keeps Discover a Training route: its list is the Training one", () => {
     for (const path of ["/discover", "/discover/"]) {
       expect(worldOf(path)).toBe("training");
       expect(NAV_BY_WORLD[worldOf(path)]).toBe(NAV_ITEMS);

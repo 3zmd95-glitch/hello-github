@@ -29,6 +29,9 @@ export default defineConfig({
     { name: "phone", use: { ...devices["iPhone 14"], defaultBrowserType: "chromium" } },
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },
   ],
+  // On Windows the whole suite (414 tests, 8 workers) kills `serve` with EMFILE after ~380 tests: file handles pile up
+  // across the run. Locally run one project at a time (`pnpm e2e --project=phone`, then `--project=desktop`); CI on
+  // Linux runs everything at once.
   webServer: {
     command: `pnpm build && npx serve@latest out -l ${port}`,
     url: `http://localhost:${port}`,

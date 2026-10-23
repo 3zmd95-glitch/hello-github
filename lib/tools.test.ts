@@ -46,7 +46,7 @@ describe("registry", () => {
     const routes = new Set([
       ...NAV_ITEMS.map((n) => n.href),
       ...SOCIAL_NAV_ITEMS.map((n) => n.href),
-      "/settings#accounts",
+      "/social/settings#accounts",
       "/settings#api-keys",
       "/settings#data",
       "/tools",

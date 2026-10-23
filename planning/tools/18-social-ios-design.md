@@ -40,8 +40,8 @@ shared `[data-world="social"]` token block and `.px-*` overrides in `app/globals
 (`messages/{social,publish,ideas,calendar,trends,replies,growth}.{ar,en}.json` and the `nav.*` / `world.*` keys),
 `lib/social.ts` platform glyphs, the new `components/ui/ios/*` primitives, tests that pin the old look.
 
-**Out (follow-ups, recorded in §12):** Settings and Discover opened from Social (they are Training routes and keep the pixel
-look for now), a light mode for Training (never), Website / Business pages beyond their "قريب" cards, native haptics.
+**Out (follow-ups, recorded in §12):** Settings opened from Social (done in tools/20, 23 Oct 2026: `/social/settings`; Discover
+stays a Training route with no Social shortcut), a light mode for Training (never), Website / Business pages beyond their "قريب" cards, native haptics.
 
 ## 3. Design system (the `social` theme)
 
@@ -275,7 +275,8 @@ shadows), so screens can move to the primitives one by one without a flag day.
 - **Automations** (`/social/automations`): queue as grouped list with platform badges and stage chips; confirm dialogs
   are Alerts; "copied" feedback becomes a toast.
 - **Website / Business**: one card each with the Lucide icon, the "قريب" chip and the explanation copy.
-- **Settings / Discover from Social**: unchanged this round (open in the Training shell).
+- **Settings / Discover from Social**: unchanged this round; tools/20 (23 Oct 2026) gave Social its own `/social/settings` and
+  dropped the Discover shortcut.
 
 ## 7. Copy and emoji sweep
 
@@ -345,10 +346,14 @@ running transitions on the tab bar, and the Training Today page still has the pi
 
 ## 12. Follow-ups (not in this round)
 
-- Settings and Discover rendered in the Social look when opened from Social (today they jump to the pixel shell).
+- ~~Settings and Discover rendered in the Social look when opened from Social~~ Done in tools/20: Social settings at
+  `/social/settings`; Discover stays Training-only, so Social has no link to it.
 - Route transitions with React `<ViewTransition>` (Next 16 App Router) once the static-export behavior is verified.
 - Haptics are not available on the web; skip.
-- A manual appearance override (System · Light · Dark) in Settings if the owner asks.
+- ~~A manual appearance override (System · Light · Dark) in Settings if the owner asks.~~ Done 23 Oct 2026 (owner: "make the
+  website light and make it default"): `settings.appearance` = Light (default, also for older saves) · Dark · System, a row in
+  Social's quick settings (More and `/social/settings`); the shell mirrors it onto `<html data-scheme>`, the dark tokens key
+  on that instead of the phone, the boot script sets it before first paint, `theme-color` follows. Training unchanged.
 
 ## 13. Risks
 

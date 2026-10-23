@@ -151,7 +151,7 @@ export default function AutoPostTab({ post }: { post: Post }) {
       {!configured && (
         <p className="px-inset text-sm" data-testid="autopost-need-worker">
           {t("publish.needWorker")}{" "}
-          <Link href="/settings#accounts" className="px-link">
+          <Link href="/social/settings#accounts" className="px-link">
             {t("publish.needWorkerLink")}
           </Link>
         </p>

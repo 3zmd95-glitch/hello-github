@@ -161,7 +161,7 @@ export function isGenreNameTaken(name: string, custom: readonly CustomGenre[]): 
 /** The query parameter Discover reads a genre from. */
 export const DISCOVER_GENRE_PARAM = "genre";
 
-/** Where Discover opens on a genre: `/discover/?genre=<id>` (the Trend Radar's genre chips link here). */
+/** Where Discover opens on a genre: `/discover/?genre=<id>` (Discover's own deep link, useGenreLink). */
 export function discoverGenreHref(id: string): string {
   return `/discover/?${DISCOVER_GENRE_PARAM}=${encodeURIComponent(id)}`;
 }

@@ -2,14 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handle, type Env } from "./scout";
 import { decryptJson, encryptJson } from "./social/crypto";
 import {
-  readAccountToken,
   TT_ACCOUNT_AUTH_URL,
   TT_CML_TRENDING_URL,
   TT_USER_REFRESH_URL,
   TT_USER_TOKEN_URL,
   type AccountToken,
 } from "./tiktokAccount";
-import { musicProbe } from "./tiktokMusicProbe";
 
 // The TikTok account authorization (tt_user) of the owner's TikTok for Business app and the Commercial Music
 // Library's trending songs, through the Worker's router. Every value here is fake.
@@ -24,21 +22,15 @@ const REFRESH = "fake-account-refresh";
 const OPEN_ID = "-000openid-abcdef";
 const CALLBACK = `${BASE}/oauth/tiktokads/account/callback/`;
 
-type Entry = { value: string; ttl?: number; expiration?: number };
+type Entry = { value: string; ttl?: number };
 function fakeKV() {
   const store = new Map<string, Entry>();
   return {
     store,
     get: vi.fn(async (key: string) => store.get(key)?.value ?? null),
-    put: vi.fn(
-      async (
-        key: string,
-        value: string,
-        opts?: { expirationTtl?: number; expiration?: number },
-      ) => {
-        store.set(key, { value, ttl: opts?.expirationTtl, expiration: opts?.expiration });
-      },
-    ),
+    put: vi.fn(async (key: string, value: string, opts?: { expirationTtl?: number }) => {
+      store.set(key, { value, ttl: opts?.expirationTtl });
+    }),
     delete: vi.fn(async (key: string) => {
       store.delete(key);
     }),
@@ -206,19 +198,14 @@ describe("GET /oauth/tiktokads/account/callback/", () => {
     });
     const blob = kv.store.get("tiktokads:account")!.value;
     expect(blob).not.toContain(ACCESS);
-    // DT-6B-3A-R1: the callback alone writes the connection reference, a fresh connection id around the token.
     expect(await decryptJson(SCOUT, blob)).toEqual({
-      v: 2,
-      connection: expect.stringMatching(/^[0-9a-f]{32}$/),
-      token: {
-        access_token: ACCESS,
-        refresh_token: REFRESH,
-        open_id: OPEN_ID,
-        expires_at: "2026-10-16T14:00:00.000Z",
-        refresh_expires_at: "2027-10-15T14:00:00.000Z",
-        scope: "user.info.basic",
-        connectedAt: NOW.toISOString(),
-      },
+      access_token: ACCESS,
+      refresh_token: REFRESH,
+      open_id: OPEN_ID,
+      expires_at: "2026-10-16T14:00:00.000Z",
+      refresh_expires_at: "2027-10-15T14:00:00.000Z",
+      scope: "user.info.basic",
+      connectedAt: NOW.toISOString(),
     });
     // The state is used up.
     const again = await callback(env, `auth_code=the-code&state=${state}`, fetch);
@@ -430,7 +417,6 @@ describe("GET /tiktokads/music", () => {
   it("renews an expiring token first, keeps the new one sealed, then reads the chart (2 calls)", async () => {
     const kv = fakeKV();
     await storeToken(kv, 60_000);
-    const before = kv.store.get("tiktokads:account")!.value;
     const env = makeEnv(kv);
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) =>
       String(input) === TT_USER_REFRESH_URL
@@ -455,24 +441,13 @@ describe("GET /tiktokads/music", () => {
     expect((fetch.mock.calls[1][1]?.headers as Record<string, string>)["Access-Token"]).toBe(
       "new-access",
     );
-    // DT-6B-3A-R1: the renewal lands sealed under its own connection's refresh key (a legacy record's is
-    // "legacy"), bounded by the renewed refresh token; the connection reference itself is never rewritten.
-    expect(kv.store.get("tiktokads:account")!.value).toBe(before);
-    const kept = kv.store.get("tiktokads:account-refresh:legacy")!;
-    expect(kept.value).not.toContain("new-access");
-    expect(kept.expiration).toBe(Date.parse("2027-10-15T14:00:00.000Z") / 1000);
-    const { connection, token: t } = (await decryptJson<{
-      connection: string;
-      token: AccountToken;
-    }>(SCOUT, kept.value))!;
-    expect(connection).toBe("legacy");
+    const t = await decryptJson<AccountToken>(SCOUT, kv.store.get("tiktokads:account")!.value);
     expect(t).toMatchObject({
       access_token: "new-access",
       refresh_token: "new-refresh",
       expires_at: "2026-10-16T14:00:00.000Z",
       connectedAt: "2026-10-15T10:00:00.000Z",
     });
-    expect(await readAccountToken(env)).toMatchObject({ access_token: "new-access" });
   });
 
   it("a failed renewal is data (502 refresh_failed); a dead refresh token asks to reconnect (409)", async () => {
@@ -498,579 +473,5 @@ describe("GET /tiktokads/music", () => {
     expect(dead.status).toBe(409);
     expect(await dead.json()).toMatchObject({ error: "reconnect" });
     expect(fetch).toHaveBeenCalledTimes(1);
-  });
-});
-
-// DT-6B-3A-R1. The callback alone writes `tiktokads:account` ({ v: 2, connection, token }; a bare sealed token is a
-// legacy record, connection "legacy"); a renewal writes only `tiktokads:account-refresh:<its connection>`, read back
-// only while the reference still names that connection and the same open_id.
-const REF = "tiktokads:account";
-const refreshKey = (connection: string) => `tiktokads:account-refresh:${connection}`;
-const CONN = "0123456789abcdef0123456789abcdef";
-const CHANGED = { error: "account_changed", fetchedAt: NOW.toISOString() };
-
-function accountToken(over: Partial<AccountToken> = {}, expiresIn = -1000): AccountToken {
-  return {
-    access_token: "old-access",
-    refresh_token: "old-refresh",
-    open_id: OPEN_ID,
-    expires_at: new Date(NOW.getTime() + expiresIn).toISOString(),
-    refresh_expires_at: new Date(NOW.getTime() + 300 * 86400_000).toISOString(),
-    scope: "user.info.basic",
-    connectedAt: "2026-10-15T10:00:00.000Z",
-    ...over,
-  };
-}
-const seal = (value: unknown) => encryptJson(SCOUT, value);
-async function storeV2(kv: FakeKV, token = accountToken(), connection = CONN) {
-  kv.store.set(REF, { value: await seal({ v: 2, connection, token }) });
-}
-async function storeLegacy(kv: FakeKV, token = accountToken()) {
-  kv.store.set(REF, { value: await seal(token) });
-}
-const refOf = async (kv: FakeKV) =>
-  (await decryptJson<{ v: number; connection: string; token: AccountToken }>(
-    SCOUT,
-    kv.store.get(REF)!.value,
-  ))!;
-const overlayOf = async (kv: FakeKV, connection: string) =>
-  (await decryptJson<{ connection: string; token: AccountToken }>(
-    SCOUT,
-    kv.store.get(refreshKey(connection))!.value,
-  ))!;
-const musicKeys = (kv: FakeKV) =>
-  [...kv.store.keys()].filter((k) => k.startsWith("tiktokads:music:"));
-const tokenReply = (access: string, openId = OPEN_ID, extra: Record<string, unknown> = {}) =>
-  json({
-    ...TOKEN_OK,
-    data: {
-      ...TOKEN_OK.data,
-      access_token: access,
-      refresh_token: `${access}-refresh`,
-      open_id: openId,
-      ...extra,
-    },
-  });
-const chart = (list: unknown = [TRACK]) => json({ code: 0, message: "OK", data: { list } });
-function deferred<T>() {
-  let resolve!: (v: T) => void;
-  const promise = new Promise<T>((r) => (resolve = r));
-  return { promise, resolve };
-}
-/** A fake TikTok: the refresh answers `refresh()` (hold it with a deferred), the code exchange `exchange()`. */
-function transport(refresh: () => Promise<Response> | Response, exchange = () => json(TOKEN_OK)) {
-  return vi.fn<typeof globalThis.fetch>(async (input) => {
-    const u = String(input);
-    if (u === TT_USER_REFRESH_URL) return refresh();
-    if (u === TT_USER_TOKEN_URL) return exchange();
-    if (u.startsWith(TT_CML_TRENDING_URL)) return chart();
-    throw new Error(`unexpected ${u}`);
-  });
-}
-const urls = (f: ReturnType<typeof transport>) =>
-  f.mock.calls.map(([u]) => String(u).split("?")[0]);
-const accessOf = (f: ReturnType<typeof transport>, i: number) =>
-  (f.mock.calls.at(i)![1]?.headers as Record<string, string>)["Access-Token"];
-/** Connect and complete the callback for the account `exchange()` answers; the callback must say connected. */
-async function reconnect(env: Env, f: typeof globalThis.fetch) {
-  const res = await callback(env, `auth_code=c&state=${await stateOf(env)}`, f);
-  expect(res.status).toBe(200);
-}
-/** A refresh that waits for `release` after saying it was asked. */
-function held() {
-  const entered = deferred<void>();
-  const release = deferred<Response>();
-  return { entered, release, refresh: () => (entered.resolve(), release.promise) };
-}
-
-describe("DT-6B-3A-R1: a renewal never replaces a newer connection", () => {
-  it("realistic race: A's renewal (same open_id) held past B's completed callback cannot replace B or chart", async () => {
-    const kv = fakeKV();
-    await storeLegacy(kv, accountToken({ open_id: "old-account" }));
-    const env = makeEnv(kv);
-    const h = held();
-    const f = transport(h.refresh, () => tokenReply("new-access", "new-account"));
-    const pending = get(env, "/tiktokads/music", f);
-    await h.entered.promise;
-    await reconnect(env, f);
-    const ref = await refOf(kv);
-    expect(ref).toMatchObject({
-      v: 2,
-      token: { open_id: "new-account", access_token: "new-access" },
-    });
-
-    h.release.resolve(tokenReply("old-renewed", "old-account"));
-    const res = await pending;
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual(CHANGED);
-    // No chart with the obsolete credentials, nothing cached; B stays the connection everywhere.
-    expect(urls(f)).toEqual([TT_USER_REFRESH_URL, TT_USER_TOKEN_URL]);
-    expect(musicKeys(kv)).toEqual([]);
-    expect(await refOf(kv)).toEqual(ref);
-    expect(await readAccountToken(env)).toMatchObject({
-      open_id: "new-account",
-      access_token: "new-access",
-    });
-    // A's renewal landed, sealed, under A's own (legacy) key, which the v2 reference never reads.
-    expect(kv.store.get(refreshKey("legacy"))!.value).not.toContain("old-renewed");
-    expect((await overlayOf(kv, "legacy")).token.open_id).toBe("old-account");
-    const status = await (await get(env, "/tiktokads/account/status")).json();
-    expect(status).toMatchObject({ connected: true, openId: "new-…nt" });
-    // B's next chart: B's credentials, no renewal.
-    const next = await get(env, "/tiktokads/music?range=30", f);
-    expect(next.status).toBe(200);
-    expect(urls(f).at(-1)).toBe(TT_CML_TRENDING_URL);
-    expect(accessOf(f, -1)).toBe("new-access");
-  });
-
-  it("control: a renewal that completes before the reconnect charts A, then B is the connection", async () => {
-    const kv = fakeKV();
-    await storeLegacy(kv, accountToken({ open_id: "old-account" }));
-    const env = makeEnv(kv);
-    const f = transport(
-      () => tokenReply("old-renewed", "old-account"),
-      () => tokenReply("new-access", "new-account"),
-    );
-    const res = await get(env, "/tiktokads/music", f);
-    expect(res.status).toBe(200);
-    expect(accessOf(f, 1)).toBe("old-renewed");
-    expect(await readAccountToken(env)).toMatchObject({ access_token: "old-renewed" });
-    await reconnect(env, f);
-    expect(await readAccountToken(env)).toMatchObject({
-      open_id: "new-account",
-      access_token: "new-access",
-    });
-  });
-
-  it("held while sealing the renewal (TikTok already answered) as the callback completes: still B", async () => {
-    const kv = fakeKV();
-    await storeV2(kv, accountToken({ open_id: "old-account" }));
-    const env = makeEnv(kv);
-    const f = transport(
-      () => tokenReply("old-renewed", "old-account"),
-      () => tokenReply("new-access", "new-account"),
-    );
-    const subtle = crypto.subtle;
-    const encrypt = subtle.encrypt.bind(subtle);
-    const sealing = deferred<void>();
-    const go = deferred<void>();
-    let hold = true;
-    vi.spyOn(subtle, "encrypt").mockImplementation(
-      async (...args: Parameters<SubtleCrypto["encrypt"]>) => {
-        if (hold) {
-          hold = false; // only the renewal's seal waits; the callback's passes
-          sealing.resolve();
-          await go.promise;
-        }
-        return encrypt(...args);
-      },
-    );
-    const pending = get(env, "/tiktokads/music", f);
-    await sealing.promise;
-    await reconnect(env, f);
-    go.resolve();
-    const res = await pending;
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual(CHANGED);
-    expect(urls(f)).toEqual([TT_USER_REFRESH_URL, TT_USER_TOKEN_URL]);
-    expect(await readAccountToken(env)).toMatchObject({ open_id: "new-account" });
-    expect((await overlayOf(kv, CONN)).token.access_token).toBe("old-renewed");
-    expect(musicKeys(kv)).toEqual([]);
-  });
-
-  it("held at the sealed renewal's KV write as the callback completes: still B", async () => {
-    const kv = fakeKV();
-    await storeV2(kv, accountToken({ open_id: "old-account" }));
-    const env = makeEnv(kv);
-    const put = kv.put.getMockImplementation()!;
-    const writing = deferred<void>();
-    const go = deferred<void>();
-    kv.put.mockImplementation(async (key, value, opts) => {
-      if (key === refreshKey(CONN)) {
-        writing.resolve();
-        await go.promise;
-      }
-      return put(key, value, opts);
-    });
-    const f = transport(
-      () => tokenReply("old-renewed", "old-account"),
-      () => tokenReply("new-access", "new-account"),
-    );
-    const pending = get(env, "/tiktokads/music", f);
-    await writing.promise;
-    await reconnect(env, f);
-    go.resolve();
-    expect(await (await pending).json()).toEqual(CHANGED);
-    expect(await readAccountToken(env)).toMatchObject({ open_id: "new-account" });
-    expect(musicKeys(kv)).toEqual([]);
-  });
-
-  it("same account reconnected: a fresh connection id, so its stale renewal (same open_id) is not read", async () => {
-    const kv = fakeKV();
-    await storeV2(kv);
-    const env = makeEnv(kv);
-    const h = held();
-    const f = transport(h.refresh);
-    const pending = get(env, "/tiktokads/music", f);
-    await h.entered.promise;
-    await reconnect(env, f); // TOKEN_OK: the same OPEN_ID, access ACCESS
-    const first = (await refOf(kv)).connection;
-    expect(first).toMatch(/^[0-9a-f]{32}$/);
-    expect(first).not.toBe(CONN);
-    h.release.resolve(tokenReply("stale-renewed"));
-    expect(await (await pending).json()).toEqual(CHANGED);
-    expect((await overlayOf(kv, CONN)).token).toMatchObject({
-      open_id: OPEN_ID,
-      access_token: "stale-renewed",
-    });
-    expect(await readAccountToken(env)).toMatchObject({ open_id: OPEN_ID, access_token: ACCESS });
-    // Every callback mints its own id, also back to back for the same account.
-    await reconnect(env, f);
-    const second = (await refOf(kv)).connection;
-    expect(second).toMatch(/^[0-9a-f]{32}$/);
-    expect(second).not.toBe(first);
-  });
-
-  it("legacy record: renewed while legacy, the callback moves to v2, a stale legacy renewal is ignored", async () => {
-    const kv = fakeKV();
-    const legacy = accountToken();
-    await storeLegacy(kv, legacy);
-    const before = kv.store.get(REF)!.value;
-    const env = makeEnv(kv);
-    expect(await readAccountToken(env)).toEqual(legacy);
-    // 1. Renewed while legacy: kept under ":legacy", the bare record untouched, status shows the renewal.
-    const f1 = transport(() => tokenReply("legacy-renewed"));
-    expect((await get(env, "/tiktokads/music", f1)).status).toBe(200);
-    expect(kv.store.get(REF)!.value).toBe(before);
-    expect(await overlayOf(kv, "legacy")).toMatchObject({
-      connection: "legacy",
-      token: { access_token: "legacy-renewed", connectedAt: legacy.connectedAt },
-    });
-    expect(await (await get(env, "/tiktokads/account/status")).json()).toMatchObject({
-      expiresAt: "2026-10-16T14:00:00.000Z",
-    });
-    // 2. The renewed token about to end too: a second legacy renewal starts, held past a callback.
-    kv.store.set(refreshKey("legacy"), {
-      value: await seal({
-        connection: "legacy",
-        token: accountToken({ access_token: "legacy-renewed" }),
-      }),
-    });
-    const h = held();
-    const f2 = transport(h.refresh, () => tokenReply("new-access", "new-account"));
-    const pending = get(env, "/tiktokads/music?range=30", f2);
-    await h.entered.promise;
-    expect(JSON.parse(String(f2.mock.calls[0][1]?.body)).refresh_token).toBe("old-refresh");
-    await reconnect(env, f2);
-    expect(await refOf(kv)).toMatchObject({ v: 2, token: { open_id: "new-account" } });
-    h.release.resolve(tokenReply("stale-legacy"));
-    expect(await (await pending).json()).toEqual(CHANGED);
-    expect((await overlayOf(kv, "legacy")).token.access_token).toBe("stale-legacy");
-    expect(await readAccountToken(env)).toMatchObject({
-      open_id: "new-account",
-      access_token: "new-access",
-    });
-  });
-
-  it("current v2 connection: a normal renewal is kept under its id (bounded) and reused without renewing", async () => {
-    const kv = fakeKV();
-    await storeV2(kv);
-    const before = kv.store.get(REF)!.value;
-    const env = makeEnv(kv);
-    const f = transport(() => tokenReply("renewed"));
-    const res = await get(env, "/tiktokads/music", f);
-    expect(res.status).toBe(200);
-    expect(accessOf(f, 1)).toBe("renewed");
-    expect(JSON.parse(String(f.mock.calls[0][1]?.body)).refresh_token).toBe("old-refresh");
-    expect(kv.store.get(REF)!.value).toBe(before);
-    const kept = kv.store.get(refreshKey(CONN))!;
-    expect(kept.expiration).toBe(Date.parse("2027-10-15T14:00:00.000Z") / 1000);
-    expect(kept.ttl).toBeUndefined();
-    expect(await overlayOf(kv, CONN)).toEqual({
-      connection: CONN,
-      token: {
-        access_token: "renewed",
-        refresh_token: "renewed-refresh",
-        open_id: OPEN_ID,
-        expires_at: "2026-10-16T14:00:00.000Z",
-        refresh_expires_at: "2027-10-15T14:00:00.000Z",
-        scope: "user.info.basic",
-        connectedAt: "2026-10-15T10:00:00.000Z",
-      },
-    });
-    const again = await get(env, "/tiktokads/music?range=30", f);
-    expect(again.status).toBe(200);
-    expect(f).toHaveBeenCalledTimes(3);
-    expect(accessOf(f, 2)).toBe("renewed");
-    // The key's expiry never passes a year, whatever TikTok says of the renewed refresh token.
-    const kv2 = fakeKV();
-    await storeV2(kv2);
-    const long = transport(() =>
-      tokenReply("renewed", OPEN_ID, { refresh_token_expires_in: 3 * 31536000 }),
-    );
-    expect((await get(makeEnv(kv2), "/tiktokads/music", long)).status).toBe(200);
-    expect(kv2.store.get(refreshKey(CONN))!.expiration).toBe(
-      Math.floor((NOW.getTime() + 365 * 86400_000) / 1000),
-    );
-  });
-
-  it("a renewal naming another account is neither kept nor used: 502 refresh_failed account_mismatch", async () => {
-    const kv = fakeKV();
-    await storeV2(kv);
-    const env = makeEnv(kv);
-    const f = transport(() => tokenReply("someone-access", "someone-else"));
-    const res = await get(env, "/tiktokads/music", f);
-    expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({
-      error: "refresh_failed",
-      fetchedAt: NOW.toISOString(),
-      status: 0,
-      code: null,
-      message: "account_mismatch",
-    });
-    expect(urls(f)).toEqual([TT_USER_REFRESH_URL]);
-    expect(kv.store.has(refreshKey(CONN))).toBe(false);
-    expect(musicKeys(kv)).toEqual([]);
-    expect(await readAccountToken(env)).toMatchObject({ access_token: "old-access" });
-  });
-
-  it("a renewal that cannot be kept fails honestly: 502 refresh_failed, no chart, no cache, reference intact", async () => {
-    const kv = fakeKV();
-    await storeV2(kv);
-    const before = kv.store.get(REF)!.value;
-    const put = kv.put.getMockImplementation()!;
-    kv.put.mockImplementation(async (key, value, opts) => {
-      if (key.startsWith("tiktokads:account-refresh:")) throw new Error("kv down");
-      return put(key, value, opts);
-    });
-    const env = makeEnv(kv);
-    const f = transport(() => tokenReply("renewed"));
-    const res = await get(env, "/tiktokads/music", f);
-    expect(res.status).toBe(502);
-    const text = await res.text();
-    expect(JSON.parse(text)).toEqual({
-      error: "refresh_failed",
-      fetchedAt: NOW.toISOString(),
-      status: 0,
-      code: null,
-      message: "storage_failed",
-    });
-    expect(text).not.toContain("renewed");
-    expect(JSON.stringify(logs)).not.toContain("renewed");
-    expect(urls(f)).toEqual([TT_USER_REFRESH_URL]);
-    expect(musicKeys(kv)).toEqual([]);
-    expect(kv.store.get(REF)!.value).toBe(before);
-  });
-
-  it("a renewed refresh token already ending (under KV's 60-second minimum) asks to reconnect, keeps nothing", async () => {
-    const kv = fakeKV();
-    await storeV2(kv);
-    const env = makeEnv(kv);
-    const f = transport(() => tokenReply("renewed", OPEN_ID, { refresh_token_expires_in: 30 }));
-    const res = await get(env, "/tiktokads/music", f);
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "reconnect", fetchedAt: NOW.toISOString() });
-    expect(urls(f)).toEqual([TT_USER_REFRESH_URL]);
-    expect(kv.store.has(refreshKey(CONN))).toBe(false);
-    expect(musicKeys(kv)).toEqual([]);
-  });
-
-  it("the reference gone after the renewal: 409 not_connected, no chart", async () => {
-    const kv = fakeKV();
-    await storeV2(kv);
-    const env = makeEnv(kv);
-    const h = held();
-    const f = transport(h.refresh);
-    const pending = get(env, "/tiktokads/music", f);
-    await h.entered.promise;
-    kv.store.delete(REF);
-    h.release.resolve(tokenReply("renewed"));
-    const res = await pending;
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "not_connected", fetchedAt: NOW.toISOString() });
-    expect(urls(f)).toEqual([TT_USER_REFRESH_URL]);
-  });
-
-  it("a refresh record is used only for the same connection and open_id; a malformed one falls back", async () => {
-    const fresh = accountToken({ access_token: "ref-access" }, 3600_000);
-    const cases: [string, unknown, string][] = [
-      ["matching", { connection: CONN, token: { ...fresh, access_token: "overlay" } }, "overlay"],
-      ["other connection", { connection: "f".repeat(32), token: fresh }, "ref-access"],
-      ["other open_id", { connection: CONN, token: { ...fresh, open_id: "x" } }, "ref-access"],
-      ["no token", { connection: CONN }, "ref-access"],
-      ["empty access", { connection: CONN, token: { ...fresh, access_token: "" } }, "ref-access"],
-      ["not an object", "nope", "ref-access"],
-    ];
-    for (const [name, value, access] of cases) {
-      const kv = fakeKV();
-      await storeV2(kv, fresh);
-      kv.store.set(refreshKey(CONN), { value: await seal(value) });
-      expect((await readAccountToken(makeEnv(kv)))?.access_token, name).toBe(access);
-    }
-    const kv = fakeKV();
-    await storeV2(kv, fresh);
-    kv.store.set(refreshKey(CONN), { value: "v1.garbage.garbage" });
-    expect((await readAccountToken(makeEnv(kv)))?.access_token).toBe("ref-access");
-    kv.store.set(refreshKey(CONN), {
-      value: await encryptJson("another", { connection: CONN, token: fresh }),
-    });
-    expect((await readAccountToken(makeEnv(kv)))?.access_token).toBe("ref-access");
-  });
-
-  it("a malformed or foreign reference reads as not connected: status false, music 409, nothing asked", async () => {
-    const token = accountToken({}, 3600_000);
-    const blobs = [
-      await seal({ v: 2, connection: "not-hex", token }),
-      await seal({ v: 2, token }),
-      await seal({ v: 2, connection: CONN }),
-      await seal({ v: 2, connection: CONN, token: { ...token, open_id: "" } }),
-      await seal({ v: 3, connection: CONN, token }),
-      await seal("text"),
-      await encryptJson("another", { v: 2, connection: CONN, token }),
-      "garbage",
-    ];
-    const f = vi.fn<typeof globalThis.fetch>();
-    for (const value of blobs) {
-      const kv = fakeKV();
-      kv.store.set(REF, { value });
-      const env = makeEnv(kv);
-      expect(await (await get(env, "/tiktokads/account/status")).json()).toEqual({
-        connected: false,
-      });
-      const res = await get(env, "/tiktokads/music", f);
-      expect(res.status).toBe(409);
-      expect(await res.json()).toMatchObject({ error: "not_connected" });
-    }
-    expect(f).not.toHaveBeenCalled();
-  });
-
-  it("a KV read error stays 502 upstream, nothing asked", async () => {
-    const kv = fakeKV();
-    await storeV2(kv);
-    kv.get.mockImplementation(async (key: string) => {
-      if (key === refreshKey(CONN)) throw new Error("kv down");
-      return kv.store.get(key)?.value ?? null;
-    });
-    const f = vi.fn<typeof globalThis.fetch>();
-    const res = await get(makeEnv(kv), "/tiktokads/music", f);
-    expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ error: "upstream", fetchedAt: NOW.toISOString() });
-    expect(f).not.toHaveBeenCalled();
-  });
-
-  it("status and the music probe read legacy, v2 and renewed records alike; the probe writes and renews nothing", async () => {
-    const shape = {
-      connected: true,
-      openId: "-000…ef",
-      scope: "user.info.basic",
-      refreshExpiresAt: "2027-08-11T14:00:00.000Z",
-    };
-    const legacy = fakeKV();
-    await storeLegacy(legacy, accountToken({}, 3600_000));
-    const v2 = fakeKV();
-    await storeV2(v2, accountToken({}, 3600_000));
-    const renewed = fakeKV();
-    await storeV2(renewed);
-    renewed.store.set(refreshKey(CONN), {
-      value: await seal({
-        connection: CONN,
-        token: accountToken({ access_token: "renewed" }, 86400_000),
-      }),
-    });
-    for (const [kv, expiresAt, access] of [
-      [legacy, "2026-10-15T15:00:00.000Z", "old-access"],
-      [v2, "2026-10-15T15:00:00.000Z", "old-access"],
-      [renewed, "2026-10-16T14:00:00.000Z", "renewed"],
-    ] as const) {
-      const env = makeEnv(kv);
-      expect(await (await get(env, "/tiktokads/account/status")).json()).toEqual({
-        ...shape,
-        expiresAt,
-      });
-      const f = vi.fn<typeof globalThis.fetch>(async () => chart());
-      kv.put.mockClear();
-      const probe = await musicProbe(new Request(`${BASE}/tiktokads/music-probe`), env, f, NOW);
-      expect(probe.status).toBe(200);
-      expect((probe.body.attempts as { name: string }[]).map((a) => a.name)).toEqual([
-        "cml_trending_list_account",
-      ]);
-      expect(f).toHaveBeenCalledTimes(1);
-      expect((f.mock.calls[0][1]?.headers as Record<string, string>)["Access-Token"]).toBe(access);
-      expect(JSON.stringify(probe.body)).not.toContain(OPEN_ID);
-      expect(kv.put).not.toHaveBeenCalled();
-      expect(kv.delete).not.toHaveBeenCalled();
-    }
-  });
-});
-
-describe("DT-6B-3A-R1: only an actual list is a chart", () => {
-  for (const [name, data] of [
-    ["missing", {}],
-    ["null", { list: null }],
-    ["an object", { list: { unexpected: "shape" } }],
-    ["a string", { list: "[]" }],
-  ] as const)
-    it(`a list that is ${name}: 502 upstream malformed_list, no chart cached`, async () => {
-      const kv = fakeKV();
-      await storeToken(kv);
-      const env = makeEnv(kv);
-      const f = vi.fn<typeof globalThis.fetch>(async () => json({ code: 0, message: "OK", data }));
-      const res = await get(env, "/tiktokads/music", f);
-      expect(res.status).toBe(502);
-      expect(await res.json()).toEqual({
-        error: "upstream",
-        fetchedAt: NOW.toISOString(),
-        detail: "malformed_list",
-      });
-      expect(kv.put).not.toHaveBeenCalled();
-      expect(musicKeys(kv)).toEqual([]);
-      // Nothing false was kept: the next request asks TikTok again.
-      await get(env, "/tiktokads/music", f);
-      expect(f).toHaveBeenCalledTimes(2);
-    });
-
-  it("an empty array is a real empty chart, kept 6 hours and served from the cache", async () => {
-    const kv = fakeKV();
-    await storeToken(kv);
-    const env = makeEnv(kv);
-    const f = vi.fn<typeof globalThis.fetch>(async () => chart([]));
-    const res = await get(env, "/tiktokads/music?country=SA", f);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toEqual({
-      fetchedAt: NOW.toISOString(),
-      country: "SA",
-      range: "7",
-      genre: "ALL",
-      items: [],
-    });
-    expect(kv.store.get("tiktokads:music:SA:7:ALL")!.ttl).toBe(21600);
-    expect(await (await get(env, "/tiktokads/music?country=SA", f)).json()).toEqual(body);
-    expect(f).toHaveBeenCalledTimes(1);
-  });
-
-  it("rows keep TikTok's order (no re-sorting); each query has its own cache entry", async () => {
-    const kv = fakeKV();
-    await storeToken(kv);
-    const env = makeEnv(kv);
-    const rows = [
-      { commercial_music_id: "c", rank_position: 3 },
-      { commercial_music_id: "a", rank_position: 1 },
-      { commercial_music_id: "b", rank_position: 2 },
-    ];
-    const f = vi.fn<typeof globalThis.fetch>(async (input) =>
-      chart(
-        new URL(String(input)).searchParams.get("country_code") === "US" ? rows : rows.slice(0, 1),
-      ),
-    );
-    type Chart = { items: { id: string }[] };
-    const us = await (await get(env, "/tiktokads/music?country=US&range=1", f)).json<Chart>();
-    expect(us.items.map((i) => i.id)).toEqual(["c", "a", "b"]);
-    const sa = await (await get(env, "/tiktokads/music?country=SA&range=1", f)).json<Chart>();
-    expect(sa.items.map((i) => i.id)).toEqual(["c"]);
-    expect(musicKeys(kv).sort()).toEqual(["tiktokads:music:SA:1:ALL", "tiktokads:music:US:1:ALL"]);
-    expect(f).toHaveBeenCalledTimes(2);
-    expect(await (await get(env, "/tiktokads/music?country=US&range=1", f)).json()).toEqual(us);
-    expect(f).toHaveBeenCalledTimes(2);
   });
 });

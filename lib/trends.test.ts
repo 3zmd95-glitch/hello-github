@@ -9,7 +9,7 @@ import {
 } from "./domain";
 import en from "@/messages/trends.en.json";
 import ar from "@/messages/trends.ar.json";
-import { allGenres, discoverGenreHref, GENRES, genreIdFromSearch } from "./genres";
+import { allGenres, GENRES } from "./genres";
 import {
   DEFAULT_TREND_KEYWORDS,
   eventToTrendItem,
@@ -19,7 +19,6 @@ import {
   SOURCE_KEY,
   savedTrendIdea,
   sourceLabel,
-  trendGenreHref,
   trendGenreLabel,
   trendIdeaText,
   trendsStale,
@@ -296,49 +295,10 @@ describe("trendGenreLabel", () => {
   });
 });
 
-describe("trendGenreHref (the genre chip opens Discover)", () => {
-  const drift: CustomGenre = { id: "custom-drift", name: "Drift", query: "drift edit" };
-  const hajwala: CustomGenre = { id: "custom-هجولة", name: "هجولة", query: "ايديت هجولة" };
-
-  it("links a genre the app knows to Discover opened on it", () => {
-    expect(trendGenreHref("cars", allGenres([]))).toBe("/discover/?genre=cars");
-    expect(trendGenreHref("food", allGenres([drift]))).toBe("/discover/?genre=food");
-    expect(trendGenreHref("custom-drift", allGenres([drift]))).toBe(
-      "/discover/?genre=custom-drift",
-    );
-    for (const g of allGenres([drift, hajwala])) {
-      expect(trendGenreHref(g.id, allGenres([drift, hajwala]))).toBe(discoverGenreHref(g.id));
-    }
-  });
-
-  it("encodes an id of any script, and Discover reads the same id back", () => {
-    const href = trendGenreHref("custom-هجولة", allGenres([hajwala]));
-    expect(href).toBe(`/discover/?genre=${encodeURIComponent("custom-هجولة")}`);
-    expect(genreIdFromSearch(href!.slice(href!.indexOf("?")))).toBe("custom-هجولة");
-  });
-
-  it("has no link for an id the app does not know (the chip stays plain)", () => {
-    expect(trendGenreHref("kites", allGenres([drift]))).toBeUndefined();
-    expect(trendGenreHref("custom-drift", allGenres([]))).toBeUndefined();
-    expect(trendGenreHref("Cars", allGenres([]))).toBeUndefined();
-    expect(trendGenreHref("constructor", allGenres([]))).toBeUndefined();
-    expect(trendGenreHref("", allGenres([drift]))).toBeUndefined();
-    expect(trendGenreHref("cars", [])).toBeUndefined();
-  });
-
-  it("links exactly the genres the chip names, never a raw id", () => {
-    const genres = allGenres([drift]);
-    for (const id of ["travel", "custom-drift", "kites", "cars", "all"]) {
-      const named = trendGenreLabel(id, genres, "en") !== id;
-      expect(trendGenreHref(id, genres) !== undefined, id).toBe(named);
-    }
-  });
-});
-
 describe("the radar's genre messages", () => {
-  it("names the chip's link with the genre in both languages, and the select's label is gone", () => {
-    expect(ar["trends.genreOpen"]).toContain("{genre}");
-    expect(en["trends.genreOpen"]).toContain("{genre}");
+  it("has no words for a chip link or a genre select: the chip is plain (tools/20)", () => {
+    expect(Object.keys(ar)).not.toContain("trends.genreOpen");
+    expect(Object.keys(en)).not.toContain("trends.genreOpen");
     expect(Object.keys(ar)).not.toContain("trends.genreLabel");
     expect(Object.keys(en)).not.toContain("trends.genreLabel");
   });

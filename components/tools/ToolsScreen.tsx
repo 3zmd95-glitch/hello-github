@@ -23,7 +23,7 @@ const ACTION: Partial<Record<ToolReadiness, MessageKey>> = {
 };
 
 const DANGER = { background: "var(--danger)", color: "#2a0a06" };
-const ACCOUNTS = "/settings#accounts";
+const ACCOUNTS = "/social/settings#accounts";
 
 /**
  * 🧰 Tools & integrations hub (packet DT-1, Amendment A): every dashboard tool, grouped, searchable in Arabic and

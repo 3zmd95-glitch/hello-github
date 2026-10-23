@@ -99,6 +99,17 @@ describe("creator generation", () => {
     expect(await generateCreatorDraft(e, { ...request, language: "ar" }, now)).toEqual(vocalized);
     expect(e.AI.run).toHaveBeenCalledTimes(1);
   });
+  it("drops hashtags that fuse Arabic and Latin letters and keeps the rest of the draft", async () => {
+    const e = env();
+    // #الجوال_الphotography came back from the live model on Oct 6, 2026, after the prompt asked for natural tags.
+    const fused = ["#الجوال_الphotography", "#تلوين_DaVinci"];
+    const kept = ["#تصوير_قهوة", "#windowlight", "#قهوة_2026", "#تصوير_الجوّال"];
+    e.AI.run.mockResolvedValue({ response: { ...arabicDraft, hashtags: [...fused, ...kept] } });
+    expect(await generateCreatorDraft(e, { ...request, language: "ar" }, now)).toEqual({
+      ...arabicDraft,
+      hashtags: kept,
+    });
+  });
   it.each([
     { ...arabicDraft, beats: ["حط الكوب جنب الشباك.", "غيّر زاويتك.", "لДобавة لمسة سينمائية"] },
     { ...arabicDraft, hashtags: ["#_p", "#_p", "#_p"] },

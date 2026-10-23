@@ -55,6 +55,9 @@ jobs:
 
       - name: Test the Worker
         run: pnpm --filter 3z-scout run test
+        env:
+          # InboxDb's tests run on node:sqlite, behind this flag on Node 22 (drop it once CI is on Node 24+).
+          NODE_OPTIONS: --experimental-sqlite
 
       # The social connector stores tokens and daily rows in a KV namespace. Wrangler titles it
       # "3z-scout-SOCIAL_KV" (older versions) or "SOCIAL_KV" (4.x). Create it once, then put its id in place of the

@@ -511,6 +511,29 @@ describe("singleton wiring, fences and teardown", () => {
     expect(JSON.stringify(h.view())).not.toContain(TOKEN);
   });
 
+  it("a Worker without cloud workflows (the live Worker's 404 not_found) reports reason answer, not an unclear answer", async () => {
+    const sent: string[] = [];
+    const fake: ClientFetch = async (url) => {
+      sent.push(url);
+      const bytes = new TextEncoder().encode(JSON.stringify({ error: "not_found" }));
+      return {
+        status: 404,
+        body: new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(bytes);
+            c.close();
+          },
+        }),
+      };
+    };
+    vi.stubGlobal("fetch", fake);
+    const h = cloudHub();
+    const r = await h.handshake();
+    expect(sent).toHaveLength(3);
+    expect(r).toEqual({ ok: false, reason: "answer" });
+    expect(h.view()).toMatchObject({ authority: null, handshake: { refused: "answer" } });
+  });
+
   it("pagehide moves the visit fence and disposes all three; no configure follows; the next hub is fresh", () => {
     const from = built.length;
     const h = cloudHub();

@@ -1,7 +1,17 @@
 "use client";
 
-import { Check, Clock, Film, Lightbulb, Rocket, TrendingUp, type LucideIcon } from "lucide-react";
-import { useMemo } from "react";
+import {
+  Check,
+  Clock,
+  Film,
+  Inbox,
+  Lightbulb,
+  Rocket,
+  TrendingUp,
+  type LucideIcon,
+} from "lucide-react";
+import { useEffect, useMemo } from "react";
+import { inboxUnread, loadInbox, useInbox } from "@/components/social/inbox/useInbox";
 import Chip from "@/components/ui/ios/Chip";
 import { ListGroup, ListRow } from "@/components/ui/ios/List";
 import { PLATFORMS } from "@/lib/domain";
@@ -24,7 +34,7 @@ const NEW_TREND_DAYS = 7;
 
 interface InboxRow {
   id: string;
-  kind: "overdue" | "unscheduled" | "manual" | "ideas" | "trends" | "stale";
+  kind: "messages" | "overdue" | "unscheduled" | "manual" | "ideas" | "trends" | "stale";
   key: MessageKey;
   vars?: Vars;
   /** A post title inside the line (`{name}`): the owner's own text, isolated so its direction keeps to itself. */
@@ -34,6 +44,7 @@ interface InboxRow {
 
 /** Row icon per kind (tools/18 §3.6): overdue in warn, stale numbers on the neutral fill, the rest tinted. */
 const ICON: Record<InboxRow["kind"], { icon: LucideIcon; tone?: "warn" | "fill" }> = {
+  messages: { icon: Inbox },
   overdue: { icon: Clock, tone: "warn" },
   unscheduled: { icon: Film },
   manual: { icon: Rocket },
@@ -43,13 +54,14 @@ const ICON: Record<InboxRow["kind"], { icon: LucideIcon; tone?: "warn" | "fill" 
 };
 
 /**
- * Things needing attention, rules-based (no server): overdue posts, edited posts without a day, posts whose
- * X / Snapchat step is due now (round 30 · A6: the owner posts those by hand, one row per post, opening the
- * hub's "Post these yourself" list), ideas waiting in the bank, new trend rows this week, platforms with an
- * account whose numbers are older than two weeks. A post with a due manual row gets no overdue row: the
- * manual row stands in for it, so the post is counted once. A grouped list: one row per item with its icon
- * and a chevron to where it is handled, or one "all clear" row. A line may take two lines, so the half that says what
- * to do stays readable.
+ * Things needing attention, rules-based: with the Worker, first the 📥 Inbox's unread conversations and new posts
+ * (read quietly once; a failed read, e.g. an older Worker, shows no row); then overdue posts, edited posts
+ * without a day, posts whose X / Snapchat step is due now (round 30 · A6: the owner posts those by hand, one row
+ * per post, opening the hub's "Post these yourself" list), ideas waiting in the bank, new trend rows this week,
+ * platforms with an account whose numbers are older than two weeks. A post with a due manual row gets no
+ * overdue row: the manual row stands in for it, so the post is counted once. A grouped list: one row per
+ * item with its icon and a chevron to where it is handled, or one "all clear" row. A line may take two
+ * lines, so the half that says what to do stays readable.
  */
 export default function InboxCard({ today, now }: { today: string; now: number }) {
   const { t, L, lang } = useT();
@@ -58,9 +70,24 @@ export default function InboxCard({ today, now }: { today: string; now: number }
   const trends = useStore((s) => s.trends);
   const snapshots = useStore((s) => s.socialSnapshots);
   const accounts = useStore((s) => s.socialAccounts);
+  const seen = useStore((s) => s.inboxSeen);
+  const inbox = useInbox();
+  const unread = inbox.configured && !inbox.error ? inboxUnread(inbox, seen) : 0;
+
+  useEffect(() => {
+    if (inbox.configured) void loadInbox({ quiet: true });
+  }, [inbox.configured]);
 
   const rows = useMemo<InboxRow[]>(() => {
     const out: InboxRow[] = [];
+    if (unread > 0)
+      out.push({
+        id: "messages",
+        kind: "messages",
+        key: "inbox.studio.row",
+        vars: { n: unread },
+        href: "/social/inbox",
+      });
     const dueManual = dueManualPosts(posts, now);
     const manualIds = new Set(dueManual.map((p) => p.id));
     for (const p of overduePosts(posts, now))
@@ -128,7 +155,7 @@ export default function InboxCard({ today, now }: { today: string; now: number }
         });
     }
     return out;
-  }, [posts, ideas, trends, snapshots, accounts, today, now, L, lang]);
+  }, [unread, posts, ideas, trends, snapshots, accounts, today, now, L, lang]);
 
   return (
     <ListGroup

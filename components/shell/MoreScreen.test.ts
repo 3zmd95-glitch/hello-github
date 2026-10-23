@@ -6,8 +6,8 @@ import { useStore } from "@/store";
 import MoreScreen from "./MoreScreen";
 import type { World } from "./useWorld";
 
-// ☰ The "More" page of each world, rendered for real in jsdom. Round 31b: Social's list gets the 🔎 Discover
-// shortcut (Discover is the one place for edit genres); e2e/world.spec.ts follows the link in a browser.
+// ☰ The "More" page of each world, rendered for real in jsdom. Since tools/20 every Social row is a Social route
+// (Settings is /social/settings, no Discover shortcut); e2e/world.spec.ts follows the links in a browser.
 // Round 35 (iOS look): Social's language and sound controls live in More's quick settings, not the top bar, and
 // Social's More is grouped lists whose rows use the tab bar's words (tools/18 §6).
 
@@ -45,12 +45,12 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
-  useStore.getState().setSettings({ lang: "ar", sound: true });
+  useStore.getState().setSettings({ lang: "ar", sound: true, appearance: "light" });
   vi.unstubAllGlobals();
 });
 
 describe("Social More", () => {
-  it("lists the Social sections, then Discover, Settings and the way back to Training", () => {
+  it("lists the Social sections, then Settings and the way back to Training", () => {
     mount("social");
     expect(ids()).toEqual([
       "more-website",
@@ -59,46 +59,32 @@ describe("Social More", () => {
       "more-workflows",
       "more-replies",
       "more-inbox",
-      "more-discover",
-      "more-tools",
       "more-settings",
       "more-training",
     ]);
   });
 
-  it("links the Tools hub to /tools with the tab bar's word, in both languages", () => {
+  it("links Settings to Social's own page and has no Discover or Tools row (tools/20)", () => {
     mount("social");
-    const tools = entry("more-tools")!;
-    expect(tools.getAttribute("href")).toMatch(/^\/tools\/?$/);
-    expect(tools.textContent).toBe("الأدوات");
-    expect(tools.querySelector(".ios-chip")).toBeNull();
-    mount("social", "en");
-    expect(entry("more-tools")!.textContent).toBe("Tools");
-  });
-
-  it("links Discover to /discover with the name it has in Training, in both languages", () => {
-    mount("social");
-    const discover = entry("more-discover")!;
-    expect(discover.getAttribute("href")).toMatch(/^\/discover\/?$/);
-    expect(discover.textContent).toBe("اكتشف");
-    // Discover is built: no "soon" chip on it. Website (packet DT-3) and Business (packet DT-5) are built too.
-    expect(discover.querySelector(".ios-chip")).toBeNull();
+    expect(entry("more-settings")!.getAttribute("href")).toMatch(/^[/]social[/]settings[/]?$/);
+    expect(entry("more-discover")).toBeNull();
+    expect(entry("more-tools")).toBeNull();
+    // Every row but the way back stays in Social.
+    for (const a of host.querySelectorAll<HTMLAnchorElement>("a[data-testid]")) {
+      if (a.dataset.testid === "more-training") continue;
+      expect(a.getAttribute("href"), a.dataset.testid).toMatch(/^[/]social([/]|$)/);
+    }
+    // Website (packet DT-3) and Business (packet DT-5) are built: no "soon" chip.
     expect(entry("more-website")!.querySelector(".ios-chip")).toBeNull();
     expect(entry("more-business")!.querySelector(".ios-chip")).toBeNull();
-    expect(entry("more-business")!.getAttribute("href")).toMatch(/^\/social\/business\/?$/);
-    expect(entry("more-business")!.textContent).toBe("البزنس");
-    // Inbox (packet DT-6A) is built: after Auto replies, no "soon" chip, opens /social/inbox.
-    expect(entry("more-inbox")!.querySelector(".ios-chip")).toBeNull();
-    expect(entry("more-inbox")!.getAttribute("href")).toMatch(/^\/social\/inbox\/?$/);
-    expect(entry("more-inbox")!.textContent).toBe("صندوق المحادثات");
-
-    mount("social", "en");
-    expect(entry("more-discover")!.textContent).toBe("Discover");
+    expect(entry("more-business")!.getAttribute("href")).toMatch(/^[/]social[/]business[/]?$/);
   });
 
   it("names its rows with the tab bar's words, without emoji, and says what Training is", () => {
     mount("social");
     expect(entry("more-replies")!.textContent).toBe("الردود التلقائية");
+    expect(entry("more-inbox")!.textContent).toBe("الرسائل");
+    expect(entry("more-inbox")!.getAttribute("href")).toMatch(/^\/social\/inbox\/?$/);
     expect(entry("more-automations")!.textContent).toBe("النشر التلقائي");
     // Workflows (packet DT-4): built, after Auto-posting, no "soon" chip.
     const workflows = entry("more-workflows")!;
@@ -125,9 +111,18 @@ describe("Social More", () => {
     // After the section links (their order is checked above), before the way back to Training.
     const follows = (a: Node, b: Node) =>
       a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
-    expect(follows(entry("more-discover")!, quick)).toBeTruthy();
+    expect(follows(entry("more-replies")!, quick)).toBeTruthy();
     expect(follows(quick, entry("more-training")!)).toBeTruthy();
     expect(quick.contains(entry("more-settings"))).toBe(true);
+
+    // Appearance (tools/18 §12): light by default; a tap on Dark saves it.
+    expect(entry("appearance-light")!.getAttribute("aria-checked")).toBe("true");
+    expect(entry("appearance-dark")!.getAttribute("role")).toBe("radio");
+    act(() => entry("appearance-dark")!.click());
+    expect(useStore.getState().settings.appearance).toBe("dark");
+    expect(entry("appearance-dark")!.getAttribute("aria-checked")).toBe("true");
+    act(() => entry("appearance-light")!.click());
+    expect(useStore.getState().settings.appearance).toBe("light");
 
     const en = entry("lang-en")!;
     expect(en.getAttribute("role")).toBe("radio");

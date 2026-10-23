@@ -173,6 +173,36 @@ describe("auth", () => {
     expect((await handle(req("/nope"), ENV)).status).toBe(404);
     expect((await handle(req("/nope", { token: null }), ENV)).status).toBe(401);
   });
+
+  it("serves the Instagram webhook routes without a bearer: Meta's signature is the credential", async () => {
+    const env: Env = { ...ENV, META_VERIFY_TOKEN: "verify-me", META_APP_SECRET: "app-secret" };
+    const verify = await handle(
+      req("/webhooks/instagram?hub.mode=subscribe&hub.verify_token=verify-me&hub.challenge=42", {
+        token: null,
+        origin: null,
+      }),
+      env,
+    );
+    expect(verify.status).toBe(200);
+    expect(await verify.text()).toBe("42");
+
+    // A forged event is the webhook's own 401 (bad_signature), not the bearer's { error: "unauthorized" }.
+    const forged = await handle(
+      req("/webhooks/instagram", {
+        method: "POST",
+        token: null,
+        origin: null,
+        body: "{}",
+        headers: { "X-Hub-Signature-256": "sha256=00" },
+      }),
+      env,
+    );
+    expect(forged.status).toBe(401);
+    expect(await forged.json()).toEqual({ error: "bad_signature" });
+
+    // Nothing else under /webhooks is open.
+    expect((await handle(req("/webhooks/other", { token: null }), env)).status).toBe(401);
+  });
 });
 
 describe("creator route authentication", () => {
@@ -1283,7 +1313,7 @@ describe("mixed router: TikTok account/music beside the accepted routes (DT-6B-3
     expect(kv.put).not.toHaveBeenCalled();
   });
 
-  it("one router serves both families: JSON connect stays JSON, the ordinary connect still redirects, old ads/discovery and inbox routes still route", async () => {
+  it("one router serves both families: JSON connect stays JSON, the ordinary connect still redirects, old ads/discovery routes still route", async () => {
     const kv = kvFake();
     const env = tiktokEnv(kv);
     const f = fakeFetch(() => jsonResponse({}, 500));
@@ -1329,19 +1359,6 @@ describe("mixed router: TikTok account/music beside the accepted routes (DT-6B-3
     expect(picks.status).toBe(200);
     expect(await picks.json()).toHaveProperty("picks");
 
-    // Accepted inbox status/recovery routes still reach their own handlers (no binding here: their not_configured).
-    for (const [r, detail] of [
-      [req(`/social/inbox/instagram/dm/control/${HANDLE}?account=1`), "dm-claim-store"],
-      [req("/social/inbox/instagram/dm/send/op-0001?account=1"), "dm-claim-store"],
-      [req("/social/inbox/threads/send/op-0001?account=1"), "seal"],
-    ] as [Request, string][]) {
-      const res = await run(r, env, f);
-      expect([r.url, res.status, await res.json()]).toEqual([
-        r.url,
-        503,
-        { error: "not_configured", detail },
-      ]);
-    }
     expect(f).not.toHaveBeenCalled();
   });
 

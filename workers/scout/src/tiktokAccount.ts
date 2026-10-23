@@ -20,16 +20,9 @@
  *   GET /tiktokads/account/status        → { connected, openId (masked), scope, expiresAt, refreshExpiresAt }
  *   GET /tiktokads/music?country=SA|US&range=1|7|30|90&genre= → the chart, normalized, kept 6 hours a query
  *
- * KV (`SOCIAL_KV`): `tiktokads:account-state:<nonce>` { createdAt } 10 minutes; `tiktokads:account` the connection,
- * sealed as `tiktokads:token` is: `{ v: 2, connection, token }`, written only by the callback, with a fresh random id
- * per connection (a bare sealed token from before is read as connection "legacy" and never rewritten);
- * `tiktokads:account-refresh:<connection>` `{ connection, token }` sealed, a renewed token, expiring with its refresh
- * token (≤ 1 year); `tiktokads:music:<country>:<range>:<genre>` the answer, 6 hours. Tokens, the secret and the auth
- * code are never logged or echoed.
- *
- * A renewal is keyed by the connection it started from, so one still in flight when the owner reconnects lands under
- * the old id and is never read again: it cannot replace the new connection. KV is eventually consistent, so another
- * location may still see the previous connection for a while; that switch is not linearizable.
+ * KV (`SOCIAL_KV`): `tiktokads:account-state:<nonce>` { createdAt } 10 minutes; `tiktokads:account` the token, sealed
+ * as `tiktokads:token` is; `tiktokads:music:<country>:<range>:<genre>` the answer, 6 hours. Tokens, the secret and the
+ * auth code are never logged or echoed.
  */
 
 import { CALL_TIMEOUT_MS } from "./discover/fetchers";
@@ -57,21 +50,14 @@ const COUNTRIES = ["SA", "US"];
 const RANGES = ["1", "7", "30", "90"];
 const GENRE = /^[A-Z0-9_&/-]{1,40}$/;
 
-/** KV refuses an expiration closer than this. */
-const KV_MIN_EXPIRY_MS = 60_000;
-const YEAR_MS = 365 * 86400_000;
-const LEGACY = "legacy";
-const CONNECTION = /^[0-9a-f]{32}$/;
-
 const keys = {
   token: "tiktokads:account",
-  refresh: (connection: string) => `tiktokads:account-refresh:${connection}`,
   state: (nonce: string) => `tiktokads:account-state:${nonce}`,
   music: (country: string, range: string, genre: string) =>
     `tiktokads:music:${country}:${range}:${genre}`,
 };
 
-/** The account token: inside `tiktokads:account` (`token`) and a renewal's `tiktokads:account-refresh:<connection>`. */
+/** What `tiktokads:account` holds, sealed. */
 export interface AccountToken {
   access_token: string;
   refresh_token: string;
@@ -89,53 +75,13 @@ const num = (x: unknown) => {
 };
 const nonEmpty = (x: unknown): x is string => typeof x === "string" && x !== "";
 
-const isToken = (t: unknown): t is AccountToken =>
-  isRecord(t) && nonEmpty(t.access_token) && nonEmpty(t.open_id);
-
-type Connection = { connection: string; token: AccountToken };
-
-async function unseal(env: TikTokAdsEnv, key: string): Promise<unknown> {
-  const blob = await env.SOCIAL_KV!.get(key, "text");
-  return blob ? decryptJson<unknown>(env.SCOUT_TOKEN!, blob) : null;
-}
-
-/** The connection the callback wrote (`{ v: 2, connection, token }`, or a bare legacy token); null when malformed. */
-async function readConnection(env: TikTokAdsEnv): Promise<Connection | null> {
-  if (!env.SOCIAL_KV || !env.SCOUT_TOKEN) return null;
-  const r = await unseal(env, keys.token);
-  if (!isRecord(r)) return null;
-  const c = r.v === undefined ? { connection: LEGACY, token: r } : r.v === 2 ? r : null;
-  return c &&
-    typeof c.connection === "string" &&
-    (c.connection === LEGACY || CONNECTION.test(c.connection)) &&
-    isToken(c.token)
-    ? { connection: c.connection, token: c.token }
-    : null;
-}
-
-/** The connection, with its renewal when one was kept for this very connection and account. */
-async function resolveAccount(env: TikTokAdsEnv): Promise<Connection | null> {
-  const c = await readConnection(env);
-  if (!c) return null;
-  const r = await unseal(env, keys.refresh(c.connection));
-  return isRecord(r) &&
-    r.connection === c.connection &&
-    isToken(r.token) &&
-    r.token.open_id === c.token.open_id
-    ? { connection: c.connection, token: r.token }
-    : c;
-}
-
-/** The current token; null when there is none or it was sealed with another SCOUT_TOKEN. A KV error throws. */
+/** The stored token; null when there is none or it was sealed with another SCOUT_TOKEN. A KV error throws. */
 export async function readAccountToken(env: TikTokAdsEnv): Promise<AccountToken | null> {
-  return (await resolveAccount(env))?.token ?? null;
+  if (!env.SOCIAL_KV || !env.SCOUT_TOKEN) return null;
+  const blob = await env.SOCIAL_KV.get(keys.token, "text");
+  const t = blob ? await decryptJson<AccountToken>(env.SCOUT_TOKEN, blob) : null;
+  return isRecord(t) && nonEmpty(t.access_token) && nonEmpty(t.open_id) ? t : null;
 }
-
-/** A connection id: 128 random bits, hex. */
-const newConnection = () =>
-  [...crypto.getRandomValues(new Uint8Array(16))]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
 
 type Said = { status: number; code: number | null; message: string | null };
 
@@ -189,26 +135,21 @@ async function tokenCall(
 }
 
 /**
- * The account token, renewed when it runs out within 5 minutes. A renewal is kept sealed under the connection it
- * started from (never in `tiktokads:account`), so it cannot replace a connection the callback made meanwhile;
- * `renewed` tells the caller to check that the connection is still current.
- * ponytail: two requests renewing the same connection at the same moment may race on the refresh token; one daily
- * caller makes it rare.
+ * The account token, renewed (and stored back sealed) when it runs out within 5 minutes.
+ * ponytail: two requests renewing at the same moment may race on the refresh token; one daily caller makes it rare.
  */
 async function freshAccountToken(
   env: TikTokAdsEnv,
   doFetch: typeof fetch,
   now: Date,
 ): Promise<
-  | { token: AccountToken; connection: string; renewed: boolean }
+  | { token: AccountToken }
   | { error: "not_connected" | "reconnect" }
   | ({ error: "refresh_failed" } & Said)
 > {
-  const current = await resolveAccount(env);
-  if (!current) return { error: "not_connected" };
-  const { connection, token } = current;
-  if (Date.parse(token.expires_at) - now.getTime() > RENEW_EARLY_MS)
-    return { token, connection, renewed: false };
+  const token = await readAccountToken(env);
+  if (!token) return { error: "not_connected" };
+  if (Date.parse(token.expires_at) - now.getTime() > RENEW_EARLY_MS) return { token };
   const creds = app(env);
   if (!creds || !(Date.parse(token.refresh_expires_at) > now.getTime()))
     return { error: "reconnect" };
@@ -225,22 +166,8 @@ async function freshAccountToken(
     token.connectedAt,
   );
   if (!("token" in out)) return { error: "refresh_failed", ...out };
-  // A renewal belongs to the account it renewed; one naming another account is neither kept nor used.
-  if (out.token.open_id !== token.open_id)
-    return { error: "refresh_failed", status: 0, code: null, message: "account_mismatch" };
-  // The key lives as long as the renewed refresh token, a year at most; one ending within KV's minimum is no renewal.
-  const until = Math.min(Date.parse(out.token.refresh_expires_at), now.getTime() + YEAR_MS);
-  if (!(until - now.getTime() >= KV_MIN_EXPIRY_MS)) return { error: "reconnect" };
-  try {
-    await env.SOCIAL_KV!.put(
-      keys.refresh(connection),
-      await encryptJson(env.SCOUT_TOKEN!, { connection, token: out.token }),
-      { expiration: Math.floor(until / 1000) },
-    );
-  } catch {
-    return { error: "refresh_failed", status: 0, code: null, message: "storage_failed" };
-  }
-  return { token: out.token, connection, renewed: true };
+  await env.SOCIAL_KV!.put(keys.token, await encryptJson(env.SCOUT_TOKEN!, out.token));
+  return out;
 }
 
 /** One chart track as 3z Prod shows it. */
@@ -260,10 +187,7 @@ function track(x: unknown) {
   };
 }
 
-/**
- * GET /tiktokads/music: 1 KV read when kept; else ≤4 KV reads (cache, connection, renewal, the connection again after
- * a renewal), ≤2 calls (renewal + chart), ≤2 KV writes.
- */
+/** GET /tiktokads/music: 1 KV read when kept; else ≤2 KV reads, ≤2 calls (renewal + chart), 1–2 KV writes. */
 async function music(req: Request, env: TikTokAdsEnv, doFetch: typeof fetch, now: Date) {
   const q = new URL(req.url).searchParams;
   const country = (q.get("country") ?? "US").toUpperCase();
@@ -276,13 +200,10 @@ async function music(req: Request, env: TikTokAdsEnv, doFetch: typeof fetch, now
   if (!kv || !env.SCOUT_TOKEN) return { status: 409, body: { error: "not_connected", fetchedAt } };
   const key = keys.music(country, range, genre);
   let fresh;
-  let current;
   try {
     const kept = await kv.get(key, "text");
     if (kept) return { status: 200, body: JSON.parse(kept) as unknown };
     fresh = await freshAccountToken(env, doFetch, now);
-    // A renewal took a while: the owner may have connected again meanwhile. Never chart with an obsolete account.
-    if ("token" in fresh && fresh.renewed) current = await readConnection(env);
   } catch {
     return { status: 502, body: { error: "upstream", fetchedAt } };
   }
@@ -290,11 +211,6 @@ async function music(req: Request, env: TikTokAdsEnv, doFetch: typeof fetch, now
     const { error, ...said } = fresh;
     return { status: error === "refresh_failed" ? 502 : 409, body: { error, fetchedAt, ...said } };
   }
-  if (fresh.renewed && current?.connection !== fresh.connection)
-    return {
-      status: 409,
-      body: { error: current ? "account_changed" : "not_connected", fetchedAt },
-    };
   const { token } = fresh;
   const r = await getJson(
     doFetch,
@@ -323,10 +239,13 @@ async function music(req: Request, env: TikTokAdsEnv, doFetch: typeof fetch, now
             : null,
       },
     };
-  // A success without an actual list is a broken answer, not an empty chart: never kept.
-  if (!Array.isArray(data.list))
-    return { status: 502, body: { error: "upstream", fetchedAt, detail: "malformed_list" } };
-  const answer = { fetchedAt, country, range, genre, items: data.list.map(track) };
+  const answer = {
+    fetchedAt,
+    country,
+    range,
+    genre,
+    items: (Array.isArray(data.list) ? data.list : []).map(track),
+  };
   // A cache that can't be written never fails the answer.
   await kv.put(key, JSON.stringify(answer), { expirationTtl: MUSIC_TTL_S }).catch(() => undefined);
   return { status: 200, body: answer };
@@ -378,10 +297,7 @@ export async function handleTikTokAccount(
   url.searchParams.set("state", nonce);
   // A browser fetch with the bearer cannot follow a 302 into TikTok, so the dashboard asks for the link as JSON.
   const u = new URL(req.url);
-  if (
-    u.searchParams.get("format") === "json" ||
-    req.headers.get("Accept")?.includes("application/json")
-  )
+  if (u.searchParams.get("format") === "json" || req.headers.get("Accept")?.includes("application/json"))
     return json({ url: url.toString() }, 200, cors);
   return new Response(null, {
     status: 302,
@@ -452,12 +368,6 @@ export async function handleTikTokAccountCallback(
     console.log(JSON.stringify({ tiktokads_account: { exchange: "failed", ...out } }));
     return page(false, `exchange_failed ${out.code ?? out.status}: ${out.message ?? ""}`);
   }
-  // Only a completed connection replaces the reference, always with a new id (a same-account reconnect too).
-  // Earlier renewals stay under their own ids until their TTL.
-  const connection = newConnection();
-  await kv.put(
-    keys.token,
-    await encryptJson(env.SCOUT_TOKEN, { v: 2, connection, token: out.token }),
-  );
+  await kv.put(keys.token, await encryptJson(env.SCOUT_TOKEN, out.token));
   return page(true);
 }

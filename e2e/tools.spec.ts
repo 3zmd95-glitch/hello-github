@@ -34,13 +34,12 @@ test("Training More opens the Tools hub", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("data-world", "training");
 });
 
-test("Social More opens the Tools hub in the Training shell", async ({ page }) => {
+test("Social More has no Tools row: Social never links into Training (tools/20)", async ({
+  page,
+}) => {
   await freshState(page, "/social/more/");
-  await expect(page.getByTestId("more-tools")).toHaveAttribute("href", "/tools/");
-  await page.getByTestId("more-tools").click();
-  await expect(page).toHaveURL(/\/tools\/$/);
-  await expect(page.locator("html")).toHaveAttribute("data-world", "training");
-  await expect(page.getByTestId("tools-row-replies")).toBeVisible();
+  await expect(page.getByTestId("more-training")).toBeVisible();
+  await expect(page.getByTestId("more-tools")).toHaveCount(0);
 });
 
 test("opening and searching the hub makes no Worker, local AI or outside request", async ({

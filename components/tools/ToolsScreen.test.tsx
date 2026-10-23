@@ -148,7 +148,7 @@ describe("ToolsScreen", () => {
     expect($("tools-state-instagram")!.textContent).toMatch(/^آخر مرة كان متصل · /);
     const verify = $("tools-action-instagram")!;
     expect(verify.textContent).toBe("تأكد منه");
-    expect(verify.getAttribute("href")).toMatch(/^\/settings\/?#accounts$/);
+    expect(verify.getAttribute("href")).toMatch(/^\/social\/settings\/?#accounts$/);
     // Nothing is green: no chip uses the accent colours, no state says connected or stale.
     for (const chip of host.querySelectorAll<HTMLElement>("[data-state]")) {
       expect(["connected", "stale"]).not.toContain(chip.dataset.state);
@@ -215,7 +215,7 @@ describe("ToolsScreen", () => {
       expect(stateOf("replies")).toBe("attention");
       const replies = $("tools-action-replies")!;
       expect(replies.textContent).toBe(check);
-      expect(replies.getAttribute("href")).toMatch(/^\/settings\/?#accounts$/);
+      expect(replies.getAttribute("href")).toMatch(/^\/social\/settings\/?#accounts$/);
       expect($("tools-row-replies")!.textContent).not.toContain(replyLabel);
       // Permission (connected, error-free, timestamped, scope missing): the tool's own label and chip.
       expect(stateOf("autopost")).toBe("permission");

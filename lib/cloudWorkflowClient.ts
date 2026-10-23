@@ -191,6 +191,18 @@ export type ExecuteResult =
       readonly meta: Meta;
     };
 
+/**
+ * The reason a failed handshake reports (every controller uses this one rule). A 404 the protocol cannot read is a
+ * Worker without the cloud-workflow routes (the live Worker answers its generic `{ error: "not_found" }`): reported as
+ * "answer" (the Worker answered; cloud workflows aren't available there yet), never as an unclear answer.
+ */
+export const handshakeFailure = (r: ExecuteResult): string =>
+  r.kind === "refused"
+    ? r.reason
+    : r.kind === "uncertain" && r.meta.status === 404
+      ? "answer"
+      : r.kind;
+
 export interface CloudWorkflowSession {
   configure(next: { origin: unknown; token: unknown }): ConfigureResult;
   invalidateVisit(): void;

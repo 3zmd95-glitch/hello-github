@@ -18,6 +18,7 @@
  */
 
 import { decryptJson, encryptJson } from "./crypto";
+import type { InboxStore } from "./inboxStore";
 import { addDays, riyadhDay } from "./time";
 import type {
   DemographicRow,
@@ -30,23 +31,15 @@ import type {
 
 export interface SocialEnv {
   SCOUT_TOKEN?: string;
-  /** Server-only key of the Threads/YouTube inbox receipts and cursors (inboxReadCommon.ts); never the bearer. */
-  INBOX_SEAL_SECRET?: string;
-  /** The reviewed-send claim authority (sendCoordinator.ts, a SQLite Durable Object; wrangler.jsonc SEND_COORDINATOR). */
-  SEND_COORDINATOR?: DurableObjectNamespace;
-  /** The Threads two-stage reply claim authority (threadsSendCoordinator.ts; wrangler.jsonc THREADS_SEND_COORDINATOR). */
-  THREADS_SEND_COORDINATOR?: DurableObjectNamespace;
-  /** The Instagram public-reply claim authority, manual and automatic (instagramPublicSendCoordinator.ts). */
-  INSTAGRAM_PUBLIC_SEND_COORDINATOR?: DurableObjectNamespace;
-  /** The existing-conversation Instagram DM authority of the automation (instagramDmCoordinator.ts, DT-6B-2C-2). */
-  INSTAGRAM_DM_COORDINATOR?: DurableObjectNamespace;
-  /** The cloud-workflow foundation's one durable authority (workflowCoordinator.ts, DT-7B; local, unactivated). */
-  WORKFLOW_COORDINATOR?: DurableObjectNamespace;
   ALLOWED_ORIGINS?: string;
   SOCIAL_KV?: KVNamespace;
+  /** The global inbox's SQLite Durable Object (inboxStore.ts); absent on an older deploy or in a test env. */
+  INBOX_STORE?: DurableObjectNamespace<InboxStore>;
   /** Meta app: the Instagram API with Instagram Login's "Instagram app ID" / secret. */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
+  /** The string the owner types in Meta's webhook setup; Meta sends it back on the GET handshake (webhooks.ts). */
+  META_VERIFY_TOKEN?: string;
   /** The same Meta app's Threads use case has its own "Threads app ID" / secret; falls back to META_*. */
   THREADS_APP_ID?: string;
   THREADS_APP_SECRET?: string;

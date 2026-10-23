@@ -1,7 +1,8 @@
 "use client";
 
-import { Clock, Ellipsis, Megaphone, MessageCircle, Pencil, Pin, Trash2 } from "lucide-react";
-import { Fragment, useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
+import { Clock, Megaphone, MessageCircle, Pencil, Pin, Trash2 } from "lucide-react";
+import { Fragment, type HTMLAttributes, type ReactNode } from "react";
+import RowMenu from "@/components/ui/RowMenu";
 import Switch from "@/components/ui/ios/Switch";
 import type { AutoReply, DefaultReply } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
@@ -126,7 +127,7 @@ export default function RulesTable({
             />
           }
           menu={
-            <RowMenu label={`${t("replies.table.more")} · ${ruleName(a)}`}>
+            <RowMenu label={`${t("replies.table.more")} · ${ruleName(a)}`} testId="autoreply-menu">
               {editItem(() => onEdit(a))}
               <button
                 type="button"
@@ -170,7 +171,10 @@ export default function RulesTable({
           />
         }
         menu={
-          <RowMenu label={`${t("replies.table.more")} · ${t("replies.table.default")}`}>
+          <RowMenu
+            label={`${t("replies.table.more")} · ${t("replies.table.default")}`}
+            testId="autoreply-menu"
+          >
             {editItem(onEditDefault)}
           </RowMenu>
         }
@@ -220,46 +224,5 @@ function Row({
         {menu}
       </span>
     </li>
-  );
-}
-
-/**
- * The ⋯ menu, a `<details>` popover: picking an item closes it, and so does a tap elsewhere or Escape. A pick or Escape
- * first hands focus to the ⋯ button, so it does not drop to <body> with the hidden item (an editor sheet opened by the
- * pick gives focus back to that button when it closes).
- */
-function RowMenu({ label, children }: { label: string; children: ReactNode }) {
-  const ref = useRef<HTMLDetailsElement>(null);
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent) => {
-      const el = ref.current;
-      if (el && !el.contains(e.target as Node)) el.open = false;
-    };
-    document.addEventListener("pointerdown", away);
-    return () => document.removeEventListener("pointerdown", away);
-  }, [open]);
-  const shut = (el: HTMLDetailsElement) => {
-    el.querySelector("summary")?.focus({ preventScroll: true });
-    el.open = false;
-  };
-  return (
-    <details
-      ref={ref}
-      className="ar-menu"
-      onToggle={(e) => setOpen(e.currentTarget.open)}
-      onClick={(e) => {
-        if ((e.target as Element).closest(".ar-pop button")) shut(e.currentTarget);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape" && e.currentTarget.open) shut(e.currentTarget);
-      }}
-    >
-      <summary aria-label={label} data-testid="autoreply-menu">
-        <Ellipsis size={18} strokeWidth={2} aria-hidden />
-      </summary>
-      <div className="ar-pop">{children}</div>
-    </details>
   );
 }

@@ -22,6 +22,7 @@
 
 import {
   createCloudWorkflowSession,
+  handshakeFailure,
   type ClientFetch,
   type ConfigureResult,
   type ExecuteResult,
@@ -231,7 +232,7 @@ export function createRegistrationController(deps: {
       authGen++;
       return { ok: true, authority: a };
     }
-    return { ok: false, reason: r.kind === "refused" ? r.reason : r.kind };
+    return { ok: false, reason: handshakeFailure(r) };
   }
 
   /** The outcome of one execute, as something the pure module records (answers re-parsed in their persisted form). */

@@ -127,7 +127,7 @@ export default function AutoPostScreen() {
             </span>
             <p className="text-ink-2 min-w-0 flex-1 text-[15px]">
               {t("publish.needWorker")}{" "}
-              <Link href="/settings#accounts" className="px-link">
+              <Link href="/social/settings#accounts" className="px-link">
                 {t("publish.hub.settings")}
               </Link>
             </p>

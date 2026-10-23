@@ -3,6 +3,18 @@ import fs from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 import { freshState, seedState } from "./helpers";
 
+test("Training settings keep their own cards and have no accounts card (tools/20)", async ({
+  page,
+}) => {
+  await freshState(page, "/settings/");
+  await expect(page.locator("html")).toHaveAttribute("data-world", "training");
+  await expect(page.getByTestId("accounts-card")).toHaveCount(0);
+  await expect(page.getByTestId("apikey-youtube")).toBeVisible();
+  await expect(page.getByTestId("apikey-scoutUrl")).toBeVisible();
+  await expect(page.getByTestId("gear-list")).toBeVisible();
+  await expect(page.getByTestId("export")).toBeVisible();
+});
+
 test("unchecking a gear item locks the skills that need it", async ({ page }) => {
   await freshState(page, "/settings/");
 
@@ -67,7 +79,7 @@ test("a custom edit genre can be added, survives a reload and can be removed", a
 
   // The built-in genres are read-only chips; the owner has none of their own yet.
   const card = page.locator("#genres");
-  await expect(card.getByTestId("genre-builtin")).toHaveCount(12);
+  await expect(card.getByTestId("genre-builtin")).toHaveCount(35);
   await expect(card.locator('[data-testid="genre-builtin"][data-genre="cars"]')).toBeVisible();
   await expect(card.getByTestId("genre-remove")).toHaveCount(0);
 
@@ -122,7 +134,7 @@ test("a custom edit genre can be added, survives a reload and can be removed", a
   await expect(chip).toHaveCount(0);
   await expect(card.getByTestId("genre-remove")).toHaveCount(0);
   await page.reload();
-  await expect(card.getByTestId("genre-builtin")).toHaveCount(12);
+  await expect(card.getByTestId("genre-builtin")).toHaveCount(35);
   await expect(chip).toHaveCount(0);
 });
 
@@ -479,3 +491,62 @@ for (const cmsFirst of [true, false]) {
     await cms.close();
   });
 }
+
+test("Delete stored messages asks first, then sends one DELETE /social/inbox and says it is done", async ({
+  page,
+}) => {
+  const WORKER = "https://scout.test";
+  const CORS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type",
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  };
+  const wipes: string[] = [];
+  await page.route(`${WORKER}/**`, async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    const json = (body: unknown) =>
+      route.fulfill({
+        status: 200,
+        headers: CORS,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+    if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS });
+    if (req.method() === "DELETE" && url.pathname === "/social/inbox") {
+      wipes.push(req.headers()["authorization"] ?? "");
+      return json({ ok: true });
+    }
+    // The accounts card's own status and data pulls.
+    if (url.pathname === "/social/status") return json({ platforms: {} });
+    return json({ accounts: [], snapshots: [], postStats: [], demographics: [], syncedAt: {} });
+  });
+
+  await freshState(page, "/social/settings/");
+  // No Worker yet: the button is there, off.
+  const wipe = page.getByTestId("accounts-wipe-inbox");
+  await expect(wipe).toBeDisabled();
+
+  await page.getByTestId("apikey-scoutUrl-input").fill(WORKER);
+  await page.getByTestId("apikey-scoutUrl-input").press("Enter");
+  await page.getByTestId("apikey-scoutToken-input").fill("fake-scout-token");
+  await page.getByTestId("apikey-scoutToken-input").press("Enter");
+  await expect(wipe).toBeEnabled();
+
+  // Cancel sends nothing.
+  await wipe.click();
+  await expect(page.getByTestId("confirm-dialog")).toBeVisible();
+  await page.getByTestId("confirm-cancel").click();
+  await expect(page.getByTestId("confirm-dialog")).toBeHidden();
+  expect(wipes).toHaveLength(0);
+
+  await wipe.click();
+  await page.getByTestId("confirm-ok").click();
+  await expect(page.getByTestId("confirm-dialog")).toBeHidden();
+  await expect.poll(() => wipes.length).toBe(1);
+  expect(wipes[0]).toBe("Bearer fake-scout-token");
+  const toast = page.locator('[data-testid="toast"][data-kind="notice"]');
+  await expect(toast.first()).toContainText("انحذفت الرسائل المخزنة");
+  await expect(wipe).toBeEnabled();
+  expect(wipes).toHaveLength(1);
+});

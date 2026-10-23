@@ -227,11 +227,18 @@ import {
   type PersistFailure,
   type RegistrationPersistence,
 } from "@/lib/cloudWorkflowRegistration";
-import { INBOX_DRAFT_MAX, INBOX_DRAFTS_MAX, SEND_STATES } from "@/lib/inbox";
-import { THREADS_SEND_STATES } from "@/lib/inboxThreadsSend";
-import { IG_SEND_STATES } from "@/lib/inboxInstagramSend";
-import { DM_ID_RE, DM_MESSAGE_ID_RE, DM_SEND_STATES, dmOpKey } from "@/lib/inboxInstagramDmSend";
-import { dmControlKey } from "@/lib/inboxInstagramDmControl";
+import {
+  DM_ID_RE,
+  DM_MESSAGE_ID_RE,
+  DM_SEND_STATES,
+  IG_SEND_STATES,
+  INBOX_DRAFT_MAX,
+  INBOX_DRAFTS_MAX,
+  SEND_STATES,
+  THREADS_SEND_STATES,
+  dmControlKey,
+  dmOpKey,
+} from "@/lib/inboxReviewState";
 import {
   PUBLISH_ID_RE,
   autoPostOf,
@@ -340,6 +347,7 @@ export const STORE_VERSION = 1;
 export const DEFAULT_SETTINGS: Settings = {
   lang: "ar",
   sound: true,
+  appearance: "light",
   reminderTime: "20:00",
   gear: ["phone", "lights"],
   davinciEdition: "studio",
@@ -880,6 +888,9 @@ export function mergeInstagramDmControls(
   ]);
 }
 
+/** The inbox screen's platform tab. */
+const InboxTabSchema = z.enum(["all", "instagram", "tiktok"]);
+
 /** Persisted (and exported) part of the state. */
 export const PersistedStateSchema = z.object({
   settings: SettingsSchema,
@@ -995,6 +1006,10 @@ export const PersistedStateSchema = z.object({
    * reconciliation, never coerced to empty). No default: a backup without it keeps the device's. Never public.
    */
   cloudReconciliation: z.unknown().optional(),
+  /* 🗂 Global inbox (planning/tools/51-global-inbox.md). */
+  /** When each conversation or post was last opened (ISO), by lib/inbox seenKey; unread = newer than this. */
+  inboxSeen: z.record(z.string(), z.string()).default({}),
+  inboxTab: InboxTabSchema.default("all"),
 });
 export type PersistedState = z.infer<typeof PersistedStateSchema>;
 
@@ -1783,6 +1798,13 @@ export interface StoreActions {
     expectedCommit: string | null,
     now?: Date,
   ): Promise<InboxInstagramDmControlResult>;
+  /* 🗂 Global inbox. */
+  /** Mark a conversation or post opened at `at` (ISO). Keeps the later time: an older open never lowers the mark. No-op for an empty key or an `at` that is not a date. */
+  markInboxSeen(key: string, at: string): void;
+  /** Keep only the seen marks of these keys (the loaded lists), so the map never grows without bound. Anything but a string in `keep` is ignored; not an array is a no-op. */
+  pruneInboxSeen(keep: string[]): void;
+  /** No-op for anything but a known tab. */
+  setInboxTab(tab: "all" | "instagram" | "tiktok"): void;
 
   completeQuest(skillId: string, quest: QuestType, proofUrl?: string, now?: Date): CompleteResult;
   uncompleteQuest(skillId: string, quest: QuestType): void;
@@ -1934,6 +1956,8 @@ const initialData = (): PersistedState => ({
   inboxInstagramSendOps: {},
   inboxInstagramDmSendOps: {},
   inboxInstagramDmControls: {},
+  inboxSeen: {},
+  inboxTab: "all",
 });
 
 const newId = (): string =>
@@ -3893,6 +3917,8 @@ const pick = (s: PersistedState): PersistedState => ({
   cloudJournal: s.cloudJournal,
   cloudRegistrations: s.cloudRegistrations,
   cloudReconciliation: s.cloudReconciliation,
+  inboxSeen: s.inboxSeen,
+  inboxTab: s.inboxTab,
 });
 
 /** Localize without importing lib/i18n (which imports this store). */
@@ -6419,6 +6445,26 @@ export const useStore = create<StoreState>()(
           ).length;
           return stopped ? { resumed, remaining, stopped } : { resumed, remaining };
         }
+      },
+
+      markInboxSeen(key, at) {
+        if (!key || Number.isNaN(Date.parse(at))) return;
+        const seen = get().inboxSeen;
+        if (seen[key] && seen[key] >= at) return;
+        set({ inboxSeen: { ...seen, [key]: at } });
+      },
+
+      pruneInboxSeen(keep) {
+        if (!Array.isArray(keep)) return;
+        const want = new Set(keep.filter((k) => typeof k === "string"));
+        const seen = get().inboxSeen;
+        const kept = Object.entries(seen).filter(([k]) => want.has(k));
+        if (kept.length < Object.keys(seen).length) set({ inboxSeen: Object.fromEntries(kept) });
+      },
+
+      setInboxTab(tab) {
+        const parsed = InboxTabSchema.safeParse(tab);
+        if (parsed.success) set({ inboxTab: parsed.data });
       },
 
       exportState(now = new Date()) {

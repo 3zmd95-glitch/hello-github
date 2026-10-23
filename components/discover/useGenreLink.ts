@@ -21,8 +21,7 @@ function dropParams(...names: string[]): void {
 }
 
 /**
- * Discover's deep link, `/discover/?genre=<id>` (lib/genres' discoverGenreHref; the Trend Radar's genre chips
- * link here). The address bar is read once, after mount and in an effect: the page is a static export (no
+ * Discover's deep link, `/discover/?genre=<id>` (lib/genres' discoverGenreHref). The address bar is read once, after mount and in an effect: the page is a static export (no
  * `useSearchParams` without a Suspense boundary), and nothing reads `window` while rendering. A genre the
  * app knows (built in, or one the owner added: the store is loaded before any page mounts) comes back as its
  * id, for Discover to open that category's page on (Browse; never a Search filter); an id it does not know is ignored. Either way the parameter leaves

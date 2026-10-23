@@ -28,6 +28,7 @@
 
 import {
   createCloudWorkflowSession,
+  handshakeFailure,
   type ClientFetch,
   type ConfigureResult,
   type ExecuteResult,
@@ -365,7 +366,7 @@ export function createReconciliationController(deps: {
       authGen++;
       return { ok: true, authority: a };
     }
-    return { ok: false, reason: r.kind === "refused" ? r.reason : r.kind };
+    return { ok: false, reason: handshakeFailure(r) };
   }
 
   /** The common entry guard; on success the action owns the latest sequence. */

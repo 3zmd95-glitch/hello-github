@@ -62,7 +62,10 @@ function validateDraft(value: unknown, input: string): CreatorDraft {
   }
   const urls = output.match(/https?:\/\/[^\s"\\]+/g) ?? [];
   if (urls.some((url) => !input.includes(url))) throw new CreatorError("ai_unavailable");
-  return { ...draft, hashtags: [...new Set(draft.hashtags)] };
+  // A tag fusing Arabic and Latin letters (#الجوال_الphotography) reads as neither language, and the
+  // prompt alone did not stop it: drop such tags and keep the rest of the draft.
+  const fused = (tag: string) => /\p{Script=Arabic}/u.test(tag) && /\p{Script=Latin}/u.test(tag);
+  return { ...draft, hashtags: [...new Set(draft.hashtags)].filter((tag) => !fused(tag)) };
 }
 
 async function waitForDraft(task: Promise<CreatorDraft>, timeoutMs: number): Promise<CreatorDraft> {

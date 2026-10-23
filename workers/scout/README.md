@@ -47,11 +47,11 @@ Browsers may only call it from the origins in `ALLOWED_ORIGINS`.
 | `POST /tiktokads/connect` | Body `{ returnTo }` (an address on `ALLOWED_ORIGINS`, else `400 { error: "bad_request" }`) → `{ url }`: TikTok for Business's authorization page (`https://business-api.tiktok.com/portal/auth?app_id=…&state=…&redirect_uri=…`) for the owner's app "ONUS Content Planner" (scope Discovery), whose token reads the category pages' TikTok trends (`src/tiktokads.ts`). A one-time random state is kept 10 minutes (KV `tiktokads:state:<nonce>`). Without `TIKTOK_ADS_APP_ID` or `TIKTOK_ADS_SECRET`: `409 { error: "not_configured" }`. Kept apart from the social connector: another app and another token. |
 | `GET /oauth/tiktokads/callback` | No bearer (TikTok sends the owner's browser here; routed before the social `/oauth/:platform/callback`): takes the state once (missing, wrong or used: `400 { error: "state_invalid" }`), exchanges `auth_code` (or `code`; valid 1 hour, once) at `POST https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/` with the JSON body `{ app_id, secret, auth_code, return_advertiser_ids: true }` (any `code` but 0 fails), keeps `{ access_token, advertiser_ids, scope, connectedAt }` in KV `tiktokads:token`, and answers `302` to `returnTo` with `?tiktokads=connected`, or `?tiktokads_error=<reason>` (`state_invalid` past its 10 minutes, `no_code`, `not_configured`, `exchange_failed`, `no_advertiser`). The long-term token does not expire. The token, the secret and the code are never logged or echoed (a failed exchange logs TikTok's code and message without them). |
 | `GET /tiktokads/status` | `{ connected, advertisers }`: whether a token is kept (one sealed with another `SCOUT_TOKEN` reads as not connected) and for how many advertisers. Never the token. |
-| `GET /tiktokads/music-probe` | `?country=SA\|US` (default US) `&range=7\|30` (default 7; anything else `400 { error: "bad_request" }`) → `{ country, dateRange, fetchedAt, attempts }`: a **read-only** live check of what TikTok's Discovery API answers about trending music with the stored token (`src/tiktokMusicProbe.ts`; no KV write, ≤ 3 KV reads: the advertiser token, the account connection and its kept renewal; 4 parallel calls, 12 s each). Attempts: `cml_trending_list` (`GET /open_api/v1.3/discovery/cml/trending_list/`, TikTok's documented music endpoint: up to 100 Commercial Music Library tracks; its docs ask a TikTok *account* token and `business_id` = that account's `open_id`, so with our advertiser token it is asked with the advertiser id and may fail), `trending_list_MUSIC` and `trending_list_SONG` (`/discovery/trending_list/` with an undocumented `discovery_type`: the docs say only `HASHTAG`), and `trending_list_HASHTAG_MUSIC` (documented: the popular hashtags of the `MUSIC` industry), plus `cml_trending_list_account` when a TikTok account is connected (`/tiktokads/account/*`: the chart with the account token and `business_id` = its open_id, shown as `<open_id>`; the current token (a renewal kept for this connection included) as it is, never renewed here). Without an advertiser token but with an account, only that one. Each `{ name, endpoint, params (the advertiser id shown as `<advertiser_id>`), status (0: no answer), code, message, count, items }`, `items` the first 10 `{ rank, title, artist, id, genres, rankChange, posts, views, previewUrl, thumbnailUrl, trendingClipId, fullClipId, history (last 7 days), keys }`. Neither connected: `409 { error: "not_connected" }`; KV unreadable: `502 { error: "upstream" }`. Never a token or the open_id. |
+| `GET /tiktokads/music-probe` | `?country=SA\|US` (default US) `&range=7\|30` (default 7; anything else `400 { error: "bad_request" }`) → `{ country, dateRange, fetchedAt, attempts }`: a **read-only** live check of what TikTok's Discovery API answers about trending music with the stored token (`src/tiktokMusicProbe.ts`; no KV write, 1 KV read, 4 parallel calls, 12 s each). Attempts: `cml_trending_list` (`GET /open_api/v1.3/discovery/cml/trending_list/`, TikTok's documented music endpoint: up to 100 Commercial Music Library tracks; its docs ask a TikTok *account* token and `business_id` = that account's `open_id`, so with our advertiser token it is asked with the advertiser id and may fail), `trending_list_MUSIC` and `trending_list_SONG` (`/discovery/trending_list/` with an undocumented `discovery_type`: the docs say only `HASHTAG`), and `trending_list_HASHTAG_MUSIC` (documented: the popular hashtags of the `MUSIC` industry), plus `cml_trending_list_account` when a TikTok account is connected (`/tiktokads/account/*`: the chart with the account token and `business_id` = its open_id, shown as `<open_id>`; the stored token as it is, never renewed here). Without an advertiser token but with an account, only that one. Each `{ name, endpoint, params (the advertiser id shown as `<advertiser_id>`), status (0: no answer), code, message, count, items }`, `items` the first 10 `{ rank, title, artist, id, genres, rankChange, posts, views, previewUrl, thumbnailUrl, trendingClipId, fullClipId, history (last 7 days), keys }`. Neither connected: `409 { error: "not_connected" }`; KV unreadable: `502 { error: "upstream" }`. Never a token or the open_id. |
 | `GET /tiktokads/account/connect` | `302` to TikTok's **TikTok account holder** authorization page (`https://www.tiktok.com/v2/auth/authorize/?client_key=<TIKTOK_ADS_APP_ID>&scope=user.info.basic&response_type=code&redirect_uri=…/oauth/tiktokads/account/callback/&state=…`) for the same app. Needed because TikTok's song chart answers only a TikTok *account* token (the advertiser token gets code 40105). A one-time random state is kept 10 minutes (KV `tiktokads:account-state:<nonce>`). Bearer like every route, so the owner opens the `Location` that someone with the token fetched (`curl -s -o /dev/null -w "%{redirect_url}" -H "Authorization: Bearer …" …/tiktokads/account/connect`), within 10 minutes. With `?format=json` (or `Accept: application/json`) it answers `200 { url }` (the same link and stored state, with CORS) instead of the `302`, because a browser `fetch` carrying the bearer cannot follow a redirect into TikTok; the dashboard reads `url` and opens it. Without `TIKTOK_ADS_APP_ID` or `TIKTOK_ADS_SECRET`: `409 { error: "not_configured" }`. Docs: business-api.tiktok.com/portal/docs?id=1738083939371009 (the redirect URL must be registered in the app and end with `/`). |
-| `GET /oauth/tiktokads/account/callback/` | No bearer (TikTok sends the owner's browser here; the path without the trailing `/` is served too): takes the account state once, exchanges `auth_code` (or `code`; valid 10 minutes, once) at `POST https://business-api.tiktok.com/open_api/v1.3/tt_user/oauth2/token/` `{ client_id, client_secret, grant_type: "authorization_code", auth_code, redirect_uri }` (docs id=1738084387220481), keeps `{ v: 2, connection, token: { access_token, refresh_token, open_id, expires_at, refresh_expires_at, scope, connectedAt } }` sealed in KV `tiktokads:account` (`connection` a new random 128-bit hex id every time, a same-account reconnect too; only this callback writes that key), and answers a small Arabic/English HTML page: connected (200), or `state_invalid`, `no_code`, `not_configured`, `exchange_failed <code>: <message>` (400). The access token lasts 1 day, the refresh token 1 year. Tokens, the secret and the code are never logged or shown. |
+| `GET /oauth/tiktokads/account/callback/` | No bearer (TikTok sends the owner's browser here; the path without the trailing `/` is served too): takes the account state once, exchanges `auth_code` (or `code`; valid 10 minutes, once) at `POST https://business-api.tiktok.com/open_api/v1.3/tt_user/oauth2/token/` `{ client_id, client_secret, grant_type: "authorization_code", auth_code, redirect_uri }` (docs id=1738084387220481), keeps `{ access_token, refresh_token, open_id, expires_at, refresh_expires_at, scope, connectedAt }` sealed in KV `tiktokads:account`, and answers a small Arabic/English HTML page: connected (200), or `state_invalid`, `no_code`, `not_configured`, `exchange_failed <code>: <message>` (400). The access token lasts 1 day, the refresh token 1 year. Tokens, the secret and the code are never logged or shown. |
 | `GET /tiktokads/account/status` | `{ connected: false }` or `{ connected: true, openId (masked: first 4 and last 2 characters), scope, expiresAt, refreshExpiresAt }`. Never a token. |
-| `GET /tiktokads/music` | `?country=SA\|US` (default US) `&range=1\|7\|30\|90` (days, default 7) `&genre=` (TikTok's genre value, e.g. `ARABIC_POP`, `POP`, `HIP_HOP/RAP`; default `ALL`; upper-cased, `[A-Z0-9_&/-]{1,40}`; anything else `400 { error: "bad_request" }`) → `{ fetchedAt, country, range, genre, items: [{ rank, title, artist, id, previewUrl, thumbnail, trend: [{ date, rank }] }] }`: TikTok's Commercial Music Library chart (up to 100 business-licensed tracks; `GET /open_api/v1.3/discovery/cml/trending_list/` with the account token in `Access-Token` and `business_id` = its open_id; docs id=1825119063013505). Kept 6 hours per (country, range, genre) in KV `tiktokads:music:<country>:<range>:<genre>`; a kept answer is served as it is, `fetchedAt` included. An access token within 5 minutes of its end is renewed first (`POST …/tt_user/oauth2/refresh_token/`) and kept sealed under the connection it started from (`tiktokads:account-refresh:<connection>`, never `tiktokads:account`): at most 2 calls. After a renewal the connection is read again; if the owner connected again meanwhile: `409 { error: "account_changed" }`, no chart asked with the old account, nothing kept (ask again). A chart already asked before the owner connected again is still answered and kept (it is the country's chart, not the account's). Not connected: `409 { error: "not_connected" }`; refresh token over (also a renewed one ending within a minute): `409 { error: "reconnect" }`; renewal refused: `502 { error: "refresh_failed", status, code, message }`, also with `status: 0, code: null` and `message: "account_mismatch"` (TikTok renewed another `open_id`; not kept or used) or `"storage_failed"` (the renewal could not be kept; not used); TikTok's error or no answer: `502 { error: "tiktok", status (0: no answer), code, message }` (never kept); a success whose `data.list` is not an array (missing, `null`, an object): `502 { error: "upstream", detail: "malformed_list" }` (never kept; an empty array is a real empty chart and is kept); KV unreadable: `502 { error: "upstream" }`. Never a token. |
+| `GET /tiktokads/music` | `?country=SA\|US` (default US) `&range=1\|7\|30\|90` (days, default 7) `&genre=` (TikTok's genre value, e.g. `ARABIC_POP`, `POP`, `HIP_HOP/RAP`; default `ALL`; upper-cased, `[A-Z0-9_&/-]{1,40}`; anything else `400 { error: "bad_request" }`) → `{ fetchedAt, country, range, genre, items: [{ rank, title, artist, id, previewUrl, thumbnail, trend: [{ date, rank }] }] }`: TikTok's Commercial Music Library chart (up to 100 business-licensed tracks; `GET /open_api/v1.3/discovery/cml/trending_list/` with the account token in `Access-Token` and `business_id` = its open_id; docs id=1825119063013505). Kept 6 hours per (country, range, genre) in KV `tiktokads:music:<country>:<range>:<genre>`; a kept answer is served as it is, `fetchedAt` included. An access token within 5 minutes of its end is renewed first (`POST …/tt_user/oauth2/refresh_token/`) and stored back sealed: at most 2 calls. Not connected: `409 { error: "not_connected" }`; refresh token over: `409 { error: "reconnect" }`; renewal refused: `502 { error: "refresh_failed", status, code, message }`; TikTok's error or no answer: `502 { error: "tiktok", status (0: no answer), code, message }` (never kept); KV unreadable: `502 { error: "upstream" }`. Never a token. |
 | `/mcp`, `/authorize`, `/token`, `/register`, `/.well-known/oauth-*` | The Claude connector, see [Claude connector (MCP)](#claude-connector-mcp). |
 
 ### `POST /search` options
@@ -162,8 +162,9 @@ computes averages and engagement from the post rows itself.
 
 Error codes (JSON `{ error }` on the API, `reason=` on the callback redirect): `not_configured` (503, client
 id/secret or KV missing), `not_connected` (409), `state_invalid` (400), `exchange_failed` (502),
-`token_expired` (409, the owner has to reconnect), `upstream` (502), `rate_limited` (429), `bad_request` (400).
-The callback additionally uses `reason=access_denied` when the owner cancelled at the provider.
+`token_expired` (409, the owner has to reconnect), `upstream` (502), `rate_limited` (429), `bad_request` (400),
+`not_available` (503, the inbox store binding is missing). The callback additionally uses `reason=access_denied` when
+the owner cancelled at the provider.
 
 ### What each platform gives
 
@@ -253,8 +254,7 @@ refreshed before every sync. A refresh the provider refuses → `lastError: "tok
 | `category:attempts:<id>:<day>` | that category's spending runs that UTC day, forced ones included (at most 3; the scan stops there), 2-day TTL |
 | `brave:count:<day>`     | Brave Search requests that UTC day (the `BRAVE_DAILY` cap of `GET /categories/:id/top/:platform`; best-effort, as Discover's YouTube counter): reserved before a tab's first request (3, or what is left) and corrected after when fewer or more were made, so two overlapping opens over-count rather than under-count. 2-day TTL. The only Brave-related key: Brave's results are never written. None is written while Brave is off (`BRAVE_DAILY` "0" since 2026-10-07) |
 | `tiktokads:token`       | the owner's TikTok for Business token (`src/tiktokads.ts`): `v1.<iv>.<ciphertext>`, AES-256-GCM of `{ access_token, advertiser_ids, scope, connectedAt }`, sealed as `tokens:<platform>` is (rotating `SCOUT_TOKEN` asks for a new connect). Written by `/oauth/tiktokads/callback`; read by every category scan (1 KV read) and `GET /tiktokads/status`. No TTL: the long-term token does not expire |
-| `tiktokads:account`     | the owner's TikTok *account* connection (`src/tiktokAccount.ts`), sealed as `tiktokads:token` is: `{ v: 2, connection, token: { access_token, refresh_token, open_id, expires_at, refresh_expires_at, scope, connectedAt } }`, `connection` a random 128-bit hex id per completed connect. Written **only** by `/oauth/tiktokads/account/callback/`. A record from before (the bare sealed token) reads as connection `legacy` and is never rewritten by a renewal; the next connect replaces it. No TTL (the refresh token lasts 1 year) |
-| `tiktokads:account-refresh:<connection>` | a renewed account token, sealed: `{ connection, token }`. Written by `/tiktokads/music` when it renews the 1-day access token, under the connection id read **before** asking TikTok (`legacy` for a legacy record). Read (status, music, music probe) only while `tiktokads:account` still names that connection and the same `open_id`, so a renewal still in flight when the owner connects again lands under the old id and can never replace the new connection. KV `expiration` = the renewed refresh token's end, at most 1 year: a stale one (old credentials, sealed) stays until then, nothing else deletes it. Limits: KV is eventually consistent, so for a short while another location may still read the previous connection (switching accounts is not linearizable); two requests renewing the *same* connection at the same moment may still race on TikTok's refresh token (rare: one daily caller) |
+| `tiktokads:account`     | the owner's TikTok *account* token (`src/tiktokAccount.ts`), sealed as `tiktokads:token` is: `{ access_token, refresh_token, open_id, expires_at, refresh_expires_at, scope, connectedAt }`. Written by `/oauth/tiktokads/account/callback/` and by `/tiktokads/music` when it renews the 1-day access token. No TTL (the refresh token lasts 1 year) |
 | `tiktokads:account-state:<nonce>` | `{ createdAt }` of a `GET /tiktokads/account/connect`, 10-minute TTL, deleted when the callback takes it |
 | `tiktokads:music:<country>:<range>:<genre>` | a `GET /tiktokads/music` answer, 6-hour TTL |
 | `tiktokads:state:<nonce>` | `{ returnTo, createdAt }` of a `POST /tiktokads/connect`, 10-minute TTL, deleted when the callback takes it (a state is good once) |
@@ -332,7 +332,8 @@ read failed is read again next tick), skips its own comments, comments older tha
 automation was switched on and comments already answered, matches the rest (specific-post automations before "any
 post"), takes a short lock (`POLL_LOCK_MS`, 4 min) so two overlapping polls never answer the same comment or
 message, and answers at most `REPLY_CAP` (8) a tick, comments and DMs together, comments first, oldest first. A post
-with matching comments left over (cap, budget, stop) is read again next tick.
+with matching comments left over (cap, budget, stop) is read again next tick. The global inbox's webhooks now land at
+`/webhooks/instagram` (see [Global inbox](#global-inbox)); the auto-replies still poll.
 
 **Order per comment.** First the private reply, `POST /{ig-user-id}/messages { recipient: { comment_id }, message }`
 (one per comment, within 7 days): plain text, or a button template when the rule has buttons (the Send API below).
@@ -342,12 +343,7 @@ comment's one private reply. Only once the DM went out, the public reply `POST /
 rule's `publicReplies` picked at random (optional; it says "sent it to you privately", so it never goes out
 without the DM, and a failed public reply is logged once, never retried). Budget: `REPLIES_FETCH_BUDGET` (30)
 outbound calls (a comment takes up to three: the template, the text fallback, the public reply), so a tick stays
-inside the 50 subrequests with its KV reads. Since DT-6B-2C-1 the public reply first claims the comment's one public
-effect in `INSTAGRAM_PUBLIC_SEND_COORDINATOR` (shared with the reviewed manual reply below): a comment already
-claimed is logged `publicReply: "skipped"`, `detail: "already_claimed"`; a missing or unreadable coordinator is
-`publicReply: "failed"`, `error: "not_configured"`, `detail: "public-claim-store"` with no POST (no KV or direct
-fallback); an uncertain delivery is `publicReply: "failed"`, `detail: "unknown-delivery"`. The two coordinator calls
-per public reply (claim, receipt) are Durable Object calls outside `REPLIES_FETCH_BUDGET`.
+inside the 50 subrequests with its KV reads.
 
 **DMs and story replies** (round 34, `inbox.ts`). When a message rule or the default reply is on, the same poll
 reads the conversations in one call, `GET /{IG_ID}/conversations?platform=instagram&limit=20&fields=id,updated_time,messages.limit(5){id,created_time,from,message,story,is_unsupported}`
@@ -367,38 +363,6 @@ opens `https://www.instagram.com/<username>/`. The returned `message_id` is kept
 `recipient_id` it went to) to tell the poll's own messages from the owner's; in case Instagram's ids differ, a
 message from the account created from a minute before to 2 minutes after a send to that person also counts as the
 poll's.
-
-**DM authority** (DT-6B-2C-2, `src/social/instagramDmCoordinator.ts` + `instagramDmSend.ts`, `planning/tools/37-inbox-send.md`).
-Since this packet every rule/default DM is claimed in `INSTAGRAM_DM_COORDINATOR` (SQLite Durable Object, migration
-`v4-instagram-dm`, one object per `instagram-dm|<user_id>`) before its ONE POST: one effect per (account,
-conversation, inbound message), so a duplicate poll, a lost result or a reconnect of the same account never answers a
-message twice, and a later message in the same conversation is never locked. Each tick that reads DMs takes the account
-from a fresh `GET /me?fields=user_id` (reused when the poll fetched `/me` that tick; never the cached `igUserId` or
-the OAuth `tokens.userId`) and captures the status stamp; right before each claim the token and status are re-read
-(token, status, token again) and must equal the capture, with a fresh clock that also re-checks the local 24-hour
-window. The default reply's once-a-day per person is part of the claim transaction (the cooldown stays reserved after
-`sent` and `unknown`; only a typed refusal releases it); `defaultSentAt` is still written for display. Success needs
-a non-empty `message_id` and exactly the conversation's `recipient_id`; a redirect (never followed), timeout, 5xx,
-malformed/contradictory answer (including a 4xx with `message_id`/`recipient_id` beside its error, which keeps the
-cooldown), another recipient or a lost or incomplete receipt (every claimed field, the claim time, a valid
-`settledAt` and the outcome's proof must match) is logged `dm: "failed"`, `detail: "unknown-delivery"`, never
-retried or counted as sent. A typed refusal keeps Meta's mapping and stop policy but is final. An already-claimed
-message or a conversation under takeover is logged `dm: "skipped"` (`already_claimed` / `takeover`); so is a message
-whose own sender is not the conversation's one customer (`unavailable`, no claim). The payload is hashed before the
-final fence (nothing awaited between fence and claim), and the answer cap counts every DM that reached Instagram
-(DT-6B-2C-2-R1). The dashboard shows `skipped` as its own neutral outcome. A poll that stops inside a conversation
-(cap, budget, a retry before any claim, a tick stopper) keeps its position just before the first unhandled message,
-so messages sharing that time are read again: those already claimed come back `already_claimed` (no POST, no cap
-slot, one budgeted claim call each) and the rest are answered once (DT-6B-2C-2-R2).
-No binding or an unreadable one: `dm: "failed"`, `error: "not_configured"`, `detail: "dm-claim-store"`, no POST (no
-legacy send, no KV fallback), retried up to 3 polls (nothing was claimed); after the third the message is given up
-(`givenUp`, its time kept): read again with its time group it is passed without a claim or a new log row, so the
-messages sharing its time still go, and the mark leaves once the position passes it or after a day (DT-6B-2C-2-C1).
-Budget: a DM reserves 3 calls of `REPLIES_FETCH_BUDGET` (1 provider POST + 2 coordinator calls) before its
-claim, plus 1 `/me` GET per DM tick; caps
-are unchanged. Provider requests, Durable Object calls and KV reads are counted separately (tool 37's table); KV reads
-are not part of that pool. Reviewed manual DMs and takeover/resume routes: "Reviewed Instagram DMs and conversation takeover" below (DT-6B-2C-3, gate closed, no UI); comment private
-replies (`comment_id`) are unchanged in `replyCore.ts`.
 
 **Trigger and write guard.** One cron trigger, `* * * * *` (`TICK_CRON` in `cron.ts`): minutes off the
 five-minute grid only poll the replies; on the grid a tick keeps the five-minute schedule (a sync slot, a trend
@@ -459,335 +423,59 @@ window). `skipped` on the poll result: `none`, `not_connected`, `no_permission`,
 Clicks: `GET /go/:id/:n` redirects only to an owner-saved https link, counts one tap per visitor per link per minute
 (Cache API) and at most `CLICK_WRITES_PER_DAY` (200) a day, and always redirects.
 
-## Inbox reads (read-only)
+## Global inbox
 
-Code: `src/social/inboxRead.ts` (packet DT-6A, `planning/tools/36-inbox.md`). The dashboard's `/social/inbox`
-reads Instagram conversations, messages, owned posts and their comments here. **Read-only, no automation state:**
-these routes never call the reply poll (`readInbox` / `pollReplies`), never write KV (no `replies:state`,
-`inboxSince`, cursors, logs, and no token refresh: an expired token answers `token_expired`), never send or mark
-anything seen, and make exactly one Instagram call per request. GET only (anything else is `405`). Bearer + CORS as
-every `/social/*` route.
+Plan: `planning/tools/51-global-inbox.md`. Code: `src/social/inboxRoutes.ts` (these routes), `inboxReader.ts` (the
+every-minute reader that fills the store from Instagram) and `inboxStore.ts` (the `INBOX_STORE` Durable Object). The
+routes read the store, ask for a rescan, empty it, and send DMs and comment replies. All of them need the bearer, except the two webhook routes below, which Meta calls. Without the `INBOX_STORE` binding every one answers `503 { error: "not_available" }`.
 
-| Route                                          | Query                              | Answer                                                                                                      |
-| ---------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `GET /social/inbox/account`                    |                                    | `{ accountId, handle, generation, capabilities: { messages, comments } }`                                   |
-| `GET /social/inbox/conversations`              | `account`, `generation`, `cursor?` | page of `{ id, updatedAt \| null, participants: [{ id?, username? }] }` (20 a page)                         |
-| `GET /social/inbox/conversations/:id/messages` | same                               | page of `{ id, createdAt \| null, direction, from \| null, text, kind }` (20 a page, newest first)          |
-| `GET /social/inbox/media`                      | same                               | page of `{ id, caption?, permalink? (https instagram.com only), timestamp \| null, commentsCount }` (25)    |
-| `GET /social/inbox/media/:id/comments`         | same                               | page of `{ id, text, author \| null, createdAt \| null, direction }` (25; replies to comments not included) |
+**Deploy order.** The Worker first, then the Pages build. A Worker from before the inbox answers `GET /social/inbox` with the router's `404`, and the dashboard's Inbox page then says the inbox is not available yet (the same line as for `503 not_available`) until the new Worker is live.
 
-A page is `{ accountId, generation, fetchedAt, items, next, coverage }`. `accountId` is `/me`'s `user_id` as a
-string; `generation` is an HMAC (SCOUT_TOKEN) of it and the connection time, so a reconnect makes older pairs
-`409 stale` and older cursors `400 cursor_invalid`. `next` is an opaque sealed cursor bound to the account,
-generation, edge and conversation/post id; Instagram's `paging.next` URLs (which carry the token) are never
-followed or returned. `direction` is `out` when `from.id` is the account, `in` for another id, `unknown` without
-`from`. `kind`: `text`, `story_reply`, `story_mention`, `share` (only if Instagram includes share data unasked),
-`unsupported`, `empty`. Text keeps every line, cut at 2,000 characters. `coverage`: `more`, `end` (Instagram says
-no more), `cap` (a local limit; more may exist), and on errors `partial` (a later page failed),
-`unavailable` (the first page failed) or `history_unavailable` (bare message ids: the expansion was ignored).
-Bounds (DT-6A-R1): each Instagram page is read through a byte counter and refused past **256 KiB** before it is
-parsed, whatever `Content-Length` says (`upstream` with `unavailable`/`partial`); a 200 without a `data` list
-(`messages.data` for messages) is the same failure, never an empty end, while `data: []` is a true empty end; so is
-a list with any row that is not an object with a plain id (DT-6A-R2: the whole page fails, no row is kept); a
-message missing only `from` or `created_time` is kept (`unknown` / `null`), a share or attachment alone is a
-`share` row, and only a page of ids with nothing else is `history_unavailable`; `next` is never longer than the 1,500 characters the reader accepts (a longer one becomes
-`cap` with `next: null`); a permalink over 2,048 characters is omitted.
-Errors (`{ error, detail?, coverage? }`, `detail` ≤ 200 characters with tokens and links removed):
-`not_configured` 503, `not_connected` 409, `token_expired` 409, `stale` 409, `no_permission` 403 (also answered
-without a call when the granted scopes lack the surface's permission), `not_eligible` 403 (Meta code 3: app role or
-review restriction), `rate_limited` 429, `upstream` 502, `bad_request` / `cursor_invalid` 400. Message history
-depth, attachment fields and comment-author fields under Instagram Login are not verified live.
+| Route                                                    | Response                                                                                                                                                                                                               |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /social/inbox`                                      | `{ platforms: { instagram, tiktok }, counts }`; a platform is `{ connected, canReply, tokenExpired, lastReadAt, newestAt }` (TikTok: never connected here), `counts` is `{ conversations, posts, comments }`           |
+| `GET /social/inbox/conversations?platform=&before=`      | `{ conversations, more, next }`, newest first                                                                                                                                                                          |
+| `GET /social/inbox/conversations/:id?before=`            | `{ conversation, messages, more, next, window: { open, closesAt } }`, messages oldest first; `404 { error: "not_found" }`                                                                                              |
+| `GET /social/inbox/posts?platform=&before=`              | `{ posts, more, next }`, newest first                                                                                                                                                                                  |
+| `GET /social/inbox/posts/:platform/:id/comments?before=` | `{ post, comments, more, next }`, newest first; `404 { error: "not_found" }`                                                                                                                                           |
+| `POST /social/inbox/refresh`                             | `{ scanRequestedAt }`: writes KV `inbox:scan` (1 hour), the next reader tick reads the newest posts' comments once                                                                                                     |
+| `DELETE /social/inbox`                                   | `{ ok: true }`: empties the store; the reader refills it                                                                                                                                                               |
+| `POST /social/inbox/conversations/:id/send`              | Body `{ text }`. A DM to the person of a stored conversation: `{ message }`, the stored message (`sentBy: "owner"`). `409 { error: "window_closed" }` when the 24-hour window is closed or unknown (no Instagram call) |
+| `POST /social/inbox/comments/instagram/:id/reply`        | Body `{ text }`. A public reply under a stored comment: `{ reply }`, the stored comment row (`ours: true`, `parentId` the comment)                                                                                     |
+| `POST /social/inbox/comments/instagram/:id/private`      | Body `{ text }`. A private reply to a stored comment (a DM by the comment): `{ message: { id } }`                                                                                                                      |
+| `POST /social/inbox/comments/instagram/:id/hide`         | Body `{ hidden: boolean }`. Hides or unhides a stored comment: `{ ok: true }`                                                                                                                                          |
+| `DELETE /social/inbox/comments/instagram/:id`            | `{ ok: true }`. Only the owner's own comment (`ours`); another person's is `403 { error: "no_permission" }` with no Instagram call                                                                                     |
 
-### Threads and YouTube comment reads (read-only)
+`platform` is `all` (default), `instagram` or `tiktok`, else `400 { error: "bad_request" }`. Ids are `(peer:)?[A-Za-z0-9_=-]{1,256}` once their percent-escapes are decoded
+(the dashboard sends `peer:123` as `peer%3A123`); `:platform` is `instagram` or `tiktok`. Lists are paged 20 at a time: when `more` is true, send `next` back as `before` to get the following page (the cursor is
+opaque, pass it unchanged). `window.open` is whether the 24-hour reply window of the thread is still open now (`closesAt` is null when unknown).
+A thread's `next` pages toward older messages, while each page is returned oldest first. A store or KV failure answers
+`502 { error: "upstream" }`; `POST /social/inbox/refresh` first retries a refused KV write once after 1.1 seconds.
 
-Code: `src/social/inboxReadThreads.ts`, `src/social/inboxReadYouTube.ts`, shared `src/social/inboxReadCommon.ts`
-(packet DT-6B-1, `planning/tools/36-inbox.md`). Same rules as above: GET only, bearer + CORS, one upstream call per
-request, 256 KiB byte budget before parsing, never KV writes, never a token refresh (an expired token answers
-`token_expired`; YouTube's refresh POST in `youtube.ts` is never called from here), never `sync.ts` or `metaList`,
-never send, hide, moderate or mark anything. The Instagram routes and seals above are unchanged.
+Sends (Instagram only). The text is trimmed; a blank text, a body that is not JSON, or a hide without a boolean `hidden` is `400 { error: "bad_request" }`.
+A DM and a private reply take at most 1,000 UTF-8 bytes (about 500 Arabic letters) and a public reply 2,200 characters, else `400 { error: "too_long" }`.
+Instagram is asked last, and only for what the store holds: an unknown conversation or comment is `404 { error: "not_found" }`; a DM needs its 24-hour window open (`409 window_closed`) and a known person (`409 not_eligible`), and a private reply a comment at most 7 days old (`409 not_eligible`, Instagram's rule);
+no connection, a lapsed token and a connection without the reply permission are `409 not_connected`, `409 token_expired` and `403 no_permission`.
+Each send makes one Graph call with the Instagram token, plus `GET /me` for the account id (DM, public reply, private reply), and writes no KV.
+A refusal by Meta answers `{ error, detail }` with Meta's own words (200 characters at most, never the token) and the DM, public reply or private reply is logged `refused` in the store's `sends` table:
+`no_permission` 403, `rejected` 502, `not_eligible` 409, `token_expired` 409, `rate_limited` 429, and `window_closed` 409 for a DM that Meta refuses outside the messaging window (a private reply keeps `not_eligible`).
+A network failure, a Graph 5xx or other unreadable answer, or a 200 that names no message, reply or success, may have gone out, so it answers `502 { error: "upstream", detail: "unconfirmed" }` and is logged `unconfirmed`: look at the thread before sending again.
+Hide and delete leave no `sends` row. A store fault is only logged and never changes the answer: a send Instagram took is still answered as sent (the reader brings the message in on its next read), and a refusal or `unconfirmed` is still answered as such. A public reply to a reply is stored under the top-level comment; deleting a comment also drops its stored replies.
 
-| Route                                             | Query                                         | Upstream (one call)                                                                                                  | Answer                                                                                                                                           |
-| ------------------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /social/inbox/threads/account`               |                                               | `/me?fields=id,username`                                                                                             | `{ provider: "threads", accountId, handle, generation, capabilities: { replies } }`                                                              |
-| `GET /social/inbox/threads/posts`                 | `account`, `generation`, `cursor?`            | `/me/threads?fields=id,timestamp,text,permalink,media_type&limit=25`                                                 | page of `{ id, ref, text?, permalink? (www.threads.net / www.threads.com), timestamp, mediaType? }`                                              |
-| `GET /social/inbox/threads/posts/:ref/replies`    | same                                          | `/{post}/replies?fields=id,text,timestamp,username,is_reply_owned_by_me,root_post,replied_to&reverse=false&limit=25` | page of `{ id, text, author \| null, createdAt, direction, kind: text \| media, rootId?, parentId? }`                                            |
-| `GET /social/inbox/youtube/account`               |                                               | `channels?part=id,snippet,contentDetails&mine=true`                                                                  | `{ provider: "youtube", needsSelection, channels: [{ accountId, title, generation, uploads: ref \| null }] (≤ 10), capabilities: { comments } }` |
-| `GET /social/inbox/youtube/videos`                | `account`, `generation`, `uploads`, `cursor?` | `playlistItems?part=contentDetails,snippet&playlistId=<uploads>&maxResults=25`                                       | page of `{ id, ref, title?, permalink (www.youtube.com/watch), timestamp }`                                                                      |
-| `GET /social/inbox/youtube/videos/:ref/threads`   | `account`, `generation`, `cursor?`            | `commentThreads?part=snippet,replies&videoId=<owned>&textFormat=plainText&order=time&maxResults=25`                  | page of `{ id (top-level comment), ref, comment, totalReplyCount, replies (embedded subset), repliesCoverage: "embedded" }`                      |
-| `GET /social/inbox/youtube/comments/:ref/replies` | same                                          | `comments?part=snippet&parentId=<top-level comment id>&textFormat=plainText&maxResults=25`                           | page of `{ id, text, author \| null, createdAt, direction, parentId? }`                                                                          |
+### Instagram webhooks
 
-A page is `{ provider, accountId, generation, fetchedAt, items, next, coverage }`. Everything sealed is
-provider-qualified in its own HMAC domains (`gen2|`, `cursor2|`, `ref2|`), so an Instagram cursor never opens here
-and these never open on the Instagram routes. **Ownership receipts:** each own post, uploads playlist, video and
-top-level comment carries a sealed `ref` (`provider|account|generation|kind|id`); the routes below an item accept only
-that ref in the path (a bare id, another account's, another provider's or another kind's ref is `400 bad_request`, an
-older generation's `409 stale`, before any upstream call). Cursors are bound to provider, account, generation, edge
-and the resource id. Threads: `accountId` is `/me`'s `id`; replies need `threads_read_replies` in the stored token's
-scope (the analytics connection lacks it, so the first state is `403 no_permission`; this packet requests no scope);
-direction from `is_reply_owned_by_me` (absent → `unknown`); a reply without text is `kind: "media"` (never fetched);
-nested depth, hidden/pending replies and production eligibility are unverified. YouTube: the account is a channel id;
-`needsSelection` is true unless exactly one channel is returned (never the first by default, never the title as a
-key); direction by `authorChannelId.value` against the channel (missing → `unknown`). Errors add
-`comments_disabled` 403 (reason `commentsDisabled`) and `video_not_found` 404 (`videoNotFound`); quota reasons are
-`rate_limited` 429, other 403s `no_permission`, 401 `token_expired`. Held/spam comments, live chat and Community
-posts are outside coverage.
+Code: `src/social/webhooks.ts`. Meta pushes each new DM and comment here, so the inbox shows them within seconds instead of at the reader's next tick. The reader keeps running either way and brings in what the webhooks cannot: the threads' real ids, the owner's own sends and the posts. Neither route takes the bearer: Meta's signature is the credential, so they are served before the bearer check.
 
-**Seal key (DT-6B-1-R1).** The generations, cursors and ownership refs of these two providers are sealed with
-HMAC-SHA256 under a key derived from the Worker secret `INBOX_SEAL_SECRET`
-(`HMAC(INBOX_SEAL_SECRET, "inbox-seal-v1|<provider>")`), never with `SCOUT_TOKEN`: the dashboard holds the bearer, so
-a key made from it would let any bearer holder mint a ref for a post, video or comment its own lists never returned.
-Without the secret (or with one shorter than 32 characters, or equal to `SCOUT_TOKEN`) every
-`/social/inbox/threads/*` and `/social/inbox/youtube/*` route answers `503 not_configured` and no ref is minted; the
-secret never appears in an answer (a provider message echoing it is cut). Changing it makes older refs and cursors
-`400` and older generations `409 stale` (Refresh starts over). The Instagram routes above keep their accepted
-`SCOUT_TOKEN` seals (bound to the bearer holder's own account; an inherited, recorded limit). Row checks (R1): an id is
-a string matching the id grammar or a JSON safe integer whose digits match it (anything else fails the whole page, so
-no ref is emitted that the routes below would refuse); the channel list must be an object with an explicit `items`
-array (`{}`, `items: null` or a non-object is `502 upstream`; `items: []` is the honest no-channel answer);
-`totalReplyCount` is `null` when YouTube gives no non-negative whole number (unknown, never 0).
+| Route | Response |
+| ----- | -------- |
+| `GET /webhooks/instagram?hub.mode=subscribe&hub.verify_token=…&hub.challenge=…` | The verify handshake: `200` with the challenge as plain text when the token is `META_VERIFY_TOKEN`, else `403` (always `403` while the secret is not set) |
+| `POST /webhooks/instagram` | An event with `X-Hub-Signature-256: sha256=<HMAC-SHA256 of the raw body, key META_APP_SECRET>`. `200 { received }` (stored messages + comments; `0` for an object that is not `instagram`), `401 { error: "bad_signature" }` for a wrong or missing signature or no `META_APP_SECRET`, `413 { error: "bad_request" }` for a body over 1 MB, `400 { error: "bad_request" }` for a signed body that is not JSON, `500 { error: "upstream" }` when the store fails (Meta then delivers the event again), `503 { error: "not_available" }` without the `INBOX_STORE` binding |
 
-### Reviewed YouTube public replies (DT-6B-2A, the only Inbox send)
+Secrets (Cloudflare → Workers & Pages → 3z-scout → Settings → Variables and Secrets → Add → Secret): `META_APP_SECRET` (already set for the connector) signs the events; `META_VERIFY_TOKEN`, any long random string the owner invents, answers the handshake.
 
-`planning/tools/37-inbox-send.md` has the whole model. One public text reply under one top-level comment of the
-owner's own video, after the owner reviewed it in the dashboard and pressed Send. Nothing is sent automatically.
+What a signed event stores, in one `ingest` per request (no KV): a `messaging` event from a person becomes the message (`sentBy: "peer"`) and a provisional conversation `peer:<sender id>` whose window closes 24 hours after the message; the reader's next tick stores the real thread, and that ingest moves the provisional conversation's messages (an owner's DM sent into it too) into the real thread and drops the `peer:` row. Until then the dashboard merges the two rows by person. A `comments` change becomes a comment under its post, with an empty placeholder post when the store does not know the post (the reader's next media read fills it). Skipped, and still answered `200`: the account's own echoes and comments (the reader brings those in with the right `sentBy`), read / reaction / postback / referral events, a message with neither text nor attachments, and every field but `comments`. A request without the `X-Hub-Signature-256` header is refused (`401`) without reading the body or touching the store, a body over 1 MB (by `Content-Length`, or by its size once read) is refused (`413 { error: "bad_request" }`) before any hashing, and a wrong signature is answered `401` and logged (`rejected: 1`) without any store call either: the URL is public, so a forged request must not spend the store's quota. A redelivered comment is not written again (a hidden one stays hidden), and a payload the Worker cannot map is answered `200 { received: 0 }`, never a `5xx` (Meta would retry it for ever). A request looks at no more than 40 events (messages and comment changes, counted after the skips but before the known-comment check, so a redelivery-heavy batch stores fewer; the rest are counted as `dropped` in the log and the reader brings them in within a minute), so its store calls (up to 40 comment lookups, one page of posts, one ingest) stay inside the 50 subrequests. The logs carry counts only (`entries`, `messages`, `comments`, `dropped`, `rejected`, `error`), never a body or a secret.
 
-| Route | Body / query | Answer |
-| --- | --- | --- |
-| `POST /social/inbox/youtube/send/prepare` | `{ operationId, sendRef, text, draftRevision }` | `{ intent }`, no POST to Google |
-| `POST /social/inbox/youtube/send/confirm` | `{ operationId, digest, account }` | `{ intent }` after at most one `comments.insert` |
-| `GET /social/inbox/youtube/send/:operationId` | `?account` | `{ intent }` (recovery; no provider call) |
-| `POST /social/inbox/youtube/send/:operationId/cancel` | `{ account }` | `{ intent }` (prepared only) |
-
-- **Prepare** needs the stored grant to contain `https://www.googleapis.com/auth/youtube.force-ssl` (read-only or
-  `youtube.upload` never count: `403 no_permission`), a live access token (no refresh here: `409 token_expired`), a
-  `sendRef` this Worker sealed for the current account and generation (`HMAC(INBOX_SEAL_SECRET,
-  "send-target-v1|youtube")`, carrying account, generation, provider thread id, video id and top-level comment id:
-  `400 target_invalid` / `409 stale`), and 1–2,000 characters after trimming (`400 text_invalid`). Then ONE
-  `commentThreads?part=snippet&id=<thread>` GET must confirm the video, the owned channel, `isPublic`, `canReply` and
-  the top-level comment id (`target_invalid`, `403 not_public`, `403 not_replyable`, `404 not_found`). The intent
-  (exact trimmed text, SHA-256 digest, draft revision, a 10-minute review) goes to the coordinator.
-- **Confirm** re-checks grant, token and generation and the reviewed digest (`409 conflict`), claims the operation in the
-  coordinator (one `prepared → dispatching` transition), and only then POSTs
-  `https://www.googleapis.com/youtube/v3/comments?part=snippet` with `{ snippet: { parentId, textOriginal } }`
-  (15-second timeout, answer read within 256 KB). A 2xx with a comment id is `sent`; a 4xx Google explains is
-  `rejected` with its reason; a timeout, a broken connection, a 5xx, a success without an id, a success that also
-  carries an `error` or another resource `kind` (DT-6B-2A-R1), or a receipt that cannot be written is `unknown`.
-  Nothing is retried, a claim never lapses, and repeated or concurrent confirms answer the same operation without a
-  second POST. A refusal's message is kept without the access token or the seal key.
-- **Request bodies** of prepare, confirm and cancel are read through a 16,384-byte budget (`BODY_BYTES_MAX`): a longer
-  body is cancelled mid-stream and answered `400 bad_request` before any parse or provider call (DT-6B-2A-R1).
-- **Receipts** live in the `SEND_COORDINATOR` Durable Object (`src/social/sendCoordinator.ts`, SQLite storage, one
-  object per `youtube|<channel id>`), never in KV. Settled rows are kept 90 days, then purged with their operation ids
-  tombstoned (never dispatchable again); `dispatching` and `unknown` rows are never purged.
-- **Setup states** (`503 not_configured` with `detail`): `kv` (no `SOCIAL_KV`), `seal` (no usable
-  `INBOX_SEAL_SECRET`), `receipt-store` (no `SEND_COORDINATOR` binding). A coordinator that cannot be reached before
-  the claim is `503 receipt_unavailable` with nothing sent.
-- **Readiness, not done here:** the YouTube connect flow still asks for read scopes only, so the account answer's
-  `capabilities.sendComments` stays `no_permission` until the owner can grant `youtube.force-ssl`; the Durable Object
-  binding and its `v1-send` migration are local (wrangler.jsonc) and have never been provisioned or deployed. Verified
-  locally in workerd by `src/social/sendCoordinator.runtime.test.ts` (Miniflare from the pinned Wrangler).
-
-### Reviewed Threads replies (DT-6B-2B-1, Worker only, gate closed)
-
-`planning/tools/37-inbox-send.md` ("Threads reviewed replies") has the model. One plain-text public reply to one exact
-direct reply under the owner's own Threads post. **Production preparation is closed**: prepare and confirm answer
-`403 { error: "no_permission", detail: "permission_unverified" }` until the reply permission and trusted grant evidence
-are verified (no stored scope, `canPublish` or browser flag opens it). No UI yet (DT-6B-2B-2).
-
-| Route | Body / query | Answer |
-| --- | --- | --- |
-| `POST /social/inbox/threads/send/prepare` | `{ operationId, sendRef, text, draftRevision }` | `{ intent }`, one ancestry GET, no POST |
-| `POST /social/inbox/threads/send/confirm` | `{ operationId, digest, account }` | `{ intent }` after at most one create and one publish |
-| `GET /social/inbox/threads/send/:operationId` | `?account` | `{ intent }` (recovery; no provider call) |
-| `POST /social/inbox/threads/send/:operationId/cancel` | `{ account }` | `{ intent }` (prepared only) |
-
-- **Prepare** (below the gate): live token, a `sendRef` sealed in `send-target-v1|threads` for the current account and
-  generation (account, generation, root post, reply: `400 target_invalid` / `409 stale`), 1–500 code points after
-  trimming (local policy), and ONE `GET /{reply}?fields=id,root_post,replied_to` whose id, `root_post.id` and
-  `replied_to.id` must match (`target_invalid`, `404 not_found`).
-- **Token identity**: prepare and confirm (both stages, before any claim) require the stored token's `userId` to equal
-  the sealed or operation account, else `409 { error: "account_mismatch", detail: "identity" }` with no provider
-  call (covers the OAuth write window: new token, old `connectedAt`). Status and cancel need no live token.
-- **Confirm**: create claim, then `POST https://graph.threads.net/v1.0/me/threads` (form: `media_type=TEXT`, `text`,
-  `reply_to_id`, `access_token`; never `auto_publish_text`); the container id is stored (`created`) before the publish
-  claim, then `POST …/me/threads_publish` (`creation_id`, `access_token`). 15-second timeout and 256 KB answers each.
-  States: `prepared → creating → created → publishing → published`, plus `rejected`, `cancelled`, `expired`,
-  `unknown_creation`, `unknown_publication` (never retried or reclaimed). A confirm on `created` publishes the stored
-  container once and never recreates it. Bodies are read within 16,384 bytes.
-- **Receipts** live in `THREADS_SEND_COORDINATOR` (`src/social/threadsSendCoordinator.ts`, SQLite, migration
-  `v2-threads-send`, one object per `threads|<account>`), separate from YouTube's `SEND_COORDINATOR`. Setup states as
-  YouTube: `kv`, `seal`, `receipt-store`. Local configuration only; verified in workerd by
-  `src/social/threadsSendCoordinator.runtime.test.ts`.
-
-### Reviewed Instagram public comment replies (DT-6B-2C-1, Worker only, gate closed)
-
-`planning/tools/37-inbox-send.md` ("Instagram public comment replies") has the model. One plain-text public reply under
-one comment on the owner's own media. **Production preparation is closed**: prepare and confirm answer
-`403 { error: "no_permission", detail: "permission_unverified" }` (no `canReply`, scope, reader capability or browser
-flag opens it). Not covered: existing-conversation DMs, conversation takeover, UI, connection readiness.
-
-| Route | Body / query | Answer |
-| --- | --- | --- |
-| `POST /social/inbox/instagram/send/prepare` | `{ operationId, account, mediaId, commentId, text, draftRevision }` | `{ intent, verification }`, ≤ 3 GETs, no POST |
-| `POST /social/inbox/instagram/send/confirm` | `{ operationId, digest, account }` | `{ intent }` after ≤ 3 GETs and at most one reply POST |
-| `GET /social/inbox/instagram/send/:operationId` | `?account` | `{ intent }` (recovery; no provider call) |
-| `POST /social/inbox/instagram/send/:operationId/cancel` | `{ account }` | `{ intent }` (prepared only) |
-
-- **Ownership** (raw ids are selectors only): the token and `connectedAt` are captured once; then at most three GETs
-  on `graph.instagram.com`: `/me?fields=user_id,username` (must equal `account`, else `409 account_mismatch`
-  before any list is read; never compared to the OAuth `tokens.userId`), `/{user_id}/media?fields=id&limit=50` and
-  `/{media}/comments?fields=id&limit=50`, first pages only, no `paging.next`. Not listed →
-  `409 { error: "target_unverified", detail: "outside-local-window" }` (a local verification window, not proof of
-  deletion). The answer's `verification: { window: "first-page", pageSize: 50 }` says so. Immediately before the
-  receipt write and the claim, token and status are read together and the token once more: a reconnect is
-  `409 { error: "stale", detail: "reconnected" }`. The clock is live: a review or token that runs out during the
-  GETs is `expired` / `409 token_expired` before any claim.
-- **Text**: trimmed, 1–1,000 code points (`IG_SEND_TEXT_MAX`, local policy). Bodies are read within 16,384 bytes.
-- **Confirm**: one coordinator transaction moves the intent to `dispatching` and inserts the `(account, comment)`
-  public effect; if the automatic acknowledgement (or another operation) holds it, the intent is `already_claimed`
-  (`failureDetail: "automatic" | "manual" | "retired"`) and nothing is posted. Otherwise ONE
-  `POST /{comment-id}/replies` (form `message`, `access_token`; the automation's existing form, a fixture boundary),
-  15-second timeout, 256 KB answer, redirects never followed: string `id` → `sent`; Meta's typed refusal (integer
-  `code`) → `rejected`; timeout, network, 5xx, 3xx, malformed or oversize answer, or a lost or unbound receipt →
-  `unknown`. Never retried; a claimed comment is never reopened. Coordinator answers count only when bound to the
-  request (operation, account, comment, actor, state, integer version, outcome). Every intent answer must be a
-  complete typed intent with its state's proof (sent reply id, failure code, unknown reason, `already_claimed` holder),
-  bound to the reviewed media, comment and exact text; an answer carrying an `error` beside anything else is never
-  proof (`503 receipt_unavailable` before a POST, `unknown` / `receipt` after one; DT-6B-2C-1-R2).
-- **Receipts** live in `INSTAGRAM_PUBLIC_SEND_COORDINATOR` (`src/social/instagramPublicSendCoordinator.ts`, SQLite,
-  migration `v3-instagram-public-send`, one object per `instagram|<user_id>`). Finished rows are purged after 90 days
-  (from prepare, automatic claims and settlements, at most hourly). Setup states: `kv`, `receipt-store`.
-  Local configuration only; verified in workerd by `src/social/instagramPublicSendCoordinator.runtime.test.ts`.
-
-### Reviewed Instagram DMs and conversation takeover (DT-6B-2C-3, Worker only, gate closed)
-
-`planning/tools/37-inbox-send.md` ("Reviewed existing-conversation DMs and takeover/resume") has the model
-(`src/social/inboxSendInstagramDm.ts`). One plain-text DM answering one inbound message of a conversation the person
-opened, after review; and an explicit, revision-checked takeover/resume of one verified conversation. **Production new
-sends and registrations are closed**: prepare, a new confirm and control registration answer
-`403 { error: "no_permission", detail: "permission_unverified" }` (no `canReply`, scope, read or browser flag opens
-it). Durable recovery (status, cancel, a repeated confirm, control status/takeover/resume of an existing handle) needs
-only the bearer: no token, grant, row or provider call. Not covered: UI, readiness, attachments/buttons, unsolicited
-DMs, comment-private DMs, a global takeover, implicit takeover on Send or Send on takeover.
-
-| Route | Body / query | Answer |
-| --- | --- | --- |
-| `POST /social/inbox/instagram/dm/send/prepare` | `{ operationId, account, conversationId, recipientId, inboundMessageId, text, draftRevision }` | `{ intent, verification }`, ≤ 3 GETs, no POST, mode unchanged |
-| `POST /social/inbox/instagram/dm/send/confirm` | `{ operationId, digest, account }` | `{ intent }` after ≤ 3 GETs and at most one DM POST |
-| `GET /social/inbox/instagram/dm/send/:operationId` | `?account` | `{ intent }` (recovery) |
-| `POST /social/inbox/instagram/dm/send/:operationId/cancel` | `{ account }` | `{ intent }` (prepared only) |
-| `POST /social/inbox/instagram/dm/control/register` | `{ account, conversationId }` | control view, ≤ 3 GETs |
-| `GET /social/inbox/instagram/dm/control/:handle` | `?account` | control view (recovery) |
-| `POST /social/inbox/instagram/dm/control/:handle/takeover` | `{ account, expectedRevision }` | control view or `409 conflict` with the current conversation and the handle's own target (`control`) |
-| `POST /social/inbox/instagram/dm/control/:handle/resume` | `{ account, expectedRevision }` | the same |
-
-- **Text** is canonicalized once (trim, NFC, trim; at most 1,000 UTF-8 bytes of the canonical `message.text`,
-  `DM_TEXT_BYTES_MAX`, Meta's documented limit since DT-6B-3C; empty text and lone surrogates refused as
-  `400 text_invalid`, never truncated) and returned in `intent.text`. A still-`prepared` intent stored under the earlier
-  1,000-code-point policy whose text is over the byte bound is refused by Confirm with `400 text_invalid` before any
-  token read, GET, claim or POST (a guaranteed pre-claim refusal; never rewritten or cancelled); status, cancel and a
-  repeated Confirm past `prepared` answer older intents as they stand. The POST body is
-  `{"recipient":{"id":…},"message":{"text":<intent.text>}}`, byte for byte; `intent.digest` is its SHA-256.
-- **Ownership** (raw ids are selectors only): `/me?fields=user_id,username` must equal `account` (never the OAuth
-  `tokens.userId`); `/{account}/conversations?platform=instagram&fields=id&limit=20` must list the conversation;
-  `/{conversation}?fields=messages.limit(20){id,created_time,from}` must hold exactly one customer and, for a send, the
-  inbound message from that customer, not in the future and younger than the local 24-hour window. First pages only,
-  manual redirects, 15 s and 256 KB each, no `paging.next`. Refusals: `409 target_unverified` /
-  `outside-local-window`, `409 target_invalid` (`own-message`, `mixed-senders`, `foreign-recipient`, `future-time`,
-  `window-closed`, `no-customer`, `inbound-changed`), `502 upstream` / `malformed page`. Since DT-6B-2C-3-R1 every page
-  must be a plain object with no `error` key (also `null`/`false`, else `malformed page`); a returned conversation `id`
-  other than the requested one is `foreign-conversation`; one message id with two times or senders is
-  `ambiguous-message`; the owner is the fresh `/me` user_id only and a username must pair with exactly one sender id
-  (else `ambiguous-identity`). A reconnect during the work
-  is `409 stale` (`reconnected`); review deadline = min(10 minutes, the inbound's 24-hour window).
-- **Confirm** claims, in ONE `INSTAGRAM_DM_COORDINATOR` transaction, the same (account, conversation, inbound) effect
-  the automation claims (actor `manual:<operationId>`; works in either mode and never changes it). Already answered →
-  `already_claimed` (`automatic | manual | retired`), nothing sent. Otherwise one POST, one settlement: `sent`,
-  `rejected` (Meta's typed refusal) or `unknown`. A lost settlement leaves the intent `dispatching` and the answer
-  carries `observed` (a success becomes `unknown` / `receipt`; a typed refusal is shown as observed, never as a
-  durable rejection) and `settlement: "pending"`. Nothing is retried. Every intent answer carries exactly its state's
-  proof fields; the claim answer is exactly the known version + 1 and the settlement is newer than the claim, else
-  `503 receipt_unavailable` before the POST and `settlement: "pending"` after it.
-- **Control view**: `{ control: { handleId, account, conversationId, recipientId, registeredGeneration, … },
-  conversation: { mode, revision }, inFlight (≤ 20 claimed effects), inFlightTotal, inFlightTruncated,
-  uncertainTotal, changed? }`. A handle exists only after registration proved ownership (the recipient comes from the
-  verified page); a raw conversation id is `400`, an unknown or foreign handle `404`. Takeover cannot retract an
-  in-flight attempt; resume frees no effect or cooldown. Every view needs the complete handle and complete claimed rows
-  of the handle's own target (nothing settled); takeover/resume answers need the requested mode at
-  `expectedRevision + 1` (`changed: true`) or at `expectedRevision` (a no-op), else `503 receipt_unavailable`. A
-  successful control status counts as use, so only handles unused for 90 days are purged.
-- **Capacity** (local policy): 200 open intents and 100 handles per account → `429 { error: "capacity" }`; nothing
-  is evicted. Missing binding → `503 not_configured` (`detail: "dm-claim-store"`) on every route; missing KV →
-  `detail: "kv"` for new work only. Local configuration only; verified in workerd by
-  `src/social/instagramDmCoordinator.runtime.test.ts`.
-
-## Cloud workflow foundation (DT-7B, local, unactivated)
-
-The durable store that runs dashboard workflows in the cloud (planning/tools/38-cloud-workflows.md), with one bounded,
-draft-only run/resume route (DT-7B-2). **Local only:** the `WORKFLOW_COORDINATOR` binding and its `v5-workflows`
-migration exist in `wrangler.jsonc` but were never provisioned or deployed; no cron, no browser wiring, no schedule.
-Nothing here publishes, sends or calls out.
-
-- **Authority**: one SQLite Durable Object (`src/social/workflowCoordinator.ts`), always the server-selected name
-  `workflows|owner`. `GET /social/workflows/authority` → `{ ownerKey }` (`wfo_` + 32 hex, minted once in durable
-  meta, stable across restarts and deployments). Every other route names the ownerKey; another one →
-  `409 authority_mismatch`, nothing changes. Bearer and origin as for every `/social/*` route.
-- **Registrations**: `POST /social/workflows/registrations` `{ ownerKey, workflowId, expectedEpoch, revision,
-  workflowDigest }` (expectedEpoch 0 = first, N = re-register after epoch N was unregistered; a lost answer replays
-  without a new epoch); `POST …/registrations/:id` (update) and `…/:id/{pause,resume,unregister}` with
-  `{ ownerKey, registrationEpoch, expectedRevision, … }` — a compare-and-set on epoch + revision (`409 conflict` with the
-  current registration). Pause is a retained flag that gates the first step of pending work of every epoch; unregister
-  never cancels or moves existing work; closed epochs keep their cutoff (later occurrences `409 not_registered`).
-  **Admission interval (DT-7B-R1):** a new occurrence is admitted only when its `executionAt` lies inside the named
-  epoch's own `[openedAt, closedAt]` (both inclusive, closed bound only once unregistered); an event from before that
-  epoch opened (a day-old event, or one from a local-only gap relabelled with a newer epoch) is `409 not_registered`
-  with nothing stored. No skew allowance before opening; the saved `executionAt` is never adjusted. An identical
-  accepted occurrence still answers `200 created: false`.
-- **Occurrences**: `POST /social/workflows/occurrences { body, payloadDigest }` — the immutable snapshot (exact
-  allowlisted fields, ids `^[A-Za-z0-9_-]{1,64}$`, ≤ 16 KiB, planner context ≤ 8 KiB). The server recomputes the sha256
-  of the canonical JSON (`400 digest_mismatch` otherwise). `201` new, `200 created: false` for the same id + digest,
-  `409 conflict` for the same id with other content, `409 pruned` for a retired id, `409 capacity` at 500 open.
-  `GET …/occurrences/:id?ownerKey=` → the full receipt (exact body incl. executionAt, digest, receiptVersion, steps,
-  draft outputs) or `{ state: "absent" }` / `{ state: "pruned", payloadDigest, prunedAt }`. `POST …/:id/cancel`
-  (pending only; running `409`), `POST …/:id/ack { ownerKey, receiptVersion }` (exact terminal version only; future /
-  not terminal `409`, absent `404`, pruned `410`; stores firstAckAt once; never bumps the feed).
-- **Run (DT-7B-2)**: `POST /social/workflows/occurrences/:id/run { ownerKey }` (exactly that body, no query string)
-  runs a first execution or resumes one. Inside the object the coordinator builds each next pending step with the
-  dashboard's own draft builders (`src/social/workflowRun.ts` → `lib/workflows.ts` `buildOutput`, resolved through the
-  Worker tsconfig `paths` `@/* → ../../*`; nothing copied): the stored body only, `executionAt` as the builder clock, the
-  captured planner context (pre-week completions, target-week manual rows and zero-minute tombstones, gear, edition)
-  plus the earlier plan outputs of the same occurrence in action order. Ids `wf:<occurrenceId>:<actionId>`; builder
-  errors keep their codes; a plan step whose context is missing or of another week fails `context-stale` (fail-fast);
-  a record outside the draft allowlist fails `invalid` (never truncated). Each step is committed through the existing
-  step compare-and-set; one call commits at most 5 steps and tolerates 3 raced (stale) commits, then answers
-  `{ ownerKey, occurrence, committed, stopped }` with `stopped` = `terminal` | `paused` (the pause gate refused the
-  first step) | `limit` | `contention` (recoverable: call again). Absent `404`, pruned `410`. No request field, header
-  or parameter can choose a builder, output, snapshot, clock or retry policy; the test-only `drainOne` stays test-only.
-  Lifecycle times never move backward (DT-7B-2-R1): every step commit and the finish is stamped
-  `max(the request's Worker clock, the row's stored updated_at)`, read in the same synchronous transaction as the
-  version/digest check, so a run that adopts a newer request's progress (or a finish-only retry with an older captured
-  clock) keeps `startedAt <= step times <= finishedAt = updatedAt`; equal times are allowed, no clock is invented.
-  Parity with the app holds only for identical builder/catalog pins
-  (`planning/collaboration/dt7b-candidate/7b2-builder-pins.sha256`). Bundle: +~0.95 MB raw / +~190 KB gzip (the
-  catalogue). Verified in workerd by `src/social/workflowRun.runtime.test.ts`.
-- **Change feed**: `GET /social/workflows/changes?ownerKey=&after=&limit≤50` → `{ items, nextAfter, more }` ordered by
-  change sequence; an older row changing later comes back after the cursor.
-- **Retention**: terminal rows are purged at min(finished + 180 days, first ack + 90 days), or finished + 180 days
-  unacknowledged, into a permanent tombstone; pending/running never.
-- **Strictness**: 32 KiB streaming request budget (`413 too_large`), exact keys and query strings, missing binding
-  `503 not_configured` (`detail: "workflow-store"`). Only `run` executes, with the fixed server builder; no route
-  commits a caller's step or output. Answers are complete,
-  request-bound proof (DT-7B-R1): a receipt's whole body is re-checked with the admission rules at its own admission
-  time, its payload digest and every output's record digest recomputed, its identity, state, steps and outputs must
-  agree with the coordinator's transitions; feed items have typed, linked steps/outputs and recomputed draft digests
-  (no body, so no body/target binding: the full receipt stays the authority); register/update/pause/resume/
-  unregister/cancel/ack success must match the request; a run answer must carry a valid full receipt, an integer
-  `committed` (0–5, at most the resolved steps) and a `stopped` that agrees with it; refusals must be the
-  operation's own errors with typed, bound extras. Anything else is `503 receipt_unavailable`, nothing echoed, no
-  further call. Verified in workerd by `src/social/workflowCoordinator.runtime.test.ts` and
-  `src/social/workflowRun.runtime.test.ts`.
-- **Follow-up before activation**: one purge removes every due terminal row in one transaction (an independent probe:
-  601 rows, 2,421 SQL calls, no failure). Bounded maintenance is still to do; no per-call purge bound is claimed.
+Meta dashboard (developers.facebook.com → the app → Instagram → API setup with Instagram login → Configure webhooks): callback URL `https://3z-scout.3zmd95.workers.dev/webhooks/instagram`, verify token = `META_VERIFY_TOKEN`, then Verify and save, and subscribe the `messages` and `comments` fields (object `instagram`). Meta delivers real events only to an app that is Live with Advanced Access, so until App Review approves `instagram_business_manage_messages` and `instagram_business_manage_comments` (with the inbox screencast) and the app is published, the reader's every-minute read keeps the page fresh and the webhooks stay quiet.
 
 ## Trend Radar
 
@@ -996,9 +684,6 @@ SCOUT_TOKEN="$(grep '^SCOUT_TOKEN=' workers/scout/.dev.vars | cut -d= -f2)" \
 | `MCP_DAILY_LOOKUPS`                         | Var (`wrangler.jsonc`)  | Tavily lookups the Claude connector (Part B of `planning/tools/13-discover-search-v2.md`) may spend a Riyadh day; `GET /discover/usage` reports it. Default 60; blank means the default.                                                                                 |
 | `DISCOVER_V2`                               | Var (`wrangler.jsonc`)  | `"on"` (default). `"off"` makes `GET /health` say `discover: false`, so dashboards go back to the old per-platform `POST /search`; the `/discover` routes stay served (the Claude connector runs the same pipeline).                                                    |
 | `SCOUT_TOKEN`                               | Worker secret           | From the `SCOUT_TOKEN` repository secret. Any long random string, e.g. `openssl rand -hex 24`. Also the key material for the stored social tokens.                                                                                                                       |
-| `INBOX_SEAL_SECRET`                         | Worker secret           | Server-only key of the Threads/YouTube inbox seals (DT-6B-1-R1): at least 32 random characters, different from `SCOUT_TOKEN`, e.g. `openssl rand -hex 32`; never sent to the dashboard, logged or echoed. Without it the Threads and YouTube Inbox reads answer `503 not_configured` (Instagram is unaffected). The owner adds it himself: Cloudflare → **Workers & Pages → 3z-scout → Settings → Variables and Secrets → Add → Secret**, name `INBOX_SEAL_SECRET` (or `wrangler secret put INBOX_SEAL_SECRET`); locally a line in `.dev.vars`. Not a repository secret: the deploy workflow keeps it as it is. |
-| `SEND_COORDINATOR`                          | Durable Object binding  | The reviewed-send receipt store (DT-6B-2A): `wrangler.jsonc` `durable_objects` binding of class `SendCoordinator` (exported by `src/index.ts`) with migration `v1-send` (`new_sqlite_classes`). `wrangler dev` simulates it locally; the first deploy that includes it creates the class. Without it the send routes answer `503 not_configured` (`detail: "receipt-store"`); reads are unaffected. Not provisioned yet. |
-| `INSTAGRAM_PUBLIC_SEND_COORDINATOR`         | Durable Object binding  | The Instagram public-reply claim store (DT-6B-2C-1): class `InstagramPublicSendCoordinator` (exported by `src/index.ts`), migration `v3-instagram-public-send`. Shared by the reviewed manual reply and the automatic public acknowledgement. Without it the manual routes answer `503 not_configured` (`detail: "receipt-store"`) and the poll sends no public reply (`detail: "public-claim-store"`); DMs are unaffected. Not provisioned yet. |
 | `META_APP_ID`, `META_APP_SECRET`            | Worker secrets          | Meta app (Instagram API with Instagram Login + Threads API). Repository secrets of the same names.                                                                                                                                                                       |
 | `THREADS_APP_ID`, `THREADS_APP_SECRET`      | Worker secrets          | The Meta app's Threads use case → Settings "Threads app ID" / secret (differs from the Instagram pair). Falls back to `META_*` when unset.                                                                                                                               |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`  | Worker secrets          | Google Cloud OAuth client (YouTube Data + Analytics). Repository secrets of the same names.                                                                                                                                                                              |

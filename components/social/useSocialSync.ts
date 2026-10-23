@@ -165,9 +165,9 @@ function connectedPlatforms(): SocialPlatform[] {
   return (Object.keys(status) as SocialPlatform[]).filter((p) => status[p]?.connected);
 }
 
-/** The page the Worker sends the owner back to after OAuth (Settings, where the accounts card lives). */
+/** The page the Worker sends the owner back to after OAuth (Social settings, where the accounts card lives). */
 export function connectReturnTo(): string {
-  return `${window.location.origin}${withBasePath("/settings/")}`;
+  return `${window.location.origin}${withBasePath("/social/settings/")}`;
 }
 
 /**

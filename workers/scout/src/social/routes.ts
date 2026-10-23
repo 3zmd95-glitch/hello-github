@@ -16,22 +16,6 @@
  *   POST   /social/replies/settings   { paused?, defaultReply? } → { automations, … }   pause all, the default reply
  *   POST   /social/replies/poll                      → { scanRequested, automations, … } "Check now" (next tick)
  *   DELETE /social/replies/:id                       → { ok: true }
- *   GET    /social/inbox/…                           → read-only Instagram inbox pages (inboxRead.ts, GET only)
- *   GET    /social/inbox/{threads,youtube}/…         → read-only comment pages (inboxReadThreads/YouTube.ts)
- *   POST   /social/inbox/youtube/send/{prepare,confirm}, GET …/send/:id, POST …/send/:id/cancel
- *                                                    → reviewed YouTube public replies (inboxSendYouTube.ts)
- *   POST   /social/inbox/threads/send/{prepare,confirm}, GET …/send/:id, POST …/send/:id/cancel
- *                                                    → reviewed Threads replies, gate closed (inboxSendThreads.ts)
- *   POST   /social/inbox/instagram/send/{prepare,confirm}, GET …/send/:id, POST …/send/:id/cancel
- *                                                    → reviewed Instagram public replies, gate closed (inboxSendInstagram.ts)
- *   POST   /social/inbox/instagram/dm/send/{prepare,confirm}, GET …/dm/send/:id, POST …/dm/send/:id/cancel,
- *          POST …/dm/control/register, GET …/dm/control/:handle, POST …/dm/control/:handle/{takeover,resume}
- *                                                    → reviewed existing-conversation DMs + takeover/resume, gate
- *                                                      closed (inboxSendInstagramDm.ts)
- *   GET    /social/workflows/authority, POST …/registrations[/:id[/{pause,resume,unregister}]],
- *          POST …/occurrences, GET …/occurrences/:id, POST …/occurrences/:id/{cancel,ack}, GET …/changes
- *                                                    → the local cloud-workflow foundation, unactivated (DT-7B,
- *                                                      workflowRoutes.ts; no route runs a step)
  *
  * `POST /social/connect/:platform` takes `publish: true` (posting scopes) and, for Instagram, `replies: true`
  * (comment + message scopes on top of the posting ones).
@@ -42,21 +26,15 @@
 import { isAllowedReturnTo } from "../origins";
 import { pkceChallenge, randomToken } from "./crypto";
 import { Budget } from "./http";
+import type { InboxApi } from "./inboxDb";
+import { handleInbox, INBOX_ROUTE_BUDGET } from "./inboxRoutes";
 import { credentials, isConfigured, PROVIDERS, redirectUri } from "./oauth";
-import { handleInboxRead } from "./inboxRead";
-import { handleThreadsRead } from "./inboxReadThreads";
-import { handleYouTubeRead } from "./inboxReadYouTube";
-import { instagramSendHandler } from "./inboxSendInstagram";
-import { instagramDmHandler } from "./inboxSendInstagramDm";
-import { threadsSendHandler } from "./inboxSendThreads";
-import { handleYouTubeSend } from "./inboxSendYouTube";
 import { handlePublish } from "./publish";
 import { handleReplies } from "./replies";
 import { defaultSince, Store, type SocialEnv } from "./store";
 import { FETCH_BUDGET, syncAll, syncPlatform } from "./sync";
 import { DAY_KEY_RE } from "./time";
 import { publishingCapabilities, queryCreatorInfo } from "./tiktok";
-import { handleWorkflows } from "./workflowRoutes";
 import {
   isSocialPlatform,
   SOCIAL_PLATFORMS,
@@ -75,6 +53,8 @@ export interface SocialDeps {
   fetch?: typeof fetch;
   /** Test seam for "now". */
   now?: () => Date;
+  /** Test seam for the inbox store; production uses the INBOX_STORE Durable Object. */
+  inboxApi?: InboxApi;
 }
 
 /** Outbound calls left for the first sync after the code exchange (which itself takes up to two). */
@@ -89,6 +69,12 @@ const STATUS: Record<SocialErrorCode, number> = {
   upstream: 502,
   rate_limited: 429,
   bad_request: 400,
+  not_available: 503,
+  no_permission: 403,
+  rejected: 502,
+  not_eligible: 409,
+  window_closed: 409,
+  too_long: 400,
 };
 
 function json(body: unknown, status: number, cors: Headers): Response {
@@ -97,7 +83,8 @@ function json(body: unknown, status: number, cors: Headers): Response {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-const fail = (error: SocialErrorCode, cors: Headers) => json({ error }, STATUS[error], cors);
+const fail = (error: SocialErrorCode, cors: Headers, detail?: string) =>
+  json(detail === undefined ? { error } : { error, detail }, STATUS[error], cors);
 
 /** `health.social`. */
 export function healthSocial(env: SocialEnv): {
@@ -201,75 +188,20 @@ export async function handleSocial(
     });
   }
   if (action === "inbox") {
-    const inboxRest = socialPath(pathname).slice(1);
-    // DT-6B-2C-1: reviewed Instagram public replies, claimed in INSTAGRAM_PUBLIC_SEND_COORDINATOR (shared with the
-    // automatic acknowledgement). No eligibility is passed here, so production stays closed (permission_unverified).
-    // DT-6B-2C-1-R1: a live clock (read afresh at every deadline, the claim and the receipt), never the request start.
-    // DT-6B-2C-3: reviewed existing-conversation DMs and takeover/resume, claimed in INSTAGRAM_DM_COORDINATOR (shared
-    // with the automation). No eligibility is passed, so production new sends and registrations stay closed.
-    if (inboxRest[0] === "instagram" && inboxRest[1] === "dm")
-      return instagramDmHandler({ fetch: deps.fetch, now: deps.now ?? (() => new Date()) })(
-        req,
-        inboxRest.slice(2),
-        {
-          store,
-          coordinator: env.INSTAGRAM_DM_COORDINATOR,
-          seal: env.INBOX_SEAL_SECRET,
-        },
-        { json: (body, status) => json(body, status, cors) },
-      );
-    if (inboxRest[0] === "instagram" && inboxRest[1] === "send")
-      return instagramSendHandler({ fetch: deps.fetch, now: deps.now ?? (() => new Date()) })(
-        req,
-        inboxRest.slice(2),
-        {
-          store,
-          coordinator: env.INSTAGRAM_PUBLIC_SEND_COORDINATOR,
-          seal: env.INBOX_SEAL_SECRET,
-        },
-        { json: (body, status) => json(body, status, cors) },
-      );
-    if (inboxRest[0] === "threads" || inboxRest[0] === "youtube") {
-      const read = inboxRest[0] === "threads" ? handleThreadsRead : handleYouTubeRead;
-      // DT-6B-1-R1 B1-1: receipts and cursors are sealed with a server-only key, never the bearer the browser holds;
-      // a missing, short or bearer-equal INBOX_SEAL_SECRET makes every Threads/YouTube read 503 not_configured.
-      const seal = env.INBOX_SEAL_SECRET;
-      const sealSecret = seal && seal.length >= 32 && seal !== env.SCOUT_TOKEN ? seal : undefined;
-      // DT-6B-2A: the one sending path, reviewed and claimed in the SEND_COORDINATOR Durable Object.
-      if (inboxRest[0] === "youtube" && inboxRest[1] === "send")
-        return handleYouTubeSend(
-          req,
-          inboxRest.slice(2),
-          { store, seal: sealSecret, coordinator: env.SEND_COORDINATOR },
-          now,
-          deps.fetch,
-          { json: (body, status) => json(body, status, cors) },
-        );
-      // DT-6B-2B-1: reviewed Threads replies, claimed in THREADS_SEND_COORDINATOR. No eligibility is passed here, so
-      // production preparation stays closed (permission_unverified) until grant evidence exists.
-      if (inboxRest[0] === "threads" && inboxRest[1] === "send")
-        return threadsSendHandler({ fetch: deps.fetch, now: () => now })(
-          req,
-          inboxRest.slice(2),
-          { store, seal: sealSecret, coordinator: env.THREADS_SEND_COORDINATOR },
-          { json: (body, status) => json(body, status, cors) },
-        );
-      return read(req, inboxRest.slice(1), store, sealSecret, now, deps.fetch, {
-        json: (body, status) => json(body, status, cors),
-      });
-    }
-    return handleInboxRead(req, inboxRest, store, env.SCOUT_TOKEN, now, deps.fetch, {
-      json: (body, status) => json(body, status, cors),
-    });
-  }
-  // DT-7B: the cloud-workflow foundation (WORKFLOW_COORDINATOR, one server-selected object); local, unactivated.
-  if (action === "workflows")
-    return handleWorkflows(
+    return handleInbox(
       req,
+      env,
       socialPath(pathname).slice(1),
-      { coordinator: env.WORKFLOW_COORDINATOR, now: deps.now ?? (() => new Date()) },
-      { json: (body, status) => json(body, status, cors) },
+      store,
+      now,
+      { fetch: deps.fetch ?? fetch, budget: new Budget(INBOX_ROUTE_BUDGET) },
+      {
+        json: (body, status) => json(body, status ?? 200, cors),
+        fail: (error, detail) => fail(error, cors, detail),
+      },
+      { api: deps.inboxApi },
     );
+  }
   if (action === "publish") {
     return handlePublish(req, env, socialPath(pathname).slice(1), store, now, deps.fetch, {
       json: (body, code) => json(body, code, cors),

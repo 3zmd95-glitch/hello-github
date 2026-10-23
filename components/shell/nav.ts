@@ -8,7 +8,6 @@ import {
   Lightbulb,
   MessageCircle,
   Rocket,
-  Search,
   Settings,
   TrendingUp,
   Workflow,
@@ -47,11 +46,12 @@ export const NAV_ITEMS: readonly NavItem[] = [
 
 /**
  * Social-world navigation (round 16). Phones: Studio · Calendar · Growth · Ideas · More;
- * Website (the local article CMS), Business (the media kit and brand deals, packet DT-5), 💬 Auto replies (round 34), 📥 Inbox (packet DT-6A), Auto-posting (the Automations route), the
- * 🔎 Discover shortcut (round 31b) and Settings live in the desktop sidebar and behind More.
+ * Website (the local article CMS), Business (the media kit and brand deals, packet DT-5), 💬 Auto replies
+ * (round 34), 📥 the Inbox (tools/51), 🔁 Workflows, Auto-posting (the Automations route) and Social's own
+ * Settings live in the desktop sidebar and behind More.
  *
- * Discover and Settings are Training routes, and the world comes from the URL: they open in the Training
- * shell, so inside Social they are never the active item and never the remembered "last Social route".
+ * Every entry is a Social route (tools/20): the world comes from the URL, so a Social link never opens the
+ * Training shell. Discover is a Training route and has no shortcut here.
  */
 export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
   { href: "/social", icon: "🎬", lucide: Clapperboard, label: "nav.studio" },
@@ -80,13 +80,7 @@ export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
     label: "nav.replies",
     desktopOnly: true,
   },
-  {
-    href: "/social/inbox",
-    icon: "📥",
-    lucide: Inbox,
-    label: "nav.inbox",
-    desktopOnly: true,
-  },
+  { href: "/social/inbox", icon: "📥", lucide: Inbox, label: "nav.inbox", desktopOnly: true },
   {
     href: "/social/workflows",
     icon: "🔁",
@@ -101,8 +95,13 @@ export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
     label: "nav.automations",
     desktopOnly: true,
   },
-  { href: "/discover", icon: "🔎", lucide: Search, label: "nav.discover", desktopOnly: true },
-  { href: "/settings", icon: "⚙️", lucide: Settings, label: "nav.settings", desktopOnly: true },
+  {
+    href: "/social/settings",
+    icon: "⚙️",
+    lucide: Settings,
+    label: "nav.settings",
+    desktopOnly: true,
+  },
 ];
 
 /** Navigation list per world; the shell renders the active world's list in the sidebar and tab bar. */

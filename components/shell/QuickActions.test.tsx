@@ -410,7 +410,7 @@ describe("results", () => {
     type("Instagram account");
     expect(itemIds()).toEqual(["instagram"]);
     press(input(), { key: "Enter" });
-    expect(push).toHaveBeenCalledWith("/settings#accounts");
+    expect(push).toHaveBeenCalledWith("/social/settings#accounts");
   });
 
   it("shows an empty state where Enter does nothing", () => {

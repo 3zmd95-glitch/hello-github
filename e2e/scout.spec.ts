@@ -1026,8 +1026,8 @@ test("/discover/?genre=cars opens the Cars category page in Browse, and no Searc
   await connectWorker(page);
   const picked = page.locator('[data-testid^="genre-"][aria-pressed="true"]');
 
-  // The link the radar's genre chips open (lib/genres discoverGenreHref), loaded directly: categories live in
-  // Browse, so it opens that category's page, never a Search filter.
+  // Discover's own deep link (lib/genres discoverGenreHref), loaded directly: categories live in Browse, so it
+  // opens that category's page, never a Search filter.
   await page.goto("/discover/?genre=cars");
   await expect(page.getByTestId("inspiration-explore")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("category-discovery")).toBeVisible();

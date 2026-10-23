@@ -32,6 +32,8 @@ it("reaches TikTok in workerd and refuses redirects without forwarding its grant
       `,
     },
     bundle: true,
+    // workerd provides `cloudflare:*` modules itself (social/inboxStore.ts imports cloudflare:workers).
+    external: ["cloudflare:*"],
     format: "esm",
     platform: "browser",
     write: false,

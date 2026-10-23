@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import AppShell from "@/components/shell/AppShell";
 import RegisterSW from "@/components/pwa/RegisterSW";
+import { TRAINING_BG } from "@/lib/appearance";
 import { basePath, withBasePath } from "@/lib/basePath";
 import "./globals.css";
 
@@ -10,10 +11,13 @@ const FONTS_CSS =
   "https://fonts.googleapis.com/css2?family=Baloo+Bhaijaan+2:wght@400;600;800&family=Pixelify+Sans:wght@400;700&family=Vazirmatn:wght@400;500;600;700&display=swap";
 
 /**
- * Static export: every page ships with `data-world="training"`, so on a direct load of a Social route this
- * sets the attribute before first paint (the shell keeps it in sync afterwards) to avoid a pixel-look flash.
+ * Static export: every page ships with `data-world="training"` and `data-scheme="light"`, so on a direct load of a
+ * Social route this sets both before first paint (the shell keeps them in sync afterwards): no pixel-look flash,
+ * and no light flash for an owner who picked Dark. The scheme is the saved Appearance setting (the store's
+ * `3z-prod-v1` entry, lib/appearance `resolveScheme`): light unless Dark, or System with a dark phone. The
+ * `theme-color` tag is left to the shell: a change before hydration makes React render a second tag.
  */
-const WORLD_BOOT = `(function(){try{var b=${JSON.stringify(basePath())};var p=location.pathname;if(b&&p.indexOf(b)===0)p=p.slice(b.length);document.documentElement.dataset.world=/^\\/social(\\/|$)/.test(p)?"social":"training"}catch(e){}})()`;
+const WORLD_BOOT = `(function(){try{var b=${JSON.stringify(basePath())};var p=location.pathname;if(b&&p.indexOf(b)===0)p=p.slice(b.length);var w=p==="/social"||p.indexOf("/social/")===0?"social":"training";var a="light";try{var s=JSON.parse(localStorage.getItem("3z-prod-v1")||"null");a=(s&&s.state&&s.state.settings&&s.state.settings.appearance)||"light"}catch(e){}var d=a==="dark"||(a==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);var h=document.documentElement;h.dataset.world=w;h.dataset.scheme=d?"dark":"light"}catch(e){}})()`;
 
 /**
  * ▶ Watch here (round 32): the only frames the dashboard may show are the three players (lib/embed), and no
@@ -39,7 +43,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#0d141d",
+  // One tag for both worlds: the shell sets Social's page color on it once mounted (lib/appearance).
+  themeColor: TRAINING_BG,
   colorScheme: "dark",
 };
 
@@ -49,6 +54,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       lang="ar"
       dir="rtl"
       data-world="training"
+      data-scheme="light"
       className="h-full antialiased"
       suppressHydrationWarning
     >

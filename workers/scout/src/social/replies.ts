@@ -15,7 +15,6 @@
  *
  * Instagram API with Instagram Login (scopes instagram_business_manage_comments + _manage_messages):
  *   GET  /me?fields=user_id,username                              the professional account id (cached)
- *   GET  /me?fields=user_id                                       DT-6B-2C-2: fresh each tick the DMs run (inbox.ts)
  *   GET  /{ig-user-id}/media?fields=id,comments_count&limit=…     the newest posts ("any post" automations)
  *   GET  /{media-id}?fields=id,comments_count                     a specific post's count
  *   GET  /{media-id}/comments?fields=id,text,username,from,timestamp
@@ -37,10 +36,8 @@
  * An idle tick writes nothing, and the write guard (WRITE_SLOW, WRITE_STOP) caps the poller's writes per UTC day.
  */
 
-import { Budget, clip, fetchJson, int, type Http } from "./http";
+import { Budget, clip, fetchJson, formPost, int, type Http } from "./http";
 import { IG_API } from "./instagram";
-import { dmTick } from "./instagramDmSend";
-import { dispatchPublicReply, publicEffects, type PublicEffects } from "./instagramPublicSend";
 import { metaList, type MetaError, type MetaPage } from "./meta";
 import { credentials, isExpired, PROVIDERS } from "./oauth";
 import {
@@ -155,13 +152,8 @@ export interface ReplyLogEntry {
   /** The comment or message, clipped. */
   text: string;
   publicReply: "sent" | "skipped" | "failed";
-  /** DT-6B-2C-2: "skipped" when the DM authority says the message is already answered or held by a takeover. */
-  dm: "sent" | "failed" | "skipped";
-  /**
-   * DT-6B-2C-1: "not_configured" when the public-reply claim store is missing or unreadable; DT-6B-2C-2: the same
-   * for the DM authority (detail "dm-claim-store").
-   */
-  error?: ReplyErrorCode | "not_configured";
+  dm: "sent" | "failed";
+  error?: ReplyErrorCode;
   /** The platform's words (never a token). */
   detail?: string;
 }
@@ -213,8 +205,6 @@ export interface PollState {
   handled: Record<string, string>;
   /** Comment or DM message id → failures so far (transient ones, and permission refusals). */
   retries: Record<string, number>;
-  /** DT-6B-2C-2-C1: DM message id → its time, once its tries before any claim ran out (inbox.ts; a day at most). */
-  givenUp?: Record<string, string>;
   /** Message id → the poll's own sends (pruned after SENT_TTL_MS): tells its DMs from the owner's (inbox.ts). */
   sent: Record<string, SentMessage>;
   /** ISO: when the DM side first ran; nothing older is ever answered (inbox.ts). */
@@ -250,7 +240,7 @@ export interface ClicksDoc {
 
 /** Outbound calls one poll may make (the tick's publish queue moved nothing, so the budget is ours). */
 export const REPLIES_FETCH_BUDGET = 30;
-/** Answers per tick, comments and DMs together (a comment costs up to three calls, a DM three: DT-6B-2C-2). */
+/** Answers per tick, comments and DMs together (a comment costs up to three calls, a DM one). */
 export const REPLY_CAP = 8;
 /** Newest posts watched for "any post" automations. */
 export const WATCH_ANY_MAX = 5;
@@ -296,7 +286,6 @@ export const emptyState = (): PollState => ({
   watch: {},
   handled: {},
   retries: {},
-  givenUp: {},
   sent: {},
   convos: {},
   defaultSentAt: {},
@@ -506,13 +495,6 @@ export interface PollDeps {
   random?: () => number;
   /** False on the cron's off-grid minutes, which the guard's "slow" mode skips. Default true. */
   fiveMinuteTick?: boolean;
-  /**
-   * DT-6B-2C-1: the claim of each comment's one public reply, shared with the reviewed manual send. Default: the
-   * INSTAGRAM_PUBLIC_SEND_COORDINATOR binding. Missing or unreadable fails the public reply closed.
-   */
-  publicClaim?: PublicEffects;
-  /** DT-6B-2C-2: a fresh clock for the DM fence and receipts. Default: `now` plus the real time elapsed since. */
-  clock?: () => Date;
 }
 
 export interface PollResult {
@@ -534,6 +516,19 @@ interface IgMe extends MetaError {
   user_id?: string | number;
   username?: string;
 }
+/** The professional account id (`user_id` of `GET /me`) for callers outside the poll, which also keeps the username. */
+export async function igUserIdOf(http: Http, token: string): Promise<string> {
+  const me = graph(
+    await fetchJson<IgMe>(
+      http,
+      `${IG_API}/me?fields=user_id,username&access_token=${encodeURIComponent(token)}`,
+    ),
+    "me",
+  );
+  if (me.user_id === undefined) throw new ReplyError("upstream", "me: no user_id");
+  return String(me.user_id);
+}
+
 interface IgMedia extends MetaError {
   id?: string;
   comments_count?: number | string;
@@ -572,8 +567,6 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
   const store = Store.from(env);
   if (!store) return { ...result, skipped: "not_connected" };
   const now = deps.now ?? new Date();
-  const started = Date.now();
-  const clock = deps.clock ?? (() => new Date(now.getTime() + Date.now() - started));
   const at = now.toISOString();
   const random = deps.random ?? Math.random;
   const config = readAutomations(await store.getReplies<StoredDoc>());
@@ -585,10 +578,6 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
   if (!enabled.length && !dmOn) return { ...result, skipped: "none" };
   // Documents written before round 34 get the new fields.
   const state: PollState = { ...emptyState(), ...(await store.getRepliesState<PollState>()) };
-  // DT-6B-2C-2-C1: given-up DM marks older than the window leave with the next real write.
-  for (const [mid, when] of Object.entries(state.givenUp ?? {})) {
-    if (!(now.getTime() - Date.parse(when) <= WINDOW_MS)) delete state.givenUp?.[mid];
-  }
   if (state.lockUntil && Date.parse(state.lockUntil) > now.getTime()) {
     return { ...result, skipped: "locked" };
   }
@@ -682,8 +671,6 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     `${url}${url.includes("?") ? "&" : "?"}access_token=${encodeURIComponent(token)}`;
 
   try {
-    // DT-6B-2C-2: whether the account below is fetched by this very tick (then the DM side reuses it as fresh).
-    const fetchedThisTick = !state.igUserId;
     if (!state.igUserId) {
       const me = graph(
         await fetchJson<IgMe>(http, withToken(`${IG_API}/me?fields=user_id,username`)),
@@ -797,22 +784,6 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
     let readError: ReplyFailure | undefined;
     if (dmOn) {
       try {
-        // DT-6B-2C-2: the tick's DM authority, after the refresh: the account from a fresh /me (or the one fetched
-        // above), never the cached one; the status stamp; the binding. The conversations are read with that account.
-        // A failure here is a failed conversations read: nothing is answered.
-        if (state.inboxSince) {
-          const dm = await dmTick({
-            http,
-            store,
-            tokens,
-            ns: env.INSTAGRAM_DM_COORDINATOR,
-            clock,
-            ...(fetchedThisTick ? { fetchedUserId: igUserId } : {}),
-            secret: env.INBOX_SEAL_SECRET,
-          });
-          inbox.igUserId = dm.account;
-          inbox.dm = dm;
-        }
         const read = await readInbox(inbox);
         batches = read.batches;
         if (read.changed) changed = true;
@@ -900,73 +871,25 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
           delete state.retries[id];
         }
       }
-      // The public reply, only once the DM went out; a failure here is logged, never retried. DT-6B-2C-1: it first
-      // claims this comment's one public effect, shared with the reviewed manual send (instagramPublicSend.ts). No
-      // claim store → no public reply (never a KV lease or a direct send); a lost claim → skipped; a won claim → ONE
-      // POST of the exact filled text, then its receipt. Uncertain delivery stays unknown and is never retried.
+      // The public reply, only once the DM went out; a failure here is logged, never retried.
       if (dmSent && pub && http.budget.ok) {
-        const effects = deps.publicClaim ?? publicEffects(env.INSTAGRAM_PUBLIC_SEND_COORDINATOR);
-        let claimed: boolean | null = null;
         try {
-          if (effects)
-            claimed = (await effects.claimAuto(igUserId, id, a.id, now.getTime())).claimed;
-        } catch {
-          claimed = null;
-        }
-        if (!effects || claimed === null) {
-          entry.publicReply = "failed";
-          entry.error ??= "not_configured";
-          entry.detail = "public-claim-store";
-        } else if (!claimed) {
-          entry.detail = "already_claimed";
-        } else {
-          // DT-6B-2C-1-R1: with the seal key, so the refusal words (receipt, log, tick error) are scrubbed.
-          const sent = await dispatchPublicReply(
-            http,
-            token,
-            id,
-            fill(pub, username),
-            env.INBOX_SEAL_SECRET,
+          graph(
+            await fetchJson<MetaError>(
+              http,
+              `${IG_API}/${id}/replies`,
+              formPost({ message: fill(pub, username), access_token: token }),
+            ),
+            "reply",
           );
-          let receipt = false;
-          try {
-            await effects.settle(
-              igUserId,
-              id,
-              `auto:${a.id}`,
-              sent.state === "rejected"
-                ? {
-                    state: "rejected",
-                    code: sent.code,
-                    ...(sent.detail ? { detail: sent.detail } : {}),
-                  }
-                : sent,
-              now.getTime(),
-            );
-            receipt = true;
-          } catch {
-            // The claim holds whatever the receipt did: this comment is never posted on again.
-          }
-          if (sent.state === "sent" && receipt) {
-            entry.publicReply = "sent";
-            s.publicReplies += 1;
-          } else if (sent.state === "rejected") {
-            // A known refusal keeps Meta's mapping (and its stop policy); `sent.reply` holds only scrubbed words.
-            try {
-              graph(sent.reply, "reply");
-            } catch (e) {
-              const { code, detail } = toReplyCode(e);
-              entry.publicReply = "failed";
-              entry.error ??= code;
-              if (detail && !entry.detail) entry.detail = detail.slice(0, 200);
-              finish(code, detail);
-            }
-          } else {
-            // Timeout, broken connection, 5xx, malformed or oversize answer, or a lost receipt: it may be posted.
-            entry.publicReply = "failed";
-            entry.error ??= "upstream";
-            entry.detail = "unknown-delivery";
-          }
+          entry.publicReply = "sent";
+          s.publicReplies += 1;
+        } catch (e) {
+          const { code, detail } = toReplyCode(e);
+          entry.publicReply = "failed";
+          entry.error ??= code;
+          if (detail && !entry.detail) entry.detail = detail.slice(0, 200);
+          finish(code, detail);
         }
       }
       changed = true;

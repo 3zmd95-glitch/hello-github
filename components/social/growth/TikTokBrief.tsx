@@ -55,7 +55,7 @@ export default function TikTokBrief({ now }: { now: number }) {
             {t(busy ? "tiktok.brief.refreshing" : "tiktok.brief.sync")}
           </button>
         ) : (
-          <Link href="/settings/#accounts" className="px-link ios-hit text-sm">
+          <Link href="/social/settings/#accounts" className="px-link ios-hit text-sm">
             {t("tiktok.brief.connect")}
           </Link>
         )}

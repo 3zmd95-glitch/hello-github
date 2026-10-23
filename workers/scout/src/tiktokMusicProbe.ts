@@ -13,9 +13,7 @@
  * - Attempt 5, `cml_trending_list_account`, only when a TikTok account is connected (tiktokAccount.ts): the same chart
  *   with the account token and `business_id` = its open_id, as the docs ask. The stored token as it is: the probe
  *   never renews it (an expired one shows TikTok's answer).
- * 4–5 calls, in parallel; two KV reads without a connected account, three when one is connected (also when only the
- * account is connected, because the advertiser read still occurs). Every failure is data, never a throw. No token or
- * id is in the answer.
+ * 4–5 calls, in parallel, two KV reads. Every failure is data, never a throw. No token or id is in the answer.
  */
 
 import { CALL_TIMEOUT_MS } from "./discover/fetchers";

@@ -31,6 +31,7 @@
 
 import {
   createCloudWorkflowSession,
+  handshakeFailure,
   type ClientFetch,
   type ConfigureResult,
   type ExecuteResult,
@@ -291,7 +292,7 @@ export function createOccurrenceController(deps: {
       authGen++;
       return { ok: true, authority: a };
     }
-    return { ok: false, reason: r.kind === "refused" ? r.reason : r.kind };
+    return { ok: false, reason: handshakeFailure(r) };
   }
 
   async function act(action: OccurrenceAction, rawKey: unknown): Promise<OccurrenceResult> {

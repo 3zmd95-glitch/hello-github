@@ -74,8 +74,6 @@ import {
   unusedIdeas,
   useStore,
 } from "./index";
-import { resetInbox, useInbox } from "@/components/social/inbox/useInbox";
-import { resetProviderInbox, useProviderInbox } from "@/components/social/inbox/useProviderInbox";
 import { articlesExport } from "@/lib/articles";
 import { kitProjection } from "@/lib/businessKit";
 
@@ -3771,29 +3769,6 @@ describe("inbox drafts (packet DT-6A)", () => {
     });
     expect(S().inboxDrafts).toEqual({});
   });
-
-  it("never persists or exports fetched inbox bodies (privacy canary)", async () => {
-    const CANARY = "CANARY-dm-body-7f3a";
-    useInbox.setState({
-      lists: {
-        "o|a|messages|c1": {
-          items: [
-            { id: "m1", createdAt: null, direction: "in", from: null, text: CANARY, kind: "text" },
-          ],
-          next: null,
-          coverage: "end",
-          error: null,
-          fetchedAt: null,
-        },
-      },
-    });
-    await save(SCOPE, "my own words");
-    S().setSettings({ lang: "en" });
-    expect(localStorage.getItem(STORAGE_KEY)).not.toContain(CANARY);
-    expect(S().exportState()).not.toContain(CANARY);
-    expect(S().exportState()).toContain("my own words");
-    resetInbox();
-  });
 });
 
 // 📥 DT-6B-1: Threads/YouTube drafts use v2 provider scopes beside the untouched DT-6A Instagram keys; fetched
@@ -3821,7 +3796,6 @@ describe("inbox drafts across providers (packet DT-6B-1)", () => {
   });
   afterEach(() => {
     setArticlesLock(undefined);
-    resetProviderInbox();
   });
 
   it("keeps an imported Instagram draft under its exact old key while v2 drafts round-trip beside it", async () => {
@@ -3840,51 +3814,6 @@ describe("inbox drafts across providers (packet DT-6B-1)", () => {
     // Discarding a v2 draft leaves the Instagram one alone.
     expect((await S().discardInboxDraft(THREADS, inboxDraftBase(th))).ok).toBe(true);
     expect(S().inboxDrafts[LEGACY]).toEqual(legacy);
-  });
-
-  it("never persists or exports fetched Threads or YouTube bodies (privacy canary)", async () => {
-    const CANARY = "CANARY-provider-body-2c9d";
-    const AUTHOR = "CANARY-author-handle-81aa";
-    useProviderInbox.setState({
-      lists: {
-        "v2|threads|o|25|replies|90001": {
-          items: [
-            {
-              id: "91001",
-              text: CANARY,
-              author: { username: AUTHOR },
-              createdAt: null,
-              direction: "in",
-              kind: "text",
-            },
-          ],
-          next: null,
-          coverage: "end",
-          error: null,
-          fetchedAt: null,
-        },
-        "v2|youtube|o|UCa|threads|v1": {
-          items: [{ id: "Ug1", ref: "r.s", comment: { id: "Ug1", text: CANARY }, replies: [] }],
-          next: null,
-          coverage: "end",
-          error: null,
-          fetchedAt: null,
-        },
-      },
-    });
-    await save(THREADS, "my own reply");
-    S().setSettings({ lang: "en" });
-    for (const out of [
-      localStorage.getItem(STORAGE_KEY) ?? "",
-      S().exportState(),
-      JSON.stringify(kitProjection(S(), T0)),
-      JSON.stringify(articlesExport(S().articles, T0)),
-    ]) {
-      expect(out).not.toContain(CANARY);
-      expect(out).not.toContain(AUTHOR);
-    }
-    expect(S().exportState()).toContain("my own reply");
-    expect(JSON.stringify(kitProjection(S(), T0))).not.toContain("my own reply");
   });
 });
 
@@ -6188,5 +6117,127 @@ describe("DT-6B-2C-5B-R1 control restore invariants and durable merge", () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(durable));
     expect(await S().importState(file({ [KEY]: entry() }))).toEqual({ ok: true, rejected: [] });
     expect(disk().inboxInstagramDmControls[KEY]).toEqual(other);
+  });
+});
+
+describe("🗂 global inbox (seen marks and tab)", () => {
+  const A = "2026-10-22T10:00:00.000Z";
+  const B = "2026-10-22T11:00:00.000Z";
+
+  it("starts with nothing seen and the All tab", () => {
+    expect(S().inboxSeen).toEqual({});
+    expect(S().inboxTab).toBe("all");
+  });
+
+  it("markInboxSeen keeps the later time", () => {
+    S().markInboxSeen("instagram:conversation:c1", A);
+    expect(S().inboxSeen).toEqual({ "instagram:conversation:c1": A });
+    S().markInboxSeen("instagram:conversation:c1", B);
+    expect(S().inboxSeen["instagram:conversation:c1"]).toBe(B);
+    S().markInboxSeen("instagram:conversation:c1", A); // an older open never lowers the mark
+    expect(S().inboxSeen["instagram:conversation:c1"]).toBe(B);
+    S().markInboxSeen("instagram:post:m9", A);
+    expect(Object.keys(S().inboxSeen)).toEqual(["instagram:conversation:c1", "instagram:post:m9"]);
+  });
+
+  it("markInboxSeen ignores an empty key or a time that is not a date", () => {
+    S().markInboxSeen("instagram:post:m9", A);
+    const before = S().inboxSeen;
+    S().markInboxSeen("instagram:post:m9", "undefined");
+    S().markInboxSeen("instagram:post:m9", "");
+    S().markInboxSeen("instagram:post:new", "undefined");
+    S().markInboxSeen("instagram:post:new", "");
+    S().markInboxSeen("", A);
+    expect(S().inboxSeen).toBe(before);
+    expect(S().inboxSeen).toEqual({ "instagram:post:m9": A });
+    S().markInboxSeen("instagram:post:m9", B); // a valid later time still wins
+    expect(S().inboxSeen).toEqual({ "instagram:post:m9": B });
+  });
+
+  it("pruneInboxSeen keeps only the listed keys, and ignores anything but strings", () => {
+    S().markInboxSeen("instagram:conversation:c1", A);
+    S().markInboxSeen("instagram:conversation:c2", A);
+    S().markInboxSeen("instagram:post:m9", B);
+    S().pruneInboxSeen([
+      "instagram:post:m9",
+      5 as never,
+      null as never,
+      "instagram:conversation:c1",
+    ]);
+    expect(S().inboxSeen).toEqual({ "instagram:conversation:c1": A, "instagram:post:m9": B });
+
+    const before = S().inboxSeen;
+    S().pruneInboxSeen(["instagram:conversation:c1", "instagram:post:m9", "never-seen"]);
+    expect(S().inboxSeen).toBe(before); // nothing to drop: untouched
+    S().pruneInboxSeen("instagram:post:m9" as never);
+    S().pruneInboxSeen(undefined as never);
+    expect(S().inboxSeen).toBe(before);
+
+    S().pruneInboxSeen([]);
+    expect(S().inboxSeen).toEqual({});
+  });
+
+  it("setInboxTab switches the tab", () => {
+    S().setInboxTab("tiktok");
+    expect(S().inboxTab).toBe("tiktok");
+    S().setInboxTab("all");
+    expect(S().inboxTab).toBe("all");
+  });
+
+  it("setInboxTab ignores a tab that does not exist", () => {
+    S().setInboxTab("tiktok");
+    S().setInboxTab("threads" as never);
+    S().setInboxTab(undefined as never);
+    S().setInboxTab("" as never);
+    expect(S().inboxTab).toBe("tiktok");
+  });
+
+  it("persists to localStorage, rehydrates, and the reset clears it", async () => {
+    S().markInboxSeen("instagram:post:m9", A);
+    S().setInboxTab("instagram");
+    const raw = localStorage.getItem(STORAGE_KEY);
+    expect(JSON.parse(raw!).state.inboxSeen).toEqual({ "instagram:post:m9": A });
+    expect(JSON.parse(raw!).state.inboxTab).toBe("instagram");
+    expect(JSON.parse(raw!).state.markInboxSeen).toBeUndefined();
+
+    useStore.setState({ inboxSeen: {}, inboxTab: "all" }); // simulate a fresh page (also persists)
+    localStorage.setItem(STORAGE_KEY, raw!);
+    await hydrateStore();
+    expect(S().inboxSeen).toEqual({ "instagram:post:m9": A });
+    expect(S().inboxTab).toBe("instagram");
+
+    await S().reset();
+    expect(S().inboxSeen).toEqual({});
+    expect(S().inboxTab).toBe("all");
+  });
+
+  it("exportState includes both and importState restores them", async () => {
+    S().markInboxSeen("instagram:post:m9", A);
+    S().setInboxTab("tiktok");
+    const json = S().exportState();
+    expect(JSON.parse(json).state.inboxSeen).toEqual({ "instagram:post:m9": A });
+    expect(JSON.parse(json).state.inboxTab).toBe("tiktok");
+    await S().reset();
+    await S().importState(json);
+    expect(S().inboxSeen).toEqual({ "instagram:post:m9": A });
+    expect(S().inboxTab).toBe("tiktok");
+  });
+
+  it("hydrates an old localStorage save without the inbox fields", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { settings: DEFAULT_SETTINGS, completions: [] }, version: 1 }),
+    );
+    await hydrateStore();
+    expect(S().inboxSeen).toEqual({});
+    expect(S().inboxTab).toBe("all");
+  });
+
+  it("rejects an import with an unknown tab without changing state", () => {
+    S().setInboxTab("instagram");
+    const bad = JSON.parse(S().exportState());
+    bad.state.inboxTab = "threads";
+    expect(() => S().importState(JSON.stringify(bad))).toThrow();
+    expect(S().inboxTab).toBe("instagram");
   });
 });

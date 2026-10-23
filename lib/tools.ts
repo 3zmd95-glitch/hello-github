@@ -170,7 +170,7 @@ function def(
   };
 }
 
-const ACCOUNTS = "/settings#accounts";
+const ACCOUNTS = "/social/settings#accounts";
 const API_KEYS = "/settings#api-keys";
 
 const account = (id: SocialPlatform, icon: LucideIcon) =>

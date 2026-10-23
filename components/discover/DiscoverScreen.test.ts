@@ -10,10 +10,9 @@ import { clearScoutCache } from "@/lib/scoutClient";
 import { useStore } from "@/store";
 import DiscoverScreen from "./DiscoverScreen";
 
-// 🔗 Discover's deep link, `/discover/?genre=<id>` (the Trend Radar's genre chips open it): it opens that
-// category's page in Browse (categories live in one place). Rendered for real in jsdom against a fake Scout
-// Worker (a stubbed global fetch). e2e/scout.spec.ts opens the same link in a browser, and e2e/trends.spec.ts
-// taps a radar chip to get there.
+// 🔗 Discover's deep link, `/discover/?genre=<id>`: it opens that category's page in Browse (categories live
+// in one place). Rendered for real in jsdom against a fake Scout Worker (a stubbed global fetch).
+// e2e/scout.spec.ts opens the same link in a browser.
 
 const WORKER = "https://scout.test";
 const CARS_AR = "ايديت سيارات";

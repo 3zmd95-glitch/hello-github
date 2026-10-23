@@ -27,7 +27,7 @@ const LAST_SOCIAL_KEY = "3z.lastSocialPath";
 
 /**
  * Remember the Social route the user was on, so the world switch brings them back to it. A route outside
- * Social is never remembered: the 🔎 Discover and ⚙️ Settings entries of Social's menu open Training routes.
+ * Social is never remembered (defensive: since tools/20 every link in Social's menu is a Social route).
  */
 export function rememberSocialPath(path: string): void {
   if (worldOf(path) !== "social") return;

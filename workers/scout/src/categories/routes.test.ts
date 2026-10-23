@@ -445,7 +445,7 @@ describe("the category slots", () => {
     // 2026-10-10 is UTC day 20736, % 9 = 0: the day of cars, food, anime and travel (35 categories, 9 days).
     const fetchMock = tavily();
     const offGrid = await runTick(env, Date.parse("2026-10-10T05:41:00Z"), { fetch: fetchMock });
-    expect(Object.keys(offGrid)).toEqual(["replies"]);
+    expect(Object.keys(offGrid)).toEqual(["replies", "inbox"]);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(await runTick(env, Date.parse("2026-10-10T05:40:00Z"), { fetch: fetchMock })).toEqual({
       category: { id: "cars", status: "partial", items: 1, notes: ["tiktok_auth", "ai_fallback"] },

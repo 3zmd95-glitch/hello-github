@@ -1,232 +1,444 @@
 "use client";
 
-import { create } from "zustand";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import type {
+  InboxComment,
+  InboxConversation,
+  InboxMessage,
+  InboxOverview,
+  InboxPlatform,
+  InboxPost,
+} from "@/lib/domain";
 import {
-  emptyList,
-  inboxAccount,
+  INBOX_POLL_MS,
   inboxComments,
   inboxConversations,
-  inboxMedia,
-  inboxMessages,
-  inboxScope,
-  mergeFailure,
-  mergePages,
-  workerOrigin,
-  type InboxAccount,
-  type InboxErrorCode,
-  type InboxList,
-  type InboxScopeKind,
-  type PageResult,
+  inboxOverview,
+  inboxPosts,
+  inboxRefresh,
+  inboxThread,
+  seenKey,
+  unreadCount,
+  type InboxError,
+  type InboxResult,
 } from "@/lib/inbox";
 import { scoutConfig, type ScoutConfig } from "@/lib/scoutClient";
 import { useStore } from "@/store";
 
 /**
- * 📥 The inbox's fetched pages (packet DT-6A), in memory only: a plain zustand store, never persisted, never in the
- * app store's `pick()`, never exported. Reads happen on open, Refresh and Load more (no polling, no retry by itself).
- *
- * Every page request captures a fence — connection epoch, Worker origin, account id, generation and the selection it
- * was for — and a result is dropped when any of them moved meanwhile (another Worker URL or token, a reconnect or
- * another account, another conversation or post). DT-6A-R1: a result is also accepted only while its request is still
- * its list's current session (`busy[key] === token`), so a request a reset or a newer read superseded stays dead even
- * when the identity comes back (Worker A → B → A). Lists are keyed by `inboxScope`, so a handle rename keeps them.
+ * The global inbox as the Worker keeps it (`/social/inbox/*`, planning/tools/51-global-inbox.md), held at module
+ * level like `useReplies` so the Inbox page and the Studio's row share one copy and one read at a time. Read only:
+ * the one write here is Refresh. Nothing is persisted but the seen marks (`inboxSeen` in the store).
  */
 
-export type InboxTab = "messages" | "comments";
-type ListKind = "conversations" | "messages" | "media" | "comments";
-
 export interface InboxState {
-  origin: string | null;
-  account: InboxAccount | null;
-  accountError: InboxErrorCode | null;
-  accountBusy: boolean;
-  tab: InboxTab;
-  conversationId: string | null;
-  mediaId: string | null;
-  lists: Record<string, InboxList<unknown>>;
-  /** The request token in flight per list, i.e. the list's current session (0 / absent: idle). */
-  busy: Record<string, number>;
+  overview: InboxOverview | null;
+  conversations: InboxConversation[];
+  posts: InboxPost[];
+  moreConversations: boolean;
+  morePosts: boolean;
+  loadedAt: number | null;
+  busy: boolean;
+  error: InboxError | null;
 }
+
+/** Refresh asks the reader to scan now; its tick lands about this long after. */
+const REFRESH_WAIT_MS = 3_000;
+/** Past this many seen marks, a load drops the marks of items it no longer lists. */
+const SEEN_CAP = 500;
+/** A webhook's conversation id before the reader learns the real thread id: "peer:" + the sender's id. */
+const PROVISIONAL = "peer:";
+/**
+ * Where history ends, written by the very first read: the moment that read began, for both lists (an item's own
+ * time would mix the lists' spans). It also keeps the next read from being taken for the first one, and a
+ * "load more" row from before it is history, seen on arrival.
+ */
+const FIRST_READ_KEY = "inbox:firstRead";
 
 const IDLE: InboxState = {
-  origin: null,
-  account: null,
-  accountError: null,
-  accountBusy: false,
-  tab: "messages",
-  conversationId: null,
-  mediaId: null,
-  lists: {},
-  busy: {},
+  overview: null,
+  conversations: [],
+  posts: [],
+  moreConversations: false,
+  morePosts: false,
+  loadedAt: null,
+  busy: false,
+  error: null,
 };
+let state: InboxState = IDLE;
+const listeners = new Set<() => void>();
+/** The Worker's cursors for the next older page (never built here). */
+let next: { conversations: string | null; posts: string | null } = {
+  conversations: null,
+  posts: null,
+};
+/** An older page was loaded: a reload merges the first page in instead of dropping the rest. */
+let extended = { conversations: false, posts: false };
+let inflight: Promise<void> | null = null;
 
-export const useInbox = create<InboxState>()(() => IDLE);
-
-export function resetInbox(): void {
-  accountSeq += 1;
-  useInbox.setState(IDLE, true);
+function set(patch: Partial<InboxState>): void {
+  state = { ...state, ...patch };
+  listeners.forEach((l) => l());
 }
 
-function currentConfig(): ScoutConfig | null {
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+const getState = () => state;
+const getServerState = () => IDLE;
+
+/** The Worker from Settings (null: none yet); the send boxes call lib/inbox with it. */
+export function currentConfig(): ScoutConfig | null {
   const k = useStore.getState().settings.apiKeys;
   return scoutConfig(k.scoutUrl, k.scoutToken);
 }
 
-const keyOf = (s: InboxState, kind: InboxScopeKind, id = ""): string =>
-  inboxScope(s.origin ?? "", s.account?.accountId ?? "", kind, id);
+const fail = (error: InboxError) => set({ busy: false, error });
+const newestFirst = (a: string, b: string) => (a < b ? 1 : a > b ? -1 : 0);
 
-/** A list for the current account (empty until read). */
-export function listOf<T = unknown>(kind: ListKind, id = ""): InboxList<T> {
-  const s = useInbox.getState();
-  return (s.lists[keyOf(s, kind, id)] as InboxList<T> | undefined) ?? emptyList<T>();
-}
+const provisional = (c: InboxConversation) => c.id.startsWith(PROVISIONAL);
 
-/** Where a draft for this conversation or comment lives (Worker origin + account id + kind + id). */
-export function draftScope(kind: "conversation" | "comment", id: string): string {
-  return keyOf(useInbox.getState(), kind, id);
-}
-
-/** The selection a list belongs to: the conversation for messages, the post for comments, none for the rest. */
-const selectionOf = (s: InboxState, kind: ListKind): string | null =>
-  kind === "messages" ? s.conversationId : kind === "comments" ? s.mediaId : null;
-
-let accountSeq = 0;
-let requestSeq = 0;
 /**
- * DT-6A-R1 (6A-3): the private connection epoch. It moves whenever the configured Worker URL or token changes, and the
- * view is cleared at once (no old account, list or selection stays on screen); every read started under an older
- * epoch is dropped. Memory only: never persisted and never part of a draft scope (those stay origin + account id +
- * kind + id), and the token itself is never kept here.
+ * One row per person: a webhook's provisional `peer:` conversation and the real one merge, the newest wins
+ * (the real one on a tie).
  */
-let epoch = 0;
-useStore.subscribe((s, prev) => {
-  const k = s.settings.apiKeys;
-  const was = prev.settings.apiKeys;
-  if (k.scoutUrl === was.scoutUrl && k.scoutToken === was.scoutToken) return;
-  epoch += 1;
-  resetInbox();
-});
-
-/** `GET /social/inbox/account`; a new id or generation (reconnect, another account) starts the lists over. */
-async function loadAccount(): Promise<boolean> {
-  const cfg = currentConfig();
-  const origin = workerOrigin(cfg);
-  if (!cfg || !origin) {
-    useInbox.setState({ ...IDLE, accountError: "unconfigured" }, true);
-    return false;
+function byPeer(list: InboxConversation[]): InboxConversation[] {
+  const best = new Map<string, InboxConversation>();
+  for (const c of list) {
+    const k = `${c.platform}:${c.peerId}`;
+    const had = best.get(k);
+    const tieGoesReal = had?.updatedAt === c.updatedAt && provisional(had) && !provisional(c);
+    if (!had || c.updatedAt > had.updatedAt || tieGoesReal) best.set(k, c);
   }
-  if (useInbox.getState().origin !== origin) useInbox.setState({ ...IDLE, origin }, true);
-  const seq = ++accountSeq;
-  const at = epoch;
-  useInbox.setState({ accountBusy: true });
-  const r = await inboxAccount(cfg);
-  if (seq !== accountSeq || at !== epoch || useInbox.getState().origin !== origin) return false;
-  if (!r.ok) {
-    useInbox.setState({ accountBusy: false, accountError: r.error.code });
-    return false;
-  }
-  const before = useInbox.getState().account;
-  const sameIdentity =
-    before?.accountId === r.account.accountId && before.generation === r.account.generation;
-  useInbox.setState({
-    account: r.account,
-    accountError: null,
-    accountBusy: false,
-    ...(sameIdentity ? {} : { lists: {}, busy: {}, conversationId: null, mediaId: null }),
-  });
-  return true;
+  return [...best.values()].sort((a, b) => newestFirst(a.updatedAt, b.updatedAt));
 }
 
-/** One page into a list, behind the fence; `cursor` undefined = the first page (replaces the list). */
-async function loadList(kind: ListKind, id: string | undefined, cursor?: string): Promise<void> {
-  const cfg = currentConfig();
-  const s = useInbox.getState();
-  const acc = s.account;
-  if (!cfg || !acc) return;
-  // A surface the granted scopes already deny is not asked for (the screen shows the reconnect step instead).
-  const surface = kind === "conversations" || kind === "messages" ? "messages" : "comments";
-  if (acc.capabilities[surface] !== "ok") return;
-  const key = keyOf(s, kind, id ?? "");
-  if (s.busy[key]) return;
-  const fence = {
-    epoch,
-    origin: s.origin,
-    accountId: acc.accountId,
-    generation: acc.generation,
-    selection: selectionOf(s, kind),
-  };
-  const token = ++requestSeq;
-  useInbox.setState((x) => ({ busy: { ...x.busy, [key]: token } }));
-  let r: PageResult<{ id: string }>;
-  if (kind === "conversations") r = await inboxConversations(cfg, acc, cursor);
-  else if (kind === "media") r = await inboxMedia(cfg, acc, cursor);
-  else if (kind === "messages") r = await inboxMessages(cfg, acc, id!, cursor);
-  else r = await inboxComments(cfg, acc, id!, cursor);
-  // Whatever happens next, this request stops holding the list (unless a newer one took it over).
-  const release = (x: InboxState) => (x.busy[key] === token ? { ...x.busy, [key]: 0 } : x.busy);
-  const now = useInbox.getState();
-  const current =
-    now.busy[key] === token &&
-    epoch === fence.epoch &&
-    now.origin === fence.origin &&
-    now.account?.accountId === fence.accountId &&
-    now.account?.generation === fence.generation &&
-    selectionOf(now, kind) === fence.selection;
-  if (!current) {
-    useInbox.setState((x) => ({ busy: release(x) }));
+function byPost(list: InboxPost[]): InboxPost[] {
+  const seen = new Map<string, InboxPost>();
+  for (const p of list)
+    if (!seen.has(`${p.platform}:${p.id}`)) seen.set(`${p.platform}:${p.id}`, p);
+  return [...seen.values()].sort((a, b) => newestFirst(a.postedAt, b.postedAt));
+}
+
+/** A conversation's seen mark and the time it is compared with. */
+export const conversationSeen = (c: InboxConversation) => ({
+  key: seenKey(c.platform, "conversation", c.id),
+  at: c.updatedAt,
+});
+/** A post's seen mark: a post is new until it is opened. */
+export const postSeen = (p: InboxPost) => ({
+  key: seenKey(p.platform, "post", p.id),
+  at: p.postedAt,
+});
+/** The provisional `peer:` key of a conversation's person. */
+const provisionalKey = (c: InboxConversation) =>
+  seenKey(c.platform, "conversation", PROVISIONAL + c.peerId);
+export const isUnread = (item: { key: string; at: string }, seen: Record<string, string>) =>
+  unreadCount([item], seen) > 0;
+/** Unread unless opened since its last message, under its own id or as the person's provisional row. */
+export function conversationUnread(c: InboxConversation, seen: Record<string, string>): boolean {
+  const { key, at } = conversationSeen(c);
+  const mark = [seen[key], seen[provisionalKey(c)]].filter(Boolean).sort().pop();
+  return isUnread({ key, at }, mark ? { [key]: mark } : {});
+}
+/** Unread conversations plus new posts: the Studio row's number. */
+export const inboxUnread = (
+  s: Pick<InboxState, "conversations" | "posts">,
+  seen: Record<string, string>,
+) =>
+  s.conversations.filter((c) => conversationUnread(c, seen)).length +
+  unreadCount(s.posts.map(postSeen), seen);
+
+/**
+ * Seen marks a load writes before anything is shown: on the very first read everything already there is
+ * history, not news; afterwards a real conversation inherits the mark its provisional row got.
+ */
+function markLoaded(conversations: InboxConversation[], posts: InboxPost[], readAt: string): void {
+  const store = useStore.getState();
+  const seen = store.inboxSeen;
+  if (Object.keys(seen).length === 0) {
+    const items = [...conversations.map(conversationSeen), ...posts.map(postSeen)];
+    for (const { key, at } of items) store.markInboxSeen(key, at);
+    store.markInboxSeen(FIRST_READ_KEY, readAt);
     return;
   }
-  const list = (now.lists[key] as InboxList<{ id: string }> | undefined) ?? emptyList();
-  const next = r.ok ? mergePages(list, r.page, cursor === undefined) : mergeFailure(list, r.error);
-  useInbox.setState((x) => ({
-    lists: { ...x.lists, [key]: next },
-    busy: release(x),
-  }));
+  for (const c of conversations) {
+    const mark = seen[provisionalKey(c)];
+    if (mark && !provisional(c)) store.markInboxSeen(conversationSeen(c).key, mark);
+  }
 }
 
-/** The list the open tab shows first. */
-const tabList = (tab: InboxTab): ListKind => (tab === "messages" ? "conversations" : "media");
-
-/** Opening the page: the account, then the open tab's first page. */
-export async function openInbox(): Promise<void> {
-  if (!(await loadAccount())) return;
-  await loadList(tabList(useInbox.getState().tab), undefined);
+/**
+ * Overview + the first page of conversations and of posts (3 reads); concurrent callers share them. `quiet`
+ * (the poll, the Studio) shows no busy state; `now` (tests) is when the read begins.
+ */
+export function loadInbox({
+  quiet = false,
+  now,
+}: { quiet?: boolean; now?: Date } = {}): Promise<void> {
+  if (inflight) return inflight;
+  inflight = (async () => {
+    const cfg = currentConfig();
+    if (!cfg) return;
+    const readAt = (now ?? new Date()).toISOString();
+    if (!quiet) set({ busy: true });
+    const [o, c, p] = await Promise.all([
+      inboxOverview(cfg),
+      inboxConversations(cfg, {}),
+      inboxPosts(cfg, {}),
+    ]);
+    // The overview's path always exists on an inbox Worker: its 404 is a Worker from before the inbox.
+    if (!o.ok) return fail(o.error.type === "not_found" ? { type: "not_available" } : o.error);
+    if (!c.ok) return fail(c.error);
+    if (!p.ok) return fail(p.error);
+    const conversations = byPeer(
+      extended.conversations ? [...c.conversations, ...state.conversations] : c.conversations,
+    );
+    const posts = byPost(extended.posts ? [...p.posts, ...state.posts] : p.posts);
+    if (!extended.conversations) next.conversations = c.next;
+    if (!extended.posts) next.posts = p.next;
+    markLoaded(conversations, posts, readAt);
+    set({
+      overview: o.overview,
+      conversations,
+      posts,
+      moreConversations: extended.conversations ? state.moreConversations : c.more && !!c.next,
+      morePosts: extended.posts ? state.morePosts : p.more && !!p.next,
+      loadedAt: Date.now(),
+      busy: false,
+      error: null,
+    });
+    const store = useStore.getState();
+    if (Object.keys(store.inboxSeen).length > SEEN_CAP)
+      store.pruneInboxSeen([
+        FIRST_READ_KEY,
+        ...[...conversations.map(conversationSeen), ...posts.map(postSeen)].map((i) => i.key),
+      ]);
+  })().finally(() => {
+    inflight = null;
+  });
+  return inflight;
 }
 
-/** Refresh: the account again, then the first page of what is on screen. */
+/** Rows a "load more" brings from before the first read are history: seen on arrival, never "new". */
+function markHistory(items: { key: string; at: string }[]): void {
+  const store = useStore.getState();
+  const end = store.inboxSeen[FIRST_READ_KEY];
+  if (end) for (const { key, at } of items) if (at <= end) store.markInboxSeen(key, at);
+}
+
+export async function loadMoreConversations(): Promise<void> {
+  const cfg = currentConfig();
+  const before = next.conversations;
+  if (!cfg || !before || state.busy) return;
+  set({ busy: true, error: null });
+  const r = await inboxConversations(cfg, { before });
+  if (!r.ok) return fail(r.error);
+  extended.conversations = true;
+  next.conversations = r.next;
+  markHistory(r.conversations.map(conversationSeen));
+  set({
+    conversations: byPeer([...state.conversations, ...r.conversations]),
+    moreConversations: r.more && !!r.next,
+    busy: false,
+  });
+}
+
+export async function loadMorePosts(): Promise<void> {
+  const cfg = currentConfig();
+  const before = next.posts;
+  if (!cfg || !before || state.busy) return;
+  set({ busy: true, error: null });
+  const r = await inboxPosts(cfg, { before });
+  if (!r.ok) return fail(r.error);
+  extended.posts = true;
+  next.posts = r.next;
+  markHistory(r.posts.map(postSeen));
+  set({ posts: byPost([...state.posts, ...r.posts]), morePosts: r.more && !!r.next, busy: false });
+}
+
+/** "Refresh now": asks the reader to scan on its next tick, then reads the inbox once it has. */
 export async function refreshInbox(): Promise<void> {
-  if (!(await loadAccount())) return;
-  const s = useInbox.getState();
-  const jobs = [loadList(tabList(s.tab), undefined)];
-  if (s.tab === "messages" && s.conversationId) jobs.push(loadList("messages", s.conversationId));
-  if (s.tab === "comments" && s.mediaId) jobs.push(loadList("comments", s.mediaId));
-  await Promise.all(jobs);
+  const cfg = currentConfig();
+  if (!cfg) return;
+  set({ busy: true, error: null });
+  const r = await inboxRefresh(cfg);
+  if (!r.ok) return fail(r.error);
+  await new Promise((resolve) => setTimeout(resolve, REFRESH_WAIT_MS));
+  await loadInbox();
+  set({ busy: false }); // a quiet poll may have been the read it joined
 }
 
-/** Load more: the next sealed cursor of a list, when it has one. */
-export async function loadMore(kind: ListKind): Promise<void> {
-  const s = useInbox.getState();
-  const id = selectionOf(s, kind) ?? undefined;
-  const list = listOf(kind, id);
-  if (list.next) await loadList(kind, id, list.next);
+/** Drops everything loaded (tests; the Settings wipe). */
+export function resetInbox(): void {
+  state = IDLE;
+  next = { conversations: null, posts: null };
+  extended = { conversations: false, posts: false };
+  inflight = null;
+  listeners.forEach((l) => l());
 }
 
-/** Switching tabs reads that tab's first page once (until Refresh). */
-export async function setInboxTab(tab: InboxTab): Promise<void> {
-  useInbox.setState({ tab });
-  const kind = tabList(tab);
-  if (useInbox.getState().account && listOf(kind).coverage === null)
-    await loadList(kind, undefined);
+/** The inbox for a screen; it reads nothing by itself (the page loads, the Studio loads quietly). */
+export function useInbox(): InboxState & { configured: boolean } {
+  const configured = useStore(
+    (s) => scoutConfig(s.settings.apiKeys.scoutUrl, s.settings.apiKeys.scoutToken) !== null,
+  );
+  const s = useSyncExternalStore(subscribe, getState, getServerState);
+  return { ...s, configured };
 }
 
-/** Opening a conversation reads its newest messages once (until Refresh); null goes back to the list. */
-export async function selectConversation(id: string | null): Promise<void> {
-  useInbox.setState({ conversationId: id });
-  if (id && listOf("messages", id).coverage === null) await loadList("messages", id);
+/**
+ * Reads again every INBOX_POLL_MS while the page is visible: hidden, the timer stops; back in view, one read
+ * at once and a fresh timer from there.
+ */
+export function useInboxPoll(enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) return;
+    let id = 0;
+    const read = () => {
+      if (document.visibilityState === "visible") void loadInbox({ quiet: true });
+    };
+    const start = () => {
+      if (document.visibilityState === "visible") id = window.setInterval(read, INBOX_POLL_MS);
+    };
+    const onVisibility = () => {
+      window.clearInterval(id);
+      read();
+      start();
+    };
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [enabled]);
 }
 
-/** Opening a post reads its comments once (until Refresh); null goes back to the posts. */
-export async function selectMedia(id: string | null): Promise<void> {
-  useInbox.setState({ mediaId: id });
-  if (id && listOf("comments", id).coverage === null) await loadList("comments", id);
+/* ---------- one conversation, one post's comments ---------- */
+
+type Page = { more: boolean; next: string | null };
+export type ThreadData = {
+  conversation: InboxConversation;
+  /** Oldest first, as the Worker answers each page; an older page goes in front. */
+  messages: InboxMessage[];
+  window: { open: boolean; closesAt: string | null };
+} & Page;
+export type CommentsData = { post: InboxPost; comments: InboxComment[] } & Page;
+
+interface Paged<T> {
+  data: T | null;
+  busy: boolean;
+  error: InboxError | null;
+  reload(): void;
+  /** The next older page, appended (the Worker's `next` as `before`). */
+  loadMore(): void;
+}
+
+/**
+ * One remote item read a page at a time: `base` names it (null: nothing open), a new `version` reads it again
+ * (keeping what is shown meanwhile), `older` appends the next page.
+ */
+function usePaged<T extends Page>(
+  base: string | null,
+  version: string,
+  fetchPage: (before?: string) => Promise<InboxResult<T>>,
+  older: (have: T, page: T) => T,
+): Paged<T> {
+  const [nonce, setNonce] = useState(0);
+  const [got, setGot] = useState<{
+    base: string;
+    want: string;
+    data: T | null;
+    error: InboxError | null;
+  } | null>(null);
+  const [moreBusy, setMoreBusy] = useState(false);
+  const want = base === null ? null : `${base}#${version}#${nonce}`;
+
+  useEffect(() => {
+    if (base === null || want === null) return;
+    let live = true;
+    void fetchPage().then((r) => {
+      if (!live) return;
+      setGot((g) => ({
+        base,
+        want,
+        data: r.ok ? r : g?.base === base ? g.data : null,
+        error: r.ok ? null : r.error,
+      }));
+    });
+    return () => {
+      live = false;
+    };
+  }, [base, want, fetchPage]);
+
+  const mine = got && got.base === base ? got : null;
+  const data = mine?.data ?? null;
+  const loadMore = () => {
+    if (!data?.next || moreBusy) return;
+    setMoreBusy(true);
+    void fetchPage(data.next).then((r) => {
+      setMoreBusy(false);
+      setGot((g) =>
+        g && g.data === data
+          ? r.ok
+            ? { ...g, data: older(data, r), error: null }
+            : { ...g, error: r.error }
+          : g,
+      );
+    });
+  };
+  return {
+    data,
+    busy: (want !== null && mine?.want !== want) || moreBusy,
+    error: mine?.error ?? null,
+    reload: useCallback(() => setNonce((n) => n + 1), []),
+    loadMore,
+  };
+}
+
+const olderMessages = (have: ThreadData, page: ThreadData): ThreadData => ({
+  ...have,
+  messages: [...page.messages, ...have.messages],
+  more: page.more,
+  next: page.next,
+});
+const olderComments = (have: CommentsData, page: CommentsData): CommentsData => ({
+  ...have,
+  comments: [...have.comments, ...page.comments],
+  more: page.more,
+  next: page.next,
+});
+
+/** One conversation's messages; a new `version` (the row's `updatedAt` moved) reads it again. */
+export function useThread(
+  id: string | null,
+  version = "",
+): Omit<Paged<ThreadData>, "data"> & { thread: ThreadData | null } {
+  const fetchPage = useCallback(
+    (before?: string) => inboxThread(currentConfig(), id ?? "", { before }),
+    [id],
+  );
+  const { data, ...rest } = usePaged(id, version, fetchPage, olderMessages);
+  return { thread: data, ...rest };
+}
+
+/** One post's comments, newest first. */
+export function useComments(
+  platform: InboxPlatform | null,
+  postId: string | null,
+): Paged<CommentsData> {
+  const fetchPage = useCallback(
+    (before?: string) =>
+      inboxComments(currentConfig(), platform ?? "instagram", postId ?? "", { before }),
+    [platform, postId],
+  );
+  return usePaged(
+    platform && postId ? `${platform}:${postId}` : null,
+    "",
+    fetchPage,
+    olderComments,
+  );
 }

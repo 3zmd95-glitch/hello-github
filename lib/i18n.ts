@@ -25,6 +25,8 @@ import arPublish from "@/messages/publish.ar.json";
 import enPublish from "@/messages/publish.en.json";
 import arReplies from "@/messages/replies.ar.json";
 import enReplies from "@/messages/replies.en.json";
+import arInbox from "@/messages/inbox.ar.json";
+import enInbox from "@/messages/inbox.en.json";
 import arTrends from "@/messages/trends.ar.json";
 import enTrends from "@/messages/trends.en.json";
 import arGenres from "@/messages/genres.ar.json";
@@ -49,8 +51,6 @@ import arWorkflows from "@/messages/workflows.ar.json";
 import enWorkflows from "@/messages/workflows.en.json";
 import arBusiness from "@/messages/business.ar.json";
 import enBusiness from "@/messages/business.en.json";
-import arInbox from "@/messages/inbox.ar.json";
-import enInbox from "@/messages/inbox.en.json";
 import type { Lang, LText } from "@/lib/domain";
 import { useStore } from "@/store";
 
@@ -80,6 +80,8 @@ export const MESSAGE_FILES = {
   ideas: { ar: arIdeas, en: enIdeas },
   publish: { ar: arPublish, en: enPublish },
   replies: { ar: arReplies, en: enReplies },
+  // 🗂 Global inbox (planning/tools/51-global-inbox.md): DMs and comments in one screen.
+  inbox: { ar: arInbox, en: enInbox },
   // 📈 Trend Radar (round 30, planning/tools/08-trends.md).
   trends: { ar: arTrends, en: enTrends },
   // 🎬 Edit genres (round 31): the genre row of Discover / Research, the Settings card.
@@ -100,8 +102,6 @@ export const MESSAGE_FILES = {
   workflows: { ar: arWorkflows, en: enWorkflows },
   // 💼 Business Kit (packet DT-5, planning/tools/35-business-kit.md).
   business: { ar: arBusiness, en: enBusiness },
-  // 📥 Inbox (packet DT-6A, planning/tools/36-inbox.md).
-  inbox: { ar: arInbox, en: enInbox },
 } as const;
 
 const ar = {
@@ -118,6 +118,7 @@ const ar = {
   ...arIdeas,
   ...arPublish,
   ...arReplies,
+  ...arInbox,
   ...arTrends,
   ...arGenres,
   ...arPlayer,
@@ -130,7 +131,6 @@ const ar = {
   ...arWebsite,
   ...arWorkflows,
   ...arBusiness,
-  ...arInbox,
 };
 const en = {
   ...enBase,
@@ -146,6 +146,7 @@ const en = {
   ...enIdeas,
   ...enPublish,
   ...enReplies,
+  ...enInbox,
   ...enTrends,
   ...enGenres,
   ...enPlayer,
@@ -158,7 +159,6 @@ const en = {
   ...enWebsite,
   ...enWorkflows,
   ...enBusiness,
-  ...enInbox,
 };
 
 export type MessageKey = keyof typeof ar;
@@ -197,6 +197,15 @@ export function useT(): I18n {
   const t = useCallback((key: MessageKey, vars?: Vars) => translate(lang, key, vars), [lang]);
   const L = useCallback((text: LText) => pickL(lang, text), [lang]);
   return { lang, dir: dirFor(lang), t, L };
+}
+
+/** A label's leading emoji ("🚗 سيارات" → "سيارات"), for the Social chips; a label of emoji only stays as it is. */
+const LEADING_EMOJI =
+  /^(?:(?:\p{Extended_Pictographic}|\p{Emoji_Presentation})(?:\uFE0F|\u200D(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}))*\s*)+/u;
+
+/** `label` without its leading emoji: Social chrome (titles, buttons, chips) carries none (tools/18 §7). */
+export function withoutEmoji(label: string): string {
+  return label.replace(LEADING_EMOJI, "") || label;
 }
 
 /** Keep <html lang dir> in sync with the chosen language. Mount once (the app shell does). */
