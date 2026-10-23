@@ -78,6 +78,7 @@
   "trends.ritual.formatPh": "e.g. before and after, POV, one take…",
   "trends.ritual.save": "Save to Ideas",
   "trends.ritual.saved": "{n} saved to Ideas ✓",
+  "trends.ritual.duplicate": "Already saved",
   "trends.ritual.last": "Last pasted: {date}",
   "trends.ritual.none": "Nothing pasted yet",
   "trends.ritual.old": "Old, paste fresh ones",

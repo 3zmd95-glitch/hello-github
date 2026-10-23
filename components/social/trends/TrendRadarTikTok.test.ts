@@ -26,16 +26,16 @@ const row = (over: Partial<TrendItemInput> & { id: string }): TrendItemInput => 
 
 const PROOF = [
   {
-    url: "https://www.tiktok.com/@alice/video/7561234567890123456",
+    url: "https://www.tiktok.com/@alice/video/7699043269686190656",
     creator: "@alice",
     postedAt: "2026-10-21T09:00:00.000Z",
   },
   {
-    url: "https://www.tiktok.com/@bob/video/7560000000000000000",
+    url: "https://www.tiktok.com/@bob/video/7697930014163178567",
     creator: "@bob",
     postedAt: "2026-10-18T09:00:00.000Z",
   },
-  { url: "https://www.tiktok.com/@carol/video/7550000000000000000", creator: "@carol" },
+  { url: "https://www.tiktok.com/@carol/video/7698672184512149589", creator: "@carol" },
 ];
 
 const TAGS = [
@@ -174,6 +174,11 @@ describe("TikTok Discovery hashtags in the radar", () => {
       expect(a.getAttribute("target")).toBe("_blank");
       expect(a.getAttribute("rel")).toContain("noopener");
     }
+    // Each link is a 44px tap target (tools/18 §3.3) around the chip, which keeps its look.
+    for (const a of links) {
+      expect(a.className).toContain("min-h-11");
+      expect(a.querySelector(".px-chip")).not.toBeNull();
+    }
     expect(links[0].textContent).toContain("@alice");
     expect(links[0].textContent).toContain("21");
     expect(links[0].textContent).toContain("2026");
@@ -262,11 +267,32 @@ describe("the weekly Instagram sounds card", () => {
     expect(byId(ritual(), "ritual-last")!.getAttribute("data-stale")).toBe("false");
     expect(ritual().querySelectorAll('[data-testid="ritual-last-sound"]')).toHaveLength(2);
     expect(byId(ritual(), "ritual-last-format")!.textContent).toBe("POV");
-    // The form is empty again and cannot save the same paste twice.
+    // The form is empty again.
     expect((byId(ritual(), "ritual-sound-0") as HTMLInputElement).value).toBe("");
+    expect(byId(ritual(), "ritual-duplicate")).toBeNull();
+  });
+
+  it("pasting only what is already saved keeps the inputs and says so, never a silent clear", () => {
     type("ritual-sound-0", "Sound two");
     click("ritual-save");
-    expect(ideas()).toHaveLength(3);
+    expect(ideas()).toHaveLength(1);
+    type("ritual-sound-0", "  sound TWO ");
+    type("ritual-sound-1", "Sound two");
+    click("ritual-save");
+    expect(ideas()).toHaveLength(1);
+    expect((byId(ritual(), "ritual-sound-0") as HTMLInputElement).value).toBe("  sound TWO ");
+    expect((byId(ritual(), "ritual-sound-1") as HTMLInputElement).value).toBe("Sound two");
+    expect(byId(ritual(), "ritual-duplicate")!.textContent).toBe("كلها محفوظة من قبل");
+    expect(byId(ritual(), "ritual-saved")).toBeNull();
+    act(() => useStore.getState().setSettings({ lang: "en" }));
+    expect(byId(ritual(), "ritual-duplicate")!.textContent).toBe("Already saved");
+    // Typing again clears the notice; a mix of old and new saves only the new one and clears the form.
+    type("ritual-sound-2", "Sound three");
+    expect(byId(ritual(), "ritual-duplicate")).toBeNull();
+    click("ritual-save");
+    expect(ideas()).toHaveLength(2);
+    expect((byId(ritual(), "ritual-sound-0") as HTMLInputElement).value).toBe("");
+    expect(byId(ritual(), "ritual-saved")!.textContent).toContain("1");
   });
 
   it("calls a paste older than a week old, and never offers a reminder", () => {

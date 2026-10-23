@@ -78,6 +78,7 @@
   "trends.ritual.formatPh": "مثلًا: قبل وبعد، POV، لقطة وحدة…",
   "trends.ritual.save": "احفظ في الأفكار",
   "trends.ritual.saved": "انحفظ {n} في الأفكار ✓",
+  "trends.ritual.duplicate": "كلها محفوظة من قبل",
   "trends.ritual.last": "آخر لصق: {date}",
   "trends.ritual.none": "ما لصقت أصوات بعد",
   "trends.ritual.old": "قديمة، الصق أصوات جديدة",

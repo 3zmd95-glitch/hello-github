@@ -400,11 +400,60 @@ describe("runTikTokTags", () => {
     expect(rows(out).some((i) => i.title === "#velocityedit")).toBe(true);
   });
 
-  it("stops at the run budget instead of throwing", async () => {
+  it("stops at the run budget instead of throwing: SA gets its lists, US gets nothing, and the note says budget", async () => {
     const f = discovery();
     const out = await runTikTokTags(ctx(f, { budget: 3 }));
-    expect(f.mock.calls.length).toBeLessThanOrEqual(3);
-    expect(out.ok === false || out.degraded === true).toBe(true);
+    expect(f.mock.calls.length).toBe(3);
+    expect(out.ok && out.degraded).toBe(true);
+    expect(out.ok && out.note).toContain("budget");
+    expect(out.ok && out.note).toContain("US");
+    expect(rows(out).some((i) => i.region === "US")).toBe(false);
+    expect(rows(out).filter((i) => i.region === "SA").length).toBeGreaterThan(0);
+    expect(rows(out).every((i) => i.proof === undefined)).toBe(true);
+  });
+
+  it("decodes a proof video's post time from the literal TikTok id (not through the test helper)", async () => {
+    // 7692240280929520917 >> 32 = 1790989255 s = 2026-10-03T01:00:55Z.
+    const out = await runTikTokTags(
+      ctx(
+        discovery({
+          videos: (_r, ids) =>
+            ok(
+              ids.map((id) => ({
+                hashtag_id: id,
+                top_video_list: [
+                  {
+                    video_id: "7692240280929520917",
+                    share_url: "https://www.tiktok.com/@dana/video/7692240280929520917?lang=en",
+                  },
+                ],
+              })),
+            ),
+        }),
+      ),
+    );
+    const first = rows(out).find((i) => i.id === "tiktok:SA:tag-velocityedit")!;
+    expect(first.proof).toEqual([
+      {
+        url: "https://www.tiktok.com/@dana/video/7692240280929520917",
+        creator: "@dana",
+        postedAt: "2026-10-03T01:00:55.000Z",
+      },
+    ]);
+  });
+
+  it("puts the problems before the counts, so the clip keeps what went wrong", async () => {
+    const out = await runTikTokTags(
+      ctx(
+        discovery({
+          lists: (region, industry) => ok(region === "SA" ? [] : DEFAULT_LISTS[industry]),
+          videos: () => json({ code: 40002, message: "x".repeat(150) }),
+        }),
+      ),
+    );
+    expect(out.ok && out.note).toMatch(/^SA: no hashtags/);
+    expect(out.ok && out.note!.length).toBeLessThanOrEqual(200);
+    expect(out.ok && out.note).toContain("US videos: code 40002");
   });
 });
 

@@ -34,9 +34,11 @@ export default function SoundRitual() {
     e.preventDefault();
     const texts = ritualTexts({ sounds, format, day: today, lang, ideas });
     for (const text of texts) addIdea({ text, source: "trend", platform: "instagram" });
+    setSavedCount(texts.length);
+    // Everything typed was saved already: keep it on screen and say so, never a silent clear.
+    if (!texts.length) return;
     setSounds(blank());
     setFormat("");
-    setSavedCount(texts.length);
   };
 
   return (
@@ -88,9 +90,15 @@ export default function SoundRitual() {
         <button type="submit" className="px-btn w-full" disabled={!typed} data-testid="ritual-save">
           {t("trends.ritual.save")}
         </button>
-        {savedCount !== null && savedCount > 0 && (
-          <p className="text-tint text-xs" role="status" data-testid="ritual-saved">
-            {t("trends.ritual.saved", { n: savedCount })}
+        {savedCount !== null && (
+          <p
+            className={savedCount > 0 ? "text-tint text-xs" : "text-ink-2 text-xs"}
+            role="status"
+            data-testid={savedCount > 0 ? "ritual-saved" : "ritual-duplicate"}
+          >
+            {savedCount > 0
+              ? t("trends.ritual.saved", { n: savedCount })
+              : t("trends.ritual.duplicate")}
           </p>
         )}
       </form>

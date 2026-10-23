@@ -67,10 +67,10 @@ const VIDEOS_SEEN = 20;
 export const TIKTOK_TTL_MS = 2 * DAY_MS;
 const MESSAGE_MAX = 80;
 
-type Asked = { list: unknown[] } | { error: string };
+type Answer = { list: unknown[] } | { error: string };
 
 /** One budgeted Discovery call: its `data.list`, or why there is none (TikTok's code and message, else HTTP). */
-async function ask(ctx: SourceCtx, url: string, token: string): Promise<Asked> {
+async function ask(ctx: SourceCtx, url: string, token: string): Promise<Answer> {
   let reply;
   try {
     reply = await fetchText(ctx.fetch, ctx.budget, url, {
@@ -195,7 +195,7 @@ export async function runTikTokTags(ctx: SourceCtx): Promise<SourceOutput> {
   const advertiser = token?.advertiser_ids[0];
   if (!token || !advertiser) return { ok: false, error: "not_configured" };
   const accessToken = token.access_token;
-  const asked = {
+  const common = {
     advertiser_id: advertiser,
     discovery_type: "HASHTAG",
     date_range: TIKTOK_DATE_RANGE,
@@ -211,7 +211,7 @@ export async function runTikTokTags(ctx: SourceCtx): Promise<SourceOutput> {
         ask(
           ctx,
           withParams(TT_TRENDING_URL, {
-            ...asked,
+            ...common,
             country_code: region,
             category_name: industry.name,
           }),
@@ -244,7 +244,7 @@ export async function runTikTokTags(ctx: SourceCtx): Promise<SourceOutput> {
       const found = await ask(
         ctx,
         withParams(TT_VIDEOS_URL, {
-          ...asked,
+          ...common,
           country_code: region,
           hashtag_ids: JSON.stringify(asking.map((t) => t.id)),
         }),
@@ -259,7 +259,8 @@ export async function runTikTokTags(ctx: SourceCtx): Promise<SourceOutput> {
   }
 
   if (!regionsOk) return { ok: false, error: oneLine(problems.join("; "), 200) ?? "no hashtags" };
-  const note = oneLine([...counts, ...problems].join("; "), 200);
+  // Problems first: the 200-character clip must never cut off what went wrong.
+  const note = oneLine([...problems, ...counts].join("; "), 200);
   return {
     ok: true,
     items,

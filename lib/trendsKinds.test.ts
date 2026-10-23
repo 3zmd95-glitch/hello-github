@@ -27,11 +27,11 @@ const tiktokRow = {
   periodDays: 7,
   proof: [
     {
-      url: "https://www.tiktok.com/@alice/video/7561234567890123456",
+      url: "https://www.tiktok.com/@alice/video/7699043269686190656",
       creator: "@alice",
       postedAt: "2026-10-21T09:00:00.000Z",
     },
-    { url: "https://www.tiktok.com/@bob/video/7560000000000000000" },
+    { url: "https://www.tiktok.com/@bob/video/7698672184512149589" },
   ],
 };
 

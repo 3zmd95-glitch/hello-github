@@ -204,11 +204,11 @@ function tiktokRows() {
       score: 97,
       proof: [
         {
-          url: "https://www.tiktok.com/@alice/video/7561234567890123456",
+          url: "https://www.tiktok.com/@alice/video/7699043269686190656",
           creator: "@alice",
           postedAt: "2026-10-21T09:00:00.000Z",
         },
-        { url: "https://www.tiktok.com/@bob/video/7560000000000000000", creator: "@bob" },
+        { url: "https://www.tiktok.com/@bob/video/7698672184512149589", creator: "@bob" },
       ],
     },
     {
@@ -221,7 +221,7 @@ function tiktokRows() {
       score: 97,
       proof: [
         {
-          url: "https://www.tiktok.com/@carol/video/7561234567890123457",
+          url: "https://www.tiktok.com/@carol/video/7699414354860787278",
           creator: "@carol",
           postedAt: "2026-10-22T09:00:00.000Z",
         },
@@ -477,9 +477,13 @@ test("TikTok Discovery hashtags: SA in the Arabic tab, US in the English one, wi
   const videos = proof.getByTestId("trend-proof-link");
   await expect(videos.first()).toHaveAttribute(
     "href",
-    "https://www.tiktok.com/@alice/video/7561234567890123456",
+    "https://www.tiktok.com/@alice/video/7699043269686190656",
   );
   await expect(videos.first()).toHaveAttribute("target", "_blank");
+  // Every proof link is a 44px tap target, on the phone and on the desktop.
+  for (const link of await videos.all()) {
+    expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
   await expect(videos.first()).toContainText("@alice");
   await expect(videos.first()).toContainText("2026");
   await expect(videos.nth(1)).toContainText("@bob");

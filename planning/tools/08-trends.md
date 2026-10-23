@@ -190,13 +190,14 @@ What landed, and where it differs from the table above:
 
 ## Built (Scout 02, Oct 23 2026): TikTok hashtags for SA and US, kind filter, proof videos, the weekly Instagram sounds card
 
-Scout plan: `scouts/02-trends.md` (T1 to T3 and T6 of its build plan). What landed, and where it differs from that plan:
+Scout plan: `planning/scouts/2026-10-23-02-trends.md` (lands with PR #84; T1 to T3 and T6 of its build plan). What landed, and where it differs from that plan:
 
 - **Worker (T1 + T2)**: `workers/scout/src/trends/tiktokTags.ts`, a **daily** source (`TREND_SOURCES` key `tiktok`, label
   "TikTok Discovery", on by default and in `wrangler.jsonc`; it needs a redeploy). With the ONUS Content Planner token the category pages
   already use (`readAdsToken`): `trending_list` (`discovery_type=HASHTAG`, `date_range=7DAY`) for SPECIAL_EFFECTS, PHOTOGRAPHY and
   MUSIC in SA and in US (6 calls), merged by TikTok's own `rank_position` (tie: that order, one row per hashtag at its best rank, its
-  industries in `tags`), `#fyp`-type tags out (the Tavily stoplist), top 15 a region. Then one `video_list` per region for the first 10
+  industries in `tags`; `rank_position` is per industry list, so ranks tie across the three industries and `score` is our own
+  ordering of the merged list, not a TikTok number), `#fyp`-type tags out (the Tavily stoplist), top 15 a region. Then one `video_list` per region for the first 10
   hashtags that are top in that country (2 calls): up to 3 videos each as `proof` ({ url, creator, postedAt }), `postedAt` decoded from the
   video id (`postDate.ts`: the owner's "real post dates, live proof" rule). 8 calls, 1 KV read (the token), no extra KV write; the rows ride
   the feed's one write on the 21:05 UTC daily slot (27 of the 38 calls with the keyword search; `RUN_BUDGET` untouched). Rows live 2 days.

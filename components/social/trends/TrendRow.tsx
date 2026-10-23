@@ -170,14 +170,16 @@ export default function TrendRow({
                   href={p.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-chip text-ink no-underline hover:underline"
+                  className="group inline-flex min-h-11 items-center"
                   data-testid="trend-proof-link"
                   data-posted-at={p.postedAt}
                 >
-                  <bdi dir="ltr">{p.creator ?? "TikTok"}</bdi>
-                  {p.postedAt && (
-                    <span className="num">{` · ${formatDate(p.postedAt, lang)}`}</span>
-                  )}
+                  <span className="px-chip no-underline group-hover:underline">
+                    <bdi dir="ltr">{p.creator ?? "TikTok"}</bdi>
+                    {p.postedAt && (
+                      <span className="num">{` · ${formatDate(p.postedAt, lang)}`}</span>
+                    )}
+                  </span>
                 </a>
               ))}
             </div>

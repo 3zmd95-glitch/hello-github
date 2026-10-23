@@ -130,6 +130,7 @@ describe("the ritual's messages", () => {
     "trends.ritual.formatPh",
     "trends.ritual.save",
     "trends.ritual.saved",
+    "trends.ritual.duplicate",
     "trends.ritual.last",
     "trends.ritual.none",
     "trends.ritual.old",
