@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { handle, type Env } from "../scout";
 import { runTick, SYNC_SLOTS, utcSlot } from "./cron";
 import {
@@ -6,11 +6,18 @@ import {
   mergeJob,
   parseJobInput,
   prune,
+  RETRY_STEP_MS,
   runDue,
   type JobInput,
   type PublishJob,
 } from "./publish";
-import { FRESH_CONTAINER_WAIT_MS, ttChunks, TT_CHUNK } from "./publishers";
+import {
+  COMMENT_ENABLED,
+  COMMENT_MIN_BUDGET,
+  FRESH_CONTAINER_WAIT_MS,
+  ttChunks,
+  TT_CHUNK,
+} from "./publishers";
 import { keys, Store } from "./store";
 import type { SocialPlatform, TokenSet } from "./types";
 
@@ -1315,6 +1322,453 @@ describe("TikTok personal-account publishing", () => {
         maxVideoDurationSeconds: 60,
       },
     });
+  });
+});
+
+/* ---------- A4: the first comment ---------- */
+
+describe("first comment", () => {
+  const ig = (extra: Record<string, Handler> = {}) =>
+    mockFetch({
+      "GET graph.instagram.com/v21.0/me": igMe,
+      "POST graph.instagram.com/v21.0/17841/media": () => ({ id: "c" }),
+      "GET graph.instagram.com/v21.0/c": () => ({ status_code: "FINISHED" }),
+      "POST graph.instagram.com/v21.0/17841/media_publish": () => ({ id: "m42" }),
+      "GET graph.instagram.com/v21.0/m42": () => ({ permalink: "https://www.instagram.com/p/P/" }),
+      ...extra,
+    });
+  const imageJob = (firstComment?: string) =>
+    job({
+      media: { url: IMAGE, kind: "image" },
+      targets: { instagram: { caption: "ig", ...(firstComment ? { firstComment } : {}) } },
+    });
+  const COMMENTS = "POST graph.instagram.com/v21.0/m42/comments";
+
+  // Threads and YouTube have their steps but are not enabled (scope honesty): a test that needs one switches it on.
+  afterEach(() => {
+    COMMENT_ENABLED.splice(0, COMMENT_ENABLED.length, "instagram");
+  });
+
+  it("parseJobInput keeps a trimmed first comment for Instagram only; Threads, YouTube and TikTok do not carry one", () => {
+    const input = job({
+      targets: {
+        instagram: { caption: "a", firstComment: "  #match #cut  " },
+        youtube: { caption: "b", firstComment: "link in the description" },
+        threads: { caption: "t", firstComment: "reply" },
+        tiktok: { caption: "c", firstComment: "no api for this" },
+      },
+    });
+    const r = parseJobInput(input);
+    expect(r.ok && r.job.targets.instagram?.firstComment).toBe("#match #cut");
+    expect(r.ok && "firstComment" in r.job.targets.youtube!).toBe(false);
+    expect(r.ok && "firstComment" in r.job.targets.threads!).toBe(false);
+    expect(r.ok && "firstComment" in r.job.targets.tiktok!).toBe(false);
+    // Switched on (a later change), YouTube keeps it.
+    COMMENT_ENABLED.push("youtube");
+    const on = parseJobInput(input);
+    expect(on.ok && on.job.targets.youtube?.firstComment).toBe("link in the description");
+    const blank = parseJobInput(
+      job({ targets: { instagram: { caption: "a", firstComment: " " } } }),
+    );
+    expect(blank.ok && "firstComment" in blank.job.targets.instagram!).toBe(false);
+  });
+
+  it.each([
+    [{ instagram: { caption: "a", firstComment: "x".repeat(2201) } }, "instagram.firstComment"],
+    [{ instagram: { caption: "a", firstComment: 7 } }, "instagram.firstComment"],
+    [{ threads: { caption: "a", firstComment: "x".repeat(501) } }, "threads.firstComment"],
+  ])("parseJobInput refuses %j (%s)", (targets, detail) => {
+    expect(
+      parseJobInput(job({ media: { url: IMAGE, kind: "image" }, targets } as Partial<JobInput>)),
+    ).toEqual({ ok: false, detail });
+  });
+
+  it("Instagram: comments on the next tick, once, and never touches the post's own state", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram", { canReply: true });
+    await queue(env, imageJob("#match #cut"));
+    const bodies: URLSearchParams[] = [];
+    const fetchMock = ig({
+      [COMMENTS]: (_u, init) => {
+        bodies.push(formOf(init));
+        return { id: "cm1" };
+      },
+    });
+    const first = await runDue(env, { fetch: fetchMock, now: NOW });
+    expect(first.published).toEqual(["post1:instagram"]);
+    expect(fetchMock.calls()).not.toContain(COMMENTS);
+
+    // Thirty seconds later is too soon: the platform gets a minute to settle.
+    await runDue(env, { fetch: fetchMock, now: later(30_000) });
+    expect(fetchMock.calls()).not.toContain(COMMENTS);
+
+    const r = await runDue(env, { fetch: fetchMock, now: later(5 * 60_000) });
+    expect(r).toEqual({ advanced: ["post1:instagram:comment"], published: [], failed: [] });
+    expect(Object.fromEntries(bodies[0])).toEqual({
+      message: "#match #cut",
+      access_token: "instagram-token",
+    });
+    expect((await jobOf(env)).targets.instagram).toMatchObject({
+      state: "published",
+      postId: "m42",
+      comment: { state: "published", postId: "cm1" },
+    });
+
+    // Done: later ticks make no calls and no KV write.
+    const calls = fetchMock.calls().length;
+    const kv = env.SOCIAL_KV.store.get(keys.publishJobs);
+    await runDue(env, { fetch: fetchMock, now: later(15 * 60_000) });
+    expect(fetchMock.calls()).toHaveLength(calls);
+    expect(env.SOCIAL_KV.store.get(keys.publishJobs)).toBe(kv);
+  });
+
+  it("a post without a first comment is untouched by all of this", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram", { canReply: true });
+    await queue(env, imageJob());
+    const fetchMock = ig();
+    await runDue(env, { fetch: fetchMock, now: NOW });
+    const calls = fetchMock.calls().length;
+    expect(await runDue(env, { fetch: fetchMock, now: later(5 * 60_000) })).toEqual({
+      advanced: [],
+      published: [],
+      failed: [],
+    });
+    expect(fetchMock.calls()).toHaveLength(calls);
+    expect((await jobOf(env)).targets.instagram?.comment).toBeUndefined();
+  });
+
+  it("Instagram without the comment permission: the comment fails, the post stays published", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram"); // canPublish only, no canReply
+    await queue(env, imageJob("#match"));
+    const fetchMock = ig();
+    await runDue(env, { fetch: fetchMock, now: NOW });
+    const r = await runDue(env, { fetch: fetchMock, now: later(5 * 60_000) });
+    expect(r.failed).toEqual([]);
+    expect(fetchMock.calls()).not.toContain(COMMENTS);
+    expect((await jobOf(env)).targets.instagram).toMatchObject({
+      state: "published",
+      comment: { state: "failed", error: "no_permission" },
+    });
+  });
+
+  /** The queue with Instagram's comment pending: the post published at NOW, the comment due at +5 min. */
+  async function pending(env: ReturnType<typeof makeEnv>, fetchMock: ReturnType<typeof mockFetch>) {
+    await connect(env, "instagram", { canReply: true });
+    await queue(env, imageJob("hi"));
+    await runDue(env, { fetch: fetchMock, now: NOW });
+  }
+  const commentCalls = (f: ReturnType<typeof mockFetch>) => f.calls().filter((c) => c === COMMENTS);
+
+  it("a comment is never posted twice: a 5xx, a lost connection and a reply without an id are final after ONE call", async () => {
+    const replies: Record<string, Handler> = {
+      "a 5xx": () => json({ error: { message: "boom", code: 2 } }, 500),
+      "a lost connection": () => {
+        throw new TypeError("network down");
+      },
+      "a 200 without an id": () => ({}),
+    };
+    for (const [what, reply] of Object.entries(replies)) {
+      const env = makeEnv();
+      const fetchMock = ig({ [COMMENTS]: reply });
+      await pending(env, fetchMock);
+      const r = await runDue(env, { fetch: fetchMock, now: later(5 * 60_000) });
+      expect(r.failed, what).toEqual([]);
+      const t = (await jobOf(env)).targets.instagram!;
+      expect(t.state, what).toBe("published");
+      expect(t.comment, what).toMatchObject({ state: "failed", error: "unknown_outcome" });
+      expect(t.comment?.detail, what).toBeTruthy();
+      // Later ticks, however many, never call again.
+      for (let i = 2; i < 8; i++)
+        await runDue(env, { fetch: fetchMock, now: later(i * 60 * 60_000) });
+      expect(commentCalls(fetchMock), what).toHaveLength(1);
+    }
+    // Meta's own words stay in the note for the owner.
+    const env = makeEnv();
+    const fetchMock = ig({ [COMMENTS]: replies["a 5xx"] });
+    await pending(env, fetchMock);
+    await runDue(env, { fetch: fetchMock, now: later(5 * 60_000) });
+    expect((await jobOf(env)).targets.instagram?.comment?.detail).toContain("boom");
+  });
+
+  it("a refusal (4xx) is final at once with Meta's words", async () => {
+    const env = makeEnv();
+    const fetchMock = ig({
+      [COMMENTS]: () => json({ error: { message: "no way", code: 100 } }, 400),
+    });
+    await pending(env, fetchMock);
+    await runDue(env, { fetch: fetchMock, now: later(5 * 60_000) });
+    await runDue(env, { fetch: fetchMock, now: later(60 * 60_000) });
+    expect((await jobOf(env)).targets.instagram?.comment).toMatchObject({
+      state: "failed",
+      error: "rejected",
+      detail: expect.stringContaining("no way"),
+    });
+    expect(commentCalls(fetchMock)).toHaveLength(1);
+  });
+
+  it("a rate limit cannot have created the comment: it is retried with back-off, once more and it posts exactly once", async () => {
+    const env = makeEnv();
+    let limited = true;
+    const fetchMock = ig({
+      [COMMENTS]: () =>
+        limited ? json({ error: { message: "slow down", code: 4 } }, 429) : { id: "cm1" },
+    });
+    await pending(env, fetchMock);
+    await runDue(env, { fetch: fetchMock, now: later(5 * 60_000) });
+    expect((await jobOf(env)).targets.instagram?.comment).toMatchObject({
+      state: "queued",
+      attempts: 1,
+      error: "rate_limited",
+      nextAt: later(5 * 60_000 + RETRY_STEP_MS).toISOString(),
+    });
+    // Not due yet: nothing is called.
+    await runDue(env, { fetch: fetchMock, now: later(6 * 60_000) });
+    expect(commentCalls(fetchMock)).toHaveLength(1);
+    limited = false;
+    await runDue(env, { fetch: fetchMock, now: later(11 * 60_000) });
+    expect((await jobOf(env)).targets.instagram).toMatchObject({
+      state: "published",
+      comment: { state: "published", postId: "cm1" },
+    });
+    await runDue(env, { fetch: fetchMock, now: later(60 * 60_000) });
+    expect(commentCalls(fetchMock)).toHaveLength(2);
+  });
+
+  it("a rate limit that never lifts gives up after MAX_ATTEMPTS, the post untouched", async () => {
+    const env = makeEnv();
+    const fetchMock = ig({
+      [COMMENTS]: () => json({ error: { message: "slow down", code: 4 } }, 429),
+    });
+    await pending(env, fetchMock);
+    for (let i = 1; i <= MAX_ATTEMPTS + 2; i++) {
+      await runDue(env, { fetch: fetchMock, now: later(i * 60 * 60_000) });
+    }
+    const t = (await jobOf(env)).targets.instagram!;
+    expect(t.state).toBe("published");
+    expect(t.comment).toMatchObject({ state: "failed", error: "rate_limited" });
+    expect(commentCalls(fetchMock)).toHaveLength(MAX_ATTEMPTS);
+  });
+
+  it("write-ahead: the comment is `processing` in the queue before the call is made", async () => {
+    const env = makeEnv();
+    let seen: PublishJob["targets"]["instagram"];
+    const fetchMock = ig({
+      [COMMENTS]: () => {
+        // The queue as the KV holds it while the call is out.
+        seen = (
+          JSON.parse(env.SOCIAL_KV.store.get(keys.publishJobs)!) as Record<string, PublishJob>
+        ).post1.targets.instagram;
+        return { id: "cm1" };
+      },
+    });
+    await pending(env, fetchMock);
+    await runDue(env, { fetch: fetchMock, now: later(5 * 60_000) });
+    expect(seen?.comment).toMatchObject({
+      state: "processing",
+      startedAt: later(5 * 60_000).toISOString(),
+    });
+    expect(seen?.comment?.postId).toBeUndefined();
+    expect((await jobOf(env)).targets.instagram?.comment).toMatchObject({
+      state: "published",
+      postId: "cm1",
+    });
+  });
+
+  it("a comment left `processing` with no id (the run died mid-call) is failed, never called again", async () => {
+    const env = makeEnv();
+    const fetchMock = ig({ [COMMENTS]: () => ({ id: "cm1" }) });
+    await pending(env, fetchMock);
+    // What the write-ahead leaves behind when a run dies before it can write the outcome.
+    const store = Store.from(env)!;
+    const jobs = await store.getJobs<PublishJob>();
+    jobs.post1.targets.instagram = {
+      ...jobs.post1.targets.instagram!,
+      comment: {
+        caption: "hi",
+        state: "processing",
+        attempts: 0,
+        startedAt: later(5 * 60_000).toISOString(),
+      },
+    };
+    await store.putJobs(jobs);
+    const r = await runDue(env, { fetch: fetchMock, now: later(20 * 60_000) });
+    expect(r.advanced).toEqual(["post1:instagram:comment"]);
+    expect(r.failed).toEqual([]);
+    expect((await jobOf(env)).targets.instagram).toMatchObject({
+      state: "published",
+      comment: { state: "failed", error: "unknown_outcome" },
+    });
+    await runDue(env, { fetch: fetchMock, now: later(60 * 60_000) });
+    expect(commentCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it("without the call budget for the comment (and a token refresh) nothing is started or changed", async () => {
+    const env = makeEnv();
+    const fetchMock = ig({ [COMMENTS]: () => ({ id: "cm1" }) });
+    await pending(env, fetchMock);
+    await runDue(env, {
+      fetch: fetchMock,
+      now: later(5 * 60_000),
+      budget: COMMENT_MIN_BUDGET.instagram - 1,
+    });
+    expect(commentCalls(fetchMock)).toHaveLength(0);
+    expect((await jobOf(env)).targets.instagram?.comment).toBeUndefined();
+    // With enough budget the next tick posts it.
+    await runDue(env, { fetch: fetchMock, now: later(10 * 60_000) });
+    expect((await jobOf(env)).targets.instagram?.comment).toMatchObject({ state: "published" });
+  });
+
+  it("Threads and YouTube comments are unreachable for now: a job that somehow carries one never calls them", async () => {
+    const env = makeEnv();
+    await connect(env, "threads");
+    await connect(env, "youtube", { expiresAt: later(30 * 86_400_000).toISOString() });
+    const store = Store.from(env)!;
+    const jobs = await store.getJobs<PublishJob>();
+    const done = (platform: "threads" | "youtube", postId: string) => ({
+      caption: "x",
+      state: "published" as const,
+      attempts: 0,
+      postId,
+      publishedAt: NOW.toISOString(),
+      firstComment: "later",
+    });
+    jobs.post1 = {
+      ...mergeJob(
+        undefined,
+        job({ media: undefined, targets: { threads: { caption: "hi" } } }),
+        NOW,
+      ),
+      targets: { threads: done("threads", "t1"), youtube: done("youtube", "v1") },
+    };
+    await store.putJobs(jobs);
+    const fetchMock = mockFetch({});
+    const r = await runDue(env, { fetch: fetchMock, now: later(60 * 60_000) });
+    expect(r.advanced).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("Threads (switched on): the comment is a reply to the published post, through the same container flow", async () => {
+    COMMENT_ENABLED.push("threads");
+    const env = makeEnv();
+    await connect(env, "threads");
+    await queue(
+      env,
+      job({
+        media: undefined,
+        targets: { threads: { caption: "hi", firstComment: "more below" } },
+      }),
+    );
+    const created: URLSearchParams[] = [];
+    const fetchMock = mockFetch({
+      "POST graph.threads.net/v1.0/me/threads": (_u, init) => {
+        created.push(formOf(init));
+        return { id: created.length === 1 ? "c1" : "c2" };
+      },
+      "GET graph.threads.net/v1.0/c1": () => ({ status: "FINISHED" }),
+      "GET graph.threads.net/v1.0/c2": () => ({ status: "FINISHED" }),
+      "POST graph.threads.net/v1.0/me/threads_publish": (_u, init) =>
+        formOf(init).get("creation_id") === "c1" ? { id: "t1" } : { id: "r1" },
+      "GET graph.threads.net/v1.0/t1": () => ({ permalink: "https://www.threads.com/@3z/post/t1" }),
+    });
+    await runDue(env, { fetch: fetchMock, now: NOW, sleep: async () => undefined });
+    expect(created).toHaveLength(1);
+    await runDue(env, { fetch: fetchMock, now: later(5 * 60_000), sleep: async () => undefined });
+    expect(Object.fromEntries(created[1])).toMatchObject({
+      media_type: "TEXT",
+      text: "more below",
+      reply_to_id: "t1",
+    });
+    expect((await jobOf(env)).targets.threads).toMatchObject({
+      state: "published",
+      postId: "t1",
+      comment: { state: "published", postId: "r1" },
+    });
+  });
+
+  it("YouTube (switched on): a top-level comment on the uploaded video; missing scope fails the comment only", async () => {
+    COMMENT_ENABLED.push("youtube");
+    const env = makeEnv();
+    await connect(env, "youtube", { expiresAt: later(30 * 86_400_000).toISOString() });
+    await queue(
+      env,
+      job({ targets: { youtube: { caption: "d", title: "t", firstComment: "Subscribe!" } } }),
+    );
+    let scope = true;
+    const fetchMock = mockFetch({
+      "GET cdn.example/clip.mp4": () => video(512),
+      "POST www.googleapis.com/upload/youtube/v3/videos": () =>
+        json({}, 200, { Location: "https://upload.example/session/1" }),
+      "PUT upload.example/session/1": () => ({ id: "vid1" }),
+      "POST www.googleapis.com/youtube/v3/commentThreads": (url, init) => {
+        expect(url.searchParams.get("part")).toBe("snippet");
+        expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer youtube-token");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          snippet: {
+            videoId: "vid1",
+            topLevelComment: { snippet: { textOriginal: "Subscribe!" } },
+          },
+        });
+        return scope
+          ? { id: "yc1" }
+          : json(
+              {
+                error: {
+                  code: 403,
+                  message: "Request had insufficient authentication scopes.",
+                  errors: [{ reason: "insufficientPermissions" }],
+                },
+              },
+              403,
+            );
+      },
+    });
+    await runDue(env, { fetch: fetchMock, now: NOW });
+    await runDue(env, { fetch: fetchMock, now: later(5 * 60_000) });
+    expect((await jobOf(env)).targets.youtube).toMatchObject({
+      state: "published",
+      comment: { state: "published", postId: "yc1" },
+    });
+
+    scope = false;
+    await queue(env, {
+      ...job({ targets: { youtube: { caption: "d", title: "t", firstComment: "Subscribe!" } } }),
+      id: "post2",
+    });
+    await runDue(env, { fetch: fetchMock, now: later(60 * 60_000) });
+    await runDue(env, { fetch: fetchMock, now: later(2 * 60 * 60_000) });
+    expect((await jobOf(env, "post2")).targets.youtube).toMatchObject({
+      state: "published",
+      comment: { state: "failed", error: "no_permission" },
+    });
+  });
+
+  it("a replace keeps a published post's comment progress, and a pending comment keeps the job alive", async () => {
+    const first = mergeJob(undefined, imageJob("hi"), NOW);
+    first.targets.instagram = {
+      ...first.targets.instagram!,
+      state: "published",
+      postId: "m42",
+      publishedAt: NOW.toISOString(),
+      comment: { caption: "hi", state: "published", attempts: 0, postId: "cm1" },
+    };
+    const next = mergeJob(first, imageJob("something else"), later(1000));
+    expect(next.targets.instagram).toMatchObject({
+      firstComment: "hi",
+      comment: { state: "published", postId: "cm1" },
+    });
+    // Published 40 days ago but its comment never went out: still queue work, so not forgotten.
+    const stale = { ...first, updatedAt: "2026-08-01T00:00:00.000Z" };
+    stale.targets = {
+      instagram: { ...first.targets.instagram!, firstComment: "hi", comment: undefined },
+    };
+    expect(Object.keys(prune({ post1: stale }, NOW))).toEqual(["post1"]);
+    stale.targets.instagram = {
+      ...stale.targets.instagram!,
+      comment: first.targets.instagram!.comment,
+    };
+    expect(Object.keys(prune({ post1: stale }, NOW))).toEqual([]);
   });
 });
 

@@ -27,6 +27,12 @@
  *
  * The media must sit at a public https URL that answers with the file itself (not an HTML page): Meta pulls
  * it from its own servers; for YouTube and TikTok the Worker streams it through without buffering.
+ *
+ * First comment (A4), a separate step a tick after the post is published; it never changes the post's state
+ *   Instagram  POST /{media-id}/comments  message             (scope instagram_business_manage_comments = canReply)
+ *   Threads    POST /me/threads  media_type=TEXT, reply_to_id={post}, then threads_publish (the container flow)
+ *   YouTube    POST /youtube/v3/commentThreads?part=snippet   (scope youtube.force-ssl; no API to pin it)
+ *   TikTok     none (the Content Posting API has no comment endpoint)
  */
 
 import { bearer, fetchJson, type Http, type JsonReply } from "./http";
@@ -35,6 +41,7 @@ import { metaBody, type MetaError } from "./meta";
 import { TH_API } from "./threads";
 import { TT_API, publishingCapabilities, queryCreatorInfo } from "./tiktok";
 import { SocialError, type SocialPlatform, type TokenSet } from "./types";
+import { YT_API } from "./youtube";
 
 /* ---------- queue types (shared with publish.ts and the dashboard's lib/publish.ts) ---------- */
 
@@ -62,7 +69,12 @@ export type PublishErrorCode =
   | "rejected"
   | "rate_limited"
   | "upstream"
-  | "timeout";
+  | "timeout"
+  /**
+   * A first comment whose call failed in a way that leaves it unknown whether it was created (a lost connection, a
+   * 5xx, a reply without an id, a run that died mid-call). Never retried, so a comment cannot be posted twice.
+   */
+  | "unknown_outcome";
 
 export type YoutubePrivacy = "public" | "unlisted" | "private";
 export type TiktokPrivacy =
@@ -89,10 +101,20 @@ export interface TargetSpec {
   photoTitle?: string;
   photoCoverIndex?: number;
   autoAddMusic?: boolean;
+  /**
+   * A comment to post under the published post (Instagram, Threads, YouTube; TikTok has no API for it), on a
+   * later tick, as its own retriable step (A4).
+   */
+  firstComment?: string;
 }
 
 /** One platform of a job and how far it got. */
 export interface PublishTarget extends TargetSpec {
+  /**
+   * The first comment's own progress (a target of its own: `caption` is the comment, `postId` the comment's id).
+   * It starts once the post is published and never changes the post's `state`, whatever happens to it.
+   */
+  comment?: PublishTarget;
   state: TargetState;
   /** Transient failures so far (retried with back-off until MAX_ATTEMPTS). */
   attempts: number;
@@ -328,7 +350,7 @@ export const publishInstagram: Step = metaStep({
   statusOf: (b) => b.status_code ?? "",
 });
 
-export const publishThreads: Step = metaStep({
+const THREADS_FLOW: MetaFlow = {
   api: TH_API,
   owner: () => "me",
   ownerCalls: 0,
@@ -342,7 +364,127 @@ export const publishThreads: Step = metaStep({
   },
   statusFields: "status,error_message",
   statusOf: (b) => b.status ?? "",
-});
+};
+
+export const publishThreads: Step = metaStep(THREADS_FLOW);
+
+/* ---------- the first comment (A4) ---------- */
+
+/** Moves the comment forward; `postId` is the id the platform gave the published post. */
+export type CommentStep = (
+  comment: PublishTarget,
+  ctx: StepContext,
+  postId: string,
+) => Promise<PublishTarget>;
+
+/**
+ * Instagram: POST /{media-id}/comments (scope instagram_business_manage_comments, which the token has when the
+ * owner allowed auto-replies). One call.
+ */
+export const commentInstagram: CommentStep = async (c, ctx, postId) => {
+  if (!ctx.tokens.canReply) {
+    throw new PublishError(
+      "no_permission",
+      "Allow auto-replies for Instagram in Settings (it adds the comment permission) and reconnect.",
+    );
+  }
+  const done = graph(
+    await fetchJson<Created>(
+      ctx.http,
+      `${IG_API}/${postId}/comments`,
+      form({ message: c.caption, access_token: ctx.tokens.accessToken }),
+    ),
+    "comment",
+  );
+  if (!done.id) throw new PublishError("upstream", "comment: no comment id");
+  return published(c, ctx, { postId: done.id });
+};
+
+/**
+ * Threads: a reply is a TEXT container with `reply_to_id`, published like any post, so it goes through the same
+ * container flow as the post itself (create, check, publish) and may span ticks.
+ */
+export const commentThreads: CommentStep = (c, ctx, postId) =>
+  metaStep({
+    ...THREADS_FLOW,
+    createParams: (t) => ({ media_type: "TEXT", text: t.caption, reply_to_id: postId }),
+  })(c, { ...ctx, media: undefined });
+
+/**
+ * YouTube: POST /commentThreads (scope youtube.force-ssl: the upload scope alone is refused with 403, which is
+ * reported as `no_permission`). 50 quota units from the daily pool. There is no API to pin the comment.
+ */
+export const commentYoutube: CommentStep = async (c, ctx, videoId) => {
+  ctx.http.budget.take();
+  const doFetch = ctx.http.fetch;
+  let res: Response;
+  try {
+    res = await doFetch(`${YT_API}/commentThreads?part=snippet`, {
+      method: "POST",
+      headers: bearer(ctx.tokens.accessToken, {
+        "Content-Type": "application/json; charset=UTF-8",
+      }),
+      body: JSON.stringify({
+        snippet: { videoId, topLevelComment: { snippet: { textOriginal: c.caption } } },
+      }),
+    });
+  } catch {
+    throw new PublishError("upstream", "youtube: comment failed");
+  }
+  if (!res.ok) {
+    if (res.status === 403) {
+      const body = (await res
+        .clone()
+        .json()
+        .catch(() => null)) as {
+        error?: { message?: string; errors?: { reason?: string }[] };
+      } | null;
+      if (
+        /insufficient/i.test(body?.error?.errors?.[0]?.reason ?? "") ||
+        /scope/i.test(body?.error?.message ?? "")
+      ) {
+        throw new PublishError(
+          "no_permission",
+          "Reconnect YouTube with the comment permission (youtube.force-ssl) to post comments.",
+        );
+      }
+    }
+    return uploadFailure(res, "youtube comment");
+  }
+  const made = (await res.json().catch(() => null)) as { id?: string } | null;
+  if (!made?.id) throw new PublishError("upstream", "youtube: no comment id");
+  return published(c, ctx, { postId: made.id });
+};
+
+/** Every comment step there is; TikTok has no comment API. Which of them run is {@link COMMENT_ENABLED}. */
+export const COMMENT_STEPS: Partial<Record<SocialPlatform, CommentStep>> = {
+  instagram: commentInstagram,
+  threads: commentThreads,
+  youtube: commentYoutube,
+};
+
+/**
+ * The networks a first comment is accepted and run for: **Instagram only for now**. Threads needs its reply
+ * permission checked first (Meta names no endpoint-specific scope for replying to your own post) and YouTube needs
+ * `youtube.force-ssl` in the connect scopes plus a reconnect; their steps above stay, unreachable, until a later
+ * change adds them here and to the dashboard's `COMMENT_PLATFORMS`. (An array, not a frozen list, so the tests can
+ * switch a network on for the length of one test.)
+ */
+export const COMMENT_ENABLED: SocialPlatform[] = ["instagram"];
+
+/**
+ * Outbound calls a comment step may need at most, with the one token refresh that may come before it (the queue
+ * skips the step below this).
+ */
+export const COMMENT_MIN_BUDGET: Record<SocialPlatform, number> = {
+  instagram: 2,
+  threads: 4,
+  youtube: 2,
+  tiktok: 0,
+};
+
+/** The comment waits this long after the post went live: the platform gets a moment to settle. */
+export const COMMENT_DELAY_MS = 60_000;
 
 /* ---------- streaming the media (YouTube, TikTok) ---------- */
 

@@ -23,6 +23,7 @@ import {
   type Platform,
   type Post,
 } from "@/lib/domain";
+import { hashtagsCut } from "@/lib/hashtags";
 import { useT, type MessageKey } from "@/lib/i18n";
 import {
   autoPostOf,
@@ -32,8 +33,11 @@ import {
   captionLimit,
   captionWarnings,
   canPublishTo,
+  COMMENT_LATER,
+  COMMENT_PLATFORMS,
   defaultCaption,
   directMediaUrl,
+  firstCommentFor,
   isManual,
   jobOwnership,
   manualComposeUrl,
@@ -89,6 +93,20 @@ const ERROR_KEY: Record<string, MessageKey> = {
   timeout: "publish.err.timeout",
 };
 
+/** What the first comment's own failures say (the post-level texts talk about the post); the rest reuse them. */
+const COMMENT_ERROR_KEY: Record<string, MessageKey> = {
+  no_permission: "publish.fc.err.noPermission",
+  token_expired: "publish.fc.err.tokenExpired",
+  rejected: "publish.fc.err.rejected",
+  rate_limited: "publish.fc.err.rateLimited",
+  upstream: "publish.fc.err.upstream",
+  timeout: "publish.fc.err.timeout",
+  unknown_outcome: "publish.fc.err.unknown",
+};
+
+const commentTone = (state: AutoPostResult["state"] | undefined) =>
+  state === "published" ? "px-chip-green" : state === "failed" ? "text-danger" : "px-chip-gold";
+
 /**
  * 🚀 Auto-post tab of the post popup (Metricool-style "post everywhere"): pick the networks, one media link,
  * a caption per network (the Overview caption by default), the YouTube / TikTok options, then schedule it for
@@ -128,6 +146,10 @@ export default function AutoPostTab({ post }: { post: Post }) {
   const live = publishProblems(post, auto, status);
   const warnings = captionWarnings(post, auto);
   const media = auto.mediaUrl.trim() ? directMediaUrl(auto.mediaUrl) : "";
+  const commentNets = auto.platforms.filter((p) => COMMENT_PLATFORMS.includes(p));
+  const commentLater = auto.platforms.filter((p) => COMMENT_LATER.includes(p));
+  /** Once any network has published, the job is no longer re-sent, so a new comment would never reach it. */
+  const anyOut = auto.platforms.some((p) => auto.results[p]?.state === "published");
 
   const after = (r: PublishActionResult, ok: MessageKey) => {
     if (r.ok) setNotice(ok);
@@ -348,6 +370,15 @@ export default function AutoPostTab({ post }: { post: Post }) {
                       {t("publish.trimmedHint", { platform: L(PLATFORM_META[p].name) })}
                     </p>
                   )}
+                  {sent.trimmed && hashtagsCut(post, p) > 0 && (
+                    <p className="text-warn text-xs" data-testid={`autopost-cut-${p}`}>
+                      {t("calendar.hs.cut", {
+                        platform: L(PLATFORM_META[p].name),
+                        n: hashtagsCut(post, p),
+                        limit,
+                      })}
+                    </p>
+                  )}
                   {tooLong && (
                     <p className="text-danger text-xs" data-testid={`autopost-warn-${p}`}>
                       <TriangleAlert
@@ -388,6 +419,71 @@ export default function AutoPostTab({ post }: { post: Post }) {
               );
             })}
           </ul>
+        </section>
+      )}
+
+      {/* First comment (A4): Instagram only for now (Threads and YouTube wait for their permissions); TikTok has no API. */}
+      {(commentNets.length > 0 || commentLater.length > 0) && (
+        <section className="flex flex-col gap-1.5" data-testid="autopost-first-comment-section">
+          {commentNets.length > 0 && (
+            <>
+              <label
+                htmlFor="autopost-first-comment"
+                className="text-ink-2 text-[13px] font-semibold"
+              >
+                {t("publish.fc.title")}
+              </label>
+              <textarea
+                id="autopost-first-comment"
+                rows={2}
+                className="px-input cal-textarea"
+                placeholder={t("publish.fc.placeholder")}
+                value={auto.firstComment}
+                disabled={anyOut}
+                onChange={(e) => save({ firstComment: e.target.value })}
+                data-testid="autopost-first-comment"
+              />
+              {anyOut && (
+                <p className="text-muted text-xs" data-testid="autopost-fc-locked">
+                  {t("publish.fc.locked")}
+                </p>
+              )}
+              <p className="text-muted text-xs">
+                {t("publish.fc.hint", {
+                  platforms: commentNets.map((p) => L(PLATFORM_META[p].name)).join(" · "),
+                })}
+              </p>
+              {commentNets
+                .filter((p) => firstCommentFor(auto, p)?.trimmed)
+                .map((p) => (
+                  <p
+                    key={p}
+                    className="text-muted text-xs"
+                    data-testid={`autopost-fc-trimmed-${p}`}
+                  >
+                    {t("publish.fc.trimmed", {
+                      platform: L(PLATFORM_META[p].name),
+                      limit: CAPTION_MAX[p],
+                    })}
+                  </p>
+                ))}
+              {auto.firstComment.trim() &&
+                status?.instagram?.connected &&
+                !status.instagram.canReply && (
+                  <p className="text-xs" data-testid="autopost-fc-need-reply">
+                    {t("publish.fc.needReply")}{" "}
+                    <Link href="/social/settings#accounts" className="px-link">
+                      {t("publish.needWorkerLink")}
+                    </Link>
+                  </p>
+                )}
+            </>
+          )}
+          {(commentLater.length > 0 || auto.platforms.includes("tiktok")) && (
+            <p className="text-muted text-xs" data-testid="autopost-fc-instagram-only">
+              {t("publish.fc.instagramOnly")}
+            </p>
+          )}
         </section>
       )}
 
@@ -668,6 +764,32 @@ function ResultRow({
           {t(ERROR_KEY[result.error] ?? "publish.err.upstream")}
           {result.detail && result.error === "rejected" ? ` («${result.detail}»)` : ""}
         </span>
+      )}
+      {/* The first comment has its own state; the post above stays posted whatever it does (A4). */}
+      {result?.firstComment && state === "published" && !result.inbox && (
+        <>
+          <span
+            className={`px-chip ${commentTone(result.comment?.state)}`}
+            data-testid="autopost-comment"
+            data-state={result.comment?.state ?? "queued"}
+          >
+            {t(`publish.fc.state.${result.comment?.state ?? "queued"}`)}
+          </span>
+          {result.comment?.error && (
+            <span className="text-ink-2 w-full text-xs" data-testid="autopost-comment-error">
+              {result.comment.state === "failed" ? "" : `${t("publish.retrying")} · `}
+              {t(
+                COMMENT_ERROR_KEY[result.comment.error] ??
+                  ERROR_KEY[result.comment.error] ??
+                  "publish.fc.err.upstream",
+              )}
+              {result.comment.detail &&
+              (result.comment.error === "rejected" || result.comment.error === "unknown_outcome")
+                ? ` («${result.comment.detail}»)`
+                : ""}
+            </span>
+          )}
+        </>
       )}
     </li>
   );

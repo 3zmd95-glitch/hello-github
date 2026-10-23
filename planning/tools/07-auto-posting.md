@@ -127,10 +127,59 @@ run claims its jobs (`lockUntil`) before calling any platform, so the cron and "
    and a cancel that asks first while something is still queued. The list is read when the hub opens and on 🔄, and belongs to the
    Worker it was read from (switching the Worker URL or token clears it). A sent post now also stores `autoPost.jobId`.
 
+## Round 36 · publishing enhancements (Oct 23, 2026): A5 best times, A4 first comment, A8 hashtag sets
+
+Built on `claude/publishing-a5-a4-a8`; none of it was run against the live platforms yet (unit + e2e only).
+
+1. **A5 · best time from our own numbers** (`lib/bestTimes.ts`, no Worker change). The synced / imported post numbers
+   (`socialPostStats`) are bucketed by Riyadh weekday x 2-hour block; a post scores its views against the platform's median
+   (capped at 4x; stories, posts under 72 h and over 180 days left out); a cell is `(sum + 2) / (n + 2)`, so one lucky post cannot
+   win, and a time needs 2 posts. Under **20 settled posts** on a platform the usual `BEST_TIME` slots stay and the card says
+   "we need 20, you have N". It is labeled "when your posts did best", not "when your audience is online". UI: three tappable
+   time chips (with the source line) in the new-post sheet and the post popup, and a **Best times** card in Growth (top slots with %
+   of the best cell + a weekday x 2 h heat map; platform chips in the All view). Posts the store creates from a skill or an idea
+   also take the learned time.
+   - Honesty (fix round 1): a post with a day and **no time** is published at the *static* usual time (`scheduledAtOf`), not the learned
+     one, and the dialog says "No time picked: posts at HH:MM (usual)". CSV rows that only had a day are stamped noon Riyadh and marked
+     `timeKnown: false` (the export writes them back as a day); the best times skip them, so 20 date-only rows do not make a noon peak.
+     The heat map's squares are buttons: the tapped one (or an arrow-keyed one) reads out under the grid.
+2. **A4 · first comment** (Worker + dashboard), **Instagram only for now**. `TargetSpec.firstComment` (<= the caption limit; the
+   Worker keeps it only for the networks in `COMMENT_ENABLED`). Once a target is `published` and a minute has passed
+   (`COMMENT_DELAY_MS`), the next publish tick (the five-minute grid: **1-10 minutes after the post**) runs the comment as its own step,
+   kept in `target.comment`. **A failed comment is never a failed post**: `target.state` and `RunResult.failed` are untouched, and a
+   pending comment keeps the job alive in the queue (`prune`) and the dashboard polling (`autoPostActive`).
+   - **A comment can never post twice** (fix round 1, after review). A comment has nothing to look up afterwards, so it is written to the
+     queue as `processing` *before* the call (write-ahead); a `processing` comment with no id that a later run finds (the run died
+     mid-call) is failed as `unknown_outcome` and never called again; only a failure that cannot have created it is retried (a rate
+     limit, the call budget running out, a token refresh that failed before the call; 4 attempts, back-off as for posts). A lost
+     connection, a 5xx or a reply without an id are final `unknown_outcome` ("we could not tell whether it went through; check the post")
+     with the platform's words kept in `detail`; a 4xx is final `rejected`.
+   - Instagram: `POST /{media-id}/comments`, scope `instagram_business_manage_comments` = the token's `canReply` (the "Allow auto-replies"
+     connect); without it the comment fails as `no_permission` with no call. Needs 2 of the run's calls (the comment and a possible token
+     refresh).
+   - **Threads and YouTube wait for a scope change plus a reconnect, in a later PR.** Their steps are in the code but switched off
+     (`COMMENT_ENABLED` in `publishers.ts`, `COMMENT_PLATFORMS` in `lib/publish.ts`), and the dashboard hides their field with the note
+     "First comment: Instagram only for now". Threads: a TEXT container with `reply_to_id` through the container flow; Meta names no
+     endpoint-specific scope for replying to your own post, so `threads_manage_replies` has to be checked (and may need adding to the Meta
+     app) before it is switched on. YouTube: `commentThreads.insert` (50 quota units, cannot pin) needs `youtube.force-ssl` added to
+     `YT_PUBLISH_SCOPES` and the owner's reconnect.
+   - UI: a **First comment** field in the 🚀 tab (Instagram's text, trimmed to its limit; locked once any network has published, because the
+     job is not re-sent after that), a per-network "Comment: waiting / posting / posted / not posted" chip with its own words for failures
+     (including "could not tell if it went through"), and a note when Instagram lacks the reply permission. Instagram can flag repeated
+     identical first comments as spam: vary the text.
+3. **A8 · hashtag sets** (`lib/hashtags.ts`, `hashtagSets` in the store). Save a post's hashtags as a named set (the same name updates
+   it), apply a set to a post from its Overview, or write one in Growth. A post counts for a set when it carries **all** its tags; its
+   numbers are found by the Worker's post id (`autoPost.results[p].postId`) or by the posted link, and judged against the platform median
+   as in A5. Growth lists each set with posts, average views and "x2.5 your usual" **only from 5 posts**; the picker shows the same
+   badge. It is a hint, not proof. The list is in Growth even before any platform has numbers.
+   - Limits, never silent (fix round 1): **Instagram takes 30 hashtags**: a note from 25, and nothing is added past 30 (a set goes in
+     whole or not at all: "this set has N new hashtags but only M fit"); a network whose caption limit trims hashtags off the end
+     (`trimCaption`: Threads 500, TikTok 2,200 …) says "cut N hashtags to fit L characters" in the Overview and in the 🚀 tab.
+
 ## Later
 
 - Media upload from the phone (Supabase Storage, Sprint 3) instead of pasting a link.
 - Instagram carousels and stories, Threads carousels, TikTok photo posts (needs domain verification of the media host).
-- First comment / pinned hashtags, per-network best-time slots from real analytics, a "queue" mode (next free slot).
+- A "queue" mode (next free slot, item A6 of `09-metricool-beacons.md`); first comments for Threads and YouTube (see Round 36 A4: a scope check or change and a reconnect first).
 - Snapchat and X through Zernio if the owner wants them automatic, or Buffer as the fallback if an audit is refused.
 - Push notification when a network fails or a manual X / Snapchat step is due (Sprint 3 Web Push; nothing fires today).

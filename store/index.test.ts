@@ -1559,6 +1559,32 @@ describe("social: ideas, snapshots, asks, accounts", () => {
   });
 });
 
+describe("social: saved hashtag sets (A8)", () => {
+  const now = at("2026-10-23T10:00:00Z");
+
+  it("saves a clean set, replaces a same-named one in place, refuses empty ones and removes", () => {
+    const a = S().addHashtagSet("  Cuts ", ["match_cut", "#Editing", "#MATCH_CUT"], now);
+    expect(a).toMatchObject({ name: "Cuts", tags: ["#match_cut", "#Editing"] });
+    expect(a?.createdAt).toBe(now.toISOString());
+    expect(S().hashtagSets).toHaveLength(1);
+
+    // The same name (any case) updates that set: same id, new tags, nothing added.
+    const again = S().addHashtagSet("cuts", ["#new", "#tags"], at("2026-10-24T10:00:00Z"));
+    expect(again).toMatchObject({ id: a?.id, createdAt: a?.createdAt, tags: ["#new", "#tags"] });
+    expect(S().hashtagSets).toHaveLength(1);
+
+    expect(S().addHashtagSet("   ", ["#x"], now)).toBeUndefined();
+    expect(S().addHashtagSet("Empty", [" # ", ""], now)).toBeUndefined();
+    expect(S().addHashtagSet("x".repeat(60), ["#x"], now)?.name).toHaveLength(40);
+    expect(S().hashtagSets).toHaveLength(2);
+
+    S().removeHashtagSet(a!.id);
+    expect(S().hashtagSets.map((h) => h.name)).toEqual(["x".repeat(40)]);
+    S().reset();
+    expect(S().hashtagSets).toEqual([]);
+  });
+});
+
 describe("social analytics: post stats, demographics, seed flag", () => {
   const stat = (platform: "tiktok" | "threads", postId: string, views: number) => ({
     platform,

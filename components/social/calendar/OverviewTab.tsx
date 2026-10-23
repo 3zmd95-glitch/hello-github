@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clock, Gamepad2, Sparkles, Trash2, Undo2, X } from "lucide-react";
+import { Check, Gamepad2, Sparkles, Trash2, Undo2, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useGameActions } from "@/components/celebrate/useGameActions";
@@ -8,11 +8,15 @@ import { useSkillSheet } from "@/components/skills/SkillSheetProvider";
 import { resyncKey } from "@/components/social/usePublish";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import type { Post, Skill } from "@/lib/domain";
+import { fitTags } from "@/lib/hashtags";
 import { useT } from "@/lib/i18n";
-import { bestTime, hookIdeas, PLATFORM_META, suggestHashtags } from "@/lib/social";
+import { hookIdeas, PLATFORM_META, suggestHashtags } from "@/lib/social";
 import { useStore } from "@/store";
 import { formatDayLong, formatInstant } from "./dates";
+import HashtagSetPicker from "./HashtagSetPicker";
 import SkillPicker from "./SkillPicker";
+import TimeChips from "./TimeChips";
+import { useTimeSuggester } from "./useTimeSuggester";
 
 /**
  * Overview tab of the post popup: the title, hook (+ ideas), caption with its limit, hashtags, the planned day/time with
@@ -62,17 +66,17 @@ export default function OverviewTab({
     const value = tag.trim().replace(/\s+/g, "_");
     if (!value) return;
     const withHash = value.startsWith("#") ? value : `#${value}`;
-    if (!post.hashtags.some((h) => h.toLowerCase() === withHash.toLowerCase()))
-      updatePost(post.id, { hashtags: [...post.hashtags, withHash] });
+    // Instagram takes 30 at most: past it nothing is added (the note under the tags says so).
+    const { add } = fitTags(post, [withHash]);
+    if (add.length) updatePost(post.id, { hashtags: [...post.hashtags, ...add] });
     setTag("");
   };
   const suggest = () => {
-    const seen = new Set(post.hashtags.map((h) => h.toLowerCase()));
-    const extra = suggestHashtags(post.platform, skill).filter((h) => !seen.has(h.toLowerCase()));
-    updatePost(post.id, { hashtags: [...post.hashtags, ...extra] });
+    const { add } = fitTags(post, suggestHashtags(post.platform, skill));
+    if (add.length) updatePost(post.id, { hashtags: [...post.hashtags, ...add] });
   };
 
-  const best = bestTime(post.platform, post.plannedDay ?? undefined);
+  const suggestTimes = useTimeSuggester();
   const captionLen = post.caption.length;
   const over = captionLen > meta.captionLimit;
 
@@ -241,6 +245,7 @@ export default function OverviewTab({
             {t("calendar.sheet.addHashtag")}
           </button>
         </form>
+        <HashtagSetPicker post={post} />
         <p className="text-muted text-xs">{L(meta.hashtagAdvice)}</p>
       </section>
 
@@ -267,22 +272,14 @@ export default function OverviewTab({
             data-testid="post-plan-time"
           />
         </div>
-        <p className="text-muted mt-2.5 flex flex-wrap items-center gap-2 text-xs">
-          <span className="inline-flex items-center gap-1">
-            <Clock size={13} strokeWidth={1.75} className="shrink-0" aria-hidden />
-            {t("calendar.form.bestTime", { platform: L(meta.name), time: best })}
-          </span>
-          {post.plannedTime !== best && (
-            <button
-              type="button"
-              className="px-link ios-hit"
-              onClick={() => updatePost(post.id, { plannedTime: best })}
-              data-testid="post-plan-best"
-            >
-              {t("calendar.form.useBest")}
-            </button>
-          )}
-        </p>
+        <TimeChips
+          className="mt-1.5"
+          platform={post.platform}
+          day={post.plannedDay}
+          suggestion={suggestTimes(post.platform, post.plannedDay)}
+          value={post.plannedTime ?? ""}
+          onPick={(picked) => updatePost(post.id, { plannedTime: picked })}
+        />
         <p className="px-inset text-xs" data-testid="post-remind">
           {post.plannedDay && post.plannedTime ? (
             <span>

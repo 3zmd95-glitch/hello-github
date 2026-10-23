@@ -827,7 +827,11 @@ const csvCell = (v: unknown): string => {
  */
 export function postStatsToCsv(stats: readonly SocialPostStat[]): string {
   const lines = [POST_STATS_CSV_COLUMNS.join(",")];
-  for (const p of stats) lines.push(POST_STATS_CSV_COLUMNS.map((c) => csvCell(p[c])).join(","));
+  for (const p of stats) {
+    // A row that only had a day exports that day, so importing the file again keeps it day-only.
+    const row = p.timeKnown === false ? { ...p, publishedAt: p.publishedAt.slice(0, 10) } : p;
+    lines.push(POST_STATS_CSV_COLUMNS.map((c) => csvCell(row[c])).join(","));
+  }
   return lines.join("\n");
 }
 
@@ -1092,6 +1096,17 @@ export function parsePublishedAt(raw: string): string | null {
   return Number.isNaN(t) ? null : new Date(t).toISOString();
 }
 
+/**
+ * Whether an exported date says what time of day it was (so `publishedAt` is the real instant): a Unix timestamp
+ * or anything with a clock does, a day alone ("2026-09-25", "25/09/2026", "Sep 25 2026") does not.
+ */
+function hasClock(raw: string): boolean {
+  const s = raw.trim();
+  if (/^\d{9,13}$/.test(s)) return true;
+  if (parseDay(s)) return false;
+  return /\d{1,2}:\d{2}/.test(s);
+}
+
 /** "1:23" / "0:01:23" → seconds; "90" → 90; with `unit` from the header ("hours", "minutes") scaled. */
 function parseSeconds(raw: string, header: string): number | null {
   const s = raw.trim();
@@ -1201,6 +1216,7 @@ export function parsePostsCsv(text: string, platformHint?: Platform): ParsedPost
       platform,
       postId,
       publishedAt,
+      ...(hasClock(get(cells, "publishedAt") ?? "") ? {} : { timeKnown: false }),
       kind: kind ?? DEFAULT_KIND[platform],
       ...(title ? { title } : {}),
       views: views ?? 0,
@@ -1353,7 +1369,10 @@ export function parseDemographicsJson(text: string, today: string = dayKey()): P
 
 /* ---------- Store helpers (pure) ---------- */
 
-/** `list` with `incoming` applied: the same platform + postId replaces the earlier row. */
+/**
+ * `list` with `incoming` applied: the same platform + postId replaces the earlier row (a row that only has a day
+ * keeps the exact time of the one it replaces, so a CSV never turns a synced 21:03 into a noon).
+ */
 export function upsertPostStats(
   list: readonly SocialPostStat[],
   incoming: readonly SocialPostStat[],
@@ -1362,7 +1381,9 @@ export function upsertPostStats(
   for (const p of incoming) {
     const i = out.findIndex((s) => s.platform === p.platform && s.postId === p.postId);
     if (i === -1) out.push(p);
-    else out[i] = p;
+    else if (p.timeKnown === false && out[i].timeKnown !== false) {
+      out[i] = { ...p, publishedAt: out[i].publishedAt, timeKnown: undefined };
+    } else out[i] = p;
   }
   return out;
 }

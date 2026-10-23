@@ -435,6 +435,7 @@ export function resyncKey(post: Post): string | null {
     post.plannedDay,
     post.plannedTime,
     a.captions,
+    a.firstComment,
     a.youtubeTitle,
   ]);
 }

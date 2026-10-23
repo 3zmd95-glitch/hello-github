@@ -58,8 +58,10 @@
   "calendar.form.titlePh": "e.g. Day-for-night in 60 seconds",
   "calendar.form.day": "Day",
   "calendar.form.time": "Time",
-  "calendar.form.bestTime": "Best time for {platform}: {time}",
-  "calendar.form.useBest": "Use best time",
+  "calendar.form.bestTimes": "Suggested times",
+  "calendar.form.noTime": "No time picked: posts at {time} (usual).",
+  "calendar.form.bestLearned": "From when your {n} {platform} posts did best",
+  "calendar.form.bestUsual": "Usual times. We need {needed} posts to learn from yours; you have {n}.",
   "calendar.form.template": "Start with the platform's shot template",
   "calendar.form.skill": "Link a skill (optional)",
   "calendar.form.skillPh": "Search skills…",
@@ -138,5 +140,14 @@
   "calendar.shotType.closeup": "Close-up",
   "calendar.shotType.wide": "Wide",
   "calendar.shotType.text": "Text",
-  "calendar.shotType.other": "Other"
+  "calendar.shotType.other": "Other",
+  "calendar.hs.sets": "Hashtag sets",
+  "calendar.hs.saveAs": "Save these hashtags as a set",
+  "calendar.hs.name": "Set name",
+  "calendar.hs.namePh": "Set name, e.g. Editing",
+  "calendar.hs.save": "Save",
+  "calendar.hs.igNear": "{n} of {max} hashtags: Instagram takes {max} at most.",
+  "calendar.hs.igFull": "{max} hashtags, Instagram's limit: no more can be added.",
+  "calendar.hs.igBlock": "Not added: this set has {n} new hashtags but only {room} fit under Instagram's limit of {max}. Remove some first.",
+  "calendar.hs.cut": "{platform}: cut {n} hashtags to fit {limit} characters."
 }

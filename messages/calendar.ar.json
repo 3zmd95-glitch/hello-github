@@ -58,8 +58,10 @@
   "calendar.form.titlePh": "مثلاً: تحويل النهار لليل في ٦٠ ثانية",
   "calendar.form.day": "اليوم",
   "calendar.form.time": "الوقت",
-  "calendar.form.bestTime": "أفضل وقت لـ {platform}: {time}",
-  "calendar.form.useBest": "استخدم أفضل وقت",
+  "calendar.form.bestTimes": "أوقات مقترحة",
+  "calendar.form.noTime": "ما اخترت وقت: ينشر الساعة {time} (الوقت المعتاد).",
+  "calendar.form.bestLearned": "حسب متى نجحت بوستاتك على {platform} ({n} بوست)",
+  "calendar.form.bestUsual": "أوقات معتادة. نحتاج {needed} بوست عشان نتعلم من بوستاتك، وعندك {n}.",
   "calendar.form.template": "ابدأ بقالب لقطات المنصة",
   "calendar.form.skill": "اربطه بمهارة (اختياري)",
   "calendar.form.skillPh": "دوّر على مهارة…",
@@ -138,5 +140,14 @@
   "calendar.shotType.closeup": "قريبة",
   "calendar.shotType.wide": "واسعة",
   "calendar.shotType.text": "نص",
-  "calendar.shotType.other": "أخرى"
+  "calendar.shotType.other": "أخرى",
+  "calendar.hs.sets": "مجموعات الهاشتاقات",
+  "calendar.hs.saveAs": "احفظ هاشتاقات هذا البوست كمجموعة",
+  "calendar.hs.name": "اسم المجموعة",
+  "calendar.hs.namePh": "اسم المجموعة، مثلاً: مونتاج",
+  "calendar.hs.save": "احفظ",
+  "calendar.hs.igNear": "{n} من {max} هاشتاق؛ إنستقرام يقبل {max} كحد أقصى.",
+  "calendar.hs.igFull": "{max} هاشتاق، حد إنستقرام: ما نقدر نضيف أكثر.",
+  "calendar.hs.igBlock": "ما انضافت: المجموعة فيها {n} هاشتاق جديد وبس {room} تسع تحت حد إنستقرام ({max}). احذف بعضها أول.",
+  "calendar.hs.cut": "{platform}: بينقص {n} هاشتاق عشان يناسب {limit} حرف."
 }

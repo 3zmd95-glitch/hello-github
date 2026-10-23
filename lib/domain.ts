@@ -442,6 +442,14 @@ export const TIKTOK_PRIVACY = [
   "SELF_ONLY",
 ] as const;
 
+/** How a first comment under a published post is doing (A4); it never changes the post's own state. */
+export const AutoPostCommentSchema = z.object({
+  state: AutoPostStateSchema,
+  error: z.string().optional(),
+  detail: z.string().optional(),
+});
+export type AutoPostComment = z.infer<typeof AutoPostCommentSchema>;
+
 /** What the Worker last reported for one platform of an auto-post. */
 export const AutoPostResultSchema = z.object({
   state: AutoPostStateSchema,
@@ -455,6 +463,9 @@ export const AutoPostResultSchema = z.object({
   error: z.string().optional(),
   /** The platform's own words about a failure. */
   detail: z.string().optional(),
+  /** The first comment the Worker holds for this network: still to go while `comment` is missing or running. */
+  firstComment: z.string().optional(),
+  comment: AutoPostCommentSchema.optional(),
 });
 export type AutoPostResult = z.infer<typeof AutoPostResultSchema>;
 
@@ -474,6 +485,8 @@ export const AutoPostSchema = z.object({
   photoCoverIndex: z.number().int().min(0).default(0),
   durationSeconds: z.number().positive().optional(),
   captions: z.partialRecord(PlatformSchema, z.string()).default({}),
+  /** A comment posted under the post right after it goes live (Instagram, Threads, YouTube; A4). Empty = none. */
+  firstComment: z.string().default(""),
   youtubeTitle: z.string().default(""),
   youtubePrivacy: z.enum(YOUTUBE_PRIVACY).default("public"),
   tiktokMode: z.enum(["direct", "inbox"]).default("inbox"),
@@ -737,6 +750,18 @@ export const IdeaSchema = z.object({
 });
 export type Idea = z.infer<typeof IdeaSchema>;
 
+/**
+ * A saved set of hashtags the owner reuses (A8). `tags` keep the typed casing with a leading "#"; a post "used" the
+ * set when it carries all of them (lib/hashtags).
+ */
+export const HashtagSetSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(40),
+  tags: z.array(z.string().min(2)).min(1).max(30),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type HashtagSet = z.infer<typeof HashtagSetSchema>;
+
 /** A non-negative average (means over posts need not be whole numbers). */
 const avg = z.number().min(0).optional();
 const count = z.number().int().min(0).optional();
@@ -807,6 +832,11 @@ export const SocialPostStatSchema = z.object({
   platform: PlatformSchema,
   postId: z.string().min(1),
   publishedAt: z.iso.datetime({ offset: true }),
+  /**
+   * `false` when the export gave only a day: `publishedAt` is then noon Riyadh, not the real time, so the best
+   * times never learn from the row. Absent = the time is real (the platform sync, and any export with a clock).
+   */
+  timeKnown: z.literal(false).optional(),
   kind: PostStatKindSchema.default("other"),
   title: z.string().optional(),
   views: z.number().int().min(0).default(0),

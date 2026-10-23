@@ -2530,6 +2530,54 @@
   background: var(--panel-2);
 }
 
+/* Best times (A5): weekday rows x twelve 2-hour blocks. `--m` (0-100) is how strongly a cell is tinted with the
+ * accent green over the inset surface; 0 = no posts. The strip is LTR so time runs left to right in Arabic too. */
+.bt-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.bt-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+.bt-day,
+.bt-hr {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.bt-hr {
+  grid-column: span 3;
+  font-variant-numeric: tabular-nums;
+}
+.bt-strip {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 2px;
+  direction: ltr;
+}
+.bt-cell {
+  display: block;
+  width: 100%;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--tint) calc(var(--m, 0) * 1%), var(--panel-2));
+  transition: background-color var(--t-med) var(--out);
+}
+/* The picked square (tap or arrow keys) wears a ring in the ink color, which reads on every tint. */
+.bt-cell[aria-pressed="true"],
+.bt-cell:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
 /* Demographics: thin horizontal bars (data in --c or ink, track one step off the surface), a two-tone donut. */
 .an-bar {
   display: block;

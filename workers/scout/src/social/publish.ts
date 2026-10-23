@@ -2,7 +2,9 @@
  * The auto-post queue (Metricool-style "write once, post everywhere"). The dashboard sends one job per
  * calendar post — the media URL, the time and a caption per platform — and the five-minute cron publishes
  * each platform when the time comes, step by step (`publishers.ts`). The whole queue is one KV document
- * (`publish:jobs`): a tick costs one read when nothing is due, and a write only when something moved.
+ * (`publish:jobs`): a tick costs one read when nothing is due, and a write only when something moved. A target
+ * with a `firstComment` also gets a comment under the published post a minute or more later, as its own
+ * retriable step (`target.comment`); a failed comment is never a failed post.
  *
  *   GET    /social/publish                           → { jobs }
  *   POST   /social/publish            { id, scheduledAt, media?, targets } → { job }   add or replace
@@ -10,9 +12,13 @@
  *   DELETE /social/publish/:id                       → { ok: true }
  */
 
-import { Budget, type Http } from "./http";
+import { Budget, BUDGET_EXHAUSTED, type Http } from "./http";
 import { credentials, isExpired, PROVIDERS } from "./oauth";
 import {
+  COMMENT_DELAY_MS,
+  COMMENT_ENABLED,
+  COMMENT_MIN_BUDGET,
+  COMMENT_STEPS,
   PublishError,
   STEP_MIN_BUDGET,
   STEPS,
@@ -80,6 +86,26 @@ export const ACCEPTS: Record<SocialPlatform, (MediaKind | "text")[]> = {
 
 const ACTIVE = new Set(["queued", "processing"]);
 const isActive = (t: PublishTarget | undefined): t is PublishTarget => !!t && ACTIVE.has(t.state);
+
+/** A published post whose first comment is still to come or in progress (A4): the queue has work on it. */
+const commentPending = (t: PublishTarget | undefined): t is PublishTarget =>
+  !!t &&
+  t.state === "published" &&
+  !t.inbox &&
+  !!t.postId &&
+  !!t.firstComment &&
+  (!t.comment || ACTIVE.has(t.comment.state));
+
+/** The comment's turn: a minute after the post went live, then whenever its own retry or check is due. */
+function commentDue(t: PublishTarget, now: Date): boolean {
+  const at =
+    t.comment?.nextAt ??
+    (t.publishedAt ? new Date(Date.parse(t.publishedAt) + COMMENT_DELAY_MS).toISOString() : "");
+  return !at || Date.parse(at) <= now.getTime();
+}
+
+const hasWork = (t: PublishTarget | undefined): t is PublishTarget =>
+  isActive(t) || commentPending(t);
 
 /* ---------- validation ---------- */
 
@@ -155,6 +181,13 @@ export function parseJobInput(
     if (!ACCEPTS[p].includes(media?.kind ?? "text")) return bad(`${p}.media`);
     if (!media && !caption.trim()) return bad(`${p}.caption`);
     const out: TargetSpec = { caption };
+    if (s.firstComment !== undefined) {
+      if (typeof s.firstComment !== "string") return bad(`${p}.firstComment`);
+      const comment = s.firstComment.trim();
+      if (comment.length > CAPTION_MAX[p]) return bad(`${p}.firstComment`);
+      // Only the networks a comment is enabled for (Instagram for now) carry one; the others just do not.
+      if (comment && COMMENT_ENABLED.includes(p)) out.firstComment = comment;
+    }
     if (p === "youtube") {
       if (typeof s.title === "string" && s.title.trim()) out.title = s.title.trim().slice(0, 100);
       if (typeof s.privacy === "string" && YT_PRIVACY.includes(s.privacy)) out.privacy = s.privacy;
@@ -245,7 +278,7 @@ export function prune(jobs: Record<string, PublishJob>, now: Date): Record<strin
   const kept = Object.values(jobs)
     .filter(
       (j) =>
-        Object.values(j.targets).some(isActive) ||
+        Object.values(j.targets).some(hasWork) ||
         now.getTime() - Date.parse(j.updatedAt) < KEEP_FINISHED_MS,
     )
     .sort((a, b) => (a.scheduledAt < b.scheduledAt ? 1 : -1))
@@ -368,7 +401,12 @@ export async function runDue(env: SocialEnv, deps: RunDeps = {}): Promise<RunRes
   const work = Object.values(jobs)
     .filter((j) => (deps.only ? j.id === deps.only : Date.parse(j.scheduledAt) <= now.getTime()))
     .filter((j) => deps.only || !j.lockUntil || Date.parse(j.lockUntil) <= now.getTime())
-    .filter((j) => Object.values(j.targets).some((t) => isActive(t) && (deps.only || due(t, now))))
+    .filter((j) =>
+      Object.values(j.targets).some(
+        (t) =>
+          (isActive(t) && (deps.only || due(t, now))) || (commentPending(t) && commentDue(t, now)),
+      ),
+    )
     .sort((a, b) => (a.scheduledAt < b.scheduledAt ? -1 : 1));
   if (!work.length) {
     if (Object.keys(jobs).length !== Object.keys(loaded).length) await store.putJobs(jobs);
@@ -424,6 +462,79 @@ export async function runDue(env: SocialEnv, deps: RunDeps = {}): Promise<RunRes
       result.advanced.push(key);
       if (next.state === "published" && !next.inbox) result.published.push(key);
       if (next.state === "failed") result.failed.push(key);
+    }
+    // First comments (A4): a published post's own step, a tick after the post. Whatever happens to a comment, the
+    // post's state is never touched and a failed comment is not a failed post (`result.failed` stays as it is).
+    //
+    // A comment is never posted twice. Unlike a post (whose container or upload is checked on the platform), a
+    // comment has nothing to look up afterwards, so: (1) it is written to the queue as `processing` BEFORE the call
+    // (write-ahead); (2) a `processing` comment with no id that a later run finds (the run died mid-call) is failed
+    // as `unknown_outcome`, never called again; (3) only a failure that cannot have created the comment is retried:
+    // a rate limit, the call budget running out, or a token refresh that failed before the call. A lost
+    // connection, a 5xx or a reply without an id are final, with the platform's words kept for the owner.
+    for (const p of SOCIAL_PLATFORMS) {
+      const t = job.targets[p];
+      const step = COMMENT_ENABLED.includes(p) ? COMMENT_STEPS[p] : undefined;
+      if (!step || !commentPending(t) || !commentDue(t, now)) continue;
+      if (http.budget.left < COMMENT_MIN_BUDGET[p]) continue;
+      const old: PublishTarget = t.comment ?? {
+        caption: t.firstComment!,
+        state: "queued",
+        attempts: 0,
+      };
+      // Threads' reply is a container with an id; it carries on from there. Anything else `processing` is stale.
+      const resuming = old.state === "processing" && !!old.containerId;
+      if (old.state === "processing" && !resuming) {
+        job.targets[p] = {
+          ...t,
+          comment: failure(
+            old,
+            "unknown_outcome",
+            "the run stopped while the comment was being posted; it may be there, so it is not tried again",
+          ),
+        };
+        result.advanced.push(`${job.id}:${p}:comment`);
+        continue;
+      }
+      let c = old;
+      if (!resuming) {
+        c = { ...old, state: "processing", startedAt: now.toISOString(), nextAt: undefined };
+        job.targets[p] = { ...t, comment: c };
+        await store.putJobs(jobs);
+      }
+      let next: PublishTarget;
+      let called = false;
+      try {
+        if (resuming && c.startedAt) {
+          if (now.getTime() - Date.parse(c.startedAt) > PROCESSING_TIMEOUT_MS) {
+            throw new PublishError("timeout", "still processing after two hours");
+          }
+        }
+        if (!tokenCache.has(p)) tokenCache.set(p, await tokensFor(env, store, p, http, now));
+        const tokens = tokenCache.get(p)!;
+        if (typeof tokens === "string") throw new PublishError(tokens);
+        called = true;
+        next = await step(
+          c,
+          { http, tokens, now, ...(deps.sleep ? { sleep: deps.sleep } : {}) },
+          t.postId!,
+        );
+      } catch (e) {
+        const { code, detail, transient } = toPublishCode(e);
+        const noComment =
+          code === "rate_limited" ||
+          (transient && !called) ||
+          (e instanceof SocialError && e.message.includes(BUDGET_EXHAUSTED));
+        if (noComment) {
+          const retry = retryOrFail(c, code, detail, now);
+          next =
+            retry.state === "failed" ? retry : { ...retry, state: "queued", startedAt: undefined };
+        } else {
+          next = failure(c, code === "upstream" ? "unknown_outcome" : code, detail);
+        }
+      }
+      job.targets[p] = { ...t, comment: next };
+      result.advanced.push(`${job.id}:${p}:comment`);
     }
     const { lockUntil: _released, ...rest } = job;
     void _released;
