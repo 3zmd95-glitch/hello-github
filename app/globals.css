@@ -1577,7 +1577,10 @@
     animation: ios-lens 0.55s var(--out);
   }
 
-  /* Sidebar (md+): solid rows, lens-style active row. */
+  /* Sidebar (md+): a rail at the window's start edge with a hairline, solid rows, lens-style active row. */
+  .ios-side {
+    border-inline-end: 0.5px solid var(--hair);
+  }
   .ios-side-item {
     display: flex;
     align-items: center;

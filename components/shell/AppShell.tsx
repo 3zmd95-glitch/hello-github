@@ -68,11 +68,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <QuickActionsProvider>
             <div className="flex min-h-dvh flex-col">
               <TopBar />
-              <div className="mx-auto flex w-full max-w-[1180px] flex-1 md:gap-6 md:px-6">
+              {/* Desktop: the sidebar is a rail at the window's start edge; the page sits in the rest, centered. */}
+              <div className="flex w-full flex-1">
                 <SideNav />
                 <main
                   id="main"
-                  className="pb-safe-tabbar flex min-w-0 flex-1 flex-col gap-4 px-4 pt-4 md:px-0 md:pt-6 md:pb-12"
+                  className="pb-safe-tabbar mx-auto flex w-full min-w-0 max-w-[1040px] flex-1 flex-col gap-4 px-4 pt-4 md:px-8 md:pt-6 md:pb-12"
                 >
                   {children}
                 </main>
@@ -225,7 +226,7 @@ function SocialTop() {
   return (
     <header className="ios-top pt-safe" data-testid="social-top">
       <div className="ios-top-bg slab" aria-hidden />
-      <div className="relative mx-auto flex h-14 max-w-[1180px] items-center gap-2 px-3 md:px-6">
+      <div className="relative flex h-14 items-center gap-2 px-3 md:px-6">
         <div className="flex flex-1 items-center gap-2">
           <Link href="/social" className="ios-top-brand" aria-label={t("app.name")}>
             <Logo />
@@ -273,7 +274,7 @@ function TrainingTopBar() {
     <header
       className={`pt-safe border-edge bg-panel sticky top-0 z-30 ${pixel ? "border-b-[3px]" : "border-b"}`}
     >
-      <div className="mx-auto flex h-14 max-w-[1180px] items-center gap-2 px-4 md:px-6">
+      <div className="flex h-14 items-center gap-2 px-4 md:px-6">
         <Link
           href={pixel ? "/" : "/social"}
           className="text-ink flex min-w-0 items-center gap-2 no-underline"
@@ -428,9 +429,10 @@ function SideNav() {
     <nav
       aria-label={t("nav.main")}
       className={
+        // A rail at the window's start edge, the full height under the top bar (56px, +3px border in Training).
         world === "training"
-          ? "sticky top-[calc(56px+3px+24px)] hidden h-fit w-[210px] shrink-0 flex-col gap-1 pt-6 md:flex"
-          : "sticky top-[80px] hidden h-fit w-[210px] shrink-0 flex-col gap-1 pt-6 md:flex"
+          ? "border-edge bg-panel sticky top-[59px] hidden h-[calc(100dvh-59px)] w-[240px] shrink-0 flex-col gap-1 overflow-y-auto border-e-[3px] px-3 pt-6 md:flex"
+          : "ios-side sticky top-[56px] hidden h-[calc(100dvh-56px)] w-[240px] shrink-0 flex-col gap-1 overflow-y-auto px-3 pt-6 md:flex"
       }
       data-testid="sidenav"
     >
