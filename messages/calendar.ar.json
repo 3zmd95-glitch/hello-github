@@ -59,6 +59,7 @@
   "calendar.form.day": "اليوم",
   "calendar.form.time": "الوقت",
   "calendar.form.bestTimes": "أوقات مقترحة",
+  "calendar.form.noTime": "ما اخترت وقت: ينشر الساعة {time} (الوقت المعتاد).",
   "calendar.form.bestLearned": "حسب متى نجحت بوستاتك على {platform} ({n} بوست)",
   "calendar.form.bestUsual": "أوقات معتادة. نحتاج {needed} بوست عشان نتعلم من بوستاتك، وعندك {n}.",
   "calendar.form.template": "ابدأ بقالب لقطات المنصة",

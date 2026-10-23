@@ -139,6 +139,10 @@ Built on `claude/publishing-a5-a4-a8`; none of it was run against the live platf
    time chips (with the source line) in the new-post sheet and the post popup, and a **Best times** card in Growth (top slots with %
    of the best cell + a weekday x 2 h heat map; platform chips in the All view). Posts the store creates from a skill or an idea
    also take the learned time.
+   - Honesty (fix round 1): a post with a day and **no time** is published at the *static* usual time (`scheduledAtOf`), not the learned
+     one, and the dialog says "No time picked: posts at HH:MM (usual)". CSV rows that only had a day are stamped noon Riyadh and marked
+     `timeKnown: false` (the export writes them back as a day); the best times skip them, so 20 date-only rows do not make a noon peak.
+     The heat map's squares are buttons: the tapped one (or an arrow-keyed one) reads out under the grid.
 2. **A4 · first comment** (Worker + dashboard), **Instagram only for now**. `TargetSpec.firstComment` (<= the caption limit; the
    Worker keeps it only for the networks in `COMMENT_ENABLED`). Once a target is `published` and a minute has passed
    (`COMMENT_DELAY_MS`), the next publish tick (the five-minute grid: **1-10 minutes after the post**) runs the comment as its own step,

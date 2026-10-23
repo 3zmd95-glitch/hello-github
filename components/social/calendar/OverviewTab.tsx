@@ -275,6 +275,7 @@ export default function OverviewTab({
         <TimeChips
           className="mt-1.5"
           platform={post.platform}
+          day={post.plannedDay}
           suggestion={suggestTimes(post.platform, post.plannedDay)}
           value={post.plannedTime ?? ""}
           onPick={(picked) => updatePost(post.id, { plannedTime: picked })}

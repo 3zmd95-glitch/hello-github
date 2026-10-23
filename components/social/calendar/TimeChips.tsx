@@ -3,7 +3,7 @@
 import { Clock } from "lucide-react";
 import type { Platform } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
-import { PLATFORM_META } from "@/lib/social";
+import { bestTime, PLATFORM_META } from "@/lib/social";
 import type { TimeSuggestion } from "./useTimeSuggester";
 
 /**
@@ -15,9 +15,12 @@ export default function TimeChips({
   suggestion,
   value,
   onPick,
+  day,
   className = "",
 }: {
   className?: string;
+  /** The post's planned day: with a day and no time picked, the publisher uses the usual time, and this says so. */
+  day?: string | null;
   platform: Platform;
   suggestion: TimeSuggestion;
   /** The time now in the field ("HH:MM" or ""): the matching chip shows as pressed. */
@@ -51,6 +54,12 @@ export default function TimeChips({
           </button>
         ))}
       </div>
+      {day && !value && (
+        // The same static time the publisher falls back to (`scheduledAtOf`), not the learned one above.
+        <span className="text-warn text-xs" data-testid="post-no-time-note">
+          {t("calendar.form.noTime", { time: bestTime(platform, day) })}
+        </span>
+      )}
       <span className="text-muted text-xs" data-testid="post-best-source">
         {suggestion.learned
           ? t("calendar.form.bestLearned", {

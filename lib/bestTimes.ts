@@ -136,10 +136,13 @@ export function learnBestTimes(
   platform: Platform,
   now: number,
 ): LearnedTimes {
-  const used = settledStats(stats, platform, now).map((p) => ({
-    ms: Date.parse(p.publishedAt),
-    views: p.views,
-  }));
+  // A row that only has a day (stamped noon) has no time to learn from: it would be a fake peak at 12:00.
+  const used = settledStats(stats, platform, now)
+    .filter((p) => p.timeKnown !== false)
+    .map((p) => ({
+      ms: Date.parse(p.publishedAt),
+      views: p.views,
+    }));
   const base = {
     platform,
     posts: used.length,

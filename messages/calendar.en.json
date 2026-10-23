@@ -59,6 +59,7 @@
   "calendar.form.day": "Day",
   "calendar.form.time": "Time",
   "calendar.form.bestTimes": "Suggested times",
+  "calendar.form.noTime": "No time picked: posts at {time} (usual).",
   "calendar.form.bestLearned": "From when your {n} {platform} posts did best",
   "calendar.form.bestUsual": "Usual times. We need {needed} posts to learn from yours; you have {n}.",
   "calendar.form.template": "Start with the platform's shot template",

@@ -470,6 +470,7 @@ describe("CSV export and import", () => {
       platform: "tiktok",
       postId: "7350000000000000000",
       publishedAt: "2026-09-25T09:00:00.000Z",
+      timeKnown: false, // the export gave a day only
       kind: "video",
       title: "How I grade",
       views: 1200,
@@ -585,6 +586,60 @@ describe("CSV export and import", () => {
     expect(parseKind("STORY")).toBe("story");
     expect(parseKind("carousel_album")).toBe("image");
     expect(parseKind("mystery")).toBeNull();
+  });
+
+  it("marks the rows whose export gave only a day (stamped noon) as not knowing their time", () => {
+    const { stats } = parsePostsCsv(
+      [
+        "platform,date,views,post id",
+        "tiktok,2026-09-25,5,d1",
+        "tiktok,25/09/2026,5,d2",
+        "tiktok,Sep 25 2026,5,d3",
+        "tiktok,2026-09-25 21:03:11,5,t1",
+        "tiktok,2026-09-25T18:03:11Z,5,t2",
+        "tiktok,1790000000,5,t3",
+        "tiktok,Sep 25 2026 9:03 PM,5,t4",
+      ].join("\n"),
+    );
+    expect(stats.map((s) => [s.postId, s.timeKnown])).toEqual([
+      ["d1", false],
+      ["d2", false],
+      ["d3", false],
+      ["t1", undefined],
+      ["t2", undefined],
+      ["t3", undefined],
+      ["t4", undefined],
+    ]);
+  });
+
+  it("exports a day-only row as its day, so it stays day-only after a round trip", () => {
+    const row = {
+      ...post("tiktok", "d1", "2026-09-25", 10),
+      publishedAt: "2026-09-25T09:00:00.000Z",
+      timeKnown: false as const,
+    };
+    const again = parsePostsCsv(postStatsToCsv([row, post("tiktok", "t1", "2026-09-25", 10)]));
+    expect(again.stats.map((s) => [s.postId, s.timeKnown])).toEqual([
+      ["d1", false],
+      ["t1", undefined],
+    ]);
+  });
+
+  it("a day-only row never overwrites the exact time of the same post", () => {
+    const exact = post("tiktok", "x1", "2026-09-25", 100);
+    const exactAt = { ...exact, publishedAt: "2026-09-25T18:03:11.000Z" };
+    const dayOnly = {
+      ...exact,
+      views: 250,
+      publishedAt: "2026-09-25T09:00:00.000Z",
+      timeKnown: false as const,
+    };
+    const out = upsertPostStats([exactAt], [dayOnly]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ views: 250, publishedAt: "2026-09-25T18:03:11.000Z" });
+    expect(out[0].timeKnown).toBeUndefined();
+    // The other way round, the exact one wins as before.
+    expect(upsertPostStats([dayOnly], [exactAt])[0].publishedAt).toBe("2026-09-25T18:03:11.000Z");
   });
 
   it("upsertPostStats replaces by platform + postId", () => {

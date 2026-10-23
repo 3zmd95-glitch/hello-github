@@ -169,6 +169,35 @@ describe("bestTimeFor", () => {
   });
 });
 
+describe("posts that only have a day", () => {
+  /** A CSV row with a date and no time is stamped noon Riyadh and marked `timeKnown: false`. */
+  const dayOnly = (day: string, views: number) => stat(`${day}T12:00`, views, { timeKnown: false });
+
+  it("never learn from them: 20 of them are not 20 posts, and make no noon peak", () => {
+    const r = learnBestTimes(
+      Array.from({ length: 20 }, (_, i) =>
+        dayOnly(`2026-09-${String(i + 1).padStart(2, "0")}`, 5000),
+      ),
+      "tiktok",
+      NOW,
+    );
+    expect(r.ready).toBe(false);
+    expect(r.posts).toBe(0);
+    expect(r.top).toEqual([]);
+  });
+
+  it("leave a real peak where it is, however loud the day-only rows are", () => {
+    const noisy = Array.from({ length: 30 }, (_, i) =>
+      dayOnly(`2026-08-${String((i % 28) + 1).padStart(2, "0")}`, 90_000),
+    );
+    const r = learnBestTimes([...peakStats(), ...noisy], "tiktok", NOW);
+    expect(r.posts).toBe(29);
+    expect(r.top[0]).toMatchObject({ dow: 3, block: 10, time: "21:00" });
+    expect(r.cells.filter((c) => c.block === 6).every((c) => c.n <= 5)).toBe(true);
+    expect(timesForDay(r, "2026-10-21").times).not.toContain("12:00");
+  });
+});
+
 describe("blockLabel", () => {
   it("names a 2-hour block by its hours", () => {
     expect(blockLabel(10)).toBe("20–22");

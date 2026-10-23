@@ -832,6 +832,11 @@ export const SocialPostStatSchema = z.object({
   platform: PlatformSchema,
   postId: z.string().min(1),
   publishedAt: z.iso.datetime({ offset: true }),
+  /**
+   * `false` when the export gave only a day: `publishedAt` is then noon Riyadh, not the real time, so the best
+   * times never learn from the row. Absent = the time is real (the platform sync, and any export with a clock).
+   */
+  timeKnown: z.literal(false).optional(),
   kind: PostStatKindSchema.default("other"),
   title: z.string().optional(),
   views: z.number().int().min(0).default(0),

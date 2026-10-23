@@ -237,6 +237,7 @@ function PostFormBody({
       {/* The first chip is the best time: taking it keeps the time following the platform and day. */}
       <TimeChips
         platform={platform}
+        day={day}
         suggestion={suggestion}
         value={time}
         onPick={(picked, i) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { BT_BLOCKS, blockLabel, learnBestTimes, timesForDay, type BestCell } from "@/lib/bestTimes";
 import { PLATFORMS, type Platform, type SocialPostStat } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
@@ -52,6 +52,7 @@ export default function BestTimes({
 }) {
   const { t, L } = useT();
   const [picked, setPicked] = useState<Platform | null>(null);
+  const [sel, setSel] = useState<{ platform: Platform; dow: number; block: number } | null>(null);
 
   const withStats = useMemo(
     () =>
@@ -66,6 +67,36 @@ export default function BestTimes({
   const learned = useMemo(() => learnBestTimes(stats, chosen, now), [stats, chosen, now]);
   const name = L(PLATFORM_META[chosen].name);
   const best = learned.top[0];
+  /** The tapped square, kept per platform (another platform starts with none). */
+  const on = sel && sel.platform === chosen ? sel : null;
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  /** "Wednesday 20-22: 8 posts, 100% of the best" (or "no posts"), for the readout and the screen reader. */
+  const cellText = (c: BestCell): string => {
+    const day = t(DAY_LONG[keyIndex(c.dow ?? 0)]);
+    // An LTR isolate keeps "20–22" in one piece inside an Arabic sentence.
+    const hours = `\u2066${blockLabel(c.block)}\u2069`;
+    return c.n === 0
+      ? t("growth.bt.cell0", { day, hours })
+      : t("growth.bt.cell", { day, hours, n: c.n, pct: c.pct });
+  };
+  /** Arrow keys walk the squares as they look (the strip is left to right in Arabic too); one tab stop for the grid. */
+  const move = (e: KeyboardEvent<HTMLButtonElement>, row: number, block: number) => {
+    const d: Record<string, [number, number]> = {
+      ArrowLeft: [0, -1],
+      ArrowRight: [0, 1],
+      ArrowUp: [-1, 0],
+      ArrowDown: [1, 0],
+    };
+    const step = d[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const r = Math.min(Math.max(row + step[0], 0), WEEK_DOW.length - 1);
+    const b = Math.min(Math.max(block + step[1], 0), BT_BLOCKS - 1);
+    gridRef.current
+      ?.querySelector<HTMLElement>(`[data-dow="${WEEK_DOW[r]}"][data-block="${b}"]`)
+      ?.focus();
+  };
 
   return (
     <section
@@ -127,8 +158,9 @@ export default function BestTimes({
           </ul>
 
           <div
+            ref={gridRef}
             className="bt-grid"
-            role="img"
+            role="group"
             aria-label={t("growth.bt.aria", {
               platform: name,
               slot: best ? `${t(DAY_LONG[keyIndex(best.dow ?? 0)])} ${best.time}` : "–",
@@ -145,27 +177,51 @@ export default function BestTimes({
                 ))}
               </div>
             </div>
-            {WEEK_DOW.map((dow) => (
-              <div key={dow} className="bt-row" aria-hidden>
-                <span className="bt-day">{t(DAY_SHORT[keyIndex(dow)])}</span>
+            {WEEK_DOW.map((dow, row) => (
+              <div key={dow} className="bt-row">
+                <span className="bt-day" aria-hidden>
+                  {t(DAY_SHORT[keyIndex(dow)])}
+                </span>
                 <div className="bt-strip">
                   {learned.cells
                     .filter((c) => c.dow === dow)
-                    .map((c) => (
-                      <i
-                        key={c.block}
-                        className="bt-cell"
-                        style={{ "--m": tint(c) } as CSSProperties}
-                        title={`${t(DAY_SHORT[keyIndex(dow)])} ${blockLabel(c.block)} · ${c.n} · ${c.pct}%`}
-                        data-testid="best-time-cell"
-                        data-n={c.n}
-                        data-pct={c.pct}
-                      />
-                    ))}
+                    .map((c) => {
+                      const isSel = on?.dow === dow && on.block === c.block;
+                      return (
+                        <button
+                          key={c.block}
+                          type="button"
+                          className="bt-cell"
+                          style={{ "--m": tint(c) } as CSSProperties}
+                          aria-label={cellText(c)}
+                          aria-pressed={isSel}
+                          tabIndex={on ? (isSel ? 0 : -1) : row === 0 && c.block === 0 ? 0 : -1}
+                          onClick={() => setSel({ platform: chosen, dow, block: c.block })}
+                          onFocus={() => setSel({ platform: chosen, dow, block: c.block })}
+                          onKeyDown={(e) => move(e, row, c.block)}
+                          data-testid="best-time-cell"
+                          data-dow={dow}
+                          data-block={c.block}
+                          data-n={c.n}
+                          data-pct={c.pct}
+                        />
+                      );
+                    })}
                 </div>
               </div>
             ))}
           </div>
+          {/* A finger cannot hover: the tapped (or arrow-keyed) square reads out here. */}
+          <p
+            className="text-ink-2 min-h-[1.25rem] text-xs font-semibold"
+            role="status"
+            data-testid="best-time-readout"
+            data-selected={on ? `${on.dow}:${on.block}` : ""}
+          >
+            {on
+              ? cellText(learned.cells.find((c) => c.dow === on.dow && c.block === on.block)!)
+              : t("growth.bt.pick")}
+          </p>
           <p className="text-muted text-xs">{t("growth.bt.legend")}</p>
           <p className="text-muted text-xs">{t("growth.bt.based", { n: learned.posts })}</p>
         </>
