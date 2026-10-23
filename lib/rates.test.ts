@@ -6,7 +6,7 @@ import {
   RATE_DELIVERABLES,
   RateSettingsSchema,
 } from "./domain";
-import { rateQuote, rateTable, roundRate } from "./rates";
+import { isStartingRates, rateQuote, rateTable, roundRate } from "./rates";
 
 // 💰 Rate calculator (planning/tools/09 D3): followers × average views × deliverable, every factor the owner's own.
 
@@ -86,6 +86,16 @@ describe("rateTable", () => {
     expect(rows.map((r) => r.deliverable)).toEqual([...RATE_DELIVERABLES]);
     expect(rows.map((r) => r.quote!.sar)).toEqual([1_450, 490, 1_000, 2_450]);
     expect(rateTable(S, null, 40_000).every((r) => r.quote === null)).toBe(true);
+  });
+});
+
+describe("isStartingRates", () => {
+  it("is true only while every number is the placeholder it started with", () => {
+    expect(isStartingRates(S)).toBe(true);
+    expect(isStartingRates(RateSettingsSchema.parse({}))).toBe(true);
+    expect(isStartingRates(RateSettingsSchema.parse({ sarPerThousandFollowers: 16 }))).toBe(false);
+    expect(isStartingRates(RateSettingsSchema.parse({ sarPerThousandViews: 21 }))).toBe(false);
+    expect(isStartingRates(RateSettingsSchema.parse({ multiplier: { bundle: 3 } }))).toBe(false);
   });
 });
 

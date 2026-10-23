@@ -1,6 +1,6 @@
 import { User } from "lucide-react";
 import type { ReactNode } from "react";
-import { formatDayShort } from "@/components/planner/weekLabel";
+import { formatDayShort, formatDayYear } from "@/components/planner/weekLabel";
 import { fmtCount, fmtEngagement } from "@/components/social/growth/format";
 import Chip from "@/components/ui/ios/Chip";
 import PlatformBadge from "@/components/ui/ios/PlatformBadge";
@@ -94,7 +94,7 @@ export default function MediaKitPaper({ data, lang }: { data: MediaKitData; lang
   };
   const source = (v: KitValue | KitMetric["followers"]): string =>
     v.source === "snapshot"
-      ? t("business.page.srcSnapshot", { date: dayLabel(v.observedDay) })
+      ? t("business.page.srcSnapshot", { date: dayYear(v.observedDay) })
       : v.source === "posts"
         ? t("business.page.srcPosts", { n: v.sample })
         : "";
@@ -108,6 +108,7 @@ export default function MediaKitPaper({ data, lang }: { data: MediaKitData; lang
     </span>
   );
   const dayLabel = (d: string) => formatDayShort(d, lang);
+  const dayYear = (d: string) => formatDayYear(d, lang);
 
   return (
     <article
@@ -169,7 +170,9 @@ export default function MediaKitPaper({ data, lang }: { data: MediaKitData; lang
                 <PlatformBadge platform={m.platform} size={22} />
                 <span>{PLATFORM_META[m.platform].name[lang]}</span>
                 <b className="num" dir="ltr">
-                  {m.followers.source === "snapshot" ? fmtCount(m.followers.value) : "—"}
+                  {m.followers.source === "snapshot" && !m.stale
+                    ? fmtCount(m.followers.value)
+                    : "—"}
                 </b>
               </li>
             ))}
@@ -272,7 +275,7 @@ export default function MediaKitPaper({ data, lang }: { data: MediaKitData; lang
                     <PlatformBadge platform={a.platform} size={26} />
                     <b>{PLATFORM_META[a.platform].name[lang]}</b>
                     <small className="text-muted ms-auto text-[11px]">
-                      {t("business.page.asOf", { date: dayLabel(a.day) })}
+                      {t("business.page.asOf", { date: dayYear(a.day) })}
                     </small>
                   </div>
                   <div className="grid gap-3 @md:grid-cols-3">
@@ -286,7 +289,7 @@ export default function MediaKitPaper({ data, lang }: { data: MediaKitData; lang
                             <span className="w-14 shrink-0">{t(`growth.demo.${g}`)}</span>
                             {bar(a.gender?.[g] ?? 0, 100)}
                             <b className="num w-12 shrink-0 text-end" dir="ltr">
-                              {fmtEngagement(a.gender?.[g])}
+                              {a.gender?.[g] == null ? "—" : fmtEngagement(a.gender[g])}
                             </b>
                           </div>
                         ))}
@@ -430,7 +433,7 @@ export default function MediaKitPaper({ data, lang }: { data: MediaKitData; lang
       )}
 
       <footer className="text-muted text-[11px]">
-        {t("business.page.footer", { date: dayLabel(data.day) })}
+        {t("business.page.footer", { date: dayYear(data.day) })}
       </footer>
     </article>
   );

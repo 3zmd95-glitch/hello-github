@@ -18,6 +18,16 @@ export function formatDayShort(key: string, lang: Lang): string {
   }).format(dayKeyToDate(key));
 }
 
+/** "26 Sep 2026" / "26 سبتمبر 2026": a day with its year (a number that must say how old it is). */
+export function formatDayYear(key: string, lang: Lang): string {
+  return new Intl.DateTimeFormat(locale(lang), {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: TIME_ZONE,
+  }).format(dayKeyToDate(key));
+}
+
 /** Day of month only, e.g. "26". */
 export function formatDayNumber(key: string): string {
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", timeZone: TIME_ZONE }).format(

@@ -8,7 +8,7 @@ import BusinessScreen from "./BusinessScreen";
 import { unsavedKitDraft } from "./KitEditor";
 
 // 💼 Business Kit (packet DT-5): honest "this device only" copy, autosave with read-back, conflicts, the unsaved-draft
-// stash with the app-lifetime unload guard, metrics with provenance, the owner's estimator, preview / print / export
+// stash with the app-lifetime unload guard, metrics with provenance, preview (never a price) / export
 // from the current draft, and the brand-deal board. No network.
 
 let host: HTMLDivElement;
@@ -259,17 +259,26 @@ describe("BusinessScreen", () => {
       expect(text).not.toContain(secret);
   });
 
-  it("previews and prints the current draft from the print root", async () => {
+  it("previews the current draft from the print root, never with a price, and sends printing to the page", async () => {
     const print = vi.spyOn(window, "print").mockImplementation(() => {});
     await mount("en");
     await type("business-tagline-en", "Printed tagline");
+    await click("business-rate-add");
+    await type("business-rate-deliverable-en", "Reel");
+    await type("business-rate-price", "1500");
     await saved();
     const rootEl = host.querySelector<HTMLElement>("[data-print-root]")!;
     expect(rootEl.textContent).toContain("Printed tagline");
+    expect(rootEl.textContent).not.toMatch(/1500|SAR|Reel|Ask me/);
     await click("business-preview");
     expect($("kit-preview")!.className).not.toContain("hidden");
-    await click("business-print");
-    await until(() => expect(print).toHaveBeenCalledTimes(1));
+    // The rate card says it is private; the print button is a link to the media-kit page, not a second print.
+    expect($("business-rate-private")!.textContent).toContain("Private");
+    expect($("business-to-page")!.getAttribute("href")).toMatch(
+      /^\/social\/business\/media-kit\/?$/,
+    );
+    expect($("business-print")).toBeNull();
+    expect(print).not.toHaveBeenCalled();
     expect($("business-unsaved-export")).toBeNull();
   });
 });

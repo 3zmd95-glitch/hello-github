@@ -280,7 +280,7 @@ describe("kitProjection", () => {
     return out;
   };
 
-  it("is an allowlisted public file: kit text, rate card and metrics only", () => {
+  it("is an allowlisted public file: kit text, past work and metrics only, never a price", () => {
     const p = kitProjection(source(), NOW);
     expect(Object.keys(p)).toEqual([
       "app",
@@ -291,7 +291,6 @@ describe("kitProjection", () => {
       "bio",
       "contact",
       "services",
-      "rateCard",
       "pastWork",
       "metrics",
     ]);
@@ -302,7 +301,6 @@ describe("kitProjection", () => {
       lang: ["ar", "en"],
       tagline: { ar: "أصوّر وأمنتج", en: "I film and edit" },
       services: [{ name: { ar: "مونتاج", en: "Editing" }, desc: { ar: "", en: "" } }],
-      rateCard: [{ deliverable: { ar: "ريل", en: "Reel" }, platform: "instagram", priceSar: 1500 }],
     });
     expect(p.metrics.map((m) => m.platform)).toEqual(["instagram"]);
     const keys = keysDeep(p);
@@ -318,6 +316,8 @@ describe("kitProjection", () => {
       "commitId",
       "revision",
       "sarPerThousandFollowers",
+      "rateCard",
+      "priceSar",
     ])
       expect(keys.has(k), k).toBe(false);
     const text = JSON.stringify(p);
@@ -328,6 +328,8 @@ describe("kitProjection", () => {
       "private deal note",
       "super-secret-token",
       "77",
+      "1500",
+      "SAR",
     ])
       expect(text).not.toContain(secret);
   });
@@ -462,18 +464,19 @@ describe("deal reply draft (DT-5-R1 coverage gap)", () => {
     ],
   });
 
-  it("prefers the owner's rate card for the deliverable, else the rate calculator, else nothing", () => {
+  it("prefers the owner's rate card for the deliverable, else the rate calculator once edited, else nothing", () => {
     expect(dealRate(deal(), withCard, [])).toEqual({ kind: "card", sar: 1500 });
     // No card row for a story: the calculator from the saved follower count (no views saved: followers only).
     const [ig] = kitMetrics(
       state({ snapshots: [snap({ platform: "instagram", day: "2026-10-10", followers: 10_000 })] }),
       NOW,
     );
-    expect(dealRate(deal({ deliverable: "2 stories" }), withCard, [ig])).toEqual({
+    const edited = RateSettingsSchema.parse({ sarPerThousandFollowers: 20 });
+    expect(dealRate(deal({ deliverable: "2 stories" }), withCard, [ig], edited)).toEqual({
       kind: "estimate",
-      sar: rateQuote(DEFAULT_RATE_SETTINGS, 10_000, null, "story")!.sar,
+      sar: rateQuote(edited, 10_000, null, "story")!.sar,
     });
-    expect(rateQuote(DEFAULT_RATE_SETTINGS, 10_000, null, "story")!.sar).toBe(80);
+    expect(rateQuote(edited, 10_000, null, "story")!.sar).toBe(100);
     // The owner's own assumptions and the platform's average views count; a bundle is its own deliverable.
     const [tt] = kitMetrics(
       state({
@@ -488,9 +491,33 @@ describe("deal reply draft (DT-5-R1 coverage gap)", () => {
       sar: rateQuote(mine, 10_000, 100, "bundle")!.sar,
     });
     // A video is not one of the calculator's deliverables, and nothing to go on makes up no number.
-    expect(dealRate(deal({ deliverable: "a YouTube video" }), withCard, [ig])).toBeNull();
-    expect(dealRate(deal({ deliverable: "2 stories" }), withCard, [])).toBeNull();
-    expect(dealRate(deal({ deliverable: "" }), withCard, [ig])).toBeNull();
+    expect(dealRate(deal({ deliverable: "a YouTube video" }), withCard, [ig], edited)).toBeNull();
+    expect(dealRate(deal({ deliverable: "2 stories" }), withCard, [], edited)).toBeNull();
+    expect(dealRate(deal({ deliverable: "" }), withCard, [ig], edited)).toBeNull();
+  });
+
+  it("never turns the calculator's starting numbers into a price for a brand", () => {
+    const [ig] = kitMetrics(
+      state({ snapshots: [snap({ platform: "instagram", day: "2026-10-10", followers: 10_000 })] }),
+      NOW,
+    );
+    // Untouched placeholders (also when passed explicitly): no "starting estimate" in the reply.
+    expect(dealRate(deal({ deliverable: "2 stories" }), withCard, [ig])).toBeNull();
+    expect(
+      dealRate(deal({ deliverable: "2 stories" }), withCard, [ig], DEFAULT_RATE_SETTINGS),
+    ).toBeNull();
+    // A rate-card row the owner priced still wins, edited or not.
+    expect(dealRate(deal(), withCard, [ig], DEFAULT_RATE_SETTINGS)).toEqual({
+      kind: "card",
+      sar: 1500,
+    });
+    // Changing any one assumption, even a multiplier, makes them the owner's.
+    const one = RateSettingsSchema.parse({ multiplier: { story: 0.6 } });
+    expect(dealRate(deal({ deliverable: "2 stories" }), withCard, [ig], one)).toMatchObject({
+      kind: "estimate",
+    });
+    const text = dealReplyDraft(deal({ deliverable: "2 stories" }), kit(), null);
+    expect(text).not.toMatch(/starting estimate|تقديري المبدئي/);
   });
 
   it("builds a bilingual draft from the deal and the kit, Arabic first, within the limit", () => {

@@ -135,6 +135,12 @@ Full table in `18-social-ios-design.md` §9. Short form:
 | Motion | [Motion](https://motion.dev) · CSS `linear()` springs · React `<ViewTransition>` | CSS adopted; Motion deferred; ViewTransition a stretch task |
 | Arabic font | Vazirmatn · IBM Plex Sans Arabic · Noto Sans Arabic · Readex Pro · Cairo · Tajawal · Almarai · Rubik | **Vazirmatn adopted** (owner's pick) |
 
+## 2026-10-23 · media kit page and rate calculator (D2, D3)
+
+| Area | Find | Decision |
+|---|---|---|
+| PDF of the media kit (Arabic) | [jsPDF](https://github.com/parallax/jsPDF), [pdfmake](https://github.com/bpampuch/pdfmake): do not join or reorder Arabic without add-ons; Cloudflare Browser Rendering `pdf` (Worker binding, 10 browser-minutes/day free) | Rejected for now. **Adopted: print CSS** (a named A4 `@page`, `window.print()` / Save as PDF): the browser shapes Arabic natively, zero dependencies, zero cost. Browser Rendering stays the option for a public `/mediakit` PDF later (scout 04). |
+
 ## How to add to this log
 
 One row per find: area · link · decision (adopt / adopt candidate / reference / rejected + why). Re-run a search when a new phase starts

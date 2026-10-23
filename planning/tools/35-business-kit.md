@@ -133,16 +133,19 @@ already had the kit editor and deals board above, so this adds to them.
 - **Media kit page** `/social/business/media-kit/` (`MediaKitScreen` + `MediaKitPaper`, pure numbers in `lib/mediaKit.ts`).
   A light A4 sheet in Arabic or English (its own switch; the app keeps its language), built only from what the app stores:
   the saved kit text and contact, `kitMetrics` per platform (followers, engagement, average views, likes, each with its
-  source: snapshot day or "posts sampled"; a dash where missing; stale chip), a followers total that is a plain sum of the
-  saved counts and says "platforms counted n of m", audience from `demographics` (gender, age buckets, top 5 countries,
+  source: snapshot day with its year or "posts sampled"; a dash where missing; stale chip), a followers total that is a
+  plain sum of the saved counts from snapshots no older than 30 days and says "platforms counted n of m" (a stale count
+  stays on its tile, marked old, but is left out of the total and the hero chips), audience from `demographics` (gender, age buckets, top 5 countries,
   newest day per dimension, nothing dated after today), the 6 newest imported posts (no stories, nothing from the future),
   services, past work and case studies (https links only) and a Work-with-me card (mailto of the kit's email). Block switches
   (`businessPrefs.blocks`) and the page name (`businessPrefs.name`, else the first saved handle) live in the store; an empty
   block is left out and the switch says "nothing to show yet". Brand partners are not a block (no data to read; past work
   carries the case studies). No photo yet (the pixel avatar is a game look): a monogram stands in.
-- **Rates are private.** The page's rates block only says "rates on request" and never prints the owner's rate-card prices
-  or the calculator (tests scan the sheet's text). The kit editor's older **Rate card** section still exists and still prints
-  its rows in the editor's own preview and print: drop it when the owner confirms scout decision 5(a).
+- **Rates are private (ruled, scout decision 5a).** No printed or exported kit shows a price. The page's rates block only says
+  "rates on request"; the editor's preview (also a print root) lost its rates block; the JSON export lost its `rateCard`
+  (the file is the future public projection); the editor's second print button is now a link to this page. Tests scan the
+  sheet, the preview and the export for prices. The editor's **Rate card** section stays (marked private): `dealRate` reads
+  it for the deal replies.
 - **Print / PDF.** The sheet is the page's print root (the DT-5 `[data-print-root]` rules hide everything else), re-declares the
   light tokens on itself so it is white even in the dark look, and uses a named `@page kit { size: A4; margin: 12mm }` so other
   pages print as before. "Export PDF" is `window.print()`. Checked: `page.pdf({ preferCSSPageSize })` gives 595 × 842 pt.
@@ -156,8 +159,11 @@ already had the kit editor and deals board above, so this adds to them.
   said on screen). The scout's "followers × average views × deliverable" is read as this sum, not a product (a product of the
   two would be millions).
 - **One price source.** The old engagement-based estimator is gone from the kit tab. The brand-deal reply draft (`dealRate`)
-  quotes the rate-card row, else the same calculator (a "bundle/package" deliverable is its own kind; a plain "video" has no
-  kind and gets no estimate). `BusinessKit.estimator` stays in the schema, unread and never edited, so old saves and backups
-  still load.
-- **Not done (waits for the owner):** public URL and domain, the contact form behind "Work with me", brand partners list,
-  a photo, a monthly numbers refresh published anywhere.
+  quotes the rate-card row, else the same calculator, but only once the owner has edited at least one assumption: while all
+  numbers are still the placeholders there is no "starting estimate" in the reply (the Rates tab says so). A
+  "bundle/package" deliverable is its own kind; a plain "video" has no kind and gets no estimate. `BusinessKit.estimator`
+  stays in the schema, unread and never edited, so old saves and backups still load.
+- **Not done.** D3: add-ons (paid usage, organic usage, whitelisting, exclusivity, link in bio), a minimum price (floor), the
+  scout's per-platform CPM defaults from the owner's real rates. D2: public URL and domain, the contact form behind "Work with
+  me" (a mailto link stands in), a brand-partners list, a photo (a monogram stands in), publishing a refreshed kit anywhere,
+  a server-made PDF. Safari's support for the named A4 page is unchecked.

@@ -9,7 +9,11 @@ import { dayKey } from "./streak";
  * missing (the page prints "—"). The per-platform followers / engagement / views / likes come from `kitMetrics`.
  */
 
-/** A plain sum of the saved follower counts, with how many platforms it covers (not a unique-audience figure). */
+/**
+ * A plain sum of the saved follower counts, with how many platforms it covers (not a unique-audience figure). A count
+ * from a snapshot older than KIT_STALE_DAYS is left out (its platform still counts in `of`), so a total never mixes in
+ * numbers the page itself calls old.
+ */
 export interface KitTotal {
   value: number;
   /** Platforms that have a saved count. */
@@ -22,7 +26,7 @@ export function kitTotalFollowers(metrics: readonly KitMetric[]): KitTotal | nul
   let value = 0;
   let platforms = 0;
   for (const m of metrics)
-    if (m.followers.source === "snapshot") {
+    if (m.followers.source === "snapshot" && !m.stale) {
       value += m.followers.value;
       platforms += 1;
     }

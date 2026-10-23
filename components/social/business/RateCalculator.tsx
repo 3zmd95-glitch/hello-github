@@ -15,7 +15,7 @@ import {
   type RateSettings,
 } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
-import { rateQuote, rateTable } from "@/lib/rates";
+import { isStartingRates, rateQuote, rateTable } from "@/lib/rates";
 import { PLATFORM_META } from "@/lib/social";
 import { analyticsState, useStore } from "@/store";
 import { provenance } from "./KitPreview";
@@ -68,6 +68,11 @@ export default function RateCalculator() {
         <p className="text-ink-2 text-[13px] font-semibold" data-testid="rates-note">
           {t("business.rates.note")}
         </p>
+        {isStartingRates(rates) && (
+          <p className="bg-warn-bg rounded-xl p-3 text-[13px]" data-testid="rates-starting">
+            {t("business.rates.starting")}
+          </p>
+        )}
 
         {!m || !quote ? (
           <p className="text-[14px]" data-testid="rates-empty">

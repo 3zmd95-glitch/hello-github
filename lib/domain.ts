@@ -1245,8 +1245,9 @@ export type KitDeliverable = (typeof KIT_DELIVERABLES)[number];
 
 /**
  * The owner's media kit: their own words, services, rate card and past work. Metrics are never stored here: they are
- * read from Growth with their provenance (lib/businessKit kitMetrics). The estimator holds the owner's assumptions
- * only; it is never exported. Local only until the website is connected (DT-8).
+ * read from Growth with their provenance (lib/businessKit kitMetrics). The rate card is private (it feeds the deal
+ * replies; no preview, print or export carries a price); `estimator` is legacy and unread. Local only until the
+ * website is connected (DT-8).
  */
 export const BusinessKitSchema = z.object({
   tagline: Bi(120).default(EMPTY_BI),
@@ -1321,7 +1322,8 @@ const factor = (dflt: number) => z.number().min(0).max(1_000_000).default(dflt);
 
 /**
  * The owner's own pricing assumptions: SAR per 1,000 followers and per 1,000 average views, times a multiplier per
- * deliverable. Placeholders until the owner edits them (never a market rate). Private: never exported or printed.
+ * deliverable. Placeholders until the owner edits them (never a market rate). Private: never printed or published,
+ * but part of the app's own backup file like the owner's other settings.
  */
 export const DEFAULT_RATE_SETTINGS = {
   sarPerThousandFollowers: 15,

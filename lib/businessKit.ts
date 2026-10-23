@@ -19,15 +19,17 @@ import {
   type SocialPostStat,
   type SocialSnapshot,
 } from "./domain";
-import { rateQuote } from "./rates";
+import { isStartingRates, rateQuote } from "./rates";
 import { dayKey, daysBetween } from "./streak";
 
 /**
  * 💼 Business Kit (packet DT-5, planning/tools/35-business-kit.md): the media kit's numbers, checks, the deal reply's
- * price (rate card, else the rate calculator in lib/rates) and the public projection. Pure. Every metric is per platform and keeps its own provenance — a
- * saved Growth snapshot with the day it was observed, or the imported posts it was averaged over (count and date
- * range), or missing. Nothing is pooled or totalled, and a snapshot's `views30d` (0 when unknown) is never shown.
- * `snapshotSource()` (lib/socialSync) is not used: it infers "live" and is no evidence for a public claim.
+ * price (rate card, else the rate calculator in lib/rates) and the shareable projection. Pure. Every metric is per
+ * platform and keeps its own provenance: a saved Growth snapshot with the day it was observed, or the imported posts
+ * it was averaged over (count and date range), or missing. Nothing is pooled here (the media-kit page's followers
+ * total is lib/mediaKit) and a snapshot's `views30d` (0 when unknown) is never shown. The projection never carries
+ * prices: the rate card is private. `snapshotSource()` (lib/socialSync) is not used: it infers "live" and is no
+ * evidence for a public claim.
  */
 
 /** A snapshot older than this many days is shown as stale. */
@@ -168,7 +170,6 @@ export interface KitProjection {
   bio: Bi;
   contact: { email: string; website: string; location: Bi };
   services: { name: Bi; desc: Bi }[];
-  rateCard: { deliverable: Bi; platform?: Platform; priceSar: number | null; note: Bi }[];
   pastWork: { title: Bi; url: string; platform?: Platform; day?: string }[];
   metrics: KitMetric[];
 }
@@ -179,8 +180,9 @@ export function emptyKit(): BusinessKit {
 }
 
 /**
- * The shareable kit, built field by field (an allowlist): the owner's public text, rate card, past work and the
- * per-platform metrics with provenance. Never deals, the estimator, settings, keys, raw snapshots or ids.
+ * The shareable kit, built field by field (an allowlist): the owner's public text, past work and the per-platform
+ * metrics with provenance. Never prices (the rate card is private), deals, the estimator, settings, keys, raw
+ * snapshots or ids.
  */
 export function kitProjection(state: KitSource, now: Now = new Date()): KitProjection {
   const kit = state.businessKit ?? emptyKit();
@@ -198,12 +200,6 @@ export function kitProjection(state: KitSource, now: Now = new Date()): KitProje
       location: bi(kit.contact.location),
     },
     services: kit.services.map((s) => ({ name: bi(s.name), desc: bi(s.desc) })),
-    rateCard: kit.rateCard.map((r) => ({
-      deliverable: bi(r.deliverable),
-      ...(r.platform ? { platform: r.platform } : {}),
-      priceSar: r.priceSar,
-      note: bi(r.note),
-    })),
     pastWork: kit.pastWork.map((w) => ({
       title: bi(w.title),
       url: w.url,
@@ -262,6 +258,8 @@ export function dealRate(
       }),
   );
   if (row?.priceSar != null) return { kind: "card", sar: row.priceSar };
+  // Placeholder numbers are not the owner's price: no estimate until one assumption has been edited.
+  if (isStartingRates(rates)) return null;
   const kind = KIND_WORDS.find(([, re]) => re.test(wanted))?.[0];
   const m = metrics.find((x) => x.followers.source === "snapshot");
   if (!kind || !m || m.followers.source !== "snapshot") return null;

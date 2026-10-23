@@ -137,7 +137,10 @@ describe("RateCalculator", () => {
     seed();
     await mount();
     await type("rates-platform", "instagram");
+    // The starting numbers say so, until one is edited.
+    expect($("rates-starting")!.textContent).toContain("starting numbers");
     await type("rates-perv", "100");
+    expect($("rates-starting")).toBeNull();
     await type("rates-mult-post", "2");
     // (12 × 15 + 40 × 100) × 2 = 8,360 → 8,350.
     expect($("rates-result")!.textContent).toBe("≈ 8,350 SAR");

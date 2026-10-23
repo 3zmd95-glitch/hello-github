@@ -1,4 +1,9 @@
-import { RATE_DELIVERABLES, type RateDeliverable, type RateSettings } from "./domain";
+import {
+  DEFAULT_RATE_SETTINGS,
+  RATE_DELIVERABLES,
+  type RateDeliverable,
+  type RateSettings,
+} from "./domain";
 
 /**
  * 💰 Rate calculator (planning/tools/09 D3). Pure. The owner's own assumptions, never a market rate:
@@ -25,6 +30,19 @@ export interface RateQuote {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * True while every number is still the placeholder it started with: nothing the owner chose, so nothing to quote to a
+ * brand (the deal reply leaves the calculator's price out until one assumption is edited).
+ */
+export function isStartingRates(s: RateSettings): boolean {
+  const d = DEFAULT_RATE_SETTINGS;
+  return (
+    s.sarPerThousandFollowers === d.sarPerThousandFollowers &&
+    s.sarPerThousandViews === d.sarPerThousandViews &&
+    RATE_DELIVERABLES.every((k) => s.multiplier[k] === d.multiplier[k])
+  );
+}
 
 /** Nearest 10 SAR below 500, nearest 50 SAR from 500; a positive amount never rounds down to 0. */
 export function roundRate(sar: number): number {

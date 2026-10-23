@@ -66,6 +66,12 @@ test("More opens Business (no soon chip); the kit's text, a service and a rate s
   await expect(page.getByTestId("business-service-name-en")).toHaveValue("Editing");
   await expect(page.getByTestId("business-rate-price")).toHaveValue("1500");
   expect((await state(page)).businessKit.rateCard[0].priceSar).toBe(1500);
+  // The rate card is private: the preview (also the print root) never shows a price.
+  await page.getByTestId("business-preview").click();
+  await expect(page.getByTestId("kit-preview")).toContainText("أصوّر وأمنتج");
+  await expect(page.getByTestId("kit-preview")).not.toContainText("1500");
+  await expect(page.getByTestId("kit-preview")).not.toContainText("SAR");
+  await expect(page.getByTestId("kit-preview")).not.toContainText("ريال");
 
   // English, left to right, still fits.
   await switchLang(page, "en");
@@ -307,7 +313,7 @@ test("R7: the printed kit is as tall as the kit: one page for a small kit, no bl
       socialSnapshots: snapshots,
       businessKit: kit(n),
     });
-    await expect(page.getByTestId("business-print")).toBeVisible();
+    await expect(page.getByTestId("business-to-page")).toBeVisible();
     await page.emulateMedia({ media: "print" });
     const layout = await page.evaluate(() => ({
       body: document.body.scrollHeight,

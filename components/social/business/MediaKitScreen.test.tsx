@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { formatDayShort } from "@/components/planner/weekLabel";
+import { formatDayYear } from "@/components/planner/weekLabel";
 import { DemographicSchema, SocialPostStatSchema, SocialSnapshotSchema } from "@/lib/domain";
 import { STORAGE_KEY, businessBase, setArticlesLock, useStore, type ArticlesLock } from "@/store";
 import MediaKitScreen from "./MediaKitScreen";
@@ -209,7 +209,7 @@ describe("MediaKitScreen", () => {
     await mount();
     expect(text("kit-tile-instagram-followers")).toContain("272");
     expect(text("kit-tile-instagram-followers")).toContain(
-      `Snapshot · ${formatDayShort(day(2), "en")}`,
+      `Snapshot · ${formatDayYear(day(2), "en")}`,
     );
     expect(text("kit-tile-instagram-engagement")).toContain("7.8%");
     // The one imported (not future) post is the whole sample, and the tile says so.
@@ -220,6 +220,43 @@ describe("MediaKitScreen", () => {
     // Nothing the app does not store: no invented engagement or views for TikTok.
     expect(text("kit-tile-tiktok-engagement")).toBe("Engagement—");
     expect(text("kit-tile-tiktok-avgViews")).toBe("Avg. views—");
+  });
+
+  it("leaves a stale snapshot out of the hero total and chip, but still shows it on its tile as old", async () => {
+    await seed();
+    useStore.setState({
+      socialSnapshots: [
+        SocialSnapshotSchema.parse({ platform: "instagram", day: day(2), followers: 272 }),
+        SocialSnapshotSchema.parse({ platform: "tiktok", day: day(45), followers: 1_200 }),
+      ],
+    });
+    await mount();
+    expect(text("kit-total")).toBe("272");
+    expect(text("kit-total-note")).toBe("Platforms counted: 1 of 3");
+    expect(text("kit-chip-tiktok")).toContain("—");
+    expect(text("kit-chip-tiktok")).not.toContain("1.2K");
+    expect(text("kit-platform-tiktok")).toContain("Older than 30 days");
+    expect(text("kit-tile-tiktok-followers")).toContain("1.2K");
+  });
+
+  it("prints an em dash for a gender share the app does not have", async () => {
+    await seed();
+    useStore.setState({
+      demographics: [
+        DemographicSchema.parse({
+          platform: "instagram",
+          day: day(3),
+          dimension: "gender",
+          key: "male",
+          pct: 60,
+        }),
+      ],
+    });
+    await mount();
+    const audience = text("kit-audience-instagram");
+    expect(audience).toContain("60%");
+    expect(audience).toContain("—");
+    expect(audience).not.toContain("–");
   });
 
   it("shows the audience, the recent posts (none from the future), services, past work and an email link", async () => {

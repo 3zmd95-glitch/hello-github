@@ -29,6 +29,19 @@ describe("kitTotalFollowers", () => {
     ).toEqual({ value: 1_472, platforms: 2, of: 3 });
   });
 
+  it("leaves out a count from a stale snapshot, but the platform still counts in the 'of'", () => {
+    const old = (p: KitMetric["platform"], n: number): KitMetric => ({
+      ...metric(p, n),
+      stale: true,
+    });
+    expect(kitTotalFollowers([metric("instagram", 272), old("tiktok", 1_200)])).toEqual({
+      value: 272,
+      platforms: 1,
+      of: 2,
+    });
+    expect(kitTotalFollowers([old("instagram", 272), old("tiktok", 1_200)])).toBeNull();
+  });
+
   it("is null when no platform has a count (the page shows a dash)", () => {
     expect(kitTotalFollowers([metric("threads", null)])).toBeNull();
     expect(kitTotalFollowers([])).toBeNull();

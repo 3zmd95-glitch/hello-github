@@ -1014,7 +1014,8 @@ export const PersistedStateSchema = z.object({
   inboxSeen: z.record(z.string(), z.string()).default({}),
   inboxTab: InboxTabSchema.default("all"),
   /* 💼 Business screen settings that are not the kit's text (planning/tools/09 D2, D3). */
-  /** The media-kit page's name and block switches, and the rate calculator's assumptions (private, never exported). */
+  /** The media-kit page's name and block switches, and the rate calculator's assumptions (private: never printed or
+   published; the app's backup file includes them). */
   businessPrefs: BusinessPrefsSchema.default(DEFAULT_BUSINESS_PREFS),
 });
 export type PersistedState = z.infer<typeof PersistedStateSchema>;

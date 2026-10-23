@@ -96,8 +96,9 @@ unsavedKitDraft.subscribe(({ draft }) => {
 /**
  * 💼 The media kit editor (packet DT-5): the owner's text, services, rate card and past work, saved like the CMS and
  * workflow editors ("Saved ✓" only after the store read the commit back; another tab's change never overwrites what
- * is on screen; unsaved edits are stashed when the editor closes). Metrics come from Growth with their provenance;
- * the estimator is the owner's own assumptions. Preview, print and export use the current draft.
+ * is on screen; unsaved edits are stashed when the editor closes). Metrics come from Growth with their provenance.
+ * The rate card is private (it feeds the deal replies; no preview, print or export shows a price); the price
+ * calculator is its own tab. Preview and export use the current draft; printing is the media-kit page's job.
  */
 export default function KitEditor() {
   const { t, lang } = useT();
@@ -645,6 +646,9 @@ export default function KitEditor() {
       {section(
         "business.section.rates",
         <>
+          <p className="text-ink-2 text-[13px]" data-testid="business-rate-private">
+            {t("business.rateCard.private")}
+          </p>
           {draft.rateCard.map((r, i) => (
             <div
               key={r.id}
@@ -823,15 +827,14 @@ export default function KitEditor() {
           )}
           {t(showPreview ? "business.previewHide" : "business.preview")}
         </button>
-        <button
-          type="button"
+        <Link
+          href="/social/business/media-kit"
           className="px-btn px-btn-ghost"
-          onClick={() => window.print()}
-          data-testid="business-print"
+          data-testid="business-to-page"
         >
           <Printer size={16} strokeWidth={1.75} aria-hidden />
-          {t("business.print")}
-        </button>
+          {t("business.printMoved")}
+        </Link>
         <button type="button" className="px-btn" onClick={exportJson} data-testid="business-export">
           <Download size={16} strokeWidth={1.75} aria-hidden />
           {t("business.export")}
