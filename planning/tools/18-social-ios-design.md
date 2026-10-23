@@ -237,7 +237,7 @@ stacked layers: the skill popup over the post popup, the player, alerts, celebra
 | `ListGroup` + `ListRow` (icon, iconTone, title, sub, trailing, chevron, href / onClick) | ad-hoc `px-inset` rows, More links | hairline separators, press highlight |
 | `Segmented` (options, value, onChange, role tablist / radiogroup) | `.cal-tabs`, `.gr-tabs`, `.studio-seg` | equal widths, spring thumb, keyboard arrows |
 | `Switch` | `role="switch"` checkboxes in Auto replies | styled native `<input type="checkbox" role="switch">` (tests already query `getByRole("switch")`) |
-| `Sheet` (title, detents, children), in-house | `SheetFrame`, `GrowthDialog`, post popup | portaled on z-39 under the skill popup / alerts / player / celebrations; detents `[0.6, 0.92]`, drag + fling, `useBackToClose`, focus in and out, scroll lock |
+| `Sheet` (title, detents, children), in-house | `SheetFrame`, `GrowthDialog`, post popup | portaled on z-39 under the skill popup / alerts / player / celebrations; detents `[0.6, 0.92]`, drag + fling, `useBackToClose`, focus in and out, scroll lock; `side` (Oct 23): on md+ a full-height 480px panel at the inline end (details beside a list, slides in with `--out`, `data-side`), the phone keeps its bottom sheet |
 | `Alert` = `ConfirmDialog` restyled by `data-world` | centered 270px iOS alert: title, message, stacked buttons with hairlines | one component for both worlds |
 | `Chip` (`.px-chip` restyle) | tone: default / tint / warn | 24px pill, 12px / 600 |
 | `StatTile` (label, value, delta, countUp) | `.an-kpi`, Studio growth tiles | 24px tabular numbers |

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import type {
   InboxComment,
   InboxConversation,
@@ -889,4 +889,134 @@ test("without a Worker the page sends you to Settings and asks the Worker for no
   await expect(page).toHaveURL(/\/settings\/#api-keys$/);
   await expect(page.getByTestId("apikey-scoutUrl-input")).toBeVisible();
   expect(fake.requests).toEqual([]);
+});
+
+/* ---------- the Beacons-style layout: tiles, search, table rows, a side panel (md and up) ---------- */
+
+/** Two conversations, Sara's window still open: a new message each, one open conversation, three comments. */
+async function openInboxWithTwo(page: Page): Promise<void> {
+  const fake = await stubWorker(page);
+  fake.conversations = [{ ...SARA, windowClosesAt: "2999-01-01T00:00:00.000Z" }, KHALID];
+  await freshState(page, "/settings/");
+  await connectWorker(page);
+  await afterAnEarlierVisit(page);
+  await page.goto("/social/inbox/");
+  await expect(page.getByTestId("inbox-conversation")).toHaveCount(2);
+}
+
+const stat = (page: Page, name: string) => page.getByTestId(`inbox-stat-${name}`).locator("b");
+
+test("wide screen: three tiles, a search that narrows the rows, table rows, the thread in a side panel", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "the wide layout is for md and up; the phone keeps the stacked list");
+  await openInboxWithTwo(page);
+
+  await expect(page.getByTestId("inbox-stats").getByText("رسائل جديدة")).toBeVisible();
+  await expect(stat(page, "new")).toHaveText("2");
+  await expect(stat(page, "open")).toHaveText("1");
+  await expect(stat(page, "comments")).toHaveText("3");
+  // TikTok has nothing to count: no tiles there.
+  await page.getByTestId("inbox-tab-tiktok").click();
+  await expect(page.getByTestId("inbox-stats")).toHaveCount(0);
+  await page.getByTestId("inbox-tab-all").click();
+  await expect(page.getByTestId("inbox-stats")).toBeVisible();
+
+  // The rows are table rows in one card: avatar, name and last line, the "new" chip and the time.
+  await expect(page.getByTestId("inbox-messages")).toHaveAttribute("data-layout", "table");
+  await expect(page.getByTestId("inbox-comments")).toHaveAttribute("data-layout", "table");
+  const rows = page.getByTestId("inbox-conversation");
+  const sara = rows.first();
+  expect(await sara.evaluate((el) => getComputedStyle(el).display)).toBe("grid");
+  await expect(sara.getByTestId("inbox-avatar")).toBeVisible();
+  await expect(sara.getByTestId("inbox-avatar")).toHaveText("س");
+  await expect(sara.getByTestId("inbox-new")).toBeVisible();
+  await expect(sara.locator("time")).toBeVisible();
+  expect(await fitsViewport(page)).toBe(true);
+
+  // The columns line up: the "new" chips and the times sit at the same place in every row, the Comments row
+  // included (its count, chip and time tracks are fixed and end where the Messages tracks do).
+  const left = async (el: Locator) => Math.round((await el.boundingBox())!.x);
+  const post = page.getByTestId("inbox-post-row");
+  const cells = [rows.nth(0), rows.nth(1), post];
+  for (const [name, pick] of [
+    ["new chip", (row: Locator) => row.getByTestId("inbox-new")],
+    ["time", (row: Locator) => row.locator("time")],
+  ] as const) {
+    const where = await Promise.all(cells.map((row) => left(pick(row))));
+    expect(new Set(where).size, `${name}: ${where}`).toBe(1);
+  }
+
+  // The search narrows the loaded rows of both lists; Escape clears it; no match says so.
+  const search = page.getByTestId("inbox-search");
+  await search.fill("خالد");
+  await expect(rows).toHaveCount(1);
+  await expect(rows).toHaveAttribute("data-id", "t0");
+  await expect(page.getByTestId("inbox-post-row")).toHaveCount(0);
+  await search.press("Escape");
+  await expect(search).toHaveValue("");
+  await expect(rows).toHaveCount(2);
+  await expect(page.getByTestId("inbox-post-row")).toHaveCount(1);
+  await search.fill("zzz");
+  await expect(page.getByTestId("inbox-search-none")).toHaveText("ما فيه نتيجة");
+  await expect(rows).toHaveCount(0);
+  await search.fill("سارة");
+  await expect(rows).toHaveCount(1);
+
+  // The thread opens beside the list: a full-height panel at the inline end (the left edge in Arabic).
+  await rows.click();
+  const panel = page.getByTestId("inbox-thread");
+  await expect(panel).toHaveAttribute("data-side", "true");
+  await expect(panel.getByTestId("inbox-message")).toHaveCount(2);
+  const viewport = page.viewportSize()!;
+  expect(await page.evaluate(() => document.documentElement.dir)).toBe("rtl");
+  await expect
+    .poll(async () => {
+      const box = await panel.boundingBox();
+      return box && [Math.round(box.x), Math.round(box.width), Math.round(box.height)];
+    })
+    .toEqual([0, 480, viewport.height]);
+  expect(await fitsViewport(page)).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+
+  // A post's comments open the same way.
+  await search.fill("");
+  await page.getByTestId("inbox-post-row").click();
+  await expect(page.getByTestId("inbox-post")).toHaveAttribute("data-side", "true");
+  await page.getByTestId("inbox-post").getByRole("button", { name: "سكّر" }).click();
+  await expect(page.getByTestId("inbox-post")).toHaveCount(0);
+});
+
+test("phone: the three tiles fit, the search sits under the tabs, rows stay stacked, the thread is a bottom sheet", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, "the stacked list is the phone's; wide screens have their own case");
+  await openInboxWithTwo(page);
+
+  for (const name of ["new", "open", "comments"])
+    await expect(page.getByTestId(`inbox-stat-${name}`)).toBeVisible();
+  await expect(stat(page, "new")).toHaveText("2");
+  await expect(stat(page, "open")).toHaveText("1");
+  await expect(stat(page, "comments")).toHaveText("3");
+  expect(await fitsViewport(page)).toBe(true);
+
+  const tabs = await page.getByTestId("inbox-tab").boundingBox();
+  const search = await page.getByTestId("inbox-search").boundingBox();
+  expect(search!.y).toBeGreaterThanOrEqual(tabs!.y + tabs!.height);
+  expect(Math.round(search!.width)).toBe(Math.round(tabs!.width));
+
+  const rows = page.getByTestId("inbox-conversation");
+  expect(await rows.first().evaluate((el) => getComputedStyle(el).display)).toBe("flex");
+  await expect(rows.first().getByTestId("inbox-avatar")).toBeHidden();
+  await expect(rows.first().locator("time")).toBeHidden();
+
+  await rows.first().click();
+  const sheet = page.getByTestId("inbox-thread");
+  await expect(sheet).toBeVisible();
+  await expect(sheet).toHaveAttribute("data-mode", "sheet");
+  await expect(sheet).not.toHaveAttribute("data-side", /./);
+  expect(await fitsViewport(page)).toBe(true);
 });

@@ -5,28 +5,45 @@ import { ListGroup, ListRow } from "@/components/ui/ios/List";
 import PlatformBadge from "@/components/ui/ios/PlatformBadge";
 import type { InboxPost } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
+import { timeAgo } from "@/lib/socialSync";
 import { useStore } from "@/store";
 import { isUnread, postSeen } from "./useInbox";
 
-/** The post's picture with its platform's badge on the corner; the badge alone without a picture. */
+/**
+ * The post's picture with its platform's badge on the corner. Without a picture a phone shows the badge alone; md+
+ * shows a neutral box of the same size, the small badge on its corner.
+ */
 function Thumb({ post }: { post: InboxPost }) {
-  if (!post.thumbUrl) return <PlatformBadge platform={post.platform} />;
   return (
     <span className="relative shrink-0">
-      {/* eslint-disable-next-line @next/next/no-img-element -- a remote thumbnail; the static export has no image optimizer */}
-      <img
-        src={post.thumbUrl}
-        alt=""
-        className="h-10 w-10 rounded-[13px] object-cover"
-        loading="lazy"
-        referrerPolicy="no-referrer"
-      />
-      <PlatformBadge platform={post.platform} size={18} className="absolute -end-1 -bottom-1" />
+      {post.thumbUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- a remote thumbnail; the static export has no image optimizer
+        <img
+          src={post.thumbUrl}
+          alt=""
+          className="h-10 w-10 rounded-[13px] object-cover"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
+      ) : (
+        <>
+          <span className="block md:hidden">
+            <PlatformBadge platform={post.platform} />
+          </span>
+          <span aria-hidden className="bg-fill hidden h-10 w-10 rounded-[13px] md:block" />
+        </>
+      )}
+      <span className={`absolute -end-1 -bottom-1 ${post.thumbUrl ? "" : "hidden md:block"}`}>
+        <PlatformBadge platform={post.platform} size={18} />
+      </span>
     </span>
   );
 }
 
-/** The Comments section: one row per post with its comment count, newest first, "new" until it is opened. */
+/**
+ * The Comments section: one row per post with its comment count, newest first, "new" until it is opened. On md+
+ * each row is a table row (picture | caption | comment count | "new" | time); a phone keeps the stacked list.
+ */
 export default function PostList({
   posts,
   loaded,
@@ -41,10 +58,10 @@ export default function PostList({
   /** Ignored while a read is under way (the hook's own guard). */
   onMore: () => void;
 }) {
-  const { t } = useT();
+  const { t, lang } = useT();
   const seen = useStore((s) => s.inboxSeen);
   return (
-    <ListGroup header={t("inbox.section.comments")} testId="inbox-comments">
+    <ListGroup header={t("inbox.section.comments")} testId="inbox-comments" data-layout="table">
       {posts.map((p) => (
         <ListRow
           key={`${p.platform}:${p.id}`}
@@ -52,12 +69,27 @@ export default function PostList({
           title={p.caption ? <bdi>{p.caption}</bdi> : t("inbox.comments.untitled")}
           sub={t("inbox.comments.count", { n: p.commentCount })}
           trailing={
-            isUnread(postSeen(p), seen) && (
-              <Chip tone="tint" data-testid="inbox-new">
-                {t("inbox.new")}
-              </Chip>
-            )
+            <>
+              {isUnread(postSeen(p), seen) && (
+                <Chip
+                  tone="tint"
+                  className="md:col-start-4 md:justify-self-end"
+                  data-testid="inbox-new"
+                >
+                  {t("inbox.new")}
+                </Chip>
+              )}
+              <time
+                dateTime={p.postedAt}
+                className="text-muted hidden text-[13px] whitespace-nowrap md:col-start-5 md:block md:justify-self-end md:text-end"
+              >
+                {timeAgo(p.postedAt, lang)}
+              </time>
+            </>
           }
+          // md+: the title and the count are grid cells of their own (the text wrapper steps aside); the count, "new"
+          // and time tracks are fixed, so they line up from row to row and with the Messages list.
+          className="md:hover:bg-fill md:grid md:grid-cols-[auto_minmax(0,1fr)_6rem_4rem_6rem] md:items-center md:gap-4 md:[&>.ios-tx]:contents md:[&>.ios-tx>small]:text-end md:[&>.ios-tx>small]:whitespace-nowrap"
           onClick={() => onOpen(p)}
           testId="inbox-post-row"
           data-id={p.id}

@@ -202,6 +202,78 @@ describe("Sheet", () => {
   });
 });
 
+// `side`: on md+ the sheet is a full-height panel at the inline end (the CSS is keyed on data-side); a phone keeps
+// its bottom sheet.
+describe("Sheet side panel", () => {
+  /** Reduced motion (closing calls onClose at once), and `md` up when `wide`. */
+  const screen = (wide: boolean) =>
+    vi.stubGlobal("matchMedia", (q: string) => ({
+      matches: q.includes("reduce") || (wide && q.includes("min-width")),
+      media: q,
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+  function mountSide(onClose: () => void, side = true) {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() =>
+      root!.render(
+        <Sheet onClose={onClose} title="بوست جديد" titleId="t1" testId="sheet" side={side} wide>
+          <button type="button">داخل</button>
+        </Sheet>,
+      ),
+    );
+    return document.querySelector('[data-testid="sheet"]')!;
+  }
+
+  it("is a panel on a wide screen: data-side on the labelled dialog, wide or not", () => {
+    screen(true);
+    const dlg = mountSide(() => {});
+    expect(dlg.getAttribute("data-side")).toBe("true");
+    expect(dlg.getAttribute("role")).toBe("dialog");
+    expect(dlg.getAttribute("aria-modal")).toBe("true");
+    expect(dlg.getAttribute("aria-labelledby")).toBe("t1");
+  });
+
+  it("closes on Escape, the close button and the backdrop", () => {
+    screen(true);
+    const onClose = vi.fn();
+    mountSide(onClose);
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    for (const close of [
+      () => document.querySelector(".ios-close") as HTMLElement,
+      () => document.querySelector('[data-testid="sheet-backdrop"]') as HTMLElement,
+    ]) {
+      act(() => root!.unmount());
+      document.body.innerHTML = "";
+      const again = vi.fn();
+      mountSide(again);
+      act(() => close().click());
+      expect(again).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("stays a bottom sheet on a phone, with no data-side", () => {
+    screen(false);
+    const dlg = mountSide(() => {});
+    expect(dlg.getAttribute("data-side")).toBeNull();
+    expect(dlg.getAttribute("data-mode")).toBe("sheet");
+  });
+
+  it("is the centered dialog without side, wide or not", () => {
+    screen(true);
+    const dlg = mountSide(() => {}, false);
+    expect(dlg.getAttribute("data-side")).toBeNull();
+    expect(dlg.getAttribute("data-mode")).toBe("dialog");
+    expect(dlg.getAttribute("data-wide")).toBe("true");
+  });
+});
+
 describe("Sheet with motion (phone)", () => {
   let frames: FrameRequestCallback[] = [];
   beforeEach(() => {

@@ -311,6 +311,18 @@ export const isUnconfirmed = (error: InboxError): boolean =>
 /** A text's length in UTF-8 bytes: Instagram's DM limit counts these. */
 export const utf8Bytes = (s: string): number => new TextEncoder().encode(s).length;
 
+/**
+ * What the Inbox search compares, for the needle and for the text it looks through: the vowel marks (tashkeel, the
+ * superscript alef) and the tatweel are dropped, the hamza alefs become a plain alef, the alef maqsura a yeh, and
+ * the case goes. So "احمد" finds "أحمد" and "محمد" finds "مُحمّد".
+ */
+export const searchFold = (s: string): string =>
+  s
+    .replace(/[ً-ْٰـ]/g, "")
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .toLowerCase();
+
 /** The key `inboxSeen` keeps a conversation's or post's last-opened time under. */
 export const seenKey = (platform: InboxPlatform, kind: "conversation" | "post", id: string) =>
   `${platform}:${kind}:${id}`;

@@ -9,14 +9,16 @@ import PageHeader from "@/components/ui/ios/PageHeader";
 import PlatformBadge from "@/components/ui/ios/PlatformBadge";
 import Segmented from "@/components/ui/ios/Segmented";
 import Sheet from "@/components/ui/ios/Sheet";
+import { useFirstVisit } from "@/components/ui/ios/useFirstVisit";
 import type { InboxConversation, InboxOverview, InboxPost } from "@/lib/domain";
-import { inboxErrorKey } from "@/lib/inbox";
+import { inboxErrorKey, searchFold } from "@/lib/inbox";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { timeAgo } from "@/lib/socialSync";
 import { useStore } from "@/store";
 import { useSocialSync } from "../useSocialSync";
 import CommentsView from "./CommentsView";
 import ConversationList from "./ConversationList";
+import InboxStats from "./InboxStats";
 import PostList from "./PostList";
 import ThreadView from "./ThreadView";
 import {
@@ -75,7 +77,8 @@ function lastRead(overview: InboxOverview | null): string | null {
 /**
  * 📥 The global inbox (planning/tools/51-global-inbox.md), read only: Instagram's DMs and comments as the Worker's
  * reader keeps them, a tab per platform (TikTok has no DMs for personal accounts and no comments before its
- * approval), a conversation or a post's comments in a sheet. Polls every INBOX_POLL_MS while the page is visible.
+ * approval), a conversation or a post's comments in a sheet (a side panel on a wide screen). Three tiles on top and a
+ * search over the loaded rows (client side only). Polls every INBOX_POLL_MS while the page is visible.
  */
 export default function InboxScreen() {
   const { t, lang } = useT();
@@ -84,8 +87,11 @@ export default function InboxScreen() {
   const tab = useStore((s) => s.inboxTab);
   const setTab = useStore((s) => s.setInboxTab);
   const markSeen = useStore((s) => s.markInboxSeen);
+  const seen = useStore((s) => s.inboxSeen);
+  const first = useFirstVisit("inbox");
   const { busy: accountBusy, connect } = useSocialSync();
   const [open, setOpen] = useState<Open>(null);
+  const [query, setQuery] = useState("");
   /** Why the last connect / reconnect failed (the page stays: a success leaves for the platform). */
   const [connectError, setConnectError] = useState<MessageKey | null>(null);
 
@@ -118,6 +124,13 @@ export default function InboxScreen() {
   const loaded = inbox.loadedAt !== null;
   const pick = <T extends { platform: string }>(list: readonly T[]) =>
     tab === "all" ? list : list.filter((x) => x.platform === tab);
+  // The search narrows what is loaded (names, last lines, captions), however they are cased or spelled in Arabic;
+  // nothing is asked of the Worker.
+  const needle = searchFold(query.trim());
+  const has = (...texts: string[]) => !needle || texts.some((x) => searchFold(x).includes(needle));
+  const conversations = pick(inbox.conversations).filter((c) => has(c.peerName, c.lastText));
+  const posts = pick(inbox.posts).filter((p) => has(p.caption));
+  const noMatch = loaded && needle !== "" && conversations.length === 0 && posts.length === 0;
   // The thread follows the person's row: the poll may swap a provisional conversation for the real one.
   const live =
     open?.kind === "thread"
@@ -162,6 +175,17 @@ export default function InboxScreen() {
           </div>
         }
       />
+
+      {/* No tiles on the TikTok tab: it has no conversations or comments to count. */}
+      {tab !== "tiktok" && inbox.loadedAt !== null && overview && (
+        <InboxStats
+          conversations={pick(inbox.conversations)}
+          seen={seen}
+          comments={overview.counts.comments}
+          countUp={first}
+          now={inbox.loadedAt}
+        />
+      )}
 
       {error?.type === "not_available" ? (
         <div className="ios-list">
@@ -211,19 +235,37 @@ export default function InboxScreen() {
             </p>
           )}
 
-          <Segmented
-            options={TABS.map((v) => ({
-              value: v,
-              label: t(`inbox.tab.${v}`),
-              testId: `inbox-tab-${v}`,
-            }))}
-            value={tab}
-            onChange={setTab}
-            label={t("inbox.title")}
-            testId="inbox-tab"
-            idPrefix="inbox"
-            className="md:max-w-sm"
-          />
+          {/* The toolbar: the tabs at the start, the search at the end (under the tabs on a phone). */}
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <Segmented
+              options={TABS.map((v) => ({
+                value: v,
+                label: t(`inbox.tab.${v}`),
+                testId: `inbox-tab-${v}`,
+              }))}
+              value={tab}
+              onChange={setTab}
+              label={t("inbox.title")}
+              testId="inbox-tab"
+              idPrefix="inbox"
+              className="md:w-80"
+            />
+            {tab !== "tiktok" && (
+              <input
+                type="search"
+                autoComplete="off"
+                className="px-input bg-panel md:w-72"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setQuery("");
+                }}
+                placeholder={t("inbox.search")}
+                aria-label={t("inbox.search")}
+                data-testid="inbox-search"
+              />
+            )}
+          </div>
 
           {/* Focusable (APG tabs): a tab's panel may hold no control. */}
           <div
@@ -238,20 +280,27 @@ export default function InboxScreen() {
             ) : (
               (loaded || inbox.busy) && (
                 <>
-                  <ConversationList
-                    conversations={pick(inbox.conversations)}
-                    loaded={loaded}
-                    more={inbox.moreConversations}
-                    onOpen={openConversation}
-                    onMore={() => void loadMoreConversations()}
-                  />
-                  <PostList
-                    posts={pick(inbox.posts)}
-                    loaded={loaded}
-                    more={inbox.morePosts}
-                    onOpen={openPost}
-                    onMore={() => void loadMorePosts()}
-                  />
+                  {/* Searching, a list with no match leaves the page; when neither has one, this card says so.
+                      Before the first read lands there is nothing to match: the loading rows stay. */}
+                  {(!needle || !loaded || conversations.length > 0 || noMatch) && (
+                    <ConversationList
+                      conversations={conversations}
+                      loaded={loaded}
+                      more={inbox.moreConversations}
+                      noMatch={noMatch}
+                      onOpen={openConversation}
+                      onMore={() => void loadMoreConversations()}
+                    />
+                  )}
+                  {(!needle || !loaded || posts.length > 0) && (
+                    <PostList
+                      posts={posts}
+                      loaded={loaded}
+                      more={inbox.morePosts}
+                      onOpen={openPost}
+                      onMore={() => void loadMorePosts()}
+                    />
+                  )}
                 </>
               )
             )}
@@ -266,6 +315,7 @@ export default function InboxScreen() {
           titleId="inbox-thread-title"
           testId="inbox-thread"
           detents={[0.92]}
+          side
         >
           <ThreadView key={live.id} conversation={live} />
         </Sheet>
@@ -278,6 +328,7 @@ export default function InboxScreen() {
           titleId="inbox-post-title"
           testId="inbox-post"
           detents={[0.92]}
+          side
         >
           <CommentsView post={open.p} />
         </Sheet>
