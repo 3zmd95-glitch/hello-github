@@ -750,6 +750,18 @@ export const IdeaSchema = z.object({
 });
 export type Idea = z.infer<typeof IdeaSchema>;
 
+/**
+ * A saved set of hashtags the owner reuses (A8). `tags` keep the typed casing with a leading "#"; a post "used" the
+ * set when it carries all of them (lib/hashtags).
+ */
+export const HashtagSetSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(40),
+  tags: z.array(z.string().min(2)).min(1).max(30),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type HashtagSet = z.infer<typeof HashtagSetSchema>;
+
 /** A non-negative average (means over posts need not be whole numbers). */
 const avg = z.number().min(0).optional();
 const count = z.number().int().min(0).optional();

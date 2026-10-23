@@ -12,6 +12,7 @@ import { useT } from "@/lib/i18n";
 import { hookIdeas, PLATFORM_META, suggestHashtags } from "@/lib/social";
 import { useStore } from "@/store";
 import { formatDayLong, formatInstant } from "./dates";
+import HashtagSetPicker from "./HashtagSetPicker";
 import SkillPicker from "./SkillPicker";
 import TimeChips from "./TimeChips";
 import { useTimeSuggester } from "./useTimeSuggester";
@@ -243,6 +244,7 @@ export default function OverviewTab({
             {t("calendar.sheet.addHashtag")}
           </button>
         </form>
+        <HashtagSetPicker post={post} />
         <p className="text-muted text-xs">{L(meta.hashtagAdvice)}</p>
       </section>
 

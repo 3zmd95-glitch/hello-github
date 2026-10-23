@@ -139,5 +139,10 @@
   "calendar.shotType.closeup": "قريبة",
   "calendar.shotType.wide": "واسعة",
   "calendar.shotType.text": "نص",
-  "calendar.shotType.other": "أخرى"
+  "calendar.shotType.other": "أخرى",
+  "calendar.hs.sets": "مجموعات الهاشتاقات",
+  "calendar.hs.saveAs": "احفظ هاشتاقات هذا البوست كمجموعة",
+  "calendar.hs.name": "اسم المجموعة",
+  "calendar.hs.namePh": "اسم المجموعة، مثلاً: مونتاج",
+  "calendar.hs.save": "احفظ"
 }

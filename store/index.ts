@@ -28,6 +28,7 @@ import {
   FocusSessionSchema,
   FocusStateSchema,
   GemEventSchema,
+  HashtagSetSchema,
   IdeaSchema,
   LTextSchema,
   MONTH_KEY_RE,
@@ -69,6 +70,7 @@ import {
   type FocusState,
   type GemEvent,
   type GemReason,
+  type HashtagSet,
   type Idea,
   type IdeaSource,
   type LText,
@@ -110,6 +112,7 @@ import {
 import { advanceDrill, dueDrills as dueDrillsOf, newDrill } from "@/lib/drills";
 import { replaceDemographics, upsertPostStats } from "@/lib/analytics";
 import { bestTimeFor } from "@/lib/bestTimes";
+import { parseTags } from "@/lib/hashtags";
 import { upsertSnapshots } from "@/lib/growth";
 import {
   nextPost as nextPostOf,
@@ -938,6 +941,8 @@ export const PersistedStateSchema = z.object({
   posts: z.array(PostSchema).default([]),
   /** Ideas bank entries the owner stored. */
   ideas: z.array(IdeaSchema).default([]),
+  /** Saved hashtag sets (A8), unique by name. */
+  hashtagSets: z.array(HashtagSetSchema).default([]),
   /** Manually entered growth numbers, one per platform per day. */
   socialSnapshots: z.array(SocialSnapshotSchema).default([]),
   /** "What people want" questions with their counts. */
@@ -1545,6 +1550,13 @@ export interface StoreActions {
    * unknown skill.
    */
   createPostFromSkill(skillId: string, platform: Platform, now?: Date): Post | undefined;
+  /**
+   * Save a hashtag set (A8): the tags are cleaned (one "#" each, no duplicates, 30 at most) and the name cut to 40.
+   * A set with the same name (any case) is updated in place, so saving "cuts" twice never makes two. Undefined for
+   * a blank name or no tags.
+   */
+  addHashtagSet(name: string, tags: readonly string[], now?: Date): HashtagSet | undefined;
+  removeHashtagSet(id: string): void;
   addIdea(input: NewIdeaInput, now?: Date): Idea;
   removeIdea(id: string): void;
   /** Star or unstar an idea (the ideas bank's favorites). */
@@ -1936,6 +1948,7 @@ const initialData = (): PersistedState => ({
   purchases: [],
   posts: [],
   ideas: [],
+  hashtagSets: [],
   socialSnapshots: [],
   audienceAsks: [],
   socialAccounts: [],
@@ -3894,6 +3907,7 @@ const pick = (s: PersistedState): PersistedState => ({
   purchases: s.purchases,
   posts: s.posts,
   ideas: s.ideas,
+  hashtagSets: s.hashtagSets,
   socialSnapshots: s.socialSnapshots,
   audienceAsks: s.audienceAsks,
   socialAccounts: s.socialAccounts,
@@ -5439,6 +5453,30 @@ export const useStore = create<StoreState>()(
           },
           now,
         );
+      },
+
+      addHashtagSet(name, tags, now = new Date()) {
+        const clean = name.trim().slice(0, 40).trim();
+        const cleanTags = parseTags(tags.join(" "));
+        if (!clean || !cleanTags.length) return undefined;
+        const key = clean.toLowerCase();
+        const old = get().hashtagSets.find((h) => h.name.toLowerCase() === key);
+        const saved = HashtagSetSchema.parse({
+          id: old?.id ?? newId(),
+          name: clean,
+          tags: cleanTags,
+          createdAt: old?.createdAt ?? now.toISOString(),
+        });
+        set((s) => ({
+          hashtagSets: old
+            ? s.hashtagSets.map((h) => (h.id === old.id ? saved : h))
+            : [...s.hashtagSets, saved],
+        }));
+        return saved;
+      },
+
+      removeHashtagSet(id) {
+        set((s) => ({ hashtagSets: s.hashtagSets.filter((h) => h.id !== id) }));
       },
 
       addIdea(input, now = new Date()) {

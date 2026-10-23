@@ -139,5 +139,10 @@
   "calendar.shotType.closeup": "Close-up",
   "calendar.shotType.wide": "Wide",
   "calendar.shotType.text": "Text",
-  "calendar.shotType.other": "Other"
+  "calendar.shotType.other": "Other",
+  "calendar.hs.sets": "Hashtag sets",
+  "calendar.hs.saveAs": "Save these hashtags as a set",
+  "calendar.hs.name": "Set name",
+  "calendar.hs.namePh": "Set name, e.g. Editing",
+  "calendar.hs.save": "Save"
 }

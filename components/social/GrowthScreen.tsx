@@ -20,6 +20,7 @@ import AudienceAsks from "./growth/AudienceAsks";
 import BestTimes from "./growth/BestTimes";
 import CsvImport from "./growth/CsvImport";
 import DemographicsForm from "./growth/DemographicsForm";
+import HashtagSets from "./growth/HashtagSets";
 import KpiRow from "./growth/KpiRow";
 import MyContent from "./growth/MyContent";
 import PlatformCards from "./growth/PlatformCards";
@@ -52,6 +53,8 @@ export default function GrowthScreen() {
   const first = useFirstVisit("growth");
   const state = useStore(useShallow(analyticsState));
   const demographics = useStore((s) => s.demographics);
+  const hashtagSets = useStore((s) => s.hashtagSets);
+  const posts = useStore((s) => s.posts);
   const [filter, setFilter] = useState<AnalyticsFilter>("all");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [changed, setChanged] = useState(false);
@@ -260,7 +263,10 @@ export default function GrowthScreen() {
         )}
 
         {(platform || all.platforms.length > 0) && (
-          <BestTimes stats={state.postStats} platform={platform} now={now} />
+          <>
+            <BestTimes stats={state.postStats} platform={platform} now={now} />
+            <HashtagSets sets={hashtagSets} posts={posts} stats={state.postStats} now={now} />
+          </>
         )}
 
         <MyContent

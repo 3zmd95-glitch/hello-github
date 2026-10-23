@@ -72,11 +72,31 @@ export interface LearnedTimes {
   top: BestCell[];
 }
 
-const median = (xs: readonly number[]): number => {
+/** The middle value (0 for no values). */
+export const median = (xs: readonly number[]): number => {
+  if (!xs.length) return 0;
   const s = [...xs].sort((a, b) => a - b);
   const mid = s.length >> 1;
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 };
+
+/**
+ * The platform's posts a comparison can be made on: not stories, past the {@link BT_SETTLE_HOURS} settling time
+ * (so their counters are final) and within the last {@link BT_WINDOW_DAYS} days, as of `now` (ms). Shared by the
+ * best times and the hashtag sets (A8), so both measure against the same median.
+ */
+export function settledStats(
+  stats: readonly SocialPostStat[],
+  platform: Platform,
+  now: number,
+): SocialPostStat[] {
+  const newest = now - BT_SETTLE_HOURS * HOUR_MS;
+  const oldest = now - BT_WINDOW_DAYS * 24 * HOUR_MS;
+  return stats.filter((p) => {
+    const ms = Date.parse(p.publishedAt);
+    return p.platform === platform && p.kind !== "story" && ms > oldest && ms <= newest;
+  });
+}
 
 const byRank = (a: BestCell, b: BestCell): number =>
   b.score - a.score || b.n - a.n || (a.dow ?? 0) - (b.dow ?? 0) || a.block - b.block;
@@ -116,12 +136,10 @@ export function learnBestTimes(
   platform: Platform,
   now: number,
 ): LearnedTimes {
-  const newest = now - BT_SETTLE_HOURS * HOUR_MS;
-  const oldest = now - BT_WINDOW_DAYS * 24 * HOUR_MS;
-  const used = stats
-    .filter((p) => p.platform === platform && p.kind !== "story")
-    .map((p) => ({ ms: Date.parse(p.publishedAt), views: p.views }))
-    .filter((p) => p.ms > oldest && p.ms <= newest);
+  const used = settledStats(stats, platform, now).map((p) => ({
+    ms: Date.parse(p.publishedAt),
+    views: p.views,
+  }));
   const base = {
     platform,
     posts: used.length,

@@ -21,13 +21,13 @@ Legend: ✅ built and live · 🟡 partly there · ⬜ to do · 🚫 not doing (
 | Post to Instagram, Threads, YouTube, TikTok from one post | 🚀 tab + Worker queue | ✅ | All four published live on Sep 28–29 (`07-auto-posting.md` log) |
 | Public posts on TikTok and YouTube; DMs to everyone | App reviews | ⬜ **A1** | Until the reviews pass: TikTok "Only me" and only while the account is private; YouTube private; Auto replies DMs reach only accounts with a role on the Meta app |
 | X, Snapchat | Copy caption + open app | 🟡 | No free API. Zernio (Snapchat) or Buffer (X) if the owner wants them automatic |
-| Best time to post | Hint in the new-post dialog | 🟡 **A5** | Static per platform today; compute from our own post stats |
+| Best time to post | Growth heat map + 3 time chips in the post dialogs | ✅ **A5** | Built Oct 23: learned from our own post numbers (Riyadh weekday x 2 h, views vs the platform median, one lucky post cannot win); under 20 settled posts a platform keeps the usual times and says how many are missing. `lib/bestTimes.ts` |
 | Upload media from the phone | Paste a public link | 🟡 **A2** | Supabase Storage (Sprint 3) or Drive upload |
-| First comment | — | ⬜ A4 | IG/Threads reply after publish |
+| First comment | Field in the 🚀 tab + a per-network chip | 🟡 A4 | Built Oct 23, not run live yet: Instagram needs the auto-replies permission, Threads replies through its container flow, YouTube needs `youtube.force-ssl` (not in the connect scopes yet), TikTok has no API. A failed comment never fails the post (`07-auto-posting.md`) |
 | Queue / auto-lists (next free slot, evergreen reposts) | — | ⬜ A6 | |
 | Bulk schedule from CSV | CSV import exists for stats only | ⬜ A7 | |
 | Post library / repurpose | Ideas bank | 🟡 | |
-| Hashtag sets per topic | Hashtags on the post | 🟡 A8 | Saved sets + usage stats |
+| Hashtag sets per topic | Saved sets (post popup + Growth) with usage stats | 🟡 A8 | Built Oct 23: apply or save a set from a post; Growth shows, per set, posts / avg views / x times the platform median once it has 5 posts (join by the Worker post id or the posted link). Not yet seen on the owner's real numbers. `lib/hashtags.ts` |
 | Stories, carousels | — | ⬜ A9 | IG stories/carousels, Threads carousels, TikTok photos (needs domain check) |
 | Canva / Drive picker | — | ⬜ | Drive picker comes with A2 |
 | Approvals, team roles, multi-brand | — | 🚫 | Solo creator |
@@ -140,7 +140,7 @@ Proposed. The owner can reorder.
    - Needs public **terms** and **privacy** pages: add them to the site first (small task).
 2. **C2 · Smart Reply** (the one Beacons automation in use), then **C1 · Inbox**.
 3. **D1 · Link in bio + click tracking**, then move 3zprod.com. **D2 · Media kit** after.
-4. **A2 · Upload from the phone**, **A5 · Best time from our own data**, **A4 · First comment**.
+4. **A2 · Upload from the phone**, **A5 · Best time from our own data** (built Oct 23), **A4 · First comment** (built Oct 23), **A8 · Hashtag sets** (built Oct 23).
 5. **B3 · Monthly report**, **B1 · Competitors**, **E1–E3 · AI** once the key is set.
 6. Cancel Beacons (**$10/month**) when D1, D2, D4, D5 and C2 are live and the numbers have been checked side by side.
    Metricool is not paid today, so nothing to cancel there.
