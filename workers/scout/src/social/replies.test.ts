@@ -26,6 +26,7 @@ import {
   type PollDeps,
   type PollState,
 } from "./replies";
+import * as repliesModule from "./replies";
 import { keys, Store } from "./store";
 import type { SocialPlatform, TokenSet } from "./types";
 
@@ -2023,13 +2024,30 @@ describe("cron tick", () => {
     expect(sync).not.toHaveProperty("replies");
   });
 
-  it("polls only the replies on minutes off the five-minute grid", async () => {
+  it("polls only the replies and reads the inbox on minutes off the five-minute grid", async () => {
     const env = makeEnv();
     await connect(env, "instagram");
     await seed(env, [input()]);
     const r = await runTick(env, tickAt("09:01"), { fetch: mockFetch(igRoutes().routes), now: NOW });
-    expect(r).toMatchObject({ replies: { sent: ["c1"] } });
+    // the test env has no INBOX_STORE binding, so the reader is called and skips
+    expect(r).toMatchObject({ replies: { sent: ["c1"] }, inbox: { skipped: "no_store" } });
     expect(r).not.toHaveProperty("publish");
+  });
+
+  it("gives the replies poll fewer Graph calls off the grid, where the inbox reader runs after it", async () => {
+    const env = makeEnv();
+    await connect(env, "instagram");
+    await seed(env, [input()]);
+    const poll = vi.spyOn(repliesModule, "pollReplies");
+    const fetchMock = mockFetch(igRoutes().routes);
+    await runTick(env, tickAt("09:01"), { fetch: fetchMock, now: NOW });
+    expect(poll).toHaveBeenLastCalledWith(
+      env,
+      expect.objectContaining({ budget: 24, fiveMinuteTick: false }),
+    );
+    await runTick(env, tickAt("09:05"), { fetch: fetchMock, now: NOW });
+    expect(poll.mock.lastCall?.[1]).not.toHaveProperty("budget");
+    poll.mockRestore();
   });
 
   it("the write guard's slow mode skips the off-grid minutes only", async () => {

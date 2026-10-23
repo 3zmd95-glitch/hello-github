@@ -173,6 +173,36 @@ describe("auth", () => {
     expect((await handle(req("/nope"), ENV)).status).toBe(404);
     expect((await handle(req("/nope", { token: null }), ENV)).status).toBe(401);
   });
+
+  it("serves the Instagram webhook routes without a bearer: Meta's signature is the credential", async () => {
+    const env: Env = { ...ENV, META_VERIFY_TOKEN: "verify-me", META_APP_SECRET: "app-secret" };
+    const verify = await handle(
+      req("/webhooks/instagram?hub.mode=subscribe&hub.verify_token=verify-me&hub.challenge=42", {
+        token: null,
+        origin: null,
+      }),
+      env,
+    );
+    expect(verify.status).toBe(200);
+    expect(await verify.text()).toBe("42");
+
+    // A forged event is the webhook's own 401 (bad_signature), not the bearer's { error: "unauthorized" }.
+    const forged = await handle(
+      req("/webhooks/instagram", {
+        method: "POST",
+        token: null,
+        origin: null,
+        body: "{}",
+        headers: { "X-Hub-Signature-256": "sha256=00" },
+      }),
+      env,
+    );
+    expect(forged.status).toBe(401);
+    expect(await forged.json()).toEqual({ error: "bad_signature" });
+
+    // Nothing else under /webhooks is open.
+    expect((await handle(req("/webhooks/other", { token: null }), env)).status).toBe(401);
+  });
 });
 
 describe("creator route authentication", () => {

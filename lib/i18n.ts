@@ -25,6 +25,8 @@ import arPublish from "@/messages/publish.ar.json";
 import enPublish from "@/messages/publish.en.json";
 import arReplies from "@/messages/replies.ar.json";
 import enReplies from "@/messages/replies.en.json";
+import arInbox from "@/messages/inbox.ar.json";
+import enInbox from "@/messages/inbox.en.json";
 import arTrends from "@/messages/trends.ar.json";
 import enTrends from "@/messages/trends.en.json";
 import arGenres from "@/messages/genres.ar.json";
@@ -66,6 +68,8 @@ export const MESSAGE_FILES = {
   ideas: { ar: arIdeas, en: enIdeas },
   publish: { ar: arPublish, en: enPublish },
   replies: { ar: arReplies, en: enReplies },
+  // 🗂 Global inbox (planning/tools/51-global-inbox.md): DMs and comments in one screen.
+  inbox: { ar: arInbox, en: enInbox },
   // 📈 Trend Radar (round 30, planning/tools/08-trends.md).
   trends: { ar: arTrends, en: enTrends },
   // 🎬 Edit genres (round 31): the genre row of Discover / Research, the Settings card.
@@ -92,6 +96,7 @@ const ar = {
   ...arIdeas,
   ...arPublish,
   ...arReplies,
+  ...arInbox,
   ...arTrends,
   ...arGenres,
   ...arPlayer,
@@ -113,6 +118,7 @@ const en = {
   ...enIdeas,
   ...enPublish,
   ...enReplies,
+  ...enInbox,
   ...enTrends,
   ...enGenres,
   ...enPlayer,

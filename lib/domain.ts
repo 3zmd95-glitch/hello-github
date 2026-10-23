@@ -587,6 +587,82 @@ export const AutoRepliesDocSchema = z.object({
 export type AutoRepliesDoc = z.infer<typeof AutoRepliesDocSchema>;
 
 /**
+ * The global inbox (planning/tools/51-global-inbox.md): what `/social/inbox/*` answers. MIRRORS the row types
+ * in `workers/scout/src/social/inboxDb.ts` field for field (hand-copied; the Worker is a separate package).
+ */
+export const INBOX_PLATFORMS = ["instagram", "tiktok"] as const;
+export const InboxPlatformSchema = z.enum(INBOX_PLATFORMS);
+export type InboxPlatform = z.infer<typeof InboxPlatformSchema>;
+
+export const InboxConversationSchema = z.object({
+  platform: InboxPlatformSchema,
+  id: z.string(),
+  peerId: z.string(),
+  peerName: z.string(),
+  updatedAt: z.string(),
+  lastText: z.string(),
+  lastFrom: z.enum(["peer", "owner", "auto"]),
+  /** When Instagram's reply window closes (24 h after the person's last message); null = no window. */
+  windowClosesAt: z.string().nullable(),
+  answeredBy: z.enum(["auto"]).nullable(),
+});
+export type InboxConversation = z.infer<typeof InboxConversationSchema>;
+
+export const InboxMessageSchema = z.object({
+  platform: InboxPlatformSchema,
+  convId: z.string(),
+  id: z.string(),
+  at: z.string(),
+  fromPeer: z.boolean(),
+  text: z.string(),
+  /** A kind a newer Worker adds reads as "unsupported" instead of failing the whole page. */
+  kind: z.enum(["text", "story", "share", "unsupported"]).catch("unsupported"),
+  sentBy: z.enum(["peer", "owner", "auto"]),
+});
+export type InboxMessage = z.infer<typeof InboxMessageSchema>;
+
+export const InboxPostSchema = z.object({
+  platform: InboxPlatformSchema,
+  id: z.string(),
+  permalink: z.string(),
+  thumbUrl: z.string().nullable(),
+  caption: z.string(),
+  postedAt: z.string(),
+  commentCount: z.number().int(),
+});
+export type InboxPost = z.infer<typeof InboxPostSchema>;
+
+export const InboxCommentSchema = z.object({
+  platform: InboxPlatformSchema,
+  postId: z.string(),
+  id: z.string(),
+  parentId: z.string().nullable(),
+  at: z.string(),
+  author: z.string(),
+  authorId: z.string().nullable(),
+  text: z.string(),
+  hidden: z.boolean(),
+  ours: z.boolean(),
+  sentBy: z.enum(["owner", "auto"]).nullable(),
+});
+export type InboxComment = z.infer<typeof InboxCommentSchema>;
+
+export const InboxOverviewSchema = z.object({
+  platforms: z.record(
+    InboxPlatformSchema,
+    z.object({
+      connected: z.boolean(),
+      canReply: z.boolean(),
+      tokenExpired: z.boolean(),
+      lastReadAt: z.string().nullable(),
+      newestAt: z.string().nullable(),
+    }),
+  ),
+  counts: z.object({ conversations: z.number(), posts: z.number(), comments: z.number() }),
+});
+export type InboxOverview = z.infer<typeof InboxOverviewSchema>;
+
+/**
  * A planned or published post in the content calendar. `plannedDay` is a Riyadh day key; `plannedTime` is
  * the local "HH:MM" to post (see BEST_TIME in lib/social). `skillId` links it to a skill's Produce quest (the
  * bridge: marking it posted completes that quest with `postedUrl` as proof). `ideaId` points at the ideas-bank

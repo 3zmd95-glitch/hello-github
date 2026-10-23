@@ -185,6 +185,44 @@ describe("graph", () => {
   });
 });
 
+describe("toReplyCode for a DM send", () => {
+  const thrown = (error: NonNullable<MetaError["error"]>) => {
+    try {
+      graph({ status: 400, ok: false, body: { error } }, "dm");
+    } catch (e) {
+      return e;
+    }
+    throw new Error("graph accepted a refusal");
+  };
+  const closed = thrown({ message: "outside window", code: 10, error_subcode: 2534022 });
+
+  it("reads a closed messaging window as window_closed, whichever of its subcodes Meta sent", () => {
+    expect(toReplyCode(closed, { dm: true }).code).toBe("window_closed");
+    for (const error_subcode of [2018278, 2018065]) {
+      const e = thrown({ message: "outside window", code: 10, error_subcode });
+      expect(toReplyCode(e, { dm: true })).toMatchObject({
+        code: "window_closed",
+        detail: `outside window [10/${error_subcode}]`,
+        transient: false,
+      });
+    }
+  });
+
+  it("keeps not_eligible without the DM context, so the auto replies read it as before", () => {
+    expect(toReplyCode(closed).code).toBe("not_eligible");
+    expect(toReplyCode(closed, {}).code).toBe("not_eligible");
+    expect(toReplyCode(closed, { dm: false }).code).toBe("not_eligible");
+  });
+
+  it("leaves every other refusal alone, the private reply's own not_eligible included", () => {
+    const privateReply = thrown({ message: "invalid", code: 100, error_subcode: 2534025 });
+    expect(toReplyCode(privateReply, { dm: true }).code).toBe("not_eligible");
+    const denied = thrown({ message: "denied", code: 10 });
+    expect(toReplyCode(denied, { dm: true }).code).toBe("no_permission");
+    expect(toReplyCode(new Error("boom"), { dm: true }).code).toBe("upstream");
+  });
+});
+
 describe("pickPublicReply", () => {
   it("picks one of the non-blank replies with the given random source", () => {
     expect(pickPublicReply(["أ", " ", "ب"], () => 0.9)).toBe("ب");

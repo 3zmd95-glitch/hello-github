@@ -1,7 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
+import { cloudflareWorkersStub } from "./workers/scout/vitest.cloudflare-stub.mjs";
 
 export default defineConfig({
+  // The Worker tests below import the InboxStore Durable Object's module, which imports `cloudflare:workers`.
+  plugins: [cloudflareWorkersStub],
   resolve: {
     alias: { "@": fileURLToPath(new URL("./", import.meta.url)) },
   },

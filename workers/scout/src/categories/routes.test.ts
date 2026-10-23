@@ -371,7 +371,7 @@ describe("the category slots", () => {
     const { env, kv } = setup();
     const fetchMock = tavily();
     const offGrid = await runTick(env, Date.parse("2026-10-07T05:41:00Z"), { fetch: fetchMock });
-    expect(Object.keys(offGrid)).toEqual(["replies"]);
+    expect(Object.keys(offGrid)).toEqual(["replies", "inbox"]);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(await runTick(env, Date.parse("2026-10-07T05:40:00Z"), { fetch: fetchMock })).toEqual({
       category: { id: "cars", status: "partial", items: 1, notes: ["tiktok_auth", "ai_fallback"] },

@@ -2015,3 +2015,125 @@ describe("edit genres: the owner's custom genres (round 31)", () => {
     expect(S().customGenres).toEqual([drift]);
   });
 });
+
+describe("🗂 global inbox (seen marks and tab)", () => {
+  const A = "2026-10-22T10:00:00.000Z";
+  const B = "2026-10-22T11:00:00.000Z";
+
+  it("starts with nothing seen and the All tab", () => {
+    expect(S().inboxSeen).toEqual({});
+    expect(S().inboxTab).toBe("all");
+  });
+
+  it("markInboxSeen keeps the later time", () => {
+    S().markInboxSeen("instagram:conversation:c1", A);
+    expect(S().inboxSeen).toEqual({ "instagram:conversation:c1": A });
+    S().markInboxSeen("instagram:conversation:c1", B);
+    expect(S().inboxSeen["instagram:conversation:c1"]).toBe(B);
+    S().markInboxSeen("instagram:conversation:c1", A); // an older open never lowers the mark
+    expect(S().inboxSeen["instagram:conversation:c1"]).toBe(B);
+    S().markInboxSeen("instagram:post:m9", A);
+    expect(Object.keys(S().inboxSeen)).toEqual(["instagram:conversation:c1", "instagram:post:m9"]);
+  });
+
+  it("markInboxSeen ignores an empty key or a time that is not a date", () => {
+    S().markInboxSeen("instagram:post:m9", A);
+    const before = S().inboxSeen;
+    S().markInboxSeen("instagram:post:m9", "undefined");
+    S().markInboxSeen("instagram:post:m9", "");
+    S().markInboxSeen("instagram:post:new", "undefined");
+    S().markInboxSeen("instagram:post:new", "");
+    S().markInboxSeen("", A);
+    expect(S().inboxSeen).toBe(before);
+    expect(S().inboxSeen).toEqual({ "instagram:post:m9": A });
+    S().markInboxSeen("instagram:post:m9", B); // a valid later time still wins
+    expect(S().inboxSeen).toEqual({ "instagram:post:m9": B });
+  });
+
+  it("pruneInboxSeen keeps only the listed keys, and ignores anything but strings", () => {
+    S().markInboxSeen("instagram:conversation:c1", A);
+    S().markInboxSeen("instagram:conversation:c2", A);
+    S().markInboxSeen("instagram:post:m9", B);
+    S().pruneInboxSeen([
+      "instagram:post:m9",
+      5 as never,
+      null as never,
+      "instagram:conversation:c1",
+    ]);
+    expect(S().inboxSeen).toEqual({ "instagram:conversation:c1": A, "instagram:post:m9": B });
+
+    const before = S().inboxSeen;
+    S().pruneInboxSeen(["instagram:conversation:c1", "instagram:post:m9", "never-seen"]);
+    expect(S().inboxSeen).toBe(before); // nothing to drop: untouched
+    S().pruneInboxSeen("instagram:post:m9" as never);
+    S().pruneInboxSeen(undefined as never);
+    expect(S().inboxSeen).toBe(before);
+
+    S().pruneInboxSeen([]);
+    expect(S().inboxSeen).toEqual({});
+  });
+
+  it("setInboxTab switches the tab", () => {
+    S().setInboxTab("tiktok");
+    expect(S().inboxTab).toBe("tiktok");
+    S().setInboxTab("all");
+    expect(S().inboxTab).toBe("all");
+  });
+
+  it("setInboxTab ignores a tab that does not exist", () => {
+    S().setInboxTab("tiktok");
+    S().setInboxTab("threads" as never);
+    S().setInboxTab(undefined as never);
+    S().setInboxTab("" as never);
+    expect(S().inboxTab).toBe("tiktok");
+  });
+
+  it("persists to localStorage, rehydrates, and the reset clears it", async () => {
+    S().markInboxSeen("instagram:post:m9", A);
+    S().setInboxTab("instagram");
+    const raw = localStorage.getItem(STORAGE_KEY);
+    expect(JSON.parse(raw!).state.inboxSeen).toEqual({ "instagram:post:m9": A });
+    expect(JSON.parse(raw!).state.inboxTab).toBe("instagram");
+    expect(JSON.parse(raw!).state.markInboxSeen).toBeUndefined();
+
+    useStore.setState({ inboxSeen: {}, inboxTab: "all" }); // simulate a fresh page (also persists)
+    localStorage.setItem(STORAGE_KEY, raw!);
+    await hydrateStore();
+    expect(S().inboxSeen).toEqual({ "instagram:post:m9": A });
+    expect(S().inboxTab).toBe("instagram");
+
+    S().reset();
+    expect(S().inboxSeen).toEqual({});
+    expect(S().inboxTab).toBe("all");
+  });
+
+  it("exportState includes both and importState restores them", () => {
+    S().markInboxSeen("instagram:post:m9", A);
+    S().setInboxTab("tiktok");
+    const json = S().exportState();
+    expect(JSON.parse(json).state.inboxSeen).toEqual({ "instagram:post:m9": A });
+    expect(JSON.parse(json).state.inboxTab).toBe("tiktok");
+    S().reset();
+    S().importState(json);
+    expect(S().inboxSeen).toEqual({ "instagram:post:m9": A });
+    expect(S().inboxTab).toBe("tiktok");
+  });
+
+  it("hydrates an old localStorage save without the inbox fields", async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ state: { settings: DEFAULT_SETTINGS, completions: [] }, version: 1 }),
+    );
+    await hydrateStore();
+    expect(S().inboxSeen).toEqual({});
+    expect(S().inboxTab).toBe("all");
+  });
+
+  it("rejects an import with an unknown tab without changing state", () => {
+    S().setInboxTab("instagram");
+    const bad = JSON.parse(S().exportState());
+    bad.state.inboxTab = "threads";
+    expect(() => S().importState(JSON.stringify(bad))).toThrow();
+    expect(S().inboxTab).toBe("instagram");
+  });
+});

@@ -18,6 +18,7 @@
  */
 
 import { decryptJson, encryptJson } from "./crypto";
+import type { InboxStore } from "./inboxStore";
 import { addDays, riyadhDay } from "./time";
 import type {
   DemographicRow,
@@ -32,9 +33,13 @@ export interface SocialEnv {
   SCOUT_TOKEN?: string;
   ALLOWED_ORIGINS?: string;
   SOCIAL_KV?: KVNamespace;
+  /** The global inbox's SQLite Durable Object (inboxStore.ts); absent on an older deploy or in a test env. */
+  INBOX_STORE?: DurableObjectNamespace<InboxStore>;
   /** Meta app: the Instagram API with Instagram Login's "Instagram app ID" / secret. */
   META_APP_ID?: string;
   META_APP_SECRET?: string;
+  /** The string the owner types in Meta's webhook setup; Meta sends it back on the GET handshake (webhooks.ts). */
+  META_VERIFY_TOKEN?: string;
   /** The same Meta app's Threads use case has its own "Threads app ID" / secret; falls back to META_*. */
   THREADS_APP_ID?: string;
   THREADS_APP_SECRET?: string;

@@ -10,6 +10,7 @@ const SOCIAL_PATHS = [
   "/social/business/",
   "/social/automations/",
   "/social/replies/",
+  "/social/inbox/",
   "/social/more/",
 ];
 
