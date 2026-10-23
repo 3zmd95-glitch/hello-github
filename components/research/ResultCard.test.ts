@@ -134,6 +134,31 @@ describe("ResultPreview: a single playable surface", () => {
     ]);
   });
 
+  it("lookup={false}: an Instagram or TikTok preview with no picture asks nobody and shows the placeholder", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({ thumb: "https://scontent.cdninstagram.com/x.jpg" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    act(() =>
+      useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
+    );
+    const noPicture = [
+      { ...IG, url: "https://www.instagram.com/p/noLookup1/" },
+      { ...TT, thumb: undefined },
+    ];
+    for (const item of noPicture) {
+      act(() => root.render(createElement(ResultPreview, { item, lookup: false })));
+      await settle();
+      expect($("result-thumb")).toBeNull();
+      expect($("result-thumb-placeholder")).not.toBeNull();
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    // The default is unchanged: the same Instagram post is looked up on this computer.
+    act(() => root.render(createElement(ResultPreview, { item: noPicture[0] })));
+    await settle();
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
   it("keeps a safe accessible source link when a reference has no player", () => {
     act(() => root.render(createElement(ResultPreview, { item: WEB })));
     const link = host.querySelector("a")!;

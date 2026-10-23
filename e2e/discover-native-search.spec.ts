@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { freshState, openBrowseCategories, switchLang } from "./helpers";
 import { GENRES } from "../data/genres";
 import { nativeCategoryQuery } from "../lib/genres";
+import { NATIVE_CACHE_CATEGORIES } from "../lib/discoverNativeSearch";
 
 test("one downward gesture continues small category batches, then stops at the source end", async ({
   page,
@@ -66,6 +67,8 @@ test("one downward gesture continues small category batches, then stops at the s
   await switchLang(page, "en");
   await openBrowseCategories(page);
   await page.getByTestId("genre-anime").click();
+  // An empty native collection opens on Checked references (22 Oct 2026): pick Native results first.
+  await page.getByTestId("native-search-view").click();
   await expect(page.getByTestId("native-search-run")).toBeVisible();
   expect(requests).toEqual([]);
   await page.getByTestId("native-search-run").click();
@@ -73,7 +76,7 @@ test("one downward gesture continues small category batches, then stops at the s
   await page.keyboard.press("End");
   await expect(page.getByTestId("native-scroll-loading")).toBeVisible();
   await expect(page.getByTestId("native-result-card")).toHaveCount(3);
-  await expect(page.getByTestId("browse-category-switch")).toHaveValue("anime");
+  await expect(page.getByTestId("genre-anime")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("native-search-more")).toHaveCount(0);
   expect(requests).toEqual(["search", "more", "more"]);
 });
@@ -143,6 +146,8 @@ test("native category batches retain sparse captions, mix platforms and never in
   await switchLang(page, "en");
   await openBrowseCategories(page);
   await page.getByTestId("genre-anime").click();
+  // An empty native collection opens on Checked references (22 Oct 2026): pick Native results first.
+  await page.getByTestId("native-search-view").click();
   await page.getByTestId("native-search-run").click();
   await expect(page.getByTestId("native-tab-all")).toHaveAttribute("data-count", "24");
   await expect(page.getByTestId("native-tab-ig")).toHaveAttribute("data-count", "8");
@@ -157,17 +162,21 @@ test("native category batches retain sparse captions, mix platforms and never in
   await page.getByRole("button", { name: "Native search order", exact: true }).click();
   await page.getByTestId("native-tab-ig").click();
   await expect(cards).toHaveCount(8);
-  // Every built-in category has a one-selection native search with all platforms requested.
-  for (const genre of GENRES.filter((g) => g.id !== "anime")) {
-    await page.getByTestId("browse-category-switch").selectOption(genre.id);
-    if (genre.id !== "anime") await page.getByTestId("native-search-run").click();
+  // One more category than the native cache keeps: each has a one-selection native search with all platforms.
+  const others = GENRES.filter((g) => g.id !== "anime").slice(0, NATIVE_CACHE_CATEGORIES);
+  const searched = [GENRES.find((g) => g.id === "anime")!, ...others];
+  for (const genre of others) {
+    await page.getByTestId(`genre-${genre.id}`).click();
+    // Each newly opened category has no native items yet, so it starts on Checked references.
+    await page.getByTestId("native-search-view").click();
+    await page.getByTestId("native-search-run").click();
     await expect(page.getByTestId("native-tab-all")).toHaveAttribute("data-count", "24");
-    await expect(page.getByRole("textbox", { name: "Search all three apps" })).toHaveValue(
+    await expect(page.getByRole("textbox", { name: `Search inside ${genre.name.en}` })).toHaveValue(
       nativeCategoryQuery(genre),
     );
   }
-  expect(queries).toHaveLength(GENRES.length);
-  for (const genre of GENRES)
+  expect(queries).toHaveLength(NATIVE_CACHE_CATEGORIES + 1);
+  for (const genre of searched)
     expect(queries).toContain(
       JSON.stringify({
         ig: nativeCategoryQuery(genre),
@@ -181,9 +190,15 @@ test("native category batches retain sparse captions, mix platforms and never in
   );
   await page.reload();
   await openBrowseCategories(page);
+  // The cache keeps the NATIVE_CACHE_CATEGORIES most recent categories: Anime, searched first, was evicted and
+  // opens on Checked references (no search runs); the last one searched still has its cached 24.
   await page.getByTestId("genre-anime").click();
+  await expect(page.getByTestId("native-reviewed-view")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("reviewed-library-coverage")).toBeVisible();
+  await expect(page.getByTestId("native-tab-all")).toHaveCount(0);
+  await page.getByTestId(`genre-${searched.at(-1)!.id}`).click();
   await expect(page.getByTestId("native-tab-all")).toHaveAttribute("data-count", "24");
-  expect(queries).toHaveLength(GENRES.length);
+  expect(queries).toHaveLength(NATIVE_CACHE_CATEGORIES + 1);
 });
 
 test("native videos continue loading on downward scrolling without pressing Load more", async ({
@@ -248,6 +263,8 @@ test("native videos continue loading on downward scrolling without pressing Load
   await switchLang(page, "en");
   await openBrowseCategories(page);
   await page.getByTestId("genre-anime").click();
+  // An empty native collection opens on Checked references (22 Oct 2026): pick Native results first.
+  await page.getByTestId("native-search-view").click();
   await page.getByTestId("native-search-run").click();
   const cards = page.getByTestId("native-result-card");
   await expect(cards).toHaveCount(12);
@@ -318,6 +335,8 @@ test("source tabs require a button on entry, after deep search and after reload"
   await switchLang(page, "en");
   await openBrowseCategories(page);
   await page.getByTestId("genre-anime").click();
+  // An empty native collection opens on Checked references (22 Oct 2026): pick Native results first.
+  await page.getByTestId("native-search-view").click();
   await expect(page.getByTestId("native-deep-search")).toHaveText("Open and show source tabs");
   await page.screenshot({ path: test.info().outputPath("manual-source-buttons.png") });
   await page.keyboard.press("End");

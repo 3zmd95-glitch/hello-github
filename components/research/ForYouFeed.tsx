@@ -81,12 +81,8 @@ export default function ForYouFeed({
       intro={
         <>
           <CreatorExpansionStatus queue={creatorExpansion} />
-          <details
-            key={feed.rows.length ? "populated" : "empty"}
-            open={feed.rows.length ? undefined : true}
-            className="border-edge border-y py-2"
-            data-testid="browse-categories"
-          >
+          {/* Open from the start, cards or not (owner, 22 Oct): the categories always show. */}
+          <details open className="border-edge border-y py-2" data-testid="browse-categories">
             <summary className="w-fit cursor-pointer text-sm font-bold">
               {t("feed.chooseCategory")}
             </summary>

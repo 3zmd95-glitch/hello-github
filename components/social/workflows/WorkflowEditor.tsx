@@ -9,6 +9,7 @@ import Chip from "@/components/ui/ios/Chip";
 import Segmented from "@/components/ui/ios/Segmented";
 import Switch from "@/components/ui/ios/Switch";
 import { getSkill, skills } from "@/data";
+import { cloudHub } from "@/lib/cloudWorkflowHub";
 import {
   PLATFORMS,
   QUEST_TYPES,
@@ -36,10 +37,12 @@ import {
   useStore,
   workflowBase,
   workflowDrain,
+  type ManualCaptureResult,
   type WorkflowBase,
   type WorkflowResult,
   type WorkflowRunResult,
 } from "@/store";
+import { WorkflowCloudCard } from "./WorkflowCloud";
 
 const SAVE_DELAY_MS = 400;
 const MAX_ACTIONS = 5;
@@ -152,6 +155,8 @@ export default function WorkflowEditor({ id, onBack }: { id: string; onBack: () 
     () => unsavedWorkflowDrafts.getState().drafts[id],
   );
   const [pickedArticle, setPickedArticle] = useState<string | null>(null);
+  /** ⚙️ DT-7C-3B: the journal key of the cloud run the last Run now captured (its row offers Send). */
+  const [captured, setCaptured] = useState<string | null>(null);
   const drainStopped = workflowDrain((st) => st.stopped);
 
   const draftRef = useRef(draft);
@@ -386,15 +391,29 @@ export default function WorkflowEditor({ id, onBack }: { id: string; onBack: () 
     else if (r.reason === "not-persisted") setRunError("workflows.save.notPersisted");
     else setRunError(`workflows.runError.${r.reason}`);
   };
+  /**
+   * ⚙️ DT-7C-3B: a workflow on the configured Worker captures one cloud run (a journal entry, sent only by its Send
+   * button); every other workflow runs here exactly as before.
+   */
   const runNow = () =>
-    act(async () =>
-      afterRun(
-        await useStore
-          .getState()
-          .runWorkflowNow(id, runArticle ? { articleId: runArticle.id } : {})
-          .catch(fail),
-      ),
-    );
+    act(async () => {
+      const authority = cloudHub().captureAuthority(id);
+      if (!authority)
+        return afterRun(
+          await useStore
+            .getState()
+            .runWorkflowNow(id, runArticle ? { articleId: runArticle.id } : {})
+            .catch(fail),
+        );
+      const r = await useStore
+        .getState()
+        .captureManualRun(id, { authority, ...(runArticle ? { articleId: runArticle.id } : {}) })
+        .catch((): ManualCaptureResult => ({ kind: "refused", reason: "not-persisted" }));
+      setCaptured(r.kind === "cloud" ? r.entry.key : null);
+      if (r.kind === "refused") return setRunError(`workflows.cloud.capture.${r.reason}`);
+      setRunError(null);
+      if (r.kind === "local") void useStore.getState().drainWorkflowRuns();
+    });
   const resume = () => void useStore.getState().drainWorkflowRuns();
 
   const restoreStash = () => {
@@ -1009,6 +1028,8 @@ export default function WorkflowEditor({ id, onBack }: { id: string; onBack: () 
           ))
         )}
       </section>
+
+      <WorkflowCloudCard id={id} locked={busy || dirtyState} captured={captured} />
     </article>
   );
 }

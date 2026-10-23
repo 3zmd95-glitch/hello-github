@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi, describe } from "vitest";
 import { GENRES } from "@/data/genres";
 import type { DiscoverItem } from "@/lib/discover";
 import type { NativeSearchSnapshot } from "@/lib/discoverNativeSearch";
@@ -13,6 +13,7 @@ import CategoryDiscovery from "./CategoryDiscovery";
 const fixture = vi.hoisted(() => ({
   native: null as NativeSearchState | null,
   lang: "en" as "en" | "ar",
+  trends: false,
   checkRemaining: vi.fn(),
   store: {
     accumulateDiscoverCandidates: vi.fn(),
@@ -49,6 +50,25 @@ vi.mock("./ResultCard", () => ({
     createElement("li", { "data-testid": "native-result-card", "data-url": item.url }, item.title),
 }));
 vi.mock("./SaveInspirationButton", () => ({ default: () => null }));
+vi.mock("./CategoryTrends", () => ({
+  useCategoryTrendsAvailable: () => fixture.trends,
+  default: (p: {
+    genre: { id: string };
+    onPickStyle: (style: string) => void;
+    onSearchAll: () => void;
+    onUnavailable: () => void;
+  }) =>
+    createElement(
+      "div",
+      { "data-testid": "category-trends-fixture", "data-genre": p.genre.id },
+      createElement("button", {
+        "data-testid": "fixture-pick-style",
+        onClick: () => p.onPickStyle("rolling shot"),
+      }),
+      createElement("button", { "data-testid": "fixture-search-all", onClick: p.onSearchAll }),
+      createElement("button", { "data-testid": "fixture-unavailable", onClick: p.onUnavailable }),
+    ),
+}));
 
 const anime = GENRES.find((genre) => genre.id === "anime")!;
 const travel = GENRES.find((genre) => genre.id === "travel")!;
@@ -73,6 +93,7 @@ beforeEach(() => {
     reconnect: vi.fn(),
   };
   fixture.lang = "en";
+  fixture.trends = false;
   fixture.checkRemaining.mockReset();
   fixture.store.settings.discover.editorScope = "mine";
   props = {
@@ -142,6 +163,56 @@ function observeScrolling() {
   return instances;
 }
 const wheelDown = () => act(() => window.dispatchEvent(new WheelEvent("wheel", { deltaY: 100 })));
+
+it("shows the grouped categories above the results, the open one active, and switches on a tap", () => {
+  const fetchSpy = vi.fn(() => Promise.reject(new Error("a category tap must not fetch")));
+  vi.stubGlobal("fetch", fetchSpy);
+  render();
+  // An empty native collection opens on Checked references (22 Oct 2026); this test works in Native results.
+  selectView("native-search-view");
+  const picker = host.querySelector('[data-testid="browse-category-picker"]')!;
+  expect(picker).not.toBeNull();
+  expect(host.querySelector('[data-testid="browse-category-switch"]')).toBeNull();
+  const headings = [...picker.querySelectorAll('[data-testid^="genre-group-"]')].map((h) =>
+    h.getAttribute("data-testid"),
+  );
+  expect(headings).toEqual([
+    "genre-group-sport",
+    "genre-group-food",
+    "genre-group-lifestyle",
+    "genre-group-outdoors",
+    "genre-group-entertainment",
+    "genre-group-automotive",
+    "genre-group-business",
+    "genre-group-craft",
+  ]);
+  const chip = (id: string) =>
+    picker.querySelector<HTMLButtonElement>(`[data-testid="genre-${id}"]`)!;
+  expect(chip("anime").getAttribute("aria-pressed")).toBe("true");
+  expect(chip("football").getAttribute("aria-pressed")).toBe("false");
+  expect(
+    picker.compareDocumentPosition(host.querySelector('[data-testid="native-search-run"]')!) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  act(() => chip("football").click());
+  expect(props.onCategory).toHaveBeenCalledWith("football");
+  // Entering the new category (what DiscoverScreen does with onCategory) only reads its cache: no source
+  // search, no "more", no request.
+  props = { ...props, genre: GENRES.find((genre) => genre.id === "football")! };
+  render();
+  // Football has no native items yet: its visit starts on Checked references; the Native tab still names it.
+  expect(host.querySelector('[data-testid="checked-references-fixture"]')).not.toBeNull();
+  selectView("native-search-view");
+  expect(
+    host
+      .querySelector('[data-testid="browse-category-picker"] [data-testid="genre-football"]')
+      ?.getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(fixture.native!.search).not.toHaveBeenCalled();
+  expect(fixture.native!.more).not.toHaveBeenCalled();
+  expect(fetchSpy).not.toHaveBeenCalled();
+  expect(host.querySelector('[data-testid="browse-back"]')).not.toBeNull();
+});
 
 it("continues after revealing more cards near the end, but never loops on a batch with no growth", () => {
   const observers = observeScrolling();
@@ -356,6 +427,8 @@ it("says an app had no videos for this exact search when its No results screen s
     noResults: true,
   });
   render();
+  // Its only platform came back empty, so the visit opens on Checked references.
+  selectView("native-search-view");
   const status = host.querySelector('[data-testid="native-platform-status"]')!.textContent;
   expect(status).toContain(`Instagram · ${feedEn["feed.connectedPlatformNoResults"]}`);
   expect(feedEn["feed.connectedPlatformNoResults"]).toBe(
@@ -541,11 +614,26 @@ it("keeps count diagnostics out of the displayed platform controls", () => {
 });
 
 // Packet 14: the 13 Oct audit showed broad "coffee edit" pulling a musician; Coffee starts with its specific query.
-const queryBox = () =>
-  host.querySelector<HTMLInputElement>('input[aria-label="Search all three apps"]')!;
+const searchLabel = () =>
+  host.querySelector<HTMLLabelElement>('[data-testid="category-search-label"]')!;
+const queryBox = () => host.ownerDocument.getElementById(searchLabel().htmlFor) as HTMLInputElement;
+it('labels the category page\'s search box "Search inside <category>", in both languages', () => {
+  render();
+  selectView("native-search-view");
+  expect(searchLabel().textContent).toBe("Search inside Anime");
+  expect(queryBox().tagName).toBe("INPUT");
+  expect(queryBox().value).toBe("anime edit");
+  fixture.lang = "ar";
+  render();
+  expect(searchLabel().textContent).toBe("دوّر داخل Anime");
+  expect(queryBox().value).toBe("anime edit");
+});
+
 it("offers the specific Coffee query without opening tabs until clicked", () => {
   props = { ...props, genre: GENRES.find((genre) => genre.id === "coffee")! };
   render();
+  // An empty native collection opens on Checked references (22 Oct 2026); this test works in Native results.
+  selectView("native-search-view");
   expect(fixture.native!.search).not.toHaveBeenCalled();
   act(() => host.querySelector<HTMLButtonElement>('[data-testid="native-search-run"]')!.click());
   expect(fixture.native!.search).toHaveBeenCalledExactlyOnceWith(
@@ -561,6 +649,8 @@ it("offers the specific Coffee query without opening tabs until clicked", () => 
 
 it("keeps a category outside the specific-query list on its first query", () => {
   render();
+  // An empty native collection opens on Checked references (22 Oct 2026); this test works in Native results.
+  selectView("native-search-view");
   expect(fixture.native!.search).not.toHaveBeenCalled();
   act(() => host.querySelector<HTMLButtonElement>('[data-testid="native-search-run"]')!.click());
   expect(fixture.native!.search).toHaveBeenCalledExactlyOnceWith(
@@ -699,6 +789,8 @@ it("preserves an in-progress edit when the active custom cache arrives", () => {
   props = { ...props, genre: GENRES.find((genre) => genre.id === "coffee")! };
   fixture.native!.ready = false;
   render();
+  // An empty native collection opens on Checked references (22 Oct 2026); this test works in Native results.
+  selectView("native-search-view");
   editQuery("my unfinished espresso query");
   fixture.native = {
     ...fixture.native!,
@@ -718,6 +810,8 @@ it("does not replace a manual legacy query with an automatic migration", () => {
   props = { ...props, genre: GENRES.find((genre) => genre.id === "coffee")! };
   fixture.native!.ready = false;
   render();
+  // An empty native collection opens on Checked references (22 Oct 2026); this test works in Native results.
+  selectView("native-search-view");
   editQuery("coffee edit");
   act(() =>
     queryBox().form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
@@ -837,6 +931,8 @@ it("says the hidden count in Arabic", () => {
 
 it("opens tabs only through explicit background or show-source buttons", () => {
   render();
+  // An empty native collection opens on Checked references (22 Oct 2026); this test works in Native results.
+  selectView("native-search-view");
   expect(fixture.native!.search).not.toHaveBeenCalled();
   editQuery("anime amv");
   const deep = host.querySelector<HTMLButtonElement>('[data-testid="native-deep-search"]')!;
@@ -870,4 +966,223 @@ it("scrolling reveals cached cards but waits for a button before opening source 
   expect(button.textContent).toBe("Open source tabs for more");
   act(() => button.click());
   expect(fixture.native!.more).toHaveBeenCalledExactlyOnceWith({ automatic: false });
+});
+
+// Owner, 22 Oct (Chrome): Football opened on an empty "Native results" while "Checked references" held 24 videos.
+const shownView = () => ({
+  native: host.querySelector('[data-testid="native-search-view"]')!.getAttribute("aria-pressed"),
+  reviewed: host
+    .querySelector('[data-testid="native-reviewed-view"]')!
+    .getAttribute("aria-pressed"),
+  feed: !!host.querySelector('[data-testid="native-search-feed"]'),
+  references: !!host.querySelector('[data-testid="checked-references-fixture"]'),
+});
+const onReferences = { native: "false", reviewed: "true", feed: false, references: true };
+const onNative = { native: "true", reviewed: "false", feed: true, references: false };
+const expectNoSourceRun = () => {
+  expect(fixture.native!.search).not.toHaveBeenCalled();
+  expect(fixture.native!.more).not.toHaveBeenCalled();
+};
+
+it("opens a category with no native items on Checked references, without a source search", () => {
+  render();
+  expect(shownView()).toEqual(onReferences);
+  expectNoSourceRun();
+});
+
+it("moves to Native results by itself when native items first arrive", () => {
+  render();
+  expect(shownView()).toEqual(onReferences);
+  fixture.native = { ...fixture.native!, snapshot: loadedSnapshot(3) };
+  render();
+  expect(shownView()).toEqual(onNative);
+  expect(cards()).toHaveLength(3);
+  expectNoSourceRun();
+});
+
+it("keeps a tapped tab for the category visit, whatever native items do", () => {
+  render();
+  selectView("native-search-view");
+  expect(shownView()).toEqual(onNative);
+  render();
+  expect(shownView()).toEqual(onNative);
+  fixture.native = { ...fixture.native!, snapshot: loadedSnapshot(3) };
+  render();
+  selectView("native-reviewed-view");
+  fixture.native = { ...fixture.native!, snapshot: loadedSnapshot(6) };
+  render();
+  expect(shownView()).toEqual(onReferences);
+  expectNoSourceRun();
+});
+
+it("re-evaluates the starting tab when the picker switches category", () => {
+  const pick = (id: string) =>
+    act(() =>
+      host
+        .querySelector<HTMLButtonElement>(
+          `[data-testid="browse-category-picker"] [data-testid="genre-${id}"]`,
+        )!
+        .click(),
+    );
+  fixture.native!.snapshot = loadedSnapshot(3);
+  render();
+  expect(shownView()).toEqual(onNative);
+  selectView("native-search-view");
+  // Travel has no native items: the manual Native choice made on Anime does not carry over.
+  pick("travel");
+  expect(props.onCategory).toHaveBeenLastCalledWith("travel");
+  props = { ...props, genre: travel };
+  fixture.native = { ...fixture.native!, snapshot: null };
+  render();
+  expect(shownView()).toEqual(onReferences);
+  selectView("native-search-view");
+  pick("football");
+  expect(props.onCategory).toHaveBeenLastCalledWith("football");
+  props = { ...props, genre: GENRES.find((genre) => genre.id === "football")! };
+  render();
+  expect(shownView()).toEqual(onReferences);
+  // Back on Anime, whose items are there: it opens on them.
+  props = { ...props, genre: anime };
+  fixture.native = { ...fixture.native!, snapshot: loadedSnapshot(3) };
+  render();
+  expect(shownView()).toEqual(onNative);
+  expectNoSourceRun();
+});
+
+it("keeps a tap for that category visit only: Anime to Travel and back to Anime starts over", () => {
+  render();
+  expect(shownView()).toEqual(onReferences);
+  selectView("native-search-view");
+  expect(shownView()).toEqual(onNative);
+  props = { ...props, genre: travel };
+  render();
+  expect(shownView()).toEqual(onReferences);
+  props = { ...props, genre: anime };
+  render();
+  // The Native tap belonged to the first Anime visit; this visit derives its tab again.
+  expect(shownView()).toEqual(onReferences);
+  expectNoSourceRun();
+});
+
+it("shows neither collection until the cache read lands, so nothing flashes", () => {
+  const waiting = { native: "false", reviewed: "false", feed: false, references: false };
+  fixture.native = { ...fixture.native!, ready: false };
+  render();
+  expect(shownView()).toEqual(waiting);
+  fixture.native = { ...fixture.native!, ready: true, snapshot: loadedSnapshot(3) };
+  render();
+  expect(shownView()).toEqual(onNative);
+  // A category switch is not a first open: the collection on screen stays until the new cache read lands.
+  props = { ...props, genre: travel };
+  fixture.native = { ...fixture.native!, ready: false, snapshot: null };
+  render();
+  expect(shownView()).toEqual(onNative);
+  fixture.native = { ...fixture.native!, ready: true };
+  render();
+  expect(shownView()).toEqual(onReferences);
+  expectNoSourceRun();
+});
+
+it("keeps Checked references mounted across a category switch, so its platform tab survives", () => {
+  render();
+  expect(shownView()).toEqual(onReferences);
+  const panel = host.querySelector('[data-testid="checked-references-fixture"]');
+  expect(panel).not.toBeNull();
+  props = { ...props, genre: travel };
+  fixture.native = { ...fixture.native!, ready: false, snapshot: null };
+  render();
+  // Same DOM node: BrowseCategoryFeed was not unmounted while the new category's cache read was pending.
+  expect(host.querySelector('[data-testid="checked-references-fixture"]')).toBe(panel);
+  fixture.native = { ...fixture.native!, ready: true };
+  render();
+  expect(host.querySelector('[data-testid="checked-references-fixture"]')).toBe(panel);
+  expect(shownView()).toEqual(onReferences);
+});
+
+describe("Trends & lessons, the third collection", () => {
+  const trendsButton = () =>
+    host.querySelector<HTMLButtonElement>('[data-testid="native-trends-view"]');
+  const trendsPage = () => host.querySelector('[data-testid="category-trends-fixture"]');
+  const click = (testId: string) =>
+    act(() => host.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!.click());
+
+  it("has no tab without a Worker that serves the page, and the default view is unchanged", () => {
+    fixture.native = { ...fixture.native!, connection: "missing", snapshot: null };
+    render();
+    expect(trendsButton()).toBeNull();
+    expect(trendsPage()).toBeNull();
+    expect(host.querySelector('[data-testid="checked-references-fixture"]')).not.toBeNull();
+  });
+
+  it("adds a labelled tab beside the other two; Checked references still opens first", () => {
+    fixture.trends = true;
+    render();
+    expect(trendsButton()!.textContent).toBe("Trends & lessons");
+    expect(trendsButton()!.getAttribute("aria-pressed")).toBe("false");
+    expect(trendsPage()).toBeNull();
+    expect(shownView().references).toBe(true);
+    fixture.lang = "ar";
+    render();
+    expect(trendsButton()!.textContent).toBe("ترندات ودروس");
+  });
+
+  it("shows the tab even when native search is not connected, with no Native results button then", () => {
+    fixture.trends = true;
+    fixture.native = { ...fixture.native!, connection: "missing", snapshot: null };
+    render();
+    expect(trendsButton()).not.toBeNull();
+    expect(host.querySelector('[data-testid="native-search-view"]')).toBeNull();
+    expect(host.querySelector('[data-testid="native-reviewed-view"]')).not.toBeNull();
+  });
+
+  it("opens the page for this category on tap, and Search all goes back to Native results", () => {
+    fixture.trends = true;
+    render();
+    click("native-trends-view");
+    expect(trendsPage()!.getAttribute("data-genre")).toBe("anime");
+    expect(trendsButton()!.getAttribute("aria-pressed")).toBe("true");
+    expect(host.querySelector('[data-testid="checked-references-fixture"]')).toBeNull();
+    expect(host.querySelector('[data-testid="native-search-feed"]')).toBeNull();
+    click("fixture-search-all");
+    expect(trendsPage()).toBeNull();
+    expect(host.querySelector('[data-testid="native-search-feed"]')).not.toBeNull();
+  });
+
+  it("hands a tapped style to the Discover screen and falls back to Checked references when unavailable", () => {
+    fixture.trends = true;
+    const onPickStyle = vi.fn();
+    props = { ...props, onPickStyle };
+    render();
+    click("native-trends-view");
+    click("fixture-pick-style");
+    expect(onPickStyle).toHaveBeenCalledExactlyOnceWith("rolling shot");
+    click("fixture-unavailable");
+    expect(trendsPage()).toBeNull();
+    expect(host.querySelector('[data-testid="checked-references-fixture"]')).not.toBeNull();
+  });
+
+  it("keeps the Back link and the category picker above the page, like the other collections", () => {
+    fixture.trends = true;
+    render();
+    click("native-trends-view");
+    const back = host.querySelector<HTMLButtonElement>('[data-testid="browse-back"]');
+    expect(back).not.toBeNull();
+    expect(host.querySelector('[data-testid="browse-category-picker"]')).not.toBeNull();
+    expect(
+      back!.compareDocumentPosition(trendsPage()!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    act(() => back!.click());
+    expect(props.onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the tab when the category changes", () => {
+    fixture.trends = true;
+    render();
+    click("native-trends-view");
+    expect(trendsPage()).not.toBeNull();
+    props = { ...props, genre: travel };
+    render();
+    expect(trendsPage()).toBeNull();
+    expect(shownView().references).toBe(true);
+  });
 });

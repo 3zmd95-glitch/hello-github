@@ -63,6 +63,9 @@ const test = base.extend<{ captureApi: CaptureApi }>({
         const source = api.responses.find((response) => response.source.url === url)?.source;
         if (source) return route.fulfill({ json: source });
       }
+      // The reviewed-seed format card looks up its Instagram thumbnail (free, local); answer "no preview".
+      if (path === "/api/local-ai/instagram-preview" && request.method() === "GET")
+        return route.fulfill({ status: 404, json: {} });
       if (path !== "/api/local-ai/review-captured-video" || request.method() !== "POST") {
         unexpected.push(`${request.method()} ${path}`);
         return route.fulfill({ status: 404, json: {} });

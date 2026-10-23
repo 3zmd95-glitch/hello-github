@@ -1,5 +1,619 @@
 # Dashboard tools — remaining packets handoff (DT-5 … DT-10)
 
+## DT-7C-3 coherent dashboard integration — Claude resumed 22 Oct 2026 11:50 AST
+
+Owner resumed Claude from `planning/handovers/claude-code-2026-10-22.md` ("Continue from where Codex left off") and ruled
+"dont make codex review you review": Claude plans (Fable 5.1), one writer at a time implements, **Claude reviews**; no
+`codex queue` or review marker for this packet. Plan: `planning/collaboration/dt7c3-integration-plan.md` (slices 3A hub →
+3B Workflows/CMS → 3C Settings → 3D browser proof). Start `164614e` on `codex/discover-inspiration`; starting hashes
+(11:48 AST): registration client `54350590…`, occurrence `9cdad943…`, reconciliation client `9db5c9ba…`, session `2bef2c04…`,
+`store/index.ts 8d104065…`, `WorkflowEditor.tsx 6b5a2d23…`, `WorkflowsScreen.tsx 6fc9765c…`, `SettingsScreen.tsx 364d980b…`.
+Pinned: Worker (192), builders (17), protocol/journal/registration/capture/snapshot/reconciliation libs and the four
+controllers (consumed, not edited), package/lock/config. UI integration only — no activation, provisioning, deploy, live
+call, grant/secret, paid use, push/merge or system change. localhost:3000 (`serve out`, left by Codex) stays running.
+
+**Implementation owner: one Claude Opus 5.5 writer, slice 3A (hub), from 11:50 AST.**
+
+**Planner ruling 3A-1 (Fable, 11:58 AST): lifecycle request builder authorized.** The writer found no accepted function that
+builds a register/unregister request from a saved workflow (`expectedEpoch` / `registrationEpoch` / `expectedRevision` have
+no recorded source). Narrow addition to the pinned `lib/cloudWorkflowRegistration.ts` (+ tests) is authorized: a PURE
+`lifecycleRequestFor(kind, regs, authority, { id, revision }, digest)` that never throws and returns the typed request or a
+typed refusal. Rule: the record for `registrationKey(authority, id)`; an intent in `pending|dispatching|uncertain|divergent`
+⇒ `unresolved` (Recover first); the lifecycle proof is `registrationIn(record.last.answer)` (the pinned parser; a typed
+refusal never folds into `last`, so `last` is a proof or null). register: no record/no proof ⇒ `expectedEpoch 0`;
+proof `unregistered` ⇒ `expectedEpoch = proof.registrationEpoch`; proof `active` ⇒ refuse `active` (an `update` for a
+changed revision is a later packet). unregister: proof `active` ⇒ `{ registrationEpoch: proof.registrationEpoch,
+expectedRevision: proof.revision }` with `proof.workflowDigest` as the digest for `prepareIntent`; otherwise refuse
+`inactive`. Matches the Worker CAS rule (`cloudWorkflowProtocol.ts` `conflictOk`: null row needs 0, unregistered row needs
+its epoch). Digest for register = `workflowDigestOf(workflow)` (`lib/cloudWorkflowCapture.ts`). Existing assertions untouched.
+
+**Planner review 3A (Fable, 12:10 AST) — ACCEPT WITH FIXES; ruling 3A-1 amended.** Independent Claude review
+(`C:/Users/AORUS/.claude/dashboard-work/dt7c3/3a/review.md`): rules 1–8 hold; 0 removed test lines; pins unchanged. Fix round
+(same Opus writer): (P1) `lifecycleRequestFor` uses the existing `isUnresolved(intent)` instead of the state list — a
+`divergent` intent with `maybeApplied:false` was never sent, Recover refuses it `not_recoverable`, and `createIntent` (:486)
+already admits a new intent there; split the new test into `maybeApplied` true (refuses) / false (builds). (P2) `unregister`
+no longer needs the local workflow (the request uses only the stored proof). (P2) three tests: stale handshake cannot set
+authority; busy counter under two concurrent actions; pagehide disposes every controller with no later configure. (nit)
+handshake busy reset in `finally`; laziness test independent of order. Recorded for 3B, not fixed here: components call
+`cloudHub()` per action and re-subscribe on `pageshow` (a bfcache return after `pagehide` dispose); buttons disabled while
+`wf:<id>` is busy; the "on cloud" chip reads `registrations()[].proof`, not `authorityFor`. Accepted as is: the pagehide
+visit fence only moves while a hub exists (captures without a hub are the legacy paths).
+
+**3A accepted (Fable, 12:18 AST).** Fix round verified: `lib/cloudWorkflowRegistration.ts 909fca1e…` (+60/−0; `isUnresolved` at
+:418), test `04013faa…` (+141/−0), `lib/cloudWorkflowHub.ts 75a1805a…`, test `b68007c1…`; `store/index.ts 8d104065…` and every
+pin unchanged; 90/90 (hub 17, registration 28), Prettier/tsc/ESLint/`pnpm lint` exit 0 (logs 20–26). 3B contract from the
+review: call `cloudHub()` per action, re-subscribe on `pageshow`, disable a button while `busy` has its key, chips read
+`registrations()[].proof`.
+
+**Implementation owner: one Claude Opus 5.5 writer, slice 3B (Workflows + CMS wiring), from 12:18 AST.**
+
+**Planner review 3B (Fable, 12:55 AST) — ACCEPT WITH FIXES.** Independent Claude review
+(`C:/Users/AORUS/.claude/dashboard-work/dt7c3/3b/review.md`): explicit-only, one call per click, busy-disabled, legacy paths
+untouched, chips from `proof`, limits from the lib, parity, token never shown, 0 removed test lines; full suite 4,420/4,420.
+Fix round (same writer): (P1) chip/`RegistrationView` use `isUnresolved(intent)` (a never-sent `divergent` must offer Put on /
+Take off, not only Recover); (P2) copy for handshake `answer`, the Worker's own error codes (`unknown_epoch`,
+`registration_behind`, `future_version`, `bad_request`, `method_not_allowed`, `receipt_unavailable`, Worker-side
+`not_configured`), `unconfirmed:<category>` → "sent — check status", observe reasons; (P2) Mark-ready `issues` copy blames the
+article, cloud `missing` marks the article gone like the legacy path; (P2) observed states translated; (P2) a per-proof
+Check status button (`hub.check(key)`) beside Confirm delivery, proof-full copy points at it; nits: pre-handshake chip uses
+the `authorityFor` one-row rule, no-Worker case shows the Settings link, `role="alert"` for refusals, `handshake:"ok"` only
+when all three controllers succeeded, Arabic "ألغِ"/"سجل المشالة" reworded, cloud-ready note clears on the next edit,
+one real double-click busy test.
+
+**3B accepted (Fable, 13:08 AST).** Fix round verified: `WorkflowCloud.tsx 5ed9c543…` (+ test `a7f5ccdb…`), `ArticleEditor.tsx
+f8208dc6…` (+ cloud test `b52d1483…`), hub `4bccee78…` (+ test `684d4184…`), messages workflows `a09f48be…`/`7f5f18c0…`, website
+`2c70978d…`/`f4cc9429…`; `WorkflowEditor.tsx 749e7c35…`, `WorkflowsScreen.tsx d00df4cb…`, `store/index.ts 8d104065…`,
+builder `909fca1e…` and every pin unchanged; 0 removed lines in any existing test; focused 197/197, full 4,431/4,431,
+Prettier/tsc/ESLint/`pnpm lint` exit 0 (logs 19–29). The writer also closed a real double-click gap (busy checked before
+each call). Carried to 3D: a cloud `issues` refusal on Mark ready reaches the editor handler as its silent `issues`.
+
+**Implementation owner: one Claude Sonnet 5.5 writer, slice 3C (Settings), from 13:08 AST.**
+
+**Planner review 3C (Fable, 13:20 AST) — ACCEPT WITH FIXES.** Independent Claude review
+(`C:/Users/AORUS/.claude/dashboard-work/dt7c3/3c/review.md`): no call on mount, one handshake per click, numbers from the
+constants, scope-mapped capacity copy, parity, token canary; 2 removed test lines are import rewrites. Fix round (same
+Sonnet writer): (P2) hydration mismatch — render-time `counts()`/`registrations()`/`cloudRuns()`/`deliverable()` reads in
+SettingsScreen (:423) AND WorkflowCloud (:262/266/290/491) differ between the prerender (inert hub) and the client; one shared
+`useSyncExternalStore` read hook with an inert server snapshot, used in both cards, plus a renderToString→hydrateRoot test
+per card. Accepted as recorded: the `OUTPUT_TEXT_MAX` mirror with its source-drift test (snapshot module pinned, constant
+not exported).
+
+**3C accepted (Fable, 13:28 AST).** Fix round verified: `SettingsScreen.tsx 83384347…` (+ test `e7526e24…`; 3 removed lines
+are import rewrites), `WorkflowCloud.tsx 6431c9f8…` (+ test `d5922c4c…`; the only render-time hub reads now live inside the
+`useCloudReads` snapshot), messages `1a5ffae5…`/`a47e2999…`; `store/index.ts 8d104065…`, hub `4bccee78…` and every pin
+unchanged; focused 221/221 with renderToString→hydrateRoot tests per card; Prettier/tsc/ESLint/`pnpm lint` exit 0 (logs 12–22).
+
+**Implementation owner: none.** (DT-7C-3 frozen 22 Oct 2026 14:00 AST — see "Freeze DT-7C-3" below; reviewer Claude.)
+
+**Planner review 3D (Fable, 13:50 AST) — ACCEPT WITH ONE FIX.** Planner verification (no separate reviewer: test code only):
+`e2e/workflow-cloud.spec.ts 653ed291…` drives the real Worker router + `WorkflowCoordinator` on `node:sqlite` from a
+Playwright route for `https://cloud.test` (no fixtures); served bytes on :3000 equal `out/` for `/`, `/social/workflows/`,
+`/settings/`, `/social/website/` (planner re-checked); 9/9 desktop EN + 9/9 phone AR; the five workflow/settings specs 76
+passed / 2 skipped; `pnpm lint`, non-incremental `tsc`, `typecheck:worker` exit 0; full `pnpm test --maxWorkers=4` 287 files
+6,923/6,923 incl. Worker suites; `pnpm build` exit 0. Fix round (same Sonnet writer): Confirm delivery stays enabled after
+an acknowledged ack, so a second click sends a second (idempotent) ack — disable it for that proof once the ack result is
+acknowledged until the proof changes, with a component test and the e2e case g asserting one ack request after two clicks.
+Carried, recorded: Check connection sends three authority requests (one per controller session; a shared session is a later
+packet); the app's existing hourly social pull hits `/social/status` + `/social/data` on load (not workflow code; the spec
+seeds `socialSync.lastPullAt`); an accidental full `pnpm e2e` run (712 passed) failed 6 Discover cases in
+`discover-native-video-capture.spec.ts` (unexpected `GET /api/local-ai/instagram-preview`) — outside this packet, left
+untouched, listed as open for the Discover owner.
+
+## Freeze DT-7C-3 (planner, 22 Oct 2026 14:00 AST) — current
+
+Implementation owner: **none**. Reviewer: **Claude** (owner 22 Oct 11:42 AST: "dont make codex review you review") — one
+independent Claude reviewer pass per code slice (3A Opus, 3B Opus, 3C Sonnet; 3D planner-verified test code) plus planner
+verification of hashes, pins, changed-file sets, test-line removals and the served build. No `codex queue`, no review
+marker; Codex may read this record later. Start `164614e` on `codex/discover-inspiration`; nothing committed or pushed.
+
+Delivered — the cloud workflow controllers are now reachable from the dashboard (UI integration, **not activation**):
+- **3A hub** `lib/cloudWorkflowHub.ts`: lazy browser singleton owning one registration, occurrence and reconciliation
+  controller over `window.fetch`; configure follows the Settings origin/token; handshake explicit only; one controller
+  call per action; `leave()`/`pagehide` fences; read-only selectors. Ruling 3A-1 (amended): `lifecycleRequestFor` in
+  `lib/cloudWorkflowRegistration.ts` builds register/unregister requests (`isUnresolved` gate; CAS-aligned).
+- **3B Workflows/CMS** `WorkflowCloud.tsx`: per-workflow Cloud card (chip table, Put on / Take off / Recover, captured
+  entries with Send / Check status / Run / Cancel, cloud runs list) and the Cloud results card (Fetch results, per-proof
+  Check status, Confirm delivery disabled after an acknowledged ack); Run now → `captureManualRun` and Mark ready →
+  `captureArticleReady` only with a verified authority, legacy paths otherwise; 144 + 21 AR/EN keys.
+- **3C Settings** Cloud workflows card (origin, Check connection, five capacity lines and the limits sentence from the
+  library constants, `OUTPUT_TEXT_MAX` mirror with a source-drift test); import capacity copy mapped by `scope`
+  (100 registrations / 600 + 100 reconciliation / 600 journal); `retired` sentence; hydration-safe `useCloudReads`.
+- **3D proof** `e2e/workflow-cloud.spec.ts`: installed Chrome EN desktop + AR phone against the real Worker router and
+  `WorkflowCoordinator` on `node:sqlite` behind a Playwright route for `https://cloud.test` (external requests aborted,
+  synthetic state and token only).
+
+Verification (local): every slice's changed-file hashes present in its record; pinned unchanged — protocol `3ea3b350…`,
+journal `1ec25c96…`, capture `24888317…`, snapshot `f21ce50b…`, reconciliation `67d4f7e7…`, registration client `54350590…`,
+occurrence `9cdad943…`, reconciliation client `9db5c9ba…`, session `2bef2c04…`, `store/index.ts 8d104065…`, package
+`9456ebd1…`, lock `68b677bc…`; Worker manifest 192 and builder pins 17 verify. Gates after the final source change: focused
+100/100 (3D fix), `pnpm lint`, non-incremental `tsc`, `typecheck:worker` exit 0, `pnpm build` exit 0, served bytes on :3000
+equal `out/` for `/`, `/social/workflows/`, `/settings/`, `/social/website/` (planner re-checked; the owner's server was never
+restarted), `pnpm e2e` workflow-cloud 18/18 + workflows/capture/reconciliation/settings 58 passed 2 skipped. Full
+`pnpm test --maxWorkers=4` 287 files 6,923/6,923 ran before the 3D fix (only `WorkflowCloud.tsx` changed after it; its suite
+re-ran green). Evidence: `C:/Users/AORUS/.claude/dashboard-work/dt7c3/{3a,3b,3c,3d}/logs/` and `review.md` per slice.
+
+Frozen hashes (SHA-256; `out/` pages are the served export):
+
+- `components/settings/SettingsScreen.test.tsx` `e7526e241cb091db33bca33ad60ffe5a588adea73883bdf191bcfc3226c5b819`
+- `components/settings/SettingsScreen.tsx` `833843470a091ad9310130df59cfee21491d2fef171fcb633bf7234da94f01d6`
+- `components/social/website/ArticleEditor.tsx` `f8208dc6bde994c85210919defc12492adc7288bc6b118363e39c30a76c9e244`
+- `components/social/workflows/WorkflowEditor.tsx` `749e7c35e5b09ab243ee20391338497bd0f88953903d2fe33dd12b4cc4374a91`
+- `components/social/workflows/WorkflowsScreen.tsx` `d00df4cb5d7c7a23b9435df887b894e695684c848f35255e70b1e42366778fcf`
+- `lib/cloudWorkflowRegistration.test.ts` `04013faa7099070a27c4a71dba00692c61956aeccd8d299c1b55cb19c83e7c0e`
+- `lib/cloudWorkflowRegistration.ts` `909fca1e88e6c9eebe0d63fcab15848e20c217603598977af35570462c7bbc06`
+- `messages/ar.json` `1a5ffae56de63e53157d6dfb81ce159cb6d85422d5da7cfedfbcb6e25bfea242`
+- `messages/en.json` `a47e29996eb4f840d410be797768943b1ce786d24b1850e3fa3a4a701abd7067`
+- `messages/website.ar.json` `2c70978dfbd8988e641ed78cb0b461cd50004fadd2119980dc78a9817d984be4`
+- `messages/website.en.json` `f4cc9429abece7a27a59c5a8bf2be89933757d02c7174d9411a648943ce7a1bd`
+- `messages/workflows.ar.json` `a09f48be5381e912a8db7728feea98fc4a9dcf5a41f7b9094ed8e7cf05eefab4`
+- `messages/workflows.en.json` `7f5f18c099e6a492bf2d739c1ed4d57d5a5b74ccdbcad1ce5e20c0a4e78ed869`
+- `components/social/website/ArticleEditor.cloud.test.tsx` `b52d14836a6958ce7d6ad64f67236c05a0c5b03fb72c884204ed3661da70c452`
+- `components/social/workflows/WorkflowCloud.test.tsx` `f3cde4c2fb71c212bbdb38130126a9d835f376627d74d5495b9669a13621ff79`
+- `components/social/workflows/WorkflowCloud.tsx` `ca38349bdf583265c69b5ff166d5e1025b2ce633ccfe618eb0f3c719f04934fb`
+- `e2e/workflow-cloud.spec.ts` `fe01044296c0d0d39958fb655da95904269d40c6013e15f942543432edc5ed77`
+- `lib/cloudWorkflowHub.test.ts` `684d4184fe6ffc865e3047c8ce994e710f3902021a2a31b2f6fd96f8338dff4c`
+- `lib/cloudWorkflowHub.ts` `4bccee78c10f0bfd0e6fd1b4bbc5dfa19e9571997b00b0f958a836bf25cd60a4`
+- `out/index.html` `8811b54fa97517799cf6ff108037f376685da398d5c450cf6d242a5937199a1a`
+- `out/social/workflows/index.html` `7b1101d88b1da23811daad7510eb8161f295df570567ce740c2f1d6abe9b7bef`
+- `out/settings/index.html` `b52ffc96dac966d1a28997630f1a2f12e31c4dedaac3e253060121c21f0902f6`
+- `planning/tools/38-cloud-workflows.md` `e40094d0591841deafb41375de0b445fac9497fbea74c8784cfd189912101bf1`
+- `planning/collaboration/dt7c3-integration-plan.md` `a0193904c357b454c3ab915c1791987b28471baade4d113f713e6c2e7f69fe14`
+
+Carried (recorded, not fixed here): Check connection sends three authority requests (one per controller session); the
+app's hourly social pull hits `/social/status` + `/social/data` on load (not workflow code); the Confirm-delivery guard
+lives in component state (a reload allows a deliberate second ack, answered idempotently); a cloud `issues` refusal on
+Mark ready reaches the editor handler as its silent `issues`; `OUTPUT_TEXT_MAX` is mirrored in Settings; 6 Discover
+failures in `discover-native-video-capture.spec.ts` under a full `pnpm e2e` (outside this packet). Against today's deployed
+Worker the handshake answers "cloud workflows aren't available there yet" — the workflow Durable Object is still not
+provisioned/deployed; no activation, grant, secret, paid use, push, merge or deploy happened. Next: DT-7D schedules,
+DT-7E truthful activity, purge maintenance; DT-6 live readiness/TikTok Inbox, DT-8–DT-10, Wsla.io backlog remain open.
+
+
+### DT-7C-3D record (Sonnet 5.5, 22 Oct 2026)
+
+**Status: DONE_WITH_CONCERNS (22 Oct 2026).**
+
+- **Fake Worker (path used: the REAL router, no fixtures).** `context.route("**/*")` passes localhost, answers `https://cloud.test/**` from
+  the real Worker router `handle` (`workers/scout/src/scout`) over the real `WorkflowCoordinator` on `node:sqlite`
+  `DatabaseSync(":memory:")` (the rig of `store/cloudWorkflowOccurrence.test.ts`), `ALLOWED_ORIGINS=http://localhost:${E2E_PORT||3000}`, a
+  synthetic `SCOUT_TOKEN`, the real clock; every other host is aborted. Every non-preflight request is logged (kind, method, path, status, body,
+  answer); a dropped answer is the Worker processing the request and the route then aborting. Two import corrections: a dynamic `import()` of the
+  router fails under Playwright's ESM loader (`planning/data/genres.json` needs an import attribute), and a static TypeScript import pulls the
+  Cloudflare-only Worker types into the app's own `tsc` (53 errors), so the two Worker modules are loaded with `require` and typed by hand
+  (ESLint disable block with the reason). Fixtures were not needed for any case.
+- **Cases** (desktop = English, phone = Arabic, 9 each; exact AR/EN copy from the message files; each test has its own context, seeded state and
+  Worker database): a zero requests (Workflows list, editor, Settings; load and reload); b Check connection -> 3 authority GETs (one per
+  controller, all from one click), ownerKey `wfo_<32 hex>`, 0 / 100, 0 / 600, 0 / 100, the limits sentence from the library constants;
+  c Put on cloud -> one `register`, chip local -> on cloud, durable across a reload with no request; d Run now -> captured entry, no local run, no
+  request, Send -> one `submit` (Pending, version 1), Check status -> one `status`; e dropped status answer -> "sent, check status" (role alert),
+  exactly one `status`, no retry after 1.5 s, last seen answer kept; f finished occurrence -> Fetch results = one `changes` + one `status`, one
+  idea draft once, kept by reload and shown on the Ideas page, second fetch = one `changes`, no status, still one draft; g no Confirm delivery
+  before the fetch, enabled after the draft is read back, one `ack`, result copy, Check status then retires it; h another-Worker chip + help and
+  the capacity chip (100 / 100, Put on cloud disabled, Settings 100 / 100), both with zero requests; i Take off cloud -> one `unregister`, chip
+  back to local, durable.
+- **Served build:** `pnpm build` once (log 01, exit 0), then `curl http://localhost:3000/<path>` against `out/<path>index.html` SHA-256: `/`
+  542b8da5..., `/social/workflows/` 5091978e..., `/settings/` 9419ee93..., `/social/website/` bebabd26...: all four equal. The :3000 process was
+  not touched.
+- **Findings for the planner (product behaviour, not patched):** (1) the app's existing social pull (`pullIfDue`: `GET /social/status` and
+  `/social/data` to the configured Worker, hourly, on any page once a Worker is set; also Settings' Connected accounts card) is not workflow code
+  but does hit the same Worker on load; the spec seeds `socialSync.lastPullAt` as just now so the log under test is exactly the cloud-workflow
+  traffic (without it case a fails with those two requests). (2) Check connection is 3 requests (the hub handshakes the three controllers in
+  turn), not 1. (3) After Confirm delivery the button stays until Check status retires the proof; a second deliberate click sends a second
+  `ack` that the Worker answers identically (idempotent), so "a second click sends nothing new" holds at the Worker, not in the UI. (4) Unrelated
+  to this packet: an all-files `pnpm e2e` run (log 14) shows 6 failures in `discover-native-video-capture.spec.ts` (unexpected
+  `GET /api/local-ai/instagram-preview`); not in the requested set, untouched.
+- **Files (SHA-256):** `e2e/workflow-cloud.spec.ts` `653ed2918139a06d8938f3259284548bff5fe0c3ca062af21848416774182cea` (new, untracked, 665 lines).
+  Apart from this record, no product, test, message, Worker, config or package file changed.
+- **Commands** (logs `C:/Users/AORUS/.claude/dashboard-work/dt7c3/3d/logs/`; TEMP/TMP/TMPDIR, `PWTEST_CACHE_DIR`, Playwright report and output dirs
+  there): 01 `pnpm build` exit 0; 02 desktop run exit 1 (Worker modules via dynamic import); 03 exit 1 (static imports; social pull in the log; ack
+  case); 04 exit 1 (case g second ack); 05 Prettier exit 0; 06 both projects exit 0 (18/18); 07 `pnpm lint` exit 1 (rules-of-hooks on the fixture
+  parameter `use`); 08 `tsc --noEmit --incremental false` exit 2 (Worker types pulled in); 09 `pnpm typecheck:worker` exit 0; 10 `pnpm lint` exit 0;
+  11 `tsc --noEmit --incremental false` exit 0; 12 spec both projects exit 0 (18 passed); 13 `pnpm test --maxWorkers=4` exit 0 (287 files, 6,923
+  tests); 14 `pnpm e2e -- <files>` exit 1 (the `--` made it run all 730 tests: 712 passed, 12 skipped, 6 failed, all 6 in
+  discover-native-video-capture); 15 `pnpm e2e <the five files>` exit 0: 76 passed, 2 skipped (workflow-cloud 9 desktop + 9 phone).
+- **Concerns:** the four findings above; the vitest cache stayed in node_modules (no flag for it), all other temp output is in the log dir. No
+  commit/push, credential, live call or external request (every non-localhost host aborted except the in-process fake origin).
+
+#### DT-7C-3D fix round (Sonnet 5.5, 22 Oct 2026) - planner review 3D, ACCEPT WITH ONE FIX
+
+**Status: DONE.**
+
+- **Fix (concern 3).** `deliverableOf` cannot tell an acknowledged proof apart (the stored receipt's `ackedVersion` only moves on Check
+  status), and `DeliverableView` carries no version, so the Cloud results card keeps an `acked` map (proof key -> stored receipt version at
+  the ack) in component state. The stored version comes from the pinned `readReconciliation` on `useStore(s => s.cloudReconciliation)`
+  (a read of an existing selector; hub, store, controllers untouched). Confirm delivery is disabled while `acked[key] === current version`;
+  the handler also returns early for an acked key. Set only for `kind: "answered"` with `parsed.outcome === "ok"` (refused, unconfirmed,
+  stale and Worker-refused answers never disable it). A proof that leaves the deliverable list forgets its entry (state adjusted during
+  render, not in an effect: the React lint rule forbids setState in an effect); a newer stored receipt version re-enables it. The
+  "The Worker noted it" status line is unchanged. No message key added.
+- **Tests.** `WorkflowCloud.test.tsx`: new test "two clicks send one ack, disabled once acknowledged, enabled again when the proof changes
+  version" (two clicks -> one `ack`; disabled; same version re-read and a forced click still one; version 3 -> 4 enables and a click
+  makes the second `ack`; gone then re-listed at the same version is confirmable; an unconfirmed ack never disables). One existing assertion
+  changed on purpose: in "Confirm delivery: one ack(key) per row..." row 0 was asserted enabled after its acknowledged ack; it is now asserted
+  disabled (row 1 busy-disabled assertion unchanged). The test file mocks `readReconciliation` through a pass-through wrapper that fakes the
+  stored versions only while `fake.s.versions` is set (after the screen is up: the store parses that slice itself on every save), reset in
+  `beforeEach`. `e2e/workflow-cloud.spec.ts` case g: after the first acknowledged ack the button is disabled, a forced second click leaves
+  exactly one `ack` in the Worker log (before: two, the second answered idempotently), Check status then still retires the proof.
+- **Files (SHA-256):**
+  - `components/social/workflows/WorkflowCloud.tsx` `ca38349bdf583265c69b5ff166d5e1025b2ce633ccfe618eb0f3c719f04934fb`
+  - `components/social/workflows/WorkflowCloud.test.tsx` `f3cde4c2fb71c212bbdb38130126a9d835f376627d74d5495b9669a13621ff79`
+  - `e2e/workflow-cloud.spec.ts` `fe01044296c0d0d39958fb655da95904269d40c6013e15f942543432edc5ed77`
+  - Unchanged: hub, store, controllers, libs, Worker, messages, package/config.
+- **Commands** (logs `.../3d/logs/` 16 to 36): 16 vitest workflows exit 1 (a global mock of `readReconciliation` broke the store's own save: 9
+  failures); 17 exit 1 (same, 8); 18 `pnpm vitest run components/social/workflows` exit 0, 59/59; 19 Prettier exit 0; 20 `tsc` exit 2 (a `number | {}`
+  state type); 21 ESLint exit 1 and 22 `pnpm lint` exit 1 (setState inside an effect); 23 `pnpm build` exit 1 (the type error); 24 exit 0; 26 `tsc`
+  exit 2 (same type, `Number()` fixes it); 29 `tsc --noEmit --incremental false` exit 0; 30 `vitest run components/social/workflows
+  components/settings` exit 0, 3 files, 100/100; 31 Prettier check exit 0; 32 ESLint (3 files) exit 0; 33 `pnpm lint` exit 0; 34 `pnpm build` exit 0;
+  served bytes on :3000 equal `out/` for `/` 8811b54f..., `/social/workflows/` 7b1101d8..., `/settings/` b52ffc96..., `/social/website/` 3c1db74a...
+  (:3000 not touched); 35 `pnpm e2e e2e/workflow-cloud.spec.ts` exit 0, 18 passed (9 desktop EN, 9 phone AR); 36 `pnpm e2e` workflows, capture,
+  reconciliation, settings exit 0, 58 passed, 2 skipped. No full `pnpm test` rerun (only `WorkflowCloud.tsx` changed in product code; focused
+  suites above cover it).
+- **Concerns:** none new. The acknowledgement marker is per mount of the Cloud results card (a reload or navigating away forgets it, and the
+  Worker then answers a deliberate second ack idempotently); the proof's own receipt version is the only thing that persists.
+
+### DT-7C-3C record (Sonnet 5.5, 22 Oct 2026)
+
+**Status: DONE_WITH_CONCERNS (22 Oct 2026).**
+
+- **Card layout** (`components/settings/SettingsScreen.tsx`, new `CloudWorkflowsCard`, `Card id="cloud-workflows"`, placed
+  right after `ApiKeysCard`; testid prefix `settings-cloud-`): (1) note: nothing is sent without a click, this screen does
+  not switch the cloud on; (2) connection: not configured -> the `ConfigureResult` reason copy (`none` = a new Settings
+  sentence, `origin`/`insecure`/`token`/`disposed` through the existing `workflows.cloud.connect.bad` +
+  `workflows.cloud.reason.*`), configured -> the 3B `CloudConnect` line (origin, never the token; **Check connection** =
+  exactly one `cloudHub().handshake()` per click, disabled while busy, nothing on mount/render/pageshow) plus, after a
+  verified handshake, the non-secret `ownerKey`; (3) capacity list from `cloudHub().counts()`: registrations n /
+  `REGISTRATION_CAPACITY`, delivery records n / `PROOF_CAPACITY`, retired markers n / `TOMBSTONES_MAX`, cloud run history
+  n / `CLOUD_RUNS_MAX`, queued cloud runs n / `JOURNAL_CAPACITY` (a `null` slice reads "couldn't read"); (4) limits
+  sentence with output text / context KiB / body KiB interpolated.
+- **Shared hook (recorded, no duplication):** `WorkflowCloud.tsx` already exports `useCloudView` and `CloudConnect`; the
+  only change there is `export` on `useCloudText` (its `reason()` copy table), so Settings reuses 3B's copy instead of a
+  second table.
+- **Gap (rule 7):** `OUTPUT_TEXT_MAX` (4,000) is a non-exported `const` in both `lib/cloudWorkflowSnapshot.ts` and
+  `workers/scout/src/social/workflowProtocol.ts` (both pinned). Settings mirrors it as a local constant; a test reads the
+  Worker source and fails if the two numbers drift. `CONTEXT_BYTES_MAX` / `BODY_BYTES_MAX` are imported from the Worker
+  protocol (as `lib/cloudWorkflowCapture.ts` does).
+- **New keys** (base bundle `messages/ar.json` / `en.json`, where every `settings.*` key lives; ar = en):
+  `settings.cloud.{title,note,none,owner,count.registrations,count.proofs,count.tombstones,count.runs,count.journal,
+  of,unreadable,limits}`, `settings.importRegistrationsFull`, `settings.importReconFull`,
+  `settings.importRetired.{one,other}`. `settings.importJournalFull` now carries `{max}`.
+- **scope -> copy (import `journal-capacity`):** `registrations` -> `settings.importRegistrationsFull` with
+  `REGISTRATION_CAPACITY`; `reconciliation` -> `settings.importReconFull` with `PROOF_CAPACITY` / `TOMBSTONES_MAX`;
+  no scope -> `settings.importJournalFull` with `JOURNAL_CAPACITY`. Success with `retired` non-empty -> `importOk` plus
+  one `settings.importRetired.one|other` sentence ({count}).
+- **Result.** Card, import mapping and copy done as designed above. The card reuses 3B's `CloudConnect` (so its
+  testids are `workflow-cloud-check` / `workflow-cloud-handshake`; the Settings-only ones are `settings-cloud-*`:
+  `config`, `connection`, `owner`, `counts`, `count-<registrations|proofs|tombstones|runs|journal>`, `limits`).
+  Settings re-renders on `cloudRegistrations` / `cloudReconciliation` / `cloudJournal`; nothing in the card calls a hub
+  action except the one handshake click. `settings.importOk` + the retired sentence is one notice line (still one
+  `role="status"`). The card has no `role="status"` of its own (the existing tests query the first one).
+- **Files (SHA-256):**
+  - `components/settings/SettingsScreen.tsx` `b467e6de33a35af2959bf791a5dffba4e9cd6f4465711765f23629c6d31b6b04` (+113/-2; exports `OUTPUT_TEXT_MAX`)
+  - `components/settings/SettingsScreen.test.tsx` `6d92847a95770997641bc36c5ece846ad23780fdf9b9727abbf9148d6235631c` (+280/-2; the 2 are import lines rewritten, no assertion changed)
+  - `components/social/workflows/WorkflowCloud.tsx` `c9b838c03a35dbdde26994b184451d349020989a56995fd124e7faf06a16cc52` (only `export` added to `useCloudText`)
+  - `messages/en.json` `a47e29996eb4f840d410be797768943b1ce786d24b1850e3fa3a4a701abd7067` (+17/-1: the -1 is `settings.importJournalFull`, now `{max}`)
+  - `messages/ar.json` `1a5ffae56de63e53157d6dfb81ce159cb6d85422d5da7cfedfbcb6e25bfea242` (+17/-1)
+  - Unchanged: hub, store, controllers, libs, Worker, package/config.
+- **Commands** (logs `C:/Users/AORUS/.claude/dashboard-work/dt7c3/3c/logs/`, TEMP/TMP/TMPDIR and the vitest cache there):
+  - `01` Prettier write: exit 0. `02` vitest `components/settings messages components/social/workflows`: exit 1 (20 failed:
+    my tests read workflows.* keys from the base bundle). `04`: exit 1 (14 failed: the fake hub had no default view for
+    the existing tests). `06`: exit 0, 4 files, 175/175.
+  - `07` Prettier check: exit 0. `08` `tsc --noEmit --incremental false`: exit 0. `09` ESLint (3 files): exit 0.
+    `10`/`11` `pnpm lint`: exit 0 (11 re-run with the exit line recorded).
+  - No full suite, build, server, browser or network. No commit/push.
+- **Concerns:** (1) `OUTPUT_TEXT_MAX` is a local mirror (gap above), guarded by a test that reads the Worker source.
+  (2) The messages are in the base bundle (`messages/ar.json`/`en.json`), not a `settings.*` file: there is none. (3) The
+  card's tests use a fake hub; the real hub's `counts()` is covered by `lib/cloudWorkflowHub.test.ts`. (4) `retired` with 2
+  items uses the Arabic count-in-parentheses sentence (no dual form); English is `one` / `other`.
+
+#### DT-7C-3C fix round (Sonnet 5.5, 22 Oct 2026) - review `C:/Users/AORUS/.claude/dashboard-work/dt7c3/3c/review.md`, ACCEPT WITH FIXES
+
+**Status: DONE.**
+
+- **P2 hydration mismatch.** The static export prerenders with the inert hub (counts null, no rows); the first client
+  render read the real hub. New exported `useCloudReads()` in `WorkflowCloud.tsx` ({ counts, registrations, runs,
+  deliverable }) on `useSyncExternalStore`: server snapshot = the constant inert reads (all counts null, empty lists);
+  client snapshot = the hub's selectors, cached as ONE object keyed on (hub, hub.view(), the three stored slices) so it is
+  referentially stable between changes; it subscribes to the three stored slices only (hub notifications already
+  re-render through `useCloudView`, so there is still one hub subscription per component and the existing pageshow
+  assertion is unchanged); the cache is cleared on subscribe and unsubscribe so nothing survives a screen change.
+  Used in all five places (Settings card counts; Cloud card registrations, counts, runs; Cloud results counts,
+  deliverable); no render-time `counts()` / `registrations()` / `cloudRuns()` / `deliverable()` call remains.
+- **Tests (added only):** Settings card and both Workflows cards: `renderToString` (prerender), `hydrateRoot` over that
+  markup, `console.error` spy not called, and the stored values appear after hydration (counts "3 / limit"; chip
+  "on cloud"; the deliverable proof row). Checked to fail when the server snapshot is replaced by the live read.
+  The fake hub in the Settings test gained `registrations` / `cloudRuns` / `deliverable` stubs.
+- **Not changed:** the `OUTPUT_TEXT_MAX` mirror and its drift test (snapshot module pinned).
+- **Files (SHA-256):**
+  - `components/settings/SettingsScreen.tsx` `833843470a091ad9310130df59cfee21491d2fef171fcb633bf7234da94f01d6` (+110/-2)
+  - `components/settings/SettingsScreen.test.tsx` `e7526e241cb091db33bca33ad60ffe5a588adea73883bdf191bcfc3226c5b819` (+308/-3: three import lines rewritten, no assertion changed)
+  - `components/social/workflows/WorkflowCloud.tsx` `6431c9f855a376e685700848e1e35af02c54b310de95cafd40a96c28445f3c4d`
+  - `components/social/workflows/WorkflowCloud.test.tsx` `d5922c4c34f6679402ffe4bc0edf9e4741113e2b637ab2f18a6f9f56ee551a6d` (untracked; hydration block and two import lines added, no existing line changed)
+  - Unchanged: `messages/en.json a47e2999...`, `messages/ar.json 1a5ffae5...`, hub, store, controllers, Worker, package/config.
+- **Commands** (logs `.../3c/logs/`, 12 to 22): Prettier write exit 0; vitest `components/settings components/social/workflows
+  components/social/website messages` exit 1 twice while building the fix (37 failures: the Settings fake hub lacked the
+  new selectors and a second hub subscription broke the pageshow count; then 2 failures: a stale cache across mounts and
+  a test that set English before hydrating), then `19`: exit 0, 7 files, 221/221; Prettier check exit 0; `tsc --noEmit
+  --incremental false` exit 0; ESLint (4 files) exit 0; `pnpm lint` exit 0 (`22`). No full suite, build or server.
+- **Concerns:** the prerender of the whole Settings screen is Arabic (initial store), so the hydration test keeps the
+  default language; the real app's `skipHydration` makes its first client render the same.
+
+### DT-7C-3B record (Opus 5.5, 22 Oct 2026)
+
+**Status: DONE_WITH_CONCERNS (12:40 AST).** The design below was recorded before any code edit; the results are at the end.
+
+- **Component tree.** New `components/social/workflows/WorkflowCloud.tsx` holds the shared pieces: `useCloudView()`
+  (`useSyncExternalStore` over `cloudHub().subscribe`, re-subscribing on `pageshow`, a constant unconfigured view as
+  the server snapshot), `CloudConnect` (connection line + **Check connection**), the copy helpers, `WorkflowCloudCard`
+  and `CloudResultsCard`. `WorkflowsScreen` renders `CloudResultsCard` in the list view and calls `leaveCloudScreen()`
+  on unmount (one effect at the top, so list and editor switches never leave). `WorkflowEditor` renders
+  `WorkflowCloudCard` after the local run history and routes **Run now**. `ArticleEditor` routes **Mark ready**. Every
+  action calls `cloudHub()` at click time; no hub object is kept in state or refs.
+- **Hub calls per button (exactly one each, nothing chained, nothing at mount):**
+  - Check connection → `cloudHub().handshake()` (busy key `handshake`).
+  - Put on cloud / Take off cloud / Recover → `register(id)` / `unregister(id)` / `recover(id)` (busy key `wf:<id>`).
+  - Entry Send / Check status / Run / Cancel → `submit(key)` / `status(key)` / `run(key)` / `cancel(key)` (busy key =
+    the journal entry key).
+  - Fetch results → `reconcile({ limit: CHANGES_LIMIT_MAX })` (50, imported, busy key `reconcile`).
+  - Confirm delivery → `ack(key)` (busy key = the proof key).
+  - Run now: `cloudHub().captureAuthority(id)` non-null → `captureManualRun(id, { authority, articleId? })`; null →
+    today's `runWorkflowNow` expression unchanged.
+  - All lifecycle/occurrence/ack/reconcile buttons are disabled while their busy key is set or while
+    `view().authority` is null (then the card shows "connect in Settings" or **Check connection**).
+- **State chip (first match wins):** (1) id fails `WF_ID_RE` (imported from the Worker protocol) → `unsupported id`.
+  (2) own record = the `registrations()` row for this id whose origin equals the configured origin and, once
+  handshaken, whose ownerKey equals `view().authority.ownerKey`: intent `pending|dispatching|uncertain|divergent` →
+  `unresolved` (Recover shown); intent `refused` → `refused` (the Worker's `lastRefusal` as copy); `proof === "active"`
+  and paused → `paused on cloud`; `proof === "active"` → `on cloud`; otherwise `local`. (3) any other row for this id →
+  `another Worker` (no buttons). (4) no row and `counts().registrations >= REGISTRATION_CAPACITY` → `capacity` (Put on
+  cloud disabled). (5) `local`.
+- **Selector added to the hub (read-only):** `deliverable()` = `deliverableOf(readReconciliation(slice))`: proofs whose
+  stored receipt is terminal, has no collision output, is not retired (tombstone) and has `ackedVersion <
+  receiptVersion`. This is the Confirm delivery list. Test added to `lib/cloudWorkflowHub.test.ts`.
+- **Mark ready:** for each stored workflow with trigger `article-ready` whose `registrations()` row has `proof ===
+  "active"`, take `cloudHub().captureAuthority(w.id)`; the first non-null authority routes the click to
+  `captureArticleReady(articleId, { authority })` (ready/unchanged settle like a success; refusals map to copy;
+  save-type refusals reuse the editor's existing handling). No such authority → the existing
+  `act(() => useStore.getState().setArticleStatus(id, "ready"))` unchanged.
+- **New message keys:** `workflows.cloud.*` in `messages/workflows.{ar,en}.json` (title, chips, buttons, connection,
+  handshake, intent states, reason table, capture refusals, entries, runs, results, delivery, pauses) and
+  `website.cloudReady.*` in `messages/website.{ar,en}.json` (Mark-ready refusals + captured note). Final list below.
+- **Result: message keys (ar = en, 144 + 21).** `workflows.cloud.`: `title`, `note`, `chip.{local,active,paused,another,
+  unresolved,refused,unsupported,capacity}`, `anotherHelp`, `unsupportedHelp`, `capacityHelp`, `refusedHelp`, `put`,
+  `takeOff`, `recover`, `connect.{none,bad,origin,settings,need}`, `check`, `handshake.{busy,ok,refused,uncertain}`,
+  `intent.{settled,refused,uncertain,dispatching,pending,divergent}`, `sent`, `notSent`, `notSaved`, `answered`,
+  `answeredOk`, `workerRefused`, `invalidAnswer`, `reason.*` (one table for every controller/session/hub/Worker code,
+  with "-" normalized to "_", plus `reason.other` "{reason}" for any unknown code), `capture.<CaptureRefusalReason>` (all
+  22, statically checked by a template-literal key type), `captured`, `entries`, `entry.{queued,suppressed,observed,none,
+  rejected}`, `send`, `status`, `run`, `cancel`, `runs`, `state.{pending,running,done,partial,failed,cancelled}`,
+  `results.{title,fetch,page,more,blocked,empty}`, `deliver.{title,help,button,done}`, `proofFull`, `retirementFull`.
+  `website.cloudReady.<reason>` for the 20 capture refusals other than `not-persisted` / `unsupported-save` (those keep
+  the editor's existing save-error handling), plus `website.cloudReady.captured` "{count}". Limits in copy come from the
+  code: `REGISTRATION_CAPACITY`, `PROOF_CAPACITY`, `TOMBSTONES_MAX`, `CHANGES_LIMIT_MAX`. No size limit is retyped (the
+  too-large copy names no number; 3C owns the limits sentence).
+- **Result: Mark ready.** A cloud `ready`/`unchanged` settles as a success (count of captured cloud runs shown). A
+  refusal shows its `website.cloudReady.*` copy and returns `{ok:false, reason:"issues"}` to `settle()`, which adds
+  nothing for that reason (comment in code). The legacy expression is unchanged; only the button's `onClick` now goes
+  through `markReady`, which clears the cloud copy first.
+- **`workflows.localOnly` unchanged.** It is still true today: nothing is scheduled in the cloud (schedules are DT-7D)
+  and the Worker DO is not provisioned. The cloud card states its own rule ("everything here is a button you press").
+  Existing assertions on it are untouched. Once a cloud run can really execute, "Runs only while this browser is open"
+  needs rewording (planner).
+- **Files (SHA-256):**
+  - `components/social/workflows/WorkflowCloud.tsx` (new) `3cc8b6db0501cc080e4deaf01e0b717b076f16e1785c62a28394bec3c888819d`
+  - `components/social/workflows/WorkflowCloud.test.tsx` (new) `cc794b24abc47af5082d1d7c6e6eafa093d262b7ae46ef86aa06a6b5d67a9f7c`
+  - `components/social/workflows/WorkflowEditor.tsx` `749e7c35e5b09ab243ee20391338497bd0f88953903d2fe33dd12b4cc4374a91` (+29/−8; the 8 are the old runNow, now inside its local branch)
+  - `components/social/workflows/WorkflowsScreen.tsx` `d00df4cb5d7c7a23b9435df887b894e695684c848f35255e70b1e42366778fcf` (+7/−0)
+  - `components/social/website/ArticleEditor.tsx` `88f24c3040832f8246ea06159d2c542e5af41089cdc3460b1e2622dc320c3807` (+67/−1; the 1 is the onClick)
+  - `components/social/website/ArticleEditor.cloud.test.tsx` (new) `6529891928de20f865768deace2dc0c977e4121c8344f552ca809317f2c990a0`
+  - `lib/cloudWorkflowHub.ts` `a2f32d9d3ab31baf683151391f91cc962b67b7187e7c60f27f1fd4e2581df728` (was `75a1805a…`; read-only `deliverable()` + `deliverableOf`)
+  - `lib/cloudWorkflowHub.test.ts` `6a90d9170e3feacf2168e59b88951c652a6cb7eaeb0ef8a83243c33bee69aa5e` (was `b68007c1…`; +1 test, +1 assertion, 2 import lines; no line removed)
+  - `messages/workflows.ar.json` `0d6a01b2f62eba18f1babe598c51b6b98cb2bf91398419338007276f536ab3ea`, `messages/workflows.en.json` `99b4d585143550e2187f0aa1ba7c73a6d9cbecceb36daa09d5fbf6197307f644`
+  - `messages/website.ar.json` `848b3b675fbf56caf53f239e6b5295ae9a715ebacac9ef828b7aa27e1ca7fdf0`, `messages/website.en.json` `04973a5ef3f4333365157a44efa48f98cdd0c6c885549167f584b9aa5997077b`
+  - Unchanged: `store/index.ts 8d104065…`, `lib/cloudWorkflowRegistration.ts 909fca1e…`, the controllers, `workers/`, package/lock/config. The
+    only lines removed anywhere are the moved runNow/onClick lines and the JSON trailing-comma moves.
+- **Commands** (logs `C:/Users/AORUS/.claude/dashboard-work/dt7c3/3b/logs/`, TEMP/TMP/TMPDIR set there, vitest
+  `--fsModuleCachePath` there):
+  - `01` tsc draft: exit 0. `02` vitest workflows + website + messages + hub (existing tests): exit 0, 5 files, 152/152.
+  - `03` new WorkflowCloud test: exit 1 (1 failed: my test re-rendered the screen without a hashchange); `04` exit 0, 30/30.
+  - `05` ArticleEditor.cloud: exit 1 (1 failed: a case typo in my expectation); `06` exit 0, 4/4.
+  - `07` Prettier `--write` / `08` `--check` on the 12 changed files: exit 0. `09` focused vitest: exit 0, 7 files, 186/186.
+  - `10` `tsc --noEmit --incremental false`: exit 2 (2 test-file typing errors); `11` ESLint: exit 0 with 1 warning
+    (unused arg); `12` `pnpm lint`: exit 0 with that warning. Fixed in the test file.
+  - `13` Prettier `--check`: exit 0. `14` tsc: exit 0. `15` ESLint (8 files): exit 0, no warning. `16` `pnpm lint`: exit 0.
+    `17` `pnpm vitest run components/social/workflows components/social/website messages lib/cloudWorkflowHub.test.ts`:
+    exit 0, 7 files, 186/186.
+  - `18` full `pnpm vitest run --maxWorkers=4 --exclude "workers/**"`: exit 0, 214 files, 4420/4420.
+  - No build, server, browser or network. No commit/push.
+- **Concerns:**
+  1. Chip and Mark-ready routing read the hub's structural selectors (UI hints). The store capture APIs re-verify
+     ownership, so a stale hint ends in a typed refusal, never a wrong write.
+  2. `deliverable()` is a hint from the stored receipt (`ackedVersion < receiptVersion`). After an ack the row stays
+     until a later Fetch results or Check status brings the newer receipt (copy says so). `ack` re-checks eligibility.
+  3. Cloud refusals in Mark ready reach `settle()` as `issues` (a silent reason there). It is correct but indirect; a
+     typed ArticleResult variant would need a store change, which is out of scope.
+  4. A Worker refusal code missing from the reason table falls back to "Couldn't do that (<code>)". Only the codes the
+     current unions name have keys.
+  5. `useSyncExternalStore` calls `cloudHub()` while rendering, which can create a hub (no request). After a
+     `pagehide` dispose, the next notification builds a fresh hub; `pageshow` re-subscribes to it.
+
+#### DT-7C-3B fix round (Opus 5.5, 22 Oct 2026) — review `C:/Users/AORUS/.claude/dashboard-work/dt7c3/3b/review.md`, verdict ACCEPT WITH FIXES
+
+**Status: DONE (13:05 AST).**
+
+- **P1 unresolved.** `RegistrationView.unresolved = isUnresolved(r.intent)` (hub). The chip and the button choice use
+  it. A divergent intent with `maybeApplied: true` shows Recover. A divergent intent with `maybeApplied: false` falls
+  through to its proof: on cloud with Take off, or local with Put on cloud. The chip table has both cases, and the hub
+  test checks the view field (dispatching = true, settled = false).
+- **P2 copy.** `reason.answer` (today's Worker: "cloud workflows aren't available there yet"). The Worker's own codes
+  go through `workflows.cloud.worker.*` first, so the Worker's `not_configured` reads "not set up on the Worker
+  itself", not the Settings sentence. The table also gained `unknown_epoch`, `registration_behind`, `future_version`,
+  `bad_request`, `method_not_allowed`, `receipt_unavailable`, the observe codes `compact-feed`, `unverified`,
+  `older`, `observation-unverified` and `error`, and `retirement_full` (Arabic reworded). `unconfirmed:<category>`
+  maps to the "sent — check status" sentence. The `(code)` fallback remains only for unknown codes.
+- **P2 Mark ready.** `website.cloudReady.issues` now names the article. A cloud `missing` returns `reason:"missing"` to
+  `settle()` (the article goes gone like the legacy path). `website.cloudReady.missing` was removed.
+- **P2 observed state.** It renders through `workflows.cloud.state.*`; an unknown state shows the raw string.
+- **P2 proof way out.** The Cloud results card has **Check status** per proof: `cloudHub().check(key)`, busy key = the
+  proof key, one call per click. Its copy covers retired, the stored state, recorded refusals (proof-full …), Worker
+  refusals and sent-unconfirmed. The `proofFull`, `retirementFull` and `deliver.done` copy points to it.
+- **Nits.**
+  - Before the handshake, "own" needs exactly one row at the configured origin (the `authorityFor` rule).
+  - With no Worker in Settings, a stored record shows the new chip `noWorker` plus the Settings link.
+  - Results are now `role="alert"` for refusals, errors and unknown outcomes, and `role="status"` for successes.
+  - Entry and proof buttons use `aria-describedby` pointing at the entry time + occurrence id (proof: workflow name).
+  - Hub: the view authority is set only when all three handshakes succeed; otherwise the first refusal is shown.
+  - Arabic: `cancel` is now "إلغاء", and the retired-results wording is plain.
+  - The Mark-ready cloud notes clear on the next edit.
+  - Every cloud handler first checks `cloudHub().view().busy.has(key)` (marked synchronously by the hub), so a double
+    click before React re-renders still sends one call. Test: the real `createCloudHub` with a held `register`, two
+    clicks in one act → exactly one register.
+  - The ArticleEditor refusal test asserts that the capture was called once with the authority and that
+    `setArticleStatus` was not called (5 reasons).
+- **Not changed:** review nit 14 (selector parsing per render, fine at the caps).
+- **Files (SHA-256):**
+  - `components/social/workflows/WorkflowCloud.tsx` `5ed9c543221a8b628968dcd64bc1c509bf44e98804869dc5437a0c861adbf752`
+  - `components/social/workflows/WorkflowCloud.test.tsx` `a7f5ccdb7c80018b1dd0e835b55f3f9373a9882e12d50a942d1da256f9e3f332`
+  - `components/social/website/ArticleEditor.tsx` `f8208dc6bde994c85210919defc12492adc7288bc6b118363e39c30a76c9e244`
+  - `components/social/website/ArticleEditor.cloud.test.tsx` `b52d14836a6958ce7d6ad64f67236c05a0c5b03fb72c884204ed3661da70c452`
+  - `lib/cloudWorkflowHub.ts` `4bccee78c10f0bfd0e6fd1b4bbc5dfa19e9571997b00b0f958a836bf25cd60a4` (items 1 and 10 only)
+  - `lib/cloudWorkflowHub.test.ts` `684d4184fe6ffc865e3047c8ce994e710f3902021a2a31b2f6fd96f8338dff4c` (+2 tests, inserted only)
+  - `messages/workflows.ar.json` `a09f48be5381e912a8db7728feea98fc4a9dcf5a41f7b9094ed8e7cf05eefab4`, `messages/workflows.en.json` `7f5f18c099e6a492bf2d739c1ed4d57d5a5b74ccdbcad1ce5e20c0a4e78ed869`
+  - `messages/website.ar.json` `2c70978dfbd8988e641ed78cb0b461cd50004fadd2119980dc78a9817d984be4`, `messages/website.en.json` `f4cc9429abece7a27a59c5a8bf2be89933757d02c7174d9411a648943ce7a1bd`
+  - Unchanged since the first pass: `WorkflowEditor.tsx 749e7c35…`, `WorkflowsScreen.tsx d00df4cb…`. Unchanged pins:
+    `store/index.ts 8d104065…`, `lib/cloudWorkflowRegistration.ts 909fca1e…`, controllers, `workers/`, package/config.
+- **Commands** (same log folder):
+  - `19` hub vitest: exit 0, 19/19. `20` tsc draft: exit 0.
+  - `21` new component tests: exit 1 (4 failed: my test setup and an outdated copy expectation, plus a real double-click
+    gap). The gap was fixed with the in-flight guard. `22` exit 1 (1 failed: the test's article removal did not
+    reach storage; it now uses a reset). Then the ArticleEditor.cloud file alone: 5/5.
+  - `23`/`24` Prettier write/check (12 files): exit 0.
+  - `25` focused `vitest run components/social/workflows components/social/website messages lib/cloudWorkflowHub.test.ts`:
+    exit 0, 7 files, 197/197.
+  - `26` `tsc --noEmit --incremental false`: exit 0. `27` ESLint (8 files): exit 0. `28` `pnpm lint`: exit 0.
+  - `29` full `vitest run --maxWorkers=4 --exclude "workers/**"`: exit 0, 214 files, 4431/4431.
+  - No build, server, browser or network. No commit/push.
+- **Concerns:** (a) a partial handshake (registration ok, another refused) now leaves every cloud button disabled;
+  that is intended. (b) The Mark-ready `issues` refusal still reaches `settle()` as the silent `issues` reason, as
+  before. (c) Proof Check status is offered on every deliverable row, not only on acknowledged ones (one click each,
+  no chaining).
+
+### DT-7C-3A record (Opus 5.5, 22 Oct 2026)
+
+**Status: DONE_WITH_CONCERNS (12:20 AST).** The first pass (11:50) stopped on the missing lifecycle request builder
+(evidence `C:/Users/AORUS/.claude/dashboard-work/dt7c3/3a/logs/gap-search.log`). Planner ruling 3A-1 (above) authorized it,
+and the slice resumed.
+
+- **Builder (ruling 3A-1):** `lifecycleRequestFor(kind, regs, authority, {id, revision}, digest): LifecycleBuild` in
+  `lib/cloudWorkflowRegistration.ts` (inserted before the persistence-contract section). It is pure and wrapped in
+  try/catch. An invalid key, revision (`isVersion`) or digest (`DIGEST_RE`) gives `invalid`. An intent in
+  `pending|dispatching|uncertain|divergent` gives `unresolved`. The proof is `registrationIn(record.last.answer)`.
+  register: no proof gives `expectedEpoch 0`, `unregistered` gives its epoch, `active` refuses `active`. unregister:
+  `active` binds `{registrationEpoch, expectedRevision: proof.revision}` with the proof's digest; anything else is
+  `inactive`. 5 new tests in `lib/cloudWorkflowRegistration.test.ts` (appended; one import line added; zero existing
+  lines changed): each branch, `prepareIntent` round trips for both kinds, and register → unregister → re-register at
+  `expectedEpoch = 1`.
+- **Hub API (`lib/cloudWorkflowHub.ts`):** `cloudHub()` is a lazy singleton built by `createCloudHub(deps)`. deps =
+  the three controllers, `readRegistrations()`, `onDispose?`. Without `window` it is an inert hub: actions refuse
+  `no-browser`. View: `CloudHubView {configured, authority, handshake, busy, last}`, plus `view()` and `subscribe(cb)`.
+  Actions: `handshake()` (the three controllers in turn; returns the registration result), `register/unregister/
+  recover(workflowId)` (busy/last key `wf:<id>`), `submit/status/run/cancel(key)`, `check/ack(key)`
+  (key = occurrence key), `reconcile(opts?)` (key `reconcile`). Selectors: `authorityFor(workflowId)`,
+  `captureAuthority(workflowId)`, `registrations()`, `counts()`, `cloudRuns()`. Teardown: `leave()`, `dispose()`, and
+  the exported `leaveCloudScreen()`.
+- **Name and shape changes from the plan sketch, and why:**
+  - `configured.reason` also allows `"disposed"`, from `ConfigureResult`.
+  - `RegistrationView` adds `key`, `proof` (`active|unregistered|null`) and `paused` next to `state` (the intent
+    state), so 3B can draw its chips without re-parsing.
+  - `counts()` values are `number | null` (null = that slice is unreadable). `journal` reuses the store's
+    `cloudJournalRetained`.
+  - Added `leave()`: `leaveCloudScreen()` calls `invalidateCloudVisit()` and then, only if a hub exists, `leave()`.
+    It invalidates every controller visit and clears the view authority. The registration controller does not read
+    the store fence, so otherwise it would keep its authority across visits.
+  - `pagehide` also calls `invalidateCloudVisit()` (plan rule 4) before `dispose()`. `dispose` resets the singleton,
+    so a bfcache return builds a fresh hub.
+- **register/unregister:** the authority comes from the view (none → `no_authority`). The workflow comes from
+  `useStore` `workflows` (missing → `missing`). Then `readRegistrations()`, i.e. `cloudRegistrationPersistence.read`,
+  which re-verifies (null → `unreadable`). Then `workflowDigestOf(workflow)` (null → `""` → `invalid`), then
+  `lifecycleRequestFor`. A refusal is returned as `{kind:"refused", reason, dispatched:false}` with no controller call.
+  Otherwise exactly one `register(request)` or `unregister(request, digest)`. recover sends
+  `registrationKey(authority, id)`.
+- **Fences:** the hub adds no request fence. The controllers keep cfg/visit/auth/latest/disposed, and Occ/Recon also
+  read `cloudFence()`. A hub-local generation (bumped on configure/leave/dispose) only stops an older handshake from
+  writing its authority into the view. Busy counts per key, so two concurrent actions on one key cannot clear each
+  other's busy mark.
+- **Files (SHA-256):**
+  - `lib/cloudWorkflowRegistration.ts` `fd3a07fee14f452e7fdc2d70835aa991ea81bc1d4f912451795dab835d2dc001` (was `60fec6ad…`)
+  - `lib/cloudWorkflowRegistration.test.ts` `717548c2055cfb8fd8da8a7d3ef96980d21065d2eadcd666fa6831968a751246` (was `f65d1bfc…`)
+  - `lib/cloudWorkflowHub.ts` (new) `ec65453f7e5e440e65f81a45847c35ce83b3c5743936d2fd59fb4b8e46005c26`
+  - `lib/cloudWorkflowHub.test.ts` (new) `e2fcfbe527d446fc1a7cd73dcf717ef5041d19102868d85ad8f3f89de6ca671b`
+  - `planning/tools/38-cloud-workflows.md` (DT-7C-3A section appended) `6fb60be69fd666796a1ab3f5153ce3e266e23848e9f2a99c93836947e6e72ddc`
+  - `store/index.ts` unchanged `8d104065…`; the controllers, `components/`, `messages/`, `workers/` and package/config
+    are untouched.
+- **Commands** (logs in `C:/Users/AORUS/.claude/dashboard-work/dt7c3/3a/logs/`, TEMP/TMP set there):
+  - `01-builder-red` vitest registration: exit 1 (5 failed, `lifecycleRequestFor is not a function`).
+  - `03-builder-green` vitest registration + capture + store registration: exit 0, 3 files, 72 tests. The first run
+    failed 1 test: the conflict fixture equalled the request, so the parser said invalid. Fixed in the fixture only.
+  - `04-hub-red` vitest hub: exit 1 (module missing).
+  - `06-hub-green`: first run 2 failed (workflows seeded with `setState` did not stick; the tests now seed through
+    `addWorkflow`), then exit 0, 14 tests.
+  - `07` Prettier `--check` on the 4 files: exit 0.
+  - `08` `tsc --noEmit --incremental false`: first exit 2 (a test-file index type), then exit 0. `08b`
+    `pnpm typecheck:worker`: exit 0.
+  - `09` ESLint on the 4 files: exit 0. `10` `pnpm lint`: exit 0.
+  - `11` hub final: exit 0, 14/14. `12` builder suites final: exit 0, 72/72.
+  - No full suite, build, server, browser or network. No git commit/push.
+- **Concerns:**
+  1. The ruling counts `divergent` as `unresolved`, but `isRecoverable` refuses a divergent intent with
+     `maybeApplied: false` (`not_recoverable`). Such a key can neither recover nor take a new intent: a dead end the UI
+     must explain. The fix would be to use `isUnresolved(intent)` (one line). This is a planner decision.
+  2. Unregister needs the workflow still in the local store (its digest is validated). A workflow deleted locally
+     while registered cannot be taken off the cloud from the hub.
+  3. The selectors parse the in-memory slices structurally. Answers are re-verified only by the actions and captures
+     (`read()`, the capture APIs), so `authorityFor` is a UI hint. `captureManualRun` re-checks ownership.
+
+#### DT-7C-3A fix round (Opus 5.5, 22 Oct 2026) — review `C:/Users/AORUS/.claude/dashboard-work/dt7c3/3a/review.md`, verdict ACCEPT WITH FIXES
+
+- **P1 (ruling 3A-1 amended):** `lifecycleRequestFor` now gates on `isUnresolved(rec.intent)`, the same rule as the
+  controller's `createIntent`. A divergent intent with `maybeApplied: true` still refuses `unresolved`. A divergent
+  intent with `maybeApplied: false` builds from the folded proof in `last`. The new test is split in two: the
+  maybe-applied divergent case, built by recovering an uncertain attempt that a conflict then answers, refuses both
+  kinds; the not-applied divergent case gives register `active` and unregister epoch 1 / revision 1 / `DIG2`, and
+  `createIntent` accepts that request. This closes concern 1. Doc comment updated.
+- **P2 unregister:** the hub no longer needs the local workflow to unregister. The builder (unchanged) gets
+  `{id, revision: 1}` and a validated, ignored `UNUSED_DIGEST`; the request and digest come from the verified stored
+  proof only. Register still needs the local workflow (`missing`). Test: a workflow registered as `w9` that is not in
+  the store sends exactly one `unregister({…registrationEpoch: 1, expectedRevision: 1}, DIG)`. This closes concern 2.
+- **P2 tests:**
+  - A stale handshake (configuration moved, or `leave()`, while the controller call was held) cannot set the
+    authority: it stays null, the state is `idle` and nothing is busy.
+  - The busy counter: two keys clear independently, and one key with two actions in flight stays busy until both
+    settle.
+  - The singleton's `pagehide` calls `dispose()` once on each of the three real controllers, and a later Settings
+    change calls no `configure()`.
+- **Nits:** the handshake `busy` state is reset in a `finally` if a controller throws. The laziness test is
+  independent of order (`vi.resetModules()` + a fresh dynamic import, measured against counts taken before).
+- **Not changed (review P2/nits recorded for 3B):** after a bfcache restore a component must call `cloudHub()` again,
+  or re-subscribe on `pageshow`, because the old hub is disposed. The `pagehide` store-fence move happens only while a
+  hub exists. 3B should disable a button while `busy` has `wf:<id>`. On-cloud chips must use
+  `registrations()[].proof`, not `authorityFor`. A null digest still surfaces as `invalid`.
+- **Files (SHA-256):**
+  - `lib/cloudWorkflowRegistration.ts` `909fca1e88e6c9eebe0d63fcab15848e20c217603598977af35570462c7bbc06` (+60/−0 vs HEAD)
+  - `lib/cloudWorkflowRegistration.test.ts` `04013faa7099070a27c4a71dba00692c61956aeccd8d299c1b55cb19c83e7c0e` (+141/−0 vs HEAD)
+  - `lib/cloudWorkflowHub.ts` `75a1805a0d8c80331cf61955a68db7dcaa045aec117a6fa35eb38b9556d669c5`
+  - `lib/cloudWorkflowHub.test.ts` `b68007c1757007c54bc4b13c48597257f7ac860b91efc7ecb7fb5149a5963f7f`
+  - `planning/tools/38-cloud-workflows.md` `12376431df9644bf5fb9620c6858c8def885bb186a5afe2462cb8b3cfad20d42` (3A section:
+    the amended gate and unregister without a local workflow)
+  - `store/index.ts` unchanged `8d104065…`; controllers, components, messages and workers untouched.
+- **Commands** (logs `C:/Users/AORUS/.claude/dashboard-work/dt7c3/3a/logs/`):
+  - `20-fix-builder`: vitest registration, exit 0, 28/28.
+  - `21-fix-hub`: vitest hub, exit 0, 17/17.
+  - `22-fix-vitest`: `pnpm vitest run lib/cloudWorkflowHub.test.ts lib/cloudWorkflowRegistration.test.ts
+    lib/cloudWorkflowCapture.test.ts store/cloudWorkflowRegistration.test.ts`, exit 0, 4 files, 90/90.
+  - `23` Prettier `--check` on the 4 files: exit 0.
+  - `24` `tsc --noEmit --incremental false`: exit 0.
+  - `25` ESLint on the 4 files: exit 0. `26` `pnpm lint`: exit 0.
+  - No full suite, build, server, browser or network. No commit/push.
+
 ## Current status — Codex C1 repair implemented and tested, 18 October 2026
 
 The owner explicitly reassigned implementation to Codex. Claude remains idle and received no task. C1 resolves R1-A/B/C by refusing retirement at 100 rather than folding away ownership, failing closed for legacy watermarks, and applying reset suppression to retired imports; it also fixes the reproduced unreadable-reset-journal bypass. Final app **4354/4354**, targeted **91/91**, installed Chrome EN/AR desktop/phone **12/12**, nonincremental tsc/lint/format/build pass. Seven local pages are fresh and served on localhost3000; preview remains running for the owner. [Implementation report](C:/Users/AORUS/.codex/review-evidence/dashboard-tools/dt7c2c-c1/REPORT.md). This is Codex implementation/self-verification, not an independent review claim.

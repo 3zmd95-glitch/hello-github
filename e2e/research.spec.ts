@@ -4,7 +4,6 @@ import {
   openDiscoverOptions,
   openDiscoverSearch,
   openResearchFilters,
-  openDiscoverCategories,
 } from "./helpers";
 
 // Same DaVinci skill used by mastery.spec.ts: "Smart Bins + Keywords" / "الـ Smart Bins والكلمات المفتاحية",
@@ -297,7 +296,6 @@ test("skill sheet Research panel: an edit genre narrows the skill's search; rese
 
   // The genre row sits right under the search bar; the skill's name stays the base of the search.
   await expect(page.getByTestId("genres-row")).toBeVisible();
-  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("research-topic")).toHaveValue("Smart Bins + Keywords");
@@ -328,8 +326,16 @@ test("skill sheet Research panel: an edit genre narrows the skill's search; rese
   await expect(tt).toHaveAttribute("href", href(`${skillName}%20car%20edit%20DaVinci%20Resolve`));
 
   // The active chip again: back to the skill's plain search.
-  await openDiscoverCategories(page);
   await page.getByTestId("genre-cars").click();
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "false");
+  await expect(tt).toHaveAttribute("href", href(`${skillName}%20DaVinci%20Resolve`));
+
+  // The ✕ at the end of the row clears a genre too, and only shows while one is on.
+  await expect(page.getByTestId("genres-clear")).toHaveCount(0);
+  await page.getByTestId("genre-anime").click();
+  await expect(page.getByTestId("genre-anime")).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("genres-clear").click();
+  await expect(page.getByTestId("genre-anime")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("genres-clear")).toHaveCount(0);
   await expect(tt).toHaveAttribute("href", href(`${skillName}%20DaVinci%20Resolve`));
 });

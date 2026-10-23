@@ -386,6 +386,66 @@ export async function verifyRegistrations(s: CloudRegistrations): Promise<boolea
 export const registrationsIs = (stored: unknown, expected: CloudRegistrations): boolean =>
   stored !== undefined && same(stored, expected);
 
+/* ---------- the next lifecycle request (DT-7C-3A, planner ruling 3A-1) ---------- */
+
+export type LifecycleBuild =
+  /** `digest` is the one to pass to `prepareIntent` / the controller (unregister: the active proof's). */
+  | {
+      readonly ok: true;
+      readonly request: RegisterRequest | UnregisterRequest;
+      readonly digest: string;
+    }
+  | { readonly ok: false; readonly reason: "unresolved" | "active" | "inactive" | "invalid" };
+
+/**
+ * The next register/unregister request of a workflow at `authority`, from the key's lifecycle proof (`last`: a typed
+ * refusal never folds into it). Matches the Worker CAS rule (`conflictOk`): no proof needs expectedEpoch 0, an
+ * unregistered proof its own epoch; unregister binds the active proof's epoch/revision/digest. An unresolved intent
+ * (`isUnresolved`, the createIntent gate) refuses (`unresolved`: recover first). Pure; never throws.
+ */
+export function lifecycleRequestFor(
+  kind: "register" | "unregister",
+  regs: CloudRegistrations,
+  authority: Authority,
+  workflow: { readonly id: string; readonly revision: number },
+  digest: string,
+): LifecycleBuild {
+  const invalid = { ok: false, reason: "invalid" } as const;
+  try {
+    const key = registrationKey(authority, workflow.id);
+    if (!key || !isVersion(workflow.revision) || !fits(digest, DIGEST_RE)) return invalid;
+    const rec = findRecord(regs, key);
+    if (rec && isUnresolved(rec.intent)) return { ok: false, reason: "unresolved" };
+    const proof = rec?.last ? registrationIn(rec.last.answer) : null;
+    const epoch = proof?.registrationEpoch;
+    if (proof && !isVersion(epoch)) return invalid;
+    const { ownerKey } = authority;
+    const workflowId = workflow.id;
+    if (kind === "register") {
+      if (proof?.state === "active") return { ok: false, reason: "active" };
+      if (proof && proof.state !== "unregistered") return invalid;
+      const expectedEpoch = proof ? (epoch as number) : 0;
+      const request = { kind, ownerKey, workflowId, expectedEpoch, revision: workflow.revision };
+      return { ok: true, request: { ...request, workflowDigest: digest }, digest };
+    }
+    if (!proof || proof.state !== "active") return { ok: false, reason: "inactive" };
+    if (!isVersion(proof.revision) || !fits(proof.workflowDigest, DIGEST_RE)) return invalid;
+    return {
+      ok: true,
+      request: {
+        kind,
+        ownerKey,
+        workflowId,
+        registrationEpoch: epoch as number,
+        expectedRevision: proof.revision,
+      },
+      digest: proof.workflowDigest,
+    };
+  } catch {
+    return invalid;
+  }
+}
+
 /* ---------- the persistence contract (implemented by store/index.ts) ---------- */
 
 export type PersistFailure = {

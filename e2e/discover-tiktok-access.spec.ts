@@ -190,7 +190,7 @@ test("changing genres preserves the chosen platform without native or paid retri
     ["yt", "coffee"],
   ]) {
     await page.getByTestId(`browse-tab-${platform}`).click();
-    await page.getByTestId("browse-category-switch").selectOption(genre);
+    await page.getByTestId(`genre-${genre}`).click();
     await expect(page.getByTestId(`browse-tab-${platform}`)).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -332,7 +332,7 @@ test("TikTok access cancels category-stale status reads and ignores a cancelled 
   await page.getByTestId("tiktok-access-check").click();
   await expect.poll(() => state.reads).toBe(1);
   await expect(page.getByTestId("tiktok-access-cancel")).toBeVisible();
-  await page.getByTestId("browse-category-switch").selectOption("coffee");
+  await page.getByTestId("genre-coffee").click();
   state.statusHold = undefined;
   status.release();
   await expect.poll(() => state.aborted).toContain("/tiktokads/status");

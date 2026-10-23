@@ -1,8 +1,19 @@
 {
   "version": 1,
+  "groups": [
+    { "id": "sport", "emoji": "🏟️", "name": { "ar": "رياضة", "en": "Sport" } },
+    { "id": "food", "emoji": "🍽️", "name": { "ar": "أكل وقهوة", "en": "Food & drink" } },
+    { "id": "lifestyle", "emoji": "✨", "name": { "ar": "لايف ستايل", "en": "Lifestyle" } },
+    { "id": "outdoors", "emoji": "🧭", "name": { "ar": "سفر وبر", "en": "Travel & outdoors" } },
+    { "id": "entertainment", "emoji": "🎬", "name": { "ar": "ترفيه", "en": "Entertainment" } },
+    { "id": "automotive", "emoji": "🏎️", "name": { "ar": "سيارات ومحركات", "en": "Automotive" } },
+    { "id": "business", "emoji": "🏢", "name": { "ar": "بزنس", "en": "Business" } },
+    { "id": "craft", "emoji": "📸", "name": { "ar": "تصوير", "en": "Craft" } }
+  ],
   "genres": [
     {
       "id": "cars",
+      "group": "automotive",
       "emoji": "🚗",
       "name": { "ar": "سيارات", "en": "Cars" },
       "queries": {
@@ -13,6 +24,7 @@
     },
     {
       "id": "food",
+      "group": "food",
       "emoji": "🍔",
       "name": { "ar": "أكل ومطاعم", "en": "Food & restaurants" },
       "queries": {
@@ -23,6 +35,7 @@
     },
     {
       "id": "anime",
+      "group": "entertainment",
       "emoji": "🎌",
       "name": { "ar": "أنمي", "en": "Anime" },
       "queries": {
@@ -33,6 +46,7 @@
     },
     {
       "id": "travel",
+      "group": "outdoors",
       "emoji": "✈️",
       "name": { "ar": "سفر", "en": "Travel" },
       "queries": {
@@ -43,6 +57,7 @@
     },
     {
       "id": "football",
+      "group": "sport",
       "emoji": "⚽",
       "name": { "ar": "كورة", "en": "Football" },
       "queries": {
@@ -53,6 +68,7 @@
     },
     {
       "id": "coffee",
+      "group": "food",
       "emoji": "☕",
       "name": { "ar": "قهوة", "en": "Coffee" },
       "queries": {
@@ -63,6 +79,7 @@
     },
     {
       "id": "perfume",
+      "group": "lifestyle",
       "emoji": "🌹",
       "name": { "ar": "عطور", "en": "Perfume" },
       "queries": {
@@ -73,6 +90,7 @@
     },
     {
       "id": "camping",
+      "group": "outdoors",
       "emoji": "🏕️",
       "name": { "ar": "كشتة وبر", "en": "Camping & desert" },
       "queries": {
@@ -83,6 +101,7 @@
     },
     {
       "id": "fashion",
+      "group": "lifestyle",
       "emoji": "👗",
       "name": { "ar": "موضة", "en": "Fashion" },
       "queries": {
@@ -93,6 +112,7 @@
     },
     {
       "id": "gaming",
+      "group": "entertainment",
       "emoji": "🎮",
       "name": { "ar": "قيمنق", "en": "Gaming" },
       "queries": {
@@ -103,6 +123,7 @@
     },
     {
       "id": "weddings",
+      "group": "lifestyle",
       "emoji": "💍",
       "name": { "ar": "أعراس", "en": "Weddings" },
       "queries": {
@@ -113,6 +134,7 @@
     },
     {
       "id": "gym",
+      "group": "sport",
       "emoji": "🏋️",
       "name": { "ar": "جيم", "en": "Gym" },
       "queries": {
@@ -120,6 +142,259 @@
         "en": ["gym edit", "gym motivation edit"]
       },
       "hashtags": ["gymedit", "gymmotivation"]
+    },
+    {
+      "id": "combat",
+      "group": "sport",
+      "emoji": "🥊",
+      "name": { "ar": "فنون قتالية", "en": "Combat sports" },
+      "queries": {
+        "ar": ["ايديت ملاكمة", "مونتاج فنون قتالية"],
+        "en": ["boxing edit", "ufc knockout edit"]
+      },
+      "hashtags": ["boxingedit", "ufcedit"]
+    },
+    {
+      "id": "basketball",
+      "group": "sport",
+      "emoji": "🏀",
+      "name": { "ar": "سلة", "en": "Basketball" },
+      "queries": {
+        "ar": ["ايديت سلة", "مونتاج كرة سلة"],
+        "en": ["basketball edit", "nba highlights edit"]
+      },
+      "hashtags": ["basketballedit", "nbaedit"]
+    },
+    {
+      "id": "desserts",
+      "group": "food",
+      "emoji": "🍰",
+      "name": { "ar": "حلا ومخبوزات", "en": "Desserts & bakery" },
+      "queries": {
+        "ar": ["تصوير حلا", "مونتاج مخبوزات"],
+        "en": ["dessert edit", "bakery cinematic b-roll"]
+      },
+      "hashtags": ["dessertvideo", "bakingvideo"]
+    },
+    {
+      "id": "cooking",
+      "group": "food",
+      "emoji": "🍳",
+      "name": { "ar": "طبخ وشيفات", "en": "Cooking & chefs" },
+      "queries": {
+        "ar": ["تصوير طبخ", "مونتاج شيف"],
+        "en": ["cooking edit", "chef cinematic video"]
+      },
+      "hashtags": ["cookingvideo", "chefsoftiktok"]
+    },
+    {
+      "id": "beauty",
+      "group": "lifestyle",
+      "emoji": "💅",
+      "name": { "ar": "جمال وعناية", "en": "Beauty & skincare" },
+      "queries": {
+        "ar": ["تصوير ميكب", "اعلان عناية بالبشرة"],
+        "en": ["beauty edit", "skincare commercial video"]
+      },
+      "hashtags": ["beautyedit", "makeuptransition"]
+    },
+    {
+      "id": "family",
+      "group": "lifestyle",
+      "emoji": "👶",
+      "name": { "ar": "عائلة وبورتريه", "en": "Family & portraits" },
+      "queries": {
+        "ar": ["تصوير عائلي", "مونتاج بورتريه"],
+        "en": ["family video edit", "cinematic portrait video"]
+      },
+      "hashtags": ["familyfilm", "portraitphotography"]
+    },
+    {
+      "id": "luxury",
+      "group": "lifestyle",
+      "emoji": "⌚",
+      "name": { "ar": "ساعات وفخامة", "en": "Watches & luxury" },
+      "queries": {
+        "ar": ["تصوير ساعات فخمة", "اعلان ساعة فخمة"],
+        "en": ["luxury watch edit", "watch commercial cinematic"]
+      },
+      "hashtags": ["watchphotography", "luxurywatches"]
+    },
+    {
+      "id": "sea",
+      "group": "outdoors",
+      "emoji": "🌊",
+      "name": { "ar": "بحر وغوص", "en": "Sea & diving" },
+      "queries": {
+        "ar": ["تصوير بحر", "مونتاج غوص"],
+        "en": ["ocean edit", "underwater diving cinematic"]
+      },
+      "hashtags": ["oceanvibes", "underwatervideo"]
+    },
+    {
+      "id": "drone",
+      "group": "outdoors",
+      "emoji": "🚁",
+      "name": { "ar": "درون وتصوير جوي", "en": "Drone & aerial" },
+      "queries": {
+        "ar": ["تصوير درون", "مونتاج تصوير جوي"],
+        "en": ["drone edit", "fpv drone cinematic"]
+      },
+      "hashtags": ["dronevideo", "fpvdrone"]
+    },
+    {
+      "id": "music",
+      "group": "entertainment",
+      "emoji": "🎵",
+      "name": { "ar": "كليبات", "en": "Music videos" },
+      "queries": {
+        "ar": ["كليب سينمائي", "مونتاج كليب"],
+        "en": ["music video edit", "cinematic music video"]
+      },
+      "hashtags": ["musicvideo", "musicvideoproduction"]
+    },
+    {
+      "id": "cinematic",
+      "group": "entertainment",
+      "emoji": "🎥",
+      "name": { "ar": "سينمائي وأفلام قصيرة", "en": "Cinematic & short films" },
+      "queries": {
+        "ar": ["فيلم قصير سينمائي", "تصوير سينمائي"],
+        "en": ["short film edit", "cinematic short film"]
+      },
+      "hashtags": ["cinematic", "shortfilm"]
+    },
+    {
+      "id": "podcast",
+      "group": "entertainment",
+      "emoji": "🎙️",
+      "name": { "ar": "بودكاست ومقابلات", "en": "Podcasts & interviews" },
+      "queries": {
+        "ar": ["تصوير بودكاست", "مونتاج مقابلة"],
+        "en": ["podcast edit", "podcast clips editing"]
+      },
+      "hashtags": ["podcastclips", "podcastsetup"]
+    },
+    {
+      "id": "comedy",
+      "group": "entertainment",
+      "emoji": "🎭",
+      "name": { "ar": "كوميديا وسكتشات", "en": "Comedy & skits" },
+      "queries": {
+        "ar": ["سكتش كوميدي", "مونتاج كوميدي"],
+        "en": ["comedy skit edit", "comedy sketch video"]
+      },
+      "hashtags": ["comedyskit", "sketchcomedy"]
+    },
+    {
+      "id": "bikes",
+      "group": "automotive",
+      "emoji": "🏍️",
+      "name": { "ar": "دبابات ودراجات", "en": "Bikes & motorcycles" },
+      "queries": {
+        "ar": ["ايديت دبابات", "تصوير دراجات نارية"],
+        "en": ["motorcycle edit", "motorcycle cinematic video"]
+      },
+      "hashtags": ["motorcycleedit", "bikelife"]
+    },
+    {
+      "id": "racing",
+      "group": "automotive",
+      "emoji": "🏁",
+      "name": { "ar": "تفحيط وسباقات", "en": "Drift & racing" },
+      "queries": {
+        "ar": ["ايديت تفحيط", "مونتاج سباقات"],
+        "en": ["drift edit", "racing cinematic edit"]
+      },
+      "hashtags": ["driftedit", "motorsport"]
+    },
+    {
+      "id": "realestate",
+      "group": "business",
+      "emoji": "🏠",
+      "name": { "ar": "عقار وعمارة", "en": "Real estate & architecture" },
+      "queries": {
+        "ar": ["تصوير عقارات", "مونتاج فلل"],
+        "en": ["real estate video edit", "architecture cinematic video"]
+      },
+      "hashtags": ["realestatevideo", "architecturephotography"]
+    },
+    {
+      "id": "services",
+      "group": "business",
+      "emoji": "🛠️",
+      "name": { "ar": "خدمات ومحلات", "en": "Local services" },
+      "queries": {
+        "ar": ["تصوير محلات", "اعلان محل"],
+        "en": ["small business video edit", "local business commercial"]
+      },
+      "hashtags": ["smallbusiness", "commercialvideography"]
+    },
+    {
+      "id": "product",
+      "group": "business",
+      "emoji": "📦",
+      "name": { "ar": "منتجات و UGC", "en": "Product & UGC" },
+      "queries": {
+        "ar": ["تصوير منتجات", "اعلان منتج UGC"],
+        "en": ["product video edit", "ugc product ad"]
+      },
+      "hashtags": ["productvideography", "ugccreator"]
+    },
+    {
+      "id": "corporate",
+      "group": "business",
+      "emoji": "👔",
+      "name": { "ar": "شركات وفعاليات", "en": "Corporate & events" },
+      "queries": {
+        "ar": ["تصوير فعاليات", "فيديو شركة"],
+        "en": ["corporate video edit", "corporate event highlight video"]
+      },
+      "hashtags": ["eventvideography", "corporatevideo"]
+    },
+    {
+      "id": "tech",
+      "group": "business",
+      "emoji": "📱",
+      "name": { "ar": "تقنية وفتح صناديق", "en": "Tech & unboxing" },
+      "queries": {
+        "ar": ["تصوير تقنية", "فتح صندوق جوال"],
+        "en": ["tech edit", "cinematic unboxing video"]
+      },
+      "hashtags": ["techedit", "unboxing"]
+    },
+    {
+      "id": "photography",
+      "group": "craft",
+      "emoji": "📸",
+      "name": { "ar": "تصوير فوتوغرافي", "en": "Photography" },
+      "queries": {
+        "ar": ["تصوير فوتوغرافي", "كواليس تصوير"],
+        "en": ["photography edit", "photoshoot behind the scenes"]
+      },
+      "hashtags": ["photography", "behindthescenes"]
+    },
+    {
+      "id": "colorgrading",
+      "group": "craft",
+      "emoji": "🎨",
+      "name": { "ar": "تلوين و LUTs", "en": "Color grading & LUTs" },
+      "queries": {
+        "ar": ["تلوين سينمائي", "شرح LUTs"],
+        "en": ["cinematic lut edit", "colorist color grading"]
+      },
+      "hashtags": ["colorgrading", "luts"]
+    },
+    {
+      "id": "vfx",
+      "group": "craft",
+      "emoji": "🧩",
+      "name": { "ar": "موشن و VFX", "en": "Motion & VFX" },
+      "queries": {
+        "ar": ["ايديت مؤثرات بصرية", "مونتاج مؤثرات"],
+        "en": ["vfx edit", "vfx breakdown edit"]
+      },
+      "hashtags": ["vfx", "motiongraphics"]
     }
   ]
 }

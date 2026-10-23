@@ -1,7 +1,16 @@
 "use client";
 
 import { useRef, useState } from "react";
+import {
+  CloudConnect,
+  useCloudReads,
+  useCloudText,
+  useCloudView,
+} from "@/components/social/workflows/WorkflowCloud";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import { JOURNAL_CAPACITY } from "@/lib/cloudWorkflowJournal";
+import { CLOUD_RUNS_MAX, PROOF_CAPACITY, TOMBSTONES_MAX } from "@/lib/cloudWorkflowReconciliation";
+import { REGISTRATION_CAPACITY } from "@/lib/cloudWorkflowRegistration";
 import type { ApiKeyName, Gear } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { youtubeErrorMessageKey, youtubeSearch } from "@/lib/research";
@@ -15,6 +24,7 @@ import {
   type ImportStateResult,
 } from "@/store";
 import pkg from "@/package.json";
+import { BODY_BYTES_MAX, CONTEXT_BYTES_MAX } from "@/workers/scout/src/social/workflowProtocol";
 import AvatarCard from "./AvatarCard";
 import Card from "./Card";
 import ConnectedAccountsCard from "./ConnectedAccountsCard";
@@ -46,6 +56,24 @@ const IMPORT_FAILED: Record<Exclude<ImportStateResult, { ok: true }>["reason"], 
   "journal-conflict": "settings.importJournalRefused",
   "journal-capacity": "settings.importJournalFull",
 };
+
+/**
+ * The Worker's draft text bound, in UTF-16 units. Not exported by the pinned protocol/snapshot modules (DT-7C-3C
+ * record); a Settings test reads the Worker source and fails if this number ever drifts from it.
+ */
+export const OUTPUT_TEXT_MAX = 4_000;
+
+/** `journal-capacity` names its own limit by scope (registrations 100; reconciliation 600 + 100; no scope: journal). */
+function capacityText(
+  t: ReturnType<typeof useT>["t"],
+  scope: "registrations" | "reconciliation" | undefined,
+) {
+  if (scope === "registrations")
+    return t("settings.importRegistrationsFull", { max: REGISTRATION_CAPACITY });
+  if (scope === "reconciliation")
+    return t("settings.importReconFull", { proofs: PROOF_CAPACITY, tombstones: TOMBSTONES_MAX });
+  return t("settings.importJournalFull", { max: JOURNAL_CAPACITY });
+}
 
 export default function SettingsScreen() {
   const { t } = useT();
@@ -114,10 +142,21 @@ export default function SettingsScreen() {
         );
       } else {
         const r = await useStore.getState().importState(pending.json);
+        const retired = r.ok ? (r.retired?.length ?? 0) : 0;
         setNotice(
           r.ok
-            ? { text: t("settings.importOk") }
-            : { text: t(IMPORT_FAILED[r.reason]), error: true },
+            ? {
+                text: retired
+                  ? `${t("settings.importOk")} ${t(retired === 1 ? "settings.importRetired.one" : "settings.importRetired.other", { count: retired })}`
+                  : t("settings.importOk"),
+              }
+            : {
+                text:
+                  r.reason === "journal-capacity"
+                    ? capacityText(t, r.scope)
+                    : t(IMPORT_FAILED[r.reason]),
+                error: true,
+              },
         );
       }
     } catch {
@@ -210,6 +249,8 @@ export default function SettingsScreen() {
       <GenresCard />
 
       <ApiKeysCard />
+
+      <CloudWorkflowsCard />
 
       <ConnectedAccountsCard />
 
@@ -362,6 +403,73 @@ function ApiKeysCard() {
           helpLinkHref={SCOUT_README_URL}
           test={testScoutToken}
         />
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * Cloud workflows (packet DT-7C-3C): the Worker line (origin, never the token), an explicit Check connection (one
+ * handshake per click, nothing on mount), the stored-record counts against their limits, and the size limits. Reads
+ * only; nothing here sends anything or switches the cloud on.
+ */
+function CloudWorkflowsCard() {
+  const { t, reason } = useCloudText();
+  const view = useCloudView();
+  // Inert on the server and during hydration, the stored records right after (see useCloudReads).
+  const { counts } = useCloudReads();
+  const rows = [
+    ["registrations", counts.registrations, REGISTRATION_CAPACITY],
+    ["proofs", counts.proofs, PROOF_CAPACITY],
+    ["tombstones", counts.tombstones, TOMBSTONES_MAX],
+    ["runs", counts.runs, CLOUD_RUNS_MAX],
+    ["journal", counts.journal, JOURNAL_CAPACITY],
+  ] as const;
+  const cfg = view.configured;
+  return (
+    <Card id="cloud-workflows" title={t("settings.cloud.title")} note={t("settings.cloud.note")}>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1" data-testid="settings-cloud-connection">
+          {cfg.ok ? (
+            <CloudConnect view={view} />
+          ) : (
+            <p
+              className="text-ink-2 text-sm"
+              data-testid="settings-cloud-config"
+              data-state={cfg.reason}
+            >
+              {cfg.reason === "none"
+                ? t("settings.cloud.none")
+                : t("workflows.cloud.connect.bad", { reason: reason(cfg.reason) })}
+            </p>
+          )}
+          {view.authority && view.handshake === "ok" && (
+            <p className="text-ink-2 text-xs" data-testid="settings-cloud-owner">
+              {t("settings.cloud.owner", { owner: view.authority.ownerKey })}
+            </p>
+          )}
+        </div>
+        <dl className="flex flex-col gap-1 text-sm" data-testid="settings-cloud-counts">
+          {rows.map(([k, n, max]) => (
+            <div
+              key={k}
+              className="flex flex-wrap justify-between gap-2"
+              data-testid={`settings-cloud-count-${k}`}
+            >
+              <dt>{t(`settings.cloud.count.${k}`)}</dt>
+              <dd className="num" dir="ltr" data-value={n ?? "unreadable"}>
+                {n === null ? t("settings.cloud.unreadable") : t("settings.cloud.of", { n, max })}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <p className="text-muted text-xs" data-testid="settings-cloud-limits">
+          {t("settings.cloud.limits", {
+            output: OUTPUT_TEXT_MAX,
+            context: CONTEXT_BYTES_MAX / 1024,
+            body: BODY_BYTES_MAX / 1024,
+          })}
+        </p>
       </div>
     </Card>
   );

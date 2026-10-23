@@ -91,6 +91,8 @@ import DiscoverSections from "./DiscoverSections";
 import AiConnectionControls from "./AiConnectionControls";
 import CategoryPage from "./CategoryPage";
 import ForYouFeed from "./ForYouFeed";
+import GenreGroups from "./GenreGroups";
+import TrendingEdits from "./TrendingEdits";
 import TrendingSounds, { useRecordSounds } from "./TrendingSounds";
 import NativeKeywordResults from "./NativeKeywordResults";
 import PasteLinkForm from "./PasteLinkForm";
@@ -224,6 +226,8 @@ export default function ResearchPanel({
   workspace,
   onSearch,
   onBrowseCategory,
+  onBrowse,
+  styleSearch,
   active = true,
   showBrowse = true,
   formatReviewRequest,
@@ -233,8 +237,9 @@ export default function ResearchPanel({
   /** Where the search bar sticks on phones: the sheet's padded scroll edge by default, below the app's top bar in Discover. */
   stickyTop?: string;
   /**
-   * Discover's deep link (`/discover/?genre=<id>`): the id of a genre the app knows, handed in once the
-   * address bar was read. It goes on the way a tap on its chip would.
+   * Opens the panel on one genre, like a tap on its chip. Discover no longer passes it: `/discover/?genre=<id>`
+   * opens that category's page in Browse (DiscoverScreen), so the app has no Search-tab genre filter. Kept only
+   * for the in-panel category feed's own tests (CategoryFeed.test.ts) until that feed is removed with them.
    */
   openGenre?: string | null;
   onOpenInspiration?: (url: string) => void;
@@ -242,6 +247,10 @@ export default function ResearchPanel({
   workspace?: "browse" | "search";
   onSearch?: () => void;
   onBrowseCategory?: (id: string) => void;
+  /** The Search tab's "Looking for a category?" hint: take the reader to Browse, where the categories are. */
+  onBrowse?: () => void;
+  /** A trending style tapped on a category's "Trends & lessons": searched like a 🔥 chip (once per revision). */
+  styleSearch?: { query: string; revision: number };
   active?: boolean;
   showBrowse?: boolean;
   formatReviewRequest?: { target: FormatVerificationTarget; revision: number };
@@ -443,6 +452,56 @@ export default function ResearchPanel({
     setEditing(false);
   };
 
+  /** A format's exact search (its audio AND visual recipe), from Edit formats or a Trending edits row. */
+  const pickFormat = (query: string, intent: "examples" | "tutorials", format: EditFormat) => {
+    onSearch?.();
+    setFormatSearch({ query, intent, format });
+    setSearchMode("keyword");
+    setSubmittedMode("keyword");
+    setSubmittedAi(undefined);
+    setGenreId(null);
+    setPage(null);
+    setSavedOnly(false);
+    setProgramId("");
+    setHintOn(false);
+    setTopic(query);
+    setDraft(null);
+    setPicked({ on: `|${query}`, pick: { exact: true } });
+    setEditing(true);
+    setArFirst(false);
+    setLength("any");
+    setRecency(intent === "tutorials" ? "any" : "month");
+    setSort("relevance");
+    pickTab("all");
+    setAttempt((a) => a + 1);
+    addRecentTopic(query);
+  };
+
+  /** A Trending edits row: a format's exact search, else the keyword search a chip runs (a lesson: any date). */
+  const pickEdit = (query: string, intent: "examples" | "tutorials", format?: EditFormat) => {
+    if (format) return pickFormat(query, intent, format);
+    onSearch?.();
+    setSubmittedAi(undefined);
+    setProgramId("");
+    setPage(null);
+    setSavedOnly(false);
+    setPicked(null);
+    setFormatSearch(null);
+    setSearchMode("keyword");
+    setSubmittedMode("keyword");
+    setGenreId(null);
+    setTopic(query);
+    setDraft(null);
+    setHintOn(false);
+    setLength("any");
+    setSort("relevance");
+    pickTab("all");
+    chipSearch();
+    if (intent === "tutorials") setRecency("any");
+    setAttempt((a) => a + 1);
+    addRecentTopic(query);
+  };
+
   /** A trend chip's search (spec 18, 2026-10-07): Arabic first off, Posted on Week (the chip says "this week": its tap
    * shows this week's posts, and the owner can widen it) and editing context; its English name makes it an English
    * search ({@link discoverLang}). Of that, only the two filters stick to the next search, as the owner left them. */
@@ -451,6 +510,30 @@ export default function ResearchPanel({
     setRecency("week");
     setEditing(true);
   };
+
+  // A style from a category's Trends & lessons page: the same keyword search a 🔥 chip runs, on this tab.
+  const styleSeen = useRef(0);
+  useEffect(() => {
+    if (!styleSearch || styleSearch.revision === styleSeen.current) return;
+    styleSeen.current = styleSearch.revision;
+    const query = styleSearch.query;
+    setSubmittedAi(undefined);
+    setProgramId("");
+    setPage(null);
+    setSavedOnly(false);
+    setPicked(null);
+    setFormatSearch(null);
+    setSearchMode("keyword");
+    setSubmittedMode("keyword");
+    setGenreId(null);
+    setTopic(query);
+    setDraft(null);
+    setArFirst(false);
+    setRecency("week");
+    setEditing(true);
+    setAttempt((a) => a + 1);
+    addRecentTopic(query);
+  }, [styleSearch, addRecentTopic]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -471,45 +554,13 @@ export default function ResearchPanel({
    * on, or off when it's the active chip (null = off). A genre alone never lands in the recent topics.
    */
   const pickGenre = (id: string | null) => {
-    if (
-      browsing &&
-      id &&
-      onBrowseCategory &&
-      (v2 ||
-        nativeHelperId() ||
-        useStore.getState().discoverCandidates.some((entry) => entry.genreId === id))
-    ) {
-      // A retained local category remains browsable while remote capability checks are unavailable.
-      onBrowseCategory(id);
+    if (browsing) {
+      // Browse is the one place for categories: a tap always opens the category page, never a hidden Search filter.
+      if (id) onBrowseCategory?.(id);
       return;
     }
     setFeedMode("inspiration");
     setFeedUndo(undefined);
-    if (browsing) {
-      // Browsing starts a new category, never a stale subscription brief or hidden filter.
-      setSearchMode("keyword");
-      setSubmittedMode("keyword");
-      setSubmittedAi(undefined);
-      setTopic("");
-      setDraft(null);
-      setFormatSearch(null);
-      setPicked(null);
-      setGenreId(id);
-      setPage(null);
-      setSavedOnly(false);
-      setProgramId("");
-      setHintOn(true);
-      setRecency("any");
-      setLength("any");
-      setSort("relevance");
-      setArFirst(false);
-      setEditing(false);
-      setTab("all");
-      writeTab("all");
-      setAttempt((a) => a + 1);
-      onSearch?.();
-      return;
-    }
     if (aiSearchBlocked) return;
     setFormatSearch(null);
     setEditing(false);
@@ -541,15 +592,15 @@ export default function ResearchPanel({
     setAttempt((a) => a + 1);
   }, []);
 
-  // Discover's deep link: the genre handed in goes on once, like a tap on its chip (a search of its own),
-  // and its chip is brought into view in the row. The owner's next taps decide from there.
+  // The genre handed in goes on once, like a tap on its chip (a search of its own), and its chip is brought into
+  // view in the row. The owner's next taps decide from there.
   const [opened, setOpened] = useState<string | null>(null);
   if (openGenre && openGenre !== opened) {
     setFormatSearch(null);
     setOpened(openGenre);
     setEditing(false);
     setGenreId(openGenre);
-    setPage(null); // the link searches, even over that category's page
+    setPage(null); // it searches, even over that category's page
     setAttempt((a) => a + 1);
   }
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -1280,37 +1331,17 @@ export default function ResearchPanel({
       >
         {t(browsing ? "layout.genres" : "genres.label")}
       </span>
-      <div
-        className={
-          browsing
-            ? "grid w-full grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
-            : "flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-0.5 pt-0.5 pb-1.5 @3xl:flex-wrap @3xl:overflow-x-visible"
-        }
-        data-testid="genres-chips"
-      >
-        {genres.map((g) => (
-          <button
-            key={g.id}
-            ref={(el) => {
-              if (el) chipRefs.current.set(g.id, el);
-              else chipRefs.current.delete(g.id);
-            }}
-            type="button"
-            className={
-              browsing
-                ? "border-edge bg-panel-2 hover:bg-panel-3 flex min-h-12 items-center gap-2 border-2 px-3 py-2 text-start text-sm font-bold"
-                : "px-fchip shrink-0"
-            }
-            aria-pressed={!browsing && g.id === genre?.id}
-            disabled={!browsing && aiSearchBlocked}
-            onClick={() => pickGenre(g.id)}
-            data-testid={`genre-${g.id}`}
-          >
-            <span aria-hidden>{g.emoji}</span>
-            <span dir="auto">{L(g.name)}</span>
-          </button>
-        ))}
-      </div>
+      <GenreGroups
+        genres={genres}
+        layout={browsing ? "grid" : "row"}
+        activeId={browsing ? undefined : genre?.id}
+        disabled={!browsing && aiSearchBlocked}
+        onPick={pickGenre}
+        chipRef={(id, el) => {
+          if (el) chipRefs.current.set(id, el);
+          else chipRefs.current.delete(id);
+        }}
+      />
       {/* Outside the scrolling chips (at the far end), so it's in reach when the active chip isn't. */}
       {genre && !browsing && (
         <button
@@ -1335,7 +1366,6 @@ export default function ResearchPanel({
     >
       <div hidden={browsing}>
         <div className="flex min-w-0 flex-col gap-3">
-          {organized && <p className="text-ink-2 text-sm">{t("layout.searchHelp")}</p>}
           {/* ---------- search bar ---------- */}
           <form
             onSubmit={submit}
@@ -1425,6 +1455,19 @@ export default function ResearchPanel({
               )}
             </div>
             {showDeepSearch && <p className="text-ink-2 text-xs">{t("search.deepSearchHint")}</p>}
+            {organized && onBrowse && (
+              <p className="text-ink-2 text-xs" data-testid="search-browse-hint">
+                {t("layout.searchBrowseHint")}{" "}
+                <button
+                  type="button"
+                  className="px-link"
+                  onClick={onBrowse}
+                  data-testid="search-go-browse"
+                >
+                  {t("layout.searchGoBrowse")}
+                </button>
+              </p>
+            )}
             {!skill && v2 && searchMode === "ai" && !genre && (
               <div className="flex flex-wrap items-center gap-1.5" data-testid="discover-prompts">
                 <span className="text-muted text-xs">{t("search.trySpecific")}</span>
@@ -1606,6 +1649,9 @@ export default function ResearchPanel({
       </div>
       <div hidden={organized && !browsing}>
         <div className="flex min-w-0 flex-col gap-6" data-testid="discover-browse">
+          {organized && browsing && showBrowse && (
+            <TrendingEdits config={v2 ? scoutCfg : null} onPick={pickEdit} />
+          )}
           {organized && browsing && showBrowse && <TrendingSounds renderAction={renderAction} />}
           {organized && browsing && showBrowse && (
             <ForYouFeed
@@ -1622,29 +1668,7 @@ export default function ResearchPanel({
               formatReviewRequest={formatReviewRequest}
               config={v2 ? scoutCfg : null}
               compact={organized}
-              onPickFormat={(query, intent, format) => {
-                onSearch?.();
-                setFormatSearch({ query, intent, format });
-                setSearchMode("keyword");
-                setSubmittedMode("keyword");
-                setSubmittedAi(undefined);
-                setGenreId(null);
-                setPage(null);
-                setSavedOnly(false);
-                setProgramId("");
-                setHintOn(false);
-                setTopic(query);
-                setDraft(null);
-                setPicked({ on: `|${query}`, pick: { exact: true } });
-                setEditing(true);
-                setArFirst(false);
-                setLength("any");
-                setRecency(intent === "tutorials" ? "any" : "month");
-                setSort("relevance");
-                pickTab("all");
-                setAttempt((a) => a + 1);
-                addRecentTopic(query);
-              }}
+              onPickFormat={pickFormat}
               onPick={(query) => {
                 onSearch?.();
                 setSubmittedAi(undefined);
@@ -1668,25 +1692,8 @@ export default function ResearchPanel({
       </div>
       <div hidden={browsing}>
         <div className="flex min-w-0 flex-col gap-3">
-          {organized ? (
-            <details
-              data-testid="search-categories"
-              className="border-edge border-b pb-3"
-              onToggle={(event) => {
-                if (event.currentTarget.open && genre)
-                  chipRefs.current
-                    .get(genre.id)
-                    ?.scrollIntoView({ block: "nearest", inline: "nearest" });
-              }}
-            >
-              <summary className="w-fit cursor-pointer text-sm font-bold">
-                {genre ? t("layout.categoryActive", { name: L(genre.name) }) : t("layout.category")}
-              </summary>
-              <div className="mt-3">{!browsing && genrePicker}</div>
-            </details>
-          ) : (
-            genrePicker
-          )}
+          {/* Discover's Search tab has no categories: Browse is the one place for them. */}
+          {!organized && genrePicker}
 
           {!skill && v2 && genre && (
             <div className="flex min-w-0 flex-col gap-1.5" data-testid="discover-category-ideas">

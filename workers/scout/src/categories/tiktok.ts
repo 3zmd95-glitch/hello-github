@@ -41,6 +41,20 @@ export const TIKTOK_INDUSTRY: Readonly<Record<string, string>> = {
   gaming: "VIDEO_GAMES",
   weddings: "ROMANCE",
   gym: "EXERCISE_AND_FITNESS",
+  // The later categories reuse only industry names already used live above; the rest have no TikTok list
+  // (tiktokTop answers no videos and keeps the stored list; the probe skips them).
+  combat: "CONVENTIONAL_AND_MAINSTREAM_SPORTS",
+  basketball: "CONVENTIONAL_AND_MAINSTREAM_SPORTS",
+  desserts: "FOOD",
+  cooking: "FOOD",
+  beauty: "BEAUTY",
+  sea: "OUTDOOR_RECREATION",
+  drone: "PHOTOGRAPHY",
+  bikes: "AUTOMOTIVE",
+  racing: "AUTOMOTIVE",
+  photography: "PHOTOGRAPHY",
+  colorgrading: "PHOTOGRAPHY",
+  vfx: "SPECIAL_EFFECTS",
 };
 
 /** The 2 industries whose popular hashtags are edit styles of any subject, asked besides the category's own. */
@@ -305,8 +319,11 @@ export async function tiktokTop(
       country_code: country,
       date_range: DATE_RANGE,
     };
-    const [trending, effects, photo] = await Promise.all(
-      [industry, TT_EFFECTS, TT_PHOTO].map((category_name) =>
+    // One call per distinct industry: Drone, Photography and Color grading's own industry is PHOTOGRAPHY, VFX's
+    // is SPECIAL_EFFECTS, the two edit lists asked anyway.
+    const names = [...new Set([industry, TT_EFFECTS, TT_PHOTO])];
+    const answers = await Promise.all(
+      names.map((category_name) =>
         getJson(
           doFetch,
           withParams(TT_TRENDING_URL, { ...asked, category_name }),
@@ -315,6 +332,8 @@ export async function tiktokTop(
         ),
       ),
     );
+    const answer = (name: string) => answers[names.indexOf(name)];
+    const [trending, effects, photo] = [answer(industry), answer(TT_EFFECTS), answer(TT_PHOTO)];
     const hashtags = listOf(trending);
     if (!hashtags) return failure(trending, token.access_token);
     // An edit list failing is left out: the industry's list still makes a tab.

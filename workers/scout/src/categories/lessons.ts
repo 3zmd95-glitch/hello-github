@@ -26,7 +26,13 @@ import { categoryCreativeEvidence, hasTeachingEvidence } from "./quality";
 import { SKILL_IDS } from "./skills";
 import { AREAS, type Area, type LessonVideo, type Lessons, type Technique } from "./types";
 
-export const LESSON_DAYS = 6;
+/**
+ * Lessons are due when the last ones are LESSON_DAYS or more days old. A category is scanned every 9 days (35
+ * categories, 4 a day), so 12 means every second scan (about every 18 days): the lesson AI and Tavily searches a
+ * day stay where they were with 12 categories (scans every 3 days, lessons every 6). At 6, every scan would
+ * refresh them and double that daily cost.
+ */
+export const LESSON_DAYS = 12;
 /** v5 replaces unsupported source-specific settings with explicitly suggested study/practice. */
 export const LESSONS_VERSION = 5;
 export const LESSON_MODEL = "@cf/openai/gpt-oss-120b";

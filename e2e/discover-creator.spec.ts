@@ -378,7 +378,7 @@ Tutorial Channel :- https://youtu.be/MaskLesson1`,
     "Anime velocity tutorial in After Effects",
   ])
     await expect(feed.getByTestId("result-title").filter({ hasText: title })).toBeVisible();
-  await page.getByTestId("browse-category-switch").selectOption("coffee");
+  await page.getByTestId("genre-coffee").click();
   await expect(page.getByTestId("feed-checking")).toHaveCount(0);
   await expect(feed.getByTestId("result-title")).toHaveText("Coffee match cut film");
   for (const mode of ["popular", "learning", "explore", "inspiration"]) {
@@ -389,7 +389,7 @@ Tutorial Channel :- https://youtu.be/MaskLesson1`,
     if (mode === "learning")
       await expect(feed.getByTestId("result-title")).toHaveText("Coffee lighting tutorial");
   }
-  await page.getByTestId("browse-category-switch").selectOption("travel");
+  await page.getByTestId("genre-travel").click();
   await expect(page.getByTestId("feed-checking")).toHaveCount(0);
   for (const mode of ["inspiration", "popular", "learning"]) {
     await feed.getByTestId(`feed-mode-${mode}`).click();

@@ -3,6 +3,9 @@ import { GENRES as DATA_GENRES } from "@/data/genres";
 import { CustomGenreSchema, type CustomGenre, type Genre } from "@/lib/domain";
 import {
   CUSTOM_GENRE_EMOJI,
+  GENRE_GROUPS,
+  MINE_GROUP_ID,
+  groupedGenres,
   GENRES,
   allGenres,
   customGenreId,
@@ -21,7 +24,7 @@ const cars = GENRES.find((g) => g.id === "cars")!;
 describe("GENRES", () => {
   it("is the validated list of data/genres", () => {
     expect(GENRES).toBe(DATA_GENRES);
-    expect(GENRES).toHaveLength(12);
+    expect(GENRES).toHaveLength(35);
   });
 });
 
@@ -55,9 +58,9 @@ describe("allGenres", () => {
     const custom = Object.freeze([drift]);
     const all = allGenres(custom);
     all.pop();
-    expect(GENRES).toHaveLength(12);
+    expect(GENRES).toHaveLength(35);
     expect(custom).toHaveLength(1);
-    expect(allGenres(custom)).toHaveLength(13);
+    expect(allGenres(custom)).toHaveLength(36);
   });
 });
 
@@ -274,5 +277,35 @@ describe("isLegacyNativeCategoryQuery", () => {
     expect(
       isLegacyNativeCategoryQuery(genreById("custom-drift", [drift])!, all("coffee edit")),
     ).toBe(false);
+  });
+});
+
+describe("groupedGenres", () => {
+  // The caller names Mine from the messages (genres.group.mine).
+  const MINE = { id: MINE_GROUP_ID, emoji: CUSTOM_GENRE_EMOJI, name: { ar: "حقّي", en: "Mine" } };
+
+  it("lists the groups in file order, each with its genres in genre file order", () => {
+    const grouped = groupedGenres([], MINE);
+    expect(grouped.map((entry) => entry.group.id)).toEqual(GENRE_GROUPS.map((g) => g.id));
+    expect(grouped.map((entry) => entry.genres.map((g) => g.id))).toEqual([
+      ["football", "gym", "combat", "basketball"],
+      ["food", "coffee", "desserts", "cooking"],
+      ["perfume", "fashion", "weddings", "beauty", "family", "luxury"],
+      ["travel", "camping", "sea", "drone"],
+      ["anime", "gaming", "music", "cinematic", "podcast", "comedy"],
+      ["cars", "bikes", "racing"],
+      ["realestate", "services", "product", "corporate", "tech"],
+      ["photography", "colorgrading", "vfx"],
+    ]);
+    expect(grouped.flatMap((entry) => entry.genres)).toHaveLength(GENRES.length);
+  });
+
+  it("puts the owner's genres last, under Mine, in the order added", () => {
+    const grouped = groupedGenres([drift, hajwala], MINE);
+    const mine = grouped.at(-1)!;
+    expect(mine.group).toBe(MINE);
+    expect(mine.group.id).toBe("mine");
+    expect(mine.genres.map((g) => g.id)).toEqual(["custom-drift", "custom-هجولة"]);
+    expect(grouped).toHaveLength(GENRE_GROUPS.length + 1);
   });
 });

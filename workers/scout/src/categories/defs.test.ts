@@ -19,12 +19,14 @@ describe("category turns (planning/tools/19-category-trends.md §2)", () => {
     expect(CATEGORY_SLOTS).toEqual(["05:40", "05:45", "05:50", "05:55"]);
   });
 
-  it("groups the 12 categories by UTC day % 3 in genres.json order: each one every 3 days", () => {
-    // UTC day numbers: 2026-10-07 is 20733 (% 3 = 0), 10-08 is 1, 10-09 is 2.
-    expect(categoriesForDay("2026-10-07")).toEqual(["cars", "food", "anime", "travel"]);
-    expect(categoriesForDay("2026-10-08")).toEqual(["football", "coffee", "perfume", "camping"]);
-    expect(categoriesForDay("2026-10-09")).toEqual(["fashion", "gaming", "weddings", "gym"]);
-    expect(categoriesForDay("2026-10-10")).toEqual(categoriesForDay("2026-10-07"));
+  it("groups the 35 categories by UTC day % 9 in genres.json order: each one every 9 days", () => {
+    // UTC day numbers: 2026-10-01 is 20727 (% 9 = 0), 10-07 is 20733 (% 9 = 6), 10-09 is 8 (the last 3).
+    expect(categoriesForDay("2026-10-01")).toEqual(["cars", "food", "anime", "travel"]);
+    expect(categoriesForDay("2026-10-02")).toEqual(["football", "coffee", "perfume", "camping"]);
+    expect(categoriesForDay("2026-10-03")).toEqual(["fashion", "gaming", "weddings", "gym"]);
+    expect(categoriesForDay("2026-10-07")).toEqual(["comedy", "bikes", "racing", "realestate"]);
+    expect(categoriesForDay("2026-10-09")).toEqual(["photography", "colorgrading", "vfx"]);
+    expect(categoriesForDay("2026-10-10")).toEqual(categoriesForDay("2026-10-01"));
   });
 });
 

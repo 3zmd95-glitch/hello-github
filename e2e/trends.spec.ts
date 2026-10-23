@@ -109,8 +109,9 @@ function feedNow(extra: readonly Record<string, unknown>[] = []) {
 /**
  * Rows as the Worker's keyword scan writes them for a genre's main query (round 31): "YouTube search" rows
  * that carry the genre id and are tagged with the query that found them, then "short". Two Arabic ones
- * (cars, food) and two English ones (cars, and "drone", an id the app has no genre for), so the chips can be
- * checked under both tabs. The food row's query "مونتاج أكل" holds a niche keyword and its title does not;
+ * (cars, food) and two English ones (cars, and "kites", an id the app has no genre for: drone became a
+ * built-in genre on 22 Oct 2026), so the chips can be checked under both tabs. The food row's query
+ * "مونتاج أكل" holds a niche keyword and its title does not;
  * the Saudi car row's title does ("مونتاج"); the English titles match none.
  */
 function genreRows() {
@@ -149,13 +150,13 @@ function genreRows() {
     },
     {
       ...row,
-      id: "youtube:US:kw:drone-en",
+      id: "youtube:US:kw:kites-en",
       region: "US",
       lang: "en",
-      title: "FPV drone reel",
+      title: "FPV kites reel",
       score: 60,
-      genre: "drone",
-      tags: ["drone edit", "short"],
+      genre: "kites",
+      tags: ["kites edit", "short"],
     },
   ];
 }
@@ -488,21 +489,21 @@ test("genre rows name their genre in a chip that links to Discover, and the rada
 
   // English tab: the chart row, the two English genre rows and the mixed hashtag. The car row's tag
   // "car edit" is its genre's query and its title has no niche keyword, so no star; its chip opens the same
-  // genre. "drone" is an id the app has no genre for: a plain chip with the raw id, nothing to tap.
+  // genre. "kites" is an id the app has no genre for: a plain chip with the raw id, nothing to tap.
   await page.getByTestId("trends-tab-en").click();
   await expect(rows).toHaveCount(4);
   const carsEn = page.locator('[data-testid="trend-row"][data-id="youtube:US:kw:cars-en"]');
-  const drone = page.locator('[data-testid="trend-row"][data-genre="drone"]');
+  const kites = page.locator('[data-testid="trend-row"][data-genre="kites"]');
   await expect(carsEn).toHaveAttribute("data-star", "false");
   await expect(carsEn.getByTestId("trend-source")).toHaveText("بحث YouTube");
   await expect(carsEn.getByTestId("trend-genre")).toHaveText("سيارات");
   await expect(carsEn.getByTestId("trend-genre")).toHaveAttribute("href", "/discover/?genre=cars");
-  await expect(drone).toHaveAttribute("data-id", "youtube:US:kw:drone-en");
-  await expect(drone.getByTestId("trend-genre")).toHaveText("drone");
-  await expect(drone.getByTestId("trend-genre")).toHaveAttribute("data-genre", "drone");
-  await expect(drone.getByTestId("trend-genre")).not.toHaveAttribute("href");
-  await expect(drone.getByRole("link")).toHaveCount(0);
-  const chipIsPlain = await drone.getByTestId("trend-genre").evaluate((el) => {
+  await expect(kites).toHaveAttribute("data-id", "youtube:US:kw:kites-en");
+  await expect(kites.getByTestId("trend-genre")).toHaveText("kites");
+  await expect(kites.getByTestId("trend-genre")).toHaveAttribute("data-genre", "kites");
+  await expect(kites.getByTestId("trend-genre")).not.toHaveAttribute("href");
+  await expect(kites.getByRole("link")).toHaveCount(0);
+  const chipIsPlain = await kites.getByTestId("trend-genre").evaluate((el) => {
     const platform = el.parentElement?.querySelector('[data-testid="trend-platform"]');
     return (
       el.tagName === "SPAN" &&
@@ -525,7 +526,7 @@ test("genre rows name their genre in a chip that links to Discover, and the rada
   await expect(rows).toHaveCount(4);
 
   // ✕ on a genre row takes that row and its chip away, nothing else.
-  await drone.getByTestId("trend-dismiss").click();
+  await kites.getByTestId("trend-dismiss").click();
   await expect(rows).toHaveCount(3);
   await expect(page.getByTestId("trend-genre")).toHaveCount(1);
   await expect(carsEn).toHaveCount(1);
@@ -543,7 +544,9 @@ test("genre rows name their genre in a chip that links to Discover, and the rada
   expect(await fitsViewport(page)).toBe(true);
 });
 
-test("tapping a row's genre chip opens Discover with that genre picked", async ({ page }) => {
+test("tapping a row's genre chip opens that category's page in Discover's Browse", async ({
+  page,
+}) => {
   test.slow();
   const fake = await stubWorker(page, () => feedNow(genreRows()));
   await connectWorker(page);
@@ -554,14 +557,15 @@ test("tapping a row's genre chip opens Discover with that genre picked", async (
   await expect(food).toHaveCount(1);
   expect(fake.searches).toEqual([]);
 
-  // The chip is the way from a trend to its genre: Discover opens with the Food chip pressed (Discover's
-  // deep link, lib/genres `discoverGenreHref`), which is a search like a tap on that chip.
+  // The chip is the way from a trend to its genre: Discover opens on the Food category's page in Browse
+  // (Discover's deep link, lib/genres `discoverGenreHref`), not a Search filter, so nothing is searched.
   await food.getByTestId("trend-genre").click();
   await expect(page).toHaveURL(DISCOVER_URL);
+  await expect(page.getByTestId("inspiration-explore")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("category-discovery")).toBeVisible();
   await expect(page.getByTestId("genre-food")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("genres-row")).toHaveAttribute("data-genre", "food");
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "false");
-  await expect.poll(() => fake.searches).toContain("مونتاج أكل");
+  expect(fake.searches).toEqual([]);
   expect(await fitsViewport(page)).toBe(true);
 
   // Back in the radar the feed is still there (the store keeps it), and the car row opens Cars.
@@ -570,10 +574,10 @@ test("tapping a row's genre chip opens Discover with that genre picked", async (
   await expect(carsAr).toHaveCount(1);
   await carsAr.getByTestId("trend-genre").click();
   await expect(page).toHaveURL(DISCOVER_URL);
+  await expect(page.getByTestId("category-discovery")).toBeVisible();
   await expect(page.getByTestId("genre-cars")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("genres-row")).toHaveAttribute("data-genre", "cars");
   await expect(page.getByTestId("genre-food")).toHaveAttribute("aria-pressed", "false");
-  await expect.poll(() => fake.searches).toContain("ايديت سيارات");
+  expect(fake.searches).toEqual([]);
 });
 
 test("the genre chip names the owner's custom genre, speaks English when the app does, and opens it in Discover", async ({
@@ -605,7 +609,7 @@ test("the genre chip names the owner's custom genre, speaks English when the app
   await expect.poll(() => fake.gets).toBeGreaterThanOrEqual(1);
   await expect(page.getByTestId("trends-genre")).toHaveCount(0);
 
-  // English tab: the chart row, the car, drift and drone rows, and the mixed hashtag. The drift row's chip
+  // English tab: the chart row, the car, drift and kites rows, and the mixed hashtag. The drift row's chip
   // names the owner's genre (the name they gave it, without Discover's ✨) and links to it; "drift edit" is
   // the genre's own words, so no star.
   await page.getByTestId("trends-tab-en").click();
@@ -637,15 +641,14 @@ test("the genre chip names the owner's custom genre, speaks English when the app
     driftRow.getByRole("link", { name: "Open Drift in Discover", exact: true }),
   ).toHaveAttribute("data-testid", "trend-genre");
   await expect(
-    page.locator('[data-testid="trend-row"][data-genre="drone"]').getByTestId("trend-genre"),
-  ).toHaveText("drone");
+    page.locator('[data-testid="trend-row"][data-genre="kites"]').getByTestId("trend-genre"),
+  ).toHaveText("kites");
 
-  // The owner's genre opens in Discover like a built-in one, and its own words are searched.
+  // The owner's genre opens its category page in Discover's Browse like a built-in one.
   await driftChip.click();
   await expect(page).toHaveURL(DISCOVER_URL);
+  await expect(page.getByTestId("category-discovery")).toBeVisible();
   await expect(page.getByTestId("genre-custom-drift")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("genres-row")).toHaveAttribute("data-genre", "custom-drift");
-  await expect.poll(() => fake.searches).toContain("drift edit");
 });
 
 test("without a Worker the radar still shows the moments and the manual links, and points at Settings", async ({

@@ -982,7 +982,8 @@ describe("runCategory's lessons (§3)", () => {
   /** Last week's page: its lessons are 8 days old, so they are due. */
   const LAST_WEEK: CategoryDoc = {
     ...OLD,
-    lessons: { ...OLD.lessons!, updatedAt: "2026-09-29T05:40:00.000Z" },
+    // Due: LESSON_DAYS (12) old, the previous lesson turn (every second scan of the 9-day rotation).
+    lessons: { ...OLD.lessons!, updatedAt: "2026-09-25T05:40:00.000Z" },
   };
   /** Cleanup plus the single technique pick; study suggestions are curated with no generation calls. */
   function lessonsAi(picks: unknown = PICKS, onPick = () => {}) {

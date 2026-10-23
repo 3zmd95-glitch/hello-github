@@ -442,15 +442,16 @@ describe("TikTok empty source status", () => {
 describe("the category slots", () => {
   it("05:40–05:55 UTC scan the day's 4 categories in turn; 05:41 only polls the replies", async () => {
     const { env, kv } = setup();
+    // 2026-10-10 is UTC day 20736, % 9 = 0: the day of cars, food, anime and travel (35 categories, 9 days).
     const fetchMock = tavily();
-    const offGrid = await runTick(env, Date.parse("2026-10-07T05:41:00Z"), { fetch: fetchMock });
+    const offGrid = await runTick(env, Date.parse("2026-10-10T05:41:00Z"), { fetch: fetchMock });
     expect(Object.keys(offGrid)).toEqual(["replies"]);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(await runTick(env, Date.parse("2026-10-07T05:40:00Z"), { fetch: fetchMock })).toEqual({
+    expect(await runTick(env, Date.parse("2026-10-10T05:40:00Z"), { fetch: fetchMock })).toEqual({
       category: { id: "cars", status: "partial", items: 1, notes: ["tiktok_auth", "ai_fallback"] },
     });
     expect(
-      await runTick(env, Date.parse("2026-10-07T05:55:00Z"), { fetch: fetchMock }),
+      await runTick(env, Date.parse("2026-10-10T05:55:00Z"), { fetch: fetchMock }),
     ).toMatchObject({
       category: { id: "travel" },
     });
@@ -458,5 +459,15 @@ describe("the category slots", () => {
     expect(kv.store.has("category:travel")).toBe(true);
     // Each scan: 6 Tavily searches and YouTube's top-list search (§6).
     expect(fetchMock).toHaveBeenCalledTimes(14);
+  });
+
+  it("05:55 UTC on the rotation's short 9th day (3 categories) scans nothing and does not throw", async () => {
+    const { env, kv } = setup();
+    const fetchMock = tavily();
+    // 2026-10-09 is UTC day 20735, % 9 = 8: photography, colorgrading and vfx; the 4th slot has no category.
+    const tick = await runTick(env, Date.parse("2026-10-09T05:55:00Z"), { fetch: fetchMock });
+    expect(tick).not.toHaveProperty("category");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect([...kv.store.keys()].some((key) => key.startsWith("category:"))).toBe(false);
   });
 });

@@ -64,7 +64,7 @@ const SCAN_LINE: Record<Exclude<Scan, "idle">, MessageKey> = {
   running: "search.categoryRunning",
   failed: "search.trendingRunFailed",
   paused: "search.categoryBudget",
-  // Its own line: nothing retries a category tomorrow (its next turn can be 3 days away).
+  // Its own line: nothing retries a category tomorrow (its next turn can be about 9 days away).
   limit: "search.categoryRunLimit",
 };
 

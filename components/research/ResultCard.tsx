@@ -82,7 +82,10 @@ function freshPost(
  * The thumbnail, error handler, and title to show. Missing or expired TikTok / Instagram images get one
  * cached Worker lookup (display only; the saved reference keeps its URL). Unavailable previews keep the tile.
  */
-function useThumb(item: ResearchItem): { thumb?: string; title: string; onError: () => void } {
+function useThumb(
+  item: ResearchItem,
+  lookup = true,
+): { thumb?: string; title: string; onError: () => void } {
   const config = useScoutConfig();
   const [failed, setFailed] = useState<readonly string[]>([]);
   const [fresh, setFresh] = useState<(FreshPost & { url: string }) | null>(null);
@@ -95,7 +98,8 @@ function useThumb(item: ResearchItem): { thumb?: string; title: string; onError:
     item.platform === "tt" && (item.title === item.handle || /^#[^\s#]+$/u.test(item.title));
   const title = (generic && mine?.title) || item.title;
   // Instagram's local-server lookup needs no Worker; TikTok and the Worker fallback do.
-  const canLook = !!config || (item.platform === "ig" && isLocalAiHost());
+  // `lookup={false}` (a zero-network surface) never asks anyone: only the item's own picture or the placeholder.
+  const canLook = lookup && (!!config || (item.platform === "ig" && isLocalAiHost()));
   const onError = () => {
     if (!thumb) return;
     setFailed((f) => [...f, thumb]);
@@ -220,12 +224,15 @@ const MEDIA_FRAME =
 export function ResultPreview({
   item,
   testId = "result-preview",
+  lookup = true,
 }: {
   item: ResearchItem;
   testId?: string;
+  /** false: render from `item.thumb` / the platform placeholder only; no preview lookup request of any kind. */
+  lookup?: boolean;
 }) {
   const { t } = useT();
-  const { thumb, title, onError } = useThumb(item);
+  const { thumb, title, onError } = useThumb(item, lookup);
   const play = usePlay({ ...item, title }, thumb);
   const media = <Media item={item} thumb={thumb} onError={onError} playable={!!play} />;
   return (

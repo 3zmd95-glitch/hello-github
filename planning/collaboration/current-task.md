@@ -2293,3 +2293,968 @@ Implementation owner: none. Shared hook now continues after visible progress whi
 Implementation owner: Codex. Owner requests source windows/tabs only on a manual button. Remove category-entry searches; label explicit search/open actions. Scroll may reveal local cards or continue a live quiet job only; cached/deep/expired jobs must wait for an explicit click, never reopen or refocus automatically. Claude remains paused. No helper permissions or deployment changes.
 ### Manual source-tab control result — 18 Oct 2026
 Implementation owner: none. Explicit source buttons replace category-entry automatic searches. Automatic scrolling is restricted to local cards and live quiet jobs; cached/deep/expired jobs cannot reopen or refocus sources automatically. 146 final focused tests, 76 unchanged helper tests, 8 installed-Chrome cases passed; lint/build/typecheck clean. Preview rebuilt and remains running. Evidence: C:/Users/AORUS/.codex/review-evidence/dashboard-tools/manual-source-tabs-2026-10-18/review.md. Claude remains paused; no deployment or helper permission change.
+
+## DT-7C-3 coherent dashboard integration — 22 Oct 2026
+Implementation owner: none. (DT-7C-3 frozen 22 Oct 2026 14:00 AST; all four slices accepted by Claude review; see handoff "Freeze DT-7C-3".) Planner Fable 5.1; reviewer Claude (owner: "dont make codex review you review"). Plan `planning/collaboration/dt7c3-integration-plan.md`; record in `dashboard-remaining-tools-handoff.md`. No activation/deploy/live call.
+
+## Discover category groups + always-visible picker — 22 Oct 2026 16:30 AST
+Implementation owner: Claude Opus 5.5 writer (planner Fable 5.1; reviewer Claude). Owner request: "football isnt a catagory it should be under sport … I want the categories to always show" (Inspiration: "Choose a category" collapsed by default). Approved design: optional `group` per genre in planning/data/genres.json (ids and order unchanged; schema mirrors lib/domain.ts + workers/scout/src/trends/genres.ts accept the optional field), groups Sport/Food & drink/Lifestyle/Travel & outdoors/Entertainment/Cars (+ Mine for custom); two-level picker (group headings + chips); picker always open on Inspiration, shown above results inside a category (replaces browse-category-switch), open by default on Search. No Worker scan/KV/schedule change. Start commit 164614e + uncommitted DT-7C-3 freeze. No push/deploy.
+
+### Writer record — category groups (Opus 5.5, 22 Oct 2026)
+Start: HEAD 164614e8f0e2 + uncommitted DT-7C-3 freeze (lib/cloudWorkflow*, components/social/*, SettingsScreen*, messages/ar|en.json etc. untouched). Evidence: C:/Users/AORUS/.claude/dashboard-work/discover-groups/logs/.
+
+Starting SHA-256 (first 12): planning/data/genres.json 5449ab901bb9; lib/domain.ts ffd2db6b13c1; data/genres.ts f5e92d13c047; data/genres.test.ts 7e0187ebdcac; workers/scout/src/trends/genres.ts e62fd7762d32; workers/scout/src/trends/trends.test.ts 7f84d457e32f; lib/genres.ts c4ceed32b624; lib/genres.test.ts 4b8bd9d89929; components/research/ResearchPanel.tsx d6a07c4bb34f; ResearchPanel.test.ts 6f68b10ff7a3; ForYouFeed.tsx 8b68c80089dc; ForYouFeed.test.ts 3ed0a49cd4b5; CategoryDiscovery.tsx ace50e2bbd04; CategoryDiscovery.test.tsx 1f47ff10c5e9; BrowseCategoryFeed.tsx 5a50e8b65915; messages/genres.ar.json d6f4382128fe; messages/genres.en.json 153b2dbda228; e2e/helpers.ts ae315d7324dc; e2e/discover.spec.ts 80a83128b4c0; e2e/discover-creator.spec.ts d137d69d2f4a; e2e/discover-tiktok-access.spec.ts bb7473ffebb1; e2e/discover-native-search.spec.ts 2d62a0399234; e2e/scout.spec.ts 5a37702d8087.
+
+Files to touch: the list above plus one new component components/research/GenreGroups.tsx (the grouped chips shared by the Discover picker and the in-category picker). discover-native-search.spec.ts and scout.spec.ts are added beyond the packet's list because they also use `browse-category-switch` / assert the collapsed Search disclosure / count `[data-testid^="genre-"]` (group headings share that prefix).
+
+Group mapping (JSON order; genre ids/order unchanged): sport 🏟️ Sport / رياضة → football, gym; food 🍽️ Food & drink / أكل وقهوة → food, coffee; lifestyle ✨ Lifestyle / لايف ستايل → perfume, fashion, weddings (file order); outdoors 🧭 Travel & outdoors / سفر وبر → travel, camping; entertainment 🎮 Entertainment / ترفيه → anime, gaming; cars 🚗 Cars / سيارات → cars. Custom genres → virtual group `mine` ✨ (label genres.group.mine, حقّي / Mine); `mine` is reserved and refused as a JSON group id.
+
+Writer end (Opus 5.5, 22 Oct): status BLOCKED on the e2e gate only; code complete, every other gate green after the final source change.
+
+Changed files, full SHA-256:
+- 95ee3db6fc83e62f1aa646dab16127f709731213d6f9d982b3eae030242b41f2 planning/data/genres.json
+- e5ab1d2dd6f8e9727f469d144a76dcdbab34743ab616edfe5d7414f44a09fa9a lib/domain.ts
+- 196bed84ead1c64f3b62d807339391194fff6caf53f52ece08136e25775a1cc1 data/genres.ts
+- 87544ea6fcff7394bfef94d51c651cec21aa8e0e464b880d9b5d66fa64ec9803 data/genres.test.ts
+- a764032590243447a5847200a3737e6ea640d5badffd41eb90ac7a9ac4647c47 workers/scout/src/trends/genres.ts
+- 17cea6f8efbff2694ceaacdbde08ce06fba84dc504c41d3bcfdecae064a00ccd workers/scout/src/trends/trends.test.ts
+- 0d490a08e5430b043a2cec04534d0e3aa37024e7d389f2d9ece68110a23e4f2f lib/genres.ts
+- e182a5033c0a2a8d09b0de3cc0bf28b3246436d29b0133f01386c8ad3e479d46 lib/genres.test.ts
+- 35de2ce05d4e67ace7970481ac129f347da6cd7a4ecb53321c31a8eddd3a2355 components/research/GenreGroups.tsx (new)
+- c893e0408580c482c0dc6ab60b4fe5f4d307bb0db3886bad31b57e81e84c1322 components/research/ResearchPanel.tsx
+- 56e405af7a7dbdca3621c3eebe3bdc101d319ed670e8edbe43dd73b707e39bb8 components/research/ResearchPanel.test.ts
+- b23575d9ad82275cadcd9b00f728f2c53a8961d86a0fee5f305239b8664ef70c components/research/ForYouFeed.tsx
+- ddaa98edd84f43e3bf55737fd471a04a3392b0f6fb26d5352c4a54542b6e1273 components/research/ForYouFeed.test.ts
+- d5639e7491a77c80ab550794fe6cf2272ec007f208a7491892bb78b8c537ece3 components/research/CategoryDiscovery.tsx
+- bc57a1e5933e7fb68c3ba9d2c1bcdc0b6fd3c58b3fe90c01fb75bbcebb8838a2 components/research/CategoryDiscovery.test.tsx
+- e9526b1a289013736d6affc69bb6e6279ee9009bb7ac10e77b1ffc95398dd80e components/research/BrowseCategoryFeed.tsx
+- 41e71aad40c5d57def80ec6c32943798021c41be9c1899813b2eb2c2561e388d messages/genres.ar.json
+- 624397add417b7023247bc49a89cb3fe0e9c3fea718bc0cf4dd0436ddcdaffae messages/genres.en.json
+- 553013bae4627de5decfcd6e1422c27905499fec8d018911172952ff38a75980 e2e/helpers.ts
+- c40a543c6dd6a58188223ce0d0aa44093c8d64a17598dda3989827006af57361 e2e/discover.spec.ts
+- ee2c60471a6135071e1cf5871520991853e88b298d4fd135aaadc727379a3c82 e2e/discover-creator.spec.ts
+- d47c17461e4fd4aca0e2757d3d53c678d554b3d27d339b1899e45369f667fc73 e2e/discover-tiktok-access.spec.ts
+- 96673355350f6faae5925cbe9a9baa289e42e4d7838ca42b1bcd57a506e1e048 e2e/discover-native-search.spec.ts
+- 9563daed8c620ba36286c870a613439141e6f59007afca57860c41cdedc1258f e2e/scout.spec.ts
+
+What changed:
+- genres.json gains top-level `groups` and a `group` on each genre. Ids and order are untouched.
+- lib/domain.ts: optional `GenreSchema.group` and a new `GenreGroupSchema`.
+- data/genres.ts validates group ids (unique, never "mine") and that every genre's `group` is a defined group. It exports GENRE_GROUPS.
+- The Worker parser already ignored unknown keys. Only its doc comment changed, plus a new regression test.
+- lib/genres: MINE_GROUP, groupGenres(list), groupedGenres(custom), groupOf(id).
+- New components/research/GenreGroups.tsx renders the two levels. "row" is for Search and the skill sheet, with headings as inline labels. "grid" is for Browse and inside a category.
+- ForYouFeed `browse-categories` and Search `search-categories` are now `open` by default.
+- CategoryDiscovery and BrowseCategoryFeed: the `browse-category-switch` select is replaced by `browse-category-picker`. It is a grouped grid; the current chip is aria-pressed, and a tap calls the existing onCategory.
+- The onToggle scroll-into-view on the Search disclosure was removed. With the box open by default it fired on mount and scrolled the deep-linked chip a second time. DiscoverScreen.test expects exactly one scroll, and the deep-link effect still does it.
+- The e2e helper openDetails already read `open` before clicking, so only its comment changed.
+- messages/genres.{ar,en}.json: genres.group.mine "حقّي" / "Mine".
+
+Commands (logs in C:/Users/AORUS/.claude/dashboard-work/discover-groups/logs/, TEMP/TMP set there):
+- Targeted vitest, red first: 9 new tests failed as expected (data 2, lib 3, CategoryDiscovery 1, ForYouFeed 1, ResearchPanel 2). The Worker test passed from the start because the parser already ignores the fields.
+- `pnpm lint` exit 0.
+- `pnpm exec tsc --noEmit --incremental false` exit 0.
+- `pnpm typecheck:worker` exit 0.
+- `pnpm test --maxWorkers=4` exit 0: 287 files, 6933 tests passed.
+- `pnpm build` exit 0. out/discover/index.html sha256 7d0fb5b6355c116bb5b5d6247259d05913fcdcc2174fdc428351367b626f9693.
+- e2e NOT RUN. Nothing is listening on localhost:3000: curl gets HTTP 000 with an empty body (sha e3b0c442), and Get-NetTCPConnection shows no listener on port 3000. The packet forbids restarting that server or using another port, and `pnpm e2e` would start its own `npx serve` on 3000. So no server was started.
+
+e2e expectations changed (not yet run):
+- discover-creator (2 places) and discover-tiktok-access (3 places): `browse-category-switch` selectOption(x) is now a click on `genre-x`.
+- discover-native-search: the same change in the per-genre loop. Its `toHaveValue("anime")` check is now `genre-anime` aria-pressed=true. This spec was not in the packet list, but it also used the removed select.
+- discover.spec:509 (Search tab): now expects `search-categories` open and `genre-cars` visible. The test protects a passive, compact Search, and that is still checked by asked=0, fitsViewport and filters closed. Its `genre-cars` hidden check was only the old collapsed default, which the owner overrode.
+- scout.spec:676: the chip count selector is now `button[data-testid^="genre-"]`, because the `genre-group-*` headings share that prefix.
+- scout.spec:1248: the deep-link disclosure is now expected open; it still names the category.
+- To finish, once localhost:3000 serves this worktree's out/, run: `pnpm e2e e2e/discover.spec.ts e2e/discover-feed.spec.ts e2e/discover-creator.spec.ts e2e/discover-tiktok-access.spec.ts e2e/discover-refresh.spec.ts e2e/settings.spec.ts e2e/discover-native-search.spec.ts e2e/scout.spec.ts`. The last two were added because they were edited.
+
+Concerns:
+1. e2e has not run (see above).
+2. Inside a category, the full grouped grid (12 chips in 6 groups) now sits above the results, which pushes the results down several rows on phones. This is the approved design, but it should be checked on an iPhone.
+3. Lifestyle uses the same ✨ emoji as Mine and as custom genres, as specified.
+4. groupOf has no production caller yet. It exists because the packet asks for it, and it is unit-tested.
+5. The ResearchPanel.test "lists the built-in genres" check now expects the grouped order (Football, Gym, Food…), because grouping changes the chip order.
+
+e2e gate (Opus 5.5, 22 Oct, after the coordinator restored localhost:3000):
+- Before the run, served /discover/ sha256 7d0fb5b6355c… matched out/discover/index.html. No rebuild; no source change since the gates above.
+- Command: `pnpm e2e e2e/discover.spec.ts e2e/discover-feed.spec.ts e2e/discover-creator.spec.ts e2e/discover-tiktok-access.spec.ts e2e/discover-refresh.spec.ts e2e/settings.spec.ts e2e/discover-native-search.spec.ts e2e/scout.spec.ts --output=<logs>/pw-results`. The only addition is the output dir, which keeps evidence out of TEMP. HTML report: <logs>/pw-report. Log: <logs>/e2e.log.
+- Exit 0. 136 passed: phone 68, desktop 68. 0 failed, 0 skipped, 0 flaky.
+- Per spec (both projects): discover 44, discover-feed 2, discover-creator 4, discover-tiktok-access 10, discover-refresh 2, settings 30, discover-native-search 8, scout 36.
+- No test corrections were needed. Every e2e expectation edit listed above passed as written. The server was not touched, and /discover/ still serves the same bytes after the run.
+Status: DONE. The remaining concerns are items 2–5 above (phone height of the in-category grid, shared ✨ emoji, groupOf unused in product code, grouped chip order in the ResearchPanel test).
+
+### Fix round — category groups (Opus 5.5, 22 Oct 2026), after review ACCEPT (dashboard-work/discover-groups/review.md)
+Changes (only the four asked):
+1. GenreGroups.tsx: a group with one genre named like the group (Cars) now shows the chip alone, with no heading. The check compares names in the reading language. New components/research/GenreGroups.test.tsx covers it in both layouts: no `genre-group-cars`, and "سيارات" printed once. Sport keeps its heading, and Mine keeps its heading when its only genre has another name. The expected heading lists in ResearchPanel.test and CategoryDiscovery.test lost `genre-group-cars`.
+2. Built-in groups and Mine:
+   - data/genres.ts: the file schema (now exported as `GenresFileSchema`) refuses any built-in genre without a group or with an unknown group, at load. `GenreSchema.group` stays optional, for custom genres only. New data test covers a missing group, an unknown group, and a group named mine.
+   - lib/genres.ts: `groupOf` and the empty-named `MINE_GROUP` are removed. Instead, `MINE_GROUP_ID = "mine"` is exported, and `groupGenres(genres, mine)` / `groupedGenres(custom, mine)` take the Mine group from the caller. GenreGroups now gets the flat `genres` and builds Mine at render time from `t("genres.group.mine")`. ResearchPanel, CategoryDiscovery and BrowseCategoryFeed pass `genres` (ResearchPanel's groups memo is gone).
+3. CategoryDiscovery.test: the in-category switch test stubs fetch. After the chip tap it re-renders on the new category (as DiscoverScreen does with onCategory). It then asserts the new chip is pressed and that native.search, native.more and fetch were never called.
+4. Accepted and noted:
+   - The `browse-categories` and `search-categories` sections start open, but the owner can still collapse them.
+   - After a manual collapse and reopen on Search, the active chip is not scrolled back into view, because the onToggle handler was removed. A deep link still scrolls its chip once.
+
+New SHA-256 of the files changed this round:
+- 214180b6800af90db65c014f0c13224502b151ac8dcef3d0b5b3967165f3caf3 components/research/GenreGroups.tsx
+- 8bd808f9f3835754b25a79c440bab7e7f4a6a2a605b711726fe35d225f4fd8fa components/research/GenreGroups.test.tsx (new)
+- c47195b94638a3ee382bcfdc861c089a4650448c4662ae04525432276fb94d68 components/research/CategoryDiscovery.tsx
+- 73ff454f02f9e2d460f84666f385ec9989cff9b124def42a5d82a01731b439bc components/research/CategoryDiscovery.test.tsx
+- 3e2624d9650547e809385698d63c9ef653f7d12c51510209200a46cf516e054d components/research/BrowseCategoryFeed.tsx
+- 1c565820c7184f74c0b41b4919a55c4b79cc94eb82ab135eafd4e599d0d72b7a components/research/ResearchPanel.tsx
+- 0d1e0504ec03c1c0ffdfe2d1142b4e94dba8d3b0e7ffba2465f32944831402b5 components/research/ResearchPanel.test.ts
+- d6df34815c889bab299a7817936de0d7367aa175ab0b0b7b6ab779b350b64354 lib/genres.ts
+- 586a2a4ef172b971eefffc2b6757b022edec96d71f7ec3c7ff589b6c1e2b7d0f lib/genres.test.ts
+- 04845917517240d916fac32f0fa4ab3b11d0bf4ae7f5a65d85f5551cc88f6747 data/genres.ts
+- f6d2677f6dee8e977c57937e6434299d96f2f6facf02c43dd0836fd6f09199b8 data/genres.test.ts
+All other files keep their hashes from the writer end record (genres.json 95ee3db6fc83, domain.ts e5ab1d2dd6f8, ForYouFeed.tsx b23575d9ad82, messages unchanged, e2e specs unchanged).
+
+Commands (logs in C:/Users/AORUS/.claude/dashboard-work/discover-groups/logs/fix-*.log):
+- `pnpm vitest run components/research lib/genres.test.ts data/genres.test.ts components/discover messages`: exit 0, 33 files, 657 tests passed.
+- Prettier --check on the 11 changed files: exit 0.
+- `pnpm exec tsc --noEmit --incremental false`: exit 0.
+- `pnpm exec eslint <11 changed files>`: exit 0.
+- `pnpm lint`: exit 0.
+- `pnpm build`: exit 0. The served /discover/ sha256 7519cbcba4f9… equals out/discover/index.html, before and after e2e. The :3000 server was not touched.
+- `pnpm e2e e2e/discover.spec.ts e2e/scout.spec.ts e2e/discover-creator.spec.ts --output=<logs>/pw-results-fix`: exit 0, 84 passed (phone 42, desktop 42), 0 failed, 0 skipped, 0 flaky.
+- No Worker source changed this round, so `typecheck:worker` and the full `pnpm test` were not rerun (both green in the writer end record).
+Status: DONE. Open concern: the iPhone check of the in-category grid height.
+
+### Freeze — category groups + always-visible picker (planner, 22 Oct 2026 17:25 AST)
+Implementation owner: none. Reviewer: Claude (independent Sonnet review ACCEPT, `C:/Users/AORUS/.claude/dashboard-work/discover-groups/review.md`; fix round of four items verified by the planner). Gates: full `pnpm test --maxWorkers=4` 287 files 6,933/6,933 (before the fix round; focused 33 files 657/657 after it), `pnpm lint`, non-incremental `tsc`, `typecheck:worker`, `pnpm build` exit 0; e2e 136/136 (8 specs, phone + desktop) then 84/84 after the fix round; served /discover/ on :3000 equals `out/discover/index.html` (`7519cbcb…`). Planner checked in the browser pane: grouped picker open on Inspiration (Sport → Football, Gym … Cars once), no horizontal overflow at 375 px, tapping a chip starts no source search. Worker: `workers/scout/src/trends/genres.ts` comment only (+2/−1) and one regression test (+14) — the DT-7B Worker manifest therefore differs in exactly those two files; no Worker behaviour, KV, schedule or id change. Owner-visible: the picker sections start open but can still be collapsed; on Search a manual reopen does not re-scroll the active chip (accepted). Not committed or pushed.
+
+Frozen hashes (SHA-256):
+- `components/research/BrowseCategoryFeed.tsx` `3e2624d9650547e809385698d63c9ef653f7d12c51510209200a46cf516e054d`
+- `components/research/CategoryDiscovery.test.tsx` `73ff454f02f9e2d460f84666f385ec9989cff9b124def42a5d82a01731b439bc`
+- `components/research/CategoryDiscovery.tsx` `c47195b94638a3ee382bcfdc861c089a4650448c4662ae04525432276fb94d68`
+- `components/research/ForYouFeed.test.ts` `ddaa98edd84f43e3bf55737fd471a04a3392b0f6fb26d5352c4a54542b6e1273`
+- `components/research/ForYouFeed.tsx` `b23575d9ad82275cadcd9b00f728f2c53a8961d86a0fee5f305239b8664ef70c`
+- `components/research/ResearchPanel.test.ts` `0d1e0504ec03c1c0ffdfe2d1142b4e94dba8d3b0e7ffba2465f32944831402b5`
+- `components/research/ResearchPanel.tsx` `1c565820c7184f74c0b41b4919a55c4b79cc94eb82ab135eafd4e599d0d72b7a`
+- `data/genres.test.ts` `f6d2677f6dee8e977c57937e6434299d96f2f6facf02c43dd0836fd6f09199b8`
+- `data/genres.ts` `04845917517240d916fac32f0fa4ab3b11d0bf4ae7f5a65d85f5551cc88f6747`
+- `e2e/discover-creator.spec.ts` `ee2c60471a6135071e1cf5871520991853e88b298d4fd135aaadc727379a3c82`
+- `e2e/discover-native-search.spec.ts` `96673355350f6faae5925cbe9a9baa289e42e4d7838ca42b1bcd57a506e1e048`
+- `e2e/discover-tiktok-access.spec.ts` `d47c17461e4fd4aca0e2757d3d53c678d554b3d27d339b1899e45369f667fc73`
+- `e2e/discover.spec.ts` `c40a543c6dd6a58188223ce0d0aa44093c8d64a17598dda3989827006af57361`
+- `e2e/helpers.ts` `553013bae4627de5decfcd6e1422c27905499fec8d018911172952ff38a75980`
+- `e2e/scout.spec.ts` `9563daed8c620ba36286c870a613439141e6f59007afca57860c41cdedc1258f`
+- `lib/domain.ts` `e5ab1d2dd6f8e9727f469d144a76dcdbab34743ab616edfe5d7414f44a09fa9a`
+- `lib/genres.test.ts` `586a2a4ef172b971eefffc2b6757b022edec96d71f7ec3c7ff589b6c1e2b7d0f`
+- `lib/genres.ts` `d6df34815c889bab299a7817936de0d7367aa175ab0b0b7b6ab779b350b64354`
+- `messages/genres.ar.json` `41e71aad40c5d57def80ec6c32943798021c41be9c1899813b2eb2c2561e388d`
+- `messages/genres.en.json` `624397add417b7023247bc49a89cb3fe0e9c3fea718bc0cf4dd0436ddcdaffae`
+- `workers/scout/src/trends/genres.ts` `a764032590243447a5847200a3737e6ea640d5badffd41eb90ac7a9ac4647c47`
+- `workers/scout/src/trends/trends.test.ts` `17cea6f8efbff2694ceaacdbde08ce06fba84dc504c41d3bcfdecae064a00ccd`
+- `components/research/GenreGroups.test.tsx` `8bd808f9f3835754b25a79c440bab7e7f4a6a2a605b711726fe35d225f4fd8fa`
+- `components/research/GenreGroups.tsx` `214180b6800af90db65c014f0c13224502b151ac8dcef3d0b5b3967165f3caf3`
+- `e2e/workflow-cloud.spec.ts` `fe01044296c0d0d39958fb655da95904269d40c6013e15f942543432edc5ed77`
+
+## Discover: full category set (33) + Checked-references default — 22 Oct 2026 19:15 AST
+Implementation owner: Claude Opus 5.5 writer (planner Fable 5.1; reviewer Claude). Owner approved ("ok") the 33-category list in 8 groups (sport, food, lifestyle, outdoors, entertainment, automotive, business, craft) + Mine, appended after the existing 12 in planning/data/genres.json (ids/order of the 12 unchanged), and the category page opening on Checked references while native results are empty. Worker scans stay 4/day (rotation lengthens); new ids get Worker profiles only where the maps require them; no deploy. Owner tested in Chrome: Football showed 24 checked references under the second tab.
+
+### Writer record — 33 categories (Opus 5.5, 22 Oct 2026)
+Start: uncommitted tree as frozen above (DT-7C-3 cloud files, category groups). Evidence: C:/Users/AORUS/.claude/dashboard-work/discover-33/logs/ (TEMP/TMP, PWTEST_CACHE_DIR and Playwright output set there).
+
+Starting SHA-256: planning/data/genres.json 95ee3db6fc83e62f1aa646dab16127f709731213d6f9d982b3eae030242b41f2; components/research/CategoryDiscovery.tsx c47195b94638a3ee382bcfdc861c089a4650448c4662ae04525432276fb94d68; workers/scout/src/discover/category-profiles.ts d395cb33ac4156b25e00ca11ad5c75d6f8782679e2187102d151c11d49d91e56; workers/scout/src/categories/tiktok.ts 13061fd67f4b61c8ba0703915c4fb51246a17bd42444fb4722873c5cac835c7f; workers/scout/src/categories/quality.ts c184a865731bb3ed18f79a910093a1ced9020d0fec6d6f6c789c7b2e756c6d98; CategoryDiscovery.test.tsx 73ff454f02f9…; data/genres.test.ts f6d2677f6dee…; GenreGroups.test.tsx 8bd808f9f383….
+
+Files to touch: planning/data/genres.json, data/genres.test.ts, components/research/GenreGroups.test.tsx, components/research/CategoryDiscovery.tsx + .test.tsx, workers/scout/src/discover/category-profiles.ts, workers/scout/src/categories/{tiktok.ts, tiktok.test.ts, quality.ts, defs.ts (comment), defs.test.ts}, workers/scout/src/trends/trends.test.ts (12 → 33 count), lib/discoverRanking.test.ts (its per-profile cue table must list every profile), planning/tools/19-category-trends.md (industry table); e2e specs only if they assume the native tab default.
+
+Worker-map decisions (before coding):
+- CATEGORY_PROFILES has no safe default: `relevance.ts genreWords` dereferences `CATEGORY_PROFILES[id].subjects` for any selected built-in, and lib/discoverSemantic + lib/discoverVisual refuse ids without a profile. So every new id gets a full profile (same shape), checked by the existing per-profile quality/ranking tests.
+- TIKTOK_INDUSTRY: map only to industry names already used live in this code (AUTOMOTIVE, FOOD, BEAUTY, OUTDOOR_RECREATION, CONVENTIONAL_AND_MAINSTREAM_SPORTS, SPECIAL_EFFECTS, PHOTOGRAPHY…); no guessed names. Unmapped ids: `tiktokTop` returns `{ videos: [] }` (last list kept, no Business call) and `tiktokProbe` returns null; both already tolerate undefined.
+- FAN_EDIT_GENRES: add `basketball` and `combat` (NBA/UFC "edit" is the same fan-edit format as football); not `music` (an "edit" of a song is an audio edit/remix) nor `cinematic` (its posts are original short films; "cinematic" is already a project cue).
+- youtubeSearch: rotation uses the plan length (`planOffset`), so 33 × 2 keywords per language only lengthen the rotation. `categoriesForDay` now rotates over ceil(33/4) = 9 days (the 9th day holds the single last genre).
+
+Writer end (Opus 5.5, 22 Oct 2026): status DONE_WITH_CONCERNS. Code complete; two gates are not fully green for reasons outside what this packet may change (concerns 2 and 3).
+
+Count correction: the packet lists 23 new genres by name (sport 2, food 2, lifestyle 3, outdoors 2, entertainment 4, automotive 2, business 5, craft 3), not 21. Every named one was added as specified, so there are 12 + 23 = 35 genres, not 33. The tests assert 35 and the full list. The slot rotation is still ceil(35/4) = 9 days; the 9th day holds the last 3 (photography, colorgrading, vfx).
+
+Changed files, full SHA-256:
+- c000617befa625f5a6a5b987896224a7f1f106edf87c978b624ed59d407b41f0 planning/data/genres.json
+- 27e3583e9429536261d4c25159af720df7954f67056e2f0cbd697628e51d6038 data/genres.test.ts
+- 26f3c1f897d2c5660c90a9fdf0bbb703fdfcc510c55d801077e1c1364f4aff07 components/research/GenreGroups.test.tsx
+- c1e6bc867e37893f583b4b1dd5ac2d46903bd60db2e449107884e141e6087b18 components/research/CategoryDiscovery.tsx
+- cf4203eab9f5288c2f95975e38b17512b2b54311129dbdb909f1b1e5058adf64 components/research/CategoryDiscovery.test.tsx
+- 686853a61623d41c4ffdcfe706f72aecb792b72f6f19a09c83f9f569f1ef503e components/research/ResearchPanel.test.ts
+- de2c4b5fba688f4ac819f2cfea771e40cc6c27d510f5c6027058abd9fd113245 components/discover/DiscoverScreen.test.ts
+- 5ca6910497cb1d382e0ba5ce615dac878259b12f35c1262fb866d9506d2cc4e0 lib/discoverPrompts.ts
+- 701d85c73da585f5bf85e2ca0e335950a7943a15c5d64d9c8e285366222eb8c4 lib/discoverPrompts.test.ts
+- 44a87d5b059e48999bb2a4a01fc79d72e79a7cfc942096f4fb7c90072a82d8b7 lib/discoverRanking.test.ts
+- babea60b66dace4c81b621b557e95c172f790145d526cd62b78163a670719ff5 lib/discoverFeed.test.ts
+- 9ee77c16bb28c02714d51316b607b4bbefed7e6bd8ba1d1a8d2571ff030994a0 lib/genres.test.ts
+- 52ac119666e383c3e9d8aba40a6d45b4aeb81b9e37d91872a5700b3e2e87b521 lib/trends.test.ts
+- 44002ea57db5f9b4529489c87853a2573d12cae8a9c7190755a7e41117b70c20 workers/scout/src/discover/category-profiles.ts
+- f549914c455c145c38fe2acdb8e923bb13dbfc784bd94e7b17a0f80345a1a71e workers/scout/src/categories/tiktok.ts
+- e53644b84a8aa239b0c6767f2035915a65ff052c2e5f79a4a1a1f3dcc7a36044 workers/scout/src/categories/tiktok.test.ts
+- 9cdbb29a6f2bccdb9ab63ee07e937b0b5afd71fce4fddaf39da6f4b52637eec4 workers/scout/src/categories/quality.ts
+- 4649f7b24aac4e6d545301f139d3f70371051c548a61ade869d97493ec080a96 workers/scout/src/categories/quality.test.ts
+- 3fc8f473cd824184a4d7aace208329e060753fe475bf49b842eb027b00c2dae4 workers/scout/src/categories/defs.ts (comments only)
+- d489badf8417ec3cd95cd9a45c249c0bfb5235d34791e0402436bdbc8fc2168c workers/scout/src/categories/defs.test.ts
+- bea4853bc95006d5a9f19222e425180fa3a2396a6be12e7cb590ff54221d74f7 workers/scout/src/categories/routes.test.ts
+- 97fe0275f808c255615006061d1c1acb7347bf6f94dc7e079d201b33e51992ea workers/scout/src/trends/genres.ts
+- fa66dd813cdcc8ae808ea7cf6d18f0f3757ad9b504b0e4209af14c6bbd9f8632 workers/scout/src/trends/trends.test.ts
+- 894f28b717c4dea80d249a9c3ad211f86a9936fc53418136e58b4ba3390177dd e2e/discover-native-search.spec.ts
+- 3e7c219ab86af6710e6e2509495bb5b3694b5a4338972dd3e5fa652b4ef7f385 e2e/scout.spec.ts
+- de2b6af10a9a35269f8b81bc428da50751ca584862ce65c0dc8731866668f89a e2e/trends.spec.ts
+- 1168113feedf7b060dc3212de97e3c302426cd3c2095c6feeb95faf4699abb3e planning/tools/19-category-trends.md
+Several Worker files were checked out with CRLF line endings; Prettier wrote them back as LF. Git sees no content change from that (autocrlf).
+
+What changed:
+- **Part A (data).** genres.json now has 8 groups: Entertainment uses 🎬; `cars` became `automotive` 🏎️ "سيارات ومحركات" and now holds the Cars genre; `business` 🏢 and `craft` 📸 are new. 23 genres were appended after the unchanged 12. Five main queries were made to contain their profile's subject, because relevance.test needs each genre's queries to match its own words: luxury ar[0] is "تصوير ساعات فخمة"; cinematic en[0] is "short film edit"; corporate en[0] is "corporate video edit"; colorgrading en is ["cinematic lut edit", "colorist color grading"]; vfx is ar ["ايديت مؤثرات بصرية", …] and en [… "vfx breakdown edit"].
+- **CATEGORY_PROFILES.** It has no safe default (see the decisions above), so all 23 ids got full profiles. Subjects are specific nouns. Craft words are kept out of subjects on purpose (color grading, motion graphics, drone reveal): tiktok.test requires `#colorgrading` to stay a tier-2 craft lead for other categories. Because of that, Color grading's own subjects are colorist / LUT / تلوين, and VFX's are vfx / visual effects / cgi / مؤثرات.
+- **TIKTOK_INDUSTRY.** combat and basketball → CONVENTIONAL_AND_MAINSTREAM_SPORTS; desserts and cooking → FOOD; beauty → BEAUTY; sea → OUTDOOR_RECREATION; bikes and racing → AUTOMOTIVE; drone, photography and colorgrading → PHOTOGRAPHY; vfx → SPECIAL_EFFECTS. The other 11 have no industry: `tiktokTop` answers `{ videos: [] }` with no TikTok call, and the probe returns null.
+- **FAN_EDIT_GENRES.** basketball and combat were added; music and cinematic were not (reasons above).
+- **lib/discoverPrompts.** 3 bilingual prompts were added for each new genre, because the coverage test requires every built-in genre to have them.
+- **Radar.** `workers/scout/src/trends/genres.ts` adds `RADAR_GENRE_COUNT = 12`, and `GENRE_KEYWORDS` takes only the first 12 genres (concern 1).
+- **Part C (CategoryDiscovery).** The view is derived; it is no longer set during render. A tap is stored as `{ genreId, view }`, so a choice only applies to the category it was made on. With no tap, the page shows Native results when the current category's native snapshot has items, and Checked references otherwise. Nothing in this logic starts a search.
+  - A first version set the view during render (reset on category change, then latched native). In a React test the tapped `native` value came back after the reset. It was replaced by the derived view.
+  - This also drops the "stays on Native after items vanish" latch. Items only vanish through a new search, and search() selects Native explicitly anyway.
+- **Part D (picker).** GenreGroups.test checks, in both layouts, that all 35 chips render once each in group order with unique `genre-<id>` testids and one heading per group. No CSS change.
+
+Commands and exits (logs in C:/Users/AORUS/.claude/dashboard-work/discover-33/logs/):
+- red.log: the new tests run first: 14 failed as expected, 491 passed, across 7 files. "keeps a tapped tab" passed from the start, because the old native default already behaved that way.
+- `pnpm vitest run data lib/genres.test.ts components/research messages`: exit 0, 35 files, 696 tests passed.
+- Prettier --check on the 27 changed files: exit 0. ESLint on the changed .ts/.tsx files: exit 0.
+- `pnpm exec tsc --noEmit --incremental false`: exit 0. `pnpm typecheck:worker`: exit 0. `pnpm lint`: exit 0.
+- `pnpm test --maxWorkers=4`: exit 1. 288 files; 7,193 passed, 3 failed. The only failures are components/social/trends/TrendRadar.test.ts (concern 2).
+  - Earlier broad runs also hit one Windows "bad port" or workerd fetch flake each: instagramPublicSendCoordinator.runtime once, workflowCoordinator.runtime once. Both passed on rerun or in the full run.
+- `pnpm build`: exit 0. curl http://localhost:3000/discover/ | sha256sum equals out/discover/index.html: 1c4eed4d0619484f6e918da9d6e7a2697fbacd25d30812e48321bb1677c8fba1. It was checked before and after e2e. The server was never touched.
+- `pnpm e2e e2e/discover.spec.ts e2e/scout.spec.ts e2e/discover-creator.spec.ts e2e/discover-tiktok-access.spec.ts e2e/discover-native-search.spec.ts --output=<logs>/pw-results2`: exit 1. 100 passed and 2 failed, the same test on phone and desktop: discover-native-search.spec.ts:84, "native category batches retain…" (concern 3). The first run (e2e.log) failed 12 before the expectation updates below.
+- Extra: `pnpm e2e e2e/trends.spec.ts`: exit 0, 12 passed. It was run because its "unknown id" fixture was `drone`.
+
+Changed expectations and why:
+- **Native tab default (Part C).**
+  - CategoryDiscovery.test: 7 existing tests that work in Native results with an empty snapshot now tap `native-search-view` first.
+  - The grouped-picker test now expects Checked references after switching to Football, then taps Native to check the pressed chip.
+  - e2e/discover-native-search.spec: 4 tests tap `native-search-view` after opening a category. In the all-categories loop, each new category taps Native before Search.
+- **Counts and order.**
+  - The data, lib/genres and trends bundle tests check 35 genres, with the first 12 unchanged.
+  - GENRE_KEYWORDS stays at 24 (radar), and the keyword list's genres are checked against GENRES.slice(0, 12).
+  - defs.test: the rotation is now 9 days (2026-10-01 → cars…travel; 10-07 → comedy, bikes, racing, realestate; 10-09 → photography, colorgrading, vfx).
+  - routes.test: the slot test moved from 2026-10-07 to 2026-10-10. That day is % 9 = 0, so it scans the same four; the fixture posts' dates still fit.
+  - ResearchPanel.test: 36 chips; the first three are Football, Gym, Combat; three more headings; Sport → 4 chips; the custom chip is at index 35. CategoryDiscovery headings gain automotive, business and craft.
+  - e2e/scout.spec:676 now expects 35 chips.
+  - GenreGroups.test: the old Cars-alone case no longer exists, because Automotive holds 3 genres. Mine (a custom genre named "حقّي") now covers the one-genre rule.
+- **"Unknown id" fixtures that used `drone`, now `kites`:** lib/trends.test, components/discover/DiscoverScreen.test, e2e/scout.spec:1261, e2e/trends.spec.
+- **tiktok.test.** "Every built-in has an industry" became: the first 12 are covered, mapped values are only the ones already in use, and unmapped ids answer `{ videos: [] }` with no fetch.
+- **discoverRanking.test.** The per-profile Arabic cue table gained 23 cues; its key-equality assertion is unchanged.
+- **discoverFeed.test.** "all twelve verbose categories" now iterates the first 12 profiles, the scope its name states. With all 35 at 4,000-character captions, Cars kept 22 of 24 useful records under the 6M-character corpus cap.
+- **quality.test.** A new test: "LeBron edit" and "UFC edit" are eligible; "Music video #edit" is not.
+
+Concerns:
+1. **Radar YouTube keywords are held at the first 12 genres. This needs a decision.** Including all 35 would make 82 keywords at 18 a day. The rotation would stretch from 2 to 5 days, niche keywords included. About 250 standing search rows would also push the feed past its 400-row cap. trends.test "keeps the rows of every keyword … when the other sources fill the feed to their caps" proves that cap. Widening the radar needs a budget choice.
+2. **TrendRadar.test.ts fails (3 tests), in a path I may not edit.** Its "unknown genre" fixture is `drone`, which is now a built-in genre. The fix is the same one-word fixture swap (`drone` → `kites`) already made in lib/trends.test, DiscoverScreen.test and e2e. My temporary edit there was reverted; the file shows no change.
+3. **The native cache keeps 12 categories.** `NATIVE_CACHE_CATEGORIES = 12` in lib/discoverNativeSearch.ts. discover-native-search.spec:84 searches every built-in category, reloads, and expects Anime's cached 24. With 35 categories, Anime is evicted, so the page opens empty on Checked references. This is a product limit, not patched. The likely fix is to tie the cap to the built-in count (35) after checking IndexedDB size.
+4. **Craft categories' own evidence is narrow.** Color grading counts as on-category only with colorist / LUT / تلوين; VFX only with vfx / visual effects / cgi / مؤثرات. This keeps other categories' TikTok craft leads unchanged. Allowing craft words as subjects would need a tiktok `tierOf` exception.
+5. **Broad subjects may claim other categories' references.** Some new subjects are fairly broad (music, family, product, photography, drift, interview). They can make an unrelated voted reference read as belonging to another category in `personalReference`, but only when that reference names no subject of its own category. No existing test changed.
+6. **Stale e2e spec, not touched.** e2e/discover-project-evidence.spec.ts was already stale: it uses the removed "Choose a category" combobox and expects 12 For You cards. It was not run and not edited.
+7. **Phone check.** The phone-height check of the 35-chip picker is left to the planner, as the packet says.
+
+### Fix round 1 — 33/35 categories (Opus 5.5, 22 Oct 2026), after the coordinator's rulings
+1. **RADAR_GENRE_COUNT = 12 kept.** Its comment now says why: it keeps the radar's YouTube search budget (18 a day), and a wider radar is the owner's later decision.
+2. **TrendRadar.test.ts** (authorized): the "unknown genre" fixture `drone` → `kites`, 14 occurrences, no other change.
+3. **NATIVE_CACHE_CATEGORIES: measured, not changed (ruling: "report the numbers and stop").**
+   - Method: the serialized JSON size of one category's cached snapshot, after `validNativeCache`. The cache is a single IndexedDB key ("recent") that each write reads, validates and rewrites. Limits: up to 300 results per platform, so 900 per category; title ≤ 1000, handle ≤ 100, thumb ≤ 2048, displayedStats ≤ 200 characters. The measurement script is kept at dashboard-work/discover-33/scripts/zz-cache-measure.test.ts.txt and was removed from the tree. Output is in logs/cache-size.txt.
+
+   | Case | One category | Cache at 35 categories | Cache at 12 today |
+   | --- | --- | --- | --- |
+   | Unit/e2e fixture, 24 cards | 5.7 KiB | 0.20 MiB | 0.07 MiB |
+   | Typical live, 24 cards (150-char caption, 450-char signed CDN poster) | 19.7 KiB | 0.67 MiB | 0.23 MiB |
+   | Typical live, full 900 cards | 724 KiB | 24.75 MiB | 8.48 MiB |
+   | Worst case, 900 cards at validator maxima | 3,104 KiB | 106.1 MiB | 36.4 MiB |
+
+   - Why it stops here: a full cache at 35 categories is not well under a few MB (about 25 MiB typical, 106 MiB worst). Dropping thumbnails from the cached shape is not a one-line change with existing tests: it needs a mapping in `validNativeCache`/`writeNativeSearchCache` and a new test. It would also lose the cached Instagram/TikTok posters, which the owner checked live (tools/32). So the cap stays 12.
+   - Consequence: e2e/discover-native-search.spec.ts:84 still fails on phone and desktop. It searches all 35 categories, so Anime is evicted before the reload. This is the product limit, reported and not patched.
+4. **e2e/discover-project-evidence.spec.ts:** the "Choose a category" combobox `selectOption(genreId)` became a click on the `genre-<id>` chip. Nothing else changed: For You still expects 12 cards, and the 90 s timeout was enough. It now runs over all 35 profiles: 2 passed (phone and desktop) in 10 s.
+5. 35, not 33, is kept.
+
+New SHA-256:
+- 74549112b3f0257769897e0b981ad8693170e12e0a60437e4ce4ae0e4f8e9bc2 components/social/trends/TrendRadar.test.ts
+- f4bf07f6fd87e47d7a0208353f14d9ea533e431d3baf41a348bb34162767558f workers/scout/src/trends/genres.ts (comment only)
+- 216affe00de676a2308014f1dbc0ff09dc26de3d5c8f941fa4f26988451c5f7c e2e/discover-project-evidence.spec.ts
+
+Gates (logs/fix-*.log, fix1-e2e.log):
+- `pnpm vitest run components/social/trends lib/discoverNativeSearch.test.ts components/research data`: exit 0, 35 files, 633 tests.
+- Prettier --check and ESLint on the 3 files: both exit 0.
+- `tsc --noEmit --incremental false`: exit 0. `typecheck:worker`: exit 0. `pnpm lint`: exit 0.
+- `pnpm test --maxWorkers=4`: **exit 0, 288 files, 7,196/7,196.**
+- `pnpm build`: not run. No product source changed (the cache cap stayed and the Worker change is a comment). The served /discover/ still equals out/discover/index.html (1c4eed4d…).
+- `pnpm e2e e2e/discover-native-search.spec.ts e2e/discover-project-evidence.spec.ts e2e/discover.spec.ts e2e/scout.spec.ts --output=<logs>/pw-results-fix1`: exit 1. 88 passed and 2 failed, both discover-native-search.spec.ts:84 (item 3).
+
+### Fix round 2 — 35 categories (Opus 5.5, 22 Oct 2026), from the independent review (dashboard-work/discover-33/review.md)
+1. **tiktok.ts: one call per distinct industry.** `tiktokTop` now asks `[...new Set([industry, TT_EFFECTS, TT_PHOTO])]` once each and reads the three lists from those answers. So photography, colorgrading and drone (PHOTOGRAPHY) and vfx (SPECIAL_EFFECTS) make 2 trending_list calls instead of 3. A new tiktok.test it.each over those 4 ids checks that the asked `category_name`s are exactly [SPECIAL_EFFECTS, PHOTOGRAPHY]; without the dedupe it would see PHOTOGRAPHY or SPECIAL_EFFECTS twice.
+2. **CategoryDiscovery: a tap holds for one visit only.** The existing genre-change block (beside the popular/tab/limit resets) now also does `setChoice(null)`, so A → B → A derives the tab again. The tap stays keyed by genre id. New test: Anime, tap Native, Travel, back to Anime opens on Checked references.
+3. **CategoryDiscovery: no flash before the cache read.** With no tap and `native.ready` false, the view is null: neither collection renders and neither view button is pressed. The derived default applies once the cache read lands. New test covers both orders: not ready, then ready with items, goes straight to Native; on a new category, not ready, then ready and empty, goes to Checked references. Neither path runs a search.
+4. **routes.test: the short 9th day.** A new `runTick` at 2026-10-09T05:55Z (day 20735 % 9 = 8: photography, colorgrading, vfx; the 4th slot is empty) expects no `category` key, no fetch and no `category:` KV key. It passes, so cron.ts already guards that slot.
+5. **Lesson cadence: `LESSON_DAYS` 6 → 12.**
+   - How the comparison works: `lessonsDue` is true when `daysBetween(last, today) >= LESSON_DAYS`.
+   - With scans every 9 days: day 9 is 9 < 12, so not due; day 18 is due. That is every second scan (about 18 days), as before. With 12 categories the scans came every 3 days and lessons every 6.
+   - At 6, every 9-day scan would refresh lessons. The 4 daily scans would then all buy lesson AI calls and Tavily lesson searches, doubling that daily cost.
+   - Tests: lessons.test boundaries are now 11 days old not due, 12 due, `LESSON_DAYS === 12`. run.test's `LAST_WEEK` fixture moved from 8 days old (2026-09-29) to 12 days old (2026-09-25), so it stays due.
+   - Comments updated in lessons.ts and run.ts. The CategoryPage.tsx:67 comment now says "about 9 days away". planning/tools/19-category-trends.md lines 18, 99 and 161 now give 9 days and 12-day lessons.
+   - No message key states the scan cadence: `search.categoryRunLimit` is about the daily manual-scan limit. So no AR/EN copy changed, and I did not add new copy.
+6. **Nits.**
+   - category-profiles.ts: `beauty.examples.ar` → "ايديت انتقالات ميكب سينمائي"; `cinematic.subject.ar` → "صانع أفلام" (filmmaker); `podcast.retryExamples.ar` → "مقاطع بودكاست موشن جرافيك". The per-profile Worker, lib and store tests still pass.
+   - Not done: moving the industry check above `readAdsToken` (optional nit).
+
+New SHA-256:
+- 049d70e47c39e4ad29f88de8e60e2e09af3462e2d46a26e4202ddce9f8a1e451 workers/scout/src/categories/tiktok.ts
+- 5dcb55359e1e6ee40ec28c8c72fb9e81139dad55eb6ae091926524be43aae8f8 workers/scout/src/categories/tiktok.test.ts
+- 96c5413cdd151cf097c5f04c957e13d697b2dfe1882c6fe8830dff0dc1fd5ee0 components/research/CategoryDiscovery.tsx
+- e0f2a12627cc9081ae2eda318fd57dc1bb47d0986b801969ef94c46dc338234a components/research/CategoryDiscovery.test.tsx
+- e9d6ee5b95a70973418831a7c79b2d976098583c45b37e95439a949e227bb9a8 workers/scout/src/categories/routes.test.ts
+- c6f1e8b89cc47c82237ffedaeafa69fb4d4ac7241ba6f4e9a9935b2a654034fe workers/scout/src/categories/lessons.ts
+- 832d34f92cb3e3a01751b98afd705cdd6a6af8b26088e9394f9d79271e9272ec workers/scout/src/categories/lessons.test.ts
+- ff0228befe047d3eb1d9163a3f82d17d066d36592d844b775a84fa5caece3c64 workers/scout/src/categories/run.ts (comment only)
+- c2943ab0990617235d94dbb1f6bea7b875fb78e2d2dc5a5408854aa78782f16c workers/scout/src/categories/run.test.ts
+- 2551eff03bc960988288e5518320547489d1ef107e2f86370645c27a3d5cf6e2 components/research/CategoryPage.tsx (comment only)
+- e392095e8854ddd4501c6ebf843a5fa2311d9099606369c551976477562ad4b3 planning/tools/19-category-trends.md
+- aab141306760aa7c97f87333b150318251b187c8675e531992f666b9108fc71c workers/scout/src/discover/category-profiles.ts
+
+Gates (logs/fix2-*.log):
+- `pnpm worker:test`: exit 0, 73 files, 2,610 tests.
+- `pnpm vitest run components/research`: exit 0, 27 files, 542 tests.
+- Prettier --check on the 12 files: exit 0. ESLint on the changed .ts/.tsx files: exit 0.
+- `tsc --noEmit --incremental false`: exit 0. `typecheck:worker`: exit 0. `pnpm lint`: exit 0.
+- `pnpm test --maxWorkers=4`: **exit 0, 288 files, 7,203/7,203.**
+- `pnpm build`: exit 0. Served /discover/ equals out/discover/index.html (dbee50048bd979ffbe4664e77637e764ed4b13635dc1e63ea06607ac5eda996e), before and after e2e. :3000 was not touched.
+- `pnpm e2e e2e/discover.spec.ts e2e/discover-native-search.spec.ts e2e/discover-project-evidence.spec.ts e2e/scout.spec.ts e2e/trends.spec.ts --output=<logs>/pw-results-fix2`: exit 1. 100 passed and 2 failed, the same test on phone and desktop: discover-native-search.spec.ts:84 at line 191, Anime's cache evicted.
+- That failure is the NATIVE_CACHE_CATEGORIES = 12 limit measured in fix round 1 (about 25 MiB typical, 106 MiB worst for a full 35-category cache). It is left as reported, per the ruling.
+
+Remaining concerns:
+- **(a) The native cache cap.** It needs an owner/planner decision on a storage budget or a thumbnail-free cached shape. Until then the e2e above stays red.
+- **(b) Red tests not captured for this round.** The fix-round-2 tests were written alongside the fixes, so there are no RED logs. Each one fails on the code before its fix, as described in the items above.
+- **(c) Phone check.** The phone-size check of the 35-chip picker is still open for the planner.
+
+### Fix round 3 — native cache limit stated (Opus 5.5, 22 Oct 2026), after the coordinator's cache ruling
+- `NATIVE_CACHE_CATEGORIES = 12` is kept as the intended product limit. lib/discoverNativeSearch.ts has a one-line comment beside it with the measured sizes per category: typical 24 cards ≈ 20 KiB, full 900 ≈ 0.7 MiB, worst ≈ 3 MiB. Categories outside the 12 most recent show Checked references.
+- **e2e/discover-native-search.spec.ts:84.** It now imports `NATIVE_CACHE_CATEGORIES`. It searches Anime plus the next `NATIVE_CACHE_CATEGORIES` built-ins, which is cap + 1 categories, and the query assertions cover those cap + 1. After the reload:
+  - Anime, searched first, opens on Checked references: `native-reviewed-view` is pressed, `reviewed-library-coverage` is visible and there is no `native-tab-all`.
+  - The last category searched still shows its cached 24.
+  - The loop no longer searches all 35 categories. nativeCategoryQuery per genre stays covered by lib/genres.test.
+- New SHA-256:
+  - 5ed4f6b21dd15ac12bc0deb92bddf44ea5a27a15df8368b758e57ef2dc4bf426 lib/discoverNativeSearch.ts
+  - c518bbbfca0260f9dffa41b7e797e82c47e2742726dfbe0a2676ec7af9ac84c2 e2e/discover-native-search.spec.ts
+- Gates (logs/fix3-*.log):
+  - Prettier --check and ESLint on the 2 files: both exit 0.
+  - `pnpm build`: exit 0. Served /discover/ equals out/discover/index.html (312586c3fdefa0cd0d84057f82371334cf3b0a0c2126242b7aaa8deff45a86a7) before and after; :3000 was not touched.
+  - `pnpm e2e e2e/discover-native-search.spec.ts --output=<logs>/pw-results-fix3`: **exit 0, 8 passed (phone 4, desktop 4), 0 failed.**
+- Status: DONE. All gates are green as of rounds 2 and 3. The phone-size check of the 35-chip picker is left to the planner.
+
+### Freeze — 35 categories + Checked-references default (planner, 22 Oct 2026 20:30 AST)
+Implementation owner: none. Reviewer: Claude (independent Sonnet review ACCEPT WITH FIXES → all five items fixed in round 2; planner rulings: radar held at 12 genres, LESSON_DAYS 12 (lessons every second 9-day scan, Tavily/AI cost unchanged), native cache kept at 12 most-recent categories with measured sizes recorded, e2e updated to assert that eviction). Gates after the last source change: full `pnpm test --maxWorkers=4` 288 files 7,203/7,203 (Worker suites included), `pnpm worker:test` 2,610, `pnpm lint`, non-incremental `tsc`, `typecheck:worker`, `pnpm build` exit 0; served /discover/ equals out/ (`312586c3`); e2e discover/native-search/project-evidence/scout/trends green (100 + 8 + 12). Planner checks: owner Chrome — 35 chips in 8 groups, Real estate opens on Checked references, only `GET /discover/usage` on open (no search, no source tabs); built-in browser at 375 px — 35 chips, 8 groups, no horizontal overflow. Observed in the owner Chrome usage line: Tavily 1,554/1,000 this month + 553/2,000 paid — flagged to the owner, not changed. Not committed or pushed.
+
+Frozen hashes (SHA-256, 47 files; the cloud-workflow files are frozen separately in the dashboard handoff):
+- `components/discover/DiscoverScreen.test.ts` `de2c4b5fba688f4ac819f2cfea771e40cc6c27d510f5c6027058abd9fd113245`
+- `components/research/BrowseCategoryFeed.tsx` `3e2624d9650547e809385698d63c9ef653f7d12c51510209200a46cf516e054d`
+- `components/research/CategoryDiscovery.test.tsx` `e0f2a12627cc9081ae2eda318fd57dc1bb47d0986b801969ef94c46dc338234a`
+- `components/research/CategoryDiscovery.tsx` `96c5413cdd151cf097c5f04c957e13d697b2dfe1882c6fe8830dff0dc1fd5ee0`
+- `components/research/CategoryPage.tsx` `2551eff03bc960988288e5518320547489d1ef107e2f86370645c27a3d5cf6e2`
+- `components/research/ForYouFeed.test.ts` `ddaa98edd84f43e3bf55737fd471a04a3392b0f6fb26d5352c4a54542b6e1273`
+- `components/research/ForYouFeed.tsx` `b23575d9ad82275cadcd9b00f728f2c53a8961d86a0fee5f305239b8664ef70c`
+- `components/research/ResearchPanel.test.ts` `686853a61623d41c4ffdcfe706f72aecb792b72f6f19a09c83f9f569f1ef503e`
+- `components/research/ResearchPanel.tsx` `1c565820c7184f74c0b41b4919a55c4b79cc94eb82ab135eafd4e599d0d72b7a`
+- `components/social/trends/TrendRadar.test.ts` `74549112b3f0257769897e0b981ad8693170e12e0a60437e4ce4ae0e4f8e9bc2`
+- `data/genres.test.ts` `27e3583e9429536261d4c25159af720df7954f67056e2f0cbd697628e51d6038`
+- `data/genres.ts` `04845917517240d916fac32f0fa4ab3b11d0bf4ae7f5a65d85f5551cc88f6747`
+- `e2e/discover-creator.spec.ts` `ee2c60471a6135071e1cf5871520991853e88b298d4fd135aaadc727379a3c82`
+- `e2e/discover-native-search.spec.ts` `c518bbbfca0260f9dffa41b7e797e82c47e2742726dfbe0a2676ec7af9ac84c2`
+- `e2e/discover-project-evidence.spec.ts` `216affe00de676a2308014f1dbc0ff09dc26de3d5c8f941fa4f26988451c5f7c`
+- `e2e/discover-tiktok-access.spec.ts` `d47c17461e4fd4aca0e2757d3d53c678d554b3d27d339b1899e45369f667fc73`
+- `e2e/discover.spec.ts` `c40a543c6dd6a58188223ce0d0aa44093c8d64a17598dda3989827006af57361`
+- `e2e/helpers.ts` `553013bae4627de5decfcd6e1422c27905499fec8d018911172952ff38a75980`
+- `e2e/scout.spec.ts` `3e7c219ab86af6710e6e2509495bb5b3694b5a4338972dd3e5fa652b4ef7f385`
+- `e2e/trends.spec.ts` `de2b6af10a9a35269f8b81bc428da50751ca584862ce65c0dc8731866668f89a`
+- `lib/discoverFeed.test.ts` `babea60b66dace4c81b621b557e95c172f790145d526cd62b78163a670719ff5`
+- `lib/discoverNativeSearch.ts` `5ed4f6b21dd15ac12bc0deb92bddf44ea5a27a15df8368b758e57ef2dc4bf426`
+- `lib/discoverPrompts.test.ts` `701d85c73da585f5bf85e2ca0e335950a7943a15c5d64d9c8e285366222eb8c4`
+- `lib/discoverPrompts.ts` `5ca6910497cb1d382e0ba5ce615dac878259b12f35c1262fb866d9506d2cc4e0`
+- `lib/discoverRanking.test.ts` `44a87d5b059e48999bb2a4a01fc79d72e79a7cfc942096f4fb7c90072a82d8b7`
+- `lib/domain.ts` `e5ab1d2dd6f8e9727f469d144a76dcdbab34743ab616edfe5d7414f44a09fa9a`
+- `lib/genres.test.ts` `9ee77c16bb28c02714d51316b607b4bbefed7e6bd8ba1d1a8d2571ff030994a0`
+- `lib/genres.ts` `d6df34815c889bab299a7817936de0d7367aa175ab0b0b7b6ab779b350b64354`
+- `lib/trends.test.ts` `52ac119666e383c3e9d8aba40a6d45b4aeb81b9e37d91872a5700b3e2e87b521`
+- `messages/genres.ar.json` `41e71aad40c5d57def80ec6c32943798021c41be9c1899813b2eb2c2561e388d`
+- `messages/genres.en.json` `624397add417b7023247bc49a89cb3fe0e9c3fea718bc0cf4dd0436ddcdaffae`
+- `workers/scout/src/categories/defs.test.ts` `d489badf8417ec3cd95cd9a45c249c0bfb5235d34791e0402436bdbc8fc2168c`
+- `workers/scout/src/categories/defs.ts` `3fc8f473cd824184a4d7aace208329e060753fe475bf49b842eb027b00c2dae4`
+- `workers/scout/src/categories/lessons.test.ts` `832d34f92cb3e3a01751b98afd705cdd6a6af8b26088e9394f9d79271e9272ec`
+- `workers/scout/src/categories/lessons.ts` `c6f1e8b89cc47c82237ffedaeafa69fb4d4ac7241ba6f4e9a9935b2a654034fe`
+- `workers/scout/src/categories/quality.test.ts` `4649f7b24aac4e6d545301f139d3f70371051c548a61ade869d97493ec080a96`
+- `workers/scout/src/categories/quality.ts` `9cdbb29a6f2bccdb9ab63ee07e937b0b5afd71fce4fddaf39da6f4b52637eec4`
+- `workers/scout/src/categories/routes.test.ts` `e9d6ee5b95a70973418831a7c79b2d976098583c45b37e95439a949e227bb9a8`
+- `workers/scout/src/categories/run.test.ts` `c2943ab0990617235d94dbb1f6bea7b875fb78e2d2dc5a5408854aa78782f16c`
+- `workers/scout/src/categories/run.ts` `ff0228befe047d3eb1d9163a3f82d17d066d36592d844b775a84fa5caece3c64`
+- `workers/scout/src/categories/tiktok.test.ts` `5dcb55359e1e6ee40ec28c8c72fb9e81139dad55eb6ae091926524be43aae8f8`
+- `workers/scout/src/categories/tiktok.ts` `049d70e47c39e4ad29f88de8e60e2e09af3462e2d46a26e4202ddce9f8a1e451`
+- `workers/scout/src/discover/category-profiles.ts` `aab141306760aa7c97f87333b150318251b187c8675e531992f666b9108fc71c`
+- `workers/scout/src/trends/genres.ts` `f4bf07f6fd87e47d7a0208353f14d9ea533e431d3baf41a348bb34162767558f`
+- `workers/scout/src/trends/trends.test.ts` `fa66dd813cdcc8ae808ea7cf6d18f0f3757ad9b504b0e4209af14c6bbd9f8632`
+- `components/research/GenreGroups.test.tsx` `26f3c1f897d2c5660c90a9fdf0bbb703fdfcc510c55d801077e1c1364f4aff07`
+- `components/research/GenreGroups.tsx` `214180b6800af90db65c014f0c13224502b151ac8dcef3d0b5b3967165f3caf3`
+
+## Discover: one place for categories (Search tab without category chips) — 22 Oct 2026 21:30 AST
+Implementation owner: Claude Sonnet 5.5 writer (planner Fable 5.1; reviewer Claude). Owner: "im getting confused why we have two catagories one in browse and one in search" → "make it obvious as the user". Design: Search tab loses the category picker/filter (plain search: topic + platform + AR/EN query switch); Browse is the only place with categories; the category page keeps its own search box, labelled "Search inside <category>"; Search gets a one-line hint pointing to Browse for categories; `?genre=<id>` deep links open the category page. No Worker change. No push/deploy.
+
+### Writer record — one place for categories (Sonnet 5.5, 22 Oct 2026)
+Start: uncommitted tree as frozen above. Evidence: C:/Users/AORUS/.claude/dashboard-work/discover-one-place/logs/ (TEMP/TMP, PWTEST_CACHE_DIR, Playwright output set there).
+
+Starting SHA-256 (first 12): components/research/ResearchPanel.tsx 1c565820c718; components/research/CategoryDiscovery.tsx 96c5413cdd15; lib/genres.ts d6df34815c88; components/discover/DiscoverScreen.tsx c6283ef82194; components/research/ResearchPanel.test.ts 686853a61623; components/research/CategoryDiscovery.test.tsx e0f2a12627cc; components/discover/DiscoverScreen.test.ts de2c4b5fba68; e2e/discover.spec.ts c40a543c6dd6; e2e/scout.spec.ts 3e7c219ab86a; e2e/trends.spec.ts de2b6af10a9a; e2e/helpers.ts 553013bae462; messages/search.en.json 926a328f2cef; messages/search.ar.json 8142794d1d09; messages/feed.en.json 6343846ebd9c; messages/feed.ar.json a60483ae37ee.
+
+Files to touch (planned): components/research/ResearchPanel.tsx (+ .test.ts), components/research/CategoryDiscovery.tsx (+ .test.tsx), components/discover/DiscoverScreen.tsx (+ .test.ts), messages/search.{en,ar}.json (hint keys + category-page label), messages/en.json + ar.json only for the `discover.topicPh` placeholder text, e2e/helpers.ts, e2e/discover.spec.ts, e2e/scout.spec.ts, e2e/trends.spec.ts, and any other spec that clicks `genre-<id>` on the Search tab (found by grep, listed at the end).
+
+Search-filter code removed, and why it is unreachable: (1) the `<details data-testid="search-categories">` block and the picker inside it, in the Discover (organized) Search view: Browse renders the picker through ForYouFeed only. (2) The `openGenre` prop and the `opened` deep-link effect in ResearchPanel: DiscoverScreen now handles `?genre=<id>` itself and opens the category page through the same state its `onBrowseCategory` uses. (3) The non-Browse branch of `pickGenre` for organized panels and the Browse fallback that set `genreId` and jumped to Search (a Search filter with no way to clear it once the picker is gone): a Browse tap now always opens the category page through `onBrowseCategory`. Decision: the Skills sheet (`skill` set, not organized) and the bare panel (no workspace, test-only) keep their inline genre narrowing. The sheet has no Browse tab, so removing it there would remove function, not duplication; `researchQuery`'s genre parameter therefore stays (also used by lib/research.test.ts).
+
+Actual files changed (full SHA-256 after the packet):
+- components/research/ResearchPanel.tsx f0594e7932b47b4f468eec54b80611cd35c3b232e9228b266c1d1103b5f513de
+- components/research/CategoryDiscovery.tsx ea63bafcee43731168bd815922ab54035c6af34fd5764a1d60d0050e0237c0b6
+- components/discover/DiscoverScreen.tsx 092efa0d2f13b75391f0952d579496bf656cd65f4df9d502578a42327576575f
+- components/discover/useGenreLink.ts (doc comment only) 0bfb1e22e118fdeec2ccfc27ac2d284a178fca6974c50a67f86002ca982b7d84
+- messages/en.json b00434d8b95062705daf4051e57f8ee1cb316b434ed0a6dedb7341e26948b6a2 and messages/ar.json bde385aca5ae52de8f518734a938e64ab2d44cfb39f6a671584cbf4ab78a52da (only `discover.topicPh`)
+- messages/search.en.json b42972cc7fcd650dc5f95382b6b8ba6aa21e598e44e1e18bc3378d663b6d14a8; messages/search.ar.json b4839f877a78c384612bd28d49f15090a98cfce4533cf31b5bc062d9f7c7766c (new `layout.searchBrowseHint`, `layout.searchGoBrowse`)
+- messages/feed.en.json 71c2f9033caa5db6d6ae9879876b6706c5b9c40c3c3206b47a7551da69dcdb78; messages/feed.ar.json 6cf0b66753094ff24954a1222079829334b9bc8602d6215e37a84f8494ef1024 (new `feed.categorySearchLabel`)
+- components/research/ResearchPanel.test.ts ba887a17a593635efa0200f426695bf52fe6c1070591d4ca85e174dd9631cd18; components/research/CategoryDiscovery.test.tsx 5fac6e67fd0e63db7e70cc9a650c3d86b03cf0dcf0ec27061e6288738c5dd44b; components/discover/DiscoverScreen.test.ts 62f39c5d9fb10d483a92834c457acbc9a07f6cc8ab0121dcad09ea0d81de149f
+- e2e/helpers.ts bbe1215b721397c85e48c2af67bf4d0ffa5fc8e549af9b3dbf4e48999152a6c1; e2e/discover.spec.ts faeb9e854d79a10e39595438cfb3991ac5e9864021b64be7c4646b7a9c84f4d9; e2e/scout.spec.ts 981754cefd4dc494a6b47302c043b734e2bc0a22e8e264b23b20409b9247d070; e2e/trends.spec.ts ce5ae75bb1df8895412de18c71997d73bd1ca23d2f76d2ba48f04b58a65870ea; e2e/research.spec.ts 56a484c7c0463d024bd342f805ce6ec83a4a9dc61822192937d7b8d7131254cb; e2e/discover-native-search.spec.ts bff88ceb76e22d1c426d50e9830c42e5c13049218cc1d2e7c200cd8e125e878e
+- This file (appended only). Original e2e specs before my edits are kept in C:/Users/AORUS/.claude/dashboard-work/discover-one-place/logs/orig/ (discover, scout, trends, research, helpers).
+
+What changed in the product:
+- Search tab (Discover, `organized`): no category picker, no `search-categories` details, no `genres-row`/`genre-<id>`/`genres-clear`. New hint under the search box, `search-browse-hint` with `search-go-browse` (EN "Looking for a category? Use Browse." / AR "تبي تصنيف؟ من تصفّح."); the button calls the new `onBrowse` prop, which DiscoverScreen wires to "close the open category page, show Browse". Placeholder (`discover.topicPh`): EN "Type what you want, e.g. slow motion car edit" / AR "اكتب اللي تبيه، مثلًا: ايديت سيارات سلو موشن".
+- `pickGenre` in Browse always calls `onBrowseCategory(id)` (the old gate "v2 || helper || retained candidates" and the fall-through that set a Search genre and jumped to Search are gone; both would have left a Search filter with no way to clear it).
+- Deep link `?genre=<id>`: DiscoverScreen opens that category's page in Browse (sets the Browse category, opens it, view = browse); it no longer passes `openGenre` to the panel.
+- Category page (CategoryDiscovery native-results section): visible label `category-search-label` "Search inside {category}" / "دوّر داخل {category}" bound to the input by id (replaces the aria-label "Search all three apps"). BrowseCategoryFeed has no search box.
+- Kept on purpose (recorded decisions): (a) the Skills sheet and the bare panel keep their inline genre row (sheet has no Browse tab; its week strip is tested). (b) `openGenre` prop and the `opened` effect stay in ResearchPanel, no app caller passes it; CategoryFeed.test.ts (30 tests of the in-panel category feed) mounts the panel with it. Removing it means removing that whole in-panel feed with its tests: not bounded here. `researchQuery`'s genre parameter stays (skill sheet + lib/research.test.ts). `layout.category`/`layout.categoryActive` keys stay (no parity/lint rule flags unused keys).
+
+Checks (all with TEMP/TMP/PWTEST_CACHE_DIR in the evidence folder; logs there):
+1. Tests first, RED: the three test files above against the starting product files (rebuilt by reversing my edits; their SHA-256 matched the starting hashes 1c565820c718 / c6283ef82194 / 96c5413cdd15, messages/en|ar `discover.topicPh` back to "match cut"): `pnpm vitest run components/research/ResearchPanel.test.ts components/research/CategoryDiscovery.test.tsx components/discover/DiscoverScreen.test.ts` exit 1, 36 failed / 133 passed (169). The GREEN files were restored and their hashes re-verified. Log: vitest-RED.log.
+2. First GREEN run `pnpm vitest run components/research components/discover lib/genres.test.ts messages` exit 1: 17 failed, all in CategoryFeed.test.ts (it mounts the panel with `openGenre`, which I had removed). Fixed by keeping the prop (decision (b)); `pnpm vitest run components/research/CategoryFeed.test.ts` exit 0, 30/30. Logs: vitest-green1.log, vitest-catfeed.log.
+3. `pnpm exec prettier --write <changed files>` exit 0 (re-formatted CategoryDiscovery.tsx, CategoryDiscovery.test.tsx, e2e/discover.spec.ts, e2e/trends.spec.ts); final `prettier --check` on every changed file exit 0.
+4. `pnpm exec tsc --noEmit --incremental false` exit 0; `pnpm typecheck` (tsc + worker) exit 0.
+5. `pnpm exec eslint <changed .ts/.tsx>` exit 0 (twice, last after the useGenreLink comment); `pnpm lint` exit 0.
+6. `pnpm vitest run components/research components/discover lib/genres.test.ts messages` (final): exit 0, 32 files / 679 tests passed. Messages parity test green.
+7. `pnpm vitest run --maxWorkers=4 --exclude "workers/**"`: exit 0, 215 files / 4593 tests passed.
+8. `pnpm build`: exit 0 (out/discover/index.html sha256 196ed0b06556750f…).
+9. NOT RUN: `curl -s http://localhost:3000/discover/ | sha256sum` vs out/discover/index.html, and `pnpm e2e e2e/discover.spec.ts e2e/scout.spec.ts e2e/trends.spec.ts e2e/discover-native-search.spec.ts e2e/discover-creator.spec.ts e2e/research.spec.ts`. localhost:3000 was down for the whole session (curl exit 7 at the start, mid-way and after the build; nothing listening on 3000). Per the rule I did not start a server or use another port. The e2e edits below are therefore unrun (tsc, prettier and eslint are green on them).
+
+Changed expectations and why (each is a consequence of removing the Search filter; backups in logs/orig/):
+- components/research/ResearchPanel.test.ts: "shows the grouped categories open on Discover: Search by default, Browse always" now asserts Search has no `search-categories`/`genres-row`/`genre-*`/`genres-clear`, the new placeholder, the hint text, and that `search-go-browse` calls `onBrowse`; its Browse half now also asserts a Browse tap calls `onBrowseCategory("football")` with no Worker/helper and sets no Search filter. Removed the two tests "a ?genre= link arriving while its category's page shows…" and "a ?genre= link keeps today's category search: no page" (they asserted the panel-level deep link, now covered in DiscoverScreen.test.ts). `mount()` gained `onBrowse`/`onBrowseCategory` options.
+- components/discover/DiscoverScreen.test.ts: the "Discover deep link" block now expects the category page (`category-discovery`, `genre-<id>` pressed inside it, Browse tab pressed, no `/search` request, address cleaned, reload does not reopen, unknown/empty ids ignored, owner genre works) plus a new test that Search has no categories and the hint button returns to Browse. Skill-sheet "never reads the address" test unchanged.
+- components/research/CategoryDiscovery.test.tsx: `queryBox()` finds the input through the new label; new test for "Search inside Anime" / "دوّر داخل Anime".
+- e2e/helpers.ts: removed `openDiscoverCategories` (it only opened the removed Search disclosure). e2e/research.spec.ts: dropped its three calls (skill sheet; no-ops there).
+- e2e/discover.spec.ts: navigation test now expects NO `search-categories`/`genre-cars` on Search, the `search-go-browse` hint and the placeholder (the ~:509 expectation); the AI-brief test and "AI unavailable" test lost their category steps (`genreQuery`, category ideas, category-only); trending-effects test no longer sets/clears a category; `CATEGORY_CARS_FULL` removed; the five tests that opened the Cars category page through the Search filter (Study guides + scans, the 375 px category page, 🏆 top videos, TikTok connect) were deleted because that page has no entry point any more (see concern 1); "save an edit, record what to try…" was rewritten to save a Search result instead of a Study-guides card (same practice-state assertions).
+- e2e/scout.spec.ts: three "edit genre" tests deleted (Search chips); "Most popular with a YouTube key" now types the genre's words instead of tapping the chip; "Most viewed this week" now runs in the skill sheet only; the `?genre=cars` test now expects the category page, no `/search`, Browse tab pressed, hint on Search, reload does not reopen, `gym` opens, unknown `kites` ignored. Removed the unused `genreOn`/`asked` helpers.
+- e2e/trends.spec.ts: the two chip tests now expect `category-discovery` with the category's `genre-<id>` pressed and no `/search` request; the `genres-row`/`fake.searches` toContain lines are gone.
+- e2e/discover-native-search.spec.ts: the textbox name is `Search inside ${genre.name.en}`.
+
+Concerns (for the planner/reviewer):
+1. Removing the Search filter also removes the only entry point of CategoryPage (Study guides, top videos, scan buttons, "Connect TikTok trends"; ResearchPanel is its only renderer) and of the in-panel Worker category feed (expansions, refresh, "Find more", week strip on Discover). The code, its unit tests (CategoryFeed.test.ts, CategoryPage.test.ts, ResearchPanel.test.ts legacy mounts) and the stubs remain but nothing in the Discover UI reaches them. The TikTok Business connect button is among them (the `?tiktokads=` return line in DiscoverScreen still exists). Decide: move these onto the category page, or remove the dead code and tests in a follow-up.
+2. The e2e edits are unrun (localhost:3000 down). Deleted e2e tests are listed above; restore from logs/orig/ if concern 1 is answered by re-homing the page.
+3. In `ResearchPanel`, `genre`-dependent blocks are dead in the app for the Discover (organized) panel; they are live only for the Skills sheet and the bare test mount. Not removed (bounded).
+4. A Browse tap with no Worker, no helper and nothing retained now opens a category page that may be empty/needs a connection, where it used to run a Search-tab YouTube search (legacy key users).
+5. Other Discover specs that tap `genre-<id>` from Browse (discover-creator, discover-feed, discover-refresh, etc.) were not changed; they were not run.
+
+### Fix round 1 — one place for categories (Sonnet 5.5, 22 Oct 2026), after the coordinator's rulings (Trends & lessons tab, tab-line copy)
+Evidence: C:/Users/AORUS/.claude/dashboard-work/discover-one-place/logs/round2/ (originals of the five deleted e2e tests: logs/orig/discover.spec.ts).
+
+Rulings applied:
+1. The Worker's category page stays reachable: new third collection "Trends & lessons" / "ترندات ودروس" (testid `native-trends-view`, the existing tab pattern) on the Browse category page, beside Native results and Checked references. New file components/research/CategoryTrends.tsx: `useCategoryTrendsAvailable(genre)` (Scout config + `caps.discover` + built-in category, the old `showPage` gating) and a wrapper that mounts the unchanged `CategoryPage` with the Worker config, `useSkillSheet().open`, and a Save button as `renderAction`. CategoryDiscovery: view state gains "trends"; the tab group shows when native is connected, a snapshot exists, or the page is available (the Native results button only in the first two cases, so the other collections' DOM is unchanged without a v2 Worker); Checked references stays the default and the trends tab is never auto-selected; a picked trends tab on a category that stops serving it shows Checked references. CategoryPage logic is untouched.
+2. Prop wiring (the old ResearchPanel props, re-homed): `onPickStyle` → new `styleSearch={query, revision}` prop on ResearchPanel, run once per revision in an effect exactly like a 🔥 chip (Keywords, English with editing context, Posted on Week, genre cleared, remembered as a recent topic); DiscoverScreen sets it and switches to Search. `onSearchAll` → the category's own Native results collection (Checked references while native is not connected). `onUnavailable` → Checked references. `searchBlocked` unused (no AI mode there). `renderAction`: Save only (Browse cards never had the attach-to-skill picker; recorded as a difference).
+3. Copy: one-line subtitle under the tab bar, `data-testid="discover-tab-line"`: Browse EN "Tap a category — the edits are collected for you." / AR "اضغط تصنيف — المقاطع مجمّعة لك."; Search EN "Type something specific you're looking for." / AR "اكتب شي محدد تدوّر عليه." (keys `layout.browseLine`, `layout.searchLine` in messages/search.*; none on Saved). The "Looking for a category? Use Browse." hint stays; the older Search help line was removed in the next round (see fix round 2 and 3). DiscoverScreen.test.ts asserts both lines in both languages.
+4. Concern 2 (dead `openGenre` paths) left as is; concern 3 accepted. Both stay recorded above.
+
+Files changed this round (full SHA-256):
+- components/research/CategoryTrends.tsx (new) 880cac2c8bc5bb8752cf44ff0498287bf2cb2fcb08b72ad867ee90795fb84c5c
+- components/research/CategoryDiscovery.tsx 84584786a013dbf777217a8d35e3583e413ee208ca12a9edded6116b2f4ad4e4
+- components/research/ResearchPanel.tsx b5846b42e5228c2c5eb6b541d382c346229c0247c4b9f71b9c023d5b206a7af0
+- components/discover/DiscoverScreen.tsx c4cf5352c4aed6e64c8bc90ef07d16f1aed4d64d5869cc50d075b1656c1d2c7e
+- messages/feed.en.json bbce92acdd31f9a8e59fd4c2151420715fd02170ec4560db77cb26c522b6c0eb; messages/feed.ar.json a37a41d020092051a9a7bb2a4fd4730ef1b9fbb4870b9bbfd4c031351313b573 (`feed.connectedTrends`)
+- messages/search.en.json 4e8b98a25ddc82599a4331b8985232e434926b78b0ef5fd1baec951b5445a6db; messages/search.ar.json 2e563173423df933311f6d619d61038bd132b3edd542cc42cf605de3e1a8e977
+- components/research/CategoryDiscovery.test.tsx 30006b71d121809fb3e907c10763afdbaa114e1910baab78ee1735a368be19e5 (6 tests for the tab: hidden without the page, default unchanged, labelled EN/AR, opens the page for this category, Search all → Native results, tapped style handed up, unavailable → Checked references, resets on category change; `./CategoryTrends` mocked)
+- components/research/CategoryDiscovery.sources.test.tsx b6d74c883edeb656ce296c80170374780c2091b5dbab6a59e518d97cdb0d3d52 (one line: mock `./CategoryTrends`, which pulls in ResearchPanel)
+- components/research/ResearchPanel.test.ts 4d4b119b4d2a0da3f0ed1504f1494784ce84bc79ac593a2f23ddb5cbe13c0926 (`styleSearch` runs once per revision)
+- components/discover/DiscoverScreen.test.ts 1fffb4159e265d5405e2c4979cb2c05af55c579849b865678bcad02d344eb9e8 (tab-line test)
+- e2e/discover.spec.ts b136b8ca34401ee8353095c9525af4db812bd667dc65f5745b2d4e66d903eb56: the five deleted tests are back (`CATEGORY_CARS_FULL` restored) and reach the page through Browse → Cars → "Trends & lessons" (helper `openCarsTrends`); same assertions except: the page's request check is "no GET /categories/cars before the tab, exactly one after"; a tapped style now lands on the Search tab as `{q:"rolling shot", lang:"en", editing:true, timeRange:"week"}` (no `genreQuery`, genre cleared); "Search all" returns to the category's own collection (Trends tab unpressed, no search); the lesson stays open across the language switch, so the second study-toggle click was dropped; the practice-state test saves a top video from the page (no Search "Saved only" step) and re-saves it from the page to reopen the notes. My earlier Search-based rewrite of the practice test was replaced by the restored one.
+- This file (appended only).
+
+Gates (all with TEMP/TMP/PWTEST_CACHE_DIR in the evidence folder):
+- Focused `pnpm vitest run components/research components/discover`: exit 0, 30 files / 572 tests. (First attempt exit 1: CategoryDiscovery.sources.test.tsx failed to load because CategoryTrends pulls in ResearchPanel with its ResultCard mock; fixed by mocking `./CategoryTrends` there.)
+- Prettier `--check` on every changed file: exit 0. `pnpm exec tsc --noEmit --incremental false`: exit 0. ESLint on changed .ts/.tsx: exit 0. `pnpm lint`: exit 0.
+- Full `pnpm vitest run --maxWorkers=4 --exclude "workers/**"`: exit 0, 215 files / 4601 tests (messages parity included).
+- `pnpm build`: exit 0 (final run after the last edit, which was e2e only). Served `/discover/` sha256 == out/discover/index.html: bee20609d975578cba0dd224ad8a2e21bead718a091c82fb740a8e0e34a575ec both. localhost:3000 stayed up and was not restarted.
+- `pnpm e2e e2e/discover.spec.ts e2e/scout.spec.ts e2e/trends.spec.ts e2e/discover-native-search.spec.ts e2e/discover-creator.spec.ts e2e/research.spec.ts e2e/discover-project-evidence.spec.ts e2e/discover-tiktok-access.spec.ts`: exit 1, 118 passed, 2 failed (phone + desktop of one test). First run had 4 failed: the extra pair was my restored Study-guides test (second study-toggle click closed an already open lesson), fixed.
+- The remaining failure is `e2e/discover-tiktok-access.spec.ts:183` "changing genres preserves the chosen platform without native or paid retrieval". It is not caused by this packet: with ResearchPanel, DiscoverScreen and CategoryDiscovery put back to their packet-start versions (hashes 1c565820c718, c6283ef82194, 96c5413cdd15; next.config.ts temporarily set to ignore type errors, then restored to 1d7ee1390d8e) the same test fails the same way. Cause (diagnosed with DOM marks): on a category switch `useNativeSearch` reports `ready:false` until the new cache read lands, so CategoryDiscovery's `view` is null for a moment and BrowseCategoryFeed unmounts (the `shows neither collection until the cache read lands` rule) and loses its platform tab; the category panel is a new node after the click while CategoryDiscovery and its connection section persist. The same spec passed in the 33-category round (discover-33/logs/e2e2.log), so it regressed in a later fix round. Reported, not patched.
+
+Concerns: (1) the failing discover-tiktok-access test above needs a ruling (keep BrowseCategoryFeed mounted while native readiness reloads, or lift its platform tab). (2) Browse's Trends & lessons cards have Save only, no attach-to-skill. (3) "Search all" on that page opens Checked references when native search is not connected. (4) (superseded: the older Search help line was removed in fix round 2.) (5) test-results/ and the Playwright HTML report for the default config land in the worktree (gitignored); no flag was passed.
+
+### Fix round 2 — one place for categories (Sonnet 5.5, 22 Oct 2026), coordinator's two last fixes
+Evidence: C:/Users/AORUS/.claude/dashboard-work/discover-one-place/logs/round3/ (Playwright results in round3/pw-results via --output; nothing new in the worktree).
+1. components/research/CategoryDiscovery.tsx: the derived default view is `derivedView`; the last non-null one is kept in state (`shownView`) and used while `native.ready` is false and nothing was tapped, so BrowseCategoryFeed (and its platform tab) stays mounted across a category switch. Only the very first open (no view shown yet) renders neither. Once ready, the derived default applies as before. Tests (CategoryDiscovery.test.tsx): the "shows neither collection until the cache read lands" test keeps its first-open assertion and now expects the previous collection to stay during a category switch; new test "keeps Checked references mounted across a category switch" (same DOM node before, during and after the switch; the component-level mirror of e2e/discover-tiktok-access.spec.ts:183, whose BrowseCategoryFeed is a stateless mock here).
+2. The older Search help line (`layout.searchHelp`) is gone from ResearchPanel.tsx and from messages/search.en|ar.json (parity kept). No test or e2e spec asserted that line; the new tab subtitle and the "Looking for a category? Use Browse." hint stay.
+Files (full SHA-256): components/research/CategoryDiscovery.tsx 65eecff3c79dd057e934a64ea11cdda7bb7d43141d37315455afbe680f64e52a; components/research/CategoryDiscovery.test.tsx 4e822ee702a6a6a058355a48e3b202301f390b82ce0cb1c4f9193acc8f8245cf; components/research/ResearchPanel.tsx 894f1151025be29d11d45dc02c9e65e2e0b076d06de890f7d63242b482ce5cc3; messages/search.en.json f0b9eb54d7309a74a8db9816f20fb73a378ff98c7499f14b378c7de41fffd6b5; messages/search.ar.json 56017054705751b4c8d42047bada1e80df828bfc9b68a3c836fe2a4f81295584.
+Gates: `pnpm vitest run components/research components/discover` exit 0, 30 files / 573 tests; `pnpm vitest run messages` exit 0, 79 tests (parity); Prettier --check exit 0; `tsc --noEmit --incremental false` exit 0; ESLint on changed .ts/.tsx exit 0; `pnpm lint` exit 0; `pnpm build` exit 0; served /discover/ sha256 == out/discover/index.html (70b1d6ce8236ed6d9b15e0e0d5957a662d910acadd8aba376ee47aa9db1bad91), :3000 not restarted; `pnpm e2e --output=…/round3/pw-results e2e/discover-tiktok-access.spec.ts e2e/discover.spec.ts e2e/discover-creator.spec.ts e2e/discover-native-search.spec.ts` exit 0, 66 passed (including discover-tiktok-access.spec.ts:183, phone and desktop). The full 8-spec e2e and full vitest were not repeated after this round (only these files plus messages changed).
+Concerns: none new. Earlier worktree-local test-results/ and playwright-report/ from round 2 are gitignored and still on disk.
+
+### Fix round 3 — one place for categories (Sonnet 5.5, 22 Oct 2026), after the independent review (dashboard-work/discover-one-place/review.md: ACCEPT WITH FIXES)
+Evidence: C:/Users/AORUS/.claude/dashboard-work/discover-one-place/logs/round4/ (Playwright output via --output into round4/pw-results; HTML report redirected with PLAYWRIGHT_HTML_REPORT).
+1. P1 stable callbacks: CategoryTrends keeps its parent's callbacks in a ref (updated in an effect) and hands CategoryPage stable `useCallback` wrappers for `onPickStyle`, `onSearchAll`, `onUnavailable` and `renderAction` (`onOpenSkill` is the sheet's stable `open`), so a CategoryDiscovery re-render no longer restarts CategoryPage's fetch effect. New components/research/CategoryTrends.test.tsx (CategoryPage mocked): identities unchanged across a re-render with new inline callbacks while the newest callback is the one called.
+2. P2 back and picker: while Trends & lessons shows, CategoryDiscovery renders `browse-back` and `browse-category-picker` (same markup, shared `backAndPicker`) in a card above the page. Unit test and an e2e assertion added.
+3. P2 niche: a tapped style searches `<style> <categorySubject>` (subject = `queries.en[0]` without a trailing "edit", the Worker's rule; not appended when the style already contains the subject). Still Keywords / English / Posted on Week, genre state cleared. Tested in CategoryTrends.test.tsx and e2e (`q: "rolling shot car"`).
+4. P2 tests: CategoryTrends.test.tsx asserts CategoryPage's props (config, genre, key via data-genre, no searchBlocked, `onOpenSkill` = sheet.open, Save renderAction -> parent callback, null without a config) and `useCategoryTrendsAvailable` (config, caps, built-in only). ResearchPanel.test.ts "a style from a category's Trends & lessons" now asserts Keywords (no `mode`), `lang:"en"`, `editing:true`, `timeRange:"week"`, Arabic-first off, the Week filter pressed, no category UI, recents, that a re-render is not a new search, that revision 2 searches again and that revision 3 puts the same style back in the box.
+5. P2 e2e/scout.spec.ts: "Most viewed this week" is back in full on the skill sheet (the only place the strip still exists: ResearchPanel's `genre-week`, not on CategoryPage), with: no strip and no feed read without a genre, one GET /trends, six Arabic rows, title and source lines, YouTube channel / views / thumbnail / watch link, one sideways row, attach with undo (in the sheet the attach button toggles `aria-pressed`), English words give English rows, food and anime, Saved only hides and restores, feed read once, and the app in English (title "Most viewed this week", no sideways scroll). Dropped for a reason: "the search's own cards below the strip" (the sheet has other result lists, not asserted before either) and "the card attached from Discover shows attached in the sheet" (Discover has no strip any more). The three "edit genre" tests: (a) "a chip alone searches the genre's own words" and (b) "a topic and a genre are searched together, only the topic is remembered" genuinely no longer apply: they depend on an empty topic box plus recent topics, which exist only on Discover's Search tab, and the sheet always has the skill name as its topic (its topic + genre narrowing is already covered by e2e/research.spec.ts "an edit genre narrows the skill's search; reset keeps the genre"); (c) "tapping the active chip (or the ✕) clears it" still applies in the sheet: the chip toggle was already covered there and this round adds the ✕ clear (only shown while a genre is on) to that research.spec test.
+6. Nits: the record lines saying the old Search help line "stays" are corrected (it was removed in fix round 2). Dropped unused keys `feed.connectedQuery`, `layout.category`, `layout.categoryActive` (en + ar). Arabic copy: Browse line "اضغط على تصنيف — المقاطع مجمّعة لك.", hint button "روح لتصفّح." (hint reads "تبي تصنيف؟ روح لتصفّح."). The duplicated `onPick` body in ResearchPanel is left as is (extracting it is more than a few lines).
+Files (full SHA-256): components/research/CategoryTrends.tsx 4f986f8431b95e0780e7174e3e2e994ae414b24b1f77737e5a61f651381504a4; components/research/CategoryTrends.test.tsx dc45372d911f107d7d891ed598ee0dec370e3baed2238b7e3a3a1330106239d8; components/research/CategoryDiscovery.tsx 4b4e8619eaddcdaaacd34d864be1aa918922b9ee9f683aeb7e44781d25a8b0d4; components/research/CategoryDiscovery.test.tsx 4b7aa2e9c510817577683e1f43eb8b24e4267888bdf912f6b4ce7f661217490a; components/research/ResearchPanel.test.ts 157ce461c05de78b63aa966646fd3bb3292eca915e371589e43ace300e111d74; components/discover/DiscoverScreen.test.ts 74e5f672ca31746942c1bac3b98c8c5adb421a5ec201e2a6e2de1d717ea8daa4; messages/feed.en.json ab7907c410d87a516195373ca8577a51703de3b6c323b22a48ce0573600d9e15; messages/feed.ar.json 362bc1b68fb64d5744bae3cd2c645963703556e16c84bb96c0ad074bdddbb6fc; messages/search.en.json fd63aae655c28040a88987d4006d617acf72b02fae0cc2ae557d67ee3547efeb; messages/search.ar.json 7648a173b2114c0faf1437a6fa4ae0a39e468886bcc0e98f72f328e5bbe8069f; e2e/discover.spec.ts 8841c5f32bd86237a096b4e9bed8aab47a3e0b64915735cddd8d2d6cc120b9a5; e2e/scout.spec.ts 5979f842f80e3779bc710c0e55c2b2d244064b116a08092694c3da34811fd14a; e2e/research.spec.ts 1eebb244d8128d55abc7ac823e725fc6e5ecfcb59b75f4440008d677a2726e04.
+Gates: `pnpm vitest run components/research components/discover messages` exit 0, 32 files / 661 tests; Prettier --check exit 0; `tsc --noEmit --incremental false` exit 0; ESLint on changed .ts/.tsx exit 0; `pnpm lint` exit 0; full `pnpm vitest run --maxWorkers=4 --exclude "workers/**"` exit 0, 216 files / 4611 tests; `pnpm build` exit 0; served /discover/ sha256 == out/discover/index.html (b1ff151d6262e59be3924242303fbb1e86ecbec409e937dbdc70578b2c04ca8f), :3000 not restarted; `pnpm e2e --output=…/round4/pw-results e2e/discover.spec.ts e2e/scout.spec.ts e2e/trends.spec.ts e2e/discover-native-search.spec.ts e2e/discover-creator.spec.ts e2e/research.spec.ts e2e/discover-project-evidence.spec.ts e2e/discover-tiktok-access.spec.ts` exit 0, 120 passed (a first run had 2 failures in my new sheet test, which reopened the skill sheet from the wrong page; fixed by reloading /skills/ before reopening it). Prettier, tsc, ESLint and lint were re-run after that last e2e-only edit (exit 0).
+Not done: deleting the stray worktree `test-results/` and `playwright-report/` folders. The environment's destructive-command gate refused every `rm -rf` / `Remove-Item` form even after the facts were stated; I did not work around it. Both are gitignored Playwright output from earlier rounds (nothing from round 4 landed there); delete them by hand.
+
+### Freeze — one place for categories + Trends & lessons tab (planner, 22 Oct 2026 23:00 AST)
+
+Implementation owner: none. Reviewer: Claude (independent Sonnet review ACCEPT WITH FIXES; P1 stable CategoryPage
+callbacks, back/picker on the trends tab, style tap keeps the category subject, CategoryTrends unit test, restored e2e
+assertions — all fixed in round 4). Rulings: the Worker category page (trends, lessons, scans) lives inside the Browse
+category page as the third collection "Trends & lessons" (never auto-selected; Checked references stays the default);
+the Search tab has no category filter (plain search + "Looking for a category? Use Browse" hint; tab subtitles
+"Browse = automatic, Search = manual" per the owner); the previous collection stays mounted while the next category's
+cache read is pending (fixes the platform-tab regression from the 35-categories no-flash rule); two Search-only
+"edit genre" e2e tests retired with reasons in the writer record. Gates after the last source change: full
+`pnpm vitest run --maxWorkers=4 --exclude "workers/**"` 216 files 4,611/4,611 (Worker suites unchanged since the
+35-categories freeze), `pnpm lint`, non-incremental `tsc`, `pnpm build` exit 0; served /discover/ equals out/
+(`b1ff151d…`); e2e 8 specs 120/120. Planner checks in the owner's Chrome (fresh profile, no Worker): Search shows no
+category chips, hint + subtitle present; Browse subtitle present; Football opens the category page. The three collection
+tabs need a configured Worker (proven by e2e with the fake Worker). Stray gitignored `test-results/` and
+`playwright-report/` folders remain in the worktree (writer blocked from deleting). Not committed or pushed.
+
+Frozen hashes (SHA-256, every uncommitted Discover file; cloud-workflow files are frozen in the dashboard handoff):
+
+- `components/discover/DiscoverScreen.test.ts` `74e5f672ca31746942c1bac3b98c8c5adb421a5ec201e2a6e2de1d717ea8daa4`
+- `components/discover/DiscoverScreen.tsx` `c4cf5352c4aed6e64c8bc90ef07d16f1aed4d64d5869cc50d075b1656c1d2c7e`
+- `components/discover/useGenreLink.ts` `0bfb1e22e118fdeec2ccfc27ac2d284a178fca6974c50a67f86002ca982b7d84`
+- `components/research/BrowseCategoryFeed.tsx` `3e2624d9650547e809385698d63c9ef653f7d12c51510209200a46cf516e054d`
+- `components/research/CategoryDiscovery.sources.test.tsx` `b6d74c883edeb656ce296c80170374780c2091b5dbab6a59e518d97cdb0d3d52`
+- `components/research/CategoryDiscovery.test.tsx` `4b7aa2e9c510817577683e1f43eb8b24e4267888bdf912f6b4ce7f661217490a`
+- `components/research/CategoryDiscovery.tsx` `4b4e8619eaddcdaaacd34d864be1aa918922b9ee9f683aeb7e44781d25a8b0d4`
+- `components/research/CategoryPage.tsx` `2551eff03bc960988288e5518320547489d1ef107e2f86370645c27a3d5cf6e2`
+- `components/research/ForYouFeed.test.ts` `ddaa98edd84f43e3bf55737fd471a04a3392b0f6fb26d5352c4a54542b6e1273`
+- `components/research/ForYouFeed.tsx` `b23575d9ad82275cadcd9b00f728f2c53a8961d86a0fee5f305239b8664ef70c`
+- `components/research/PasteLinkForm.tsx` `815273408dcc77a2ae833a5dc4c0489c846716dae82c5808c5e010e8b92d3dd2`
+- `components/research/PicksSection.tsx` `239c5a76647afa92f441cbc92065c6820d621c8c7351190488edfcd6f14146d3`
+- `components/research/ResearchPanel.test.ts` `157ce461c05de78b63aa966646fd3bb3292eca915e371589e43ace300e111d74`
+- `components/research/ResearchPanel.tsx` `894f1151025be29d11d45dc02c9e65e2e0b076d06de890f7d63242b482ce5cc3`
+- `components/research/SkillPicker.tsx` `8480442425ba14791d3de58e233358d930623e4d6e5a7f70b04a4099ca339cf7`
+- `components/social/trends/TrendRadar.test.ts` `74549112b3f0257769897e0b981ad8693170e12e0a60437e4ce4ae0e4f8e9bc2`
+- `data/genres.test.ts` `27e3583e9429536261d4c25159af720df7954f67056e2f0cbd697628e51d6038`
+- `data/genres.ts` `04845917517240d916fac32f0fa4ab3b11d0bf4ae7f5a65d85f5551cc88f6747`
+- `e2e/discover-creator.spec.ts` `ee2c60471a6135071e1cf5871520991853e88b298d4fd135aaadc727379a3c82`
+- `e2e/discover-native-search.spec.ts` `bff88ceb76e22d1c426d50e9830c42e5c13049218cc1d2e7c200cd8e125e878e`
+- `e2e/discover-project-evidence.spec.ts` `216affe00de676a2308014f1dbc0ff09dc26de3d5c8f941fa4f26988451c5f7c`
+- `e2e/discover-tiktok-access.spec.ts` `d47c17461e4fd4aca0e2757d3d53c678d554b3d27d339b1899e45369f667fc73`
+- `e2e/discover.spec.ts` `8841c5f32bd86237a096b4e9bed8aab47a3e0b64915735cddd8d2d6cc120b9a5`
+- `e2e/helpers.ts` `bbe1215b721397c85e48c2af67bf4d0ffa5fc8e549af9b3dbf4e48999152a6c1`
+- `e2e/research.spec.ts` `1eebb244d8128d55abc7ac823e725fc6e5ecfcb59b75f4440008d677a2726e04`
+- `e2e/scout.spec.ts` `5979f842f80e3779bc710c0e55c2b2d244064b116a08092694c3da34811fd14a`
+- `e2e/trends.spec.ts` `ce5ae75bb1df8895412de18c71997d73bd1ca23d2f76d2ba48f04b58a65870ea`
+- `lib/discoverFeed.test.ts` `babea60b66dace4c81b621b557e95c172f790145d526cd62b78163a670719ff5`
+- `lib/discoverNativeSearch.ts` `5ed4f6b21dd15ac12bc0deb92bddf44ea5a27a15df8368b758e57ef2dc4bf426`
+- `lib/discoverPrompts.test.ts` `701d85c73da585f5bf85e2ca0e335950a7943a15c5d64d9c8e285366222eb8c4`
+- `lib/discoverPrompts.ts` `5ca6910497cb1d382e0ba5ce615dac878259b12f35c1262fb866d9506d2cc4e0`
+- `lib/discoverRanking.test.ts` `44a87d5b059e48999bb2a4a01fc79d72e79a7cfc942096f4fb7c90072a82d8b7`
+- `lib/domain.ts` `e5ab1d2dd6f8e9727f469d144a76dcdbab34743ab616edfe5d7414f44a09fa9a`
+- `lib/genres.test.ts` `9ee77c16bb28c02714d51316b607b4bbefed7e6bd8ba1d1a8d2571ff030994a0`
+- `lib/genres.ts` `d6df34815c889bab299a7817936de0d7367aa175ab0b0b7b6ab779b350b64354`
+- `lib/trends.test.ts` `52ac119666e383c3e9d8aba40a6d45b4aeb81b9e37d91872a5700b3e2e87b521`
+- `messages/ar.json` `bde385aca5ae52de8f518734a938e64ab2d44cfb39f6a671584cbf4ab78a52da`
+- `messages/calendar.ar.json` `e4fa66735ab34d0396ea90bc3d0cd767eaf853df012a863655ee5462d7b059c4`
+- `messages/calendar.en.json` `513827a136e3a10e3da9c91d1b01293accc283a2060bc46b91f26af7bd9845d0`
+- `messages/creator.ar.json` `29698c8789db5231964cef71c314cd34a0b154ce6fa27a946cbf1263c05b7111`
+- `messages/creator.en.json` `fe47f5c7d17f9d835ef346043595afd7581e184d5b7b8cf19b6b96df23213f21`
+- `messages/en.json` `b00434d8b95062705daf4051e57f8ee1cb316b434ed0a6dedb7341e26948b6a2`
+- `messages/feed.ar.json` `362bc1b68fb64d5744bae3cd2c645963703556e16c84bb96c0ad074bdddbb6fc`
+- `messages/feed.en.json` `ab7907c410d87a516195373ca8577a51703de3b6c323b22a48ce0573600d9e15`
+- `messages/genres.ar.json` `41e71aad40c5d57def80ec6c32943798021c41be9c1899813b2eb2c2561e388d`
+- `messages/genres.en.json` `624397add417b7023247bc49a89cb3fe0e9c3fea718bc0cf4dd0436ddcdaffae`
+- `messages/growth.ar.json` `1af2d5225ac06f238f4230843f780492247ba48d1adc88c6efa3aa1f9f841ad6`
+- `messages/growth.en.json` `3d36464e7996ae46e32c637ea5cb2d0b62257de37fee12067a2d5f02acc623ff`
+- `messages/map.ar.json` `9292f249314ee4da28665383e12a7f94559184e7d769d14ea72fd46913673021`
+- `messages/map.en.json` `7f387d203ea40736b5120caec56e723b838686d844ace44014829597457e42e3`
+- `messages/player.ar.json` `4515384c6a0ab2f011152ca54b40a17445d8086c7fe46a0cc3f094481c61c461`
+- `messages/player.en.json` `6dbafa63f262b86041123c5acb17b8953a4cecaaa9bb0df47f284bd7d1e900f9`
+- `messages/review.ar.json` `52c2d1381a05387059690629080ac8f16f05d5b5af91482efb4626c512a1b7d8`
+- `messages/review.en.json` `ccaa77f2cd75ab18073e978b3ad6468f28b4e9ca62556724ad733572f6239296`
+- `messages/rewards.ar.json` `4ac18603650f66e06adaba4685547882dc8a5daafaca7079f8e8619db5962d7d`
+- `messages/rewards.en.json` `78626f1450edcb0cb9bb3f9483e84bc491806567630484b8cfe63daf0667bcea`
+- `messages/search.ar.json` `7648a173b2114c0faf1437a6fa4ae0a39e468886bcc0e98f72f328e5bbe8069f`
+- `messages/search.en.json` `fd63aae655c28040a88987d4006d617acf72b02fae0cc2ae557d67ee3547efeb`
+- `messages/social.ar.json` `ce22dc43ecf60497209fa8cfe0579bd7df4a0adbfe222c8a43d608021ef990fd`
+- `messages/social.en.json` `c5ffbef91681ed6fefec6ae361bb2771ca591d5f313851175b46e64a7543d35a`
+- `messages/tiktok.ar.json` `3afa42b47a83919b333de9e5bed27dd7dba4290f1a80551d976c204309b50af8`
+- `messages/tiktok.en.json` `da54ea4210936d82ea9572eaf54fc4c3a88233b8545f20f530546ae8797ae90a`
+- `messages/today.ar.json` `808023ad034e1e5eb44171fc4660804fd26177dc25afa2fa8297ac97c1bb5f4e`
+- `messages/today.en.json` `97a295d556f475fed6a48749c0a929c26faf14a88437a3d9bf9d2bac9abaea20`
+- `messages/trends.ar.json` `c6aab41278bb81a394bbfe51f2511b89f744cc18fd4f32c297d6ccdf3cd33a6b`
+- `messages/trends.en.json` `9deb81d7e06fcff0fa88fa8f9c16d4add688f9f0ed83c2502e152323ab8e5618`
+- `messages/xp.ar.json` `9a3688f60c0117d538bf5f0f5d31c88e98318ee642afa4d5c0675311665bdab0`
+- `messages/xp.en.json` `fc2bb883713c4ce563b6be5fd732bfdaa9434f02eb143035c4d49deda9e46afa`
+- `workers/scout/src/categories/defs.test.ts` `d489badf8417ec3cd95cd9a45c249c0bfb5235d34791e0402436bdbc8fc2168c`
+- `workers/scout/src/categories/defs.ts` `3fc8f473cd824184a4d7aace208329e060753fe475bf49b842eb027b00c2dae4`
+- `workers/scout/src/categories/lessons.test.ts` `832d34f92cb3e3a01751b98afd705cdd6a6af8b26088e9394f9d79271e9272ec`
+- `workers/scout/src/categories/lessons.ts` `c6f1e8b89cc47c82237ffedaeafa69fb4d4ac7241ba6f4e9a9935b2a654034fe`
+- `workers/scout/src/categories/quality.test.ts` `4649f7b24aac4e6d545301f139d3f70371051c548a61ade869d97493ec080a96`
+- `workers/scout/src/categories/quality.ts` `9cdbb29a6f2bccdb9ab63ee07e937b0b5afd71fce4fddaf39da6f4b52637eec4`
+- `workers/scout/src/categories/routes.test.ts` `e9d6ee5b95a70973418831a7c79b2d976098583c45b37e95439a949e227bb9a8`
+- `workers/scout/src/categories/run.test.ts` `c2943ab0990617235d94dbb1f6bea7b875fb78e2d2dc5a5408854aa78782f16c`
+- `workers/scout/src/categories/run.ts` `ff0228befe047d3eb1d9163a3f82d17d066d36592d844b775a84fa5caece3c64`
+- `workers/scout/src/categories/tiktok.test.ts` `5dcb55359e1e6ee40ec28c8c72fb9e81139dad55eb6ae091926524be43aae8f8`
+- `workers/scout/src/categories/tiktok.ts` `049d70e47c39e4ad29f88de8e60e2e09af3462e2d46a26e4202ddce9f8a1e451`
+- `workers/scout/src/discover/category-profiles.ts` `aab141306760aa7c97f87333b150318251b187c8675e531992f666b9108fc71c`
+- `workers/scout/src/trends/genres.ts` `f4bf07f6fd87e47d7a0208353f14d9ea533e431d3baf41a348bb34162767558f`
+- `workers/scout/src/trends/trends.test.ts` `fa66dd813cdcc8ae808ea7cf6d18f0f3757ad9b504b0e4209af14c6bbd9f8632`
+- `components/research/CategoryTrends.test.tsx` `dc45372d911f107d7d891ed598ee0dec370e3baed2238b7e3a3a1330106239d8`
+- `components/research/CategoryTrends.tsx` `4f986f8431b95e0780e7174e3e2e994ae414b24b1f77737e5a61f651381504a4`
+- `components/research/GenreGroups.test.tsx` `26f3c1f897d2c5660c90a9fdf0bbb703fdfcc510c55d801077e1c1364f4aff07`
+- `components/research/GenreGroups.tsx` `214180b6800af90db65c014f0c13224502b151ac8dcef3d0b5b3967165f3caf3`
+
+## Discover: "Trending edits" section (technique trends across categories) — 22 Oct 2026 23:59 AST
+Implementation owner: planning (Fable 5.1); writer to be assigned after the scout. Owner: trendy edit = the same technique across many editors recently (clone/duplicate effect on buildings/cars, stacked cut-out figures). Approved direction: a "Trending edits" section first on Discover — one row per technique (plain AR/EN name, distinct-creator count, first→last seen dates, growth mark), 3 example cards across categories/platforms, Learn this edit / Follow format; grouped from existing effects/format scans, no new credits, no row without dates + count; "Trending sounds" moves below it. Reviewer Claude. No push/deploy.
+### Design — "Trending edits" (planner Fable 5.1, 23 Oct 2026 00:10 AST; writer: one Opus 5.5)
+
+Goal: the first section on Discover answers "which editing techniques are many editors doing right now", with proof on
+every row, zero new credits.
+
+Sources (all zero-credit): (1) the local candidate corpus already in the browser (`store.discoverCandidates` →
+`discoverForYou(candidates, { limit: 500 })` rows with `evidence.techniques[]`, `item.handle`, `item.published` /
+`postedAt(url)`, `genreId`, platform); (2) the daily global effects doc `GET /effects/trending` (KV read, 1 h tab cache via
+`fetchTrendingEffects`; `creators` = identified accounts over 7 days, `samples` with dates); (3) edit formats from the
+same doc (`formats[]` with handles + dates). Never `POST /effects/run`, `/categories/:id/run`, `/discover`, or the Brave
+`top` routes.
+
+Model (`lib/trendingEdits.ts`, pure): `TrendingEdit = { key, name: {ar,en}, source: "local"|"effects"|"format"|"merged",
+creators: number, categories: number, firstSeen: ISO day, lastSeen: ISO day, rising: boolean, examples: DiscoverItem-like[3]
+(distinct platforms first, newest first), formatKey?: string, learnQuery: string }`. Local rows: group `discoverForYou` rows
+by normalized technique name, creators = distinct `creatorKey(item)`, categories = distinct `genreId`, dates = min/max of
+published, window 14 days (keep 30 for "seen"), tiers exactly like `lib/trendingSounds.ts`: trending ≥ 3 creators & ≥ 2
+categories in 14 days; emerging ≥ 2 creators; otherwise hidden. `rising` = creators in the last 3 days > creators in the
+previous 3 days. Effects rows: each `TrendingEffect` becomes a row with `creators` = its 7-day identified accounts,
+dates from its samples, categories unknown (0 → shown as "—"). Format rows: `evidence.creators7d`, `latestPostAt`,
+samples' handles/dates. Merge by normalized name (lower-case, punctuation stripped, AR/EN aliases from the CREATIVE
+dictionary): creators = max, dates = min/max, examples = union capped 3, source "merged". Sort: trending tier first,
+then rising, then creators, then lastSeen. Cap 12 rows.
+
+Vocabulary: add to the CREATIVE dictionary (`workers/scout/src/categories/quality.ts`, imported by the app) the
+owner's examples with AR/EN aliases: "clone / duplicate effect" (clone effect, duplicate effect, cloning, تكرار الشخص,
+نسخ الشخص), "stacked cut-out figures" (cutout stack, repeating figures, layered cutouts, شخصيات مقصوصة متكررة), and
+"3D photo / parallax" if absent. Keep existing entries unchanged; Worker tests updated for the count only.
+
+UI (`components/research/TrendingEdits.tsx`, mounted in `ResearchPanel.tsx` just before `<TrendingSounds …/>` at ~:1601
+with the same `organized && browsing && showBrowse` guard): `<details open data-testid="trending-edits">`, summary
+"🔥 Trending edits" / "ايديتات رايجة", one honesty line (counted from videos Discover has read + the daily scan; not a
+chart). Rows (`data-testid="trending-edit" data-key data-tier`): name, `n creators · k categories · first → last` (AR/EN
+dates via the existing `day()` formatter pattern), ↑ chip when rising, 3 example thumbnails/links with handle + date
+(`trending-edit-example`), buttons: **Learn this edit** (`onPick(learnQuery, "tutorials")` — the same path as
+`format-find-tutorials`), **Follow format** when `formatKey` (reuse `followFormat`/`unfollowFormat`), **Find examples**
+(`onPick(name.en, "examples")`). Empty state: "Nothing trending yet — open a few categories and the daily scan fills
+this" with no run button (no credits from here). Compact on phone (rows stack). Trending sounds moves below it (no change
+to its code).
+
+Tests: `lib/trendingEdits.test.ts` (tiers, window, distinct creators across platforms, merge by alias, rising, sort,
+cap, no row without a date), `components/research/TrendingEdits.test.tsx` (renders rows with proof, buttons call
+`onPick`/`followFormat` once, empty state, no network when the Worker is not configured, zero spending calls ever —
+assert no fetch to `/effects/run` etc.), Worker `quality.test.ts` count update; e2e in `e2e/discover.spec.ts`: a
+seeded corpus + mocked `/effects/trending` → rows with the clone effect first, proof text, Learn this edit runs a
+tutorial search; Trending sounds still below. Messages `feed.edits.*` in `messages/feed.{ar,en}.json`, parity.
+
+Implementation owner: Claude Opus 5.5 writer (from 00:12 AST). Starting hashes: lib/trendingSounds.ts 709926e3…, components/research/TrendingSounds.tsx 41dbf92d…, ResearchPanel.tsx 894f1151…, lib/effects.ts 30c67369…, lib/discoverForYou.ts 2fb95006…, lib/discoverRanking.ts d75e9c3f…, workers/scout/src/categories/quality.ts 9cdbb29a…, messages/feed.en.json ab7907c4….
+
+### Writer record — Trending edits (Opus 5.5, 23 Oct 2026)
+Start: HEAD 164614e8 on codex/discover-inspiration; starting hashes above verified equal. Also: quality.test.ts 4649f7b2…, feed.ar.json 362bc1b6…, e2e/discover.spec.ts 8841c5f3…. Note: localhost:3000 was down at start (curl exit 7); left alone.
+Files to touch: new lib/trendingEdits.ts, lib/trendingEdits.test.ts, components/research/TrendingEdits.tsx, components/research/TrendingEdits.test.tsx; edit components/research/ResearchPanel.tsx (mount + one shared pick handler), workers/scout/src/categories/quality.ts (export CREATIVE + 3 entries), workers/scout/src/categories/quality.test.ts (new-vocabulary cases), messages/feed.{ar,en}.json (`feed.edits*`), e2e/discover.spec.ts (one new test + a visibility check in the passive-navigation test). No store change, no IndexedDB (the corpus is already persisted in the store; effects come from the 1 h tab cache).
+Normalization/alias rule: `editKey(text)` = `normalizeTerm(text)` (Worker discover/terms: NFKC, lower-case, diacritics/punctuation stripped, أإآ→ا, ى→ي, ة→ه, article/plural stems); if that equals the folded CREATIVE name or any of its folded aliases, the key is the CREATIVE name; otherwise the folded text itself. An effect/format tries its English then its Arabic name. Local rows come only from `evidence.techniques` names (already CREATIVE names). Display name: Worker rows keep their own {en, ar}; local rows use {en: CREATIVE name, ar: its first Arabic-script alias}.
+Tier thresholds: local (14-day window, posts with a date from `postedAt(url)` ?? `evidence.date.published` and a known creator — unknown `post:` creators are dropped): trending = ≥3 posts, ≥3 distinct `creatorKey` and ≥2 genreIds; emerging = ≥2 posts and ≥2 creators; else hidden. Effects/format rows (no category data): trending ≥3 creators (the Worker's own "repeated" bar), emerging ≥2, else hidden; they also need ≥1 dated sample (effects: trusted samples only; formats: sample/latestPostAt dates) with lastSeen within 14 days, and the effects doc must be within its 3-day freshness (`rowVisible` "list"/"stale-failed"). Merged row = best tier. rising = local only: distinct creators posting in the last 3 days > in the 3 days before (Worker growth ratios are not shown as rising).
+Result (23 Oct 2026 ~00:30 AST): BLOCKED at the localhost:3000 step. `curl -s http://localhost:3000/discover/` returned exit 7 (connection refused) at start and again after the build. Per instructions the server was not started or restarted and no other port was used, so the out/ hash comparison and `pnpm e2e` were NOT run (the new e2e test and the passive-navigation check are written but unexecuted).
+Changed files (SHA-256): lib/trendingEdits.ts eb61c832038000d7f7826eca36c392d9dca868ba33aa2ef8fcb8862012288cd9 (new); lib/trendingEdits.test.ts 91163d50dba8810f1f616363107339392063fdebf7ff8f6ae62a2f1874fac03f (new); components/research/TrendingEdits.tsx 6b966509a116512ba97b927858bc50645752a758c7d81085163dd3ca1751102f (new); components/research/TrendingEdits.test.tsx 3abf3de384cb2b55623f58604b0930944ef9fee422132efa94afc9b5880130d2 (new); components/research/ResearchPanel.tsx dab587805cd84f524e4b35351edd9e9067f69f5dafec6c4e01380fea75206f43; workers/scout/src/categories/quality.ts afc8b2973171c10940cbca454ac49437750a767d397292bfe0e2f792588716bf; workers/scout/src/categories/quality.test.ts 45aa8d381460010bc60feb503fd5d76f52cb660aeb906bb2357e747a32f58931; messages/feed.en.json 6ec9719f3554cab3c54272348648e77d6ff1aac6cad1154c17b8b3a23057c9c8; messages/feed.ar.json d1fd0b6980739c5dc32133609cdecfcdf665d7ab2e5338d890bf865e129b93c6; e2e/discover.spec.ts 78074380556b390c07757ad6b053effdee658613e10f83e07036d8adf2236952. Built out/discover/index.html 40d28b80054011c89156bf79c3b532efca46e82eec26e7c462fa758026db205d.
+Commands (logs in C:/Users/AORUS/.claude/dashboard-work/discover-trending-edits/logs/): RED `pnpm vitest run lib/trendingEdits.test.ts components/research/TrendingEdits.test.tsx` exit 1 (2 suites fail: CREATIVE not exported / component missing; red-vitest.log); RED Worker `vitest run src/categories/quality.test.ts` exit 1 (9 failed / 406 passed; red-worker-quality.log); `pnpm vitest run lib/trendingEdits.test.ts components/research messages` exit 0 (31 files, 651 tests); `pnpm worker:test` exit 0 (73 files, 2619 tests); Prettier --write then --check on the 10 changed files exit 0 (pre-edit copies were already clean); `tsc --noEmit --incremental false` exit 0; `pnpm typecheck:worker` exit 0; ESLint on changed files exit 0; `pnpm lint` exit 0; `pnpm test --maxWorkers=4` exit 0 (291 files, 7244 tests); `pnpm build` exit 0; curl localhost:3000 exit 7, then stopped.
+Implementation notes: TrendingEdits mounts above TrendingSounds with the same guard and `config={v2 ? scoutCfg : null}`. It calls `fetchTrendingEffects` only, never a run or scan. The inline Edit-formats handler became `pickFormat` (body unchanged). A new `pickEdit` sends a format row to it, and otherwise uses the chip keyword path (tutorials: recency any). Learn / Find examples / Follow reuse `formats.findTutorials`, `formats.primaryExamples` and `formats.follow|followed|cardFollowing`. New keys: `feed.edits.{title,honest,empty,trending,emerging,rising,risingHelp,proof}`. CREATIVE is exported with 3 new entries (37 to 40). Worker doc freshness: status is not "never" and updatedAt is at most 3 days old. That age rule is applied directly because rowVisible hides a formats-only doc that has no effect items.
+Adapted expectations: none changed. Added: the passive-navigation test asserts `trending-edits-empty` is visible; quality.test.ts asserts 40 CREATIVE names (no count test existed before).
+Concerns: (1) e2e not run (server down). (2) On a first visit, TrendingEdits and TrendingEffects each send the cached GET /effects/trending once before the tab cache exists: two KV reads, zero credits. Later mounts read the tab cache. (3) Local rows use discoverForYou's default Inspiration mode, as designed, so only posts with strong source engagement count; Explore mode would count smaller editors. discoverForYou with limit 500 over up to 3,000 candidates costs O(limit x n), memoized per candidates change. (4) The bare "cloning" alias from the planner's list can also match "voice cloning" captions. (5) No IndexedDB store, because the corpus is already persisted in the store. (6) A stale tsconfig.tsbuildinfo (generated cache) was deleted before the non-incremental typecheck.
+Implementation owner: none (writer stopped, BLOCKED on localhost:3000).
+
+#### Ruling round (coordinator, 23 Oct 2026; localhost:3000 back up via `pnpm local:serve`, not restarted)
+1. Bare "cloning" alias dropped; "cloning effect" added. A new Worker test checks that "voice cloning" names nothing.
+2. Local rows now use `discoverForYou(candidates, { mode: "explore", limit: 500, now })`: every eligible post, smaller editors included. Tier thresholds unchanged. The component test now gives one creator 120 views (below the Inspiration floor) and still expects trending. RED with the old mode: exit 1, 2 failed / 1 passed (logs/red2-mode.log).
+Gates: focused vitest exit 0 (30 files, 572); `pnpm worker:test` exit 0 (73, 2621); Prettier, ESLint, non-incremental tsc, typecheck:worker and lint all exit 0; build exit 0; served /discover/ == out/discover/index.html (9712c16b…, MATCH). `pnpm e2e … discover, discover-feed, scout, research` exit 1: 86 passed, 2 failed. Both failures were the new Trending edits test (phone and desktop). Its no-spend filter caught `GET /oembed`, the Worker's free TikTok oEmbed thumbnail lookup that ResultPreview already makes. The filter now allows /oembed.
+
+#### Fix round (review.md, 23 Oct 2026)
+1. Worker-only rows (no local category count) are capped at "emerging". Their proof line reads "{creators} identified accounts in 7 days · latest sample {date}" (new key `feed.edits.proofWorker`, with an AR equivalent). Merged rows are trending only when the local row is.
+2. Every Worker date and example is filtered to the 14-day window before min/max. pickExamples sorts undated items last (fallback 0) and picks a dated post first for each platform. Local date order now follows the brief: `evidence.date.published ?? item.published ?? postedAt(url)`.
+3. Merge keeps `seen.learnQuery` unless a format row supplies one (formatKey). A test covers this.
+4. A row is dropped when the editor scope hides all of its examples. A test covers this.
+5. Learn / Find examples / Follow buttons get `aria-label` "<action>: <edit name>". The rising explanation is sr-only text inside the chip, no longer a `title`.
+6. `pickEdit` now also resets the hint, length (any), sort (relevance) and platform tab (all), like `pickFormat`.
+7. Aliases: "3d parallax" = parallax effect, 3d photo effect, 3d zoom, بارالاكس (the first Arabic alias, so the AR name is right), زوم ثلاثي الابعاد, صورة ثلاثية الأبعاد. Bare "parallax" and "3d photo" are gone. "repeating figures" stays only as an alias of "stacked cutout figures"; "repeated figures" is dropped. The test checks that "parallax scrolling" and "3D photo print" name nothing. FAN_EDIT_GENRES basketball/combat came from the 35-categories packet (approved there) and was left untouched.
+8. AR risingHelp: "طالع: صنّاع أكثر في آخر ٣ أيام من اللي قبلها".
+Extra change (e2e phone): the section no longer renders the Save/Attach `renderAction` under each example. Those two buttons overflowed the 3-column cells at 390 px (scrollWidth 392); the design lists only the row buttons. The prop was removed from TrendingEdits and from its ResearchPanel mount.
+Final SHA-256: lib/trendingEdits.ts 750074960768e2817917bc2a48e21196433a093c812ecc53bbbbcecf5db81800; lib/trendingEdits.test.ts 84782c4b3e1ae8306919c94a2cbf70b3fd74eb4e1450ab0e4c2e3c7728ded3d2; components/research/TrendingEdits.tsx 606b4748e62bda323fd83bcde209dad8c7add2db5fcf52c1aba954df96247852; components/research/TrendingEdits.test.tsx 7b79548451e462acc1225a735ad7e6bad1350439d774d27bd215fd1dd778dba7; components/research/ResearchPanel.tsx 011741f0e04b3332030b2aed76e096e44327b19f54e200972d7bef38b6aac3e8; workers/scout/src/categories/quality.ts 1d300603a667cfaca1b3b0814bb35065cf1cc94c49bb30d550193d04a948cf9b; workers/scout/src/categories/quality.test.ts b5323411d850ff03c0a65cfdfd4c9fff1e8ff12f3585fb8fc0f741e65f56be70; messages/feed.en.json 6513bf904bcc796393257fb0b5946d112c6ef67ac0d97f88936d39dbb8994bfb; messages/feed.ar.json b3299451ea55997367c27a581a5af2266214ec3bcf8a7cf84bcc3d3a821f72c8; e2e/discover.spec.ts f93a7d80b1557740693a91a957fbb35af01ab936922edfdb0e8f73a846626b56; out/discover/index.html 348b5d137310402ce4e15db836448edb9bc1b55729b19df25ee9dece16ea6b4f.
+Gates (final code): `pnpm vitest run lib/trendingEdits.test.ts components/research messages` exit 0 (31 files, 653 tests); `pnpm worker:test` exit 0 (73, 2622; quality files unchanged after that run); Prettier --check and ESLint on changed files exit 0; `tsc --noEmit --incremental false` exit 0; `pnpm typecheck:worker` exit 0; `pnpm lint` exit 0; `pnpm build` exit 0; served /discover/ == out/discover/index.html (348b5d13…, MATCH); `pnpm e2e --output=…/logs/pw-results2 e2e/discover.spec.ts e2e/discover-feed.spec.ts` exit 0 (48 passed); also `pnpm e2e --output=…/logs/pw-results3 e2e/scout.spec.ts e2e/research.spec.ts` exit 0 (40 passed). An intermediate e2e run (logs/e2e-2.log: 47 passed, 1 failed on phone overflow) led to the renderAction removal above.
+Remaining concerns: (a) the first visit sends two cached GET /effects/trending (this section and the Trending effects row): zero credits. (b) discoverForYou Explore with limit 500 is recomputed on each remount of Browse (review nit). (c) A generic "lighting" technique can still form a row (review nit, not changed). (d) Examples no longer offer Save/Attach in this section.
+Implementation owner: none.
+
+### Freeze — "Trending edits" section (planner, 23 Oct 2026 00:50 AST)
+
+Implementation owner: none. Reviewer: Claude (independent Sonnet review ACCEPT WITH FIXES — eight honesty/polish items,
+all fixed: Worker-only rows capped at "emerging" with an honest proof line, dates filtered to the 14-day window, undated
+samples last, merged rows keep the first `learnQuery`, rows dropped when every example is hidden, aria-labels and visible
+rising text, `pickEdit` resets filters like `pickFormat`, specific aliases "parallax effect"/"3d photo effect",
+"repeating figures" only as an alias of stacked cutout figures). Planner rulings: no bare "cloning" alias; local rows
+aggregate over every eligible post (Explore breadth, not Inspiration engagement); per-example Save/Attach removed from
+this section after a phone overflow at 390 px (row buttons only: Learn this edit / Find examples / Follow format);
+`GET /oembed` (free TikTok thumbnail lookup) allowed by the zero-spend e2e check. Gates on the final code:
+`pnpm test --maxWorkers=4` 291 files 7,244/7,244 before the review round, then focused 653 + Worker 2,622 after it;
+`pnpm lint`, non-incremental `tsc`, `typecheck:worker`, `pnpm build` exit 0; served /discover/ equals out/
+(`348b5d13…`); e2e discover + discover-feed 48/48, scout + research 40/40. Planner check in the built-in browser (clean
+profile): "🔥 Trending edits" renders open above "Trending sounds" with the no-spend empty state; rows with real data are
+proven by the seeded e2e (clone-effect row first with creators/categories/dates, Learn this edit runs a tutorial search,
+no spending request). Zero new credits by construction (only the cached `GET /effects/trending` and local data).
+Carried: the For You aggregation (≤ 500 rows) reruns when Browse remounts; a generic "lighting" technique can form a
+row; first visit fetches `/effects/trending` twice (this section + Trending effects, both free). Not committed or pushed.
+
+Frozen hashes (SHA-256, every uncommitted Discover file; cloud-workflow files are frozen in the dashboard handoff):
+
+- `components/discover/DiscoverScreen.test.ts` `74e5f672ca31746942c1bac3b98c8c5adb421a5ec201e2a6e2de1d717ea8daa4`
+- `components/discover/DiscoverScreen.tsx` `c4cf5352c4aed6e64c8bc90ef07d16f1aed4d64d5869cc50d075b1656c1d2c7e`
+- `components/discover/useGenreLink.ts` `0bfb1e22e118fdeec2ccfc27ac2d284a178fca6974c50a67f86002ca982b7d84`
+- `components/research/BrowseCategoryFeed.tsx` `3e2624d9650547e809385698d63c9ef653f7d12c51510209200a46cf516e054d`
+- `components/research/CategoryDiscovery.sources.test.tsx` `b6d74c883edeb656ce296c80170374780c2091b5dbab6a59e518d97cdb0d3d52`
+- `components/research/CategoryDiscovery.test.tsx` `4b7aa2e9c510817577683e1f43eb8b24e4267888bdf912f6b4ce7f661217490a`
+- `components/research/CategoryDiscovery.tsx` `4b4e8619eaddcdaaacd34d864be1aa918922b9ee9f683aeb7e44781d25a8b0d4`
+- `components/research/CategoryPage.tsx` `2551eff03bc960988288e5518320547489d1ef107e2f86370645c27a3d5cf6e2`
+- `components/research/ForYouFeed.test.ts` `ddaa98edd84f43e3bf55737fd471a04a3392b0f6fb26d5352c4a54542b6e1273`
+- `components/research/ForYouFeed.tsx` `b23575d9ad82275cadcd9b00f728f2c53a8961d86a0fee5f305239b8664ef70c`
+- `components/research/PasteLinkForm.tsx` `815273408dcc77a2ae833a5dc4c0489c846716dae82c5808c5e010e8b92d3dd2`
+- `components/research/PicksSection.tsx` `239c5a76647afa92f441cbc92065c6820d621c8c7351190488edfcd6f14146d3`
+- `components/research/ResearchPanel.test.ts` `157ce461c05de78b63aa966646fd3bb3292eca915e371589e43ace300e111d74`
+- `components/research/ResearchPanel.tsx` `011741f0e04b3332030b2aed76e096e44327b19f54e200972d7bef38b6aac3e8`
+- `components/research/SkillPicker.tsx` `8480442425ba14791d3de58e233358d930623e4d6e5a7f70b04a4099ca339cf7`
+- `components/social/trends/TrendRadar.test.ts` `74549112b3f0257769897e0b981ad8693170e12e0a60437e4ce4ae0e4f8e9bc2`
+- `data/genres.test.ts` `27e3583e9429536261d4c25159af720df7954f67056e2f0cbd697628e51d6038`
+- `data/genres.ts` `04845917517240d916fac32f0fa4ab3b11d0bf4ae7f5a65d85f5551cc88f6747`
+- `e2e/discover-creator.spec.ts` `ee2c60471a6135071e1cf5871520991853e88b298d4fd135aaadc727379a3c82`
+- `e2e/discover-native-search.spec.ts` `bff88ceb76e22d1c426d50e9830c42e5c13049218cc1d2e7c200cd8e125e878e`
+- `e2e/discover-project-evidence.spec.ts` `216affe00de676a2308014f1dbc0ff09dc26de3d5c8f941fa4f26988451c5f7c`
+- `e2e/discover-tiktok-access.spec.ts` `d47c17461e4fd4aca0e2757d3d53c678d554b3d27d339b1899e45369f667fc73`
+- `e2e/discover.spec.ts` `f93a7d80b1557740693a91a957fbb35af01ab936922edfdb0e8f73a846626b56`
+- `e2e/helpers.ts` `bbe1215b721397c85e48c2af67bf4d0ffa5fc8e549af9b3dbf4e48999152a6c1`
+- `e2e/research.spec.ts` `1eebb244d8128d55abc7ac823e725fc6e5ecfcb59b75f4440008d677a2726e04`
+- `e2e/scout.spec.ts` `5979f842f80e3779bc710c0e55c2b2d244064b116a08092694c3da34811fd14a`
+- `e2e/trends.spec.ts` `ce5ae75bb1df8895412de18c71997d73bd1ca23d2f76d2ba48f04b58a65870ea`
+- `lib/discoverFeed.test.ts` `babea60b66dace4c81b621b557e95c172f790145d526cd62b78163a670719ff5`
+- `lib/discoverNativeSearch.ts` `5ed4f6b21dd15ac12bc0deb92bddf44ea5a27a15df8368b758e57ef2dc4bf426`
+- `lib/discoverPrompts.test.ts` `701d85c73da585f5bf85e2ca0e335950a7943a15c5d64d9c8e285366222eb8c4`
+- `lib/discoverPrompts.ts` `5ca6910497cb1d382e0ba5ce615dac878259b12f35c1262fb866d9506d2cc4e0`
+- `lib/discoverRanking.test.ts` `44a87d5b059e48999bb2a4a01fc79d72e79a7cfc942096f4fb7c90072a82d8b7`
+- `lib/domain.ts` `e5ab1d2dd6f8e9727f469d144a76dcdbab34743ab616edfe5d7414f44a09fa9a`
+- `lib/genres.test.ts` `9ee77c16bb28c02714d51316b607b4bbefed7e6bd8ba1d1a8d2571ff030994a0`
+- `lib/genres.ts` `d6df34815c889bab299a7817936de0d7367aa175ab0b0b7b6ab779b350b64354`
+- `lib/trends.test.ts` `52ac119666e383c3e9d8aba40a6d45b4aeb81b9e37d91872a5700b3e2e87b521`
+- `messages/ar.json` `bde385aca5ae52de8f518734a938e64ab2d44cfb39f6a671584cbf4ab78a52da`
+- `messages/calendar.ar.json` `e4fa66735ab34d0396ea90bc3d0cd767eaf853df012a863655ee5462d7b059c4`
+- `messages/calendar.en.json` `513827a136e3a10e3da9c91d1b01293accc283a2060bc46b91f26af7bd9845d0`
+- `messages/creator.ar.json` `29698c8789db5231964cef71c314cd34a0b154ce6fa27a946cbf1263c05b7111`
+- `messages/creator.en.json` `fe47f5c7d17f9d835ef346043595afd7581e184d5b7b8cf19b6b96df23213f21`
+- `messages/en.json` `b00434d8b95062705daf4051e57f8ee1cb316b434ed0a6dedb7341e26948b6a2`
+- `messages/feed.ar.json` `b3299451ea55997367c27a581a5af2266214ec3bcf8a7cf84bcc3d3a821f72c8`
+- `messages/feed.en.json` `6513bf904bcc796393257fb0b5946d112c6ef67ac0d97f88936d39dbb8994bfb`
+- `messages/genres.ar.json` `41e71aad40c5d57def80ec6c32943798021c41be9c1899813b2eb2c2561e388d`
+- `messages/genres.en.json` `624397add417b7023247bc49a89cb3fe0e9c3fea718bc0cf4dd0436ddcdaffae`
+- `messages/growth.ar.json` `1af2d5225ac06f238f4230843f780492247ba48d1adc88c6efa3aa1f9f841ad6`
+- `messages/growth.en.json` `3d36464e7996ae46e32c637ea5cb2d0b62257de37fee12067a2d5f02acc623ff`
+- `messages/map.ar.json` `9292f249314ee4da28665383e12a7f94559184e7d769d14ea72fd46913673021`
+- `messages/map.en.json` `7f387d203ea40736b5120caec56e723b838686d844ace44014829597457e42e3`
+- `messages/player.ar.json` `4515384c6a0ab2f011152ca54b40a17445d8086c7fe46a0cc3f094481c61c461`
+- `messages/player.en.json` `6dbafa63f262b86041123c5acb17b8953a4cecaaa9bb0df47f284bd7d1e900f9`
+- `messages/review.ar.json` `52c2d1381a05387059690629080ac8f16f05d5b5af91482efb4626c512a1b7d8`
+- `messages/review.en.json` `ccaa77f2cd75ab18073e978b3ad6468f28b4e9ca62556724ad733572f6239296`
+- `messages/rewards.ar.json` `4ac18603650f66e06adaba4685547882dc8a5daafaca7079f8e8619db5962d7d`
+- `messages/rewards.en.json` `78626f1450edcb0cb9bb3f9483e84bc491806567630484b8cfe63daf0667bcea`
+- `messages/search.ar.json` `7648a173b2114c0faf1437a6fa4ae0a39e468886bcc0e98f72f328e5bbe8069f`
+- `messages/search.en.json` `fd63aae655c28040a88987d4006d617acf72b02fae0cc2ae557d67ee3547efeb`
+- `messages/social.ar.json` `ce22dc43ecf60497209fa8cfe0579bd7df4a0adbfe222c8a43d608021ef990fd`
+- `messages/social.en.json` `c5ffbef91681ed6fefec6ae361bb2771ca591d5f313851175b46e64a7543d35a`
+- `messages/tiktok.ar.json` `3afa42b47a83919b333de9e5bed27dd7dba4290f1a80551d976c204309b50af8`
+- `messages/tiktok.en.json` `da54ea4210936d82ea9572eaf54fc4c3a88233b8545f20f530546ae8797ae90a`
+- `messages/today.ar.json` `808023ad034e1e5eb44171fc4660804fd26177dc25afa2fa8297ac97c1bb5f4e`
+- `messages/today.en.json` `97a295d556f475fed6a48749c0a929c26faf14a88437a3d9bf9d2bac9abaea20`
+- `messages/trends.ar.json` `c6aab41278bb81a394bbfe51f2511b89f744cc18fd4f32c297d6ccdf3cd33a6b`
+- `messages/trends.en.json` `9deb81d7e06fcff0fa88fa8f9c16d4add688f9f0ed83c2502e152323ab8e5618`
+- `messages/xp.ar.json` `9a3688f60c0117d538bf5f0f5d31c88e98318ee642afa4d5c0675311665bdab0`
+- `messages/xp.en.json` `fc2bb883713c4ce563b6be5fd732bfdaa9434f02eb143035c4d49deda9e46afa`
+- `workers/scout/src/categories/defs.test.ts` `d489badf8417ec3cd95cd9a45c249c0bfb5235d34791e0402436bdbc8fc2168c`
+- `workers/scout/src/categories/defs.ts` `3fc8f473cd824184a4d7aace208329e060753fe475bf49b842eb027b00c2dae4`
+- `workers/scout/src/categories/lessons.test.ts` `832d34f92cb3e3a01751b98afd705cdd6a6af8b26088e9394f9d79271e9272ec`
+- `workers/scout/src/categories/lessons.ts` `c6f1e8b89cc47c82237ffedaeafa69fb4d4ac7241ba6f4e9a9935b2a654034fe`
+- `workers/scout/src/categories/quality.test.ts` `b5323411d850ff03c0a65cfdfd4c9fff1e8ff12f3585fb8fc0f741e65f56be70`
+- `workers/scout/src/categories/quality.ts` `1d300603a667cfaca1b3b0814bb35065cf1cc94c49bb30d550193d04a948cf9b`
+- `workers/scout/src/categories/routes.test.ts` `e9d6ee5b95a70973418831a7c79b2d976098583c45b37e95439a949e227bb9a8`
+- `workers/scout/src/categories/run.test.ts` `c2943ab0990617235d94dbb1f6bea7b875fb78e2d2dc5a5408854aa78782f16c`
+- `workers/scout/src/categories/run.ts` `ff0228befe047d3eb1d9163a3f82d17d066d36592d844b775a84fa5caece3c64`
+- `workers/scout/src/categories/tiktok.test.ts` `5dcb55359e1e6ee40ec28c8c72fb9e81139dad55eb6ae091926524be43aae8f8`
+- `workers/scout/src/categories/tiktok.ts` `049d70e47c39e4ad29f88de8e60e2e09af3462e2d46a26e4202ddce9f8a1e451`
+- `workers/scout/src/discover/category-profiles.ts` `aab141306760aa7c97f87333b150318251b187c8675e531992f666b9108fc71c`
+- `workers/scout/src/trends/genres.ts` `f4bf07f6fd87e47d7a0208353f14d9ea533e431d3baf41a348bb34162767558f`
+- `workers/scout/src/trends/trends.test.ts` `fa66dd813cdcc8ae808ea7cf6d18f0f3757ad9b504b0e4209af14c6bbd9f8632`
+- `components/research/CategoryTrends.test.tsx` `dc45372d911f107d7d891ed598ee0dec370e3baed2238b7e3a3a1330106239d8`
+- `components/research/CategoryTrends.tsx` `4f986f8431b95e0780e7174e3e2e994ae414b24b1f77737e5a61f651381504a4`
+- `components/research/GenreGroups.test.tsx` `26f3c1f897d2c5660c90a9fdf0bbb703fdfcc510c55d801077e1c1364f4aff07`
+- `components/research/GenreGroups.tsx` `214180b6800af90db65c014f0c13224502b151ac8dcef3d0b5b3967165f3caf3`
+- `components/research/TrendingEdits.test.tsx` `7b79548451e462acc1225a735ad7e6bad1350439d774d27bd215fd1dd778dba7`
+- `components/research/TrendingEdits.tsx` `606b4748e62bda323fd83bcde209dad8c7add2db5fcf52c1aba954df96247852`
+- `lib/trendingEdits.test.ts` `84782c4b3e1ae8306919c94a2cbf70b3fd74eb4e1450ab0e4c2e3c7728ded3d2`
+- `lib/trendingEdits.ts` `750074960768e2817917bc2a48e21196433a093c812ecc53bbbbcecf5db81800`
+
+## Discover: Trending edits — real-data test and enhancement round — 23 Oct 2026 12:15 AST
+Implementation owner: Claude Sonnet 5.5 writer (planner Fable 5.1; reviewer Claude). Planner test in the owner Chrome (extension, profile with the Worker configured): daily effects doc updatedAt 2026-10-23T05:35Z, status ok, 12 items (freeze frame 21 creators, glitch 16, smooth slow motion 11, speed ramp 8, mask transition 7, clone effect 6, text animation 5, keyframes 4, beat sync 4, Makeup Transition 3 growth 3, Reverse Effect 3 growth 3, motion blur 3) - every item has samples 0 and no evidenceVersion in the cached doc, so the new section drops all 12 (no date) while the old Trending effects chips show them. Local corpus (IndexedDB 3z-prod-discover): 1,160 candidates, 15 categories, 940 creators, 1,100 dated, 1,111 with captions, but only 37 posted in the last 14 days (yt 584 / tt 351 / ig 225). Result: "Nothing trending yet" despite real signal. Fixes: (1) Worker rows render without samples using the scan date as proof; (2) local window 30 days with a 14-day recency condition for trending; (3) samples/evidenceVersion pass-through investigated; (4) rising from Worker growth; (5) honest stats footer. No push/deploy.
+
+### Writer record — enhancement round (Sonnet 5.5, 23 Oct 2026)
+Starting SHA-256: lib/trendingEdits.ts 750074960768e281...; components/research/TrendingEdits.tsx 606b4748e62bda32...; lib/effects.ts 30c6736943c1cec7... (full: 750074960768e2817917bc2a48e21196433a093c812ecc53bbbbcecf5db81800 / 606b4748e62bda323fd83bcde209dad8c7add2db5fcf52c1aba954df96247852 / 30c6736943c1cec79d2419bd593c5bdf03fd39a5447bb8e23190062529e695d6).
+Plan: (1) lib/effects.ts: TrendingEffects also carries `ranOn` (parsed, string only; no validation loosened). (2) lib/trendingEdits.ts: Worker rows need only creators >= 2 and a real date: newest dated in-window sample, else the doc's scan date (updatedAt, whose age is already gated at 3 days); Worker-only tier "trending" when creators >= 10 or growth >= 1.5... see below; rising = growth >= 1.5 (effects) with merged rising = either; local window 30 days for counting, trending also needs a post in the last 14 days, emerging 2+ creators in 30 days; export a `trendingEditStats` helper for the footer (posts read, posts in 14 days, scan date). (3) components/research/TrendingEdits.tsx: examples block only when examples exist, stats footer `data-testid="trending-edits-stats"`, scan-date proof wording. (4) messages/feed.{ar,en}.json: proof/footer strings. (5) tests: lib/trendingEdits.test.ts, components/research/TrendingEdits.test.tsx, e2e/discover.spec.ts mock.
+Plan amendment: `ranOn` was NOT added to the parser (it changed 4 existing effects.test.ts toEqual results for no gain: rows are only shown while `updatedAt` is under 3 days old, so the scan date is `updatedAt`). lib/effects.ts is byte-identical to its start (30c6736943c1cec7...; I briefly ran `git checkout` on it, which only rewrote it as CRLF, then restored LF: same hash).
+Changed files (SHA-256): lib/trendingEdits.ts f9cd78e2a19519b9ec8e7c416ede03eee365616bc429e451f7335a48d8d2b68c; lib/trendingEdits.test.ts 434b588fe11771960d20f00317e2945d116e22bcbe46952d07fee8ca06d3d150; components/research/TrendingEdits.tsx d96988049d944c1ed4a1ed3fd75920135266de38ff780e34a465b0dc66b630b2; components/research/TrendingEdits.test.tsx 381bbeca7fbc8640983093190e6257007c825e48fe48074af00bdc5509d64a73; messages/feed.en.json 828fb32f231e4e05c302ab905465290d3f5bd2d382eadd5be3446ee7550097a3; messages/feed.ar.json 963f19a68365fd816271ef2ce3c46db44be48f1181b7a26e0a778611efa9d464; e2e/discover.spec.ts eab8cd6cea176f9957af7d1f17874140196537347b64dc95442b64888705c7a3.
+What changed: Worker rows need creators >= 2 only; dates = samples inside 14 days else the scan day (`scanDated`); Worker-only tier trending at creators >= 10 or growth >= 2, else emerging; rising = growth >= 1.5 (formats: never), merged rising = either; local window 30 days, trending also needs a post in the last 14 days, emerging 2+ creators in 30 days; new exports `workerScanDay`, `postCounts`; component: proofScan line, example grid only when examples exist, a row with no examples at all stays (hidden only when every example belonged to another editor), stats footer `trending-edits-stats` (no scan part without a Worker); messages: proofScan, stats, statsLocal, and `feed.edits.honest` reworded for the 30/14 rule (AR Hijazi).
+Tests changed on purpose: lib test "counts only posts from the last 14 days" -> 30 days (b 40 days ago); Worker test now expects 2 rows (the undated speed ramp renders) and rising true for growth 1.5; e2e Trending edits: "Effects without dated samples make no row / count 1" -> 9 rows (EFFECTS has 8 items + the new freeze-frame creators 21 samples []); e2e navigation test "trending-edits-empty visible" -> first trending-edit visible and empty hidden (the default EFFECTS mock now fills the section with a Worker configured). Added: local 30/14 cases, scan-date rows, tier/rising thresholds, merged rising, workerScanDay/postCounts, component no-samples row and footer text (with and without Worker), e2e freeze frame (21, trending, scan date in proof, no examples) and footer.
+Commands (logs in C:/Users/AORUS/.claude/dashboard-work/discover-trending-edits/logs/enh/): vitest focus (trendingEdits, effects, components/research, messages) exit 0, 32 files / 680 tests; prettier --write/--check exit 0; `npx tsc --noEmit --incremental false` exit 0 and `pnpm typecheck` (worker part with --incremental false) exit 0; eslint on changed exit 0; `pnpm lint` exit 0; full `vitest run --maxWorkers=4 --exclude "workers/**"` exit 0, 218 files / 4634 tests; `pnpm build` exit 0; curl localhost:3000/discover/ sha256 = out/discover/index.html sha256 = 3387934c6f00910a2f2dd0ece6f000ee42d4c28e3eb4a136d08be0522d9a4ba0 (server untouched); `pnpm e2e --output=.../pw-results e2e/discover.spec.ts e2e/discover-feed.spec.ts` exit 0, 48 passed (first run failed 4 on two e2e expectations that had to change and a lost-backslash regex; fixed).
+Finding (evidenceVersion/samples): the app does not strip them. lib/effects.ts:133-135 keeps `evidenceVersion` only when the Worker sends exactly 1, and :112/:140 trust `samples` only then; the cache stores the parsed doc (:191-192). The Worker route passes evidenceVersion through (workers/scout/src/effects/routes.ts:46,50) and a run writes it (effects/run.ts:409), so a cached doc without it means the stored document came from a run before that code was deployed (the deployed Worker/doc is older than this source). Even with it, items[].samples are filtered server-side to posts 0-6 days old and at most 2 (effects/score.ts:160-166), so `samples: []` is normal; no Worker change made.
+Concerns: (1) a legacy doc (no evidenceVersion) counts "creators" under the old rules; the parser comment says older numbers are untrustworthy, yet rows now render them as "identified accounts" per the packet; redeploy the Worker and rerun the scan so evidenceVersion 1 docs replace it. (2) discoverForYou caps rows at 500, so the local 30-day counts see at most 500 of the 1,160 candidates; the footer "posts read" is candidates.length and "recent" counts all candidates by their own dates. (3) Worker-only rows now outnumber local ones (up to 12 shown); merged order stays trending, rising, creators, latest date.
+
+Ranking fixes (coordinator, after the real-data check; same writer):
+1. Sort is now trending first, then creators (desc), then rising (tie-breaker only), then latest day; the rising chip still shows. Worker-only "trending" = creators >= 10, or growth >= 2 with creators >= 5 (3 or 4 accounts at x3 growth is emerging and rising).
+2. Merged tier stays the better of the two sources, each judged by its own rule (local rule on posts Discover read; Worker rule on the scan). New fields `localCreators` and `scanCreators` carry each source count; a row with both shows "<local> creators · <k> categories · <first> → <last> · scan: <n> identified accounts in 7 days" (key `feed.edits.proofBoth`, AR Hijazi added); local examples kept. The row `creators` field stays the maximum, used only for sorting. Likely cause of the speed ramp case: the local side alone was emerging (under 3 creators or no post in 14 days) and the 8 shown was the scan count; the proof now says so.
+Tests: lib (tier thresholds incl. 4 at x3 and 5 at x2, sort order and rising tie-break, merged better-tier with both counts); component proof line for a merged row; e2e Trending edits (freeze frame first, clone effect merged proof, swagger trend emerging + rising).
+Changed (SHA-256 prefix): lib/trendingEdits.ts 3252f0ec2967; lib/trendingEdits.test.ts 4718d608d7fc; components/research/TrendingEdits.tsx 22d0b8f2172e; components/research/TrendingEdits.test.tsx 0f5be4ee75eb; messages/feed.en.json 88b25f1b49d3; messages/feed.ar.json f97520da8887; e2e/discover.spec.ts e5a803ec2147. lib/effects.ts unchanged (30c6736943c1).
+Gates (logs in logs/enh2/): vitest lib/trendingEdits + lib/effects + components/research + messages exit 0, 32 files / 681 tests; Prettier and ESLint on changed exit 0; tsc --noEmit --incremental false exit 0; pnpm lint exit 0; pnpm build exit 0; served /discover/ == out/discover/index.html (4c92f61b444b22c9, server not touched); pnpm e2e e2e/discover.spec.ts exit 0, 46 passed. Full vitest and discover-feed e2e not re-run (files untouched by this fix beyond the trending section).
+
+Consistency fix (coordinator, color grading vs speed ramp; same writer):
+Cause: the local trending rule needs a post in the last 14 days; a local row with the breadth (3+ posts, 3+ creators, 2+ categories) but its newest post older than 14 days was "emerging", and the merge only upgraded a tier when a source was already trending. The scan day (a real date, not a post date) still extended the merged last day to today, so the proof read "4 Oct -> 23 Oct" and looked recent. The literal case in the request (local 3 creators / 2 categories / last day today + 8 scan accounts, growth 0) already merged to trending; it was not the failing case (test kept as a guard). Reproduced case: same breadth, newest post 20 days old + 8 scan accounts: was emerging.
+Fix: local rows now carry `needsRecent` when the breadth is met without a recent post; the merge makes a row trending when either source is trending or a `needsRecent` local row meets a scan count (>= 2 identified accounts in 7 days, the scan supplying the recent part). Narrow local rows (2 creators) and local-only stale rows stay emerging. The row dates and the 30/14 local rule are unchanged.
+Tests: lib (fresh posts + 8 accounts trend; breadth with newest post 20 days old is emerging alone, trending with the scan, still emerging with 2 creators); e2e Trending edits: speed ramp from 3 local posts 20-22 days old (2 categories) + the mocked scan merges to a trending row with proof "3 creators . 2 categories . dates . scan: 3 identified accounts in 7 days"; footer expectation 3 -> 6 posts read.
+Changed (SHA-256 prefix): lib/trendingEdits.ts 296b33fc4431; lib/trendingEdits.test.ts 0c8ebd15c71e; e2e/discover.spec.ts bbb14d53914b. Component, messages and lib/effects.ts unchanged from the previous round.
+Gates (logs in logs/enh3/): vitest lib/trendingEdits + lib/effects + components/research + messages exit 0, 32 files / 682 tests; Prettier and ESLint on changed exit 0; tsc --noEmit --incremental false exit 0; pnpm lint exit 0; pnpm build exit 0; served /discover/ == out/discover/index.html (44b9d667073673a6, server untouched); pnpm e2e e2e/discover.spec.ts exit 0, 46 passed (first run failed 2 on the footer count after the extra seeded posts; updated).
+
+### Freeze — Trending edits enhancement round (planner, 23 Oct 2026 12:45 AST)
+
+Implementation owner: none. Reviewer: Claude (planner-verified against the owner's real browser data through the Chrome
+extension; three rounds: Worker rows without samples render with the scan date, local 30/14-day rule, stats footer;
+ranking by creators within a tier with rising as tie-breaker and Worker-only trending at ≥ 10 accounts or ≥ 5 with
+growth ≥ 2; merged rows: a broad-but-stale local row becomes trending when the scan supplies recency, proof line shows
+both sources). Finding on the owner's cached effects doc: no `evidenceVersion` and `samples: []` — the app parser and
+Worker route pass them through (lib/effects.ts:112-140, effects/routes.ts:46-50, run.ts:409), so the doc predates the
+deployed code; Worker samples are 0–6 days old and ≤ 2 by design. Carried: the Worker should be redeployed and the scan
+rerun so counts come from the current rules; `discoverForYou` caps local rows at 500 of 1,160 candidates (footer counts
+all). Gates on the final code: focused 682 (lib/trendingEdits, lib/effects, components/research, messages), Prettier,
+non-incremental `tsc`, `pnpm lint`, `pnpm build` exit 0; full `vitest --exclude workers/**` 218 files 4,634/4,634 ran
+after round 1 (rounds 2–3 touched lib/trendingEdits.ts, its test and e2e/discover.spec.ts only); served /discover/
+equals out/ (`44b9d667…`); e2e discover 46/46 (+ discover-feed 48 in round 1). Real-data result in the owner's Chrome:
+12 rows — trending: freeze frame 21, glitch 16, smooth slow motion 11, speed ramp (3 creators · 2 categories · scan 8),
+color grading (3 · 2); emerging: mask transition 7, clone effect 6, text animation 5, keyframes 4, beat sync 4, makeup
+transition 3 ↑, reverse effect 3 ↑; footer "1160 posts read (36 in the last 14 days) · daily scan 23 Oct". Not committed
+or pushed.
+
+Frozen hashes (SHA-256, every uncommitted Discover file; cloud-workflow files are frozen in the dashboard handoff):
+
+- `components/discover/DiscoverScreen.test.ts` `74e5f672ca31746942c1bac3b98c8c5adb421a5ec201e2a6e2de1d717ea8daa4`
+- `components/discover/DiscoverScreen.tsx` `c4cf5352c4aed6e64c8bc90ef07d16f1aed4d64d5869cc50d075b1656c1d2c7e`
+- `components/discover/useGenreLink.ts` `0bfb1e22e118fdeec2ccfc27ac2d284a178fca6974c50a67f86002ca982b7d84`
+- `components/research/BrowseCategoryFeed.tsx` `3e2624d9650547e809385698d63c9ef653f7d12c51510209200a46cf516e054d`
+- `components/research/CategoryDiscovery.sources.test.tsx` `b6d74c883edeb656ce296c80170374780c2091b5dbab6a59e518d97cdb0d3d52`
+- `components/research/CategoryDiscovery.test.tsx` `4b7aa2e9c510817577683e1f43eb8b24e4267888bdf912f6b4ce7f661217490a`
+- `components/research/CategoryDiscovery.tsx` `4b4e8619eaddcdaaacd34d864be1aa918922b9ee9f683aeb7e44781d25a8b0d4`
+- `components/research/CategoryPage.tsx` `2551eff03bc960988288e5518320547489d1ef107e2f86370645c27a3d5cf6e2`
+- `components/research/ForYouFeed.test.ts` `ddaa98edd84f43e3bf55737fd471a04a3392b0f6fb26d5352c4a54542b6e1273`
+- `components/research/ForYouFeed.tsx` `b23575d9ad82275cadcd9b00f728f2c53a8961d86a0fee5f305239b8664ef70c`
+- `components/research/PasteLinkForm.tsx` `815273408dcc77a2ae833a5dc4c0489c846716dae82c5808c5e010e8b92d3dd2`
+- `components/research/PicksSection.tsx` `239c5a76647afa92f441cbc92065c6820d621c8c7351190488edfcd6f14146d3`
+- `components/research/ResearchPanel.test.ts` `157ce461c05de78b63aa966646fd3bb3292eca915e371589e43ace300e111d74`
+- `components/research/ResearchPanel.tsx` `011741f0e04b3332030b2aed76e096e44327b19f54e200972d7bef38b6aac3e8`
+- `components/research/SkillPicker.tsx` `8480442425ba14791d3de58e233358d930623e4d6e5a7f70b04a4099ca339cf7`
+- `components/social/trends/TrendRadar.test.ts` `74549112b3f0257769897e0b981ad8693170e12e0a60437e4ce4ae0e4f8e9bc2`
+- `data/genres.test.ts` `27e3583e9429536261d4c25159af720df7954f67056e2f0cbd697628e51d6038`
+- `data/genres.ts` `04845917517240d916fac32f0fa4ab3b11d0bf4ae7f5a65d85f5551cc88f6747`
+- `e2e/discover-creator.spec.ts` `ee2c60471a6135071e1cf5871520991853e88b298d4fd135aaadc727379a3c82`
+- `e2e/discover-native-search.spec.ts` `bff88ceb76e22d1c426d50e9830c42e5c13049218cc1d2e7c200cd8e125e878e`
+- `e2e/discover-project-evidence.spec.ts` `216affe00de676a2308014f1dbc0ff09dc26de3d5c8f941fa4f26988451c5f7c`
+- `e2e/discover-tiktok-access.spec.ts` `d47c17461e4fd4aca0e2757d3d53c678d554b3d27d339b1899e45369f667fc73`
+- `e2e/discover.spec.ts` `bbb14d53914bba82867901a8cac1cec32bf7ff1e17a9a473917991b0d7085b0d`
+- `e2e/helpers.ts` `bbe1215b721397c85e48c2af67bf4d0ffa5fc8e549af9b3dbf4e48999152a6c1`
+- `e2e/research.spec.ts` `1eebb244d8128d55abc7ac823e725fc6e5ecfcb59b75f4440008d677a2726e04`
+- `e2e/scout.spec.ts` `5979f842f80e3779bc710c0e55c2b2d244064b116a08092694c3da34811fd14a`
+- `e2e/trends.spec.ts` `ce5ae75bb1df8895412de18c71997d73bd1ca23d2f76d2ba48f04b58a65870ea`
+- `lib/discoverFeed.test.ts` `babea60b66dace4c81b621b557e95c172f790145d526cd62b78163a670719ff5`
+- `lib/discoverNativeSearch.ts` `5ed4f6b21dd15ac12bc0deb92bddf44ea5a27a15df8368b758e57ef2dc4bf426`
+- `lib/discoverPrompts.test.ts` `701d85c73da585f5bf85e2ca0e335950a7943a15c5d64d9c8e285366222eb8c4`
+- `lib/discoverPrompts.ts` `5ca6910497cb1d382e0ba5ce615dac878259b12f35c1262fb866d9506d2cc4e0`
+- `lib/discoverRanking.test.ts` `44a87d5b059e48999bb2a4a01fc79d72e79a7cfc942096f4fb7c90072a82d8b7`
+- `lib/domain.ts` `e5ab1d2dd6f8e9727f469d144a76dcdbab34743ab616edfe5d7414f44a09fa9a`
+- `lib/effects.ts` `30c6736943c1cec79d2419bd593c5bdf03fd39a5447bb8e23190062529e695d6`
+- `lib/genres.test.ts` `9ee77c16bb28c02714d51316b607b4bbefed7e6bd8ba1d1a8d2571ff030994a0`
+- `lib/genres.ts` `d6df34815c889bab299a7817936de0d7367aa175ab0b0b7b6ab779b350b64354`
+- `lib/trends.test.ts` `52ac119666e383c3e9d8aba40a6d45b4aeb81b9e37d91872a5700b3e2e87b521`
+- `messages/ar.json` `bde385aca5ae52de8f518734a938e64ab2d44cfb39f6a671584cbf4ab78a52da`
+- `messages/calendar.ar.json` `e4fa66735ab34d0396ea90bc3d0cd767eaf853df012a863655ee5462d7b059c4`
+- `messages/calendar.en.json` `513827a136e3a10e3da9c91d1b01293accc283a2060bc46b91f26af7bd9845d0`
+- `messages/creator.ar.json` `29698c8789db5231964cef71c314cd34a0b154ce6fa27a946cbf1263c05b7111`
+- `messages/creator.en.json` `fe47f5c7d17f9d835ef346043595afd7581e184d5b7b8cf19b6b96df23213f21`
+- `messages/en.json` `b00434d8b95062705daf4051e57f8ee1cb316b434ed0a6dedb7341e26948b6a2`
+- `messages/feed.ar.json` `f97520da888738527306c3b31fa41e55bf827e85b0c937e832fdddfe6dbd8a00`
+- `messages/feed.en.json` `88b25f1b49d3901017f82cf219e1cdcd99e1c2cf1105c5774c05b67d8afee88f`
+- `messages/genres.ar.json` `41e71aad40c5d57def80ec6c32943798021c41be9c1899813b2eb2c2561e388d`
+- `messages/genres.en.json` `624397add417b7023247bc49a89cb3fe0e9c3fea718bc0cf4dd0436ddcdaffae`
+- `messages/growth.ar.json` `1af2d5225ac06f238f4230843f780492247ba48d1adc88c6efa3aa1f9f841ad6`
+- `messages/growth.en.json` `3d36464e7996ae46e32c637ea5cb2d0b62257de37fee12067a2d5f02acc623ff`
+- `messages/map.ar.json` `9292f249314ee4da28665383e12a7f94559184e7d769d14ea72fd46913673021`
+- `messages/map.en.json` `7f387d203ea40736b5120caec56e723b838686d844ace44014829597457e42e3`
+- `messages/player.ar.json` `4515384c6a0ab2f011152ca54b40a17445d8086c7fe46a0cc3f094481c61c461`
+- `messages/player.en.json` `6dbafa63f262b86041123c5acb17b8953a4cecaaa9bb0df47f284bd7d1e900f9`
+- `messages/review.ar.json` `52c2d1381a05387059690629080ac8f16f05d5b5af91482efb4626c512a1b7d8`
+- `messages/review.en.json` `ccaa77f2cd75ab18073e978b3ad6468f28b4e9ca62556724ad733572f6239296`
+- `messages/rewards.ar.json` `4ac18603650f66e06adaba4685547882dc8a5daafaca7079f8e8619db5962d7d`
+- `messages/rewards.en.json` `78626f1450edcb0cb9bb3f9483e84bc491806567630484b8cfe63daf0667bcea`
+- `messages/search.ar.json` `7648a173b2114c0faf1437a6fa4ae0a39e468886bcc0e98f72f328e5bbe8069f`
+- `messages/search.en.json` `fd63aae655c28040a88987d4006d617acf72b02fae0cc2ae557d67ee3547efeb`
+- `messages/social.ar.json` `ce22dc43ecf60497209fa8cfe0579bd7df4a0adbfe222c8a43d608021ef990fd`
+- `messages/social.en.json` `c5ffbef91681ed6fefec6ae361bb2771ca591d5f313851175b46e64a7543d35a`
+- `messages/tiktok.ar.json` `3afa42b47a83919b333de9e5bed27dd7dba4290f1a80551d976c204309b50af8`
+- `messages/tiktok.en.json` `da54ea4210936d82ea9572eaf54fc4c3a88233b8545f20f530546ae8797ae90a`
+- `messages/today.ar.json` `808023ad034e1e5eb44171fc4660804fd26177dc25afa2fa8297ac97c1bb5f4e`
+- `messages/today.en.json` `97a295d556f475fed6a48749c0a929c26faf14a88437a3d9bf9d2bac9abaea20`
+- `messages/trends.ar.json` `c6aab41278bb81a394bbfe51f2511b89f744cc18fd4f32c297d6ccdf3cd33a6b`
+- `messages/trends.en.json` `9deb81d7e06fcff0fa88fa8f9c16d4add688f9f0ed83c2502e152323ab8e5618`
+- `messages/xp.ar.json` `9a3688f60c0117d538bf5f0f5d31c88e98318ee642afa4d5c0675311665bdab0`
+- `messages/xp.en.json` `fc2bb883713c4ce563b6be5fd732bfdaa9434f02eb143035c4d49deda9e46afa`
+- `workers/scout/src/categories/defs.test.ts` `d489badf8417ec3cd95cd9a45c249c0bfb5235d34791e0402436bdbc8fc2168c`
+- `workers/scout/src/categories/defs.ts` `3fc8f473cd824184a4d7aace208329e060753fe475bf49b842eb027b00c2dae4`
+- `workers/scout/src/categories/lessons.test.ts` `832d34f92cb3e3a01751b98afd705cdd6a6af8b26088e9394f9d79271e9272ec`
+- `workers/scout/src/categories/lessons.ts` `c6f1e8b89cc47c82237ffedaeafa69fb4d4ac7241ba6f4e9a9935b2a654034fe`
+- `workers/scout/src/categories/quality.test.ts` `b5323411d850ff03c0a65cfdfd4c9fff1e8ff12f3585fb8fc0f741e65f56be70`
+- `workers/scout/src/categories/quality.ts` `1d300603a667cfaca1b3b0814bb35065cf1cc94c49bb30d550193d04a948cf9b`
+- `workers/scout/src/categories/routes.test.ts` `e9d6ee5b95a70973418831a7c79b2d976098583c45b37e95439a949e227bb9a8`
+- `workers/scout/src/categories/run.test.ts` `c2943ab0990617235d94dbb1f6bea7b875fb78e2d2dc5a5408854aa78782f16c`
+- `workers/scout/src/categories/run.ts` `ff0228befe047d3eb1d9163a3f82d17d066d36592d844b775a84fa5caece3c64`
+- `workers/scout/src/categories/tiktok.test.ts` `5dcb55359e1e6ee40ec28c8c72fb9e81139dad55eb6ae091926524be43aae8f8`
+- `workers/scout/src/categories/tiktok.ts` `049d70e47c39e4ad29f88de8e60e2e09af3462e2d46a26e4202ddce9f8a1e451`
+- `workers/scout/src/discover/category-profiles.ts` `aab141306760aa7c97f87333b150318251b187c8675e531992f666b9108fc71c`
+- `workers/scout/src/trends/genres.ts` `f4bf07f6fd87e47d7a0208353f14d9ea533e431d3baf41a348bb34162767558f`
+- `workers/scout/src/trends/trends.test.ts` `fa66dd813cdcc8ae808ea7cf6d18f0f3757ad9b504b0e4209af14c6bbd9f8632`
+- `components/research/CategoryTrends.test.tsx` `dc45372d911f107d7d891ed598ee0dec370e3baed2238b7e3a3a1330106239d8`
+- `components/research/CategoryTrends.tsx` `4f986f8431b95e0780e7174e3e2e994ae414b24b1f77737e5a61f651381504a4`
+- `components/research/GenreGroups.test.tsx` `26f3c1f897d2c5660c90a9fdf0bbb703fdfcc510c55d801077e1c1364f4aff07`
+- `components/research/GenreGroups.tsx` `214180b6800af90db65c014f0c13224502b151ac8dcef3d0b5b3967165f3caf3`
+- `components/research/TrendingEdits.test.tsx` `0f5be4ee75ebcb42e5c1ffc507009de069eb67f4ff8c938de7906aefe1b9f346`
+- `components/research/TrendingEdits.tsx` `22d0b8f2172e9c0ea7c5e9db6ffb52be9a73cc826c069097bece6e61b82f4881`
+- `lib/trendingEdits.test.ts` `0c8ebd15c71ed7df1115ca22c8bafb20bb69490ed04b280f30724be04786c4c0`
+- `lib/trendingEdits.ts` `296b33fc443153558c26816002a6b783a829049dc616c1dee9492bd21c9234fc`
+
+#### Fix — no preview requests from Trending edits (23 Oct 13:15 AST)
+- `ResultPreview` (components/research/ResultCard.tsx) takes `lookup` (default `true`, so every other caller is unchanged). `lookup={false}` makes `useThumb` skip `localInstagramPreview`, the Worker oEmbed and the retry timer: it renders `item.thumb` or the platform placeholder only. `TrendingEdits.tsx` passes `lookup={false}` for every example.
+- Tests: `TrendingEdits.test.tsx` now renders the real `ResultPreview` (mock removed; store mock gained `apiKeys`; the fetch stub resolves relative URLs so a local-ai call is recorded) and asserts an Instagram example makes only `GET /effects/trending` and no XHR; verified it fails (two tests) with the opt-out removed. `ResultCard.test.ts` adds `lookup={false}`: no fetch for an Instagram or TikTok preview with no picture and the placeholder shows, while the default still looks up.
+- `pnpm vitest run components/research` exit 0 (29 files, 566 tests); Prettier and ESLint on the 4 files exit 0; `tsc --noEmit --incremental false` exit 0; `pnpm typecheck` exit 0; `pnpm lint` exit 0; `pnpm build` exit 0.
+- `curl -s http://localhost:3000/discover/ | sha256sum` equals `out/discover/index.html`: `9903e32cecdff98844c9f9f9d229a56124cfea17d8389400c8481a54c68a7176` (built chunk contains `lookup:!1`).
+- `pnpm e2e` (`--output=.../pw-results-fix`) on `discover-native-video-capture.spec.ts` + `discover.spec.ts`: exit 1, 46 passed, 6 failed (the 3 capture tests x phone/desktop), still the `unexpected` allowlist receiving 2 `GET /api/local-ai/instagram-preview`. All of `discover.spec.ts` passes.
+- Remaining source (found, not changed, outside the named files): on a fresh origin (`http://127.0.0.1:3000/discover/`, empty store, Trending edits shows 0 examples) the one `instagram-preview` request comes from `components/research/EditFormats.tsx:144` `ResultPreview testId="format-preview"` (the reviewed format seed Instagram sample, mounted by `TrendingEffects` in `ResearchPanel`, inside the closed references details). So Trending edits was not the only (and, with the empty store of the spec, not the actual) source. Options for the planner: `lookup={false}` there too (format cards then show the Instagram placeholder until played), or allow that call in the spec.
+- SHA-256 (first 16): `ResultCard.tsx` 5981e18ffef9b805, `TrendingEdits.tsx` 2e5bb4309241a8c2, `TrendingEdits.test.tsx` a6b104941ffca60b, `ResultCard.test.ts` 45a462123bcd37b5.
+
+### Push gates - 23 Oct 2026 13:30 AST (planner)
+pnpm lint 0; pnpm typecheck 0; pnpm test --maxWorkers=4 291 files 7,258/7,258 (one earlier run under concurrent e2e load had 9 flaky failures, green on rerun; Windows port-range flake); pnpm build 0, served /discover/ == out/; full pnpm e2e 706 passed / 12 skipped with 8 failures in e2e/discover-native-video-capture.spec.ts. Cause: the reviewed-seed format card (EditFormats.tsx:144) looks up its Instagram thumbnail through the local server, which that spec did not allow (pre-existing; seen before the Trending edits section existed). Fix: Trending edits examples never look up previews (ResultPreview lookup=false) and the spec answers that free local lookup with 404 instead of flagging it; spec re-run 6/6. Committed and pushed to codex/discover-inspiration on the owner instruction "push".

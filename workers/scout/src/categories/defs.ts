@@ -1,6 +1,6 @@
 /**
  * Category trends (planning/tools/19-category-trends.md §2): the built-in categories of planning/data/genres.json
- * (bundled through trends/genres.ts), scanned in groups of 4 by UTC day (cars, food, anime, travel on day % 3 = 0),
+ * (bundled through trends/genres.ts), scanned in groups of 4 by UTC day (cars, food, anime, travel on day % 9 = 0),
  * one per cron slot; each category's 6 English searches, the camera words its styles may end in, its own words
  * (generic for it), the line that tells the AI what the posts are, and its KV keys.
  */
@@ -26,7 +26,8 @@ export function categoryById(id: string): Genre | undefined {
   return GENRES.find((g) => g.id === id);
 }
 
-/** A UTC day's categories, one per slot: UTC day number % 3 picks the group (12 categories, 4 a day). */
+/** A UTC day's categories, one per slot: UTC day number % 9 picks the group (35 categories, 4 a day; the 9th
+ * day holds the last 3). */
 export function categoriesForDay(day: string): string[] {
   const perDay = CATEGORY_SLOTS.length;
   const groups = Math.ceil(GENRES.length / perDay);

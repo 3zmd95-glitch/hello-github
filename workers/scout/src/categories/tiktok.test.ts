@@ -83,8 +83,42 @@ function network(over: Overrides = {}) {
 }
 
 describe("caption-grounded TikTok category discovery", () => {
-  it("covers every built-in category with an official industry", () =>
-    expect(Object.keys(TIKTOK_INDUSTRY).sort()).toEqual(GENRES.map((g) => g.id).sort()));
+  it("covers the first twelve categories and maps the others only to industries already in use", () => {
+    const ids = GENRES.map((g) => g.id);
+    for (const id of Object.keys(TIKTOK_INDUSTRY)) expect(ids).toContain(id);
+    for (const id of ids.slice(0, 12)) expect(TIKTOK_INDUSTRY[id], id).toBeDefined();
+    const known = new Set([
+      ...ids.slice(0, 12).map((id) => TIKTOK_INDUSTRY[id]),
+      TT_EFFECTS,
+      TT_PHOTO,
+    ]);
+    for (const [id, industry] of Object.entries(TIKTOK_INDUSTRY))
+      expect(known.has(industry), id).toBe(true);
+  });
+  it("answers a category without an industry with no videos and no TikTok call", async () => {
+    const fetch = network();
+    const unmapped = GENRES.map((g) => g.id).filter((id) => !TIKTOK_INDUSTRY[id]);
+    expect(unmapped.length).toBeGreaterThan(0);
+    for (const id of unmapped)
+      expect(await tiktokTop(env(), fetch, id, 1000, null), id).toEqual({ videos: [] });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["photography", TT_PHOTO],
+    ["colorgrading", TT_PHOTO],
+    ["drone", TT_PHOTO],
+    ["vfx", TT_EFFECTS],
+  ])("asks each industry once when %s's industry is an edit list (%s)", async (id, shared) => {
+    expect(TIKTOK_INDUSTRY[id]).toBe(shared);
+    const fetch = network();
+    await tiktokTop(env(), fetch, id, 1000, null);
+    const asked = fetch.mock.calls
+      .map(([url]) => new URL(String(url)))
+      .filter((u) => u.origin + u.pathname === TT_TRENDING_URL)
+      .map((u) => u.searchParams.get("category_name"))
+      .sort();
+    expect(asked).toEqual([TT_EFFECTS, TT_PHOTO].sort());
+  });
   it("requires real captions, records metadata provenance and never sends the Business token to public oEmbed", async () => {
     const fetch = network();
     const result = await tiktokTop(env(), fetch, "food", 1000, null);

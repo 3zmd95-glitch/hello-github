@@ -513,3 +513,34 @@ The owner explicitly reassigned implementation to Codex; Claude remains idle. Th
 - Local preview on localhost:3000 is left running at the owner's browsing request. Seven served pages equal the rebuilt out/ files. No Claude task, deployment, grant, provisioning, live send, push or merge. Integration, schedule/activity, purge maintenance, live readiness, TikTok Inbox and the broader backlog remain open.
 
 Evidence: C:/Users/AORUS/.codex/review-evidence/dashboard-tools/dt7c2c-c1/REPORT.md. Historical sections above retain the superseded design; this section is current.
+
+## DT-7C-3A - browser hub (22 Oct 2026, local, unactivated, not yet used by any screen)
+
+- `lib/cloudWorkflowHub.ts`: `cloudHub()` is the one browser place that holds the three controllers (registration,
+  occurrence, reconciliation). They share one plain-function `window.fetch` and use the store's persistence adapters. It
+  is created on the first call, never at import. Without a browser it returns an inert hub that refuses every action with
+  `no-browser`. The UI reads `view()` (configured origin or reason, authority, handshake state, busy keys, last result per
+  key) and `subscribe()`s to it. It also has read-only selectors that parse the stored slices through the pinned modules:
+  registrations, counts (registrations / proofs / retired markers / pending / cloud runs / journal) and cloud runs.
+- Configuration follows Settings: `configure()` runs on all three at creation and on every Scout URL/token change (one
+  store subscription). Only the origin or the refusal reason is kept; the token is never stored in the hub.
+- `lifecycleRequestFor` (planner ruling 3A-1, in `lib/cloudWorkflowRegistration.ts`) builds the next register/unregister
+  request from the key's lifecycle proof. No proof: register at epoch 0. Unregistered: its epoch. Active: register is
+  refused (`active`); unregister binds that epoch, revision and digest. An unresolved intent
+  (`isUnresolved`, the same gate as `createIntent`; ruling 3A-1 amended) is refused (`unresolved`: recover first). It
+  matches the Worker's CAS rule. Unregister builds from the verified stored proof only, so a workflow deleted locally while
+  on the cloud can still be taken off.
+- Never: a handshake on load, polling, retry, a chained action (submit never runs; reconcile never acks), a request at
+  creation or on configure, or the token in the view. Every action is exactly one controller call. `pagehide` moves the
+  store visit fence and disposes the hub. `leaveCloudScreen()` moves the visit fence and invalidates every controller
+  visit. The Worker's workflow Durable Object is still not provisioned or deployed.
+
+## DT-7C-3 — coherent dashboard integration (22 Oct 2026, local, unactivated)
+
+The cloud controllers are reachable from the dashboard: `lib/cloudWorkflowHub.ts` (one browser hub, explicit actions only),
+the Workflows Cloud card and Cloud results card (`components/social/workflows/WorkflowCloud.tsx`), Mark ready through
+`captureArticleReady`, and the Settings Cloud workflows card with the limits (100 registrations, 600 delivery records,
+100 retired markers, 4,000-unit output, 8 KiB context, 16 KiB body). Proven in installed Chrome EN/AR against the real
+Worker router on `node:sqlite` (`e2e/workflow-cloud.spec.ts`). Still not activated: the workflow Durable Object is not
+provisioned/deployed, so Check connection against the live Worker answers "not available there yet". Record and hashes:
+`planning/collaboration/dashboard-remaining-tools-handoff.md` "Freeze DT-7C-3". Reviewer: Claude (owner instruction).

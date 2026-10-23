@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ComponentProps } from "react";
+import { useEffect, useId, useMemo, useState, type ComponentProps } from "react";
 import { useT } from "@/lib/i18n";
 import { getApiKey, useStore } from "@/store";
 import { NATIVE_MAX_RESULTS, nativeResultsToItems } from "@/lib/discoverNativeSearch";
@@ -10,6 +10,7 @@ import { discoverFeedbackForItem } from "@/lib/discoverFeed";
 import { dropHiddenEditors, hiddenEditorsFor, mentionsHiddenEditor } from "@/lib/editorFilter";
 import { canonicalRefUrl, type ResearchTab } from "@/lib/research";
 import BrowseCategoryFeed from "./BrowseCategoryFeed";
+import GenreGroups from "./GenreGroups";
 import { useNativeSearch } from "./useNativeSearch";
 import { useNativeInfiniteScroll } from "./useNativeInfiniteScroll";
 import { useFeedSources } from "./useFeedSources";
@@ -17,16 +18,31 @@ import { useRecordSounds } from "./TrendingSounds";
 import ResultCard from "./ResultCard";
 import { ReferencePlatformGlyph } from "@/lib/platformIcons";
 import SaveInspirationButton from "./SaveInspirationButton";
+import CategoryTrends, { useCategoryTrendsAvailable } from "./CategoryTrends";
 
 const PLATFORMS = ["ig", "tt", "yt"] as const;
 const LABELS = { ig: "Instagram", tt: "TikTok", yt: "YouTube" };
 
-/** Native retrieval and the checked reference library have different coverage contracts. */
-export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCategoryFeed>) {
-  const { genre, active, onCategory, onBack, onOpenInspiration } = props;
+type Props = ComponentProps<typeof BrowseCategoryFeed> & {
+  /** A trending style tapped on the "Trends & lessons" collection: Discover searches it on the Search tab. */
+  onPickStyle?: (style: string) => void;
+};
+
+/** Native retrieval and the checked reference library have different coverage contracts; the Worker's
+ * trends and lessons page is the third collection. */
+export default function CategoryDiscovery(props: Props) {
+  const { genre, active, onCategory, onBack, onOpenInspiration, onPickStyle } = props;
   const { t, L, lang } = useT();
+  const queryId = useId();
   const native = useNativeSearch({ genre, active });
-  const [view, setView] = useState<"native" | "reviewed">("native");
+  // The reader's tapped view, kept with its category id: switching category starts over without a reset.
+  const [choice, setChoice] = useState<{
+    genreId: string;
+    view: "native" | "reviewed" | "trends";
+  } | null>(null);
+  const setView = (next: "native" | "reviewed" | "trends") =>
+    setChoice({ genreId: genre.id, view: next });
+  const trendsAvailable = useCategoryTrendsAvailable(genre);
   const [tab, setTab] = useState<ResearchTab>("all");
   const [popular, setPopular] = useState(false);
   const defaultQuery = nativeCategoryQuery(genre);
@@ -65,10 +81,35 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
     setPopular(false);
     setTab("all");
     setLimit(24);
+    setChoice(null);
   }
   const connected = native.connection === "connected";
-  const showNative = view === "native" && (connected || !!native.snapshot);
   const items = useMemo(() => nativeResultsToItems(native.snapshot, lang), [native.snapshot, lang]);
+  // Until a tap (kept for this category visit only), an empty native collection shows Checked references and
+  // native items show themselves; before the cache read lands neither shows, so nothing flashes. This only
+  // reads what is loaded: it never starts a search.
+  const nativeCount = native.snapshot?.genreId === genre.id ? items.length : 0;
+  const picked = choice?.genreId === genre.id ? choice.view : null;
+  // Trends & lessons only shows when picked (never the default) and while the Worker can serve it.
+  const showTrends = picked === "trends" && trendsAvailable;
+  const derivedView =
+    picked !== null
+      ? picked === "trends"
+        ? "reviewed"
+        : picked
+      : !native.ready
+        ? null
+        : nativeCount > 0
+          ? "native"
+          : "reviewed";
+  // While the next category's cache read lands (and nothing was tapped), the collection already on screen stays
+  // mounted, so a category switch keeps its platform tab; only the very first open shows neither (no flash).
+  const [shownView, setShownView] = useState<"native" | "reviewed" | null>(null);
+  if (derivedView !== null && derivedView !== shownView) setShownView(derivedView);
+  const view = derivedView ?? shownView;
+  const showReviewed =
+    !showTrends && view !== null && !(view === "native" && (connected || !!native.snapshot));
+  const showNative = !showTrends && view === "native" && (connected || !!native.snapshot);
   const youtubeKey = useStore((s) => getApiKey(s, "youtube"));
   const accumulate = useStore((s) => s.accumulateDiscoverCandidates);
   const feedback = useStore((s) => s.discoverFeedback);
@@ -187,6 +228,24 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
     loadMore,
   });
   if (!active) return null;
+  // Back to the For you page and the category picker, shown above every collection that has no search box of its own.
+  const backAndPicker = (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          className="px-link text-sm"
+          onClick={onBack}
+          data-testid="browse-back"
+        >
+          {t("feed.backForYou")}
+        </button>
+      </div>
+      <div role="group" aria-label={t("feed.chooseCategory")} data-testid="browse-category-picker">
+        <GenreGroups genres={props.genres} layout="grid" activeId={genre.id} onPick={onCategory} />
+      </div>
+    </>
+  );
   return (
     <div className="flex min-w-0 flex-col gap-3" data-testid="category-discovery">
       <section className="px-card flex flex-col gap-3" data-testid="native-search-connection">
@@ -216,61 +275,73 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
             </button>
           </div>
         )}
-        {(connected || native.snapshot) && (
+        {(connected || native.snapshot || trendsAvailable) && (
           <div className="flex flex-wrap gap-2" role="group" aria-label={t("feed.connectedViews")}>
+            {(connected || native.snapshot) && (
+              <button
+                type="button"
+                className={`px-btn px-btn-sm ${showNative ? "px-btn-gold" : "px-btn-ghost"}`}
+                aria-pressed={showNative}
+                onClick={() => setView("native")}
+                data-testid="native-search-view"
+              >
+                {t("feed.connectedLive")}
+              </button>
+            )}
             <button
               type="button"
-              className={`px-btn px-btn-sm ${showNative ? "px-btn-gold" : "px-btn-ghost"}`}
-              aria-pressed={showNative}
-              onClick={() => setView("native")}
-              data-testid="native-search-view"
-            >
-              {t("feed.connectedLive")}
-            </button>
-            <button
-              type="button"
-              className={`px-btn px-btn-sm ${!showNative ? "px-btn-gold" : "px-btn-ghost"}`}
-              aria-pressed={!showNative}
+              className={`px-btn px-btn-sm ${showReviewed ? "px-btn-gold" : "px-btn-ghost"}`}
+              aria-pressed={showReviewed}
               onClick={() => setView("reviewed")}
               data-testid="native-reviewed-view"
             >
               {t("feed.connectedLibrary")}
             </button>
+            {trendsAvailable && (
+              <button
+                type="button"
+                className={`px-btn px-btn-sm ${showTrends ? "px-btn-gold" : "px-btn-ghost"}`}
+                aria-pressed={showTrends}
+                onClick={() => setView("trends")}
+                data-testid="native-trends-view"
+              >
+                {t("feed.connectedTrends")}
+              </button>
+            )}
           </div>
         )}
       </section>
-      {!showNative ? (
+      {showTrends ? (
+        <>
+          <section className="px-card flex min-w-0 flex-col gap-3" data-testid="trends-header">
+            {backAndPicker}
+          </section>
+          <CategoryTrends
+            genre={genre}
+            // A tapped style is a Keywords search on the Search tab; "Search all" is this category's own search.
+            onPickStyle={(query) => onPickStyle?.(query)}
+            onSearchAll={() => setView("native")}
+            onUnavailable={() => setView("reviewed")}
+            onOpenInspiration={onOpenInspiration}
+          />
+        </>
+      ) : showReviewed ? (
         <>
           <p className="text-muted text-xs" data-testid="reviewed-library-coverage">
             {t("feed.connectedLibraryHelp")}
           </p>
           {native.connection !== "checking" && <BrowseCategoryFeed {...props} />}
         </>
-      ) : (
+      ) : showNative ? (
         <section className="px-card flex min-w-0 flex-col gap-3" data-testid="native-search-feed">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <button
-              type="button"
-              className="px-link text-sm"
-              onClick={onBack}
-              data-testid="browse-back"
-            >
-              {t("feed.backForYou")}
-            </button>
-            <select
-              className="px-input max-w-full py-1 text-sm"
-              aria-label={t("feed.chooseCategory")}
-              value={genre.id}
-              onChange={(e) => onCategory(e.target.value)}
-              data-testid="browse-category-switch"
-            >
-              {props.genres.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.emoji} {L(g.name)}
-                </option>
-              ))}
-            </select>
-          </div>
+          {backAndPicker}
+          <label
+            htmlFor={queryId}
+            className="text-sm font-bold"
+            data-testid="category-search-label"
+          >
+            {t("feed.categorySearchLabel", { category: L(genre.name) })}
+          </label>
           <form
             className="flex flex-wrap gap-2"
             onSubmit={(e) => {
@@ -279,8 +350,8 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
             }}
           >
             <input
+              id={queryId}
               className="px-input min-w-0 flex-1"
-              aria-label={t("feed.connectedQuery")}
               value={query}
               maxLength={120}
               onChange={(e) =>
@@ -492,7 +563,7 @@ export default function CategoryDiscovery(props: ComponentProps<typeof BrowseCat
             </button>
           )}
         </section>
-      )}
+      ) : null}
     </div>
   );
 }

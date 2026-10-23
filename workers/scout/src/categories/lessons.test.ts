@@ -9,6 +9,7 @@ import {
   refreshLessons,
   relevantCards,
   studyFor,
+  LESSON_DAYS,
   LESSONS_VERSION,
 } from "./lessons";
 import { SKILL_IDS, SKILLS } from "./skills";
@@ -73,7 +74,7 @@ describe("lessonsDue", () => {
     expect(lessonsDue(at(LESSONS_VERSION), "2026-10-07")).toBe(false);
   });
 
-  it("missing, of an older version (none before live fix 1, 2 before live fix 2), or 6 or more days old (a broken date too)", () => {
+  it("missing, of an older version (none before live fix 1, 2 before live fix 2), or LESSON_DAYS (12) or more days old (a broken date too)", () => {
     const at = (updatedAt: string, v = LESSONS_VERSION) => ({
       v,
       updatedAt,
@@ -91,8 +92,12 @@ describe("lessonsDue", () => {
     // KV is untrusted: a version that is no number is an older one.
     const text = { ...at("2026-10-06T05:40:00Z"), v: "4" as unknown as number };
     expect(lessonsDue(text, "2026-10-07")).toBe(true);
-    expect(lessonsDue(at("2026-10-01T05:40:00Z"), "2026-10-07")).toBe(true);
-    expect(lessonsDue(at("2026-09-30T05:40:00Z"), "2026-10-07")).toBe(true);
+    // 12 days since 22 Oct 2026 (scans every 9 days, so lessons every second scan): 11 days old is not due.
+    expect(LESSON_DAYS).toBe(12);
+    expect(lessonsDue(at("2026-10-01T05:40:00Z"), "2026-10-07")).toBe(false);
+    expect(lessonsDue(at("2026-09-26T05:40:00Z"), "2026-10-07")).toBe(false);
+    expect(lessonsDue(at("2026-09-25T05:40:00Z"), "2026-10-07")).toBe(true);
+    expect(lessonsDue(at("2026-09-24T05:40:00Z"), "2026-10-07")).toBe(true);
     expect(lessonsDue(at("soon"), "2026-10-07")).toBe(true);
   });
 });

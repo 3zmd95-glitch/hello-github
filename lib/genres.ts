@@ -1,5 +1,5 @@
-import { GENRES } from "@/data/genres";
-import type { CustomGenre, Genre, Lang } from "@/lib/domain";
+import { GENRE_GROUPS, GENRES } from "@/data/genres";
+import type { CustomGenre, Genre, GenreGroup, Lang } from "@/lib/domain";
 
 /**
  * 🎬 Edit genres (round 31): the pure helpers behind the genre chips of Discover, the skill Research panel,
@@ -8,10 +8,13 @@ import type { CustomGenre, Genre, Lang } from "@/lib/domain";
  * the custom list in.
  */
 
-export { GENRES };
+export { GENRE_GROUPS, GENRES };
 
 /** What a custom genre shows instead of a hand-picked emoji. */
 export const CUSTOM_GENRE_EMOJI = "✨";
+
+/** Id of the owner's own genres' group; its heading (named by `genres.group.mine`) is built at render time. */
+export const MINE_GROUP_ID = "mine";
 
 const CUSTOM_PREFIX = "custom-";
 
@@ -46,6 +49,28 @@ function fromCustom(c: CustomGenre): Genre {
 /** Every genre the owner can pick: the built-in ones in file order, then the custom ones in the order added. */
 export function allGenres(custom: readonly CustomGenre[]): Genre[] {
   return [...GENRES, ...custom.map(fromCustom)];
+}
+
+/**
+ * The picker's two levels: the groups in file order, each with its genres in the order given (file order for
+ * built-ins), and the genres without a group (the owner's own) last under `mine` (id {@link MINE_GROUP_ID},
+ * named by the caller from the messages). Empty groups are left out.
+ */
+export function groupGenres(
+  genres: readonly Genre[],
+  mine: GenreGroup,
+): { group: GenreGroup; genres: Genre[] }[] {
+  return [...GENRE_GROUPS, mine]
+    .map((group) => ({
+      group,
+      genres: genres.filter((g) => (g.group ?? mine.id) === group.id),
+    }))
+    .filter((entry) => entry.genres.length > 0);
+}
+
+/** {@link groupGenres} of every genre the owner can pick. */
+export function groupedGenres(custom: readonly CustomGenre[], mine: GenreGroup) {
+  return groupGenres(allGenres(custom), mine);
 }
 
 /** The genre with that id (built-in first), or undefined for an id this app does not know. */

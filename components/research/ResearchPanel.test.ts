@@ -296,8 +296,10 @@ async function mount(
     worker?: boolean;
     v2?: boolean;
     lang?: "ar" | "en";
-    /** Discover's `?genre=` link. */
-    openGenre?: string;
+    workspace?: "browse" | "search";
+    onBrowse?: () => void;
+    onBrowseCategory?: (id: string) => void;
+    styleSearch?: { query: string; revision: number };
   } = {},
 ) {
   discoverV2 = opts.v2 ?? false;
@@ -313,7 +315,17 @@ async function mount(
   });
   localStorage.setItem(RESEARCH_TAB_KEY, opts.tab ?? "tt");
   const skill = opts.skillId ? getSkill(opts.skillId) : undefined;
-  act(() => root.render(createElement(ResearchPanel, { skill, openGenre: opts.openGenre })));
+  act(() =>
+    root.render(
+      createElement(ResearchPanel, {
+        skill,
+        workspace: opts.workspace,
+        onBrowse: opts.onBrowse,
+        onBrowseCategory: opts.onBrowseCategory,
+        styleSearch: opts.styleSearch,
+      }),
+    ),
+  );
   await settle();
 }
 
@@ -387,20 +399,44 @@ describe("ResearchPanel genre row", () => {
     ).toBe("true");
   });
 
-  it("lists the built-in genres, then the owner's own with ✨, under their label", async () => {
+  it("lists the built-in genres by group, then the owner's own with ✨, under their label", async () => {
     useStore.getState().addCustomGenre("هجولة", "هجولة درفت");
     await mount();
     const row = $("genres-row")!;
     expect(row.textContent).toContain("🎬 نوع الإيديت");
-    const chips = [...row.querySelectorAll<HTMLElement>('[data-testid^="genre-"]')];
-    expect(chips).toHaveLength(13);
+    const chips = [...row.querySelectorAll<HTMLElement>('button[data-testid^="genre-"]')];
+    expect(chips).toHaveLength(36);
     expect(chips.slice(0, 3).map((c) => c.textContent)).toEqual([
-      "🚗سيارات",
-      "🍔أكل ومطاعم",
-      "🎌أنمي",
+      "⚽كورة",
+      "🏋️جيم",
+      "🥊فنون قتالية",
     ]);
-    expect(chips[12].getAttribute("data-testid")).toBe("genre-custom-هجولة");
-    expect(chips[12].textContent).toBe("✨هجولة");
+    // Group names sit in the same scrolling row, each before its chips, never a button.
+    const headings = [...row.querySelectorAll<HTMLElement>('[data-testid^="genre-group-"]')];
+    expect(headings.map((h) => h.getAttribute("data-testid"))).toEqual([
+      "genre-group-sport",
+      "genre-group-food",
+      "genre-group-lifestyle",
+      "genre-group-outdoors",
+      "genre-group-entertainment",
+      "genre-group-automotive",
+      "genre-group-business",
+      "genre-group-craft",
+      "genre-group-mine",
+    ]);
+    expect(headings[0].textContent).toBe("🏟️رياضة");
+    expect(headings.at(-1)!.textContent).toBe("✨حقّي");
+    expect(
+      headings.every((h) => h.tagName !== "BUTTON" && h.parentElement === $("genres-chips")),
+    ).toBe(true);
+    expect(
+      headings[0].compareDocumentPosition($("genre-football")!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      $("genre-gym")!.compareDocumentPosition(headings[1]) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(chips[35].getAttribute("data-testid")).toBe("genre-custom-هجولة");
+    expect(chips[35].textContent).toBe("✨هجولة");
     expect(chips.every((c) => c.getAttribute("aria-pressed") === "false")).toBe(true);
     // One row that scrolls sideways (it wraps only where the panel is wide), before the platform tabs.
     const classes = $("genres-chips")!.className.split(" ");
@@ -410,6 +446,46 @@ describe("ResearchPanel genre row", () => {
     const tabs = $("tab-all")!;
     expect(row.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(asked).toEqual([]);
+  });
+
+  it("shows the grouped categories only in Browse: Search has no category picker, just a hint to Browse", async () => {
+    const onBrowse = vi.fn();
+    await mount({ workspace: "search", lang: "en", onBrowse });
+    expect($("search-categories")).toBeNull();
+    expect($("genres-row")).toBeNull();
+    expect($("genres-clear")).toBeNull();
+    expect(host.querySelector('[data-testid^="genre-"]')).toBeNull();
+    expect($<HTMLInputElement>("discover-topic")!.placeholder).toBe(
+      "Type what you want, e.g. slow motion car edit",
+    );
+    const hint = $("search-browse-hint")!;
+    expect(hint.textContent).toBe("Looking for a category? Use Browse.");
+    expect(hint.contains($("search-go-browse"))).toBe(true);
+    await click("search-go-browse");
+    expect(onBrowse).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+    root = createRoot(host);
+    const onBrowseCategory = vi.fn();
+    // No Discover v2 Worker, no helper, nothing retained: Browse still opens the category page.
+    await mount({ workspace: "browse", lang: "en", onBrowseCategory });
+    const browse = $("browse-categories")!;
+    expect(browse.hasAttribute("open")).toBe(true);
+    const sport = $("genre-group-sport")!;
+    expect(sport.textContent).toBe("🏟️Sport");
+    // Browse puts each group's chips in its own grid under its heading: Football is under Sport.
+    const sportGrid = sport.closest('[role="group"]')!;
+    expect(
+      [...sportGrid.querySelectorAll('button[data-testid^="genre-"]')].map((b) =>
+        b.getAttribute("data-testid"),
+      ),
+    ).toEqual(["genre-football", "genre-gym", "genre-combat", "genre-basketball"]);
+    expect($("genre-group-mine")).toBeNull();
+    // A Browse tap opens that category's page; it never turns into a Search filter.
+    await click("genre-football");
+    expect(onBrowseCategory).toHaveBeenCalledExactlyOnceWith("football");
+    expect(asked).toEqual([]);
+    expect(pressed("genre-football")).toBe("false");
   });
 
   it("searches the words of the genre alone, in the search language, and remembers no topic", async () => {
@@ -522,6 +598,57 @@ async function select(testId: string, value: string): Promise<void> {
   });
   await settle();
 }
+
+describe("a style from a category's Trends & lessons", () => {
+  const effects = { workspace: "search", lang: "ar", v2: true } as const;
+
+  it("is searched like a chip: Keywords, English, Posted on Week, Arabic first off, no category, remembered", async () => {
+    effectsDoc = EFFECTS;
+    await mount(effects);
+    await click("filter-arfirst");
+    expect(pressed("filter-arfirst")).toBe("true");
+    await mount({ ...effects, styleSearch: { query: "rolling shot car", revision: 1 } });
+    expect(discoverAsked.at(-1)).toEqual({
+      q: "rolling shot car",
+      lang: "en",
+      editing: true,
+      timeRange: "week",
+    });
+    expect(discoverAsked.at(-1)).not.toHaveProperty("mode");
+    expect(pressed("filter-arfirst")).toBe("false");
+    expect(pressed("filter-time-week")).toBe("true");
+    expect($("discover-langs")!.textContent).toBe("English بس");
+    expect($<HTMLInputElement>("discover-topic")!.value).toBe("rolling shot car");
+    expect(useStore.getState().recentTopics).toEqual(["rolling shot car"]);
+    expect($("genres-row")).toBeNull();
+    expect($("discover-category-ideas")).toBeNull();
+  });
+
+  it("runs once per revision: a re-render is not a new search, a new revision is (even for the same style)", async () => {
+    effectsDoc = EFFECTS;
+    await mount(effects);
+    const before = discoverAsked.length;
+    const first = { query: "rolling shot car", revision: 1 };
+    await mount({ ...effects, styleSearch: first });
+    expect(discoverAsked).toHaveLength(before + 1);
+    await mount({ ...effects, styleSearch: first });
+    await mount({ ...effects, styleSearch: { ...first } });
+    expect(discoverAsked).toHaveLength(before + 1);
+    // Revision 2, another style: searched again, and remembered.
+    await mount({ ...effects, styleSearch: { query: "whip pan car", revision: 2 } });
+    expect(discoverAsked).toHaveLength(before + 2);
+    expect(discoverAsked.at(-1)).toMatchObject({
+      q: "whip pan car",
+      editing: true,
+      timeRange: "week",
+    });
+    expect(useStore.getState().recentTopics).toEqual(["whip pan car", "rolling shot car"]);
+    // Revision 3, the same style tapped again (the owner typed over it in between): the box is set back to it.
+    type("something else");
+    await mount({ ...effects, styleSearch: { query: "whip pan car", revision: 3 } });
+    expect($<HTMLInputElement>("discover-topic")!.value).toBe("whip pan car");
+  });
+});
 
 describe("Discover category ideas", () => {
   it.each([
@@ -1388,49 +1515,6 @@ describe("Discover category searches and optional study guides", () => {
     ]);
     expect(pressed("discover-mode-keyword")).toBe("true");
     expect(localPlans).toHaveLength(0);
-  });
-
-  it("a ?genre= link arriving while its category's page shows closes the page and runs the search", async () => {
-    categoryDoc = CATEGORY;
-    const proto = Element.prototype as { scrollIntoView?: () => void };
-    proto.scrollIntoView = () => {};
-    try {
-      await mount({ v2: true });
-      await click("genre-cars");
-      await click("discover-study-guides");
-      expect($("category-page")).not.toBeNull();
-      // Discover opened again from a /discover/?genre=cars link.
-      act(() => root.render(createElement(ResearchPanel, { openGenre: "cars" })));
-      await settle();
-      expect($("category-page")).toBeNull();
-      expect(discoverAsked).toEqual([
-        { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" },
-        { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" },
-      ]);
-    } finally {
-      delete proto.scrollIntoView;
-    }
-  });
-
-  it("a ?genre= link keeps today's category search: no page", async () => {
-    categoryDoc = CATEGORY;
-    // The link brings its chip into view; jsdom has no scrollIntoView.
-    const proto = Element.prototype as { scrollIntoView?: () => void };
-    const scrolled: Element[] = [];
-    proto.scrollIntoView = function (this: Element) {
-      scrolled.push(this);
-    };
-    try {
-      await mount({ v2: true, openGenre: "cars" });
-      expect($("category-page")).toBeNull();
-      expect(pressed("genre-cars")).toBe("true");
-      expect(scrolled).toEqual([$("genre-cars")]);
-      expect(discoverAsked).toEqual([
-        { q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" },
-      ]);
-    } finally {
-      delete proto.scrollIntoView;
-    }
   });
 
   it("a style is a Keywords search of it within the category, even from AI mode", async () => {

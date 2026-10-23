@@ -74,9 +74,8 @@ test("all twelve categories separate finished projects, planned edits and instru
   await page.getByTestId("genre-cars").click();
   const feed = page.getByTestId("category-feed");
   for (const [genreId, profile] of Object.entries(CATEGORY_PROFILES)) {
-    await page
-      .getByRole("combobox", { name: "Choose a category", exact: true })
-      .selectOption(genreId);
+    // The category select became the grouped chip picker (22 Oct 2026): a tap on the chip switches the same way.
+    await page.getByTestId(`genre-${genreId}`).click();
     await page.getByTestId("feed-mode-inspiration").click();
     await expect(feed.getByTestId("feed-card")).toHaveCount(1);
     await expect(

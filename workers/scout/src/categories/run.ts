@@ -289,7 +289,7 @@ export async function runCategory(
   doc = await save(env, key, { ...doc, diagnostics });
   const savedAt = Date.now();
   // The lessons (§3): after a scan that searched (a tight month never does) and saved (lessons that can't be stored
-  // aren't bought: they stay due), when they are 6 days old or missing; they need the AI. Saved a second time, so a
+  // aren't bought: they stay due), when they are LESSON_DAYS (12) days old or missing; they need the AI. Saved a second time, so a
   // slow refresh (the request dropped, waitUntil's 30 s over) never costs the trends.
   // ponytail: lessons share the scan's invocation (spec §4); if live CPU or wall time is too high, give them a slot.
   if (

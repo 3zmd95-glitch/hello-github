@@ -8,8 +8,10 @@ import { ListRow } from "@/components/ui/ios/List";
 import PageHeader from "@/components/ui/ios/PageHeader";
 import { storageDurable } from "@/lib/articles";
 import type { Lang, Workflow } from "@/lib/domain";
+import { leaveCloudScreen } from "@/lib/cloudWorkflowHub";
 import { useT } from "@/lib/i18n";
 import { useStore } from "@/store";
+import { CloudResultsCard } from "./WorkflowCloud";
 import WorkflowEditor, { unsavedWorkflowDrafts } from "./WorkflowEditor";
 
 const HASH_RE = /^#w=([\w-]+)$/;
@@ -50,6 +52,9 @@ export default function WorkflowsScreen() {
     document.addEventListener("visibilitychange", visible);
     return () => document.removeEventListener("visibilitychange", visible);
   }, []);
+
+  // ⚙️ DT-7C-3B: leaving the Workflows screen moves the cloud visit fence (list and editor are one visit).
+  useEffect(() => () => leaveCloudScreen(), []);
 
   useEffect(() => {
     const apply = () => {
@@ -139,6 +144,8 @@ export default function WorkflowsScreen() {
         <Plus size={18} strokeWidth={2} aria-hidden />
         {t("workflows.new")}
       </button>
+
+      <CloudResultsCard />
 
       <div className="ios-list">
         {rows.length === 0 ? (

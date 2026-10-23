@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CATEGORY_PROFILES } from "../discover/category-profiles";
 import {
   categoryCreativeEvidence as evidence,
+  CREATIVE,
   hasTeachingEvidence,
   rankCategoryVideos,
 } from "./quality";
@@ -43,6 +44,35 @@ describe("joined color-grading aliases", () => {
         });
     },
   );
+});
+
+describe("trending-edit vocabulary (owner, 22 Oct: clone effect, stacked cut-outs, 3D photo)", () => {
+  it("adds three named techniques beside the 37 existing entries", () => {
+    expect(Object.keys(CREATIVE)).toHaveLength(40);
+    expect(CREATIVE["match cut"]).toEqual(["match cut", "matchcut", "ماتش كت"]);
+  });
+  it.each([
+    ["Car clone effect edit in CapCut", "clone effect"],
+    ["Duplicate effect on my BMW", "clone effect"],
+    ["Cloning effect on the tower", "clone effect"],
+    ["سيارتي مع تكرار الشخص", "clone effect"],
+    ["Car edit with stacked cut-out figures", "stacked cutout figures"],
+    ["Repeating figures car edit", "stacked cutout figures"],
+    ["سيارة شخصيات مقصوصة متكررة", "stacked cutout figures"],
+    ["Car 3D photo effect edit", "3d parallax"],
+    ["Parallax effect on my car", "3d parallax"],
+    ["سيارة بارالاكس", "3d parallax"],
+  ])("names %j as %s", (caption, technique) => {
+    expect(evidence("cars", caption).namedTechniques).toContain(technique);
+  });
+  it("never reads voice cloning, parallax scrolling or a 3D photo print as a named edit", () => {
+    for (const caption of [
+      "Car edit with voice cloning",
+      "Car website with parallax scrolling",
+      "Car 3D photo print",
+    ])
+      expect(evidence("cars", caption).namedTechniques).toEqual([]);
+  });
 });
 
 describe("paired production credits", () => {
@@ -1014,6 +1044,11 @@ describe("category recommendations grounded in metadata", () => {
       ["food", "لقطات من طعام اليوم #ايديت"],
     ])
       expect(evidence(genre, title).eligible, title).toBe(false);
+  });
+  it("treats NBA and fight edits as fan edits, but not a music video #edit label", () => {
+    expect(evidence("basketball", "LeBron edit").eligible).toBe(true);
+    expect(evidence("combat", "UFC edit").eligible).toBe(true);
+    expect(evidence("music", "Music video #edit").eligible).toBe(false);
   });
   it("rejects prompt bait even with craft keywords, and allows a real breakdown with incidental shop links", () => {
     expect(

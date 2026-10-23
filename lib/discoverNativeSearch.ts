@@ -158,6 +158,7 @@ export function appendNativeSearchSnapshot(
 }
 
 export const NATIVE_MAX_RESULTS = 300;
+// The 12 most recently searched categories (measured 22 Oct 2026, per category: typical 24 cards ≈ 20 KiB, full 900 ≈ 0.7 MiB, worst ≈ 3 MiB); older ones show Checked references.
 export const NATIVE_CACHE_CATEGORIES = 12;
 /** The Search tab's keyword results: cache entries kept beside the categories, never evicting one. */
 export const NATIVE_SEARCH_SCOPE = "search";

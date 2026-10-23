@@ -70,6 +70,10 @@ vi.mock("./ResultCard", () => ({
     }),
 }));
 vi.mock("./SaveInspirationButton", () => ({ default: () => null }));
+vi.mock("./CategoryTrends", () => ({
+  useCategoryTrendsAvailable: () => false,
+  default: () => null,
+}));
 
 const OBSERVED = "2026-10-13T17:00:00Z";
 type Source = InstagramSource | TikTokSource | null;

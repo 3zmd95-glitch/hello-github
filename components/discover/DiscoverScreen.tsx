@@ -28,6 +28,7 @@ export default function DiscoverScreen() {
   const [browseGenreId, setBrowseGenreId] = useState<string | null>(null);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
+  const [styleSearch, setStyleSearch] = useState<{ query: string; revision: number }>();
   const [formatReviewRequest, setFormatReviewRequest] = useState<{
     target: FormatVerificationTarget;
     revision: number;
@@ -35,9 +36,12 @@ export default function DiscoverScreen() {
   const browseGenre = genres.find((genre) => genre.id === browseGenreId);
   const [view, setView] = useState<"browse" | "search" | "practice">("browse");
   const [openedGenre, setOpenedGenre] = useState<string | null>(null);
+  // `/discover/?genre=<id>` opens that category's page in Browse: categories live in one place.
   if (openGenre && openGenre !== openedGenre) {
     setOpenedGenre(openGenre);
-    setView("search");
+    setBrowseGenreId(openGenre);
+    setCategoryOpen(true);
+    setView("browse");
   }
   const [focusUrl, setFocusUrl] = useState<string>();
   const searchButton = useRef<HTMLButtonElement>(null);
@@ -117,6 +121,11 @@ export default function DiscoverScreen() {
           {t("layout.saved", { n: count })}
         </button>
       </div>
+      {view !== "practice" && (
+        <p className="text-ink-2 text-sm" data-testid="discover-tab-line">
+          {t(view === "browse" ? "layout.browseLine" : "layout.searchLine")}
+        </p>
+      )}
       <div hidden={view === "practice" || (view === "browse" && categoryOpen && !!browseGenre)}>
         <ResearchPanel
           formatReviewRequest={formatReviewRequest}
@@ -126,12 +135,16 @@ export default function DiscoverScreen() {
             setView("search");
           }}
           stickyTop="max-md:top-[calc(59px+env(safe-area-inset-top,0px))]"
-          openGenre={openGenre}
           active={view === "search"}
           showBrowse={!categoryOpen}
           onBrowseCategory={(id) => {
             setBrowseGenreId(id);
             setCategoryOpen(true);
+          }}
+          styleSearch={styleSearch}
+          onBrowse={() => {
+            setCategoryOpen(false);
+            setView("browse");
           }}
           onOpenInspiration={(url) => {
             setFocusUrl(url);
@@ -147,6 +160,11 @@ export default function DiscoverScreen() {
           active={view === "browse" && categoryOpen}
           onBack={() => setCategoryOpen(false)}
           onCategory={setBrowseGenreId}
+          onPickStyle={(query) => {
+            setStyleSearch((previous) => ({ query, revision: (previous?.revision ?? 0) + 1 }));
+            focusSearch.current = true;
+            setView("search");
+          }}
           onOpenInspiration={(url) => {
             setFocusUrl(url);
             setView("practice");

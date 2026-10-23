@@ -8,6 +8,7 @@ import {
   findRecord,
   isRecoverable,
   isUnresolved,
+  lifecycleRequestFor,
   mergeRegistrations,
   parseRegistrations,
   prepareIntent,
@@ -625,5 +626,145 @@ describe("monotonic import merge", () => {
       "op-z",
     );
     expect(mergeRegistrations(big, extra)).toEqual({ ok: false, reason: "capacity", keys: [] });
+  });
+});
+
+describe("lifecycleRequestFor (DT-7C-3A, ruling 3A-1): the next register/unregister request of a workflow", () => {
+  const WF = { id: "w1", revision: 1 };
+  const build = (kind: "register" | "unregister", s: CloudRegistrations, wf = WF, d = DIG) =>
+    lifecycleRequestFor(kind, s, AUTH, wf, d);
+  /** One full attempt of `req` answered with `a` (op id `op`), on top of `s`. */
+  async function settle(
+    s: CloudRegistrations,
+    req: CloudRequest,
+    a: WireAnswer,
+    op: string,
+    d?: string,
+  ) {
+    const next = created(s, prepared(req, d), op);
+    const r = reserved(next);
+    const o = outcome(r.next, r.attempt, await answer(req, a), op);
+    if (!o.changed) throw new Error(o.reason);
+    return o.next;
+  }
+
+  it("no record or no proof: register at expectedEpoch 0; unregister is inactive", async () => {
+    const empty = emptyRegistrations();
+    expect(build("register", empty)).toEqual({ ok: true, request: registerReq(), digest: DIG });
+    expect(build("unregister", empty)).toEqual({ ok: false, reason: "inactive" });
+    // A typed refusal never folds into `last`: still no proof.
+    const refused = await settle(empty, registerReq(), capacity, "op-1");
+    expect(intentOf(refused).state).toBe("refused");
+    expect(findRecord(refused, KEY)!.last).toBeNull();
+    expect(build("register", refused, { id: "w1", revision: 3 }, DIG2)).toEqual({
+      ok: true,
+      request: registerReq({ revision: 3, workflowDigest: DIG2 }),
+      digest: DIG2,
+    });
+  });
+
+  it("an unresolved intent (pending, dispatching, uncertain, divergent maybe-applied) refuses both kinds", async () => {
+    const pending = created();
+    const { next: dispatching, attempt } = reserved(pending);
+    const uncertain = outcome(dispatching, attempt, { kind: "uncertain" });
+    if (!uncertain.changed) throw new Error("not recorded");
+    // Recovery of the uncertain attempt answered by a conflict: divergent, still maybe applied.
+    const again = reserved(uncertain.next);
+    const divergent = outcome(
+      again.next,
+      again.attempt,
+      await answer(registerReq(), conflict(registration(1, "active", { digest: DIG2 }))),
+    );
+    if (!divergent.changed) throw new Error("not recorded");
+    expect(intentOf(divergent.next)).toMatchObject({ state: "divergent", maybeApplied: true });
+    const states = [pending, dispatching, uncertain.next, divergent.next];
+    expect(states.map((s) => intentOf(s).state)).toEqual([
+      "pending",
+      "dispatching",
+      "uncertain",
+      "divergent",
+    ]);
+    for (const s of states)
+      for (const kind of ["register", "unregister"] as const)
+        expect(build(kind, s)).toEqual({ ok: false, reason: "unresolved" });
+  });
+
+  it("a divergent intent that cannot have applied (ruling 3A-1 amended) builds from the folded proof", async () => {
+    const { next: dispatching, attempt } = reserved(created());
+    const divergent = outcome(
+      dispatching,
+      attempt,
+      await answer(registerReq(), conflict(registration(1, "active", { digest: DIG2 }))),
+    );
+    if (!divergent.changed) throw new Error("not recorded");
+    expect(intentOf(divergent.next)).toMatchObject({ state: "divergent", maybeApplied: false });
+    expect(build("register", divergent.next)).toEqual({ ok: false, reason: "active" });
+    const u = build("unregister", divergent.next);
+    expect(u).toEqual({
+      ok: true,
+      request: unregisterReq({ registrationEpoch: 1, expectedRevision: 1 }),
+      digest: DIG2,
+    });
+    // The controller's create gate agrees: a new intent on this key is accepted.
+    if (!u.ok) throw new Error(u.reason);
+    expect(createIntent(divergent.next, prepared(u.request, u.digest), "op-2", CREATED).ok).toBe(
+      true,
+    );
+  });
+
+  it("active proof: register refuses active; unregister binds its epoch, revision and digest", async () => {
+    const req = registerReq({ revision: 2 });
+    const active = await settle(emptyRegistrations(), req, okRegister(req), "op-1");
+    expect(build("register", active, { id: "w1", revision: 3 })).toEqual({
+      ok: false,
+      reason: "active",
+    });
+    const u = build("unregister", active, { id: "w1", revision: 3 }, DIG2);
+    expect(u).toEqual({
+      ok: true,
+      request: unregisterReq({ registrationEpoch: 1, expectedRevision: 2 }),
+      digest: DIG,
+    });
+    // Both kinds round-trip through the accepted validation.
+    const r = build("register", emptyRegistrations());
+    expect(r.ok && prepareIntent(r.request, AUTH, r.digest)).toMatchObject({ ok: true, key: KEY });
+    expect(u.ok && prepareIntent(u.request, AUTH, u.digest)).toMatchObject({
+      ok: true,
+      key: KEY,
+      revision: 2,
+      workflowDigest: DIG,
+    });
+  });
+
+  it("register -> unregister -> re-register opens the next epoch (expectedEpoch = E)", async () => {
+    let s = emptyRegistrations();
+    const first = build("register", s);
+    if (!first.ok) throw new Error(first.reason);
+    s = await settle(s, first.request, okRegister(first.request), "op-1");
+    const off = build("unregister", s);
+    if (!off.ok) throw new Error(off.reason);
+    s = await settle(s, off.request, okUnregister(off.request), "op-2", off.digest);
+    expect(build("unregister", s)).toEqual({ ok: false, reason: "inactive" });
+    const again = build("register", s, { id: "w1", revision: 2 }, DIG2);
+    expect(again).toEqual({
+      ok: true,
+      request: registerReq({ expectedEpoch: 1, revision: 2, workflowDigest: DIG2 }),
+      digest: DIG2,
+    });
+    if (!again.ok) throw new Error(again.reason);
+    s = await settle(s, again.request, okRegister(again.request), "op-3");
+    expect((findRecord(s, KEY)!.last!.answer.body.registration as A).registrationEpoch).toBe(2);
+  });
+
+  it("an invalid workflow id, digest or revision is refused and nothing throws", () => {
+    const empty = emptyRegistrations();
+    const invalid = { ok: false, reason: "invalid" };
+    for (const kind of ["register", "unregister"] as const) {
+      expect(build(kind, empty, { id: "bad id", revision: 1 })).toEqual(invalid);
+      expect(build(kind, empty, WF, "nope")).toEqual(invalid);
+      expect(build(kind, empty, { id: "w1", revision: 0 })).toEqual(invalid);
+      expect(lifecycleRequestFor(kind, null as never, AUTH, WF, DIG)).toEqual(invalid);
+      expect(lifecycleRequestFor(kind, empty, AUTH, null as never, DIG)).toEqual(invalid);
+    }
   });
 });

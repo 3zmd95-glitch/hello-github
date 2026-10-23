@@ -1,13 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
   freshState,
+  seedState,
   openDiscoverSearch,
-  openDiscoverCategories,
   openResearchFilters,
   openBrowseTechniques,
   openBrowseFormats,
 } from "./helpers";
 import { REVIEWED_FORMAT_SEEDS } from "../lib/formatSeeds";
+import { tiktokIdAt } from "../workers/scout/src/postDate";
 
 const WORKER = "https://3z-scout.example.workers.dev";
 const TOKEN = "test-token";
@@ -478,6 +479,10 @@ test("Discover navigation: Browse, Search and Saved are passive, compact and bil
   await expect(page.getByTestId("inspiration-explore")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("discover-topic")).toBeHidden();
   await expect(page.getByTestId("genre-cars")).toBeVisible();
+  // Trending edits leads Browse; with no post read yet the daily scan still fills it (rows dated by the scan day),
+  // and there is no scan button.
+  await expect(page.getByTestId("trending-edit").first()).toBeVisible();
+  await expect(page.getByTestId("trending-edits-empty")).toBeHidden();
   await expect(page.getByTestId("trending-effect").first()).toBeHidden();
   await expect(page.getByTestId("format-inspector")).not.toHaveAttribute("open", "");
 
@@ -506,7 +511,17 @@ test("Discover navigation: Browse, Search and Saved are passive, compact and bil
     await expect(page.getByTestId("tab-tt")).toBeVisible();
     await expect(page.getByTestId("filters-toggle")).toHaveAttribute("aria-expanded", "false");
     await expect(page.getByTestId("filters")).toBeHidden();
-    await expect(page.getByTestId("genre-cars")).toBeHidden();
+    // Search has no categories (owner, 22 Oct: one place for them): a hint points to Browse instead.
+    await expect(page.getByTestId("search-categories")).toHaveCount(0);
+    await expect(page.getByTestId("genres-row")).toHaveCount(0);
+    await expect(page.getByTestId("genre-cars")).toHaveCount(0);
+    await expect(page.getByTestId("search-go-browse")).toBeVisible();
+    await expect(page.getByTestId("discover-topic")).toHaveAttribute(
+      "placeholder",
+      lang === "ar"
+        ? "اكتب اللي تبيه، مثلًا: ايديت سيارات سلو موشن"
+        : "Type what you want, e.g. slow motion car edit",
+    );
     await expect(page.getByTestId("discover-program")).toBeHidden();
     expect(await fitsViewport(page)).toBe(true);
     await page.screenshot({
@@ -708,18 +723,14 @@ test("AI brief: preserves filters, searches only on submit, separates cache and 
   });
   await connectWorker(page);
   await page.goto("/discover/");
-  await openDiscoverCategories(page);
-  await page.getByTestId("genre-coffee").click();
-  await expect(page.getByTestId("discover-sections")).toBeVisible();
-  // A broad genre radar must not sit above the focused v2 results or fetch unrelated posts.
+  await openDiscoverSearch(page);
+  // Search has no category filter, so no genre radar is read for it.
   expect(trendReads).toBe(0);
   await expect(page.getByTestId("genre-week")).toHaveCount(0);
   const before = asked.length;
-  await openDiscoverSearch(page);
   await page.getByTestId("discover-mode-ai").click();
   await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").fill("Find coffee match cuts and DaVinci tutorials");
-  await expect(page.getByTestId("genre-coffee")).toHaveAttribute("aria-pressed", "true");
   expect(asked).toHaveLength(before);
   await openDiscoverSearch(page);
   await page.getByTestId("discover-topic").press("Enter");
@@ -727,10 +738,8 @@ test("AI brief: preserves filters, searches only on submit, separates cache and 
   expect(asked.at(-1)).toMatchObject({
     mode: "ai",
     q: "Find coffee match cuts and DaVinci tutorials",
-    genreQuery: { en: "coffee edit", ar: "تصوير قهوة" },
   });
   await expect(page.getByTestId("discover-understood")).toContainText("ماتش كت للقهوة");
-  await expect(page.getByTestId("discover-prompts")).toContainText("قهوة");
   expect(await fitsViewport(page)).toBe(true);
   await openResearchFilters(page);
   await page.getByTestId("filter-time-week").click();
@@ -756,23 +765,7 @@ test("AI brief: preserves filters, searches only on submit, separates cache and 
   await expect.poll(() => asked.length).toBe(afterFilters + 1);
   expect(asked.at(-1)).not.toHaveProperty("mode");
   await expect(page.getByTestId("discover-ai-plan")).toHaveCount(0);
-  const ideas = page.getByTestId("discover-category-ideas");
-  await expect(ideas).toBeVisible();
-  await expect(page.getByTestId("discover-category-focus")).toContainText("قهوة");
-  const suggestions = ideas.getByTestId("discover-prompts").getByRole("button");
-  await expect(suggestions).toHaveCount(3);
-  const beforeIdea = asked.length;
-  const idea = await suggestions.first().innerText();
-  await suggestions.first().click();
-  await expect(page.getByTestId("discover-topic")).toHaveValue(idea);
-  expect(asked).toHaveLength(beforeIdea);
-  await page.getByTestId("discover-category-only").click();
-  // Returning to the category uses its saved pool and feed policy, without spending another query.
-  await expect(page.getByTestId("category-feed")).toBeVisible();
-  await expect(page.getByTestId("filters")).toBeHidden();
-  expect(asked).toHaveLength(beforeIdea);
-  await expect(page.getByTestId("discover-topic")).toHaveValue("");
-  await expect(page.getByTestId("genre-coffee")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("discover-category-ideas")).toHaveCount(0);
   expect(await fitsViewport(page)).toBe(true);
 });
 
@@ -799,13 +792,7 @@ test("AI unavailable and daily limit are honest, with a working keyword recovery
   await page.getByTestId("discover-mode-keyword").click();
   await page.getByTestId("research-search").click();
   await expect(page.getByTestId("discover-sections")).toBeVisible();
-  await openDiscoverSearch(page);
-  await page.getByTestId("discover-mode-ai").click();
-  await openDiscoverCategories(page);
-  await page.getByTestId("genre-cars").click();
-  await expect
-    .poll(() => asked.at(-1))
-    .toMatchObject({ mode: "ai", genreQuery: { en: "car edit" } });
+  expect(asked.some((body) => body.mode === "ai" && "genreQuery" in body)).toBe(false);
 });
 
 test("Instagram cards load missing previews and keep a playable fallback when unavailable", async ({
@@ -1085,7 +1072,7 @@ test("Discover v2: Claude's picks show on the topic and on an empty Discover", a
   await expect(page.getByTestId("discover-picks")).toHaveCount(0);
 });
 
-test("Discover v2: trending effects chips; a tap searches the effect with the category cleared", async ({
+test("Discover v2: trending effects chips; a tap searches the effect on its own", async ({
   page,
 }) => {
   const asked = await stubWorker(page, () => ANSWER);
@@ -1124,18 +1111,13 @@ test("Discover v2: trending effects chips; a tap searches the effect with the ca
   await expect(row.getByTestId("trending-rescan")).toBeEnabled();
   expect(await fitsViewport(page)).toBe(true);
 
-  // With a category on, a chip searches the effect alone: the dictionary effect by its English label.
-  await openDiscoverCategories(page);
-  await page.getByTestId("genre-coffee").click();
-  await expect.poll(() => asked.length).toBe(1);
-  await openBrowseTechniques(page);
+  // A chip searches the effect alone: the dictionary effect by its English label.
   await row.locator('[data-testid="trending-effect"][data-key="clone-effect"]').click();
-  await expect.poll(() => asked.length).toBe(2);
+  await expect.poll(() => asked.length).toBe(1);
   // English, with editing context (live: an Arabic query found beauty serums for "Glow Effect"), and Posted on Week:
   // the row says "this week".
-  expect(asked[1]).toEqual({ q: "clone effect", lang: "en", editing: true, timeRange: "week" });
+  expect(asked[0]).toEqual({ q: "clone effect", lang: "en", editing: true, timeRange: "week" });
   await expect(page.getByTestId("filter-time-week")).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByTestId("genre-coffee")).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByTestId("discover-topic")).toHaveValue("clone effect");
   await expect(page.getByTestId("discover-recent-topic").first()).toHaveText("clone effect");
   await expect(page.getByTestId("discover-sections")).toBeVisible();
@@ -1253,7 +1235,158 @@ test("Edit formats: audio and visual identity, saved following, exact tutorial s
   await expect(panel.getByTestId("edit-format")).toHaveCount(0);
 });
 
-test("Discover v2: a genre searches first; Study guides opens lessons and explicit scan actions", async ({
+test("Trending edits: the clone effect leads Browse with its proof, and Learn this edit runs a tutorial search", async ({
+  page,
+}, testInfo) => {
+  const DAY = 86_400_000;
+  const now = Date.now();
+  // Three creators posted the clone effect in two categories this week (TikTok ids carry their post times).
+  const post = (
+    creator: string,
+    genreId: "cars" | "anime",
+    daysAgo: number,
+    n: number,
+    technique = "clone effect",
+  ) => {
+    const at = new Date(now - daysAgo * DAY);
+    const caption = `${genreId === "cars" ? "car" : "anime"} ${technique} edit`;
+    return {
+      genreId,
+      obtainedAt: at.toISOString(),
+      item: {
+        platform: "tt",
+        url: `https://www.tiktok.com/@${creator}/video/${tiktokIdAt(at, n)}`,
+        handle: `@${creator}`,
+        title: caption,
+        snippet: "",
+        lang: "en",
+        section: "example",
+        evidence: {
+          source: "tiktok-public-page",
+          caption,
+          author: creator,
+          observedAt: new Date(now).toISOString(),
+          published: at.toISOString(),
+          views: 50_000,
+        },
+      },
+    };
+  };
+  const cloneSample = {
+    url: `https://www.tiktok.com/@cloner/video/${tiktokIdAt(new Date(now - 4 * DAY), 9)}`,
+    title: "clone effect on the tower",
+    published: new Date(now - 4 * DAY).toISOString(),
+  };
+  const effects = {
+    ...EFFECTS,
+    items: [
+      ...EFFECTS.items.map((effect) =>
+        effect.key === "clone-effect" ? { ...effect, samples: [cloneSample] } : effect,
+      ),
+      // The owner real cached doc: a big count, no dated sample (and the scan day is its only date).
+      {
+        key: "freeze-frame",
+        name: { en: "freeze frame", ar: "تجميد اللقطة" },
+        isNew: false,
+        checked: true,
+        creators: 21,
+        posts: 30,
+        platforms: ["ig", "tt"],
+        growth: 1,
+        samples: [],
+      },
+    ],
+  };
+  const asked = await stubWorker(page, () => ANSWER, CATEGORY_CARS, { effects });
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().startsWith(WORKER) && request.method() !== "OPTIONS")
+      requests.push(`${request.method()} ${new URL(request.url()).pathname}`);
+  });
+  await seedState(page, "/discover/", {
+    settings: { lang: "en", apiKeys: { scoutUrl: WORKER, scoutToken: TOKEN } },
+    discoverCandidates: [
+      post("a", "cars", 1, 1),
+      post("b", "cars", 2, 2),
+      post("c", "anime", 3, 3),
+      // Speed ramp: 3 creators in 2 categories, but the newest post is 20 days old (so local alone is emerging) ...
+      post("d", "cars", 20, 4, "speed ramp"),
+      post("e", "cars", 21, 5, "speed ramp"),
+      post("f", "anime", 22, 6, "speed ramp"),
+    ],
+  });
+  const section = page.getByTestId("trending-edits");
+  // Most creators first within a tier: the 21-account freeze frame leads, the clone effect (9) follows.
+  await expect(section.getByTestId("trending-edit").first()).toHaveAttribute(
+    "data-key",
+    "freeze frame",
+  );
+  const first = section.locator('[data-testid="trending-edit"][data-key="clone effect"]');
+  await expect(first).toHaveAttribute("data-tier", "trending");
+  // The 3 creators Discover read in 2 categories (first → last day), and the daily scan's 9 identified accounts.
+  await expect(first.getByTestId("trending-edit-proof")).toHaveText(
+    /^3 creators · 2 categories · \d+ \w+ → \d+ \w+ · scan: 9 identified accounts in 7 days$/,
+  );
+  // ... and the daily scan’s 3 accounts of the last 7 days complete it: a merged row that trends.
+  const ramp = section.locator('[data-testid="trending-edit"][data-key="speed ramp"]');
+  await expect(ramp).toHaveAttribute("data-tier", "trending");
+  await expect(ramp.getByTestId("trending-edit-proof")).toHaveText(
+    /^3 creators · 2 categories · \d+ \w+ → \d+ \w+ · scan: 3 identified accounts in 7 days$/,
+  );
+  // 4 accounts at x3 growth is emerging and rising, never trending.
+  const swagger = section.locator('[data-testid="trending-edit"][data-key="swagger trend"]');
+  await expect(swagger).toHaveAttribute("data-tier", "emerging");
+  await expect(swagger.getByTestId("trending-edit-rising")).toBeVisible();
+  await expect(first.getByTestId("trending-edit-rising")).toBeVisible();
+  await expect(first.getByTestId("trending-edit-example")).toHaveCount(3);
+  await expect(first.getByTestId("trending-edit-example").first()).toContainText("@a");
+  // Effects without a dated sample rest on the daily scan day: 21 identified accounts, trending, no examples.
+  await expect(section.getByTestId("trending-edit")).toHaveCount(9);
+  const freeze = section.locator('[data-testid="trending-edit"][data-key="freeze frame"]');
+  await expect(freeze).toHaveAttribute("data-tier", "trending");
+  await expect(freeze.getByTestId("trending-edit-proof")).toHaveText(
+    /^21 identified accounts in the last 7 days · daily scan \d+ \w+$/,
+  );
+  await expect(freeze.getByTestId("trending-edit-example")).toHaveCount(0);
+  await expect(freeze.getByTestId("trending-edit-learn")).toBeVisible();
+  await expect(section.getByTestId("trending-edits-stats")).toHaveText(
+    /^Counted from 6 posts Discover has read \(3 in the last 14 days\) and the daily scan of \d+ \w+$/,
+  );
+  // Trending sounds follows it.
+  expect(
+    await page.evaluate(() => {
+      const edits = document.querySelector('[data-testid="trending-edits"]');
+      const sounds = document.querySelector('[data-testid="trending-sounds"]');
+      return !!edits && !!sounds && !!(edits.compareDocumentPosition(sounds) & 4);
+    }),
+  ).toBe(true);
+  expect(await fitsViewport(page)).toBe(true);
+  await section.screenshot({ path: testInfo.outputPath("synthetic-trending-edits.png") });
+  // Nothing spent: the cached daily list (a KV read), the Worker's health and its free TikTok oEmbed thumbnails.
+  expect(
+    requests.filter(
+      (r) => !/^GET \/(health|effects\/trending|discover\/usage|discover\/picks|oembed)$/.test(r),
+    ),
+  ).toEqual([]);
+
+  await first.getByTestId("trending-edit-learn").click();
+  await expect.poll(() => asked.length).toBe(1);
+  expect(asked[0].q).toBe("clone effect edit tutorial");
+  expect(asked[0].timeRange ?? "any").toBe("any");
+  await expect(page.getByTestId("discover-topic")).toHaveValue("clone effect edit tutorial");
+  await expect(page.getByTestId("discover-sections")).toBeVisible();
+  expect(requests.filter((r) => /\/run$|\/top\//.test(r))).toEqual([]);
+});
+
+/** Browse -> the Cars category -> its "Trends & lessons" collection (the Worker's category page). */
+async function openCarsTrends(page: Page): Promise<void> {
+  await page.getByTestId("inspiration-explore").click();
+  await page.getByTestId("genre-cars").click();
+  await expect(page.getByTestId("category-discovery")).toBeVisible();
+  await page.getByTestId("native-trends-view").click();
+}
+
+test("Discover v2: a category's Trends & lessons opens lessons and explicit scan actions", async ({
   page,
 }, testInfo) => {
   const asked = await stubWorker(page, () => ANSWER);
@@ -1273,35 +1406,36 @@ test("Discover v2: a genre searches first; Study guides opens lessons and explic
     )
       categoryRequests.push(`${request.method()} ${new URL(request.url()).pathname}`);
   });
-  // Arabic first: genre selection uses the normal editing search. Guides require a separate action.
-  await openDiscoverCategories(page);
+  // Arabic first: a category opens on its own collections. The Worker's page needs a separate tap.
   await page.getByTestId("genre-cars").click();
-  await expect.poll(() => asked.length).toBe(1);
-  expect(asked[0]).toEqual({ q: "car edit", genreQuery: { ar: "ايديت سيارات" }, lang: "en" });
-  await expect(page.getByTestId("discover-sections")).toBeVisible();
+  await expect(page.getByTestId("category-discovery")).toBeVisible();
   await expect(page.getByTestId("category-page")).toHaveCount(0);
-  expect(categoryRequests).toEqual([]);
-  await expect(page.getByTestId("trending-effects")).toContainText("تقنيات مونتاج تستكشفها");
+  expect(categoryRequests).not.toContain("GET /categories/cars");
   expect(await fitsViewport(page)).toBe(true);
-  // Synthetic search fixtures prove the default route and layout, not live video relevance.
-  await page.screenshot({
-    path: testInfo.outputPath("synthetic-default-category-search.png"),
-    fullPage: true,
-  });
-  await expect(page.getByTestId("discover-study-guides")).toHaveText("أدلة التعلّم");
-  await openDiscoverCategories(page);
-  await page.getByTestId("discover-study-guides").click();
+  await expect(page.getByTestId("native-trends-view")).toHaveText("ترندات ودروس");
+  await expect(page.getByTestId("native-trends-view")).toHaveAttribute("aria-pressed", "false");
+  const askedBefore = asked.length;
+  await page.getByTestId("native-trends-view").click();
   const cat = page.getByTestId("category-page");
   await expect(cat).toHaveAttribute("data-state", "page");
+  // The Back link and the category picker stay above the page, like the other collections.
+  await expect(page.getByTestId("browse-back")).toBeVisible();
+  await expect(page.getByTestId("browse-category-picker")).toBeVisible();
   await expect(cat.getByRole("heading", { level: 2 })).toHaveText("🚗 سيارات");
   await expect(cat).toContainText("تحدّثت قبل 1 يوم");
   await expect(cat.getByTestId("category-style")).toHaveCount(2);
   await expect(cat.getByTestId("category-shelf")).toHaveCount(3);
   await expect(cat.getByTestId("category-technique")).toHaveCount(3);
   await expect(page.getByTestId("research-results")).toBeHidden();
-  expect(asked).toHaveLength(1);
-  expect(categoryRequests).toEqual(["GET /categories/cars"]);
+  expect(asked).toHaveLength(askedBefore);
+  expect(categoryRequests.filter((r) => r === "GET /categories/cars")).toEqual([
+    "GET /categories/cars",
+  ]);
   expect(await fitsViewport(page)).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("synthetic-category-trends.png"),
+    fullPage: true,
+  });
 
   // A technique's skill opens that skill; its videos play in the app's player.
   const panning = cat.getByTestId("category-technique").first();
@@ -1347,12 +1481,26 @@ test("Discover v2: a genre searches first; Study guides opens lessons and explic
   expect((await scan).postDataJSON()).toEqual({ force: true });
   await expect(cat).toContainText("تحدّثت الحين");
 
-  // A trending style: that style within Cars, in Keywords.
+  // English: a longer label, Arabic study lines gone; Search all goes back to the category's own search.
+  await page.getByTestId("lang-en").click();
+  await expect(page.getByTestId("native-trends-view")).toHaveText("Trends & lessons");
+  await expect(
+    cat.getByRole("heading", { level: 3, name: "✂️ Techniques found in Cars" }),
+  ).toBeVisible();
+  await expect(cat.getByTestId("category-search-all")).toHaveText("Search all Cars videos →");
+  // The lesson stays open across the language switch: English remains the main text; Arabic study lines follow only
+  // in the Arabic UI.
+  expect(await watchFor.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
+  await expect(cat.getByTestId("category-watch-for-ar")).toHaveCount(0);
+  await expect(cat.getByTestId("category-name-ar")).toHaveCount(0);
+
+  // A trending style keeps its niche: "<style> <category subject>" as a Keywords search on the Search tab, like a 🔥 chip.
+  const beforeStyle = asked.length;
   await cat.locator('[data-testid="category-style"][data-key="rolling-shot"]').click();
-  await expect.poll(() => asked.length).toBe(2);
-  expect(asked[1]).toEqual({
-    q: "rolling shot",
-    genreQuery: { ar: "ايديت سيارات", en: "car edit" },
+  await expect(page.getByTestId("inspiration-search")).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => asked.length).toBe(beforeStyle + 1);
+  expect(asked.at(-1)).toEqual({
+    q: "rolling shot car",
     lang: "en",
     editing: true,
     timeRange: "week",
@@ -1360,32 +1508,14 @@ test("Discover v2: a genre searches first; Study guides opens lessons and explic
   await expect(page.getByTestId("category-page")).toHaveCount(0);
   await expect(page.getByTestId("discover-sections")).toBeVisible();
 
-  // English: clear the topic and explicitly reopen guides; Search all returns to the category search.
-  await page.getByTestId("lang-en").click();
-  await openDiscoverCategories(page);
-  await page.getByTestId("genre-cars").click();
-  await openDiscoverSearch(page);
-  await page.getByTestId("discover-topic").fill("");
-  await openDiscoverCategories(page);
-  await page.getByTestId("genre-cars").click();
-  await expect(page.getByTestId("discover-study-guides")).toHaveText("Study guides");
-  await openDiscoverCategories(page);
-  await page.getByTestId("discover-study-guides").click();
-  await expect(
-    cat.getByRole("heading", { level: 3, name: "✂️ Techniques found in Cars" }),
-  ).toBeVisible();
-  await expect(cat.getByTestId("category-search-all")).toHaveText("Search all Cars videos →");
-  // English remains the main text; Arabic study lines follow only in the Arabic UI.
-  await panning.getByTestId("category-study-toggle").click();
-  expect(await watchFor.evaluate((p) => p.matches(":dir(ltr)"))).toBe(true);
-  await expect(cat.getByTestId("category-watch-for-ar")).toHaveCount(0);
-  await expect(cat.getByTestId("category-name-ar")).toHaveCount(0);
+  // Back in Browse the page is still the category's; Search all returns to its own collection, with no search.
+  await page.getByTestId("inspiration-explore").click();
+  await page.getByTestId("native-trends-view").click();
   const beforeReturn = asked.length;
   await cat.getByTestId("category-search-all").click();
-  // Returning to the category uses its local pool and mode policy without another search.
-  await expect(page.getByTestId("category-feed")).toBeVisible();
-  expect(asked).toHaveLength(beforeReturn);
   await expect(page.getByTestId("category-page")).toHaveCount(0);
+  await expect(page.getByTestId("native-trends-view")).toHaveAttribute("aria-pressed", "false");
+  expect(asked).toHaveLength(beforeReturn);
   expect(await fitsViewport(page)).toBe(true);
 });
 
@@ -1401,23 +1531,11 @@ test("Discover category: save an edit, record what to try, and keep its practice
   );
   await page.goto("/discover/");
   await page.getByTestId("lang-en").click();
-  await openDiscoverCategories(page);
-  await page.getByTestId("genre-cars").click();
-  await openDiscoverCategories(page);
-  await page.getByTestId("discover-study-guides").click();
+  await openCarsTrends(page);
   const topCard = page.getByTestId("category-top-item").first();
   const save = topCard.getByTestId("inspiration-save");
   await save.click();
   await expect(save).toHaveAttribute("aria-pressed", "true");
-  // The existing Saved only filter includes one-click inspiration saves too.
-  await page.getByTestId("category-search-all").click();
-  await openDiscoverCategories(page);
-  await page.getByTestId("genres-clear").click();
-  await openResearchFilters(page);
-  await page.getByTestId("filter-saved").click();
-  const savedResult = page.getByTestId("research-results").getByTestId("result-card");
-  await expect(savedResult).toHaveCount(1);
-  await expect(savedResult.getByTestId("result-title")).toHaveText(topVideo("ig", 1).title);
   await page.getByTestId("inspiration-library-open").click();
   const card = page.getByTestId("inspiration-card");
   await expect(card).toHaveCount(1);
@@ -1432,8 +1550,9 @@ test("Discover category: save an edit, record what to try, and keep its practice
     fullPage: true,
   });
   // Saving an already-saved card opens its notes; it never deletes the work.
-  await openDiscoverSearch(page);
-  await savedResult.getByTestId("inspiration-save").click();
+  await page.getByTestId("inspiration-explore").click();
+  await page.getByTestId("native-trends-view").click();
+  await page.getByTestId("category-top-item").first().getByTestId("inspiration-save").click();
   await expect(card.getByTestId("inspiration-note")).toHaveValue(note);
   await expect(card.getByTestId("inspiration-stage")).toHaveValue("trying");
   await page.reload();
@@ -1455,10 +1574,7 @@ test("Discover v2: a full category page at 375 px never scrolls sideways; only t
   await connectWorker(page);
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/discover/");
-  await openDiscoverCategories(page);
-  await page.getByTestId("genre-cars").click();
-  await openDiscoverCategories(page);
-  await page.getByTestId("discover-study-guides").click();
+  await openCarsTrends(page);
   const cat = page.getByTestId("category-page");
   await expect(cat.getByTestId("category-style")).toHaveCount(12);
   await expect(cat.getByTestId("category-technique")).toHaveCount(9);
@@ -1485,10 +1601,7 @@ test("Discover v2: a category's 🏆 top videos at 375 px — the tabs fit, TikT
   await connectWorker(page);
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/discover/");
-  await openDiscoverCategories(page);
-  await page.getByTestId("genre-cars").click();
-  await openDiscoverCategories(page);
-  await page.getByTestId("discover-study-guides").click();
+  await openCarsTrends(page);
   const top = page.getByTestId("category-top");
   await expect(top.getByRole("heading", { level: 3 })).toHaveText("مونتاج تتعلّم منه · سيارات");
   const tabs = top.getByRole("tab");
@@ -1587,10 +1700,7 @@ test("Discover v2: an empty TikTok tab connects TikTok trends — TikTok for Bus
   );
   await connectWorker(page);
   await page.goto("/discover/");
-  await openDiscoverCategories(page);
-  await page.getByTestId("genre-cars").click();
-  await openDiscoverCategories(page);
-  await page.getByTestId("discover-study-guides").click();
+  await openCarsTrends(page);
   const top = page.getByTestId("category-top");
   await top.locator('[data-testid="category-top-tab"][data-platform="tt"]').click();
   await expect(top.getByTestId("category-top-line")).toHaveText(

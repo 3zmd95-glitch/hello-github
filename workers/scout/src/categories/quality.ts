@@ -5,7 +5,8 @@ import { normalizeTerm } from "../discover/terms";
 import { canonicalUrl, isVideoUrl, platformForHost } from "../normalize";
 import type { TopVideo } from "./video";
 
-const CREATIVE: Record<string, readonly string[]> = {
+/** Named techniques and their AR/EN aliases. The app reads it too (lib/discoverMetadata, lib/trendingEdits). */
+export const CREATIVE: Record<string, readonly string[]> = {
   "match cut": ["match cut", "matchcut", "ماتش كت"],
   "speed ramp": ["speed ramp", "speedramp", "سبيد رامب"],
   "beat sync": ["beat sync", "beatsync", "على الإيقاع"],
@@ -75,6 +76,36 @@ const CREATIVE: Record<string, readonly string[]> = {
   "velocity edit": ["velocity edit", "فيلوسيتي"],
   "invisible cut": ["invisible cut", "hidden cut", "seamless cut", "قص مخفي"],
   "dolly zoom": ["dolly zoom", "vertigo effect", "دولي زوم"],
+  // Trending edits (owner, 22 Oct 2026): the clone effect on buildings/cars and stacked cut-out figures.
+  "clone effect": [
+    "clone effect",
+    "duplicate effect",
+    "cloning effect",
+    "clone yourself",
+    "clone trend",
+    "تأثير الاستنساخ",
+    "استنساخ نفسك",
+    "تكرار الشخص",
+    "نسخ الشخص",
+  ],
+  "stacked cutout figures": [
+    "stacked cutout figures",
+    "stacked cut out figures",
+    "cutout stack",
+    "cut out stack",
+    "repeating figures",
+    "layered cutouts",
+    "layered cut outs",
+    "شخصيات مقصوصة متكررة",
+  ],
+  "3d parallax": [
+    "parallax effect",
+    "3d photo effect",
+    "3d zoom",
+    "بارالاكس",
+    "زوم ثلاثي الابعاد",
+    "صورة ثلاثية الأبعاد",
+  ],
   transitions: ["transition", "ترانزيشن", "انتقال"],
   montage: ["montage", "amv", "مونتاج"],
   filmmaking: [
@@ -110,7 +141,9 @@ const FORMS = Object.entries(CREATIVE).map(([name, aliases]) => ({
 // or count as a named craft. A generic #edit alone is not a filming technique.
 const PROJECT = new Set(["filmmaking", "cinematic", "creative commercial", "montage"]);
 const CONTEXTUAL = new Set(["shot planning", "lighting", "editing"]);
-const FAN_EDIT_GENRES = new Set(["anime", "football", "gaming"]);
+// A bare "edit" is a project only where fan edits are the format (anime, sports, games); music videos and short films
+// are original productions, so their "edit" stays a generic label.
+const FAN_EDIT_GENRES = new Set(["anime", "football", "gaming", "basketball", "combat"]);
 const PRODUCTION_ACTION =
   "(?:make|create|film|shoot|edit|animate|record|produce|use|add|apply|try|practice|learn|finish|upload|post|share)";
 const COMPLETED_ACTION =

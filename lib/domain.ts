@@ -974,8 +974,21 @@ export const GenreSchema = z.object({
   }),
   /** Without the "#": lower-case letters, digits and "_". */
   hashtags: z.array(z.string().regex(/^[a-z0-9_]+$/)).default([]),
+  /** The picker group (`groups[].id` of the same file) it is listed under. Display only: the Worker ignores it. */
+  group: z
+    .string()
+    .regex(/^[a-z][a-z0-9-]*$/)
+    .optional(),
 });
 export type Genre = z.infer<typeof GenreSchema>;
+
+/** A heading of the category picker (Sport, Food & drink…): planning/data/genres.json `groups`. */
+export const GenreGroupSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]*$/),
+  emoji: z.string().min(1),
+  name: LTextSchema,
+});
+export type GenreGroup = z.infer<typeof GenreGroupSchema>;
 /** What the JSON may hold (`hashtags` may be left out). */
 export type GenreInput = z.input<typeof GenreSchema>;
 

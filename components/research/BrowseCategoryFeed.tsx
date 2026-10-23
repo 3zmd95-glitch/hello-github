@@ -37,6 +37,7 @@ import { useCreatorExpansion } from "./useCreatorExpansion";
 import CreatorExpansionAction, { CreatorExpansionStatus } from "./CreatorExpansionAction";
 import TikTokNativeAccess from "./TikTokNativeAccess";
 import CategoryRefreshAction from "./CategoryRefreshAction";
+import GenreGroups from "./GenreGroups";
 
 /** Category browsing has its own controls and state; it never edits the retained Search form. */
 export default function BrowseCategoryFeed({
@@ -266,19 +267,9 @@ export default function BrowseCategoryFeed({
         >
           {t("feed.backForYou")}
         </button>
-        <select
-          className="px-input max-w-full py-1 text-sm"
-          aria-label={t("feed.chooseCategory")}
-          value={genre.id}
-          onChange={(event) => onCategory(event.target.value)}
-          data-testid="browse-category-switch"
-        >
-          {genres.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.emoji} {L(option.name)}
-            </option>
-          ))}
-        </select>
+      </div>
+      <div role="group" aria-label={t("feed.chooseCategory")} data-testid="browse-category-picker">
+        <GenreGroups genres={genres} layout="grid" activeId={genre.id} onPick={onCategory} />
       </div>
       <div className="grid grid-cols-4 gap-1.5" role="group" aria-label={t("research.tabs")}>
         {(["all", "ig", "tt", "yt"] as const).map((platform) => (

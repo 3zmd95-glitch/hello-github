@@ -119,4 +119,13 @@ describe("local For You feed", () => {
     expect($("feed-mode-learning")?.textContent).toBe("تعلّم");
     expect(fetch).not.toHaveBeenCalled();
   });
+  it("keeps the category picker open once the feed has cards", () => {
+    useStore
+      .getState()
+      .accumulateDiscoverCandidates([post("carEdit", "Car speed ramp edit")], { genreId: "cars" });
+    mount();
+    expect(all("feed-card")).toHaveLength(1);
+    expect($("browse-categories")?.hasAttribute("open")).toBe(true);
+    expect($("browse-categories")?.textContent).toContain("Categories");
+  });
 });

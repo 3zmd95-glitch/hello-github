@@ -15,6 +15,7 @@ import {
   suggestSlug,
   type ArticleIssue,
 } from "@/lib/articles";
+import { cloudHub } from "@/lib/cloudWorkflowHub";
 import type { Article, Lang } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import {
@@ -24,10 +25,34 @@ import {
   type ArticleBase,
   type ArticlePatch,
   type ArticleResult,
+  type CaptureAuthority,
+  type CaptureRefusalReason,
 } from "@/store";
 import ArticleMarkdown from "./ArticleMarkdown";
 
 const SAVE_DELAY_MS = 400;
+
+/**
+ * ⚙️ DT-7C-3B: the authority of an article-ready workflow that is on the configured Worker (active proof), or null:
+ * then Mark ready keeps the legacy path. A read of stored records only; no request.
+ */
+function readyAuthority(): CaptureAuthority | null {
+  const hub = cloudHub();
+  const active = new Set(
+    hub
+      .registrations()
+      .filter((r) => r.proof === "active")
+      .map((r) => r.workflowId),
+  );
+  for (const w of useStore.getState().workflows) {
+    if (w.trigger.kind !== "article-ready" || !active.has(w.id)) continue;
+    const a = hub.captureAuthority(w.id);
+    if (a) return a;
+  }
+  return null;
+}
+/** Refusals with their own cloud copy; the rest reuse settle()'s handling (save errors, a gone article). */
+type ReadyRefusal = Exclude<CaptureRefusalReason, "not-persisted" | "unsupported-save" | "missing">;
 const LANGS: readonly Lang[] = ["ar", "en"];
 
 type SaveState = "idle" | "saving" | "saved" | "notPersisted" | "conflict" | "unsupported";
@@ -170,6 +195,9 @@ export default function ArticleEditor({ id, onBack }: { id: string; onBack: () =
   const [twin, setTwin] = useState<Article | null>(null);
   /** ⚙️ DT-7C-2B-3: the last Ready was refused because a Ready workflow is not provably local. */
   const [readyBlocked, setReadyBlocked] = useState(false);
+  /** ⚙️ DT-7C-3B: the last cloud Ready refusal, or how many cloud runs the last cloud Ready captured. */
+  const [readyRefusal, setReadyRefusal] = useState<ReadyRefusal | null>(null);
+  const [readyCaptured, setReadyCaptured] = useState(0);
   const [busy, setBusyState] = useState(false);
   const [dirtyState, setDirtyState] = useState(false);
   const [stash, setStash] = useState<UnsavedDraft | undefined>(
@@ -355,6 +383,8 @@ export default function ArticleEditor({ id, onBack }: { id: string; onBack: () =
 
   const edit = (next: Draft) => {
     if (busyRef.current) return; // the fields are read-only while an action runs
+    setReadyRefusal(null);
+    setReadyCaptured(0);
     setDraft(next);
     setDirty(true);
     if (saveRef.current !== "conflict") setSave("saving");
@@ -375,6 +405,27 @@ export default function ArticleEditor({ id, onBack }: { id: string; onBack: () =
     } finally {
       setBusy(false);
     }
+  };
+
+  /** ⚙️ DT-7C-3B: one Ready transition with its cloud runs captured in the same commit (nothing is sent). */
+  const readyCloud = async (authority: CaptureAuthority): Promise<ArticleResult> => {
+    const r = await useStore.getState().captureArticleReady(id, { authority });
+    if (r.kind !== "refused") {
+      setReadyCaptured(r.kind === "ready" ? r.entries.length : 0);
+      return { ok: true, article: r.article };
+    }
+    if (r.reason === "not-persisted" || r.reason === "unsupported-save" || r.reason === "missing")
+      return { ok: false, reason: r.reason };
+    setReadyRefusal(r.reason);
+    // settle() adds nothing for `issues`: the cloud refusal copy says why.
+    return { ok: false, reason: "issues" };
+  };
+  const markReady = () => {
+    setReadyRefusal(null);
+    setReadyCaptured(0);
+    const authority = readyAuthority();
+    if (!authority) void act(() => useStore.getState().setArticleStatus(id, "ready"));
+    else void act(() => readyCloud(authority));
   };
 
   const restoreStash = () => {
@@ -809,6 +860,24 @@ export default function ArticleEditor({ id, onBack }: { id: string; onBack: () =
           {t("website.readyBlocked")}
         </p>
       )}
+      {readyRefusal && (
+        <p
+          role="alert"
+          className="text-danger text-[13px]"
+          data-testid="website-ready-cloud-refused"
+        >
+          {t(`website.cloudReady.${readyRefusal}`)}
+        </p>
+      )}
+      {readyCaptured > 0 && (
+        <p
+          className="text-ink-2 text-[13px]"
+          role="status"
+          data-testid="website-ready-cloud-captured"
+        >
+          {t("website.cloudReady.captured", { count: readyCaptured })}
+        </p>
+      )}
       <div className="flex flex-wrap gap-2">
         {status === "draft" && (
           <button
@@ -816,7 +885,7 @@ export default function ArticleEditor({ id, onBack }: { id: string; onBack: () =
             className="px-btn px-btn-sm"
             disabled={issues.length > 0 || gone || busy}
             title={issues[0] ? issueText(issues[0]) : undefined}
-            onClick={() => void act(() => useStore.getState().setArticleStatus(id, "ready"))}
+            onClick={markReady}
             data-testid="website-ready"
           >
             <FileCheck size={16} strokeWidth={1.75} aria-hidden />
