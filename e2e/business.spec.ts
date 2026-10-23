@@ -113,9 +113,17 @@ test("saved Growth numbers show their source; missing data says so; the export i
   await expect(ig).toContainText(`Saved Growth snapshot · observed ${riyadhDay(2)}`);
   await expect(ig).not.toContainText("777");
   await expect(page.getByTestId("business-metric-threads")).toContainText("No number yet");
-  await expect(page.getByTestId("business-estimator")).toContainText(
+  // The price calculator lives in its own private Rates tab.
+  await expect(page.getByTestId("business-estimator")).toHaveCount(0);
+  await page.getByTestId("business-tab-rates").click();
+  await expect(page.getByTestId("rates-note")).toHaveText(
     "Estimate from your own assumptions · not a market rate",
   );
+  await expect(page.getByTestId("rates-private")).toBeVisible();
+  // 12.4K followers, no average views saved: followers only, 12.4 × 15 × 1 (post) = 186 → 190.
+  await expect(page.getByTestId("rates-result")).toHaveText("≈ 190 SAR");
+  await expect(page.getByTestId("rates-no-views")).toBeVisible();
+  await page.getByTestId("business-tab-kit").click();
 
   await page.getByTestId("business-tagline-en").fill("Kit for brands");
   await saved(page);

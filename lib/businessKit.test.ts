@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { rateQuote } from "./rates";
 import {
   BrandDealSchema,
   BusinessKitSchema,
+  DEFAULT_RATE_SETTINGS,
+  RateSettingsSchema,
   SocialPostStatSchema,
   SocialSnapshotSchema,
   type BrandDeal,
@@ -12,8 +15,6 @@ import {
 import {
   dealRate,
   dealReplyDraft,
-  estimateExplain,
-  estimateRate,
   kitFileName,
   kitIssues,
   kitMetrics,
@@ -22,7 +23,7 @@ import {
 } from "./businessKit";
 
 // 💼 Business Kit (packet DT-5): per-platform metrics with their own provenance (saved snapshot day, posts sample and
-// range, missing, stale), never pooled; the owner's estimator; the allowlisted public projection.
+// range, missing, stale), never pooled; the deal reply's price; the allowlisted public projection.
 
 const NOW = "2026-10-16T09:00:00.000Z"; // 12:00 in Riyadh
 const snap = (s: SocialSnapshotInput) => SocialSnapshotSchema.parse(s);
@@ -186,30 +187,6 @@ describe("kitMetrics", () => {
 
 const kit = (over: Partial<BusinessKit> = {}): BusinessKit =>
   BusinessKitSchema.parse({ commitId: "c1", updatedAt: NOW, ...over });
-
-describe("estimator", () => {
-  it("multiplies the owner's assumptions and rounds to 50 SAR, explaining every factor", () => {
-    const est = kit().estimator;
-    expect(estimateExplain(est, 12_000, 5, "reel")).toEqual({
-      followers: 12_000,
-      perThousand: 15,
-      engagementPct: 5,
-      engagementFactor: 1.05,
-      weight: 1.5,
-      raw: 283.5,
-      sar: 300,
-    });
-    expect(estimateRate(est, 12_000, 5, "reel")).toBe(300);
-    // Unknown engagement: no adjustment. Story weight 0.5: 12 × 15 × 0.5 = 90 → 100.
-    expect(estimateRate(est, 12_000, null, "story")).toBe(100);
-    expect(estimateExplain(est, 12_000, null, "story")!.engagementFactor).toBe(1);
-    // Edited assumptions change the number; without followers there is no estimate.
-    const own = { ...est, sarPerThousandFollowers: 40, engagementMultiplier: 0 };
-    expect(estimateRate(own, 10_000, 8, "post")).toBe(400);
-    expect(estimateRate(est, null, 5, "post")).toBeNull();
-    expect(estimateRate(est, 0, 5, "post")).toBeNull();
-  });
-});
 
 describe("kitIssues", () => {
   it("flags each problem once, and nothing for a clean kit", () => {
@@ -485,18 +462,33 @@ describe("deal reply draft (DT-5-R1 coverage gap)", () => {
     ],
   });
 
-  it("prefers the owner's rate card for the deliverable, else the estimator, else nothing", () => {
+  it("prefers the owner's rate card for the deliverable, else the rate calculator, else nothing", () => {
     expect(dealRate(deal(), withCard, [])).toEqual({ kind: "card", sar: 1500 });
-    // No card row for a story: the estimator from the saved follower count.
+    // No card row for a story: the calculator from the saved follower count (no views saved: followers only).
     const [ig] = kitMetrics(
       state({ snapshots: [snap({ platform: "instagram", day: "2026-10-10", followers: 10_000 })] }),
       NOW,
     );
     expect(dealRate(deal({ deliverable: "2 stories" }), withCard, [ig])).toEqual({
       kind: "estimate",
-      sar: estimateRate(withCard.estimator, 10_000, null, "story"),
+      sar: rateQuote(DEFAULT_RATE_SETTINGS, 10_000, null, "story")!.sar,
     });
-    // Nothing to go on: no number is made up.
+    expect(rateQuote(DEFAULT_RATE_SETTINGS, 10_000, null, "story")!.sar).toBe(80);
+    // The owner's own assumptions and the platform's average views count; a bundle is its own deliverable.
+    const [tt] = kitMetrics(
+      state({
+        snapshots: [snap({ platform: "tiktok", day: "2026-10-10", followers: 10_000 })],
+        postStats: tiktokPosts(5),
+      }),
+      NOW,
+    );
+    const mine = RateSettingsSchema.parse({ sarPerThousandViews: 100 });
+    expect(dealRate(deal({ deliverable: "story + post package" }), withCard, [tt], mine)).toEqual({
+      kind: "estimate",
+      sar: rateQuote(mine, 10_000, 100, "bundle")!.sar,
+    });
+    // A video is not one of the calculator's deliverables, and nothing to go on makes up no number.
+    expect(dealRate(deal({ deliverable: "a YouTube video" }), withCard, [ig])).toBeNull();
     expect(dealRate(deal({ deliverable: "2 stories" }), withCard, [])).toBeNull();
     expect(dealRate(deal({ deliverable: "" }), withCard, [ig])).toBeNull();
   });

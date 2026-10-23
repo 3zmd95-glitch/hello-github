@@ -7,15 +7,8 @@ import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import Chip from "@/components/ui/ios/Chip";
 import PlatformBadge from "@/components/ui/ios/PlatformBadge";
-import {
-  emptyKit,
-  estimateExplain,
-  kitFileName,
-  kitIssues,
-  kitMetrics,
-  kitProjection,
-} from "@/lib/businessKit";
-import { KIT_DELIVERABLES, PLATFORMS, type BusinessKit, type Platform } from "@/lib/domain";
+import { emptyKit, kitFileName, kitIssues, kitMetrics, kitProjection } from "@/lib/businessKit";
+import { PLATFORMS, type BusinessKit, type Platform } from "@/lib/domain";
 import { useT, type MessageKey } from "@/lib/i18n";
 import { PLATFORM_META } from "@/lib/social";
 import {
@@ -119,8 +112,6 @@ export default function KitEditor() {
     () => unsavedKitDraft.getState().draft,
   );
   const [showPreview, setShowPreview] = useState(false);
-  const [estPlatform, setEstPlatform] = useState<Platform | "">("");
-  const [estDeliverable, setEstDeliverable] = useState<(typeof KIT_DELIVERABLES)[number]>("post");
 
   const draftRef = useRef(draft);
   const dirty = useRef(false);
@@ -315,17 +306,6 @@ export default function KitEditor() {
   );
   const unsaved =
     dirtyState || ["notPersisted", "unsupported", "conflict", "invalid"].includes(save);
-
-  const withFollowers = metrics.filter((m) => m.followers.source === "snapshot");
-  const estFor = withFollowers.find((m) => m.platform === estPlatform) ?? withFollowers[0] ?? null;
-  const explain = estFor
-    ? estimateExplain(
-        draft.estimator,
-        estFor.followers.source === "snapshot" ? estFor.followers.value : null,
-        estFor.engagement.source === "none" ? null : estFor.engagement.value,
-        estDeliverable,
-      )
-    : null;
 
   const exportJson = () => {
     const url = URL.createObjectURL(
@@ -817,124 +797,6 @@ export default function KitEditor() {
             ))}
           </ul>
         </section>
-      )}
-
-      {section(
-        "business.estimate.title",
-        <>
-          <p className="text-ink-2 text-[13px] font-semibold">{t("business.estimate.note")}</p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <label className="flex min-w-0 flex-col gap-1">
-              {label("business.estimate.perK")}
-              <input
-                className="px-input"
-                type="number"
-                min={0}
-                dir="ltr"
-                value={draft.estimator.sarPerThousandFollowers}
-                onChange={(e) =>
-                  patch({
-                    estimator: { ...draft.estimator, sarPerThousandFollowers: num(e.target.value) },
-                  })
-                }
-                data-testid="business-est-perk"
-              />
-            </label>
-            <label className="flex min-w-0 flex-col gap-1">
-              {label("business.estimate.mult")}
-              <input
-                className="px-input"
-                type="number"
-                min={0}
-                step={0.1}
-                dir="ltr"
-                value={draft.estimator.engagementMultiplier}
-                onChange={(e) =>
-                  patch({
-                    estimator: { ...draft.estimator, engagementMultiplier: num(e.target.value) },
-                  })
-                }
-                data-testid="business-est-mult"
-              />
-            </label>
-            {KIT_DELIVERABLES.map((d) => (
-              <label key={d} className="flex min-w-0 flex-col gap-1">
-                {label("business.estimate.weight", { deliverable: t(`business.deliverable.${d}`) })}
-                <input
-                  className="px-input"
-                  type="number"
-                  min={0}
-                  step={0.1}
-                  dir="ltr"
-                  value={draft.estimator.deliverable[d]}
-                  onChange={(e) =>
-                    patch({
-                      estimator: {
-                        ...draft.estimator,
-                        deliverable: { ...draft.estimator.deliverable, [d]: num(e.target.value) },
-                      },
-                    })
-                  }
-                  data-testid={`business-est-w-${d}`}
-                />
-              </label>
-            ))}
-            <label className="flex min-w-0 flex-col gap-1">
-              {label("business.estimate.platform")}
-              <select
-                className="px-input"
-                value={estFor?.platform ?? ""}
-                onChange={(e) => setEstPlatform(e.target.value as Platform)}
-                data-testid="business-est-platform"
-              >
-                {withFollowers.map((m) => (
-                  <option key={m.platform} value={m.platform}>
-                    {PLATFORM_META[m.platform].name[lang]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex min-w-0 flex-col gap-1">
-              {label("business.estimate.deliverable")}
-              <select
-                className="px-input"
-                value={estDeliverable}
-                onChange={(e) =>
-                  setEstDeliverable(e.target.value as (typeof KIT_DELIVERABLES)[number])
-                }
-                data-testid="business-est-deliverable"
-              >
-                {KIT_DELIVERABLES.map((d) => (
-                  <option key={d} value={d}>
-                    {t(`business.deliverable.${d}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          {explain ? (
-            <>
-              <p className="text-[20px] font-bold" data-testid="business-est-result">
-                {t("business.estimate.result", { sar: explain.sar })}
-              </p>
-              <p className="text-ink-2 text-[13px]" data-testid="business-est-explain">
-                {t("business.estimate.explain", {
-                  followers: explain.followers,
-                  perK: explain.perThousand,
-                  factor: Math.round(explain.engagementFactor * 1000) / 1000,
-                  weight: explain.weight,
-                  raw: explain.raw,
-                  sar: explain.sar,
-                })}
-              </p>
-            </>
-          ) : (
-            <p className="text-ink-2 text-[13px]" data-testid="business-est-none">
-              {t("business.estimate.none")}
-            </p>
-          )}
-        </>,
-        "business-estimator",
       )}
 
       {unsaved && (

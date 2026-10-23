@@ -116,6 +116,19 @@ describe("BusinessScreen", () => {
     expect($("business-tab-deals")!.textContent).toBe("Brand deals");
   });
 
+  it("links to the media-kit page and has a private Rates tab between the kit and the deals", async () => {
+    await mount("en");
+    expect($("business-open-page")!.getAttribute("href")).toMatch(
+      /^\/social\/business\/media-kit\/?$/,
+    );
+    await click("business-tab-rates");
+    expect($("business-tab-rates")!.getAttribute("aria-selected")).toBe("true");
+    expect($("rates-screen")).not.toBeNull();
+    expect($("kit-editor")).toBeNull();
+    await click("business-tab-deals");
+    expect($("rates-screen")).toBeNull();
+  });
+
   it("saves edits after a pause, only once the store read the commit back", async () => {
     await mount("en");
     await type("business-tagline-en", "I film and edit");
@@ -211,18 +224,8 @@ describe("BusinessScreen", () => {
     expect($("business-metric-threads")!.textContent).toContain("No number yet");
     expect($("business-metric-threads")!.textContent).toContain("@3z.threads");
     expect($("business-growth-link")!.getAttribute("href")).toMatch(/^\/social\/growth\/?$/);
-    // The estimator uses one platform's own numbers and the owner's assumptions.
-    await type("business-est-platform", "instagram");
-    await type("business-est-deliverable", "reel");
-    // 12.4 × 15 × 1.05 × 1.5 = 292.95 → 300
-    expect($("business-est-result")!.textContent).toContain("300");
-    expect($("business-estimator")!.textContent).toContain(
-      "Estimate from your own assumptions · not a market rate",
-    );
-    expect($("business-est-explain")!.textContent).toContain("12400");
-    await type("business-est-perk", "40");
-    // 12.4 × 40 × 1.05 × 1.5 = 781.2 → 800
-    await until(() => expect($("business-est-result")!.textContent).toContain("800"));
+    // The price calculator moved to its own Rates tab; the kit tab no longer carries one.
+    expect($("business-estimator")).toBeNull();
   });
 
   it("exports the current draft as the allowlisted projection, marked unsaved until it is saved", async () => {

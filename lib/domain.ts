@@ -1289,7 +1289,8 @@ export const BusinessKitSchema = z.object({
     .default([]),
   /** Platforms the kit shows; empty = every platform with Growth data. */
   featuredPlatforms: z.array(PlatformSchema).default([]),
-  /** The owner's own pricing assumptions (never a market rate, never exported). */
+  /** Legacy (DT-5): no longer edited or read; the rate calculator's settings are `BusinessPrefs.rates`. Kept so
+   old saves and backups stay valid. */
   estimator: z
     .object({
       sarPerThousandFollowers: z.number().min(0).default(15),
@@ -1309,6 +1310,81 @@ export const BusinessKitSchema = z.object({
   updatedAt: z.iso.datetime({ offset: true }),
 });
 export type BusinessKit = z.infer<typeof BusinessKitSchema>;
+
+/* ---------- 💰 Rate calculator and the media-kit page's own settings (planning/tools/09 D2, D3) ---------- */
+
+/** What a brand can ask for. "bundle" = a reel, a story and a post together. */
+export const RATE_DELIVERABLES = ["reel", "story", "post", "bundle"] as const;
+export type RateDeliverable = (typeof RATE_DELIVERABLES)[number];
+
+const factor = (dflt: number) => z.number().min(0).max(1_000_000).default(dflt);
+
+/**
+ * The owner's own pricing assumptions: SAR per 1,000 followers and per 1,000 average views, times a multiplier per
+ * deliverable. Placeholders until the owner edits them (never a market rate). Private: never exported or printed.
+ */
+export const DEFAULT_RATE_SETTINGS = {
+  sarPerThousandFollowers: 15,
+  sarPerThousandViews: 20,
+  multiplier: { reel: 1.5, story: 0.5, post: 1, bundle: 2.5 },
+};
+export const RateSettingsSchema = z.object({
+  sarPerThousandFollowers: factor(15),
+  sarPerThousandViews: factor(20),
+  multiplier: z
+    .object({ reel: factor(1.5), story: factor(0.5), post: factor(1), bundle: factor(2.5) })
+    .default(DEFAULT_RATE_SETTINGS.multiplier),
+});
+export type RateSettings = z.infer<typeof RateSettingsSchema>;
+
+/** The blocks of the printable media-kit page the owner can switch off (the hero is always there). */
+export const KIT_BLOCKS = [
+  "workWithMe",
+  "about",
+  "platforms",
+  "audience",
+  "posts",
+  "services",
+  "work",
+  "rates",
+] as const;
+export type KitBlock = (typeof KIT_BLOCKS)[number];
+
+const ALL_BLOCKS_ON = {
+  workWithMe: true,
+  about: true,
+  platforms: true,
+  audience: true,
+  posts: true,
+  services: true,
+  work: true,
+  rates: true,
+};
+export const DEFAULT_BUSINESS_PREFS = {
+  name: "",
+  rates: DEFAULT_RATE_SETTINGS,
+  blocks: ALL_BLOCKS_ON,
+};
+const on = z.boolean().default(true);
+/** Screen settings of Business that are not the kit's text: the page's name, the rate assumptions, the block toggles. */
+export const BusinessPrefsSchema = z.object({
+  /** The name on the media-kit page (empty = the first saved handle). */
+  name: z.string().max(60).default(""),
+  rates: RateSettingsSchema.default(DEFAULT_RATE_SETTINGS),
+  blocks: z
+    .object({
+      workWithMe: on,
+      about: on,
+      platforms: on,
+      audience: on,
+      posts: on,
+      services: on,
+      work: on,
+      rates: on,
+    })
+    .default(ALL_BLOCKS_ON),
+});
+export type BusinessPrefs = z.infer<typeof BusinessPrefsSchema>;
 
 /** A brand deal's pipeline, in order; `lost` keeps the history (deals are never deleted). */
 export const DEAL_STAGES = [
