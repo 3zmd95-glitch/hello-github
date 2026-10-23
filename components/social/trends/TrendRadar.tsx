@@ -7,7 +7,13 @@ import { calendarPostHref, withName } from "@/components/social/studio/platform"
 import { useToday } from "@/components/today/useToday";
 import Chip from "@/components/ui/ios/Chip";
 import Segmented from "@/components/ui/ios/Segmented";
-import { TREND_PLATFORMS, type Lang, type TrendPlatform } from "@/lib/domain";
+import {
+  TREND_ITEM_KINDS,
+  TREND_PLATFORMS,
+  type Lang,
+  type TrendItemKind,
+  type TrendPlatform,
+} from "@/lib/domain";
 import { allGenres } from "@/lib/genres";
 import { useT } from "@/lib/i18n";
 import { PlatformGlyph } from "@/lib/platformIcons";
@@ -22,6 +28,7 @@ import {
 import { useStore } from "@/store";
 import ManualLinks from "./ManualLinks";
 import MomentsRail from "./MomentsRail";
+import SoundRitual from "./SoundRitual";
 import { calendarPlatformOf, type PlannedPost } from "./TrendActions";
 import TrendRow from "./TrendRow";
 import { useTrends } from "./useTrends";
@@ -29,6 +36,8 @@ import { useTrends } from "./useTrends";
 /** The chips: the live platforms (calendar moments have their own rail). */
 const CHIP_PLATFORMS = TREND_PLATFORMS.filter((p) => p !== "event");
 type PlatformFilter = TrendPlatform | "all";
+/** The kind chips (scout 02): Hashtags / Sounds / Topics beside the platform chips. */
+type KindFilter = TrendItemKind | "all";
 
 /** Both keyword lists: a `mixed` row (a hashtag, an event) may match either language. */
 const ALL_KEYWORDS = [...DEFAULT_TREND_KEYWORDS.ar, ...DEFAULT_TREND_KEYWORDS.en];
@@ -44,6 +53,10 @@ const ALL_KEYWORDS = [...DEFAULT_TREND_KEYWORDS.ar, ...DEFAULT_TREND_KEYWORDS.en
  * stays about general trends and has no genre filter: Discover is the one place for genres. A row of a genre
  * names it in a chip (plain: Discover is a Training route, tools/20). The star is `matchesNiche`: the search words of a row's own genre
  * do not count (the Worker tags a row with the query that found it, and "مونتاج أكل" is not the niche).
+ *
+ * Scout 02: TikTok Discovery's hashtags (SA in the Arabic tab, US in the English one) come with their 7-day window and
+ * proof videos (TrendRow); a second chip row filters by kind (lib/trends `trendKind`); beside the moments sits the weekly
+ * "paste 3 Instagram sounds" card (SoundRitual), which saves ideas and sends no reminder.
  */
 export default function TrendRadar() {
   const { t, lang } = useT();
@@ -53,6 +66,7 @@ export default function TrendRadar() {
   const customGenres = useStore((s) => s.customGenres);
   const [tab, setTab] = useState<Lang>("ar");
   const [platform, setPlatform] = useState<PlatformFilter>("all");
+  const [kind, setKind] = useState<KindFilter>("all");
   const [planned, setPlanned] = useState<PlannedPost | null>(null);
 
   // Every genre the app can name: the built-in ones, then the owner's own (Settings).
@@ -64,11 +78,12 @@ export default function TrendRadar() {
     // both. Calendar moments (platform `event`) live only in the moments rail, never as a dismissible row.
     const filter: TrendFilter = tab === "ar" ? { region: "SA", lang: "ar" } : { lang: "en" };
     if (platform !== "all") filter.platform = platform;
+    if (kind !== "all") filter.kind = kind;
     return visibleTrends(feed, filter, new Date())
       .filter((item) => item.platform !== "event")
       .map((item) => ({ item, star: matchesNiche(item, ALL_KEYWORDS, genres) }))
       .sort((a, b) => Number(b.star) - Number(a.star));
-  }, [feed, tab, platform, genres]);
+  }, [feed, tab, platform, kind, genres]);
 
   const updated = feed.fetchedAt
     ? t("trends.updated", { when: timeAgo(feed.fetchedAt, lang) })
@@ -183,6 +198,20 @@ export default function TrendRadar() {
                 );
               })}
             </div>
+            <div className="ios-chips" role="group" aria-label={t("trends.kindLabel")}>
+              {(["all", ...TREND_ITEM_KINDS] as KindFilter[]).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className="px-fchip"
+                  aria-pressed={kind === k}
+                  onClick={() => setKind(k)}
+                  data-testid={`trends-kind-${k}`}
+                >
+                  {t(`trends.kind.${k}`)}
+                </button>
+              ))}
+            </div>
             {rows.length === 0 ? (
               <p className="text-ink-2 px-4 text-[13px]" data-testid="trends-empty">
                 {hasFeed ? (
@@ -210,6 +239,7 @@ export default function TrendRadar() {
 
         <aside className="flex min-w-0 flex-col gap-5">
           <MomentsRail today={today} onPlanned={setPlanned} />
+          <SoundRitual />
           <ManualLinks />
         </aside>
       </div>

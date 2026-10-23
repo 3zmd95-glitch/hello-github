@@ -179,6 +179,57 @@ function viewsRow() {
   };
 }
 
+/**
+ * Rows as the Worker's TikTok Discovery source writes them (scout 02): an SA hashtag in the Arabic tab with two proof
+ * videos (the second without a post time, so no date is shown for it) and a US one in the English tab, both ranked
+ * over 7 days. The first video's date comes from its id: 21 Oct 2026.
+ */
+function tiktokRows() {
+  const base = {
+    platform: "tiktok",
+    source: "TikTok Discovery",
+    seenAt: new Date().toISOString(),
+    kind: "hashtag",
+    periodDays: 7,
+    tags: ["special-effects"],
+  };
+  return [
+    {
+      ...base,
+      id: "tiktok:SA:tag-velocityedit",
+      region: "SA",
+      lang: "ar",
+      title: "#velocityedit",
+      url: "https://www.tiktok.com/tag/velocityedit",
+      score: 97,
+      proof: [
+        {
+          url: "https://www.tiktok.com/@alice/video/7561234567890123456",
+          creator: "@alice",
+          postedAt: "2026-10-21T09:00:00.000Z",
+        },
+        { url: "https://www.tiktok.com/@bob/video/7560000000000000000", creator: "@bob" },
+      ],
+    },
+    {
+      ...base,
+      id: "tiktok:US:tag-greenscreen",
+      region: "US",
+      lang: "en",
+      title: "#greenscreen",
+      url: "https://www.tiktok.com/tag/greenscreen",
+      score: 97,
+      proof: [
+        {
+          url: "https://www.tiktok.com/@carol/video/7561234567890123457",
+          creator: "@carol",
+          postedAt: "2026-10-22T09:00:00.000Z",
+        },
+      ],
+    },
+  ];
+}
+
 interface Fake {
   gets: number;
   runs: number;
@@ -394,6 +445,109 @@ test("a volume chip says what its number counts: views on a YouTube row, searche
   await expect(searches).toHaveAttribute("data-unit", "searches");
   await expect(searches).toHaveText("500 searches");
   expect(await fitsViewport(page)).toBe(true);
+});
+
+test("TikTok Discovery hashtags: SA in the Arabic tab, US in the English one, with their window, proof videos with dates, and the kind filter", async ({
+  page,
+}) => {
+  test.slow();
+  const fake = await stubWorker(page, () => feedNow(tiktokRows()));
+  await connectWorker(page);
+
+  await page.goto("/social/ideas/");
+  await expect.poll(() => fake.gets).toBeGreaterThanOrEqual(1);
+
+  // Arabic tab: the SA hashtag (not the US one) with its source, kind and 7-day window in Arabic.
+  const sa = page.locator('[data-testid="trend-row"][data-id="tiktok:SA:tag-velocityedit"]');
+  await expect(sa).toBeVisible();
+  await expect(page.locator('[data-id="tiktok:US:tag-greenscreen"]')).toHaveCount(0);
+  await expect(sa).toHaveAttribute("data-source", "TikTok Discovery");
+  await expect(sa.getByTestId("trend-source")).toHaveText("اكتشاف TikTok");
+  await expect(sa.getByTestId("trend-kind")).toHaveText("هاشتاق");
+  await expect(sa.getByTestId("trend-period")).toHaveText("آخر 7 أيام");
+  await expect(sa.getByTestId("trend-link")).toHaveAttribute(
+    "href",
+    "https://www.tiktok.com/tag/velocityedit",
+  );
+  await expect(sa.getByTestId("trend-volume")).toHaveCount(0);
+
+  // The proof: two videos as links out; the first carries the date of its id, the second none.
+  const proof = sa.getByTestId("trend-proof");
+  await expect(proof).toHaveAttribute("data-count", "2");
+  const videos = proof.getByTestId("trend-proof-link");
+  await expect(videos.first()).toHaveAttribute(
+    "href",
+    "https://www.tiktok.com/@alice/video/7561234567890123456",
+  );
+  await expect(videos.first()).toHaveAttribute("target", "_blank");
+  await expect(videos.first()).toContainText("@alice");
+  await expect(videos.first()).toContainText("2026");
+  await expect(videos.nth(1)).toContainText("@bob");
+  await expect(videos.nth(1)).not.toHaveAttribute("data-posted-at", /.+/);
+  await expect(proof.getByTestId("trend-proof-newest")).toBeVisible();
+  expect(await fitsViewport(page)).toBe(true);
+
+  // The kind filter: Hashtags keeps the TikTok one and the scan's #hashtag, Sounds none, Topics the Google rows.
+  const rows = page.getByTestId("trend-row");
+  await page.getByTestId("trends-kind-hashtag").click();
+  await expect(rows).toHaveCount(2);
+  await expect(page.getByTestId("trends-kind-hashtag")).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("trends-kind-sound").click();
+  await expect(page.getByTestId("trends-empty")).toBeVisible();
+  await page.getByTestId("trends-kind-topic").click();
+  await expect(rows).toHaveCount(2);
+  await expect(page.locator('[data-testid="trend-row"][data-platform="google"]')).toHaveCount(2);
+  await page.getByTestId("trends-kind-all").click();
+  await expect(rows).toHaveCount(4);
+
+  // English tab and UI: the US hashtag with English words and the English date.
+  await switchLang(page, "en");
+  await page.getByTestId("trends-tab-en").click();
+  const us = page.locator('[data-testid="trend-row"][data-id="tiktok:US:tag-greenscreen"]');
+  await expect(us).toBeVisible();
+  await expect(us.getByTestId("trend-source")).toHaveText("TikTok Discovery");
+  await expect(us.getByTestId("trend-kind")).toHaveText("Hashtag");
+  await expect(us.getByTestId("trend-period")).toHaveText("Last 7 days");
+  await expect(us.getByTestId("trend-proof-link").first()).toContainText("22 Oct 2026");
+  await expect(page.getByTestId("trends-kind-hashtag")).toHaveText("Hashtags");
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("the weekly Instagram sounds card saves the pasted sounds as ideas, shows the last paste, and sends no reminder", async ({
+  page,
+}) => {
+  await freshState(page, "/social/ideas/");
+  const card = page.getByTestId("trends-ritual");
+  await expect(card).toBeVisible();
+  await expect(page.getByTestId("ritual-none")).toBeVisible();
+  await expect(page.getByTestId("ritual-save")).toBeDisabled();
+  expect(await fitsViewport(page)).toBe(true);
+
+  await page.getByTestId("ritual-sound-0").fill("Dua Lipa - Houdini");
+  await page.getByTestId("ritual-sound-1").fill("صوت المسلسل");
+  await page.getByTestId("ritual-format").fill("POV");
+  await page.getByTestId("ritual-save").click();
+  await expect(page.getByTestId("ritual-saved")).toContainText("3");
+
+  // Three Instagram trend ideas in the bank, dated by the paste day; the card lists them and says when.
+  await expect(page.getByTestId("ideas-list")).toHaveAttribute("data-count", "3");
+  const ideas = page.locator('[data-testid="idea-row"][data-source="trend"]');
+  await expect(ideas).toHaveCount(3);
+  await expect(ideas.filter({ hasText: "Dua Lipa - Houdini" })).toHaveCount(1);
+  const last = page.getByTestId("ritual-last");
+  await expect(last).toHaveAttribute("data-stale", "false");
+  await expect(last.getByTestId("ritual-last-sound")).toHaveCount(2);
+  await expect(last.getByTestId("ritual-last-format")).toHaveText("POV");
+  await expect(page.getByTestId("ritual-last-date")).toContainText("آخر لصق");
+  expect(await fitsViewport(page)).toBe(true);
+
+  // Still there after a reload (it reads the ideas bank), and nothing asks him to come back: no reminder
+  // control on the card and no ritual row in the Studio inbox.
+  await page.reload();
+  await expect(page.getByTestId("ritual-last")).toBeVisible();
+  await expect(card.locator('input[type="checkbox"], [role="switch"]')).toHaveCount(0);
+  await page.goto("/social/");
+  await expect(page.getByTestId("inbox-row").filter({ hasText: /صوت|sound/i })).toHaveCount(0);
 });
 
 test("genre rows name their genre in a plain chip, and the radar has no genre select", async ({

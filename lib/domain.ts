@@ -938,9 +938,28 @@ export const TrendLangSchema = z.enum(["ar", "en", "mixed"]);
 export type TrendLang = z.infer<typeof TrendLangSchema>;
 
 /**
+ * What a row is, when its source says (scout 02): TikTok Discovery's rows are hashtags. The radar's kind filter
+ * (Hashtags / Sounds / Topics) reads it through lib/trends `trendKind`, which also covers rows stored without one.
+ */
+export const TREND_ITEM_KINDS = ["hashtag", "sound", "topic"] as const;
+export const TrendItemKindSchema = z.enum(TREND_ITEM_KINDS);
+export type TrendItemKind = z.infer<typeof TrendItemKindSchema>;
+
+/**
+ * One top video under a hashtag, the live proof (scout 02): its https link, the creator's handle, and the post time the
+ * Worker decoded from the TikTok video id (workers/scout/src/postDate.ts), never a date anyone typed.
+ */
+export const TrendProofSchema = z.object({
+  url: z.string().regex(/^https:\/\//),
+  creator: z.string().optional(),
+  postedAt: z.iso.datetime({ offset: true }).optional(),
+});
+export type TrendProof = z.infer<typeof TrendProofSchema>;
+
+/**
  * One row of the radar, as the Worker's `GET /trends` returns it. Only Google Trends and the YouTube charts are
  * true popularity rankings; `source` is the attribution label the UI always shows ("Google Trends",
- * "YouTube charts", "YouTube search", "kworb.net", "Tavily scan", "trends24.in", "3z calendar").
+ * "YouTube charts", "YouTube search", "TikTok Discovery", "kworb.net", "Tavily scan", "trends24.in", "3z calendar").
  */
 export const TrendItemSchema = z.object({
   /** Stable per source + region + slug, built by the Worker, e.g. "google:SA:حساب-المواطن". */
@@ -970,6 +989,11 @@ export const TrendItemSchema = z.object({
    * planning/data/genres.json today; kept a plain string so an id this app does not know still loads.
    */
   genre: z.string().optional(),
+  kind: TrendItemKindSchema.optional(),
+  /** The window the source ranked the row over, in days (7 for TikTok Discovery's hashtags). */
+  periodDays: z.number().int().min(1).optional(),
+  /** Up to 3 top videos of a hashtag, each with the date its own id carries (TikTok Discovery). */
+  proof: z.array(TrendProofSchema).max(10).optional(),
 });
 export type TrendItem = z.infer<typeof TrendItemSchema>;
 /** What the Worker may send (`tags` may be left out). */
