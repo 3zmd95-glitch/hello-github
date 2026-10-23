@@ -12,10 +12,11 @@
  *   DELETE /social/publish/:id                       → { ok: true }
  */
 
-import { Budget, type Http } from "./http";
+import { Budget, BUDGET_EXHAUSTED, type Http } from "./http";
 import { credentials, isExpired, PROVIDERS } from "./oauth";
 import {
   COMMENT_DELAY_MS,
+  COMMENT_ENABLED,
   COMMENT_MIN_BUDGET,
   COMMENT_STEPS,
   PublishError,
@@ -184,8 +185,8 @@ export function parseJobInput(
       if (typeof s.firstComment !== "string") return bad(`${p}.firstComment`);
       const comment = s.firstComment.trim();
       if (comment.length > CAPTION_MAX[p]) return bad(`${p}.firstComment`);
-      // TikTok has no comment API: its target simply does not carry one.
-      if (comment && COMMENT_STEPS[p]) out.firstComment = comment;
+      // Only the networks a comment is enabled for (Instagram for now) carry one; the others just do not.
+      if (comment && COMMENT_ENABLED.includes(p)) out.firstComment = comment;
     }
     if (p === "youtube") {
       if (typeof s.title === "string" && s.title.trim()) out.title = s.title.trim().slice(0, 100);
@@ -464,19 +465,47 @@ export async function runDue(env: SocialEnv, deps: RunDeps = {}): Promise<RunRes
     }
     // First comments (A4): a published post's own step, a tick after the post. Whatever happens to a comment, the
     // post's state is never touched and a failed comment is not a failed post (`result.failed` stays as it is).
+    //
+    // A comment is never posted twice. Unlike a post (whose container or upload is checked on the platform), a
+    // comment has nothing to look up afterwards, so: (1) it is written to the queue as `processing` BEFORE the call
+    // (write-ahead); (2) a `processing` comment with no id that a later run finds (the run died mid-call) is failed
+    // as `unknown_outcome`, never called again; (3) only a failure that cannot have created the comment is retried:
+    // a rate limit, the call budget running out, or a token refresh that failed before the call. A lost
+    // connection, a 5xx or a reply without an id are final, with the platform's words kept for the owner.
     for (const p of SOCIAL_PLATFORMS) {
       const t = job.targets[p];
-      const step = COMMENT_STEPS[p];
+      const step = COMMENT_ENABLED.includes(p) ? COMMENT_STEPS[p] : undefined;
       if (!step || !commentPending(t) || !commentDue(t, now)) continue;
       if (http.budget.left < COMMENT_MIN_BUDGET[p]) continue;
-      const c: PublishTarget = t.comment ?? {
+      const old: PublishTarget = t.comment ?? {
         caption: t.firstComment!,
         state: "queued",
         attempts: 0,
       };
+      // Threads' reply is a container with an id; it carries on from there. Anything else `processing` is stale.
+      const resuming = old.state === "processing" && !!old.containerId;
+      if (old.state === "processing" && !resuming) {
+        job.targets[p] = {
+          ...t,
+          comment: failure(
+            old,
+            "unknown_outcome",
+            "the run stopped while the comment was being posted; it may be there, so it is not tried again",
+          ),
+        };
+        result.advanced.push(`${job.id}:${p}:comment`);
+        continue;
+      }
+      let c = old;
+      if (!resuming) {
+        c = { ...old, state: "processing", startedAt: now.toISOString(), nextAt: undefined };
+        job.targets[p] = { ...t, comment: c };
+        await store.putJobs(jobs);
+      }
       let next: PublishTarget;
+      let called = false;
       try {
-        if (c.state === "processing" && c.startedAt) {
+        if (resuming && c.startedAt) {
           if (now.getTime() - Date.parse(c.startedAt) > PROCESSING_TIMEOUT_MS) {
             throw new PublishError("timeout", "still processing after two hours");
           }
@@ -484,6 +513,7 @@ export async function runDue(env: SocialEnv, deps: RunDeps = {}): Promise<RunRes
         if (!tokenCache.has(p)) tokenCache.set(p, await tokensFor(env, store, p, http, now));
         const tokens = tokenCache.get(p)!;
         if (typeof tokens === "string") throw new PublishError(tokens);
+        called = true;
         next = await step(
           c,
           { http, tokens, now, ...(deps.sleep ? { sleep: deps.sleep } : {}) },
@@ -491,7 +521,17 @@ export async function runDue(env: SocialEnv, deps: RunDeps = {}): Promise<RunRes
         );
       } catch (e) {
         const { code, detail, transient } = toPublishCode(e);
-        next = transient ? retryOrFail(c, code, detail, now) : failure(c, code, detail);
+        const noComment =
+          code === "rate_limited" ||
+          (transient && !called) ||
+          (e instanceof SocialError && e.message.includes(BUDGET_EXHAUSTED));
+        if (noComment) {
+          const retry = retryOrFail(c, code, detail, now);
+          next =
+            retry.state === "failed" ? retry : { ...retry, state: "queued", startedAt: undefined };
+        } else {
+          next = failure(c, code === "upstream" ? "unknown_outcome" : code, detail);
+        }
       }
       job.targets[p] = { ...t, comment: next };
       result.advanced.push(`${job.id}:${p}:comment`);

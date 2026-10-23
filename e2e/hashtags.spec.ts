@@ -139,3 +139,99 @@ test("a post's Overview applies a saved set and saves its own hashtags as a new 
   await expect(page.getByTestId("hashtag-set")).toHaveCount(2);
   await expect(page.getByTestId("hashtag-set").nth(1)).toContainText("#match_cut #editing #newtag");
 });
+
+/** The seed plus posts at Instagram's limit and a Threads post whose caption is nearly full, and a 10-tag set. */
+function limitsSeed() {
+  const base = seed();
+  const tags = (n: number, prefix: string) => Array.from({ length: n }, (_, i) => `#${prefix}${i}`);
+  const post = (id: string, platform: string, hashtags: string[], extra = {}) => ({
+    id,
+    platform,
+    title: id,
+    stage: "idea",
+    hashtags,
+    createdAt: STAMP,
+    updatedAt: STAMP,
+    ...extra,
+  });
+  return {
+    ...base,
+    posts: [
+      ...base.posts,
+      post("ig24", "instagram", tags(24, "g")),
+      post("ig26", "instagram", tags(26, "g")),
+      post("ig30", "instagram", tags(30, "g")),
+      post("thr", "threads", ["#a", "#b", "#c"], {
+        caption: "x".repeat(495),
+        autoPost: { platforms: ["threads"] },
+      }),
+    ],
+    hashtagSets: [
+      ...base.hashtagSets,
+      { id: "hs3", name: "Big", tags: tags(10, "big"), createdAt: STAMP },
+    ],
+  };
+}
+
+test("Instagram's 30-hashtag limit: a note from 25, a set that would pass 30 is not added, nothing is added at 30", async ({
+  page,
+}) => {
+  await seedState(page, "/social/calendar/#post=ig24", limitsSeed());
+  await expect(page.getByTestId("post-overview")).toBeVisible();
+  await expect(page.getByTestId("hashtag-limit-note")).toHaveCount(0);
+  await page.getByTestId("post-hashtag-input").fill("#one");
+  await page.getByTestId("post-hashtag-add").click();
+  await expect(page.getByTestId("post-hashtag")).toHaveCount(25);
+  await expect(page.getByTestId("hashtag-limit-note")).toHaveAttribute("data-level", "near");
+  await expect(page.getByTestId("hashtag-limit-note")).toContainText("25 of 30");
+
+  // A 10-tag set does not fit under 30 with 25 on the post: not added at all, and it says why.
+  await page.getByTestId("hashtag-set-apply").filter({ hasText: "Big" }).click();
+  await expect(page.getByTestId("post-hashtag")).toHaveCount(25);
+  await expect(page.getByTestId("hashtag-set-blocked")).toContainText(
+    "10 new hashtags but only 5 fit",
+  );
+
+  // Fill it to 30 by hand: the note turns into "full", and a 31st tag is not added.
+  for (const tag of ["#a1", "#a2", "#a3", "#a4", "#a5"]) {
+    await page.getByTestId("post-hashtag-input").fill(tag);
+    await page.getByTestId("post-hashtag-add").click();
+  }
+  await expect(page.getByTestId("post-hashtag")).toHaveCount(30);
+  await expect(page.getByTestId("hashtag-limit-note")).toHaveAttribute("data-level", "full");
+  await page.getByTestId("post-hashtag-input").fill("#toomany");
+  await page.getByTestId("post-hashtag-add").click();
+  await expect(page.getByTestId("post-hashtag")).toHaveCount(30);
+  await page.getByTestId("post-hashtag-suggest").click();
+  await expect(page.getByTestId("post-hashtag")).toHaveCount(30);
+  expect(await fitsViewport(page)).toBe(true);
+});
+
+test("a network whose caption limit cuts hashtags says how many, never silently", async ({
+  page,
+}) => {
+  await seedState(page, "/social/calendar/#post=thr", limitsSeed());
+  const note = page.getByTestId("hashtag-cut-note");
+  await expect(note).toHaveCount(1);
+  await expect(note).toHaveAttribute("data-platform", "threads");
+  await expect(note).toHaveAttribute("data-cut", "2");
+  await expect(note).toContainText("cut 2 hashtags to fit 500 characters");
+  // The Auto-post tab says the same next to its "trimmed" line.
+  await page.getByTestId("post-tab-autopost").click();
+  await expect(page.getByTestId("autopost-cut-threads")).toContainText("cut 2 hashtags");
+});
+
+test("the hashtag sets list is in Growth even before any platform has numbers", async ({
+  page,
+}) => {
+  // The Beacons seed is marked as applied, so the page has no numbers at all and shows its empty state.
+  await seedState(page, "/social/growth/", {
+    settings: { lang: "en" },
+    socialSeedApplied: "2026-09-27",
+    hashtagSets: [{ id: "hs1", name: "Cuts", tags: ["#match_cut"], createdAt: STAMP }],
+  });
+  await expect(page.getByTestId("growth-empty")).toBeVisible();
+  await expect(page.getByTestId("hashtag-sets")).toBeVisible();
+  await expect(page.getByTestId("hashtag-set")).toHaveCount(1);
+  await expect(page.getByTestId("best-times")).toHaveCount(0);
+});

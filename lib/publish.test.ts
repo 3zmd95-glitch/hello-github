@@ -320,31 +320,26 @@ describe("buildJob", () => {
 });
 
 describe("A4: the first comment", () => {
-  it("buildJob sends it to Instagram, Threads and YouTube only, trimmed to each limit, and nothing when empty", () => {
+  it("buildJob sends it to Instagram only (Threads and YouTube wait for their permissions), trimmed, and nothing when empty", () => {
     const a = auto({
       platforms: ["tiktok", "instagram", "threads", "youtube", "x"],
       firstComment: "  #match #cut  ",
     });
     const job = buildJob(post(), a, AT);
-    for (const p of ["instagram", "threads", "youtube"] as const) {
-      expect(job.targets[p]?.firstComment).toBe("#match #cut");
+    expect(job.targets.instagram?.firstComment).toBe("#match #cut");
+    for (const p of ["tiktok", "threads", "youtube"] as const) {
+      expect("firstComment" in job.targets[p]!).toBe(false);
     }
-    expect("firstComment" in job.targets.tiktok!).toBe(false);
     // Nothing typed: no field at all, so an existing post's job body (and its digest) stays as it was.
     const plain = buildJob(post(), auto({ platforms: ["instagram"] }), AT);
     expect("firstComment" in plain.targets.instagram!).toBe(false);
     const blank = buildJob(post(), auto({ platforms: ["instagram"], firstComment: "  " }), AT);
     expect("firstComment" in blank.targets.instagram!).toBe(false);
-    // Threads takes 500 characters, Instagram 2,200.
-    const long = "word ".repeat(300).trim();
-    const both = buildJob(
-      post(),
-      auto({ platforms: ["threads", "instagram"], firstComment: long }),
-      AT,
-    );
-    expect(both.targets.threads?.firstComment?.length).toBeLessThanOrEqual(CAPTION_MAX.threads);
-    expect(both.targets.threads?.firstComment?.endsWith(ELLIPSIS)).toBe(true);
-    expect(both.targets.instagram?.firstComment).toBe(long);
+    // Instagram takes 2,200 characters: a longer one is cut to fit, with the ellipsis.
+    const long = "word ".repeat(500).trim();
+    const cut = buildJob(post(), auto({ platforms: ["instagram"], firstComment: long }), AT);
+    expect(cut.targets.instagram?.firstComment?.length).toBeLessThanOrEqual(CAPTION_MAX.instagram);
+    expect(cut.targets.instagram?.firstComment?.endsWith(ELLIPSIS)).toBe(true);
   });
 
   it("parseJob keeps the comment's state and the text the Worker holds, and nothing else of it", () => {

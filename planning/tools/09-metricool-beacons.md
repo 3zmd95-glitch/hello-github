@@ -23,7 +23,7 @@ Legend: ✅ built and live · 🟡 partly there · ⬜ to do · 🚫 not doing (
 | X, Snapchat | Copy caption + open app | 🟡 | No free API. Zernio (Snapchat) or Buffer (X) if the owner wants them automatic |
 | Best time to post | Growth heat map + 3 time chips in the post dialogs | ✅ **A5** | Built Oct 23: learned from our own post numbers (Riyadh weekday x 2 h, views vs the platform median, one lucky post cannot win); under 20 settled posts a platform keeps the usual times and says how many are missing. `lib/bestTimes.ts` |
 | Upload media from the phone | Paste a public link | 🟡 **A2** | Supabase Storage (Sprint 3) or Drive upload |
-| First comment | Field in the 🚀 tab + a per-network chip | 🟡 A4 | Built Oct 23, not run live yet: Instagram needs the auto-replies permission, Threads replies through its container flow, YouTube needs `youtube.force-ssl` (not in the connect scopes yet), TikTok has no API. A failed comment never fails the post (`07-auto-posting.md`) |
+| First comment | Field in the 🚀 tab + a per-network chip | 🟡 A4 | Built Oct 23, not run live yet, **Instagram only until scopes land**: needs the auto-replies permission; a comment is written ahead and never retried after an unknown outcome, so it cannot post twice. Threads (reply scope unverified) and YouTube (`youtube.force-ssl` + reconnect) have switched-off code paths for a later PR; TikTok has no API (`07-auto-posting.md`) |
 | Queue / auto-lists (next free slot, evergreen reposts) | — | ⬜ A6 | |
 | Bulk schedule from CSV | CSV import exists for stats only | ⬜ A7 | |
 | Post library / repurpose | Ideas bank | 🟡 | |

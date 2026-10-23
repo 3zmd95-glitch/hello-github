@@ -263,11 +263,11 @@ export default function GrowthScreen() {
         )}
 
         {(platform || all.platforms.length > 0) && (
-          <>
-            <BestTimes stats={state.postStats} platform={platform} now={now} />
-            <HashtagSets sets={hashtagSets} posts={posts} stats={state.postStats} now={now} />
-          </>
+          <BestTimes stats={state.postStats} platform={platform} now={now} />
         )}
+
+        {/* Sets can be saved before any platform has numbers: this list is always here. */}
+        <HashtagSets sets={hashtagSets} posts={posts} stats={state.postStats} now={now} />
 
         <MyContent
           stats={state.postStats}

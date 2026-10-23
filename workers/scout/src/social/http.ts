@@ -7,6 +7,9 @@
 import { SocialError } from "./types";
 
 /** Counts the outbound calls one sync may still make; optional calls check `ok` before spending. */
+/** What `take` says when nothing is left (the first comment's retry rule looks for it). */
+export const BUDGET_EXHAUSTED = "subrequest budget exhausted";
+
 export class Budget {
   constructor(public left: number) {}
   get ok(): boolean {
@@ -14,7 +17,7 @@ export class Budget {
   }
   /** Spends one call; throws `upstream` when nothing is left (required calls only). */
   take(): void {
-    if (this.left <= 0) throw new SocialError("upstream", "subrequest budget exhausted");
+    if (this.left <= 0) throw new SocialError("upstream", BUDGET_EXHAUSTED);
     this.left -= 1;
   }
 }

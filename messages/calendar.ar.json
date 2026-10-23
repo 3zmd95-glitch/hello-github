@@ -144,5 +144,9 @@
   "calendar.hs.saveAs": "احفظ هاشتاقات هذا البوست كمجموعة",
   "calendar.hs.name": "اسم المجموعة",
   "calendar.hs.namePh": "اسم المجموعة، مثلاً: مونتاج",
-  "calendar.hs.save": "احفظ"
+  "calendar.hs.save": "احفظ",
+  "calendar.hs.igNear": "{n} من {max} هاشتاق؛ إنستقرام يقبل {max} كحد أقصى.",
+  "calendar.hs.igFull": "{max} هاشتاق، حد إنستقرام: ما نقدر نضيف أكثر.",
+  "calendar.hs.igBlock": "ما انضافت: المجموعة فيها {n} هاشتاق جديد وبس {room} تسع تحت حد إنستقرام ({max}). احذف بعضها أول.",
+  "calendar.hs.cut": "{platform}: بينقص {n} هاشتاق عشان يناسب {limit} حرف."
 }

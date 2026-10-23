@@ -8,6 +8,7 @@ import { useSkillSheet } from "@/components/skills/SkillSheetProvider";
 import { resyncKey } from "@/components/social/usePublish";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import type { Post, Skill } from "@/lib/domain";
+import { fitTags } from "@/lib/hashtags";
 import { useT } from "@/lib/i18n";
 import { hookIdeas, PLATFORM_META, suggestHashtags } from "@/lib/social";
 import { useStore } from "@/store";
@@ -65,14 +66,14 @@ export default function OverviewTab({
     const value = tag.trim().replace(/\s+/g, "_");
     if (!value) return;
     const withHash = value.startsWith("#") ? value : `#${value}`;
-    if (!post.hashtags.some((h) => h.toLowerCase() === withHash.toLowerCase()))
-      updatePost(post.id, { hashtags: [...post.hashtags, withHash] });
+    // Instagram takes 30 at most: past it nothing is added (the note under the tags says so).
+    const { add } = fitTags(post, [withHash]);
+    if (add.length) updatePost(post.id, { hashtags: [...post.hashtags, ...add] });
     setTag("");
   };
   const suggest = () => {
-    const seen = new Set(post.hashtags.map((h) => h.toLowerCase()));
-    const extra = suggestHashtags(post.platform, skill).filter((h) => !seen.has(h.toLowerCase()));
-    updatePost(post.id, { hashtags: [...post.hashtags, ...extra] });
+    const { add } = fitTags(post, suggestHashtags(post.platform, skill));
+    if (add.length) updatePost(post.id, { hashtags: [...post.hashtags, ...add] });
   };
 
   const suggestTimes = useTimeSuggester();

@@ -290,7 +290,7 @@ postId?, permalink?, publishedAt?, inbox?, error?, detail? }`. Error codes: `not
 `token_expired`, `media_unreachable` (the link answered with an error or an HTML page), `media_too_large`,
 `private_account` (TikTok before its audit: the TikTok account itself must be private),
 `rejected` (the platform refused; `detail` has its words, plus TikTok's error code in brackets), `rate_limited`,
-`upstream`, `timeout` (still processing after 2 h). `upstream` and `rate_limited` are retried up to 4 times, 5/10/15 minutes apart.
+`upstream`, `timeout` (still processing after 2 h), `unknown_outcome` (a first comment that may or may not exist, see below). `upstream` and `rate_limited` are retried up to 4 times, 5/10/15 minutes apart (a comment only on a rate limit).
 
 **Steps per tick.** Instagram and Threads create a container (Instagram first reads its professional account id,
 `user_id` of `GET /me`: the id the token exchange returns is app-scoped and `/media` refuses it). Images and text are checked and published in the
@@ -301,6 +301,24 @@ gets `SELF_ONLY`) and uploads with `FILE_UPLOAD`: one chunk up to 64 MB, 64 MB c
 that. The status is polled on the next ticks (`SEND_TO_USER_INBOX` for the inbox mode). A run has 34 outbound
 calls (`PUBLISH_BUDGET`, the rest of the 50 subrequests go to KV). It claims its jobs (`lockUntil`, 10 min)
 before any platform call, so the cron and "run" never publish the same job twice.
+
+**First comment (A4).** A target may carry `firstComment` (string, trimmed, at most the network's caption limit,
+else `400 { detail: "<platform>.firstComment" }`). **Instagram only for now** (`COMMENT_ENABLED` in
+`publishers.ts`): the other networks do not keep the field. Threads (a TEXT container with `reply_to_id`, so it
+needs a reply permission that is not verified yet) and YouTube (`commentThreads.insert`, which needs
+`youtube.force-ssl` in the connect scopes plus a reconnect) have their steps in the code, switched off until a later
+change adds them to `COMMENT_ENABLED`; TikTok has no comment API. Once the post is `published` and a minute has
+passed, the next publish tick (the five-minute grid, so one to ten minutes after the post) runs the comment as its
+own step, stored in `target.comment` (`{ caption, state, attempts, startedAt?, nextAt?, postId?, error?, detail? }`;
+`postId` is the comment's id). It never changes the post's own `state` and is not counted in the run's `failed`.
+Instagram needs the token's `canReply` (the "Allow auto-replies" connect; else `no_permission`, no call).
+
+A comment has nothing to look up afterwards, so it is **never posted twice**: it is written to the queue as
+`processing` *before* the call (write-ahead); a `processing` comment with no id that a later run finds (the run died
+mid-call) becomes `failed` / `unknown_outcome` and is not called again; only a failure that cannot have created
+the comment is retried (`rate_limited`, the call budget running out, a token refresh that failed before the call, 5/10/15
+minutes apart, 4 attempts); a lost connection, a 5xx or a reply without an id are final `unknown_outcome`, with the
+platform's words in `detail`; a refusal is final `rejected`.
 
 ## Auto-replies
 

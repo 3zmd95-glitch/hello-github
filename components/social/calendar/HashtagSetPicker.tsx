@@ -5,17 +5,30 @@ import { useMemo, useState, type FormEvent } from "react";
 import { fmtTimes } from "@/components/social/growth/HashtagSets";
 import { useToday } from "@/components/today/useToday";
 import type { Post } from "@/lib/domain";
-import { hashtagSetStats, matchesSet, tagKey } from "@/lib/hashtags";
+import {
+  fitTags,
+  hashtagCuts,
+  hashtagLevel,
+  hashtagLimit,
+  hashtagSetStats,
+  matchesSet,
+} from "@/lib/hashtags";
 import { useT } from "@/lib/i18n";
+import { CAPTION_MAX } from "@/lib/publish";
+import { PLATFORM_META } from "@/lib/social";
 import { useStore } from "@/store";
 
 /**
  * A8 · Saved hashtag sets inside a post's Overview: tap a set to add its tags to the post, and save the post's own
  * tags as a new set (or update the set of that name). A set that already did well on at least five of the owner's
  * posts wears its "x2.5" (views against the platform's usual); the full list is in Growth.
+ *
+ * Also where the limits of the networks speak, so no hashtag disappears without a word: Instagram takes 30 at most
+ * (a note from 25, and a set that would pass 30 is not added at all), and a network whose caption limit cuts the
+ * hashtags off the end says how many it cuts.
  */
 export default function HashtagSetPicker({ post }: { post: Post }) {
-  const { t } = useT();
+  const { t, L } = useT();
   const sets = useStore((s) => s.hashtagSets);
   const posts = useStore((s) => s.posts);
   const stats = useStore((s) => s.socialPostStats);
@@ -24,6 +37,11 @@ export default function HashtagSetPicker({ post }: { post: Post }) {
   const today = useToday();
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
+  const [blocked, setBlocked] = useState<{ n: number; room: number } | null>(null);
+
+  const limit = hashtagLimit(post);
+  const level = hashtagLevel(post);
+  const cuts = hashtagCuts(post);
 
   const results = useMemo(
     () =>
@@ -36,10 +54,15 @@ export default function HashtagSetPicker({ post }: { post: Post }) {
     [sets, posts, stats, today],
   );
 
+  /** A set goes in whole or not at all (a half set would also muddle its numbers). */
   const apply = (tags: readonly string[]) => {
-    const have = new Set(post.hashtags.map(tagKey));
-    const missing = tags.filter((tag) => !have.has(tagKey(tag)));
-    if (missing.length) updatePost(post.id, { hashtags: [...post.hashtags, ...missing] });
+    const { add, refused } = fitTags(post, tags);
+    if (refused > 0) {
+      setBlocked({ n: add.length + refused, room: add.length });
+      return;
+    }
+    setBlocked(null);
+    if (add.length) updatePost(post.id, { hashtags: [...post.hashtags, ...add] });
   };
   const save = (e: FormEvent) => {
     e.preventDefault();
@@ -83,6 +106,38 @@ export default function HashtagSetPicker({ post }: { post: Post }) {
           })}
         </div>
       )}
+      {blocked && limit !== null && (
+        <p role="alert" className="text-danger text-xs" data-testid="hashtag-set-blocked">
+          {t("calendar.hs.igBlock", { n: blocked.n, room: blocked.room, max: limit })}
+        </p>
+      )}
+      {level !== "ok" && limit !== null && (
+        <p
+          className="text-warn text-xs"
+          role={level === "full" ? "status" : undefined}
+          data-testid="hashtag-limit-note"
+          data-level={level}
+        >
+          {level === "full"
+            ? t("calendar.hs.igFull", { max: limit })
+            : t("calendar.hs.igNear", { n: post.hashtags.length, max: limit })}
+        </p>
+      )}
+      {cuts.map(({ platform, cut }) => (
+        <p
+          key={platform}
+          className="text-warn text-xs"
+          data-testid="hashtag-cut-note"
+          data-platform={platform}
+          data-cut={cut}
+        >
+          {t("calendar.hs.cut", {
+            platform: L(PLATFORM_META[platform].name),
+            n: cut,
+            limit: CAPTION_MAX[platform],
+          })}
+        </p>
+      ))}
       {naming ? (
         <form onSubmit={save} className="flex items-center gap-2">
           <input

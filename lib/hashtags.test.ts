@@ -8,9 +8,15 @@ import {
   type SocialPostStat,
 } from "./domain";
 import {
+  fitTags,
+  HASHTAG_IG_MAX,
+  HASHTAG_IG_WARN,
   HASHTAG_MAX_TAGS,
   HASHTAG_MIN_SAMPLE,
+  hashtagLevel,
+  hashtagLimit,
   hashtagSetStats,
+  hashtagsCut,
   matchesSet,
   normalizeUrl,
   parseTags,
@@ -190,5 +196,50 @@ describe("hashtagSetStats", () => {
     expect(r.n).toBe(6);
     // 2000 / 1000 and 200 / 100 are both 2x their own platform's median.
     expect(r.vsMedian).toBeCloseTo(2, 5);
+  });
+});
+
+const tags = (n: number): string[] => Array.from({ length: n }, (_, i) => `#t${i}`);
+
+describe("Instagram's hashtag limit", () => {
+  it("applies when Instagram is the post's own platform or one of its networks, and nowhere else", () => {
+    expect(hashtagLimit(post({ platform: "instagram" }))).toBe(HASHTAG_IG_MAX);
+    expect(
+      hashtagLimit(post({ platform: "tiktok", autoPost: { platforms: ["tiktok", "instagram"] } })),
+    ).toBe(30);
+    expect(
+      hashtagLimit(post({ platform: "tiktok", autoPost: { platforms: ["tiktok", "threads"] } })),
+    ).toBeNull();
+    expect(HASHTAG_IG_WARN).toBe(25);
+  });
+
+  it("warns from 25 and is full at 30", () => {
+    const ig = (n: number) => post({ platform: "instagram", hashtags: tags(n) });
+    expect(hashtagLevel(ig(24))).toBe("ok");
+    expect(hashtagLevel(ig(25))).toBe("near");
+    expect(hashtagLevel(ig(30))).toBe("full");
+    expect(hashtagLevel(post({ platform: "tiktok", hashtags: tags(40) }))).toBe("ok");
+  });
+
+  it("fitTags adds what fits under 30, skips tags the post has, and counts what was refused", () => {
+    const p = post({ platform: "instagram", hashtags: [...tags(28)] });
+    expect(fitTags(p, ["#T1", "#new1", "#new2", "#new3"])).toEqual({
+      add: ["#new1", "#new2"],
+      refused: 1,
+    });
+    const other = post({ platform: "tiktok", hashtags: tags(28) });
+    expect(fitTags(other, tags(40))).toMatchObject({ refused: 0 });
+    expect(fitTags(other, tags(40)).add).toHaveLength(12);
+  });
+});
+
+describe("hashtagsCut", () => {
+  it("counts the hashtags a network's caption limit cuts, never silently (0 when nothing is cut)", () => {
+    // Threads: 500 characters. 495 of text plus a blank line and "#a #b #c" is 505: the last two hashtags go.
+    const p = post({ platform: "threads", caption: "x".repeat(495), hashtags: ["#a", "#b", "#c"] });
+    expect(hashtagsCut(p, "threads")).toBe(2);
+    // The same post on Instagram (2,200) loses nothing.
+    expect(hashtagsCut(p, "instagram")).toBe(0);
+    expect(hashtagsCut(post({ hashtags: ["#a"] }), "threads")).toBe(0);
   });
 });

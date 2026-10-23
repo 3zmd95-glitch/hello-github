@@ -122,8 +122,15 @@ export function captionLimit(auto: AutoPost, platform: Platform): number {
   return platform === "tiktok" && auto.mediaKind === "photo" ? 4000 : CAPTION_MAX[platform];
 }
 
-/** Networks whose API takes a comment under our own post (A4); TikTok has none. */
-export const COMMENT_PLATFORMS: readonly Platform[] = ["instagram", "threads", "youtube"];
+/**
+ * Networks a first comment is sent for (A4): Instagram only for now. Threads waits for its reply permission to be
+ * checked and YouTube for `youtube.force-ssl` in the connect scopes plus a reconnect (the Worker has both steps, switched
+ * off); TikTok has no comment API.
+ */
+export const COMMENT_PLATFORMS: readonly Platform[] = ["instagram"];
+
+/** Networks that will take a first comment later (their field is hidden, with a note, until then). */
+export const COMMENT_LATER: readonly Platform[] = ["threads", "youtube"];
 
 /**
  * The first comment a network will get: what was typed, trimmed to the network's limit, or null when nothing was

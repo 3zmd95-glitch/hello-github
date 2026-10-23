@@ -286,6 +286,17 @@ test("a first comment goes with the job, shows its own state under the published
   await page.getByTestId("autopost-media-url").fill("https://cdn.example/clip.mp4");
   await page.getByTestId("autopost-first-comment").fill("#match #cut");
   await expect(page.getByTestId("autopost-fc-need-reply")).toBeVisible();
+  // Instagram only for now: with Threads on, the note says so; with Instagram off the field is gone, the note stays.
+  await expect(page.getByTestId("autopost-fc-instagram-only")).toHaveCount(0);
+  await page.getByTestId("autopost-net-threads").check();
+  await expect(page.getByTestId("autopost-fc-instagram-only")).toBeVisible();
+  await page.getByTestId("autopost-net-instagram").uncheck();
+  await expect(page.getByTestId("autopost-first-comment")).toHaveCount(0);
+  await expect(page.getByTestId("autopost-fc-instagram-only")).toBeVisible();
+  await page.getByTestId("autopost-net-instagram").check();
+  await page.getByTestId("autopost-net-threads").uncheck();
+  await expect(page.getByTestId("autopost-first-comment")).toHaveValue("#match #cut");
+  await expect(page.getByTestId("autopost-fc-instagram-only")).toHaveCount(0);
   expect(await fitsViewport(page)).toBe(true);
   await page.getByTestId("autopost-schedule").click();
   await expect(page.getByTestId("autopost-notice")).toBeVisible();
@@ -322,6 +333,9 @@ test("a first comment goes with the job, shows its own state under the published
   await page.getByTestId("post-tab-autopost").click();
   await expect(chip).toHaveAttribute("data-state", "failed");
   await expect(page.getByTestId("autopost-comment-error")).toContainText("البوست نفسه تمام");
+  // The post is out, so the field is locked (a change would never reach the Worker).
+  await expect(page.getByTestId("autopost-first-comment")).toBeDisabled();
+  await expect(page.getByTestId("autopost-fc-locked")).toBeVisible();
   await expect(page.getByTestId("post-autopost")).toHaveAttribute("data-summary", "published");
   await expect(
     page.locator('[data-testid="autopost-result"][data-platform="instagram"]'),

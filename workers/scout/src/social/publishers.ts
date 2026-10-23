@@ -69,7 +69,12 @@ export type PublishErrorCode =
   | "rejected"
   | "rate_limited"
   | "upstream"
-  | "timeout";
+  | "timeout"
+  /**
+   * A first comment whose call failed in a way that leaves it unknown whether it was created (a lost connection, a
+   * 5xx, a reply without an id, a run that died mid-call). Never retried, so a comment cannot be posted twice.
+   */
+  | "unknown_outcome";
 
 export type YoutubePrivacy = "public" | "unlisted" | "private";
 export type TiktokPrivacy =
@@ -451,18 +456,30 @@ export const commentYoutube: CommentStep = async (c, ctx, videoId) => {
   return published(c, ctx, { postId: made.id });
 };
 
-/** Who can post a first comment, and with what; TikTok has no comment API. */
+/** Every comment step there is; TikTok has no comment API. Which of them run is {@link COMMENT_ENABLED}. */
 export const COMMENT_STEPS: Partial<Record<SocialPlatform, CommentStep>> = {
   instagram: commentInstagram,
   threads: commentThreads,
   youtube: commentYoutube,
 };
 
-/** Outbound calls a comment step may need at most (the queue skips it below this). */
+/**
+ * The networks a first comment is accepted and run for: **Instagram only for now**. Threads needs its reply
+ * permission checked first (Meta names no endpoint-specific scope for replying to your own post) and YouTube needs
+ * `youtube.force-ssl` in the connect scopes plus a reconnect; their steps above stay, unreachable, until a later
+ * change adds them here and to the dashboard's `COMMENT_PLATFORMS`. (An array, not a frozen list, so the tests can
+ * switch a network on for the length of one test.)
+ */
+export const COMMENT_ENABLED: SocialPlatform[] = ["instagram"];
+
+/**
+ * Outbound calls a comment step may need at most, with the one token refresh that may come before it (the queue
+ * skips the step below this).
+ */
 export const COMMENT_MIN_BUDGET: Record<SocialPlatform, number> = {
-  instagram: 1,
-  threads: 3,
-  youtube: 1,
+  instagram: 2,
+  threads: 4,
+  youtube: 2,
   tiktok: 0,
 };
 

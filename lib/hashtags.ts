@@ -1,5 +1,7 @@
 import { BT_SCORE_CAP, median, settledStats } from "./bestTimes";
 import type { HashtagSet, Platform, Post, SocialPostStat } from "./domain";
+import { autoPostOf, captionFor, sendCaption } from "./publish";
+import { isSocialPlatform } from "./socialSync";
 
 /**
  * A8 · Saved hashtag sets and how each did. A post "used" a set when it carries all of its tags; its numbers come
@@ -127,4 +129,73 @@ export function hashtagSetStats(
       enough: n >= HASHTAG_MIN_SAMPLE,
     };
   });
+}
+
+/* ---------- limits: what a network takes, never dropped silently ---------- */
+
+/** Instagram takes 30 hashtags at most; the post dialog warns from 25 and adds no more past 30. */
+export const HASHTAG_IG_MAX = 30;
+export const HASHTAG_IG_WARN = 25;
+
+/** The networks a post goes to: its own platform and those of its auto-post settings. */
+function networksOf(post: Post): Platform[] {
+  return [...new Set<Platform>([post.platform, ...(post.autoPost?.platforms ?? [])])];
+}
+
+/** The most hashtags this post may carry (Instagram's 30 when it goes there), or null when no network sets one. */
+export function hashtagLimit(post: Post): number | null {
+  return networksOf(post).includes("instagram") ? HASHTAG_IG_MAX : null;
+}
+
+/** ok, near the limit (25+), or full (at the limit). */
+export function hashtagLevel(post: Post): "ok" | "near" | "full" {
+  const limit = hashtagLimit(post);
+  if (limit === null) return "ok";
+  if (post.hashtags.length >= limit) return "full";
+  return post.hashtags.length >= HASHTAG_IG_WARN ? "near" : "ok";
+}
+
+/**
+ * Which of `tags` can be added to the post: new ones only (any case), as many as fit under its limit; `refused`
+ * counts the new ones that did not fit, so the caller can say so.
+ */
+export function fitTags(post: Post, tags: readonly string[]): { add: string[]; refused: number } {
+  const have = new Set(post.hashtags.map(tagKey));
+  const limit = hashtagLimit(post);
+  const add: string[] = [];
+  let refused = 0;
+  for (const tag of tags) {
+    const key = tagKey(tag);
+    if (!key || have.has(key)) continue;
+    if (limit !== null && have.size >= limit) {
+      refused++;
+      continue;
+    }
+    have.add(key);
+    add.push(tag);
+  }
+  return { add, refused };
+}
+
+const hashtagTokens = (text: string): string[] => text.match(/#[^\s#]+/g) ?? [];
+
+/**
+ * How many hashtags the caption trim of an API network (`sendCaption`: trailing hashtags first, then a word-boundary cut)
+ * takes out of what the owner wrote. 0 when the caption fits.
+ */
+export function hashtagsCut(post: Post, platform: Platform): number {
+  if (!isSocialPlatform(platform)) return 0;
+  const auto = autoPostOf(post);
+  const sent = sendCaption(post, auto, platform);
+  if (!sent.trimmed) return 0;
+  const kept = new Set(hashtagTokens(sent.text).map(tagKey));
+  return hashtagTokens(captionFor(post, auto, platform)).filter((t) => !kept.has(tagKey(t))).length;
+}
+
+/** The API networks this post is sent to where hashtags get cut, with how many. */
+export function hashtagCuts(post: Post): { platform: Platform; cut: number }[] {
+  return (post.autoPost?.platforms ?? [])
+    .filter(isSocialPlatform)
+    .map((platform) => ({ platform, cut: hashtagsCut(post, platform) }))
+    .filter((c) => c.cut > 0);
 }

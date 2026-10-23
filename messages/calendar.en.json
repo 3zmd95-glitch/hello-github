@@ -144,5 +144,9 @@
   "calendar.hs.saveAs": "Save these hashtags as a set",
   "calendar.hs.name": "Set name",
   "calendar.hs.namePh": "Set name, e.g. Editing",
-  "calendar.hs.save": "Save"
+  "calendar.hs.save": "Save",
+  "calendar.hs.igNear": "{n} of {max} hashtags: Instagram takes {max} at most.",
+  "calendar.hs.igFull": "{max} hashtags, Instagram's limit: no more can be added.",
+  "calendar.hs.igBlock": "Not added: this set has {n} new hashtags but only {room} fit under Instagram's limit of {max}. Remove some first.",
+  "calendar.hs.cut": "{platform}: cut {n} hashtags to fit {limit} characters."
 }
