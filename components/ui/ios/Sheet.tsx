@@ -68,7 +68,8 @@ let behind = 0;
 /**
  * iOS sheet (tools/18 §3.5). Portaled to <body> on the z-39 layer, so the skill popup (z-40), ConfirmDialog (z-50),
  * the player (z-60) and celebrations (z-80) open above it. Phones: a bottom sheet with detents (visible fractions of
- * the viewport), dragged by its grabber/header. md+: a centered dialog (`wide`: 680px instead of 560px). Mounted =
+ * the viewport), dragged by its grabber/header. md+: a centered dialog (`wide`: 680px instead of 560px), or with
+ * `side` a full-height panel at the inline end (480px, sliding in; the phone keeps its bottom sheet). Mounted =
  * open; ✕, the backdrop, Esc, a drag past the last detent, Back and `useSheetClose()` (in-sheet buttons) play the
  * exit, then `onClose` runs (the caller unmounts it); the panel is inert while it leaves. An Escape a child already
  * handled (`preventDefault`: an inline edit reverting) or one pressed in another dialog on top (the skill sheet over
@@ -86,6 +87,7 @@ export default function Sheet({
   attrs,
   backCloses = true,
   wide,
+  side,
   closeTestId,
   beforeClose,
   children,
@@ -100,6 +102,8 @@ export default function Sheet({
   attrs?: Record<string, string>;
   backCloses?: boolean;
   wide?: boolean;
+  /** md+: a panel at the inline end instead of a centered dialog (details beside a list). */
+  side?: boolean;
   closeTestId?: string;
   beforeClose?: () => boolean;
   children: ReactNode;
@@ -286,6 +290,7 @@ export default function Sheet({
           className="ios-sheet"
           data-mode={desktop ? "dialog" : "sheet"}
           data-wide={wide || undefined}
+          data-side={(side && desktop) || undefined}
           data-testid={testId}
           style={style}
           {...attrs}

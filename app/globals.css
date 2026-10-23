@@ -2264,6 +2264,32 @@
   .ios-sheet[data-mode="dialog"][data-wide="true"] {
     width: min(680px, calc(100vw - 32px));
   }
+  /* `side` (md+): the dialog becomes a full-height panel at the inline end, sliding in along the inline axis with
+     the ordinary ease-out (no bounce: a panel beside a list is not a toy). The backdrop stays the dialog's. */
+  .ios-sheet[data-mode="dialog"][data-side="true"] {
+    inset: 0;
+    inset-inline-start: auto;
+    width: min(480px, 90vw);
+    max-height: none;
+    border-radius: 0;
+    border-start-start-radius: var(--radius);
+    border-end-start-radius: var(--radius);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.25);
+    transform: none;
+    transition: transform var(--t-med) var(--out);
+  }
+  .ios-sheet-root:not([data-phase="open"]) .ios-sheet[data-mode="dialog"][data-side="true"] {
+    opacity: 1;
+    transform: translateX(100%);
+  }
+  :root[dir="rtl"]
+    .ios-sheet-root:not([data-phase="open"])
+    .ios-sheet[data-mode="dialog"][data-side="true"] {
+    transform: translateX(-100%);
+  }
+  .ios-sheet-root[data-phase="exit"] .ios-sheet[data-mode="dialog"][data-side="true"] {
+    transition: transform 0.2s var(--out);
+  }
   .ios-sheet-root:not([data-phase="open"]) .ios-sheet[data-mode="dialog"] {
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.96);

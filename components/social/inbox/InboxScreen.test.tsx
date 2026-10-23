@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InboxConversation, InboxOverview, InboxPost } from "@/lib/domain";
 import { INBOX_POLL_MS } from "@/lib/inbox";
+import { timeAgo } from "@/lib/socialSync";
 import { useStore } from "@/store";
 import InboxScreen from "./InboxScreen";
 import { loadInbox, resetInbox } from "./useInbox";
@@ -865,5 +866,203 @@ describe("InboxScreen", () => {
     await advance(INBOX_POLL_MS * 2);
     expect(fetchMock).toHaveBeenCalledTimes(12);
     root = createRoot(host); // afterEach unmounts again
+  });
+});
+
+// The Beacons-style layout: three tiles over the lists, a search that narrows the loaded rows, avatar + time on a
+// row, and the details in a side panel on a wide screen.
+describe("InboxScreen layout", () => {
+  /** A wide screen: reduced motion (a sheet closes at once) and `md` up. */
+  const wideScreen = () =>
+    vi.stubGlobal("matchMedia", (media: string) => ({
+      matches: media.includes("reduce") || media.includes("min-width"),
+      media,
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+  const tile = (name: string) => q(`inbox-stat-${name}`)!;
+  const number = (name: string) => tile(name).querySelector("b")!.textContent;
+  const search = () => q("inbox-search") as HTMLInputElement;
+  const typeSearch = (value: string) => {
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(search(), value);
+      search().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+
+  it("counts the new messages, the open conversations and the comments in three tiles", async () => {
+    clockAtRead();
+    serve({
+      "GET /social/inbox": {
+        body: { ...overview(), counts: { conversations: 3, posts: 1, comments: 42 } },
+      },
+      "GET /social/inbox/conversations": {
+        body: {
+          conversations: [
+            // New (never opened) and its 24-hour window is still open.
+            conv({ id: "c1", peerId: "p1", windowClosesAt: "2026-10-23T09:00:00.000Z" }),
+            // Opened since its last message, its window closed yesterday.
+            conv({
+              id: "c2",
+              peerId: "p2",
+              updatedAt: T0,
+              windowClosesAt: "2026-10-21T09:00:00.000Z",
+            }),
+            conv({ id: "c3", peerId: "p3", updatedAt: T0 }),
+          ],
+          more: false,
+          next: null,
+        },
+      },
+    });
+    useStore.getState().markInboxSeen("instagram:conversation:c2", T0);
+    useStore.getState().markInboxSeen("instagram:conversation:c3", T0);
+    await mount();
+    expect(q("inbox-stats")!.className).toContain("grid-cols-3");
+    expect(tile("new").querySelector("small")!.textContent).toBe("رسائل جديدة");
+    expect(number("new")).toBe("1");
+    expect(tile("open").querySelector("small")!.textContent).toBe("محادثات مفتوحة");
+    expect(number("open")).toBe("1");
+    expect(tile("comments").querySelector("small")!.textContent).toBe("التعليقات");
+    expect(number("comments")).toBe("42");
+
+    // The first two follow the tab (TikTok has no conversations); the comments are the Worker's total.
+    act(() => q("inbox-tab-tiktok")!.click());
+    expect([number("new"), number("open"), number("comments")]).toEqual(["0", "0", "42"]);
+  });
+
+  it("shows no tiles while nothing is loaded, nor when the Worker has no inbox", async () => {
+    fetchMock.mockImplementation(() => new Promise(() => {})); // the first read never lands
+    await mount();
+    expect(q("inbox-messages")!.textContent).toContain("نجيب الرسائل"); // the lists are waiting
+    expect(q("inbox-stats")).toBeNull();
+    act(() => root.unmount());
+
+    resetInbox();
+    serve({ "GET /social/inbox": { status: 404, body: { error: "not_found" } } });
+    await mount();
+    expect(q("inbox-stats")).toBeNull();
+    expect(q("inbox-not-available")).not.toBeNull();
+  });
+
+  it("narrows the loaded conversations and posts as you type, Escape clears it, no match says so", async () => {
+    serve({
+      "GET /social/inbox/conversations": {
+        body: {
+          conversations: [
+            conv({ id: "c1", peerId: "p1", peerName: "سارة", lastText: "ابغى مونتاج" }),
+            conv({ id: "c2", peerId: "p2", peerName: "خالد", lastText: "شكراً", updatedAt: T0 }),
+            conv({ id: "c3", peerId: "p3", peerName: "Noura", lastText: "hi", updatedAt: T0 }),
+          ],
+          more: false,
+          next: null,
+        },
+      },
+      "GET /social/inbox/posts": {
+        body: {
+          posts: [POST, { ...POST, id: "m2", caption: "لت اللون", postedAt: T0 }],
+          more: false,
+          next: null,
+        },
+      },
+    });
+    await mount();
+    const input = search();
+    expect(input.type).toBe("search");
+    expect(input.getAttribute("aria-label")).toBe("ابحث بالاسم أو النص");
+    expect(input.placeholder).toBe("ابحث بالاسم أو النص");
+    expect(ids("inbox-conversation")).toEqual(["c1", "c2", "c3"]);
+    expect(ids("inbox-post-row")).toEqual(["m1", "m2"]);
+
+    // A text both lists hold: the last line of a conversation, the caption of a post.
+    typeSearch("مونتاج");
+    expect(ids("inbox-conversation")).toEqual(["c1"]);
+    expect(ids("inbox-post-row")).toEqual(["m1"]);
+    // A name; case does not matter; a list with no match drops out of the page.
+    typeSearch("NOURA");
+    expect(ids("inbox-conversation")).toEqual(["c3"]);
+    expect(q("inbox-comments")).toBeNull();
+    expect(q("inbox-search-none")).toBeNull();
+
+    act(() => {
+      search().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(search().value).toBe("");
+    expect(ids("inbox-conversation")).toEqual(["c1", "c2", "c3"]);
+    expect(ids("inbox-post-row")).toEqual(["m1", "m2"]);
+
+    typeSearch("zzz");
+    expect(all("inbox-conversation")).toHaveLength(0);
+    expect(all("inbox-post-row")).toHaveLength(0);
+    expect(all("inbox-search-none")).toHaveLength(1);
+    expect(q("inbox-search-none", q("inbox-messages")!)!.textContent).toBe("ما فيه نتيجة");
+    expect(q("inbox-empty-messages")).toBeNull();
+  });
+
+  it("does not search on the TikTok tab, where there is nothing to narrow", async () => {
+    await mount();
+    expect(q("inbox-search")).not.toBeNull();
+    act(() => q("inbox-tab-tiktok")!.click());
+    expect(q("inbox-search")).toBeNull();
+  });
+
+  it("gives a conversation row an initial avatar and its time, a post row its time", async () => {
+    clockAtRead();
+    await mount();
+    const [row] = all("inbox-conversation");
+    const avatar = q("inbox-avatar", row)!;
+    expect(avatar.textContent).toBe("س");
+    expect(avatar.getAttribute("aria-hidden")).toBe("true");
+    const time = row.querySelector("time")!;
+    expect(time.getAttribute("datetime")).toBe(T1);
+    expect(time.textContent).toBe(timeAgo(T1, "ar", Date.parse(READ)));
+    expect(time.textContent).not.toBe("");
+    // Still the one button, with its name and last line where they were.
+    expect(row.tagName).toBe("BUTTON");
+    expect(row.querySelector("b")!.textContent).toBe("سارة");
+
+    const [post] = all("inbox-post-row");
+    expect(post.querySelector("time")!.getAttribute("datetime")).toBe(T0);
+    expect(post.querySelector("small")!.textContent).toBe("3 تعليق");
+  });
+
+  it("gives the same name the same avatar colour", async () => {
+    serve({
+      "GET /social/inbox/conversations": {
+        body: {
+          conversations: [
+            conv({ id: "c1", peerId: "p1", peerName: "سارة" }),
+            conv({ id: "c2", peerId: "p2", peerName: "سارة", updatedAt: T0 }),
+          ],
+          more: false,
+          next: null,
+        },
+      },
+    });
+    await mount();
+    const [a, b] = all("inbox-avatar");
+    expect(a.style.background).not.toBe("");
+    expect(a.style.background).toBe(b.style.background);
+  });
+
+  it("opens the thread and the comments as a side panel on a wide screen, a bottom sheet on a phone", async () => {
+    await mount();
+    act(() => all("inbox-conversation")[0].click());
+    await settle();
+    expect(q("inbox-thread")!.getAttribute("data-side")).toBeNull();
+    act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(q("inbox-thread")).toBeNull();
+    act(() => root.unmount());
+
+    wideScreen();
+    await mount();
+    act(() => all("inbox-conversation")[0].click());
+    await settle();
+    expect(q("inbox-thread")!.getAttribute("data-side")).toBe("true");
+    act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    act(() => all("inbox-post-row")[0].click());
+    await settle();
+    expect(q("inbox-post")!.getAttribute("data-side")).toBe("true");
   });
 });
