@@ -108,11 +108,23 @@ function mockFetch(routes: Record<string, Handler>) {
   return Object.assign(fn, { calls });
 }
 
-/** The reader's one meta row (inboxReader.ts): the tick counter, the rotation's cursor and the last refresh served. */
+/** The `issuedAt` `connect` gives the token: the fingerprint the reader remembers once the webhooks are enabled for it. */
+const FP = "2026-10-22T00:00:00Z";
+
+/**
+ * The reader's one meta row (inboxReader.ts): the tick counter, the rotation's cursor, the last refresh served and the
+ * token the webhooks are enabled for. A seeded state has them enabled (the tests of the webhooks leave the row empty).
+ */
 const seedState = (
   api: InboxApi,
-  state: { tick?: number; postCursor?: number; lastScan?: string },
-) => api.setMeta("ig:state", JSON.stringify(state));
+  state: {
+    tick?: number;
+    postCursor?: number;
+    lastScan?: string;
+    webhooksFor?: string;
+    webhooksAt?: string;
+  },
+) => api.setMeta("ig:state", JSON.stringify({ webhooksFor: FP, ...state }));
 const readState = async (api: InboxApi) => JSON.parse((await api.getMeta("ig:state")) ?? "null");
 
 /** The URL of the first call whose path ends with `path`. */
@@ -214,7 +226,7 @@ describe("the 50-subrequest budget", () => {
         READER_KV_CALLS +
         READER_DO_CALLS_MAX,
     ).toBeLessThanOrEqual(50 - SUBREQUEST_HEADROOM);
-    expect(SUBREQUEST_HEADROOM).toBe(2);
+    expect(SUBREQUEST_HEADROOM).toBe(1);
     expect(READER_GRAPH_CALLS_MAX).toBeLessThanOrEqual(INBOX_READ_BUDGET);
   });
 });
@@ -226,6 +238,7 @@ describe.skipIf(!available)("readInboxTick", () => {
     const env = makeEnv();
     await connect(env);
     const api = freshDb();
+    await seedState(api, {});
     // the replies poll's own send, 2 min ago, to peer 9
     env.SOCIAL_KV.store.set(
       "replies:state",
@@ -387,7 +400,12 @@ describe.skipIf(!available)("readInboxTick", () => {
     const three = await tick();
     expect(three.commented).toEqual(["p10", "p11", "p0", "p1", "p2"]);
     expect(three.media).toBe(0);
-    expect(await readState(api)).toEqual({ tick: 4, postCursor: 3, lastScan: "" });
+    expect(await readState(api)).toEqual({
+      tick: 4,
+      postCursor: 3,
+      lastScan: "",
+      webhooksFor: FP,
+    });
 
     await seedState(api, { ...(await readState(api)), tick: 10 });
     const ten = await tick();
@@ -423,6 +441,7 @@ describe.skipIf(!available)("readInboxTick", () => {
       tick: 2,
       postCursor: 7,
       lastScan: "2026-10-22T11:59:30.000Z",
+      webhooksFor: FP,
     });
 
     const seen = fetch.calls().length;
@@ -447,6 +466,7 @@ describe.skipIf(!available)("readInboxTick", () => {
     const env = makeEnv();
     await connect(env);
     const api = freshDb();
+    await seedState(api, {});
     const retain = vi.spyOn(api, "retain");
     const fetch = mockFetch({
       [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
@@ -620,12 +640,13 @@ describe.skipIf(!available)("readInboxTick", () => {
     await connect(env);
     const api = freshDb();
     const fetch = mockFetch({
+      [`POST ${IG}/me/subscribed_apps`]: () => ({ success: true }),
       [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
       [`GET ${IG}/17841/conversations`]: () => json({ error: { message: "boom", code: 2 } }, 500),
     });
     const r = await readInboxTick(env, { fetch, now: () => NOW, api });
     expect(r).toEqual({
-      calls: 2,
+      calls: 3,
       conversations: 0,
       posts: 0,
       comments: 0,
@@ -654,7 +675,7 @@ describe.skipIf(!available)("readInboxTick", () => {
     expect(r).toMatchObject({ conversations: 1, comments: 0, error: "upstream" });
     expect(await api.thread("instagram", "t1", {})).not.toBeNull();
     expect(await api.getMeta("lastReadAt:instagram")).toBe(NOW.toISOString());
-    expect(await readState(api)).toEqual({ tick: 1, postCursor: 1 }); // not advanced
+    expect(await readState(api)).toEqual({ tick: 1, postCursor: 1, webhooksFor: FP }); // not advanced
   });
 
   it("a worst-case tick makes the Graph, KV and Durable Object calls the budget counts", async () => {
@@ -675,7 +696,9 @@ describe.skipIf(!available)("readInboxTick", () => {
       },
     });
     // tick 0 at minute :01: the hourly retain and the media list both run, and five posts are read for comments
+    // ... and it is the first tick after a connect, so the webhook subscription is made too
     const fetch = mockFetch({
+      [`POST ${IG}/me/subscribed_apps`]: () => ({ success: true }),
       [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
       [`GET ${IG}/17841/conversations`]: () => ({
         data: [{ id: "t1", updated_time: "2026-10-22T11:58:00+0000" }],
@@ -701,5 +724,92 @@ describe.skipIf(!available)("readInboxTick", () => {
       "setMeta",
     ]);
     expect(doCalls).toHaveLength(READER_DO_CALLS_MAX);
+  });
+
+  describe("webhook notifications", () => {
+    const SUBSCRIBE = `POST ${IG}/me/subscribed_apps`;
+    const base: Record<string, Handler> = {
+      [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
+      [`GET ${IG}/17841/conversations`]: () => ({
+        data: [{ id: "t1", updated_time: "2026-10-22T11:58:00+0000" }],
+      }),
+      [`GET ${IG}/17841/media`]: () => ({ data: [] }),
+    };
+    const asked = (fetch: ReturnType<typeof mockFetch>) =>
+      fetch.calls().filter((c) => c === SUBSCRIBE).length;
+
+    it("enables messages and comments once per token, and again for a new one", async () => {
+      const env = makeEnv();
+      await connect(env);
+      const api = freshDb();
+      const fetch = mockFetch({ ...base, [SUBSCRIBE]: () => ({ success: true }) });
+      const tick = () => readInboxTick(env, { fetch, now: () => NOW, api });
+
+      const first = await tick();
+      expect(first).not.toHaveProperty("error");
+      expect(asked(fetch)).toBe(1);
+      const [, init] = fetch.mock.calls.find(([, i]) => i?.method === "POST")!;
+      const body = new URLSearchParams(String(init!.body));
+      expect(body.get("subscribed_fields")).toBe("messages,comments");
+      expect(body.get("access_token")).toBe("tok");
+      expect(await readState(api)).toMatchObject({
+        tick: 1,
+        webhooksFor: FP,
+        webhooksAt: NOW.toISOString(),
+      });
+
+      await tick();
+      await tick();
+      expect(asked(fetch)).toBe(1); // remembered
+
+      await connect(env, { issuedAt: "2026-10-22T06:00:00Z" }); // reconnected: a new token
+      await tick();
+      expect(asked(fetch)).toBe(2);
+      expect(await readState(api)).toMatchObject({ tick: 4, webhooksFor: "2026-10-22T06:00:00Z" });
+      await tick();
+      expect(asked(fetch)).toBe(2);
+    });
+
+    it("a refused call does not stop the read, the next tick asks again, and the token is never logged", async () => {
+      const env = makeEnv();
+      await connect(env, { accessToken: "IGAA-secret-token" });
+      const api = freshDb();
+      let answer: () => unknown = () =>
+        json({ error: { message: "Invalid token IGAA-secret-token", code: 190 } }, 400);
+      const fetch = mockFetch({ ...base, [SUBSCRIBE]: () => answer() });
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const tick = () => readInboxTick(env, { fetch, now: () => NOW, api });
+
+      const first = await tick();
+      expect(first).toMatchObject({ conversations: 1 });
+      expect(first).not.toHaveProperty("error");
+      expect(await api.thread("instagram", "t1", {})).not.toBeNull(); // the read completed
+      expect(asked(fetch)).toBe(1);
+      expect(await readState(api)).toMatchObject({ tick: 1 });
+      expect((await readState(api)).webhooksFor).toBeUndefined();
+
+      answer = () => ({ success: true });
+      await tick();
+      expect(asked(fetch)).toBe(2);
+      expect((await readState(api)).webhooksFor).toBe(FP);
+      await tick();
+      expect(asked(fetch)).toBe(2);
+
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(log.mock.calls[0][0]))).toMatchObject({ inbox: "webhooks" });
+      for (const [line] of log.mock.calls) expect(String(line)).not.toContain("IGAA-secret-token");
+      log.mockRestore();
+    });
+
+    it("counts a 200 without success as a failure", async () => {
+      const env = makeEnv();
+      await connect(env);
+      const api = freshDb();
+      const fetch = mockFetch({ ...base, [SUBSCRIBE]: () => ({ success: false }) });
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      await readInboxTick(env, { fetch, now: () => NOW, api });
+      log.mockRestore();
+      expect((await readState(api)).webhooksFor).toBeUndefined();
+    });
   });
 });
