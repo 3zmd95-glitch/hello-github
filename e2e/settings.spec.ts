@@ -188,7 +188,7 @@ test("Delete stored messages asks first, then sends one DELETE /social/inbox and
     return json({ accounts: [], snapshots: [], postStats: [], demographics: [], syncedAt: {} });
   });
 
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   // No Worker yet: the button is there, off.
   const wipe = page.getByTestId("accounts-wipe-inbox");
   await expect(wipe).toBeDisabled();
