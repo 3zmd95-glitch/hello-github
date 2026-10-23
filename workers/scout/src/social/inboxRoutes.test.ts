@@ -418,6 +418,30 @@ describe.skipIf(!available)("/social/inbox routes", () => {
     expect(bad.status).toBe(404);
   });
 
+  it("takes a colon only as the `peer:` prefix and no dot: such ids never reach the store", async () => {
+    const env = makeEnv();
+    const api = freshDb();
+    const asked = [vi.spyOn(api, "thread"), vi.spyOn(api, "comment"), vi.spyOn(api, "comments")];
+    for (const [path, method] of [
+      ["/social/inbox/conversations/a..b", "GET"],
+      ["/social/inbox/conversations/t1.x", "GET"],
+      ["/social/inbox/conversations/x%3Ay", "GET"],
+      ["/social/inbox/conversations/peer%3Apeer%3Ap1", "GET"],
+      ["/social/inbox/conversations/peer%3A", "GET"],
+      ["/social/inbox/conversations/a..b/send", "POST"],
+      ["/social/inbox/posts/instagram/p..1/comments", "GET"],
+      ["/social/inbox/comments/instagram/c..1/private", "POST"],
+    ] as const) {
+      const init = method === "POST" ? { method, json: { text: "hi" } } : { method };
+      const res = await handle(req(path, init), env, undefined, depsOf(api));
+      expect(res.status, `${method} ${path}`).toBe(404);
+    }
+    for (const spy of asked) expect(spy).not.toHaveBeenCalled();
+    // The prefix itself is fine: an unknown `peer:` thread is the store's own 404.
+    await handle(req("/social/inbox/conversations/peer%3Ap9"), env, undefined, depsOf(api));
+    expect(asked[0]).toHaveBeenCalledWith("instagram", "peer:p9", { before: undefined });
+  });
+
   it("hands the cursor through opaque: next of one page is before of the next", async () => {
     const env = makeEnv();
     const api = freshDb();
@@ -1042,6 +1066,28 @@ describe.skipIf(!available)("/social/inbox send routes", () => {
     expect(w.sends()).toMatchObject([
       { kind: "private", targetId: "c1", text: "hi", state: "sent", platformId: "mid.p" },
     ]);
+  });
+
+  it("answers not_eligible without a call to a private reply on a comment older than 7 days", async () => {
+    const w = await sendWorld({ [DM_URL]: { recipient_id: "55", message_id: "mid.p" } });
+    const old = (await w.comment("c1"))!;
+    await w.api.ingest({
+      comments: [
+        { ...old, id: "c8", at: new Date(NOW.getTime() - 8 * 86_400_000).toISOString() },
+        { ...old, id: "c7", at: new Date(NOW.getTime() - 7 * 86_400_000).toISOString() },
+      ],
+    });
+
+    const res = await w.call(posted("/social/inbox/comments/instagram/c8/private", { text: "hi" }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "not_eligible" });
+    expect(w.fetch.calls()).toEqual([]);
+    expect(w.sends()).toEqual([]);
+    // Seven days to the minute is still inside Instagram's window.
+    const edge = await w.call(
+      posted("/social/inbox/comments/instagram/c7/private", { text: "hi" }),
+    );
+    expect(edge.status).toBe(200);
   });
 
   it("hides and unhides a comment through the query and mirrors it in the store", async () => {

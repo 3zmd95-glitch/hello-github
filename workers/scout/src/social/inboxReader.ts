@@ -37,8 +37,12 @@ import { Store, type SocialEnv } from "./store";
 export const INBOX_READ_BUDGET = 12;
 export const POSTS_PER_TICK = 5;
 export const MEDIA_REFRESH_TICKS = 10;
-/** The old rows are dropped hourly: `retain` scans whole tables. */
-const RETAIN_TICKS = 60;
+/**
+ * The old rows are dropped hourly (`retain` scans whole tables), on this UTC minute: an off-grid one, so the reader runs
+ * then. By the clock rather than the tick counter, so a disconnected account (whose ticks stop early) is trimmed too.
+ * ponytail: a missed cron at that minute skips the hour; a Durable Object alarm would not depend on the cron.
+ */
+const RETAIN_MINUTE = 1;
 /** The Graph calls the replies poll may make on an off-grid tick (30 on its own), leaving the reader its share of the 50. */
 export const INBOX_OFFGRID_REPLIES_BUDGET = 24;
 /** Subrequests of the 50 kept free: `Store.write` retries a failed KV put once, a second put the counts below omit. */
@@ -240,6 +244,8 @@ export async function readInboxTick(
   // What the result says even when the tick stops half way: what was ingested so far.
   const done = { conversations: 0, posts: 0, comments: 0, skipped: 0 };
   try {
+    // First: the 30-day promise holds while Instagram is disconnected, its token lapsed or the permission is missing.
+    if (now.getUTCMinutes() === RETAIN_MINUTE) await api.retain(now.toISOString());
     const store = Store.from(env);
     const tokens = store ? await store.getTokens("instagram") : null;
     if (!store || !tokens) return { skipped: "not_connected" };
@@ -314,8 +320,10 @@ export async function readInboxTick(
         comments.push({ postId: p.id, rows: page.data ?? [] });
       } catch (e) {
         // A post Instagram refuses (deleted since the last media read) must not stall the rotation on it.
-        const { code, detail } = toReplyCode(e);
+        const { code, detail: said } = toReplyCode(e);
         if (code !== "rejected") throw e;
+        // Meta's words, never the token (as the send routes scrub them).
+        const detail = said?.replaceAll(token, "…");
         done.skipped += 1;
         refusal = detail;
         console.log(JSON.stringify({ inbox: "comments", post: p.id, error: code, detail }));
@@ -332,7 +340,6 @@ export async function readInboxTick(
       lastScan: forced ? scan : state.lastScan,
     };
     await api.setMeta(STATE_KEY, JSON.stringify(next));
-    if (state.tick % RETAIN_TICKS === 0) await api.retain(now.toISOString());
     const refusedAll = targets.length > 0 && done.skipped === targets.length;
     return {
       calls: calls(),

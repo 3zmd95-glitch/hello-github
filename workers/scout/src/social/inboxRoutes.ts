@@ -24,7 +24,7 @@ import { inboxApi } from "./inboxStore";
 import { IG_API } from "./instagram";
 import type { MetaError } from "./meta";
 import { isExpired } from "./oauth";
-import { igUserIdOf } from "./replies";
+import { REPLY_WINDOW_MS, igUserIdOf } from "./replies";
 import {
   DM_TEXT_BYTES,
   IG_COMMENT_MAX,
@@ -50,8 +50,8 @@ export interface InboxReply {
   fail: (error: SocialErrorCode, detail?: string) => Response;
 }
 
-// The colon and dot let a webhook's provisional `peer:<id>` conversation (webhooks.ts) be opened and answered.
-const ID = /^[A-Za-z0-9_=:.-]{1,256}$/;
+// The `peer:` prefix lets a webhook's provisional conversation (webhooks.ts) be opened and answered.
+const ID = /^(peer:)?[A-Za-z0-9_=-]{1,256}$/;
 
 /** A path segment as the dashboard's encodeURIComponent wrote it ("peer%3Ap1" is "peer:p1"); a bad escape stays and fails ID. */
 const decoded = (segment: string): string => {
@@ -230,6 +230,9 @@ async function sendToInstagram(
     return reply.fail("window_closed");
   if (conversation && !conversation.peerId) return reply.fail("not_eligible"); // nobody to send to
   if (act === "delete" && !comment?.ours) return reply.fail("no_permission");
+  // Instagram takes a private reply within 7 days of the comment only (as the auto-replies poll knows).
+  if (act === "private" && comment && now.getTime() - Date.parse(comment.at) > REPLY_WINDOW_MS)
+    return reply.fail("not_eligible");
 
   const tokens = await store.getTokens("instagram");
   if (!tokens) return reply.fail("not_connected");

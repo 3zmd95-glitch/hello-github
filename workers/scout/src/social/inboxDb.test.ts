@@ -314,6 +314,47 @@ describe.skipIf(!available)("InboxDb", () => {
       ["m2", "owner", "m2"],
     ]);
   });
+  it("folds a webhook's provisional peer: thread into the real one when the reader stores it", async () => {
+    const db = new InboxDb(nodeSql()!);
+    const T1 = "2026-10-22T10:00:00.000Z";
+    const T2 = "2026-10-22T10:01:00.000Z";
+    // The webhook: the person's message under the provisional thread.
+    await db.ingest({
+      conversations: [{ ...conv("x", T1), id: "peer:p1", peerId: "p1" }],
+      messages: [msg("mid.1", T1, { convId: "peer:p1" })],
+    });
+    // The reader: the real thread, with the same message and an older one.
+    await db.ingest({
+      conversations: [{ ...conv("t1", T2), peerId: "p1" }],
+      messages: [msg("mid.0", T1, { convId: "t1" }), msg("mid.1", T1, { convId: "t1" })],
+    });
+    expect((await db.thread("instagram", "t1", {}))!.messages.items.map((m) => m.id)).toEqual([
+      "mid.0",
+      "mid.1",
+    ]);
+    expect(await db.thread("instagram", "peer:p1", {})).toBeNull();
+    expect((await db.conversations({})).items.map((c) => c.id)).toEqual(["t1"]);
+  });
+  it("moves a DM the owner sent into the peer: thread too, keeping its sentBy", async () => {
+    const db = new InboxDb(nodeSql()!);
+    const T1 = "2026-10-22T10:00:00.000Z";
+    const T2 = "2026-10-22T10:02:00.000Z";
+    await db.ingest({
+      conversations: [{ ...conv("x", T1), id: "peer:p1", peerId: "p1" }],
+      messages: [
+        msg("mid.1", T1, { convId: "peer:p1" }),
+        msg("mid.2", T2, { convId: "peer:p1", fromPeer: false, sentBy: "owner" }),
+      ],
+    });
+    // The reader's page does not reach the owner's DM yet; it still moves with the thread.
+    await db.ingest({ conversations: [{ ...conv("t1", T2), peerId: "p1" }] });
+    const t = (await db.thread("instagram", "t1", {}))!;
+    expect(t.messages.items.map((m) => [m.id, m.convId, m.sentBy])).toEqual([
+      ["mid.1", "t1", "peer"],
+      ["mid.2", "t1", "owner"],
+    ]);
+    expect((await db.overview()).counts.conversations).toBe(1);
+  });
   it("deletes a comment together with its replies, and nothing else", async () => {
     const db = new InboxDb(nodeSql()!);
     const T = "2026-10-22T10:00:00.000Z";

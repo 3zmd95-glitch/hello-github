@@ -350,10 +350,13 @@ describe.skipIf(!available)("Instagram webhooks", () => {
   });
 
   describe("POST /webhooks/instagram: refusals and faults", () => {
-    const rejected = (api: InboxApi) => api.getMeta("webhook:rejected");
+    /** Spies on every store method a request could call: a refused request must call none of them. */
+    const storeCalls = (api: InboxApi) =>
+      (["getMeta", "setMeta", "ingest", "comment", "posts"] as const).map((m) => vi.spyOn(api, m));
 
-    it("answers 401 to a wrong signature, stores nothing and counts the rejection", async () => {
+    it("answers 401 to a wrong signature, stores nothing and makes no store call", async () => {
       const api = freshDb();
+      const calls = storeCalls(api);
       const payload = hook({ messaging: [dm("p1", "mid.1", { text: "hi" })] });
 
       const first = await send(
@@ -363,28 +366,28 @@ describe.skipIf(!available)("Instagram webhooks", () => {
       );
       expect(first.status).toBe(401);
       expect(await first.json()).toEqual({ error: "bad_signature" });
-      expect(await rejected(api)).toBe("1");
 
       const second = await send(signed(payload, "sha256=00"), makeEnv(), api);
       expect(second.status).toBe(401);
-      expect(await rejected(api)).toBe("2");
+      for (const call of calls) expect(call).not.toHaveBeenCalled();
       expect((await api.overview()).counts).toEqual({ conversations: 0, posts: 0, comments: 0 });
     });
 
-    it("answers 401 to an empty or malformed signature header and counts it as a wrong signature", async () => {
+    it("answers 401 to an empty or malformed signature header, like a wrong signature, with no store call", async () => {
       const api = freshDb();
+      const calls = storeCalls(api);
       const payload = hook({ messaging: [dm("p1", "mid.1", { text: "hi" })] });
       const body = JSON.stringify(payload);
 
       expect((await send(signed(payload, ""), makeEnv(), api)).status).toBe(401);
       // The digest without its "sha256=" prefix is not the header Meta sends.
       expect((await send(signed(payload, sign(body).slice(7)), makeEnv(), api)).status).toBe(401);
-      expect(await rejected(api)).toBe("2");
+      for (const call of calls) expect(call).not.toHaveBeenCalled();
     });
 
-    it("answers 401 to a request without the header and does not touch the store (nothing to count)", async () => {
+    it("answers 401 to a request without the header and does not touch the store", async () => {
       const api = freshDb();
-      const calls = [vi.spyOn(api, "getMeta"), vi.spyOn(api, "setMeta"), vi.spyOn(api, "ingest")];
+      const calls = storeCalls(api);
       const payload = hook({ messaging: [dm("p1", "mid.1", { text: "hi" })] });
 
       const res = await send(signed(payload, null), makeEnv(), api);
@@ -393,11 +396,11 @@ describe.skipIf(!available)("Instagram webhooks", () => {
       expect(await res.json()).toEqual({ error: "bad_signature" });
       for (const call of calls) expect(call).not.toHaveBeenCalled();
       expect(log).not.toHaveBeenCalled();
-      expect(await rejected(api)).toBeNull();
     });
 
     it("answers 401 to everything while META_APP_SECRET is not set, even a signature made with an empty secret", async () => {
       const api = freshDb();
+      const calls = storeCalls(api);
       const env = makeEnv({ META_APP_SECRET: undefined });
       const payload = hook({ messaging: [dm("p1", "mid.1", { text: "hi" })] });
 
@@ -405,6 +408,7 @@ describe.skipIf(!available)("Instagram webhooks", () => {
       expect(
         (await send(signed(payload, sign(JSON.stringify(payload), "")), env, api)).status,
       ).toBe(401);
+      for (const call of calls) expect(call).not.toHaveBeenCalled();
       expect((await api.overview()).counts.conversations).toBe(0);
     });
 
@@ -678,6 +682,7 @@ describe.skipIf(!available)("Instagram webhooks", () => {
 
     it("refuses a body over 1 MB before any crypto: by its Content-Length, or by its size once read", async () => {
       const api = freshDb();
+      const calls = (["getMeta", "setMeta", "ingest"] as const).map((m) => vi.spyOn(api, m));
       const hmac = vi.spyOn(crypto.subtle, "sign");
       const declared = new Request(`${BASE}/webhooks/instagram`, {
         method: "POST",
@@ -695,7 +700,7 @@ describe.skipIf(!available)("Instagram webhooks", () => {
       expect(await second.json()).toEqual({ error: "bad_request" });
 
       expect(hmac).not.toHaveBeenCalled();
-      expect(await api.getMeta("webhook:rejected")).toBeNull();
+      for (const call of calls) expect(call).not.toHaveBeenCalled();
       // Exactly the cap is read and checked (it is not JSON, so it stops at 400).
       expect((await send(signed("x".repeat(MAX_BODY)), makeEnv(), api)).status).toBe(400);
     });

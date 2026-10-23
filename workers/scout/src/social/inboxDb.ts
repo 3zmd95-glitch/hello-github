@@ -180,6 +180,19 @@ export class InboxDb implements InboxApi {
         c.windowClosesAt,
         c.answeredBy,
       );
+    // A webhook's provisional `peer:<id>` thread (webhooks.ts) folds into the person's real one once the reader stores
+    // it: its messages move over (a message id is the key, so the move never clashes) and the provisional row goes.
+    for (const c of b.conversations ?? []) {
+      if (c.id.startsWith("peer:") || !c.peerId) continue;
+      const peer = `peer:${c.peerId}`;
+      this.sql.all(
+        `UPDATE messages SET convId=? WHERE platform=? AND convId=?`,
+        c.id,
+        c.platform,
+        peer,
+      );
+      this.sql.all(`DELETE FROM conversations WHERE platform=? AND id=?`, c.platform, peer);
+    }
     // A message keeps the sentBy it first got: the dashboard writes its own DM row before the reader sees the message,
     // and the reader marks a message "auto" from the poll's send log on first sight; a later reading never overrides that.
     for (const m of b.messages ?? [])

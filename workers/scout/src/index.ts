@@ -18,7 +18,7 @@ import { runScheduled } from "./social/sync";
 // Worker entry. Exports: the default handler and the Durable Object classes only (workerd treats every other named
 // export of the main module as an entrypoint and refuses to start). InboxStore is the global inbox's SQLite store
 // (planning/tools/51-global-inbox.md); its module imports `cloudflare:workers` statically, so the plain-Node tests
-// (both vitest configs) swap that module for the stub in workers/scout/vitest.cloudflare-stub.ts.
+// (both vitest configs) swap that module for the stub in workers/scout/vitest.cloudflare-stub.mjs.
 export { InboxStore } from "./social/inboxStore";
 
 // Claude connector (round 33, planning/tools/13-discover-search-v2.md): only the connector's own paths

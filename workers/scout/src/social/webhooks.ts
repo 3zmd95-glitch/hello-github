@@ -8,14 +8,16 @@
  *
  * Neither route carries the bearer (Meta cannot send one): the signature is the credential, so scout.ts serves them
  * before its bearer check. A request without the header is refused untouched (no body read, no store call); a body
- * over MAX_BODY is `413`; a wrong signature answers `401` and bumps the store's `webhook:rejected` counter. A signed
+ * over MAX_BODY is `413`; a wrong signature answers `401` and is logged, with no store call either (the URL is public,
+ * so a forged request must not cost the store's quota). A signed
  * event becomes one `ingest` (all entries together, at most WEBHOOK_MAX_EVENTS events) and `200 { received }`; a store fault answers `500` so Meta delivers
  * the event again, while a payload this file cannot read answers `200 { received: 0 }` (a retry would never fix it, and
  * a run of failures can make Meta disable the subscription). No KV is touched, and the logs carry counts only, never a
  * body or a secret.
  *
  * Provisional ids. A webhook names the person (`sender.id`), not the thread, so its conversation is `peer:<sender id>`;
- * the reader's next tick stores the real thread and the dashboard merges the two rows by `peerId` (useInbox.ts).
+ * the reader's next tick stores the real thread and the store folds the provisional one into it (inboxDb.ts ingest);
+ * until then the dashboard merges the two rows by `peerId` (useInbox.ts).
  */
 
 import { WINDOW_MS, toMs } from "./inbox";
@@ -34,8 +36,6 @@ import type { SocialEnv } from "./store";
 import { safeEqual } from "../scout";
 
 const PATH = "/webhooks/instagram";
-/** The store's count of events refused for a wrong signature. */
-const REJECTED_KEY = "webhook:rejected";
 /** Instagram's events are a few kilobytes; a body over 1 MB is refused before any crypto. */
 export const MAX_BODY = 1_048_576;
 /**
@@ -231,18 +231,6 @@ export function webhookToBatch(
   };
 }
 
-/** Counts a refused event and answers the new total; a store fault (or no store) must not change the `401`. */
-async function countRejection(api: InboxApi | null): Promise<number | undefined> {
-  if (!api) return undefined;
-  try {
-    const n = (Number(await api.getMeta(REJECTED_KEY)) || 0) + 1;
-    await api.setMeta(REJECTED_KEY, String(n));
-    return n;
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * Answers `/webhooks/instagram`, or returns null when the request is not one of ours. `deps.api` is the store;
  * production leaves it out and the Durable Object's stub is used.
@@ -276,14 +264,13 @@ export async function handleWebhooks(
   const given = req.headers.get("X-Hub-Signature-256");
   if (given === null) return json({ error: "bad_signature" }, 401);
 
-  const api = deps.api ?? inboxApi(env);
   const raw = await req.arrayBuffer();
   if (raw.byteLength > MAX_BODY) return json({ error: "bad_request" }, 413);
   if (!env.META_APP_SECRET || !safeEqual(given, await signatureOf(env.META_APP_SECRET, raw))) {
-    const rejected = await countRejection(api);
-    console.log(JSON.stringify({ webhook: "instagram", rejected }));
+    console.log(JSON.stringify({ webhook: "instagram", rejected: 1 }));
     return json({ error: "bad_signature" }, 401);
   }
+  const api = deps.api ?? inboxApi(env);
 
   let payload: Payload;
   try {

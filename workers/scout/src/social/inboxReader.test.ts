@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { InboxDb, type InboxApi, type PostRow, type Sql } from "./inboxDb";
 import {
@@ -13,13 +14,16 @@ import {
 } from "./inboxReader";
 import { Store, type SocialEnv } from "./store";
 import type { TokenSet } from "./types";
+import { handleWebhooks } from "./webhooks";
 
-// cron.ts reaches inboxStore.ts, which imports `cloudflare:workers` (workerd only); see vitest.cloudflare-stub.ts.
+// cron.ts reaches inboxStore.ts, which imports `cloudflare:workers` (workerd only); see vitest.cloudflare-stub.mjs.
 
 /* ---------- fakes (copied from replies.test.ts and inboxDb.test.ts) ---------- */
 
 const TOKEN = "s3cret-token";
 const NOW = new Date("2026-10-22T12:00:00Z");
+/** The minute of the hour the reader drops old rows (inboxReader.ts RETAIN_MINUTE). */
+const RETAIN_AT = new Date("2026-10-22T12:01:00Z");
 const IG = "graph.instagram.com/v21.0";
 
 type FakeKV = KVNamespace & { store: Map<string, string>; reads: number };
@@ -439,7 +443,7 @@ describe.skipIf(!available)("readInboxTick", () => {
     expect(fetch.calls()).toEqual([`GET ${IG}/17841/conversations`]);
   });
 
-  it("drops old rows hourly: retain runs on tick 0 and tick 60, not in between", async () => {
+  it("drops old rows hourly: retain runs at minute :01 of each hour, not in between", async () => {
     const env = makeEnv();
     await connect(env);
     const api = freshDb();
@@ -449,20 +453,103 @@ describe.skipIf(!available)("readInboxTick", () => {
       [`GET ${IG}/17841/conversations`]: () => ({ data: [] }),
       [`GET ${IG}/17841/media`]: () => ({ data: [] }),
     });
-    const run = () => readInboxTick(env, { fetch, now: () => NOW, api });
-    await run(); // tick 0
+    const at = (iso: string) => readInboxTick(env, { fetch, now: () => new Date(iso), api });
+    await at("2026-10-22T12:01:00Z");
     expect(retain).toHaveBeenCalledTimes(1);
-    expect(retain).toHaveBeenLastCalledWith(NOW.toISOString());
-    await run(); // tick 1
+    expect(retain).toHaveBeenLastCalledWith("2026-10-22T12:01:00.000Z");
+    await at("2026-10-22T12:02:00Z");
+    await at("2026-10-22T12:59:00Z");
     expect(retain).toHaveBeenCalledTimes(1);
-    await seedState(api, { tick: 60 });
-    await run();
+    await at("2026-10-22T13:01:00Z");
     expect(retain).toHaveBeenCalledTimes(2);
+  });
+
+  it("still drops old rows while Instagram is disconnected, its token lapsed or the permission is missing", async () => {
+    const env = makeEnv();
+    const api = freshDb();
+    const retain = vi.spyOn(api, "retain");
+    const run = (now: Date) => readInboxTick(env, { fetch: mockFetch({}), now: () => now, api });
+    expect(await run(RETAIN_AT)).toEqual({ skipped: "not_connected" });
+    await connect(env, { expiresAt: "2026-10-22T11:00:00Z" });
+    expect(await run(RETAIN_AT)).toEqual({ skipped: "token_expired" });
+    await connect(env, { canReply: false });
+    expect(await run(RETAIN_AT)).toEqual({ skipped: "no_permission" });
+    expect(retain).toHaveBeenCalledTimes(3);
+    expect(retain).toHaveBeenLastCalledWith(RETAIN_AT.toISOString());
+    // Off that minute a skipped tick makes no store call at all.
+    expect(await run(NOW)).toEqual({ skipped: "no_permission" });
+    expect(retain).toHaveBeenCalledTimes(3);
+  });
+
+  it("a webhook's message lands in the real thread once the reader stores it: one conversation for the person", async () => {
+    const env = { ...makeEnv(), META_APP_SECRET: "app-secret" };
+    await connect(env);
+    env.SOCIAL_KV.store.set("replies:state", JSON.stringify({ sent: {}, igUserId: "17841" }));
+    const api = freshDb();
+    await seedState(api, { tick: 1 });
+    const at = "2026-10-22T11:59:00.000Z";
+    const body = JSON.stringify({
+      object: "instagram",
+      entry: [
+        {
+          id: "17841",
+          time: Math.floor(Date.parse(at) / 1000),
+          messaging: [
+            {
+              sender: { id: "9" },
+              recipient: { id: "17841" },
+              timestamp: Date.parse(at),
+              message: { mid: "m8", text: "لت" },
+            },
+          ],
+        },
+      ],
+    });
+    const signature = `sha256=${createHmac("sha256", "app-secret").update(body).digest("hex")}`;
+    const hook = new Request("https://scout.test/webhooks/instagram", {
+      method: "POST",
+      body,
+      headers: { "Content-Type": "application/json", "X-Hub-Signature-256": signature },
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    expect((await handleWebhooks(hook, env, { now: () => NOW, api }))!.status).toBe(200);
+    log.mockRestore();
+    expect((await api.conversations({})).items.map((c) => c.id)).toEqual(["peer:9"]);
+
+    const fetch = mockFetch({
+      [`GET ${IG}/17841/conversations`]: () => ({
+        data: [
+          {
+            id: "t1",
+            updated_time: "2026-10-22T11:59:00+0000",
+            participants: { data: [{ id: "9", username: "sara" }, { id: "17841" }] },
+            messages: {
+              data: [
+                {
+                  id: "m8",
+                  created_time: "2026-10-22T11:59:00+0000",
+                  from: { id: "9" },
+                  message: "لت",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+    expect(await readInboxTick(env, { fetch, now: () => NOW, api })).not.toHaveProperty("error");
+    expect((await api.conversations({})).items.map((c) => [c.id, c.peerName])).toEqual([
+      ["t1", "sara"],
+    ]);
+    expect((await api.thread("instagram", "t1", {}))!.messages.items).toMatchObject([
+      { id: "m8", convId: "t1", sentBy: "peer", text: "لت" },
+    ]);
+    expect(await api.thread("instagram", "peer:9", {})).toBeNull();
   });
 
   it("skips a post Instagram refuses, says so, still ingests the rest, and moves the rotation on", async () => {
     const env = makeEnv();
-    await connect(env);
+    await connect(env, { accessToken: "IGAA-secret-token" });
     const api = freshDb();
     await api.ingest({ posts: storedPosts(2) });
     await seedState(api, { tick: 1 });
@@ -472,9 +559,18 @@ describe.skipIf(!available)("readInboxTick", () => {
       [`GET ${IG}/17841/conversations`]: () => ({
         data: [{ id: "t1", updated_time: "2026-10-22T11:58:00+0000" }],
       }),
-      // p0 was deleted on Instagram since the last media read
+      // p0 was deleted on Instagram since the last media read (and Meta's words quote the token)
       [`GET ${IG}/p0/comments`]: () =>
-        json({ error: { message: "Unsupported get request", code: 100, error_subcode: 33 } }, 400),
+        json(
+          {
+            error: {
+              message: "Unsupported get request IGAA-secret-token",
+              code: 100,
+              error_subcode: 33,
+            },
+          },
+          400,
+        ),
       [`GET ${IG}/p1/comments`]: () => ({
         data: [{ id: "c1", text: "hi", username: "ali", timestamp: "2026-10-21T00:00:00+0000" }],
       }),
@@ -488,6 +584,7 @@ describe.skipIf(!available)("readInboxTick", () => {
       error: "rejected",
       detail: expect.stringContaining("Unsupported get request"),
     });
+    expect(String(log.mock.calls[0][0])).not.toContain("IGAA-secret-token");
     log.mockRestore();
     expect(await readState(api)).toMatchObject({ tick: 2 });
     expect((await api.comments("instagram", "p1", {}))!.comments.items).toHaveLength(1);
@@ -577,7 +674,7 @@ describe.skipIf(!available)("readInboxTick", () => {
         };
       },
     });
-    // tick 0: the media list and the hourly retain both run, and five posts are read for comments
+    // tick 0 at minute :01: the hourly retain and the media list both run, and five posts are read for comments
     const fetch = mockFetch({
       [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
       [`GET ${IG}/17841/conversations`]: () => ({
@@ -590,18 +687,18 @@ describe.skipIf(!available)("readInboxTick", () => {
         storedPosts(5).map((p) => [`GET ${IG}/${p.id}/comments`, () => ({ data: [] })]),
       ),
     });
-    const r = await readInboxTick(env, { fetch, now: () => NOW, api });
+    const r = await readInboxTick(env, { fetch, now: () => RETAIN_AT, api });
     expect(r).not.toHaveProperty("error");
     expect(fetch.calls()).toHaveLength(READER_GRAPH_CALLS_MAX);
     expect(env.SOCIAL_KV.reads).toBe(READER_KV_CALLS);
     expect(doCalls).toEqual([
+      "retain",
       "getMeta",
       "ingest", // the conversations
       "ingest", // the media list
       "posts",
       "ingest", // the comments
       "setMeta",
-      "retain",
     ]);
     expect(doCalls).toHaveLength(READER_DO_CALLS_MAX);
   });
