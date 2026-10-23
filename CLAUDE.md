@@ -1,5 +1,13 @@
 @AGENTS.md
 
+## Shared workflow
+
+Follow `planning/collaboration/workflow.md` and `planning/collaboration/current-task.md`.
+Fable 5.1 plans; `team-opus` and `team-sonnet` implement; Codex independently reviews.
+The `team-planner` profile is intended as the main Claude session, not a nested subagent.
+Do not implement in the primary checkout while the active task names a managed worktree.
+Do not overwrite another agent's changes or label work reviewed before Codex supplies a verdict.
+
 # Project rules (3z Prod)
 
 - **Search before building.** Before implementing a feature, integration, or tool, look for existing open-source

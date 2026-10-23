@@ -29,6 +29,35 @@ const meta = (key: string, termId?: string): EffectMeta => ({
 });
 
 describe("scoring", () => {
+  it("exposes only dated samples inside the same seven-day observation window", () => {
+    const m = meta("clone-effect", "clone-effect");
+    m.samples = [
+      {
+        url: "https://www.instagram.com/p/RECENT",
+        title: "Recent example",
+        published: "2026-10-06T12:00:00Z",
+      },
+      {
+        url: "https://www.instagram.com/p/OLD",
+        title: "Older example",
+        published: "2026-09-27T12:00:00Z",
+      },
+      { url: "https://www.instagram.com/p/UNDATED", title: "Legacy example" },
+      {
+        url: "https://www.instagram.com/p/FUTURE",
+        title: "Invalid future example",
+        published: "2026-10-10T12:00:00Z",
+      },
+    ];
+    const [item] = scoreEffects(
+      { "clone-effect": [{ day: "2026-10-06", ids: ["a", "b", "c"] }] },
+      { "clone-effect": m },
+      "2026-10-07",
+      {},
+    );
+    expect(item.samples.map((s) => s.url)).toEqual(["https://www.instagram.com/p/RECENT"]);
+  });
+
   it("days between UTC days", () => {
     expect(daysBetween("2026-10-01", "2026-10-06")).toBe(5);
   });
@@ -144,7 +173,7 @@ describe("scoring", () => {
     expect(creatorsBetween(entries, "2026-10-06", 3, 5).size).toBe(1); // day 5: 10-01
   });
 
-  it("ranks by creators × growth, needs 3 creators, marks NEW only outside the dictionary", () => {
+  it("ranks observed recent accounts, needs 3 accounts, and never invents growth without a baseline", () => {
     const history: Record<string, HistoryEntry[]> = {
       "clone-effect": [{ day: "2026-10-06", ids: ["a", "b", "c", "d"] }],
       "swagger-trend": [{ day: "2026-10-06", ids: ["a", "b", "c"] }],
@@ -165,11 +194,11 @@ describe("scoring", () => {
       "2026-10-06",
       {},
     );
-    expect(items.map((i) => i.key)).toEqual(["clone-effect", "swagger-trend", "speed-ramp"]);
+    expect(items.map((i) => i.key)).toEqual(["clone-effect", "speed-ramp", "swagger-trend"]);
     expect(items.find((i) => i.key === "swagger-trend")).toMatchObject({
       isNew: true,
       creators: 3,
-      growth: 3,
+      growth: 0,
     });
     expect(items.find((i) => i.key === "clone-effect")).toMatchObject({
       isNew: false,
@@ -196,7 +225,7 @@ describe("scoring", () => {
     expect(items.slice(0, 2).map((i) => i.key)).toEqual(["newer", "older"]);
   });
 
-  it("shows trends first (new names, dictionary trends), then the busy editing techniques", () => {
+  it("does not let static trend flags outrank more observed accounts", () => {
     const ids = (n: number) => Array.from({ length: n }, (_, i) => `c${i}`);
     const today = (n: number): HistoryEntry[] => [{ day: "2026-10-06", ids: ids(n) }];
     // The third live run's shape: techniques with 30 creators, the owner's GIF stickers with 6.
@@ -216,11 +245,11 @@ describe("scoring", () => {
     };
     const items = scoreEffects(history, metas, "2026-10-06", {});
     expect(items.map((i) => [i.key, i.creators])).toEqual([
+      ["smooth-slowmo", 30],
+      ["glitch", 30],
       ["clone-effect", 21],
       ["reverse-transition", 8],
       ["gif-stickers", 6],
-      ["smooth-slowmo", 30],
-      ["glitch", 30],
     ]);
   });
 
@@ -308,23 +337,23 @@ describe("scoring", () => {
     expect(item).toMatchObject({ isNew: false, creators: 3 });
   });
 
-  it("YouTube growth compares today's views with the last earlier views and boosts the score", () => {
+  it("legacy YouTube aggregate ratios never boost an idea's ranking", () => {
     const entries: HistoryEntry[] = [
       { day: "2026-10-03", ids: ["a"], views7d: 1000 },
       { day: "2026-10-06", ids: ["a", "b", "c"], views7d: 3000 },
     ];
     expect(youtubeGrowth(entries, "2026-10-06")).toBe(3);
-    // y has x's creators and growth and was first seen more recently: only the boost puts x first.
+    // y has the same account evidence and was discovered more recently. Legacy views cannot override that order.
     const history = { x: entries, y: sameAsXButNewer };
     setViews(history, "2026-10-06", { x: 3000 });
     const items = scoreEffects(history, { x: meta("x"), y: meta("y") }, "2026-10-06", {
       x: { newVideos: 12, views7d: 3000 },
     });
-    expect(items.map((i) => i.key)).toEqual(["x", "y"]);
-    expect(items[0].youtube).toEqual({ newVideos: 12, views7d: 3000, growth: 3 });
+    expect(items.map((i) => i.key)).toEqual(["y", "x"]);
+    expect(items[1].youtube).toEqual({ newVideos: 12, views7d: 3000, growth: 3 });
   });
 
-  it("boosts only at a real 1.5× (1.46× shows as 1.5 but gets no boost)", () => {
+  it("keeps a legacy rounded YouTube ratio out of recommendation ordering", () => {
     const history = {
       x: [
         { day: "2026-10-03", ids: ["a"], views7d: 1000 },

@@ -15,7 +15,7 @@ Choices, one question at a time:
 | Question | Choice |
 | --- | --- |
 | What a category shows first | **Trends + lessons**: what is trending in that category now, then lessons in Photography / Videography / Editing |
-| How often | **Every 3 days** per category (4 a day); lessons weekly (built: lessons every 6 days, every second scan) |
+| How often | **Every 3 days** per category (4 a day); lessons weekly (built: lessons every 6 days, every second scan). Since 22 Oct 2026 (35 categories): about every 9 days; lessons every 12 days, still every second scan |
 | How a lesson teaches | **Videos + a short how-to**: the best example and tutorial videos, plus 2–3 lines written by the AI from those tutorials, marked AI |
 | Skills | **Linked**: each technique shows the skill from the owner's map it practices |
 | Layout | **B · Shelves**: trends on top, then three stacked shelves of technique cards |
@@ -96,7 +96,7 @@ test guards the grid. The 12 categories in `genres.json` order make 3 groups of 
 | 1 | football, coffee, perfume, camping |
 | 2 | fashion, gaming, weddings, gym |
 
-Each category is searched every 3 days. 🔄 Scan again (`force`) scans one category now. "Scan Cars now" is a category's
+Each category is searched every 3 days (every 9 days since the 35 categories of 22 Oct 2026). 🔄 Scan again (`force`) scans one category now. "Scan Cars now" is a category's
 first scan.
 
 **Searches** (live fix 1). 6 English queries a category, each asked once, on Instagram over a month. They are built
@@ -157,8 +157,9 @@ category a day (`category:attempts:<id>:<day>`).
 
 ### 3. Lessons (every 6 days)
 
-- **When.** On a category's scan when its lessons are 6 or more days old, missing, or of an older version (`v`, below).
-  Scans come every 3 days, so that is every second scan.
+- **When.** On a category's scan when its lessons are `LESSON_DAYS` (12; 6 before 22 Oct 2026) or more days old,
+  missing, or of an older version (`v`, below). Scans come every 9 days (every 3 with 12 categories), so that is every
+  second scan: the daily lesson AI and Tavily cost stays as it was.
 - **Picking techniques.** One AI call picks 3 techniques for each area (`photo`, `video`, `edit`). It chooses from the
   category's top trending styles, the editing dictionary, and standard techniques for the subject. Since live fix 3
   the prompt has no example from one subject (Anime's photo picks were its car examples: "Panning At Shutter",
@@ -566,6 +567,18 @@ TikTok parts above: the stored TikTok list, and the TikTok tab's Brave group.
   | gaming | `VIDEO_GAMES` |
   | weddings | `ROMANCE` |
   | gym | `EXERCISE_AND_FITNESS` |
+  | combat, basketball | `CONVENTIONAL_AND_MAINSTREAM_SPORTS` |
+  | desserts, cooking | `FOOD` |
+  | beauty | `BEAUTY` |
+  | sea | `OUTDOOR_RECREATION` |
+  | bikes, racing | `AUTOMOTIVE` |
+  | drone, photography, colorgrading | `PHOTOGRAPHY` |
+  | vfx | `SPECIAL_EFFECTS` |
+
+  22 Oct 2026 (35 categories): the later categories reuse only industry names already used live. family, luxury,
+  music, cinematic, podcast, comedy, realestate, services, product, corporate and tech have none yet: their scan asks
+  TikTok nothing and keeps the stored list (`{ videos: [] }`). The category slots now rotate over ceil(35 / 4) = 9
+  days; the radar's YouTube keyword scan keeps the first 12 genres (`RADAR_GENRE_COUNT`).
 
 - **Country.** `TIKTOK_DISCOVERY_COUNTRY` is "US": English first and global, as the trends and lessons are. A blank
   value, or anything but a 2-letter code, means US. It is the `country_code` of both calls and the country the hashtags

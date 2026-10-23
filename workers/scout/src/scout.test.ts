@@ -1007,7 +1007,9 @@ describe("enrichYoutubeStats", () => {
     const url = new URL(String(fetchMock.mock.calls[0][0]));
     expect(`${url.origin}${url.pathname}`).toBe("https://www.googleapis.com/youtube/v3/videos");
     expect(Object.fromEntries(url.searchParams)).toEqual({
-      part: "statistics",
+      part: "snippet,statistics",
+      fields:
+        "items(id,snippet(title,description,channelTitle,publishedAt),statistics(viewCount,likeCount,commentCount))",
       id: "aaa,bbb,ccc,ddd",
       key: "yt-key",
     });
@@ -1152,7 +1154,9 @@ describe("POST /search: stats", () => {
   it("TikTok and Instagram from the page text, YouTube from one videos.list after the thumbnails", async () => {
     const fetchMock = routedFetch(async (url) => {
       expect(Object.fromEntries(url.searchParams)).toEqual({
-        part: "statistics",
+        part: "snippet,statistics",
+        fields:
+          "items(id,snippet(title,description,channelTitle,publishedAt),statistics(viewCount,likeCount,commentCount))",
         id: "abc123XYZ,sh0rt1d",
         key: "yt-key",
       });
@@ -1254,5 +1258,160 @@ describe("POST /search: stats", () => {
       "https://www.youtube.com/watch?v=abc123XYZ",
       "https://www.youtube.com/watch?v=sh0rt1d",
     ]);
+  });
+});
+
+describe("mixed router: TikTok account/music beside the accepted routes (DT-6B-3A)", () => {
+  // Fake KV and fake transport only: no provider, KV namespace or Durable Object is reached.
+  const NOW = new Date("2026-10-17T12:00:00Z");
+  const HANDLE = "0123456789abcdef0123456789abcdef";
+  function kvFake() {
+    const m = new Map<string, string>();
+    return {
+      m,
+      get: vi.fn(async (k: string) => m.get(k) ?? null),
+      put: vi.fn(async (k: string, v: string) => void m.set(k, v)),
+      delete: vi.fn(async (k: string) => void m.delete(k)),
+    };
+  }
+  const tiktokEnv = (kv = kvFake()): Env => ({
+    ...ENV,
+    SOCIAL_KV: kv as unknown as KVNamespace,
+    TIKTOK_ADS_APP_ID: "app-id-test",
+    TIKTOK_ADS_SECRET: "app-secret-test",
+  });
+  const run = (r: Request, env: Env, f = fakeFetch(() => jsonResponse({}, 500))) =>
+    handle(r, env, undefined, { fetch: f, now: () => NOW });
+  const post = (path: string, body: unknown, token?: string | null) =>
+    req(path, { method: "POST", token, body: JSON.stringify(body) });
+
+  it("refuses every protected route of both families without the bearer: zero upstream calls, zero KV writes", async () => {
+    const kv = kvFake();
+    const f = fakeFetch(() => jsonResponse({}));
+    const protectedRoutes = [
+      req("/tiktokads/account/connect", { token: null }),
+      req("/tiktokads/account/connect?format=json", { token: null }),
+      req("/tiktokads/account/status", { token: null }),
+      req("/tiktokads/music", { token: null }),
+      req("/tiktokads/music-probe", { token: null }),
+      req("/tiktokads/status", { token: null }),
+      post("/tiktokads/connect", { returnTo: APP }, null),
+      req("/discover/picks", { token: null }),
+      req(`/social/inbox/instagram/dm/control/${HANDLE}?account=1`, { token: null }),
+      post("/social/inbox/instagram/dm/control/register", { account: "1" }, null),
+      post("/social/inbox/threads/send/prepare", {}, null),
+      post("/social/inbox/instagram/send/prepare", {}, null),
+      req("/social/inbox/youtube/send/op-0001?account=1", { token: null }),
+      req("/tiktokads/account/status", { token: "wrong" }),
+    ];
+    for (const r of protectedRoutes) {
+      const res = await run(r, tiktokEnv(kv), f);
+      expect([r.url, res.status]).toEqual([r.url, 401]);
+      expect(await res.json()).toEqual({ error: "unauthorized" });
+    }
+    expect(f).not.toHaveBeenCalled();
+    expect(kv.put).not.toHaveBeenCalled();
+  });
+
+  it("one router serves both families: JSON connect stays JSON, the ordinary connect still redirects, old ads/discovery routes still route", async () => {
+    const kv = kvFake();
+    const env = tiktokEnv(kv);
+    const f = fakeFetch(() => jsonResponse({}, 500));
+
+    const redirect = await run(req("/tiktokads/account/connect"), env, f);
+    expect(redirect.status).toBe(302);
+    expect(redirect.headers.get("Location")).toMatch(
+      /^https:\/\/www\.tiktok\.com\/v2\/auth\/authorize\/\?/,
+    );
+    const asJson = await run(req("/tiktokads/account/connect?format=json"), env, f);
+    expect(asJson.status).toBe(200);
+    expect(asJson.headers.get("Location")).toBeNull();
+    expect(asJson.headers.get("Content-Type")).toContain("application/json");
+    expect(asJson.headers.get("Access-Control-Allow-Origin")).toBe(APP);
+    expect(await asJson.json()).toEqual({
+      url: expect.stringMatching(/^https:\/\/www\.tiktok\.com\/v2\/auth\/authorize\/\?/),
+    });
+    expect(await (await run(req("/tiktokads/account/status"), env, f)).json()).toEqual({
+      connected: false,
+    });
+    const music = await run(req("/tiktokads/music"), env, f);
+    expect([music.status, await music.json()]).toEqual([
+      409,
+      { error: "not_connected", fetchedAt: NOW.toISOString() },
+    ]);
+    const probe = await run(req("/tiktokads/music-probe"), env, f);
+    expect([probe.status, await probe.json()]).toEqual([
+      409,
+      { error: "not_connected", fetchedAt: NOW.toISOString() },
+    ]);
+
+    // The advertiser (Discovery) connect and status, and Discover, as before.
+    const adsConnect = await run(post("/tiktokads/connect", { returnTo: `${APP}/x` }), env, f);
+    expect(adsConnect.status).toBe(200);
+    expect(((await adsConnect.json()) as { url: string }).url).toMatch(
+      /^https:\/\/business-api\.tiktok\.com\/portal\/auth\?/,
+    );
+    expect(await (await run(req("/tiktokads/status"), env, f)).json()).toEqual({
+      connected: false,
+      advertisers: 0,
+    });
+    const picks = await run(req("/discover/picks"), env, f);
+    expect(picks.status).toBe(200);
+    expect(await picks.json()).toHaveProperty("picks");
+
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("the account callback keeps both spellings, needs no bearer and takes its state once", async () => {
+    const kv = kvFake();
+    const env = tiktokEnv(kv);
+    const exchange = fakeFetch(() =>
+      jsonResponse({
+        code: 0,
+        message: "OK",
+        data: {
+          access_token: "fake-access",
+          refresh_token: "fake-refresh",
+          open_id: "fake-open-id",
+          expires_in: 86400,
+          refresh_token_expires_in: 31536000,
+          scope: "user.info.basic",
+        },
+      }),
+    );
+    const stateOf = async () =>
+      new URL(
+        (await run(req("/tiktokads/account/connect"), env, exchange)).headers.get("Location")!,
+      ).searchParams.get("state")!;
+    for (const path of [
+      "/oauth/tiktokads/account/callback/",
+      "/oauth/tiktokads/account/callback",
+    ]) {
+      const state = await stateOf();
+      const cb = (s: string) =>
+        run(req(`${path}?auth_code=c&state=${s}`, { token: null, origin: null }), env, exchange);
+      const first = await cb(state);
+      expect([path, first.status]).toEqual([path, 200]);
+      expect(first.headers.get("Content-Type")).toContain("text/html");
+      const replay = await cb(state);
+      expect([path, replay.status]).toEqual([path, 400]);
+      expect(await replay.text()).toContain("state_invalid");
+    }
+    expect(exchange).toHaveBeenCalledTimes(2);
+    // An advertiser state is not an account state, and the social callback keeps its own route.
+    kv.m.set(
+      "tiktokads:state:adv",
+      JSON.stringify({ returnTo: APP, createdAt: NOW.toISOString() }),
+    );
+    const adv = await run(
+      req("/oauth/tiktokads/account/callback/?auth_code=c&state=adv", { token: null }),
+      env,
+      exchange,
+    );
+    expect(adv.status).toBe(400);
+    const social = await run(req("/oauth/instagram/callback?code=c&state=x", { token: null }), env);
+    // The social callback answers JSON (the account callback a small HTML page).
+    expect([social.status, await social.json()]).toEqual([400, { error: "state_invalid" }]);
+    expect(exchange).toHaveBeenCalledTimes(2);
   });
 });

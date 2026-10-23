@@ -1,0 +1,1744 @@
+# DT-7B-R1 overlay — Worker deltas only (18 Oct 2026, local, uncommitted, unactivated).
+# From the frozen DT-7B candidate files (the seven workflow files at the DT-7B freeze hashes plus workers/scout/README.md
+# 1e054649…, snapshot-verified before editing) to the DT-7B-R1 files. 8 modified files, no new or deleted file; the
+# Worker tree stays 189 files. Applies with `patch -p1` from the repo root on top of the DT-7B candidate tree
+# (7b-overlay.patch stays the historical 3C → DT-7B delta).
+diff -ruN a/workers/scout/README.md b/workers/scout/README.md
+--- a/workers/scout/README.md	2026-10-17 23:22:25.018787200 +0300
++++ b/workers/scout/README.md	2026-10-18 00:08:40.243978600 +0300
+@@ -737,6 +737,11 @@
+   `{ ownerKey, registrationEpoch, expectedRevision, … }` — a compare-and-set on epoch + revision (`409 conflict` with the
+   current registration). Pause is a retained flag that gates the first step of pending work of every epoch; unregister
+   never cancels or moves existing work; closed epochs keep their cutoff (later occurrences `409 not_registered`).
++  **Admission interval (DT-7B-R1):** a new occurrence is admitted only when its `executionAt` lies inside the named
++  epoch's own `[openedAt, closedAt]` (both inclusive, closed bound only once unregistered); an event from before that
++  epoch opened (a day-old event, or one from a local-only gap relabelled with a newer epoch) is `409 not_registered`
++  with nothing stored. No skew allowance before opening; the saved `executionAt` is never adjusted. An identical
++  accepted occurrence still answers `200 created: false`.
+ - **Occurrences**: `POST /social/workflows/occurrences { body, payloadDigest }` — the immutable snapshot (exact
+   allowlisted fields, ids `^[A-Za-z0-9_-]{1,64}$`, ≤ 16 KiB, planner context ≤ 8 KiB). The server recomputes the sha256
+   of the canonical JSON (`400 digest_mismatch` otherwise). `201` new, `200 created: false` for the same id + digest,
+@@ -749,10 +754,17 @@
+   change sequence; an older row changing later comes back after the cursor.
+ - **Retention**: terminal rows are purged at min(finished + 180 days, first ack + 90 days), or finished + 180 days
+   unacknowledged, into a permanent tombstone; pending/running never.
+-- **Strictness**: 32 KiB streaming request budget (`413 too_large`), exact keys and query strings, typed answers
+-  checked against the request (a mixed or foreign answer is `503 receipt_unavailable`), missing binding `503
+-  not_configured` (`detail: "workflow-store"`). No route runs a step or a builder. Verified in workerd by
++- **Strictness**: 32 KiB streaming request budget (`413 too_large`), exact keys and query strings, missing binding
++  `503 not_configured` (`detail: "workflow-store"`). No route runs a step or a builder. Answers are complete,
++  request-bound proof (DT-7B-R1): a receipt's whole body is re-checked with the admission rules at its own admission
++  time, its payload digest and every output's record digest recomputed, its identity, state, steps and outputs must
++  agree with the coordinator's transitions; feed items have typed, linked steps/outputs and recomputed draft digests
++  (no body, so no body/target binding: the full receipt stays the authority); register/update/pause/resume/
++  unregister/cancel/ack success must match the request; refusals must be the operation's own errors with typed,
++  bound extras. Anything else is `503 receipt_unavailable`, nothing echoed, no further call. Verified in workerd by
+   `src/social/workflowCoordinator.runtime.test.ts`.
++- **Follow-up before activation**: one purge removes every due terminal row in one transaction (an independent probe:
++  601 rows, 2,421 SQL calls, no failure). Bounded maintenance is still to do; no per-call purge bound is claimed.
+ 
+ ## Trend Radar
+ 
+diff -ruN a/workers/scout/src/social/workflowCoordinator.runtime.test.ts b/workers/scout/src/social/workflowCoordinator.runtime.test.ts
+--- a/workers/scout/src/social/workflowCoordinator.runtime.test.ts	2026-10-17 23:17:06.604832300 +0300
++++ b/workers/scout/src/social/workflowCoordinator.runtime.test.ts	2026-10-17 23:59:07.504493700 +0300
+@@ -123,15 +123,22 @@
+ }
+ 
+ const idea = (id: string) => ({ id, kind: "idea", text: { ar: "", en: `idea ${id}` } });
+-function body(owner: string, id: string, actions: A[] = [idea("a1")]): A {
+-  // executionAt a minute ago on the real clock (the routes read the Worker clock).
+-  const at = new Date(Date.now() - 60_000).toISOString();
++function body(
++  owner: string,
++  id: string,
++  actions: A[] = [idea("a1")],
++  o: { at?: number; epoch?: number; wf?: string } = {},
++): A {
++  // DT-7B-R1 fixture correction (chronology): was `Date.now() - 60_000` (a minute before the registration that
++  // `ready` had just opened); now one second after the real clock, inside the 10-minute future-skew bound (the
++  // routes read the Worker clock), so register → trigger is real. Assertions unchanged.
++  const at = new Date(o.at ?? Date.now() + 1_000).toISOString();
+   return {
+     occurrenceId: id,
+     ownerKey: owner,
+-    workflowId: "w1",
++    workflowId: o.wf ?? "w1",
+     kind: "manual",
+-    registrationEpoch: 1,
++    registrationEpoch: o.epoch ?? 1,
+     revision: 1,
+     snapshot: { name: { ar: "", en: "Flow" }, trigger: { kind: "manual" }, actions },
+     plannerContext: null,
+@@ -490,5 +497,85 @@
+     } finally {
+       await mf.dispose();
+     }
++  }, 120_000);
++
++  it("DT-7B-R1 admission interval through the real router: first registration, long gap, delayed old epoch, equal bounds, restart replay", async () => {
++    const dir = freshDir();
++    let mf = runtime(dir);
++    const N = Date.now();
++    const accepted: Record<string, A> = {};
++    const refusedIds = ["f-day", "e1-1ms", "e1-cut1", "gap-e2", "e2-1ms"];
++    let owner = "";
++    let w1: A[] = [];
++    let feed: A;
++    const send = (id: string, o: { at: number; epoch?: number; wf?: string }) =>
++      submit(mf, body(owner, id, [idea("a1")], o));
++    try {
++      owner = (await api(mf, "GET", "authority")).body.ownerKey as string;
++      // w1's history straight on the object with chosen clocks: opened N−5 d, closed N−4 d, re-opened N−1 d.
++      const call = await direct(mf);
++      const ctl = (c: A, now: number) => call({ ownerKey: owner, workflowId: "w1", ...c, now });
++      await ctl(
++        { op: "register", expectedEpoch: 0, revision: 1, workflowDigest: DIG },
++        N - 5 * DAY,
++      );
++      await ctl({ op: "unregister", registrationEpoch: 1, expectedRevision: 1 }, N - 4 * DAY);
++      w1 = (
++        await ctl({ op: "register", expectedEpoch: 1, revision: 1, workflowDigest: DIG }, N - DAY)
++      ).registration.epochs;
++      const [open1, cut1, open2] = [w1[0].openedAt, w1[0].closedAt, w1[1].openedAt].map(Date.parse);
++      expect([open1, cut1, open2]).toEqual([N - 5 * DAY, N - 4 * DAY, N - DAY]);
++      // First registration through the router (Worker clock): a day-old event is not cloud-owned.
++      const r2 = await api(mf, "POST", "registrations", {
++        ownerKey: owner,
++        workflowId: "w2",
++        expectedEpoch: 0,
++        revision: 1,
++        workflowDigest: DIG,
++      });
++      const open3 = Date.parse(r2.body.registration.epochs[0].openedAt);
++      const refusal = (wf: string) => ({
++        status: 409,
++        body: { error: "not_registered", ownerKey: owner, workflowId: wf },
++      });
++      expect(await send("f-day", { wf: "w2", at: open3 - DAY })).toEqual(refusal("w2"));
++      expect(await send("e1-1ms", { at: open1 - 1 })).toEqual(refusal("w1"));
++      expect(await send("e1-cut1", { at: cut1 + 1 })).toEqual(refusal("w1"));
++      expect(await send("gap-e2", { epoch: 2, at: N - 3 * DAY })).toEqual(refusal("w1"));
++      expect(await send("e2-1ms", { epoch: 2, at: open2 - 1 })).toEqual(refusal("w1"));
++      for (const [id, o] of [
++        ["e1-open", { at: open1 }],
++        ["e1-cut", { at: cut1 }], // a delayed old-epoch event, after the later registration
++        ["e2-open", { epoch: 2, at: open2 }],
++        ["f-open", { wf: "w2", at: open3 }],
++      ] as const) {
++        const r = await send(id, o);
++        expect(r).toMatchObject({ status: 201, body: { created: true } });
++        accepted[id] = r.body.occurrence;
++      }
++      expect(accepted["e1-cut"].registrationEpoch).toBe(1);
++      for (const id of refusedIds)
++        expect((await api(mf, "GET", `occurrences/${id}?ownerKey=${owner}`)).body.state).toBe(
++          "absent",
++        );
++      feed = (await api(mf, "GET", `changes?ownerKey=${owner}&after=0`)).body;
++      expect(feed.items.map((i: A) => i.occurrenceId)).toEqual(Object.keys(accepted));
++    } finally {
++      await mf.dispose();
++    }
++    mf = runtime(dir);
++    try {
++      // After a restart: identical replays answer created:false with the stored row; refusals stay refused.
++      for (const [id, o] of Object.entries(accepted)) {
++        const r = await submit(mf, o.body);
++        expect(r).toMatchObject({ status: 200, body: { created: false } });
++        expect(r.body.occurrence).toEqual(o);
++        expect(id).toBe(o.occurrenceId);
++      }
++      expect((await send("gap-e2", { epoch: 2, at: N - 3 * DAY })).status).toBe(409);
++      expect((await api(mf, "GET", `changes?ownerKey=${owner}&after=0`)).body).toEqual(feed!);
++    } finally {
++      await mf.dispose();
++    }
+   }, 120_000);
+ });
+diff -ruN a/workers/scout/src/social/workflowCoordinator.test.ts b/workers/scout/src/social/workflowCoordinator.test.ts
+--- a/workers/scout/src/social/workflowCoordinator.test.ts	2026-10-17 23:17:06.559802400 +0300
++++ b/workers/scout/src/social/workflowCoordinator.test.ts	2026-10-17 23:59:07.460919400 +0300
+@@ -170,7 +170,9 @@
+     expectedEpoch: 0,
+     revision: 1,
+     workflowDigest: DIG,
+-    now: T0,
++    // DT-7B-R1 fixture correction (chronology): was `now: T0` (09:05), after the 09:00 executionAt of its
++    // occurrence; now 08:55, so register → trigger is real. Assertions unchanged.
++    now: T0 - 600_000,
+   });
+   const b = body(owner, { actions: o.actions, id: o.id });
+   const sub = await h.call({ op: "submit", body: b, payloadDigest: await digestOf(b), now: T0 });
+@@ -424,6 +426,99 @@
+   });
+ });
+ 
++describe("DT-7B-R1 admission interval: opened_at ≤ executionAt ≤ closed_at of the named epoch", () => {
++  const R = Date.parse("2026-10-10T09:00:00.000Z");
++  const GAP_END = R + 3 * DAY;
++  const LATER = GAP_END + 3_600_000;
++  const iso = (ms: number) => new Date(ms).toISOString();
++  const counts = (db: DatabaseSync) => ({
++    seq: rows(db, "SELECT value FROM meta WHERE key = 'change_seq'")[0].value,
++    occ: rows(db, "SELECT COUNT(*) AS n FROM occurrences")[0].n,
++    steps: rows(db, "SELECT COUNT(*) AS n FROM steps")[0].n,
++    outputs: rows(db, "SELECT COUNT(*) AS n FROM outputs")[0].n,
++  });
++  const refused = { error: "not_registered", workflowId: "w1" };
++
++  it("first registration, long local-only gap, delayed old epoch, both equal bounds; refusals mutate nothing; restart + replay", async () => {
++    const h = harness();
++    const owner = await ownerOf(h);
++    const call = (c: A, now: number) => h.call({ ownerKey: owner, workflowId: "w1", ...c, now });
++    await call({ op: "register", expectedEpoch: 0, revision: 1, workflowDigest: DIG }, R);
++    const submit = async (o: BodyOpts, hh = h) => {
++      const b = body(owner, o);
++      return hh.call({ op: "submit", body: b, payloadDigest: await digestOf(b), now: LATER });
++    };
++    // First registration: a day-old event (and 1 ms before opening) is not cloud-owned; equality admits.
++    const before = counts(h.db);
++    expect(await submit({ id: "f-day", at: iso(R - DAY) })).toEqual(refused);
++    expect(await submit({ id: "f-1ms", at: iso(R - 1) })).toEqual(refused);
++    expect(counts(h.db)).toEqual(before);
++    expect(await submit({ id: "f-open", at: iso(R) })).toMatchObject({ created: true });
++    // Unregister an hour later, re-register after a three-day local-only gap.
++    await call({ op: "unregister", registrationEpoch: 1, expectedRevision: 1 }, R + 3_600_000);
++    await call({ op: "register", expectedEpoch: 1, revision: 1, workflowDigest: DIG }, GAP_END);
++    const mid = counts(h.db);
++    // A gap event naming the new epoch is refused; naming the old one too (after its cutoff).
++    expect(await submit({ id: "g-new", epoch: 2, at: iso(R + DAY) })).toEqual(refused);
++    expect(await submit({ id: "g-old", epoch: 1, at: iso(R + DAY) })).toEqual(refused);
++    expect(await submit({ id: "e2-1ms", epoch: 2, at: iso(GAP_END - 1) })).toEqual(refused);
++    expect(await submit({ id: "e1-cut1", epoch: 1, at: iso(R + 3_600_001) })).toEqual(refused);
++    expect(counts(h.db)).toEqual(mid);
++    // The delayed old-epoch event at its exact cutoff, after the later registration: admitted, epoch 1.
++    const old = await submit({ id: "e1-cut", epoch: 1, at: iso(R + 3_600_000) });
++    expect(old).toMatchObject({ created: true, occurrence: { registrationEpoch: 1 } });
++    const fresh = await submit({ id: "e2-open", epoch: 2, at: iso(GAP_END) });
++    expect(fresh).toMatchObject({ created: true, occurrence: { registrationEpoch: 2 } });
++    // Restart: identical replays stay created:false (the row is checked before the interval); refusals stay.
++    const again = harness(h.db);
++    const replay = await submit({ id: "e1-cut", epoch: 1, at: iso(R + 3_600_000) }, again);
++    expect(replay).toEqual({ ...old, created: false });
++    expect(await submit({ id: "g-new", epoch: 2, at: iso(R + DAY) }, again)).toEqual(refused);
++    const feed = await again.call({
++      op: "changes",
++      ownerKey: owner,
++      after: 0,
++      limit: 50,
++      now: LATER,
++    });
++    expect(feed.items.map((i: A) => i.occurrenceId)).toEqual(["f-open", "e1-cut", "e2-open"]);
++    for (const id of ["f-day", "f-1ms", "g-new", "g-old", "e2-1ms", "e1-cut1"])
++      expect(
++        (await again.call({ op: "status", ownerKey: owner, occurrenceId: id, now: LATER })).state,
++      ).toBe("absent");
++  });
++
++  it("idempotent replay of an accepted occurrence; unknown epoch, revision checks remain, the interval comes first", async () => {
++    const h = harness();
++    const owner = await ownerOf(h);
++    await h.call({
++      op: "register",
++      ownerKey: owner,
++      workflowId: "w1",
++      expectedEpoch: 0,
++      revision: 1,
++      workflowDigest: DIG,
++      now: R,
++    });
++    const send = async (o: BodyOpts) => {
++      const b = body(owner, o);
++      return h.call({ op: "submit", body: b, payloadDigest: await digestOf(b), now: LATER });
++    };
++    expect(await send({ id: "u9", epoch: 9, at: iso(R - DAY) })).toEqual({
++      error: "unknown_epoch",
++      workflowId: "w1",
++    });
++    expect(await send({ id: "rb", rev: 2, at: iso(R + 1) })).toEqual({
++      error: "registration_behind",
++      workflowId: "w1",
++    });
++    expect(await send({ id: "rb0", rev: 2, at: iso(R - 1) })).toEqual(refused);
++    const ok = await send({ id: "ok", at: iso(R + 1) });
++    expect(ok.created).toBe(true);
++    expect(await send({ id: "ok", at: iso(R + 1) })).toEqual({ ...ok, created: false });
++  });
++});
++
+ describe("immutable occurrences", () => {
+   it("same id + same digest → existing row, no seq bump; another digest → conflict, row unchanged (matrix 1, 2)", async () => {
+     const { h, owner, b, sub } = await setup();
+diff -ruN a/workers/scout/src/social/workflowCoordinator.ts b/workers/scout/src/social/workflowCoordinator.ts
+--- a/workers/scout/src/social/workflowCoordinator.ts	2026-10-17 23:17:06.490743600 +0300
++++ b/workers/scout/src/social/workflowCoordinator.ts	2026-10-17 23:59:59.667969100 +0300
+@@ -24,9 +24,12 @@
+  *               pause / resume / unregister name the epoch and expected revision: a delayed call for a closed epoch
+  *               cannot touch a re-registration at the same revision.
+  *   admission   the body's (workflowId, epoch, revision, executionAt): no registration → not_registered; an epoch never
+- *               opened → unknown_epoch; a revision above that epoch's last revision → registration_behind (open) or
+- *               not_registered (closed); a closed epoch admits only executionAt ≤ its closed_at cutoff. The body is
+- *               stored exactly as accepted and is never rebound to a newer registration.
++ *               opened → unknown_epoch; executionAt before that epoch's own opened_at → not_registered (DT-7B-R1: a
++ *               new occurrence needs opened_at ≤ executionAt ≤ closed_at of the exact named epoch, no skew allowance
++ *               before opening); a revision above that epoch's last revision → registration_behind (open) or
++ *               not_registered (closed); a closed epoch admits only executionAt ≤ its closed_at cutoff. An identical
++ *               accepted occurrence is answered (created: false) before any of these checks. The body is stored
++ *               exactly as accepted and is never rebound to a newer registration.
+  *   pause       the workflow row's retained `paused` flag gates EVERY epoch of that workflow (delayed old-epoch work
+  *               included). It is checked in the same transaction as the first pending → running step; a running
+  *               occurrence finishes. Only pause/resume change it; unregister and re-register keep it. Unregister
+@@ -637,6 +640,9 @@
+         body.registrationEpoch,
+       );
+       if (!ep) return { error: "unknown_epoch", workflowId };
++      // DT-7B-R1: a new occurrence belongs to the named epoch's own interval, never to an earlier local-only time.
++      if (Date.parse(body.executionAt) < Number(ep.opened_at))
++        return { error: "not_registered", workflowId };
+       if (ep.closed_at === null) {
+         if (body.revision > Number(ep.revision))
+           return { error: "registration_behind", workflowId };
+diff -ruN a/workers/scout/src/social/workflowProtocol.test.ts b/workers/scout/src/social/workflowProtocol.test.ts
+--- a/workers/scout/src/social/workflowProtocol.test.ts	2026-10-17 23:17:06.434571700 +0300
++++ b/workers/scout/src/social/workflowProtocol.test.ts	2026-10-17 23:59:40.797225100 +0300
+@@ -6,6 +6,7 @@
+   CONTEXT_BYTES_MAX,
+   payloadDigestOf,
+   sha256Hex,
++  validDraft,
+   validOutput,
+   weekOf,
+   type OccurrenceBody,
+@@ -327,4 +328,20 @@
+       validOutput({ ...post, script: { hook: "x", beats: ["", "", ""], cta: "" } }, body2.body, 1),
+     ).toBe(false);
+   });
++
++  it("DT-7B-R1 body-free draft shape (the feed has no body): kind + exact id, nothing nested passes", () => {
++    expect(validDraft(idea, "idea", "wf:m1:a1")).toBe(true);
++    expect(validDraft(plan, "plan", "wf:ar-x1:p1")).toBe(true);
++    expect(validDraft(post, "post", "wf:ar-x1:s1")).toBe(true);
++    expect(validDraft(idea, "idea", "wf:m1:a2")).toBe(false);
++    expect(validDraft(idea, "post", "wf:m1:a1")).toBe(false);
++    expect(validDraft(idea, "publish", "wf:m1:a1")).toBe(false);
++    expect(validDraft({ token: "x" }, "idea", "wf:m1:a1")).toBe(false);
++    expect(validDraft({ ...idea, inbox: { token: "x" } }, "idea", "wf:m1:a1")).toBe(false);
++    expect(validDraft({ ...plan, week: "2026-10-18" }, "plan", "wf:ar-x1:p1")).toBe(false); // not a Saturday
++    expect(validDraft({ ...plan, minutes: 121 }, "plan", "wf:ar-x1:p1")).toBe(false);
++    expect(validDraft({ ...plan, quest: "publish" }, "plan", "wf:ar-x1:p1")).toBe(false);
++    expect(validDraft({ ...post, platform: "myspace" }, "post", "wf:ar-x1:s1")).toBe(false);
++    expect(validDraft({ ...post, stage: "scheduled" }, "post", "wf:ar-x1:s1")).toBe(false);
++  });
+ });
+diff -ruN a/workers/scout/src/social/workflowProtocol.ts b/workers/scout/src/social/workflowProtocol.ts
+--- a/workers/scout/src/social/workflowProtocol.ts	2026-10-17 23:17:06.394971600 +0300
++++ b/workers/scout/src/social/workflowProtocol.ts	2026-10-18 00:00:27.930458700 +0300
+@@ -341,14 +341,15 @@
+ 
+ const EMPTY_SCRIPT = { hook: "", beats: ["", "", ""], cta: "" };
+ 
+-/** An allowlisted draft record for this body's action, or false. */
+-export function validOutput(record: unknown, body: OccurrenceBody, idx: number): boolean {
+-  const action = body.snapshot.actions[idx];
+-  if (!action || !isObj(record)) return false;
++/**
++ * The allowlisted draft shape of one action kind under its exact output id, body-free (DT-7B-R1: the change feed
++ * carries no body, so it checks this; `validOutput` adds the body's own binding).
++ */
++export function validDraft(record: unknown, kind: string, id: string): boolean {
++  if (!isObj(record) || record.id !== id) return false;
+   const r = record;
+-  if (r.id !== outputIdOf(body.occurrenceId, action.id)) return false;
+   const skill = (v: unknown) => v === undefined || fits(v, SKILL_ID_RE);
+-  if (action.kind === "idea")
++  if (kind === "idea")
+     return (
+       exactKeys(r, ["id", "text", "source", "createdAt"], ["skillId", "platform"]) &&
+       isText(r.text, OUTPUT_TEXT_MAX, 1) &&
+@@ -357,7 +358,7 @@
+       (r.platform === undefined || oneOf(r.platform, PLATFORMS)) &&
+       isIso(r.createdAt)
+     );
+-  if (action.kind === "post")
++  if (kind === "post")
+     return (
+       exactKeys(
+         r,
+@@ -377,7 +378,7 @@
+         ],
+         ["skillId"],
+       ) &&
+-      r.platform === action.platform &&
++      oneOf(r.platform, PLATFORMS) &&
+       isText(r.title, OUTPUT_TEXT_MAX, 1) &&
+       isText(r.caption, OUTPUT_TEXT_MAX) &&
+       Array.isArray(r.hashtags) &&
+@@ -393,14 +394,33 @@
+       isIso(r.createdAt) &&
+       isIso(r.updatedAt)
+     );
+-  return (
+-    exactKeys(r, ["id", "week", "day", "skillId", "quest", "minutes", "by"]) &&
+-    body.plannerContext !== null &&
+-    r.week === body.plannerContext.targetWeek &&
+-    intIn(r.day, 0, 6) &&
+-    fits(r.skillId, SKILL_ID_RE) &&
+-    r.quest === action.quest &&
+-    r.minutes === action.minutes &&
+-    r.by === "me"
+-  );
++  if (kind === "plan")
++    return (
++      exactKeys(r, ["id", "week", "day", "skillId", "quest", "minutes", "by"]) &&
++      isDay(r.week) &&
++      weekOf(r.week) === r.week &&
++      intIn(r.day, 0, 6) &&
++      fits(r.skillId, SKILL_ID_RE) &&
++      oneOf(r.quest, QUESTS) &&
++      intIn(r.minutes, 5, 120) &&
++      r.by === "me"
++    );
++  return false;
++}
++
++/** An allowlisted draft record for this body's action, or false. */
++export function validOutput(record: unknown, body: OccurrenceBody, idx: number): boolean {
++  const action = body.snapshot.actions[idx];
++  if (!action || !validDraft(record, action.kind, outputIdOf(body.occurrenceId, action.id)))
++    return false;
++  const r = record as Obj;
++  if (action.kind === "post") return r.platform === action.platform;
++  if (action.kind === "plan")
++    return (
++      body.plannerContext !== null &&
++      r.week === body.plannerContext.targetWeek &&
++      r.quest === action.quest &&
++      r.minutes === action.minutes
++    );
++  return true;
+ }
+diff -ruN a/workers/scout/src/social/workflowRoutes.test.ts b/workers/scout/src/social/workflowRoutes.test.ts
+--- a/workers/scout/src/social/workflowRoutes.test.ts	2026-10-17 23:17:15.380340200 +0300
++++ b/workers/scout/src/social/workflowRoutes.test.ts	2026-10-18 00:05:31.815954500 +0300
+@@ -141,13 +141,21 @@
+ 
+ async function ready(env = makeEnv()) {
+   const owner = (await run(env, "/social/workflows/authority")).body.ownerKey as string;
+-  const r = await post(env, "/social/workflows/registrations", {
+-    ownerKey: owner,
+-    workflowId: "w1",
+-    expectedEpoch: 0,
+-    revision: 1,
+-    workflowDigest: DIG,
+-  });
++  const r = await post(
++    env,
++    "/social/workflows/registrations",
++    {
++      ownerKey: owner,
++      workflowId: "w1",
++      expectedEpoch: 0,
++      revision: 1,
++      workflowDigest: DIG,
++    },
++    {},
++    // DT-7B-R1 fixture correction (chronology): was the default NOW (09:05), after the 09:00 executionAt (AT) of
++    // every body here; now 08:55, so register → trigger is real. Assertions unchanged.
++    new Date("2026-10-17T08:55:00.000Z"),
++  );
+   expect(r.status).toBe(200);
+   return { env, owner };
+ }
+@@ -568,3 +576,614 @@
+     expect((await status()).status).toBe(200);
+   });
+ });
++
++/* ---------- DT-7B-R1: complete, request-bound response proof ---------- */
++
++const T = NOW.getTime();
++const I = (id: string) => ({ id, kind: "idea", text: { ar: "", en: `idea ${id}` } });
++const P = (id: string) => ({
++  id,
++  kind: "plan",
++  quest: "produce",
++  skillId: "iphone-log-prores",
++  minutes: 30,
++  day: "lightest",
++});
++const S = (id: string) => ({
++  id,
++  kind: "post",
++  platform: "tiktok",
++  title: { ar: "", en: `post ${id}` },
++  caption: { ar: "", en: "" },
++  offsetDays: 1,
++});
++/** TEST-ONLY deterministic builder for the three draft kinds. */
++const draft = (b: A, action: A): A => {
++  const id = `wf:${b.occurrenceId}:${action.id}`;
++  if (action.kind === "idea")
++    return { record: { id, text: "idea", source: "workflow", createdAt: b.executionAt } };
++  if (action.kind === "post")
++    return {
++      record: {
++        id,
++        platform: action.platform,
++        title: `post ${action.id}`,
++        caption: "",
++        hashtags: [],
++        stage: "idea",
++        plannedDay: b.input.day,
++        plannedTime: null,
++        script: { hook: "", beats: ["", "", ""], cta: "" },
++        shots: [],
++        createdAt: b.executionAt,
++        updatedAt: b.executionAt,
++      },
++    };
++  return {
++    record: {
++      id,
++      week: b.plannerContext.targetWeek,
++      day: 0,
++      skillId: action.skillId,
++      quest: action.quest,
++      minutes: action.minutes,
++      by: "me",
++    },
++  };
++};
++/** The fixed object straight (test-only; no route runs a step or a finish). */
++const direct = (env: Env) => {
++  const ns = nsOf(env);
++  const stub = ns.get(ns.idFromName(WORKFLOW_OBJECT));
++  return async (c: A): Promise<A> =>
++    (await (
++      await stub.fetch("https://c/", { method: "POST", body: JSON.stringify(c) })
++    ).json()) as A;
++};
++/** Commit the next pending step: the builder's draft, or `{ error }`. */
++async function commit(env: Env, owner: string, id: string, error?: string) {
++  const call = direct(env);
++  const o = (await call({ op: "status", ownerKey: owner, occurrenceId: id, now: T })).occurrence;
++  const idx = o.steps.findIndex((s: A) => s.status === "pending");
++  const output = error ? { error } : draft(o.body, o.body.snapshot.actions[idx]);
++  const r = await call({
++    op: "commitStep",
++    ownerKey: owner,
++    occurrenceId: id,
++    idx,
++    receiptVersion: o.receiptVersion,
++    payloadDigest: o.payloadDigest,
++    output,
++    now: T,
++  });
++  expect(r.committed).toBe(true);
++}
++const finish = async (env: Env, owner: string, id: string) =>
++  expect(
++    (await direct(env)({ op: "finish", ownerKey: owner, occurrenceId: id, now: T })).finished,
++  ).toBe(true);
++
++/** Every receipt state and idempotent outcome, built by the REAL coordinator. */
++async function controls() {
++  const { env, owner } = await ready();
++  const submit = async (id: string, actions: A[]) => {
++    const r = await post(
++      env,
++      "/social/workflows/occurrences",
++      await envelope(body(owner, { id, actions })),
++    );
++    expect(r.status).toBe(201);
++  };
++  await submit("pend", [I("a1"), I("a2")]);
++  await submit("run1", [I("a1"), I("a2")]);
++  await commit(env, owner, "run1");
++  await submit("run2", [I("a1"), I("a2")]);
++  await commit(env, owner, "run2");
++  await commit(env, owner, "run2");
++  await submit("runf", [I("a1"), I("a2"), I("a3")]);
++  await commit(env, owner, "runf");
++  await commit(env, owner, "runf", "context-stale");
++  await submit("done", [I("a1"), P("p1"), S("s1")]);
++  for (let n = 0; n < 3; n++) await commit(env, owner, "done");
++  await finish(env, owner, "done");
++  await submit("part", [I("a1"), I("a2"), I("a3")]);
++  await commit(env, owner, "part");
++  await commit(env, owner, "part", "invalid");
++  await finish(env, owner, "part");
++  await submit("fail", [I("a1"), I("a2")]);
++  await commit(env, owner, "fail", "no-skill");
++  await finish(env, owner, "fail");
++  await submit("conf", [I("a1"), I("a2")]);
++  nsOf(env).db.exec(
++    `INSERT INTO outputs (output_id, occurrence_id, action_id, kind, record_json, digest, created_at)
++     VALUES ('wf:conf:a2', 'conf', 'a2', 'idea', '{}', '${"c".repeat(64)}', 1)`,
++  );
++  await commit(env, owner, "conf");
++  await commit(env, owner, "conf");
++  await finish(env, owner, "conf");
++  await submit("canc", [I("a1")]);
++  await submit("ackd", [I("a1")]);
++  await commit(env, owner, "ackd");
++  await finish(env, owner, "ackd");
++  return { env, owner };
++}
++const IDS = ["pend", "run1", "run2", "runf", "done", "part", "fail", "conf", "canc", "ackd"];
++
++describe("DT-7B-R1 real control fixtures pass the routes unchanged", () => {
++  it("every receipt state, cancel and ack outcome, replay and feed page: the route answer is the coordinator's", async () => {
++    const { env, owner } = await controls();
++    const call = direct(env);
++    const cancel = (id: string) =>
++      post(env, `/social/workflows/occurrences/${id}/cancel`, { ownerKey: owner });
++    const ack = (id: string, v: number) =>
++      post(env, `/social/workflows/occurrences/${id}/ack`, { ownerKey: owner, receiptVersion: v });
++    expect(await cancel("canc")).toMatchObject({ status: 200, body: { cancelled: true } });
++    for (const id of ["canc", "done", "part", "fail"])
++      expect(await cancel(id)).toMatchObject({ status: 200, body: { cancelled: false } });
++    const v = (await call({ op: "status", ownerKey: owner, occurrenceId: "ackd", now: T }))
++      .occurrence.receiptVersion;
++    expect(await ack("ackd", v)).toMatchObject({ status: 200, body: { acknowledged: true } });
++    expect(await ack("ackd", v)).toMatchObject({ status: 200, body: { acknowledged: true } });
++    expect(await ack("ackd", 1)).toMatchObject({ status: 200, body: { acknowledged: false } });
++    expect(await ack("done", 1)).toMatchObject({
++      status: 200,
++      body: { acknowledged: false, ackedVersion: 0 },
++    });
++    const states: Record<string, string> = {};
++    // Read also 60 days later (historical bodies stay valid: admission time, not the read clock).
++    for (const now of [NOW, new Date(T + 60 * 86_400_000)])
++      for (const id of IDS) {
++        const r = await run(env, `/social/workflows/occurrences/${id}?ownerKey=${owner}`, {}, now);
++        expect(r.status).toBe(200);
++        expect(r.body).toEqual(
++          await call({ op: "status", ownerKey: owner, occurrenceId: id, now: now.getTime() }),
++        );
++        states[id] =
++          `${r.body.occurrence.state}:${r.body.occurrence.steps.map((s: A) => s.status).join(",")}`;
++      }
++    expect(states).toEqual({
++      pend: "pending:pending,pending",
++      run1: "running:done,pending",
++      run2: "running:done,done",
++      runf: "running:done,failed,skipped",
++      done: "done:done,done,done",
++      part: "partial:done,failed,skipped",
++      fail: "failed:failed,skipped",
++      conf: "partial:done,failed",
++      canc: "cancelled:skipped",
++      ackd: "done:done",
++    });
++    // Identical replays of every state answer created:false.
++    for (const id of IDS) {
++      const o = (await call({ op: "status", ownerKey: owner, occurrenceId: id, now: T }))
++        .occurrence;
++      expect(
++        await post(env, "/social/workflows/occurrences", {
++          body: o.body,
++          payloadDigest: o.payloadDigest,
++        }),
++      ).toMatchObject({ status: 200, body: { created: false, occurrence: o } });
++    }
++    for (const limit of [3, 50]) {
++      const page = await run(
++        env,
++        `/social/workflows/changes?ownerKey=${owner}&after=0&limit=${limit}`,
++      );
++      expect(page.status).toBe(200);
++      expect(page.body).toEqual(
++        await call({ op: "changes", ownerKey: owner, after: 0, limit, now: T }),
++      );
++    }
++  });
++
++  it("registration answers: created, replay, re-register, changed true/false, pause/resume/unregister, conflicts", async () => {
++    const env = makeEnv();
++    const owner = (await run(env, "/social/workflows/authority")).body.ownerKey as string;
++    const reg = (o: A) =>
++      post(env, "/social/workflows/registrations", {
++        ownerKey: owner,
++        workflowId: "w1",
++        revision: 1,
++        workflowDigest: DIG,
++        ...o,
++      });
++    const ctl = (verb: string, o: A = {}) =>
++      post(env, `/social/workflows/registrations/w1${verb}`, {
++        ownerKey: owner,
++        registrationEpoch: 1,
++        expectedRevision: 1,
++        ...o,
++      });
++    const up = { revision: 2, workflowDigest: "f".repeat(64) };
++    for (const [r, status, more] of [
++      [await reg({ expectedEpoch: 0 }), 200, { created: true }],
++      [await reg({ expectedEpoch: 0 }), 200, { created: false }],
++      [await reg({ expectedEpoch: 1 }), 409, { error: "conflict" }],
++      [
++        await reg({ workflowId: "w5", expectedEpoch: 1 }),
++        409,
++        { error: "conflict", registration: null },
++      ],
++      [await ctl("", up), 200, { changed: true }],
++      [await ctl("", up), 200, { changed: false }],
++      [await ctl("", { ...up, revision: 3 }), 409, { error: "conflict" }],
++      [await ctl("/pause", { expectedRevision: 2 }), 200, { changed: true }],
++      [await ctl("/pause", { expectedRevision: 2 }), 200, { changed: false }],
++      [await ctl("/resume", { expectedRevision: 2 }), 200, { changed: true }],
++      [await ctl("/pause"), 409, { error: "conflict" }],
++      [await ctl("/unregister", { expectedRevision: 2 }), 200, { changed: true }],
++      [await ctl("/unregister", { expectedRevision: 2 }), 200, { changed: false }],
++      [await ctl("/pause", { expectedRevision: 2 }), 200, { changed: true }],
++      [await reg({ expectedEpoch: 1, revision: 4 }), 200, { created: true }],
++      [await reg({ expectedEpoch: 1, revision: 4 }), 200, { created: false }],
++    ] as const)
++      expect(r).toMatchObject({ status, body: more });
++  });
++});
++
++/** One public call under a tampered coordinator answer: 503 receipt_unavailable, no echo, exactly one call. */
++async function refused(
++  env: Env,
++  tamper: Fake["tamper"],
++  fire: () => Promise<{ status: number; body: A; raw: string }>,
++) {
++  const ns = nsOf(env);
++  const before = ns.calls.length;
++  ns.tamper = tamper;
++  const r = await fire();
++  ns.tamper = undefined;
++  expect({ status: r.status, body: r.body }).toEqual({
++    status: 503,
++    body: { error: "receipt_unavailable" },
++  });
++  expect(r.raw).not.toContain("CANARY");
++  expect(ns.calls.length).toBe(before + 1);
++}
++type Tamper = (a: A) => unknown;
++const clone = <X>(x: X): X => JSON.parse(JSON.stringify(x)) as X;
++
++describe("DT-7B-R1 malformed or contradictory coordinator answers → 503, no echo, no further call", () => {
++  it("full receipts: body, digests, identity, state/step/output table", async () => {
++    const { env, owner } = await controls();
++    const call = direct(env);
++    const read = async (id: string) =>
++      (await call({ op: "status", ownerKey: owner, occurrenceId: id, now: T })).occurrence as A;
++    const done = await read("done");
++    const pend = await read("pend");
++    // An output with a private key, its record digest recomputed and copied to its step: still not a draft.
++    const leaked = clone(done);
++    leaked.outputs[0].record.token = "CANARY";
++    leaked.outputs[0].digest = await sha256Hex(canonicalJson(leaked.outputs[0].record));
++    leaked.steps[0].outputDigest = leaked.outputs[0].digest;
++    // A body changed AND re-digested: identity no longer binds the receipt's own fields.
++    const moved = clone(pend);
++    moved.body.revision = 2;
++    moved.payloadDigest = await sha256Hex(canonicalJson(moved.body));
++    const cases: [string, Tamper][] = [
++      ["pend", (a) => ((a.occurrence.body.inbox = { token: "CANARY" }), a)],
++      ["pend", (a) => (delete a.occurrence.body.input, a)],
++      ["pend", (a) => ((a.occurrence.body.snapshot.actions[0].text.en = "CANARY"), a)],
++      [
++        "pend",
++        (a) => (
++          (a.occurrence.body.snapshot.actions[0].kind = "publish"),
++          (a.occurrence.steps[0].kind = "publish"),
++          a
++        ),
++      ],
++      ["pend", (a) => ((a.occurrence.revision = 2), a)],
++      ["pend", (a) => ({ ...a, occurrence: moved })],
++      // executionAt beyond the receipt's own admission time + skew (historical validity is at createdAt).
++      [
++        "pend",
++        (a) => ((a.occurrence.createdAt = a.occurrence.updatedAt = "2026-10-17T08:00:00.000Z"), a),
++      ],
++      [
++        "pend",
++        (a) => ({
++          ...a,
++          occurrence: { ...a.occurrence, state: "done", finishedAt: AT, purgeAt: AT },
++        }),
++      ],
++      ["pend", (a) => ((a.occurrence.startedAt = AT), a)],
++      ["pend", (a) => ((a.occurrence.receiptVersion = 2), a)],
++      ["pend", (a) => ((a.occurrence.steps[0].at = AT), a)],
++      ["run1", (a) => (delete a.occurrence.startedAt, a)],
++      ["run1", (a) => ((a.occurrence.steps = [a.occurrence.steps[1], a.occurrence.steps[0]]), a)],
++      ["run1", (a) => ((a.occurrence.receiptVersion = 3), a)],
++      ["run1", (a) => ((a.occurrence.outputs = []), a)],
++      ["runf", (a) => ((a.occurrence.steps[1].error = "teapot"), a)],
++      ["runf", (a) => ((a.occurrence.steps[2].status = "pending"), a)],
++      ["done", (a) => ((a.occurrence.state = "cancelled"), a)],
++      ["done", (a) => ((a.occurrence.outputs[0].record.text = "CANARY"), a)],
++      ["done", (a) => ((a.occurrence.outputs[1].record.week = "2026-10-10"), a)],
++      ["done", (a) => (delete a.occurrence.steps[2].at, a)],
++      ["done", (a) => ((a.occurrence.steps[0].outputId = "wf:pend:a1"), a)],
++      [
++        "done",
++        (a) => (
++          (a.occurrence.purgeAt = new Date(Date.parse(a.occurrence.purgeAt) + 1).toISOString()),
++          a
++        ),
++      ],
++      ["done", (a) => ((a.occurrence.firstAckAt = AT), a)],
++      ["done", (a) => ((a.occurrence.updatedAt = AT), a)],
++      ["done", () => ({ ownerKey: owner, occurrence: leaked })],
++      ["part", (a) => ((a.occurrence.state = "failed"), a)],
++      ["fail", (a) => ((a.occurrence.state = "partial"), a)],
++      ["canc", (a) => ((a.occurrence.startedAt = AT), a)],
++      ["ackd", (a) => ((a.occurrence.ackedVersion = 1), a)],
++      ["ackd", (a) => (delete a.occurrence.firstAckAt, a)],
++    ];
++    await call({ op: "cancel", ownerKey: owner, occurrenceId: "canc", now: T });
++    const v = (await read("ackd")).receiptVersion;
++    await call({ op: "ack", ownerKey: owner, occurrenceId: "ackd", receiptVersion: v, now: T });
++    for (const [id, t] of cases)
++      await refused(
++        env,
++        (_c, a) => t(a),
++        () => run(env, `/social/workflows/occurrences/${id}?ownerKey=${owner}`),
++      );
++    // The submit answer is bound too: created:true needs a fresh pending receipt.
++    await refused(
++      env,
++      (_c, a) => ({ ...a, created: true }),
++      () =>
++        post(env, "/social/workflows/occurrences", {
++          body: done.body,
++          payloadDigest: done.payloadDigest,
++        }),
++    );
++  });
++
++  it("feed items: typed steps and outputs, links, digests, state table, bounds, unique ids", async () => {
++    const { env, owner } = await controls();
++    const feed = () => run(env, `/social/workflows/changes?ownerKey=${owner}&after=0`);
++    const at = (a: A, id: string) => a.items.find((i: A) => i.occurrenceId === id);
++    const leaked = clone((await feed()).body);
++    const out = at(leaked, "done").outputs[0];
++    out.record.token = "CANARY";
++    out.digest = await sha256Hex(canonicalJson(out.record));
++    at(leaked, "done").steps[0].outputDigest = out.digest;
++    const cases: Tamper[] = [
++      (a) => ((at(a, "pend").steps = [{ token: "CANARY" }]), a),
++      (a) => ((at(a, "done").outputs = [{ record: { token: "CANARY" } }]), a),
++      (a) => ((at(a, "run1").outputs = []), a),
++      (a) => (delete at(a, "done").outputs, a),
++      (a) => ((at(a, "done").outputs[0].record.text = "CANARY"), a),
++      (a) => ((at(a, "done").steps[1].status = "pending"), a),
++      (a) => ((at(a, "pend").steps[0].idx = 1), a),
++      (a) => ((at(a, "pend").steps[1].actionId = "a1"), a),
++      (a) => ((at(a, "pend").steps[0].kind = "publish"), a),
++      (a) => ((at(a, "pend").receiptVersion = 2), a),
++      (a) => ((at(a, "done").state = "running"), a),
++      (a) => ((at(a, "part").steps[1].error = "teapot"), a),
++      (a) => {
++        const p = at(a, "pend");
++        p.steps = Array.from({ length: 6 }, (_, idx) => ({
++          ...p.steps[0],
++          idx,
++          actionId: `x${idx}`,
++        }));
++        return a;
++      },
++      (a) => {
++        const last = a.items.at(-1);
++        a.items.push({ ...clone(a.items[0]), changeSeq: last.changeSeq + 1 });
++        a.nextAfter = last.changeSeq + 1;
++        return a;
++      },
++      () => leaked,
++    ];
++    for (const t of cases) await refused(env, (_c, a) => t(a), feed);
++  });
++
++  it("mutation success is bound to the request: epoch, revision, digest, paused, state, cancel and ack proof", async () => {
++    const { env, owner } = await controls();
++    const call = direct(env);
++    const pend = (await call({ op: "status", ownerKey: owner, occurrenceId: "pend", now: T }))
++      .occurrence;
++    const done = (await call({ op: "status", ownerKey: owner, occurrenceId: "done", now: T }))
++      .occurrence;
++    const reg = (o: A) =>
++      post(env, "/social/workflows/registrations", {
++        ownerKey: owner,
++        workflowId: "w2",
++        expectedEpoch: 0,
++        revision: 1,
++        workflowDigest: DIG,
++        ...o,
++      });
++    const ctl = (verb: string, o: A = {}) =>
++      post(env, `/social/workflows/registrations/w1${verb}`, {
++        ownerKey: owner,
++        registrationEpoch: 1,
++        expectedRevision: 1,
++        ...o,
++      });
++    const up = { revision: 2, workflowDigest: "f".repeat(64) };
++    const cases: [Tamper, () => ReturnType<typeof post>][] = [
++      [
++        (a) => (
++          (a.registration.revision = 99),
++          (a.registration.workflowDigest = "f".repeat(64)),
++          a
++        ),
++        () => reg({}),
++      ],
++      [(a) => ((a.registration.workflowDigest = "f".repeat(64)), a), () => reg({})],
++      [
++        (a) => (
++          (a.registration.state = "unregistered"),
++          (a.registration.epochs[0].closedAt = AT),
++          a
++        ),
++        () => reg({}),
++      ],
++      [
++        (a) => ((a.registration.updatedAt = "2026-10-17T09:06:00.000Z"), a),
++        () => reg({ workflowId: "w3" }),
++      ],
++      [(a) => ((a.created = false), (a.registration.revision = 2), a), () => reg({})],
++      [(a) => ((a.registration.revision = 1), a), () => ctl("", up)],
++      [(a) => ((a.registration.workflowDigest = DIG), a), () => ctl("", up)],
++      [(a) => ((a.registration.paused = false), a), () => ctl("/pause", { expectedRevision: 2 })],
++      [(a) => ((a.registration.revision = 3), a), () => ctl("/pause", { expectedRevision: 2 })],
++      [
++        (a) => ((a.registration.state = "active"), delete a.registration.epochs[0].closedAt, a),
++        () => ctl("/unregister", { expectedRevision: 2 }),
++      ],
++      [
++        () => ({ ownerKey: owner, occurrence: pend, cancelled: true }),
++        () => post(env, "/social/workflows/occurrences/pend/cancel", { ownerKey: owner }),
++      ],
++      [
++        () => ({ ownerKey: owner, occurrence: pend, cancelled: false }),
++        () => post(env, "/social/workflows/occurrences/pend/cancel", { ownerKey: owner }),
++      ],
++      [
++        () => ({ ownerKey: owner, occurrence: done, cancelled: true }),
++        () => post(env, "/social/workflows/occurrences/done/cancel", { ownerKey: owner }),
++      ],
++      [
++        (a) => ((a.ackedVersion = 0), a),
++        () =>
++          post(env, "/social/workflows/occurrences/done/ack", {
++            ownerKey: owner,
++            receiptVersion: done.receiptVersion,
++          }),
++      ],
++      [
++        // "done" is now acknowledged: a lower ack's no-op answer must keep its firstAckAt.
++        (a) => (delete a.firstAckAt, a),
++        () =>
++          post(env, "/social/workflows/occurrences/done/ack", {
++            ownerKey: owner,
++            receiptVersion: 1,
++          }),
++      ],
++      [
++        (a) => ((a.firstAckAt = AT), a),
++        () =>
++          post(env, "/social/workflows/occurrences/part/ack", {
++            ownerKey: owner,
++            receiptVersion: 1,
++          }),
++      ],
++      [
++        (a) => ((a.ackedVersion = 1), (a.firstAckAt = AT), a),
++        () =>
++          post(env, "/social/workflows/occurrences/part/ack", {
++            ownerKey: owner,
++            receiptVersion: 1,
++          }),
++      ],
++    ];
++    for (const [t, fire] of cases) await refused(env, (_c, a) => t(a), fire);
++    // A resume answering paused:true (w1 was paused above).
++    await refused(
++      env,
++      (_c, a) => (((a as A).registration.paused = true), a),
++      () => ctl("/resume", { expectedRevision: 2 }),
++    );
++  });
++
++  it("refusals: the operation's own errors with typed, request-bound extras; mixed or contradictory ones never pass", async () => {
++    const { env, owner } = await controls();
++    const ack = (id = "pend", v = 1) =>
++      post(env, `/social/workflows/occurrences/${id}/ack`, { ownerKey: owner, receiptVersion: v });
++    const cancel = () =>
++      post(env, "/social/workflows/occurrences/pend/cancel", { ownerKey: owner });
++    const status = () => run(env, `/social/workflows/occurrences/pend?ownerKey=${owner}`);
++    const reg = (o: A = {}) =>
++      post(env, "/social/workflows/registrations", {
++        ownerKey: owner,
++        workflowId: "w1",
++        expectedEpoch: 0,
++        revision: 1,
++        workflowDigest: DIG,
++        ...o,
++      });
++    const update = () =>
++      post(env, "/social/workflows/registrations/w1", {
++        ownerKey: owner,
++        registrationEpoch: 1,
++        expectedRevision: 1,
++        revision: 2,
++        workflowDigest: DIG,
++      });
++    const registration = (await reg()).body.registration as A;
++    const D = "d".repeat(64);
++    const cases: [unknown, () => ReturnType<typeof post>][] = [
++      [
++        {
++          error: "not_terminal",
++          occurrenceId: "pend",
++          state: { token: "CANARY" },
++          receiptVersion: 0,
++        },
++        () => ack(),
++      ],
++      [
++        { error: "not_terminal", occurrenceId: "pend", state: "done", receiptVersion: 1 },
++        () => ack(),
++      ],
++      [
++        { error: "not_terminal", occurrenceId: "pend", state: "pending", receiptVersion: 0 },
++        () => ack(),
++      ],
++      [{ error: "future_version", occurrenceId: "done", receiptVersion: 9 }, () => ack("done", 5)],
++      [
++        { error: "future_version", occurrenceId: "done", receiptVersion: "4" },
++        () => ack("done", 5),
++      ],
++      [
++        { error: "pruned", occurrenceId: "pend", payloadDigest: "CANARY", prunedAt: AT },
++        () => ack(),
++      ],
++      [
++        { error: "pruned", occurrenceId: "pend", payloadDigest: D, prunedAt: "yesterday" },
++        () => cancel(),
++      ],
++      [{ error: "absent", occurrenceId: "other" }, () => cancel()],
++      [{ error: "running", occurrenceId: "pend" }, () => ack()],
++      [
++        { error: "not_terminal", occurrenceId: "pend", state: "pending", receiptVersion: 1 },
++        () => cancel(),
++      ],
++      [{ error: "conflict", registration }, () => status()],
++      [{ error: "absent", occurrenceId: "pend" }, () => status()],
++      [{ error: "not_registered", workflowId: "w1" }, () => reg()],
++      [{ error: "digest_mismatch" }, () => cancel()],
++      [{ error: "capacity" }, () => update()],
++      [{ error: "conflict", registration, extra: "CANARY" }, () => reg()],
++      // Contradictory: the register replay itself, or no registration although one was expected to exist.
++      [{ error: "conflict", registration }, () => reg()],
++      [{ error: "conflict", registration: null }, () => reg()],
++      [
++        { error: "conflict", registration: { ...registration, state: "unregistered" } },
++        () => reg(),
++      ],
++      [{ error: "conflict", registration: null }, () => update()],
++      [{ error: "conflict", registration: { ...registration, revision: 1 } }, () => update()],
++      [{ error: "not_registered", workflowId: 7 }, () => update()],
++    ];
++    for (const [answer, fire] of cases) await refused(env, () => answer, fire);
++    // Honest refusals still pass, typed and bound (the ownerKey added once the coordinator accepted it).
++    expect(await ack("run1", 1)).toEqual({
++      status: 409,
++      body: {
++        error: "not_terminal",
++        ownerKey: owner,
++        occurrenceId: "run1",
++        state: "running",
++        receiptVersion: 2,
++      },
++      raw: expect.any(String),
++    });
++    expect(await reg({ expectedEpoch: 3 })).toMatchObject({
++      status: 409,
++      body: { error: "conflict" },
++    });
++  });
++});
+diff -ruN a/workers/scout/src/social/workflowRoutes.ts b/workers/scout/src/social/workflowRoutes.ts
+--- a/workers/scout/src/social/workflowRoutes.ts	2026-10-17 23:17:06.635369600 +0300
++++ b/workers/scout/src/social/workflowRoutes.ts	2026-10-18 00:05:35.186144700 +0300
+@@ -17,16 +17,33 @@
+  * Requests: a 32 KiB streaming budget (413 too_large before any coordinator call), exact key sets, strict query
+  * strings (no unknown or repeated parameter), ids `^[A-Za-z0-9_-]{1,64}$` (else unsupported_id). No route runs a
+  * step, a finish or a builder, and nothing here reads a header or field that could enable one.
+- * Answers: every success echoes the ownerKey and the addressed id, and is checked against a strict typed shape;
+- * coordinator refusals pass only as pure envelopes of their known fields (the ownerKey added once the coordinator
+- * has accepted it). Anything else — an error mixed with proof, another ownerKey, another occurrence, a malformed
+- * receipt or page — is 503 receipt_unavailable. The object is always WORKFLOW_OBJECT (server-selected).
++ * Answers (DT-7B-R1: complete, request-bound proof): every success echoes the ownerKey and the addressed id and is
++ * checked against the coordinator's own semantics —
++ *   receipt    the whole immutable body re-checked with the admission validator at its own admission time
++ *              (`createdAt`), its payload digest recomputed, its identity bound to the receipt's fields, the
++ *              state/step/output table below, every output an exact allowlisted draft with its digest recomputed;
++ *   feed item  every step and output typed and linked, the same state table, draft digests recomputed. A feed item
++ *              has no body, so it proves no body/target binding: the full status receipt stays the authority;
++ *   mutation   bound to the request (epoch, revision, digest, paused flag, state, cancel/ack outcome).
++ * Coordinator refusals pass only as the operation's own errors with typed, request-bound extras (the ownerKey added
++ * once the coordinator has accepted it). Anything else — an error mixed with proof, another ownerKey, another
++ * occurrence, a malformed or contradictory receipt, page or refusal — is 503 receipt_unavailable, with no part of the
++ * answer echoed and no further coordinator call. The object is always WORKFLOW_OBJECT (server-selected).
+  */
+ 
+ import { readCapped } from "./instagramPublicSend";
+-import { type OccurrenceReceipt, WORKFLOW_OBJECT, CHANGES_LIMIT_MAX } from "./workflowCoordinator";
+ import {
++  ACK_RETENTION_MS,
++  purgeAt,
++  WORKFLOW_OBJECT,
++  CHANGES_LIMIT_MAX,
++  EPOCHS_MAX,
++} from "./workflowCoordinator";
++import {
++  ACTION_KINDS,
++  ACTIONS_MAX,
+   canonicalJson,
++  checkBody,
+   DIGEST_RE,
+   exactKeys,
+   fits,
+@@ -34,8 +51,13 @@
+   isIso,
+   isObj,
+   isVersion,
++  outputIdOf,
+   OWNER_KEY_RE,
++  payloadDigestOf,
+   REQUEST_BYTES_MAX,
++  sha256Hex,
++  STEP_ERRORS,
++  validDraft,
+   validOutput,
+   WF_ID_RE,
+   type Obj,
+@@ -120,6 +142,34 @@
+   | "ack"
+   | "changes";
+ 
++/** DT-7B-R1: the errors each coordinator operation can answer (workflowCoordinator.ts `call` and its op). */
++const CONTROL_ERRORS = ["bad_request", "authority_mismatch", "not_registered", "conflict"];
++const OP_ERRORS: Record<Kind, readonly string[]> = {
++  authority: [],
++  submit: [
++    "bad_request",
++    "unsupported_id",
++    "too_large",
++    "authority_mismatch",
++    "digest_mismatch",
++    "pruned",
++    "conflict",
++    "not_registered",
++    "unknown_epoch",
++    "registration_behind",
++    "capacity",
++  ],
++  register: ["bad_request", "authority_mismatch", "conflict", "capacity"],
++  update: CONTROL_ERRORS,
++  pause: CONTROL_ERRORS,
++  resume: CONTROL_ERRORS,
++  unregister: CONTROL_ERRORS,
++  status: ["bad_request", "authority_mismatch"],
++  changes: ["bad_request", "authority_mismatch"],
++  cancel: ["bad_request", "authority_mismatch", "pruned", "absent", "running"],
++  ack: ["bad_request", "authority_mismatch", "pruned", "absent", "not_terminal", "future_version"],
++};
++
+ function kindOf(rest: string[]): { kind: Kind; id?: string } | null {
+   const [family, id, verb, extra] = rest;
+   if (extra !== undefined) return null;
+@@ -208,9 +258,106 @@
+ 
+ const STATES = new Set(["pending", "running", "done", "partial", "failed", "cancelled"]);
+ const TERMINAL = new Set(["done", "partial", "failed", "cancelled"]);
+-const STEP_STATUS = new Set(["pending", "done", "failed", "skipped"]);
++/** What a failed step may carry: a builder error, or the store's own output-conflict. */
++const STEP_FAILURES: readonly unknown[] = [...STEP_ERRORS, "output-conflict"];
++
++/**
++ * DT-7B-R1: the coordinator's state/step table (submit, commitStep, finish, cancel in workflowCoordinator.ts), over
++ * the step statuses as letters (pending, done, failed, skipped), with the receipt version each path reaches: 1 at
++ * submit, +1 per committed step (a fail-fast skip is part of its commit), +1 at finish or cancel.
++ */
++const STEP_TABLE: Record<
++  string,
++  { re: RegExp; version: (done: number, failed: number) => number }
++> = {
++  pending: { re: /^p+$/, version: () => 1 },
++  // A resolved prefix then a pending suffix, every step done before finish, or a fail-fast before finish.
++  running: { re: /^(d+p+|d+|d*fs*)$/, version: (d, f) => 1 + d + f },
++  done: { re: /^d+$/, version: (d) => d + 2 },
++  partial: { re: /^d+fs*$/, version: (d) => d + 3 },
++  failed: { re: /^fs*$/, version: () => 3 },
++  cancelled: { re: /^s+$/, version: () => 2 },
++};
+ 
+-function validRegistration(r: unknown, workflowId: string): boolean {
++/**
++ * Typed steps of `occurrenceId` in the coordinator's table for `state`/`version`: contiguous idx from 0, unique
++ * action ids of a supported kind (the body's actions when one is known), per-status fields.
++ */
++function validSteps(
++  steps: unknown,
++  occurrenceId: string,
++  state: string,
++  version: unknown,
++  body?: OccurrenceBody,
++): steps is Obj[] {
++  const table = STEP_TABLE[state];
++  if (!table || !Array.isArray(steps) || steps.length < 1 || steps.length > ACTIONS_MAX)
++    return false;
++  if (body && steps.length !== body.snapshot.actions.length) return false;
++  const ids = new Set<unknown>();
++  let shape = "";
++  for (const [idx, s] of steps.entries()) {
++    if (
++      !isObj(s) ||
++      !exactKeys(
++        s,
++        ["idx", "actionId", "kind", "status"],
++        ["outputId", "outputDigest", "error", "at"],
++      ) ||
++      s.idx !== idx ||
++      !fits(s.actionId, WF_ID_RE) ||
++      ids.has(s.actionId) ||
++      !(ACTION_KINDS as readonly unknown[]).includes(s.kind) ||
++      (body &&
++        (s.actionId !== body.snapshot.actions[idx].id ||
++          s.kind !== body.snapshot.actions[idx].kind))
++    )
++      return false;
++    ids.add(s.actionId);
++    const none = (...k: string[]) => k.every((key) => s[key] === undefined);
++    const fields =
++      s.status === "done"
++        ? s.outputId === outputIdOf(occurrenceId, s.actionId as string) &&
++          isDigest(s.outputDigest) &&
++          isIso(s.at) &&
++          none("error")
++        : s.status === "failed"
++          ? STEP_FAILURES.includes(s.error) && isIso(s.at) && none("outputId", "outputDigest")
++          : (s.status === "pending" || s.status === "skipped") &&
++            none("outputId", "outputDigest", "error", "at");
++    if (!fields) return false;
++    shape += (s.status as string)[0];
++  }
++  const count = (c: string) => shape.split(c).length - 1;
++  return table.re.test(shape) && version === table.version(count("d"), count("f"));
++}
++
++/** One output per done step, in order, linked to it, `draft`-valid, its record digest recomputed. */
++async function validOutputs(
++  outputs: unknown,
++  steps: Obj[],
++  draft: (record: unknown, step: Obj) => boolean,
++): Promise<boolean> {
++  const done = steps.filter((s) => s.status === "done");
++  if (!Array.isArray(outputs) || outputs.length !== done.length) return false;
++  for (const [n, o] of outputs.entries()) {
++    const s = done[n];
++    if (
++      !isObj(o) ||
++      !exactKeys(o, ["outputId", "actionId", "kind", "digest", "record"]) ||
++      o.outputId !== s.outputId ||
++      o.actionId !== s.actionId ||
++      o.kind !== s.kind ||
++      o.digest !== s.outputDigest ||
++      !draft(o.record, s) ||
++      (await sha256Hex(canonicalJson(o.record))) !== o.digest
++    )
++      return false;
++  }
++  return true;
++}
++
++function validRegistration(r: unknown, workflowId: string): r is Obj {
+   if (!isObj(r)) return false;
+   return (
+     exactKeys(r, [
+@@ -225,6 +372,7 @@
+     ]) &&
+     r.workflowId === workflowId &&
+     isVersion(r.registrationEpoch) &&
++    (r.registrationEpoch as number) <= EPOCHS_MAX &&
+     isVersion(r.revision) &&
+     isDigest(r.workflowDigest) &&
+     (r.state === "active" || r.state === "unregistered") &&
+@@ -233,76 +381,21 @@
+     Array.isArray(r.epochs) &&
+     r.epochs.length === r.registrationEpoch &&
+     r.epochs.every(
+-      (e: unknown, n: number) =>
++      (e: unknown, n: number, all: unknown[]) =>
+         isObj(e) &&
+         exactKeys(e, ["epoch", "openedAt"], ["closedAt"]) &&
+         e.epoch === n + 1 &&
+         isIso(e.openedAt) &&
+-        (e.closedAt === undefined || isIso(e.closedAt)),
++        (e.closedAt === undefined || isIso(e.closedAt)) &&
++        // DT-7B-R1: every earlier epoch closed; the current one closed exactly when unregistered.
++        (e.closedAt !== undefined) === (n < all.length - 1 || r.state === "unregistered"),
+     )
+   );
+ }
+ 
+-function validSteps(steps: unknown, body: OccurrenceBody): boolean {
+-  return (
+-    Array.isArray(steps) &&
+-    steps.length === body.snapshot.actions.length &&
+-    steps.every((s: unknown, idx: number) => {
+-      if (!isObj(s)) return false;
+-      const a = body.snapshot.actions[idx];
+-      if (
+-        !exactKeys(
+-          s,
+-          ["idx", "actionId", "kind", "status"],
+-          ["outputId", "outputDigest", "error", "at"],
+-        ) ||
+-        s.idx !== idx ||
+-        s.actionId !== a.id ||
+-        s.kind !== a.kind ||
+-        !STEP_STATUS.has(s.status as string) ||
+-        (s.at !== undefined && !isIso(s.at))
+-      )
+-        return false;
+-      if (s.status === "done")
+-        return (
+-          s.outputId === `wf:${body.occurrenceId}:${a.id}` &&
+-          isDigest(s.outputDigest) &&
+-          s.error === undefined
+-        );
+-      if (s.status === "failed") return typeof s.error === "string" && s.outputId === undefined;
+-      return s.outputId === undefined && s.outputDigest === undefined && s.error === undefined;
+-    })
+-  );
+-}
+-
+-function validOutputs(outputs: unknown, steps: Obj[], body: OccurrenceBody): boolean {
+-  const done = steps.filter((s) => s.status === "done");
+-  return (
+-    Array.isArray(outputs) &&
+-    outputs.length === done.length &&
+-    outputs.every((o: unknown, n: number) => {
+-      const s = done[n];
+-      return (
+-        isObj(o) &&
+-        exactKeys(o, ["outputId", "actionId", "kind", "digest", "record"]) &&
+-        o.outputId === s.outputId &&
+-        o.actionId === s.actionId &&
+-        o.kind === s.kind &&
+-        o.digest === s.outputDigest &&
+-        validOutput(o.record, body, s.idx as number)
+-      );
+-    })
+-  );
+-}
+-
+-/** A full receipt of `occurrenceId` under `ownerKey`, with its exact step/output proof. */
+-export function validReceipt(
+-  o: unknown,
+-  ownerKey: string,
+-  occurrenceId: string,
+-): o is OccurrenceReceipt {
++/** A full receipt of `occurrenceId` under `ownerKey`, with its complete body, digest and step/output proof. */
++async function validReceipt(o: unknown, ownerKey: string, occurrenceId: string): Promise<boolean> {
+   if (!isObj(o)) return false;
+-  const terminal = TERMINAL.has(o.state as string);
+   if (
+     !exactKeys(
+       o,
+@@ -332,43 +425,67 @@
+     !isDigest(o.payloadDigest) ||
+     !isIso(o.createdAt) ||
+     !isIso(o.updatedAt) ||
+-    !isCount(o.ackedVersion) ||
+-    (o.ackedVersion as number) > (o.receiptVersion as number) ||
+-    (o.startedAt !== undefined && !isIso(o.startedAt)) ||
+-    (o.firstAckAt !== undefined && !isIso(o.firstAckAt)) ||
+-    terminal !== (isIso(o.finishedAt) && isIso(o.purgeAt)) ||
+-    (!terminal &&
+-      (o.finishedAt !== undefined || o.purgeAt !== undefined || o.firstAckAt !== undefined))
++    !isCount(o.ackedVersion)
+   )
+     return false;
+-  const b = o.body;
++  // The immutable body, exactly as admitted: the admission validator at its own admission time.
++  const chk = checkBody(o.body, Date.parse(o.createdAt as string));
++  if (!chk.ok) return false;
++  const body = chk.body;
+   if (
+-    !isObj(b) ||
+-    b.ownerKey !== ownerKey ||
+-    b.occurrenceId !== occurrenceId ||
+-    b.workflowId !== o.workflowId ||
+-    b.kind !== o.kind ||
+-    b.registrationEpoch !== o.registrationEpoch ||
+-    b.revision !== o.revision ||
+-    !isIso(b.executionAt) ||
+-    !isObj(b.snapshot) ||
+-    !Array.isArray((b.snapshot as Obj).actions)
++    body.ownerKey !== ownerKey ||
++    body.occurrenceId !== occurrenceId ||
++    body.workflowId !== o.workflowId ||
++    body.kind !== o.kind ||
++    body.registrationEpoch !== o.registrationEpoch ||
++    body.revision !== o.revision ||
++    (await payloadDigestOf(body)) !== o.payloadDigest
+   )
+     return false;
+-  const body = b as unknown as OccurrenceBody;
+-  try {
+-    return validSteps(o.steps, body) && validOutputs(o.outputs, o.steps as Obj[], body);
+-  } catch {
+-    return false;
++  // Timestamps and acknowledgement per state.
++  const v = o.receiptVersion as number;
++  const acked = o.ackedVersion as number;
++  if (o.state === "pending" || o.state === "running") {
++    if (
++      o.finishedAt !== undefined ||
++      o.purgeAt !== undefined ||
++      o.firstAckAt !== undefined ||
++      acked !== 0 ||
++      (o.state === "pending"
++        ? o.startedAt !== undefined || o.updatedAt !== o.createdAt
++        : !isIso(o.startedAt))
++    )
++      return false;
++  } else {
++    const firstAck = o.firstAckAt === undefined ? null : Date.parse(o.firstAckAt as string);
++    if (
++      !isIso(o.finishedAt) ||
++      o.updatedAt !== o.finishedAt ||
++      (o.state === "cancelled" ? o.startedAt !== undefined : !isIso(o.startedAt)) ||
++      (acked !== 0 && acked !== v) ||
++      (o.firstAckAt !== undefined && !isIso(o.firstAckAt)) ||
++      (firstAck !== null) !== acked >= 1 ||
++      o.purgeAt !== new Date(purgeAt(Date.parse(o.finishedAt as string), firstAck)).toISOString()
++    )
++      return false;
+   }
++  return (
++    validSteps(o.steps, occurrenceId, o.state as string, v, body) &&
++    validOutputs(o.outputs, o.steps, (record, s) => validOutput(record, body, s.idx as number))
++  );
+ }
+ 
+-function validFeed(x: Obj, ownerKey: string, after: number, limit: number): boolean {
++/** A receipt answer is proof only when it validates completely; anything thrown is not proof. */
++const receiptProof = (o: unknown, ownerKey: string, occurrenceId: string) =>
++  validReceipt(o, ownerKey, occurrenceId).catch(() => false);
++
++async function validFeed(x: Obj, ownerKey: string, after: number, limit: number): Promise<boolean> {
+   if (!exactKeys(x, ["ownerKey", "items", "nextAfter", "more"]) || x.ownerKey !== ownerKey)
+     return false;
+   if (!Array.isArray(x.items) || x.items.length > limit || typeof x.more !== "boolean")
+     return false;
+   let seq = after;
++  const ids = new Set<unknown>();
+   for (const i of x.items as unknown[]) {
+     if (
+       !isObj(i) ||
+@@ -386,16 +503,23 @@
+         ["outputs"],
+       ) ||
+       !fits(i.occurrenceId, WF_ID_RE) ||
++      ids.has(i.occurrenceId) ||
+       !fits(i.workflowId, WF_ID_RE) ||
+       !isVersion(i.changeSeq) ||
+       (i.changeSeq as number) <= seq ||
+       !STATES.has(i.state as string) ||
+       !isVersion(i.receiptVersion) ||
+       !isDigest(i.payloadDigest) ||
+-      !Array.isArray(i.steps) ||
+-      TERMINAL.has(i.state as string) !== Array.isArray(i.outputs)
++      !validSteps(i.steps, i.occurrenceId as string, i.state as string, i.receiptVersion) ||
++      TERMINAL.has(i.state as string) !== (i.outputs !== undefined) ||
++      // Body-free drafts: the feed proves no body/target binding (full status does).
++      (i.outputs !== undefined &&
++        !(await validOutputs(i.outputs, i.steps, (record, s) =>
++          validDraft(record, s.kind as string, s.outputId as string),
++        )))
+     )
+       return false;
++    ids.add(i.occurrenceId);
+     seq = i.changeSeq as number;
+   }
+   // The precise cursor rule: the last returned seq, or `after` itself when nothing was returned.
+@@ -452,12 +576,19 @@
+     // The submitted ids (submit/register), bound into refusals and receipts.
+     let bodyId: string | undefined;
+     let bodyWorkflow: string | undefined;
+-    /** A coordinator answer: a pure known refusal (bound to this request) or the validated success. */
+-    const answer = (x: Obj, ok: (x: Obj) => boolean, owner: string, status = 200) => {
++    /** DT-7B-R1: a conflict's registration must not be the very answer this request would have succeeded with. */
++    let conflictOk: (r: Obj | null) => boolean = () => false;
++    /** A coordinator answer: a typed refusal of this operation (bound to this request) or the validated success. */
++    const answer = async (
++      x: Obj,
++      ok: (x: Obj) => boolean | Promise<boolean>,
++      owner: string,
++      status = 200,
++    ) => {
+       if ("error" in x) {
+         const e = x.error;
+         const fields = typeof e === "string" ? REFUSAL_FIELDS[e] : undefined;
+-        if (!fields) return fail("receipt_unavailable");
++        if (!fields || !OP_ERRORS[kind].includes(e as string)) return fail("receipt_unavailable");
+         const extra = Object.keys(x).filter((k) => k !== "error");
+         // conflict carries the addressed id or the current registration; every other refusal its exact fields.
+         const conflictKeys = kind === "submit" ? ["occurrenceId"] : ["registration"];
+@@ -470,8 +601,24 @@
+           return fail("receipt_unavailable");
+         if (
+           x.registration !== undefined &&
+-          x.registration !== null &&
+-          !validRegistration(x.registration, (id ?? bodyWorkflow) as string)
++          (x.registration === null
++            ? !conflictOk(null)
++            : !validRegistration(x.registration, (id ?? bodyWorkflow) as string) ||
++              !conflictOk(x.registration))
++        )
++          return fail("receipt_unavailable");
++        if (
++          (x.payloadDigest !== undefined && !isDigest(x.payloadDigest)) ||
++          (x.prunedAt !== undefined && !isIso(x.prunedAt)) ||
++          (x.receiptVersion !== undefined && !isVersion(x.receiptVersion)) ||
++          // not_terminal: pending (always version 1) or running (≥ 2, one per committed step).
++          (e === "not_terminal" &&
++            !(x.state === "pending"
++              ? x.receiptVersion === 1
++              : x.state === "running" && (x.receiptVersion as number) >= 2)) ||
++          // future_version: only above the current version.
++          (e === "future_version" &&
++            !((x.receiptVersion as number) < (input.receiptVersion as number)))
+         )
+           return fail("receipt_unavailable");
+         const code = e as WorkflowError;
+@@ -482,7 +629,7 @@
+         const status = code === "pruned" && kind !== "submit" ? 410 : STATUS[code];
+         return reply.json({ error: code, ownerKey: owner, ...rest }, status);
+       }
+-      return ok(x) ? reply.json(x, status) : fail("receipt_unavailable");
++      return (await ok(x)) ? reply.json(x, status) : fail("receipt_unavailable");
+     };
+ 
+     if (kind === "authority") {
+@@ -505,16 +652,22 @@
+         now: now(),
+       });
+       const created = x.created === true;
+-      return answer(
++      return await answer(
+         x,
+-        (y) =>
+-          exactKeys(y, ["ownerKey", "occurrence", "created"]) &&
+-          y.ownerKey === owner &&
+-          typeof y.created === "boolean" &&
+-          validReceipt(y.occurrence, owner, bodyId!) &&
+-          // The exact accepted body and the digest the caller computed.
+-          canonicalJson((y.occurrence as unknown as Obj).body) === canonicalJson(b) &&
+-          (y.occurrence as unknown as Obj).payloadDigest === input.payloadDigest,
++        async (y) => {
++          const o = y.occurrence as Obj;
++          return (
++            exactKeys(y, ["ownerKey", "occurrence", "created"]) &&
++            y.ownerKey === owner &&
++            typeof y.created === "boolean" &&
++            (await receiptProof(o, owner, bodyId!)) &&
++            // The exact accepted body and the digest the caller computed.
++            canonicalJson(o.body) === canonicalJson(b) &&
++            o.payloadDigest === input.payloadDigest &&
++            // A new row is the fresh pending receipt; a replay is the stored row in any state.
++            (!y.created || (o.state === "pending" && o.receiptVersion === 1))
++          );
++        },
+         owner,
+         created ? 201 : 200,
+       );
+@@ -530,28 +683,86 @@
+         isCount(input.expectedEpoch) && isVersion(input.revision) && isDigest(input.workflowDigest),
+       );
+       bodyWorkflow = input.workflowId as string;
++      const epoch = (input.expectedEpoch as number) + 1;
++      // The coordinator's success condition for this request (a new epoch or the replay of an applied one).
++      const applied = (r: Obj) =>
++        r.state === "active" &&
++        r.registrationEpoch === epoch &&
++        r.revision === input.revision &&
++        r.workflowDigest === input.workflowDigest;
++      // conflict: no row only when an existing epoch was expected; never the replay, never a re-registrable row.
++      conflictOk = (r) =>
++        r === null
++          ? input.expectedEpoch !== 0
++          : !applied(r) && !(r.state === "unregistered" && r.registrationEpoch === epoch - 1);
+       const x = await coordinate(ns, { op: "register", ...input, now: now() });
+-      return answer(
++      return await answer(
+         x,
+-        (y) =>
+-          exactKeys(y, ["ownerKey", "registration", "created"]) &&
+-          y.ownerKey === owner &&
+-          typeof y.created === "boolean" &&
+-          validRegistration(y.registration, bodyWorkflow!),
++        (y) => {
++          const r = y.registration as Obj;
++          return (
++            exactKeys(y, ["ownerKey", "registration", "created"]) &&
++            y.ownerKey === owner &&
++            typeof y.created === "boolean" &&
++            validRegistration(r, bodyWorkflow!) &&
++            applied(r) &&
++            // A newly opened epoch opens at the registration's own update.
++            (!y.created || (r.epochs as Obj[])[epoch - 1].openedAt === r.updatedAt)
++          );
++        },
+         owner,
+       );
+     }
+     if (kind === "update" || kind === "pause" || kind === "resume" || kind === "unregister") {
+       need(isVersion(input.registrationEpoch) && isCount(input.expectedRevision));
+       if (kind === "update") need(isVersion(input.revision) && isDigest(input.workflowDigest));
++      const ep = input.registrationEpoch;
++      const expected = input.expectedRevision as number;
++      const current = (r: Obj) => r.registrationEpoch === ep;
++      // The request's own success, bound to its epoch, revision, digest, paused flag or state.
++      const bound =
++        kind === "update"
++          ? (r: Obj) =>
++              current(r) &&
++              r.state === "active" &&
++              r.revision === input.revision &&
++              r.workflowDigest === input.workflowDigest
++          : (r: Obj) =>
++              current(r) &&
++              r.revision === expected &&
++              (kind === "unregister"
++                ? r.state === "unregistered"
++                : r.paused === (kind === "pause"));
++      conflictOk = (r) =>
++        r !== null &&
++        (kind === "update"
++          ? !bound(r) &&
++            !(
++              current(r) &&
++              r.state === "active" &&
++              r.revision === expected &&
++              (input.revision as number) > expected
++            )
++          : !(current(r) && r.revision === expected));
+       const x = await coordinate(ns, { op: kind, ...input, workflowId: id, now: now() });
+-      return answer(
++      return await answer(
+         x,
+-        (y) =>
+-          exactKeys(y, ["ownerKey", "registration", "changed"]) &&
+-          y.ownerKey === owner &&
+-          typeof y.changed === "boolean" &&
+-          validRegistration(y.registration, id!),
++        (y) => {
++          const r = y.registration as Obj;
++          return (
++            exactKeys(y, ["ownerKey", "registration", "changed"]) &&
++            y.ownerKey === owner &&
++            typeof y.changed === "boolean" &&
++            validRegistration(r, id!) &&
++            bound(r) &&
++            // A changed update moved past the expected revision; a changed unregister closed the epoch now.
++            (!y.changed ||
++              (kind === "update"
++                ? (input.revision as number) > expected
++                : kind !== "unregister" ||
++                  (r.epochs as Obj[])[(ep as number) - 1].closedAt === r.updatedAt))
++          );
++        },
+         owner,
+       );
+     }
+@@ -562,12 +773,12 @@
+         occurrenceId: id,
+         now: now(),
+       });
+-      return answer(
++      return await answer(
+         x,
+-        (y) =>
++        async (y) =>
+           y.ownerKey === owner &&
+           (exactKeys(y, ["ownerKey", "occurrence"])
+-            ? validReceipt(y.occurrence, owner, id!)
++            ? await receiptProof(y.occurrence, owner, id!)
+             : y.state === "absent"
+               ? exactKeys(y, ["ownerKey", "occurrenceId", "state"]) && y.occurrenceId === id
+               : y.state === "pruned" &&
+@@ -585,13 +796,19 @@
+         occurrenceId: id,
+         now: now(),
+       });
+-      return answer(
++      return await answer(
+         x,
+-        (y) =>
+-          exactKeys(y, ["ownerKey", "occurrence", "cancelled"]) &&
+-          y.ownerKey === owner &&
+-          typeof y.cancelled === "boolean" &&
+-          validReceipt(y.occurrence, owner, id!),
++        async (y) => {
++          const state = (y.occurrence as Obj | undefined)?.state as string;
++          return (
++            exactKeys(y, ["ownerKey", "occurrence", "cancelled"]) &&
++            y.ownerKey === owner &&
++            typeof y.cancelled === "boolean" &&
++            // cancelled: the cancelled receipt; not cancelled: a terminal row the coordinator left unchanged.
++            (y.cancelled ? state === "cancelled" : TERMINAL.has(state)) &&
++            (await receiptProof(y.occurrence, owner, id!))
++          );
++        },
+         owner,
+       );
+     }
+@@ -605,7 +822,7 @@
+         receiptVersion: v,
+         now: now(),
+       });
+-      return answer(
++      return await answer(
+         x,
+         (y) =>
+           exactKeys(
+@@ -627,9 +844,16 @@
+           isCount(y.ackedVersion) &&
+           isIso(y.purgeAt) &&
+           (y.firstAckAt === undefined || isIso(y.firstAckAt)) &&
++          // A terminal row's version never moves, so it is acknowledged at exactly that version or not at all;
++          // firstAckAt exists exactly then and bounds the purge (≤ firstAck + 90 d).
++          (y.ackedVersion === 0 || y.ackedVersion === y.receiptVersion) &&
++          (y.firstAckAt !== undefined) === (y.ackedVersion as number) >= 1 &&
++          (y.firstAckAt === undefined ||
++            Date.parse(y.purgeAt as string) <=
++              Date.parse(y.firstAckAt as string) + ACK_RETENTION_MS) &&
+           // Proof only for the exact version asked; a lower one proves nothing new.
+           (y.acknowledged
+-            ? y.receiptVersion === v && y.ackedVersion === v && isIso(y.firstAckAt)
++            ? y.receiptVersion === v && y.ackedVersion === v
+             : v < (y.receiptVersion as number)),
+         owner,
+       );
+@@ -640,7 +864,7 @@
+     const limit = input.limit === undefined ? CHANGES_LIMIT_MAX : Number(input.limit);
+     need(Number.isSafeInteger(after) && limit >= 1 && limit <= CHANGES_LIMIT_MAX);
+     const x = await coordinate(ns, { op: "changes", ownerKey: owner, after, limit, now: now() });
+-    return answer(x, (y) => validFeed(y, owner, after, limit), owner);
++    return await answer(x, (y) => validFeed(y, owner, after, limit).catch(() => false), owner);
+   } catch (e) {
+     if (e instanceof Refused) return fail(e.code);
+     return fail("receipt_unavailable");

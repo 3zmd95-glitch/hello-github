@@ -10,8 +10,9 @@ import { clearScoutCache } from "@/lib/scoutClient";
 import { useStore } from "@/store";
 import DiscoverScreen from "./DiscoverScreen";
 
-// 🔗 Discover's deep link, `/discover/?genre=<id>`: rendered for real in jsdom against a fake Scout Worker (a
-// stubbed global fetch). e2e/scout.spec.ts opens the same link in a browser.
+// 🔗 Discover's deep link, `/discover/?genre=<id>`: it opens that category's page in Browse (categories live
+// in one place). Rendered for real in jsdom against a fake Scout Worker (a stubbed global fetch).
+// e2e/scout.spec.ts opens the same link in a browser.
 
 const WORKER = "https://scout.test";
 const CARS_AR = "ايديت سيارات";
@@ -121,30 +122,24 @@ afterEach(() => {
 });
 
 describe("Discover deep link (?genre=<id>)", () => {
-  it("opens with that genre picked like a tap on its chip, then takes it off the address", async () => {
+  const categoryOpen = () => $("category-discovery") !== null;
+  const inBrowse = () => pressed("inspiration-explore") === "true";
+
+  it("opens that category's page in Browse, with no Search run, then takes it off the address", async () => {
     await open(discoverGenreHref("cars"));
-    expect(pressed("genre-cars")).toBe("true");
+    expect(categoryOpen()).toBe(true);
+    expect(inBrowse()).toBe(true);
     expect(pressedChips()).toEqual(["genre-cars"]);
-    expect($("genres-row")!.getAttribute("data-genre")).toBe("cars");
-    // A chip tap is a search: the genre's own words, in the search language; no topic is remembered.
-    expect(asked).toEqual([CARS_AR]);
-    expect(($("discover-topic") as HTMLInputElement).value).toBe("");
-    expect(useStore.getState().recentTopics).toEqual([]);
-    expect($("research-start")).toBeNull();
-    // Its chip is brought into view in the row, and the address no longer names the genre.
-    expect(scrolledTo).toEqual([$("genre-cars")]);
+    // Categories live in Browse: the link never becomes a Search filter, so no search request goes out.
+    expect(asked).toEqual([]);
+    expect($("search-categories")).toBeNull();
     expect(address()).toBe("/discover/");
-    // The app had no feed yet: it is read once (never run), and the genre's most viewed show.
-    expect(trendsCalls).toEqual(["GET /trends"]);
-    expect($("genre-week")!.getAttribute("data-genre")).toBe("cars");
-    expect($("genre-week")!.textContent).toContain("مونتاج سيارات في جدة");
   });
 
   it("keeps the address's other parameters and hash", async () => {
     await open("/discover/?from=radar&genre=gym#top");
     expect(pressedChips()).toEqual(["genre-gym"]);
-    expect(asked).toEqual(["ايديت جيم"]);
-    expect(scrolledTo).toEqual([$("genre-gym")]);
+    expect(categoryOpen()).toBe(true);
     expect(address()).toBe("/discover/?from=radar#top");
   });
 
@@ -152,24 +147,24 @@ describe("Discover deep link (?genre=<id>)", () => {
     useStore.getState().addCustomGenre("هجولة", "هجولة درفت");
     await open(discoverGenreHref("custom-هجولة"));
     expect(pressedChips()).toEqual(["genre-custom-هجولة"]);
-    expect(asked).toEqual(["هجولة درفت"]);
+    expect(categoryOpen()).toBe(true);
     expect(address()).toBe("/discover/");
   });
 
   it("ignores a genre the app does not know, and an empty one, and cleans the address either way", async () => {
-    await open("/discover/?genre=drone");
+    // "kites" is not a genre (drone became a built-in one on 22 Oct 2026).
+    await open("/discover/?genre=kites");
+    expect(categoryOpen()).toBe(false);
     expect(pressedChips()).toEqual([]);
     expect($("genres-row")!.getAttribute("data-genre")).toBe("");
     expect(asked).toEqual([]);
-    expect(scrolledTo).toEqual([]);
     expect(address()).toBe("/discover/");
-    expect($("research-start")).not.toBeNull();
-    // No genre, no trends read.
     expect(trendsCalls).toEqual([]);
 
     act(() => root.unmount());
     root = createRoot(host);
     await open("/discover/?genre=&x=1");
+    expect(categoryOpen()).toBe(false);
     expect(pressedChips()).toEqual([]);
     expect(asked).toEqual([]);
     expect(address()).toBe("/discover/?x=1");
@@ -180,13 +175,14 @@ describe("Discover deep link (?genre=<id>)", () => {
     const replace = vi.spyOn(window.history, "replaceState");
     act(() => root.render(createElement(DiscoverScreen)));
     await settle();
+    expect(categoryOpen()).toBe(false);
     expect(pressedChips()).toEqual([]);
     expect(asked).toEqual([]);
     expect(replace).not.toHaveBeenCalled();
     expect(address()).toBe("/discover/?from=radar");
   });
 
-  it("a reload after the link does not force the genre again", async () => {
+  it("a reload after the link does not force the category again", async () => {
     await open(discoverGenreHref("food"));
     expect(pressedChips()).toEqual(["genre-food"]);
     // The same address, loaded again (the parameter is gone from it).
@@ -195,8 +191,9 @@ describe("Discover deep link (?genre=<id>)", () => {
     act(() => root.render(createElement(DiscoverScreen)));
     await settle();
     expect(address()).toBe("/discover/");
+    expect(categoryOpen()).toBe(false);
     expect(pressedChips()).toEqual([]);
-    expect(asked).toEqual(["مونتاج أكل"]);
+    expect(asked).toEqual([]);
   });
 
   it("reads an address written just after the page mounted (an in-app link)", async () => {
@@ -208,17 +205,48 @@ describe("Discover deep link (?genre=<id>)", () => {
     window.history.pushState(null, "", discoverGenreHref("anime"));
     await settle();
     expect(pressedChips()).toEqual(["genre-anime"]);
-    expect(asked).toEqual(["ايديت انمي"]);
+    expect(categoryOpen()).toBe(true);
     expect(address()).toBe("/discover/");
   });
 
-  it("then the genre is the owner's to change: the link does not come back", async () => {
+  it("then the category is the owner's to change: the link does not come back", async () => {
     await open(discoverGenreHref("cars"));
-    await click("genre-cars");
-    expect(pressedChips()).toEqual([]);
     await click("genre-food");
     expect(pressedChips()).toEqual(["genre-food"]);
-    expect(asked).toEqual([CARS_AR, "مونتاج أكل"]);
+    expect(categoryOpen()).toBe(true);
+    await click("browse-back");
+    expect(categoryOpen()).toBe(false);
+    expect(pressedChips()).toEqual([]);
+  });
+
+  it("the Search tab has no categories: a hint points to Browse, and its button goes there", async () => {
+    await open("/discover/");
+    await click("inspiration-search");
+    expect(pressed("inspiration-search")).toBe("true");
+    expect($("search-categories")).toBeNull();
+    expect($("genres-row")).toBeNull();
+    expect(host.querySelector('[data-testid^="genre-"]')).toBeNull();
+    expect($("genres-clear")).toBeNull();
+    expect($("search-browse-hint")!.textContent).toBe("تبي تصنيف؟ روح لتصفّح.");
+    await click("search-go-browse");
+    expect(inBrowse()).toBe(true);
+    expect($("genres-row")).not.toBeNull();
+  });
+
+  it("says in one line under the tabs what Browse and what Search is for, in both languages", async () => {
+    await open("/discover/");
+    expect($("discover-tab-line")!.textContent).toBe("اضغط على تصنيف — المقاطع مجمّعة لك.");
+    await click("inspiration-search");
+    expect($("discover-tab-line")!.textContent).toBe("اكتب شي محدد تدوّر عليه.");
+    useStore.getState().setSettings({ lang: "en" });
+    await settle();
+    expect($("discover-tab-line")!.textContent).toBe("Type something specific you're looking for.");
+    await click("inspiration-explore");
+    expect($("discover-tab-line")!.textContent).toBe(
+      "Tap a category — the edits are collected for you.",
+    );
+    await click("inspiration-library-open");
+    expect($("discover-tab-line")).toBeNull();
   });
 
   it("is Discover's only: the skill sheet's panel never reads the address", async () => {

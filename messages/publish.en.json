@@ -177,5 +177,18 @@
   "publish.photo.preview": "Photo {n} preview",
   "publish.photo.add": "Add photo · {n}/35",
   "publish.photo.autoMusic": "Let TikTok choose music automatically (this does not choose a specific trending sound)",
-  "publish.photo.description": "The TikTok caption below is the photo description. Use the inbox route when you want to choose your own sound before posting."
+  "publish.photo.description": "The TikTok caption below is the photo description. Use the inbox route when you want to choose your own sound before posting.",
+  "publish.err.ambiguousOwner": "Another post here claims the same Worker job, so nothing was sent, run or canceled. Sort out the posts with the same job first.",
+  "publish.jobMissing": "This post has no job on the Worker to run or cancel.",
+  "publish.superseded": "This send was stopped because the post changed or its job was canceled while it was saving. Try again.",
+  "publish.err.allocation": "Could not save this post's job id on this device, so nothing was sent. Try again.",
+  "publish.conflict": "{n} posts here claim this job: {names}. Nothing is marked as posted until only one of them does.",
+  "publish.unconfirmed.title": "Allocated, not confirmed",
+  "publish.unconfirmed.note": "Job {id} was sent, but the Worker's reply never came back. It may be live. Refresh to check before anything else.",
+  "publish.unconfirmed.refresh": "Refresh",
+  "publish.unconfirmed.retry": "Retry send",
+  "publish.unconfirmed.discard": "Discard allocation",
+  "publish.unconfirmed.unknown": "Could not reach the Worker, so it is unknown whether this job is live. The allocation is kept.",
+  "publish.unconfirmed.absent": "The Worker does not hold this job. You can send it again or discard the allocation.",
+  "publish.unconfirmed.found": "The Worker holds this job, so it was not discarded. It is followed here now; cancel it if you do not want it."
 }

@@ -11,7 +11,9 @@
     "isolatedModules": true,
     "allowJs": true,
     "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "paths": { "@/*": ["../../*"] }
   },
   "include": ["src/**/*.ts", "vitest.config.ts"]
 }

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { GenreSchema } from "@/lib/domain";
-import { GENRES } from "./genres";
+import { GenreGroupSchema, GenreSchema } from "@/lib/domain";
+import raw from "@/planning/data/genres.json";
+import { GENRE_GROUPS, GENRES, GenresFileSchema } from "./genres";
 
 describe("edit genres (planning/data/genres.json)", () => {
-  it("loads the twelve built-in genres in file order", () => {
-    expect(GENRES.map((g) => g.id)).toEqual([
+  it("loads the 35 built-in genres in file order, the first twelve unchanged", () => {
+    expect(GENRES).toHaveLength(35);
+    expect(GENRES.slice(0, 12).map((g) => g.id)).toEqual([
       "cars",
       "food",
       "anime",
@@ -17,6 +19,31 @@ describe("edit genres (planning/data/genres.json)", () => {
       "gaming",
       "weddings",
       "gym",
+    ]);
+    expect(GENRES.slice(12).map((g) => g.id)).toEqual([
+      "combat",
+      "basketball",
+      "desserts",
+      "cooking",
+      "beauty",
+      "family",
+      "luxury",
+      "sea",
+      "drone",
+      "music",
+      "cinematic",
+      "podcast",
+      "comedy",
+      "bikes",
+      "racing",
+      "realestate",
+      "services",
+      "product",
+      "corporate",
+      "tech",
+      "photography",
+      "colorgrading",
+      "vfx",
     ]);
   });
 
@@ -83,5 +110,86 @@ describe("edit genres (planning/data/genres.json)", () => {
     expect(GenreSchema.safeParse({ ...base, queries: { ar: ["x"] } }).success).toBe(false);
     expect(GenreSchema.safeParse({ ...base, hashtags: ["#drift"] }).success).toBe(false);
     expect(GenreSchema.safeParse({ ...base, hashtags: ["Drift"] }).success).toBe(false);
+  });
+
+  it("groups every built-in genre in 8 groups: football and gym under Sport, each group used, mine reserved", () => {
+    expect(GENRE_GROUPS.map((g) => g.id)).toEqual([
+      "sport",
+      "food",
+      "lifestyle",
+      "outdoors",
+      "entertainment",
+      "automotive",
+      "business",
+      "craft",
+    ]);
+    const ids = new Set(GENRE_GROUPS.map((g) => g.id));
+    expect(ids.size).toBe(GENRE_GROUPS.length);
+    for (const g of GENRE_GROUPS) {
+      expect(g.id).toMatch(/^[a-z][a-z0-9-]*$/);
+      expect(g.id).not.toBe("mine");
+      expect(g.emoji.trim().length, g.id).toBeGreaterThan(0);
+      expect(g.name.ar.trim().length, g.id).toBeGreaterThan(0);
+      expect(g.name.en.trim().length, g.id).toBeGreaterThan(0);
+    }
+    // No genre without a group, and every group names a defined one.
+    for (const g of GENRES) expect(ids.has(g.group ?? ""), g.id).toBe(true);
+    const of = (group: string) => GENRES.filter((g) => g.group === group).map((g) => g.id);
+    expect(of("sport")).toEqual(["football", "gym", "combat", "basketball"]);
+    expect(of("food")).toEqual(["food", "coffee", "desserts", "cooking"]);
+    expect(of("lifestyle")).toEqual([
+      "perfume",
+      "fashion",
+      "weddings",
+      "beauty",
+      "family",
+      "luxury",
+    ]);
+    expect(of("outdoors")).toEqual(["travel", "camping", "sea", "drone"]);
+    expect(of("entertainment")).toEqual([
+      "anime",
+      "gaming",
+      "music",
+      "cinematic",
+      "podcast",
+      "comedy",
+    ]);
+    expect(of("automotive")).toEqual(["cars", "bikes", "racing"]);
+    expect(of("business")).toEqual(["realestate", "services", "product", "corporate", "tech"]);
+    expect(of("craft")).toEqual(["photography", "colorgrading", "vfx"]);
+    for (const group of GENRE_GROUPS) expect(of(group.id).length, group.id).toBeGreaterThan(0);
+  });
+
+  it("refuses a file whose built-in genre has no group, an unknown group, or a group called mine", () => {
+    const file = raw as { groups: { id: string }[]; genres: Record<string, unknown>[] };
+    expect(GenresFileSchema.safeParse(file).success).toBe(true);
+    const genres = (change: Record<string, unknown>) =>
+      file.genres.map((g, i) => (i === 0 ? { ...g, ...change } : g));
+    expect(
+      GenresFileSchema.safeParse({ ...file, genres: genres({ group: undefined }) }).success,
+    ).toBe(false);
+    expect(
+      GenresFileSchema.safeParse({ ...file, genres: genres({ group: "drift" }) }).success,
+    ).toBe(false);
+    const mine = { id: "mine", emoji: "✨", name: { ar: "حقّي", en: "Mine" } };
+    expect(GenresFileSchema.safeParse({ ...file, groups: [...file.groups, mine] }).success).toBe(
+      false,
+    );
+  });
+
+  it("GenreSchema keeps an optional group id; GenreGroupSchema checks a group", () => {
+    const base = {
+      id: "drift",
+      emoji: "🏎️",
+      name: { ar: "درفت", en: "Drift" },
+      queries: { ar: ["ايديت درفت"], en: ["drift edit"] },
+    };
+    expect(GenreSchema.parse(base).group).toBeUndefined();
+    expect(GenreSchema.parse({ ...base, group: "cars" }).group).toBe("cars");
+    expect(GenreSchema.safeParse({ ...base, group: "Cars" }).success).toBe(false);
+    const group = { id: "sport", emoji: "🏟️", name: { ar: "رياضة", en: "Sport" } };
+    expect(GenreGroupSchema.parse(group)).toEqual(group);
+    expect(GenreGroupSchema.safeParse({ ...group, id: "1sport" }).success).toBe(false);
+    expect(GenreGroupSchema.safeParse({ ...group, emoji: "" }).success).toBe(false);
   });
 });

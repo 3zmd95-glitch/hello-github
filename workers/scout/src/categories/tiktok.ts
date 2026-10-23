@@ -7,18 +7,20 @@
  * The popular hashtags in the country over 7 days (`trending_list`, TikTok's top 200 by rank) of the category's industry,
  * of SPECIAL_EFFECTS and of PHOTOGRAPHY: the owner saw general food videos on Food's tab and said "its not cool edits
  * trending videos", so edit hashtags come first (`pick`). Then one `video_list` call for the 10 picked's top 20
- * videos each (ranked by TikTok on views, comments, likes and shares), taken in turns into ≤ 50: each hashtag's 1st
- * video in the picked order, then its 2nd… each video once. TikTok sends no caption or counts: a video is titled with
- * its hashtag, and the page's TikTok oEmbed lookup brings its caption and thumbnail. 1 KV read and 4 calls a scan.
+ * videos each. Hashtags select candidates only; at most12 public oEmbed captions are read, and only category-specific
+ * creative metadata qualifies a recommendation. Missing/blocked captions leave fewer results, never filler.
+ * 1 KV read, up to4 Business API calls and12 public oEmbed calls (cached when available).
  * Never throws.
  */
 
 import { CALL_TIMEOUT_MS } from "../discover/fetchers";
 import { isRecord } from "../effects/ai";
 import { canonicalUrl, platformForHost } from "../normalize";
+import { postedAt } from "../postDate";
 import { readAdsToken, type TikTokAdsEnv } from "../tiktokads";
-import { categoryById, categoryWords } from "./defs";
-import { answered, getJson, TOP_MAX, withParams, type Reply } from "./top";
+import { CATEGORY_PROFILES } from "../discover/category-profiles";
+import { categoryCreativeEvidence, rankCategoryVideos } from "./quality";
+import { answered, getJson, withParams, type Reply } from "./top";
 import type { TopVideo } from "./types";
 
 export const TT_TRENDING_URL =
@@ -39,44 +41,34 @@ export const TIKTOK_INDUSTRY: Readonly<Record<string, string>> = {
   gaming: "VIDEO_GAMES",
   weddings: "ROMANCE",
   gym: "EXERCISE_AND_FITNESS",
+  // The later categories reuse only industry names already used live above; the rest have no TikTok list
+  // (tiktokTop answers no videos and keeps the stored list; the probe skips them).
+  combat: "CONVENTIONAL_AND_MAINSTREAM_SPORTS",
+  basketball: "CONVENTIONAL_AND_MAINSTREAM_SPORTS",
+  desserts: "FOOD",
+  cooking: "FOOD",
+  beauty: "BEAUTY",
+  sea: "OUTDOOR_RECREATION",
+  drone: "PHOTOGRAPHY",
+  bikes: "AUTOMOTIVE",
+  racing: "AUTOMOTIVE",
+  photography: "PHOTOGRAPHY",
+  colorgrading: "PHOTOGRAPHY",
+  vfx: "SPECIAL_EFFECTS",
 };
 
 /** The 2 industries whose popular hashtags are edit styles of any subject, asked besides the category's own. */
 export const TT_EFFECTS = "SPECIAL_EFFECTS";
 export const TT_PHOTO = "PHOTOGRAPHY";
 
-/** Words that mark an edit video's hashtag, found anywhere in its name (hashtags have no spaces: "foodedit").
- * ponytail: substring match, so "shot" also hits "screenshot"; a word list per cue if that shows up live. */
-const EDIT_CUES: readonly string[] = [
-  "edit",
-  "edits",
-  "editing",
-  "cinematic",
-  "videography",
-  "broll",
-  "transition",
-  "transitions",
-  "aesthetic",
-  "montage",
-  "effect",
-  "effects",
-  "asmr",
-  "slowmo",
-  "slowmotion",
-  "timelapse",
-  "hyperlapse",
-  "pov",
-  "filmmaking",
-  "shot",
-  "shots",
-  "reel",
-  "visuals",
-];
-
 /** `video_list` takes at most 10 hashtags. */
 const HASHTAGS = 10;
-/** Fewer of a tier popular in the country than this, and its others fill in by rank (3 × 20 videos cover the 50). */
-const IN_COUNTRY_MIN = 3;
+const NEUTRAL_CRAFT_HASHTAGS = 2;
+/** Documented related-video horizon per picked hashtag; never traverse arbitrary upstream arrays. */
+const VIDEOS_PER_HASHTAG = 20;
+/** Hard ceiling, three concurrent public oEmbed requests; Discovery hashtags never count as captions. */
+export const TIKTOK_CAPTION_MAX = 12;
+const CAPTION_TIMEOUT_MS = 4_000;
 const DATE_RANGE = "7DAY";
 const MESSAGE_MAX = 120;
 /** The only TikTok link the app's player plays (lib/embed `embedId`): one video, with its creator's handle. */
@@ -88,14 +80,15 @@ const PLAYABLE = /^https:\/\/www\.tiktok\.com\/(@[\w.-]+)\/video\/(\d+)$/;
  * videos TikTok sent), country, industry }. */
 export interface TikTokTop {
   videos?: TopVideo[];
+  /** Bounded retrieval leads, including caption-poor posts. Not recommendations or trend evidence. */
+  candidates?: TopVideo[];
   note?: "tiktok" | "tiktok_auth";
   diagnostics?: Record<string, unknown>;
 }
 
 type Hashtag = { id: string; name: string; rank: number; here: boolean };
-/** 1: an edit cue and a subject word; 2: an edit cue, from an edit list; 3: a subject word; 4: any other of the
- * industry's list (the old rule: the tab is never thin). */
-type Tier = 1 | 2 | 3 | 4;
+/** 1: category craft; 2: subject-neutral named craft; 3: category only. All are retrieval leads. */
+type Tier = 1 | 2 | 3;
 type Picked = Hashtag & { tier: Tier };
 
 /** TIKTOK_DISCOVERY_COUNTRY when it is a 2-letter code, else US (English first, global). */
@@ -104,12 +97,12 @@ function countryOf(env: TikTokAdsEnv): string {
   return c && /^[A-Z]{2}$/.test(c) ? c : "US";
 }
 
-/** `data.list` of an answer with `code: 0` ([] when it has none); undefined for any other answer. */
+/** A real `data.list` on success (the official code can be absent/null); malformed envelopes fail. */
 const listOf = (r: Reply): unknown[] | undefined =>
-  answered(r) && r.body.code === 0
+  answered(r) && (r.body.code == null || r.body.code === 0)
     ? isRecord(r.body.data) && Array.isArray(r.body.data.list)
       ? r.body.data.list
-      : []
+      : undefined
     : undefined;
 
 /** TikTok's failure as the diagnostics keep it: its code and message, else the HTTP status. Never the token. */
@@ -154,37 +147,49 @@ function parse(list: unknown[], country: string): Hashtag[] {
   });
 }
 
-function tierOf(name: string, subject: string[], editList: boolean): Tier | undefined {
-  const n = name.toLowerCase();
-  const cue = EDIT_CUES.some((c) => n.includes(c));
-  const about = subject.some((w) => n.includes(w));
-  return cue && about ? 1 : cue && editList ? 2 : about ? 3 : editList ? undefined : 4;
+function tierOf(name: string, id: string, editList: boolean): Tier | undefined {
+  const text = name.replace(/_/g, " ") + ` #${name}`;
+  const evidence = categoryCreativeEvidence(id, text);
+  // A broad #caredit tag is a useful lead, even though "car edit" alone is insufficient
+  // caption evidence for recommending a video. Every candidate still passes the final gate.
+  if (evidence.category)
+    return evidence.creative || evidence.techniques.includes("editing") ? 1 : 3;
+  // Effects/photo charts can supply techniques whose tag doesn't name its videos' subjects.
+  // Generic edit/style tags and recognized other-category subjects never use these reserved slots.
+  if (!editList || !evidence.namedTechniques.length) return undefined;
+  const otherSubject = Object.keys(CATEGORY_PROFILES).some((other) => {
+    const proof = categoryCreativeEvidence(other, text);
+    return proof.subjects.length > 0 || proof.exclusions.includes("other-sport");
+  });
+  return otherSubject ? undefined : 2;
 }
 
-/** The hashtags to ask videos of, ≤ 10: tier 1, then 2, 3 and 4 (`Tier`), each hashtag once in its best tier. In
- * each tier by rank, the ones popular in the country; with fewer than 3 there, the tier's others fill in by rank. An
- * edit list's hashtag with neither an edit cue nor a subject word is left out; the industry's others fill in last. */
+/** Keep at most two named-craft leads within the existing ten-tag budget; captions decide category fit. */
 function pick(
   lists: { tags: unknown[]; editList: boolean }[],
   country: string,
-  subject: string[],
+  id: string,
 ): Picked[] {
   const best = new Map<string, Picked>();
   for (const { tags, editList } of lists)
     for (const t of parse(tags, country)) {
-      const tier = tierOf(t.name, subject, editList);
+      // video_list requires the requested country to be in this hashtag's top_country_list.
+      if (!t.here) continue;
+      const tier = tierOf(t.name, id, editList);
       const had = best.get(t.id);
       if (tier && (!had || tier < had.tier)) best.set(t.id, { ...t, tier });
     }
-  const out: Picked[] = [];
-  for (const tier of [1, 2, 3, 4]) {
-    const tags = [...best.values()]
+  const ranked = (tier: Tier) =>
+    [...best.values()]
       .filter((t) => t.tier === tier)
       .sort((a, b) => (a.rank === b.rank ? 0 : a.rank - b.rank));
-    const here = tags.filter((t) => t.here);
-    out.push(...(here.length >= IN_COUNTRY_MIN ? here : [...here, ...tags.filter((t) => !t.here)]));
-  }
-  return out.slice(0, HASHTAGS);
+  const neutral = ranked(2).slice(0, NEUTRAL_CRAFT_HASHTAGS);
+  const category = [...ranked(1), ...ranked(3)].slice(0, HASHTAGS - neutral.length);
+  return [
+    ...category.filter((t) => t.tier === 1),
+    ...neutral,
+    ...category.filter((t) => t.tier === 3),
+  ];
 }
 
 /** One of TikTok's videos as a top video: its share link without the query, kept only when it is an https tiktok.com
@@ -200,24 +205,96 @@ function tiktokVideo(x: unknown, hashtag: string): { id: string; video: TopVideo
   if (u.protocol !== "https:" || platformForHost(u.hostname) !== "tt") return undefined;
   const m = canonicalUrl("tt", u).match(PLAYABLE);
   if (!m) return undefined;
-  const id = typeof x.video_id === "string" && x.video_id ? x.video_id : m[2];
+  if (x.video_id != null && x.video_id !== m[2]) return undefined;
+  const id = m[2];
   return { id, video: { url: m[0], title: `#${hashtag}`, creator: m[1] } };
 }
 
-/** Each hashtag's 1st video in the picked order (tier 1 first), then its 2nd…, each video once, ≤ 50. */
-function inTurns(columns: { name: string; videos: unknown[] }[]): TopVideo[] {
+/** Skip retained IDs before spending the caption budget; count the remaining bounded horizon.
+ * Each valid video contributes once even when several hashtags or handles share its ID. */
+function inTurns(
+  columns: { name: string; videos: unknown[] }[],
+  excluded: ReadonlySet<string>,
+): { candidates: TopVideo[]; skippedKnown: number; unseenRemaining: number } {
   const out: TopVideo[] = [];
   const seen = new Set<string>();
+  let skippedKnown = 0;
+  let unseenRemaining = 0;
   const depth = Math.max(0, ...columns.map((c) => c.videos.length));
-  for (let i = 0; i < depth && out.length < TOP_MAX; i++)
+  for (let i = 0; i < depth; i++)
     for (const c of columns) {
       const v = tiktokVideo(c.videos[i], c.name);
-      if (!v || seen.has(v.id) || out.length >= TOP_MAX) continue;
+      if (!v || seen.has(v.id)) continue;
       seen.add(v.id);
-      out.push(v.video);
+      if (excluded.has(v.id)) skippedKnown++;
+      else if (out.length < TIKTOK_CAPTION_MAX) out.push(v.video);
+      else unseenRemaining++;
     }
-  return out;
+  return { candidates: out, skippedKnown, unseenRemaining };
 }
+
+/** Reuses /oembed's normalized public cache entries and its six-hour TikTok TTL. Never sends the Business token.
+ * A cache/network error rejects this candidate rather than recommending a hashtag-labelled unknown video. */
+async function caption(
+  video: TopVideo,
+  doFetch: typeof fetch,
+  timeoutMs: number,
+  cache: Cache | null,
+): Promise<TopVideo | undefined> {
+  const endpoint = `https://www.tiktok.com/oembed?url=${encodeURIComponent(video.url)}`;
+  const key = new Request(endpoint, { method: "GET" });
+  let data: Record<string, unknown> | undefined;
+  try {
+    const hit = await cache?.match(key);
+    const body: unknown = await hit?.json();
+    if (isRecord(body) && typeof body.title === "string" && body.url === video.url) data = body;
+  } catch {
+    /* Missing/corrupt cache entries are fetched again. */
+  }
+  if (!data) {
+    const reply = await getJson(
+      doFetch,
+      endpoint,
+      { Accept: "application/json" },
+      Math.min(timeoutMs, CAPTION_TIMEOUT_MS),
+    );
+    if (!answered(reply) || typeof reply.body.title !== "string") return undefined;
+    data = {
+      title: reply.body.title,
+      author: video.creator ?? "",
+      thumb: reply.body.thumbnail_url ?? "",
+      url: video.url,
+    };
+    try {
+      await cache?.put(
+        key,
+        new Response(JSON.stringify(data), {
+          headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=21600" },
+        }),
+      );
+    } catch {
+      /* Cache writes are optional; the caption is still usable. */
+    }
+  }
+  const title = String(data.title)
+    .replace(/[\u202a-\u202e\u2066-\u2069]/g, "")
+    .trim()
+    .slice(0, 1200);
+  if (!title) return undefined;
+  const publishedAt = postedAt(video.url);
+  return {
+    ...video,
+    title: title.slice(0, 160),
+    snippet: title,
+    source: "tiktok-discovery",
+    ...(typeof data.thumb === "string" && data.thumb.startsWith("https://")
+      ? { thumbnail: data.thumb }
+      : {}),
+    ...(publishedAt ? { publishedAt } : {}),
+  };
+}
+
+const defaultCache = (): Cache | null => (typeof caches === "undefined" ? null : caches.default);
 
 /** The category's TikTok list (`id` is a built-in category: each has its industry). */
 export async function tiktokTop(
@@ -225,6 +302,8 @@ export async function tiktokTop(
   doFetch: typeof fetch,
   id: string,
   timeoutMs = CALL_TIMEOUT_MS,
+  cache: Cache | null = defaultCache(),
+  options: { excludeVideoIds?: readonly string[] } = {},
 ): Promise<TikTokTop> {
   try {
     const token = await readAdsToken(env);
@@ -232,9 +311,7 @@ export async function tiktokTop(
     if (!token || !advertiser) return { note: "tiktok_auth" };
     const country = countryOf(env);
     const industry = TIKTOK_INDUSTRY[id];
-    const genre = categoryById(id);
-    // The category's English name's words, their singulars and its subject's: "food", "restaurants", "restaurant".
-    const subject = genre ? [...categoryWords(genre)] : [];
+    if (!industry || !CATEGORY_PROFILES[id]) return { videos: [] };
     const headers = { Accept: "application/json", "Access-Token": token.access_token };
     const asked = {
       advertiser_id: advertiser,
@@ -242,8 +319,11 @@ export async function tiktokTop(
       country_code: country,
       date_range: DATE_RANGE,
     };
-    const [trending, effects, photo] = await Promise.all(
-      [industry, TT_EFFECTS, TT_PHOTO].map((category_name) =>
+    // One call per distinct industry: Drone, Photography and Color grading's own industry is PHOTOGRAPHY, VFX's
+    // is SPECIAL_EFFECTS, the two edit lists asked anyway.
+    const names = [...new Set([industry, TT_EFFECTS, TT_PHOTO])];
+    const answers = await Promise.all(
+      names.map((category_name) =>
         getJson(
           doFetch,
           withParams(TT_TRENDING_URL, { ...asked, category_name }),
@@ -252,6 +332,8 @@ export async function tiktokTop(
         ),
       ),
     );
+    const answer = (name: string) => answers[names.indexOf(name)];
+    const [trending, effects, photo] = [answer(industry), answer(TT_EFFECTS), answer(TT_PHOTO)];
     const hashtags = listOf(trending);
     if (!hashtags) return failure(trending, token.access_token);
     // An edit list failing is left out: the industry's list still makes a tab.
@@ -264,7 +346,7 @@ export async function tiktokTop(
         { tags: photoTags ?? [], editList: true },
       ],
       country,
-      subject,
+      id,
     );
     let columns: { name: string; videos: unknown[] }[] = [];
     if (picked.length) {
@@ -282,13 +364,28 @@ export async function tiktokTop(
       const byId = new Map<string, unknown[]>();
       for (const e of lists)
         if (isRecord(e) && Array.isArray(e.top_video_list))
-          byId.set(String(e.hashtag_id), e.top_video_list);
+          byId.set(String(e.hashtag_id), e.top_video_list.slice(0, VIDEOS_PER_HASHTAG));
       // The picked order, whatever order TikTok answers in.
       columns = picked.map((h) => ({ name: h.name, videos: byId.get(h.id) ?? [] }));
     }
-    const videos = inTurns(columns);
+    const { candidates, skippedKnown, unseenRemaining } = inTurns(
+      columns,
+      new Set(options.excludeVideoIds),
+    );
+    const captioned: TopVideo[] = [];
+    for (let i = 0; i < candidates.length; i += 3) {
+      const batch = await Promise.all(
+        candidates.slice(i, i + 3).map((v) => caption(v, doFetch, timeoutMs, cache)),
+      );
+      captioned.push(...batch.filter((v): v is TopVideo => !!v));
+    }
+    const videos = rankCategoryVideos(id, captioned);
     return {
       videos,
+      candidates: candidates.map(
+        (video) =>
+          captioned.find((found) => found.url === video.url) ?? { ...video, title: "TikTok video" },
+      ),
       diagnostics: {
         hashtags: picked.map((h) => ({ name: h.name, tier: h.tier })),
         lists: {
@@ -297,6 +394,10 @@ export async function tiktokTop(
           photo: photoTags?.length ?? null,
         },
         videos: videos.length,
+        captionCandidates: candidates.length,
+        captioned: captioned.length,
+        skippedKnown,
+        unseenRemaining,
         raw: columns.reduce((n, c) => n + c.videos.length, 0),
         country,
         industry,

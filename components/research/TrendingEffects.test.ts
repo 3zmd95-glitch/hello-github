@@ -69,6 +69,7 @@ const SPEED = {
 };
 
 const docOf = (over: Record<string, unknown> = {}) => ({
+  evidenceVersion: 1,
   status: "ok",
   ranOn: "2026-10-06",
   updatedAt: new Date(Date.now() - 5 * HOUR).toISOString(),
@@ -78,10 +79,10 @@ const docOf = (over: Record<string, unknown> = {}) => ({
 const NEVER = { status: "never", items: [] };
 /** The Worker's own failed run, with no list yet. */
 const FAILED_RUN = { status: "failed", ranOn: "2026-10-06", notes: ["quota"], items: [] };
-const WAITING = "أدوّر على الترندات… ممكن تاخذ دقيقة";
+const WAITING = "أدوّر على تقنيات مونتاج… ممكن تاخذ دقيقة";
 const RUN_FAILED = "ما قدرت أشغّل الفحص، جرّب بعد شوي";
 const RUN_LIMIT = "جرّبت كذا مرة اليوم، أرجع أجرّب بكرة";
-const NONE = "لسه ما فيه مؤثر منتشر كفاية، أرجع أشيّك بكرة";
+const NONE = "لسه ما لقينا منشورات حديثة كفاية من حسابات محدّدة الهوية، شيّك بعدين";
 
 /** What `GET /effects/trending` answers; null = an older Worker without the route (404). */
 let trending: unknown;
@@ -180,18 +181,172 @@ afterEach(async () => {
 });
 
 describe("the trending-effects row", () => {
-  it("shows nothing for an older Worker (404)", async () => {
+  it("preserves the inspector's edited URL and provider while the initial effects read settles", async () => {
+    let releaseGet!: () => void;
+    getGate = new Promise<void>((resolve) => {
+      releaseGet = resolve;
+    });
+    try {
+      await mount("en");
+      expect(gets).toBe(1);
+      expect($("trending-effects")).toBeNull();
+      const inspector = $("format-inspector") as HTMLDetailsElement;
+      act(() => {
+        inspector.open = true;
+        inspector.dispatchEvent(new Event("toggle"));
+      });
+      const input = $("format-check-url") as HTMLInputElement;
+      const typedUrl = "https://www.instagram.com/reel/OwnerChosenReference/";
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+          input,
+          typedUrl,
+        );
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const aiDetails = inspector.querySelector("details")!;
+      act(() => {
+        aiDetails.open = true;
+        aiDetails.dispatchEvent(new Event("toggle"));
+      });
+      await settle();
+      act(() => {
+        const provider = $("ai-provider") as HTMLSelectElement;
+        provider.value = "claude";
+        provider.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      expect(($("ai-provider") as HTMLSelectElement).value).toBe("claude");
+
+      releaseGet();
+      await settle();
+      expect(chips()).toHaveLength(4);
+      expect($("format-inspector")).toBe(inspector);
+      expect(inspector.open).toBe(true);
+      expect(($("format-check-url") as HTMLInputElement).value).toBe(typedUrl);
+      expect(($("ai-provider") as HTMLSelectElement).value).toBe("claude");
+      expect(posts).toHaveLength(0);
+    } finally {
+      releaseGet();
+    }
+  });
+
+  it("reports a failed formats-only scan while retaining its cards and followed snapshot", async () => {
+    const at = new Date(Date.now() - 60_000).toISOString();
+    const format = {
+      key: "formats-only-test",
+      name: { en: "Cutout rhythm" },
+      visualPattern: { en: "Repeated cutout figures" },
+      audio: { title: "Test track" },
+      firstSeen: at,
+      lastChecked: at,
+      evidence: {
+        state: "candidate",
+        creators7d: 1,
+        posts7d: 1,
+        latestPostAt: at,
+        scope: "indexed-public-posts",
+      },
+      samples: [
+        {
+          url: "https://www.instagram.com/reel/FORMAT/",
+          title: "Cutout rhythm",
+          platform: "ig",
+          handle: "editor",
+          published: at,
+          observedAt: at,
+          patternQuote: "Repeated cutout figures",
+          audioQuote: "Test track",
+        },
+      ],
+    };
+    trending = docOf({ items: [], formatVersion: 1, formats: [format] });
+    runAnswer = { body: { error: "unavailable" }, status: 503 };
+    await mount("en");
+    const formatCard = () =>
+      host.querySelector<HTMLElement>('[data-testid="edit-format"][data-key="formats-only-test"]')!;
+    expect($("trending-effects")).toBeNull();
+    act(() =>
+      formatCard().querySelector<HTMLButtonElement>('[data-testid="format-follow"]')!.click(),
+    );
+    act(() => $("formats-scan")!.click());
+    expect($("formats-scan-status")!.textContent).toContain("Checking public posts");
+    await settle();
+    await act(async () => releaseRun!());
+    await settle();
+    expect($("formats-scan-status")!.textContent).toContain("scan couldn't finish");
+    expect(formatCard()).not.toBeNull();
+    expect(
+      useStore.getState().followedFormats.some((entry) => entry.format.key === format.key),
+    ).toBe(true);
+    act(() => useStore.getState().unfollowFormat(format.key));
+  });
+
+  it("explains format detection failure even when generic techniques succeeded", async () => {
+    trending = docOf({
+      status: "partial",
+      formatVersion: 1,
+      formats: [],
+      notes: ["formats_ai_unavailable"],
+    });
+    await mount("en");
+    expect($("formats-scan-status")!.textContent).toContain("Format detection was unavailable");
+    expect(chips()).toHaveLength(4);
+  });
+
+  it("keeps legacy ideas without unverified counts, NEW badges, or YouTube growth claims", async () => {
+    trending = docOf({ evidenceVersion: undefined });
+    await mount("en");
+    expect(chips().map((c) => c.textContent)).toEqual([
+      "clone effect",
+      "swagger trend",
+      "flash clone edit",
+      "speed ramp",
+    ]);
+    expect(host.textContent).not.toContain("↑");
+    expect(host.textContent).not.toContain("NEW");
+    expect(host.textContent).toContain("Popularity and visual quality haven't been verified");
+    expect(chip("clone-effect").title).not.toContain("accounts");
+  });
+
+  it("offers dated supporting links without treating them as a popularity certificate", async () => {
+    trending = docOf({
+      items: [
+        {
+          ...CLONE,
+          samples: [
+            {
+              url: "https://www.instagram.com/p/VALID",
+              title: "Clone tutorial",
+              published: "2026-10-06T12:00:00Z",
+            },
+          ],
+        },
+      ],
+    });
+    await mount("en");
+    const evidence = $("effect-evidence")!;
+    expect(evidence.querySelector("summary")!.textContent).toBe("View supporting posts");
+    const source = evidence.querySelector("a")!;
+    expect(source.href).toBe("https://www.instagram.com/p/VALID");
+    expect(source.rel).toBe("noopener noreferrer");
+    expect(evidence.querySelector("time")!.textContent).toBe("2026-10-06");
+    expect(host.textContent).not.toContain("↑");
+  });
+
+  it("hides automatic techniques for an older Worker while keeping the reviewed format lead", async () => {
     trending = null;
     await mount();
     expect(gets).toBe(1);
-    expect(host.innerHTML).toBe("");
+    expect($("trending-effects")).toBeNull();
+    expect($("edit-formats")).not.toBeNull();
+    expect($("formats-awaiting-scan")).not.toBeNull();
   });
 
-  it("in Arabic: the English names (live fix 1), the NEW badge, the reason with and without YouTube", async () => {
+  it("in Arabic: English technique names with identified account evidence and no growth badges", async () => {
     await mount("ar");
     const row = $("trending-effects")!;
     expect(row.getAttribute("data-state")).toBe("list");
-    expect(row.querySelector("h2")!.textContent).toBe("🔥 ترند المؤثرات هالأسبوع");
+    expect(row.querySelector("h2")!.textContent).toBe("✂️ تقنيات مونتاج تستكشفها");
     expect(row.textContent).toContain("تحدّثت قبل 5 س");
     expect(row.textContent).not.toContain("ما قدرت أحدّثها اليوم");
     const link = row.querySelector("a")!;
@@ -202,26 +357,30 @@ describe("the trending-effects row", () => {
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
 
-    // YouTube's note from 1.5× (inclusive): 1.5 shows it, 1.49 does not.
+    // Old YouTube fields and first-seen flags never produce growth or NEW badges.
     expect(chips().map((c) => [c.getAttribute("data-key"), c.textContent])).toEqual([
-      ["clone-effect", "clone effect9 صنّاع · ▶ ↑1.5×"],
-      ["swagger-trend", "swagger trendجديد4 صنّاع · ▶ ↑3×"],
-      ["flash-clone-edit", "flash clone editجديد3 صنّاع"],
-      ["speed-ramp", "speed ramp7 صنّاع"],
+      ["clone-effect", "clone effect9 حسابات محدّدة الهوية"],
+      ["swagger-trend", "swagger trend4 حسابات محدّدة الهوية"],
+      ["flash-clone-edit", "flash clone edit3 حسابات محدّدة الهوية"],
+      ["speed-ramp", "speed ramp7 حسابات محدّدة الهوية"],
     ]);
     // The what line in English: the tooltip, with the Arabic name under it, and in what a screen reader reads. The
-    // tooltip ends with what the count means (2026-10-07: creators are counted by the day they posted).
+    // tooltip ends with what the count means (2026-10-07: identified accounts are counted by the day they posted).
     expect(chip("swagger-trend").title).toBe(
-      "Clone yourself with one hair flip\nترند السواقر\n4 صنّاع نزّلوه آخر 7 أيام",
+      "Clone yourself with one hair flip\nترند السواقر\n4 حسابات عرفنا هويتها على المنصة ذكرتها في منشورات مفهرسة بتاريخ آخر 7 أيام قبل الفحص",
     );
     expect(chip("swagger-trend").getAttribute("aria-label")).toBe(
-      "swagger trend · جديد · 4 صنّاع · ▶ ↑3× · Clone yourself with one hair flip",
+      "swagger trend · 4 حسابات محدّدة الهوية · Clone yourself with one hair flip",
     );
     expect(chip("clone-effect").getAttribute("aria-label")).toBe(
-      "clone effect · 9 صنّاع · ▶ ↑1.5× · You show up twice in one shot",
+      "clone effect · 9 حسابات محدّدة الهوية · You show up twice in one shot",
     );
-    expect(chip("speed-ramp").title).toBe("سبيد رامب\n7 صنّاع نزّلوه آخر 7 أيام");
-    expect(chip("flash-clone-edit").title).toBe("3 صنّاع نزّلوه آخر 7 أيام");
+    expect(chip("speed-ramp").title).toBe(
+      "سبيد رامب\n7 حسابات عرفنا هويتها على المنصة ذكرتها في منشورات مفهرسة بتاريخ آخر 7 أيام قبل الفحص",
+    );
+    expect(chip("flash-clone-edit").title).toBe(
+      "3 حسابات عرفنا هويتها على المنصة ذكرتها في منشورات مفهرسة بتاريخ آخر 7 أيام قبل الفحص",
+    );
     expect($("trending-run")).toBeNull();
   });
 
@@ -229,16 +388,16 @@ describe("the trending-effects row", () => {
     await mount("en");
     expect($("trending-effects")!.textContent).toContain("updated 5 h ago");
     expect(chips().map((c) => c.textContent)).toEqual([
-      "clone effect9 creators · ▶ ↑1.5×",
-      "swagger trendNEW4 creators · ▶ ↑3×",
-      "flash clone editNEW3 creators",
-      "speed ramp7 creators",
+      "clone effect9 identified accounts",
+      "swagger trend4 identified accounts",
+      "flash clone edit3 identified accounts",
+      "speed ramp7 identified accounts",
     ]);
     expect(chip("clone-effect").getAttribute("aria-label")).toBe(
-      "clone effect · 9 creators · ▶ ↑1.5× · You show up twice in one shot",
+      "clone effect · 9 identified accounts · You show up twice in one shot",
     );
     expect(chip("clone-effect").title).toBe(
-      "You show up twice in one shot\nتأثير الاستنساخ\n9 creators posted it in the last 7 days",
+      "You show up twice in one shot\nتأثير الاستنساخ\n9 identified platform accounts mentioned it in indexed posts dated within 7 days of the scan",
     );
   });
 
@@ -259,13 +418,15 @@ describe("the trending-effects row", () => {
   it("shows nothing for a list older than 3 days, or a run that found nothing", async () => {
     trending = docOf({ updatedAt: new Date(Date.now() - 73 * HOUR).toISOString() });
     await mount();
-    expect(host.innerHTML).toBe("");
+    expect($("trending-effects")).toBeNull();
+    expect($("edit-formats")).not.toBeNull();
     trending = docOf({ items: [] });
     sessionStorage.clear();
     remount();
     await settle();
     expect(gets).toBe(2);
-    expect(host.innerHTML).toBe("");
+    expect($("trending-effects")).toBeNull();
+    expect($("edit-formats")).not.toBeNull();
   });
 
   it("a tap searches the effect: a dictionary one its English label, a new one its English name", async () => {
@@ -505,7 +666,9 @@ describe("before the Worker's first run", () => {
       await settle();
       expect($("trending-effects")!.getAttribute("data-state"), kind).toBe("never");
       expect(runButton().disabled).toBe(true);
-      expect(status()).toBe("Nothing is trending widely enough yet — I'll check again tomorrow");
+      expect(status()).toBe(
+        "Not enough recent posts from identified accounts yet — check again later",
+      );
     }
     // In Arabic too.
     trending = NEVER;
@@ -520,7 +683,8 @@ describe("before the Worker's first run", () => {
     trending = docOf({ items: [] });
     remount();
     await settle();
-    expect(host.innerHTML).toBe("");
+    expect($("trending-effects")).toBeNull();
+    expect($("edit-formats")).not.toBeNull();
   });
 
   it("a scan that rests (the day's tries spent, or nothing found) moves focus to the heading, unless the owner is elsewhere", async () => {

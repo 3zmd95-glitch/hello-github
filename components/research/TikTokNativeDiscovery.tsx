@@ -1,0 +1,168 @@
+"use client";
+
+import { useLayoutEffect, useRef, useState } from "react";
+import { useT, type MessageKey } from "@/lib/i18n";
+import type { ScoutConfig } from "@/lib/scoutClient";
+import type { DiscoverItem } from "@/lib/discover";
+import { acquireTikTokEdits, knownTikTokIds, type TikTokCountry } from "@/lib/tiktokAccess";
+
+export default function TikTokNativeDiscovery({
+  config,
+  categoryId,
+  active,
+  knownItems = [],
+  onCandidates,
+}: {
+  config: ScoutConfig | null;
+  categoryId: string;
+  active: boolean;
+  knownItems?: readonly DiscoverItem[];
+  onCandidates: (items: DiscoverItem[]) => void;
+}) {
+  const { t } = useT();
+  const [country, setCountry] = useState<TikTokCountry>("US");
+  const scope = JSON.stringify([active, categoryId, country, config?.url, config?.token]);
+  const current = useRef(scope);
+  const pending = useRef<AbortController | null>(null);
+  const seen = useRef<{ scope: string; ids: string[] }>({ scope, ids: [] });
+  const [state, setState] = useState<{
+    scope: string;
+    busy?: boolean;
+    done?: boolean;
+    message: MessageKey;
+    n?: number;
+  }>();
+  useLayoutEffect(() => {
+    current.current = scope;
+    pending.current?.abort();
+    pending.current = null;
+    return () => {
+      pending.current?.abort();
+      pending.current = null;
+    };
+  }, [scope]);
+  const visible = state?.scope === scope ? state : undefined;
+  const acquire = async () => {
+    if (!active || !config || pending.current || visible?.done) return;
+    const controller = new AbortController();
+    pending.current = controller;
+    const excludeVideoIds = [
+      ...new Set([
+        ...(seen.current.scope === scope ? seen.current.ids : []),
+        ...knownTikTokIds(knownItems),
+      ]),
+    ].slice(0, 200);
+    const valid = () =>
+      current.current === scope && pending.current === controller && !controller.signal.aborted;
+    setState({ scope, busy: true, message: "feed.tiktokFindWorking" });
+    try {
+      const result = await acquireTikTokEdits(config, categoryId, {
+        signal: controller.signal,
+        country,
+        excludeVideoIds,
+      });
+      if (!valid()) return;
+      if (result.ok && result.value.status === "accepted") {
+        seen.current = {
+          scope,
+          ids: [...new Set([...excludeVideoIds, ...knownTikTokIds(result.value.items)])].slice(
+            0,
+            200,
+          ),
+        };
+        onCandidates(result.value.items);
+        setState({
+          scope,
+          done: !result.value.supply?.unseenRemaining || seen.current.ids.length >= 200,
+          message: result.value.items.length
+            ? "feed.tiktokFindResult"
+            : result.value.supply?.matchedHashtags === 0
+              ? "feed.tiktokFindNoTags"
+              : result.value.supply?.skippedKnown
+                ? "feed.tiktokFindSeen"
+                : "feed.tiktokFindEmpty",
+          n: result.value.items.length,
+        });
+      } else {
+        const code = result.ok ? result.value.status : result.error;
+        const message: MessageKey =
+          code === "not_connected"
+            ? "feed.tiktokAccessAbsent"
+            : code === "timeout"
+              ? "feed.tiktokAccessTimeout"
+              : code === "worker_auth"
+                ? "feed.tiktokAccessWorkerAuth"
+                : code === "worker_unavailable"
+                  ? "feed.tiktokAccessUpgrade"
+                  : code === "unconfigured"
+                    ? "feed.tiktokAccessConfig"
+                    : code === "cancelled"
+                      ? "feed.tiktokAccessCancelled"
+                      : code === "network"
+                        ? "feed.tiktokAccessNetwork"
+                        : code === "malformed"
+                          ? "feed.tiktokAccessMalformed"
+                          : "feed.tiktokAccessUpstream";
+        setState({ scope, message });
+      }
+    } catch {
+      if (valid()) setState({ scope, message: "feed.tiktokAccessUpstream" });
+    } finally {
+      if (pending.current === controller) pending.current = null;
+    }
+  };
+  if (!active) return null;
+  return (
+    <div
+      className="border-edge flex flex-col items-start gap-2 border-t pt-3 text-xs"
+      data-testid="tiktok-native-discovery"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-2">
+          {t("feed.tiktokRegion")}
+          <select
+            className="px-input max-w-full py-1 text-xs"
+            value={country}
+            onChange={(event) => setCountry(event.target.value as TikTokCountry)}
+            data-testid="tiktok-region"
+          >
+            <option value="SA">{t("feed.regionSA")}</option>
+            <option value="US">{t("feed.regionUS")}</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          className="px-btn px-btn-sm"
+          disabled={!config || visible?.busy || visible?.done}
+          onClick={() => void acquire()}
+          data-testid="tiktok-find-edits"
+        >
+          {t(visible?.n && !visible.done ? "feed.tiktokFindMore" : "feed.tiktokFind")}
+        </button>
+        {visible?.busy && (
+          <button
+            type="button"
+            className="px-link"
+            onClick={() => {
+              pending.current?.abort();
+              pending.current = null;
+              setState({ scope, message: "feed.tiktokAccessCancelled" });
+            }}
+          >
+            {t("feed.tiktokAccessCancel")}
+          </button>
+        )}
+      </div>
+      <p className="text-muted">
+        {t("feed.tiktokFindHelp", {
+          region: t(country === "SA" ? "feed.regionSA" : "feed.regionUS"),
+        })}
+      </p>
+      {visible && (
+        <p role="status" data-testid="tiktok-find-result">
+          {t(visible.message, { n: visible.n ?? 0 })}
+        </p>
+      )}
+    </div>
+  );
+}

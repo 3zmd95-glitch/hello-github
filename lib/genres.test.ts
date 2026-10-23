@@ -3,6 +3,9 @@ import { GENRES as DATA_GENRES } from "@/data/genres";
 import { CustomGenreSchema, type CustomGenre, type Genre } from "@/lib/domain";
 import {
   CUSTOM_GENRE_EMOJI,
+  GENRE_GROUPS,
+  MINE_GROUP_ID,
+  groupedGenres,
   GENRES,
   allGenres,
   customGenreId,
@@ -10,6 +13,8 @@ import {
   genreHashtag,
   genreQuery,
   isGenreNameTaken,
+  nativeCategoryQuery,
+  isLegacyNativeCategoryQuery,
 } from "./genres";
 
 const drift: CustomGenre = { id: "custom-drift", name: "Drift", query: "drift edit" };
@@ -19,7 +24,7 @@ const cars = GENRES.find((g) => g.id === "cars")!;
 describe("GENRES", () => {
   it("is the validated list of data/genres", () => {
     expect(GENRES).toBe(DATA_GENRES);
-    expect(GENRES).toHaveLength(12);
+    expect(GENRES).toHaveLength(35);
   });
 });
 
@@ -53,9 +58,9 @@ describe("allGenres", () => {
     const custom = Object.freeze([drift]);
     const all = allGenres(custom);
     all.pop();
-    expect(GENRES).toHaveLength(12);
+    expect(GENRES).toHaveLength(35);
     expect(custom).toHaveLength(1);
-    expect(allGenres(custom)).toHaveLength(13);
+    expect(allGenres(custom)).toHaveLength(36);
   });
 });
 
@@ -205,5 +210,102 @@ describe("Discover deep link", () => {
     expect(genreIdFromSearch("")).toBeUndefined();
     expect(genreIdFromSearch("?genre=")).toBeUndefined();
     expect(genreIdFromSearch("?genre=%20")).toBeUndefined();
+  });
+});
+
+describe("nativeCategoryQuery", () => {
+  const byId = (id: string) => GENRES.find((g) => g.id === id)!;
+  const specific = ["coffee", "camping", "perfume"];
+
+  it("uses the tested Coffee phrase and the specific second query for camping and perfume", () => {
+    expect(nativeCategoryQuery(byId("coffee"))).toBe("coffee cinematic");
+    expect(nativeCategoryQuery(byId("camping"))).toBe("desert cinematic video");
+    expect(nativeCategoryQuery(byId("perfume"))).toBe("perfume cinematic ad");
+    for (const id of specific) {
+      expect(nativeCategoryQuery(byId(id))).not.toContain(`${id} edit`);
+      expect(genreQuery(byId(id), "en")).toBe(byId(id).queries.en[0]);
+    }
+  });
+
+  it("keeps the first English query for every other genre and for custom genres", () => {
+    for (const g of GENRES.filter((x) => !specific.includes(x.id))) {
+      expect(nativeCategoryQuery(g)).toBe(g.queries.en[0]);
+    }
+    expect(nativeCategoryQuery(genreById("custom-drift", [drift])!)).toBe("drift edit");
+  });
+
+  it("falls back to the first query when an allowlisted genre has no usable second one", () => {
+    const camping = byId("camping");
+    const one = { ...camping, queries: { ...camping.queries, en: ["camping edit"] } };
+    const blank = { ...camping, queries: { ...camping.queries, en: ["camping edit", "  "] } };
+    expect(nativeCategoryQuery(one)).toBe("camping edit");
+    expect(nativeCategoryQuery(blank)).toBe("camping edit");
+  });
+
+  it("collapses whitespace in the second query", () => {
+    const camping = byId("camping");
+    const en = ["camping edit", " desert   cinematic\nvideo "];
+    expect(nativeCategoryQuery({ ...camping, queries: { ...camping.queries, en } })).toBe(
+      "desert cinematic video",
+    );
+  });
+});
+
+describe("isLegacyNativeCategoryQuery", () => {
+  const byId = (id: string) => GENRES.find((g) => g.id === id)!;
+  const all = (query: string) => ({ ig: query, tt: query, yt: query });
+  it.each([
+    ["coffee", "coffee edit"],
+    ["coffee", "cafe cinematic b-roll"],
+    ["camping", "camping edit"],
+    ["perfume", "perfume edit"],
+  ])("recognizes only an exact uniform former %s default: %s", (id, query) => {
+    expect(isLegacyNativeCategoryQuery(byId(id), all(query))).toBe(true);
+  });
+  it("preserves current, custom, mixed and partial Coffee queries", () => {
+    for (const queries of [
+      all("coffee cinematic"),
+      all("espresso macro"),
+      all("coffee edit "),
+      { ig: "cafe cinematic b-roll" },
+      { ig: "coffee edit", tt: "cafe cinematic b-roll", yt: "coffee edit" },
+    ])
+      expect(isLegacyNativeCategoryQuery(byId("coffee"), queries)).toBe(false);
+  });
+  it("does not migrate unaffected or custom categories", () => {
+    expect(isLegacyNativeCategoryQuery(byId("anime"), all("anime edit"))).toBe(false);
+    expect(
+      isLegacyNativeCategoryQuery(genreById("custom-drift", [drift])!, all("coffee edit")),
+    ).toBe(false);
+  });
+});
+
+describe("groupedGenres", () => {
+  // The caller names Mine from the messages (genres.group.mine).
+  const MINE = { id: MINE_GROUP_ID, emoji: CUSTOM_GENRE_EMOJI, name: { ar: "حقّي", en: "Mine" } };
+
+  it("lists the groups in file order, each with its genres in genre file order", () => {
+    const grouped = groupedGenres([], MINE);
+    expect(grouped.map((entry) => entry.group.id)).toEqual(GENRE_GROUPS.map((g) => g.id));
+    expect(grouped.map((entry) => entry.genres.map((g) => g.id))).toEqual([
+      ["football", "gym", "combat", "basketball"],
+      ["food", "coffee", "desserts", "cooking"],
+      ["perfume", "fashion", "weddings", "beauty", "family", "luxury"],
+      ["travel", "camping", "sea", "drone"],
+      ["anime", "gaming", "music", "cinematic", "podcast", "comedy"],
+      ["cars", "bikes", "racing"],
+      ["realestate", "services", "product", "corporate", "tech"],
+      ["photography", "colorgrading", "vfx"],
+    ]);
+    expect(grouped.flatMap((entry) => entry.genres)).toHaveLength(GENRES.length);
+  });
+
+  it("puts the owner's genres last, under Mine, in the order added", () => {
+    const grouped = groupedGenres([drift, hajwala], MINE);
+    const mine = grouped.at(-1)!;
+    expect(mine.group).toBe(MINE);
+    expect(mine.group.id).toBe("mine");
+    expect(mine.genres.map((g) => g.id)).toEqual(["custom-drift", "custom-هجولة"]);
+    expect(grouped).toHaveLength(GENRE_GROUPS.length + 1);
   });
 });

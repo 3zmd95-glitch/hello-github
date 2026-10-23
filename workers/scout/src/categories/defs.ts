@@ -1,11 +1,12 @@
 /**
  * Category trends (planning/tools/19-category-trends.md §2): the built-in categories of planning/data/genres.json
- * (bundled through trends/genres.ts), scanned in groups of 4 by UTC day (cars, food, anime, travel on day % 3 = 0),
+ * (bundled through trends/genres.ts), scanned in groups of 4 by UTC day (cars, food, anime, travel on day % 9 = 0),
  * one per cron slot; each category's 6 English searches, the camera words its styles may end in, its own words
  * (generic for it), the line that tells the AI what the posts are, and its KV keys.
  */
 
 import { normalizeTerm } from "../discover/terms";
+import { CATEGORY_PROFILES } from "../discover/category-profiles";
 import { GENRES, type Genre } from "../trends/genres";
 
 /** UTC "HH:MM" of the category slots, right after the effects slot (05:35): slot i scans the day's i-th category. */
@@ -25,7 +26,8 @@ export function categoryById(id: string): Genre | undefined {
   return GENRES.find((g) => g.id === id);
 }
 
-/** A UTC day's categories, one per slot: UTC day number % 3 picks the group (12 categories, 4 a day). */
+/** A UTC day's categories, one per slot: UTC day number % 9 picks the group (35 categories, 4 a day; the 9th
+ * day holds the last 3). */
 export function categoriesForDay(day: string): string[] {
   const perDay = CATEGORY_SLOTS.length;
   const groups = Math.ceil(GENRES.length / perDay);
@@ -37,19 +39,19 @@ export function categoriesForDay(day: string): string[] {
 export const categorySubject = (g: Genre) => g.queries.en[0].replace(/\s+edit$/i, "");
 
 /**
- * 6 English queries, each searched on Instagram over a month (live fix 1, §2): the main query q1 with " trend", the
- * second as it is, "viral q1", "q1 transition", "q1 capcut template" and "<subject> video trend". For Cars: "car edit
- * trend", "cinematic car edit", "viral car edit", "car edit transition", "car edit capcut template", "car video trend".
+ * Six focused queries with the same six-credit ceiling: four Instagram searches and two TikTok searches.
+ * Specific filming/editing intent replaces broad trend/viral queries; repeated hits never boost a candidate.
  */
 export function categoryQueries(g: Genre): string[] {
-  const q1 = g.queries.en[0];
+  const p = CATEGORY_PROFILES[g.id];
+  const subject = p?.subject.en ?? categorySubject(g);
   return [
-    `${q1} trend`,
-    ...g.queries.en.slice(1, 2),
-    `viral ${q1}`,
-    `${q1} transition`,
-    `${q1} capcut template`,
-    `${categorySubject(g)} video trend`,
+    p?.examples.en ?? `${subject} cinematic film`,
+    p?.retryExamples.en ?? `${subject} video ad`,
+    `${subject} match cut transition`,
+    p?.tutorials.en ?? `${subject} videography tutorial`,
+    `${subject} speed ramp cinematic edit`,
+    p?.retryTutorials.en ?? `${subject} filming breakdown`,
   ];
 }
 

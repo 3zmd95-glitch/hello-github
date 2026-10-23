@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { encryptJson } from "../social/crypto";
 import { GENRES } from "../trends/genres";
 import {
+  TIKTOK_CAPTION_MAX,
   TIKTOK_INDUSTRY,
   tiktokTop,
   TT_EFFECTS,
@@ -10,422 +11,500 @@ import {
   TT_VIDEOS_URL,
 } from "./tiktok";
 
-// The TikTok tab's list from TikTok's Discovery API (planning/tools/19-category-trends.md §6), against a fake TikTok.
-// Every value here is fake.
-
-const SCOUT = "scout-token";
-const ACCESS = "fake-access-token";
+const SCOUT = "test-scout";
+const ACCESS = "fake-business-token";
 const TOKEN = await encryptJson(SCOUT, {
   access_token: ACCESS,
-  advertiser_ids: ["adv1", "adv2"],
-  connectedAt: "2026-10-07T09:00:00.000Z",
+  advertiser_ids: ["adv1"],
+  connectedAt: "2026-10-07T00:00:00Z",
 });
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-
-/** KV holding the sealed token (`tiktokads:token`), or none. */
 const kv = (token: string | null = TOKEN) =>
-  ({
-    get: vi.fn(async (key: string) => (key === "tiktokads:token" ? token : null)),
-  }) as unknown as KVNamespace;
+  ({ get: vi.fn(async () => token) }) as unknown as KVNamespace;
 const env = (over: Record<string, unknown> = {}) => ({
   SOCIAL_KV: kv(),
   SCOUT_TOKEN: SCOUT,
   ...over,
 });
-
-/** TikTok's popular hashtag n (id 100n), of rank `rank`, popular in `countries`, named `car<n>` (a Cars subject word
- * without an edit cue: tier 3) unless `name` says otherwise. */
-const tag = (n: number, countries = ["US", "GB"], rank: unknown = String(n), name = `car${n}`) => ({
-  hashtag_id: String(1000 + n),
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+const ok = (list: unknown[]) => json({ code: 0, data: { list } });
+const tag = (id: string, name: string, rank = 1) => ({
+  hashtag_id: id,
   hashtag_name: name,
   rank_position: rank,
-  rank_change: 0,
-  posts: 1200,
-  views: 250_000,
-  views_global_lifetime: 9_000_000,
-  posts_global_lifetime: 40_000,
-  top_country_list: countries,
-  trending_history: [],
+  top_country_list: ["US"],
 });
-/** Hashtag t's i-th video: its share link carries a query, as TikTok's do. */
-const vid = (t: number, i: number) => {
-  const id = `${t}${String(i).padStart(2, "0")}`;
-  return {
-    video_id: id,
-    embed_url: `https://www.tiktok.com/embed/v2/${id}`,
-    share_url: `https://www.tiktok.com/@c${t}_${i}/video/${id}?is_from_webapp=1&sender_device=pc`,
-  };
+const vid = (id: string, handle = `creator${id}`) => ({
+  video_id: id,
+  share_url: `https://www.tiktok.com/@${handle}/video/${id}?lang=en`,
+});
+type Overrides = {
+  tags?: unknown[];
+  effects?: unknown[];
+  photo?: unknown[];
+  trending?: (category: string) => Response;
+  videos?: (ids: string[]) => Response;
+  caption?: (url: URL) => Response;
 };
-/** The top video hashtag t's i-th video becomes. */
-const top = (t: number, i: number) => ({
-  url: `https://www.tiktok.com/@c${t}_${i}/video/${t}${String(i).padStart(2, "0")}`,
-  title: `#car${t}`,
-  creator: `@c${t}_${i}`,
-});
-const TAGS = Array.from({ length: 12 }, (_, i) => tag(i + 1));
-const ok = (list: unknown[]) => json({ code: 0, message: "OK", data: { list } });
-/** Hashtag ids as `video_list` takes them, from their numbers. */
-const ids = (...n: number[]) => JSON.stringify(n.map((x) => String(1000 + x)));
-
-/** A fake TikTok: `trending_list` answers `tags` for the category's industry and `edits[category]` (else none) for
- * SPECIAL_EFFECTS and PHOTOGRAPHY, `video_list` 20 videos for each hashtag asked, unless told otherwise. */
-function tiktok(
-  over: { trending?: (category: string) => Response; videos?: (asked: string[]) => Response } = {},
-  tags: unknown[] = TAGS,
-  edits: Record<string, unknown[]> = {},
-) {
+function network(over: Overrides = {}) {
   return vi.fn<typeof fetch>(async (input) => {
     const u = new URL(String(input));
     const base = `${u.origin}${u.pathname}`;
-    const category = u.searchParams.get("category_name") ?? "";
-    if (base === TT_TRENDING_URL)
+    if (base === TT_TRENDING_URL) {
+      const category = u.searchParams.get("category_name")!;
       return (
         over.trending?.(category) ??
-        ok([TT_EFFECTS, TT_PHOTO].includes(category) ? (edits[category] ?? []) : tags)
-      );
-    if (base === TT_VIDEOS_URL) {
-      const asked = JSON.parse(u.searchParams.get("hashtag_ids")!) as string[];
-      return (
-        over.videos?.(asked) ??
         ok(
-          asked.map((id) => ({
-            hashtag_id: id,
-            hashtag_name: `tag${Number(id) - 1000}`,
-            top_video_list: Array.from({ length: 20 }, (_, i) => vid(Number(id) - 1000, i + 1)),
-          })),
+          category === TT_EFFECTS
+            ? (over.effects ?? [])
+            : category === TT_PHOTO
+              ? (over.photo ?? [])
+              : (over.tags ?? [tag("1", "foodedit")]),
         )
       );
     }
-    return json({ error: "not_found" }, 404);
+    if (base === TT_VIDEOS_URL) {
+      const ids = JSON.parse(u.searchParams.get("hashtag_ids")!) as string[];
+      return (
+        over.videos?.(ids) ??
+        ok(ids.map((id) => ({ hashtag_id: id, top_video_list: [vid(id + "01"), vid(id + "02")] })))
+      );
+    }
+    if (base === "https://www.tiktok.com/oembed")
+      return (
+        over.caption?.(new URL(u.searchParams.get("url")!)) ??
+        json({
+          title: "Food cinematic speed ramp commercial",
+          thumbnail_url: "https://cdn.example/thumbnail.jpg",
+        })
+      );
+    return json({}, 404);
   });
 }
-const asked = (fetch: ReturnType<typeof tiktok>, n: number) =>
-  new URL(String(fetch.mock.calls[n][0]));
-/** The `video_list` call: the last, after the 3 `trending_list` calls. */
-const videoCall = (fetch: ReturnType<typeof tiktok>) => asked(fetch, 3);
-/** The diagnostics of tier-3 hashtags n…, named car<n>. */
-const tier3 = (...n: number[]) => n.map((x) => ({ name: `car${x}`, tier: 3 }));
 
-describe("tiktokTop", () => {
-  it("asks the popular hashtags of the category's industry, SPECIAL_EFFECTS and PHOTOGRAPHY in the country over 7 days, then one video_list call, the token in Access-Token", async () => {
-    const fetch = tiktok();
-    await tiktokTop(env(), fetch, "cars");
-    expect(fetch).toHaveBeenCalledTimes(4);
-    expect(TT_TRENDING_URL).toBe(
-      "https://business-api.tiktok.com/open_api/v1.3/discovery/trending_list/",
-    );
-    expect(TT_VIDEOS_URL).toBe(
-      "https://business-api.tiktok.com/open_api/v1.3/discovery/video_list/",
-    );
-    const trending = asked(fetch, 0);
-    expect(`${trending.origin}${trending.pathname}`).toBe(TT_TRENDING_URL);
-    // The first advertiser the owner granted.
-    expect(Object.fromEntries(trending.searchParams)).toEqual({
-      advertiser_id: "adv1",
-      discovery_type: "HASHTAG",
-      country_code: "US",
-      category_name: "AUTOMOTIVE",
-      date_range: "7DAY",
+describe("caption-grounded TikTok category discovery", () => {
+  it("covers the first twelve categories and maps the others only to industries already in use", () => {
+    const ids = GENRES.map((g) => g.id);
+    for (const id of Object.keys(TIKTOK_INDUSTRY)) expect(ids).toContain(id);
+    for (const id of ids.slice(0, 12)) expect(TIKTOK_INDUSTRY[id], id).toBeDefined();
+    const known = new Set([
+      ...ids.slice(0, 12).map((id) => TIKTOK_INDUSTRY[id]),
+      TT_EFFECTS,
+      TT_PHOTO,
+    ]);
+    for (const [id, industry] of Object.entries(TIKTOK_INDUSTRY))
+      expect(known.has(industry), id).toBe(true);
+  });
+  it("answers a category without an industry with no videos and no TikTok call", async () => {
+    const fetch = network();
+    const unmapped = GENRES.map((g) => g.id).filter((id) => !TIKTOK_INDUSTRY[id]);
+    expect(unmapped.length).toBeGreaterThan(0);
+    for (const id of unmapped)
+      expect(await tiktokTop(env(), fetch, id, 1000, null), id).toEqual({ videos: [] });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["photography", TT_PHOTO],
+    ["colorgrading", TT_PHOTO],
+    ["drone", TT_PHOTO],
+    ["vfx", TT_EFFECTS],
+  ])("asks each industry once when %s's industry is an edit list (%s)", async (id, shared) => {
+    expect(TIKTOK_INDUSTRY[id]).toBe(shared);
+    const fetch = network();
+    await tiktokTop(env(), fetch, id, 1000, null);
+    const asked = fetch.mock.calls
+      .map(([url]) => new URL(String(url)))
+      .filter((u) => u.origin + u.pathname === TT_TRENDING_URL)
+      .map((u) => u.searchParams.get("category_name"))
+      .sort();
+    expect(asked).toEqual([TT_EFFECTS, TT_PHOTO].sort());
+  });
+  it("requires real captions, records metadata provenance and never sends the Business token to public oEmbed", async () => {
+    const fetch = network();
+    const result = await tiktokTop(env(), fetch, "food", 1000, null);
+    expect(result.videos).toHaveLength(2);
+    expect(result.videos![0]).toMatchObject({
+      title: "Food cinematic speed ramp commercial",
+      source: "tiktok-discovery",
+      evidence: { basis: "metadata", subjects: ["food"] },
+      thumbnail: "https://cdn.example/thumbnail.jpg",
     });
-    // The 2 edit lists: the same advertiser, country and 7 days.
-    expect([TT_EFFECTS, TT_PHOTO]).toEqual(["SPECIAL_EFFECTS", "PHOTOGRAPHY"]);
-    for (const [n, category_name] of [
-      [1, "SPECIAL_EFFECTS"],
-      [2, "PHOTOGRAPHY"],
-    ] as const) {
-      const u = asked(fetch, n);
-      expect(`${u.origin}${u.pathname}`).toBe(TT_TRENDING_URL);
-      expect(Object.fromEntries(u.searchParams)).toEqual({
-        advertiser_id: "adv1",
-        discovery_type: "HASHTAG",
-        country_code: "US",
-        category_name,
-        date_range: "7DAY",
+    for (const [url, init] of fetch.mock.calls)
+      expect(new Headers(init?.headers).get("Access-Token")).toBe(
+        String(url).startsWith("https://business-api.tiktok.com/") ? ACCESS : null,
+      );
+    expect(JSON.stringify(result)).not.toContain(ACCESS);
+  });
+  it("never recommends a category hashtag without a useful creative caption", async () => {
+    const fetch = network({
+      tags: [tag("1", "food")],
+      caption: (url) =>
+        json({
+          title: url.pathname.endsWith("101")
+            ? "literally me around food #pov #viral"
+            : "Food processors commercial product review",
+        }),
+    });
+    const result = await tiktokTop(env(), fetch, "food", 1000, null);
+    expect(result.videos).toEqual([]);
+    expect(result.note).toBeUndefined();
+    expect(result.diagnostics).toMatchObject({ captioned: 2, videos: 0 });
+  });
+  it("does not fill Food with unrelated car edits or generic industry hashtags", async () => {
+    const fetch = network({
+      tags: [tag("1", "trunkortreat"), tag("2", "foodprices")],
+      effects: [tag("3", "caredit"), tag("4", "capcut")],
+      photo: [tag("5", "screenshot")],
+    });
+    expect((await tiktokTop(env(), fetch, "food", 1000, null)).videos).toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+  it("reserves two of ten slots for ranked neutral craft leads without increasing the caption budget", async () => {
+    const fetch = network({
+      tags: Array.from({ length: 10 }, (_, i) =>
+        tag(String(i + 1), i < 2 ? "coffeeedit" : "coffee", i + 1),
+      ),
+      effects: [tag("20", "speedramp", 6), tag("21", "matchcut", 1)],
+      photo: [tag("20", "speedramp", 6), tag("22", "colorgrading", 9)],
+      caption: (url) =>
+        json({
+          title: url.pathname.endsWith("/2101")
+            ? "Coffee match cut commercial"
+            : url.pathname.endsWith("/2001")
+              ? "Car speed ramp commercial"
+              : "Coffee at my local cafe",
+        }),
+    });
+    const result = await tiktokTop(env(), fetch, "coffee", 1000, null);
+    const videoCall = fetch.mock.calls.find(([input]) => String(input).startsWith(TT_VIDEOS_URL))!;
+    expect(JSON.parse(new URL(String(videoCall[0])).searchParams.get("hashtag_ids")!)).toEqual([
+      "1",
+      "2",
+      "21",
+      "20",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+    ]);
+    expect(result.diagnostics).toMatchObject({ captionCandidates: 12, raw: 20 });
+    expect(result.candidates).toHaveLength(12);
+    // The technique tag only gets its video inspected; the actual caption must establish category and craft.
+    expect(result.videos?.map((video) => video.title)).toEqual(["Coffee match cut commercial"]);
+    expect(
+      fetch.mock.calls.filter(([input]) => String(input).startsWith(TT_TRENDING_URL)),
+    ).toHaveLength(3);
+    expect(
+      fetch.mock.calls.filter(([input]) => String(input).startsWith(TT_VIDEOS_URL)),
+    ).toHaveLength(1);
+    expect(fetch.mock.calls.filter(([input]) => String(input).includes("/oembed"))).toHaveLength(
+      12,
+    );
+    expect(fetch).toHaveBeenCalledTimes(16);
+  });
+
+  it.each(["coffee", "camping", "gym"])(
+    "can retrieve two craft leads for undersupplied %s without padding more slots",
+    async (category) => {
+      const fetch = network({
+        tags: [],
+        effects: [tag("1", "speedramp", 3), tag("2", "matchcut", 1)],
+        photo: [tag("3", "colorgrading", 2)],
+        caption: () => json({ title: `${category} match cut commercial` }),
       });
-    }
-    const videos = videoCall(fetch);
-    expect(`${videos.origin}${videos.pathname}`).toBe(TT_VIDEOS_URL);
-    // At most 10 hashtags, as a JSON array of strings.
-    expect(Object.fromEntries(videos.searchParams)).toEqual({
-      advertiser_id: "adv1",
-      discovery_type: "HASHTAG",
-      hashtag_ids: ids(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
-      country_code: "US",
-      date_range: "7DAY",
-    });
-    for (const [, init] of fetch.mock.calls)
-      expect(new Headers(init?.headers).get("Access-Token")).toBe(ACCESS);
-  });
+      const result = await tiktokTop(env(), fetch, category, 1000, null);
+      expect(result.diagnostics?.hashtags).toEqual([
+        { name: "matchcut", tier: 2 },
+        { name: "colorgrading", tier: 2 },
+      ]);
+      expect(result.candidates).toHaveLength(4);
+      expect(result.videos).toHaveLength(4);
+      expect(fetch).toHaveBeenCalledTimes(8);
+    },
+  );
 
-  it("names each category's industry (category_name), level 2 where one fits; every built-in category has one", async () => {
-    expect(TIKTOK_INDUSTRY).toEqual({
-      cars: "AUTOMOTIVE",
-      food: "FOOD",
-      anime: "ANIMATION_AND_COMICS",
-      travel: "GENERAL_TRAVEL",
-      football: "CONVENTIONAL_AND_MAINSTREAM_SPORTS",
-      coffee: "DRINKS",
-      perfume: "BEAUTY",
-      camping: "OUTDOOR_RECREATION",
-      fashion: "OUTFITS",
-      gaming: "VIDEO_GAMES",
-      weddings: "ROMANCE",
-      gym: "EXERCISE_AND_FITNESS",
-    });
-    expect(Object.keys(TIKTOK_INDUSTRY).sort()).toEqual(GENRES.map((g) => g.id).sort());
-    for (const [id, industry] of Object.entries(TIKTOK_INDUSTRY)) {
-      const fetch = tiktok();
-      const r = await tiktokTop(env(), fetch, id);
-      expect(asked(fetch, 0).searchParams.get("category_name"), id).toBe(industry);
-      expect(r.diagnostics).toMatchObject({ industry });
-    }
-  });
-
-  it("asks in TIKTOK_DISCOVERY_COUNTRY, US unless it is a 2-letter code", async () => {
-    const cases: [string | undefined, string][] = [
-      [undefined, "US"],
-      ["", "US"],
-      ["sa", "SA"],
-      [" GB ", "GB"],
-      ["Saudi", "US"],
-    ];
-    for (const [value, country] of cases) {
-      const fetch = tiktok();
-      const r = await tiktokTop(env({ TIKTOK_DISCOVERY_COUNTRY: value }), fetch, "cars");
-      expect(fetch.mock.calls.length).toBe(4);
-      for (let n = 0; n < 4; n++)
-        expect(asked(fetch, n).searchParams.get("country_code"), value).toBe(country);
-      expect(r.diagnostics).toMatchObject({ country });
-    }
-  });
-
-  it("takes the 10 best-ranked hashtags popular in the country; with fewer than 3 there, the others fill in by rank", async () => {
-    // 14 hashtags in TikTok's order, ranked as strings ("10" after "9"); ranks 1, 4 and 9 are not popular in the US.
-    const order = [7, 1, 14, 3, 9, 2, 12, 5, 4, 13, 6, 11, 8, 10];
-    const inUs = (keep: number[]) =>
-      order.map((n) => tag(n, keep.includes(n) ? ["US"] : ["GB", "SA"]));
-    const videoIds = async (tags: unknown[]) => {
-      const fetch = tiktok({}, tags);
-      await tiktokTop(env(), fetch, "cars");
-      return videoCall(fetch).searchParams.get("hashtag_ids");
-    };
-    expect(await videoIds(inUs([2, 3, 5, 6, 7, 8, 10, 11, 12, 13, 14]))).toBe(
-      ids(2, 3, 5, 6, 7, 8, 10, 11, 12, 13),
-    );
-    // 2 in the US: those first, then the rest by rank, to 10.
-    expect(await videoIds(inUs([6, 9]))).toBe(ids(6, 9, 1, 2, 3, 4, 5, 7, 8, 10));
-    // 3 in the US are enough: those alone.
-    expect(await videoIds(inUs([11, 2, 5]))).toBe(ids(2, 5, 11));
-    // A hashtag without an id or a name can't be asked or titled; one without a rank comes last.
-    const odd = [
-      { ...tag(1), hashtag_name: " " },
-      { ...tag(2), hashtag_id: undefined },
-      { ...tag(3, ["US"]), rank_position: undefined },
-      tag(4, ["US"], "9"),
-      tag(5, ["US"], 2),
-      "junk",
-    ];
-    expect(await videoIds(odd)).toBe(ids(5, 4, 3));
-  });
-
-  it("round-robins the hashtags' videos in rank order into 50 at most: the 1st of each, then the 2nd…", async () => {
-    // video_list answers the hashtags in another order than asked: the rank order stands.
-    const fetch = tiktok({
-      videos: (asked) =>
-        ok(
-          [...asked].reverse().map((id) => ({
-            hashtag_id: id,
-            hashtag_name: "as TikTok names it",
-            top_video_list: Array.from({ length: 20 }, (_, i) => vid(Number(id) - 1000, i + 1)),
-          })),
-        ),
-    });
-    const r = await tiktokTop(env(), fetch, "cars");
-    const tags = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    expect(r.videos).toEqual([1, 2, 3, 4, 5].flatMap((i) => tags.map((t) => top(t, i))));
-    expect(r.note).toBeUndefined();
-    expect(r.diagnostics).toEqual({
-      hashtags: tier3(...tags),
-      lists: { industry: 12, effects: 0, photo: 0 },
-      videos: 50,
-      raw: 200,
-      country: "US",
-      industry: "AUTOMOTIVE",
-    });
-  });
-
-  it("a video under two hashtags shows once, in its first place; fewer videos than 50 are all kept", async () => {
-    const shared = vid(1, 2);
-    const fetch = tiktok(
-      {
-        videos: () =>
-          ok([
-            { hashtag_id: "1001", top_video_list: [vid(1, 1), shared] },
-            { hashtag_id: "1002", top_video_list: [shared, vid(2, 2), vid(2, 3)] },
-            { hashtag_id: "1003", top_video_list: [vid(3, 1)] },
-          ]),
-      },
-      [tag(1), tag(2), tag(3)],
-    );
-    const r = await tiktokTop(env(), fetch, "cars");
-    // Hashtag 2's first video is hashtag 1's second: it keeps hashtag 2's place (the first it reached) and title.
-    expect(r.videos).toEqual([
-      top(1, 1),
-      { ...top(1, 2), title: "#car2" },
-      top(3, 1),
-      top(2, 2),
-      top(2, 3),
-    ]);
-    expect(r.diagnostics).toMatchObject({ hashtags: tier3(1, 2, 3), videos: 5, raw: 6 });
-  });
-
-  it("picks edit hashtags first: tier 1 an edit cue and a subject word, tier 2 an edit cue from SPECIAL_EFFECTS or PHOTOGRAPHY, tier 3 a subject word, tier 4 the industry's others; each by rank, each hashtag once", async () => {
-    const food = [
-      tag(1, ["US"], "1", "trunkortreat"), // neither: tier 4
-      tag(2, ["US"], "2", "foodie"), // tier 3
-      tag(3, ["US"], "3", "cinematic"), // an edit cue in the industry's list: tier 4 here, tier 2 below
-      tag(4, ["US"], "4", "FoodEdit"), // tier 1
-      tag(5, ["US"], "5", "restaurants"), // tier 3
-      tag(6, ["US"], "6", "asmrcooking"), // an edit cue, no subject word for Food: tier 4
-    ];
-    const edits = {
-      SPECIAL_EFFECTS: [
-        tag(7, ["US"], "3", "transition"), // tier 2
-        tag(8, ["US"], "1", "streetfoodbroll"), // tier 1 from the effects list
-        tag(3, ["US"], "9", "cinematic"), // #cinematic again: tier 2, once
+  it("rejects generic, other-category, wrong-country and non-edit-chart craft tags", async () => {
+    const fetch = network({
+      tags: [tag("1", "rotoscoping")],
+      effects: [
+        ...[
+          "fyp",
+          "viral",
+          "edit",
+          "cinematic",
+          "capcut",
+          "car_speedramp",
+          "anime_matchcut",
+          "football_colorgrading",
+          "nfl_speedramp",
+        ].map((name, i) => tag(String(i + 2), name)),
+        { ...tag("30", "matchcut"), top_country_list: ["JP"] },
       ],
-      PHOTOGRAPHY: [
-        tag(9, ["US"], "1", "photography"), // neither, in an edit list: left out
-        tag(10, ["US"], "2", "slowmo"), // tier 2
-        tag(2, ["US"], "7", "foodie"), // #foodie again: still tier 3, once
-      ],
-    };
-    const fetch = tiktok({}, food, edits);
-    const r = await tiktokTop(env(), fetch, "food");
-    expect(videoCall(fetch).searchParams.get("hashtag_ids")).toBe(ids(8, 4, 10, 7, 3, 2, 5, 1, 6));
-    expect(r.diagnostics).toMatchObject({
-      hashtags: [
-        { name: "streetfoodbroll", tier: 1 },
-        { name: "FoodEdit", tier: 1 },
-        { name: "slowmo", tier: 2 },
-        { name: "transition", tier: 2 },
-        { name: "cinematic", tier: 2 },
-        { name: "foodie", tier: 3 },
-        { name: "restaurants", tier: 3 },
-        { name: "trunkortreat", tier: 4 },
-        { name: "asmrcooking", tier: 4 },
-      ],
-      lists: { industry: 6, effects: 3, photo: 3 },
-      industry: "FOOD",
+      photo: [{ ...tag("31", "speedramp"), top_country_list: ["SA"] }],
     });
-    // Tier order, then turns: each hashtag's 1st video (tier 1 first, tier 4 last), then its 2nd…
-    const order = [8, 4, 10, 7, 3, 2, 5, 1, 6];
-    const names = r.diagnostics!.hashtags as { name: string }[];
-    expect(r.videos!.slice(0, 9).map((v) => v.title)).toEqual(names.map((h) => `#${h.name}`));
-    expect(r.videos!.slice(0, 9).map((v) => v.url)).toEqual(order.map((t) => top(t, 1).url));
-    expect(r.videos![9].url).toBe(top(8, 2).url);
-  });
-
-  it("keeps the country rule in each tier: 3 or more popular in the country stand alone, fewer fill in by rank", async () => {
-    const edits = {
-      SPECIAL_EFFECTS: [
-        tag(1, ["GB"], "1", "caredit"), // tier 1, not in the US
-        tag(2, ["US"], "2", "cinematiccar"), // tier 1, in the US
-        tag(3, ["US"], "3", "transition"),
-        tag(4, ["US"], "4", "effects"),
-        tag(5, ["US"], "5", "edits"),
-        tag(6, ["GB"], "6", "montage"), // tier 2, not in the US: 3 there already
-      ],
-    };
-    const fetch = tiktok({}, [tag(7, ["GB"]), tag(8, ["US"])], edits);
-    await tiktokTop(env(), fetch, "cars");
-    // Tier 1: 1 in the US, so #caredit fills in; tier 2: 3 in the US alone; tier 3: 1 in the US, #car7 fills in.
-    expect(videoCall(fetch).searchParams.get("hashtag_ids")).toBe(ids(2, 1, 3, 4, 5, 8, 7));
-  });
-
-  it("an edit list failing leaves it out (null in lists); the industry's failing fails the scan", async () => {
-    const fetch = tiktok({
-      trending: (category) =>
-        category === TT_PHOTO ? json({ code: 50002, message: "System error", data: {} }) : ok(TAGS),
-    });
-    const r = await tiktokTop(env(), fetch, "cars");
-    expect(r.note).toBeUndefined();
-    expect(r.diagnostics).toMatchObject({ lists: { industry: 12, effects: 12, photo: null } });
-    expect(r.videos).toHaveLength(50);
-  });
-
-  it("keeps a video only on an https tiktok.com link to one video with its creator's handle, without the query", async () => {
-    const links = [
-      "https://m.tiktok.com/@ok.one/video/111?_r=1&u_code=x",
-      "http://www.tiktok.com/@plain/video/222",
-      "https://vm.tiktok.com/ZMabc123/",
-      // No handle: the app's player needs one (lib/embed's embedId), so no "/@/video/<id>" is made up.
-      "https://www.tiktok.com/@/video/333",
-      "https://www.tiktok.com/video/444",
-      "https://www.tiktok.com/@user/photo/555",
-      "https://tiktok.com.evil.example/@user/video/666",
-      "not a link",
-      undefined,
-    ];
-    const fetch = tiktok(
-      {
-        videos: () =>
-          ok([
-            {
-              hashtag_id: "1001",
-              top_video_list: links.map((share_url, i) => ({ video_id: `9${i}`, share_url })),
-            },
-          ]),
-      },
-      [tag(1)],
-    );
-    const r = await tiktokTop(env(), fetch, "cars");
-    expect(r.videos).toEqual([
-      { url: "https://www.tiktok.com/@ok.one/video/111", title: "#car1", creator: "@ok.one" },
-    ]);
-    expect(r.diagnostics).toMatchObject({ videos: 1, raw: links.length });
-  });
-
-  it("no popular hashtag: no video_list call, an empty list", async () => {
-    const fetch = tiktok({}, []);
-    expect(await tiktokTop(env(), fetch, "food")).toEqual({
-      videos: [],
-      diagnostics: {
-        hashtags: [],
-        lists: { industry: 0, effects: 0, photo: 0 },
-        videos: 0,
-        raw: 0,
-        country: "US",
-        industry: "FOOD",
-      },
-    });
+    const result = await tiktokTop(env(), fetch, "coffee", 1000, null);
+    expect(result.diagnostics?.hashtags).toEqual([]);
+    expect(result.candidates).toEqual([]);
+    expect(result.videos).toEqual([]);
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
-  it("no subject or edit word in any list: the industry's 10 best by rank (the old rule), all tier 4, so the tab is never thin", async () => {
-    // Food's tags are car1…car12 (no Food word, no edit cue); the edit lists hold none with an edit cue either.
-    const edits = {
-      SPECIAL_EFFECTS: [tag(20, ["US"], "1", "halloween")],
-      PHOTOGRAPHY: [tag(21, ["US"], "1", "sunset")],
-    };
-    const fetch = tiktok({}, TAGS, edits);
-    const r = await tiktokTop(env(), fetch, "food");
-    expect(videoCall(fetch).searchParams.get("hashtag_ids")).toBe(
-      ids(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
-    );
-    expect(r.diagnostics).toMatchObject({
-      hashtags: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({ name: `car${n}`, tier: 4 })),
+  it("retains neutral craft candidates with missing captions without copying the hashtag into evidence", async () => {
+    const fetch = network({
+      tags: [],
+      effects: [tag("1", "matchcut")],
+      caption: () => json({}, 404),
     });
-    expect(r.videos).toHaveLength(50);
+    const result = await tiktokTop(env(), fetch, "coffee", 1000, null);
+    expect(result.candidates).toHaveLength(2);
+    expect(
+      result.candidates?.every(
+        (video) => video.title === "TikTok video" && !video.evidence && !video.snippet,
+      ),
+    ).toBe(true);
+    expect(result.videos).toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(6);
+  });
+  it("checks at most12 unique captions and ranks specific metadata instead of hashtag order", async () => {
+    const fetch = network({
+      videos: () =>
+        ok([
+          {
+            hashtag_id: "1",
+            top_video_list: [
+              vid("1"),
+              vid("1"),
+              ...Array.from({ length: 30 }, (_, i) => vid(String(i + 2))),
+            ],
+          },
+        ]),
+      caption: (url) =>
+        json({
+          title: url.pathname.endsWith("/2")
+            ? "Food cinematic match cut speed ramp commercial"
+            : "Food edit",
+        }),
+    });
+    const result = await tiktokTop(env(), fetch, "food", 1000, null);
+    expect(result.diagnostics).toMatchObject({ captionCandidates: TIKTOK_CAPTION_MAX });
+    expect(
+      fetch.mock.calls.filter(([u]) => String(u).startsWith("https://www.tiktok.com/oembed")),
+    ).toHaveLength(TIKTOK_CAPTION_MAX);
+    // Reading twelve captions does not promise twelve recommendations: the other eleven only say "Food edit".
+    expect(result.videos).toHaveLength(1);
+    expect(result.videos![0].url.endsWith("/2")).toBe(true);
+  });
+  it("considers multiple hashtags and caps repeated creators at3", async () => {
+    const fetch = network({
+      tags: [tag("1", "foodedit"), tag("2", "food")],
+      videos: () =>
+        ok([
+          { hashtag_id: "2", top_video_list: [vid("201", "other")] },
+          { hashtag_id: "1", top_video_list: [1, 2, 3, 4, 5].map((n) => vid(String(n), "same")) },
+        ]),
+    });
+    expect(
+      (await tiktokTop(env(), fetch, "food", 1000, null)).videos?.map((v) => v.creator),
+    ).toEqual(["@same", "@other", "@same", "@same"]);
+  });
+  it("counts distinct unseen and retained IDs without letting malformed or duplicate rows consume the budget", async () => {
+    const id = (n: number) => String(7559999999000000000n + BigInt(n));
+    const fetch = network({
+      tags: [tag("1", "foodedit"), tag("2", "food")],
+      videos: () =>
+        ok([
+          { hashtag_id: "unknown", top_video_list: [vid(id(99))] },
+          {
+            hashtag_id: "1",
+            top_video_list: [
+              vid(id(1)),
+              vid(id(2)),
+              vid(id(2), "anotherhandle"),
+              { ...vid(id(4)), video_id: id(5) },
+              null,
+              { share_url: `https://evil.test/@food/video/${id(6)}` },
+            ],
+          },
+          {
+            hashtag_id: "2",
+            top_video_list: [vid(id(1), "changedhandle"), vid(id(3)), vid(id(2))],
+          },
+        ]),
+      caption: () => json({}, 404),
+    });
+    const result = await tiktokTop(env(), fetch, "food", 1000, null, {
+      excludeVideoIds: [id(1), id(100)],
+    });
+    expect(result.candidates?.map((video) => video.url.split("/").at(-1))).toEqual([id(2), id(3)]);
+    expect(result.diagnostics).toMatchObject({
+      captionCandidates: 2,
+      skippedKnown: 1,
+      unseenRemaining: 0,
+      captioned: 0,
+    });
+    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(result.videos).toEqual([]);
   });
 
-  it("not connected (no token, one sealed with another SCOUT_TOKEN, or no advertiser): nothing asked, noted tiktok_auth", async () => {
+  it("bounds each provider column at twenty before deriving the remaining horizon", async () => {
+    const id = (n: number) => String(7559999999000000000n + BigInt(n));
+    const fetch = network({
+      tags: Array.from({ length: 10 }, (_, i) => tag(String(i), "foodedit", i)),
+      videos: (ids) =>
+        ok(
+          ids.map((tagId) => ({
+            hashtag_id: tagId,
+            top_video_list: Array.from({ length: 30 }, (_, i) => vid(id(Number(tagId) * 30 + i))),
+          })),
+        ),
+    });
+    const result = await tiktokTop(env(), fetch, "food", 1000, null, { excludeVideoIds: [] });
+    expect(result.diagnostics).toMatchObject({
+      raw: 200,
+      captionCandidates: 12,
+      skippedKnown: 0,
+      unseenRemaining: 188,
+    });
+    expect(result.candidates?.slice(0, 10).map((video) => video.url.split("/").at(-1))).toEqual(
+      Array.from({ length: 10 }, (_, i) => id(i * 30)),
+    );
+    expect(fetch).toHaveBeenCalledTimes(16);
+  });
+  it("limits concurrent public caption requests to three", async () => {
+    const fake = network({
+      videos: () =>
+        ok([
+          {
+            hashtag_id: "1",
+            top_video_list: Array.from({ length: 20 }, (_, i) => vid(String(i + 1))),
+          },
+        ]),
+    });
+    let active = 0;
+    let peak = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      if (!String(input).includes("/oembed")) return fake(input, init);
+      active++;
+      peak = Math.max(peak, active);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return await fake(input, init);
+      } finally {
+        active--;
+      }
+    });
+    await tiktokTop(env(), fetch, "food", 1000, null);
+    expect(peak).toBe(3);
+    expect(active).toBe(0);
+  });
+  it("rejects malformed, offsite, photo, short and non-playable URLs before oEmbed", async () => {
+    const links = [
+      "http://www.tiktok.com/@a/video/1",
+      "https://evil.test/@a/video/1",
+      "https://www.tiktok.com/@a/photo/1",
+      "https://vm.tiktok.com/123",
+      "https://www.tiktok.com/video/1",
+      "https://www.tiktok.com/@/video/1",
+    ];
+    const fetch = network({
+      videos: () =>
+        ok([{ hashtag_id: "1", top_video_list: links.map((share_url) => ({ share_url })) }]),
+    });
+    expect((await tiktokTop(env(), fetch, "food", 1000, null)).videos).toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+  it("uses valid country codes and defaults to US, prioritizing category-specific creative tags", async () => {
+    for (const [given, expected] of [
+      [" sa ", "SA"],
+      ["not-a-country", "US"],
+    ]) {
+      const fetch = network({
+        tags: [tag("1", "food", 1), tag("2", "foodedit", 9)].map((entry) => ({
+          ...entry,
+          top_country_list: [expected],
+        })),
+      });
+      await tiktokTop(env({ TIKTOK_DISCOVERY_COUNTRY: given }), fetch, "food", 1000, null);
+      const api = fetch.mock.calls.filter(([u]) => String(u).includes("business-api"));
+      expect(
+        api.every(([u]) => new URL(String(u)).searchParams.get("country_code") === expected),
+      ).toBe(true);
+      expect(new URL(String(api.at(-1)![0])).searchParams.get("hashtag_ids")).toBe('["2","1"]');
+    }
+  });
+  it("never submits a hashtag from another country or invents a successful malformed list", async () => {
+    const fetch = network({ tags: [{ ...tag("1", "foodedit"), top_country_list: ["JP"] }] });
+    expect((await tiktokTop(env(), fetch, "food", 1000, null)).candidates).toEqual([]);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    const malformed = network({ trending: () => json({ code: 0, data: {} }) });
+    expect((await tiktokTop(env(), malformed, "food", 1000, null)).note).toBe("tiktok");
+  });
+  it("preserves caption-poor leads without using their hashtag as a caption, and rejects conflicting IDs", async () => {
+    const fetch = network({
+      caption: () => json({}, 404),
+      videos: () =>
+        ok([{ hashtag_id: "1", top_video_list: [vid("101"), { ...vid("102"), video_id: "999" }] }]),
+    });
+    const found = await tiktokTop(env(), fetch, "food", 1000, null);
+    expect(found.videos).toEqual([]);
+    expect(found.candidates).toEqual([
+      {
+        url: "https://www.tiktok.com/@creator101/video/101",
+        creator: "@creator101",
+        title: "TikTok video",
+      },
+    ]);
+  });
+  it("reuses the normalized public oEmbed cache and saves new captions in that format", async () => {
+    const cache = {
+      match: vi.fn(async (req: Request) =>
+        req.url.includes("101")
+          ? json({
+              title: "Food match cut commercial",
+              author: "@cached",
+              thumb: "https://cdn.example/cached.jpg",
+              url: "https://www.tiktok.com/@creator101/video/101",
+            })
+          : undefined,
+      ),
+      put: vi.fn(async () => {}),
+    } as unknown as Cache;
+    const fetch = network();
+    expect((await tiktokTop(env(), fetch, "food", 1000, cache)).videos).toHaveLength(2);
+    expect(fetch.mock.calls.filter(([u]) => String(u).includes("/oembed"))).toHaveLength(1);
+    expect(cache.put).toHaveBeenCalledTimes(1);
+    const response = (cache.put as ReturnType<typeof vi.fn>).mock.calls[0][1] as Response;
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=21600");
+    expect(await response.json()).toMatchObject({
+      title: "Food cinematic speed ramp commercial",
+      url: "https://www.tiktok.com/@creator102/video/102",
+    });
+  });
+  it("excludes missing or malformed captions without inventing captions", async () => {
+    for (const caption of [
+      () => json({}, 404),
+      () => json({ title: 42 }),
+      () => new Response("<html>"),
+      () => {
+        throw new Error("offline");
+      },
+    ])
+      expect((await tiktokTop(env(), network({ caption }), "food", 1000, null)).videos).toEqual([]);
+  });
+  it("handles edit-list failures independently when the industry supplies candidates", async () => {
+    const fetch = network({
+      trending: (category) =>
+        [TT_EFFECTS, TT_PHOTO].includes(category) ? json({}, 500) : ok([tag("1", "food")]),
+    });
+    expect((await tiktokTop(env(), fetch, "food", 1000, null)).videos).toHaveLength(2);
+  });
+  it("makes no calls without a usable token and advertiser", async () => {
     const noAdvertiser = await encryptJson(SCOUT, {
       access_token: ACCESS,
       advertiser_ids: [],
-      connectedAt: "2026-10-07T09:00:00.000Z",
+      connectedAt: "2026-10-07T00:00:00Z",
     });
     for (const e of [
       env({ SOCIAL_KV: kv(null) }),
@@ -433,63 +512,33 @@ describe("tiktokTop", () => {
       env({ SOCIAL_KV: kv(noAdvertiser) }),
       env({ SOCIAL_KV: undefined }),
     ]) {
-      const fetch = tiktok();
-      expect(await tiktokTop(e, fetch, "cars")).toEqual({ note: "tiktok_auth" });
+      const fetch = network();
+      expect(await tiktokTop(e, fetch, "food", 1000, null)).toEqual({ note: "tiktok_auth" });
       expect(fetch).not.toHaveBeenCalled();
     }
   });
-
-  it("TikTok's error code, an HTTP failure or no answer: noted tiktok with its code and message (≤ 120 characters, never the token)", async () => {
-    const long = `Access token ${ACCESS} is invalid or has been revoked. ${"x".repeat(200)}`;
-    const cases: [Parameters<typeof tiktok>[0], Record<string, unknown>, number][] = [
-      [{ trending: () => json({ code: 40105, message: long, data: {} }) }, { code: 40105 }, 3],
-      [
-        { videos: () => json({ code: 50002, message: "System error", data: {} }) },
-        { code: 50002, message: "System error" },
-        4,
-      ],
-      [
-        { trending: () => json({ message: "bad gateway" }, 502) },
-        { code: 502, message: "HTTP 502" },
-        3,
-      ],
-      [
-        { trending: () => new Response("<html>", { status: 200 }) },
-        { code: 200, message: "HTTP 200" },
-        3,
-      ],
-      [
-        {
-          trending: () => {
-            throw new Error("network");
-          },
-        },
-        { code: 0, message: "no answer" },
-        3,
-      ],
-    ];
-    for (const [over, diagnostics, calls] of cases) {
-      const fetch = tiktok(over);
-      const r = await tiktokTop(env(), fetch, "cars");
-      expect(r.note).toBe("tiktok");
-      expect(r.videos).toBeUndefined();
-      expect(r.diagnostics).toMatchObject(diagnostics);
-      expect(String(r.diagnostics!.message).length).toBeLessThanOrEqual(120);
-      expect(JSON.stringify(r)).not.toContain(ACCESS);
-      expect(fetch).toHaveBeenCalledTimes(calls);
+  it("sanitizes API errors and distinguishes them from connected empty results", async () => {
+    for (const over of [
+      { trending: () => json({ code: 40105, message: `Token ${ACCESS} ${"x".repeat(200)}` }) },
+      { videos: () => json({}, 502) },
+    ]) {
+      const result = await tiktokTop(env(), network(over), "food", 1000, null);
+      expect(result.note).toBe("tiktok");
+      expect(result.videos).toBeUndefined();
+      expect(String(result.diagnostics?.message).length).toBeLessThanOrEqual(120);
+      expect(JSON.stringify(result)).not.toContain(ACCESS);
     }
   });
-
-  it("never throws: a token KV can't read is noted tiktok, nothing asked", async () => {
+  it("never throws when token storage fails", async () => {
+    const fetch = network();
     const broken = {
-      get: vi.fn(async () => {
+      get: async () => {
         throw new Error("KV down");
-      }),
+      },
     } as unknown as KVNamespace;
-    const fetch = tiktok();
-    expect(await tiktokTop(env({ SOCIAL_KV: broken }), fetch, "cars")).toEqual({
+    expect(await tiktokTop(env({ SOCIAL_KV: broken }), fetch, "food", 1000, null)).toMatchObject({
       note: "tiktok",
-      diagnostics: { code: 0, message: "KV down" },
+      diagnostics: { message: "KV down" },
     });
     expect(fetch).not.toHaveBeenCalled();
   });

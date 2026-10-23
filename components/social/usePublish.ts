@@ -10,8 +10,14 @@ import {
   canAutoMarkPosted,
   buildJob,
   firstPermalink,
+  jobClaim,
+  jobOwnership,
+  takenJobIds,
   publishCancel,
+  publishJobId,
   publishList,
+  publishListStrict,
+  payloadHash,
   publishProblems,
   publishRun,
   publishSchedule,
@@ -21,6 +27,7 @@ import {
   tiktokCreatorInfo,
   tiktokCreatorProblems,
   type Problem,
+  type TikTokCreator,
   type WorkerJob,
 } from "@/lib/publish";
 import { scoutConfig } from "@/lib/scoutClient";
@@ -58,6 +65,25 @@ export function cancelAutoResync(postId: string): void {
   pendingResync.delete(postId);
 }
 
+/**
+ * Per-post lifecycle queue (DT-5 Amendment B): schedule, auto-resync, run and cancel of one post never overlap, so a
+ * cancel's DELETE goes out only after a send already in flight has settled on the Worker.
+ */
+const lifecycle = new Map<string, Promise<unknown>>();
+function serial<T>(postId: string, fn: () => Promise<T>): Promise<T> {
+  const run = (lifecycle.get(postId) ?? Promise.resolve()).then(fn, fn);
+  const tail = run.catch(() => undefined);
+  lifecycle.set(postId, tail);
+  void tail.then(() => {
+    if (lifecycle.get(postId) === tail) lifecycle.delete(postId);
+  });
+  return run;
+}
+
+/** Bumped by every cancel: a send that started before it never writes its reply back onto the post. */
+const sendFence = new Map<string, number>();
+const fenceOf = (postId: string) => sendFence.get(postId) ?? 0;
+
 export type PublishActionResult =
   { ok: true } | { ok: false; error: MessageKey } | { ok: false; problems: Problem[] };
 
@@ -66,50 +92,134 @@ function config() {
   return scoutConfig(k.scoutUrl, k.scoutToken);
 }
 
+const latestOf = (post: Post): Post =>
+  useStore.getState().posts.find((p) => p.id === post.id) ?? post;
+
 /**
  * Send (or resend) the post's job for its planned time (`at` overrides it: "now") and record the reply on the
- * post. Shared by the hook's `schedule` and the auto-resync, so both write the same thing.
+ * post. Shared by the hook's `schedule` and the auto-resync, so both write the same thing. Call inside `serial`.
+ * DT-5-R1: the one ownership decision first ({@link jobOwnership}: another post claiming the id → nothing is sent);
+ * then, while the job is not confirmed (no `sentAt`), the id is allocated through the store's locked commit with a
+ * read-back of the stored post (`allocatePublishJobId`), and the create goes out only once storage holds it. A lost
+ * reply, another post leaving or a reload never makes the retry pick a different id; a refused write sends nothing.
+ * DT-5-R2: after the awaits the post is read again from the store — gone, cancelled (fence moved) or holding another
+ * id → `publish.superseded`; another claimant → `publish.err.ambiguousOwner` — and the job is validated and built from
+ * that fresh post, so what is sent (and confirmed with `sentAt` + `sentHash`) is the newest content.
  */
 async function sendJob(
-  post: Post,
+  input: Post,
   status: SocialStatusMap | null,
   at?: string,
 ): Promise<PublishActionResult> {
+  const fence = fenceOf(input.id);
+  const post = latestOf(input);
   const cfg = config();
   if (!cfg) return { ok: false, error: "settings.accounts.err.unconfigured" };
   const auto = autoPostOf(post);
   const problems = publishProblems(post, auto, status, { now: !!at });
   if (problems.length) return { ok: false, problems };
-  if (auto.platforms.includes("tiktok") && auto.tiktokMode === "direct") {
-    const creator = await tiktokCreatorInfo(cfg);
-    const issues = tiktokCreatorProblems(auto, creator.ok ? creator.creator : undefined);
+  let creator: TikTokCreator | undefined;
+  const asked = needsCreator(auto);
+  if (asked) {
+    const info = await tiktokCreatorInfo(cfg);
+    creator = info.ok ? info.creator : undefined;
+    const issues = tiktokCreatorProblems(auto, creator);
     if (issues.length) return { ok: false, problems: issues };
   }
-  const when = at ?? scheduledAtOf(post);
+  if (!(at ?? scheduledAtOf(post))) return { ok: false, problems: [{ code: "noDay" }] };
+  if (fenceOf(post.id) !== fence) return { ok: false, error: "publish.superseded" };
+  const posts = useStore.getState().posts;
+  const own = jobOwnership(latestOf(post), posts);
+  if (!own.ok && own.reason === "ambiguous")
+    return { ok: false, error: ownershipError(own.reason) };
+  const jobId = own.ok ? own.jobId : publishJobId(post, takenJobIds(posts, post.id));
+  const before = latestOf(post).autoPost;
+  if (!before?.sentAt || before.jobId !== jobId) {
+    const allocated = await useStore.getState().allocatePublishJobId(post.id, jobId);
+    if (!allocated.ok)
+      return {
+        ok: false,
+        error:
+          allocated.reason === "ambiguous" ? ownershipError("ambiguous") : "publish.err.allocation",
+      };
+  }
+  // DT-5-R2: the allocation awaited; decide again on the post as it is now.
+  const fresh = useStore.getState().posts.find((p) => p.id === post.id);
+  if (!fresh || fenceOf(post.id) !== fence) return { ok: false, error: "publish.superseded" };
+  const owner = jobOwnership(fresh, useStore.getState().posts);
+  if (!owner.ok && owner.reason === "ambiguous")
+    return { ok: false, error: ownershipError(owner.reason) };
+  if (!owner.ok || owner.jobId !== jobId) return { ok: false, error: "publish.superseded" };
+  const freshAuto = autoPostOf(fresh);
+  const freshProblems = publishProblems(fresh, freshAuto, status, { now: !!at });
+  if (freshProblems.length) return { ok: false, problems: freshProblems };
+  if (needsCreator(freshAuto)) {
+    // TikTok direct posting was turned on while this send waited: its creator check never ran.
+    if (!asked) return { ok: false, error: "publish.superseded" };
+    const issues = tiktokCreatorProblems(freshAuto, creator);
+    if (issues.length) return { ok: false, problems: issues };
+  }
+  const when = at ?? scheduledAtOf(fresh);
   if (!when) return { ok: false, problems: [{ code: "noDay" }] };
-  const r = await publishSchedule(cfg, buildJob(post, auto, when));
+  const job = { ...buildJob(fresh, freshAuto, when), id: jobId };
+  const r = await publishSchedule(cfg, job);
+  // Canceled while this send was out: the cancel queued behind it removes the job; nothing is written here.
+  if (fenceOf(post.id) !== fence) return { ok: false, error: "publish.superseded" };
   if (!r.ok) return { ok: false, error: socialSyncErrorMessageKey(r.error) };
   const now = new Date();
+  const latest = latestOf(fresh);
   useStore.getState().updatePost(post.id, {
     autoPost: {
-      ...auto,
+      ...autoPostOf(latest),
       sentAt: now.toISOString(),
-      jobId: r.job.id,
+      // What reached the Worker; an edit made while the create was out no longer matches it (auto-resync).
+      sentHash: payloadHash(job, !at),
+      jobId,
       results: r.job.results,
       ...(!(r.job.results.tiktok?.state === "published" && r.job.results.tiktok.inbox)
         ? { tiktokCompletedAt: undefined, tiktokPermalink: undefined }
         : {}),
       checkedAt: now.toISOString(),
     },
-    ...(post.stage !== "posted" ? { stage: "scheduled" as const } : {}),
+    ...(latest.stage !== "posted" ? { stage: "scheduled" as const } : {}),
   });
   return { ok: true };
+}
+
+/** TikTok direct posting needs the creator's capabilities read before a send. */
+const needsCreator = (auto: AutoPost) =>
+  auto.platforms.includes("tiktok") && auto.tiktokMode === "direct";
+
+/**
+ * Whether the Worker holds this post's current content (DT-5-R2): its `sentHash` matches the job rebuilt from the
+ * post now, with its planned time or as a "now" send. A post without a `sentHash` (sent before it was kept, or
+ * confirmed by a read after a lost reply) is taken as current, as before.
+ */
+function sentCurrent(post: Post): boolean {
+  const a = post.autoPost;
+  if (!a?.sentHash || !a.jobId) return true;
+  const job = { ...buildJob(post, autoPostOf(post), scheduledAtOf(post) ?? ""), id: a.jobId };
+  return a.sentHash === payloadHash(job, true) || a.sentHash === payloadHash(job, false);
+}
+
+/** The existing job a run or cancel acts on, or the reason it is blocked (never a new allocation). */
+function existingJob(post: Post): { ok: true; id: string } | { ok: false; error: MessageKey } {
+  const r = jobOwnership(latestOf(post), useStore.getState().posts);
+  return r.ok ? { ok: true, id: r.jobId } : { ok: false, error: ownershipError(r.reason) };
+}
+
+/** The error a blocked ownership decision shows (DT-5-R1 R1). */
+function ownershipError(reason: "ambiguous" | "unallocated"): MessageKey {
+  return reason === "ambiguous" ? "publish.err.ambiguousOwner" : "publish.jobMissing";
 }
 
 /**
  * Writes the Worker jobs' results into their posts, then marks each post posted once every network is out.
  * All in one save: every save writes the whole state, and while a burst of saves runs this tab cannot hear
- * another tab's saves, so the last of them would undo what was typed there meanwhile.
+ * another tab's saves, so the last of them would undo what was typed there meanwhile. DT-5-R1 R3: a job is applied
+ * only to its one owner ({@link jobClaim}); a job two posts remember is a conflict: nothing is copied or marked posted
+ * (the hub lists it with its claimants). R4: the owner's unconfirmed allocation (create reply lost) that the Worker
+ * does hold is confirmed here (`sentAt`, scheduled).
  */
 export function applyJobs(
   jobs: readonly WorkerJob[],
@@ -118,18 +228,31 @@ export function applyJobs(
 ): void {
   const store = useStore.getState();
   const next = new Map<string, AutoPost>();
+  const confirmed = new Set<string>();
   for (const job of jobs) {
-    const post = store.posts.find((p) => p.id === job.id || p.autoPost?.jobId === job.id);
-    // Canceled here while the Worker still had it: nothing to follow.
-    if (!post?.autoPost?.sentAt) continue;
-    const before = next.get(post.id) ?? post.autoPost;
+    const claim = jobClaim(job.id, store.posts);
+    // Nobody here (canceled here while the Worker still had it), or two claimants: nothing to apply.
+    if (!claim || !("owner" in claim) || !claim.owner.autoPost) continue;
+    const post = claim.owner;
+    const before = next.get(post.id) ?? claim.owner.autoPost;
+    if (!before.sentAt) confirmed.add(post.id);
     next.set(post.id, {
       ...before,
+      sentAt: before.sentAt ?? now.toISOString(),
       results: { ...before.results, ...job.results },
       checkedAt: now.toISOString(),
     });
   }
-  store.updatePosts(new Map([...next].map(([id, autoPost]) => [id, { autoPost }])), now);
+  store.updatePosts(
+    new Map(
+      [...next].map(([id, autoPost]) => {
+        const stage = store.posts.find((p) => p.id === id)?.stage;
+        const scheduled = confirmed.has(id) && stage !== "posted";
+        return [id, { autoPost, ...(scheduled ? { stage: "scheduled" as const } : {}) }];
+      }),
+    ),
+    now,
+  );
   for (const [id, autoPost] of next) {
     const stage = store.posts.find((p) => p.id === id)?.stage;
     if (canAutoMarkPosted(autoPost) && stage !== "posted") markPosted(id, firstPermalink(autoPost));
@@ -157,7 +280,7 @@ export function usePublish() {
   const schedule = async (post: Post, at?: string): Promise<PublishActionResult> => {
     cancelAutoResync(post.id);
     setBusy(true);
-    return done(await sendJob(post, status, at));
+    return done(await serial(post.id, () => sendJob(post, status, at)));
   };
 
   /**
@@ -169,6 +292,10 @@ export function usePublish() {
     if (!config()) return done({ ok: false, error: "settings.accounts.err.unconfigured" });
     const problems = publishProblems(input, autoPostOf(input), status, { now: true });
     if (problems.length) return done({ ok: false, problems });
+    // A job id another post also claims: blocked before anything is sent (or a day is added).
+    const own = jobOwnership(latestOf(input), useStore.getState().posts);
+    if (!own.ok && own.reason === "ambiguous")
+      return done({ ok: false, error: ownershipError(own.reason) });
     const today = input.plannedDay ? null : dayKey();
     const post = today
       ? (useStore.getState().updatePost(input.id, { plannedDay: today }) ?? input)
@@ -184,36 +311,108 @@ export function usePublish() {
     const cfg = config();
     if (!cfg || !auto(post)) return sent;
     setBusy(true);
-    const r = await publishRun(cfg, post.id);
-    if (!r.ok) return done({ ok: false, error: socialSyncErrorMessageKey(r.error) });
-    applyJobs([r.job], mark, new Date());
-    return done({ ok: true });
+    const r = await serial(post.id, async () => {
+      const job = existingJob(post);
+      if (!job.ok) return job;
+      const res = await publishRun(cfg, job.id);
+      if (!res.ok) return { ok: false as const, error: socialSyncErrorMessageKey(res.error) };
+      applyJobs([res.job], mark, new Date());
+      return { ok: true as const };
+    });
+    return done(r);
   };
 
-  /** Take the job off the Worker (what is already out stays out). */
+  /**
+   * Take the job off the Worker (what is already out stays out). A send already in flight settles first and its
+   * reply is dropped; the DELETE then removes whatever it committed.
+   */
   const cancel = async (post: Post): Promise<PublishActionResult> => {
     const cfg = config();
     if (!cfg) return done({ ok: false, error: "settings.accounts.err.unconfigured" });
+    const blocked = existingJob(post);
+    if (!blocked.ok && blocked.error === "publish.err.ambiguousOwner") return done(blocked);
     cancelAutoResync(post.id);
+    sendFence.set(post.id, fenceOf(post.id) + 1);
     setBusy(true);
-    const r = await publishCancel(cfg, post.id);
-    if (!r.ok) return done({ ok: false, error: socialSyncErrorMessageKey(r.error) });
-    const a = autoPostOf(post);
-    useStore.getState().updatePost(post.id, {
-      autoPost: {
-        ...a,
-        sentAt: undefined,
-        jobId: undefined,
-        results: {},
-        checkedAt: undefined,
-        tiktokCompletedAt: undefined,
-        tiktokPermalink: undefined,
-      },
+    const r = await serial(post.id, async (): Promise<PublishActionResult> => {
+      const job = existingJob(post);
+      if (!job.ok) return job;
+      const res = await publishCancel(cfg, job.id);
+      if (!res.ok) return { ok: false, error: socialSyncErrorMessageKey(res.error) };
+      useStore.getState().updatePost(post.id, {
+        autoPost: {
+          ...autoPostOf(latestOf(post)),
+          sentAt: undefined,
+          sentHash: undefined,
+          jobId: undefined,
+          results: {},
+          checkedAt: undefined,
+          tiktokCompletedAt: undefined,
+          tiktokPermalink: undefined,
+        },
+      });
+      return { ok: true };
     });
-    return done({ ok: true });
+    return done(r);
   };
 
-  return { configured, status, busy, error, schedule, runNow, cancel };
+  /**
+   * DT-5-R1 R4: read the Worker for the post's unconfirmed allocation (no `sentAt`), queued behind any send of the
+   * post so no create is in flight. `found` confirms it ({@link applyJobs}); `absent` only from a successful read
+   * without the id; a failed read is `unknown`, never absent. `none`: nothing unconfirmed to check.
+   */
+  const checkAllocation = (post: Post): Promise<AllocationCheck> =>
+    serial(post.id, () => readAllocation(post, mark));
+
+  /**
+   * Forget the post's unconfirmed allocation, only after a fresh successful read (in the same queued step) shows the
+   * Worker does not hold that id. Unknown (offline) or held → kept; a held job is confirmed and cancelled instead.
+   */
+  const discardAllocation = async (post: Post): Promise<PublishActionResult> => {
+    setBusy(true);
+    const r = await serial(post.id, async (): Promise<PublishActionResult> => {
+      const jobId = latestOf(post).autoPost?.jobId;
+      const check = await readAllocation(post, mark);
+      if (check === "none" || !jobId) return { ok: true };
+      if (check === "unknown") return { ok: false, error: "publish.unconfirmed.unknown" };
+      if (check === "found") return { ok: false, error: "publish.unconfirmed.found" };
+      const released = await useStore.getState().releasePublishJobId(post.id, jobId);
+      return released.ok ? { ok: true } : { ok: false, error: "publish.err.allocation" };
+    });
+    return done(r);
+  };
+
+  return {
+    configured,
+    status,
+    busy,
+    error,
+    schedule,
+    runNow,
+    cancel,
+    checkAllocation,
+    discardAllocation,
+  };
+}
+
+export type AllocationCheck = "found" | "absent" | "unknown" | "none";
+
+/** One Worker read for a post's unconfirmed allocation (call inside the post's `serial`). */
+async function readAllocation(
+  post: Post,
+  markPosted: (id: string, url: string) => void,
+): Promise<AllocationCheck> {
+  const a = latestOf(post).autoPost;
+  if (!a?.jobId || a.sentAt) return "none";
+  const cfg = config();
+  if (!cfg) return "unknown";
+  const key = workerKey(cfg);
+  // DT-5-R2 (R1-D): only a complete, valid list proves absence; a malformed 200 is unknown like a failed read.
+  const r = await publishListStrict(cfg);
+  if (!r.ok || workerKey(config()) !== key) return "unknown";
+  if (!r.jobs.some((j) => j.id === a.jobId)) return "absent";
+  applyJobs(r.jobs, markPosted, new Date());
+  return "found";
 }
 
 /** True when the post has an API network chosen (something for the Worker to do). */
@@ -252,13 +451,23 @@ export function usePublishAutoResync(post: Post): void {
   useEffect(() => {
     const before = seen.current;
     seen.current = key;
-    // Nothing to follow, or the job was just sent (null → key): the Worker already has this version.
-    if (key === null || before === null || before === key) return;
+    // Nothing to follow, or the job was just sent (null → key) and the Worker has this version (DT-5-R2: its sent
+    // digest still matches; an edit made while the create was out is re-sent).
+    if (key === null || before === key) return;
+    const stored = useStore.getState().posts.find((p) => p.id === post.id);
+    if (before === null && (!stored || sentCurrent(stored))) return;
     const id = setTimeout(() => {
       pendingResync.delete(post.id);
       const store = useStore.getState();
       const latest = store.posts.find((p) => p.id === post.id);
-      if (latest && resyncKey(latest) === key) void sendJob(latest, store.socialSync.status);
+      if (!latest || resyncKey(latest) !== key) return;
+      // The fence at fire time: a cancel clicked before this send starts drops it (never resync while cancelled).
+      const fence = fenceOf(post.id);
+      void serial(post.id, async () => {
+        const now = useStore.getState().posts.find((p) => p.id === post.id);
+        if (fenceOf(post.id) !== fence || !now || resyncKey(now) !== key) return;
+        await sendJob(now, useStore.getState().socialSync.status);
+      });
     }, RESYNC_DEBOUNCE_MS);
     pendingResync.set(post.id, id);
     return () => {

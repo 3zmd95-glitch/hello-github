@@ -1,4 +1,4 @@
-import { Inbox, MessageCircle, Settings } from "lucide-react";
+import { Inbox, MessageCircle, Settings, Workflow } from "lucide-react";
 import { describe, expect, it } from "vitest";
 import { activeHref, NAV_BY_WORLD, NAV_ITEMS, normalizePath, SOCIAL_NAV_ITEMS } from "./nav";
 import { worldOf } from "./useWorld";
@@ -21,6 +21,7 @@ const SOCIAL_PATHS = [
   "/social/replies/",
   "/social/settings/",
   "/social/inbox/",
+  "/social/workflows/",
 ];
 
 describe("normalizePath", () => {
@@ -48,7 +49,12 @@ describe("Social navigation", () => {
   it("links only to Social routes: Settings is /social/settings and there is no Discover shortcut", () => {
     for (const item of SOCIAL_NAV_ITEMS) expect(worldOf(item.href), item.href).toBe("social");
     const hrefs = SOCIAL_NAV_ITEMS.map((i) => i.href);
-    expect(hrefs.slice(-3)).toEqual(["/social/inbox", "/social/automations", "/social/settings"]);
+    expect(hrefs.slice(-4)).toEqual([
+      "/social/inbox",
+      "/social/workflows",
+      "/social/automations",
+      "/social/settings",
+    ]);
     expect(SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/settings")).toEqual({
       href: "/social/settings",
       icon: "⚙️",
@@ -69,18 +75,40 @@ describe("Social navigation", () => {
     expect(activeHref(SOCIAL_NAV_ITEMS, "/social/replies/")).toBe("/social/replies");
   });
 
-  it("lists 📥 Inbox in the Social desktop sidebar, right before Auto-posting", () => {
-    const hrefs = SOCIAL_NAV_ITEMS.map((i) => i.href);
-    const at = hrefs.indexOf("/social/inbox");
-    expect(SOCIAL_NAV_ITEMS[at]).toEqual({
+  it("lists 📥 Inbox (packet DT-6A) in the desktop sidebar, built, right after Auto replies", () => {
+    expect(SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/inbox")).toEqual({
       href: "/social/inbox",
       icon: "📥",
       lucide: Inbox,
       label: "nav.inbox",
       desktopOnly: true,
     });
-    expect(hrefs[at + 1]).toBe("/social/automations");
+    const hrefs = SOCIAL_NAV_ITEMS.map((i) => i.href);
+    expect(hrefs.indexOf("/social/inbox")).toBe(hrefs.indexOf("/social/replies") + 1);
     expect(activeHref(SOCIAL_NAV_ITEMS, "/social/inbox/")).toBe("/social/inbox");
+  });
+
+  it("shows Website (packet DT-3) and Business (packet DT-5) as built", () => {
+    const website = SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/website")!;
+    expect(website.soon).toBeUndefined();
+    expect(website.desktopOnly).toBe(true);
+    const business = SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/business")!;
+    expect(business.soon).toBeUndefined();
+    expect(business.desktopOnly).toBe(true);
+    expect(SOCIAL_NAV_ITEMS.some((i) => i.soon)).toBe(false);
+  });
+
+  it("lists Workflows (packet DT-4) in the desktop sidebar, built, before Auto-posting", () => {
+    expect(SOCIAL_NAV_ITEMS.find((i) => i.href === "/social/workflows")).toEqual({
+      href: "/social/workflows",
+      icon: "🔁",
+      lucide: Workflow,
+      label: "nav.workflows",
+      desktopOnly: true,
+    });
+    const hrefs = SOCIAL_NAV_ITEMS.map((i) => i.href);
+    expect(hrefs.indexOf("/social/workflows")).toBe(hrefs.indexOf("/social/automations") - 1);
+    expect(activeHref(SOCIAL_NAV_ITEMS, "/social/workflows/")).toBe("/social/workflows");
   });
 
   it("keeps the phone tab bar at the five Social tabs", () => {

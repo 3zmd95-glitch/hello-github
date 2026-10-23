@@ -291,6 +291,7 @@ export function createClaudeProvider(
       await setLinked(false);
     },
     async plan(input: LocalAiPlanInput) {
+      if (input.images?.length) throw new LocalAiProviderError("claude_images_unavailable");
       // A native login can change between UI refreshes. Recheck the account's
       // app activation immediately before making a subscription request.
       cache = undefined;

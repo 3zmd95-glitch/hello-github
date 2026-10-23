@@ -874,17 +874,17 @@ describe("researchQuery (topic + edit genre + program hint)", () => {
 });
 
 describe("popularity (the Most popular sort and the stats chip)", () => {
-  it("ranks by views, else by likes x 10, else not at all", () => {
+  it("keeps reported counts in their actual units without estimating views", () => {
     expect(popularityOf({ views: 1200, likes: 900 })).toBe(1200);
     expect(popularityOf({ views: 0, likes: 50 })).toBe(0);
-    expect(popularityOf({ likes: 45 })).toBe(450);
+    expect(popularityOf({ likes: 45 })).toBe(45);
     expect(popularityOf({ likes: 0 })).toBe(0);
     expect(popularityOf({ comments: 12 })).toBeUndefined();
     expect(popularityOf({})).toBeUndefined();
     expect(popularityOf(undefined)).toBeUndefined();
   });
 
-  it("sorts known popularity first (highest first), the rest after in their order, stably", () => {
+  it("interleaves comparable metric groups sorted within each group, with unknowns last", () => {
     const items = [
       { n: "plain-1" },
       { n: "yt-5k", stats: { views: 5000 } },
@@ -897,10 +897,10 @@ describe("popularity (the Most popular sort and the stats chip)", () => {
     const before = items.map((i) => i.n);
     expect(sortByPopularity(items).map((i) => i.n)).toEqual([
       "yt-9k-a",
-      "yt-9k-b",
       "tt-700-likes",
-      "yt-5k",
+      "yt-9k-b",
       "ig-0",
+      "yt-5k",
       "plain-1",
       "plain-2",
     ]);
@@ -908,7 +908,7 @@ describe("popularity (the Most popular sort and the stats chip)", () => {
     expect(items.map((i) => i.n)).toEqual(before);
     expect(sortByPopularity(items)[0]).toBe(items[4]);
     expect(sortByPopularity([])).toEqual([]);
-    // 900 likes weigh as much as 9,000 views: a tie, so the order they came in.
+    // Different metrics are distinct groups. Their first-seen order remains stable.
     const tie = [
       { n: "tt", stats: { likes: 900 } },
       { n: "yt", stats: { views: 9000 } },

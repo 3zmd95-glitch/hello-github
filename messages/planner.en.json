@@ -55,5 +55,7 @@
   "planner.resetBody": "Your additions are dropped and the items you removed come back. Your progress is untouched.",
   "planner.resetOk": "Yes, reset it",
   "planner.edited": "✏️ Edited by you",
-  "planner.why6": "Remove any item or add one from the backlog; additions land on the lightest day, and \"Back to the coach's plan\" clears your edits."
+  "planner.why6": "Remove any item or add one from the backlog; additions land on the lightest day, and \"Back to the coach's plan\" clears your edits.",
+  "planner.viewingWeek": "Viewing the week of {date}",
+  "planner.backToThisWeek": "Back to this week"
 }

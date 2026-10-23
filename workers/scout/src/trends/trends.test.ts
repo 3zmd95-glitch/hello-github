@@ -644,8 +644,9 @@ describe("genres", () => {
     queries: { ar: ["ايديت هجولة"], en: ["drift edit", "drift cinematic"] },
   };
 
-  it("bundles the planning file: twelve genres, two keywords each", () => {
-    expect(GENRES.map((g) => g.id)).toEqual([
+  it("bundles the planning file: 35 genres (the first twelve unchanged), two keywords each", () => {
+    expect(GENRES).toHaveLength(35);
+    expect(GENRES.slice(0, 12).map((g) => g.id)).toEqual([
       "cars",
       "food",
       "anime",
@@ -666,6 +667,7 @@ describe("genres", () => {
       queries: { ar: ["ايديت سيارات", "مونتاج سيارات"], en: ["car edit", "cinematic car edit"] },
       hashtags: ["caredit", "carsoftiktok"],
     });
+    // The radar scans the first 12 genres only (RADAR_GENRE_COUNT): 24 keywords.
     expect(GENRE_KEYWORDS).toHaveLength(24);
     expect(GENRE_KEYWORDS.slice(0, 3)).toEqual([
       { q: "ايديت سيارات", region: "SA", lang: "ar", genre: "cars" },
@@ -718,6 +720,20 @@ describe("genres", () => {
       { q: "drift edit", region: "US", lang: "en", genre: "drift" },
     ]);
   });
+
+  it("ignores the dashboard's picker groups: a genre's `group` and the file's `groups` drop nothing", () => {
+    expect(parseGenre({ ...drift, group: "cars" })).toEqual({ ...drift, hashtags: [] });
+    const file = {
+      version: 1,
+      groups: [{ id: "cars", emoji: "🚗", name: { ar: "سيارات", en: "Cars" } }],
+      genres: [{ ...drift, group: "cars" }, drift],
+    };
+    expect(parseGenres(file).map((g) => g.id)).toEqual(["drift"]);
+    expect(parseGenres({ ...file, genres: [{ ...drift, group: "cars" }] })).toHaveLength(1);
+    // The bundled file now carries groups; the scan still sees all 35 genres, in order.
+    expect(GENRES).toHaveLength(35);
+    expect(GENRES.every((g) => !("group" in g))).toBe(true);
+  });
 });
 
 /* ---------- YouTube keyword search ---------- */
@@ -753,7 +769,9 @@ describe("youtube search", () => {
       { q: "مونتاج أكل", region: "SA", lang: "ar", genre: "food" },
       { q: "food edit", region: "US", lang: "en", genre: "food" },
     ]);
-    expect(list.slice(12).map((k) => k.genre)).toEqual(GENRES.flatMap((g) => [g.id, g.id]));
+    expect(list.slice(12).map((k) => k.genre)).toEqual(
+      GENRES.slice(0, 12).flatMap((g) => [g.id, g.id]),
+    );
 
     // The env lists replace the niche defaults, never the genres.
     const own = keywordList({ TREND_KEYWORDS_AR: "مونتاج, مونتاج ,", TREND_KEYWORDS_EN: "b-roll" });
@@ -1113,7 +1131,7 @@ describe("youtube search", () => {
     const day2 = await run(new Date(NOW.getTime() + DAY));
     expect(day2.items.map(rowKey).sort()).toEqual(all.map(keyOf).sort());
     expect(new Set(day2.items.flatMap((i) => (i.genre ? [i.genre] : [])))).toEqual(
-      new Set(GENRES.map((g) => g.id)),
+      new Set(GENRES.slice(0, 12).map((g) => g.id)),
     );
     expect(day2.items.filter((i) => !i.genre)).toHaveLength(12);
     expect(day2.items[0].score).toBe(100);

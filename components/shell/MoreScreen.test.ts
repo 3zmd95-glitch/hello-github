@@ -56,6 +56,7 @@ describe("Social More", () => {
       "more-website",
       "more-business",
       "more-automations",
+      "more-workflows",
       "more-replies",
       "more-inbox",
       "more-settings",
@@ -63,16 +64,20 @@ describe("Social More", () => {
     ]);
   });
 
-  it("links Settings to Social's own page and has no Discover row (tools/20)", () => {
+  it("links Settings to Social's own page and has no Discover or Tools row (tools/20)", () => {
     mount("social");
     expect(entry("more-settings")!.getAttribute("href")).toMatch(/^[/]social[/]settings[/]?$/);
     expect(entry("more-discover")).toBeNull();
+    expect(entry("more-tools")).toBeNull();
     // Every row but the way back stays in Social.
     for (const a of host.querySelectorAll<HTMLAnchorElement>("a[data-testid]")) {
       if (a.dataset.testid === "more-training") continue;
       expect(a.getAttribute("href"), a.dataset.testid).toMatch(/^[/]social([/]|$)/);
     }
-    expect(entry("more-website")!.querySelector(".ios-chip")!.textContent).toBe("قريب");
+    // Website (packet DT-3) and Business (packet DT-5) are built: no "soon" chip.
+    expect(entry("more-website")!.querySelector(".ios-chip")).toBeNull();
+    expect(entry("more-business")!.querySelector(".ios-chip")).toBeNull();
+    expect(entry("more-business")!.getAttribute("href")).toMatch(/^[/]social[/]business[/]?$/);
   });
 
   it("names its rows with the tab bar's words, without emoji, and says what Training is", () => {
@@ -81,6 +86,11 @@ describe("Social More", () => {
     expect(entry("more-inbox")!.textContent).toBe("الرسائل");
     expect(entry("more-inbox")!.getAttribute("href")).toMatch(/^\/social\/inbox\/?$/);
     expect(entry("more-automations")!.textContent).toBe("النشر التلقائي");
+    // Workflows (packet DT-4): built, after Auto-posting, no "soon" chip.
+    const workflows = entry("more-workflows")!;
+    expect(workflows.getAttribute("href")).toMatch(/^\/social\/workflows\/?$/);
+    expect(workflows.textContent).toBe("الخطوات التلقائية");
+    expect(workflows.querySelector(".ios-chip")).toBeNull();
     expect(entry("more-settings")!.textContent).toBe("الإعدادات");
     const training = entry("more-training")!;
     expect(training.getAttribute("href")).toBe("/");
@@ -145,9 +155,11 @@ describe("Training More", () => {
       "more-review",
       "more-rewards",
       "more-discover",
+      "more-tools",
       "more-settings",
     ]);
     expect(entry("more-discover")!.getAttribute("href")).toMatch(/^\/discover\/?$/);
+    expect(entry("more-tools")!.getAttribute("href")).toMatch(/^\/tools\/?$/);
     // Training keeps language and sound in its top bar.
     expect(host.querySelector("section")).toBeNull();
     expect(entry("lang-en")).toBeNull();

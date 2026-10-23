@@ -8,6 +8,7 @@ import {
   Star,
   Trash2,
   TrendingUp,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -28,6 +29,7 @@ export const SOURCE_ICON: Record<IdeaSource, LucideIcon> = {
   trend: TrendingUp,
   skill: Sparkles,
   me: PenLine,
+  workflow: Workflow,
 };
 
 /** Saved a moment ago (the sheet, a trend, a skill): its row rises into the list (tools/18 §3.5 "Lists"). */

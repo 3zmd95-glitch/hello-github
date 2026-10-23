@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { creatorsBetween, mergeHistory } from "./score";
 import { candidatesOf, creatorId, extractCandidates, suffixPatterns } from "./extract";
 import type { EffectPost } from "./types";
 
@@ -219,6 +220,34 @@ describe("extractCandidates", () => {
   it("counts a post that two searches both returned once", async () => {
     const p = post("@a", "clone effect tutorial");
     expect((await found([p, p])).get("clone-effect")!.posts).toBe(1);
+  });
+
+  it("never turns unidentified posts or URL placeholders into independent accounts", async () => {
+    const unidentified = [1, 2, 3].map((n) => ({
+      ...post("", "clone effect tutorial", "ig", n),
+      url: `https://www.instagram.com/p/UNKNOWN${n}`,
+    }));
+    expect((await found(unidentified)).size).toBe(0);
+    const cands = await found([
+      ...unidentified,
+      post("@known", "clone effect tutorial", "ig", 4),
+      post("https://www.instagram.com/p/PLACEHOLDER", "clone effect tutorial", "ig", 5),
+    ]);
+    expect(cands.get("clone-effect")?.days.size).toBe(1);
+    expect(cands.get("clone-effect")?.posts).toBe(1);
+  });
+
+  it("keeps one account in both observed windows, deduplicating multiple posts on the same day", async () => {
+    const cands = await found([
+      post("@a", "clone effect tutorial", "tt", 1, "2026-10-03T12:00:00Z"),
+      post("@a", "clone effect tutorial", "tt", 2, "2026-10-06T12:00:00Z"),
+      post("@a", "clone effect tutorial", "tt", 3, "2026-10-06T16:00:00Z"),
+    ]);
+    const history = mergeHistory({}, TODAY, cands);
+    expect(creatorsBetween(history["clone-effect"], TODAY, 0, 2).size).toBe(1);
+    expect(creatorsBetween(history["clone-effect"], TODAY, 3, 5).size).toBe(1);
+    expect(history["clone-effect"].every((day) => day.ids.length === 1)).toBe(true);
+    expect(cands.get("clone-effect")?.samples[0].published).toBe("2026-10-06T16:00:00Z");
   });
 
   it("never runs a name across the title and the snippet", async () => {

@@ -120,8 +120,9 @@ describe("matchesNiche (the radar's ⭐ rule, round 31)", () => {
     expect(matchesNiche(row, KEYWORDS, genres)).toBe(false);
     // The owner removed the genre in Settings: the app no longer knows which words were its own.
     expect(matchesNiche(row, KEYWORDS, allGenres([]))).toBe(true);
-    const drone = scan("drone", "تصوير درون", { genre: "drone", title: "FPV" });
-    expect(matchesNiche(drone, KEYWORDS, genres)).toBe(true);
+    // "kites" stands for an id the app does not know (drone became a built-in genre on 22 Oct 2026).
+    const kites = scan("kites", "تصوير طائرات ورقية", { genre: "kites", title: "Kite day" });
+    expect(matchesNiche(kites, KEYWORDS, genres)).toBe(true);
   });
 
   it("stars a genre row when its title matches or a niche keyword found it", () => {
@@ -287,7 +288,7 @@ describe("trendGenreLabel", () => {
   });
 
   it("shows an id the app does not know as it is", () => {
-    expect(trendGenreLabel("drone", allGenres([drift]), "ar")).toBe("drone");
+    expect(trendGenreLabel("kites", allGenres([drift]), "ar")).toBe("kites");
     expect(trendGenreLabel("custom-drift", allGenres([]), "en")).toBe("custom-drift");
     expect(trendGenreLabel("Cars", allGenres([]), "en")).toBe("Cars");
     expect(trendGenreLabel("constructor", allGenres([]), "en")).toBe("constructor");

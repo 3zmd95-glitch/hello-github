@@ -39,6 +39,18 @@ import arCreator from "@/messages/creator.ar.json";
 import enCreator from "@/messages/creator.en.json";
 import arTikTok from "@/messages/tiktok.ar.json";
 import enTikTok from "@/messages/tiktok.en.json";
+import arInspiration from "@/messages/inspiration.ar.json";
+import enInspiration from "@/messages/inspiration.en.json";
+import arFeed from "@/messages/feed.ar.json";
+import enFeed from "@/messages/feed.en.json";
+import arTools from "@/messages/tools.ar.json";
+import enTools from "@/messages/tools.en.json";
+import arWebsite from "@/messages/website.ar.json";
+import enWebsite from "@/messages/website.en.json";
+import arWorkflows from "@/messages/workflows.ar.json";
+import enWorkflows from "@/messages/workflows.en.json";
+import arBusiness from "@/messages/business.ar.json";
+import enBusiness from "@/messages/business.en.json";
 import type { Lang, LText } from "@/lib/domain";
 import { useStore } from "@/store";
 
@@ -80,6 +92,16 @@ export const MESSAGE_FILES = {
   search: { ar: arSearch, en: enSearch },
   creator: { ar: arCreator, en: enCreator },
   tiktok: { ar: arTikTok, en: enTikTok },
+  inspiration: { ar: arInspiration, en: enInspiration },
+  feed: { ar: arFeed, en: enFeed },
+  // 🧰 Tools & integrations hub (packet DT-1, planning/collaboration/dashboard-tools-handoff.md).
+  tools: { ar: arTools, en: enTools },
+  // 🌐 Website CMS (packet DT-3, planning/tools/33-website-cms.md).
+  website: { ar: arWebsite, en: enWebsite },
+  // ⚙️ Workflows (packet DT-4, planning/tools/34-workflows.md).
+  workflows: { ar: arWorkflows, en: enWorkflows },
+  // 💼 Business Kit (packet DT-5, planning/tools/35-business-kit.md).
+  business: { ar: arBusiness, en: enBusiness },
 } as const;
 
 const ar = {
@@ -103,6 +125,12 @@ const ar = {
   ...arSearch,
   ...arCreator,
   ...arTikTok,
+  ...arInspiration,
+  ...arFeed,
+  ...arTools,
+  ...arWebsite,
+  ...arWorkflows,
+  ...arBusiness,
 };
 const en = {
   ...enBase,
@@ -125,6 +153,12 @@ const en = {
   ...enSearch,
   ...enCreator,
   ...enTikTok,
+  ...enInspiration,
+  ...enFeed,
+  ...enTools,
+  ...enWebsite,
+  ...enWorkflows,
+  ...enBusiness,
 };
 
 export type MessageKey = keyof typeof ar;

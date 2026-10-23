@@ -71,6 +71,7 @@
   "replies.log.title": "آخر الردود",
   "replies.log.dmSent": "أرسلنا الخاص ✓",
   "replies.log.dmFailed": "الخاص ما راح",
+  "replies.log.dmSkipped": "تخطّينا الخاص",
   "replies.log.publicSent": "ردينا تحت التعليق ✓",
   "replies.log.publicFailed": "الرد العام ما راح",
   "replies.log.kind.comment": "تعليق",

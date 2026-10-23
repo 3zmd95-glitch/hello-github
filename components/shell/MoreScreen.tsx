@@ -11,9 +11,9 @@ import {
   Settings,
   SunMoon,
   Volume2,
+  Workflow,
 } from "lucide-react";
 import Link from "next/link";
-import Chip from "@/components/ui/ios/Chip";
 import { ListGroup, ListRow } from "@/components/ui/ios/List";
 import PageHeader from "@/components/ui/ios/PageHeader";
 import Segmented from "@/components/ui/ios/Segmented";
@@ -29,6 +29,7 @@ const TRAINING_LINKS: readonly { href: string; label: MessageKey; testId: string
   { href: "/review", label: "morePage.review", testId: "more-review" },
   { href: "/rewards", label: "morePage.rewards", testId: "more-rewards" },
   { href: "/discover", label: "morePage.discover", testId: "more-discover" },
+  { href: "/tools", label: "morePage.tools", testId: "more-tools" },
   { href: "/settings", label: "morePage.settings", testId: "more-settings" },
 ];
 
@@ -89,7 +90,11 @@ export function QuickSettingRows() {
             options={[
               { value: "light", label: t("settings.appearanceLight"), testId: "appearance-light" },
               { value: "dark", label: t("settings.appearanceDark"), testId: "appearance-dark" },
-              { value: "system", label: t("settings.appearanceSystem"), testId: "appearance-system" },
+              {
+                value: "system",
+                label: t("settings.appearanceSystem"),
+                testId: "appearance-system",
+              },
             ]}
           />
         }
@@ -130,14 +135,13 @@ export function QuickSettingRows() {
 }
 
 /**
- * Social "More" (tools/18 §6, mockup More), as grouped lists: the two "soon" sections; the sections that are not in
+ * Social "More" (tools/18 §6, mockup More), as grouped lists: Website and Business; the sections that are not in
  * the phone tab bar; quick settings (Social keeps language and sound here, not in its top bar, round 35) with Social's
  * own settings page (tools/20); the way back to Training, the one link that leaves Social. Row titles are the tab
  * bar's and the sidebar's own words (`nav.*`).
  */
 function SocialMore() {
   const { t } = useT();
-  const soon = <Chip>{t("nav.soon")}</Chip>;
   return (
     <>
       <PageHeader title={t("social.more.title")} sub={t("social.more.sub")} />
@@ -146,17 +150,15 @@ function SocialMore() {
           <ListRow
             href="/social/website"
             icon={<Globe {...icon} />}
-            iconTone="fill"
             title={t("nav.website")}
-            trailing={soon}
+            chevron
             testId="more-website"
           />
           <ListRow
             href="/social/business"
             icon={<Briefcase {...icon} />}
-            iconTone="fill"
             title={t("nav.business")}
-            trailing={soon}
+            chevron
             testId="more-business"
           />
         </ListGroup>
@@ -167,6 +169,13 @@ function SocialMore() {
             title={t("nav.automations")}
             chevron
             testId="more-automations"
+          />
+          <ListRow
+            href="/social/workflows"
+            icon={<Workflow {...icon} />}
+            title={t("nav.workflows")}
+            chevron
+            testId="more-workflows"
           />
           <ListRow
             href="/social/replies"

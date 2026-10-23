@@ -3,7 +3,7 @@ import { GENRES } from "./genres";
 import { discoverPrompts } from "./discoverPrompts";
 
 describe("Discover prompt coverage", () => {
-  it("offers bilingual, distinct prompts for all 12 genres within the search length limit", () => {
+  it("offers bilingual, distinct prompts for every built-in genre within the search length limit", () => {
     const seen = new Set<string>();
     for (const genre of GENRES) {
       const prompts = discoverPrompts(genre.id);

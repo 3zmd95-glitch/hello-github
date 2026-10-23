@@ -25,7 +25,7 @@ export function instagramPostUrl(input: string): string | null {
   }
 }
 
-function imageUrl(input: string | undefined): string | undefined {
+export function instagramImageUrl(input: string | undefined): string | undefined {
   if (!input) return;
   try {
     const u = new URL(input);
@@ -52,7 +52,7 @@ export async function readInstagramPreview(res: Response, post: string): Promise
       if (name === "body") done = true;
       if (name !== "meta") return;
       if (attrs.property === "og:url") canonical = instagramPostUrl(attrs.content ?? "");
-      if (attrs.property === "og:image") thumb = imageUrl(attrs.content);
+      if (attrs.property === "og:image") thumb = instagramImageUrl(attrs.content);
       if (canonical && thumb) {
         done = true;
         parser.pause();
@@ -100,7 +100,7 @@ export async function lookupInstagramPreview(
         thumb: string;
         url: string;
       };
-      if (data.url === post && (data.thumb === "" || imageUrl(data.thumb))) {
+      if (data.url === post && (data.thumb === "" || instagramImageUrl(data.thumb))) {
         return { ok: true as const, data, body: JSON.stringify(data) };
       }
     } catch {

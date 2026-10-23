@@ -4,6 +4,7 @@ import { discoverKeys } from "./fetchers";
 import { planSearch } from "./plan";
 import { ANSWER_TTL_S, MAX_RETRIES, discoverAnswerKey, requestHash, runDiscover } from "./run";
 import type { DiscoverRequest } from "./types";
+import { DISCOVER_QUALITY_VERSION } from "./types";
 import { connectorCap, discoverUsage, usageKeys } from "./usage";
 
 const NOW = new Date("2026-10-03T09:00:00Z");
@@ -91,6 +92,7 @@ describe("runDiscover", () => {
     const answer = await runDiscover(env, { q: "flash" }, { fetch: fetchMock, now: NOW });
 
     expect(answer.topicKey).toBe("flash-transition");
+    expect(answer.qualityVersion).toBe(DISCOVER_QUALITY_VERSION);
     expect(answer.platforms).toEqual({ tt: { ok: true }, ig: { ok: true }, yt: { ok: true } });
     // English first: examples and tutorials in English, 2 a platform (an Arabic search adds its tutorials query).
     expect(answer.cost).toEqual({ tavily: 4, youtubeSearch: 2 });
@@ -114,9 +116,69 @@ describe("runDiscover", () => {
     const again = await runDiscover(env, { q: "  FLASH " }, { fetch: fetchMock, now: NOW });
     expect(again.cached).toBe(true);
     expect(again.complete).toBe(true);
+    expect(again.qualityVersion).toBe(DISCOVER_QUALITY_VERSION);
     expect(again.cost).toEqual({ tavily: 0, youtubeSearch: 0 });
     expect(again.items).toEqual(answer.items);
     expect(fetchMock.mock.calls.length).toBe(calls);
+  });
+  it.each([undefined, 6, 8])(
+    "does not trust cached quality version %s just because its request key is current",
+    async (qualityVersion) => {
+      const env = ENV();
+      const req = { q: "flash" };
+      const first = await runDiscover(env, req, { fetch: web(), now: NOW });
+      const key = discoverAnswerKey(await requestHash(req));
+      await env.SOCIAL_KV.put(key, JSON.stringify({ ...first, qualityVersion }));
+      const fetchMock = web();
+      const refreshed = await runDiscover(env, req, { fetch: fetchMock, now: NOW });
+      expect(fetchMock).toHaveBeenCalled();
+      expect(refreshed.cached).toBe(false);
+      expect(refreshed.qualityVersion).toBe(DISCOVER_QUALITY_VERSION);
+    },
+  );
+
+  it("keeps relevance and view-count retrieval caches separate without adding search calls", async () => {
+    const env = ENV();
+    const fetchMock = web();
+    const req: DiscoverRequest = { q: "flash", platforms: ["yt"] };
+    const first = await runDiscover(env, req, { fetch: fetchMock, now: NOW });
+    expect(first.cost).toEqual({ tavily: 0, youtubeSearch: 2 });
+    expect(first.cached).toBe(false);
+    const calls = fetchMock.mock.calls.length;
+
+    const relevance = await runDiscover(
+      env,
+      { ...req, ytOrder: "relevance" },
+      { fetch: fetchMock, now: NOW },
+    );
+    expect(relevance.cached).toBe(true);
+    expect(relevance.items).toEqual(first.items);
+    expect(fetchMock).toHaveBeenCalledTimes(calls);
+
+    const popularReq: DiscoverRequest = { ...req, ytOrder: "viewCount" };
+    const popular = await runDiscover(env, popularReq, { fetch: fetchMock, now: NOW });
+    expect(popular.cached).toBe(false);
+    expect(popular.cost).toEqual({ tavily: 0, youtubeSearch: 2 });
+    const searches = fetchMock.mock.calls
+      .map(([input]) => new URL(String(input)))
+      .filter((url) => url.pathname.endsWith("/youtube/v3/search"));
+    expect(searches.map((url) => url.searchParams.get("order"))).toEqual([
+      null,
+      null,
+      "viewCount",
+      "viewCount",
+    ]);
+    expect(searches.slice(2).map((url) => url.searchParams.get("q"))).toEqual(
+      searches.slice(0, 2).map((url) => url.searchParams.get("q")),
+    );
+    expect(env.SOCIAL_KV.store.get(discoverKeys.yt("2026-10-03"))?.value).toBe("4");
+
+    const completedCalls = fetchMock.mock.calls.length;
+    const again = await runDiscover(env, popularReq, { fetch: fetchMock, now: NOW });
+    expect(again.cached).toBe(true);
+    expect(again.items).toEqual(popular.items);
+    expect(again.cost).toEqual({ tavily: 0, youtubeSearch: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(completedCalls);
   });
 
   // Live, 2026-10-07: Tavily's Instagram "week" held posts from 2023 and May. The post id is the date (postDate.ts).
@@ -595,6 +657,12 @@ describe("runDiscover", () => {
     expect(await requestHash({ q: "flash", editing: true })).not.toBe(
       await requestHash({ q: "flash" }),
     );
+    expect(await requestHash({ q: "flash", ytOrder: "relevance" })).toBe(
+      await requestHash({ q: "flash" }),
+    );
+    expect(await requestHash({ q: "flash", ytOrder: "viewCount" })).not.toBe(
+      await requestHash({ q: "flash" }),
+    );
     expect(await requestHash({ q: "flash", platforms: ["yt", "tt"] })).toBe(
       await requestHash({ q: "flash", platforms: ["tt", "yt"] }),
     );
@@ -638,12 +706,21 @@ describe("discoverUsage", () => {
     const env = { TAVILY_API_KEY: "k", SOCIAL_KV: kv };
     const usage = await discoverUsage(env, fetchMock, NOW);
     expect(usage).toEqual({
-      tavily: { used: 412, limit: 1000, plan: "Researcher", paygoUsed: 0, paygoLimit: 5000 },
+      tavily: {
+        used: 412,
+        limit: 1000,
+        plan: "Researcher",
+        paygoUsed: 0,
+        paygoLimit: 5000,
+        observedAt: expect.any(String),
+        cached: false,
+      },
       youtube: { usedToday: 9, cap: 66 },
       connector: { usedToday: 12, cap: 60 },
     });
     expect(kv.store.get(usageKeys.tavily)?.expirationTtl).toBe(600);
-    await discoverUsage(env, fetchMock, NOW);
+    const cached = await discoverUsage(env, fetchMock, NOW);
+    expect(cached.tavily).toEqual({ ...usage.tavily, cached: true });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

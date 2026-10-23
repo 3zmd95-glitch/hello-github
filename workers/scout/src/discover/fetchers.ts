@@ -19,7 +19,7 @@ import { utcDay } from "../trends/kv";
 import { TAVILY_URL } from "../trends/tavily";
 import { YT_SEARCH_URL } from "../trends/youtubeSearch";
 import type { Lang } from "./terms";
-import type { DiscoverTimeRange, PlatformError } from "./types";
+import type { DiscoverTimeRange, DiscoverYoutubeOrder, PlatformError } from "./types";
 
 export interface FetchEnv {
   AI?: import("./ai").SearchAiBinding;
@@ -79,6 +79,8 @@ export async function tavilyCall(
     timeRange?: DiscoverTimeRange;
     /** The run's time, for the posts' dates (normalize.ts); the clock's by default. */
     now?: Date;
+    /** Internal format discovery only; normalization clamps this to 1000. Default preview remains 220. */
+    maxSnippetLength?: number;
   },
   timeoutMs = CALL_TIMEOUT_MS,
 ): Promise<TavilyOutcome> {
@@ -118,8 +120,8 @@ export async function tavilyCall(
         typeof normalizeDiscoverHits
       >[0];
       const { cards, profiles } = one
-        ? normalizeDiscoverHits(hits, one, call.now)
-        : { cards: normalizeHits(hits, platforms, call.now), profiles: [] };
+        ? normalizeDiscoverHits(hits, one, call.now, call.maxSnippetLength)
+        : { cards: normalizeHits(hits, platforms, call.now, call.maxSnippetLength), profiles: [] };
       return { ok: true, cards, profiles, credits: data.usage?.credits ?? 1 };
     });
     return out ?? { ok: false, error: "upstream" };
@@ -161,11 +163,15 @@ const clip = (s: string, max: number) => {
 export type YoutubeOutcome =
   { ok: true; cards: (ScoutResult & { profile?: string })[] } | { ok: false; error: PlatformError };
 
-export function youtubeSearchUrl(
-  key: string,
-  call: { q: string; lang: Lang; timeRange?: DiscoverTimeRange; ytLength?: "short" | "long" },
-  now: Date,
-): string {
+interface YoutubeSearchCall {
+  q: string;
+  lang: Lang;
+  timeRange?: DiscoverTimeRange;
+  ytLength?: "short" | "long";
+  ytOrder?: DiscoverYoutubeOrder;
+}
+
+export function youtubeSearchUrl(key: string, call: YoutubeSearchCall, now: Date): string {
   const u = new URL(YT_SEARCH_URL);
   u.searchParams.set("part", "snippet");
   u.searchParams.set("type", "video");
@@ -174,6 +180,7 @@ export function youtubeSearchUrl(
   u.searchParams.set("relevanceLanguage", call.lang);
   u.searchParams.set("regionCode", call.lang === "ar" ? "SA" : "US");
   if (call.ytLength) u.searchParams.set("videoDuration", call.ytLength);
+  if (call.ytOrder) u.searchParams.set("order", call.ytOrder);
   if (call.timeRange) {
     u.searchParams.set(
       "publishedAfter",
@@ -187,7 +194,7 @@ export function youtubeSearchUrl(
 export async function youtubeCall(
   env: FetchEnv,
   doFetch: typeof fetch,
-  call: { q: string; lang: Lang; timeRange?: DiscoverTimeRange; ytLength?: "short" | "long" },
+  call: YoutubeSearchCall,
   now: Date,
   timeoutMs = CALL_TIMEOUT_MS,
 ): Promise<YoutubeOutcome> {

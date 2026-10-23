@@ -1,0 +1,103 @@
+{
+  "packet": "DT-6B-3B",
+  "kind": "read-only release inventory",
+  "observedAtUtc": "2026-10-17T18:27:04Z/2026-10-17T18:40Z",
+  "statement": "Evidence only. Nothing was deployed, fetched, pushed, provisioned, granted or changed. Cached refs and workflow success are not proof of the currently active Worker version.",
+  "candidate": {
+    "sourceHead": "0e1fdb089146f4fd8e5f1d3c7cd58cf5b6fc6127",
+    "cachedOriginMain": "a858c1208af2477dba3e07865c5c2059cf18e220",
+    "mergeBase": "898483fe6e88723c361e691fec20a3e3ffb63afc",
+    "divergenceHeadVsMain": "48/3",
+    "workerManifestSha256": "b1bfdd02b652c16d2d9ff72ec54ef9cc77519fc552f0519619304b54ba42ebb5",
+    "pinsFile": "planning/collaboration/dt6b3b-evidence/pins-before.sha256"
+  },
+  "remoteHead": {
+    "method": "git ls-remote origin refs/heads/main (no fetch, no local ref change)",
+    "repository": "github.com/3zmd95-glitch/hello-github",
+    "observedAtUtc": "2026-10-17T18:27:38Z",
+    "sha": "a858c1208af2477dba3e07865c5c2059cf18e220",
+    "equalsCachedOriginMain": true,
+    "githubCompareCachedMainToMain": { "status": "identical", "aheadBy": 0, "behindBy": 0, "files": 0 }
+  },
+  "workflowEvidence": {
+    "method": "gh run list / gh run view (existing gh keyring auth, read-only)",
+    "workflow": ".github/workflows/worker.yml (Deploy Scout Worker): on push to main for workers/scout/** and data/workflow paths, plus workflow_dispatch; provisions SOCIAL_KV and OAUTH_KV if missing; runs wrangler deploy; uploads secrets",
+    "latestRun": {
+      "runId": 38755604631,
+      "event": "push",
+      "branch": "main",
+      "headSha": "a858c1208af2477dba3e07865c5c2059cf18e220",
+      "createdAtUtc": "2026-10-15T14:54:33Z",
+      "conclusion": "success",
+      "deployStep": "success",
+      "deployLogSummary": {
+        "uploaded": "3z-scout",
+        "currentVersionId": "c2e78187-ecdc-4184-a936-b3baef46ee2e",
+        "deployedAtUtc": "2026-10-15T14:55:12Z",
+        "schedule": "* * * * *",
+        "bindingsReported": ["SOCIAL_KV (KV Namespace)", "OAUTH_KV (KV Namespace)", "AI (AI)", "environment variables: ALLOWED_ORIGINS, TREND_SOURCES, TREND_KEYWORDS_AR, TREND_KEYWORDS_EN, DISCOVER_YT_CAP, MCP_DAILY_LOOKUPS, BRAVE_DAILY, TIKTOK_ADS_APP_ID, TIKTOK_DISCOVERY_COUNTRY, DISCOVER_V2, MCP_RESOURCE"],
+        "durableObjectBindingsReported": [],
+        "secretsUploadedByName": ["TAVILY_API_KEY", "SCOUT_TOKEN", "META_APP_ID", "META_APP_SECRET", "THREADS_APP_ID", "THREADS_APP_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"],
+        "note": "Log read locally, summarized with ids/URLs redacted, then deleted. YOUTUBE_API_KEY upload line not observed in the extracted summary (repository secret exists)."
+      }
+    },
+    "earlierDispatchRuns": [
+      { "runId": 38151982415, "event": "workflow_dispatch", "branch": "codex/discover-inspiration", "headSha": "e3b5ebfd002317e29db6997a7cdaf3ee7968a1f8", "createdAtUtc": "2026-10-11T15:36:31Z", "deployStep": "success", "ancestorOfCandidateHead": true }
+    ],
+    "laterRunsAfterLatest": "none listed as of observation",
+    "githubDeploymentsApi": "30 records, all environment github-pages (Pages, not the Worker)"
+  },
+  "repositorySecretNames": {
+    "method": "gh secret list (names and update dates only, never values)",
+    "names": ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "META_APP_ID", "META_APP_SECRET", "SCOUT_TOKEN", "TAVILY_API_KEY", "THREADS_APP_ID", "THREADS_APP_SECRET", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "YOUTUBE_API_KEY"],
+    "INBOX_SEAL_SECRET": "absent from repository secrets and not uploaded by worker.yml"
+  },
+  "cloudflareActiveIdentity": {
+    "status": "unavailable",
+    "attempt": "pnpm exec wrangler whoami (wrangler 4.141.0, workers/scout), once",
+    "result": "You are not authenticated. Please run `wrangler login`.",
+    "action": "branch stopped; no login, no retry, no dashboard use, no Worker endpoint call",
+    "unknown": ["currently active version id and traffic allocation", "deployments made outside GitHub Actions after 2026-10-15T14:55:12Z", "compatibility date as deployed", "applied Durable Object migrations", "Cloudflare-side secret presence incl. INBOX_SEAL_SECRET", "KV contents / prior automatic effect state"]
+  },
+  "comparisonToCandidate": {
+    "baseSha": "deployed run built a858c12 = candidate cached main = remote main; candidate source HEAD 0e1fdb0 is NOT deployed (48 commits unique to the managed branch)",
+    "durableObjects": { "candidate": ["SEND_COORDINATOR/SendCoordinator v1-send", "THREADS_SEND_COORDINATOR/ThreadsSendCoordinator v2-threads-send", "INSTAGRAM_PUBLIC_SEND_COORDINATOR/InstagramPublicSendCoordinator v3-instagram-public-send", "INSTAGRAM_DM_COORDINATOR/InstagramDmCoordinator v4-instagram-dm"], "lastDeployReport": "none (a858c12 has no Durable Objects)", "migrationApplied": "unknown (no Cloudflare access); not assumed absent or present" },
+    "kv": { "candidate": ["SOCIAL_KV", "OAUTH_KV"], "lastDeployReport": ["SOCIAL_KV", "OAUTH_KV"], "match": true, "contentsProven": false },
+    "AI": { "match": true },
+    "schedule": { "candidate": "* * * * *", "lastDeployReport": "* * * * *", "match": true },
+    "INBOX_SEAL_SECRET": { "candidateRequires": true, "pipelineProvides": false, "cloudflarePresence": "unknown" }
+  },
+  "addendum3C": {
+    "title": "Reviewer addendum — DT-6B-3C (17 Oct 2026)",
+    "source": "Codex root review of frozen DT-6B-3B (dashboard-remaining-tools-review.md, \"DT-6B-3B frozen review\") and the adopted DT-6B-3C contract (SHA256 5d1d38ae2a3b6991fd45314017999a0c479caa4447b2623621c8a24f2bf705b9). Instagram page observations: Codex's installed-Chrome reading recorded in %TEMP%/dashboard-remaining-tools-2026-10-16/dt6b3b-instagram-observations.md (cached or markdown renderings may differ; the review infers no fabrication). Carried locally by the DT-6B-3C writer; no new remote read, provider call, grant or secret access.",
+    "preserves": "Every other key and value in this file is the original DT-6B-3B writer inventory, unchanged, as attributed history (deployLogSummary, observedAtUtc and the githubDeploymentsApi note included). Where they conflict with these items, these items supersede them.",
+    "reviewObservationIntervalUtc": "2026-10-17T18:35:14.836Z/2026-10-17T18:35:21.531Z",
+    "items": [
+      {
+        "n": 1,
+        "title": "Threads grant inspection",
+        "text": "Official https://developers.facebook.com/documentation/threads/troubleshooting/debug-access-token.md and https://developers.facebook.com/documentation/threads/reference/debug.md document GET /v1.0/debug_token returning scopes, user_id, validity and expiry; the guide requires a tester user token for the same app as the inspected token. No actual call was made and no grant evidence was collected; the minimum owner-reply scope combination remains unresolved. This replaces any global implication above that no verification method is documented. The production gate stays closed. The broader 500-character/emoji-byte wording in the Threads posts/publishing docs is a future readiness question, not a Threads code change in 3C."
+      },
+      {
+        "n": 2,
+        "title": "Instagram messaging",
+        "text": "Chrome's loaded official /documentation/instagram-platform/instagram-api-with-instagram-login/messaging-api page shows \"Updated September 28, 2026\" and rendered v26.0 examples, not the writer's v25.0/no-date observation. It confirms 1,000 UTF-8 bytes for message.text. Most initiating actions have a 24-hour window; separate Click-to-Direct first-message and Human Agent seven-day provisions are described. The local 24-hour rule is preserved; no tags are added and no API version changes; continued v21.0 support is still unverified."
+      },
+      {
+        "n": 3,
+        "title": "Instagram Business Login and Comment Moderation",
+        "text": "The official business-login page (March 13, 2026) documents a comma-separated permissions string in the exchange-response example: the documented shape is established; actual grants and runtime validation/preservation are not. Comment Moderation's loaded official /documentation/instagram-platform/comment-moderation page shows June 2, 2025 and v26.0 examples; the Instagram Login host and the two required comment permissions (instagram_business_basic, instagram_business_manage_comments) are confirmed. Sources/observations: Codex's dt6b3b-instagram-observations.md (method attributed; cached/markdown renderings may differ)."
+      },
+      {
+        "n": 4,
+        "title": "Release claims",
+        "text": "Say: the latest observed GitHub deployment used a858c12; the candidate manifest has no deployment proof and the active Cloudflare identity remains unknown. Do not say today's active Worker is conclusively that source. Pages-only deployment history covers the newest 30 queried records only. The minute cron schedules the reply poll on eligible ticks, not an unconditional send every minute. Do not assume new coordinator storage is actually empty; migration state and contents are unverified. The writer's run-log version UUID (c2e78187-ecdc-4184-a936-b3baef46ee2e) and the ten uploaded secret names remain attributed to its deleted-log summary; bounded independent metadata confirms run/head/step times, not those raw-log details. The writer's prose timestamps are kept as unverified labels (they run ahead of the review clock); the review's machine-recorded observation interval is 2026-10-17T18:35:14.836Z–18:35:21.531Z."
+      },
+      {
+        "n": 5,
+        "title": "Provisioning and seeding are not prescribed",
+        "text": "Repository-secret storage/upload is not the only future provisioning route. INBOX_SEAL_SECRET is absent from the inspected repository/pipeline, but its Cloudflare presence is unknown. Legacy counts alone cannot prove a seeding algorithm. Active identity and a separately bounded, minimal inventory must precede a concrete cutover plan. No Cloudflare login, credentials or live data is needed for the local 3C packet."
+      }
+    ]
+  }
+}

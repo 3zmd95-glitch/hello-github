@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  NATIVE_HELPER_EVENT,
+  nativeHelperId,
+  type NativeConnection,
+} from "@/lib/discoverNativeSearch";
+
 import Link from "next/link";
 import {
   useCallback,
@@ -8,6 +14,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
@@ -21,10 +28,25 @@ import {
   picksFor,
   tabCounts,
   type DiscoverAlternative,
+  type DiscoverAnswer,
   type DiscoverPick,
 } from "@/lib/discover";
+import {
+  categoryCandidates,
+  discoverFeedbackCreator,
+  discoverFeedbackForItem,
+  discoverPostKey,
+  savedDiscoverInterests,
+  type DiscoverFeedbackUndo,
+} from "@/lib/discoverFeed";
+import { CATEGORY_EXPANSION_ROUNDS, expandCategory } from "@/lib/discoverExpansion";
+import { categoryRefillCost, refillCategory } from "@/lib/discoverRefill";
+import { rankDiscoverItems, type DiscoverFeedMode } from "@/lib/discoverRanking";
 import type { Lang, Skill } from "@/lib/domain";
 import { discoverPrompts } from "@/lib/discoverPrompts";
+import type { EditFormat } from "@/lib/editFormats";
+import { dropHiddenEditors, editorSearches, hiddenEditorsFor } from "@/lib/editorFilter";
+import { applyFormatSources } from "@/lib/formatSources";
 import { allGenres, GENRES } from "@/lib/genres";
 import { useT, type MessageKey } from "@/lib/i18n";
 import type { AiChoice, AiSelection } from "@/lib/localAi";
@@ -68,11 +90,21 @@ import { getApiKey, useStore } from "@/store";
 import DiscoverSections from "./DiscoverSections";
 import AiConnectionControls from "./AiConnectionControls";
 import CategoryPage from "./CategoryPage";
+import ForYouFeed from "./ForYouFeed";
+import GenreGroups from "./GenreGroups";
+import TrendingEdits from "./TrendingEdits";
+import TrendingSounds, { useRecordSounds } from "./TrendingSounds";
+import NativeKeywordResults from "./NativeKeywordResults";
 import PasteLinkForm from "./PasteLinkForm";
 import PicksSection from "./PicksSection";
 import ResultCard, { PLATFORM_META, SkeletonCard } from "./ResultCard";
 import SkillPicker from "./SkillPicker";
+import SaveInspirationButton from "./SaveInspirationButton";
 import TrendingEffects from "./TrendingEffects";
+import type { FormatVerificationTarget } from "@/lib/formatVerification";
+import CategoryRefreshAction from "./CategoryRefreshAction";
+import CategorySemanticChecks from "./CategorySemanticChecks";
+import { useCategorySemantic } from "./useCategorySemantic";
 import { useDiscoverPicks, useDiscoverQuery, useDiscoverUsage, useScoutCaps } from "./useDiscover";
 import {
   groupErrors,
@@ -85,11 +117,18 @@ import {
   type ScoutSearchState,
 } from "./useScout";
 import { useYoutubeQuery } from "./useYoutube";
+import { useFormatSources } from "./useFormatSources";
+import { useFeedSources } from "./useFeedSources";
+import { useCategoryEntry } from "./useCategoryEntry";
+import { useExpansionDiagnostics } from "./useExpansionDiagnostics";
+import DiscoverUsageLine from "./DiscoverUsageLine";
+import type { CategoryFeedProps, FeedFeedbackAction } from "./CategoryFeed";
 
 /** Last platform tab, remembered per device. */
 export const RESEARCH_TAB_KEY = "3z-research-tab";
 const YT_MAX = 10;
 const SETTINGS_HREF = "/settings/#api-keys";
+const NO_EDITORS: readonly string[] = [];
 
 function readTab(): ResearchTab {
   try {
@@ -98,6 +137,16 @@ function readTab(): ResearchTab {
   } catch {
     return "all";
   }
+}
+
+/** The connected helper's id: read after hydration and on (dis)connection, never from the server. */
+function subscribeHelper(change: () => void): () => void {
+  window.addEventListener(NATIVE_HELPER_EVENT, change);
+  window.addEventListener("storage", change);
+  return () => {
+    window.removeEventListener(NATIVE_HELPER_EVENT, change);
+    window.removeEventListener("storage", change);
+  };
 }
 
 function writeTab(tab: ResearchTab): void {
@@ -114,7 +163,12 @@ const TAB_LABEL: Record<ResearchTab, MessageKey> = {
   tt: "research.tabTt",
   ig: "research.tabIg",
 };
-const TAB_GLYPH: Record<ResearchTab, string> = { all: "◆", yt: "▶", tt: "♪", ig: "📷" };
+const TAB_GLYPH: Record<ResearchTab, ReactNode> = {
+  all: "◆",
+  yt: PLATFORM_META.yt.glyph,
+  tt: PLATFORM_META.tt.glyph,
+  ig: PLATFORM_META.ig.glyph,
+};
 
 /** The platforms behind the tabs, in the All tab's order. */
 const PLATFORMS = ["yt", "tt", "ig"] as const;
@@ -161,25 +215,49 @@ const SORTS: { v: SortMode; label: MessageKey }[] = [
  * first), a card grid with thumbnails and view / like counts, and attach actions. Sources: the YouTube Data
  * API when the owner has a key, the Scout Worker for TikTok / Instagram (and YouTube without a key). With a
  * genre on, a "Most viewed this week" strip above the results shows the Trend Radar's rows of that genre
- * (the feed the store keeps; Discover is the one place for genres). A built-in category tapped with nothing typed
- * shows its page (CategoryPage, round 37) in place of the category search.
+ * (the feed the store keeps; Discover is the one place for genres). Category taps search for editing references;
+ * a separate Study guides action opens the built-in category's cached lessons.
  */
 export default function ResearchPanel({
   skill,
   stickyTop = "max-md:-top-4",
   openGenre,
+  onOpenInspiration,
+  workspace,
+  onSearch,
+  onBrowseCategory,
+  onBrowse,
+  styleSearch,
+  active = true,
+  showBrowse = true,
+  formatReviewRequest,
 }: {
   /** Skill sheet mode; omitted = Discover mode. */
   skill?: Skill;
   /** Where the search bar sticks on phones: the sheet's padded scroll edge by default, below the app's top bar in Discover. */
   stickyTop?: string;
   /**
-   * Discover's deep link (`/discover/?genre=<id>`): the id of a genre the app knows, handed in once the
-   * address bar was read. It goes on the way a tap on its chip would.
+   * Opens the panel on one genre, like a tap on its chip. Discover no longer passes it: `/discover/?genre=<id>`
+   * opens that category's page in Browse (DiscoverScreen), so the app has no Search-tab genre filter. Kept only
+   * for the in-panel category feed's own tests (CategoryFeed.test.ts) until that feed is removed with them.
    */
   openGenre?: string | null;
+  onOpenInspiration?: (url: string) => void;
+  /** Presentation only: keep one query mounted while moving between Browse and Search. */
+  workspace?: "browse" | "search";
+  onSearch?: () => void;
+  onBrowseCategory?: (id: string) => void;
+  /** The Search tab's "Looking for a category?" hint: take the reader to Browse, where the categories are. */
+  onBrowse?: () => void;
+  /** A trending style tapped on a category's "Trends & lessons": searched like a 🔥 chip (once per revision). */
+  styleSearch?: { query: string; revision: number };
+  active?: boolean;
+  showBrowse?: boolean;
+  formatReviewRequest?: { target: FormatVerificationTarget; revision: number };
 }) {
   const { t, L, lang, dir } = useT();
+  const browsing = !skill && workspace === "browse";
+  const organized = !skill && workspace !== undefined;
   const ids = useId();
   const [queryLang, setQueryLang] = useState<Lang>(lang);
   const [draft, setDraft] = useState<string | null>(null);
@@ -200,9 +278,25 @@ export default function ResearchPanel({
   // name no editing besides the effect: live, "Glow Effect" found beauty serums). Any other search turns it off.
   const [editing, setEditing] = useState(false);
   const [sort, setSort] = useState<SortMode>("relevance");
+  const [feedMode, setFeedMode] = useState<DiscoverFeedMode>("inspiration");
+  // Query dates stay fixed for cache keys; new source evidence and feedback need a current clock.
+  const [feedNow, setFeedNow] = useState(() => Date.now());
+  const [feedUndo, setFeedUndo] = useState<{
+    action: FeedFeedbackAction;
+    token: DiscoverFeedbackUndo;
+  }>();
+  const [feedExpansion, setFeedExpansion] = useState<{
+    scope: string;
+    busy: boolean;
+    refilling?: boolean;
+    error?: ScoutError;
+  }>({ scope: "", busy: false });
+  const [feedRounds, setFeedRounds] = useState<Record<string, number>>({});
+  const [refreshBusy, setRefreshBusy] = useState(false);
+  const [feedUsageRevision, setFeedUsageRevision] = useState(0);
+  const feedAbort = useRef<AbortController | null>(null);
   const [genreId, setGenreId] = useState<string | null>(null);
-  // 🚗 The built-in category whose page shows (planning/tools/19-category-trends.md §1): set by a category tap with
-  // nothing typed, cleared by any search (`commit`).
+  // The built-in category's optional Study guides page; searches and genre changes close it.
   const [page, setPage] = useState<string | null>(null);
   const sheet = useSkillSheet();
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -215,7 +309,16 @@ export default function ResearchPanel({
   const addRef = useStore((s) => s.addRef);
   const removeRef = useStore((s) => s.removeRef);
   const savedRefs = useStore((s) => s.savedRefs);
+  const inspirations = useStore((s) => s.inspirations);
+  const savedInterests = useMemo(() => savedDiscoverInterests(inspirations), [inspirations]);
   const customGenres = useStore((s) => s.customGenres);
+  const discoverCandidates = useStore((s) => s.discoverCandidates);
+  const discoverFeedback = useStore((s) => s.discoverFeedback);
+  const editorScope = useStore((s) => s.settings.discover.editorScope);
+  const setEditorScope = useStore((s) => s.setEditorScope);
+  const accumulateDiscoverCandidates = useStore((s) => s.accumulateDiscoverCandidates);
+  const setDiscoverFeedback = useStore((s) => s.setDiscoverFeedback);
+  const undoDiscoverFeedback = useStore((s) => s.undoDiscoverFeedback);
   const trends = useStore((s) => s.trends);
   const ytKey = useStore((s) => getApiKey(s, "youtube"));
   const scoutCfg = useScoutConfig();
@@ -227,7 +330,26 @@ export default function ResearchPanel({
   // The "Not this?" choice, for the topic it was made on (another topic or genre drops it), and the search
   // attempt a failed platform's Retry sends past the cache.
   const [picked, setPicked] = useState<{ on: string; pick: DiscoverPick } | null>(null);
+  const [formatSearch, setFormatSearch] = useState<{
+    query: string;
+    intent: "examples" | "tutorials";
+    format: EditFormat;
+  } | null>(null);
   const [forceAt, setForceAt] = useState(-1);
+  const helperId = useSyncExternalStore(subscribeHelper, nativeHelperId, () => null);
+  const [nativeConnection, setNativeConnection] = useState<NativeConnection>("checking");
+  // The web index (Tavily / YouTube API) for this query, asked for by the owner while native leads.
+  const [webIndexFor, setWebIndexFor] = useState<string | null>(null);
+  // Each native keyword section's helper job, by cache scope: busy now, and the search key it last ran.
+  const [nativeJobs, setNativeJobs] = useState<Record<string, { busy: boolean; ran: string }>>({});
+  const onNativeBusy = useCallback((scope: string, busy: boolean, searchKey: string) => {
+    setNativeJobs((jobs) => {
+      const ran = busy ? searchKey : (jobs[scope]?.ran ?? "");
+      return jobs[scope]?.busy === busy && jobs[scope]?.ran === ran
+        ? jobs
+        : { ...jobs, [scope]: { busy, ran } };
+    });
+  }, []);
 
   /* ---------- the query ---------- */
 
@@ -237,10 +359,51 @@ export default function ResearchPanel({
   // The edit genres: the built-in ones, then the ones the owner added in Settings.
   const genres = useMemo(() => allGenres(customGenres), [customGenres]);
   const genre = genreId ? genres.find((g) => g.id === genreId) : undefined;
+  const activeFormat = formatSearch?.query === base && !genre ? formatSearch : null;
   // The page stands in for the category search until a search runs; Discover v2 with a Worker only. Saved only shows
   // the saved posts instead, as it does for a search.
   const showPage =
     !skill && v2 && !!scoutCfg && !!genre && page === genre.id && !base && !savedOnly;
+  const isCategoryFeed = !skill && v2 && !!genre && !base && !showPage && !savedOnly;
+  useEffect(() => {
+    if (!isCategoryFeed) return;
+    const tick = setInterval(() => setFeedNow(Date.now()), 60_000);
+    return () => clearInterval(tick);
+  }, [isCategoryFeed]);
+  const categoryEntry = useCategoryEntry(
+    genre?.id,
+    scoutCfg,
+    genre ? discoverRequestFrom({ base: "", genre, recency: "any", length: "any" }) : null,
+    active && isCategoryFeed,
+  );
+  const {
+    diagnostics: feedDiagnostics,
+    quotaPlatforms: feedQuotaPlatforms,
+    record: recordFeedDiagnostics,
+    clear: clearFeedDiagnostics,
+  } = useExpansionDiagnostics(genre?.id ?? "");
+  useEffect(() => {
+    if (active && isCategoryFeed && categoryEntry.cached)
+      recordFeedDiagnostics(categoryEntry.cached);
+  }, [active, isCategoryFeed, categoryEntry.cached, recordFeedDiagnostics]);
+  const feedScope = isCategoryFeed ? `${genre.id}|${tab}` : "";
+  // All covers every platform. Widening after a platform-only batch advances past its
+  // query too, so switching tabs cannot spend another search on the same batch.
+  const feedRound = isCategoryFeed
+    ? Math.max(
+        feedRounds[`${genre.id}|all`] ?? 0,
+        ...(tab === "all" ? ["ig", "tt", "yt"] : [tab]).map(
+          (platform) => feedRounds[`${genre.id}|${platform}`] ?? 0,
+        ),
+      )
+    : 0;
+  useEffect(
+    () => () => {
+      feedAbort.current?.abort();
+      feedAbort.current = null;
+    },
+    [feedScope],
+  );
   // Topic (or skill name), then the genre's main query in the search language, then the program hint.
   const q = researchQuery(base, queryLang, genre, hintOn ? hint : undefined);
   // Instagram hashtags are Latin slugs: the skill's EN name, or the Discover topic when it's Latin; the
@@ -249,11 +412,31 @@ export default function ResearchPanel({
   const tag = researchHashtag(base, skill ? skill.name.en : base, genre);
   // "Search" press counter: pressing it again after an error asks again (a cached success costs nothing).
   const [attempt, setAttempt] = useState(0);
+  // Packet 22: only the separate Deep search button marks its attempt deep (the helper may open the apps'
+  // tabs for a moment); Search, chips, retries and every other search stay quiet.
+  const [deepAttempt, setDeepAttempt] = useState(-1);
+  // Native first (owner goal, packet 20): with the Chrome helper connected, a typed keyword search shows what
+  // Instagram, TikTok and YouTube themselves show, and the paid web index waits until the owner asks for it.
+  // No helper or no permission: today's web search, unchanged. Format, saved, skill and AI searches keep theirs.
+  const nativeKeyword =
+    !skill &&
+    !!helperId &&
+    submittedMode === "keyword" &&
+    !!base.trim() &&
+    !savedOnly &&
+    !activeFormat;
+  // Owner's editors (packet 21): CapCut then DaVinci Resolve sections, or one plain search under "all".
+  const keywordSearches = useMemo(() => editorSearches(base, editorScope), [base, editorScope]);
+  const webHeld =
+    nativeKeyword &&
+    (nativeConnection === "checking" || nativeConnection === "connected") &&
+    webIndexFor !== q;
   const aiSearchBlocked = searchMode === "ai" && aiChoice.provider !== "builtin" && !aiChoice.model;
   const hasDraftTopic = Boolean((draft ?? base).trim());
 
   /** The typed text becomes the topic (Discover: remembered as a recent topic) or the skill's override. */
   const commit = (text: string) => {
+    setFormatSearch(null);
     setSubmittedMode(searchMode);
     setSubmittedAi(
       aiChoice.provider === "builtin" ? undefined : { ...aiChoice, provider: aiChoice.provider },
@@ -269,6 +452,56 @@ export default function ResearchPanel({
     setEditing(false);
   };
 
+  /** A format's exact search (its audio AND visual recipe), from Edit formats or a Trending edits row. */
+  const pickFormat = (query: string, intent: "examples" | "tutorials", format: EditFormat) => {
+    onSearch?.();
+    setFormatSearch({ query, intent, format });
+    setSearchMode("keyword");
+    setSubmittedMode("keyword");
+    setSubmittedAi(undefined);
+    setGenreId(null);
+    setPage(null);
+    setSavedOnly(false);
+    setProgramId("");
+    setHintOn(false);
+    setTopic(query);
+    setDraft(null);
+    setPicked({ on: `|${query}`, pick: { exact: true } });
+    setEditing(true);
+    setArFirst(false);
+    setLength("any");
+    setRecency(intent === "tutorials" ? "any" : "month");
+    setSort("relevance");
+    pickTab("all");
+    setAttempt((a) => a + 1);
+    addRecentTopic(query);
+  };
+
+  /** A Trending edits row: a format's exact search, else the keyword search a chip runs (a lesson: any date). */
+  const pickEdit = (query: string, intent: "examples" | "tutorials", format?: EditFormat) => {
+    if (format) return pickFormat(query, intent, format);
+    onSearch?.();
+    setSubmittedAi(undefined);
+    setProgramId("");
+    setPage(null);
+    setSavedOnly(false);
+    setPicked(null);
+    setFormatSearch(null);
+    setSearchMode("keyword");
+    setSubmittedMode("keyword");
+    setGenreId(null);
+    setTopic(query);
+    setDraft(null);
+    setHintOn(false);
+    setLength("any");
+    setSort("relevance");
+    pickTab("all");
+    chipSearch();
+    if (intent === "tutorials") setRecency("any");
+    setAttempt((a) => a + 1);
+    addRecentTopic(query);
+  };
+
   /** A trend chip's search (spec 18, 2026-10-07): Arabic first off, Posted on Week (the chip says "this week": its tap
    * shows this week's posts, and the owner can widen it) and editing context; its English name makes it an English
    * search ({@link discoverLang}). Of that, only the two filters stick to the next search, as the owner left them. */
@@ -278,41 +511,66 @@ export default function ResearchPanel({
     setEditing(true);
   };
 
+  // A style from a category's Trends & lessons page: the same keyword search a 🔥 chip runs, on this tab.
+  const styleSeen = useRef(0);
+  useEffect(() => {
+    if (!styleSearch || styleSearch.revision === styleSeen.current) return;
+    styleSeen.current = styleSearch.revision;
+    const query = styleSearch.query;
+    setSubmittedAi(undefined);
+    setProgramId("");
+    setPage(null);
+    setSavedOnly(false);
+    setPicked(null);
+    setFormatSearch(null);
+    setSearchMode("keyword");
+    setSubmittedMode("keyword");
+    setGenreId(null);
+    setTopic(query);
+    setDraft(null);
+    setArFirst(false);
+    setRecency("week");
+    setEditing(true);
+    setAttempt((a) => a + 1);
+    addRecentTopic(query);
+  }, [styleSearch, addRecentTopic]);
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (aiSearchBlocked) return;
     commit((draft ?? base).trim());
     setAttempt((a) => a + 1);
   };
+  const deepSearch = () => {
+    if (aiSearchBlocked) return;
+    commit((draft ?? base).trim());
+    setDeepAttempt(attempt + 1);
+    setAttempt(attempt + 1);
+  };
+  const showDeepSearch = !skill && !!helperId && searchMode === "keyword";
 
   /**
    * A genre chip is a search: what's typed but not submitted becomes the topic first, then the genre goes
    * on, or off when it's the active chip (null = off). A genre alone never lands in the recent topics.
    */
   const pickGenre = (id: string | null) => {
+    if (browsing) {
+      // Browse is the one place for categories: a tap always opens the category page, never a hidden Search filter.
+      if (id) onBrowseCategory?.(id);
+      return;
+    }
+    setFeedMode("inspiration");
+    setFeedUndo(undefined);
     if (aiSearchBlocked) return;
+    setFormatSearch(null);
     setEditing(false);
+    setPicked(null);
     setSubmittedMode(searchMode);
     setSubmittedAi(
       aiChoice.provider === "builtin" ? undefined : { ...aiChoice, provider: aiChoice.provider },
     );
-    // A built-in category tapped with nothing typed opens its page instead of searching (spec 19 §1). Typed text still
-    // narrows the search, and an owner-added category still searches.
-    if (
-      id &&
-      id !== genreId &&
-      !skill &&
-      v2 &&
-      scoutCfg &&
-      !(draft ?? base).trim() &&
-      GENRES.some((g) => g.id === id)
-    ) {
-      commit(""); // the box may hold nothing over an old topic
-      setGenreId(id);
-      setPage(id); // after commit, which closes any page
-      return;
-    }
     if (draft !== null) commit(draft.trim());
+    setPage(null);
     setGenreId(id === genreId ? null : id);
     setAttempt((a) => a + 1);
   };
@@ -334,14 +592,15 @@ export default function ResearchPanel({
     setAttempt((a) => a + 1);
   }, []);
 
-  // Discover's deep link: the genre handed in goes on once, like a tap on its chip (a search of its own),
-  // and its chip is brought into view in the row. The owner's next taps decide from there.
+  // The genre handed in goes on once, like a tap on its chip (a search of its own), and its chip is brought into
+  // view in the row. The owner's next taps decide from there.
   const [opened, setOpened] = useState<string | null>(null);
   if (openGenre && openGenre !== opened) {
+    setFormatSearch(null);
     setOpened(openGenre);
     setEditing(false);
     setGenreId(openGenre);
-    setPage(null); // the link searches, even over that category's page
+    setPage(null); // it searches, even over that category's page
     setAttempt((a) => a + 1);
   }
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -371,7 +630,7 @@ export default function ResearchPanel({
   const hasYt = !!ytKey;
   const searchLang: Lang = arFirst ? "ar" : queryLang;
   const timeRange = recency === "any" ? undefined : recency;
-  const live = !savedOnly && q.length > 0;
+  const live = !savedOnly && q.length > 0 && !webHeld;
   const videoDuration = youtubeDurationFor(length);
   const publishedAfter = publishedAfterFor(recency, now);
   // "Most popular" asks YouTube for the most viewed first; otherwise nothing is sent (same request as before).
@@ -384,7 +643,7 @@ export default function ResearchPanel({
     order: ytOrder,
   };
   const ytWanted = live && legacy && hasYt && (tab === "all" || tab === "yt");
-  const yt = useYoutubeQuery(ytWanted ? ytKey : undefined, q, ytOpts, attempt);
+  const yt = useYoutubeQuery(ytWanted ? ytKey : undefined, q, ytOpts, attempt, active);
   // A key that's out of quota or refused: YouTube comes from the Worker instead. The failed query stays
   // settled (ytWanted doesn't depend on this), so it doesn't flip back and forth.
   const ytDown =
@@ -399,9 +658,9 @@ export default function ResearchPanel({
   const paramsFor = (p: Platform) =>
     scoutParams(q, scoutPlatformsFor(p, ytApi), searchLang, timeRange);
   const wants = (p: Platform) => live && legacy && (tab === "all" || tab === p);
-  const scoutTt = useScoutQuery(wants("tt") ? paramsFor("tt") : null, attempt);
-  const scoutIg = useScoutQuery(wants("ig") ? paramsFor("ig") : null, attempt);
-  const scoutYt = useScoutQuery(wants("yt") ? paramsFor("yt") : null, attempt);
+  const scoutTt = useScoutQuery(wants("tt") ? paramsFor("tt") : null, attempt, active);
+  const scoutIg = useScoutQuery(wants("ig") ? paramsFor("ig") : null, attempt, active);
+  const scoutYt = useScoutQuery(wants("yt") ? paramsFor("yt") : null, attempt, active);
   const scoutBy: Record<Platform, ScoutSearchState> = { yt: scoutYt, tt: scoutTt, ig: scoutIg };
 
   // Discover v2: one request for every platform, both languages. A memo, so the React Compiler sees it frozen
@@ -409,7 +668,7 @@ export default function ResearchPanel({
   const pickOn = `${genre?.id ?? ""}|${base}`;
   const discoverReq = useMemo(
     () =>
-      v2 && !savedOnly && !showPage
+      v2 && !savedOnly && !showPage && !webHeld && !(isCategoryFeed && categoryEntry.skipSearch)
         ? discoverRequestFrom({
             mode: submittedMode === "ai" ? "ai" : undefined,
             subscription: submittedAi,
@@ -427,6 +686,9 @@ export default function ResearchPanel({
       v2,
       savedOnly,
       showPage,
+      webHeld,
+      isCategoryFeed,
+      categoryEntry.skipSearch,
       base,
       genre,
       hintOn,
@@ -441,18 +703,222 @@ export default function ResearchPanel({
       editing,
     ],
   );
-  const disc = useDiscoverQuery(discoverReq, attempt, forceAt === attempt);
+  const rawDisc = useDiscoverQuery(discoverReq, attempt, forceAt === attempt, active);
+  useEffect(() => {
+    if (!active || !isCategoryFeed || !genre) return;
+    if (rawDisc.status === "ok") {
+      accumulateDiscoverCandidates(rawDisc.answer.items, { genreId: genre.id });
+      recordFeedDiagnostics(rawDisc.answer);
+    } else if (rawDisc.status === "error") clearFeedDiagnostics();
+  }, [
+    active,
+    isCategoryFeed,
+    genre,
+    rawDisc,
+    accumulateDiscoverCandidates,
+    recordFeedDiagnostics,
+    clearFeedDiagnostics,
+  ]);
+  const feedCandidates = useMemo(
+    () => (isCategoryFeed && genre ? categoryCandidates(discoverCandidates, genre.id) : []),
+    [isCategoryFeed, genre, discoverCandidates],
+  );
+  const feedSources = useFeedSources(
+    feedCandidates,
+    isCategoryFeed && active && !categoryEntry.loading,
+    ytKey,
+  );
+  useEffect(() => {
+    if (active && isCategoryFeed && genre && feedSources.items.length)
+      accumulateDiscoverCandidates(feedSources.items, { genreId: genre.id });
+  }, [active, isCategoryFeed, genre, feedSources.items, accumulateDiscoverCandidates]);
+  useRecordSounds(feedSources.items, genre?.id ?? "", active && isCategoryFeed && !!genre);
+  const feedContext = useMemo(
+    () =>
+      Object.fromEntries(
+        discoverCandidates
+          .filter((candidate) => candidate.genreId === genre?.id)
+          .map((candidate) => [
+            discoverPostKey(candidate.item.platform, candidate.item.url) ?? candidate.item.url,
+            candidate,
+          ]),
+      ),
+    [discoverCandidates, genre?.id],
+  );
+  const semantic = useCategorySemantic({
+    items: feedSources.items,
+    genreId: genre?.id ?? "",
+    active: active && isCategoryFeed && !categoryEntry.loading,
+    lang,
+    platform: tab,
+    now: feedNow,
+  });
+  const feedRank = useMemo(
+    () =>
+      rankDiscoverItems(feedSources.items, {
+        genreId: genre?.id,
+        now: feedNow,
+        feedback: discoverFeedback,
+        savedInterests,
+        mode: feedMode,
+        visual: feedContext,
+      }),
+    [
+      feedSources.items,
+      genre?.id,
+      feedNow,
+      discoverFeedback,
+      savedInterests,
+      feedMode,
+      feedContext,
+    ],
+  );
+  const feedExplore = useMemo(
+    () =>
+      rankDiscoverItems(feedSources.items, {
+        genreId: genre?.id,
+        now: feedNow,
+        feedback: discoverFeedback,
+        savedInterests,
+        mode: "explore",
+        visual: feedContext,
+      }),
+    [feedSources.items, genre?.id, feedNow, discoverFeedback, savedInterests, feedContext],
+  );
+  // The owner's hidden editors (Discover only; a skill sheet has no toggle for it): dropped before ranking
+  // output is sectioned or counted, and reported in one quiet line, never silently.
+  const hideEditors = skill ? NO_EDITORS : hiddenEditorsFor(editorScope);
+  const feedHidden = useMemo(
+    () => dropHiddenEditors(isCategoryFeed ? feedRank.items : [], hideEditors),
+    [isCategoryFeed, feedRank.items, hideEditors],
+  );
+  const feedAnswer = useMemo<DiscoverAnswer | undefined>(() => {
+    if (!isCategoryFeed || !genre) return undefined;
+    return {
+      ...(rawDisc.status === "ok"
+        ? rawDisc.answer
+        : {
+            topicKey: genre.id,
+            understood: { label: genre.name, exact: false },
+            alternatives: [],
+            creators: [],
+            platforms: {},
+            cost: { tavily: 0, youtubeSearch: 0 },
+            cached: true,
+            complete: false,
+          }),
+      items: [...feedHidden.items],
+    };
+  }, [isCategoryFeed, genre, rawDisc, feedHidden.items]);
+  const findMoreEdits = async (refill = false) => {
+    if (!isCategoryFeed || !genre || !scoutCfg || refreshBusy || feedAbort.current) return;
+    const scope = feedScope;
+    const round = feedRound;
+    if (!refill && round >= CATEGORY_EXPANSION_ROUNDS) return;
+    const controller = new AbortController();
+    feedAbort.current = controller;
+    if (!refill)
+      setFeedRounds((rounds) => ({
+        ...rounds,
+        [scope]: round + 1,
+        ...(tab === "all"
+          ? Object.fromEntries(
+              ["ig", "tt", "yt"].map((platform) => [`${genre.id}|${platform}`, round + 1]),
+            )
+          : {}),
+      }));
+    setFeedExpansion({ scope, busy: true, refilling: refill });
+    try {
+      const options = { platform: tab === "all" ? undefined : tab, signal: controller.signal };
+      const result = refill
+        ? await refillCategory(scoutCfg, genre, options)
+        : await expandCategory(scoutCfg, genre, { ...options, round });
+      if (controller.signal.aborted) return;
+      if (result.ok) {
+        accumulateDiscoverCandidates(result.answer.items, { genreId: genre.id });
+        recordFeedDiagnostics(result.answer, tab === "all" ? undefined : [tab]);
+        setFeedExpansion({ scope, busy: false });
+      } else {
+        clearFeedDiagnostics();
+        setFeedExpansion({ scope, busy: false, error: result.error });
+      }
+    } catch {
+      if (!controller.signal.aborted) {
+        clearFeedDiagnostics();
+        setFeedExpansion({ scope, busy: false, error: { type: "network" } });
+      }
+    } finally {
+      if (feedAbort.current === controller) feedAbort.current = null;
+      // Read the account counter after the bounded request, including a failed request
+      // that may already have spent credits. This never starts another search.
+      setFeedUsageRevision((revision) => revision + 1);
+    }
+  };
+  const formatSources = useFormatSources(
+    active && rawDisc.status === "ok" ? rawDisc.answer : null,
+    activeFormat?.format,
+    activeFormat?.intent,
+  );
+  const sourceChecked = useMemo(
+    () =>
+      rawDisc.status === "ok" && activeFormat
+        ? applyFormatSources(
+            rawDisc.answer,
+            activeFormat.format,
+            activeFormat.intent,
+            formatSources.sources,
+          )
+        : null,
+    [rawDisc, activeFormat, formatSources.sources],
+  );
+  // A format search keeps its specific audio + visual identity even when an older Worker returns broad music results.
+  const checkedDisc = useMemo(
+    () =>
+      rawDisc.status === "ok" && sourceChecked
+        ? {
+            ...rawDisc,
+            answer: sourceChecked.answer,
+          }
+        : rawDisc,
+    [rawDisc, sourceChecked],
+  );
+  const keywordHidden = useMemo(
+    () =>
+      dropHiddenEditors(checkedDisc.status === "ok" ? checkedDisc.answer.items : [], hideEditors),
+    [checkedDisc, hideEditors],
+  );
+  const disc = useMemo(
+    () =>
+      checkedDisc.status === "ok" && keywordHidden.count
+        ? { ...checkedDisc, answer: { ...checkedDisc.answer, items: [...keywordHidden.items] } }
+        : checkedDisc,
+    [checkedDisc, keywordHidden],
+  );
+  const hiddenLine = feedAnswer ? feedHidden : keywordHidden;
   // Claude's picks (free: a KV read), asked when v2 opens and again at each search attempt.
   const picks = useDiscoverPicks(v2 ? scoutCfg : null, attempt);
-  // The tab badges count the posts shown; a tab is empty only with none at all (hidden ones included).
-  const discShown = disc.status === "ok" ? tabCounts(disc.answer, false) : undefined;
-  const discAll = disc.status === "ok" ? tabCounts(disc.answer, true) : undefined;
+  // Category admission already considered source/semantic proof. Indexed offTopic flags must not
+  // hide a ranked row from its badge; detailed searches retain their own hidden-result policy.
+  const feedCounts = feedAnswer ? tabCounts(feedAnswer, true) : undefined;
+  const discShown = feedCounts
+    ? feedCounts
+    : disc.status === "ok"
+      ? tabCounts(disc.answer, false)
+      : undefined;
+  const discAll = feedCounts
+    ? feedCounts
+    : disc.status === "ok"
+      ? tabCounts(disc.answer, true)
+      : undefined;
   // The usage line asks again once an answer lands (each search's own attempt), never at the click.
   const discUsage = useDiscoverUsage(
     v2 ? scoutCfg : null,
-    disc.status === "loading" ? null : disc.status === "off" ? 0 : disc.attempt,
+    disc.status === "loading"
+      ? null
+      : (disc.status === "off" ? 0 : disc.attempt) + feedUsageRevision,
   );
   const onAlternative = (alt: DiscoverAlternative) => {
+    setFormatSearch(null);
     setPicked({ on: pickOn, pick: "exact" in alt ? { exact: true } : { term: alt.termId } });
     setAttempt((a) => a + 1);
   };
@@ -480,8 +946,11 @@ export default function ResearchPanel({
     () =>
       skill
         ? (savedRefs[skill.id] ?? []).map(itemFromRef)
-        : dedupeByUrl(...Object.values(savedRefs)).map(itemFromRef),
-    [savedRefs, skill],
+        : dedupeByUrl(
+            inspirations.map((entry) => entry.ref),
+            ...Object.values(savedRefs),
+          ).map(itemFromRef),
+    [savedRefs, inspirations, skill],
   );
 
   /* ---------- "most viewed this week": the Trend Radar's rows of the genre ---------- */
@@ -591,7 +1060,7 @@ export default function ResearchPanel({
 
   /* ---------- per-card actions ---------- */
 
-  const renderAction = (item: ResearchItem): ReactNode => {
+  const renderAttachAction = (item: ResearchItem): ReactNode => {
     const on = attachedTo.get(canonicalRefUrl(item.platform, item.url)) ?? [];
     if (skill) {
       const here = on.includes(skill.id);
@@ -634,7 +1103,7 @@ export default function ResearchPanel({
     return (
       <button
         type="button"
-        className="px-btn px-btn-sm"
+        className="px-btn px-btn-ghost px-btn-sm"
         onClick={() => setPickFor(item)}
         data-testid="result-attach"
       >
@@ -643,10 +1112,107 @@ export default function ResearchPanel({
     );
   };
 
+  const renderAction = (item: ResearchItem): ReactNode =>
+    skill ? (
+      renderAttachAction(item)
+    ) : (
+      <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <SaveInspirationButton item={item} onOpen={onOpenInspiration} />
+        {renderAttachAction(item)}
+      </span>
+    );
+
+  const categoryFeed: CategoryFeedProps | undefined =
+    feedAnswer && genre
+      ? {
+          genre: L(genre.name),
+          intro: (
+            <CategorySemanticChecks
+              queue={semantic}
+              lookupBusy={feedExpansion.scope === feedScope && feedExpansion.busy}
+            />
+          ),
+          refresh: (
+            <CategoryRefreshAction
+              genre={genre}
+              tab={tab}
+              config={scoutCfg}
+              active={active && isCategoryFeed && !categoryEntry.loading}
+              checking={feedSources.checking}
+              onBusyChange={setRefreshBusy}
+              disabled={
+                rawDisc.status === "loading" ||
+                (feedExpansion.scope === feedScope && feedExpansion.busy)
+              }
+            />
+          ),
+          searchOptionsCollapsed: true,
+          refreshing: refreshBusy,
+          diagnostics: feedDiagnostics,
+          quotaPlatforms: feedQuotaPlatforms,
+          mode: feedMode,
+          onMode: setFeedMode,
+          items: feedRank.items,
+          evidence: feedRank.evidence,
+          tab,
+          renderAction,
+          checking: feedSources.checking,
+          remainingSources: feedSources.remaining,
+          onCheckRemainingSources: feedSources.checkRemaining,
+          loading:
+            (categoryEntry.loading || rawDisc.status === "loading") && !feedCandidates.length,
+          likedUrls: new Set(
+            feedRank.items
+              .filter(
+                (item) =>
+                  discoverFeedbackForItem(discoverFeedback, item, genre.id)?.action === "more",
+              )
+              .map((item) => item.url),
+          ),
+          onFeedback: (item, action) => {
+            setFeedNow(Date.now());
+            const token = setDiscoverFeedback({
+              url: item.url,
+              platform: item.platform,
+              creator: discoverFeedbackCreator(item),
+              genreId: genre.id,
+              techniques: feedRank.evidence[item.url]?.techniques,
+              action,
+            });
+            if (token) setFeedUndo({ action, token });
+          },
+          undo: feedUndo
+            ? {
+                action: feedUndo.action,
+                onUndo: () => {
+                  undoDiscoverFeedback(feedUndo.token);
+                  setFeedUndo(undefined);
+                },
+              }
+            : undefined,
+          onFindMore: () => {
+            void findMoreEdits();
+          },
+          onRefill: () => {
+            void findMoreEdits(true);
+          },
+          refilling:
+            feedExpansion.scope === feedScope && feedExpansion.busy && feedExpansion.refilling,
+          canRefill: !!scoutCfg,
+          refillCost: categoryRefillCost(tab === "all" ? undefined : tab),
+          findingMore:
+            feedExpansion.scope === feedScope && feedExpansion.busy && !feedExpansion.refilling,
+          canFindMore: feedRound < CATEGORY_EXPANSION_ROUNDS,
+          searchCost: tab === "all" ? 3 : 1,
+          exploreCount: feedExplore.items.filter((item) => tab === "all" || item.platform === tab)
+            .length,
+        }
+      : undefined;
+
   /* ---------- notes, hints, errors ---------- */
 
-  const scoutHint = !savedOnly && !scoutCfg && tab !== "yt" && (!!q || !!skill);
-  const ytHint = !savedOnly && !hasYt && !scoutCfg && (tab === "all" || tab === "yt");
+  const scoutHint = !savedOnly && !webHeld && !scoutCfg && tab !== "yt" && (!!q || !!skill);
+  const ytHint = !savedOnly && !webHeld && !hasYt && !scoutCfg && (tab === "all" || tab === "yt");
   const ytViaScout =
     !savedOnly && !ytApi && scoutYt.status === "ok" && (tab === "yt" || (tab === "all" && ytDown));
   const lenNote =
@@ -678,11 +1244,13 @@ export default function ResearchPanel({
   const anySettled = [yt, scoutTt, scoutIg, scoutYt].some((s) => s.status === "ok");
   // v2: nothing on this tab, hidden posts included; or no word to search in what was typed (emoji only).
   const v2Empty = v2 && !savedOnly && (discoverReq ? discAll?.[tab] === 0 : live);
-  const showEmpty = savedOnly
-    ? items.length === 0
-    : v2
-      ? v2Empty
-      : !!q && anySettled && !loading && items.length === 0;
+  const showEmpty = isCategoryFeed
+    ? false
+    : savedOnly
+      ? items.length === 0
+      : v2
+        ? v2Empty
+        : !!q && anySettled && !loading && items.length === 0;
   const activeFilters =
     (recency !== "any" ? 1 : 0) +
     (length !== "any" ? 1 : 0) +
@@ -738,701 +1306,915 @@ export default function ResearchPanel({
   // The strip's title sits one level under the screen's own: the page title in Discover, the skill's name
   // in the sheet.
   const WeekTitle = skill ? "h3" : "h2";
+  const SearchOptions = organized ? "details" : "div";
+  const CategoryIdeas = isCategoryFeed ? "details" : "div";
+
+  const genrePicker = (
+    <div
+      role="group"
+      aria-labelledby={`${ids}-genres`}
+      className={
+        browsing
+          ? "flex min-w-0 flex-col gap-3"
+          : "flex min-w-0 items-center gap-1.5 @3xl:items-start"
+      }
+      data-testid="genres-row"
+      data-genre={genre?.id ?? ""}
+    >
+      <span
+        id={`${ids}-genres`}
+        className={
+          browsing
+            ? "text-base font-bold"
+            : "text-muted shrink-0 text-xs whitespace-nowrap @3xl:pt-2.5"
+        }
+      >
+        {t(browsing ? "layout.genres" : "genres.label")}
+      </span>
+      <GenreGroups
+        genres={genres}
+        layout={browsing ? "grid" : "row"}
+        activeId={browsing ? undefined : genre?.id}
+        disabled={!browsing && aiSearchBlocked}
+        onPick={pickGenre}
+        chipRef={(id, el) => {
+          if (el) chipRefs.current.set(id, el);
+          else chipRefs.current.delete(id);
+        }}
+      />
+      {/* Outside the scrolling chips (at the far end), so it's in reach when the active chip isn't. */}
+      {genre && !browsing && (
+        <button
+          type="button"
+          className="px-fchip shrink-0"
+          aria-label={t("genres.clear")}
+          title={t("genres.clear")}
+          disabled={!browsing && aiSearchBlocked}
+          onClick={() => pickGenre(null)}
+          data-testid="genres-clear"
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <section
       className={`@container flex flex-col gap-3 ${skill ? "px-inset" : "px-card"}`}
       data-testid="research-panel"
     >
-      {/* ---------- search bar ---------- */}
-      <form
-        onSubmit={submit}
-        role="search"
-        className={`${barBg} border-edge z-10 flex flex-col gap-2 border-b-2 pt-1 pb-2.5 ${skill ? `max-md:sticky ${stickyTop}` : ""}`}
-        data-testid="research-bar"
-      >
-        {!skill && v2 && (
-          <div className="flex flex-col gap-2">
-            <div role="group" aria-label={t("search.modeLabel")} className="flex flex-wrap gap-2">
-              {(["keyword", "ai"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className="px-fchip"
-                  aria-pressed={searchMode === mode}
-                  data-testid={`discover-mode-${mode}`}
-                  onClick={() => setSearchMode(mode)}
-                >
-                  {t(mode === "ai" ? "search.aiMode" : "search.keywordMode")}
-                </button>
-              ))}
-            </div>
-            {searchMode === "ai" && <p className="text-ink-2 text-xs">{t("search.aiHelp")}</p>}
-            {searchMode === "ai" && (
-              <AiConnectionControls value={aiChoice} onChange={setAiChoice} />
-            )}
-          </div>
-        )}
-        <div className={`flex gap-2 ${searchMode === "ai" ? "flex-col sm:flex-row" : ""}`}>
-          {searchMode === "ai" && !skill ? (
-            <textarea
-              id={`${ids}-topic`}
-              rows={3}
-              maxLength={600}
-              dir="auto"
-              className="px-input min-w-0 flex-1 resize-y"
-              placeholder={t("search.aiPlaceholder")}
-              aria-label={t("research.topicLabel")}
-              value={draft ?? base}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault();
-                  e.currentTarget.form?.requestSubmit();
-                }
-              }}
-              data-testid="discover-topic"
-            />
-          ) : (
-            <input
-              id={`${ids}-topic`}
-              type="search"
-              enterKeyHint="search"
-              autoComplete="off"
-              dir="auto"
-              className="px-input flex-1"
-              placeholder={skill ? defaultName : t("discover.topicPh")}
-              aria-label={t("research.topicLabel")}
-              value={draft ?? base}
-              onChange={(e) => setDraft(e.target.value)}
-              data-testid={skill ? "research-topic" : "discover-topic"}
-              maxLength={200}
-            />
-          )}
-          <button
-            type="submit"
-            className="px-btn shrink-0 self-start"
-            data-testid="research-search"
-            disabled={aiSearchBlocked}
+      <div hidden={browsing}>
+        <div className="flex min-w-0 flex-col gap-3">
+          {/* ---------- search bar ---------- */}
+          <form
+            onSubmit={submit}
+            role="search"
+            className={`${barBg} border-edge z-10 flex flex-col gap-2 border-b-2 pt-1 pb-2.5 ${skill ? `max-md:sticky ${stickyTop}` : ""}`}
+            data-testid="research-bar"
           >
-            {t(searchMode === "ai" ? "search.aiSearch" : "research.searchBtn")}
-          </button>
-        </div>
-        {!skill && v2 && searchMode === "ai" && !genre && (
-          <div className="flex flex-wrap items-center gap-1.5" data-testid="discover-prompts">
-            <span className="text-muted text-xs">{t("search.trySpecific")}</span>
-            {discoverPrompts().map((prompt) => (
-              <button
-                type="button"
-                key={prompt.en}
-                className="px-fchip max-w-full text-start whitespace-normal"
-                onClick={() => {
-                  setDraft(L(prompt));
-                }}
-              >
-                {L(prompt)}
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {!v2 && (
-            <div
-              role="group"
-              aria-label={t("research.lang")}
-              className="border-edge bg-edge flex w-fit gap-[2px] rounded-[2px] border-2"
-            >
-              {(["ar", "en"] as const).map((l) => (
-                <button
-                  key={l}
-                  type="button"
-                  aria-pressed={queryLang === l}
-                  onClick={() => setQueryLang(l)}
-                  className={`num min-h-7 px-2.5 text-xs font-bold ${l === queryLang ? "bg-gold text-gold-ink" : "bg-panel-2 text-ink-2"}`}
-                  data-testid={`research-lang-${l}`}
+            {!skill && v2 && (
+              <div className="flex flex-col gap-2">
+                <div
+                  role="group"
+                  aria-label={t("search.modeLabel")}
+                  className="flex flex-wrap gap-2"
                 >
-                  {l.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          )}
-          {v2 && searchMode === "keyword" && (
-            <span className="text-muted text-xs" data-testid="discover-langs">
-              {t(
-                discoverLang(draft ?? base, arFirst) === "ar"
-                  ? "search.bothLangs"
-                  : "search.englishOnly",
-              )}
-            </span>
-          )}
-          {!skill && (
-            <select
-              className="px-input w-auto max-w-[12.5rem] py-1"
-              aria-label={t("discover.program")}
-              value={programId}
-              onChange={(e) => setProgramId(e.target.value)}
-              data-testid="discover-program"
-            >
-              <option value="">{t("discover.program")}</option>
-              {programs
-                .filter((p) => p.kind === "app")
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.icon} {L(p.name)}
-                  </option>
-                ))}
-            </select>
-          )}
-          {hint && (
-            <button
-              type="button"
-              className="px-fchip"
-              aria-pressed={hintOn}
-              title={t("research.hintToggle")}
-              onClick={() => setHintOn((v) => !v)}
-              data-testid="research-hint"
-            >
-              <span dir="ltr">+ {hint}</span>
-            </button>
-          )}
-          {skill && (override !== null || draft !== null) && (
-            <button
-              type="button"
-              className="px-fchip"
-              onClick={() => {
-                setOverride(null);
-                setDraft(null);
-              }}
-              data-testid="research-reset"
-            >
-              {t("research.reset")}
-            </button>
-          )}
-          {q && (
-            <details ref={moreRef} className="relative ms-auto" data-testid="research-more">
-              <summary
-                className="px-btn px-btn-ghost px-btn-sm list-none [&::-webkit-details-marker]:hidden"
-                aria-label={t("research.openOn")}
-                title={t("research.openOn")}
-                data-testid="research-more-toggle"
-              >
-                ↗ ⋯
-              </summary>
-              <div
-                className="border-edge bg-panel absolute end-0 top-full z-20 mt-1.5 flex flex-col gap-2 rounded-[2px] border-[3px] p-2 shadow-[4px_4px_0_var(--edge)]"
-                onClick={(e) => {
-                  // A link opens in a new tab (or the app): the menu's done.
-                  if ((e.target as Element).closest("a")) closeMore();
-                }}
-              >
-                <span className="text-muted text-xs whitespace-nowrap">{t("research.openOn")}</span>
-                <PlatformLinks q={q} idPrefix="research-link" stack />
-                {tag && (
-                  <a
-                    href={`https://www.instagram.com/explore/tags/${tag}/`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-link text-xs"
-                    dir="ltr"
-                    data-testid="research-link-ig-hashtag"
-                  >
-                    #{tag}
-                  </a>
+                  {(["keyword", "ai"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      className="px-fchip"
+                      aria-pressed={searchMode === mode}
+                      data-testid={`discover-mode-${mode}`}
+                      onClick={() => setSearchMode(mode)}
+                    >
+                      {t(mode === "ai" ? "search.aiMode" : "search.keywordMode")}
+                    </button>
+                  ))}
+                </div>
+                {searchMode === "ai" && <p className="text-ink-2 text-xs">{t("search.aiHelp")}</p>}
+                {searchMode === "ai" && (
+                  <AiConnectionControls value={aiChoice} onChange={setAiChoice} />
                 )}
               </div>
-            </details>
-          )}
-        </div>
-      </form>
-      {/* 🔥 This week's trending effects (Discover v2 only): a chip is a search for the effect, like a recent
-          topic, with the category cleared, and always in Keywords: a tap never spends an AI plan or the owner's
-          ChatGPT / Claude usage. */}
-      {!skill && v2 && scoutCfg && (
-        <TrendingEffects
-          config={scoutCfg}
-          onPick={(query) => {
-            setSearchMode("keyword");
-            setSubmittedMode("keyword");
-            setGenreId(null);
-            setTopic(query);
-            setDraft(null);
-            chipSearch();
-            setAttempt((a) => a + 1);
-            addRecentTopic(query);
-          }}
-        />
-      )}
-      {!skill && recentTopics.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-muted text-xs">{t("discover.recent")}</span>
-          {recentTopics.slice(0, 6).map((rt) => (
-            <button
-              key={rt}
-              type="button"
-              className="px-chip max-w-[12rem] overflow-hidden text-ellipsis"
-              dir="auto"
-              onClick={() => {
-                setTopic(rt);
-                setDraft(null);
-                setEditing(false);
-                setAttempt((a) => a + 1);
-                addRecentTopic(rt);
-              }}
-              data-testid="discover-recent-topic"
-            >
-              {rt}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ---------- edit genre: one row that scrolls sideways (the tabs stay where they are); it wraps
-          only where the panel is wide ---------- */}
-      <div
-        role="group"
-        aria-labelledby={`${ids}-genres`}
-        className="flex min-w-0 items-center gap-1.5 @3xl:items-start"
-        data-testid="genres-row"
-        data-genre={genre?.id ?? ""}
-      >
-        <span
-          id={`${ids}-genres`}
-          className="text-muted shrink-0 text-xs whitespace-nowrap @3xl:pt-2.5"
-        >
-          {t("genres.label")}
-        </span>
-        <div
-          className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-0.5 pt-0.5 pb-1.5 @3xl:flex-wrap @3xl:overflow-x-visible"
-          data-testid="genres-chips"
-        >
-          {genres.map((g) => (
-            <button
-              key={g.id}
-              ref={(el) => {
-                if (el) chipRefs.current.set(g.id, el);
-                else chipRefs.current.delete(g.id);
-              }}
-              type="button"
-              className="px-fchip shrink-0"
-              aria-pressed={g.id === genre?.id}
-              disabled={aiSearchBlocked}
-              onClick={() => pickGenre(g.id)}
-              data-testid={`genre-${g.id}`}
-            >
-              <span aria-hidden>{g.emoji}</span>
-              <span dir="auto">{L(g.name)}</span>
-            </button>
-          ))}
-        </div>
-        {/* Outside the scrolling chips (at the far end), so it's in reach when the active chip isn't. */}
-        {genre && (
-          <button
-            type="button"
-            className="px-fchip shrink-0"
-            aria-label={t("genres.clear")}
-            title={t("genres.clear")}
-            disabled={aiSearchBlocked}
-            onClick={() => pickGenre(null)}
-            data-testid="genres-clear"
-          >
-            ✕
-          </button>
-        )}
-      </div>
-
-      {!skill && v2 && genre && (
-        <div className="flex min-w-0 flex-col gap-1.5" data-testid="discover-category-ideas">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-            <p className="text-ink-2 text-xs" data-testid="discover-category-focus">
-              <span className="font-bold">{t("search.genreFocus", { genre: L(genre.name) })}</span>
-              {hasDraftTopic && (
-                <span className="text-muted ms-2">{t("search.genreWithTopic")}</span>
-              )}
-            </p>
-            {hasDraftTopic && (
-              <button
-                type="button"
-                className="px-fchip max-w-full text-start whitespace-normal"
-                onClick={searchGenreOnly}
-                disabled={aiSearchBlocked}
-                data-testid="discover-category-only"
-              >
-                {t("search.genreOnly", { genre: L(genre.name) })}
-              </button>
             )}
-          </div>
-          {discoverPrompts(genre.id).length > 0 && (
-            <>
-              <p className="text-muted text-xs">{t("search.genreIdeaHelp")}</p>
-              <div className="flex min-w-0 flex-wrap gap-1.5" data-testid="discover-prompts">
-                {discoverPrompts(genre.id).map((prompt) => (
+            <div className={`flex gap-2 ${searchMode === "ai" ? "flex-col sm:flex-row" : ""}`}>
+              {searchMode === "ai" && !skill ? (
+                <textarea
+                  id={`${ids}-topic`}
+                  rows={3}
+                  maxLength={600}
+                  dir="auto"
+                  className="px-input min-w-0 flex-1 resize-y"
+                  placeholder={t("search.aiPlaceholder")}
+                  aria-label={t("research.topicLabel")}
+                  value={draft ?? base}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      e.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                  data-testid="discover-topic"
+                />
+              ) : (
+                <input
+                  id={`${ids}-topic`}
+                  type="search"
+                  enterKeyHint="search"
+                  autoComplete="off"
+                  dir="auto"
+                  className="px-input min-w-0 flex-1"
+                  placeholder={skill ? defaultName : t("discover.topicPh")}
+                  aria-label={t("research.topicLabel")}
+                  value={draft ?? base}
+                  onChange={(e) => setDraft(e.target.value)}
+                  data-testid={skill ? "research-topic" : "discover-topic"}
+                  maxLength={200}
+                />
+              )}
+              <button
+                type="submit"
+                className="px-btn shrink-0 self-start"
+                data-testid="research-search"
+                disabled={aiSearchBlocked}
+              >
+                {t(searchMode === "ai" ? "search.aiSearch" : "research.searchBtn")}
+              </button>
+              {showDeepSearch && (
+                <button
+                  type="button"
+                  className="px-btn px-btn-ghost shrink-0 self-start"
+                  onClick={deepSearch}
+                  data-testid="discover-deep-search"
+                >
+                  {t("search.deepSearch")}
+                </button>
+              )}
+            </div>
+            {showDeepSearch && <p className="text-ink-2 text-xs">{t("search.deepSearchHint")}</p>}
+            {organized && onBrowse && (
+              <p className="text-ink-2 text-xs" data-testid="search-browse-hint">
+                {t("layout.searchBrowseHint")}{" "}
+                <button
+                  type="button"
+                  className="px-link"
+                  onClick={onBrowse}
+                  data-testid="search-go-browse"
+                >
+                  {t("layout.searchGoBrowse")}
+                </button>
+              </p>
+            )}
+            {!skill && v2 && searchMode === "ai" && !genre && (
+              <div className="flex flex-wrap items-center gap-1.5" data-testid="discover-prompts">
+                <span className="text-muted text-xs">{t("search.trySpecific")}</span>
+                {discoverPrompts().map((prompt) => (
                   <button
                     type="button"
                     key={prompt.en}
                     className="px-fchip max-w-full text-start whitespace-normal"
-                    onClick={() => setDraft(L(prompt))}
+                    onClick={() => {
+                      setDraft(L(prompt));
+                    }}
                   >
                     {L(prompt)}
                   </button>
                 ))}
               </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {showPage && genre && scoutCfg && (
-        <CategoryPage
-          key={genre.id}
-          config={scoutCfg}
-          genre={genre}
-          onPickStyle={(style) => {
-            // That style within the category, in Keywords (never an AI plan or the owner's subscription),
-            // like a 🔥 chip.
-            leaving.current = document.activeElement;
-            setSearchMode("keyword");
-            setSubmittedMode("keyword");
-            setTopic(style);
-            setDraft(null);
-            setPage(null);
-            chipSearch();
-            setAttempt((a) => a + 1);
-            addRecentTopic(style);
-          }}
-          onSearchAll={searchGenreOnly}
-          onOpenSkill={sheet.open}
-          onUnavailable={pageUnavailable}
-          searchBlocked={aiSearchBlocked}
-        />
-      )}
-
-      {/* ---------- platform tabs ---------- */}
-      <div
-        role="tablist"
-        aria-label={t("research.tabs")}
-        className="grid grid-cols-4 gap-1.5"
-        onKeyDown={onTabKey}
-        hidden={showPage}
-      >
-        {RESEARCH_TABS.map((tb, i) => {
-          const active = tb === tab;
-          const count = shownCounts[tb];
-          return (
-            <button
-              key={tb}
-              ref={(el) => {
-                tabRefs.current[i] = el;
-              }}
-              type="button"
-              role="tab"
-              id={`${ids}-tab-${tb}`}
-              aria-selected={active}
-              aria-controls={`${ids}-panel`}
-              tabIndex={active ? 0 : -1}
-              onClick={() => pickTab(tb)}
-              className={`border-edge flex min-w-0 flex-col items-center gap-0.5 rounded-[2px] border-2 px-1 py-1.5 font-bold ${active ? "bg-gold text-gold-ink shadow-[3px_3px_0_var(--edge)]" : "bg-panel-2 text-ink-2 shadow-[2px_2px_0_var(--edge)]"}`}
-              data-testid={`tab-${tb}`}
-              data-count={count ?? ""}
-            >
-              <span className="flex items-center gap-1 text-sm leading-none">
-                <span aria-hidden>{TAB_GLYPH[tb]}</span>
-                {count !== undefined && (
-                  <span
-                    className="num border-edge bg-edge text-ink min-w-[18px] rounded-[2px] border px-1 text-[10px] leading-[16px]"
-                    data-testid="tab-count"
+            )}
+            <SearchOptions data-testid="search-options">
+              {organized && (
+                <summary
+                  data-testid="search-options-toggle"
+                  className="text-muted w-fit cursor-pointer text-xs"
+                >
+                  {t("layout.searchOptions")}
+                </summary>
+              )}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {!v2 && (
+                  <div
+                    role="group"
+                    aria-label={t("research.lang")}
+                    className="border-edge bg-edge flex w-fit gap-[2px] rounded-[2px] border-2"
                   >
-                    {count}
+                    {(["ar", "en"] as const).map((l) => (
+                      <button
+                        key={l}
+                        type="button"
+                        aria-pressed={queryLang === l}
+                        onClick={() => setQueryLang(l)}
+                        className={`num min-h-7 px-2.5 text-xs font-bold ${l === queryLang ? "bg-gold text-gold-ink" : "bg-panel-2 text-ink-2"}`}
+                        data-testid={`research-lang-${l}`}
+                      >
+                        {l.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {v2 && searchMode === "keyword" && (
+                  <span className="text-muted text-xs" data-testid="discover-langs">
+                    {t(
+                      discoverLang(draft ?? base, arFirst) === "ar"
+                        ? "search.bothLangs"
+                        : "search.englishOnly",
+                    )}
                   </span>
                 )}
-              </span>
-              <span className="w-full truncate text-center text-[11px]">{t(TAB_LABEL[tb])}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* ---------- filters ---------- */}
-      <div className="flex items-center gap-2" hidden={showPage}>
-        <button
-          type="button"
-          className="px-btn px-btn-ghost px-btn-sm md:hidden"
-          aria-expanded={filtersOpen}
-          aria-controls={`${ids}-filters`}
-          onClick={() => setFiltersOpen((o) => !o)}
-          data-testid="filters-toggle"
-        >
-          ⚙ {t("research.filters")}
-          {activeFilters > 0 && (
-            <span
-              className="num bg-gold text-gold-ink border-edge rounded-[2px] border px-1 text-[10px]"
-              data-testid="filters-count"
-            >
-              {activeFilters}
-            </span>
+                {!skill && (
+                  <select
+                    className="px-input w-auto max-w-[12.5rem] py-1"
+                    aria-label={t("discover.program")}
+                    value={programId}
+                    onChange={(e) => setProgramId(e.target.value)}
+                    data-testid="discover-program"
+                  >
+                    <option value="">{t("discover.program")}</option>
+                    {programs
+                      .filter((p) => p.kind === "app")
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.icon} {L(p.name)}
+                        </option>
+                      ))}
+                  </select>
+                )}
+                {!skill && v2 && (
+                  <label className="text-ink-2 flex items-center gap-1.5 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={editorScope === "mine"}
+                      onChange={(e) => setEditorScope(e.target.checked ? "mine" : "all")}
+                      data-testid="discover-editor-scope"
+                    />
+                    <span>{t("discover.editorScope")}</span>
+                  </label>
+                )}
+                {hint && (
+                  <button
+                    type="button"
+                    className="px-fchip"
+                    aria-pressed={hintOn}
+                    title={t("research.hintToggle")}
+                    onClick={() => setHintOn((v) => !v)}
+                    data-testid="research-hint"
+                  >
+                    <span dir="ltr">+ {hint}</span>
+                  </button>
+                )}
+                {skill && (override !== null || draft !== null) && (
+                  <button
+                    type="button"
+                    className="px-fchip"
+                    onClick={() => {
+                      setOverride(null);
+                      setDraft(null);
+                    }}
+                    data-testid="research-reset"
+                  >
+                    {t("research.reset")}
+                  </button>
+                )}
+                {q && (
+                  <details ref={moreRef} className="relative ms-auto" data-testid="research-more">
+                    <summary
+                      className="px-btn px-btn-ghost px-btn-sm list-none [&::-webkit-details-marker]:hidden"
+                      aria-label={t("research.openOn")}
+                      title={t("research.openOn")}
+                      data-testid="research-more-toggle"
+                    >
+                      ↗ ⋯
+                    </summary>
+                    <div
+                      className="border-edge bg-panel absolute end-0 top-full z-20 mt-1.5 flex flex-col gap-2 rounded-[2px] border-[3px] p-2 shadow-[4px_4px_0_var(--edge)]"
+                      onClick={(e) => {
+                        // A link opens in a new tab (or the app): the menu's done.
+                        if ((e.target as Element).closest("a")) closeMore();
+                      }}
+                    >
+                      <span className="text-muted text-xs whitespace-nowrap">
+                        {t("research.openOn")}
+                      </span>
+                      <PlatformLinks q={q} idPrefix="research-link" stack />
+                      {tag && (
+                        <a
+                          href={`https://www.instagram.com/explore/tags/${tag}/`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-link text-xs"
+                          dir="ltr"
+                          data-testid="research-link-ig-hashtag"
+                        >
+                          #{tag}
+                        </a>
+                      )}
+                    </div>
+                  </details>
+                )}
+              </div>
+            </SearchOptions>
+          </form>
+          {!skill && recentTopics.length > 0 && (
+            <details open={organized ? undefined : true} data-testid="search-history">
+              <summary className="text-muted w-fit cursor-pointer text-xs">
+                {t("discover.recent")}
+              </summary>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {recentTopics.slice(0, 6).map((rt) => (
+                  <button
+                    key={rt}
+                    type="button"
+                    className="px-chip max-w-[12rem] overflow-hidden text-ellipsis"
+                    dir="auto"
+                    onClick={() => {
+                      setFormatSearch(null);
+                      setTopic(rt);
+                      setDraft(null);
+                      setEditing(false);
+                      setAttempt((a) => a + 1);
+                      addRecentTopic(rt);
+                    }}
+                    data-testid="discover-recent-topic"
+                  >
+                    {rt}
+                  </button>
+                ))}
+              </div>
+            </details>
           )}
-        </button>
-        {scoutCfg && v2 && discUsage && (
-          <p className="text-muted ms-auto text-xs" data-testid="discover-usage">
-            {/* Tavily's figure when the Worker could read it; YouTube's count either way. */}
-            {"used" in discUsage.tavily &&
-              `${t("search.usage", {
-                used: discUsage.tavily.used,
-                limit: discUsage.tavily.limit ?? "∞",
-              })} · `}
-            {t("search.usageYt", { used: discUsage.youtube.usedToday, cap: discUsage.youtube.cap })}
-          </p>
-        )}
-        {scoutCfg && !v2 && (
-          <p className="text-muted ms-auto text-xs" data-testid="scout-usage" data-count={usage}>
-            {t("research.scoutUsage", { n: usage, max: SCOUT_MONTHLY_FREE })}
-          </p>
-        )}
-      </div>
-      <div
-        id={`${ids}-filters`}
-        className={`${filtersOpen ? "flex" : "hidden"} flex-col gap-2.5 md:flex md:flex-row md:flex-wrap md:items-end md:gap-x-5`}
-        hidden={showPage}
-        data-testid="filters"
-      >
-        <ChipGroup label={t("research.recency")}>
-          {RECENCY.map((o) => (
-            <button
-              key={o.v}
-              type="button"
-              className="px-fchip"
-              aria-pressed={recency === o.v}
-              onClick={() => setRecency(o.v)}
-              data-testid={`filter-time-${o.v}`}
-            >
-              {t(o.label)}
-            </button>
-          ))}
-        </ChipGroup>
-        {showLength && (
-          <ChipGroup label={t("research.length")}>
-            {LENGTHS.map((o) => (
-              <button
-                key={o.v}
-                type="button"
-                className="px-fchip"
-                aria-pressed={length === o.v}
-                onClick={() => setLength(o.v)}
-                data-testid={`filter-len-${o.v}`}
-              >
-                {t(o.label)}
-              </button>
-            ))}
-          </ChipGroup>
-        )}
-        <ChipGroup label={t("research.sortLabel")}>
-          {SORTS.map((o) => (
-            <button
-              key={o.v}
-              type="button"
-              className="px-fchip"
-              aria-pressed={sort === o.v}
-              onClick={() => setSort(o.v)}
-              data-testid={`filter-sort-${o.v}`}
-            >
-              {t(o.label)}
-            </button>
-          ))}
-        </ChipGroup>
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            className="px-fchip"
-            aria-pressed={savedOnly}
-            onClick={() => setSavedOnly((v) => !v)}
-            data-testid="filter-saved"
-          >
-            {t("research.savedOnly")}
-          </button>
-          <button
-            type="button"
-            className="px-fchip"
-            aria-pressed={arFirst}
-            onClick={() => setArFirst((v) => !v)}
-            data-testid="filter-arfirst"
-          >
-            {t("research.arFirst")}
-          </button>
         </div>
       </div>
+      <div hidden={organized && !browsing}>
+        <div className="flex min-w-0 flex-col gap-6" data-testid="discover-browse">
+          {organized && browsing && showBrowse && (
+            <TrendingEdits config={v2 ? scoutCfg : null} onPick={pickEdit} />
+          )}
+          {organized && browsing && showBrowse && <TrendingSounds renderAction={renderAction} />}
+          {organized && browsing && showBrowse && (
+            <ForYouFeed
+              genres={genres}
+              categoryPicker={genrePicker}
+              onCategory={pickGenre}
+              renderAction={renderAction}
+            />
+          )}
+          {/* Local format references and review stay available without a Worker. Only v2 enables remote
+          effect retrieval. A chip runs a keyword search, never an AI plan. */}
+          {!skill && (
+            <TrendingEffects
+              formatReviewRequest={formatReviewRequest}
+              config={v2 ? scoutCfg : null}
+              compact={organized}
+              onPickFormat={pickFormat}
+              onPick={(query) => {
+                onSearch?.();
+                setSubmittedAi(undefined);
+                setProgramId("");
+                setPage(null);
+                setSavedOnly(false);
+                setPicked(null);
+                setFormatSearch(null);
+                setSearchMode("keyword");
+                setSubmittedMode("keyword");
+                setGenreId(null);
+                setTopic(query);
+                setDraft(null);
+                chipSearch();
+                setAttempt((a) => a + 1);
+                addRecentTopic(query);
+              }}
+            />
+          )}
+        </div>
+      </div>
+      <div hidden={browsing}>
+        <div className="flex min-w-0 flex-col gap-3">
+          {/* Discover's Search tab has no categories: Browse is the one place for them. */}
+          {!organized && genrePicker}
 
-      {/* ---------- most viewed this week: one row of cards that scrolls sideways (the page never does:
+          {!skill && v2 && genre && (
+            <div className="flex min-w-0 flex-col gap-1.5" data-testid="discover-category-ideas">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+                <p className="text-ink-2 text-xs" data-testid="discover-category-focus">
+                  <span className="font-bold">
+                    {t("search.genreFocus", { genre: L(genre.name) })}
+                  </span>
+                  {hasDraftTopic && (
+                    <span className="text-muted ms-2">{t("search.genreWithTopic")}</span>
+                  )}
+                </p>
+                {hasDraftTopic && (
+                  <button
+                    type="button"
+                    className="px-fchip max-w-full text-start whitespace-normal"
+                    onClick={searchGenreOnly}
+                    disabled={aiSearchBlocked}
+                    data-testid="discover-category-only"
+                  >
+                    {t("search.genreOnly", { genre: L(genre.name) })}
+                  </button>
+                )}
+                {!base &&
+                  !hasDraftTopic &&
+                  !savedOnly &&
+                  scoutCfg &&
+                  GENRES.some((g) => g.id === genre.id) && (
+                    <button
+                      type="button"
+                      className="px-fchip max-w-full text-start whitespace-normal"
+                      aria-pressed={showPage}
+                      onClick={() => setPage(showPage ? null : genre.id)}
+                      disabled={aiSearchBlocked}
+                      data-testid="discover-study-guides"
+                    >
+                      {t("inspiration.studyGuides")}
+                    </button>
+                  )}
+              </div>
+              {discoverPrompts(genre.id).length > 0 && (
+                <CategoryIdeas className="text-xs">
+                  {isCategoryFeed && (
+                    <summary className="px-link w-fit cursor-pointer">
+                      {t("feed.searchIdeas")}
+                    </summary>
+                  )}
+                  <p className="text-muted text-xs">{t("search.genreIdeaHelp")}</p>
+                  <div className="flex min-w-0 flex-wrap gap-1.5" data-testid="discover-prompts">
+                    {discoverPrompts(genre.id).map((prompt) => (
+                      <button
+                        type="button"
+                        key={prompt.en}
+                        className="px-fchip max-w-full text-start whitespace-normal"
+                        onClick={() => setDraft(L(prompt))}
+                      >
+                        {L(prompt)}
+                      </button>
+                    ))}
+                  </div>
+                </CategoryIdeas>
+              )}
+            </div>
+          )}
+
+          {showPage && genre && scoutCfg && (
+            <CategoryPage
+              key={genre.id}
+              config={scoutCfg}
+              genre={genre}
+              onPickStyle={(style) => {
+                setFormatSearch(null);
+                // That style within the category, in Keywords (never an AI plan or the owner's subscription),
+                // like a 🔥 chip.
+                leaving.current = document.activeElement;
+                setSearchMode("keyword");
+                setSubmittedMode("keyword");
+                setTopic(style);
+                setDraft(null);
+                setPage(null);
+                chipSearch();
+                setAttempt((a) => a + 1);
+                addRecentTopic(style);
+              }}
+              onSearchAll={searchGenreOnly}
+              onOpenSkill={sheet.open}
+              renderAction={renderAction}
+              onUnavailable={pageUnavailable}
+              searchBlocked={aiSearchBlocked}
+            />
+          )}
+
+          {!skill &&
+            helperId &&
+            keywordSearches.map((search, index) => {
+              // The helper serves one job at a time: the DaVinci Resolve section starts after the CapCut
+              // job for this search has finished (or failed), and no section loads more while the other's
+              // job runs. ponytail: busy state arrives one render late, so two sentinels firing in the same
+              // frame could still overlap; the helper itself caps parallel jobs.
+              const first = keywordSearches[0];
+              const firstJob = nativeJobs[first.scope];
+              const firstDone =
+                index === 0 || (firstJob?.ran === attempt + "|" + first.query && !firstJob.busy);
+              const otherBusy = keywordSearches.some(
+                (other) => other.scope !== search.scope && nativeJobs[other.scope]?.busy,
+              );
+              return (
+                <NativeKeywordResults
+                  key={index}
+                  query={search.query}
+                  igQuery={search.igQuery}
+                  scope={search.scope}
+                  heading={search.heading}
+                  attempt={attempt}
+                  deep={deepAttempt === attempt}
+                  active={active && !browsing && nativeKeyword}
+                  canStart={firstDone && !otherBusy}
+                  onBusy={onNativeBusy}
+                  onOpenInspiration={onOpenInspiration}
+                  onConnection={index === 0 ? setNativeConnection : undefined}
+                />
+              );
+            })}
+          {webHeld && nativeConnection === "connected" && (
+            <button
+              type="button"
+              className="px-btn px-btn-ghost px-btn-sm w-fit"
+              onClick={() => setWebIndexFor(q)}
+              data-testid="discover-web-index"
+            >
+              {t("search.webIndex")}
+            </button>
+          )}
+
+          {/* ---------- platform tabs ---------- */}
+          <div
+            role="tablist"
+            aria-label={t("research.tabs")}
+            className="grid grid-cols-4 gap-1.5"
+            onKeyDown={onTabKey}
+            hidden={showPage || webHeld}
+          >
+            {RESEARCH_TABS.map((tb, i) => {
+              const active = tb === tab;
+              const count = shownCounts[tb];
+              return (
+                <button
+                  key={tb}
+                  ref={(el) => {
+                    tabRefs.current[i] = el;
+                  }}
+                  type="button"
+                  role="tab"
+                  id={`${ids}-tab-${tb}`}
+                  aria-selected={active}
+                  aria-controls={`${ids}-panel`}
+                  tabIndex={active ? 0 : -1}
+                  onClick={() => pickTab(tb)}
+                  className={`border-edge flex min-w-0 flex-col items-center gap-0.5 rounded-[2px] border-2 px-1 py-1.5 font-bold ${active ? "bg-gold text-gold-ink shadow-[3px_3px_0_var(--edge)]" : "bg-panel-2 text-ink-2 shadow-[2px_2px_0_var(--edge)]"}`}
+                  data-testid={`tab-${tb}`}
+                  data-count={count ?? ""}
+                >
+                  <span className="flex items-center gap-1 text-sm leading-none">
+                    <span aria-hidden>{TAB_GLYPH[tb]}</span>
+                    {count !== undefined && (
+                      <span
+                        className="num border-edge bg-edge text-ink min-w-[18px] rounded-[2px] border px-1 text-[10px] leading-[16px]"
+                        data-testid="tab-count"
+                      >
+                        {count}
+                      </span>
+                    )}
+                  </span>
+                  <span className="w-full truncate text-center text-[11px]">
+                    {t(TAB_LABEL[tb])}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ---------- filters ---------- */}
+          <div className="flex items-center gap-2" hidden={showPage}>
+            <button
+              type="button"
+              hidden={isCategoryFeed || webHeld}
+              className={`px-btn px-btn-ghost px-btn-sm ${organized ? "" : "md:hidden"}`}
+              aria-expanded={filtersOpen}
+              aria-controls={`${ids}-filters`}
+              onClick={() => setFiltersOpen((o) => !o)}
+              data-testid="filters-toggle"
+            >
+              ⚙ {t("research.filters")}
+              {activeFilters > 0 && (
+                <span
+                  className="num bg-gold text-gold-ink border-edge rounded-[2px] border px-1 text-[10px]"
+                  data-testid="filters-count"
+                >
+                  {activeFilters}
+                </span>
+              )}
+            </button>
+            {scoutCfg && v2 && discUsage && (
+              <DiscoverUsageLine usage={discUsage} testId="discover-usage" />
+            )}
+            {scoutCfg && !v2 && (
+              <p
+                className="text-muted ms-auto text-xs"
+                data-testid="scout-usage"
+                data-count={usage}
+              >
+                {t("research.scoutUsage", { n: usage, max: SCOUT_MONTHLY_FREE })}
+              </p>
+            )}
+          </div>
+          <div
+            id={`${ids}-filters`}
+            className={`${filtersOpen ? "flex" : "hidden"} flex-col gap-2.5 ${organized ? "" : "md:flex"} md:flex-row md:flex-wrap md:items-end md:gap-x-5`}
+            hidden={showPage || isCategoryFeed || webHeld}
+            data-testid="filters"
+          >
+            <ChipGroup label={t("research.recency")}>
+              {RECENCY.map((o) => (
+                <button
+                  key={o.v}
+                  type="button"
+                  className="px-fchip"
+                  aria-pressed={recency === o.v}
+                  onClick={() => setRecency(o.v)}
+                  data-testid={`filter-time-${o.v}`}
+                >
+                  {t(o.label)}
+                </button>
+              ))}
+            </ChipGroup>
+            {showLength && (
+              <ChipGroup label={t("research.length")}>
+                {LENGTHS.map((o) => (
+                  <button
+                    key={o.v}
+                    type="button"
+                    className="px-fchip"
+                    aria-pressed={length === o.v}
+                    onClick={() => setLength(o.v)}
+                    data-testid={`filter-len-${o.v}`}
+                  >
+                    {t(o.label)}
+                  </button>
+                ))}
+              </ChipGroup>
+            )}
+            <ChipGroup label={t("research.sortLabel")}>
+              {SORTS.map((o) => (
+                <button
+                  key={o.v}
+                  type="button"
+                  className="px-fchip"
+                  aria-pressed={sort === o.v}
+                  onClick={() => setSort(o.v)}
+                  data-testid={`filter-sort-${o.v}`}
+                >
+                  {t(o.label)}
+                </button>
+              ))}
+            </ChipGroup>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                className="px-fchip"
+                aria-pressed={savedOnly}
+                onClick={() => setSavedOnly((v) => !v)}
+                data-testid="filter-saved"
+              >
+                {t("research.savedOnly")}
+              </button>
+              <button
+                type="button"
+                className="px-fchip"
+                aria-pressed={arFirst}
+                onClick={() => setArFirst((v) => !v)}
+                data-testid="filter-arfirst"
+              >
+                {t("research.arFirst")}
+              </button>
+            </div>
+          </div>
+
+          {/* ---------- most viewed this week: one row of cards that scrolls sideways (the page never does:
           each card holds its own absolute bits) and snaps with its padding kept, so the first card's edge
           shows in Arabic too; what a keyword search found, so the line by the title says where it comes
           from ---------- */}
-      {genre && weekItems.length > 0 && (
-        <section
-          aria-labelledby={`${ids}-week`}
-          className="flex min-w-0 flex-col gap-1.5"
-          data-testid="genre-week"
-          data-genre={genre.id}
-          data-count={weekItems.length}
-        >
-          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <WeekTitle id={`${ids}-week`} className="text-sm" data-testid="genre-week-title">
-              {t("research.weekTitle")}
-            </WeekTitle>
-            <p className="text-muted text-xs" data-testid="genre-week-source">
-              {t("research.weekSource", { genre: L(genre.name) })}
-            </p>
-          </div>
-          <ul
-            aria-labelledby={`${ids}-week`}
-            className="flex min-w-0 snap-x scroll-px-1 gap-3 overflow-x-auto px-1 pt-0.5 pb-2"
-            data-testid="genre-week-list"
-          >
-            {weekItems.map((item) => (
-              <ResultCard
-                key={item.url}
-                item={item}
-                action={renderAction(item)}
-                testId="genre-week-item"
-                className="w-60 shrink-0 snap-start"
-              />
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* ---------- results ---------- */}
-      <div
-        role="tabpanel"
-        id={`${ids}-panel`}
-        aria-labelledby={`${ids}-tab-${tab}`}
-        aria-busy={loading}
-        className="flex flex-col gap-3"
-        hidden={showPage}
-        data-testid="research-results"
-        data-tab={tab}
-      >
-        {!skill && !q && !savedOnly && (
-          <p className="text-muted text-sm" data-testid="research-start">
-            {t("research.startTyping")}
-          </p>
-        )}
-        {v2 && !skill && !q && !savedOnly && picks.length > 0 && (
-          <div className="flex flex-col gap-3" data-testid="discover-picks-latest">
-            <h2 className="text-sm font-bold">{t("search.picksLatest")}</h2>
-            {picks.slice(0, 3).map((saved) => (
-              <PicksSection
-                key={saved.topicKey}
-                topic={saved}
-                headingLevel="h3"
-                renderAction={renderAction}
-                showTopic
-              />
-            ))}
-          </div>
-        )}
-        {scoutHint && <Hint testId="scout-not-configured">{t("research.scoutNotConfigured")}</Hint>}
-        {ytHint && (!!q || !!skill) && <Hint testId="yt-no-key">{t("research.enableYt")}</Hint>}
-        {!v2 &&
-          scoutErrors.map((g) => (
-            <ScoutErrorLine
-              key={g.error.type}
-              error={g.error}
-              platforms={tab === "all" ? g.platforms : undefined}
-            />
-          ))}
-        {!v2 && !savedOnly && yt.status === "error" && <YoutubeErrorLine error={yt.error} />}
-        {!v2 && ytViaScout && (
-          <p className="text-muted text-xs" data-testid="yt-via-scout">
-            {t("research.ytViaScout")}
-          </p>
-        )}
-        {!v2 && lenNote && (
-          <p className="text-muted text-xs" data-testid="len-needs-key">
-            {t("research.lenNeedsKey")}
-          </p>
-        )}
-        {popularNote && (
-          <p className="text-muted text-xs" data-testid="popular-note">
-            {t("research.popularNote")}
-          </p>
-        )}
-
-        {(!v2 || savedOnly) && (items.length > 0 || (loading && !savedOnly)) && (
-          <ul
-            className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3"
-            aria-label={t("research.results")}
-            data-testid="result-list"
-          >
-            {items.map((item) => (
-              <ResultCard key={item.url} item={item} action={renderAction(item)} />
-            ))}
-            {loading &&
-              !savedOnly &&
-              Array.from({ length: items.length > 0 ? 2 : 3 }, (_, i) => (
-                <SkeletonCard key={i} vertical={tab === "tt" || tab === "ig" || i % 3 === 1} />
-              ))}
-          </ul>
-        )}
-
-        {!v2 &&
-          noneOn.map((p) => (
-            <div
-              key={p}
-              className="text-muted flex flex-wrap items-center gap-2 text-xs"
-              data-testid={`research-none-${p}`}
+          {genre && weekItems.length > 0 && (
+            <section
+              aria-labelledby={`${ids}-week`}
+              className="flex min-w-0 flex-col gap-1.5"
+              data-testid="genre-week"
+              data-genre={genre.id}
+              data-count={weekItems.length}
             >
-              <span>{t(NONE_ON[p])}</span>
-              <PlatformLinks q={q} idPrefix={`none-link-${p}`} only={p} />
-            </div>
-          ))}
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <WeekTitle id={`${ids}-week`} className="text-sm" data-testid="genre-week-title">
+                  {t("research.weekTitle")}
+                </WeekTitle>
+                <p className="text-muted text-xs" data-testid="genre-week-source">
+                  {t("research.weekSource", { genre: L(genre.name) })}
+                </p>
+              </div>
+              <ul
+                aria-labelledby={`${ids}-week`}
+                className="flex min-w-0 snap-x scroll-px-1 gap-3 overflow-x-auto px-1 pt-0.5 pb-2"
+                data-testid="genre-week-list"
+              >
+                {weekItems.map((item) => (
+                  <ResultCard
+                    key={item.url}
+                    item={item}
+                    action={renderAction(item)}
+                    testId="genre-week-item"
+                    className="w-60 shrink-0 snap-start"
+                  />
+                ))}
+              </ul>
+            </section>
+          )}
 
-        {v2 && !savedOnly && disc.status === "error" && <ScoutErrorLine error={disc.error} />}
-        {v2 && !savedOnly && loading && (
-          <div className="flex flex-col gap-2" data-testid="discover-loading">
-            <p className="text-muted text-xs">
-              {t(
-                submittedMode === "keyword" && discoverLang(base, arFirst) !== "ar"
-                  ? "search.searchingEn"
-                  : "search.searching",
-              )}
-            </p>
-            <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
-              {Array.from({ length: 3 }, (_, i) => (
-                <SkeletonCard key={i} vertical={i % 3 !== 1} />
-              ))}
-            </ul>
-          </div>
-        )}
-        {/* Also on an empty tab: the understood line, "Not this?" and why a platform failed stay above the
-            empty box. A new search starts with its off-topic posts hidden and its sections closed. */}
-        {v2 && !savedOnly && disc.status === "ok" && (
-          <DiscoverSections
-            key={disc.key}
-            answer={disc.answer}
-            q={discoverReq?.q ?? q}
-            tab={tab}
-            sort={sort}
-            arFirst={arFirst}
-            bothLangs={discoverLang(base, arFirst) === "ar"}
-            headingLevel={skill ? "h3" : "h2"}
-            renderAction={renderAction}
-            onAlternative={onAlternative}
-            onRetry={onRetry}
-            picks={picksFor(picks, disc.answer.topicKey)}
-          />
-        )}
-
-        {showEmpty && (
+          {/* ---------- results ---------- */}
           <div
-            className="px-tile border-edge flex flex-col items-center gap-2 rounded-[2px] border-2 border-dashed p-4 text-center"
-            data-testid="research-empty"
+            role="tabpanel"
+            id={`${ids}-panel`}
+            aria-labelledby={`${ids}-tab-${tab}`}
+            aria-busy={loading}
+            className="flex flex-col gap-3"
+            hidden={showPage}
+            data-testid="research-results"
+            data-tab={tab}
           >
-            <p className="bg-panel-2 text-ink-2 rounded-[2px] px-2 py-1 text-sm">
-              {savedOnly ? t("research.emptySaved") : t("research.empty")}
-            </p>
-            {!savedOnly && q && <PlatformLinks q={q} idPrefix="empty-link" only={tab} />}
-          </div>
-        )}
-      </div>
+            {!skill && !q && !savedOnly && (
+              <div className="flex flex-col gap-2 py-3" data-testid="research-start">
+                <h2 className="text-base">{t("inspiration.starters")}</h2>
+                <p className="text-ink-2 text-sm">{t("inspiration.startersHelp")}</p>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      ["inspiration.matchCuts", "match cut filmmaking"],
+                      ["inspiration.phoneFilms", "iPhone cinematic filmmaking"],
+                      ["inspiration.color", "cinematic color grading"],
+                      ["inspiration.product", "product commercial b roll"],
+                    ] as const
+                  ).map(([label, topic]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      className="px-fchip"
+                      onClick={() => {
+                        setSearchMode("keyword");
+                        setSubmittedMode("keyword");
+                        setSubmittedAi(undefined);
+                        setTopic(topic);
+                        setFormatSearch(null);
+                        setDraft(null);
+                        setPage(null);
+                        setEditing(true);
+                        setPicked(null);
+                        addRecentTopic(topic);
+                      }}
+                    >
+                      {t(label)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {v2 && !skill && !q && !savedOnly && picks.length > 0 && (
+              <div className="flex flex-col gap-3" data-testid="discover-picks-latest">
+                <h2 className="text-sm font-bold">{t("search.picksLatest")}</h2>
+                {picks.slice(0, 3).map((saved) => (
+                  <PicksSection
+                    key={saved.topicKey}
+                    topic={saved}
+                    headingLevel="h3"
+                    renderAction={renderAction}
+                    showTopic
+                  />
+                ))}
+              </div>
+            )}
+            {scoutHint && (
+              <Hint testId="scout-not-configured">{t("research.scoutNotConfigured")}</Hint>
+            )}
+            {ytHint && (!!q || !!skill) && <Hint testId="yt-no-key">{t("research.enableYt")}</Hint>}
+            {!v2 &&
+              scoutErrors.map((g) => (
+                <ScoutErrorLine
+                  key={g.error.type}
+                  error={g.error}
+                  platforms={tab === "all" ? g.platforms : undefined}
+                />
+              ))}
+            {!v2 && !savedOnly && yt.status === "error" && <YoutubeErrorLine error={yt.error} />}
+            {!v2 && ytViaScout && (
+              <p className="text-muted text-xs" data-testid="yt-via-scout">
+                {t("research.ytViaScout")}
+              </p>
+            )}
+            {!v2 && lenNote && (
+              <p className="text-muted text-xs" data-testid="len-needs-key">
+                {t("research.lenNeedsKey")}
+              </p>
+            )}
+            {popularNote && (
+              <p className="text-muted text-xs" data-testid="popular-note">
+                {t("research.popularNote")}
+              </p>
+            )}
 
+            {(!v2 || savedOnly) && (items.length > 0 || (loading && !savedOnly)) && (
+              <ul
+                className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3"
+                aria-label={t("research.results")}
+                data-testid="result-list"
+              >
+                {items.map((item) => (
+                  <ResultCard key={item.url} item={item} action={renderAction(item)} />
+                ))}
+                {loading &&
+                  !savedOnly &&
+                  Array.from({ length: items.length > 0 ? 2 : 3 }, (_, i) => (
+                    <SkeletonCard key={i} vertical={tab === "tt" || tab === "ig" || i % 3 === 1} />
+                  ))}
+              </ul>
+            )}
+
+            {!v2 &&
+              noneOn.map((p) => (
+                <div
+                  key={p}
+                  className="text-muted flex flex-wrap items-center gap-2 text-xs"
+                  data-testid={`research-none-${p}`}
+                >
+                  <span>{t(NONE_ON[p])}</span>
+                  <PlatformLinks q={q} idPrefix={`none-link-${p}`} only={p} />
+                </div>
+              ))}
+
+            {v2 && !savedOnly && disc.status === "error" && <ScoutErrorLine error={disc.error} />}
+            {v2 && !savedOnly && loading && !isCategoryFeed && (
+              <div className="flex flex-col gap-2" data-testid="discover-loading">
+                <p className="text-muted text-xs">
+                  {t(
+                    submittedMode === "keyword" && discoverLang(base, arFirst) !== "ar"
+                      ? "search.searchingEn"
+                      : "search.searching",
+                  )}
+                </p>
+                <ul className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
+                  {Array.from({ length: 3 }, (_, i) => (
+                    <SkeletonCard key={i} vertical={i % 3 !== 1} />
+                  ))}
+                </ul>
+              </div>
+            )}
+            {/* Also on an empty tab: the understood line, "Not this?" and why a platform failed stay above the
+            empty box. A new search starts with its off-topic posts hidden and its sections closed. */}
+            {v2 && !savedOnly && hiddenLine.count > 0 && (
+              <p className="text-muted text-xs" data-testid="discover-hidden-editors">
+                {t("discover.hiddenEditors", { count: hiddenLine.count })}
+              </p>
+            )}
+            {v2 && !savedOnly && (disc.status === "ok" || feedAnswer) && (
+              <DiscoverSections
+                key={feedAnswer ? `feed-${genre?.id}` : disc.status === "ok" ? disc.key : ""}
+                answer={feedAnswer ?? (disc.status === "ok" ? disc.answer : null)!}
+                q={discoverReq?.q ?? q}
+                tab={tab}
+                sort={sort}
+                arFirst={arFirst}
+                bothLangs={discoverLang(base, arFirst) === "ar"}
+                headingLevel={skill ? "h3" : "h2"}
+                renderAction={renderAction}
+                onAlternative={onAlternative}
+                onRetry={onRetry}
+                picks={
+                  activeFormat || categoryFeed
+                    ? undefined
+                    : picksFor(picks, disc.status === "ok" ? disc.answer.topicKey : "")
+                }
+                categoryFeed={categoryFeed}
+                formatSearch={
+                  activeFormat
+                    ? { name: activeFormat.format.name, intent: activeFormat.intent }
+                    : undefined
+                }
+                sourceChecking={formatSources.checking}
+                sourceExcluded={sourceChecked?.excluded}
+              />
+            )}
+            {isCategoryFeed && feedExpansion.scope === feedScope && feedExpansion.error && (
+              <ScoutErrorLine error={feedExpansion.error} />
+            )}
+
+            {showEmpty && (
+              <div
+                className="px-tile border-edge flex flex-col items-center gap-2 rounded-[2px] border-2 border-dashed p-4 text-center"
+                data-testid="research-empty"
+              >
+                <p
+                  className="bg-panel-2 text-ink-2 rounded-[2px] px-2 py-1 text-sm"
+                  data-testid={!savedOnly && activeFormat ? "format-search-empty" : undefined}
+                >
+                  {savedOnly
+                    ? t("research.emptySaved")
+                    : activeFormat
+                      ? t("formats.searchEmpty")
+                      : t("research.empty")}
+                </p>
+                {!savedOnly && q && <PlatformLinks q={q} idPrefix="empty-link" only={tab} />}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
       {skill && (
         <details className="border-edge border-t-2 pt-2.5" data-testid="paste-disclosure">
           <summary className="w-fit text-sm font-bold" data-testid="paste-toggle">

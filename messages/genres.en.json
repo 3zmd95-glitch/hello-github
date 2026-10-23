@@ -9,5 +9,6 @@
   "genres.add": "＋ Add",
   "genres.exists": "That genre already exists. Try another name.",
   "genres.remove": "Remove",
-  "genres.clear": "✕ No genre"
+  "genres.clear": "✕ No genre",
+  "genres.group.mine": "Mine"
 }

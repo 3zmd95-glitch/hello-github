@@ -3,20 +3,34 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useVideoPlayer, type PlayableItem } from "@/components/player/VideoPlayerContext";
 import type { RefPlatform } from "@/lib/domain";
+import { ReferencePlatformGlyph } from "@/lib/platformIcons";
 import { canEmbed } from "@/lib/embed";
 import { useT } from "@/lib/i18n";
-import { localInstagramPreview } from "@/lib/localAi";
+import { isLocalAiHost, localInstagramPreview } from "@/lib/localAi";
 import { compactCount, headlineStat, type ResearchItem } from "@/lib/research";
 import { scoutOembed, type ScoutConfig, type Stats } from "@/lib/scoutClient";
 import { useScoutConfig } from "./useScout";
 
-/** Platform glyph and label used on chips, tabs and placeholder tiles. */
-export const PLATFORM_META: Record<RefPlatform, { glyph: string; label: string; chip: string }> = {
-  yt: { glyph: "▶", label: "YouTube", chip: "bg-[#5a2029] text-[#ffb3aa]" },
-  tt: { glyph: "♪", label: "TikTok", chip: "bg-[#173a4f] text-[#a9e0ff]" },
-  ig: { glyph: "📷", label: "Instagram", chip: "bg-[#57331a] text-[#ffc996]" },
-  web: { glyph: "📄", label: "Web", chip: "bg-panel-3 text-ink" },
-};
+/** Reuse the shared Simple Icons brand marks; visible names label controls, SVGs are decorative. */
+export const PLATFORM_META: Record<RefPlatform, { glyph: ReactNode; label: string; chip: string }> =
+  {
+    yt: {
+      glyph: <ReferencePlatformGlyph platform="yt" />,
+      label: "YouTube",
+      chip: "bg-[#5a2029] text-[#ffb3aa]",
+    },
+    tt: {
+      glyph: <ReferencePlatformGlyph platform="tt" />,
+      label: "TikTok",
+      chip: "bg-[#173a4f] text-[#a9e0ff]",
+    },
+    ig: {
+      glyph: <ReferencePlatformGlyph platform="ig" />,
+      label: "Instagram",
+      chip: "bg-[#57331a] text-[#ffc996]",
+    },
+    web: { glyph: "📄", label: "Web", chip: "bg-panel-3 text-ink" },
+  };
 
 /** TikTok / Instagram are vertical video platforms: 9:16 posters. YouTube and web links are 16:9. */
 const isVertical = (p: RefPlatform) => p === "tt" || p === "ig";
@@ -36,15 +50,21 @@ export const PREVIEW_RETRY_MS = 5 * 60_000;
  * showing it; a miss is forgotten after {@link PREVIEW_RETRY_MS}. TikTok also supplies captions for cards titled only
  * by their handle. Instagram asks this computer's local server first (its own connection, which Instagram answers;
  * it turned away about 4 in 10 of the Cloudflare Worker's reads), the Worker when there is none or it finds nothing.
+ * That local lookup needs no Worker, so an Instagram card on this computer asks it with no Scout configuration too.
  */
 const freshPosts = new Map<string, Promise<FreshPost>>();
-function freshPost(config: ScoutConfig, url: string, platform: RefPlatform): Promise<FreshPost> {
-  const key = `${config.url}|${config.token}|${url}`;
+function freshPost(
+  config: ScoutConfig | null,
+  url: string,
+  platform: RefPlatform,
+): Promise<FreshPost> {
+  const key = `${config ? `${config.url}|${config.token}` : "local"}|${url}`;
   const known = freshPosts.get(key);
   if (known) return known;
   const p = (async (): Promise<FreshPost> => {
     const local = platform === "ig" ? await localInstagramPreview(url) : null;
     if (local) return { thumb: local };
+    if (!config) return {};
     const r = await scoutOembed(config, url);
     return r.ok ? { thumb: r.data.thumb || undefined, title: r.data.title || undefined } : {};
   })();
@@ -62,7 +82,10 @@ function freshPost(config: ScoutConfig, url: string, platform: RefPlatform): Pro
  * The thumbnail, error handler, and title to show. Missing or expired TikTok / Instagram images get one
  * cached Worker lookup (display only; the saved reference keeps its URL). Unavailable previews keep the tile.
  */
-function useThumb(item: ResearchItem): { thumb?: string; title: string; onError: () => void } {
+function useThumb(
+  item: ResearchItem,
+  lookup = true,
+): { thumb?: string; title: string; onError: () => void } {
   const config = useScoutConfig();
   const [failed, setFailed] = useState<readonly string[]>([]);
   const [fresh, setFresh] = useState<(FreshPost & { url: string }) | null>(null);
@@ -74,13 +97,16 @@ function useThumb(item: ResearchItem): { thumb?: string; title: string; onError:
   const generic =
     item.platform === "tt" && (item.title === item.handle || /^#[^\s#]+$/u.test(item.title));
   const title = (generic && mine?.title) || item.title;
+  // Instagram's local-server lookup needs no Worker; TikTok and the Worker fallback do.
+  // `lookup={false}` (a zero-network surface) never asks anyone: only the item's own picture or the placeholder.
+  const canLook = lookup && (!!config || (item.platform === "ig" && isLocalAiHost()));
   const onError = () => {
     if (!thumb) return;
     setFailed((f) => [...f, thumb]);
     if (
       !["tt", "ig"].includes(item.platform) ||
       !canEmbed(item.platform, item.url) ||
-      !config ||
+      !canLook ||
       renewed
     )
       return;
@@ -95,7 +121,7 @@ function useThumb(item: ResearchItem): { thumb?: string; title: string; onError:
       !["tt", "ig"].includes(item.platform) ||
       !canEmbed(item.platform, item.url) ||
       (item.thumb && !generic) ||
-      !config
+      !canLook
     )
       return;
     let alive = true;
@@ -115,7 +141,7 @@ function useThumb(item: ResearchItem): { thumb?: string; title: string; onError:
       alive = false;
       clearTimeout(again);
     };
-  }, [config, generic, item.platform, item.thumb, item.url]);
+  }, [canLook, config, generic, item.platform, item.thumb, item.url]);
   return { thumb, title, onError };
 }
 
@@ -157,6 +183,8 @@ export default function ResultCard({
   item,
   action,
   compact = false,
+  visualFeed = false,
+  collapseDuplicateSnippet = false,
   onRemove,
   testId = "result-card",
   className = "min-w-0",
@@ -164,6 +192,10 @@ export default function ResultCard({
   item: ResearchItem;
   action?: ReactNode;
   compact?: boolean;
+  /** Discover uses portrait previews for vertical posts and keeps captions behind More. */
+  visualFeed?: boolean;
+  /** Feed cards can keep repeated source-caption text behind More. */
+  collapseDuplicateSnippet?: boolean;
   onRemove?: () => void;
   /** Full mode: the card's `data-testid` (a result of the search by default). */
   testId?: string;
@@ -173,13 +205,66 @@ export default function ResultCard({
   return compact ? (
     <CompactCard item={item} onRemove={onRemove} />
   ) : (
-    <FullCard item={item} action={action} testId={testId} className={className} />
+    <FullCard
+      item={item}
+      action={action}
+      testId={testId}
+      className={className}
+      collapseDuplicateSnippet={collapseDuplicateSnippet}
+      visualFeed={visualFeed}
+    />
   );
 }
 
 /** The full card's 16:9 media frame, the same box whether it is the ▶ button or the link. */
 const MEDIA_FRAME =
   "border-edge relative block aspect-video overflow-hidden border-b-2 bg-[var(--edge)]";
+
+/** The existing preview and player without a second card title or duplicate browsing actions. */
+export function ResultPreview({
+  item,
+  testId = "result-preview",
+  lookup = true,
+}: {
+  item: ResearchItem;
+  testId?: string;
+  /** false: render from `item.thumb` / the platform placeholder only; no preview lookup request of any kind. */
+  lookup?: boolean;
+}) {
+  const { t } = useT();
+  const { thumb, title, onError } = useThumb(item, lookup);
+  const play = usePlay({ ...item, title }, thumb);
+  const media = <Media item={item} thumb={thumb} onError={onError} playable={!!play} />;
+  return (
+    <div className="border-edge overflow-hidden border-2" data-testid={testId}>
+      {play ? (
+        <button
+          type="button"
+          onClick={play}
+          aria-label={t("player.watchLabel", { title })}
+          className="bg-panel-3 group relative block aspect-video w-full overflow-hidden focus-visible:outline-hidden"
+          data-testid="result-play"
+        >
+          <span className="absolute inset-0">{media}</span>
+          <span
+            aria-hidden
+            className="group-focus-visible:outline-gold pointer-events-none absolute inset-0 group-focus-visible:outline-[3px] group-focus-visible:outline-offset-[-5px]"
+          />
+        </button>
+      ) : (
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`${t("research.scoutOpen")}: ${title}`}
+          className="bg-panel-3 relative block aspect-video overflow-hidden"
+        >
+          {media}
+        </a>
+      )}
+    </div>
+  );
+}
 
 /**
  * The card is `relative`: it holds its own absolutely placed bits (the screen-reader words of the counts).
@@ -191,11 +276,15 @@ function FullCard({
   action,
   testId,
   className,
+  collapseDuplicateSnippet,
+  visualFeed,
 }: {
   item: ResearchItem;
   action?: ReactNode;
   testId: string;
   className: string;
+  collapseDuplicateSnippet: boolean;
+  visualFeed: boolean;
 }) {
   const { t } = useT();
   const [expanded, setExpanded] = useState(false);
@@ -203,7 +292,15 @@ function FullCard({
   const play = usePlay({ ...item, title }, thumb);
   const meta = PLATFORM_META[item.platform];
   const longSnippet = item.snippet.length > 90;
+  const duplicateSnippet =
+    collapseDuplicateSnippet &&
+    title.trim().length >= 12 &&
+    item.snippet.trim().startsWith(title.trim());
   const media = <Media item={item} thumb={thumb} onError={onError} playable={!!play} />;
+  const mediaFrame =
+    visualFeed && isVertical(item.platform)
+      ? MEDIA_FRAME.replace("aspect-video", "aspect-[3/4]")
+      : MEDIA_FRAME;
   return (
     <li
       className={`border-edge bg-panel-2 relative flex flex-col overflow-hidden rounded-[2px] border-2 shadow-[3px_3px_0_var(--edge)] ${className}`}
@@ -215,7 +312,7 @@ function FullCard({
           type="button"
           onClick={play}
           aria-label={t("player.watchLabel", { title })}
-          className={`${MEDIA_FRAME} group w-full focus-visible:outline-hidden`}
+          className={`${mediaFrame} group w-full focus-visible:outline-hidden`}
           data-testid="result-play"
         >
           {/* A button lays its content out in a box of its own; this one is the frame's size. */}
@@ -234,19 +331,20 @@ function FullCard({
           rel="noopener noreferrer"
           tabIndex={-1}
           aria-hidden
-          className={MEDIA_FRAME}
+          className={mediaFrame}
         >
           {media}
         </a>
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-1 p-2.5">
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div className={`flex min-w-0 items-center gap-1.5 ${visualFeed ? "flex-wrap" : ""}`}>
           <span className={`px-chip shrink-0 text-[10px] ${meta.chip}`} data-testid="result-chip">
             {meta.glyph} {meta.label}
           </span>
           <span className="text-muted min-w-0 flex-1 truncate text-xs" dir="ltr">
             {item.handle}
           </span>
+          {visualFeed && <span className="basis-full" aria-hidden />}
           {item.published && <PostDate iso={item.published} />}
           {item.stats && <StatsChip stats={item.stats} />}
         </div>
@@ -260,7 +358,7 @@ function FullCard({
         >
           {title}
         </a>
-        {item.snippet && (
+        {item.snippet && ((!visualFeed && !duplicateSnippet) || expanded) && (
           <p
             dir="auto"
             className={`text-ink-2 text-xs ${expanded ? "" : "line-clamp-2"}`}

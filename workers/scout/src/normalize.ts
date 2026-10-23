@@ -25,6 +25,23 @@ export interface Stats {
   comments?: number;
 }
 
+/** Source-bound observation; mirrored by the Discover client. Indexed counts have no native timestamp. */
+export interface SourceEvidence {
+  source:
+    | "youtube-api"
+    | "instagram-public-embed"
+    | "tiktok-oembed"
+    | "tiktok-public-page"
+    | "indexed-excerpt";
+  observedAt: string;
+  likes?: number;
+  views?: number;
+  published?: string;
+  caption?: string;
+  author?: string;
+  availability?: "available" | "unavailable";
+}
+
 export interface ScoutResult {
   platform: Platform;
   handle: string;
@@ -42,6 +59,7 @@ export interface ScoutResult {
    * YouTube from the Data API's `publishedAt`, else Tavily's `published_date`.
    */
   published?: string;
+  evidence?: SourceEvidence;
 }
 
 /** One hit as Tavily returns it (only the fields we read). */
@@ -56,6 +74,8 @@ export interface TavilyHit {
 }
 
 const SNIPPET_MAX = 220;
+/** Format discovery needs the caption after the preview. Other search cards retain their compact default. */
+export const DISCOVERY_SNIPPET_MAX = 1000;
 const TITLE_MAX = 160;
 
 /** Platform for a hostname, or undefined for anything that isn't TikTok / Instagram / YouTube. */
@@ -381,7 +401,11 @@ export function normalizeHits(
   platforms: readonly Platform[],
   /** The run's time: a post id decoding after it (+ 1 day) is a bad decode, no date. */
   now = new Date(),
+  maxSnippetLength = SNIPPET_MAX,
 ): ScoutResult[] {
+  const snippetMax = Number.isFinite(maxSnippetLength)
+    ? Math.max(SNIPPET_MAX, Math.min(DISCOVERY_SNIPPET_MAX, Math.floor(maxSnippetLength)))
+    : SNIPPET_MAX;
   const wanted = new Set(platforms);
   const seen = new Set<string>();
   const out: ScoutResult[] = [];
@@ -418,7 +442,7 @@ export function normalizeHits(
       platform,
       handle,
       title: clip(title, TITLE_MAX),
-      snippet: clip(content, SNIPPET_MAX),
+      snippet: clip(content, snippetMax),
       url,
     };
     if (thumb) result.thumb = thumb;
@@ -501,8 +525,9 @@ export function normalizeDiscoverHits(
   hits: readonly TavilyHit[],
   platform: Platform,
   now = new Date(),
+  maxSnippetLength = SNIPPET_MAX,
 ): { cards: ScoutResult[]; profiles: Profile[] } {
-  const cards = normalizeHits(hits, [platform], now);
+  const cards = normalizeHits(hits, [platform], now, maxSnippetLength);
   const seen = new Set<string>();
   const profiles: Profile[] = [];
   for (const hit of hits) {

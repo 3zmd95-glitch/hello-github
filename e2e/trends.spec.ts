@@ -106,8 +106,9 @@ function feedNow(extra: readonly Record<string, unknown>[] = []) {
 /**
  * Rows as the Worker's keyword scan writes them for a genre's main query (round 31): "YouTube search" rows
  * that carry the genre id and are tagged with the query that found them, then "short". Two Arabic ones
- * (cars, food) and two English ones (cars, and "drone", an id the app has no genre for), so the chips can be
- * checked under both tabs. The food row's query "مونتاج أكل" holds a niche keyword and its title does not;
+ * (cars, food) and two English ones (cars, and "kites", an id the app has no genre for: drone became a
+ * built-in genre on 22 Oct 2026), so the chips can be checked under both tabs. The food row's query
+ * "مونتاج أكل" holds a niche keyword and its title does not;
  * the Saudi car row's title does ("مونتاج"); the English titles match none.
  */
 function genreRows() {
@@ -146,13 +147,13 @@ function genreRows() {
     },
     {
       ...row,
-      id: "youtube:US:kw:drone-en",
+      id: "youtube:US:kw:kites-en",
       region: "US",
       lang: "en",
-      title: "FPV drone reel",
+      title: "FPV kites reel",
       score: 60,
-      genre: "drone",
-      tags: ["drone edit", "short"],
+      genre: "kites",
+      tags: ["kites edit", "short"],
     },
   ];
 }
@@ -482,21 +483,21 @@ test("genre rows name their genre in a plain chip, and the radar has no genre se
 
   // English tab: the chart row, the two English genre rows and the mixed hashtag. The car row's tag
   // "car edit" is its genre's query and its title has no niche keyword, so no star; its chip names the same
-  // genre. "drone" is an id the app has no genre for: a chip with the raw id.
+  // genre. "kites" is an id the app has no genre for: a chip with the raw id.
   await page.getByTestId("trends-tab-en").click();
   await expect(rows).toHaveCount(4);
   const carsEn = page.locator('[data-testid="trend-row"][data-id="youtube:US:kw:cars-en"]');
-  const drone = page.locator('[data-testid="trend-row"][data-genre="drone"]');
+  const kites = page.locator('[data-testid="trend-row"][data-genre="kites"]');
   await expect(carsEn).toHaveAttribute("data-star", "false");
   await expect(carsEn.getByTestId("trend-source")).toHaveText("بحث YouTube");
   await expect(carsEn.getByTestId("trend-genre")).toHaveText("سيارات");
   await expect(carsEn.getByTestId("trend-genre")).not.toHaveAttribute("href");
-  await expect(drone).toHaveAttribute("data-id", "youtube:US:kw:drone-en");
-  await expect(drone.getByTestId("trend-genre")).toHaveText("drone");
-  await expect(drone.getByTestId("trend-genre")).toHaveAttribute("data-genre", "drone");
-  await expect(drone.getByTestId("trend-genre")).not.toHaveAttribute("href");
-  await expect(drone.getByRole("link")).toHaveCount(0);
-  const chipIsPlain = await drone.getByTestId("trend-genre").evaluate((el) => {
+  await expect(kites).toHaveAttribute("data-id", "youtube:US:kw:kites-en");
+  await expect(kites.getByTestId("trend-genre")).toHaveText("kites");
+  await expect(kites.getByTestId("trend-genre")).toHaveAttribute("data-genre", "kites");
+  await expect(kites.getByTestId("trend-genre")).not.toHaveAttribute("href");
+  await expect(kites.getByRole("link")).toHaveCount(0);
+  const chipIsPlain = await kites.getByTestId("trend-genre").evaluate((el) => {
     const platform = el.parentElement?.querySelector('[data-testid="trend-platform"]');
     return (
       el.tagName === "SPAN" &&
@@ -519,7 +520,7 @@ test("genre rows name their genre in a plain chip, and the radar has no genre se
   await expect(rows).toHaveCount(4);
 
   // ✕ on a genre row takes that row and its chip away, nothing else.
-  await drone.getByTestId("trend-dismiss").click();
+  await kites.getByTestId("trend-dismiss").click();
   await expect(rows).toHaveCount(3);
   await expect(page.getByTestId("trend-genre")).toHaveCount(1);
   await expect(carsEn).toHaveCount(1);
@@ -566,7 +567,7 @@ test("the genre chip names the owner's custom genre and speaks English when the 
   await expect.poll(() => fake.gets).toBeGreaterThanOrEqual(1);
   await expect(page.getByTestId("trends-genre")).toHaveCount(0);
 
-  // English tab: the chart row, the car, drift and drone rows, and the mixed hashtag. The drift row's chip
+  // English tab: the chart row, the car, drift and kites rows, and the mixed hashtag. The drift row's chip
   // names the owner's genre (the name they gave it, without Discover's ✨); "drift edit" is the genre's own
   // words, so no star.
   await page.getByTestId("trends-tab-en").click();
@@ -591,8 +592,8 @@ test("the genre chip names the owner's custom genre and speaks English when the 
   await expect(driftChip).toHaveText("Drift");
   await expect(page.locator('a[href^="/discover"]')).toHaveCount(0);
   await expect(
-    page.locator('[data-testid="trend-row"][data-genre="drone"]').getByTestId("trend-genre"),
-  ).toHaveText("drone");
+    page.locator('[data-testid="trend-row"][data-genre="kites"]').getByTestId("trend-genre"),
+  ).toHaveText("kites");
 
   // A tap on the chip goes nowhere: the radar stays, and no search is sent.
   await driftChip.click();

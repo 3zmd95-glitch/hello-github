@@ -1,5 +1,5 @@
-import { GENRES } from "@/data/genres";
-import type { CustomGenre, Genre, Lang } from "@/lib/domain";
+import { GENRE_GROUPS, GENRES } from "@/data/genres";
+import type { CustomGenre, Genre, GenreGroup, Lang } from "@/lib/domain";
 
 /**
  * 🎬 Edit genres (round 31): the pure helpers behind the genre chips of Discover, the skill Research panel,
@@ -8,10 +8,13 @@ import type { CustomGenre, Genre, Lang } from "@/lib/domain";
  * the custom list in.
  */
 
-export { GENRES };
+export { GENRE_GROUPS, GENRES };
 
 /** What a custom genre shows instead of a hand-picked emoji. */
 export const CUSTOM_GENRE_EMOJI = "✨";
+
+/** Id of the owner's own genres' group; its heading (named by `genres.group.mine`) is built at render time. */
+export const MINE_GROUP_ID = "mine";
 
 const CUSTOM_PREFIX = "custom-";
 
@@ -48,6 +51,28 @@ export function allGenres(custom: readonly CustomGenre[]): Genre[] {
   return [...GENRES, ...custom.map(fromCustom)];
 }
 
+/**
+ * The picker's two levels: the groups in file order, each with its genres in the order given (file order for
+ * built-ins), and the genres without a group (the owner's own) last under `mine` (id {@link MINE_GROUP_ID},
+ * named by the caller from the messages). Empty groups are left out.
+ */
+export function groupGenres(
+  genres: readonly Genre[],
+  mine: GenreGroup,
+): { group: GenreGroup; genres: Genre[] }[] {
+  return [...GENRE_GROUPS, mine]
+    .map((group) => ({
+      group,
+      genres: genres.filter((g) => (g.group ?? mine.id) === group.id),
+    }))
+    .filter((entry) => entry.genres.length > 0);
+}
+
+/** {@link groupGenres} of every genre the owner can pick. */
+export function groupedGenres(custom: readonly CustomGenre[], mine: GenreGroup) {
+  return groupGenres(allGenres(custom), mine);
+}
+
 /** The genre with that id (built-in first), or undefined for an id this app does not know. */
 export function genreById(id: string, custom: readonly CustomGenre[]): Genre | undefined {
   const builtIn = GENRES.find((g) => g.id === id);
@@ -64,6 +89,41 @@ export function genreQuery(genre: Genre, lang: Lang, topic?: string): string {
   const main = genre.queries[lang][0];
   const base = topic ? squash(topic) : "";
   return squash(base ? `${base} ${main}` : main);
+}
+
+// 13 Oct audit: the broad first query collides on these (Black Coffee the musician, survival/lifehack titles, decant ads).
+const NATIVE_SPECIFIC_GENRES = ["camping", "perfume"];
+const NATIVE_PREVIOUS_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
+  coffee: ["coffee edit", "cafe cinematic b-roll"],
+  camping: ["camping edit"],
+  perfume: ["perfume edit"],
+};
+
+/** Native-only defaults; keyword search retains the original genre query. */
+export function nativeCategoryQuery(genre: Genre): string {
+  // Verified in native Instagram: the longer cafe/b-roll phrase returned no results.
+  if (genre.id === "coffee") return "coffee cinematic";
+  const specific = NATIVE_SPECIFIC_GENRES.includes(genre.id)
+    ? squash(genre.queries.en[1] ?? "")
+    : "";
+  return specific || genre.queries.en[0];
+}
+
+/** Only exact, uniform former built-ins migrate; custom, mixed and partial searches survive. */
+export function isLegacyNativeCategoryQuery(
+  genre: Genre,
+  queries: Readonly<Partial<Record<"ig" | "tt" | "yt", string>>>,
+): boolean {
+  if (Object.keys(queries).length !== 3) return false;
+  return (
+    NATIVE_PREVIOUS_DEFAULTS[genre.id]?.some(
+      (query) =>
+        query !== nativeCategoryQuery(genre) &&
+        queries.ig === query &&
+        queries.tt === query &&
+        queries.yt === query,
+    ) ?? false
+  );
 }
 
 /** The genre's Instagram hashtag slug (no "#"), when it has one (custom genres have none). */

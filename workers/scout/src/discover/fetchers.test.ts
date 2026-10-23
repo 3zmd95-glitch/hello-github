@@ -216,7 +216,29 @@ describe("youtubeCall", () => {
     expect(url.searchParams.get("regionCode")).toBe("SA");
     expect(url.searchParams.get("videoDuration")).toBe("short");
     expect(url.searchParams.get("publishedAfter")).toBe("2026-09-26T09:00:00.000Z");
+    expect(url.searchParams.has("order")).toBe(false);
   });
+
+  it.each(["relevance", "viewCount"] as const)(
+    "forwards explicit %s order with the same date window and one search call",
+    async (ytOrder) => {
+      const fetchMock = vi.fn<typeof fetch>(async () => json({ items: [] }));
+      expect(
+        await youtubeCall(
+          { YOUTUBE_API_KEY: "y" },
+          fetchMock,
+          { q: "camping outdoor film", lang: "en", timeRange: "month", ytOrder },
+          NOW,
+        ),
+      ).toEqual({ ok: true, cards: [] });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const url = new URL(String(fetchMock.mock.calls[0][0]));
+      expect(url.searchParams.get("order")).toBe(ytOrder);
+      expect(url.searchParams.get("q")).toBe("camping outdoor film");
+      expect(url.searchParams.get("publishedAfter")).toBe("2026-09-03T09:00:00.000Z");
+      expect(url.searchParams.get("maxResults")).toBe("20");
+    },
+  );
 
   it("maps quota to daily_cap and other refusals to auth", async () => {
     const call = { q: "x", lang: "en" as const };

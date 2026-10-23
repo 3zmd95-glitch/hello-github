@@ -1,4 +1,4 @@
-import type { Platform } from "./domain";
+import type { Platform, RefPlatform } from "./domain";
 
 /** Brand marks from simple-icons (CC0 1.0), 24×24, filled. White on the platform color in PlatformBadge. */
 export const PLATFORM_PATHS: Record<Platform, string> = {
@@ -31,9 +31,22 @@ export function PlatformGlyph({
       height={size}
       fill="currentColor"
       className={className}
+      focusable="false"
       aria-hidden
     >
       <path d={PLATFORM_PATHS[platform]} />
     </svg>
+  );
+}
+
+/** Discovery uses short platform IDs; keep its marks identical to the Social UI. */
+export function ReferencePlatformGlyph({ platform }: { platform: Exclude<RefPlatform, "web"> }) {
+  const brand = { ig: "instagram", tt: "tiktok", yt: "youtube" } as const;
+  return (
+    <PlatformGlyph
+      platform={brand[platform]}
+      size={16}
+      className="inline-block size-[1em] min-h-3.5 min-w-3.5 shrink-0 align-[-0.125em]"
+    />
   );
 }

@@ -10,6 +10,7 @@ import {
   Rocket,
   Settings,
   TrendingUp,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import type { MessageKey } from "@/lib/i18n";
@@ -45,8 +46,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
 
 /**
  * Social-world navigation (round 16). Phones: Studio · Calendar · Growth · Ideas · More;
- * Website and Business ("soon"), 💬 Auto replies (round 34), 📥 the Inbox (tools/51), Auto-posting (the
- * Automations route) and Social's own Settings live in the desktop sidebar and behind More.
+ * Website (the local article CMS), Business (the media kit and brand deals, packet DT-5), 💬 Auto replies
+ * (round 34), 📥 the Inbox (tools/51), 🔁 Workflows, Auto-posting (the Automations route) and Social's own
+ * Settings live in the desktop sidebar and behind More.
  *
  * Every entry is a Social route (tools/20): the world comes from the URL, so a Social link never opens the
  * Training shell. Discover is a Training route and has no shortcut here.
@@ -62,7 +64,6 @@ export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
     icon: "🌐",
     lucide: Globe,
     label: "nav.website",
-    soon: true,
     desktopOnly: true,
   },
   {
@@ -70,7 +71,6 @@ export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
     icon: "💼",
     lucide: Briefcase,
     label: "nav.business",
-    soon: true,
     desktopOnly: true,
   },
   {
@@ -82,13 +82,26 @@ export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
   },
   { href: "/social/inbox", icon: "📥", lucide: Inbox, label: "nav.inbox", desktopOnly: true },
   {
+    href: "/social/workflows",
+    icon: "🔁",
+    lucide: Workflow,
+    label: "nav.workflows",
+    desktopOnly: true,
+  },
+  {
     href: "/social/automations",
     icon: "🚀",
     lucide: Rocket,
     label: "nav.automations",
     desktopOnly: true,
   },
-  { href: "/social/settings", icon: "⚙️", lucide: Settings, label: "nav.settings", desktopOnly: true },
+  {
+    href: "/social/settings",
+    icon: "⚙️",
+    lucide: Settings,
+    label: "nav.settings",
+    desktopOnly: true,
+  },
 ];
 
 /** Navigation list per world; the shell renders the active world's list in the sidebar and tab bar. */

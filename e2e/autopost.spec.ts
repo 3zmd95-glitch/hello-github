@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { freshState } from "./helpers";
+import { freshState, seedState } from "./helpers";
 
 // 🚀 Auto-posting: the post popup's Auto-post tab and the hub, against a fake Scout Worker at
 // https://scout.test stubbed with page.route (same pattern as accounts.spec.ts). Round 30 adds the
@@ -808,4 +808,257 @@ test("a Creator script applied in another tab survives this tab's job polling an
   await other.getByTestId("post-tab-script").click();
   await expect(other.getByTestId("script-hook")).toHaveValue(hook);
   expect(fake.listed).toBeGreaterThan(0);
+});
+
+test("a workflow-generated post schedules, posts now and cancels under one Worker-safe job id", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  // Validate ids exactly like the deployed Worker (workers/scout/src/social/publish.ts ID_RE): the POST body id, and
+  // the raw path segment of run / cancel (a %3A stays encoded there). Registered last, so it runs first.
+  const ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
+  const refused: string[] = [];
+  const lifecycle: string[] = [];
+  await page.route(`${WORKER}/social/publish**`, async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    const fail = (status: number, body: unknown) =>
+      route.fulfill({
+        status,
+        headers: CORS,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+    if (req.method() === "OPTIONS") return route.fallback();
+    const seg = url.pathname.split("/")[3];
+    if (req.method() === "POST" && url.pathname === "/social/publish") {
+      const id = String((JSON.parse(req.postData() || "{}") as { id?: string }).id);
+      if (!ID_RE.test(id)) {
+        refused.push(`schedule ${id}`);
+        return fail(400, { error: "bad_request", detail: "id" });
+      }
+      lifecycle.push(`schedule ${id}`);
+    } else if (seg !== undefined) {
+      if (!ID_RE.test(seg)) {
+        refused.push(`${req.method()} ${seg}`);
+        return fail(404, { error: "not_found" });
+      }
+      lifecycle.push(`${url.pathname.endsWith("/run") ? "run" : "cancel"} ${seg}`);
+    }
+    return route.fallback();
+  });
+  const outside: string[] = [];
+  // No provider is ever called: only the app, the fake Worker, the shell fonts and the tab's own preview of the
+  // test media link (cdn.example) may be requested.
+  const allowed = [
+    "localhost",
+    "scout.test",
+    "cdn.example",
+    "fonts.googleapis.com",
+    "fonts.gstatic.com",
+  ];
+  page.on("request", (req) => {
+    if (!allowed.includes(new URL(req.url()).hostname)) outside.push(req.url());
+  });
+
+  // A queued manual run of a workflow with one Instagram post step: opening Workflows executes it locally.
+  const AT = new Date().toISOString();
+  const workflow = {
+    id: "wf-a",
+    name: { ar: "يومي", en: "Daily" },
+    trigger: { kind: "manual" },
+    actions: [
+      {
+        id: "p1",
+        kind: "post",
+        platform: "instagram",
+        title: { ar: "مقطع {date}", en: "Clip {date}" },
+        caption: { ar: "من الخطوات {date}", en: "From a workflow {date}" },
+        offsetDays: 1,
+      },
+    ],
+    enabled: true,
+    revision: 1,
+    commitId: "wf-a-baseline",
+    createdAt: AT,
+    updatedAt: AT,
+  };
+  const run = {
+    id: "run-1",
+    workflowId: "wf-a",
+    kind: "manual",
+    status: "queued",
+    attempt: 1,
+    commitId: "run-1-queued",
+    startedAt: AT,
+    updatedAt: AT,
+    snapshot: {
+      workflow,
+      input: {
+        title: { ar: "", en: "" },
+        summary: { ar: "", en: "" },
+        slug: "",
+        lang: "ar",
+        day: riyadhDay(),
+      },
+    },
+    steps: [{ actionId: "p1", status: "pending" }],
+  };
+  await seedState(page, "/social/workflows/", {
+    settings: { apiKeys: { scoutUrl: WORKER, scoutToken: TOKEN } },
+    workflows: [workflow],
+    workflowRuns: [run],
+  });
+  const id = "wf:run-1:p1";
+  const saved = () =>
+    page.evaluate((postId) => {
+      const s = JSON.parse(localStorage.getItem("3z-prod-v1") ?? "{}") as {
+        state?: { posts?: { id: string; autoPost?: { jobId?: string; sentAt?: string } }[] };
+      };
+      return s.state?.posts?.find((p) => p.id === postId) ?? null;
+    }, id);
+  await expect.poll(async () => (await saved())?.id).toBe(id);
+
+  await page.goto(`/social/calendar/#post=${encodeURIComponent(id)}`);
+  await expect(page.getByTestId("post-sheet")).toBeVisible();
+  await page.getByTestId("post-tab-autopost").click();
+  await page.getByTestId("autopost-media-url").fill("https://cdn.example/clip.mp4");
+  await page.getByTestId("autopost-schedule").click();
+  await expect(page.getByTestId("autopost-notice")).toBeVisible();
+  await expect(page.getByTestId("autopost-error")).toHaveCount(0);
+  expect(fake.posted).toHaveLength(1);
+  const jobId = fake.posted[0].id;
+  expect(jobId).toMatch(ID_RE);
+  expect(jobId).toMatch(/^j-wf-run-1-p1-[0-9a-f]{24}$/);
+  await expect.poll(async () => (await saved())?.autoPost?.jobId).toBe(jobId);
+
+  await page.getByTestId("autopost-now").click();
+  await expect(page.getByTestId("autopost-error")).toHaveCount(0);
+  await expect.poll(() => lifecycle.includes(`run ${jobId}`)).toBe(true);
+  await page.getByTestId("autopost-cancel").click();
+  await expect(page.getByTestId("autopost-error")).toHaveCount(0);
+  await expect.poll(() => fake.deleted).toEqual([jobId]);
+  await expect.poll(async () => (await saved())?.autoPost?.sentAt ?? null).toBeNull();
+
+  expect(refused).toEqual([]);
+  expect(lifecycle.filter((l) => !l.endsWith(jobId))).toEqual([]);
+  expect(outside).toEqual([]);
+});
+
+test("DT-5-R1: a lost create stays visible as allocated; Discard only after a read without it; a shared job is a conflict", async ({
+  page,
+}) => {
+  const fake = await stubWorker(page);
+  // Registered last, so it runs first: lose the reply of one committed create, or fail the job list.
+  const ctl = { lose: false, failList: false, malformed: null as object | null };
+  await page.route(`${WORKER}/social/publish`, async (route) => {
+    const req = route.request();
+    if (req.method() === "POST" && ctl.lose) {
+      ctl.lose = false;
+      const body = JSON.parse(req.postData() || "{}") as Job;
+      fake.posted.push(body);
+      fake.jobs.set(body.id, { ...body, targets: { instagram: { state: "queued" } } });
+      return route.abort("failed");
+    }
+    if (req.method() === "GET" && ctl.failList) return route.abort("failed");
+    if (req.method() === "GET" && ctl.malformed)
+      return route.fulfill({
+        status: 200,
+        headers: CORS,
+        contentType: "application/json",
+        body: JSON.stringify(ctl.malformed),
+      });
+    return route.fallback();
+  });
+  await connectWorker(page);
+  await page.goto("/social/calendar/");
+  await page.locator('[data-testid="calendar-new"]:visible').click();
+  await page.getByTestId("post-platform-instagram").click();
+  await page.getByTestId("post-title").fill("Lost reply");
+  await page.getByTestId("post-day").fill(riyadhDay());
+  await page.getByTestId("post-save").click();
+  const card = page.getByTestId("post-card").first();
+  const id = (await card.getAttribute("data-post")) ?? "";
+  await card.locator("button").first().click();
+  await page.getByTestId("post-caption").fill("Committed, reply lost");
+  await page.getByTestId("post-tab-autopost").click();
+  await page.getByTestId("autopost-media-url").fill("https://cdn.example/clip.mp4");
+  const stored = () =>
+    page.evaluate((postId) => {
+      const s = JSON.parse(localStorage.getItem("3z-prod-v1") ?? "{}") as {
+        state?: { posts?: { id: string; autoPost?: { jobId?: string; sentAt?: string } }[] };
+      };
+      return s.state?.posts?.find((p) => p.id === postId)?.autoPost ?? null;
+    }, id);
+
+  ctl.lose = true;
+  await page.getByTestId("autopost-schedule").click();
+  await expect(page.getByTestId("autopost-error")).toBeVisible();
+  const row = page.getByTestId("autopost-unconfirmed");
+  await expect(row).toBeVisible();
+  await expect(row).toHaveAttribute("data-job", id);
+  await expect(page.getByTestId("autopost-unconfirmed-discard")).toBeDisabled();
+  expect((await stored())?.jobId).toBe(id);
+
+  // Offline: unknown, never absent; the allocation stays and Discard stays off.
+  ctl.failList = true;
+  await page.getByTestId("autopost-unconfirmed-refresh").click();
+  await expect(row).toHaveAttribute("data-check", "unknown");
+  await expect(page.getByTestId("autopost-unconfirmed-status")).toBeVisible();
+  await expect(page.getByTestId("autopost-unconfirmed-discard")).toBeDisabled();
+  ctl.failList = false;
+
+  // The Worker dropped the job: a successful read without it allows Discard.
+  fake.jobs.clear();
+  await page.getByTestId("autopost-unconfirmed-refresh").click();
+  await expect(row).toHaveAttribute("data-check", "absent");
+  // DT-5-R2 R1-D: a 200 that is not a complete list (no jobs, or a row without its time) is unknown, never absent.
+  for (const body of [{}, { jobs: [{ id }] }]) {
+    ctl.malformed = body;
+    await page.getByTestId("autopost-unconfirmed-refresh").click();
+    await expect(row).toHaveAttribute("data-check", "unknown");
+    await expect(page.getByTestId("autopost-unconfirmed-discard")).toBeDisabled();
+    expect((await stored())?.jobId).toBe(id);
+    ctl.malformed = null;
+    await page.getByTestId("autopost-unconfirmed-refresh").click();
+    await expect(row).toHaveAttribute("data-check", "absent");
+  }
+  await page.getByTestId("autopost-unconfirmed-discard").click();
+  await expect(row).toHaveCount(0);
+  await expect.poll(async () => (await stored())?.jobId ?? null).toBeNull();
+  expect(fake.deleted).toEqual([]);
+
+  // Lost again, then the hub opens: its read finds the job and confirms it (listed as scheduled, not hidden).
+  ctl.lose = true;
+  await page.getByTestId("autopost-schedule").click();
+  await expect(row).toBeVisible();
+  await page.getByTestId("post-close").click();
+  await page.goto("/social/automations/");
+  await expect(page.locator(`[data-testid="autopost-job"][data-post="${id}"]`)).toBeVisible();
+  await expect(page.getByTestId("autopost-unconfirmed-list")).toHaveCount(0);
+  await expect.poll(async () => !!(await stored())?.sentAt).toBe(true);
+
+  // A second local post remembering the same job: listed with both claimants, nothing marked posted.
+  await page.evaluate((postId) => {
+    const raw = JSON.parse(localStorage.getItem("3z-prod-v1") ?? "{}");
+    const own = raw.state.posts.find((p: { id: string }) => p.id === postId);
+    raw.state.posts.push({ ...own, id: `${postId}-twin`, title: "Imported twin" });
+    localStorage.setItem("3z-prod-v1", JSON.stringify(raw));
+  }, id);
+  fake.jobs.get(id)!.targets.instagram = {
+    state: "published",
+    permalink: "https://www.instagram.com/reel/TWIN/",
+  };
+  await page.reload();
+  const conflict = page.getByTestId("autopost-remote-conflict");
+  await expect(conflict).toBeVisible();
+  await expect(conflict).toContainText("Lost reply");
+  await expect(conflict).toContainText("Imported twin");
+  const stages = await page.evaluate(() =>
+    (JSON.parse(localStorage.getItem("3z-prod-v1") ?? "{}").state.posts as { stage: string }[]).map(
+      (p) => p.stage,
+    ),
+  );
+  expect(stages).not.toContain("posted");
+  expect(await fitsViewport(page)).toBe(true);
 });

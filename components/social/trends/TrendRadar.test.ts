@@ -42,7 +42,7 @@ const GENRE_ROWS = [
   row({ id: "cars-ar", score: 80, genre: "cars", ...found("ايديت سيارات") }),
   row({ id: "food-ar", score: 70, genre: "food", ...found("مونتاج أكل") }),
   row({ id: "cars-en", region: "US", lang: "en", score: 85, genre: "cars", ...found("car edit") }),
-  row({ id: "drone-en", region: "US", lang: "en", score: 60, genre: "drone", ...found("drone") }),
+  row({ id: "kites-en", region: "US", lang: "en", score: 60, genre: "kites", ...found("kites") }),
 ];
 
 let host: HTMLDivElement;
@@ -147,9 +147,9 @@ describe("TrendRadar has no genre filter (Discover is the one place for genres)"
     expect(rowIds()).toEqual([]);
     expect(host.querySelector('[data-testid="trends-empty"]')).not.toBeNull();
     click("trends-platform-youtube");
-    expect(rowIds()).toEqual(["plain-en", "cars-en", "drone-en"]);
+    expect(rowIds()).toEqual(["plain-en", "cars-en", "kites-en"]);
     click("trends-platform-all");
-    expect(rowIds()).toEqual(["plain-en", "cars-en", "drone-en", "plain-tt"]);
+    expect(rowIds()).toEqual(["plain-en", "cars-en", "kites-en", "plain-tt"]);
     expect(radar().getAttribute("data-tab")).toBe("en");
   });
 
@@ -351,7 +351,7 @@ describe("TrendRadar genre chip", () => {
     expect(chips()).toEqual([
       ["plain-en", null],
       ["cars-en", "سيارات"],
-      ["drone-en", "drone"],
+      ["kites-en", "kites"],
       ["plain-tt", null],
     ]);
   });
@@ -378,11 +378,11 @@ describe("TrendRadar genre chip", () => {
     expect(chips()).toEqual([
       ["plain-en", null],
       ["cars-en", "سيارات"],
-      ["drone-en", "drone"],
+      ["kites-en", "kites"],
       ["plain-tt", null],
     ]);
     expectPlainChips();
-    expect(chipOf(rowEl("drone-en"))?.getAttribute("title")).toBe("نوع الإيديت");
+    expect(chipOf(rowEl("kites-en"))?.getAttribute("title")).toBe("نوع الإيديت");
   });
 
   it("follows the owner's custom genres and the UI language", () => {
@@ -406,10 +406,10 @@ describe("TrendRadar genre chip", () => {
     act(() => useStore.getState().setSettings({ lang: "en" }));
     expect(chips()).toEqual([
       ["cars-en", "Cars"],
-      ["drone-en", "drone"],
+      ["kites-en", "kites"],
       ["drift-en", "Drift"],
     ]);
-    expect(chipOf(rowEl("drone-en"))?.getAttribute("title")).toBe("Edit genre");
+    expect(chipOf(rowEl("kites-en"))?.getAttribute("title")).toBe("Edit genre");
 
     // A name of emoji only is all the owner gave: the chip keeps it.
     act(() => useStore.getState().addCustomGenre("🏁", "drift race"));

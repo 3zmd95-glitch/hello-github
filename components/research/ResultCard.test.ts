@@ -11,7 +11,7 @@ import type { Lang } from "@/lib/domain";
 import type { ResearchItem } from "@/lib/research";
 import { clearScoutCache } from "@/lib/scoutClient";
 import { useStore } from "@/store";
-import ResultCard, { PREVIEW_RETRY_MS } from "./ResultCard";
+import ResultCard, { PREVIEW_RETRY_MS, ResultPreview } from "./ResultCard";
 
 // ▶ Watch here (round 32), the cards' side: a card that is one post of YouTube, TikTok or Instagram turns
 // its poster into a ▶ button that hands the post to the app's player (a fake one here: the sheet itself is
@@ -112,6 +112,63 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("ResultPreview: a single playable surface", () => {
+  it("opens the same post player without duplicate title or Open controls", () => {
+    act(() =>
+      root.render(
+        createElement(
+          VideoPlayerContext.Provider,
+          { value: player },
+          createElement(ResultPreview, { item: TT, testId: "format-preview" }),
+        ),
+      ),
+    );
+    expect($("format-preview")).not.toBeNull();
+    expect($("result-thumb")?.getAttribute("src")).toBe(TT.thumb);
+    expect($("result-title")).toBeNull();
+    expect($("result-open")).toBeNull();
+    expect(host.querySelectorAll("button")).toHaveLength(1);
+    click($("result-play"));
+    expect(opened).toEqual([
+      { platform: TT.platform, url: TT.url, title: TT.title, handle: TT.handle, thumb: TT.thumb },
+    ]);
+  });
+
+  it("lookup={false}: an Instagram or TikTok preview with no picture asks nobody and shows the placeholder", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({ thumb: "https://scontent.cdninstagram.com/x.jpg" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    act(() =>
+      useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
+    );
+    const noPicture = [
+      { ...IG, url: "https://www.instagram.com/p/noLookup1/" },
+      { ...TT, thumb: undefined },
+    ];
+    for (const item of noPicture) {
+      act(() => root.render(createElement(ResultPreview, { item, lookup: false })));
+      await settle();
+      expect($("result-thumb")).toBeNull();
+      expect($("result-thumb-placeholder")).not.toBeNull();
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    // The default is unchanged: the same Instagram post is looked up on this computer.
+    act(() => root.render(createElement(ResultPreview, { item: noPicture[0] })));
+    await settle();
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("keeps a safe accessible source link when a reference has no player", () => {
+    act(() => root.render(createElement(ResultPreview, { item: WEB })));
+    const link = host.querySelector("a")!;
+    expect(link.href).toBe(WEB.url);
+    expect(link.rel).toBe("noopener noreferrer");
+    expect(link.getAttribute("aria-label")).toContain(WEB.title);
+    expect($("result-play")).toBeNull();
+  });
+});
+
 describe("ResultCard: the post date", () => {
   const year = new Date().getFullYear();
 
@@ -207,7 +264,7 @@ describe("ResultCard ▶ (full card)", () => {
     render({ item: { ...TT, thumb: undefined } });
     let tile = $("result-thumb-placeholder")!;
     expect(tile.hasAttribute("data-poster")).toBe(false);
-    expect(tile.textContent).toBe("♪");
+    expect(tile.querySelector('svg[aria-hidden="true"] path')).not.toBeNull();
     expect($("result-play-badge")).not.toBeNull();
     click($("result-play"));
     // No picture, no `thumb` for the player.
@@ -215,7 +272,7 @@ describe("ResultCard ▶ (full card)", () => {
 
     render({ item: { ...YT, thumb: undefined, handle: "" } });
     tile = $("result-thumb-placeholder")!;
-    expect(tile.textContent).toBe("▶");
+    expect(tile.querySelector('svg[aria-hidden="true"] path')).not.toBeNull();
     expect($("result-play-badge")).not.toBeNull();
     click($("result-play"));
     // A trend row has no channel: no handle for the player either.
@@ -469,6 +526,117 @@ describe("ResultCard ▶ (full card)", () => {
     }
   });
 
+  describe("Instagram preview without a Scout Worker", () => {
+    const stubFetch = (local: unknown) => {
+      const asked: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const href = String(input);
+          asked.push(href.startsWith("/") ? href.split("?")[0] : new URL(href).pathname);
+          if (href.startsWith("/api/local-ai/instagram-preview"))
+            return Response.json({ thumb: local });
+          return Response.json({ title: "", author: "", thumb: `${WORKER}/thumb/w.png`, url: "" });
+        }),
+      );
+      return asked;
+    };
+    const post = (id: string): ResearchItem => ({
+      ...IG,
+      thumb: undefined,
+      url: `https://www.instagram.com/p/${id}/`,
+    });
+
+    it("no Scout config: the local server's picture is rendered, asked once per post, no Worker call", async () => {
+      const local = "https://scontent.cdninstagram.com/v/noconfig.jpg";
+      const asked = stubFetch(local);
+      render({ item: post("noConfig1") });
+      await settle();
+      expect(asked).toEqual(["/api/local-ai/instagram-preview"]);
+      expect($("result-thumb")!.getAttribute("src")).toBe(local);
+      expect($("result-thumb-placeholder")).toBeNull();
+      // The same post in the saved row shares the lookup.
+      render({ item: post("noConfig1"), compact: true });
+      await settle();
+      expect($("saved-ref-thumb")!.getAttribute("src")).toBe(local);
+      expect(asked).toHaveLength(1);
+    });
+
+    it("no Scout config and the local server finds nothing: the honest poster stays, no Worker call, one retry", async () => {
+      const asked = stubFetch("");
+      vi.useFakeTimers();
+      try {
+        render({ item: post("noConfig2") }, { lang: "en" });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        expect(asked).toEqual(["/api/local-ai/instagram-preview"]);
+        expect($("result-thumb")).toBeNull();
+        expect($("result-thumb-placeholder")).not.toBeNull();
+        expect($("result-poster-note")!.textContent).toBe("Preview unavailable. Tap to watch.");
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(PREVIEW_RETRY_MS + 1_000);
+        });
+        expect(asked).toHaveLength(2);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(PREVIEW_RETRY_MS * 3);
+        });
+        expect(asked).toHaveLength(2);
+        expect($("result-thumb-placeholder")).not.toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("with a Scout config and no local answer, the Worker's oEmbed is the fallback as before", async () => {
+      const asked: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const href = String(input);
+          asked.push(href.startsWith("/") ? href.split("?")[0] : new URL(href).pathname);
+          if (href.startsWith("/api/local-ai/")) return new Response("{}", { status: 503 });
+          return Response.json({ title: "", author: "", thumb: `${WORKER}/thumb/w.png`, url: "" });
+        }),
+      );
+      act(() =>
+        useStore.getState().setSettings({ apiKeys: { scoutUrl: WORKER, scoutToken: "tok" } }),
+      );
+      render({ item: post("workerFallback1") });
+      await settle();
+      expect(asked).toEqual(["/api/local-ai/instagram-preview", "/oembed"]);
+      expect($("result-thumb")!.getAttribute("src")).toBe(`${WORKER}/thumb/w.png`);
+    });
+
+    it("a TikTok card without a config asks nothing", async () => {
+      const asked = stubFetch("https://scontent.cdninstagram.com/v/x.jpg");
+      render({
+        item: {
+          ...TT,
+          thumb: undefined,
+          url: "https://www.tiktok.com/@editor.sam/video/7300000000000000099",
+        },
+      });
+      await settle();
+      expect(asked).toEqual([]);
+    });
+
+    it("a thumbnail arriving later from enrichment is shown and starts no further lookup", async () => {
+      const asked = stubFetch("");
+      const item = post("enriched1");
+      render({ item });
+      await settle();
+      expect(asked).toHaveLength(1);
+      expect($("result-thumb-placeholder")).not.toBeNull();
+      const thumb = "https://scontent.cdninstagram.com/v/enriched.jpg";
+      render({ item: { ...item, thumb } });
+      await settle();
+      expect($("result-thumb")!.getAttribute("src")).toBe(thumb);
+      expect($("result-thumb-placeholder")).toBeNull();
+      expect(asked).toHaveLength(1);
+    });
+  });
+
   it("a TikTok card titled only by its handle shows the post's caption from the same lookup", async () => {
     // Discover v2 keeps a generic TikTok page title ("TikTok - Make Your Day") as the handle and no longer asks
     // oEmbed inside the search; the card's own lookup brings the caption.
@@ -609,7 +777,7 @@ describe("ResultCard ▶ (compact: the skill sheet's saved references)", () => {
     // Instagram without a picture: the plain glyph tile (not the full card's poster), and the ▶ beside it.
     render({ item: IG, compact: true, onRemove: () => {} });
     row = $("saved-ref")!;
-    expect(row.textContent).toContain("📷");
+    expect(row.querySelector('svg[aria-hidden="true"] path')).not.toBeNull();
     expect($("result-thumb-placeholder", row)).toBeNull();
     const tile = row.firstElementChild!;
     expect(tile.tagName).toBe("SPAN");

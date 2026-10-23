@@ -5,7 +5,11 @@ import Link from "next/link";
 import { useState } from "react";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useSocialSync } from "@/components/social/useSocialSync";
-import { usePublish, type PublishActionResult } from "@/components/social/usePublish";
+import {
+  usePublish,
+  type AllocationCheck,
+  type PublishActionResult,
+} from "@/components/social/usePublish";
 import { ListRow } from "@/components/ui/ios/List";
 import PlatformBadge from "@/components/ui/ios/PlatformBadge";
 import Segmented from "@/components/ui/ios/Segmented";
@@ -31,6 +35,7 @@ import {
   defaultCaption,
   directMediaUrl,
   isManual,
+  jobOwnership,
   manualComposeUrl,
   publishProblems,
   scheduledAtOf,
@@ -457,6 +462,8 @@ export default function AutoPostTab({ post }: { post: Post }) {
         </section>
       )}
 
+      <JobNotice post={post} />
+
       {problems.length > 0 && (
         <ul
           role="alert"
@@ -527,6 +534,92 @@ export default function AutoPostTab({ post }: { post: Post }) {
       </div>
       {sent && <p className="text-muted text-xs">{t("publish.updateHint")}</p>}
     </div>
+  );
+}
+
+/**
+ * DT-5-R1: the job states that need the owner. R1: another local post claims the same Worker job, so nothing is sent,
+ * run or canceled. R4: an allocation the Worker never confirmed (the create's reply was lost; the job may be live) with
+ * Refresh, Retry send and Discard allocation; Discard is offered only after a successful read without the job, and
+ * re-checks in the same queued step. Shown in this tab and in the Automations hub.
+ */
+export function JobNotice({ post }: { post: Post }) {
+  const { t } = useT();
+  const posts = useStore((s) => s.posts);
+  const { busy, error, schedule, checkAllocation, discardAllocation } = usePublish();
+  const [check, setCheck] = useState<{ jobId: string; result: AllocationCheck } | null>(null);
+  const jobId = post.autoPost?.jobId;
+  const own = jobOwnership(post, posts);
+  if (!own.ok && own.reason === "ambiguous")
+    return (
+      <p role="alert" className="text-danger text-xs" data-testid="autopost-ambiguous">
+        {t("publish.err.ambiguousOwner")}
+      </p>
+    );
+  if (!jobId || post.autoPost?.sentAt) return null;
+  const result = check?.jobId === jobId ? check.result : null;
+  const status =
+    result === "unknown"
+      ? "publish.unconfirmed.unknown"
+      : result === "absent"
+        ? "publish.unconfirmed.absent"
+        : null;
+  return (
+    <section
+      className="ios-card flex flex-col gap-1.5 p-3"
+      data-testid="autopost-unconfirmed"
+      data-job={jobId}
+      data-check={result ?? "idle"}
+    >
+      <b className="text-[14px]">{t("publish.unconfirmed.title")}</b>
+      <p className="text-ink-2 text-xs">{t("publish.unconfirmed.note", { id: jobId })}</p>
+      {status && (
+        <p
+          role="status"
+          className="text-xs font-semibold"
+          data-testid="autopost-unconfirmed-status"
+        >
+          {t(status)}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="text-danger text-xs" data-testid="autopost-unconfirmed-error">
+          {t(error)}
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="px-btn px-btn-ghost px-btn-sm"
+          disabled={busy}
+          onClick={async () => setCheck({ jobId, result: await checkAllocation(post) })}
+          data-testid="autopost-unconfirmed-refresh"
+        >
+          {t("publish.unconfirmed.refresh")}
+        </button>
+        <button
+          type="button"
+          className="px-btn px-btn-ghost px-btn-sm"
+          disabled={busy}
+          onClick={() => void schedule(post)}
+          data-testid="autopost-unconfirmed-retry"
+        >
+          {t("publish.unconfirmed.retry")}
+        </button>
+        <button
+          type="button"
+          className="px-btn px-btn-ghost px-btn-sm text-danger"
+          disabled={busy || result !== "absent"}
+          onClick={async () => {
+            const r = await discardAllocation(post);
+            if (!r.ok) setCheck(null);
+          }}
+          data-testid="autopost-unconfirmed-discard"
+        >
+          {t("publish.unconfirmed.discard")}
+        </button>
+      </div>
+    </section>
   );
 }
 

@@ -9,5 +9,6 @@
   "genres.add": "＋ أضف",
   "genres.exists": "هالنوع موجود من قبل، جرّب اسم ثاني.",
   "genres.remove": "احذف",
-  "genres.clear": "✕ بدون نوع"
+  "genres.clear": "✕ بدون نوع",
+  "genres.group.mine": "حقّي"
 }

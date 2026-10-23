@@ -1,0 +1,40 @@
+e0696a9824f4fb993d9bd40e31605667a42523bdf4878bbb1984ffa732b76923 *planning/collaboration/dt7a-design/contract.md
+bc9d8184c1897b8949bcdae21adfb1ce4269340945a98e5737aa4cfcb28f4cef *planning/collaboration/dt7a-design/test-matrix.md
+b29c02005af57506bca363d4a10a758058660ba7243bb5de740b42c8d68c24d3 *planning/collaboration/dt7a-design/first-slice.md
+425d0bc98896ad78fb89a0140d2b8cf4a6f136b9c09838f63791e1d75c801138 *lib/workflows.ts
+0feb10c2c585fd18865e06cb7c8c277b58b8591adcd0d5a92c4203199f7ecf5d *store/index.ts
+e41cda4a6dab789a6f123cbe43e6d8a518cd316a38e0aaf55fae1cfaf7d9dbcd *lib/publish.ts
+ffd2db6b13c1f7db809810cbafb485e8b173938ef63a4615f2342b2e390021e8 *lib/domain.ts
+80bb6fd9eef05fcb90c705287325820e56fba31e326e458ff2d7e2e1bbcc0012 *workers/scout/src/social/cron.ts
+0c824dfef4fc835e42f7d1a9cf1271697e25ef5e53b02e394bbb6841b3e72d57 *workers/scout/src/index.ts
+c315e8c381129068c84259d9dc943bb2c9cf5208b5bfcf65981fac2b0e84999a *workers/scout/wrangler.jsonc
+33a377bdd0342e012a68fcf9e1cbdc0f5825bfb5f68ebed7a4727c931e30509d *planning/collaboration/dt6b3a-candidate/worker-manifest.sha256
+0cf75be344d95ead8594de82f46b8b97ecfb0ecf7fdf5985e82400b3a499840b *.github/workflows/worker.yml
+9456ebd1a29753a1c7f0d25b32facd499ca2fe75cc12673ff30b27e99852712a *package.json
+68b677bc63c0123fc5d42bf39b236221595f0d584ffd7e3095bfb8d20a0386d3 *pnpm-lock.yaml
+319bd1f725699b64476e8cf2e92fc94c430e68991746be262eece7e4d35e3cf7 *out/index.html
+86614c75cf84b33c8c69ec94aa1c131113b87a0c1d543232cf98b045258039d5 *out/social/index.html
+27b694dd62e7479badf96de8d1722502ff3b9a4b2b03b7c061bc45e56fd162d3 *out/social/inbox/index.html
+e0af973e5281b442ca54e0ee519d9c51ee32ecd07f32d1350ec98b3c8127cf4a *out/tools/index.html
+21d2f32588f4281efcd2b9afda6ac236c8b07de6119211dac5f08940eb3b400b *lib/weekPlan.ts
+b0f055b1b642e108cc8dcb64ac6d64c3235e3afee2d983e7022dc10d3495d09e *components/planner/overlay.ts
+3af93ee574f8efd391c43f8109b62144d7dc92bce7f00ff364aa169b8624fa8a *workers/scout/src/social/replies.ts
+02a2d14f1fac2497c54d43aa6a57bc6b7b742ea949cf597ab25938aefeb5bf6a *workers/scout/src/social/sync.ts
+dbcc78d2c389ee5a6cdab1b47181551fedd3ce60892a9d15743fcb30d7cb8f86 *workers/scout/src/trends/run.ts
+9179d08c4758be82a14bc4b358016ff486f0c023f6018fdfda4b6d5320c90b9f *workers/scout/src/effects/run.ts
+worker-tree 348168fd7dbd380050abe0ba7eb6bcdb2c0c6becfb09aa671407781b30d7fb08
+348168fd7dbd380050abe0ba7eb6bcdb2c0c6becfb09aa671407781b30d7fb08 *planning/collaboration/dt7b-candidate/worker-manifest.sha256
+e430e4f504c0b43eb35ee9cc780a241677a1924d1d2c8a6bd8e892c32da8ac45 *planning/collaboration/dt7b-candidate/7b-overlay.patch
+a157f71f6f1cc8fc9dfdd97b29e11b85129b2efb79a17b543e43c63258d6c63b *planning/collaboration/dt7b-candidate/integration-note.md
+b8800029f196d95f02bbb25af5cbc325d31fab59fe1ac4a853db842eee89e32f *planning/tools/38-cloud-workflows.md
+# DT-7B-R1 note (18 Oct 2026, Opus 5.5): the lines above are historical (DT-7B freeze) and unchanged. R1 changed
+# contract.md, test-matrix.md, first-slice.md, 38-cloud-workflows.md, the Worker README, the seven workflow files and
+# the dt7b-candidate manifest/integration note, and added 7b-r1-overlay.patch; their R1 hashes are in the shared
+# handoff "DT-7B-R1 record" (worker tree now 3c196142759b0463f76015c7c9c489380e80b150c736f1a37ce53801e2e6181c).
+# Pinned and unchanged in R1: index.ts, wrangler.jsonc, cron.ts, lib/workflows.ts, store/index.ts, the 3C manifest.
+# DT-7B-2 note (18 Oct 2026, Opus 5.5): the lines above stay historical and unchanged. DT-7B-2 changed contract.md,
+# test-matrix.md, first-slice.md, 38-cloud-workflows.md, the Worker README, tsconfig.json, vitest.config.ts and the
+# workflowCoordinator/workflowRoutes files and tests; added workflowRun.ts + its two tests, 7b2-overlay.patch and
+# 7b2-builder-pins.sha256 (the builder/catalog release gate); refreshed the dt7b-candidate manifest/integration note.
+# Current hashes: the shared handoff "DT-7B-2 record". Pinned and unchanged: lib/workflows.ts and every builder/catalog
+# file, routes.ts, store.ts, index.ts, wrangler.jsonc, cron.ts, store/index.ts, workflowProtocol.ts, the earlier overlays.

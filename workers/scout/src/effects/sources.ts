@@ -7,7 +7,7 @@
 import type { SearchAiBinding } from "../discover/ai";
 import { CALL_TIMEOUT_MS, tavilyCall, youtubeCall } from "../discover/fetchers";
 import { tavilyUsage, type TavilyUsage } from "../discover/usage";
-import type { ScoutResult } from "../normalize";
+import { DISCOVERY_SNIPPET_MAX, type ScoutResult } from "../normalize";
 import { enrichYoutubeStats, YT_STATS_MAX } from "../youtubeStats";
 import { FAMILY_QUERIES } from "./families";
 import type { EffectPost } from "./types";
@@ -128,7 +128,19 @@ export async function searchFamilies(
   for (const { platform, timeRange, stat } of tight ? IG_MONTH : (opts.searches ?? SEARCHES)) {
     const replies = await Promise.all(
       queries.map((q) =>
-        tavilyCall(env, doFetch, { q, platform, lang: "en", timeRange, now: opts.now }, timeoutMs),
+        tavilyCall(
+          env,
+          doFetch,
+          {
+            q,
+            platform,
+            lang: "en",
+            timeRange,
+            now: opts.now,
+            maxSnippetLength: DISCOVERY_SNIPPET_MAX,
+          },
+          timeoutMs,
+        ),
       ),
     );
     replies.forEach((r, i) => {

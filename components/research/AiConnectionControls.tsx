@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useT } from "@/lib/i18n";
 import {
   highestEffort,
@@ -14,9 +14,12 @@ import {
 export default function AiConnectionControls({
   value,
   onChange,
+  preferredModel,
 }: {
   value: AiChoice;
   onChange: (choice: AiChoice) => void;
+  /** Optional session default; never substitutes a different or weaker model. */
+  preferredModel?: string;
 }) {
   const { t } = useT();
   const id = useId();
@@ -72,6 +75,19 @@ export default function AiConnectionControls({
   const current = provider ? status?.providers[provider] : undefined;
   const selected = current?.models.find((model) => model.id === value.model);
   const connected = current?.connected && (provider !== "chatgpt" || current.sharing);
+  const preferredChosen = useRef(false);
+  useEffect(() => {
+    if (preferredChosen.current || !preferredModel || !connected || provider !== "chatgpt") return;
+    preferredChosen.current = true;
+    const model = current?.models.find((entry) => entry.id === preferredModel);
+    if (!value.model && model)
+      onChange({
+        provider,
+        model: model.id,
+        effort: highestEffort(model.efforts),
+        accountId: current?.accountId,
+      });
+  }, [preferredModel, connected, provider, current, value.model, onChange]);
 
   useEffect(() => {
     if (

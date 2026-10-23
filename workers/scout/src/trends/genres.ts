@@ -72,7 +72,8 @@ export function parseGenre(x: unknown): Genre | null {
  * The genres of a `{ version: 1, genres: [...] }` file in file order. The Worker must not fail to start
  * over a data file, so a malformed entry or a repeated id is dropped here (the dashboard's loader,
  * data/genres.ts, is the strict one and its test fails the build on a broken file); another version or
- * shape gives no genres, and the scan then runs the niche keywords alone.
+ * shape gives no genres, and the scan then runs the niche keywords alone. The dashboard's picker fields (the
+ * file's `groups` and a genre's optional `group`) are not read here and never drop a genre.
  */
 export function parseGenres(file: unknown): Genre[] {
   const f = file as { version?: unknown; genres?: unknown } | null;
@@ -99,4 +100,13 @@ export function genreKeywords(genres: readonly Genre[]): GenreKeyword[] {
   ]);
 }
 
-export const GENRE_KEYWORDS: readonly GenreKeyword[] = genreKeywords(GENRES);
+/**
+ * The radar's YouTube keyword scan keeps the first 12 genres (the set before the 22 Oct 2026 categories), to keep
+ * the radar's YouTube search budget (18 searches a day) as it is.
+ * ponytail: all 35 genres would stretch the rotation from 2 to 5 days (niche keywords included) and push the
+ * search rows past the feed's 400-row cap; a wider radar is the owner's later decision (planner ruling, 22 Oct).
+ */
+export const RADAR_GENRE_COUNT = 12;
+export const GENRE_KEYWORDS: readonly GenreKeyword[] = genreKeywords(
+  GENRES.slice(0, RADAR_GENRE_COUNT),
+);

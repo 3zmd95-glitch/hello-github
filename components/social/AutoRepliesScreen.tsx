@@ -435,7 +435,13 @@ function Tester({ automations }: { automations: readonly AutoReply[] }) {
 
 function LogRow({ e }: { e: AutoReplyLog }) {
   const { t, lang } = useT();
-  const dm = e.dm === "sent" ? t("replies.log.dmSent") : t("replies.log.dmFailed");
+  // A skip is deliberate (already answered, a person holds the chat, or the sender is unproven): neutral, not failed.
+  const dm =
+    e.dm === "sent"
+      ? t("replies.log.dmSent")
+      : e.dm === "skipped"
+        ? t("replies.log.dmSkipped")
+        : t("replies.log.dmFailed");
   const pub =
     e.publicReply === "sent"
       ? t("replies.log.publicSent")
@@ -465,6 +471,7 @@ function LogRow({ e }: { e: AutoReplyLog }) {
             {e.detail ? ` («${e.detail}»)` : ""}
           </span>
         )}
+        {!e.error && e.dm === "skipped" && e.detail && <span>{`«${e.detail}»`}</span>}
       </div>
     </li>
   );
