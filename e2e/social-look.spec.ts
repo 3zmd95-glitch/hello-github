@@ -12,6 +12,7 @@ const SOCIAL_PATHS = [
   "/social/replies/",
   "/social/inbox/",
   "/social/more/",
+  "/social/settings/",
 ];
 
 // Spec §3.1: --bg per scheme.

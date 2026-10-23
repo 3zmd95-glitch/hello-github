@@ -6,8 +6,8 @@ import { useStore } from "@/store";
 import MoreScreen from "./MoreScreen";
 import type { World } from "./useWorld";
 
-// ☰ The "More" page of each world, rendered for real in jsdom. Round 31b: Social's list gets the 🔎 Discover
-// shortcut (Discover is the one place for edit genres); e2e/world.spec.ts follows the link in a browser.
+// ☰ The "More" page of each world, rendered for real in jsdom. Since tools/20 every Social row is a Social route
+// (Settings is /social/settings, no Discover shortcut); e2e/world.spec.ts follows the links in a browser.
 // Round 35 (iOS look): Social's language and sound controls live in More's quick settings, not the top bar, and
 // Social's More is grouped lists whose rows use the tab bar's words (tools/18 §6).
 
@@ -50,7 +50,7 @@ afterEach(() => {
 });
 
 describe("Social More", () => {
-  it("lists the Social sections, then Discover, Settings and the way back to Training", () => {
+  it("lists the Social sections, then Settings and the way back to Training", () => {
     mount("social");
     expect(ids()).toEqual([
       "more-website",
@@ -58,23 +58,21 @@ describe("Social More", () => {
       "more-automations",
       "more-replies",
       "more-inbox",
-      "more-discover",
       "more-settings",
       "more-training",
     ]);
   });
 
-  it("links Discover to /discover with the name it has in Training, in both languages", () => {
+  it("links Settings to Social's own page and has no Discover row (tools/20)", () => {
     mount("social");
-    const discover = entry("more-discover")!;
-    expect(discover.getAttribute("href")).toMatch(/^\/discover\/?$/);
-    expect(discover.textContent).toBe("اكتشف");
-    // Discover is built: no "soon" chip on it (Website and Business keep theirs).
-    expect(discover.querySelector(".ios-chip")).toBeNull();
+    expect(entry("more-settings")!.getAttribute("href")).toMatch(/^[/]social[/]settings[/]?$/);
+    expect(entry("more-discover")).toBeNull();
+    // Every row but the way back stays in Social.
+    for (const a of host.querySelectorAll<HTMLAnchorElement>("a[data-testid]")) {
+      if (a.dataset.testid === "more-training") continue;
+      expect(a.getAttribute("href"), a.dataset.testid).toMatch(/^[/]social([/]|$)/);
+    }
     expect(entry("more-website")!.querySelector(".ios-chip")!.textContent).toBe("قريب");
-
-    mount("social", "en");
-    expect(entry("more-discover")!.textContent).toBe("Discover");
   });
 
   it("names its rows with the tab bar's words, without emoji, and says what Training is", () => {
@@ -103,7 +101,7 @@ describe("Social More", () => {
     // After the section links (their order is checked above), before the way back to Training.
     const follows = (a: Node, b: Node) =>
       a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
-    expect(follows(entry("more-discover")!, quick)).toBeTruthy();
+    expect(follows(entry("more-replies")!, quick)).toBeTruthy();
     expect(follows(quick, entry("more-training")!)).toBeTruthy();
     expect(quick.contains(entry("more-settings"))).toBe(true);
 

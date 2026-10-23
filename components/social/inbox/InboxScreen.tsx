@@ -103,7 +103,7 @@ export default function InboxScreen() {
             icon={<Inbox size={24} strokeWidth={1.75} aria-hidden />}
             title={t("inbox.needWorker")}
             action={
-              <Link href="/settings#api-keys" className="px-btn px-btn-sm">
+              <Link href="/social/settings#api-keys" className="px-btn px-btn-sm">
                 {t("inbox.needWorkerLink")}
               </Link>
             }

@@ -15,7 +15,6 @@ import { timeAgo } from "@/lib/socialSync";
 import {
   DEFAULT_TREND_KEYWORDS,
   matchesNiche,
-  trendGenreHref,
   trendGenreLabel,
   visibleTrends,
   type TrendFilter,
@@ -43,8 +42,7 @@ const ALL_KEYWORDS = [...DEFAULT_TREND_KEYWORDS.ar, ...DEFAULT_TREND_KEYWORDS.en
  *
  * Round 31: the feed also carries the rows the Worker found by edit genre (cars, food, anime…). The radar
  * stays about general trends and has no genre filter: Discover is the one place for genres. A row of a genre
- * names it in a chip, and for a genre the app knows (built in, or the owner's own from Settings) the chip is
- * a link that opens Discover on that genre. The star is `matchesNiche`: the search words of a row's own genre
+ * names it in a chip (plain: Discover is a Training route, tools/20). The star is `matchesNiche`: the search words of a row's own genre
  * do not count (the Worker tags a row with the query that found it, and "مونتاج أكل" is not the niche).
  */
 export default function TrendRadar() {
@@ -126,7 +124,7 @@ export default function TrendRadar() {
         >
           <span className="min-w-0 flex-1">{t("trends.needWorker")}</span>
           <Link
-            href="/settings/"
+            href="/social/settings/"
             className="px-link ios-hit text-xs"
             data-testid="trends-need-worker-link"
           >
@@ -201,7 +199,6 @@ export default function TrendRadar() {
                     item={item}
                     star={star}
                     genreLabel={item.genre ? trendGenreLabel(item.genre, genres, lang) : undefined}
-                    genreHref={item.genre ? trendGenreHref(item.genre, genres) : undefined}
                     onDismiss={() => dismissTrend(item.id)}
                     onPlanned={setPlanned}
                   />

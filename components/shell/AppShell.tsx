@@ -205,10 +205,11 @@ function SocialTop() {
         </div>
         <div className="ios-top-end flex flex-1 items-center justify-end gap-2">
           <Link
-            href="/settings"
+            href="/social/settings"
             aria-label={t("top.settings")}
             title={t("top.settings")}
             className="ios-icbtn glass"
+            data-testid="social-top-settings"
           >
             <Settings size={20} strokeWidth={1.75} aria-hidden />
           </Link>

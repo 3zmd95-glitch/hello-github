@@ -121,9 +121,9 @@ const EMPTY_DATA = { accounts: [], snapshots: [], postStats: [], demographics: [
 
 const comeBack = (platform: string, returnTo: string) => `${returnTo}?connected=${platform}`;
 
-/** Fill the Scout Worker URL and token in Settings (Test → "Tested OK"). */
+/** Fill the Scout Worker URL and token in Social settings (Test → "Tested OK"). */
 async function connectWorker(page: Page): Promise<void> {
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   await page.getByTestId("apikey-scoutUrl-input").fill(WORKER);
   await page.getByTestId("apikey-scoutUrl-input").press("Enter");
   await expect(page.getByTestId("apikey-scoutUrl-status")).toHaveText("محفوظ"); // "Set"
@@ -141,7 +141,7 @@ const notice = (page: Page) => page.locator('[data-testid="toast"][data-kind="no
 test("without a Worker the card points at the API keys, and the Beacons seed can still be removed", async ({
   page,
 }) => {
-  await freshState(page, "/settings/");
+  await freshState(page, "/social/settings/");
   const card = page.getByTestId("accounts-card");
   await expect(card).toBeVisible();
   await expect(page.locator("#accounts")).toHaveCount(1);
@@ -180,7 +180,7 @@ test("a failed sync shows the platform's own error message under the row", async
   await expect(row(page, "instagram").getByTestId("account-error-detail")).toHaveCount(0);
 });
 
-test("a token about to expire keeps its key emoji in Settings, the Training look", async ({
+test("a token about to expire keeps its key line in Social settings", async ({
   page,
 }) => {
   const stub: Stub = {
@@ -248,15 +248,15 @@ test("Settings rows follow the Worker status; Connect goes through OAuth and com
   // Connect YouTube: POST /social/connect/youtube with returnTo = this Settings page, then follow the url.
   // The fake Worker sends the browser straight back with ?connected=youtube.
   await row(page, "youtube").getByTestId("account-connect").click();
-  // The page is already on /settings/, so the URL wait alone can resolve before the click's POST lands:
+  // The page is already on /social/settings/, so the URL wait alone can resolve before the click's POST lands:
   // wait for the connect call itself, then for the round trip back (the ?connected= param cleaned away).
   await expect.poll(() => calls.connect.length).toBe(1);
   await page.waitForURL(
-    (u) => u.pathname.endsWith("/settings/") && !u.search.includes("connected"),
+    (u) => u.pathname.endsWith("/social/settings/") && !u.search.includes("connected"),
   );
   expect(calls.connect).toHaveLength(1);
   expect(calls.connect[0].platform).toBe("youtube");
-  expect(calls.connect[0].returnTo).toMatch(/^http:\/\/localhost:\d+\/settings\/$/);
+  expect(calls.connect[0].returnTo).toMatch(/^http:\/\/localhost:\d+\/social\/settings\/$/);
   await expect(notice(page).first()).toBeVisible();
   await expect(notice(page).first()).toContainText("يوتيوب"); // "YouTube connected ✓"
   // Coming back from OAuth syncs the platform that was just connected.
@@ -397,7 +397,7 @@ test("removing the Beacons numbers empties the seeded analytics page, and they s
   await expect(page.getByTestId("growth-connect-cta")).toBeVisible();
   await expect(page.getByTestId("growth-connect-link")).toHaveAttribute(
     "href",
-    "/settings/#accounts",
+    "/social/settings/#accounts",
   );
   await expect(platformCard(page, "tiktok").getByTestId("source-badge")).toHaveAttribute(
     "data-source",
@@ -405,7 +405,7 @@ test("removing the Beacons numbers empties the seeded analytics page, and they s
   );
   expect(await fitsViewport(page)).toBe(true);
 
-  await page.goto("/settings/");
+  await page.goto("/social/settings/");
   await page.getByTestId("accounts-remove-seed").click();
   await expect(page.getByTestId("confirm-dialog")).toBeVisible();
   await page.getByTestId("confirm-ok").click();
@@ -418,15 +418,15 @@ test("removing the Beacons numbers empties the seeded analytics page, and they s
   await page.reload();
   await expect(page.getByTestId("growth-empty")).toBeVisible();
   await expect(page.getByTestId("platform-card")).toHaveCount(0);
-  await page.goto("/settings/");
+  await page.goto("/social/settings/");
   await expect(page.getByTestId("accounts-remove-seed")).toHaveCount(0);
 });
 
 test("coming back from OAuth with connect_error shows the reason as a toast and cleans the address", async ({
   page,
 }) => {
-  await freshState(page, "/settings/");
-  await page.goto("/settings/?connect_error=tiktok&reason=exchange_failed");
+  await freshState(page, "/social/settings/");
+  await page.goto("/social/settings/?connect_error=tiktok&reason=exchange_failed");
   await expect(notice(page)).toBeVisible();
   await expect(notice(page)).toContainText("تيك توك");
   await expect(notice(page)).toContainText("ما قبلت الربط"); // "did not accept the connection"

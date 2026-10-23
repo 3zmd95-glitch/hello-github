@@ -8,7 +8,6 @@ import {
   Languages,
   MessageCircle,
   Rocket,
-  Search,
   Settings,
   Volume2,
 } from "lucide-react";
@@ -64,15 +63,58 @@ export default function MoreScreen({ world = "training" }: { world?: World }) {
 const icon = { size: 22, strokeWidth: 1.75, "aria-hidden": true } as const;
 
 /**
- * Social "More" (tools/18 §6, mockup More), as grouped lists: the two "soon" sections; the sections that are not in
- * the phone tab bar with the Discover shortcut (edit genres and search live there; a Training route, so it opens in
- * the Training shell); quick settings (Social keeps language and sound here, not in its top bar, round 35) with all
- * settings; the way back to Training. Row titles are the tab bar's and the sidebar's own words (`nav.*`).
+ * Social's quick settings rows (language segmented, sound switch), shared by More and Social's own Settings page
+ * (tools/20). The same store values as Training's top bar.
  */
-function SocialMore() {
+export function QuickSettingRows() {
   const { t, lang } = useT();
   const sound = useStore((s) => s.settings.sound);
   const setSettings = useStore((s) => s.setSettings);
+  return (
+    <>
+      <ListRow
+        icon={<Languages {...icon} />}
+        iconTone="fill"
+        title={t("settings.lang")}
+        trailing={
+          <Segmented
+            role="radiogroup"
+            label={t("top.lang")}
+            value={lang}
+            onChange={(l) => setSettings({ lang: l })}
+            className="w-[118px]"
+            options={[
+              { value: "ar", label: "عربي", testId: "lang-ar" },
+              { value: "en", label: "EN", testId: "lang-en" },
+            ]}
+          />
+        }
+      />
+      <ListRow
+        icon={<Volume2 {...icon} />}
+        iconTone="fill"
+        title={t("settings.sound")}
+        trailing={
+          <Switch
+            checked={sound}
+            onChange={(v) => setSettings({ sound: v })}
+            label={t("settings.sound")}
+            testId="sound-toggle"
+          />
+        }
+      />
+    </>
+  );
+}
+
+/**
+ * Social "More" (tools/18 §6, mockup More), as grouped lists: the two "soon" sections; the sections that are not in
+ * the phone tab bar; quick settings (Social keeps language and sound here, not in its top bar, round 35) with Social's
+ * own settings page (tools/20); the way back to Training, the one link that leaves Social. Row titles are the tab
+ * bar's and the sidebar's own words (`nav.*`).
+ */
+function SocialMore() {
+  const { t } = useT();
   const soon = <Chip>{t("nav.soon")}</Chip>;
   return (
     <>
@@ -118,48 +160,11 @@ function SocialMore() {
             chevron
             testId="more-inbox"
           />
-          <ListRow
-            href="/discover"
-            icon={<Search {...icon} />}
-            title={t("nav.discover")}
-            chevron
-            testId="more-discover"
-          />
         </ListGroup>
         <ListGroup header={t("more.quick")}>
+          <QuickSettingRows />
           <ListRow
-            icon={<Languages {...icon} />}
-            iconTone="fill"
-            title={t("settings.lang")}
-            trailing={
-              <Segmented
-                role="radiogroup"
-                label={t("top.lang")}
-                value={lang}
-                onChange={(l) => setSettings({ lang: l })}
-                className="w-[118px]"
-                options={[
-                  { value: "ar", label: "عربي", testId: "lang-ar" },
-                  { value: "en", label: "EN", testId: "lang-en" },
-                ]}
-              />
-            }
-          />
-          <ListRow
-            icon={<Volume2 {...icon} />}
-            iconTone="fill"
-            title={t("settings.sound")}
-            trailing={
-              <Switch
-                checked={sound}
-                onChange={(v) => setSettings({ sound: v })}
-                label={t("settings.sound")}
-                testId="sound-toggle"
-              />
-            }
-          />
-          <ListRow
-            href="/settings"
+            href="/social/settings"
             icon={<Settings {...icon} />}
             iconTone="fill"
             title={t("nav.settings")}

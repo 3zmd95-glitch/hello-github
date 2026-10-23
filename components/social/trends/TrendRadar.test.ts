@@ -3,15 +3,14 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrendItemInput } from "@/lib/domain";
-import { genreIdFromSearch } from "@/lib/genres";
 import { useStore } from "@/store";
 import TrendRadar from "./TrendRadar";
 
 // 🎬 The radar and the edit genres (round 31), rendered for real in jsdom: no Worker is configured, so nothing
 // is fetched and the radar shows the feed the store already holds (as it does after a reload). Discover is the
 // one place for genres: the radar has no genre select and filters by language tab and platform chip only, a
-// row's genre chip is a link that opens Discover on that genre, and the ⭐ is never given for a genre's own
-// search words.
+// row's genre chip is a plain chip (Discover is a Training route, tools/20), and the ⭐ is never given for a
+// genre's own search words.
 
 const SEEN_AT = new Date().toISOString();
 
@@ -70,23 +69,18 @@ const chips = () =>
     r.getAttribute("data-id"),
     chipOf(r)?.textContent ?? null,
   ]);
-/**
- * Where a chip's link goes, the way Discover reads it: the page, then the genre id of the query ("/discover
- * cars"); null for a plain chip. The build writes "/discover/?genre=cars" (next.config's trailingSlash);
- * next/link under vitest has no build config and drops that slash, so the path is compared without it.
- */
-function target(chip: Element): string | null {
-  const href = chip.getAttribute("href");
-  if (href === null) return null;
-  const url = new URL(href, "https://3z.test");
-  return `${url.pathname.replace(/\/$/, "")} ${genreIdFromSearch(url.search)}`;
+/** Every genre chip is a plain span: Discover is a Training route and Social never links out (tools/20). */
+function expectPlainChips(): void {
+  const all = [...host.querySelectorAll<HTMLElement>('[data-testid="trend-genre"]')];
+  expect(all.length).toBeGreaterThan(0);
+  for (const chip of all) {
+    expect(chip.tagName).toBe("SPAN");
+    expect(chip.hasAttribute("href")).toBe(false);
+    expect(chip.hasAttribute("aria-label")).toBe(false);
+    expect(chip.closest("a, button, select, label")).toBeNull();
+  }
+  expect(host.querySelector('a[href*="discover"]')).toBeNull();
 }
-/** Every genre chip in list order: its genre id and where it goes. */
-const links = () =>
-  [...host.querySelectorAll<HTMLElement>('[data-testid="trend-genre"]')].map((c) => [
-    c.getAttribute("data-genre"),
-    target(c),
-  ]);
 
 function click(testId: string, within: ParentNode = host): void {
   const el = within.querySelector<HTMLElement>(`[data-testid="${testId}"]`)!;
@@ -163,7 +157,12 @@ describe("TrendRadar has no genre filter (Discover is the one place for genres)"
     feed([...PLAIN, ...GENRE_ROWS]);
     click("trend-dismiss", rowEl("food-ar"));
     expect(rowIds()).toEqual(["plain-ar", "cars-ar", "plain-tt"]);
-    expect(links()).toEqual([["cars", "/discover cars"]]);
+    expect(chips()).toEqual([
+      ["plain-ar", null],
+      ["cars-ar", "سيارات"],
+      ["plain-tt", null],
+    ]);
+    expectPlainChips();
   });
 });
 
@@ -357,48 +356,33 @@ describe("TrendRadar genre chip", () => {
     ]);
   });
 
-  it("is a link that opens Discover on the genre, looking like the row's other chips", () => {
+  it("is a plain chip next to the row's other chips (Discover is a Training route, tools/20)", () => {
     feed([...PLAIN, ...GENRE_ROWS]);
-    expect(links()).toEqual([
-      ["cars", "/discover cars"],
-      ["food", "/discover food"],
-    ]);
+    expectPlainChips();
 
     const chip = chipOf(rowEl("food-ar"))!;
     const platform = rowEl("food-ar").querySelector('[data-testid="trend-platform"]')!;
-    expect(chip.tagName).toBe("A");
     expect(chip.classList.contains("px-chip")).toBe(true);
     expect(chip.parentElement).toBe(platform.parentElement);
     expect(chip.textContent).toBe("أكل ومطاعم");
     expect(chip.getAttribute("data-genre")).toBe("food");
-    // The accessible name says where the chip goes and holds the text the chip shows.
-    expect(chip.getAttribute("aria-label")).toBe("افتح أكل ومطاعم في «اكتشف»");
-    expect(chip.getAttribute("aria-label")).toContain(chip.textContent);
-    expect(chip.getAttribute("title")).toBe("افتح أكل ومطاعم في «اكتشف»");
-    // It stays in this tab and is nothing but a link: not a button, not part of a form control.
-    expect(chip.hasAttribute("target")).toBe(false);
-    expect(chip.closest("button, select, label")).toBeNull();
+    expect(chip.getAttribute("title")).toBe("نوع الإيديت");
+    expect(chip.hasAttribute("tabindex")).toBe(false);
+    expect(chip.tabIndex).toBe(-1);
     expect(chip.querySelector("a, button")).toBeNull();
   });
 
-  it("stays a plain chip with the raw id for a genre the app does not know", () => {
+  it("shows the raw id for a genre the app does not know", () => {
     feed([...PLAIN, ...GENRE_ROWS]);
     click("trends-tab-en");
-    expect(links()).toEqual([
-      ["cars", "/discover cars"],
-      ["drone", null],
+    expect(chips()).toEqual([
+      ["plain-en", null],
+      ["cars-en", "سيارات"],
+      ["drone-en", "drone"],
+      ["plain-tt", null],
     ]);
-
-    const chip = chipOf(rowEl("drone-en"))!;
-    expect(chip.tagName).toBe("SPAN");
-    expect(chip.classList.contains("px-chip")).toBe(true);
-    expect(chip.textContent).toBe("drone");
-    expect(chip.hasAttribute("href")).toBe(false);
-    expect(chip.hasAttribute("aria-label")).toBe(false);
-    expect(chip.hasAttribute("tabindex")).toBe(false);
-    expect(chip.tabIndex).toBe(-1);
-    expect(chip.closest("a, button, select, label")).toBeNull();
-    expect(chip.getAttribute("title")).toBe("نوع الإيديت");
+    expectPlainChips();
+    expect(chipOf(rowEl("drone-en"))?.getAttribute("title")).toBe("نوع الإيديت");
   });
 
   it("follows the owner's custom genres and the UI language", () => {
@@ -414,12 +398,10 @@ describe("TrendRadar genre chip", () => {
     ]);
     click("trends-tab-en");
     expect(chipOf(rowEl("drift-en"))?.textContent).toBe("custom-drift");
-    expect(chipOf(rowEl("drift-en"))?.tagName).toBe("SPAN");
 
     act(() => useStore.getState().addCustomGenre("Drift", "drift edit"));
     expect(chipOf(rowEl("drift-en"))?.textContent).toBe("Drift");
-    expect(chipOf(rowEl("drift-en"))?.tagName).toBe("A");
-    expect(chipOf(rowEl("drift-en"))?.getAttribute("aria-label")).toBe("افتح Drift في «اكتشف»");
+    expectPlainChips();
 
     act(() => useStore.getState().setSettings({ lang: "en" }));
     expect(chips()).toEqual([
@@ -427,13 +409,6 @@ describe("TrendRadar genre chip", () => {
       ["drone-en", "drone"],
       ["drift-en", "Drift"],
     ]);
-    expect(links()).toEqual([
-      ["cars", "/discover cars"],
-      ["drone", null],
-      ["custom-drift", "/discover custom-drift"],
-    ]);
-    expect(chipOf(rowEl("cars-en"))?.getAttribute("aria-label")).toBe("Open Cars in Discover");
-    expect(chipOf(rowEl("drift-en"))?.getAttribute("aria-label")).toBe("Open Drift in Discover");
     expect(chipOf(rowEl("drone-en"))?.getAttribute("title")).toBe("Edit genre");
 
     // A name of emoji only is all the owner gave: the chip keeps it.
@@ -452,24 +427,21 @@ describe("TrendRadar genre chip", () => {
       }),
     ]);
 
-    // Removed in Settings: Discover has no chip for it any more, so the radar's chip is plain again.
+    // Removed in Settings: the chip shows the raw id again.
     act(() => useStore.getState().removeCustomGenre("custom-drift"));
     expect(chipOf(rowEl("drift-en"))?.textContent).toBe("custom-drift");
-    expect(chipOf(rowEl("drift-en"))?.tagName).toBe("SPAN");
-    expect(chipOf(rowEl("drift-en"))?.hasAttribute("href")).toBe(false);
+    expectPlainChips();
   });
 
-  it("encodes a custom genre's Arabic id in the link", () => {
+  it("names a custom genre with an Arabic id", () => {
     act(() => useStore.getState().addCustomGenre("هجولة", "ايديت هجولة"));
     const [genre] = useStore.getState().customGenres;
     expect(genre.id).toBe("custom-هجولة");
     feed([row({ id: "hajwala", genre: genre.id, ...found("ايديت هجولة") })]);
 
     const chip = chipOf(rowEl("hajwala"))!;
-    expect(chip.tagName).toBe("A");
     expect(chip.textContent).toBe("هجولة");
     expect(chip.getAttribute("data-genre")).toBe("custom-هجولة");
-    expect(chip.getAttribute("href")).toContain(`genre=${encodeURIComponent("custom-هجولة")}`);
-    expect(target(chip)).toBe("/discover custom-هجولة");
+    expectPlainChips();
   });
 });

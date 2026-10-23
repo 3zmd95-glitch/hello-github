@@ -831,7 +831,7 @@ describe("InboxScreen", () => {
     act(() => vi.advanceTimersByTime(INBOX_POLL_MS * 3));
     expect(fetchMock).not.toHaveBeenCalled();
     const empty = q("inbox-need-worker")!;
-    expect(empty.querySelector("a")!.getAttribute("href")).toMatch(/^\/settings\/?#api-keys$/);
+    expect(empty.querySelector("a")!.getAttribute("href")).toBe("/social/settings#api-keys");
     expect(q("inbox-tab")).toBeNull();
   });
 
