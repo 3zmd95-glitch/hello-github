@@ -17,6 +17,7 @@ import { PLATFORM_META } from "@/lib/social";
 import { analyticsState, useStore } from "@/store";
 import AiButton from "./growth/AiButton";
 import AudienceAsks from "./growth/AudienceAsks";
+import BestTimes from "./growth/BestTimes";
 import CsvImport from "./growth/CsvImport";
 import DemographicsForm from "./growth/DemographicsForm";
 import KpiRow from "./growth/KpiRow";
@@ -256,6 +257,10 @@ export default function GrowthScreen() {
               note={t("growth.activity.note")}
             />
           </>
+        )}
+
+        {(platform || all.platforms.length > 0) && (
+          <BestTimes stats={state.postStats} platform={platform} now={now} />
         )}
 
         <MyContent

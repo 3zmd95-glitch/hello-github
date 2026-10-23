@@ -109,9 +109,9 @@ import {
 } from "@/data/social-seed";
 import { advanceDrill, dueDrills as dueDrillsOf, newDrill } from "@/lib/drills";
 import { replaceDemographics, upsertPostStats } from "@/lib/analytics";
+import { bestTimeFor } from "@/lib/bestTimes";
 import { upsertSnapshots } from "@/lib/growth";
 import {
-  bestTime,
   nextPost as nextPostOf,
   shotsFromTemplate,
   suggestHashtags,
@@ -5434,7 +5434,7 @@ export const useStore = create<StoreState>()(
             title: L(lang, skill.name),
             hook: L(lang, skill.quests.produce),
             skillId,
-            plannedTime: bestTime(platform),
+            plannedTime: bestTimeFor(get().socialPostStats, platform, undefined, now.getTime()),
             withTemplate: true,
           },
           now,
@@ -5471,7 +5471,7 @@ export const useStore = create<StoreState>()(
             title: idea.text,
             ideaId: idea.id,
             ...(idea.skillId ? { skillId: idea.skillId } : {}),
-            plannedTime: bestTime(platform),
+            plannedTime: bestTimeFor(get().socialPostStats, platform, undefined, now.getTime()),
           },
           now,
         );

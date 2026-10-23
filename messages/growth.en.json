@@ -178,5 +178,15 @@
   "growth.sync.busy": "Syncing…",
   "growth.sync.cta.title": "Connect your accounts and let the numbers come in by themselves",
   "growth.sync.cta.body": "TikTok, Instagram, YouTube and Threads: connect once in Settings, then followers, engagement and your posts update every day with no copy-paste.",
-  "growth.sync.cta.button": "Connect accounts"
+  "growth.sync.cta.button": "Connect accounts",
+  "growth.bt.title": "Best times to post",
+  "growth.bt.sub": "When your posts did best, not when your audience is online.",
+  "growth.bt.platforms": "Platform",
+  "growth.bt.top": "Top times",
+  "growth.bt.n": "{n} posts",
+  "growth.bt.aria": "Best times to post on {platform}, as a heat map. Strongest: {slot}",
+  "growth.bt.legend": "Each square is 2 hours, Riyadh time. The stronger the green, the better the posts did.",
+  "growth.bt.based": "From {n} posts in the last 180 days (stories and posts under 3 days old left out).",
+  "growth.bt.few": "We need {needed} {platform} posts to learn from yours; you have {n}. Usual times:",
+  "growth.bt.noViews": "Your {platform} posts have no recorded views, so there is nothing to compare. Usual times:"
 }

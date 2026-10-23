@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clock, Gamepad2, Sparkles, Trash2, Undo2, X } from "lucide-react";
+import { Check, Gamepad2, Sparkles, Trash2, Undo2, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useCelebrate } from "@/components/celebrate/CelebrationProvider";
 import { useGameActions } from "@/components/celebrate/useGameActions";
@@ -9,10 +9,12 @@ import { resyncKey } from "@/components/social/usePublish";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import type { Post, Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
-import { bestTime, hookIdeas, PLATFORM_META, suggestHashtags } from "@/lib/social";
+import { hookIdeas, PLATFORM_META, suggestHashtags } from "@/lib/social";
 import { useStore } from "@/store";
 import { formatDayLong, formatInstant } from "./dates";
 import SkillPicker from "./SkillPicker";
+import TimeChips from "./TimeChips";
+import { useTimeSuggester } from "./useTimeSuggester";
 
 /**
  * Overview tab of the post popup: the title, hook (+ ideas), caption with its limit, hashtags, the planned day/time with
@@ -72,7 +74,7 @@ export default function OverviewTab({
     updatePost(post.id, { hashtags: [...post.hashtags, ...extra] });
   };
 
-  const best = bestTime(post.platform, post.plannedDay ?? undefined);
+  const suggestTimes = useTimeSuggester();
   const captionLen = post.caption.length;
   const over = captionLen > meta.captionLimit;
 
@@ -267,22 +269,13 @@ export default function OverviewTab({
             data-testid="post-plan-time"
           />
         </div>
-        <p className="text-muted mt-2.5 flex flex-wrap items-center gap-2 text-xs">
-          <span className="inline-flex items-center gap-1">
-            <Clock size={13} strokeWidth={1.75} className="shrink-0" aria-hidden />
-            {t("calendar.form.bestTime", { platform: L(meta.name), time: best })}
-          </span>
-          {post.plannedTime !== best && (
-            <button
-              type="button"
-              className="px-link ios-hit"
-              onClick={() => updatePost(post.id, { plannedTime: best })}
-              data-testid="post-plan-best"
-            >
-              {t("calendar.form.useBest")}
-            </button>
-          )}
-        </p>
+        <TimeChips
+          className="mt-1.5"
+          platform={post.platform}
+          suggestion={suggestTimes(post.platform, post.plannedDay)}
+          value={post.plannedTime ?? ""}
+          onPick={(picked) => updatePost(post.id, { plannedTime: picked })}
+        />
         <p className="px-inset text-xs" data-testid="post-remind">
           {post.plannedDay && post.plannedTime ? (
             <span>

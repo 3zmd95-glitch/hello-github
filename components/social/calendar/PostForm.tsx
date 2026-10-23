@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, Gamepad2, Hand } from "lucide-react";
+import { Gamepad2, Hand } from "lucide-react";
 import { useRef, useState, type FormEvent, type RefObject } from "react";
 import { useSocialSync } from "@/components/social/useSocialSync";
 import { useDraftGuard, useSheetClose } from "@/components/ui/ios/Sheet";
@@ -8,11 +8,13 @@ import { PLATFORMS, type Platform, type Post, type Skill } from "@/lib/domain";
 import { useT } from "@/lib/i18n";
 import { PlatformGlyph } from "@/lib/platformIcons";
 import { autoPostOf, isManual } from "@/lib/publish";
-import { bestTime, PLATFORM_META } from "@/lib/social";
+import { PLATFORM_META } from "@/lib/social";
 import { isSocialPlatform } from "@/lib/socialSync";
 import { useStore } from "@/store";
 import SheetFrame from "./SheetFrame";
 import SkillPicker from "./SkillPicker";
+import TimeChips from "./TimeChips";
+import { useTimeSuggester } from "./useTimeSuggester";
 
 /**
  * "New post" sheet: platform (required), the "🚀 Post to" networks (round 30: every connected network that
@@ -63,7 +65,8 @@ function PostFormBody({
   const [platform, setPlatform] = useState<Platform>("tiktok");
   const [title, setTitle] = useState("");
   const [day, setDay] = useState(initialDay ?? "");
-  const [time, setTime] = useState(() => bestTime("tiktok", initialDay ?? undefined));
+  const suggest = useTimeSuggester();
+  const [time, setTime] = useState(() => suggest("tiktok", initialDay).times[0]);
   const [timeTouched, setTimeTouched] = useState(false);
   const [template, setTemplate] = useState(true);
   const [skill, setSkill] = useState<Skill | null>(null);
@@ -77,14 +80,14 @@ function PostFormBody({
   const ticked = (p: Platform) => p === platform || (picked[p] ?? canPublish(p));
   const networks = showNetworks ? offered.filter(ticked) : [platform];
 
-  const best = bestTime(platform, day || undefined);
+  const suggestion = suggest(platform, day);
   const pickPlatform = (p: Platform) => {
     setPlatform(p);
-    if (!timeTouched) setTime(bestTime(p, day || undefined));
+    if (!timeTouched) setTime(suggest(p, day).times[0]);
   };
   const pickDay = (d: string) => {
     setDay(d);
-    if (!timeTouched) setTime(bestTime(platform, d || undefined));
+    if (!timeTouched) setTime(suggest(platform, d).times[0]);
   };
 
   const canSave = title.trim() !== "" || skill !== null;
@@ -231,24 +234,16 @@ function PostFormBody({
           />
         </label>
       </div>
-      <p className="text-muted flex flex-wrap items-center gap-2 text-xs">
-        <span className="inline-flex items-center gap-1" data-testid="post-best-time">
-          <Clock size={13} strokeWidth={1.75} className="shrink-0" aria-hidden />
-          {t("calendar.form.bestTime", { platform: L(PLATFORM_META[platform].name), time: best })}
-        </span>
-        {time !== best && (
-          <button
-            type="button"
-            className="px-link ios-hit"
-            onClick={() => {
-              setTime(best);
-              setTimeTouched(false);
-            }}
-          >
-            {t("calendar.form.useBest")}
-          </button>
-        )}
-      </p>
+      {/* The first chip is the best time: taking it keeps the time following the platform and day. */}
+      <TimeChips
+        platform={platform}
+        suggestion={suggestion}
+        value={time}
+        onPick={(picked, i) => {
+          setTime(picked);
+          setTimeTouched(i > 0);
+        }}
+      />
 
       {/* The label takes taps on a 44px band; the box sits above the band, so a tap on it still lands on it. */}
       <label className="ios-hit flex items-center gap-3 text-sm">
