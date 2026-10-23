@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createReadStream } from "node:fs";
 import { access, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -181,22 +182,34 @@ export function createLocalAiServer(options: LocalAiServerOptions): Server {
         reply(res, 405, { error: "method_not_allowed" });
         return;
       }
-      await handler(req, res, {
-        public: options.rootDir,
-        cleanUrls: true,
-        trailingSlash: true,
-        directoryListing: false,
-        symlinks: false,
-        headers: [
-          {
-            source: "**",
-            headers: [
-              { key: "Cache-Control", value: "no-cache" },
-              { key: "X-Content-Type-Options", value: "nosniff" },
-            ],
-          },
-        ],
-      });
+      // serve-handler pipes a file into the response and forgets it: when the browser drops the request, the
+      // paused stream keeps the file open for good (scripts/e2e-server.ts has the numbers). Close it with the response.
+      const read: typeof createReadStream = (file, streamOptions) => {
+        const stream = createReadStream(file, streamOptions);
+        res.once("close", () => stream.destroy());
+        return stream;
+      };
+      await handler(
+        req,
+        res,
+        {
+          public: options.rootDir,
+          cleanUrls: true,
+          trailingSlash: true,
+          directoryListing: false,
+          symlinks: false,
+          headers: [
+            {
+              source: "**",
+              headers: [
+                { key: "Cache-Control", value: "no-cache" },
+                { key: "X-Content-Type-Options", value: "nosniff" },
+              ],
+            },
+          ],
+        },
+        { createReadStream: read },
+      );
       return;
     }
     if (
