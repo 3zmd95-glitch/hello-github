@@ -17,7 +17,7 @@
  *   GET  /me?fields=user_id,username                              the professional account id (cached)
  *   GET  /{ig-user-id}/media?fields=id,comments_count&limit=…     the newest posts ("any post" automations)
  *   GET  /{media-id}?fields=id,comments_count                     a specific post's count
- *   GET  /{media-id}/comments?fields=id,text,username,from,timestamp
+ *   GET  /{media-id}/comments?fields=id,text,username,from{id,username},timestamp
  *   POST /{ig-user-id}/messages           { recipient: { comment_id }, message: { attachment | text } }
  *        the "private reply": one message per comment, within 7 days of the comment. Sent FIRST: the
  *        public reply says "sent it to you privately", so it only goes out once the DM did.
@@ -739,7 +739,7 @@ export async function pollReplies(env: SocialEnv, deps: PollDeps = {}): Promise<
         comments = await metaList<IgComment>(
           http,
           withToken(
-            `${IG_API}/${m.id}/comments?fields=id,text,username,from,timestamp&limit=${COMMENTS_PAGE}`,
+            `${IG_API}/${m.id}/comments?fields=id,text,username,from{id,username},timestamp&limit=${COMMENTS_PAGE}`,
           ),
           "comments",
           COMMENTS_PAGE * 2,

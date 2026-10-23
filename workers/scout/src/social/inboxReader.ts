@@ -71,8 +71,9 @@ const WEBHOOK_FIELDS = "messages,comments";
 const CONVERSATIONS_FIELDS =
   "id,updated_time,participants{id,username},messages.limit(20){id,created_time,from,message,story,is_unsupported}";
 const MEDIA_FIELDS = "id,caption,permalink,timestamp,thumbnail_url,media_url,comments_count";
+/** Instagram omits the top-level `username` in practice: the author is `from.username`, so `from` asks for both. */
 const COMMENT_FIELDS =
-  "id,text,username,from,timestamp,hidden,replies{id,text,username,from,timestamp,hidden}";
+  "id,text,username,from{id,username},timestamp,hidden,replies{id,text,username,from{id,username},timestamp,hidden}";
 
 export type InboxReadResult =
   | { skipped: "no_store" | "not_connected" | "no_permission" | "token_expired" }
@@ -141,7 +142,7 @@ interface IgComment {
   id: string;
   text?: string;
   username?: string;
-  from?: { id: string };
+  from?: { id: string; username?: string };
   timestamp: string;
   hidden?: boolean;
   replies?: { data: IgComment[] };
@@ -228,7 +229,7 @@ export function toBatch(
       id: c.id,
       parentId,
       at: iso(toMs(c.timestamp)),
-      author: c.username ?? "",
+      author: c.username ?? c.from?.username ?? "",
       authorId: c.from?.id ?? null,
       text: clipLog(c.text),
       hidden: !!c.hidden,

@@ -427,6 +427,7 @@ Clicks: `GET /go/:id/:n` redirects only to an owner-saved https link, counts one
 
 Plan: `planning/tools/51-global-inbox.md`. Code: `src/social/inboxRoutes.ts` (these routes), `inboxReader.ts` (the
 every-minute reader that fills the store from Instagram) and `inboxStore.ts` (the `INBOX_STORE` Durable Object). The
+reader asks for each comment (and its replies) `id,text,username,from{id,username},timestamp,hidden`; Instagram omits the top-level `username` in practice, so the author is `from.username` (the auto-replies poll's `{username}` does the same). The
 routes read the store, ask for a rescan, empty it, and send DMs and comment replies. All of them need the bearer, except the two webhook routes below, which Meta calls. Without the `INBOX_STORE` binding every one answers `503 { error: "not_available" }`.
 
 **Deploy order.** The Worker first, then the Pages build. A Worker from before the inbox answers `GET /social/inbox` with the router's `404`, and the dashboard's Inbox page then says the inbox is not available yet (the same line as for `503 not_available`) until the new Worker is live.
