@@ -1,4 +1,4 @@
-import { MessageCircle, Settings } from "lucide-react";
+import { Inbox, MessageCircle, Settings } from "lucide-react";
 import { describe, expect, it } from "vitest";
 import { activeHref, NAV_BY_WORLD, NAV_ITEMS, normalizePath, SOCIAL_NAV_ITEMS } from "./nav";
 import { worldOf } from "./useWorld";
@@ -20,6 +20,7 @@ const SOCIAL_PATHS = [
   "/social/automations/",
   "/social/replies/",
   "/social/settings/",
+  "/social/inbox/",
 ];
 
 describe("normalizePath", () => {
@@ -66,6 +67,20 @@ describe("Social navigation", () => {
       desktopOnly: true,
     });
     expect(activeHref(SOCIAL_NAV_ITEMS, "/social/replies/")).toBe("/social/replies");
+  });
+
+  it("lists 📥 Inbox in the Social desktop sidebar, right before Auto-posting", () => {
+    const hrefs = SOCIAL_NAV_ITEMS.map((i) => i.href);
+    const at = hrefs.indexOf("/social/inbox");
+    expect(SOCIAL_NAV_ITEMS[at]).toEqual({
+      href: "/social/inbox",
+      icon: "📥",
+      lucide: Inbox,
+      label: "nav.inbox",
+      desktopOnly: true,
+    });
+    expect(hrefs[at + 1]).toBe("/social/automations");
+    expect(activeHref(SOCIAL_NAV_ITEMS, "/social/inbox/")).toBe("/social/inbox");
   });
 
   it("keeps the phone tab bar at the five Social tabs", () => {

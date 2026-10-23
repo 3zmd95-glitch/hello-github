@@ -4,6 +4,7 @@ import {
   Briefcase,
   Gamepad2,
   Globe,
+  Inbox,
   Languages,
   MessageCircle,
   Rocket,
@@ -151,6 +152,13 @@ function SocialMore() {
             title={t("nav.replies")}
             chevron
             testId="more-replies"
+          />
+          <ListRow
+            href="/social/inbox"
+            icon={<Inbox {...icon} />}
+            title={t("nav.inbox")}
+            chevron
+            testId="more-inbox"
           />
         </ListGroup>
         <ListGroup header={t("more.quick")}>

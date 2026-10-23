@@ -4,6 +4,7 @@ import {
   Clapperboard,
   Ellipsis,
   Globe,
+  Inbox,
   Lightbulb,
   MessageCircle,
   Rocket,
@@ -44,8 +45,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
 
 /**
  * Social-world navigation (round 16). Phones: Studio · Calendar · Growth · Ideas · More;
- * Website and Business ("soon"), 💬 Auto replies (round 34), Auto-posting (the Automations route) and Social's
- * own Settings live in the desktop sidebar and behind More.
+ * Website and Business ("soon"), 💬 Auto replies (round 34), 📥 the Inbox (tools/51), Auto-posting (the
+ * Automations route) and Social's own Settings live in the desktop sidebar and behind More.
  *
  * Every entry is a Social route (tools/20): the world comes from the URL, so a Social link never opens the
  * Training shell. Discover is a Training route and has no shortcut here.
@@ -79,6 +80,7 @@ export const SOCIAL_NAV_ITEMS: readonly NavItem[] = [
     label: "nav.replies",
     desktopOnly: true,
   },
+  { href: "/social/inbox", icon: "📥", lucide: Inbox, label: "nav.inbox", desktopOnly: true },
   {
     href: "/social/automations",
     icon: "🚀",

@@ -57,6 +57,7 @@ describe("Social More", () => {
       "more-business",
       "more-automations",
       "more-replies",
+      "more-inbox",
       "more-settings",
       "more-training",
     ]);
@@ -77,6 +78,8 @@ describe("Social More", () => {
   it("names its rows with the tab bar's words, without emoji, and says what Training is", () => {
     mount("social");
     expect(entry("more-replies")!.textContent).toBe("الردود التلقائية");
+    expect(entry("more-inbox")!.textContent).toBe("الرسائل");
+    expect(entry("more-inbox")!.getAttribute("href")).toMatch(/^\/social\/inbox\/?$/);
     expect(entry("more-automations")!.textContent).toBe("النشر التلقائي");
     expect(entry("more-settings")!.textContent).toBe("الإعدادات");
     const training = entry("more-training")!;

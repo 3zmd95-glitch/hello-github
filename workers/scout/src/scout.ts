@@ -56,9 +56,11 @@ import {
   type TavilyHit,
 } from "./normalize";
 import { allowedOrigins, DEFAULT_ALLOWED_ORIGINS } from "./origins";
+import type { InboxApi } from "./social/inboxDb";
 import { handleGo } from "./social/replies";
 import { handleOAuthCallback, handleSocial, healthSocial } from "./social/routes";
 import type { SocialEnv } from "./social/store";
+import { handleWebhooks } from "./social/webhooks";
 import { handleTikTokAds, handleTikTokAdsCallback, type TikTokAdsEnv } from "./tiktokads";
 import { handleTikTokAccount, handleTikTokAccountCallback } from "./tiktokAccount";
 import { musicProbe } from "./tiktokMusicProbe";
@@ -102,6 +104,8 @@ export interface Deps {
   oembedTimeoutMs?: number;
   /** "Now" for the social routes (day keys, token expiry). */
   now?: () => Date;
+  /** Test seam for the global inbox store (production uses the INBOX_STORE Durable Object). */
+  inboxApi?: InboxApi;
 }
 
 const MAX_RESULTS_CAP = 20;
@@ -529,6 +533,10 @@ export async function handle(
     return handleGo(req, env, go[1], Number(go[2]), deps.now?.(), cache);
   }
 
+  // Meta's webhooks (the verify handshake, signed events) carry no bearer either: the signature is the credential.
+  const hook = await handleWebhooks(req, env, { now: deps.now, api: deps.inboxApi });
+  if (hook) return hook;
+
   const token = checkToken(req, env);
 
   if (pathname === "/health" && req.method === "GET") {
@@ -571,7 +579,11 @@ export async function handle(
     waitUntil: ctx ? (task) => ctx.waitUntil(task) : undefined,
   });
   if (creator) return creator;
-  const social = await handleSocial(req, env, cors, { fetch: deps.fetch, now: deps.now });
+  const social = await handleSocial(req, env, cors, {
+    fetch: deps.fetch,
+    now: deps.now,
+    inboxApi: deps.inboxApi,
+  });
   if (social) return social;
   if (pathname === "/tiktokads/music-probe" && req.method === "GET") {
     const out = await musicProbe(req, env, doFetch, deps.now?.() ?? new Date());

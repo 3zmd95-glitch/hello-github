@@ -26,6 +26,8 @@
 import { isAllowedReturnTo } from "../origins";
 import { pkceChallenge, randomToken } from "./crypto";
 import { Budget } from "./http";
+import type { InboxApi } from "./inboxDb";
+import { handleInbox, INBOX_ROUTE_BUDGET } from "./inboxRoutes";
 import { credentials, isConfigured, PROVIDERS, redirectUri } from "./oauth";
 import { handlePublish } from "./publish";
 import { handleReplies } from "./replies";
@@ -51,6 +53,8 @@ export interface SocialDeps {
   fetch?: typeof fetch;
   /** Test seam for "now". */
   now?: () => Date;
+  /** Test seam for the inbox store; production uses the INBOX_STORE Durable Object. */
+  inboxApi?: InboxApi;
 }
 
 /** Outbound calls left for the first sync after the code exchange (which itself takes up to two). */
@@ -65,6 +69,12 @@ const STATUS: Record<SocialErrorCode, number> = {
   upstream: 502,
   rate_limited: 429,
   bad_request: 400,
+  not_available: 503,
+  no_permission: 403,
+  rejected: 502,
+  not_eligible: 409,
+  window_closed: 409,
+  too_long: 400,
 };
 
 function json(body: unknown, status: number, cors: Headers): Response {
@@ -73,7 +83,8 @@ function json(body: unknown, status: number, cors: Headers): Response {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-const fail = (error: SocialErrorCode, cors: Headers) => json({ error }, STATUS[error], cors);
+const fail = (error: SocialErrorCode, cors: Headers, detail?: string) =>
+  json(detail === undefined ? { error } : { error, detail }, STATUS[error], cors);
 
 /** `health.social`. */
 export function healthSocial(env: SocialEnv): {
@@ -175,6 +186,21 @@ export async function handleSocial(
       json: (body, status) => json(body, status, cors),
       fail: (error) => fail(error, cors),
     });
+  }
+  if (action === "inbox") {
+    return handleInbox(
+      req,
+      env,
+      socialPath(pathname).slice(1),
+      store,
+      now,
+      { fetch: deps.fetch ?? fetch, budget: new Budget(INBOX_ROUTE_BUDGET) },
+      {
+        json: (body, status) => json(body, status ?? 200, cors),
+        fail: (error, detail) => fail(error, cors, detail),
+      },
+      { api: deps.inboxApi },
+    );
   }
   if (action === "publish") {
     return handlePublish(req, env, socialPath(pathname).slice(1), store, now, deps.fetch, {

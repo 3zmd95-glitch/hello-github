@@ -15,16 +15,19 @@ import { handle, type Env } from "./scout";
 import { runTick, TICK_CRON } from "./social/cron";
 import { runScheduled } from "./social/sync";
 
-// Worker entry. Keep this module's exports to the default handler only: workerd treats every named export of
-// the main module as an entrypoint and refuses to start on anything else.
-//
+// Worker entry. Exports: the default handler and the Durable Object classes only (workerd treats every other named
+// export of the main module as an entrypoint and refuses to start). InboxStore is the global inbox's SQLite store
+// (planning/tools/51-global-inbox.md); its module imports `cloudflare:workers` statically, so the plain-Node tests
+// (both vitest configs) swap that module for the stub in workers/scout/vitest.cloudflare-stub.mjs.
+export { InboxStore } from "./social/inboxStore";
+
 // Claude connector (round 33, planning/tools/13-discover-search-v2.md): only the connector's own paths
 // (`isOAuthPath`: /mcp, /authorize, /token, /register, /.well-known/oauth-*) go through OAuthProvider, and only with
 // OAUTH_KV and MCP_RESOURCE set. Every other request goes straight to `handle()` exactly as before and never loads
 // the provider or the Agents and MCP SDKs: the Free plan allows 10 ms of CPU a request, and a provider failure
 // can't take the dashboard routes down. `/authorize` is our login page, and POST /register is answered here without
-// a KV write (`register` in discover/auth.ts). The provider and mcp.ts are imported lazily: the OAuth package
-// imports `cloudflare:workers`, and the plain-Node tests import this module (social.test.ts).
+// a KV write (`register` in discover/auth.ts). The provider and mcp.ts are imported lazily, so no other route ever
+// loads them.
 
 type WorkerEnv = Env & {
   OAUTH_KV?: KVNamespace;
