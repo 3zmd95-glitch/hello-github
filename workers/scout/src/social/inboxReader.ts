@@ -8,15 +8,16 @@
  *
  * Subrequests. A Worker invocation on the free plan may make 50, KV and Durable Object calls included:
  *   replies poll  <= 24 Graph (INBOX_OFFGRID_REPLIES_BUDGET, set by cron.ts) + <= 6 KV
- *   this reader   <= 9 Graph (the id, conversations, media, 5 comments, and on the first tick after a connect the
- *                 webhook subscription) + 3 KV (tokens, replies:state, inbox:scan)
+ *   this reader   <= 8 Graph (the id, conversations, 5 comments, and the media list or the webhook subscription,
+ *                 never both in one tick) + 3 KV (tokens, replies:state, inbox:scan)
  *                 + <= 7 Durable Object calls (getMeta, ingest conversations, ingest posts, posts, ingest comments,
  *                 setMeta, and retain once an hour)
- *   24 + 6 + 9 + 3 + 7 = 49, which leaves SUBREQUEST_HEADROOM (1) of the 50 for Store.write's one retry (a second KV
+ *   24 + 6 + 8 + 3 + 7 = 48, which leaves SUBREQUEST_HEADROOM (2) of the 50 for Store.write's one retry (a second KV
  *   put). inboxReader.test.ts pins that sum and measures the reader's side of it.
  *
  * Webhooks. Meta delivers an Instagram account's events only after the app enabled notifications for it, so the
  * reader does that itself, once per token (WEBHOOK_FIELDS; `ig:state` remembers the token's `issuedAt`): no owner step.
+ * Never on a media tick, which is also the first tick after a connect: the subscription follows a minute later.
  */
 
 import { Budget, fetchJson, formPost, withQuery, type Http } from "./http";
@@ -50,14 +51,14 @@ const RETAIN_MINUTE = 1;
 /** The Graph calls the replies poll may make on an off-grid tick (30 on its own), leaving the reader its share of the 50. */
 export const INBOX_OFFGRID_REPLIES_BUDGET = 24;
 /** Subrequests of the 50 kept free: `Store.write` retries a failed KV put once, a second put the counts below omit. */
-export const SUBREQUEST_HEADROOM = 1;
+export const SUBREQUEST_HEADROOM = 2;
 /** KV operations of one replies poll: its automations, its state, the tokens, its two state writes, a token refresh. */
 export const REPLIES_KV_CALLS_MAX = 6;
 /**
- * The reader's worst tick: the account id, conversations, media (every tenth tick), the comments of the rotation and
- * the webhook subscription (the first tick after a connect, which is also a media tick).
+ * The reader's worst tick: the account id, conversations, the comments of the rotation and one of the media list
+ * (every tenth tick) and the webhook subscription (once per token, never on a media tick).
  */
-export const READER_GRAPH_CALLS_MAX = 1 + 1 + 1 + POSTS_PER_TICK + 1;
+export const READER_GRAPH_CALLS_MAX = 1 + 1 + 1 + POSTS_PER_TICK;
 /** The tokens, `replies:state` and `inbox:scan`. */
 export const READER_KV_CALLS = 3;
 /** getMeta, ingest (conversations), ingest (posts), posts, ingest (comments), setMeta, and the hourly retain. */
@@ -278,9 +279,10 @@ export async function readInboxTick(
       );
 
     const state = parseState(await api.getMeta(STATE_KEY));
-    // Once per token, one budgeted call; a failure only leaves `webhooksFor` unset (the next tick asks again). It is
-    // saved with the state below, so a tick that fails before then asks again too (the call is idempotent).
-    if (state.webhooksFor !== tokens.issuedAt) {
+    // Once per token, one budgeted call, never on a media tick (which already makes READER_GRAPH_CALLS_MAX). A failure
+    // only leaves `webhooksFor` unset (the next tick asks again). It is saved with the state below, so a tick that
+    // fails before then asks again too (the call is idempotent).
+    if (state.webhooksFor !== tokens.issuedAt && state.tick % MEDIA_REFRESH_TICKS !== 0) {
       try {
         const sub = graph(
           await fetchJson<MetaError & { success?: boolean }>(

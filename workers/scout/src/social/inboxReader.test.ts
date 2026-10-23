@@ -4,6 +4,7 @@ import { InboxDb, type InboxApi, type PostRow, type Sql } from "./inboxDb";
 import {
   INBOX_OFFGRID_REPLIES_BUDGET,
   INBOX_READ_BUDGET,
+  MEDIA_REFRESH_TICKS,
   READER_DO_CALLS_MAX,
   READER_GRAPH_CALLS_MAX,
   READER_KV_CALLS,
@@ -226,7 +227,7 @@ describe("the 50-subrequest budget", () => {
         READER_KV_CALLS +
         READER_DO_CALLS_MAX,
     ).toBeLessThanOrEqual(50 - SUBREQUEST_HEADROOM);
-    expect(SUBREQUEST_HEADROOM).toBe(1);
+    expect(SUBREQUEST_HEADROOM).toBe(2);
     expect(READER_GRAPH_CALLS_MAX).toBeLessThanOrEqual(INBOX_READ_BUDGET);
   });
 });
@@ -353,8 +354,9 @@ describe.skipIf(!available)("readInboxTick", () => {
 
   it("skips without the binding, without a connection, without canReply, and with an expired token", async () => {
     const env = makeEnv();
-    const run = () => readInboxTick(env, { fetch: mockFetch({}), now: () => NOW, api: freshDb() });
-    expect(await readInboxTick(env, { fetch: mockFetch({}), now: () => NOW })).toEqual({
+    const fetch = mockFetch({});
+    const run = () => readInboxTick(env, { fetch, now: () => NOW, api: freshDb() });
+    expect(await readInboxTick(env, { fetch, now: () => NOW })).toEqual({
       skipped: "no_store",
     });
     expect(await run()).toEqual({ skipped: "not_connected" });
@@ -362,6 +364,7 @@ describe.skipIf(!available)("readInboxTick", () => {
     expect(await run()).toEqual({ skipped: "no_permission" });
     await connect(env, { expiresAt: "2026-10-22T11:00:00Z" });
     expect(await run()).toEqual({ skipped: "token_expired" });
+    expect(fetch.calls()).toEqual([]); // no Graph call, the webhook subscription included
   });
 
   it("rotates comments over the stored posts, five a tick, and refreshes media every tenth tick", async () => {
@@ -488,7 +491,8 @@ describe.skipIf(!available)("readInboxTick", () => {
     const env = makeEnv();
     const api = freshDb();
     const retain = vi.spyOn(api, "retain");
-    const run = (now: Date) => readInboxTick(env, { fetch: mockFetch({}), now: () => now, api });
+    const fetch = mockFetch({});
+    const run = (now: Date) => readInboxTick(env, { fetch, now: () => now, api });
     expect(await run(RETAIN_AT)).toEqual({ skipped: "not_connected" });
     await connect(env, { expiresAt: "2026-10-22T11:00:00Z" });
     expect(await run(RETAIN_AT)).toEqual({ skipped: "token_expired" });
@@ -499,6 +503,7 @@ describe.skipIf(!available)("readInboxTick", () => {
     // Off that minute a skipped tick makes no store call at all.
     expect(await run(NOW)).toEqual({ skipped: "no_permission" });
     expect(retain).toHaveBeenCalledTimes(3);
+    expect(fetch.calls()).toEqual([]); // no Graph call, the webhook subscription included
   });
 
   it("a webhook's message lands in the real thread once the reader stores it: one conversation for the person", async () => {
@@ -640,13 +645,12 @@ describe.skipIf(!available)("readInboxTick", () => {
     await connect(env);
     const api = freshDb();
     const fetch = mockFetch({
-      [`POST ${IG}/me/subscribed_apps`]: () => ({ success: true }),
       [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
       [`GET ${IG}/17841/conversations`]: () => json({ error: { message: "boom", code: 2 } }, 500),
     });
     const r = await readInboxTick(env, { fetch, now: () => NOW, api });
     expect(r).toEqual({
-      calls: 3,
+      calls: 2,
       conversations: 0,
       posts: 0,
       comments: 0,
@@ -696,9 +700,8 @@ describe.skipIf(!available)("readInboxTick", () => {
       },
     });
     // tick 0 at minute :01: the hourly retain and the media list both run, and five posts are read for comments
-    // ... and it is the first tick after a connect, so the webhook subscription is made too
+    // (the webhook subscription is still owed, but never shares a media tick: the unmocked POST would fail the count)
     const fetch = mockFetch({
-      [`POST ${IG}/me/subscribed_apps`]: () => ({ success: true }),
       [`GET ${IG}/me`]: () => ({ user_id: "17841" }),
       [`GET ${IG}/17841/conversations`]: () => ({
         data: [{ id: "t1", updated_time: "2026-10-22T11:58:00+0000" }],
@@ -742,6 +745,7 @@ describe.skipIf(!available)("readInboxTick", () => {
       const env = makeEnv();
       await connect(env);
       const api = freshDb();
+      await seedState(api, { tick: 1, webhooksFor: undefined });
       const fetch = mockFetch({ ...base, [SUBSCRIBE]: () => ({ success: true }) });
       const tick = () => readInboxTick(env, { fetch, now: () => NOW, api });
 
@@ -753,7 +757,7 @@ describe.skipIf(!available)("readInboxTick", () => {
       expect(body.get("subscribed_fields")).toBe("messages,comments");
       expect(body.get("access_token")).toBe("tok");
       expect(await readState(api)).toMatchObject({
-        tick: 1,
+        tick: 2,
         webhooksFor: FP,
         webhooksAt: NOW.toISOString(),
       });
@@ -765,7 +769,7 @@ describe.skipIf(!available)("readInboxTick", () => {
       await connect(env, { issuedAt: "2026-10-22T06:00:00Z" }); // reconnected: a new token
       await tick();
       expect(asked(fetch)).toBe(2);
-      expect(await readState(api)).toMatchObject({ tick: 4, webhooksFor: "2026-10-22T06:00:00Z" });
+      expect(await readState(api)).toMatchObject({ tick: 5, webhooksFor: "2026-10-22T06:00:00Z" });
       await tick();
       expect(asked(fetch)).toBe(2);
     });
@@ -774,6 +778,7 @@ describe.skipIf(!available)("readInboxTick", () => {
       const env = makeEnv();
       await connect(env, { accessToken: "IGAA-secret-token" });
       const api = freshDb();
+      await seedState(api, { tick: 1, webhooksFor: undefined });
       let answer: () => unknown = () =>
         json({ error: { message: "Invalid token IGAA-secret-token", code: 190 } }, 400);
       const fetch = mockFetch({ ...base, [SUBSCRIBE]: () => answer() });
@@ -785,7 +790,7 @@ describe.skipIf(!available)("readInboxTick", () => {
       expect(first).not.toHaveProperty("error");
       expect(await api.thread("instagram", "t1", {})).not.toBeNull(); // the read completed
       expect(asked(fetch)).toBe(1);
-      expect(await readState(api)).toMatchObject({ tick: 1 });
+      expect(await readState(api)).toMatchObject({ tick: 2 });
       expect((await readState(api)).webhooksFor).toBeUndefined();
 
       answer = () => ({ success: true });
@@ -801,10 +806,38 @@ describe.skipIf(!available)("readInboxTick", () => {
       log.mockRestore();
     });
 
+    it("never shares a tick with the media list: a media tick waits, the next tick subscribes", async () => {
+      const env = makeEnv();
+      await connect(env);
+      const api = freshDb(); // no state yet: tick 0, a media tick, as right after a connect
+      const fetch = mockFetch({ ...base, [SUBSCRIBE]: () => ({ success: true }) });
+      const tick = () => readInboxTick(env, { fetch, now: () => NOW, api });
+      const media = () => fetch.calls().filter((c) => c.endsWith("/17841/media")).length;
+
+      await tick();
+      expect(media()).toBe(1);
+      expect(asked(fetch)).toBe(0);
+      expect((await readState(api)).webhooksFor).toBeUndefined();
+
+      await tick();
+      expect(asked(fetch)).toBe(1);
+      expect((await readState(api)).webhooksFor).toBe(FP);
+
+      // every later media tick (a multiple of MEDIA_REFRESH_TICKS) waits as well, for the next token
+      await connect(env, { issuedAt: "2026-10-22T06:00:00Z" });
+      await seedState(api, { ...(await readState(api)), tick: MEDIA_REFRESH_TICKS });
+      await tick();
+      expect(media()).toBe(2);
+      expect(asked(fetch)).toBe(1);
+      await tick();
+      expect(asked(fetch)).toBe(2);
+    });
+
     it("counts a 200 without success as a failure", async () => {
       const env = makeEnv();
       await connect(env);
       const api = freshDb();
+      await seedState(api, { tick: 1, webhooksFor: undefined });
       const fetch = mockFetch({ ...base, [SUBSCRIBE]: () => ({ success: false }) });
       const log = vi.spyOn(console, "log").mockImplementation(() => {});
       await readInboxTick(env, { fetch, now: () => NOW, api });
