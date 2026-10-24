@@ -78,10 +78,73 @@ scope alone do not remove the audit restriction.
 ### Other remaining boundaries
 
 - Selected trending sounds are added inside TikTok; no arbitrary sound-ID selection is invented for the video API.
-- Personal accounts do not have the Business Messaging integration used by ManyChat. Comment-to-DM remains unavailable.
+- General TikTok accounts (3z.prod today) do not have the Business Messaging integration used by ManyChat.
+  Comment-to-DM remains unavailable. Eligibility and limits are recorded in the next section.
 - Automatic video cutting/rendering, speech transcription, cloud file uploads and push notifications are not
   implemented by this change. The preparation exports are usable with the owner's existing editor.
 - Built-in TikTok spam/keyword filters are native settings; no account settings are changed automatically.
+
+### Direct messages (Business Messaging API), checked October 24, 2026
+
+Status: not eligible today, not planned. The owner's October 22 decision stands: 3z.prod stays Personal for the
+music library, so no TikTok DM reading or automatic DM replies, and no browser automation (breaks TikTok's rules
+and risks the account). Facts below come from TikTok's own pages unless marked as vendor-reported.
+
+**No follower minimum.** TikTok's access page names no follower count. The "1,000+ followers" figure that
+appears in one vendor article is TikTok's bio-link rule (1,000 followers or a Verified Business Account), not a
+Business Messaging requirement.
+
+**Eligibility gates (TikTok's own wording):**
+
+1. Account tier. "The Business Messaging API only supports TikTok Accounts with Advanced Access or Verified
+   Business Accounts ('VBA'). General TikTok Accounts are not eligible." Advanced Access is granted when the
+   TikTok account is linked to a TikTok for Business account or an unverified Business Center. VBA needs business
+   verification with documents; Saudi Arabia is on the supported market list.
+2. Developer review for our app. A data security and privacy review: TikTok emails a due-diligence questionnaire
+   ("TikTok/ByteDance Third-Party Due Diligence Questionnaire", DSPR DDQ) after the intake form, review starts
+   within 10 working days, is manual, has no status tracking and no guaranteed timeline. ISO 27001, SOC 2 or a
+   pen-test report speed it up. Accounts signed up in the US also need the US data security review and USDS
+   Addendum; exclude the US from any application, 3z.prod is a Saudi account.
+3. Region. Not available for accounts signed up in the EEA, Switzerland or the UK. Saudi Arabia is fine.
+
+**Limits once live (TikTok's "Messaging limits" page, for non-mutual-follow conversations):**
+
+- The account may never start a conversation. The user writes first: profile, a `tiktok.me/{username}` link
+  (optional `ref` and `message` parameters, mobile app only), or TikTok Messaging Ads. No broadcasts.
+- First 48 hours after the user's first message: at most 10 messages.
+- Each user reply opens a 48-hour window with no message cap.
+- If the user is silent for more than 48 hours: at most 3 further messages until the user replies again.
+- Message types that can be sent: text, image (not every market; `/business/message/capabilities/get/` says
+  whether an image can be sent), Q&A button card, Q&A text-link card, TikTok post, typing and seen indicators.
+  No video, voice or stickers. Image `media_id` expires after 30 days.
+- `/business/message/conversation/list/` returns up to 100 conversations; `/business/message/content/list/`
+  returns the 20 most recent messages of one conversation.
+- Automatic messages the API can manage: welcome message, suggested questions, chat prompts, new-follower
+  message. The same four exist natively for Advanced Access and VBA accounts in TikTok's Business Suite.
+- TikTok Shop messages are a separate system; the Business Messaging API does not reach them.
+- Vendor-reported only, not on TikTok's pages: roughly 100 to 200 conversations per account per day and a rate
+  limit of 10 requests per second.
+
+**Open question before any change of account tier.** TikTok's pages do not say whether linking 3z.prod to a
+TikTok for Business account (Advanced Access) changes the in-app account type or removes the general music
+library. May 2026 reports describe unverified Business accounts being pushed to verify and some reverting to
+General. Check inside the TikTok app and confirm the music library is untouched before linking anything.
+
+## Official sources checked October 24, 2026
+
+- [Access to Business Messaging API: eligibility, reviews, regions, Advanced Access / VBA FAQ](https://business-api.tiktok.com/portal/docs/access-to-business-messaging-api/v1.3)
+- [Messaging limits for Business Messaging API](https://business-api.tiktok.com/portal/docs/messaging-limits-for-business-messaging-api/v1.3)
+- [Manage direct messages for a TikTok account](https://business-api.tiktok.com/portal/docs/manage-direct-messages-for-a-business-account/v1.3)
+- [Manage automatic messages for a TikTok account](https://business-api.tiktok.com/portal/docs/manage-automatic-messages-for-a-business-account/v1.3)
+- [Unlock conversations: tiktok.me links and Messaging Ads](https://business-api.tiktok.com/portal/docs/unlock-conversations/v1.3)
+- [About TikTok account entitlements (General / Advanced Access / VBA)](https://ads.tiktok.com/resources/help/article/about-tiktok-account-entitlements)
+- [About business verification for TikTok accounts](https://ads.tiktok.com/help/article/about-business-registration)
+- [How to link an existing TikTok for Business account with a TikTok account](https://ads.tiktok.com/help/article/how-to-link-an-existing-tiktok-for-business-account-with-a-tiktok-account)
+- Vendor pages used only for the daily-conversation and rate-limit figures:
+  [respond.io](https://respond.io/help/tiktok/tiktok-overview),
+  [SleekFlow](https://help.sleekflow.io/en_US/tiktok-business-messaging-channel-overview),
+  [Qiscus](https://documentation.qiscus.com/latest/omnichannel-chat/tiktok-direct-message),
+  [Velaro](https://help.velaro.com/kb/article/716/tiktok-messaging)
 
 ## Official sources checked October 4, 2026
 
