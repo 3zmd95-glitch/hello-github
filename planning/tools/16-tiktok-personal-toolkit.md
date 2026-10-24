@@ -130,6 +130,35 @@ TikTok for Business account (Advanced Access) changes the in-app account type or
 library. May 2026 reports describe unverified Business accounts being pushed to verify and some reverting to
 General. Check inside the TikTok app and confirm the music library is untouched before linking anything.
 
+**3z.prod account state, read in the owner's browser on October 24, 2026 (nothing changed):**
+
+- tiktok.com, logged in as @3z.prod: the avatar menu has no "Business Suite" entry and Settings shows the
+  "Business verification" toggle off. Entitlement level: General TikTok Account. Not eligible for the Business
+  Messaging API today.
+- ads.tiktok.com User settings (the owner's TikTok for Business login, the one that holds the ONUS Content
+  Planner developer app): "TikTok account: –", nothing linked. One TikTok for Business login links one TikTok
+  account.
+- @3z.prod DM privacy, "Who can send you messages": "Potential connection" (friends, accounts followed, people
+  you may know). Strangers cannot message the account today.
+
+**Decision: no new account.** DMs land on the account people write to, which is @3z.prod. A separate Business
+account would start with an empty inbox and zero followers and would need the same linking anyway.
+
+**Owner steps if DM automation is ever wanted, in order (owner's actions, not automated):**
+
+1. Link @3z.prod to the existing TikTok for Business login: ads.tiktok.com, User settings, "Link TikTok
+   account", log in as @3z.prod, Authorize. Free, no documents, no follower count; TikTok documents an unlink
+   path, so it is reversible.
+2. Same day, open the TikTok app, start a new post and open the sound library. Full library still available:
+   keep the link and mark the open question closed here. Only "Commercial sounds": unlink immediately; the
+   Personal-for-music decision stands and DM automation stays out of scope.
+3. With Advanced Access, the native automatic messages (welcome message, suggested questions, chat prompts,
+   new-follower message) become available in Business Suite inside the app, with no code and no API review.
+   Set "Who can send you messages" to Everyone there, otherwise strangers never reach the inbox.
+4. Only after 1 to 3 hold: apply for the Business Messaging API for the ONUS Content Planner app (data security
+   and privacy review, questionnaire by email, manual, no timeline) so the dashboard can read and reply to DMs.
+5. Business verification (Verified Business Account, documents required) is not needed for messaging. Skip.
+
 ## Official sources checked October 24, 2026
 
 - [Access to Business Messaging API: eligibility, reviews, regions, Advanced Access / VBA FAQ](https://business-api.tiktok.com/portal/docs/access-to-business-messaging-api/v1.3)
